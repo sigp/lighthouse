@@ -1,6 +1,8 @@
 //! Implementation of the standard remotekey management API.
 use crate::{initialized_validators::Error, InitializedValidators, ValidatorStore};
-use account_utils::validator_definitions::{SigningDefinition, ValidatorDefinition};
+use account_utils::validator_definitions::{
+    SigningDefinition, ValidatorDefinition, Web3SignerDefinition,
+};
 use eth2::lighthouse_vc::std_types::{
     DeleteRemotekeyStatus, DeleteRemotekeysRequest, DeleteRemotekeysResponse,
     ImportRemotekeyStatus, ImportRemotekeysRequest, ImportRemotekeysResponse,
@@ -31,11 +33,13 @@ pub fn list<T: SlotClock + 'static, E: EthSpec>(
 
             match &def.signing_definition {
                 SigningDefinition::LocalKeystore { .. } => None,
-                SigningDefinition::Web3Signer { url, .. } => Some(SingleListRemotekeysResponse {
-                    pubkey: validating_pubkey,
-                    url: url.clone(),
-                    readonly: false,
-                }),
+                SigningDefinition::Web3Signer(Web3SignerDefinition { url, .. }) => {
+                    Some(SingleListRemotekeysResponse {
+                        pubkey: validating_pubkey,
+                        url: url.clone(),
+                        readonly: false,
+                    })
+                }
             }
         })
         .collect::<Vec<_>>();
@@ -120,13 +124,13 @@ fn import_single_remotekey<T: SlotClock + 'static, E: EthSpec>(
         graffiti: None,
         suggested_fee_recipient: None,
         description: String::from("Added by remotekey API"),
-        signing_definition: SigningDefinition::Web3Signer {
+        signing_definition: SigningDefinition::Web3Signer(Web3SignerDefinition {
             url,
             root_certificate_path: None,
             request_timeout_ms: None,
             client_identity_path: None,
             client_identity_password: None,
-        },
+        }),
     };
     handle
         .block_on(validator_store.add_validator(web3signer_validator))

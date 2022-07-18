@@ -10,7 +10,8 @@ use crate::signing_method::SigningMethod;
 use account_utils::{
     read_password, read_password_from_user,
     validator_definitions::{
-        self, SigningDefinition, ValidatorDefinition, ValidatorDefinitions, CONFIG_FILENAME,
+        self, SigningDefinition, ValidatorDefinition, ValidatorDefinitions, Web3SignerDefinition,
+        CONFIG_FILENAME,
     },
     ZeroizeString,
 };
@@ -155,7 +156,7 @@ impl InitializedValidator {
         def: ValidatorDefinition,
         key_cache: &mut KeyCache,
         key_stores: &mut HashMap<PathBuf, Keystore>,
-        web3_signer_client_map: &mut Option<HashMap<String, Client>>,
+        web3_signer_client_map: &mut Option<HashMap<Web3SignerDefinition, Client>>,
     ) -> Result<Self, Error> {
         if !def.enabled {
             return Err(Error::UnableToInitializeDisabledValidator);
@@ -240,45 +241,41 @@ impl InitializedValidator {
                     voting_keypair: Arc::new(voting_keypair),
                 }
             }
-            SigningDefinition::Web3Signer {
-                url,
-                root_certificate_path,
-                request_timeout_ms,
-                client_identity_path,
-                client_identity_password,
-            } => {
-                let signing_url = build_web3_signer_url(&url, &def.voting_public_key)
+            SigningDefinition::Web3Signer(web3_signer) => {
+                let signing_url = build_web3_signer_url(&web3_signer.url, &def.voting_public_key)
                     .map_err(|e| Error::InvalidWeb3SignerUrl(e.to_string()))?;
 
-                let request_timeout = request_timeout_ms
+                let request_timeout = web3_signer
+                    .request_timeout_ms
                     .map(Duration::from_millis)
                     .unwrap_or(DEFAULT_REMOTE_SIGNER_REQUEST_TIMEOUT);
 
                 // Check if a client has already been initialized for this remote signer url.
                 let http_client = if let Some(client_map) = web3_signer_client_map {
-                    match client_map.get(&url) {
+                    match client_map.get(&web3_signer) {
                         Some(client) => client.clone(),
                         None => {
                             let client = build_web3_signer_client(
-                                root_certificate_path,
-                                client_identity_path,
-                                client_identity_password,
+                                web3_signer.root_certificate_path.clone(),
+                                web3_signer.client_identity_path.clone(),
+                                web3_signer.client_identity_password.clone(),
                                 request_timeout,
                             )?;
-                            client_map.insert(url, client.clone());
+                            client_map.insert(web3_signer, client.clone());
                             client
                         }
                     }
                 } else {
                     // There are no clients in the map.
-                    let mut new_web3_signer_client_map: HashMap<String, Client> = HashMap::new();
+                    let mut new_web3_signer_client_map: HashMap<Web3SignerDefinition, Client> =
+                        HashMap::new();
                     let client = build_web3_signer_client(
-                        root_certificate_path,
-                        client_identity_path,
-                        client_identity_password,
+                        web3_signer.root_certificate_path.clone(),
+                        web3_signer.client_identity_path.clone(),
+                        web3_signer.client_identity_password.clone(),
                         request_timeout,
                     )?;
-                    new_web3_signer_client_map.insert(url, client.clone());
+                    new_web3_signer_client_map.insert(web3_signer, client.clone());
                     *web3_signer_client_map = Some(new_web3_signer_client_map);
                     client
                 };
@@ -420,7 +417,7 @@ pub struct InitializedValidators {
     /// The canonical set of validators.
     validators: HashMap<PublicKeyBytes, InitializedValidator>,
     /// The clients used for communications with a remote signer.
-    web3_signer_client_map: Option<HashMap<String, Client>>,
+    web3_signer_client_map: Option<HashMap<Web3SignerDefinition, Client>>,
     /// For logging via `slog`.
     log: Logger,
 }
@@ -911,7 +908,7 @@ impl InitializedValidators {
                             }
                         }
                     }
-                    SigningDefinition::Web3Signer { .. } => {
+                    SigningDefinition::Web3Signer(Web3SignerDefinition { .. }) => {
                         match InitializedValidator::from_definition(
                             def.clone(),
                             &mut key_cache,
