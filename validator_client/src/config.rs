@@ -303,7 +303,9 @@ impl Config {
             config.private_tx_proposals = true;
         }
 
-        if let Some(registration_timestamp_override) = cli_args.value_of("builder-registration-timestamp-override") {
+        if let Some(registration_timestamp_override) =
+            cli_args.value_of("builder-registration-timestamp-override")
+        {
             config.builder_registration_timestamp_override = Some(
                 registration_timestamp_override
                     .parse::<u64>()

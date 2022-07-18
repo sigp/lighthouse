@@ -62,7 +62,10 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationServiceBuilder<T, E> {
         self
     }
 
-    pub fn builder_registration_timestamp_override(mut self, builder_registration_timestamp_override: Option<u64>) -> Self {
+    pub fn builder_registration_timestamp_override(
+        mut self,
+        builder_registration_timestamp_override: Option<u64>,
+    ) -> Self {
         self.builder_registration_timestamp_override = builder_registration_timestamp_override;
         self
     }
@@ -398,15 +401,15 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
             let signed_data = if let Some(signed_data) = cached_registration_opt {
                 signed_data
             } else {
-
-                let  timestamp = if let Some(timestamp) = self.builder_registration_timestamp_override {
-                    timestamp
-                } else {
-                    SystemTime::now()
-                        .duration_since(UNIX_EPOCH)
-                        .map_err(|e| format!("{e:?}"))?
-                        .as_secs()
-                };
+                let timestamp =
+                    if let Some(timestamp) = self.builder_registration_timestamp_override {
+                        timestamp
+                    } else {
+                        SystemTime::now()
+                            .duration_since(UNIX_EPOCH)
+                            .map_err(|e| format!("{e:?}"))?
+                            .as_secs()
+                    };
 
                 let ValidatorRegistrationKey {
                     fee_recipient,
