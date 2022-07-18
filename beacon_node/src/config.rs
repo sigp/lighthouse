@@ -667,12 +667,6 @@ pub fn set_network_config(
         config.listen_address = listen_address;
     }
 
-    if let Some(target_peers_str) = cli_args.value_of("target-peers") {
-        config.target_peers = target_peers_str
-            .parse::<usize>()
-            .map_err(|_| format!("Invalid number of target peers: {}", target_peers_str))?;
-    }
-
     if let Some(port_str) = cli_args.value_of("port") {
         let port = port_str
             .parse::<u16>()
@@ -846,11 +840,15 @@ pub fn set_network_config(
     // of peers.
     if cli_args.is_present("proposer-only") {
         config.subscribe_all_subnets = false;
-        if cli_args.value_of("target-peers").is_none() {
-            // If --target-peers is not set, use a custom default
-            config.target_peers = 15;
-        }
+        config.target_peers = 15;
         config.proposer_only = true;
+    }
+
+    // A custom target-peers command will overwrite the --proposer-only default.
+    if let Some(target_peers_str) = cli_args.value_of("target-peers") {
+        config.target_peers = target_peers_str
+            .parse::<usize>()
+            .map_err(|_| format!("Invalid number of target peers: {}", target_peers_str))?;
     }
 
     Ok(())
