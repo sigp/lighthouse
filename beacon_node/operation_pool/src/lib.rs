@@ -11,7 +11,9 @@ mod sync_aggregate_id;
 pub use attestation::AttMaxCover;
 pub use attestation_storage::{AttestationRef, SplitAttestation};
 pub use max_cover::MaxCover;
-pub use persistence::{PersistedOperationPool, PersistedOperationPoolAltair};
+pub use persistence::{
+    PersistedOperationPool, PersistedOperationPoolV11, PersistedOperationPoolV5,
+};
 pub use reward_cache::RewardCache;
 
 use crate::attestation_storage::{AttestationMap, CheckpointKey};
@@ -665,8 +667,6 @@ mod release_tests {
         num_committees: usize,
     ) -> (BeaconChainHarness<EphemeralHarnessType<E>>, ChainSpec) {
         let mut spec = test_spec::<E>();
-
-        // FIXME(sproul): make this modular?
         spec.altair_fork_epoch = Some(Epoch::new(0));
 
         let num_validators =

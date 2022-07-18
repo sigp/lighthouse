@@ -18,7 +18,7 @@ type PersistedSyncContributions<T> = Vec<(SyncAggregateId, Vec<SyncCommitteeCont
 /// Operations are stored in arbitrary order, so it's not a good idea to compare instances
 /// of this type (or its encoded form) for equality. Convert back to an `OperationPool` first.
 #[superstruct(
-    variants(Altair),
+    variants(V5, V11),
     variant_attributes(
         derive(Derivative, PartialEq, Debug, Serialize, Deserialize, Encode, Decode),
         serde(bound = "T: EthSpec", deny_unknown_fields),
@@ -31,33 +31,36 @@ type PersistedSyncContributions<T> = Vec<(SyncAggregateId, Vec<SyncCommitteeCont
 #[serde(bound = "T: EthSpec")]
 #[ssz(enum_behaviour = "transparent")]
 pub struct PersistedOperationPool<T: EthSpec> {
-    /// Mapping from attestation ID to attestation mappings.
-    // We could save space by not storing the attestation ID, but it might
-    // be difficult to make that roundtrip due to eager aggregation.
-    attestations: Vec<(AttestationId, Vec<Attestation<T>>)>,
+    /// [DEPRECATED] Mapping from attestation ID to attestation mappings.
+    #[superstruct(only(V5))]
+    pub attestations_v5: Vec<(AttestationId, Vec<Attestation<T>>)>,
+    /// Attestations and their attesting indices.
+    #[superstruct(only(V11))]
+    pub attestations: Vec<(Attestation<T>, Vec<u64>)>,
     /// Mapping from sync contribution ID to sync contributions and aggregate.
-    #[superstruct(only(Altair))]
-    sync_contributions: PersistedSyncContributions<T>,
+    pub sync_contributions: PersistedSyncContributions<T>,
     /// Attester slashings.
-    attester_slashings: Vec<(AttesterSlashing<T>, ForkVersion)>,
+    pub attester_slashings: Vec<(AttesterSlashing<T>, ForkVersion)>,
     /// Proposer slashings.
-    proposer_slashings: Vec<ProposerSlashing>,
+    pub proposer_slashings: Vec<ProposerSlashing>,
     /// Voluntary exits.
-    voluntary_exits: Vec<SignedVoluntaryExit>,
+    pub voluntary_exits: Vec<SignedVoluntaryExit>,
 }
 
 impl<T: EthSpec> PersistedOperationPool<T> {
     /// Convert an `OperationPool` into serializable form.
     pub fn from_operation_pool(operation_pool: &OperationPool<T>) -> Self {
-        /* FIXME(sproul): fix persistence
         let attestations = operation_pool
             .attestations
             .read()
             .iter()
-            .map(|(att_id, att)| (att_id.clone(), att.clone()))
+            .map(|att| {
+                (
+                    att.clone_as_attestation(),
+                    att.indexed.attesting_indices.clone(),
+                )
+            })
             .collect();
-        */
-        let attestations = vec![];
 
         let sync_contributions = operation_pool
             .sync_contributions
@@ -87,7 +90,7 @@ impl<T: EthSpec> PersistedOperationPool<T> {
             .map(|(_, exit)| exit.clone())
             .collect();
 
-        PersistedOperationPool::Altair(PersistedOperationPoolAltair {
+        PersistedOperationPool::V11(PersistedOperationPoolV11 {
             attestations,
             sync_contributions,
             attester_slashings,
@@ -96,12 +99,8 @@ impl<T: EthSpec> PersistedOperationPool<T> {
         })
     }
 
-    /// Reconstruct an `OperationPool`. Sets `sync_contributions` to its `Default` if `self` matches
-    /// `PersistedOperationPool::Base`.
+    /// Reconstruct an `OperationPool`.
     pub fn into_operation_pool(self) -> Result<OperationPool<T>, OpPoolError> {
-        // FIXME(sproul): fix load
-        // let attestations = RwLock::new(self.attestations().iter().cloned().collect());
-        let attestations = RwLock::new(AttestationMap::default());
         let attester_slashings = RwLock::new(self.attester_slashings().iter().cloned().collect());
         let proposer_slashings = RwLock::new(
             self.proposer_slashings()
@@ -117,27 +116,45 @@ impl<T: EthSpec> PersistedOperationPool<T> {
                 .map(|exit| (exit.message.validator_index, exit))
                 .collect(),
         );
-        let op_pool = match self {
-            PersistedOperationPool::Altair(_) => {
-                let sync_contributions =
-                    RwLock::new(self.sync_contributions()?.iter().cloned().collect());
-
-                OperationPool {
-                    attestations,
-                    sync_contributions,
-                    attester_slashings,
-                    proposer_slashings,
-                    voluntary_exits,
-                    reward_cache: Default::default(),
-                    _phantom: Default::default(),
+        let sync_contributions = RwLock::new(self.sync_contributions().iter().cloned().collect());
+        let attestations = match self {
+            PersistedOperationPool::V5(_) => return Err(OpPoolError::IncorrectOpPoolVariant),
+            PersistedOperationPool::V11(pool) => {
+                let mut map = AttestationMap::default();
+                for (att, attesting_indices) in pool.attestations {
+                    map.insert(att, attesting_indices);
                 }
+                RwLock::new(map)
             }
+        };
+        let op_pool = OperationPool {
+            attestations,
+            sync_contributions,
+            attester_slashings,
+            proposer_slashings,
+            voluntary_exits,
+            reward_cache: Default::default(),
+            _phantom: Default::default(),
         };
         Ok(op_pool)
     }
 }
 
-/// Deserialization for `PersistedOperationPool` defaults to `PersistedOperationPool::Altair`.
+impl<T: EthSpec> StoreItem for PersistedOperationPoolV5<T> {
+    fn db_column() -> DBColumn {
+        DBColumn::OpPool
+    }
+
+    fn as_store_bytes(&self) -> Vec<u8> {
+        self.as_ssz_bytes()
+    }
+
+    fn from_store_bytes(bytes: &[u8]) -> Result<Self, StoreError> {
+        PersistedOperationPoolV5::from_ssz_bytes(bytes).map_err(Into::into)
+    }
+}
+
+/// Deserialization for `PersistedOperationPool` defaults to `PersistedOperationPool::V11`.
 impl<T: EthSpec> StoreItem for PersistedOperationPool<T> {
     fn db_column() -> DBColumn {
         DBColumn::OpPool
@@ -148,9 +165,9 @@ impl<T: EthSpec> StoreItem for PersistedOperationPool<T> {
     }
 
     fn from_store_bytes(bytes: &[u8]) -> Result<Self, StoreError> {
-        // Default deserialization to the Altair variant.
-        PersistedOperationPoolAltair::from_ssz_bytes(bytes)
-            .map(Self::Altair)
+        // Default deserialization to the latest variant.
+        PersistedOperationPoolV11::from_ssz_bytes(bytes)
+            .map(Self::V11)
             .map_err(Into::into)
     }
 }
