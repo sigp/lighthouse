@@ -259,6 +259,7 @@ pub enum AttestationFromBlock {
 pub struct ForkchoiceUpdateParameters {
     pub head_root: Hash256,
     pub head_hash: Option<ExecutionBlockHash>,
+    pub justified_hash: Option<ExecutionBlockHash>,
     pub finalized_hash: Option<ExecutionBlockHash>,
 }
 
@@ -372,6 +373,7 @@ where
             // This will be updated during the next call to `Self::get_head`.
             forkchoice_update_parameters: ForkchoiceUpdateParameters {
                 head_hash: None,
+                justified_hash: None,
                 finalized_hash: None,
                 head_root: Hash256::zero(),
             },
@@ -489,13 +491,18 @@ where
         let head_hash = self
             .get_block(&head_root)
             .and_then(|b| b.execution_status.block_hash());
+        let justified_root = self.justified_checkpoint().root;
         let finalized_root = self.finalized_checkpoint().root;
+        let justified_hash = self
+            .get_block(&justified_root)
+            .and_then(|b| b.execution_status.block_hash());
         let finalized_hash = self
             .get_block(&finalized_root)
             .and_then(|b| b.execution_status.block_hash());
         self.forkchoice_update_parameters = ForkchoiceUpdateParameters {
             head_root,
             head_hash,
+            justified_hash,
             finalized_hash,
         };
 
@@ -1211,6 +1218,7 @@ where
             // Will be updated in the following call to `Self::get_head`.
             forkchoice_update_parameters: ForkchoiceUpdateParameters {
                 head_hash: None,
+                justified_hash: None,
                 finalized_hash: None,
                 head_root: Hash256::zero(),
             },
