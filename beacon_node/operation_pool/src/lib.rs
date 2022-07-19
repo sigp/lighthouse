@@ -666,8 +666,7 @@ mod release_tests {
     fn attestation_test_state<E: EthSpec>(
         num_committees: usize,
     ) -> (BeaconChainHarness<EphemeralHarnessType<E>>, ChainSpec) {
-        let mut spec = test_spec::<E>();
-        spec.altair_fork_epoch = Some(Epoch::new(0));
+        let spec = test_spec::<E>();
 
         let num_validators =
             num_committees * E::slots_per_epoch() as usize * spec.target_committee_size;
@@ -681,7 +680,6 @@ mod release_tests {
         num_committees: usize,
     ) -> (BeaconChainHarness<EphemeralHarnessType<E>>, ChainSpec) {
         let mut spec = E::default_spec();
-
         spec.altair_fork_epoch = Some(Epoch::new(0));
 
         let num_validators =
@@ -747,10 +745,19 @@ mod release_tests {
                 })
                 .unwrap();
 
+            let att1_indices = get_attesting_indices_from_state(&state, &att1).unwrap();
+            let att2_indices = get_attesting_indices_from_state(&state, &att2).unwrap();
+            let att1_split = SplitAttestation::new(att1.clone(), att1_indices);
+            let att2_split = SplitAttestation::new(att2.clone(), att2_indices);
+
             assert_eq!(
                 att1.aggregation_bits.num_set_bits(),
-                earliest_attestation_validators(&att1, &state, state.as_base().unwrap())
-                    .num_set_bits()
+                earliest_attestation_validators(
+                    &att1_split.as_ref(),
+                    &state,
+                    state.as_base().unwrap()
+                )
+                .num_set_bits()
             );
 
             state
@@ -767,8 +774,12 @@ mod release_tests {
 
             assert_eq!(
                 committees.get(0).unwrap().committee.len() - 2,
-                earliest_attestation_validators(&att2, &state, state.as_base().unwrap())
-                    .num_set_bits()
+                earliest_attestation_validators(
+                    &att2_split.as_ref(),
+                    &state,
+                    state.as_base().unwrap()
+                )
+                .num_set_bits()
             );
         }
     }
