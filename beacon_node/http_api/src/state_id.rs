@@ -163,19 +163,10 @@ impl StateId {
             CoreStateId::Root(_) => {
                 let state_root = self.root(chain)?;
                 chain
-                    .is_optimistic_block(
-                        &chain
-                            .store
-                            .get_full_block(&state.get_latest_block_root(state_root))
-                            .map_err(BeaconChainError::DBError)
-                            .map_err(warp_utils::reject::beacon_chain_error)?
-                            .ok_or_else(|| {
-                                warp_utils::reject::custom_not_found(format!(
-                                    "latest block root not found for beacon state at root {}",
-                                    state_root
-                                ))
-                            })?,
-                    )
+                    .canonical_head
+                    .fork_choice_read_lock()
+                    .is_optimistic_block(&state.get_latest_block_root(state_root))
+                    .map_err(BeaconChainError::ForkChoiceError)
                     .map_err(warp_utils::reject::beacon_chain_error)?
             }
         };

@@ -227,8 +227,9 @@ fn compute_historic_proposer_duties<T: BeaconChainTypes>(
         .map_err(BeaconChainError::from)
         .map_err(warp_utils::reject::beacon_chain_error)?;
 
-    let execution_optimistic = StateId::from_slot(epoch.start_slot(T::EthSpec::slots_per_epoch()))
-        .is_execution_optimistic(chain)?;
+    let execution_optimistic = chain
+        .is_optimistic_head()
+        .map_err(warp_utils::reject::beacon_chain_error)?;
 
     convert_to_api_response(chain, epoch, dependent_root, execution_optimistic, indices)
 }
