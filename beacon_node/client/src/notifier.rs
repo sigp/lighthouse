@@ -7,7 +7,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
 use tokio::time::sleep;
-use types::{ChainSpec, Epoch, EthSpec, ExecutionBlockHash, Slot, Uint256};
+use types::{EthSpec, Slot};
 
 /// Create a warning log whenever the peer count is at or below this value.
 pub const WARN_PEER_COUNT: usize = 1;
@@ -320,11 +320,12 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                         // No need for ttd logging if we are past the merge
                         if head_execution_status.is_valid_and_post_bellatrix() {
                             merge_completed = true;
-                        } else if let Err(e) = ttd_logging(&beacon_chain, &log).await {
-                            warn!(
+                        } else {
+                            let merge_readiness = beacon_chain.check_merge_readiness().await;
+                            info!(
                                 log,
-                                "Failed to get merge parameters from execution node";
-                                "error" => %e
+                                "Merge readiness status";
+                                "status" => %merge_readiness
                             );
                         }
                     }
@@ -336,93 +337,6 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
     // run the notifier on the current executor
     executor.spawn(interval_future, "notifier");
 
-    Ok(())
-}
-
-struct MergeParams {
-    terminal_total_difficulty: Uint256,
-    terminal_block_hash: ExecutionBlockHash,
-    terminal_block_hash_epoch: Epoch,
-}
-
-impl std::fmt::Display for MergeParams {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.terminal_block_hash == ExecutionBlockHash::zero()
-            && self.terminal_block_hash_epoch == Epoch::max_value()
-            && self.terminal_total_difficulty == Uint256::max_value()
-        {
-            return write!(
-                f,
-                "Merge terminal difficulty parameters not configured, check your config"
-            );
-        }
-        if self.terminal_total_difficulty != Uint256::max_value() {
-            write!(
-                f,
-                "Terminal total difficulty {}",
-                self.terminal_total_difficulty
-            )?;
-        }
-        if self.terminal_block_hash != ExecutionBlockHash::zero() {
-            write!(f, "Terminal block hash {}", self.terminal_block_hash)?;
-        }
-        if self.terminal_block_hash_epoch != Epoch::max_value() {
-            write!(
-                f,
-                "Terminal block hash epoch {}",
-                self.terminal_block_hash_epoch
-            )?;
-        }
-        Ok(())
-    }
-}
-impl MergeParams {
-    pub fn from_chainspec(spec: &ChainSpec) -> Self {
-        Self {
-            terminal_total_difficulty: spec.terminal_total_difficulty,
-            terminal_block_hash: spec.terminal_block_hash,
-            terminal_block_hash_epoch: spec.terminal_block_hash_activation_epoch,
-        }
-    }
-}
-
-async fn ttd_logging<T: BeaconChainTypes>(
-    beacon_chain: &BeaconChain<T>,
-    log: &Logger,
-) -> Result<(), String> {
-    let spec = &beacon_chain.spec;
-    let merge_params = MergeParams::from_chainspec(spec);
-    info!(
-        log,
-        "Bellatrix merge parameters";
-        "params" => %merge_params,
-    );
-    if let Some(execution_layer) = beacon_chain.execution_layer.as_ref() {
-        let synced = execution_layer.is_synced_for_notifier().await;
-        if synced {
-            let current_difficulty = execution_layer
-                .get_current_difficulty()
-                .await
-                .map_err(|e| format!("Failed to get current difficulty: {:?}", e))?;
-            info!(
-                log,
-                "Execution layer status";
-                "synced" => synced,
-                "current_difficulty" => ?current_difficulty
-            );
-        } else {
-            warn!(
-                log,
-                "Execution layer not synced";
-            );
-        }
-    } else {
-        warn!(
-            log,
-            "Execution layer not configured";
-            "action" => "configure an execution endpoint immediately to be merge ready"
-        );
-    }
     Ok(())
 }
 
