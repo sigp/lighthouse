@@ -70,6 +70,7 @@ impl Eth2Config {
 pub struct Eth2NetArchiveAndDirectory<'a> {
     pub name: &'a str,
     pub unique_id: &'a str,
+    pub aliases: &'a [&'a str],
     pub genesis_is_known: bool,
 }
 
@@ -96,6 +97,7 @@ const GENESIS_STATE_IS_KNOWN: bool = true;
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct HardcodedNet {
     pub name: &'static str,
+    pub aliases: &'static [&'static str],
     pub genesis_is_known: bool,
     pub config: &'static [u8],
     pub deploy_block: &'static [u8],
@@ -103,22 +105,38 @@ pub struct HardcodedNet {
     pub genesis_state_bytes: &'static [u8],
 }
 
+impl HardcodedNet {
+    /// Returns true if `name` matches `self.name` or one of `self.aliases`.
+    pub fn goes_by(&self, name: &str) -> bool {
+        self.name == name || self.aliases.contains(&name)
+    }
+}
+
 /// Defines an `Eth2NetArchiveAndDirectory` for some network.
 ///
 /// It also defines a `include_<title>_file!` macro which provides a wrapper around
 /// `std::include_bytes`, allowing the inclusion of bytes from the specific testnet directory.
 macro_rules! define_archive {
-    ($name_ident: ident, $name_str: tt, $genesis_is_known: ident) => {
+    ($name_ident: ident, $name_str: tt, $genesis_is_known: ident $(, $aliases: tt)*) => {
         paste! {
             #[macro_use]
             pub mod $name_ident {
                 use super::*;
 
-                pub const ETH2_NET_DIR: Eth2NetArchiveAndDirectory = Eth2NetArchiveAndDirectory {
-                    name: $name_str,
-                    unique_id: $name_str,
-                    genesis_is_known: $genesis_is_known,
-                };
+                paste! {
+                    pub const [<$name_ident:upper _ALIASES>]: &[&str] = &[
+                        $(
+                            $aliases,
+                        )*
+                    ];
+
+                    pub const ETH2_NET_DIR: Eth2NetArchiveAndDirectory = Eth2NetArchiveAndDirectory {
+                        name: $name_str,
+                        unique_id: $name_str,
+                        aliases: [<$name_ident:upper _ALIASES>],
+                        genesis_is_known: $genesis_is_known,
+                    };
+                }
 
                 /// A wrapper around `std::include_bytes` which includes a file from a specific network
                 /// directory. Used by upstream crates to import files at compile time.
@@ -149,6 +167,7 @@ macro_rules! define_net {
 
         $this_crate::HardcodedNet {
             name: ETH2_NET_DIR.name,
+            aliases: ETH2_NET_DIR.aliases,
             genesis_is_known: ETH2_NET_DIR.genesis_is_known,
             config: $this_crate::$include_file!($this_crate, "../", "config.yaml"),
             deploy_block: $this_crate::$include_file!($this_crate, "../", "deploy_block.txt"),
@@ -197,7 +216,7 @@ macro_rules! define_nets {
 /// `build.rs` which will unzip the genesis states. Then, that `eth2_network_configs` crate can
 /// perform the final step of using `std::include_bytes` to bake the files (bytes) into the binary.
 macro_rules! define_hardcoded_nets {
-    ($(($name_ident: ident, $name_str: tt, $genesis_is_known: ident)),+) => {
+    ($(($name_ident: ident, $genesis_is_known: ident, $name_str: tt $(, $aliases: tt)*)),+) => {
         $(
         define_archive!($name_ident, $name_str, $genesis_is_known);
         )+
@@ -234,10 +253,10 @@ macro_rules! define_hardcoded_nets {
 //
 // The directory containing the testnet files should match the human-friendly name (element 1).
 define_hardcoded_nets!(
-    (mainnet, "mainnet", GENESIS_STATE_IS_KNOWN),
-    (prater, "prater", GENESIS_STATE_IS_KNOWN),
-    (gnosis, "gnosis", GENESIS_STATE_IS_KNOWN),
-    (kiln, "kiln", GENESIS_STATE_IS_KNOWN),
-    (ropsten, "ropsten", GENESIS_STATE_IS_KNOWN),
-    (sepolia, "sepolia", GENESIS_STATE_IS_KNOWN)
+    (mainnet, GENESIS_STATE_IS_KNOWN, "mainnet"),
+    (prater, GENESIS_STATE_IS_KNOWN, "prater", "goerli"),
+    (gnosis, GENESIS_STATE_IS_KNOWN, "gnosis"),
+    (kiln, GENESIS_STATE_IS_KNOWN, "kiln"),
+    (ropsten, GENESIS_STATE_IS_KNOWN, "ropsten"),
+    (sepolia, GENESIS_STATE_IS_KNOWN, "sepolia")
 );

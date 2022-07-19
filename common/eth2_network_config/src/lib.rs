@@ -51,7 +51,7 @@ impl Eth2NetworkConfig {
     pub fn constant(name: &str) -> Result<Option<Self>, String> {
         HARDCODED_NETS
             .iter()
-            .find(|net| net.name == name)
+            .find(|net| net.goes_by(name))
             .map(Self::from_hardcoded_net)
             .transpose()
     }
