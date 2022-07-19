@@ -324,7 +324,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                             let merge_readiness = beacon_chain.check_merge_readiness().await;
                             info!(
                                 log,
-                                "Merge readiness status";
+                                "Merge readiness";
                                 "status" => %merge_readiness
                             );
                         }

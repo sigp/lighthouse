@@ -3,57 +3,54 @@ use execution_layer::Error as EngineError;
 use std::fmt;
 use types::{ChainSpec, Epoch, ExecutionBlockHash, Uint256};
 
+#[derive(Default, Debug)]
 pub struct MergeParams {
-    terminal_total_difficulty: Uint256,
-    terminal_block_hash: ExecutionBlockHash,
-    terminal_block_hash_epoch: Epoch,
+    terminal_total_difficulty: Option<Uint256>,
+    terminal_block_hash: Option<ExecutionBlockHash>,
+    terminal_block_hash_epoch: Option<Epoch>,
 }
 
 impl fmt::Display for MergeParams {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if self.terminal_block_hash == ExecutionBlockHash::zero()
-            && self.terminal_block_hash_epoch == Epoch::max_value()
-            && self.terminal_total_difficulty == Uint256::max_value()
+        if self.terminal_block_hash.is_none()
+            && self.terminal_block_hash_epoch.is_none()
+            && self.terminal_total_difficulty.is_none()
         {
             return write!(
                 f,
                 "Merge terminal difficulty parameters not configured, check your config"
             );
         }
-        if self.terminal_total_difficulty != Uint256::max_value() {
-            write!(
-                f,
-                "terminal_total_difficulty {}",
-                self.terminal_total_difficulty
-            )?;
-        }
-        if self.terminal_block_hash != ExecutionBlockHash::zero() {
-            write!(f, "terminal_block_hash {}", self.terminal_block_hash)?;
-        }
-        if self.terminal_block_hash_epoch != Epoch::max_value() {
-            write!(
-                f,
-                "terminal_block_hash_epoch {}",
-                self.terminal_block_hash_epoch
-            )?;
-        }
+        write!(
+            f,
+            "terminal_total_difficulty: {:?}, terminal_block_hash: {:?}, terminal_block_hash_epoch: {:?}",
+            self.terminal_total_difficulty,
+            self.terminal_block_hash,
+            self.terminal_block_hash_epoch,
+        )?;
         Ok(())
     }
 }
 impl MergeParams {
     pub fn from_chainspec(spec: &ChainSpec) -> Self {
-        Self {
-            terminal_total_difficulty: spec.terminal_total_difficulty,
-            terminal_block_hash: spec.terminal_block_hash,
-            terminal_block_hash_epoch: spec.terminal_block_hash_activation_epoch,
+        let mut params = MergeParams::default();
+        if spec.terminal_total_difficulty != Uint256::max_value() {
+            params.terminal_total_difficulty = Some(spec.terminal_total_difficulty);
         }
+        if spec.terminal_block_hash != ExecutionBlockHash::zero() {
+            params.terminal_block_hash = Some(spec.terminal_block_hash);
+        }
+        if spec.terminal_block_hash_activation_epoch != Epoch::max_value() {
+            params.terminal_block_hash_epoch = Some(spec.terminal_block_hash_activation_epoch);
+        }
+        params
     }
 }
 
 pub enum MergeReadiness {
     Ready {
         params: MergeParams,
-        current_difficulty: Uint256,
+        current_difficulty: Result<Uint256, String>,
     },
     BellatrixNotSpecified,
     ExchangeTransitionConfigurationFailed(EngineError),
@@ -71,7 +68,7 @@ impl fmt::Display for MergeReadiness {
                 write!(
                     f,
                     "This node appears ready for the merge. \
-                        Params: {}, current_difficulty: {}",
+                        Params: {}, current_difficulty: {:?}",
                     params, current_difficulty
                 )
             }
@@ -118,7 +115,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 return MergeReadiness::NotSynced;
             }
             let params = MergeParams::from_chainspec(&self.spec);
-            let current_difficulty = el.get_current_difficulty().await.unwrap();
+            let current_difficulty = el
+                .get_current_difficulty()
+                .await
+                .map_err(|e| format!("Failed to get current difficulty: {:?}", e));
             MergeReadiness::Ready {
                 params,
                 current_difficulty,
