@@ -77,6 +77,8 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
 
         // Perform post-genesis logging.
         let mut last_backfill_log_slot = None;
+        let mut merge_completed = false;
+
         loop {
             interval.tick().await;
             let connected_peer_count = network.connected_peers();
@@ -306,17 +308,20 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
             }
 
             eth1_logging(&beacon_chain, &log);
+
             if let Some(bellatrix_epoch) = beacon_chain.spec.bellatrix_fork_epoch {
-                if current_epoch >= bellatrix_epoch {
+                if !merge_completed && current_epoch >= bellatrix_epoch {
                     // TODO(pawan): Check if this is acceptable amount of lock contention.
-                    // cache this value once we are post bellatrix
                     if let Ok(head_execution_status) = beacon_chain
                         .canonical_head
                         .head_execution_status()
                         .map_err(|e| format!("Failed to get head execution status: {:?}", e))
                     {
                         // No need for ttd logging if we are past the merge
-                        if !head_execution_status.is_valid_and_post_bellatrix() {
+                        dbg!(&head_execution_status);
+                        if head_execution_status.is_valid_and_post_bellatrix() {
+                            merge_completed = true;
+                        } else {
                             if let Err(e) = ttd_logging(&beacon_chain, &log).await {
                                 warn!(
                                     log,
@@ -338,30 +343,38 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
 }
 
 struct MergeParams {
-    terminal_total_difficulty: Option<Uint256>,
-    terminal_block_hash: Option<ExecutionBlockHash>,
-    terminal_block_hash_epoch: Option<Epoch>,
+    terminal_total_difficulty: Uint256,
+    terminal_block_hash: ExecutionBlockHash,
+    terminal_block_hash_epoch: Epoch,
 }
 
 impl std::fmt::Display for MergeParams {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.terminal_block_hash.is_none()
-            && self.terminal_block_hash_epoch.is_none()
-            && self.terminal_total_difficulty.is_none()
+        if self.terminal_block_hash == ExecutionBlockHash::zero()
+            && self.terminal_block_hash_epoch == Epoch::max_value()
+            && self.terminal_total_difficulty == Uint256::max_value()
         {
             return write!(
                 f,
                 "Merge terminal difficulty parameters not configured, check your config"
             );
         }
-        if let Some(ttd) = self.terminal_total_difficulty {
-            write!(f, "Terminal total difficulty {}", ttd)?;
+        if self.terminal_total_difficulty != Uint256::max_value() {
+            write!(
+                f,
+                "Terminal total difficulty {}",
+                self.terminal_total_difficulty
+            )?;
         }
-        if let Some(tbh) = self.terminal_block_hash {
-            write!(f, "Terminal block hash {}", tbh)?;
+        if self.terminal_block_hash != ExecutionBlockHash::zero() {
+            write!(f, "Terminal block hash {}", self.terminal_block_hash)?;
         }
-        if let Some(tbhe) = self.terminal_block_hash_epoch {
-            write!(f, "Terminal block hash epoch {}", tbhe)?;
+        if self.terminal_block_hash_epoch != Epoch::max_value() {
+            write!(
+                f,
+                "Terminal block hash epoch {}",
+                self.terminal_block_hash_epoch
+            )?;
         }
         Ok(())
     }
@@ -369,23 +382,9 @@ impl std::fmt::Display for MergeParams {
 impl MergeParams {
     pub fn from_chainspec(spec: &ChainSpec) -> Self {
         Self {
-            terminal_total_difficulty: if spec.terminal_total_difficulty != Uint256::max_value() {
-                Some(spec.terminal_total_difficulty)
-            } else {
-                None
-            },
-            terminal_block_hash: if spec.terminal_block_hash != ExecutionBlockHash::zero() {
-                Some(spec.terminal_block_hash)
-            } else {
-                None
-            },
-            terminal_block_hash_epoch: if spec.terminal_block_hash_activation_epoch
-                != Epoch::max_value()
-            {
-                Some(spec.terminal_block_hash_activation_epoch)
-            } else {
-                None
-            },
+            terminal_total_difficulty: spec.terminal_total_difficulty,
+            terminal_block_hash: spec.terminal_block_hash,
+            terminal_block_hash_epoch: spec.terminal_block_hash_activation_epoch,
         }
     }
 }
@@ -399,10 +398,10 @@ async fn ttd_logging<T: BeaconChainTypes>(
     info!(
         log,
         "Bellatrix merge parameters";
-        "config" => %merge_params,
+        "params" => %merge_params,
     );
     if let Some(execution_layer) = beacon_chain.execution_layer.as_ref() {
-        let synced = execution_layer.is_synced().await;
+        let synced = execution_layer.is_synced_for_notifier().await;
         if synced {
             let current_difficulty = execution_layer
                 .get_current_difficulty()
