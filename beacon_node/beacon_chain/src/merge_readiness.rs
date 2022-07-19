@@ -2,7 +2,7 @@
 //! transition.
 
 use crate::{BeaconChain, BeaconChainTypes};
-use execution_layer::Error as EngineError;
+use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::fmt::Write;
 use types::*;
@@ -11,7 +11,7 @@ use types::*;
 const SECONDS_IN_A_WEEK: u64 = 604800;
 pub const MERGE_READINESS_PREPARATION_SECONDS: u64 = SECONDS_IN_A_WEEK;
 
-#[derive(Default, Debug)]
+#[derive(Default, Debug, Serialize, Deserialize)]
 pub struct MergeConfig {
     pub terminal_total_difficulty: Option<Uint256>,
     pub terminal_block_hash: Option<ExecutionBlockHash>,
@@ -73,6 +73,7 @@ impl MergeConfig {
 }
 
 /// Indicates if a node is ready for the Bellatrix upgrade and subsequent merge transition.
+#[derive(Serialize, Deserialize)]
 pub enum MergeReadiness {
     /// The node is ready, as far as we can tell.
     Ready {
@@ -81,7 +82,7 @@ pub enum MergeReadiness {
     },
     /// The transition configuration with the EL failed, there might be a problem with
     /// connectivity, authentication or a difference in configuration.
-    ExchangeTransitionConfigurationFailed(EngineError),
+    ExchangeTransitionConfigurationFailed(String),
     /// The EL can be reached and has the correct configuration, however it's not yet synced.
     NotSynced,
     /// The user has not configured this node to use an execution endpoint.
@@ -145,7 +146,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             if let Err(e) = el.exchange_transition_configuration(&self.spec).await {
                 // The EL was either unreachable, responded with an error or has a different
                 // configuration.
-                return MergeReadiness::ExchangeTransitionConfigurationFailed(e);
+                return MergeReadiness::ExchangeTransitionConfigurationFailed(format!(
+                    "Failed to get transition config: {:?}",
+                    e
+                ));
             }
 
             if !el.is_synced_for_notifier().await {
