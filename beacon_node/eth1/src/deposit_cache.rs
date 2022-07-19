@@ -168,7 +168,6 @@ impl DepositCache {
     pub fn from_deposit_snapshot(
         deposit_contract_deploy_block: u64,
         snapshot: DepositTreeSnapshot,
-        finalized_block_number: u64,
     ) -> Result<Self, String> {
         let deposit_tree = DepositDataTree::from_snapshot(&snapshot, DEPOSIT_TREE_DEPTH)
             .map_err(|e| format!("Invalid DepositSnapshot: {:?}", e))?;
@@ -177,7 +176,7 @@ impl DepositCache {
             leaves: Vec::new(),
             deposit_contract_deploy_block,
             finalized_deposit_count: snapshot.deposits,
-            finalized_block_height: finalized_block_number,
+            finalized_block_height: snapshot.execution_block_height,
             deposit_tree,
             deposit_roots: Vec::new(),
         })
@@ -251,7 +250,7 @@ impl DepositCache {
                 .expect("log should exist");
             let drop = (deposits_to_finalize - currently_finalized) as usize;
             self.deposit_tree
-                .finalize(deposits_to_finalize as usize, eth1_block.hash)
+                .finalize(eth1_block.into())
                 .map_err(Error::DepositTree)?;
             self.logs.drain(0..drop);
             self.leaves.drain(0..drop);

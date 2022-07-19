@@ -378,9 +378,7 @@ where
                         context.log().clone(),
                         spec,
                         deposit_snapshot,
-                    )
-                    .await
-                    {
+                    ) {
                         Ok(service) => {
                             let deposits_loaded = service.get_deposit_snapshot().deposits;
                             info!(

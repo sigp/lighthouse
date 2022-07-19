@@ -558,8 +558,7 @@ impl Service {
     }
 
     /// Creates a new service, initializing the deposit tree from a snapshot.
-    /// DOES attempt to connect to eth1 node because we need to get last processed block
-    pub async fn from_deposit_snapshot(
+    pub fn from_deposit_snapshot(
         config: Config,
         log: Logger,
         spec: ChainSpec,
@@ -570,27 +569,9 @@ impl Service {
             EndpointsCache::from_config(&config, log.clone())
                 .map_err(Error::FailedToInitializeFromSnapshot)?,
         );
-        let block_hash_ref = &deposit_snapshot.execution_block_hash;
-        let http_block = endpoints
-            .clone()
-            .first_success(|e| async move {
-                e.get_block(
-                    BlockQuery::Hash(*block_hash_ref),
-                    Duration::from_millis(GET_BLOCK_TIMEOUT_MILLIS),
-                )
-                .map_err(SingleEndpointError::BlockDownloadFailed)
-                .await
-            })
-            .await
-            .map_err(Error::FallbackError)?
-            .0;
-
-        let deposit_cache = DepositUpdater::from_snapshot(
-            config.deposit_contract_deploy_block,
-            deposit_snapshot,
-            http_block.number,
-        )
-        .map_err(Error::FailedToInitializeFromSnapshot)?;
+        let deposit_cache =
+            DepositUpdater::from_snapshot(config.deposit_contract_deploy_block, deposit_snapshot)
+                .map_err(Error::FailedToInitializeFromSnapshot)?;
 
         Ok(Self {
             inner: Arc::new(Inner {
