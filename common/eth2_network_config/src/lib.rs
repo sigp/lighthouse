@@ -242,7 +242,7 @@ mod tests {
             .iter()
             .map(|net| {
                 iter::once(net.name)
-                    .chain(net.aliases.iter().map(|s| *s))
+                    .chain(net.aliases.iter().copied())
                     .inspect(|name| assert!(HARDCODED_NET_ALIASES.contains(name)))
                     .count()
             })
