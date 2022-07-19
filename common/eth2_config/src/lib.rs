@@ -108,15 +108,15 @@ pub struct HardcodedNet {
 /// It also defines a `include_<title>_file!` macro which provides a wrapper around
 /// `std::include_bytes`, allowing the inclusion of bytes from the specific testnet directory.
 macro_rules! define_archive {
-    ($name_ident: ident, $name_str: tt, $genesis_is_known: ident) => {
+    ($name_ident: ident, $genesis_is_known: ident) => {
         paste! {
             #[macro_use]
             pub mod $name_ident {
                 use super::*;
 
                 pub const ETH2_NET_DIR: Eth2NetArchiveAndDirectory = Eth2NetArchiveAndDirectory {
-                    name: $name_str,
-                    unique_id: $name_str,
+                    name: stringify!($name_ident),
+                    unique_id: stringify!($name_ident),
                     genesis_is_known: $genesis_is_known,
                 };
 
@@ -130,7 +130,7 @@ macro_rules! define_archive {
                             "/",
                             $this_crate::predefined_networks_dir!(),
                             "/",
-                            $name_str,
+                            stringify!($name_ident),
                             "/",
                             $filename
                         ))
@@ -164,13 +164,13 @@ macro_rules! define_net {
 /// - `HARDCODED_NET_NAMES`: a list of the *names* of the networks defined by this macro.
 #[macro_export]
 macro_rules! define_nets {
-    ($this_crate: ident, $($name_ident: ident, $name_str: tt,)+) => {
+    ($this_crate: ident, $($name_ident: ident,)+) => {
         $this_crate::paste! {
             $(
             const [<$name_ident:upper>]: $this_crate::HardcodedNet = $this_crate::define_net!($this_crate, $name_ident, [<include_ $name_ident _file>]);
             )+
             const HARDCODED_NETS: &[$this_crate::HardcodedNet] = &[$([<$name_ident:upper>],)+];
-            pub const HARDCODED_NET_NAMES: &[&'static str] = &[$($name_str,)+];
+            pub const HARDCODED_NET_NAMES: &[&'static str] = &[$(stringify!($name_ident),)+];
         }
     };
 }
@@ -197,9 +197,9 @@ macro_rules! define_nets {
 /// `build.rs` which will unzip the genesis states. Then, that `eth2_network_configs` crate can
 /// perform the final step of using `std::include_bytes` to bake the files (bytes) into the binary.
 macro_rules! define_hardcoded_nets {
-    ($(($name_ident: ident, $name_str: tt, $genesis_is_known: ident)),+) => {
+    ($(($name_ident: ident, $genesis_is_known: ident)),+) => {
         $(
-        define_archive!($name_ident, $name_str, $genesis_is_known);
+        define_archive!($name_ident, $genesis_is_known);
         )+
 
         pub const ETH2_NET_DIRS: &[Eth2NetArchiveAndDirectory<'static>] = &[$($name_ident::ETH2_NET_DIR,)+];
@@ -213,7 +213,7 @@ macro_rules! define_hardcoded_nets {
         #[macro_export]
         macro_rules! instantiate_hardcoded_nets {
             ($this_crate: ident) => {
-                $this_crate::define_nets!($this_crate, $($name_ident, $name_str,)+);
+                $this_crate::define_nets!($this_crate, $($name_ident,)+);
             }
         }
     };
@@ -234,10 +234,46 @@ macro_rules! define_hardcoded_nets {
 //
 // The directory containing the testnet files should match the human-friendly name (element 1).
 define_hardcoded_nets!(
-    (mainnet, "mainnet", GENESIS_STATE_IS_KNOWN),
-    (prater, "prater", GENESIS_STATE_IS_KNOWN),
-    (gnosis, "gnosis", GENESIS_STATE_IS_KNOWN),
-    (kiln, "kiln", GENESIS_STATE_IS_KNOWN),
-    (ropsten, "ropsten", GENESIS_STATE_IS_KNOWN),
-    (sepolia, "sepolia", GENESIS_STATE_IS_KNOWN)
+    (
+        // Testnet name as an `ident`.
+        mainnet,
+        // Set to `true` if the genesis state can be found in the `built_in_network_configs`
+        // directory.
+        GENESIS_STATE_IS_KNOWN
+    ),
+    (
+        // Testnet name as an `ident`.
+        prater,
+        // Set to `true` if the genesis state can be found in the `built_in_network_configs`
+        // directory.
+        GENESIS_STATE_IS_KNOWN
+    ),
+    (
+        // Testnet name as an `ident`.
+        gnosis,
+        // Set to `true` if the genesis state can be found in the `built_in_network_configs`
+        // directory.
+        GENESIS_STATE_IS_KNOWN
+    ),
+    (
+        // Testnet name as an `ident`.
+        kiln,
+        // Set to `true` if the genesis state can be found in the `built_in_network_configs`
+        // directory.
+        GENESIS_STATE_IS_KNOWN
+    ),
+    (
+        // Testnet name as an `ident`.
+        ropsten,
+        // Set to `true` if the genesis state can be found in the `built_in_network_configs`
+        // directory.
+        GENESIS_STATE_IS_KNOWN
+    ),
+    (
+        // Testnet name as an `ident`.
+        sepolia,
+        // Set to `true` if the genesis state can be found in the `built_in_network_configs`
+        // directory.
+        GENESIS_STATE_IS_KNOWN
+    )
 );
