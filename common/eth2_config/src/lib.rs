@@ -180,16 +180,16 @@ macro_rules! define_net {
 /// Calls `define_net` on a list of networks, and then defines two more lists:
 ///
 /// - `HARDCODED_NETS`: a list of all the networks defined by this macro.
-/// - `HARDCODED_NET_NAMES`: a list of the *names* of the networks defined by this macro.
+/// - `HARDCODED_NET_ALIASES`: a list of the names and aliases of the networks defined by this macro.
 #[macro_export]
 macro_rules! define_nets {
-    ($this_crate: ident, $($name_ident: ident, $name_str: tt,)+) => {
+    ($this_crate: ident, $($name_ident: ident, $name_str: tt $(, $aliases: tt)*)+) => {
         $this_crate::paste! {
             $(
             const [<$name_ident:upper>]: $this_crate::HardcodedNet = $this_crate::define_net!($this_crate, $name_ident, [<include_ $name_ident _file>]);
             )+
             const HARDCODED_NETS: &[$this_crate::HardcodedNet] = &[$([<$name_ident:upper>],)+];
-            pub const HARDCODED_NET_NAMES: &[&'static str] = &[$($name_str,)+];
+            pub const HARDCODED_NET_ALIASES: &[&'static str] = &[$($name_str, $($aliases,)*)+];
         }
     };
 }
@@ -218,7 +218,7 @@ macro_rules! define_nets {
 macro_rules! define_hardcoded_nets {
     ($(($name_ident: ident, $genesis_is_known: ident, $name_str: tt $(, $aliases: tt)*)),+) => {
         $(
-        define_archive!($name_ident, $name_str, $genesis_is_known);
+        define_archive!($name_ident, $name_str, $genesis_is_known $(, $aliases)*);
         )+
 
         pub const ETH2_NET_DIRS: &[Eth2NetArchiveAndDirectory<'static>] = &[$($name_ident::ETH2_NET_DIR,)+];
@@ -228,11 +228,11 @@ macro_rules! define_hardcoded_nets {
         ///
         /// - A `HardcodedNet` for each network.
         /// - `HARDCODED_NETS`: a list of all the above `HardcodedNet`.
-        /// - `HARDCODED_NET_NAMES`: a list of all the names of the above `HardcodedNet` (as `&str`).
+        /// - `HARDCODED_NET_ALIASES`: a list of all the names and aliases of the above `HardcodedNet` (as `&str`).
         #[macro_export]
         macro_rules! instantiate_hardcoded_nets {
             ($this_crate: ident) => {
-                $this_crate::define_nets!($this_crate, $($name_ident, $name_str,)+);
+                $this_crate::define_nets!($this_crate, $($name_ident, $name_str $(, $aliases)*)+);
             }
         }
     };

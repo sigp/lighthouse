@@ -27,7 +27,7 @@ pub const BASE_CONFIG_FILE: &str = "config.yaml";
 //
 // - Each of the `HardcodedNet` values (e.g., `MAINNET`, `PRATER`, etc).
 // - `HARDCODED_NETS: &[HardcodedNet]`
-// - `HARDCODED_NET_NAMES: &[&'static str]`
+// - `HARDCODED_NET_ALIASES: &[&'static str]`
 instantiate_hardcoded_nets!(eth2_config);
 
 pub const DEFAULT_HARDCODED_NETWORK: &str = "mainnet";
@@ -225,6 +225,7 @@ impl Eth2NetworkConfig {
 mod tests {
     use super::*;
     use ssz::Encode;
+    use std::iter;
     use tempfile::Builder as TempBuilder;
     use types::{Config, Eth1Data, GnosisEthSpec, Hash256, MainnetEthSpec, GNOSIS};
 
@@ -232,15 +233,21 @@ mod tests {
 
     #[test]
     fn default_network_exists() {
-        assert!(HARDCODED_NET_NAMES.contains(&DEFAULT_HARDCODED_NETWORK));
+        assert!(HARDCODED_NET_ALIASES.contains(&DEFAULT_HARDCODED_NETWORK));
     }
 
     #[test]
     fn hardcoded_testnet_names() {
-        assert_eq!(HARDCODED_NET_NAMES.len(), HARDCODED_NETS.len());
-        for (name, net) in HARDCODED_NET_NAMES.iter().zip(HARDCODED_NETS.iter()) {
-            assert_eq!(name, &net.name);
-        }
+        let expected_count: usize = HARDCODED_NETS
+            .iter()
+            .map(|net| {
+                iter::once(net.name)
+                    .chain(net.aliases.iter().map(|s| *s))
+                    .inspect(|name| assert!(HARDCODED_NET_ALIASES.contains(name)))
+                    .count()
+            })
+            .sum();
+        assert_eq!(HARDCODED_NET_ALIASES.len(), expected_count);
     }
 
     #[test]
