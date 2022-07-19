@@ -318,17 +318,14 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                         .map_err(|e| format!("Failed to get head execution status: {:?}", e))
                     {
                         // No need for ttd logging if we are past the merge
-                        dbg!(&head_execution_status);
                         if head_execution_status.is_valid_and_post_bellatrix() {
                             merge_completed = true;
-                        } else {
-                            if let Err(e) = ttd_logging(&beacon_chain, &log).await {
-                                warn!(
-                                    log,
-                                    "Failed to get merge parameters from execution node";
-                                    "error" => %e
-                                );
-                            }
+                        } else if let Err(e) = ttd_logging(&beacon_chain, &log).await {
+                            warn!(
+                                log,
+                                "Failed to get merge parameters from execution node";
+                                "error" => %e
+                            );
                         }
                     }
                 }
@@ -394,7 +391,7 @@ async fn ttd_logging<T: BeaconChainTypes>(
     log: &Logger,
 ) -> Result<(), String> {
     let spec = &beacon_chain.spec;
-    let merge_params = MergeParams::from_chainspec(&spec);
+    let merge_params = MergeParams::from_chainspec(spec);
     info!(
         log,
         "Bellatrix merge parameters";
