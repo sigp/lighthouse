@@ -23,6 +23,8 @@ const END_EPOCH: u64 = 16;
 
 pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
     let node_count = value_t!(matches, "nodes", usize).expect("missing nodes default");
+    let proposer_nodes = value_t!(matches, "proposer-nodes", usize).unwrap_or(0);
+    println!("PROPOSER-NODES: {}", proposer_nodes);
     let validators_per_node = value_t!(matches, "validators_per_node", usize)
         .expect("missing validators_per_node default");
     let speed_up_factor =
@@ -30,7 +32,8 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
     let continue_after_checks = matches.is_present("continue_after_checks");
 
     println!("Beacon Chain Simulator:");
-    println!(" nodes:{}", node_count);
+    println!(" nodes:{}, proposer_nodes: {}", node_count, proposer_nodes);
+
     println!(" validators_per_node:{}", validators_per_node);
     println!(" continue_after_checks:{}", continue_after_checks);
 
@@ -133,7 +136,7 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
         beacon_config.sync_eth1_chain = true;
         beacon_config.eth1.auto_update_interval_millis = eth1_block_time.as_millis() as u64;
         beacon_config.eth1.chain_id = Eth1Id::from(chain_id);
-        beacon_config.network.target_peers = node_count - 1;
+        beacon_config.network.target_peers = node_count + proposer_nodes - 1;
 
         beacon_config.network.enr_address = Some(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)));
 
@@ -156,7 +159,25 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
                     )
                 }
             }
-            network.add_beacon_node(config).await?;
+            network.add_beacon_node(config, false).await?;
+        }
+
+        /*
+         * One by one, add proposer nodes to the network.
+         */
+        for i in 0..proposer_nodes - 1 {
+            let mut config = beacon_config.clone();
+            if i % 2 == 0 {
+                if let Eth1Endpoint::NoAuth(endpoints) = &mut config.eth1.endpoints {
+                    endpoints.insert(
+                        0,
+                        SensitiveUrl::parse(INVALID_ADDRESS)
+                            .expect("Unable to parse invalid address"),
+                    )
+                }
+            }
+            println!("Adding a proposer node");
+            network.add_beacon_node(config, true).await?;
         }
 
         /*
@@ -249,7 +270,7 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
          */
         println!(
             "Simulation complete. Finished with {} beacon nodes and {} validator clients",
-            network.beacon_node_count(),
+            network.beacon_node_count() + network.proposer_node_count(),
             network.validator_client_count()
         );
 
