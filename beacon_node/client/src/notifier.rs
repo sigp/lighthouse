@@ -325,7 +325,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                             info!(
                                 log,
                                 "Merge readiness";
-                                "status" => %merge_readiness
+                                "config" => %merge_readiness
                             );
                         }
                     }

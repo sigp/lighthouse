@@ -1,16 +1,17 @@
 use crate::{BeaconChain, BeaconChainTypes};
 use execution_layer::Error as EngineError;
 use std::fmt;
+use std::fmt::Write;
 use types::{ChainSpec, Epoch, ExecutionBlockHash, Uint256};
 
 #[derive(Default, Debug)]
-pub struct MergeParams {
+pub struct MergeConfig {
     terminal_total_difficulty: Option<Uint256>,
     terminal_block_hash: Option<ExecutionBlockHash>,
     terminal_block_hash_epoch: Option<Epoch>,
 }
 
-impl fmt::Display for MergeParams {
+impl fmt::Display for MergeConfig {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if self.terminal_block_hash.is_none()
             && self.terminal_block_hash_epoch.is_none()
@@ -21,19 +22,35 @@ impl fmt::Display for MergeParams {
                 "Merge terminal difficulty parameters not configured, check your config"
             );
         }
-        write!(
-            f,
-            "terminal_total_difficulty: {:?}, terminal_block_hash: {:?}, terminal_block_hash_epoch: {:?}",
-            self.terminal_total_difficulty,
-            self.terminal_block_hash,
-            self.terminal_block_hash_epoch,
-        )?;
+        let mut display_string = String::new();
+        if let Some(terminal_total_difficulty) = self.terminal_total_difficulty {
+            write!(
+                display_string,
+                "terminal_total_difficulty: {},",
+                terminal_total_difficulty
+            )?;
+        }
+        if let Some(terminal_block_hash) = self.terminal_block_hash {
+            write!(
+                display_string,
+                "terminal_block_hash: {},",
+                terminal_block_hash
+            )?;
+        }
+        if let Some(terminal_block_hash_epoch) = self.terminal_block_hash_epoch {
+            write!(
+                display_string,
+                "terminal_block_hash_epoch: {},",
+                terminal_block_hash_epoch
+            )?;
+        }
+        write!(f, "{}", display_string.trim_end_matches(','))?;
         Ok(())
     }
 }
-impl MergeParams {
+impl MergeConfig {
     pub fn from_chainspec(spec: &ChainSpec) -> Self {
-        let mut params = MergeParams::default();
+        let mut params = MergeConfig::default();
         if spec.terminal_total_difficulty != Uint256::max_value() {
             params.terminal_total_difficulty = Some(spec.terminal_total_difficulty);
         }
@@ -49,7 +66,7 @@ impl MergeParams {
 
 pub enum MergeReadiness {
     Ready {
-        params: MergeParams,
+        config: MergeConfig,
         current_difficulty: Result<Uint256, String>,
     },
     BellatrixNotSpecified,
@@ -62,7 +79,7 @@ impl fmt::Display for MergeReadiness {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             MergeReadiness::Ready {
-                params,
+                config: params,
                 current_difficulty,
             } => {
                 write!(
@@ -114,13 +131,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 // The EL is not synced.
                 return MergeReadiness::NotSynced;
             }
-            let params = MergeParams::from_chainspec(&self.spec);
+            let params = MergeConfig::from_chainspec(&self.spec);
             let current_difficulty = el
                 .get_current_difficulty()
                 .await
-                .map_err(|e| format!("Failed to get current difficulty: {:?}", e));
+                .map_err(|_| "Failed to get current difficulty from execution node".to_string());
             MergeReadiness::Ready {
-                params,
+                config: params,
                 current_difficulty,
             }
         } else {
