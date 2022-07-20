@@ -38,7 +38,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v1
-    - uses: ./.github/workflows/mold.yml
+    - uses: ./.github/workflows/mold
     - name: Get latest version of stable Rust
       run: rustup update stable
     - name: Check formatting with cargo fmt
@@ -49,7 +49,7 @@ jobs:
     needs: cargo-fmt
     steps:
     - uses: actions/checkout@v1
-    - uses: ./.github/workflows/mold.yml
+    - uses: ./.github/workflows/mold
     - name: Get latest version of stable Rust
       run: rustup update stable
     - name: Install ganache
