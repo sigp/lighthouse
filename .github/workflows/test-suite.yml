@@ -51,6 +51,7 @@ jobs:
     - uses: actions/checkout@v1
     - uses: ./.github/workflows/mold
     - run: echo $RUSTFLAGS
+    - run: /usr/local/bin/mold --version
     - name: Get latest version of stable Rust
       run: rustup update stable
     - name: Install ganache
