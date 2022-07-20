@@ -230,7 +230,7 @@ fn convert_to_api_response<T: BeaconChainTypes>(
 
     Ok(api_types::DutiesResponse {
         dependent_root,
-        execution_optimistic,
+        execution_optimistic: Some(execution_optimistic),
         data,
     })
 }

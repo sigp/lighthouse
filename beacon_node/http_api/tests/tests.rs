@@ -1702,7 +1702,7 @@ impl ApiTester {
 
             let expected = DutiesResponse {
                 data: expected_duties,
-                execution_optimistic: false,
+                execution_optimistic: Some(false),
                 dependent_root,
             };
 
@@ -2636,7 +2636,7 @@ impl ApiTester {
             .unwrap()
             .unwrap();
 
-        assert_eq!(result.execution_optimistic, false);
+        assert_eq!(result.execution_optimistic, Some(false));
 
         // Change head to be optimistic.
         self.chain
@@ -2658,7 +2658,7 @@ impl ApiTester {
             .unwrap()
             .unwrap();
 
-        assert_eq!(result.execution_optimistic, true);
+        assert_eq!(result.execution_optimistic, Some(true));
     }
 }
 

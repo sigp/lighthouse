@@ -42,7 +42,7 @@ pub fn execution_optimistic_fork_versioned_response<T: Serialize>(
     };
     Ok(ExecutionOptimisticForkVersionedResponse {
         version: fork_name,
-        execution_optimistic,
+        execution_optimistic: Some(execution_optimistic),
         data,
     })
 }
