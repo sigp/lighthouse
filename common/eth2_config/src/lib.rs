@@ -69,7 +69,6 @@ impl Eth2Config {
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct Eth2NetArchiveAndDirectory<'a> {
     pub name: &'a str,
-    pub unique_id: &'a str,
     pub config_dir: &'a str,
     pub genesis_is_known: bool,
 }
@@ -118,7 +117,6 @@ macro_rules! define_archive {
 
                 pub const ETH2_NET_DIR: Eth2NetArchiveAndDirectory = Eth2NetArchiveAndDirectory {
                     name: stringify!($name_ident),
-                    unique_id: stringify!($name_ident),
                     config_dir: $config_dir,
                     genesis_is_known: $genesis_is_known,
                 };
