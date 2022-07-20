@@ -10,7 +10,7 @@ on:
   pull_request:
 env:
   # Deny warnings in CI
-  RUSTFLAGS: "-D warnings"
+  RUSTFLAGS: "-D warnings -C linker=clang -C link-arg=-fuse-ld=/usr/local/bin/mold"
   # The Nightly version used for cargo-udeps, might need updating from time to time.
   PINNED_NIGHTLY: nightly-2022-05-20
 jobs:
