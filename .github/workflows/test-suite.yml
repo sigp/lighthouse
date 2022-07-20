@@ -109,7 +109,7 @@ jobs:
     steps:
     - uses: actions/checkout@v1
     - name: Get latest version of stable Rust
-      run: rustup update stable
+      run: rustup default 1.62.0
     - name: Install ganache
       run: sudo npm install -g ganache
     - name: Run tests in debug
