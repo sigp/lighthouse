@@ -9,4 +9,5 @@ runs:
     - uses: rui314/setup-mold@v1
       if: "${{ runner.os == 'Linux' && inputs.enabled == 'true' }}"
     - run: echo "RUSTFLAGS=-C linker=clang -C link-arg=-fuse-ld=/usr/local/bin/mold ${{ env.RUSTFLAGS }}" >> $GITHUB_ENV
+      shell: bash
       if: "${{ runner.os == 'Linux' && inputs.enabled == 'true' }}"
