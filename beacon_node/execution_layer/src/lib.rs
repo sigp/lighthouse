@@ -103,6 +103,13 @@ pub struct Proposer {
     payload_attributes: PayloadAttributes,
 }
 
+/// Information from the beacon chain that is necessary for querying the builder API.
+pub struct BuilderParams {
+    pub pubkey: PublicKeyBytes,
+    pub slot: Slot,
+    pub chain_is_healthy: bool,
+}
+
 struct Inner<E: EthSpec> {
     engine: Arc<Engine>,
     builder: Option<BuilderHttpClient>,
@@ -484,8 +491,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
         prev_randao: Hash256,
         finalized_block_hash: ExecutionBlockHash,
         proposer_index: u64,
-        pubkey: Option<PublicKeyBytes>,
-        slot: Slot,
+        builder_params: BuilderParams,
     ) -> Result<Payload, Error> {
         let suggested_fee_recipient = self.get_suggested_fee_recipient(proposer_index).await;
 
@@ -501,8 +507,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                     prev_randao,
                     finalized_block_hash,
                     suggested_fee_recipient,
-                    pubkey,
-                    slot,
+                    builder_params,
                 )
                 .await
             }
@@ -531,13 +536,15 @@ impl<T: EthSpec> ExecutionLayer<T> {
         prev_randao: Hash256,
         finalized_block_hash: ExecutionBlockHash,
         suggested_fee_recipient: Address,
-        pubkey_opt: Option<PublicKeyBytes>,
-        slot: Slot,
+        builder_params: BuilderParams,
     ) -> Result<Payload, Error> {
         // Don't attempt to outsource payload construction until after the merge transition has been
         // finalized. We want to be conservative with payload construction until then.
-        if let (Some(builder), Some(pubkey)) = (self.builder(), pubkey_opt) {
-            if finalized_block_hash != ExecutionBlockHash::zero() {
+        if let Some(builder) = self.builder() {
+            let slot = builder_params.slot;
+            let pubkey = builder_params.pubkey;
+
+            if builder_params.chain_is_healthy {
                 info!(
                     self.log(),
                     "Requesting blinded header from connected builder";

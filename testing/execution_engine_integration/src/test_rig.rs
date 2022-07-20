@@ -1,12 +1,12 @@
 use crate::execution_engine::{ExecutionEngine, GenericExecutionEngine};
-use execution_layer::{ExecutionLayer, PayloadAttributes, PayloadStatus};
+use execution_layer::{BuilderParams, ExecutionLayer, PayloadAttributes, PayloadStatus};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use task_executor::TaskExecutor;
 use tokio::time::sleep;
 use types::{
     Address, ChainSpec, EthSpec, ExecutionBlockHash, ExecutionPayload, FullPayload, Hash256,
-    MainnetEthSpec, Slot, Uint256,
+    MainnetEthSpec, PublicKeyBytes, Slot, Uint256,
 };
 
 const EXECUTION_ENGINE_START_TIMEOUT: Duration = Duration::from_secs(20);
@@ -168,6 +168,11 @@ impl<E: GenericExecutionEngine> TestRig<E> {
         let prev_randao = Hash256::zero();
         let finalized_block_hash = ExecutionBlockHash::zero();
         let proposer_index = 0;
+        let builder_params = BuilderParams {
+            pubkey: PublicKeyBytes::empty(),
+            slot: Slot::new(0),
+            chain_is_healthy: true,
+        };
         let valid_payload = self
             .ee_a
             .execution_layer
@@ -177,8 +182,7 @@ impl<E: GenericExecutionEngine> TestRig<E> {
                 prev_randao,
                 finalized_block_hash,
                 proposer_index,
-                None,
-                Slot::new(0),
+                builder_params,
             )
             .await
             .unwrap()
@@ -263,6 +267,11 @@ impl<E: GenericExecutionEngine> TestRig<E> {
         let prev_randao = Hash256::zero();
         let finalized_block_hash = ExecutionBlockHash::zero();
         let proposer_index = 0;
+        let builder_params = BuilderParams {
+            pubkey: PublicKeyBytes::empty(),
+            slot: Slot::new(0),
+            chain_is_healthy: true,
+        };
         let second_payload = self
             .ee_a
             .execution_layer
@@ -272,8 +281,7 @@ impl<E: GenericExecutionEngine> TestRig<E> {
                 prev_randao,
                 finalized_block_hash,
                 proposer_index,
-                None,
-                Slot::new(0),
+                builder_params,
             )
             .await
             .unwrap()

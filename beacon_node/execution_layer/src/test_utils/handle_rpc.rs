@@ -1,6 +1,8 @@
 use super::Context;
 use crate::engine_api::{http::*, *};
 use crate::json_structures::*;
+use crate::test_utils::execution_block_generator::Block;
+use ethers_core::utils::rlp::{Decodable, Rlp};
 use serde::de::DeserializeOwned;
 use serde_json::Value as JsonValue;
 use std::sync::Arc;
@@ -49,12 +51,48 @@ pub async fn handle_rpc<T: EthSpec>(
                         .map_err(|e| format!("unable to parse hash: {:?}", e))
                 })?;
 
-            Ok(serde_json::to_value(
-                ctx.execution_block_generator
-                    .read()
-                    .execution_block_by_hash(hash),
-            )
-            .unwrap())
+            let response = ctx
+                .execution_block_generator
+                .read()
+                .block_by_hash(hash)
+                .map(|block| match block {
+                    Block::PoW(block) => serde_json::to_value(ExecutionBlock {
+                        block_hash: block.block_hash,
+                        block_number: block.block_number,
+                        parent_hash: block.parent_hash,
+                        total_difficulty: block.total_difficulty,
+                    })
+                    .unwrap(),
+                    Block::PoS(payload) => {
+                        let transactions = payload
+                            .transactions
+                            .iter()
+                            .cloned()
+                            .map(|tx| Transaction::decode(&Rlp::new(&tx)).unwrap())
+                            .collect::<Vec<_>>();
+
+                        let block = ExecutionBlockWithTransactions::<T> {
+                            parent_hash: payload.parent_hash,
+                            fee_recipient: payload.fee_recipient,
+                            state_root: payload.state_root,
+                            receipts_root: payload.receipts_root,
+                            logs_bloom: payload.logs_bloom,
+                            prev_randao: payload.prev_randao,
+                            block_number: payload.block_number,
+                            gas_limit: payload.gas_limit,
+                            gas_used: payload.gas_used,
+                            timestamp: payload.timestamp,
+                            extra_data: payload.extra_data,
+                            base_fee_per_gas: payload.base_fee_per_gas,
+                            block_hash: payload.block_hash,
+                            transactions,
+                        };
+
+                        serde_json::to_value(block).unwrap()
+                    }
+                });
+
+            Ok(response.unwrap())
         }
         ENGINE_NEW_PAYLOAD_V1 => {
             let request: JsonExecutionPayloadV1<T> = get_param(params, 0)?;

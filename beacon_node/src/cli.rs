@@ -708,4 +708,38 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .default_value("250")
                 .takes_value(true)
         )
+        .arg(
+            Arg::with_name("builder-fallback-skips")
+                .long("builder-fallback-skips")
+                .help("If this node is proposing a block and has seen this number of skip slots \
+                        in a row, it will NOT query any connected builders, and will use the local \
+                        execution engine for payload construction.")
+                .default_value("3")
+                .requires("builder")
+                .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("builder-fallback-skips-per-epoch")
+                .long("builder-fallback-skips-per-epoch")
+                .help("If this node is proposing a block and has seen this number of skip slots \
+                        in the past `SLOTS_PER_EPOCH`, it will NOT query any connected builders, \
+                        and will use the local execution engine for payload construction.")
+                .default_value("8")
+                .requires("builder")
+                .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("builder-fallback-epochs-since-finalization")
+                .long("builder-fallback-epochs-since-finalization")
+                .help("If this node is proposing a block and the chain has not finalized within \
+                        this number of epochs, it will NOT query any connected builders, \
+                        and will use the local execution engine for payload construction. Setting \
+                        this value to anything less than 2 will cause the node to NEVER query \
+                        connected builders. Setting it to 2 will cause this condition to be hit \
+                        if there are skips slots at the start of an epoch, right before this node \
+                        is set to propose.")
+                .default_value("3")
+                .requires("builder")
+                .takes_value(true)
+        )
 }
