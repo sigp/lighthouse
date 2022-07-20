@@ -104,7 +104,7 @@ jobs:
       run: make test-op-pool
   debug-tests-ubuntu:
     name: debug-tests-ubuntu
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     needs: cargo-fmt
     steps:
     - uses: actions/checkout@v1
