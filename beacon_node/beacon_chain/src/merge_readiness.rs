@@ -2,7 +2,7 @@
 //! transition.
 
 use crate::{BeaconChain, BeaconChainTypes};
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize, Serializer};
 use std::fmt;
 use std::fmt::Write;
 use types::*;
@@ -13,8 +13,11 @@ pub const MERGE_READINESS_PREPARATION_SECONDS: u64 = SECONDS_IN_A_WEEK;
 
 #[derive(Default, Debug, Serialize, Deserialize)]
 pub struct MergeConfig {
+    #[serde(serialize_with = "serialize_uint256")]
     pub terminal_total_difficulty: Option<Uint256>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub terminal_block_hash: Option<ExecutionBlockHash>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub terminal_block_hash_epoch: Option<Epoch>,
 }
 
@@ -74,11 +77,14 @@ impl MergeConfig {
 
 /// Indicates if a node is ready for the Bellatrix upgrade and subsequent merge transition.
 #[derive(Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[serde(tag = "type")]
 pub enum MergeReadiness {
     /// The node is ready, as far as we can tell.
     Ready {
         config: MergeConfig,
-        current_difficulty: Result<Uint256, String>,
+        #[serde(serialize_with = "serialize_uint256")]
+        current_difficulty: Option<Uint256>,
     },
     /// The transition configuration with the EL failed, there might be a problem with
     /// connectivity, authentication or a difference in configuration.
@@ -157,10 +163,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 return MergeReadiness::NotSynced;
             }
             let params = MergeConfig::from_chainspec(&self.spec);
-            let current_difficulty = el
-                .get_current_difficulty()
-                .await
-                .map_err(|_| "Failed to get current difficulty from execution node".to_string());
+            let current_difficulty = el.get_current_difficulty().await.ok();
             MergeReadiness::Ready {
                 config: params,
                 current_difficulty,
@@ -169,5 +172,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             // There is no EL configured.
             MergeReadiness::NoExecutionEndpoint
         }
+    }
+}
+
+/// Utility function to serialize a Uint256 as a decimal string.
+fn serialize_uint256<S>(val: &Option<Uint256>, s: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    match val {
+        Some(v) => v.to_string().serialize(s),
+        None => s.serialize_none(),
     }
 }

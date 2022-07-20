@@ -359,7 +359,7 @@ async fn merge_readiness_logging<T: BeaconChainTypes>(
                     "terminal_total_difficulty" => %ttd,
                     "current_difficulty" => current_difficulty
                         .map(|d| d.to_string())
-                        .unwrap_or_else(|_| "??".into()),
+                        .unwrap_or_else(|| "??".into()),
                 )
             }
             MergeConfig {
