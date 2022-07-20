@@ -133,14 +133,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             let merge_readiness_preparation_slots =
                 MERGE_READINESS_PREPARATION_SECONDS / self.spec.seconds_per_slot;
 
-            if current_slot + merge_readiness_preparation_slots > bellatrix_slot {
-                // Bellatrix is either nearby or has already happened, time to prepare!
-                true
-            } else {
-                // The Bellatrix fork epoch is far enough in the future that we don't need to
-                // prepare yet.
-                false
-            }
+            // Return `true` if Bellatrix has happened or is within the preparation time.
+            current_slot + merge_readiness_preparation_slots > bellatrix_slot
         } else {
             // The Bellatrix fork epoch has not been defined yet, no need to prepare.
             false
