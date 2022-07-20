@@ -2894,7 +2894,9 @@ pub fn serve<T: BeaconChainTypes>(
         .and(chain_filter.clone())
         .and_then(|chain: Arc<BeaconChain<T>>| async move {
             let merge_readiness = chain.check_merge_readiness().await;
-            Ok::<_, warp::reject::Rejection>(warp::reply::json(&merge_readiness))
+            Ok::<_, warp::reject::Rejection>(warp::reply::json(&api_types::GenericResponse::from(
+                merge_readiness,
+            )))
         });
 
     let get_events = eth1_v1

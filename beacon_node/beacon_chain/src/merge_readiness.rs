@@ -2,7 +2,7 @@
 //! transition.
 
 use crate::{BeaconChain, BeaconChainTypes};
-use serde::Serialize;
+use serde::{Serialize, Deserialize};
 use std::fmt;
 use std::fmt::Write;
 use types::*;
@@ -11,7 +11,7 @@ use types::*;
 const SECONDS_IN_A_WEEK: u64 = 604800;
 pub const MERGE_READINESS_PREPARATION_SECONDS: u64 = SECONDS_IN_A_WEEK;
 
-#[derive(Default, Debug, Serialize)]
+#[derive(Default, Debug, Serialize, Deserialize)]
 pub struct MergeConfig {
     pub terminal_total_difficulty: Option<Uint256>,
     pub terminal_block_hash: Option<ExecutionBlockHash>,
@@ -73,7 +73,7 @@ impl MergeConfig {
 }
 
 /// Indicates if a node is ready for the Bellatrix upgrade and subsequent merge transition.
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 pub enum MergeReadiness {
     /// The node is ready, as far as we can tell.
     Ready {
