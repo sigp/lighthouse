@@ -241,7 +241,7 @@ define_hardcoded_nets!(
     (
         // Network name (must be unique among all networks).
         mainnet,
-        // The name of the directory in the `eth2_network_configs/build_in_network_configs`
+        // The name of the directory in the `eth2_network_config/built_in_network_configs`
         // directory where the configuration files are located for this network.
         "mainnet",
         // Set to `true` if the genesis state can be found in the `built_in_network_configs`
@@ -251,7 +251,7 @@ define_hardcoded_nets!(
     (
         // Network name (must be unique among all networks).
         prater,
-        // The name of the directory in the `eth2_network_configs/build_in_network_configs`
+        // The name of the directory in the `eth2_network_config/built_in_network_configs`
         // directory where the configuration files are located for this network.
         "prater",
         // Set to `true` if the genesis state can be found in the `built_in_network_configs`
@@ -261,7 +261,7 @@ define_hardcoded_nets!(
     (
         // Network name (must be unique among all networks).
         goerli,
-        // The name of the directory in the `eth2_network_configs/build_in_network_configs`
+        // The name of the directory in the `eth2_network_config/built_in_network_configs`
         // directory where the configuration files are located for this network.
         //
         // The Goerli network is effectively an alias to Prater.
@@ -273,7 +273,7 @@ define_hardcoded_nets!(
     (
         // Network name (must be unique among all networks).
         gnosis,
-        // The name of the directory in the `eth2_network_configs/build_in_network_configs`
+        // The name of the directory in the `eth2_network_config/built_in_network_configs`
         // directory where the configuration files are located for this network.
         "gnosis",
         // Set to `true` if the genesis state can be found in the `built_in_network_configs`
@@ -283,7 +283,7 @@ define_hardcoded_nets!(
     (
         // Network name (must be unique among all networks).
         kiln,
-        // The name of the directory in the `eth2_network_configs/build_in_network_configs`
+        // The name of the directory in the `eth2_network_config/built_in_network_configs`
         // directory where the configuration files are located for this network.
         "kiln",
         // Set to `true` if the genesis state can be found in the `built_in_network_configs`
@@ -293,7 +293,7 @@ define_hardcoded_nets!(
     (
         // Network name (must be unique among all networks).
         ropsten,
-        // The name of the directory in the `eth2_network_configs/build_in_network_configs`
+        // The name of the directory in the `eth2_network_config/built_in_network_configs`
         // directory where the configuration files are located for this network.
         "ropsten",
         // Set to `true` if the genesis state can be found in the `built_in_network_configs`
@@ -303,7 +303,7 @@ define_hardcoded_nets!(
     (
         // Network name (must be unique among all networks).
         sepolia,
-        // The name of the directory in the `eth2_network_configs/build_in_network_configs`
+        // The name of the directory in the `eth2_network_config/built_in_network_configs`
         // directory where the configuration files are located for this network.
         "sepolia",
         // Set to `true` if the genesis state can be found in the `built_in_network_configs`
