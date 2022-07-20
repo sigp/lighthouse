@@ -562,7 +562,7 @@ impl Service {
         config: Config,
         log: Logger,
         spec: ChainSpec,
-        deposit_snapshot: DepositTreeSnapshot,
+        deposit_snapshot: &DepositTreeSnapshot,
     ) -> Result<Self, Error> {
         // first get eth1_block from endpoint
         let endpoints = Arc::new(
@@ -1035,7 +1035,7 @@ impl Service {
         }
     }
 
-    pub fn get_deposit_snapshot(&self) -> DepositTreeSnapshot {
+    pub fn get_deposit_snapshot(&self) -> Option<DepositTreeSnapshot> {
         self.inner.deposit_cache.read().cache.get_deposit_snapshot()
     }
 

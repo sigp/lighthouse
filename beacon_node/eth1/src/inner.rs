@@ -33,7 +33,7 @@ impl DepositUpdater {
 
     pub fn from_snapshot(
         deposit_contract_deploy_block: u64,
-        snapshot: DepositTreeSnapshot,
+        snapshot: &DepositTreeSnapshot,
     ) -> Result<Self, String> {
         let last_processed_block = Some(snapshot.execution_block_height);
         Ok(Self {

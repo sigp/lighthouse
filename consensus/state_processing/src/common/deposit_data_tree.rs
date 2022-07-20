@@ -65,15 +65,15 @@ impl DepositDataTree {
         Ok(())
     }
 
-    /// Get snapshot of finalized deposit tree
-    pub fn get_snapshot(&self) -> DepositTreeSnapshot {
-        let finalized_execution_block = self.finalized_execution_block.clone().unwrap_or_default();
-        DepositTreeSnapshot {
+    /// Get snapshot of finalized deposit tree (if tree is finalized)
+    pub fn get_snapshot(&self) -> Option<DepositTreeSnapshot> {
+        let finalized_execution_block = self.finalized_execution_block.as_ref()?;
+        Some(DepositTreeSnapshot {
             finalized: self.tree.get_finalized_snapshot(),
             deposits: finalized_execution_block.deposits,
             execution_block_hash: finalized_execution_block.block_hash,
             execution_block_height: finalized_execution_block.block_height,
-        }
+        })
     }
 
     /// Create a new Merkle tree from a snapshot
@@ -81,11 +81,6 @@ impl DepositDataTree {
         snapshot: &DepositTreeSnapshot,
         depth: usize,
     ) -> Result<Self, MerkleTreeError> {
-        let finalized_execution_block = if snapshot.execution_block_hash.is_zero() {
-            None
-        } else {
-            Some(snapshot.into())
-        };
         Ok(Self {
             tree: MerkleTree::from_finalized_snapshot(
                 &snapshot.finalized,
@@ -93,7 +88,7 @@ impl DepositDataTree {
                 depth,
             )?,
             mix_in_length: snapshot.deposits as usize,
-            finalized_execution_block,
+            finalized_execution_block: Some(snapshot.into()),
             depth,
         })
     }

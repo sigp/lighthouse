@@ -1543,17 +1543,39 @@ pub fn serve<T: BeaconChainTypes>(
             |accept_header: Option<api_types::Accept>, eth1_service: eth1::Service| {
                 blocking_task(move || match accept_header {
                     Some(api_types::Accept::Json) => {
-                        Ok(warp::reply::json(&eth1_service.get_deposit_snapshot()).into_response())
+                        let snapshot = eth1_service.get_deposit_snapshot();
+                        Ok(
+                            warp::reply::json(&api_types::GenericResponse::from(snapshot))
+                                .into_response(),
+                        )
                     }
-                    _ => Response::builder()
-                        .status(200)
-                        .header("Content-Type", "application/octet-stream")
-                        .body(eth1_service.get_deposit_snapshot().as_ssz_bytes().into())
-                        .map_err(|e| {
-                            warp_utils::reject::custom_server_error(format!(
-                                "failed to create response: {}",
-                                e
-                            ))
+                    _ => eth1_service
+                        .get_deposit_snapshot()
+                        .map(|snapshot| {
+                            println!("sending existing snapshot!");
+                            Response::builder()
+                                .status(200)
+                                .header("Content-Type", "application/octet-stream")
+                                .body(snapshot.as_ssz_bytes().into())
+                                .map_err(|e| {
+                                    warp_utils::reject::custom_server_error(format!(
+                                        "failed to create response: {}",
+                                        e
+                                    ))
+                                })
+                        })
+                        .unwrap_or_else(|| {
+                            println!("sending empty snapshot!");
+                            Response::builder()
+                                .status(503)
+                                .header("Content-Type", "application/octet-stream")
+                                .body(Vec::new().into())
+                                .map_err(|e| {
+                                    warp_utils::reject::custom_server_error(format!(
+                                        "failed to create response: {}",
+                                        e
+                                    ))
+                                })
                         }),
                 })
             },

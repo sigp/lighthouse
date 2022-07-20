@@ -83,14 +83,27 @@ impl SszDepositCache {
     }
 
     pub fn to_deposit_cache(&self) -> Result<DepositCache, String> {
-        let mut deposit_tree =
-            DepositDataTree::from_snapshot(&self.deposit_tree_snapshot, DEPOSIT_TREE_DEPTH)
-                .map_err(|e| format!("Invalid SszDepositCache: {:?}", e))?;
-        for leaf in &self.leaves {
-            deposit_tree
-                .push_leaf(*leaf)
-                .map_err(|e| format!("Invalid SszDepositCache: unable to push leaf: {:?}", e))?;
-        }
+        let deposit_tree = self
+            .deposit_tree_snapshot
+            .as_ref()
+            .map(|snapshot| {
+                let mut tree = DepositDataTree::from_snapshot(snapshot, DEPOSIT_TREE_DEPTH)
+                    .map_err(|e| format!("Invalid SszDepositCache: {:?}", e))?;
+                for leaf in &self.leaves {
+                    tree.push_leaf(*leaf).map_err(|e| {
+                        format!("Invalid SszDepositCache: unable to push leaf: {:?}", e)
+                    })?;
+                }
+                Ok::<_, String>(tree)
+            })
+            .unwrap_or_else(|| {
+                Ok(DepositDataTree::create(
+                    &self.leaves,
+                    self.leaves.len(),
+                    DEPOSIT_TREE_DEPTH,
+                ))
+            })?;
+
         // Check for invalid SszDepositCache conditions
         if self.leaves.len() != self.logs.len() {
             return Err("Invalid SszDepositCache: logs and leaves should have equal length".into());
@@ -167,9 +180,9 @@ impl DepositCache {
 
     pub fn from_deposit_snapshot(
         deposit_contract_deploy_block: u64,
-        snapshot: DepositTreeSnapshot,
+        snapshot: &DepositTreeSnapshot,
     ) -> Result<Self, String> {
-        let deposit_tree = DepositDataTree::from_snapshot(&snapshot, DEPOSIT_TREE_DEPTH)
+        let deposit_tree = DepositDataTree::from_snapshot(snapshot, DEPOSIT_TREE_DEPTH)
             .map_err(|e| format!("Invalid DepositSnapshot: {:?}", e))?;
         Ok(DepositCache {
             logs: Vec::new(),
@@ -262,8 +275,8 @@ impl DepositCache {
         }
     }
 
-    /// Returns the deposit tree snapshot
-    pub fn get_deposit_snapshot(&self) -> DepositTreeSnapshot {
+    /// Returns the deposit tree snapshot (if tree is finalized)
+    pub fn get_deposit_snapshot(&self) -> Option<DepositTreeSnapshot> {
         self.deposit_tree.get_snapshot()
     }
 
@@ -357,14 +370,24 @@ impl DepositCache {
                 .get(0..deposit_count as usize)
                 .ok_or_else(|| Error::Internal("Unable to get known leaves".into()))?;
 
-            let mut tree = DepositDataTree::from_snapshot(
-                &self.deposit_tree.get_snapshot(),
-                DEPOSIT_TREE_DEPTH,
-            )
-            .map_err(Error::DepositTree)?;
-            for leaf in leaves {
-                tree.push_leaf(*leaf).map_err(Error::DepositTree)?;
-            }
+            let tree = self
+                .deposit_tree
+                .get_snapshot()
+                .map(|snapshot| {
+                    let mut tree = DepositDataTree::from_snapshot(&snapshot, DEPOSIT_TREE_DEPTH)
+                        .map_err(Error::DepositTree)?;
+                    for leaf in leaves {
+                        tree.push_leaf(*leaf).map_err(Error::DepositTree)?;
+                    }
+                    Ok(tree)
+                })
+                .unwrap_or_else(|| {
+                    Ok(DepositDataTree::create(
+                        &leaves,
+                        leaves.len(),
+                        DEPOSIT_TREE_DEPTH,
+                    ))
+                })?;
 
             let mut deposits = vec![];
             self.logs

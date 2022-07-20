@@ -34,7 +34,7 @@ pub fn migrate_schema<T: BeaconChainTypes>(
     spec: &ChainSpec,
 ) -> Result<(), StoreError> {
     match (from, to) {
-        // Migrating from the current schema version to iself is always OK, a no-op.
+        // Migrating from the current schema version to itself is always OK, a no-op.
         (_, _) if from == to && to == CURRENT_SCHEMA_VERSION => Ok(()),
         // Upgrade across multiple versions by recursively migrating one step at a time.
         (_, _) if from.as_u64() + 1 < to.as_u64() => {

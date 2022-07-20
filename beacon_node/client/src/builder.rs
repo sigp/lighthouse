@@ -377,14 +377,13 @@ where
                         config.eth1,
                         context.log().clone(),
                         spec,
-                        deposit_snapshot,
+                        &deposit_snapshot,
                     ) {
                         Ok(service) => {
-                            let deposits_loaded = service.get_deposit_snapshot().deposits;
                             info!(
                                 context.log(),
-                                "Loaded deposit cache from snapshot";
-                                "deposit count" => deposits_loaded,
+                                "Loaded deposit tree snapshot";
+                                "deposits loaded" => deposit_snapshot.deposits,
                             );
                             Some(service)
                         }

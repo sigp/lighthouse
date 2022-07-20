@@ -3,7 +3,7 @@ use eth1::{BlockCache, SszDepositCacheV1, SszDepositCacheV13, SszEth1CacheV1, Ss
 use ssz::{Decode, Encode};
 use state_processing::common::DepositDataTree;
 use store::Error;
-use types::{Hash256, DEPOSIT_TREE_DEPTH};
+use types::DEPOSIT_TREE_DEPTH;
 
 pub fn update_eth1_cache(persisted_eth1_v1: SszEth1) -> Result<SszEth1, Error> {
     if persisted_eth1_v1.use_dummy_backend {
@@ -83,8 +83,7 @@ pub fn downgrade_eth1_cache(persisted_eth1_v13: SszEth1) -> Result<Option<SszEth
         deposit_roots,
     } = deposit_cache_v13;
 
-    if finalized_deposit_count == 0 && deposit_tree_snapshot.execution_block_hash == Hash256::zero()
-    {
+    if finalized_deposit_count == 0 && deposit_tree_snapshot.is_none() {
         // This tree was never finalized and can be directly downgraded to v1 without re-initializing
         let deposit_cache_v1 = SszDepositCacheV1 {
             logs,
