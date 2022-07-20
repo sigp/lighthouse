@@ -2,13 +2,19 @@ use crate::{BeaconChain, BeaconChainTypes};
 use execution_layer::Error as EngineError;
 use std::fmt;
 use std::fmt::Write;
-use types::{ChainSpec, Epoch, ExecutionBlockHash, Uint256};
+use types::*;
+
+/// The time before the Bellatrix fork when we will start issuing warnings about preparation.
+///
+/// Currently set to two weeks.
+const MERGE_READINESS_PREPARATION_SECONDS: u64 = 1_209_600 * 2;
+const MERGE_READINESS_PREPARATION_HELP_TEXT: &str = "four weeks";
 
 #[derive(Default, Debug)]
 pub struct MergeConfig {
-    terminal_total_difficulty: Option<Uint256>,
-    terminal_block_hash: Option<ExecutionBlockHash>,
-    terminal_block_hash_epoch: Option<Epoch>,
+    pub terminal_total_difficulty: Option<Uint256>,
+    pub terminal_block_hash: Option<ExecutionBlockHash>,
+    pub terminal_block_hash_epoch: Option<Epoch>,
 }
 
 impl fmt::Display for MergeConfig {
@@ -70,6 +76,7 @@ pub enum MergeReadiness {
         current_difficulty: Result<Uint256, String>,
     },
     BellatrixNotSpecified,
+    BellatrixIsDistant,
     ExchangeTransitionConfigurationFailed(EngineError),
     NotSynced,
     NoExecutionEndpoint,
@@ -92,6 +99,11 @@ impl fmt::Display for MergeReadiness {
             MergeReadiness::BellatrixNotSpecified => {
                 write!(f, "The Bellatrix upgrade epoch has not yet been specified")
             }
+            MergeReadiness::BellatrixIsDistant => write!(
+                f,
+                "The Bellatrix upgrade epoch will occur in {} or more",
+                MERGE_READINESS_PREPARATION_HELP_TEXT
+            ),
             MergeReadiness::ExchangeTransitionConfigurationFailed(e) => write!(
                 f,
                 "Could not confirm the transition configuration with the \
@@ -100,25 +112,54 @@ impl fmt::Display for MergeReadiness {
             ),
             MergeReadiness::NotSynced => write!(
                 f,
-                "The execution endpoint is connected and has the right config, \
-                    however it is not yet synced. The node must be synced in \
-                    order to be ready for the merge."
+                "The execution endpoint is connected and configured, \
+                    however it is not yet synced"
             ),
             MergeReadiness::NoExecutionEndpoint => write!(
                 f,
-                "The execution endpoint is connected and has the right config, \
-                    however it is not yet synced."
+                "The --execution-endpoint flag is not specified, this is a \
+                    requirement for the merge"
             ),
         }
     }
 }
 
 impl<T: BeaconChainTypes> BeaconChain<T> {
-    pub async fn check_merge_readiness(&self) -> MergeReadiness {
-        if self.spec.bellatrix_fork_epoch.is_none() {
+    pub fn is_time_to_prepare_for_bellatrix(&self, current_slot: Slot) -> bool {
+        if let Some(bellatrix_epoch) = self.spec.bellatrix_fork_epoch {
+            let bellatrix_slot = bellatrix_epoch.start_slot(T::EthSpec::slots_per_epoch());
+            let merge_readiness_preparation_slots =
+                MERGE_READINESS_PREPARATION_SECONDS / self.spec.seconds_per_slot;
+
+            if current_slot + merge_readiness_preparation_slots > bellatrix_slot {
+                // Bellatrix is either nearby or has already happened, time to prepare!
+                true
+            } else {
+                // The Bellatrix fork epoch is far enough in the future that we don't need to
+                // prepare yet.
+                false
+            }
+        } else {
+            // The Bellatrix fork epoch has not been defined yet, no need to prepare.
+            false
+        }
+    }
+
+    pub async fn check_merge_readiness(&self, current_slot: Slot) -> MergeReadiness {
+        let bellatrix_epoch = if let Some(epoch) = self.spec.bellatrix_fork_epoch {
+            epoch
+        } else {
             // There is no Bellatrix fork specified, no need to check for an EL yet.
             return MergeReadiness::BellatrixNotSpecified;
         };
+
+        let bellatrix_slot = bellatrix_epoch.start_slot(T::EthSpec::slots_per_epoch());
+        let merge_readiness_preparation_slots =
+            MERGE_READINESS_PREPARATION_SECONDS / self.spec.seconds_per_slot;
+        if current_slot + merge_readiness_preparation_slots < bellatrix_slot {
+            // Bellatrix is far in the future, no need to check for an EL.
+            return MergeReadiness::BellatrixIsDistant;
+        }
 
         if let Some(el) = self.execution_layer.as_ref() {
             if let Err(e) = el.exchange_transition_configuration(&self.spec).await {

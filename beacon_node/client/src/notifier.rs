@@ -1,5 +1,8 @@
 use crate::metrics;
-use beacon_chain::{BeaconChain, BeaconChainTypes, ExecutionStatus};
+use beacon_chain::{
+    merge_readiness::{MergeConfig, MergeReadiness},
+    BeaconChain, BeaconChainTypes, ExecutionStatus,
+};
 use lighthouse_network::{types::SyncState, NetworkGlobals};
 use slog::{crit, debug, error, info, warn, Logger};
 use slot_clock::SlotClock;
@@ -7,7 +10,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
 use tokio::time::sleep;
-use types::{EthSpec, Slot};
+use types::*;
 
 /// Create a warning log whenever the peer count is at or below this value.
 pub const WARN_PEER_COUNT: usize = 1;
@@ -77,7 +80,6 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
 
         // Perform post-genesis logging.
         let mut last_backfill_log_slot = None;
-        let mut merge_completed = false;
 
         loop {
             interval.tick().await;
@@ -309,27 +311,84 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
 
             eth1_logging(&beacon_chain, &log);
 
-            if let Some(bellatrix_epoch) = beacon_chain.spec.bellatrix_fork_epoch {
-                if !merge_completed && current_epoch >= bellatrix_epoch {
-                    // TODO(pawan): Check if this is acceptable amount of lock contention.
-                    if let Ok(head_execution_status) = beacon_chain
+            match beacon_chain.check_merge_readiness(current_slot).await {
+                MergeReadiness::Ready {
+                    config,
+                    current_difficulty,
+                } => {
+                    let merge_completed = beacon_chain
                         .canonical_head
-                        .head_execution_status()
-                        .map_err(|e| format!("Failed to get head execution status: {:?}", e))
-                    {
-                        // No need for ttd logging if we are past the merge
-                        if head_execution_status.is_valid_and_post_bellatrix() {
-                            merge_completed = true;
-                        } else {
-                            let merge_readiness = beacon_chain.check_merge_readiness().await;
-                            info!(
+                        .cached_head()
+                        .snapshot
+                        .beacon_block
+                        .message()
+                        .body()
+                        .execution_payload()
+                        .map_or(false, |payload| {
+                            payload.parent_hash() != ExecutionBlockHash::zero()
+                        });
+
+                    if !merge_completed {
+                        match config {
+                            MergeConfig {
+                                terminal_total_difficulty: Some(ttd),
+                                terminal_block_hash: None,
+                                terminal_block_hash_epoch: None,
+                            } => {
+                                info!(
+                                    log,
+                                    "Ready for the merge";
+                                    "terminal_total_difficulty" => %ttd,
+                                    "current_difficulty" => current_difficulty
+                                        .map(|d| d.to_string())
+                                        .unwrap_or_else(|_| "??".into()),
+                                )
+                            }
+                            MergeConfig {
+                                terminal_total_difficulty: _,
+                                terminal_block_hash: Some(terminal_block_hash),
+                                terminal_block_hash_epoch: Some(terminal_block_hash_epoch),
+                            } => {
+                                info!(
+                                    log,
+                                    "Ready for the merge";
+                                    "info" => "you are using override parameters, please ensure that you \
+                                        understand these parameters and their implications.",
+                                    "terminal_block_hash" => ?terminal_block_hash,
+                                    "terminal_block_hash_epoch" => ?terminal_block_hash_epoch,
+                                )
+                            }
+                            other => error!(
                                 log,
-                                "Merge readiness";
-                                "config" => %merge_readiness
-                            );
+                                "Inconsistent merge configuration";
+                                "config" => ?other
+                            ),
                         }
                     }
                 }
+                readiness @ MergeReadiness::BellatrixNotSpecified
+                | readiness @ MergeReadiness::BellatrixIsDistant => debug!(
+                        log,
+                        "Checked merge readiness";
+                        "info" => %readiness,
+                ),
+                readiness @ MergeReadiness::ExchangeTransitionConfigurationFailed(_) => {
+                    error!(
+                        log,
+                        "Not ready for merge";
+                        "info" => %readiness,
+                    )
+                }
+                readiness @ MergeReadiness::NotSynced => warn!(
+                    log,
+                    "Not ready for merge";
+                    "info" => %readiness,
+                ),
+                readiness @ MergeReadiness::NoExecutionEndpoint => warn!(
+                    log,
+                    "Not ready for merge";
+                    "info" => %readiness,
+                ),
             }
         }
     };
