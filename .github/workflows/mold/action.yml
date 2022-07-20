@@ -14,6 +14,7 @@ runs:
       shell: bash
       if: "${{ runner.os == 'linux' && inputs.enabled == 'true' }}"
     - run: mold --version
+      shell: bash
     - run: echo "RUSTFLAGS=-C linker=clang -C link-arg=-fuse-ld=/usr/local/bin/mold ${{ env.RUSTFLAGS }}" >> $GITHUB_ENV
       shell: bash
       if: "${{ runner.os == 'linux' && inputs.enabled == 'true' }}"
