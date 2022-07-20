@@ -20,6 +20,7 @@ pub mod fork_choice_signal;
 pub mod fork_revert;
 mod head_tracker;
 pub mod historical_blocks;
+pub mod merge_readiness;
 mod metrics;
 pub mod migrate;
 mod naive_aggregation_pool;

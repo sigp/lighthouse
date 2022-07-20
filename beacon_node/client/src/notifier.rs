@@ -1,13 +1,16 @@
 use crate::metrics;
-use beacon_chain::{BeaconChain, BeaconChainTypes, ExecutionStatus};
+use beacon_chain::{
+    merge_readiness::{MergeConfig, MergeReadiness},
+    BeaconChain, BeaconChainTypes, ExecutionStatus,
+};
 use lighthouse_network::{types::SyncState, NetworkGlobals};
-use parking_lot::Mutex;
 use slog::{crit, debug, error, info, warn, Logger};
 use slot_clock::SlotClock;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use tokio::sync::Mutex;
 use tokio::time::sleep;
-use types::{EthSpec, Slot};
+use types::*;
 
 /// Create a warning log whenever the peer count is at or below this value.
 pub const WARN_PEER_COUNT: usize = 1;
@@ -77,6 +80,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
 
         // Perform post-genesis logging.
         let mut last_backfill_log_slot = None;
+
         loop {
             interval.tick().await;
             let connected_peer_count = network.connected_peers();
@@ -87,12 +91,12 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                 match (current_sync_state, &sync_state) {
                     (_, SyncState::BackFillSyncing { .. }) => {
                         // We have transitioned to a backfill sync. Reset the speedo.
-                        let mut speedo = speedo.lock();
+                        let mut speedo = speedo.lock().await;
                         speedo.clear();
                     }
                     (SyncState::BackFillSyncing { .. }, _) => {
                         // We have transitioned from a backfill sync, reset the speedo
-                        let mut speedo = speedo.lock();
+                        let mut speedo = speedo.lock().await;
                         speedo.clear();
                     }
                     (_, _) => {}
@@ -125,7 +129,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
             // progress.
             let mut sync_distance = current_slot - head_slot;
 
-            let mut speedo = speedo.lock();
+            let mut speedo = speedo.lock().await;
             match current_sync_state {
                 SyncState::BackFillSyncing { .. } => {
                     // Observe backfilling sync info.
@@ -306,6 +310,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
             }
 
             eth1_logging(&beacon_chain, &log);
+            merge_readiness_logging(current_slot, &beacon_chain, &log).await;
         }
     };
 
@@ -313,6 +318,88 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
     executor.spawn(interval_future, "notifier");
 
     Ok(())
+}
+
+/// Provides some helpful logging to users to indicate if their node is ready for the Bellatrix
+/// fork and subsequent merge transition.
+async fn merge_readiness_logging<T: BeaconChainTypes>(
+    current_slot: Slot,
+    beacon_chain: &BeaconChain<T>,
+    log: &Logger,
+) {
+    let merge_completed = beacon_chain
+        .canonical_head
+        .cached_head()
+        .snapshot
+        .beacon_block
+        .message()
+        .body()
+        .execution_payload()
+        .map_or(false, |payload| {
+            payload.parent_hash() != ExecutionBlockHash::zero()
+        });
+
+    if merge_completed || !beacon_chain.is_time_to_prepare_for_bellatrix(current_slot) {
+        return;
+    }
+
+    match beacon_chain.check_merge_readiness().await {
+        MergeReadiness::Ready {
+            config,
+            current_difficulty,
+        } => match config {
+            MergeConfig {
+                terminal_total_difficulty: Some(ttd),
+                terminal_block_hash: None,
+                terminal_block_hash_epoch: None,
+            } => {
+                info!(
+                    log,
+                    "Ready for the merge";
+                    "terminal_total_difficulty" => %ttd,
+                    "current_difficulty" => current_difficulty
+                        .map(|d| d.to_string())
+                        .unwrap_or_else(|_| "??".into()),
+                )
+            }
+            MergeConfig {
+                terminal_total_difficulty: _,
+                terminal_block_hash: Some(terminal_block_hash),
+                terminal_block_hash_epoch: Some(terminal_block_hash_epoch),
+            } => {
+                info!(
+                    log,
+                    "Ready for the merge";
+                    "info" => "you are using override parameters, please ensure that you \
+                        understand these parameters and their implications.",
+                    "terminal_block_hash" => ?terminal_block_hash,
+                    "terminal_block_hash_epoch" => ?terminal_block_hash_epoch,
+                )
+            }
+            other => error!(
+                log,
+                "Inconsistent merge configuration";
+                "config" => ?other
+            ),
+        },
+        readiness @ MergeReadiness::ExchangeTransitionConfigurationFailed(_) => {
+            error!(
+                log,
+                "Not ready for merge";
+                "info" => %readiness,
+            )
+        }
+        readiness @ MergeReadiness::NotSynced => warn!(
+            log,
+            "Not ready for merge";
+            "info" => %readiness,
+        ),
+        readiness @ MergeReadiness::NoExecutionEndpoint => warn!(
+            log,
+            "Not ready for merge";
+            "info" => %readiness,
+        ),
+    }
 }
 
 fn eth1_logging<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>, log: &Logger) {
