@@ -1,3 +1,6 @@
+//! Provides tools for checking if a node is ready for the Bellatrix upgrade and following merge
+//! transition.
+
 use crate::{BeaconChain, BeaconChainTypes};
 use execution_layer::Error as EngineError;
 use std::fmt;
@@ -6,9 +9,9 @@ use types::*;
 
 /// The time before the Bellatrix fork when we will start issuing warnings about preparation.
 ///
-/// Currently set to two weeks.
-const MERGE_READINESS_PREPARATION_SECONDS: u64 = 1_209_600 * 2;
-const MERGE_READINESS_PREPARATION_HELP_TEXT: &str = "four weeks";
+/// Currently set to two and a half weeks.
+const SECONDS_IN_A_WEEK: u64 = 604800;
+pub const MERGE_READINESS_PREPARATION_SECONDS: u64 = SECONDS_IN_A_WEEK * 5 / 2;
 
 #[derive(Default, Debug)]
 pub struct MergeConfig {
@@ -55,6 +58,7 @@ impl fmt::Display for MergeConfig {
     }
 }
 impl MergeConfig {
+    /// Instantiate `self` from the values in a `ChainSpec`.
     pub fn from_chainspec(spec: &ChainSpec) -> Self {
         let mut params = MergeConfig::default();
         if spec.terminal_total_difficulty != Uint256::max_value() {
@@ -70,15 +74,19 @@ impl MergeConfig {
     }
 }
 
+/// Indicates if a node is ready for the Bellatrix upgrade and subsequent merge transition.
 pub enum MergeReadiness {
+    /// The node is ready, as far as we can tell.
     Ready {
         config: MergeConfig,
         current_difficulty: Result<Uint256, String>,
     },
-    BellatrixNotSpecified,
-    BellatrixIsDistant,
+    /// The transition configuration with the EL failed, there might be a problem with
+    /// connectivity, authentication or a difference in configuration.
     ExchangeTransitionConfigurationFailed(EngineError),
+    /// The EL can be reached and has the correct configuration, however it's not yet synced.
     NotSynced,
+    /// The user has not configured this node to use an execution endpoint.
     NoExecutionEndpoint,
 }
 
@@ -96,14 +104,6 @@ impl fmt::Display for MergeReadiness {
                     params, current_difficulty
                 )
             }
-            MergeReadiness::BellatrixNotSpecified => {
-                write!(f, "The Bellatrix upgrade epoch has not yet been specified")
-            }
-            MergeReadiness::BellatrixIsDistant => write!(
-                f,
-                "The Bellatrix upgrade epoch will occur in {} or more",
-                MERGE_READINESS_PREPARATION_HELP_TEXT
-            ),
             MergeReadiness::ExchangeTransitionConfigurationFailed(e) => write!(
                 f,
                 "Could not confirm the transition configuration with the \
@@ -125,6 +125,8 @@ impl fmt::Display for MergeReadiness {
 }
 
 impl<T: BeaconChainTypes> BeaconChain<T> {
+    /// Returns `true` if the Bellatrix fork has occurred or will occur within
+    /// `MERGE_READINESS_PREPARATION_SECONDS`.
     pub fn is_time_to_prepare_for_bellatrix(&self, current_slot: Slot) -> bool {
         if let Some(bellatrix_epoch) = self.spec.bellatrix_fork_epoch {
             let bellatrix_slot = bellatrix_epoch.start_slot(T::EthSpec::slots_per_epoch());
@@ -145,22 +147,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
     }
 
-    pub async fn check_merge_readiness(&self, current_slot: Slot) -> MergeReadiness {
-        let bellatrix_epoch = if let Some(epoch) = self.spec.bellatrix_fork_epoch {
-            epoch
-        } else {
-            // There is no Bellatrix fork specified, no need to check for an EL yet.
-            return MergeReadiness::BellatrixNotSpecified;
-        };
-
-        let bellatrix_slot = bellatrix_epoch.start_slot(T::EthSpec::slots_per_epoch());
-        let merge_readiness_preparation_slots =
-            MERGE_READINESS_PREPARATION_SECONDS / self.spec.seconds_per_slot;
-        if current_slot + merge_readiness_preparation_slots < bellatrix_slot {
-            // Bellatrix is far in the future, no need to check for an EL.
-            return MergeReadiness::BellatrixIsDistant;
-        }
-
+    /// Attempts to connect to the EL and confirm that it is ready for the merge.
+    pub async fn check_merge_readiness(&self) -> MergeReadiness {
         if let Some(el) = self.execution_layer.as_ref() {
             if let Err(e) = el.exchange_transition_configuration(&self.spec).await {
                 // The EL was either unreachable, responded with an error or has a different

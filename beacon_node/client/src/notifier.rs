@@ -310,86 +310,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
             }
 
             eth1_logging(&beacon_chain, &log);
-
-            match beacon_chain.check_merge_readiness(current_slot).await {
-                MergeReadiness::Ready {
-                    config,
-                    current_difficulty,
-                } => {
-                    let merge_completed = beacon_chain
-                        .canonical_head
-                        .cached_head()
-                        .snapshot
-                        .beacon_block
-                        .message()
-                        .body()
-                        .execution_payload()
-                        .map_or(false, |payload| {
-                            payload.parent_hash() != ExecutionBlockHash::zero()
-                        });
-
-                    if !merge_completed {
-                        match config {
-                            MergeConfig {
-                                terminal_total_difficulty: Some(ttd),
-                                terminal_block_hash: None,
-                                terminal_block_hash_epoch: None,
-                            } => {
-                                info!(
-                                    log,
-                                    "Ready for the merge";
-                                    "terminal_total_difficulty" => %ttd,
-                                    "current_difficulty" => current_difficulty
-                                        .map(|d| d.to_string())
-                                        .unwrap_or_else(|_| "??".into()),
-                                )
-                            }
-                            MergeConfig {
-                                terminal_total_difficulty: _,
-                                terminal_block_hash: Some(terminal_block_hash),
-                                terminal_block_hash_epoch: Some(terminal_block_hash_epoch),
-                            } => {
-                                info!(
-                                    log,
-                                    "Ready for the merge";
-                                    "info" => "you are using override parameters, please ensure that you \
-                                        understand these parameters and their implications.",
-                                    "terminal_block_hash" => ?terminal_block_hash,
-                                    "terminal_block_hash_epoch" => ?terminal_block_hash_epoch,
-                                )
-                            }
-                            other => error!(
-                                log,
-                                "Inconsistent merge configuration";
-                                "config" => ?other
-                            ),
-                        }
-                    }
-                }
-                readiness @ MergeReadiness::BellatrixNotSpecified
-                | readiness @ MergeReadiness::BellatrixIsDistant => debug!(
-                        log,
-                        "Checked merge readiness";
-                        "info" => %readiness,
-                ),
-                readiness @ MergeReadiness::ExchangeTransitionConfigurationFailed(_) => {
-                    error!(
-                        log,
-                        "Not ready for merge";
-                        "info" => %readiness,
-                    )
-                }
-                readiness @ MergeReadiness::NotSynced => warn!(
-                    log,
-                    "Not ready for merge";
-                    "info" => %readiness,
-                ),
-                readiness @ MergeReadiness::NoExecutionEndpoint => warn!(
-                    log,
-                    "Not ready for merge";
-                    "info" => %readiness,
-                ),
-            }
+            merge_readiness_logging(current_slot, &beacon_chain, &log).await;
         }
     };
 
@@ -397,6 +318,88 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
     executor.spawn(interval_future, "notifier");
 
     Ok(())
+}
+
+/// Provides some helpful logging to users to indicate if their node is ready for the Bellatrix
+/// fork and subsequent merge transition.
+async fn merge_readiness_logging<T: BeaconChainTypes>(
+    current_slot: Slot,
+    beacon_chain: &BeaconChain<T>,
+    log: &Logger,
+) {
+    let merge_completed = beacon_chain
+        .canonical_head
+        .cached_head()
+        .snapshot
+        .beacon_block
+        .message()
+        .body()
+        .execution_payload()
+        .map_or(false, |payload| {
+            payload.parent_hash() != ExecutionBlockHash::zero()
+        });
+
+    if merge_completed || !beacon_chain.is_time_to_prepare_for_bellatrix(current_slot) {
+        return;
+    }
+
+    match beacon_chain.check_merge_readiness().await {
+        MergeReadiness::Ready {
+            config,
+            current_difficulty,
+        } => match config {
+            MergeConfig {
+                terminal_total_difficulty: Some(ttd),
+                terminal_block_hash: None,
+                terminal_block_hash_epoch: None,
+            } => {
+                info!(
+                    log,
+                    "Ready for the merge";
+                    "terminal_total_difficulty" => %ttd,
+                    "current_difficulty" => current_difficulty
+                        .map(|d| d.to_string())
+                        .unwrap_or_else(|_| "??".into()),
+                )
+            }
+            MergeConfig {
+                terminal_total_difficulty: _,
+                terminal_block_hash: Some(terminal_block_hash),
+                terminal_block_hash_epoch: Some(terminal_block_hash_epoch),
+            } => {
+                info!(
+                    log,
+                    "Ready for the merge";
+                    "info" => "you are using override parameters, please ensure that you \
+                        understand these parameters and their implications.",
+                    "terminal_block_hash" => ?terminal_block_hash,
+                    "terminal_block_hash_epoch" => ?terminal_block_hash_epoch,
+                )
+            }
+            other => error!(
+                log,
+                "Inconsistent merge configuration";
+                "config" => ?other
+            ),
+        },
+        readiness @ MergeReadiness::ExchangeTransitionConfigurationFailed(_) => {
+            error!(
+                log,
+                "Not ready for merge";
+                "info" => %readiness,
+            )
+        }
+        readiness @ MergeReadiness::NotSynced => warn!(
+            log,
+            "Not ready for merge";
+            "info" => %readiness,
+        ),
+        readiness @ MergeReadiness::NoExecutionEndpoint => warn!(
+            log,
+            "Not ready for merge";
+            "info" => %readiness,
+        ),
+    }
 }
 
 fn eth1_logging<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>, log: &Logger) {
