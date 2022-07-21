@@ -357,15 +357,6 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                 };
                 drop(get_timer);
 
-                // Ensure the correctness of the execution payload's fee recipient.
-                if let Ok(execution_payload) = block.body().execution_payload() {
-                    if Some(execution_payload.fee_recipient()) != fee_recipient {
-                        return Err(BlockError::Recoverable(
-                            "Incorrect fee recipient used by builder".to_string(),
-                        ));
-                    }
-                }
-
                 if proposer_index != Some(block.proposer_index()) {
                     return Err(BlockError::Recoverable(
                         "Proposer index does not match block proposer. Beacon chain re-orged"
