@@ -11,6 +11,7 @@ pub use engine_api::*;
 pub use engine_api::{http, http::deposit_methods, http::HttpJsonRpc};
 pub use engines::ForkChoiceState;
 use engines::{Engine, EngineError};
+use fork_choice::ForkchoiceUpdateParameters;
 use lru::LruCache;
 use payload_status::process_payload_status;
 pub use payload_status::PayloadStatus;
@@ -234,6 +235,16 @@ impl<T: EthSpec> ExecutionLayer<T> {
         &self.inner.executor
     }
 
+    /// Get the current difficulty of the PoW chain.
+    pub async fn get_current_difficulty(&self) -> Result<Uint256, ApiError> {
+        let block = self
+            .engine()
+            .api
+            .get_block_by_number(BlockByNumberQuery::Tag(LATEST_TAG))
+            .await?
+            .ok_or(ApiError::ExecutionHeadBlockNotFound)?;
+        Ok(block.total_difficulty)
+    }
     /// Note: this function returns a mutex guard, be careful to avoid deadlocks.
     async fn execution_blocks(
         &self,
@@ -355,6 +366,29 @@ impl<T: EthSpec> ExecutionLayer<T> {
         self.engine().is_synced().await
     }
 
+    /// Execution nodes return a "SYNCED" response when they do not have any peers.
+    ///
+    /// This function is a wrapper over `Self::is_synced` that makes an additional
+    /// check for the execution layer sync status. Checks if the latest block has
+    /// a `block_number != 0`.
+    /// Returns the `Self::is_synced` response if unable to get latest block.
+    pub async fn is_synced_for_notifier(&self) -> bool {
+        let synced = self.is_synced().await;
+        if synced {
+            if let Ok(Some(block)) = self
+                .engine()
+                .api
+                .get_block_by_number(BlockByNumberQuery::Tag(LATEST_TAG))
+                .await
+            {
+                if block.block_number == 0 {
+                    return false;
+                }
+            }
+        }
+        synced
+    }
+
     /// Updates the proposer preparation data provided by validators
     pub async fn update_proposer_preparation(
         &self,
@@ -469,10 +503,10 @@ impl<T: EthSpec> ExecutionLayer<T> {
         parent_hash: ExecutionBlockHash,
         timestamp: u64,
         prev_randao: Hash256,
-        finalized_block_hash: ExecutionBlockHash,
         proposer_index: u64,
         pubkey: Option<PublicKeyBytes>,
         slot: Slot,
+        forkchoice_update_params: ForkchoiceUpdateParameters,
     ) -> Result<Payload, Error> {
         let suggested_fee_recipient = self.get_suggested_fee_recipient(proposer_index).await;
 
@@ -486,10 +520,10 @@ impl<T: EthSpec> ExecutionLayer<T> {
                     parent_hash,
                     timestamp,
                     prev_randao,
-                    finalized_block_hash,
                     suggested_fee_recipient,
                     pubkey,
                     slot,
+                    forkchoice_update_params,
                 )
                 .await
             }
@@ -502,8 +536,8 @@ impl<T: EthSpec> ExecutionLayer<T> {
                     parent_hash,
                     timestamp,
                     prev_randao,
-                    finalized_block_hash,
                     suggested_fee_recipient,
+                    forkchoice_update_params,
                 )
                 .await
             }
@@ -516,17 +550,22 @@ impl<T: EthSpec> ExecutionLayer<T> {
         parent_hash: ExecutionBlockHash,
         timestamp: u64,
         prev_randao: Hash256,
-        finalized_block_hash: ExecutionBlockHash,
         suggested_fee_recipient: Address,
         pubkey_opt: Option<PublicKeyBytes>,
         slot: Slot,
+        forkchoice_update_params: ForkchoiceUpdateParameters,
     ) -> Result<Payload, Error> {
         //FIXME(sean) fallback logic included in PR #3134
 
         // Don't attempt to outsource payload construction until after the merge transition has been
         // finalized. We want to be conservative with payload construction until then.
         if let (Some(builder), Some(pubkey)) = (self.builder(), pubkey_opt) {
-            if finalized_block_hash != ExecutionBlockHash::zero() {
+            if forkchoice_update_params
+                .finalized_hash
+                .map_or(false, |finalized_block_hash| {
+                    finalized_block_hash != ExecutionBlockHash::zero()
+                })
+            {
                 info!(
                     self.log(),
                     "Requesting blinded header from connected builder";
@@ -545,8 +584,8 @@ impl<T: EthSpec> ExecutionLayer<T> {
             parent_hash,
             timestamp,
             prev_randao,
-            finalized_block_hash,
             suggested_fee_recipient,
+            forkchoice_update_params,
         )
         .await
     }
@@ -557,15 +596,15 @@ impl<T: EthSpec> ExecutionLayer<T> {
         parent_hash: ExecutionBlockHash,
         timestamp: u64,
         prev_randao: Hash256,
-        finalized_block_hash: ExecutionBlockHash,
         suggested_fee_recipient: Address,
+        forkchoice_update_params: ForkchoiceUpdateParameters,
     ) -> Result<Payload, Error> {
         self.get_full_payload_with(
             parent_hash,
             timestamp,
             prev_randao,
-            finalized_block_hash,
             suggested_fee_recipient,
+            forkchoice_update_params,
             noop,
         )
         .await
@@ -576,8 +615,8 @@ impl<T: EthSpec> ExecutionLayer<T> {
         parent_hash: ExecutionBlockHash,
         timestamp: u64,
         prev_randao: Hash256,
-        finalized_block_hash: ExecutionBlockHash,
         suggested_fee_recipient: Address,
+        forkchoice_update_params: ForkchoiceUpdateParameters,
         f: fn(&ExecutionLayer<T>, &ExecutionPayload<T>) -> Option<ExecutionPayload<T>>,
     ) -> Result<Payload, Error> {
         debug!(
@@ -601,20 +640,20 @@ impl<T: EthSpec> ExecutionLayer<T> {
                     );
                     id
                 } else {
-                    // The payload id has *not* been cached for this engine. Trigger an artificial
+                    // The payload id has *not* been cached. Trigger an artificial
                     // fork choice update to retrieve a payload ID.
-                    //
-                    // TODO(merge): a better algorithm might try to favour a node that already had a
-                    // cached payload id, since a payload that has had more time to produce is
-                    // likely to be more profitable.
                     metrics::inc_counter_vec(
                         &metrics::EXECUTION_LAYER_PRE_PREPARED_PAYLOAD_ID,
                         &[metrics::MISS],
                     );
                     let fork_choice_state = ForkChoiceState {
                         head_block_hash: parent_hash,
-                        safe_block_hash: parent_hash,
-                        finalized_block_hash,
+                        safe_block_hash: forkchoice_update_params
+                            .justified_hash
+                            .unwrap_or_else(ExecutionBlockHash::zero),
+                        finalized_block_hash: forkchoice_update_params
+                            .finalized_hash
+                            .unwrap_or_else(ExecutionBlockHash::zero),
                     };
                     let payload_attributes = PayloadAttributes {
                         timestamp,
@@ -622,29 +661,28 @@ impl<T: EthSpec> ExecutionLayer<T> {
                         suggested_fee_recipient,
                     };
 
-                            let response = engine
-                                .notify_forkchoice_updated(
-                                    fork_choice_state,
-                                    Some(payload_attributes),
-                                    self.log(),
-                                )
-                                .await?;
+                    let response = engine
+                        .notify_forkchoice_updated(
+                            fork_choice_state,
+                            Some(payload_attributes),
+                            self.log(),
+                        )
+                        .await?;
 
-                            match response.payload_id {
-                                Some(payload_id) => payload_id,
-                                None => {
-                                    error!(
-                                        self.log(),
-                                        "Exec engine unable to produce payload";
-                                        "msg" => "No payload ID, the engine is likely syncing. \
-                                                  This has the potential to cause a missed block \
-                                                  proposal.",
-                                        "status" => ?response.payload_status
-                                    );
-                                    return Err(ApiError::PayloadIdUnavailable);
-                                }
-                            }
-                        };
+                    match response.payload_id {
+                        Some(payload_id) => payload_id,
+                        None => {
+                            error!(
+                                self.log(),
+                                "Exec engine unable to produce payload";
+                                "msg" => "No payload ID, the engine is likely syncing. \
+                                          This has the potential to cause a missed block proposal.",
+                                "status" => ?response.payload_status
+                            );
+                            return Err(ApiError::PayloadIdUnavailable);
+                        }
+                    }
+                };
 
                 engine
                     .api
@@ -652,7 +690,11 @@ impl<T: EthSpec> ExecutionLayer<T> {
                     .await
                     .map(|full_payload| {
                         if f(self, &full_payload).is_some() {
-                            warn!(self.log(), "Duplicate payload cached, this might indicate redundant proposal attempts.");
+                            warn!(
+                                self.log(),
+                                "Duplicate payload cached, this might indicate redundant proposal \
+                                 attempts."
+                            );
                         }
                         full_payload.into()
                     })
@@ -776,6 +818,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
     pub async fn notify_forkchoice_updated(
         &self,
         head_block_hash: ExecutionBlockHash,
+        justified_block_hash: ExecutionBlockHash,
         finalized_block_hash: ExecutionBlockHash,
         current_slot: Slot,
         head_block_root: Hash256,
@@ -789,6 +832,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
             self.log(),
             "Issuing engine_forkchoiceUpdated";
             "finalized_block_hash" => ?finalized_block_hash,
+            "justified_block_hash" => ?justified_block_hash,
             "head_block_hash" => ?head_block_hash,
         );
 
@@ -815,11 +859,9 @@ impl<T: EthSpec> ExecutionLayer<T> {
             }
         }
 
-        // see https://hackmd.io/@n0ble/kintsugi-spec#Engine-API
-        // for now, we must set safe_block_hash = head_block_hash
         let forkchoice_state = ForkChoiceState {
             head_block_hash,
-            safe_block_hash: head_block_hash,
+            safe_block_hash: justified_block_hash,
             finalized_block_hash,
         };
 
@@ -902,6 +944,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
     pub async fn get_terminal_pow_block_hash(
         &self,
         spec: &ChainSpec,
+        timestamp: u64,
     ) -> Result<Option<ExecutionBlockHash>, Error> {
         let _timer = metrics::start_timer_vec(
             &metrics::EXECUTION_LAYER_REQUEST_TIMES,
@@ -924,8 +967,19 @@ impl<T: EthSpec> ExecutionLayer<T> {
                     }
                 }
 
-                self.get_pow_block_hash_at_total_difficulty(engine, spec)
-                    .await
+                let block = self.get_pow_block_at_total_difficulty(engine, spec).await?;
+                if let Some(pow_block) = block {
+                    // If `terminal_block.timestamp == transition_block.timestamp`,
+                    // we violate the invariant that a block's timestamp must be
+                    // strictly greater than its parent's timestamp.
+                    // The execution layer will reject a fcu call with such payload
+                    // attributes leading to a missed block.
+                    // Hence, we return `None` in such a case.
+                    if pow_block.timestamp >= timestamp {
+                        return Ok(None);
+                    }
+                }
+                Ok(block.map(|b| b.block_hash))
             })
             .await
             .map_err(Box::new)
@@ -953,11 +1007,11 @@ impl<T: EthSpec> ExecutionLayer<T> {
     /// `get_pow_block_at_terminal_total_difficulty`
     ///
     /// https://github.com/ethereum/consensus-specs/blob/v1.1.5/specs/merge/validator.md
-    async fn get_pow_block_hash_at_total_difficulty(
+    async fn get_pow_block_at_total_difficulty(
         &self,
         engine: &Engine,
         spec: &ChainSpec,
-    ) -> Result<Option<ExecutionBlockHash>, ApiError> {
+    ) -> Result<Option<ExecutionBlock>, ApiError> {
         let mut block = engine
             .api
             .get_block_by_number(BlockByNumberQuery::Tag(LATEST_TAG))
@@ -970,7 +1024,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
             let block_reached_ttd = block.total_difficulty >= spec.terminal_total_difficulty;
             if block_reached_ttd {
                 if block.parent_hash == ExecutionBlockHash::zero() {
-                    return Ok(Some(block.block_hash));
+                    return Ok(Some(block));
                 }
                 let parent = self
                     .get_pow_block(engine, block.parent_hash)
@@ -979,7 +1033,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                 let parent_reached_ttd = parent.total_difficulty >= spec.terminal_total_difficulty;
 
                 if block_reached_ttd && !parent_reached_ttd {
-                    return Ok(Some(block.block_hash));
+                    return Ok(Some(block));
                 } else {
                     block = parent;
                 }
@@ -1197,14 +1251,49 @@ mod test {
             .move_to_block_prior_to_terminal_block()
             .with_terminal_block(|spec, el, _| async move {
                 el.engine().upcheck().await;
-                assert_eq!(el.get_terminal_pow_block_hash(&spec).await.unwrap(), None)
+                assert_eq!(
+                    el.get_terminal_pow_block_hash(&spec, timestamp_now())
+                        .await
+                        .unwrap(),
+                    None
+                )
             })
             .await
             .move_to_terminal_block()
             .with_terminal_block(|spec, el, terminal_block| async move {
                 assert_eq!(
-                    el.get_terminal_pow_block_hash(&spec).await.unwrap(),
+                    el.get_terminal_pow_block_hash(&spec, timestamp_now())
+                        .await
+                        .unwrap(),
                     Some(terminal_block.unwrap().block_hash)
+                )
+            })
+            .await;
+    }
+
+    #[tokio::test]
+    async fn rejects_terminal_block_with_equal_timestamp() {
+        let runtime = TestRuntime::default();
+        MockExecutionLayer::default_params(runtime.task_executor.clone())
+            .move_to_block_prior_to_terminal_block()
+            .with_terminal_block(|spec, el, _| async move {
+                el.engine().upcheck().await;
+                assert_eq!(
+                    el.get_terminal_pow_block_hash(&spec, timestamp_now())
+                        .await
+                        .unwrap(),
+                    None
+                )
+            })
+            .await
+            .move_to_terminal_block()
+            .with_terminal_block(|spec, el, terminal_block| async move {
+                let timestamp = terminal_block.as_ref().map(|b| b.timestamp).unwrap();
+                assert_eq!(
+                    el.get_terminal_pow_block_hash(&spec, timestamp)
+                        .await
+                        .unwrap(),
+                    None
                 )
             })
             .await;
@@ -1268,4 +1357,13 @@ mod test {
 
 fn noop<T: EthSpec>(_: &ExecutionLayer<T>, _: &ExecutionPayload<T>) -> Option<ExecutionPayload<T>> {
     None
+}
+
+#[cfg(test)]
+/// Returns the duration since the unix epoch.
+fn timestamp_now() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_else(|_| Duration::from_secs(0))
+        .as_secs()
 }

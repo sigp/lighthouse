@@ -1,7 +1,7 @@
 # `lcli` requires the full project to be in scope, so this should be built either:
 #  - from the `lighthouse` dir with the command: `docker build -f ./lcli/Dockerflie .`
 #  - from the current directory with the command: `docker build -f ./Dockerfile ../`
-FROM rust:1.58.1-bullseye AS builder
+FROM rust:1.62.1-bullseye AS builder
 RUN apt-get update && apt-get -y upgrade && apt-get install -y cmake
 COPY . lighthouse
 ARG PORTABLE

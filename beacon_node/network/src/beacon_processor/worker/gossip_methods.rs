@@ -6,8 +6,7 @@ use beacon_chain::{
     observed_operations::ObservationOutcome,
     sync_committee_verification::{self, Error as SyncCommitteeError},
     validator_monitor::get_block_delay_ms,
-    BeaconChainError, BeaconChainTypes, BlockError, ExecutionPayloadError, ForkChoiceError,
-    GossipVerifiedBlock,
+    BeaconChainError, BeaconChainTypes, BlockError, ForkChoiceError, GossipVerifiedBlock,
 };
 use lighthouse_network::{Client, MessageAcceptance, MessageId, PeerAction, PeerId, ReportSource};
 use slog::{crit, debug, error, info, trace, warn};
@@ -776,9 +775,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                 return None;
             }
             // TODO(merge): reconsider peer scoring for this event.
-            Err(e @BlockError::ExecutionPayloadError(ExecutionPayloadError::RequestFailed(_)))
-            | Err(e @ BlockError::ExecutionPayloadError(ExecutionPayloadError::UnverifiedNonOptimisticCandidate))
-            | Err(e @BlockError::ExecutionPayloadError(ExecutionPayloadError::NoExecutionConnection)) => {
+            Err(ref e @BlockError::ExecutionPayloadError(ref epe)) if !epe.penalize_peer() => {
                 debug!(self.log, "Could not verify block for gossip, ignoring the block";
                             "error" => %e);
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
@@ -951,10 +948,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                 );
                 self.send_sync_message(SyncMessage::UnknownBlock(peer_id, block));
             }
-            Err(e @ BlockError::ExecutionPayloadError(ExecutionPayloadError::RequestFailed(_)))
-            | Err(
-                e @ BlockError::ExecutionPayloadError(ExecutionPayloadError::NoExecutionConnection),
-            ) => {
+            Err(ref e @ BlockError::ExecutionPayloadError(ref epe)) if !epe.penalize_peer() => {
                 debug!(
                     self.log,
                     "Failed to verify execution payload";

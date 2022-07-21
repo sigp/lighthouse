@@ -2887,6 +2887,18 @@ pub fn serve<T: BeaconChainTypes>(
             })
         });
 
+    // GET lighthouse/merge_readiness
+    let get_lighthouse_merge_readiness = warp::path("lighthouse")
+        .and(warp::path("merge_readiness"))
+        .and(warp::path::end())
+        .and(chain_filter.clone())
+        .and_then(|chain: Arc<BeaconChain<T>>| async move {
+            let merge_readiness = chain.check_merge_readiness().await;
+            Ok::<_, warp::reject::Rejection>(warp::reply::json(&api_types::GenericResponse::from(
+                merge_readiness,
+            )))
+        });
+
     let get_events = eth1_v1
         .and(warp::path("events"))
         .and(warp::path::end())
@@ -3015,6 +3027,7 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(get_lighthouse_block_rewards.boxed())
                 .or(get_lighthouse_attestation_performance.boxed())
                 .or(get_lighthouse_block_packing_efficiency.boxed())
+                .or(get_lighthouse_merge_readiness.boxed())
                 .or(get_events.boxed()),
         )
         .or(warp::post().and(
