@@ -257,6 +257,13 @@ mod tests {
     }
 
     #[test]
+    fn prater_and_goerli_are_equal() {
+        let goerli = Eth2NetworkConfig::from_hardcoded_net(&GOERLI).unwrap();
+        let prater = Eth2NetworkConfig::from_hardcoded_net(&PRATER).unwrap();
+        assert_eq!(goerli, prater);
+    }
+
+    #[test]
     fn hard_coded_nets_work() {
         for net in HARDCODED_NETS {
             let config = Eth2NetworkConfig::from_hardcoded_net(net)
@@ -275,7 +282,7 @@ mod tests {
                 "{:?}",
                 net.name
             );
-            assert_eq!(config.config.config_name, Some(net.name.to_string()));
+            assert_eq!(config.config.config_name, Some(net.config_dir.to_string()));
         }
     }
 

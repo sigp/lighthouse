@@ -335,15 +335,30 @@ pub enum ExecutionPayloadError {
         terminal_block_hash: ExecutionBlockHash,
         payload_parent_hash: ExecutionBlockHash,
     },
-    /// The execution node failed to provide a parent block to a known block. This indicates an
-    /// issue with the execution node.
+    /// The execution node is syncing but we fail the conditions for optimistic sync
     ///
     /// ## Peer scoring
     ///
     /// The peer is not necessarily invalid.
-    PoWParentMissing(ExecutionBlockHash),
-    /// The execution node is syncing but we fail the conditions for optimistic sync
     UnverifiedNonOptimisticCandidate,
+}
+
+impl ExecutionPayloadError {
+    pub fn penalize_peer(&self) -> bool {
+        // This match statement should never have a default case so that we are
+        // always forced to consider here whether or not to penalize a peer when
+        // we add a new error condition.
+        match self {
+            ExecutionPayloadError::NoExecutionConnection => false,
+            ExecutionPayloadError::RequestFailed(_) => false,
+            ExecutionPayloadError::RejectedByExecutionEngine { .. } => true,
+            ExecutionPayloadError::InvalidPayloadTimestamp { .. } => true,
+            ExecutionPayloadError::InvalidTerminalPoWBlock { .. } => true,
+            ExecutionPayloadError::InvalidActivationEpoch { .. } => true,
+            ExecutionPayloadError::InvalidTerminalBlockHash { .. } => true,
+            ExecutionPayloadError::UnverifiedNonOptimisticCandidate => false,
+        }
+    }
 }
 
 impl From<execution_layer::Error> for ExecutionPayloadError {

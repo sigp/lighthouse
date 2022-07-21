@@ -50,49 +50,25 @@ pub async fn handle_rpc<T: EthSpec>(
                     s.parse()
                         .map_err(|e| format!("unable to parse hash: {:?}", e))
                 })?;
-
-            let response = ctx
-                .execution_block_generator
-                .read()
-                .block_by_hash(hash)
-                .map(|block| match block {
-                    Block::PoW(block) => serde_json::to_value(ExecutionBlock {
-                        block_hash: block.block_hash,
-                        block_number: block.block_number,
-                        parent_hash: block.parent_hash,
-                        total_difficulty: block.total_difficulty,
-                    })
-                    .unwrap(),
-                    Block::PoS(payload) => {
-                        let transactions = payload
-                            .transactions
-                            .iter()
-                            .cloned()
-                            .map(|tx| Transaction::decode(&Rlp::new(&tx)).unwrap())
-                            .collect::<Vec<_>>();
-
-                        let block = ExecutionBlockWithTransactions::<T> {
-                            parent_hash: payload.parent_hash,
-                            fee_recipient: payload.fee_recipient,
-                            state_root: payload.state_root,
-                            receipts_root: payload.receipts_root,
-                            logs_bloom: payload.logs_bloom,
-                            prev_randao: payload.prev_randao,
-                            block_number: payload.block_number,
-                            gas_limit: payload.gas_limit,
-                            gas_used: payload.gas_used,
-                            timestamp: payload.timestamp,
-                            extra_data: payload.extra_data,
-                            base_fee_per_gas: payload.base_fee_per_gas,
-                            block_hash: payload.block_hash,
-                            transactions,
-                        };
-
-                        serde_json::to_value(block).unwrap()
-                    }
-                });
-
-            Ok(response.unwrap())
+            let full_tx = params
+                .get(1)
+                .and_then(JsonValue::as_bool)
+                .ok_or_else(|| "missing/invalid params[1] value".to_string())?;
+            if full_tx {
+                Ok(serde_json::to_value(
+                    ctx.execution_block_generator
+                        .read()
+                        .execution_block_with_txs_by_hash(hash),
+                )
+                .unwrap())
+            } else {
+                Ok(serde_json::to_value(
+                    ctx.execution_block_generator
+                        .read()
+                        .execution_block_by_hash(hash),
+                )
+                .unwrap())
+            }
         }
         ENGINE_NEW_PAYLOAD_V1 => {
             let request: JsonExecutionPayloadV1<T> = get_param(params, 0)?;
@@ -157,6 +133,15 @@ pub async fn handle_rpc<T: EthSpec>(
             }
 
             Ok(serde_json::to_value(response).unwrap())
+        }
+        ENGINE_EXCHANGE_TRANSITION_CONFIGURATION_V1 => {
+            let block_generator = ctx.execution_block_generator.read();
+            let transition_config: TransitionConfigurationV1 = TransitionConfigurationV1 {
+                terminal_total_difficulty: block_generator.terminal_total_difficulty,
+                terminal_block_hash: block_generator.terminal_block_hash,
+                terminal_block_number: block_generator.terminal_block_number,
+            };
+            Ok(serde_json::to_value(transition_config).unwrap())
         }
         other => Err(format!(
             "The method {} does not exist/is not available",

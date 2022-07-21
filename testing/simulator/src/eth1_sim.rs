@@ -1,4 +1,4 @@
-use crate::local_network::INVALID_ADDRESS;
+use crate::local_network::{EXECUTION_PORT, INVALID_ADDRESS, TERMINAL_BLOCK, TERMINAL_DIFFICULTY};
 use crate::{checks, LocalNetwork, E};
 use clap::ArgMatches;
 use eth1::{Eth1Endpoint, DEFAULT_CHAIN_ID};
@@ -18,8 +18,12 @@ use std::time::Duration;
 use tokio::time::sleep;
 use types::{Epoch, EthSpec, MinimalEthSpec};
 
-const FORK_EPOCH: u64 = 2;
 const END_EPOCH: u64 = 16;
+const ALTAIR_FORK_EPOCH: u64 = 1;
+const BELLATRIX_FORK_EPOCH: u64 = 2;
+
+const SUGGESTED_FEE_RECIPIENT: [u8; 20] =
+    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1];
 
 pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
     let node_count = value_t!(matches, "nodes", usize).expect("missing nodes default");
@@ -28,10 +32,12 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
     let speed_up_factor =
         value_t!(matches, "speed_up_factor", u64).expect("missing speed_up_factor default");
     let continue_after_checks = matches.is_present("continue_after_checks");
+    let post_merge_sim = matches.is_present("post-merge");
 
     println!("Beacon Chain Simulator:");
     println!(" nodes:{}", node_count);
     println!(" validators_per_node:{}", validators_per_node);
+    println!(" post merge simulation:{}", post_merge_sim);
     println!(" continue_after_checks:{}", continue_after_checks);
 
     // Generate the directories and keystores required for the validator clients.
@@ -72,6 +78,7 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
 
     let total_validator_count = validators_per_node * node_count;
     let altair_fork_version = spec.altair_fork_version;
+    let bellatrix_fork_version = spec.bellatrix_fork_version;
 
     spec.seconds_per_slot /= speed_up_factor;
     spec.seconds_per_slot = max(1, spec.seconds_per_slot);
@@ -80,8 +87,14 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
     spec.min_genesis_time = 0;
     spec.min_genesis_active_validator_count = total_validator_count as u64;
     spec.seconds_per_eth1_block = eth1_block_time.as_secs();
-    spec.altair_fork_epoch = Some(Epoch::new(FORK_EPOCH));
+    spec.altair_fork_epoch = Some(Epoch::new(ALTAIR_FORK_EPOCH));
+    // Set these parameters only if we are doing a merge simulation
+    if post_merge_sim {
+        spec.terminal_total_difficulty = TERMINAL_DIFFICULTY.into();
+        spec.bellatrix_fork_epoch = Some(Epoch::new(BELLATRIX_FORK_EPOCH));
+    }
 
+    let seconds_per_slot = spec.seconds_per_slot;
     let slot_duration = Duration::from_secs(spec.seconds_per_slot);
     let initial_validator_count = spec.min_genesis_active_validator_count as usize;
     let deposit_amount = env.eth2_config.spec.max_effective_balance;
@@ -137,6 +150,19 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
 
         beacon_config.network.enr_address = Some(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)));
 
+        if post_merge_sim {
+            let el_config = execution_layer::Config {
+                execution_endpoints: vec![SensitiveUrl::parse(&format!(
+                    "http://localhost:{}",
+                    EXECUTION_PORT
+                ))
+                .unwrap()],
+                ..Default::default()
+            };
+
+            beacon_config.execution_layer = Some(el_config);
+        }
+
         /*
          * Create a new `LocalNetwork` with one beacon node.
          */
@@ -168,9 +194,13 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
             let network_1 = network.clone();
             executor.spawn(
                 async move {
+                    let mut validator_config = testing_validator_config();
+                    if post_merge_sim {
+                        validator_config.fee_recipient = Some(SUGGESTED_FEE_RECIPIENT.into());
+                    }
                     println!("Adding validator client {}", i);
                     network_1
-                        .add_validator_client(testing_validator_config(), i, files, i % 2 == 0)
+                        .add_validator_client(validator_config, i, files, i % 2 == 0)
                         .await
                         .expect("should add validator");
                 },
@@ -182,6 +212,21 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
         println!("Duration to genesis: {}", duration_to_genesis.as_secs());
         sleep(duration_to_genesis).await;
 
+        if post_merge_sim {
+            let executor = executor.clone();
+            let network_2 = network.clone();
+            executor.spawn(
+                async move {
+                    println!("Mining pow blocks");
+                    let mut interval = tokio::time::interval(Duration::from_secs(seconds_per_slot));
+                    for i in 1..=TERMINAL_BLOCK + 1 {
+                        interval.tick().await;
+                        let _ = network_2.mine_pow_blocks(i);
+                    }
+                },
+                "pow_mining",
+            );
+        }
         /*
          * Start the checks that ensure the network performs as expected.
          *
@@ -190,7 +235,16 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
          * tests start at the right time. Whilst this is works well for now, it's subject to
          * breakage by changes to the VC.
          */
-        let (finalization, block_prod, validator_count, onboarding, fork, sync_aggregate) = futures::join!(
+
+        let (
+            finalization,
+            block_prod,
+            validator_count,
+            onboarding,
+            fork,
+            sync_aggregate,
+            transition,
+        ) = futures::join!(
             // Check that the chain finalizes at the first given opportunity.
             checks::verify_first_finalization(network.clone(), slot_duration),
             // Check that a block is produced at every slot.
@@ -212,21 +266,36 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
                 slot_duration,
                 total_validator_count,
             ),
-            // Check that all nodes have transitioned to the new fork.
+            // Check that all nodes have transitioned to the required fork.
             checks::verify_fork_version(
                 network.clone(),
-                Epoch::new(FORK_EPOCH),
+                if post_merge_sim {
+                    Epoch::new(BELLATRIX_FORK_EPOCH)
+                } else {
+                    Epoch::new(ALTAIR_FORK_EPOCH)
+                },
                 slot_duration,
-                altair_fork_version
+                if post_merge_sim {
+                    bellatrix_fork_version
+                } else {
+                    altair_fork_version
+                }
             ),
             // Check that all sync aggregates are full.
             checks::verify_full_sync_aggregates_up_to(
                 network.clone(),
                 // Start checking for sync_aggregates at `FORK_EPOCH + 1` to account for
                 // inefficiencies in finding subnet peers at the `fork_slot`.
-                Epoch::new(FORK_EPOCH + 1).start_slot(MinimalEthSpec::slots_per_epoch()),
+                Epoch::new(ALTAIR_FORK_EPOCH + 1).start_slot(MinimalEthSpec::slots_per_epoch()),
                 Epoch::new(END_EPOCH).start_slot(MinimalEthSpec::slots_per_epoch()),
                 slot_duration,
+            ),
+            // Check that the transition block is finalized.
+            checks::verify_transition_block_finalized(
+                network.clone(),
+                Epoch::new(TERMINAL_BLOCK / MinimalEthSpec::slots_per_epoch()),
+                slot_duration,
+                post_merge_sim
             )
         );
 
@@ -236,6 +305,7 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
         onboarding?;
         fork?;
         sync_aggregate?;
+        transition?;
 
         // The `final_future` either completes immediately or never completes, depending on the value
         // of `continue_after_checks`.

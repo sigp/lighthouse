@@ -3275,14 +3275,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let prepare_payload_handle = match &state {
             BeaconState::Base(_) | BeaconState::Altair(_) => None,
             BeaconState::Merge(_) => {
-                let finalized_checkpoint = self.canonical_head.cached_head().finalized_checkpoint();
-                let prepare_payload_handle = get_execution_payload(
-                    self.clone(),
-                    &state,
-                    finalized_checkpoint,
-                    proposer_index,
-                    builder_params,
-                )?;
+                let prepare_payload_handle =
+                    get_execution_payload(self.clone(), &state, proposer_index, builder_params)?;
                 Some(prepare_payload_handle)
             }
         };
@@ -3909,11 +3903,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // `execution_engine_forkchoice_lock` apart from the one here.
         let forkchoice_lock = execution_layer.execution_engine_forkchoice_lock().await;
 
-        let (head_block_root, head_hash, finalized_hash) = if let Some(head_hash) = params.head_hash
+        let (head_block_root, head_hash, justified_hash, finalized_hash) = if let Some(head_hash) =
+            params.head_hash
         {
             (
                 params.head_root,
                 head_hash,
+                params
+                    .justified_hash
+                    .unwrap_or_else(ExecutionBlockHash::zero),
                 params
                     .finalized_hash
                     .unwrap_or_else(ExecutionBlockHash::zero),
@@ -3927,14 +3925,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 ForkName::Base | ForkName::Altair => return Ok(()),
                 _ => {
                     // We are post-bellatrix
-                    if execution_layer
+                    if let Some(payload_attributes) = execution_layer
                         .payload_attributes(next_slot, params.head_root)
                         .await
-                        .is_some()
                     {
                         // We are a proposer, check for terminal_pow_block_hash
                         if let Some(terminal_pow_block_hash) = execution_layer
-                            .get_terminal_pow_block_hash(&self.spec)
+                            .get_terminal_pow_block_hash(&self.spec, payload_attributes.timestamp)
                             .await
                             .map_err(Error::ForkchoiceUpdate)?
                         {
@@ -3945,6 +3942,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             (
                                 params.head_root,
                                 terminal_pow_block_hash,
+                                params
+                                    .justified_hash
+                                    .unwrap_or_else(ExecutionBlockHash::zero),
                                 params
                                     .finalized_hash
                                     .unwrap_or_else(ExecutionBlockHash::zero),
@@ -3962,7 +3962,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         };
 
         let forkchoice_updated_response = execution_layer
-            .notify_forkchoice_updated(head_hash, finalized_hash, current_slot, head_block_root)
+            .notify_forkchoice_updated(
+                head_hash,
+                justified_hash,
+                finalized_hash,
+                current_slot,
+                head_block_root,
+            )
             .await
             .map_err(Error::ExecutionForkChoiceUpdateFailed);
 

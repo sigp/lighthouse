@@ -1,5 +1,7 @@
 use crate::{
-    test_utils::{MockServer, DEFAULT_TERMINAL_BLOCK, DEFAULT_TERMINAL_DIFFICULTY, JWT_SECRET},
+    test_utils::{
+        MockServer, DEFAULT_JWT_SECRET, DEFAULT_TERMINAL_BLOCK, DEFAULT_TERMINAL_DIFFICULTY,
+    },
     Config, *,
 };
 use sensitive_url::SensitiveUrl;
@@ -23,6 +25,7 @@ impl<T: EthSpec> MockExecutionLayer<T> {
             DEFAULT_TERMINAL_BLOCK,
             ExecutionBlockHash::zero(),
             Epoch::new(0),
+            Some(JwtKey::from_slice(&DEFAULT_JWT_SECRET).unwrap()),
             None,
         )
     }
@@ -33,6 +36,7 @@ impl<T: EthSpec> MockExecutionLayer<T> {
         terminal_block: u64,
         terminal_block_hash: ExecutionBlockHash,
         terminal_block_hash_activation_epoch: Epoch,
+        jwt_key: Option<JwtKey>,
         builder_url: Option<SensitiveUrl>,
     ) -> Self {
         let handle = executor.handle().unwrap();
@@ -42,8 +46,10 @@ impl<T: EthSpec> MockExecutionLayer<T> {
         spec.terminal_block_hash = terminal_block_hash;
         spec.terminal_block_hash_activation_epoch = terminal_block_hash_activation_epoch;
 
+        let jwt_key = jwt_key.unwrap_or_else(JwtKey::random);
         let server = MockServer::new(
             &handle,
+            jwt_key,
             terminal_total_difficulty,
             terminal_block,
             terminal_block_hash,
@@ -53,7 +59,7 @@ impl<T: EthSpec> MockExecutionLayer<T> {
         let file = NamedTempFile::new().unwrap();
 
         let path = file.path().into();
-        std::fs::write(&path, hex::encode(JWT_SECRET)).unwrap();
+        std::fs::write(&path, hex::encode(DEFAULT_JWT_SECRET)).unwrap();
 
         let config = Config {
             execution_endpoints: vec![url],
@@ -83,11 +89,16 @@ impl<T: EthSpec> MockExecutionLayer<T> {
         let block_number = latest_execution_block.block_number() + 1;
         let timestamp = block_number;
         let prev_randao = Hash256::from_low_u64_be(block_number);
-        let finalized_block_hash = parent_hash;
+        let head_block_root = Hash256::repeat_byte(42);
+        let forkchoice_update_params = ForkchoiceUpdateParameters {
+            head_root: head_block_root,
+            head_hash: Some(parent_hash),
+            justified_hash: None,
+            finalized_hash: None,
+        };
 
         // Insert a proposer to ensure the fork choice updated command works.
         let slot = Slot::new(0);
-        let head_block_root = Hash256::repeat_byte(42);
         let validator_index = 0;
         self.el
             .insert_proposer(
@@ -105,6 +116,7 @@ impl<T: EthSpec> MockExecutionLayer<T> {
         self.el
             .notify_forkchoice_updated(
                 parent_hash,
+                ExecutionBlockHash::zero(),
                 ExecutionBlockHash::zero(),
                 slot,
                 head_block_root,
@@ -124,8 +136,8 @@ impl<T: EthSpec> MockExecutionLayer<T> {
                 parent_hash,
                 timestamp,
                 prev_randao,
-                finalized_block_hash,
                 validator_index,
+                forkchoice_update_params,
                 builder_params,
                 &self.spec,
             )
@@ -184,6 +196,7 @@ impl<T: EthSpec> MockExecutionLayer<T> {
         self.el
             .notify_forkchoice_updated(
                 block_hash,
+                ExecutionBlockHash::zero(),
                 ExecutionBlockHash::zero(),
                 slot,
                 head_block_root,
