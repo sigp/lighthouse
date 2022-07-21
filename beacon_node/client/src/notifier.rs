@@ -382,7 +382,7 @@ async fn merge_readiness_logging<T: BeaconChainTypes>(
                 "config" => ?other
             ),
         },
-        readiness @ MergeReadiness::ExchangeTransitionConfigurationFailed(_) => {
+        readiness @ MergeReadiness::ExchangeTransitionConfigurationFailed { error: _ } => {
             error!(
                 log,
                 "Not ready for merge";

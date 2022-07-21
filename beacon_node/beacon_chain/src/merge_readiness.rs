@@ -76,7 +76,7 @@ impl MergeConfig {
 }
 
 /// Indicates if a node is ready for the Bellatrix upgrade and subsequent merge transition.
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 #[serde(tag = "type")]
 pub enum MergeReadiness {
@@ -88,7 +88,7 @@ pub enum MergeReadiness {
     },
     /// The transition configuration with the EL failed, there might be a problem with
     /// connectivity, authentication or a difference in configuration.
-    ExchangeTransitionConfigurationFailed(String),
+    ExchangeTransitionConfigurationFailed { error: String },
     /// The EL can be reached and has the correct configuration, however it's not yet synced.
     NotSynced,
     /// The user has not configured this node to use an execution endpoint.
@@ -109,11 +109,11 @@ impl fmt::Display for MergeReadiness {
                     params, current_difficulty
                 )
             }
-            MergeReadiness::ExchangeTransitionConfigurationFailed(e) => write!(
+            MergeReadiness::ExchangeTransitionConfigurationFailed { error } => write!(
                 f,
                 "Could not confirm the transition configuration with the \
                     execution endpoint: {:?}",
-                e
+                error
             ),
             MergeReadiness::NotSynced => write!(
                 f,
@@ -152,10 +152,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             if let Err(e) = el.exchange_transition_configuration(&self.spec).await {
                 // The EL was either unreachable, responded with an error or has a different
                 // configuration.
-                return MergeReadiness::ExchangeTransitionConfigurationFailed(format!(
-                    "Failed to get transition config: {:?}",
-                    e
-                ));
+                return MergeReadiness::ExchangeTransitionConfigurationFailed {
+                    error: format!(
+                        "Error on exchange_transition_configuration endpoint {:?}",
+                        e
+                    ),
+                };
             }
 
             if !el.is_synced_for_notifier().await {
