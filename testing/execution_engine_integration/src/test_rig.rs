@@ -179,6 +179,7 @@ impl<E: GenericExecutionEngine> TestRig<E> {
                 proposer_index,
                 None,
                 Slot::new(0),
+                &self.spec,
             )
             .await
             .unwrap()
@@ -274,6 +275,7 @@ impl<E: GenericExecutionEngine> TestRig<E> {
                 proposer_index,
                 None,
                 Slot::new(0),
+                &self.spec,
             )
             .await
             .unwrap()

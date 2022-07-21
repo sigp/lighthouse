@@ -458,6 +458,7 @@ where
             proposer_index,
             pubkey,
             slot,
+            &chain.spec,
         )
         .await
         .map_err(BlockProductionError::GetPayloadFailed)?;

@@ -123,6 +123,7 @@ impl<T: EthSpec> MockExecutionLayer<T> {
                 validator_index,
                 None,
                 slot,
+                &self.spec,
             )
             .await
             .unwrap()
@@ -149,6 +150,7 @@ impl<T: EthSpec> MockExecutionLayer<T> {
                 validator_index,
                 None,
                 slot,
+                &self.spec,
             )
             .await
             .unwrap()
