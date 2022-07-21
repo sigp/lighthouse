@@ -103,6 +103,26 @@ pub struct Proposer {
     payload_attributes: PayloadAttributes,
 }
 
+/// Information from the beacon chain that is necessary for querying the builder API.
+pub struct BuilderParams {
+    pub pubkey: PublicKeyBytes,
+    pub slot: Slot,
+    pub chain_health: ChainHealth,
+}
+
+pub enum ChainHealth {
+    Healthy,
+    Unhealthy(FailedCondition),
+    PreMerge,
+}
+
+#[derive(Debug)]
+pub enum FailedCondition {
+    Skips,
+    SkipsPerEpoch,
+    EpochsSinceFinalization,
+}
+
 struct Inner<E: EthSpec> {
     engine: Arc<Engine>,
     builder: Option<BuilderHttpClient>,
@@ -484,8 +504,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
         prev_randao: Hash256,
         finalized_block_hash: ExecutionBlockHash,
         proposer_index: u64,
-        pubkey: Option<PublicKeyBytes>,
-        slot: Slot,
+        builder_params: BuilderParams,
         spec: &ChainSpec,
     ) -> Result<Payload, Error> {
         let suggested_fee_recipient = self.get_suggested_fee_recipient(proposer_index).await;
@@ -502,8 +521,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                     prev_randao,
                     finalized_block_hash,
                     suggested_fee_recipient,
-                    pubkey,
-                    slot,
+                    builder_params,
                     spec,
                 )
                 .await
@@ -533,106 +551,106 @@ impl<T: EthSpec> ExecutionLayer<T> {
         prev_randao: Hash256,
         finalized_block_hash: ExecutionBlockHash,
         suggested_fee_recipient: Address,
-        pubkey_opt: Option<PublicKeyBytes>,
-        slot: Slot,
+        builder_params: BuilderParams,
         spec: &ChainSpec,
     ) -> Result<Payload, Error> {
         // Don't attempt to outsource payload construction until after the merge transition has been
         // finalized. We want to be conservative with payload construction until then.
-        if let (Some(builder), Some(pubkey)) = (self.builder(), pubkey_opt) {
-            if finalized_block_hash != ExecutionBlockHash::zero() {
-                info!(
-                    self.log(),
-                    "Requesting blinded header from connected builder";
-                    "slot" => ?slot,
-                    "pubkey" => ?pubkey,
-                    "parent_hash" => ?parent_hash,
-                );
-                let (relay_result, local_result) = tokio::join!(
-                    builder.get_builder_header::<T, Payload>(slot, parent_hash, &pubkey),
-                    self.get_full_payload_caching(
-                        parent_hash,
-                        timestamp,
-                        prev_randao,
-                        finalized_block_hash,
-                        suggested_fee_recipient,
-                    )
-                );
+        if let Some(builder) = self.builder() {
+            let slot = builder_params.slot;
+            let pubkey = builder_params.pubkey;
 
-                match (relay_result, local_result) {
-                    (Err(e), Ok(local)) => {
-                        warn!(self.log(),"Unable to retrieve a payload from a connected builder, falling back to the local execution client: {e:?}");
-                        Ok(local)
-                    }
-                    (Ok(None), Ok(local)) => {
-                        warn!(self.log(), "No payload provided by connected builder. Attempting to propose through local execution engine");
-                        Ok(local)
-                    }
-                    (Ok(Some(relay)), Ok(local)) => {
-                        let is_signature_valid = relay.data.verify_signature(spec);
+            match builder_params.chain_health {
+                ChainHealth::Healthy => {
+                    info!(
+                        self.log(),
+                        "Requesting blinded header from connected builder";
+                        "slot" => ?slot,
+                        "pubkey" => ?pubkey,
+                        "parent_hash" => ?parent_hash,
+                    );
+                    let (relay_result, local_result) = tokio::join!(
+                        builder.get_builder_header::<T, Payload>(slot, parent_hash, &pubkey),
+                        self.get_full_payload_caching(
+                            parent_hash,
+                            timestamp,
+                            prev_randao,
+                            finalized_block_hash,
+                            suggested_fee_recipient,
+                        )
+                    );
 
-                        //TODO(sean) only use the blinded block flow if we have recent chain health
-                        let header = relay.data.message.header;
-                        if header.fee_recipient() != suggested_fee_recipient {
-                            warn!(self.log(), "Incorrect fee recipient from connected builder, falling back to local execution engine.");
+                    return match (relay_result, local_result) {
+                        (Err(e), Ok(local)) => {
+                            warn!(self.log(),"Unable to retrieve a payload from a connected builder, falling back to the local execution client: {e:?}");
                             Ok(local)
-                        } else if header.parent_hash() != parent_hash {
-                            warn!(self.log(), "Invalid parent hash from connected builder, falling back to local execution engine.");
+                        }
+                        (Ok(None), Ok(local)) => {
+                            warn!(self.log(), "No payload provided by connected builder. Attempting to propose through local execution engine");
                             Ok(local)
-                        } else if header.prev_randao() != prev_randao {
-                            warn!(self.log(), "Invalid prev randao from connected builder, falling back to local execution engine.");
-                            Ok(local)
-                        } else if header.timestamp() != local.timestamp() {
-                            warn!(self.log(), "Invalid timestamp from connected builder, falling back to local execution engine.");
-                            Ok(local)
-                        } else if header.block_number() != local.block_number() {
-                            warn!(self.log(), "Invalid block number from connected builder, falling back to local execution engine.");
-                            Ok(local)
-                        } else if let Some(version) = relay.version {
-                            // Once fork information is added to the payload, we will need to check that the local and relay payloads
-                            // match. At this point, if we are requesting a payload at all, we have to assume this is the Bellatrix fork.
-                            if !matches!(version, ForkName::Merge) {
-                                warn!(self.log(), "Invalid fork from connected builder, falling back to local execution engine.");
+                        }
+                        (Ok(Some(relay)), Ok(local)) => {
+                            let is_signature_valid = relay.data.verify_signature(spec);
+
+                            let header = relay.data.message.header;
+                            if header.fee_recipient() != suggested_fee_recipient {
+                                warn!(self.log(), "Incorrect fee recipient from connected builder, falling back to local execution engine.");
+                                Ok(local)
+                            } else if header.parent_hash() != parent_hash {
+                                warn!(self.log(), "Invalid parent hash from connected builder, falling back to local execution engine.");
+                                Ok(local)
+                            } else if header.prev_randao() != prev_randao {
+                                warn!(self.log(), "Invalid prev randao from connected builder, falling back to local execution engine.");
+                                Ok(local)
+                            } else if header.timestamp() != local.timestamp() {
+                                warn!(self.log(), "Invalid timestamp from connected builder, falling back to local execution engine.");
+                                Ok(local)
+                            } else if header.block_number() != local.block_number() {
+                                warn!(self.log(), "Invalid block number from connected builder, falling back to local execution engine.");
+                                Ok(local)
+                            } else if let Some(version) = relay.version {
+                                // Once fork information is added to the payload, we will need to check that the local and relay payloads
+                                // match. At this point, if we are requesting a payload at all, we have to assume this is the Bellatrix fork.
+                                if !matches!(version, ForkName::Merge) {
+                                    warn!(self.log(), "Invalid fork from connected builder, falling back to local execution engine.");
+                                    Ok(local)
+                                } else {
+                                    Ok(header)
+                                }
+                            } else if !is_signature_valid {
+                                let pubkey_bytes = relay.data.message.pubkey;
+                                warn!(self.log(), "Invalid signature for pubkey {pubkey_bytes} on bid from connected builder, falling back to local execution engine.");
                                 Ok(local)
                             } else {
                                 Ok(header)
                             }
-                        } else if !is_signature_valid {
-                            let pubkey_bytes = relay.data.message.pubkey;
-                            warn!(self.log(), "Invalid signature for pubkey {pubkey_bytes} on bid from connected builder, falling back to local execution engine.");
-                            Ok(local)
-                        } else {
-                            Ok(header)
                         }
-                    }
-                    (relay_result, Err(local_error)) => {
-                        warn!(self.log(), "Failure from local execution engine. Attempting to propose through connected builder"; "error" => ?local_error);
-                        relay_result
-                            .map_err(Error::Builder)?
-                            .ok_or(Error::NoHeaderFromBuilder)
-                            .map(|d| d.data.message.header)
-                    }
+                        (relay_result, Err(local_error)) => {
+                            warn!(self.log(), "Failure from local execution engine. Attempting to propose through connected builder"; "error" => ?local_error);
+                            relay_result
+                                .map_err(Error::Builder)?
+                                .ok_or(Error::NoHeaderFromBuilder)
+                                .map(|d| d.data.message.header)
+                        }
+                    };
                 }
-            } else {
-                self.get_full_payload_caching(
-                    parent_hash,
-                    timestamp,
-                    prev_randao,
-                    finalized_block_hash,
-                    suggested_fee_recipient,
-                )
-                .await
+                ChainHealth::Unhealthy(condition) => {
+                    info!(self.log(), "Due to poor chain health the local execution engine will be used \
+                                        for payload construction. To adjust chain health conditions \
+                                        Use `builder-fallback` prefixed flags";
+                        "failed_condition" => ?condition)
+                }
+                ChainHealth::PreMerge => { /* no-op */ }
             }
-        } else {
-            self.get_full_payload_caching(
-                parent_hash,
-                timestamp,
-                prev_randao,
-                finalized_block_hash,
-                suggested_fee_recipient,
-            )
-            .await
         }
+        self.get_full_payload_caching(
+            parent_hash,
+            timestamp,
+            prev_randao,
+            finalized_block_hash,
+            suggested_fee_recipient,
+        )
+        .await
     }
 
     /// Get a full payload without caching its result in the execution layer's payload cache.
