@@ -2,7 +2,7 @@
 //! transition.
 
 use crate::{BeaconChain, BeaconChainTypes};
-use execution_layer::Error as EngineError;
+use serde::{Deserialize, Serialize, Serializer};
 use std::fmt;
 use std::fmt::Write;
 use types::*;
@@ -11,10 +11,13 @@ use types::*;
 const SECONDS_IN_A_WEEK: u64 = 604800;
 pub const MERGE_READINESS_PREPARATION_SECONDS: u64 = SECONDS_IN_A_WEEK;
 
-#[derive(Default, Debug)]
+#[derive(Default, Debug, Serialize, Deserialize)]
 pub struct MergeConfig {
+    #[serde(serialize_with = "serialize_uint256")]
     pub terminal_total_difficulty: Option<Uint256>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub terminal_block_hash: Option<ExecutionBlockHash>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub terminal_block_hash_epoch: Option<Epoch>,
 }
 
@@ -73,15 +76,19 @@ impl MergeConfig {
 }
 
 /// Indicates if a node is ready for the Bellatrix upgrade and subsequent merge transition.
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[serde(tag = "type")]
 pub enum MergeReadiness {
     /// The node is ready, as far as we can tell.
     Ready {
         config: MergeConfig,
-        current_difficulty: Result<Uint256, String>,
+        #[serde(serialize_with = "serialize_uint256")]
+        current_difficulty: Option<Uint256>,
     },
     /// The transition configuration with the EL failed, there might be a problem with
     /// connectivity, authentication or a difference in configuration.
-    ExchangeTransitionConfigurationFailed(EngineError),
+    ExchangeTransitionConfigurationFailed { error: String },
     /// The EL can be reached and has the correct configuration, however it's not yet synced.
     NotSynced,
     /// The user has not configured this node to use an execution endpoint.
@@ -102,11 +109,11 @@ impl fmt::Display for MergeReadiness {
                     params, current_difficulty
                 )
             }
-            MergeReadiness::ExchangeTransitionConfigurationFailed(e) => write!(
+            MergeReadiness::ExchangeTransitionConfigurationFailed { error } => write!(
                 f,
                 "Could not confirm the transition configuration with the \
                     execution endpoint: {:?}",
-                e
+                error
             ),
             MergeReadiness::NotSynced => write!(
                 f,
@@ -145,7 +152,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             if let Err(e) = el.exchange_transition_configuration(&self.spec).await {
                 // The EL was either unreachable, responded with an error or has a different
                 // configuration.
-                return MergeReadiness::ExchangeTransitionConfigurationFailed(e);
+                return MergeReadiness::ExchangeTransitionConfigurationFailed {
+                    error: format!("{:?}", e),
+                };
             }
 
             if !el.is_synced_for_notifier().await {
@@ -153,10 +162,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 return MergeReadiness::NotSynced;
             }
             let params = MergeConfig::from_chainspec(&self.spec);
-            let current_difficulty = el
-                .get_current_difficulty()
-                .await
-                .map_err(|_| "Failed to get current difficulty from execution node".to_string());
+            let current_difficulty = el.get_current_difficulty().await.ok();
             MergeReadiness::Ready {
                 config: params,
                 current_difficulty,
@@ -165,5 +171,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             // There is no EL configured.
             MergeReadiness::NoExecutionEndpoint
         }
+    }
+}
+
+/// Utility function to serialize a Uint256 as a decimal string.
+fn serialize_uint256<S>(val: &Option<Uint256>, s: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    match val {
+        Some(v) => v.to_string().serialize(s),
+        None => s.serialize_none(),
     }
 }

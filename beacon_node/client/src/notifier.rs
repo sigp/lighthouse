@@ -359,7 +359,7 @@ async fn merge_readiness_logging<T: BeaconChainTypes>(
                     "terminal_total_difficulty" => %ttd,
                     "current_difficulty" => current_difficulty
                         .map(|d| d.to_string())
-                        .unwrap_or_else(|_| "??".into()),
+                        .unwrap_or_else(|| "??".into()),
                 )
             }
             MergeConfig {
@@ -382,7 +382,7 @@ async fn merge_readiness_logging<T: BeaconChainTypes>(
                 "config" => ?other
             ),
         },
-        readiness @ MergeReadiness::ExchangeTransitionConfigurationFailed(_) => {
+        readiness @ MergeReadiness::ExchangeTransitionConfigurationFailed { error: _ } => {
             error!(
                 log,
                 "Not ready for merge";
