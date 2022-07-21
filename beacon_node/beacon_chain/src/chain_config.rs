@@ -32,6 +32,8 @@ pub struct ChainConfig {
     /// Number of epochs since finalization before the BN refuses to use connected builders during
     /// payload construction.
     pub builder_fallback_epochs_since_finalization: usize,
+    /// Whether any chain health checks should be considered when deciding whether to use the builder API.
+    pub builder_fallback_disable_checks: bool,
 }
 
 impl Default for ChainConfig {
@@ -47,6 +49,7 @@ impl Default for ChainConfig {
             builder_fallback_skips: 3,
             builder_fallback_skips_per_epoch: 8,
             builder_fallback_epochs_since_finalization: 3,
+            builder_fallback_disable_checks: false,
         }
     }
 }

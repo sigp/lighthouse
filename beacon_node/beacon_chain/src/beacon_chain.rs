@@ -4519,6 +4519,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Ok(ChainHealth::PreMerge);
         };
 
+        if self.config.builder_fallback_disable_checks {
+            return Ok(ChainHealth::Healthy);
+        }
+
         let current_slot = self.slot()?;
 
         // Check slots at the head of the chain.

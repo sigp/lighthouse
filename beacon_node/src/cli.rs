@@ -739,4 +739,12 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .default_value("3")
                 .takes_value(true)
         )
+        .arg(
+            Arg::with_name("builder-fallback-disable-checks")
+                .long("builder-fallback-disable-checks")
+                .help("This flag disables all checks related to chain health. This means the builder \
+                        API will always be used for payload construction, regardless of recent chain \
+                        conditions.")
+                .takes_value(false)
+        )
 }

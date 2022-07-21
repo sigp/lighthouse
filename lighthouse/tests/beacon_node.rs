@@ -466,6 +466,15 @@ fn builder_fallback_flags() {
             assert_eq!(config.chain_config.builder_fallback_skips, 4);
         },
     );
+    run_payload_builder_flag_test_with_config(
+        "builder",
+        "http://meow.cats",
+        Some("builder-fallback-disable-checks"),
+        None,
+        |config| {
+            assert_eq!(config.chain_config.builder_fallback_disable_checks, true);
+        },
+    );
 }
 
 fn run_jwt_optional_flags_test(jwt_flag: &str, jwt_id_flag: &str, jwt_version_flag: &str) {
