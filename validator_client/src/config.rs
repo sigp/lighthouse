@@ -54,6 +54,8 @@ pub struct Config {
     pub enable_doppelganger_protection: bool,
     /// Enable use of the blinded block endpoints during proposals.
     pub builder_proposals: bool,
+    /// Overrides the timestamp field in builder api ValidatorRegistrationV1
+    pub builder_registration_timestamp_override: Option<u64>,
     /// Fallback gas limit.
     pub gas_limit: Option<u64>,
     /// A list of custom certificates that the validator client will additionally use when
@@ -92,6 +94,7 @@ impl Default for Config {
             enable_doppelganger_protection: false,
             beacon_nodes_tls_certs: None,
             builder_proposals: false,
+            builder_registration_timestamp_override: None,
             gas_limit: None,
         }
     }
@@ -312,6 +315,16 @@ impl Config {
                     .map_err(|_| "gas-limit is not a valid u64.")
             })
             .transpose()?;
+
+        if let Some(registration_timestamp_override) =
+            cli_args.value_of("builder-registration-timestamp-override")
+        {
+            config.builder_registration_timestamp_override = Some(
+                registration_timestamp_override
+                    .parse::<u64>()
+                    .map_err(|_| "builder-registration-timestamp-override is not a valid u64.")?,
+            );
+        }
 
         Ok(config)
     }

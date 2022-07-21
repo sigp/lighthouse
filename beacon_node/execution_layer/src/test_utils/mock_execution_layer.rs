@@ -113,6 +113,11 @@ impl<T: EthSpec> MockExecutionLayer<T> {
             .unwrap();
 
         let validator_index = 0;
+        let builder_params = BuilderParams {
+            pubkey: PublicKeyBytes::empty(),
+            slot,
+            chain_health: ChainHealth::Healthy,
+        };
         let payload = self
             .el
             .get_payload::<FullPayload<T>>(
@@ -121,8 +126,8 @@ impl<T: EthSpec> MockExecutionLayer<T> {
                 prev_randao,
                 finalized_block_hash,
                 validator_index,
-                None,
-                slot,
+                builder_params,
+                &self.spec,
             )
             .await
             .unwrap()
@@ -138,7 +143,11 @@ impl<T: EthSpec> MockExecutionLayer<T> {
             .el
             .get_payload_by_root(&payload.tree_hash_root())
             .is_none());
-
+        let builder_params = BuilderParams {
+            pubkey: PublicKeyBytes::empty(),
+            slot,
+            chain_health: ChainHealth::Healthy,
+        };
         let payload_header = self
             .el
             .get_payload::<BlindedPayload<T>>(
@@ -147,8 +156,8 @@ impl<T: EthSpec> MockExecutionLayer<T> {
                 prev_randao,
                 finalized_block_hash,
                 validator_index,
-                None,
-                slot,
+                builder_params,
+                &self.spec,
             )
             .await
             .unwrap()

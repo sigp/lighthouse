@@ -415,3 +415,18 @@ fn builder_proposals_flag() {
         .run()
         .with_config(|config| assert!(config.builder_proposals));
 }
+#[test]
+fn no_builder_registration_timestamp_override_flag() {
+    CommandLineTest::new()
+        .run()
+        .with_config(|config| assert!(config.builder_registration_timestamp_override.is_none()));
+}
+#[test]
+fn builder_registration_timestamp_override_flag() {
+    CommandLineTest::new()
+        .flag("builder-registration-timestamp-override", Some("100"))
+        .run()
+        .with_config(|config| {
+            assert_eq!(config.builder_registration_timestamp_override, Some(100))
+        });
+}
