@@ -12,12 +12,12 @@ source ./vars.env
 
 DEBUG_LEVEL=info
 
-PRIVATE_TX_PROPOSALS=
+BUILDER_PROPOSALS=
 
 # Get options
 while getopts "pd:" flag; do
   case "${flag}" in
-    p) PRIVATE_TX_PROPOSALS="--builder-proposals";;
+    p) BUILDER_PROPOSALS="--builder-proposals";;
     d) DEBUG_LEVEL=${OPTARG};;
   esac
 done
@@ -25,7 +25,7 @@ done
 exec lighthouse \
 	--debug-level $DEBUG_LEVEL \
 	vc \
-	$PRIVATE_TX_PROPOSALS \
+	$BUILDER_PROPOSALS \
 	--datadir ${@:$OPTIND:1} \
 	--testnet-dir $TESTNET_DIR \
 	--init-slashing-protection \

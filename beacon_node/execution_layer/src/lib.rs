@@ -594,7 +594,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
 
                             let header = relay.data.message.header;
                             if header.fee_recipient() != suggested_fee_recipient {
-                                warn!(self.log(), "Incorrect fee recipient from connected builder, falling back to local execution engine.");
+                                info!(self.log(), "Fee recipient from connected builder does not match, using it anyways.");
                                 Ok(local)
                             } else if header.parent_hash() != parent_hash {
                                 warn!(self.log(), "Invalid parent hash from connected builder, falling back to local execution engine.");

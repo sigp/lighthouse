@@ -221,7 +221,7 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
         let validator_registration_fut = async move {
             loop {
                 // Poll the endpoint immediately to ensure fee recipients are received.
-                if let Err(e) = self.register_validators(&spec).await {
+                if let Err(e) = self.register_validators().await {
                     error!(log,"Error during validator registration";"error" => ?e);
                 }
 
@@ -264,35 +264,48 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
     }
 
     fn collect_preparation_data(&self, spec: &ChainSpec) -> Vec<ProposerPreparationData> {
-        self.collect_data(spec, |_, validator_index, fee_recipient| {
-            ProposerPreparationData {
-                validator_index,
-                fee_recipient,
-            }
-        })
-    }
-
-    fn collect_validator_registration_keys(
-        &self,
-        spec: &ChainSpec,
-    ) -> Vec<ValidatorRegistrationKey> {
-        self.collect_data(spec, |pubkey, _, fee_recipient| {
-            ValidatorRegistrationKey {
-                fee_recipient,
-                //TODO(sean) this is geth's default, we should make this configurable and maybe have the default be dynamic.
-                // Discussion here: https://github.com/ethereum/builder-specs/issues/17
-                gas_limit: 30_000_000,
-                pubkey,
-            }
-        })
-    }
-
-    fn collect_data<G, U>(&self, spec: &ChainSpec, map_fn: G) -> Vec<U>
-    where
-        G: Fn(PublicKeyBytes, u64, Address) -> U,
-    {
         let log = self.context.log();
+        self.collect_proposal_data(|pubkey, proposal_data| {
+            if let Some(fee_recipient) = proposal_data.fee_recipient {
+                Some(ProposerPreparationData {
+                    // Ignore fee recipients for keys without indices, they are inactive.
+                    validator_index: proposal_data.validator_index?,
+                    fee_recipient,
+                })
+            } else {
+                if spec.bellatrix_fork_epoch.is_some() {
+                    error!(
+                        log,
+                        "Validator is missing fee recipient";
+                        "msg" => "update validator_definitions.yml",
+                        "pubkey" => ?pubkey
+                    );
+                }
+                None
+            }
+        })
+    }
 
+    fn collect_validator_registration_keys(&self) -> Vec<ValidatorRegistrationKey> {
+        self.collect_proposal_data(|pubkey, proposal_data| {
+            // We don't log for missing fee recipients here because this will be logged more
+            // frequently in `collect_preparation_data`.
+            proposal_data.fee_recipient.and_then(|fee_recipient| {
+                proposal_data
+                    .builder_proposals
+                    .then(|| ValidatorRegistrationKey {
+                        fee_recipient,
+                        gas_limit: proposal_data.gas_limit,
+                        pubkey,
+                    })
+            })
+        })
+    }
+
+    fn collect_proposal_data<G, U>(&self, map_fn: G) -> Vec<U>
+    where
+        G: Fn(PublicKeyBytes, ProposalData) -> Option<U>,
+    {
         let all_pubkeys: Vec<_> = self
             .validator_store
             .voting_pubkeys(DoppelgangerStatus::ignored);
@@ -300,23 +313,8 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
         all_pubkeys
             .into_iter()
             .filter_map(|pubkey| {
-                // Ignore fee recipients for keys without indices, they are inactive.
-                let validator_index = self.validator_store.validator_index(&pubkey)?;
-                let fee_recipient = self.validator_store.get_fee_recipient(&pubkey);
-
-                if let Some(fee_recipient) = fee_recipient {
-                    Some(map_fn(pubkey, validator_index, fee_recipient))
-                } else {
-                    if spec.bellatrix_fork_epoch.is_some() {
-                        error!(
-                            log,
-                            "Validator is missing fee recipient";
-                            "msg" => "update validator_definitions.yml",
-                            "pubkey" => ?pubkey
-                        );
-                    }
-                    None
-                }
+                let proposal_data = self.validator_store.proposal_data(&pubkey)?;
+                map_fn(pubkey, proposal_data)
             })
             .collect()
     }
@@ -354,8 +352,8 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
     }
 
     /// Register validators with builders, used in the blinded block proposal flow.
-    async fn register_validators(&self, spec: &ChainSpec) -> Result<(), String> {
-        let registration_keys = self.collect_validator_registration_keys(spec);
+    async fn register_validators(&self) -> Result<(), String> {
+        let registration_keys = self.collect_validator_registration_keys();
 
         let mut changed_keys = vec![];
 
@@ -469,4 +467,11 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
         }
         Ok(())
     }
+}
+
+pub struct ProposalData {
+    pub(crate) validator_index: Option<u64>,
+    pub(crate) fee_recipient: Option<Address>,
+    pub(crate) gas_limit: u64,
+    pub(crate) builder_proposals: bool,
 }

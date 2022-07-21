@@ -42,7 +42,6 @@ pub struct BlockServiceBuilder<T, E: EthSpec> {
     context: Option<RuntimeContext<E>>,
     graffiti: Option<Graffiti>,
     graffiti_file: Option<GraffitiFile>,
-    private_tx_proposals: bool,
 }
 
 impl<T: SlotClock + 'static, E: EthSpec> BlockServiceBuilder<T, E> {
@@ -54,7 +53,6 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockServiceBuilder<T, E> {
             context: None,
             graffiti: None,
             graffiti_file: None,
-            private_tx_proposals: false,
         }
     }
 
@@ -88,11 +86,6 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockServiceBuilder<T, E> {
         self
     }
 
-    pub fn private_tx_proposals(mut self, private_tx_proposals: bool) -> Self {
-        self.private_tx_proposals = private_tx_proposals;
-        self
-    }
-
     pub fn build(self) -> Result<BlockService<T, E>, String> {
         Ok(BlockService {
             inner: Arc::new(Inner {
@@ -110,7 +103,6 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockServiceBuilder<T, E> {
                     .ok_or("Cannot build BlockService without runtime_context")?,
                 graffiti: self.graffiti,
                 graffiti_file: self.graffiti_file,
-                private_tx_proposals: self.private_tx_proposals,
             }),
         })
     }
@@ -124,7 +116,6 @@ pub struct Inner<T, E: EthSpec> {
     context: RuntimeContext<E>,
     graffiti: Option<Graffiti>,
     graffiti_file: Option<GraffitiFile>,
-    private_tx_proposals: bool,
 }
 
 /// Attempts to produce attestations for any block producer(s) at the start of the epoch.
@@ -233,13 +224,15 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
             )
         }
 
-        let private_tx_proposals = self.private_tx_proposals;
         for validator_pubkey in proposers {
+            let builder_proposals = self
+                .validator_store
+                .get_builder_proposals(&validator_pubkey);
             let service = self.clone();
             let log = log.clone();
             self.inner.context.executor.spawn(
                 async move {
-                    let publish_result = if private_tx_proposals {
+                    let publish_result = if builder_proposals {
                         let mut result = service.clone()
                             .publish_block::<BlindedPayload<E>>(slot, validator_pubkey)
                             .await;
@@ -319,6 +312,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
         let self_ref = &self;
         let proposer_index = self.validator_store.validator_index(&validator_pubkey);
         let validator_pubkey_ref = &validator_pubkey;
+        let fee_recipient = self.validator_store.get_fee_recipient(&validator_pubkey);
         // Request block from first responsive beacon node.
         let block = self
             .beacon_nodes
@@ -362,8 +356,6 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                     }
                 };
                 drop(get_timer);
-
-                //TODO(sean) check against local val registration. This means we have to move the val registration cache to validator store
 
                 if proposer_index != Some(block.proposer_index()) {
                     return Err(BlockError::Recoverable(
