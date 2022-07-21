@@ -153,10 +153,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 // The EL was either unreachable, responded with an error or has a different
                 // configuration.
                 return MergeReadiness::ExchangeTransitionConfigurationFailed {
-                    error: format!(
-                        "Error on exchange_transition_configuration endpoint {:?}",
-                        e
-                    ),
+                    error: format!("{:?}", e),
                 };
             }
 
