@@ -414,6 +414,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                     let graffiti = body.graffiti.clone();
                     let suggested_fee_recipient = body.suggested_fee_recipient;
                     let gas_limit = body.gas_limit;
+                    let builder_proposals = body.builder_proposals;
 
                     let validator_def = {
                         if let Some(handle) = task_executor.handle() {
@@ -425,6 +426,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                                     graffiti,
                                     suggested_fee_recipient,
                                     gas_limit,
+                                    builder_proposals,
                                 ))
                                 .map_err(|e| {
                                     warp_utils::reject::custom_server_error(format!(
@@ -472,6 +474,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                                 graffiti: web3signer.graffiti,
                                 suggested_fee_recipient: web3signer.suggested_fee_recipient,
                                 gas_limit: web3signer.gas_limit,
+                                builder_proposals: web3signer.builder_proposals,
                                 description: web3signer.description,
                                 signing_definition: SigningDefinition::Web3Signer {
                                     url: web3signer.url,

@@ -83,6 +83,7 @@ impl ApiTester {
         let mut config = Config::default();
         config.validator_dir = validator_dir.path().into();
         config.secrets_dir = secrets_dir.path().into();
+        config.fee_recipient = Some(TEST_DEFAULT_FEE_RECIPIENT);
 
         let spec = E::default_spec();
 
@@ -103,8 +104,7 @@ impl ApiTester {
             spec,
             Some(Arc::new(DoppelgangerService::new(log.clone()))),
             slot_clock,
-            Some(TEST_DEFAULT_FEE_RECIPIENT),
-            None,
+            &config,
             executor.clone(),
             log.clone(),
         ));
@@ -489,7 +489,7 @@ impl ApiTester {
         let validator = &self.client.get_lighthouse_validators().await.unwrap().data[index];
 
         self.client
-            .patch_lighthouse_validators(&validator.voting_pubkey, Some(enabled), None)
+            .patch_lighthouse_validators(&validator.voting_pubkey, Some(enabled), None, None)
             .await
             .unwrap();
 
@@ -531,7 +531,26 @@ impl ApiTester {
         let validator = &self.client.get_lighthouse_validators().await.unwrap().data[index];
 
         self.client
-            .patch_lighthouse_validators(&validator.voting_pubkey, None, Some(gas_limit))
+            .patch_lighthouse_validators(&validator.voting_pubkey, None, Some(gas_limit), None)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            self.initialized_validators
+                .read()
+                .gas_limit(&validator.voting_pubkey)
+                .unwrap(),
+            gas_limit
+        );
+
+        self
+    }
+
+    pub async fn set_builder_proposals(self, index: usize, gas_limit: u64) -> Self {
+        let validator = &self.client.get_lighthouse_validators().await.unwrap().data[index];
+
+        self.client
+            .patch_lighthouse_validators(&validator.voting_pubkey, None, None, Some(true))
             .await
             .unwrap();
 

@@ -110,6 +110,7 @@ pub struct InitializedValidator {
     graffiti: Option<Graffiti>,
     suggested_fee_recipient: Option<Address>,
     gas_limit: Option<u64>,
+    builder_proposals: Option<bool>,
     /// The validators index in `state.validators`, to be updated by an external service.
     index: Option<u64>,
 }
@@ -128,6 +129,22 @@ impl InitializedValidator {
             // Web3Signer validators do not have any lockfiles.
             SigningMethod::Web3Signer { .. } => None,
         }
+    }
+
+    pub fn get_suggested_fee_recipient(&self) -> Option<Address> {
+        self.suggested_fee_recipient
+    }
+
+    pub fn get_gas_limit(&self) -> Option<u64> {
+        self.gas_limit
+    }
+
+    pub fn get_builder_proposals(&self) -> Option<bool> {
+        self.builder_proposals
+    }
+
+    pub fn get_index(&self) -> Option<u64> {
+        self.index
     }
 }
 
@@ -293,6 +310,7 @@ impl InitializedValidator {
             graffiti: def.graffiti.map(Into::into),
             suggested_fee_recipient: def.suggested_fee_recipient,
             gas_limit: def.gas_limit,
+            builder_proposals: def.builder_proposals,
             index: None,
         })
     }
@@ -591,6 +609,18 @@ impl InitializedValidators {
     /// `ValidatorDefinitions`.
     pub fn gas_limit(&self, public_key: &PublicKeyBytes) -> Option<u64> {
         self.validators.get(public_key).and_then(|v| v.gas_limit)
+    }
+
+    /// Returns the `builder_proposals` for a given public key specified in the
+    /// `ValidatorDefinitions`.
+    pub fn builder_proposals(&self, public_key: &PublicKeyBytes) -> Option<bool> {
+        self.validators
+            .get(public_key)
+            .and_then(|v| v.builder_proposals)
+    }
+
+    pub fn validator(&self, public_key: &PublicKeyBytes) -> Option<&InitializedValidator> {
+        self.validators.get(public_key)
     }
 
     /// Sets the `InitializedValidator` and `ValidatorDefinition` `enabled` and `gas_limit` values.

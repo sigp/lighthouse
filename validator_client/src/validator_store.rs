@@ -3,6 +3,7 @@ use crate::{
     http_metrics::metrics,
     initialized_validators::InitializedValidators,
     signing_method::{Error as SigningError, SignableMessage, SigningContext, SigningMethod},
+    Config,
 };
 use account_utils::{validator_definitions::ValidatorDefinition, ZeroizeString};
 use parking_lot::{Mutex, RwLock};
@@ -27,6 +28,7 @@ use types::{
 use validator_dir::ValidatorDir;
 
 pub use crate::doppelganger_service::DoppelgangerStatus;
+use crate::preparation_service::ProposalData;
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
@@ -93,6 +95,7 @@ pub struct ValidatorStore<T, E: EthSpec> {
     slot_clock: T,
     fee_recipient_process: Option<Address>,
     gas_limit: Option<u64>,
+    builder_proposals: bool,
     task_executor: TaskExecutor,
     _phantom: PhantomData<E>,
 }
@@ -108,8 +111,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         spec: ChainSpec,
         doppelganger_service: Option<Arc<DoppelgangerService>>,
         slot_clock: T,
-        fee_recipient_process: Option<Address>,
-        gas_limit: Option<u64>,
+        config: &Config,
         task_executor: TaskExecutor,
         log: Logger,
     ) -> Self {
@@ -122,8 +124,9 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             log,
             doppelganger_service,
             slot_clock,
-            fee_recipient_process,
-            gas_limit,
+            fee_recipient_process: config.fee_recipient,
+            gas_limit: config.gas_limit,
+            builder_proposals: config.builder_proposals,
             task_executor,
             _phantom: PhantomData,
         }
@@ -154,6 +157,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
 
     /// Insert a new validator to `self`, where the validator is represented by an EIP-2335
     /// keystore on the filesystem.
+    #[allow(clippy::too_many_arguments)]
     pub async fn add_validator_keystore<P: AsRef<Path>>(
         &self,
         voting_keystore_path: P,
@@ -162,6 +166,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         graffiti: Option<GraffitiString>,
         suggested_fee_recipient: Option<Address>,
         gas_limit: Option<u64>,
+        builder_proposals: Option<bool>,
     ) -> Result<ValidatorDefinition, String> {
         let mut validator_def = ValidatorDefinition::new_keystore_with_password(
             voting_keystore_path,
@@ -169,6 +174,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             graffiti.map(Into::into),
             suggested_fee_recipient,
             gas_limit,
+            builder_proposals,
         )
         .map_err(|e| format!("failed to create validator definitions: {:?}", e))?;
 
@@ -208,6 +214,25 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             .map_err(|e| format!("Unable to add definition: {:?}", e))?;
 
         Ok(validator_def)
+    }
+
+    pub fn proposal_data(&self, pubkey: &PublicKeyBytes) -> Option<ProposalData> {
+        self.validators
+            .read()
+            .validator(pubkey)
+            .map(|validator| ProposalData {
+                validator_index: validator.get_index(),
+                fee_recipient: validator
+                    .get_suggested_fee_recipient()
+                    .or(self.fee_recipient_process),
+                gas_limit: validator
+                    .get_gas_limit()
+                    .or(self.gas_limit)
+                    .unwrap_or(DEFAULT_GAS_LIMIT),
+                builder_proposals: validator
+                    .get_builder_proposals()
+                    .unwrap_or(self.builder_proposals),
+            })
     }
 
     /// Attempts to resolve the pubkey to a validator index.
@@ -391,8 +416,9 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
 
     /// Returns the gas limit for the given public key. The priority order for fetching
     /// the gas limit is:
+    ///
     /// 1. validator_definitions.yml
-    /// 2. process level fee recipient
+    /// 2. process level gas limit
     /// 3. `DEFAULT_GAS_LIMIT`
     pub fn get_gas_limit(&self, validator_pubkey: &PublicKeyBytes) -> u64 {
         // If there is a `suggested_fee_recipient` in the validator definitions yaml
@@ -404,6 +430,21 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             .or(self.gas_limit)
             // If there's no process-level default, use the `DEFAULT_GAS_LIMIT`.
             .unwrap_or(DEFAULT_GAS_LIMIT)
+    }
+
+    /// Returns a `bool` for the given public key that denotes whther this validator should use the
+    /// builder API. The priority order for fetching this value is:
+    ///
+    /// 1. validator_definitions.yml
+    /// 2. process level flag
+    pub fn get_builder_proposals(&self, validator_pubkey: &PublicKeyBytes) -> bool {
+        // If there is a `suggested_fee_recipient` in the validator definitions yaml
+        // file, use that value.
+        self.validators
+            .read()
+            .builder_proposals(validator_pubkey)
+            // If there's nothing in the file, try the process-level default value.
+            .unwrap_or(self.builder_proposals)
     }
 
     pub async fn sign_block<Payload: ExecPayload<E>>(

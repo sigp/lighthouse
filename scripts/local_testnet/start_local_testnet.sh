@@ -10,14 +10,14 @@ ulimit -n 65536
 
 # VC_COUNT is defaulted in vars.env
 DEBUG_LEVEL=${DEBUG_LEVEL:-info}
-PRIVATE_TX_PROPOSALS=
+BUILDER_PROPOSALS=
 
 # Get options
 while getopts "v:d:ph" flag; do
   case "${flag}" in
     v) VC_COUNT=${OPTARG};;
     d) DEBUG_LEVEL=${OPTARG};;
-    p) PRIVATE_TX_PROPOSALS="-p";;
+    p) BUILDER_PROPOSALS="-p";;
     h)
         validators=$(( $VALIDATOR_COUNT / $BN_COUNT ))
         echo "Start local testnet, defaults: 1 eth1 node, $BN_COUNT beacon nodes,"
@@ -119,7 +119,7 @@ done
 
 # Start requested number of validator clients
 for (( vc=1; vc<=$VC_COUNT; vc++ )); do
-    execute_command_add_PID validator_node_$vc.log ./validator_client.sh $PRIVATE_TX_PROPOSALS -d $DEBUG_LEVEL $DATADIR/node_$vc http://localhost:$((BN_http_port_base + $vc))
+    execute_command_add_PID validator_node_$vc.log ./validator_client.sh $BUILDER_PROPOSALS -d $DEBUG_LEVEL $DATADIR/node_$vc http://localhost:$((BN_http_port_base + $vc))
 done
 
 echo "Started!"

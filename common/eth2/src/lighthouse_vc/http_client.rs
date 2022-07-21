@@ -464,6 +464,7 @@ impl ValidatorClientHttpClient {
         voting_pubkey: &PublicKeyBytes,
         enabled: Option<bool>,
         gas_limit: Option<u64>,
+        builder_proposals: Option<bool>,
     ) -> Result<(), Error> {
         let mut path = self.server.full.clone();
 
@@ -473,8 +474,15 @@ impl ValidatorClientHttpClient {
             .push("validators")
             .push(&voting_pubkey.to_string());
 
-        self.patch(path, &ValidatorPatchRequest { enabled, gas_limit })
-            .await
+        self.patch(
+            path,
+            &ValidatorPatchRequest {
+                enabled,
+                gas_limit,
+                builder_proposals,
+            },
+        )
+        .await
     }
 
     fn make_keystores_url(&self) -> Result<Url, Error> {

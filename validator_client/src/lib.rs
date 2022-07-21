@@ -362,8 +362,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             context.eth2_config.spec.clone(),
             doppelganger_service.clone(),
             slot_clock.clone(),
-            config.fee_recipient,
-            config.gas_limit,
+            &config,
             context.executor.clone(),
             log.clone(),
         ));
@@ -414,7 +413,6 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             .runtime_context(context.service_context("block".into()))
             .graffiti(config.graffiti)
             .graffiti_file(config.graffiti_file.clone())
-            .private_tx_proposals(config.builder_proposals)
             .build()?;
 
         let attestation_service = AttestationServiceBuilder::new()
