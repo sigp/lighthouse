@@ -3256,14 +3256,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let prepare_payload_handle = match &state {
             BeaconState::Base(_) | BeaconState::Altair(_) => None,
             BeaconState::Merge(_) => {
-                let finalized_checkpoint = self.canonical_head.cached_head().finalized_checkpoint();
-                let prepare_payload_handle = get_execution_payload(
-                    self.clone(),
-                    &state,
-                    finalized_checkpoint,
-                    proposer_index,
-                    pubkey_opt,
-                )?;
+                let prepare_payload_handle =
+                    get_execution_payload(self.clone(), &state, proposer_index, pubkey_opt)?;
                 Some(prepare_payload_handle)
             }
         };
@@ -3890,11 +3884,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // `execution_engine_forkchoice_lock` apart from the one here.
         let forkchoice_lock = execution_layer.execution_engine_forkchoice_lock().await;
 
-        let (head_block_root, head_hash, finalized_hash) = if let Some(head_hash) = params.head_hash
+        let (head_block_root, head_hash, justified_hash, finalized_hash) = if let Some(head_hash) =
+            params.head_hash
         {
             (
                 params.head_root,
                 head_hash,
+                params
+                    .justified_hash
+                    .unwrap_or_else(ExecutionBlockHash::zero),
                 params
                     .finalized_hash
                     .unwrap_or_else(ExecutionBlockHash::zero),
@@ -3926,6 +3924,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                                 params.head_root,
                                 terminal_pow_block_hash,
                                 params
+                                    .justified_hash
+                                    .unwrap_or_else(ExecutionBlockHash::zero),
+                                params
                                     .finalized_hash
                                     .unwrap_or_else(ExecutionBlockHash::zero),
                             )
@@ -3942,7 +3943,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         };
 
         let forkchoice_updated_response = execution_layer
-            .notify_forkchoice_updated(head_hash, finalized_hash, current_slot, head_block_root)
+            .notify_forkchoice_updated(
+                head_hash,
+                justified_hash,
+                finalized_hash,
+                current_slot,
+                head_block_root,
+            )
             .await
             .map_err(Error::ExecutionForkChoiceUpdateFailed);
 

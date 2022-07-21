@@ -4,6 +4,7 @@ use crate::execution_engine::{
 use crate::transactions::transactions;
 use ethers_providers::Middleware;
 use execution_layer::{ExecutionLayer, PayloadAttributes, PayloadStatus};
+use fork_choice::ForkchoiceUpdateParameters;
 use reqwest::{header::CONTENT_TYPE, Client};
 use sensitive_url::SensitiveUrl;
 use serde_json::{json, Value};
@@ -254,7 +255,15 @@ impl<E: GenericExecutionEngine> TestRig<E> {
         let parent_hash = terminal_pow_block_hash;
         let timestamp = timestamp_now();
         let prev_randao = Hash256::zero();
+        let head_root = Hash256::zero();
+        let justified_block_hash = ExecutionBlockHash::zero();
         let finalized_block_hash = ExecutionBlockHash::zero();
+        let forkchoice_update_params = ForkchoiceUpdateParameters {
+            head_root,
+            head_hash: Some(parent_hash),
+            justified_hash: Some(justified_block_hash),
+            finalized_hash: Some(finalized_block_hash),
+        };
         let proposer_index = 0;
 
         let prepared = self
@@ -262,7 +271,7 @@ impl<E: GenericExecutionEngine> TestRig<E> {
             .execution_layer
             .insert_proposer(
                 Slot::new(1), // Insert proposer for the next slot
-                Hash256::zero(),
+                head_root,
                 proposer_index,
                 PayloadAttributes {
                     timestamp,
@@ -280,6 +289,7 @@ impl<E: GenericExecutionEngine> TestRig<E> {
             .execution_layer
             .notify_forkchoice_updated(
                 parent_hash,
+                justified_block_hash,
                 finalized_block_hash,
                 Slot::new(0),
                 Hash256::zero(),
@@ -302,10 +312,10 @@ impl<E: GenericExecutionEngine> TestRig<E> {
                 parent_hash,
                 timestamp,
                 prev_randao,
-                finalized_block_hash,
                 proposer_index,
                 None,
                 Slot::new(0),
+                forkchoice_update_params,
             )
             .await
             .unwrap()
@@ -326,7 +336,13 @@ impl<E: GenericExecutionEngine> TestRig<E> {
         let status = self
             .ee_a
             .execution_layer
-            .notify_forkchoice_updated(head_block_hash, finalized_block_hash, slot, head_block_root)
+            .notify_forkchoice_updated(
+                head_block_hash,
+                justified_block_hash,
+                finalized_block_hash,
+                slot,
+                head_block_root,
+            )
             .await
             .unwrap();
         assert_eq!(status, PayloadStatus::Syncing);
@@ -360,7 +376,13 @@ impl<E: GenericExecutionEngine> TestRig<E> {
         let status = self
             .ee_a
             .execution_layer
-            .notify_forkchoice_updated(head_block_hash, finalized_block_hash, slot, head_block_root)
+            .notify_forkchoice_updated(
+                head_block_hash,
+                justified_block_hash,
+                finalized_block_hash,
+                slot,
+                head_block_root,
+            )
             .await
             .unwrap();
         assert_eq!(status, PayloadStatus::Valid);
@@ -390,7 +412,6 @@ impl<E: GenericExecutionEngine> TestRig<E> {
         let parent_hash = valid_payload.block_hash;
         let timestamp = valid_payload.timestamp + 1;
         let prev_randao = Hash256::zero();
-        let finalized_block_hash = ExecutionBlockHash::zero();
         let proposer_index = 0;
         let second_payload = self
             .ee_a
@@ -399,10 +420,10 @@ impl<E: GenericExecutionEngine> TestRig<E> {
                 parent_hash,
                 timestamp,
                 prev_randao,
-                finalized_block_hash,
                 proposer_index,
                 None,
                 Slot::new(0),
+                forkchoice_update_params,
             )
             .await
             .unwrap()
@@ -445,7 +466,13 @@ impl<E: GenericExecutionEngine> TestRig<E> {
         let status = self
             .ee_a
             .execution_layer
-            .notify_forkchoice_updated(head_block_hash, finalized_block_hash, slot, head_block_root)
+            .notify_forkchoice_updated(
+                head_block_hash,
+                justified_block_hash,
+                finalized_block_hash,
+                slot,
+                head_block_root,
+            )
             .await
             .unwrap();
         assert_eq!(status, PayloadStatus::Valid);
@@ -475,7 +502,13 @@ impl<E: GenericExecutionEngine> TestRig<E> {
         let status = self
             .ee_b
             .execution_layer
-            .notify_forkchoice_updated(head_block_hash, finalized_block_hash, slot, head_block_root)
+            .notify_forkchoice_updated(
+                head_block_hash,
+                justified_block_hash,
+                finalized_block_hash,
+                slot,
+                head_block_root,
+            )
             .await
             .unwrap();
         assert_eq!(status, PayloadStatus::Syncing);
@@ -521,7 +554,13 @@ impl<E: GenericExecutionEngine> TestRig<E> {
         let status = self
             .ee_b
             .execution_layer
-            .notify_forkchoice_updated(head_block_hash, finalized_block_hash, slot, head_block_root)
+            .notify_forkchoice_updated(
+                head_block_hash,
+                justified_block_hash,
+                finalized_block_hash,
+                slot,
+                head_block_root,
+            )
             .await
             .unwrap();
         assert_eq!(status, PayloadStatus::Valid);

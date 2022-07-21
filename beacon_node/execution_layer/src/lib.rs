@@ -11,6 +11,7 @@ pub use engine_api::*;
 pub use engine_api::{http, http::deposit_methods, http::HttpJsonRpc};
 pub use engines::ForkChoiceState;
 use engines::{Engine, EngineError};
+use fork_choice::ForkchoiceUpdateParameters;
 use lru::LruCache;
 use payload_status::process_payload_status;
 pub use payload_status::PayloadStatus;
@@ -502,10 +503,10 @@ impl<T: EthSpec> ExecutionLayer<T> {
         parent_hash: ExecutionBlockHash,
         timestamp: u64,
         prev_randao: Hash256,
-        finalized_block_hash: ExecutionBlockHash,
         proposer_index: u64,
         pubkey: Option<PublicKeyBytes>,
         slot: Slot,
+        forkchoice_update_params: ForkchoiceUpdateParameters,
     ) -> Result<Payload, Error> {
         let suggested_fee_recipient = self.get_suggested_fee_recipient(proposer_index).await;
 
@@ -519,10 +520,10 @@ impl<T: EthSpec> ExecutionLayer<T> {
                     parent_hash,
                     timestamp,
                     prev_randao,
-                    finalized_block_hash,
                     suggested_fee_recipient,
                     pubkey,
                     slot,
+                    forkchoice_update_params,
                 )
                 .await
             }
@@ -535,8 +536,8 @@ impl<T: EthSpec> ExecutionLayer<T> {
                     parent_hash,
                     timestamp,
                     prev_randao,
-                    finalized_block_hash,
                     suggested_fee_recipient,
+                    forkchoice_update_params,
                 )
                 .await
             }
@@ -549,17 +550,22 @@ impl<T: EthSpec> ExecutionLayer<T> {
         parent_hash: ExecutionBlockHash,
         timestamp: u64,
         prev_randao: Hash256,
-        finalized_block_hash: ExecutionBlockHash,
         suggested_fee_recipient: Address,
         pubkey_opt: Option<PublicKeyBytes>,
         slot: Slot,
+        forkchoice_update_params: ForkchoiceUpdateParameters,
     ) -> Result<Payload, Error> {
         //FIXME(sean) fallback logic included in PR #3134
 
         // Don't attempt to outsource payload construction until after the merge transition has been
         // finalized. We want to be conservative with payload construction until then.
         if let (Some(builder), Some(pubkey)) = (self.builder(), pubkey_opt) {
-            if finalized_block_hash != ExecutionBlockHash::zero() {
+            if forkchoice_update_params
+                .finalized_hash
+                .map_or(false, |finalized_block_hash| {
+                    finalized_block_hash != ExecutionBlockHash::zero()
+                })
+            {
                 info!(
                     self.log(),
                     "Requesting blinded header from connected builder";
@@ -578,8 +584,8 @@ impl<T: EthSpec> ExecutionLayer<T> {
             parent_hash,
             timestamp,
             prev_randao,
-            finalized_block_hash,
             suggested_fee_recipient,
+            forkchoice_update_params,
         )
         .await
     }
@@ -590,15 +596,15 @@ impl<T: EthSpec> ExecutionLayer<T> {
         parent_hash: ExecutionBlockHash,
         timestamp: u64,
         prev_randao: Hash256,
-        finalized_block_hash: ExecutionBlockHash,
         suggested_fee_recipient: Address,
+        forkchoice_update_params: ForkchoiceUpdateParameters,
     ) -> Result<Payload, Error> {
         self.get_full_payload_with(
             parent_hash,
             timestamp,
             prev_randao,
-            finalized_block_hash,
             suggested_fee_recipient,
+            forkchoice_update_params,
             noop,
         )
         .await
@@ -609,8 +615,8 @@ impl<T: EthSpec> ExecutionLayer<T> {
         parent_hash: ExecutionBlockHash,
         timestamp: u64,
         prev_randao: Hash256,
-        finalized_block_hash: ExecutionBlockHash,
         suggested_fee_recipient: Address,
+        forkchoice_update_params: ForkchoiceUpdateParameters,
         f: fn(&ExecutionLayer<T>, &ExecutionPayload<T>) -> Option<ExecutionPayload<T>>,
     ) -> Result<Payload, Error> {
         debug!(
@@ -634,20 +640,20 @@ impl<T: EthSpec> ExecutionLayer<T> {
                     );
                     id
                 } else {
-                    // The payload id has *not* been cached for this engine. Trigger an artificial
+                    // The payload id has *not* been cached. Trigger an artificial
                     // fork choice update to retrieve a payload ID.
-                    //
-                    // TODO(merge): a better algorithm might try to favour a node that already had a
-                    // cached payload id, since a payload that has had more time to produce is
-                    // likely to be more profitable.
                     metrics::inc_counter_vec(
                         &metrics::EXECUTION_LAYER_PRE_PREPARED_PAYLOAD_ID,
                         &[metrics::MISS],
                     );
                     let fork_choice_state = ForkChoiceState {
                         head_block_hash: parent_hash,
-                        safe_block_hash: parent_hash,
-                        finalized_block_hash,
+                        safe_block_hash: forkchoice_update_params
+                            .justified_hash
+                            .unwrap_or_else(ExecutionBlockHash::zero),
+                        finalized_block_hash: forkchoice_update_params
+                            .finalized_hash
+                            .unwrap_or_else(ExecutionBlockHash::zero),
                     };
                     let payload_attributes = PayloadAttributes {
                         timestamp,
@@ -655,29 +661,28 @@ impl<T: EthSpec> ExecutionLayer<T> {
                         suggested_fee_recipient,
                     };
 
-                            let response = engine
-                                .notify_forkchoice_updated(
-                                    fork_choice_state,
-                                    Some(payload_attributes),
-                                    self.log(),
-                                )
-                                .await?;
+                    let response = engine
+                        .notify_forkchoice_updated(
+                            fork_choice_state,
+                            Some(payload_attributes),
+                            self.log(),
+                        )
+                        .await?;
 
-                            match response.payload_id {
-                                Some(payload_id) => payload_id,
-                                None => {
-                                    error!(
-                                        self.log(),
-                                        "Exec engine unable to produce payload";
-                                        "msg" => "No payload ID, the engine is likely syncing. \
-                                                  This has the potential to cause a missed block \
-                                                  proposal.",
-                                        "status" => ?response.payload_status
-                                    );
-                                    return Err(ApiError::PayloadIdUnavailable);
-                                }
-                            }
-                        };
+                    match response.payload_id {
+                        Some(payload_id) => payload_id,
+                        None => {
+                            error!(
+                                self.log(),
+                                "Exec engine unable to produce payload";
+                                "msg" => "No payload ID, the engine is likely syncing. \
+                                          This has the potential to cause a missed block proposal.",
+                                "status" => ?response.payload_status
+                            );
+                            return Err(ApiError::PayloadIdUnavailable);
+                        }
+                    }
+                };
 
                 engine
                     .api
@@ -685,7 +690,11 @@ impl<T: EthSpec> ExecutionLayer<T> {
                     .await
                     .map(|full_payload| {
                         if f(self, &full_payload).is_some() {
-                            warn!(self.log(), "Duplicate payload cached, this might indicate redundant proposal attempts.");
+                            warn!(
+                                self.log(),
+                                "Duplicate payload cached, this might indicate redundant proposal \
+                                 attempts."
+                            );
                         }
                         full_payload.into()
                     })
@@ -809,6 +818,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
     pub async fn notify_forkchoice_updated(
         &self,
         head_block_hash: ExecutionBlockHash,
+        justified_block_hash: ExecutionBlockHash,
         finalized_block_hash: ExecutionBlockHash,
         current_slot: Slot,
         head_block_root: Hash256,
@@ -822,6 +832,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
             self.log(),
             "Issuing engine_forkchoiceUpdated";
             "finalized_block_hash" => ?finalized_block_hash,
+            "justified_block_hash" => ?justified_block_hash,
             "head_block_hash" => ?head_block_hash,
         );
 
@@ -848,11 +859,9 @@ impl<T: EthSpec> ExecutionLayer<T> {
             }
         }
 
-        // see https://hackmd.io/@n0ble/kintsugi-spec#Engine-API
-        // for now, we must set safe_block_hash = head_block_hash
         let forkchoice_state = ForkChoiceState {
             head_block_hash,
-            safe_block_hash: head_block_hash,
+            safe_block_hash: justified_block_hash,
             finalized_block_hash,
         };
 

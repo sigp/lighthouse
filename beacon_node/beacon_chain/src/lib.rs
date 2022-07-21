@@ -57,7 +57,7 @@ pub use block_verification::{BlockError, ExecutionPayloadError, GossipVerifiedBl
 pub use canonical_head::{CachedHead, CanonicalHead, CanonicalHeadRwLock};
 pub use eth1_chain::{Eth1Chain, Eth1ChainBackend};
 pub use events::ServerSentEventHandler;
-pub use fork_choice::ExecutionStatus;
+pub use fork_choice::{ExecutionStatus, ForkchoiceUpdateParameters};
 pub use metrics::scrape_for_metrics;
 pub use parking_lot;
 pub use slot_clock;

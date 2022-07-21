@@ -302,7 +302,6 @@ pub fn get_execution_payload<
 >(
     chain: Arc<BeaconChain<T>>,
     state: &BeaconState<T::EthSpec>,
-    finalized_checkpoint: Checkpoint,
     proposer_index: u64,
     pubkey: Option<PublicKeyBytes>,
 ) -> Result<PreparePayloadHandle<Payload>, BlockProductionError> {
@@ -330,7 +329,6 @@ pub fn get_execution_payload<
                     is_merge_transition_complete,
                     timestamp,
                     random,
-                    finalized_checkpoint,
                     proposer_index,
                     pubkey,
                     latest_execution_payload_header_block_hash,
@@ -365,7 +363,6 @@ pub async fn prepare_execution_payload<T, Payload>(
     is_merge_transition_complete: bool,
     timestamp: u64,
     random: Hash256,
-    finalized_checkpoint: Checkpoint,
     proposer_index: u64,
     pubkey: Option<PublicKeyBytes>,
     latest_execution_payload_header_block_hash: ExecutionBlockHash,
@@ -408,43 +405,23 @@ where
         latest_execution_payload_header_block_hash
     };
 
-    // Try to obtain the finalized proto block from fork choice.
+    // Try to obtain the fork choice update parameters from the cached head.
     //
-    // Use a blocking task to interact with the `fork_choice` lock otherwise we risk blocking the
+    // Use a blocking task to interact with the `canonical_head` lock otherwise we risk blocking the
     // core `tokio` executor.
     let inner_chain = chain.clone();
-    let finalized_proto_block = chain
+    let forkchoice_update_params = chain
         .spawn_blocking_handle(
             move || {
                 inner_chain
                     .canonical_head
-                    .fork_choice_read_lock()
-                    .get_block(&finalized_checkpoint.root)
+                    .cached_head()
+                    .forkchoice_update_parameters()
             },
-            "prepare_execution_payload_finalized_hash",
+            "prepare_execution_payload_forkchoice_update_params",
         )
         .await
         .map_err(BlockProductionError::BeaconChain)?;
-
-    // The finalized block hash is not included in the specification, however we provide this
-    // parameter so that the execution layer can produce a payload id if one is not already known
-    // (e.g., due to a recent reorg).
-    let finalized_block_hash = if let Some(block) = finalized_proto_block {
-        block.execution_status.block_hash()
-    } else {
-        chain
-            .store
-            .get_blinded_block(&finalized_checkpoint.root)
-            .map_err(BlockProductionError::FailedToReadFinalizedBlock)?
-            .ok_or(BlockProductionError::MissingFinalizedBlock(
-                finalized_checkpoint.root,
-            ))?
-            .message()
-            .body()
-            .execution_payload()
-            .ok()
-            .map(|ep| ep.block_hash())
-    };
 
     // Note: the suggested_fee_recipient is stored in the `execution_layer`, it will add this parameter.
     //
@@ -454,10 +431,10 @@ where
             parent_hash,
             timestamp,
             random,
-            finalized_block_hash.unwrap_or_else(ExecutionBlockHash::zero),
             proposer_index,
             pubkey,
             slot,
+            forkchoice_update_params,
         )
         .await
         .map_err(BlockProductionError::GetPayloadFailed)?;

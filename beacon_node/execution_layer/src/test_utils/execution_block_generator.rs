@@ -335,7 +335,9 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
         }
 
         let unknown_head_block_hash = !self.blocks.contains_key(&forkchoice_state.head_block_hash);
-        let unknown_safe_block_hash = !self.blocks.contains_key(&forkchoice_state.safe_block_hash);
+        let unknown_safe_block_hash = forkchoice_state.safe_block_hash
+            != ExecutionBlockHash::zero()
+            && !self.blocks.contains_key(&forkchoice_state.safe_block_hash);
         let unknown_finalized_block_hash = forkchoice_state.finalized_block_hash
             != ExecutionBlockHash::zero()
             && !self
