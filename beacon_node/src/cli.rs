@@ -715,7 +715,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                         in a row, it will NOT query any connected builders, and will use the local \
                         execution engine for payload construction.")
                 .default_value("3")
-                .requires("builder")
                 .takes_value(true)
         )
         .arg(
@@ -725,7 +724,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                         in the past `SLOTS_PER_EPOCH`, it will NOT query any connected builders, \
                         and will use the local execution engine for payload construction.")
                 .default_value("8")
-                .requires("builder")
                 .takes_value(true)
         )
         .arg(
@@ -739,7 +737,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                         if there are skips slots at the start of an epoch, right before this node \
                         is set to propose.")
                 .default_value("3")
-                .requires("builder")
                 .takes_value(true)
         )
 }
