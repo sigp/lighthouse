@@ -3,13 +3,13 @@ use crate::execution_engine::{
 };
 use crate::transactions::transactions;
 use ethers_providers::Middleware;
+use execution_layer::{
+    BuilderParams, ChainHealth, ExecutionLayer, PayloadAttributes, PayloadStatus,
+};
 use fork_choice::ForkchoiceUpdateParameters;
 use reqwest::{header::CONTENT_TYPE, Client};
 use sensitive_url::SensitiveUrl;
 use serde_json::{json, Value};
-use execution_layer::{
-    BuilderParams, ChainHealth, ExecutionLayer, PayloadAttributes, PayloadStatus,
-};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use task_executor::TaskExecutor;

@@ -609,8 +609,8 @@ impl<T: EthSpec> ExecutionLayer<T> {
                             parent_hash,
                             timestamp,
                             prev_randao,
-                            finalized_block_hash,
                             suggested_fee_recipient,
+                            forkchoice_update_params,
                         )
                     );
 
@@ -713,15 +713,15 @@ impl<T: EthSpec> ExecutionLayer<T> {
         parent_hash: ExecutionBlockHash,
         timestamp: u64,
         prev_randao: Hash256,
-        finalized_block_hash: ExecutionBlockHash,
         suggested_fee_recipient: Address,
+        forkchoice_update_params: ForkchoiceUpdateParameters,
     ) -> Result<Payload, Error> {
         self.get_full_payload_with(
             parent_hash,
             timestamp,
             prev_randao,
-            finalized_block_hash,
             suggested_fee_recipient,
+            forkchoice_update_params,
             Self::cache_payload,
         )
         .await

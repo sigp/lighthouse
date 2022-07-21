@@ -166,8 +166,8 @@ impl<T: EthSpec> MockExecutionLayer<T> {
                 parent_hash,
                 timestamp,
                 prev_randao,
-                finalized_block_hash,
                 validator_index,
+                forkchoice_update_params,
                 builder_params,
                 &self.spec,
             )

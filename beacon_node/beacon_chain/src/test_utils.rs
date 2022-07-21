@@ -389,6 +389,7 @@ where
             DEFAULT_TERMINAL_BLOCK,
             spec.terminal_block_hash,
             spec.terminal_block_hash_activation_epoch,
+            Some(JwtKey::from_slice(&DEFAULT_JWT_SECRET).unwrap()),
             Some(builder_url.clone()),
         )
         .move_to_terminal_block();

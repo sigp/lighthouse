@@ -1,4 +1,4 @@
-use crate::test_utils::JWT_SECRET;
+use crate::test_utils::DEFAULT_JWT_SECRET;
 use crate::{Config, ExecutionLayer, PayloadAttributes};
 use async_trait::async_trait;
 use eth2::types::{BlockId, StateId, ValidatorId};
@@ -6,6 +6,7 @@ use eth2::{BeaconNodeHttpClient, Timeouts};
 use ethereum_consensus::crypto::SecretKey;
 use ethereum_consensus::primitives::BlsPublicKey;
 pub use ethereum_consensus::state_transition::Context;
+use fork_choice::ForkchoiceUpdateParameters;
 use mev_build_rs::{
     sign_builder_message, verify_signed_builder_message, BidRequest, BlindedBlockProviderError,
     BlindedBlockProviderServer, BuilderBid, ExecutionPayload as ServerPayload,
@@ -24,7 +25,9 @@ use std::time::Duration;
 use task_executor::TaskExecutor;
 use tempfile::NamedTempFile;
 use tree_hash::TreeHash;
-use types::{Address, BeaconState, BlindedPayload, ChainSpec, EthSpec, ExecPayload, Slot, Uint256};
+use types::{
+    Address, BeaconState, BlindedPayload, ChainSpec, EthSpec, ExecPayload, Hash256, Slot, Uint256,
+};
 
 #[derive(Clone)]
 pub enum Operation {
@@ -61,7 +64,7 @@ impl<E: EthSpec> TestingBuilder<E> {
     ) -> Self {
         let file = NamedTempFile::new().unwrap();
         let path = file.path().into();
-        std::fs::write(&path, hex::encode(JWT_SECRET)).unwrap();
+        std::fs::write(&path, hex::encode(DEFAULT_JWT_SECRET)).unwrap();
 
         // This EL should not talk to a builder
         let config = Config {
@@ -216,6 +219,20 @@ impl<E: EthSpec> mev_build_rs::BlindedBlockProvider for MockBuilder<E> {
             .execution_payload
             .block_hash;
 
+        let justified_execution_hash = self
+            .beacon_client
+            .get_beacon_blocks::<E>(BlockId::Justified)
+            .await
+            .map_err(convert_err)?
+            .ok_or_else(|| convert_err("missing finalized block"))?
+            .data
+            .message_merge()
+            .map_err(convert_err)?
+            .body
+            .execution_payload
+            .execution_payload
+            .block_hash;
+
         let val_index = self
             .beacon_client
             .get_beacon_states_validator_id(
@@ -260,14 +277,21 @@ impl<E: EthSpec> mev_build_rs::BlindedBlockProvider for MockBuilder<E> {
             .insert_proposer(slot, head_block_root, val_index, payload_attributes)
             .await;
 
+        let forkchoice_update_params = ForkchoiceUpdateParameters {
+            head_root: Hash256::zero(),
+            head_hash: None,
+            justified_hash: Some(justified_execution_hash),
+            finalized_hash: Some(finalized_execution_hash),
+        };
+
         let payload = self
             .el
             .get_full_payload_caching::<BlindedPayload<E>>(
                 head_execution_hash,
                 timestamp,
                 *prev_randao,
-                finalized_execution_hash,
                 fee_recipient,
+                forkchoice_update_params,
             )
             .await
             .map_err(convert_err)?

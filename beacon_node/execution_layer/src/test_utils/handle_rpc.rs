@@ -1,8 +1,6 @@
 use super::Context;
 use crate::engine_api::{http::*, *};
 use crate::json_structures::*;
-use crate::test_utils::execution_block_generator::Block;
-use ethers_core::utils::rlp::{Decodable, Rlp};
 use serde::de::DeserializeOwned;
 use serde_json::Value as JsonValue;
 use std::sync::Arc;
