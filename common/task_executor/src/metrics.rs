@@ -20,7 +20,7 @@ lazy_static! {
     );
     pub static ref BLOCK_ON_TASKS_COUNT: Result<IntGaugeVec> = try_create_int_gauge_vec(
         "block_on_tasks_count",
-        "Total number of block_on_dangers tasks spawned",
+        "Total number of block_on_dangerous tasks spawned",
         &["name"]
     );
     pub static ref BLOCK_ON_TASKS_HISTOGRAM: Result<HistogramVec> = try_create_histogram_vec(

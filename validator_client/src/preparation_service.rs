@@ -1,8 +1,5 @@
 use crate::beacon_node_fallback::{BeaconNodeFallback, RequireSynced};
-use crate::{
-    fee_recipient_file::FeeRecipientFile,
-    validator_store::{DoppelgangerStatus, ValidatorStore},
-};
+use crate::validator_store::{DoppelgangerStatus, ValidatorStore};
 use bls::PublicKeyBytes;
 use environment::RuntimeContext;
 use parking_lot::RwLock;
@@ -31,8 +28,7 @@ pub struct PreparationServiceBuilder<T: SlotClock + 'static, E: EthSpec> {
     slot_clock: Option<T>,
     beacon_nodes: Option<Arc<BeaconNodeFallback<T, E>>>,
     context: Option<RuntimeContext<E>>,
-    fee_recipient: Option<Address>,
-    fee_recipient_file: Option<FeeRecipientFile>,
+    builder_registration_timestamp_override: Option<u64>,
 }
 
 impl<T: SlotClock + 'static, E: EthSpec> PreparationServiceBuilder<T, E> {
@@ -42,8 +38,7 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationServiceBuilder<T, E> {
             slot_clock: None,
             beacon_nodes: None,
             context: None,
-            fee_recipient: None,
-            fee_recipient_file: None,
+            builder_registration_timestamp_override: None,
         }
     }
 
@@ -67,13 +62,11 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationServiceBuilder<T, E> {
         self
     }
 
-    pub fn fee_recipient(mut self, fee_recipient: Option<Address>) -> Self {
-        self.fee_recipient = fee_recipient;
-        self
-    }
-
-    pub fn fee_recipient_file(mut self, fee_recipient_file: Option<FeeRecipientFile>) -> Self {
-        self.fee_recipient_file = fee_recipient_file;
+    pub fn builder_registration_timestamp_override(
+        mut self,
+        builder_registration_timestamp_override: Option<u64>,
+    ) -> Self {
+        self.builder_registration_timestamp_override = builder_registration_timestamp_override;
         self
     }
 
@@ -92,8 +85,8 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationServiceBuilder<T, E> {
                 context: self
                     .context
                     .ok_or("Cannot build PreparationService without runtime_context")?,
-                fee_recipient: self.fee_recipient,
-                fee_recipient_file: self.fee_recipient_file,
+                builder_registration_timestamp_override: self
+                    .builder_registration_timestamp_override,
                 validator_registration_cache: RwLock::new(HashMap::new()),
             }),
         })
@@ -106,8 +99,7 @@ pub struct Inner<T, E: EthSpec> {
     slot_clock: T,
     beacon_nodes: Arc<BeaconNodeFallback<T, E>>,
     context: RuntimeContext<E>,
-    fee_recipient: Option<Address>,
-    fee_recipient_file: Option<FeeRecipientFile>,
+    builder_registration_timestamp_override: Option<u64>,
     // Used to track unpublished validator registration changes.
     validator_registration_cache:
         RwLock<HashMap<ValidatorRegistrationKey, SignedValidatorRegistrationData>>,
@@ -301,23 +293,6 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
     {
         let log = self.context.log();
 
-        let fee_recipient_file = self
-            .fee_recipient_file
-            .clone()
-            .map(|mut fee_recipient_file| {
-                fee_recipient_file
-                    .read_fee_recipient_file()
-                    .map_err(|e| {
-                        error!(
-                            log,
-                            "Error loading fee-recipient file";
-                            "error" => ?e
-                        );
-                    })
-                    .unwrap_or(());
-                fee_recipient_file
-            });
-
         let all_pubkeys: Vec<_> = self
             .validator_store
             .voting_pubkeys(DoppelgangerStatus::ignored);
@@ -327,22 +302,7 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
             .filter_map(|pubkey| {
                 // Ignore fee recipients for keys without indices, they are inactive.
                 let validator_index = self.validator_store.validator_index(&pubkey)?;
-
-                // If there is a `suggested_fee_recipient` in the validator definitions yaml
-                // file, use that value.
-                let fee_recipient = self
-                    .validator_store
-                    .suggested_fee_recipient(&pubkey)
-                    .or_else(|| {
-                        // If there's nothing in the validator defs file, check the fee
-                        // recipient file.
-                        fee_recipient_file
-                            .as_ref()?
-                            .get_fee_recipient(&pubkey)
-                            .ok()?
-                    })
-                    // If there's nothing in the file, try the process-level default value.
-                    .or(self.fee_recipient);
+                let fee_recipient = self.validator_store.get_fee_recipient(&pubkey);
 
                 if let Some(fee_recipient) = fee_recipient {
                     Some(map_fn(pubkey, validator_index, fee_recipient))
@@ -441,10 +401,15 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
             let signed_data = if let Some(signed_data) = cached_registration_opt {
                 signed_data
             } else {
-                let timestamp = SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .map_err(|e| format!("{e:?}"))?
-                    .as_secs();
+                let timestamp =
+                    if let Some(timestamp) = self.builder_registration_timestamp_override {
+                        timestamp
+                    } else {
+                        SystemTime::now()
+                            .duration_since(UNIX_EPOCH)
+                            .map_err(|e| format!("{e:?}"))?
+                            .as_secs()
+                    };
 
                 let ValidatorRegistrationKey {
                     fee_recipient,
@@ -483,16 +448,16 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
 
             match self
                 .beacon_nodes
-                .first_success(RequireSynced::No, |beacon_node| async move {
+                .first_success(RequireSynced::Yes, |beacon_node| async move {
                     beacon_node
                         .post_validator_register_validator(signed_ref)
                         .await
                 })
                 .await
             {
-                Ok(()) => info!(
+                Ok(()) => debug!(
                     log,
-                    "Registered validators with external builders";
+                    "Published validator registration";
                     "count" => registration_data_len,
                 ),
                 Err(e) => error!(

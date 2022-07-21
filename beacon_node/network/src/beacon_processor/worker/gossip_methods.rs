@@ -25,7 +25,7 @@ use types::{
 
 use super::{
     super::work_reprocessing_queue::{
-        QueuedAggregate, QueuedBlock, QueuedUnaggregate, ReprocessQueueMessage,
+        QueuedAggregate, QueuedGossipBlock, QueuedUnaggregate, ReprocessQueueMessage,
     },
     Worker,
 };
@@ -46,7 +46,7 @@ struct VerifiedUnaggregate<T: BeaconChainTypes> {
 
 /// This implementation allows `Self` to be imported to fork choice and other functions on the
 /// `BeaconChain`.
-impl<'a, T: BeaconChainTypes> VerifiedAttestation<T> for VerifiedUnaggregate<T> {
+impl<T: BeaconChainTypes> VerifiedAttestation<T> for VerifiedUnaggregate<T> {
     fn attestation(&self) -> &Attestation<T::EthSpec> {
         &self.attestation
     }
@@ -73,7 +73,7 @@ struct VerifiedAggregate<T: BeaconChainTypes> {
 
 /// This implementation allows `Self` to be imported to fork choice and other functions on the
 /// `BeaconChain`.
-impl<'a, T: BeaconChainTypes> VerifiedAttestation<T> for VerifiedAggregate<T> {
+impl<T: BeaconChainTypes> VerifiedAttestation<T> for VerifiedAggregate<T> {
     fn attestation(&self) -> &Attestation<T::EthSpec> {
         &self.signed_aggregate.message.aggregate
     }
@@ -857,7 +857,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                 metrics::inc_counter(&metrics::BEACON_PROCESSOR_GOSSIP_BLOCK_REQUEUED_TOTAL);
 
                 if reprocess_tx
-                    .try_send(ReprocessQueueMessage::EarlyBlock(QueuedBlock {
+                    .try_send(ReprocessQueueMessage::EarlyBlock(QueuedGossipBlock {
                         peer_id,
                         block: Box::new(verified_block),
                         seen_timestamp: seen_duration,

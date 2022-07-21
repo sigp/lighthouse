@@ -30,6 +30,7 @@ pub enum Error {
     ShuttingDown,
     TokioJoin(String),
     MergeForkNotSupported,
+    GenesisForkVersionRequired,
 }
 
 /// Enumerates all messages that can be signed by a validator.
@@ -206,6 +207,14 @@ impl SigningMethod {
 
                 // Determine the Web3Signer message type.
                 let message_type = object.message_type();
+
+                if matches!(
+                    object,
+                    Web3SignerObject::Deposit { .. } | Web3SignerObject::ValidatorRegistration(_)
+                ) && fork_info.is_some()
+                {
+                    return Err(Error::GenesisForkVersionRequired);
+                }
 
                 let request = SigningRequest {
                     message_type,

@@ -617,6 +617,78 @@ impl InitializedValidators {
         Ok(())
     }
 
+    /// Sets the `InitializedValidator` and `ValidatorDefinition` `suggested_fee_recipient` values.
+    ///
+    /// ## Notes
+    ///
+    /// Setting a validator `fee_recipient` will cause `self.definitions` to be updated and saved to
+    /// disk.
+    ///
+    /// Saves the `ValidatorDefinitions` to file, even if no definitions were changed.
+    pub fn set_validator_fee_recipient(
+        &mut self,
+        voting_public_key: &PublicKey,
+        fee_recipient: Address,
+    ) -> Result<(), Error> {
+        if let Some(def) = self
+            .definitions
+            .as_mut_slice()
+            .iter_mut()
+            .find(|def| def.voting_public_key == *voting_public_key)
+        {
+            def.suggested_fee_recipient = Some(fee_recipient);
+        }
+
+        if let Some(val) = self
+            .validators
+            .get_mut(&PublicKeyBytes::from(voting_public_key))
+        {
+            val.suggested_fee_recipient = Some(fee_recipient);
+        }
+
+        self.definitions
+            .save(&self.validators_dir)
+            .map_err(Error::UnableToSaveDefinitions)?;
+
+        Ok(())
+    }
+
+    /// Removes the `InitializedValidator` and `ValidatorDefinition` `suggested_fee_recipient` values.
+    ///
+    /// ## Notes
+    ///
+    /// Removing a validator `fee_recipient` will cause `self.definitions` to be updated and saved to
+    /// disk. The fee_recipient for the validator will then fall back to the process level default if
+    /// it is set.
+    ///
+    /// Saves the `ValidatorDefinitions` to file, even if no definitions were changed.
+    pub fn delete_validator_fee_recipient(
+        &mut self,
+        voting_public_key: &PublicKey,
+    ) -> Result<(), Error> {
+        if let Some(def) = self
+            .definitions
+            .as_mut_slice()
+            .iter_mut()
+            .find(|def| def.voting_public_key == *voting_public_key)
+        {
+            def.suggested_fee_recipient = None;
+        }
+
+        if let Some(val) = self
+            .validators
+            .get_mut(&PublicKeyBytes::from(voting_public_key))
+        {
+            val.suggested_fee_recipient = None;
+        }
+
+        self.definitions
+            .save(&self.validators_dir)
+            .map_err(Error::UnableToSaveDefinitions)?;
+
+        Ok(())
+    }
+
     /// Tries to decrypt the key cache.
     ///
     /// Returns the decrypted cache if decryption was successful, or an error if a required password

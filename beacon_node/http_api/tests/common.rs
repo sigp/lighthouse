@@ -87,76 +87,9 @@ pub async fn create_api_server<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
     log: Logger,
 ) -> ApiServer<T::EthSpec, impl Future<Output = ()>> {
-    let (network_tx, network_rx) = mpsc::unbounded_channel();
-
-    // Default metadata
-    let meta_data = MetaData::V2(MetaDataV2 {
-        seq_number: SEQ_NUMBER,
-        attnets: EnrAttestationBitfield::<T::EthSpec>::default(),
-        syncnets: EnrSyncCommitteeBitfield::<T::EthSpec>::default(),
-    });
-    let enr_key = CombinedKey::generate_secp256k1();
-    let enr = EnrBuilder::new("v4").build(&enr_key).unwrap();
-    let network_globals = Arc::new(NetworkGlobals::new(
-        enr.clone(),
-        TCP_PORT,
-        UDP_PORT,
-        meta_data,
-        vec![],
-        &log,
-    ));
-
-    // Only a peer manager can add peers, so we create a dummy manager.
-    let config = lighthouse_network::peer_manager::config::Config::default();
-    let mut pm = PeerManager::new(config, network_globals.clone(), &log)
-        .await
-        .unwrap();
-
-    // add a peer
-    let peer_id = PeerId::random();
-
-    let connected_point = ConnectedPoint::Listener {
-        local_addr: EXTERNAL_ADDR.parse().unwrap(),
-        send_back_addr: EXTERNAL_ADDR.parse().unwrap(),
-    };
-    let con_id = ConnectionId::new(1);
-    pm.inject_connection_established(&peer_id, &con_id, &connected_point, None, 0);
-    *network_globals.sync_state.write() = SyncState::Synced;
-
-    let eth1_service = eth1::Service::new(eth1::Config::default(), log.clone(), chain.spec.clone());
-
-    let context = Arc::new(Context {
-        config: Config {
-            enabled: true,
-            listen_addr: IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
-            listen_port: 0,
-            allow_origin: None,
-            serve_legacy_spec: true,
-            tls_config: None,
-            allow_sync_stalled: false,
-        },
-        chain: Some(chain.clone()),
-        network_tx: Some(network_tx),
-        network_globals: Some(network_globals),
-        eth1_service: Some(eth1_service),
-        log,
-    });
-    let ctx = context.clone();
-    let (shutdown_tx, shutdown_rx) = oneshot::channel();
-    let server_shutdown = async {
-        // It's not really interesting why this triggered, just that it happened.
-        let _ = shutdown_rx.await;
-    };
-    let (listening_socket, server) = http_api::serve(ctx, server_shutdown).unwrap();
-
-    ApiServer {
-        server,
-        listening_socket,
-        shutdown_tx,
-        network_rx,
-        local_enr: enr,
-        external_peer_id: peer_id,
-    }
+    // Get a random unused port.
+    let port = unused_port::unused_tcp_port().unwrap();
+    create_api_server_on_port(chain, log, port).await
 }
 
 pub async fn create_api_server_on_port<T: BeaconChainTypes>(

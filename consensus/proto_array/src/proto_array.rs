@@ -241,7 +241,7 @@ impl ProtoArray {
                 // not exist.
                 node.weight = node
                     .weight
-                    .checked_sub(node_delta.abs() as u64)
+                    .checked_sub(node_delta.unsigned_abs())
                     .ok_or(Error::DeltaOverflow(node_index))?;
             } else {
                 node.weight = node
@@ -491,9 +491,6 @@ impl ProtoArray {
                             node.best_descendant = None
                         }
 
-                        // It might be new knowledge that this block is valid, ensure that it and all
-                        // ancestors are marked as valid.
-                        self.propagate_execution_payload_validation_by_index(index)?;
                         break;
                     }
                 }

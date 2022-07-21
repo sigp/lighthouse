@@ -310,6 +310,7 @@ mod tests {
                 spec,
                 None,
                 slot_clock,
+                None,
                 executor,
                 log.clone(),
             );
@@ -449,8 +450,6 @@ mod tests {
         }
     }
 
-    //TODO: remove this once the consensys web3signer includes the `validator_registration` method
-    #[allow(dead_code)]
     fn get_validator_registration(pubkey: PublicKeyBytes) -> ValidatorRegistrationData {
         let fee_recipient = Address::repeat_byte(42);
         ValidatorRegistrationData {
@@ -512,16 +511,17 @@ mod tests {
                     .await
                     .unwrap()
             })
-            //TODO: uncomment this once the consensys web3signer includes the `validator_registration` method
-            //
-            // .await
-            // .assert_signatures_match("validator_registration", |pubkey, validator_store| async move {
-            //     let val_reg_data = get_validator_registration(pubkey);
-            //     validator_store
-            //         .sign_validator_registration_data(val_reg_data)
-            //         .await
-            //         .unwrap()
-            // })
+            .await
+            .assert_signatures_match(
+                "validator_registration",
+                |pubkey, validator_store| async move {
+                    let val_reg_data = get_validator_registration(pubkey);
+                    validator_store
+                        .sign_validator_registration_data(val_reg_data)
+                        .await
+                        .unwrap()
+                },
+            )
             .await;
     }
 
@@ -598,16 +598,17 @@ mod tests {
                         .unwrap()
                 },
             )
-            //TODO: uncomment this once the consensys web3signer includes the `validator_registration` method
-            //
-            // .await
-            // .assert_signatures_match("validator_registration", |pubkey, validator_store| async move {
-            //     let val_reg_data = get_validator_registration(pubkey);
-            //     validator_store
-            //         .sign_validator_registration_data(val_reg_data)
-            //         .await
-            //         .unwrap()
-            // })
+            .await
+            .assert_signatures_match(
+                "validator_registration",
+                |pubkey, validator_store| async move {
+                    let val_reg_data = get_validator_registration(pubkey);
+                    validator_store
+                        .sign_validator_registration_data(val_reg_data)
+                        .await
+                        .unwrap()
+                },
+            )
             .await;
     }
 

@@ -1289,23 +1289,28 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         epoch: Epoch,
         head_block_root: Hash256,
     ) -> Result<(Vec<Option<AttestationDuty>>, Hash256, ExecutionStatus), Error> {
-        self.with_committee_cache(head_block_root, epoch, |committee_cache, dependent_root| {
-            let duties = validator_indices
-                .iter()
-                .map(|validator_index| {
-                    let validator_index = *validator_index as usize;
-                    committee_cache.get_attestation_duties(validator_index)
-                })
-                .collect();
+        let execution_status = self
+            .canonical_head
+            .fork_choice_read_lock()
+            .get_block_execution_status(&head_block_root)
+            .ok_or(Error::AttestationHeadNotInForkChoice(head_block_root))?;
 
-            let execution_status = self
-                .canonical_head
-                .fork_choice_read_lock()
-                .get_block_execution_status(&head_block_root)
-                .ok_or(Error::AttestationHeadNotInForkChoice(head_block_root))?;
+        let (duties, dependent_root) = self.with_committee_cache(
+            head_block_root,
+            epoch,
+            |committee_cache, dependent_root| {
+                let duties = validator_indices
+                    .iter()
+                    .map(|validator_index| {
+                        let validator_index = *validator_index as usize;
+                        committee_cache.get_attestation_duties(validator_index)
+                    })
+                    .collect();
 
-            Ok((duties, dependent_root, execution_status))
-        })
+                Ok((duties, dependent_root))
+            },
+        )?;
+        Ok((duties, dependent_root, execution_status))
     }
 
     /// Returns an aggregated `Attestation`, if any, that has a matching `attestation.data`.
@@ -2096,7 +2101,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     {
         let handle = self
             .task_executor
-            .clone()
             .spawn_blocking_handle(task, name)
             .ok_or(Error::RuntimeShutdown)?;
 
@@ -2591,27 +2595,22 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .map_err(BeaconChainError::from)?;
         }
 
-        let mut fork_choice = self.canonical_head.fork_choice_write_lock();
-
-        // Do not import a block that doesn't descend from the finalized root.
-        check_block_is_finalized_descendant(self, &fork_choice, &signed_block)?;
-
-        // Note: we're using the finalized checkpoint from the head state, rather than fork
-        // choice.
-        //
-        // We are doing this to ensure that we detect changes in finalization. It's possible
-        // that fork choice has already been updated to the finalized checkpoint in the block
-        // we're importing.
-        let current_head_finalized_checkpoint =
-            self.canonical_head.cached_head().finalized_checkpoint();
-        // Compare the existing finalized checkpoint with the incoming block's finalized checkpoint.
-        let new_finalized_checkpoint = state.finalized_checkpoint();
-
         // Alias for readability.
         let block = signed_block.message();
 
         // Only perform the weak subjectivity check if it was configured.
         if let Some(wss_checkpoint) = self.config.weak_subjectivity_checkpoint {
+            // Note: we're using the finalized checkpoint from the head state, rather than fork
+            // choice.
+            //
+            // We are doing this to ensure that we detect changes in finalization. It's possible
+            // that fork choice has already been updated to the finalized checkpoint in the block
+            // we're importing.
+            let current_head_finalized_checkpoint =
+                self.canonical_head.cached_head().finalized_checkpoint();
+            // Compare the existing finalized checkpoint with the incoming block's finalized checkpoint.
+            let new_finalized_checkpoint = state.finalized_checkpoint();
+
             // This ensures we only perform the check once.
             if (current_head_finalized_checkpoint.epoch < wss_checkpoint.epoch)
                 && (wss_checkpoint.epoch <= new_finalized_checkpoint.epoch)
@@ -2640,6 +2639,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 }
             }
         }
+
+        // Take an exclusive write-lock on fork choice. It's very important prevent deadlocks by
+        // avoiding taking other locks whilst holding this lock.
+        let mut fork_choice = self.canonical_head.fork_choice_write_lock();
+
+        // Do not import a block that doesn't descend from the finalized root.
+        check_block_is_finalized_descendant(self, &fork_choice, &signed_block)?;
 
         // Register the new block with the fork choice service.
         {
@@ -2907,7 +2913,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 event_handler.register(EventKind::Block(SseBlock {
                     slot,
                     block: block_root,
-                    execution_optimistic: self.is_optimistic_block(&signed_block)?,
+                    execution_optimistic: payload_verification_status.is_optimistic(),
                 }));
             }
         }
@@ -3050,7 +3056,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Part 2/2 (async, with some blocking components)
         //
-        // Produce the blopck upon the state
+        // Produce the block upon the state
         self.produce_block_on_state::<Payload>(
             state,
             state_root_opt,
@@ -3244,15 +3250,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             state.latest_block_header().canonical_root()
         };
 
-        let slot = state.slot();
         let proposer_index = state.get_beacon_proposer_index(state.slot(), &self.spec)? as u64;
-        let pubkey_opt = match self.validator_pubkey_bytes(proposer_index as usize) {
-            Ok(p) => p,
-            Err(e) => {
-                warn!(self.log, "Can't access proposer's pubkey, cannot use external builder"; "error" => ?e);
-                None
-            }
-        };
+
+        let pubkey_opt = state
+            .validators()
+            .get(proposer_index as usize)
+            .map(|v| v.pubkey);
 
         // If required, start the process of loading an execution payload from the EL early. This
         // allows it to run concurrently with things like attestation packing.
@@ -3327,23 +3330,25 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .map_err(BlockProductionError::OpPoolError)?;
         drop(attestation_packing_timer);
 
-        let sync_aggregate = match &state {
-            BeaconState::Base(_) => None,
-            BeaconState::Altair(_) | BeaconState::Merge(_) => {
-                let sync_aggregate = self
-                    .op_pool
-                    .get_sync_aggregate(&state)
-                    .map_err(BlockProductionError::OpPoolError)?
-                    .unwrap_or_else(|| {
-                        warn!(
-                            self.log,
-                            "Producing block with no sync contributions";
-                            "slot" => state.slot(),
-                        );
-                        SyncAggregate::new()
-                    });
-                Some(sync_aggregate)
-            }
+        let slot = state.slot();
+        let proposer_index = state.get_beacon_proposer_index(state.slot(), &self.spec)? as u64;
+
+        let sync_aggregate = if matches!(&state, BeaconState::Base(_)) {
+            None
+        } else {
+            let sync_aggregate = self
+                .op_pool
+                .get_sync_aggregate(&state)
+                .map_err(BlockProductionError::OpPoolError)?
+                .unwrap_or_else(|| {
+                    warn!(
+                        self.log,
+                        "Producing block with no sync contributions";
+                        "slot" => state.slot(),
+                    );
+                    SyncAggregate::new()
+                });
+            Some(sync_aggregate)
         };
 
         Ok(PartialBeaconBlock {
@@ -3843,8 +3848,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 "prepare_slot" => prepare_slot
             );
 
-            // Use the blocking method here so that we don't form a queue of these functions when
-            // routinely calling them.
             self.update_execution_engine_forkchoice(current_slot, forkchoice_update_params)
                 .await?;
         }
@@ -4052,9 +4055,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// Returns `Ok(false)` if the block is pre-Bellatrix, or has `ExecutionStatus::Valid`.
     /// Returns `Ok(true)` if the block has `ExecutionStatus::Optimistic`.
-    pub fn is_optimistic_block(
+    pub fn is_optimistic_block<Payload: ExecPayload<T::EthSpec>>(
         &self,
-        block: &SignedBeaconBlock<T::EthSpec>,
+        block: &SignedBeaconBlock<T::EthSpec, Payload>,
     ) -> Result<bool, BeaconChainError> {
         // Check if the block is pre-Bellatrix.
         if self.slot_is_prior_to_bellatrix(block.slot()) {
@@ -4078,9 +4081,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// There is a potential race condition when syncing where the block_root of `head_block` could
     /// be pruned from the fork choice store before being read.
-    pub fn is_optimistic_head_block(
+    pub fn is_optimistic_head_block<Payload: ExecPayload<T::EthSpec>>(
         &self,
-        head_block: &SignedBeaconBlock<T::EthSpec>,
+        head_block: &SignedBeaconBlock<T::EthSpec, Payload>,
     ) -> Result<bool, BeaconChainError> {
         // Check if the block is pre-Bellatrix.
         if self.slot_is_prior_to_bellatrix(head_block.slot()) {
@@ -4207,16 +4210,25 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             // Send the notification regardless of fork choice success, this is a "best effort"
             // notification and we don't want block production to hit the timeout in case of error.
-            if let Some(tx) = &self.fork_choice_signal_tx {
-                if let Err(e) = tx.notify_fork_choice_complete(slot) {
-                    warn!(
-                        self.log,
-                        "Error signalling fork choice waiter";
-                        "error" => ?e,
-                        "slot" => slot,
-                    );
-                }
-            }
+            // Use a blocking task to avoid blocking the core executor whilst waiting for locks
+            // in `ForkChoiceSignalTx`.
+            let chain = self.clone();
+            self.task_executor.clone().spawn_blocking(
+                move || {
+                    // Signal block proposal for the next slot (if it happens to be waiting).
+                    if let Some(tx) = &chain.fork_choice_signal_tx {
+                        if let Err(e) = tx.notify_fork_choice_complete(slot) {
+                            warn!(
+                                chain.log,
+                                "Error signalling fork choice waiter";
+                                "error" => ?e,
+                                "slot" => slot,
+                            );
+                        }
+                    }
+                },
+                "per_slot_task_fc_signal_tx",
+            );
         }
     }
 

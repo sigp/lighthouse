@@ -11,9 +11,9 @@ use engine_api::Error as ApiError;
 pub use engine_api::*;
 pub use engine_api::{http, http::deposit_methods, http::HttpJsonRpc};
 pub use engines::ForkChoiceState;
-use engines::{Engine, EngineError, Engines, Logging};
+use engines::{Engine, EngineError};
 use lru::LruCache;
-use payload_status::process_multiple_payload_statuses;
+use payload_status::process_payload_status;
 pub use payload_status::PayloadStatus;
 use sensitive_url::SensitiveUrl;
 use serde::{Deserialize, Serialize};
@@ -28,7 +28,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use task_executor::TaskExecutor;
 use tokio::{
     sync::{Mutex, MutexGuard, RwLock},
-    time::{sleep, sleep_until, Instant},
+    time::sleep,
 };
 use types::{
     BlindedPayload, BlockType, ChainSpec, Epoch, ExecPayload, ExecutionBlockHash, ForkName,
@@ -66,16 +66,15 @@ const CONFIG_POLL_INTERVAL: Duration = Duration::from_secs(60);
 
 #[derive(Debug)]
 pub enum Error {
-    NoEngines,
+    NoEngine,
     NoPayloadBuilder,
     ApiError(ApiError),
     Builder(builder_client::Error),
     NoHeaderFromBuilder,
-    EngineErrors(Vec<EngineError>),
+    EngineError(Box<EngineError>),
     NotSynced,
     ShuttingDown,
     FeeRecipientUnspecified,
-    ConsensusFailure,
     MissingLatestValidHash,
     InvalidJWTSecret(String),
 }
@@ -105,7 +104,7 @@ pub struct Proposer {
 }
 
 struct Inner<E: EthSpec> {
-    engines: Engines,
+    engine: Arc<Engine>,
     builder: Option<BuilderHttpClient>,
     execution_engine_forkchoice_lock: Mutex<()>,
     suggested_fee_recipient: Option<Address>,
@@ -136,22 +135,15 @@ pub struct Config {
     pub default_datadir: PathBuf,
 }
 
-/// Provides access to one or more execution engines and provides a neat interface for consumption
-/// by the `BeaconChain`.
-///
-/// When there is more than one execution node specified, the others will be used in a "fallback"
-/// fashion. Some requests may be broadcast to all nodes and others might only be sent to the first
-/// node that returns a valid response. Ultimately, the purpose of fallback nodes is to provide
-/// redundancy in the case where one node is offline.
-///
-/// The fallback nodes have an ordering. The first supplied will be the first contacted, and so on.
+/// Provides access to one execution engine and provides a neat interface for consumption by the
+/// `BeaconChain`.
 #[derive(Clone)]
 pub struct ExecutionLayer<T: EthSpec> {
     inner: Arc<Inner<T>>,
 }
 
 impl<T: EthSpec> ExecutionLayer<T> {
-    /// Instantiate `Self` with Execution engines specified using `Config`, all using the JSON-RPC via HTTP.
+    /// Instantiate `Self` with an Execution engine specified in `Config`, using JSON-RPC via HTTP.
     pub fn from_config(config: Config, executor: TaskExecutor, log: Logger) -> Result<Self, Error> {
         let Config {
             execution_endpoints: urls,
@@ -166,7 +158,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
         if urls.len() > 1 {
             warn!(log, "Only the first execution engine url will be used");
         }
-        let execution_url = urls.into_iter().next().ok_or(Error::NoEngines)?;
+        let execution_url = urls.into_iter().next().ok_or(Error::NoEngine)?;
 
         // Use the default jwt secret path if not provided via cli.
         let secret_file = secret_files
@@ -202,13 +194,11 @@ impl<T: EthSpec> ExecutionLayer<T> {
                 .map_err(Error::InvalidJWTSecret)
         }?;
 
-        let engine: Engine<EngineApi> = {
-            let id = execution_url.to_string();
+        let engine: Engine = {
             let auth = Auth::new(jwt_key, jwt_id, jwt_version);
-            debug!(log, "Loaded execution endpoint"; "endpoint" => %id, "jwt_path" => ?secret_file.as_path());
-            let api = HttpJsonRpc::<EngineApi>::new_with_auth(execution_url, auth)
-                .map_err(Error::ApiError)?;
-            Engine::<EngineApi>::new(id, api)
+            debug!(log, "Loaded execution endpoint"; "endpoint" => %execution_url, "jwt_path" => ?secret_file.as_path());
+            let api = HttpJsonRpc::new_with_auth(execution_url, auth).map_err(Error::ApiError)?;
+            Engine::new(api, executor.clone(), &log)
         };
 
         let builder = builder_url
@@ -216,11 +206,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
             .transpose()?;
 
         let inner = Inner {
-            engines: Engines {
-                engine,
-                latest_forkchoice_state: <_>::default(),
-                log: log.clone(),
-            },
+            engine: Arc::new(engine),
             builder,
             execution_engine_forkchoice_lock: <_>::default(),
             suggested_fee_recipient,
@@ -239,8 +225,12 @@ impl<T: EthSpec> ExecutionLayer<T> {
 }
 
 impl<T: EthSpec> ExecutionLayer<T> {
-    fn engines(&self) -> &Engines {
-        &self.inner.engines
+    fn engine(&self) -> &Arc<Engine> {
+        &self.inner.engine
+    }
+
+    pub fn builder(&self) -> &Option<BuilderHttpClient> {
+        &self.inner.builder
     }
 
     /// Cache a full payload, keyed on the `tree_hash_root` of its `transactions` field.
@@ -251,10 +241,6 @@ impl<T: EthSpec> ExecutionLayer<T> {
     /// Attempt to retrieve a full payload from the payload cache by the `transactions_root`.
     pub fn get_payload_by_root(&self, root: &Hash256) -> Option<ExecutionPayload<T>> {
         self.inner.payload_cache.pop(root)
-    }
-
-    pub fn builder(&self) -> &Option<BuilderHttpClient> {
-        &self.inner.builder
     }
 
     pub fn executor(&self) -> &TaskExecutor {
@@ -296,54 +282,18 @@ impl<T: EthSpec> ExecutionLayer<T> {
         self.executor().spawn(generate_future(self.clone()), name);
     }
 
-    /// Spawns a routine which attempts to keep the execution engines online.
+    /// Spawns a routine which attempts to keep the execution engine online.
     pub fn spawn_watchdog_routine<S: SlotClock + 'static>(&self, slot_clock: S) {
         let watchdog = |el: ExecutionLayer<T>| async move {
             // Run one task immediately.
             el.watchdog_task().await;
 
-            let recurring_task =
-                |el: ExecutionLayer<T>, now: Instant, duration_to_next_slot: Duration| async move {
-                    // We run the task three times per slot.
-                    //
-                    // The interval between each task is 1/3rd of the slot duration. This matches nicely
-                    // with the attestation production times (unagg. at 1/3rd, agg at 2/3rd).
-                    //
-                    // Each task is offset by 3/4ths of the interval.
-                    //
-                    // On mainnet, this means we will run tasks at:
-                    //
-                    // - 3s after slot start: 1s before publishing unaggregated attestations.
-                    // - 7s after slot start: 1s before publishing aggregated attestations.
-                    // - 11s after slot start: 1s before the next slot starts.
-                    let interval = duration_to_next_slot / 3;
-                    let offset = (interval / 4) * 3;
-
-                    let first_execution = duration_to_next_slot + offset;
-                    let second_execution = first_execution + interval;
-                    let third_execution = second_execution + interval;
-
-                    sleep_until(now + first_execution).await;
-                    el.engines().upcheck_not_synced(Logging::Disabled).await;
-
-                    sleep_until(now + second_execution).await;
-                    el.engines().upcheck_not_synced(Logging::Disabled).await;
-
-                    sleep_until(now + third_execution).await;
-                    el.engines().upcheck_not_synced(Logging::Disabled).await;
-                };
-
             // Start the loop to periodically update.
             loop {
-                if let Some(duration) = slot_clock.duration_to_next_slot() {
-                    let now = Instant::now();
-
-                    // Spawn a new task rather than waiting for this to finish. This ensure that a
-                    // slow run doesn't prevent the next run from starting.
-                    el.spawn(|el| recurring_task(el, now, duration), "exec_watchdog_task");
-                } else {
-                    error!(el.log(), "Failed to spawn watchdog task");
-                }
+                el.spawn(
+                    |el| async move { el.watchdog_task().await },
+                    "exec_watchdog_task",
+                );
                 sleep(slot_clock.slot_duration()).await;
             }
         };
@@ -353,8 +303,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
 
     /// Performs a single execution of the watchdog routine.
     pub async fn watchdog_task(&self) {
-        // Disable logging since this runs frequently and may get annoying.
-        self.engines().upcheck_not_synced(Logging::Disabled).await;
+        self.engine().upcheck().await;
     }
 
     /// Spawns a routine which cleans the cached proposer data periodically.
@@ -414,9 +363,9 @@ impl<T: EthSpec> ExecutionLayer<T> {
         self.spawn(routine, "exec_config_poll");
     }
 
-    /// Returns `true` if there is at least one synced and reachable engine.
+    /// Returns `true` if the execution engine is synced and reachable.
     pub async fn is_synced(&self) -> bool {
-        self.engines().is_synced().await
+        self.engine().is_synced().await
     }
 
     /// Updates the proposer preparation data provided by validators
@@ -743,8 +692,8 @@ impl<T: EthSpec> ExecutionLayer<T> {
             "timestamp" => timestamp,
             "parent_hash" => ?parent_hash,
         );
-        self.engines()
-            .first_success(|engine| async move {
+        self.engine()
+            .request(|engine| async move {
                 let payload_id = if let Some(id) = engine
                     .get_payload_id(parent_hash, timestamp, prev_randao, suggested_fee_recipient)
                     .await
@@ -813,7 +762,8 @@ impl<T: EthSpec> ExecutionLayer<T> {
                     })
             })
             .await
-            .map_err(Error::EngineErrors)
+            .map_err(Box::new)
+            .map_err(Error::EngineError)
     }
 
     /// Maps to the `engine_newPayload` JSON-RPC call.
@@ -846,16 +796,14 @@ impl<T: EthSpec> ExecutionLayer<T> {
             "block_number" => execution_payload.block_number,
         );
 
-        let broadcast_results = self
-            .engines()
-            .broadcast(|engine| engine.api.new_payload_v1(execution_payload.clone()))
+        let result = self
+            .engine()
+            .request(|engine| engine.api.new_payload_v1(execution_payload.clone()))
             .await;
 
-        process_multiple_payload_statuses(
-            execution_payload.block_hash,
-            Some(broadcast_results).into_iter(),
-            self.log(),
-        )
+        process_payload_status(execution_payload.block_hash, result, self.log())
+            .map_err(Box::new)
+            .map_err(Error::EngineError)
     }
 
     /// Register that the given `validator_index` is going to produce a block at `slot`.
@@ -979,26 +927,26 @@ impl<T: EthSpec> ExecutionLayer<T> {
             finalized_block_hash,
         };
 
-        self.engines()
+        self.engine()
             .set_latest_forkchoice_state(forkchoice_state)
             .await;
 
-        let broadcast_results = self
-            .engines()
-            .broadcast(|engine| async move {
+        let result = self
+            .engine()
+            .request(|engine| async move {
                 engine
                     .notify_forkchoice_updated(forkchoice_state, payload_attributes, self.log())
                     .await
             })
             .await;
 
-        process_multiple_payload_statuses(
+        process_payload_status(
             head_block_hash,
-            Some(broadcast_results)
-                .into_iter()
-                .map(|result| result.map(|response| response.payload_status)),
+            result.map(|response| response.payload_status),
             self.log(),
         )
+        .map_err(Box::new)
+        .map_err(Error::EngineError)
     }
 
     pub async fn exchange_transition_configuration(&self, spec: &ChainSpec) -> Result<(), Error> {
@@ -1008,15 +956,12 @@ impl<T: EthSpec> ExecutionLayer<T> {
             terminal_block_number: 0,
         };
 
-        let broadcast_result = self
-            .engines()
-            .broadcast(|engine| engine.api.exchange_transition_configuration_v1(local))
+        let result = self
+            .engine()
+            .request(|engine| engine.api.exchange_transition_configuration_v1(local))
             .await;
 
-        let mut errors = vec![];
-        // Having no fallbacks, the id of the used node is 0
-        let i = 0usize;
-        match broadcast_result {
+        match result {
             Ok(remote) => {
                 if local.terminal_total_difficulty != remote.terminal_total_difficulty
                     || local.terminal_block_hash != remote.terminal_block_hash
@@ -1026,20 +971,18 @@ impl<T: EthSpec> ExecutionLayer<T> {
                         "Execution client config mismatch";
                         "msg" => "ensure lighthouse and the execution client are up-to-date and \
                                   configured consistently",
-                        "execution_endpoint" => i,
                         "remote" => ?remote,
                         "local" => ?local,
                     );
-                    errors.push(EngineError::Api {
-                        id: i.to_string(),
+                    Err(Error::EngineError(Box::new(EngineError::Api {
                         error: ApiError::TransitionConfigurationMismatch,
-                    });
+                    })))
                 } else {
                     debug!(
                         self.log(),
                         "Execution client config is OK";
-                        "execution_endpoint" => i
                     );
+                    Ok(())
                 }
             }
             Err(e) => {
@@ -1047,16 +990,9 @@ impl<T: EthSpec> ExecutionLayer<T> {
                     self.log(),
                     "Unable to get transition config";
                     "error" => ?e,
-                    "execution_endpoint" => i,
                 );
-                errors.push(e);
+                Err(Error::EngineError(Box::new(e)))
             }
-        }
-
-        if errors.is_empty() {
-            Ok(())
-        } else {
-            Err(Error::EngineErrors(errors))
         }
     }
 
@@ -1077,8 +1013,8 @@ impl<T: EthSpec> ExecutionLayer<T> {
         );
 
         let hash_opt = self
-            .engines()
-            .first_success(|engine| async move {
+            .engine()
+            .request(|engine| async move {
                 let terminal_block_hash = spec.terminal_block_hash;
                 if terminal_block_hash != ExecutionBlockHash::zero() {
                     if self
@@ -1096,7 +1032,8 @@ impl<T: EthSpec> ExecutionLayer<T> {
                     .await
             })
             .await
-            .map_err(Error::EngineErrors)?;
+            .map_err(Box::new)
+            .map_err(Error::EngineError)?;
 
         if let Some(hash) = &hash_opt {
             info!(
@@ -1122,7 +1059,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
     /// https://github.com/ethereum/consensus-specs/blob/v1.1.5/specs/merge/validator.md
     async fn get_pow_block_hash_at_total_difficulty(
         &self,
-        engine: &Engine<EngineApi>,
+        engine: &Engine,
         spec: &ChainSpec,
     ) -> Result<Option<ExecutionBlockHash>, ApiError> {
         let mut block = engine
@@ -1163,8 +1100,8 @@ impl<T: EthSpec> ExecutionLayer<T> {
     /// - `Some(true)` if the given `block_hash` is the terminal proof-of-work block.
     /// - `Some(false)` if the given `block_hash` is certainly *not* the terminal proof-of-work
     ///     block.
-    /// - `None` if the `block_hash` or its parent were not present on the execution engines.
-    /// - `Err(_)` if there was an error connecting to the execution engines.
+    /// - `None` if the `block_hash` or its parent were not present on the execution engine.
+    /// - `Err(_)` if there was an error connecting to the execution engine.
     ///
     /// ## Fallback Behaviour
     ///
@@ -1192,8 +1129,8 @@ impl<T: EthSpec> ExecutionLayer<T> {
             &[metrics::IS_VALID_TERMINAL_POW_BLOCK_HASH],
         );
 
-        self.engines()
-            .broadcast(|engine| async move {
+        self.engine()
+            .request(|engine| async move {
                 if let Some(pow_block) = self.get_pow_block(engine, block_hash).await? {
                     if let Some(pow_parent) =
                         self.get_pow_block(engine, pow_block.parent_hash).await?
@@ -1206,7 +1143,8 @@ impl<T: EthSpec> ExecutionLayer<T> {
                 Ok(None)
             })
             .await
-            .map_err(|e| Error::EngineErrors(vec![e]))
+            .map_err(Box::new)
+            .map_err(Error::EngineError)
     }
 
     /// This function should remain internal.
@@ -1235,7 +1173,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
     /// https://github.com/ethereum/consensus-specs/issues/2636
     async fn get_pow_block(
         &self,
-        engine: &Engine<EngineApi>,
+        engine: &Engine,
         hash: ExecutionBlockHash,
     ) -> Result<Option<ExecutionBlock>, ApiError> {
         if let Some(cached) = self.execution_blocks().await.get(&hash).copied() {
@@ -1258,18 +1196,19 @@ impl<T: EthSpec> ExecutionLayer<T> {
         &self,
         hash: ExecutionBlockHash,
     ) -> Result<Option<ExecutionPayload<T>>, Error> {
-        self.engines()
-            .first_success(|engine| async move {
+        self.engine()
+            .request(|engine| async move {
                 self.get_payload_by_block_hash_from_engine(engine, hash)
                     .await
             })
             .await
-            .map_err(Error::EngineErrors)
+            .map_err(Box::new)
+            .map_err(Error::EngineError)
     }
 
     async fn get_payload_by_block_hash_from_engine(
         &self,
-        engine: &Engine<EngineApi>,
+        engine: &Engine,
         hash: ExecutionBlockHash,
     ) -> Result<Option<ExecutionPayload<T>>, ApiError> {
         let _timer = metrics::start_timer(&metrics::EXECUTION_LAYER_GET_PAYLOAD_BY_BLOCK_HASH);
@@ -1361,7 +1300,7 @@ mod test {
         MockExecutionLayer::default_params(runtime.task_executor.clone())
             .move_to_block_prior_to_terminal_block()
             .with_terminal_block(|spec, el, _| async move {
-                el.engines().upcheck_not_synced(Logging::Disabled).await;
+                el.engine().upcheck().await;
                 assert_eq!(el.get_terminal_pow_block_hash(&spec).await.unwrap(), None)
             })
             .await
@@ -1381,7 +1320,7 @@ mod test {
         MockExecutionLayer::default_params(runtime.task_executor.clone())
             .move_to_terminal_block()
             .with_terminal_block(|spec, el, terminal_block| async move {
-                el.engines().upcheck_not_synced(Logging::Disabled).await;
+                el.engine().upcheck().await;
                 assert_eq!(
                     el.is_valid_terminal_pow_block_hash(terminal_block.unwrap().block_hash, &spec)
                         .await
@@ -1398,7 +1337,7 @@ mod test {
         MockExecutionLayer::default_params(runtime.task_executor.clone())
             .move_to_terminal_block()
             .with_terminal_block(|spec, el, terminal_block| async move {
-                el.engines().upcheck_not_synced(Logging::Disabled).await;
+                el.engine().upcheck().await;
                 let invalid_terminal_block = terminal_block.unwrap().parent_hash;
 
                 assert_eq!(
@@ -1417,7 +1356,7 @@ mod test {
         MockExecutionLayer::default_params(runtime.task_executor.clone())
             .move_to_terminal_block()
             .with_terminal_block(|spec, el, _| async move {
-                el.engines().upcheck_not_synced(Logging::Disabled).await;
+                el.engine().upcheck().await;
                 let missing_terminal_block = ExecutionBlockHash::repeat_byte(42);
 
                 assert_eq!(
@@ -1429,15 +1368,6 @@ mod test {
             })
             .await;
     }
-
-    // test fallback
-
-    // test normal flow used when
-    // - merge hasn't finalized
-    // - bad chain health (finalization not advancing?)
-    // - gas_limit not what you sent builder
-    // - fee recipient not what you sent builder
-    // - timeout?
 }
 
 fn noop<T: EthSpec>(_: &ExecutionLayer<T>, _: &ExecutionPayload<T>) -> Option<ExecutionPayload<T>> {

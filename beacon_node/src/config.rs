@@ -11,6 +11,7 @@ use slog::{info, warn, Logger};
 use std::cmp;
 use std::cmp::max;
 use std::fmt::Debug;
+use std::fmt::Write;
 use std::fs;
 use std::net::{IpAddr, Ipv4Addr, ToSocketAddrs};
 use std::path::{Path, PathBuf};
@@ -286,13 +287,12 @@ pub fn get_config<E: EthSpec>(
         let secret_file =
             parse_only_one_value(&secret_files, PathBuf::from_str, "--execution-jwt", log)?;
 
-        el_config.builder_url = cli_args
-            .value_of("builder")
-            .map(|url| {
-                SensitiveUrl::parse(url)
-                    .map_err(|e| format!("builder contains an invalid URL {:?}", e))
-            })
-            .transpose()?;
+        // Parse and set the payload builder, if any.
+        if let Some(endpoint) = cli_args.value_of("builder") {
+            let payload_builder =
+                parse_only_one_value(endpoint, SensitiveUrl::parse, "--builder", log)?;
+            el_config.builder_url = Some(payload_builder);
+        }
 
         // Set config values from parse values.
         el_config.secret_files = vec![secret_file.clone()];
@@ -785,7 +785,8 @@ pub fn set_network_config(
                             None
                         })
                 {
-                    addr.push_str(&format!(":{}", enr_udp_port));
+                    write!(addr, ":{}", enr_udp_port)
+                        .map_err(|e| format!("Failed to write enr address {}", e))?;
                 } else {
                     return Err(
                         "enr-udp-port must be set for node to be discoverable with dns address"

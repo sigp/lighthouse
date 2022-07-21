@@ -35,7 +35,22 @@ impl StateId {
                 .epoch
                 .start_slot(T::EthSpec::slots_per_epoch()),
             CoreStateId::Slot(slot) => *slot,
-            CoreStateId::Root(root) => return Ok(*root),
+            CoreStateId::Root(root) => {
+                if chain
+                    .store
+                    .load_hot_state_summary(root)
+                    .map_err(BeaconChainError::DBError)
+                    .map_err(warp_utils::reject::beacon_chain_error)?
+                    .is_some()
+                {
+                    return Ok(*root);
+                } else {
+                    return Err(warp_utils::reject::custom_not_found(format!(
+                        "beacon state for state root {}",
+                        root
+                    )));
+                }
+            }
         };
 
         chain
@@ -124,7 +139,16 @@ impl StateId {
         F: Fn(&BeaconState<T::EthSpec>, bool) -> Result<U, warp::Rejection>,
     {
         let state = match &self.0 {
-            CoreStateId::Head => chain.head_beacon_state_cloned(),
+            CoreStateId::Head => {
+                let (head, execution_status) = chain
+                    .canonical_head
+                    .head_and_execution_status()
+                    .map_err(warp_utils::reject::beacon_chain_error)?;
+                return func(
+                    &head.snapshot.beacon_state,
+                    execution_status.is_optimistic(),
+                );
+            }
             _ => self.state(chain)?,
         };
 

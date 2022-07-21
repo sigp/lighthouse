@@ -1,5 +1,7 @@
 use super::*;
 use account_utils::random_password_string;
+use bls::PublicKeyBytes;
+use eth2::lighthouse_vc::types::UpdateFeeRecipientRequest;
 use eth2::lighthouse_vc::{
     http_client::ValidatorClientHttpClient as HttpClient,
     std_types::{KeystoreJsonStr as Keystore, *},
@@ -9,6 +11,7 @@ use itertools::Itertools;
 use rand::{rngs::SmallRng, Rng, SeedableRng};
 use slashing_protection::interchange::{Interchange, InterchangeMetadata};
 use std::{collections::HashMap, path::Path};
+use types::Address;
 
 fn new_keystore(password: ZeroizeString) -> Keystore {
     let keypair = Keypair::random();
@@ -582,6 +585,185 @@ fn import_invalid_slashing_protection() {
         // Check that GET lists none of the failed keystores.
         let get_res = tester.client.get_keystores().await.unwrap();
         check_keystore_get_response(&get_res, &[]);
+    })
+}
+
+#[test]
+fn check_get_set_fee_recipient() {
+    run_test(|tester: ApiTester| async move {
+        let _ = &tester;
+        let password = random_password_string();
+        let keystores = (0..3)
+            .map(|_| new_keystore(password.clone()))
+            .collect::<Vec<_>>();
+        let all_pubkeys = keystores.iter().map(keystore_pubkey).collect::<Vec<_>>();
+
+        let import_res = tester
+            .client
+            .post_keystores(&ImportKeystoresRequest {
+                keystores: keystores.clone(),
+                passwords: vec![password.clone(); keystores.len()],
+                slashing_protection: None,
+            })
+            .await
+            .unwrap();
+
+        // All keystores should be imported.
+        check_keystore_import_response(&import_res, all_imported(keystores.len()));
+
+        // Check that GET lists all the imported keystores.
+        let get_res = tester.client.get_keystores().await.unwrap();
+        check_keystore_get_response(&get_res, &keystores);
+
+        // Before setting anything, every fee recipient should be set to TEST_DEFAULT_FEE_RECIPIENT
+        for pubkey in &all_pubkeys {
+            let get_res = tester
+                .client
+                .get_fee_recipient(pubkey)
+                .await
+                .expect("should get fee recipient");
+            assert_eq!(
+                get_res,
+                GetFeeRecipientResponse {
+                    pubkey: pubkey.clone(),
+                    ethaddress: TEST_DEFAULT_FEE_RECIPIENT,
+                }
+            );
+        }
+
+        use std::str::FromStr;
+        let fee_recipient_public_key_1 =
+            Address::from_str("0x25c4a76E7d118705e7Ea2e9b7d8C59930d8aCD3b").unwrap();
+        let fee_recipient_public_key_2 =
+            Address::from_str("0x0000000000000000000000000000000000000001").unwrap();
+        let fee_recipient_override =
+            Address::from_str("0x0123456789abcdef0123456789abcdef01234567").unwrap();
+
+        // set the fee recipient for pubkey[1] using the API
+        tester
+            .client
+            .post_fee_recipient(
+                &all_pubkeys[1],
+                &UpdateFeeRecipientRequest {
+                    ethaddress: fee_recipient_public_key_1.clone(),
+                },
+            )
+            .await
+            .expect("should update fee recipient");
+        // now everything but pubkey[1] should be TEST_DEFAULT_FEE_RECIPIENT
+        for (i, pubkey) in all_pubkeys.iter().enumerate() {
+            let get_res = tester
+                .client
+                .get_fee_recipient(pubkey)
+                .await
+                .expect("should get fee recipient");
+            let expected = if i == 1 {
+                fee_recipient_public_key_1.clone()
+            } else {
+                TEST_DEFAULT_FEE_RECIPIENT
+            };
+            assert_eq!(
+                get_res,
+                GetFeeRecipientResponse {
+                    pubkey: pubkey.clone(),
+                    ethaddress: expected,
+                }
+            );
+        }
+
+        // set the fee recipient for pubkey[2] using the API
+        tester
+            .client
+            .post_fee_recipient(
+                &all_pubkeys[2],
+                &UpdateFeeRecipientRequest {
+                    ethaddress: fee_recipient_public_key_2.clone(),
+                },
+            )
+            .await
+            .expect("should update fee recipient");
+        // now everything but pubkey[1] & pubkey[2] should be fee_recipient_file_default
+        for (i, pubkey) in all_pubkeys.iter().enumerate() {
+            let get_res = tester
+                .client
+                .get_fee_recipient(pubkey)
+                .await
+                .expect("should get fee recipient");
+            let expected = if i == 1 {
+                fee_recipient_public_key_1.clone()
+            } else if i == 2 {
+                fee_recipient_public_key_2.clone()
+            } else {
+                TEST_DEFAULT_FEE_RECIPIENT
+            };
+            assert_eq!(
+                get_res,
+                GetFeeRecipientResponse {
+                    pubkey: pubkey.clone(),
+                    ethaddress: expected,
+                }
+            );
+        }
+
+        // should be able to override previous fee_recipient
+        tester
+            .client
+            .post_fee_recipient(
+                &all_pubkeys[1],
+                &UpdateFeeRecipientRequest {
+                    ethaddress: fee_recipient_override.clone(),
+                },
+            )
+            .await
+            .expect("should update fee recipient");
+        for (i, pubkey) in all_pubkeys.iter().enumerate() {
+            let get_res = tester
+                .client
+                .get_fee_recipient(pubkey)
+                .await
+                .expect("should get fee recipient");
+            let expected = if i == 1 {
+                fee_recipient_override.clone()
+            } else if i == 2 {
+                fee_recipient_public_key_2.clone()
+            } else {
+                TEST_DEFAULT_FEE_RECIPIENT
+            };
+            assert_eq!(
+                get_res,
+                GetFeeRecipientResponse {
+                    pubkey: pubkey.clone(),
+                    ethaddress: expected,
+                }
+            );
+        }
+
+        // delete fee recipient for pubkey[1] using the API
+        tester
+            .client
+            .delete_fee_recipient(&all_pubkeys[1])
+            .await
+            .expect("should delete fee recipient");
+        // now everything but pubkey[2] should be TEST_DEFAULT_FEE_RECIPIENT
+        for (i, pubkey) in all_pubkeys.iter().enumerate() {
+            let get_res = tester
+                .client
+                .get_fee_recipient(pubkey)
+                .await
+                .expect("should get fee recipient");
+            let expected = if i == 2 {
+                fee_recipient_public_key_2.clone()
+            } else {
+                TEST_DEFAULT_FEE_RECIPIENT
+            };
+            assert_eq!(
+                get_res,
+                GetFeeRecipientResponse {
+                    pubkey: pubkey.clone(),
+                    ethaddress: expected,
+                }
+            );
+        }
     })
 }
 

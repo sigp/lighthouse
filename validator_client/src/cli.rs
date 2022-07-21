@@ -136,14 +136,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .value_name("FEE-RECIPIENT")
                 .takes_value(true)
         )
-        .arg(
-            Arg::with_name("suggested-fee-recipient-file")
-                .long("suggested-fee-recipient-file")
-                .help("The fallback address provided to the BN if nothing suitable is found \
-                           in the validator definitions.")
-                .value_name("FEE-RECIPIENT-FILE")
-                .takes_value(true)
-        )
         /* REST API related arguments */
         .arg(
             Arg::with_name("http")
@@ -266,5 +258,13 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     headers during proposals and will sign over headers. Useful for outsourcing \
                     execution payload construction during proposals.")
                 .takes_value(false),
+        )
+        .arg(
+            Arg::with_name("builder-registration-timestamp-override")
+                .long("builder-registration-timestamp-override")
+                .alias("builder-registration-timestamp-override")
+                .help("This flag takes a unix timestamp value that will be used to override the \
+                    timestamp used in the builder api registration")
+                .takes_value(true),
         )
 }
