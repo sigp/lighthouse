@@ -31,7 +31,7 @@ use tokio::{
     time::sleep,
 };
 use types::{
-    BlindedPayload, BlockType, ChainSpec, Epoch, ExecPayload, ExecutionBlockHash,
+    BlindedPayload, BlockType, ChainSpec, Epoch, ExecPayload, ExecutionBlockHash, ForkName,
     ProposerPreparationData, PublicKeyBytes, SignedBeaconBlock, Slot,
 };
 
@@ -492,6 +492,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
         finalized_block_hash: ExecutionBlockHash,
         proposer_index: u64,
         builder_params: BuilderParams,
+        spec: &ChainSpec,
     ) -> Result<Payload, Error> {
         let suggested_fee_recipient = self.get_suggested_fee_recipient(proposer_index).await;
 
@@ -508,6 +509,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                     finalized_block_hash,
                     suggested_fee_recipient,
                     builder_params,
+                    spec,
                 )
                 .await
             }
@@ -537,6 +539,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
         finalized_block_hash: ExecutionBlockHash,
         suggested_fee_recipient: Address,
         builder_params: BuilderParams,
+        spec: &ChainSpec,
     ) -> Result<Payload, Error> {
         // Don't attempt to outsource payload construction until after the merge transition has been
         // finalized. We want to be conservative with payload construction until then.
@@ -573,9 +576,8 @@ impl<T: EthSpec> ExecutionLayer<T> {
                         Ok(local)
                     }
                     (Ok(Some(relay)), Ok(local)) => {
-                        //TODO(sean) check fork?
-                        //TODO(sean) verify value vs local payload?
-                        //TODO(sean) verify bid signature?
+                        let is_signature_valid = relay.data.verify_signature(spec);
+
                         //TODO(sean) only use the blinded block flow if we have recent chain health
                         let header = relay.data.message.header;
                         if header.fee_recipient() != suggested_fee_recipient {
@@ -592,6 +594,19 @@ impl<T: EthSpec> ExecutionLayer<T> {
                             Ok(local)
                         } else if header.block_number() != local.block_number() {
                             warn!(self.log(), "Invalid block number from connected builder, falling back to local execution engine.");
+                            Ok(local)
+                        } else if let Some(version) = relay.version {
+                            // Once fork information is added to the payload, we will need to check that the local and relay payloads
+                            // match. At this point, if we are requesting a payload at all, we have to assume this is the Bellatrix fork.
+                            if !matches!(version, ForkName::Merge) {
+                                warn!(self.log(), "Invalid fork from connected builder, falling back to local execution engine.");
+                                Ok(local)
+                            } else {
+                                Ok(header)
+                            }
+                        } else if !is_signature_valid {
+                            let pubkey_bytes = relay.data.message.pubkey;
+                            warn!(self.log(), "Invalid signature for pubkey {pubkey_bytes} on bid from connected builder, falling back to local execution engine.");
                             Ok(local)
                         } else {
                             Ok(header)

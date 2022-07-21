@@ -183,6 +183,7 @@ impl<E: GenericExecutionEngine> TestRig<E> {
                 finalized_block_hash,
                 proposer_index,
                 builder_params,
+                &self.spec,
             )
             .await
             .unwrap()
@@ -282,6 +283,7 @@ impl<E: GenericExecutionEngine> TestRig<E> {
                 finalized_block_hash,
                 proposer_index,
                 builder_params,
+                &self.spec,
             )
             .await
             .unwrap()

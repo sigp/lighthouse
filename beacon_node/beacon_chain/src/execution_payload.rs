@@ -454,6 +454,7 @@ where
             finalized_block_hash.unwrap_or_else(ExecutionBlockHash::zero),
             proposer_index,
             builder_params,
+            &chain.spec,
         )
         .await
         .map_err(BlockProductionError::GetPayloadFailed)?;

@@ -127,6 +127,7 @@ impl<T: EthSpec> MockExecutionLayer<T> {
                 finalized_block_hash,
                 validator_index,
                 builder_params,
+                &self.spec,
             )
             .await
             .unwrap()
@@ -156,6 +157,7 @@ impl<T: EthSpec> MockExecutionLayer<T> {
                 finalized_block_hash,
                 validator_index,
                 builder_params,
+                &self.spec,
             )
             .await
             .unwrap()
