@@ -295,10 +295,12 @@ impl<T: BeaconChainTypes> AttestationService<T> {
         subscriptions: Vec<ValidatorSubscription>,
     ) -> Result<(), String> {
         // Maps each subnet_id subscription to it's highest slot
+        // Q(@D): why the highest?
         let mut subnets_to_discover: HashMap<SubnetId, Slot> = HashMap::new();
         for subscription in subscriptions {
             metrics::inc_counter(&metrics::SUBNET_SUBSCRIPTION_REQUESTS);
             //NOTE: We assume all subscriptions have been verified before reaching this service
+            // Q(@D): what's valid here?
 
             // Registers the validator with the attestation service.
             // This will subscribe to long-lived random subnets if required.
@@ -324,7 +326,8 @@ impl<T: BeaconChainTypes> AttestationService<T> {
                     continue;
                 }
             };
-            // Ensure each subnet_id inserted into the map has the highest slot as it's value.
+
+            // Ensure each subnet_id inserted into the map has the highest slot as its value.
             // Higher slot corresponds to higher min_ttl in the `SubnetDiscovery` entry.
             if let Some(slot) = subnets_to_discover.get(&subnet_id) {
                 if subscription.slot > *slot {
@@ -383,6 +386,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
 
     /// Checks if we have subscribed aggregate validators for the subnet. If not, checks the gossip
     /// verification, re-propagates and returns false.
+    /// Q(@D): checked the gossip verification??
     pub fn should_process_attestation(
         &self,
         subnet: SubnetId,
@@ -502,6 +506,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
         // We are not currently subscribed and have no waiting subscription, create one
         self.handle_subscriptions(exact_subnet.clone());
 
+        // Q(@D): this is any slot before not just the previous one, why?
         // if there is an unsubscription event for the slot prior, we remove it to prevent
         // unsubscriptions immediately after the subscription. We also want to minimize
         // subscription churn and maintain a consecutive subnet subscriptions.
@@ -595,13 +600,12 @@ impl<T: BeaconChainTypes> AttestationService<T> {
 
     /* A collection of functions that handle the various timeouts */
 
-    /// A queued subscription is ready.
+    /// A scheduled subscription is ready.
     ///
-    /// We add subscriptions events even if we are already subscribed to a random subnet (as these
-    /// can be unsubscribed at any time by inactive validators). If we are
-    /// still subscribed at the time the event fires, we don't re-subscribe.
+    /// We schedule subscriptions for a subnet even if it exists as a long lived subnet to handle
+    /// the case in which the subscription is scheduled after the current subscription expires.
     fn handle_subscriptions(&mut self, exact_subnet: ExactSubnet) {
-        // Check if the subnet currently exists as a long-lasting random subnet
+        // Check if the subnet currently exists as a long-lived subnet
         #[cfg(not(feature = "deterministic_long_lived_attnets"))]
         if let Some(expiry) = self.random_subnets.get(&exact_subnet.subnet_id) {
             // we are subscribed via a random subnet, if this is to expire during the time we need
@@ -661,7 +665,6 @@ impl<T: BeaconChainTypes> AttestationService<T> {
             .push_back(SubnetServiceMessage::Unsubscribe(Subnet::Attestation(
                 exact_subnet.subnet_id,
             )));
-        // TODO: where do we ensure the ENR is updated?
     }
 
     /// A random subnet has expired.
