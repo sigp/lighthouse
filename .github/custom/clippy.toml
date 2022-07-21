@@ -18,4 +18,5 @@ async-wrapper-methods = [
     "warp_utils::task::blocking_json_task",
     "validator_client::http_api::blocking_signed_json_task",
     "execution_layer::test_utils::MockServer::new",
+    "execution_layer::test_utils::MockServer::new_with_config",
 ]

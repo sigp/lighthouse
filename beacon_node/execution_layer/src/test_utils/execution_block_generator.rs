@@ -1,10 +1,13 @@
-use crate::engine_api::{
-    json_structures::{
-        JsonForkchoiceUpdatedV1Response, JsonPayloadStatusV1, JsonPayloadStatusV1Status,
-    },
-    ExecutionBlock, PayloadAttributes, PayloadId, PayloadStatusV1, PayloadStatusV1Status,
-};
 use crate::engines::ForkChoiceState;
+use crate::{
+    engine_api::{
+        json_structures::{
+            JsonForkchoiceUpdatedV1Response, JsonPayloadStatusV1, JsonPayloadStatusV1Status,
+        },
+        ExecutionBlock, PayloadAttributes, PayloadId, PayloadStatusV1, PayloadStatusV1Status,
+    },
+    ExecutionBlockWithTransactions,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tree_hash::TreeHash;
@@ -57,13 +60,37 @@ impl<T: EthSpec> Block<T> {
                 block_number: block.block_number,
                 parent_hash: block.parent_hash,
                 total_difficulty: block.total_difficulty,
+                timestamp: block.timestamp,
             },
             Block::PoS(payload) => ExecutionBlock {
                 block_hash: payload.block_hash,
                 block_number: payload.block_number,
                 parent_hash: payload.parent_hash,
                 total_difficulty,
+                timestamp: payload.timestamp,
             },
+        }
+    }
+
+    pub fn as_execution_block_with_tx(&self) -> Option<ExecutionBlockWithTransactions<T>> {
+        match self {
+            Block::PoS(payload) => Some(ExecutionBlockWithTransactions {
+                parent_hash: payload.parent_hash,
+                fee_recipient: payload.fee_recipient,
+                state_root: payload.state_root,
+                receipts_root: payload.receipts_root,
+                logs_bloom: payload.logs_bloom.clone(),
+                prev_randao: payload.prev_randao,
+                block_number: payload.block_number,
+                gas_limit: payload.gas_limit,
+                gas_used: payload.gas_used,
+                timestamp: payload.timestamp,
+                extra_data: payload.extra_data.clone(),
+                base_fee_per_gas: payload.base_fee_per_gas,
+                block_hash: payload.block_hash,
+                transactions: vec![],
+            }),
+            Block::PoW(_) => None,
         }
     }
 }
@@ -75,6 +102,7 @@ pub struct PoWBlock {
     pub block_hash: ExecutionBlockHash,
     pub parent_hash: ExecutionBlockHash,
     pub total_difficulty: Uint256,
+    pub timestamp: u64,
 }
 
 pub struct ExecutionBlockGenerator<T: EthSpec> {
@@ -151,6 +179,14 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
     pub fn execution_block_by_hash(&self, hash: ExecutionBlockHash) -> Option<ExecutionBlock> {
         self.block_by_hash(hash)
             .map(|block| block.as_execution_block(self.terminal_total_difficulty))
+    }
+
+    pub fn execution_block_with_txs_by_hash(
+        &self,
+        hash: ExecutionBlockHash,
+    ) -> Option<ExecutionBlockWithTransactions<T>> {
+        self.block_by_hash(hash)
+            .and_then(|block| block.as_execution_block_with_tx())
     }
 
     pub fn move_to_block_prior_to_terminal_block(&mut self) -> Result<(), String> {
@@ -233,6 +269,26 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
         Ok(())
     }
 
+    pub fn modify_last_block(&mut self, block_modifier: impl FnOnce(&mut Block<T>)) {
+        if let Some((last_block_hash, block_number)) =
+            self.block_hashes.keys().max().and_then(|block_number| {
+                self.block_hashes
+                    .get(block_number)
+                    .map(|block| (block, *block_number))
+            })
+        {
+            let mut block = self.blocks.remove(last_block_hash).unwrap();
+            block_modifier(&mut block);
+            // Update the block hash after modifying the block
+            match &mut block {
+                Block::PoW(b) => b.block_hash = ExecutionBlockHash::from_root(b.tree_hash_root()),
+                Block::PoS(b) => b.block_hash = ExecutionBlockHash::from_root(b.tree_hash_root()),
+            }
+            self.block_hashes.insert(block_number, block.block_hash());
+            self.blocks.insert(block.block_hash(), block);
+        }
+    }
+
     pub fn get_payload(&mut self, id: &PayloadId) -> Option<ExecutionPayload<T>> {
         self.payload_ids.get(id).cloned()
     }
@@ -279,7 +335,9 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
         }
 
         let unknown_head_block_hash = !self.blocks.contains_key(&forkchoice_state.head_block_hash);
-        let unknown_safe_block_hash = !self.blocks.contains_key(&forkchoice_state.safe_block_hash);
+        let unknown_safe_block_hash = forkchoice_state.safe_block_hash
+            != ExecutionBlockHash::zero()
+            && !self.blocks.contains_key(&forkchoice_state.safe_block_hash);
         let unknown_finalized_block_hash = forkchoice_state.finalized_block_hash
             != ExecutionBlockHash::zero()
             && !self
@@ -390,6 +448,7 @@ pub fn generate_pow_block(
         block_hash: ExecutionBlockHash::zero(),
         parent_hash,
         total_difficulty,
+        timestamp: block_number,
     };
 
     block.block_hash = ExecutionBlockHash::from_root(block.tree_hash_root());

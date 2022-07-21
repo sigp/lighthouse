@@ -7,7 +7,7 @@ mod tests;
 use crate::ValidatorStore;
 use account_utils::{
     mnemonic_from_phrase,
-    validator_definitions::{SigningDefinition, ValidatorDefinition},
+    validator_definitions::{SigningDefinition, ValidatorDefinition, Web3SignerDefinition},
 };
 pub use api_secret::ApiSecret;
 use create_validator::{create_validators_mnemonic, create_validators_web3signer};
@@ -470,13 +470,16 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                                 graffiti: web3signer.graffiti,
                                 suggested_fee_recipient: web3signer.suggested_fee_recipient,
                                 description: web3signer.description,
-                                signing_definition: SigningDefinition::Web3Signer {
-                                    url: web3signer.url,
-                                    root_certificate_path: web3signer.root_certificate_path,
-                                    request_timeout_ms: web3signer.request_timeout_ms,
-                                    client_identity_path: web3signer.client_identity_path,
-                                    client_identity_password: web3signer.client_identity_password,
-                                },
+                                signing_definition: SigningDefinition::Web3Signer(
+                                    Web3SignerDefinition {
+                                        url: web3signer.url,
+                                        root_certificate_path: web3signer.root_certificate_path,
+                                        request_timeout_ms: web3signer.request_timeout_ms,
+                                        client_identity_path: web3signer.client_identity_path,
+                                        client_identity_password: web3signer
+                                            .client_identity_password,
+                                    },
+                                ),
                             })
                             .collect();
                         handle.block_on(create_validators_web3signer(

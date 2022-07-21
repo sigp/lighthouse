@@ -117,7 +117,7 @@ pub enum SyncMessage<T: EthSpec> {
     /// Block processed
     BlockProcessed {
         process_type: BlockProcessType,
-        result: Result<(), BlockError<T>>,
+        result: BlockProcessResult<T>,
     },
 }
 
@@ -126,6 +126,13 @@ pub enum SyncMessage<T: EthSpec> {
 pub enum BlockProcessType {
     SingleBlock { id: Id },
     ParentLookup { chain_hash: Hash256 },
+}
+
+#[derive(Debug)]
+pub enum BlockProcessResult<T: EthSpec> {
+    Ok,
+    Err(BlockError<T>),
+    Ignored,
 }
 
 /// The result of processing multiple blocks (a chain segment).
@@ -618,5 +625,20 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 }
             }
         }
+    }
+}
+
+impl<IgnoredOkVal, T: EthSpec> From<Result<IgnoredOkVal, BlockError<T>>> for BlockProcessResult<T> {
+    fn from(result: Result<IgnoredOkVal, BlockError<T>>) -> Self {
+        match result {
+            Ok(_) => BlockProcessResult::Ok,
+            Err(e) => e.into(),
+        }
+    }
+}
+
+impl<T: EthSpec> From<BlockError<T>> for BlockProcessResult<T> {
+    fn from(e: BlockError<T>) -> Self {
+        BlockProcessResult::Err(e)
     }
 }

@@ -454,3 +454,22 @@ Caveats:
 
 [block_reward_src]:
 https://github.com/sigp/lighthouse/tree/unstable/common/eth2/src/lighthouse/block_rewards.rs
+
+
+### `/lighthouse/merge_readiness`
+
+```bash
+curl -X GET "http://localhost:5052/lighthouse/merge_readiness"
+```
+
+```
+{
+    "data":{
+       "type":"ready",
+       "config":{
+          "terminal_total_difficulty":"6400"
+       },
+       "current_difficulty":"4800"
+    }
+ }
+```

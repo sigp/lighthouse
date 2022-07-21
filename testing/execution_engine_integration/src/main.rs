@@ -1,3 +1,4 @@
+#![recursion_limit = "1024"]
 /// This binary runs integration tests between Lighthouse and execution engines.
 ///
 /// It will first attempt to build any supported integration clients, then it will run tests.
@@ -9,6 +10,7 @@ mod genesis_json;
 mod geth;
 mod nethermind;
 mod test_rig;
+mod transactions;
 
 use geth::GethEngine;
 use nethermind::NethermindEngine;

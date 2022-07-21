@@ -78,6 +78,7 @@ pub struct JsonExecutionPayloadHeaderV1<T: EthSpec> {
     pub timestamp: u64,
     #[serde(with = "ssz_types::serde_utils::hex_var_list")]
     pub extra_data: VariableList<u8, T::MaxExtraDataBytes>,
+    #[serde(with = "eth2_serde_utils::u256_hex_be")]
     pub base_fee_per_gas: Uint256,
     pub block_hash: ExecutionBlockHash,
     pub transactions_root: Hash256,
@@ -142,6 +143,7 @@ pub struct JsonExecutionPayloadV1<T: EthSpec> {
     pub timestamp: u64,
     #[serde(with = "ssz_types::serde_utils::hex_var_list")]
     pub extra_data: VariableList<u8, T::MaxExtraDataBytes>,
+    #[serde(with = "eth2_serde_utils::u256_hex_be")]
     pub base_fee_per_gas: Uint256,
     pub block_hash: ExecutionBlockHash,
     #[serde(with = "ssz_types::serde_utils::list_of_hex_var_list")]
@@ -486,6 +488,7 @@ impl From<ProposeBlindedBlockResponseStatus> for JsonProposeBlindedBlockResponse
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TransitionConfigurationV1 {
+    #[serde(with = "eth2_serde_utils::u256_hex_be")]
     pub terminal_total_difficulty: Uint256,
     pub terminal_block_hash: ExecutionBlockHash,
     #[serde(with = "eth2_serde_utils::u64_hex_be")]

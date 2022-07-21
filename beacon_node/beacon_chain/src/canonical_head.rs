@@ -99,6 +99,8 @@ pub struct CachedHead<E: EthSpec> {
     /// The `execution_payload.block_hash` of the block at the head of the chain. Set to `None`
     /// before Bellatrix.
     head_hash: Option<ExecutionBlockHash>,
+    /// The `execution_payload.block_hash` of the justified block. Set to `None` before Bellatrix.
+    justified_hash: Option<ExecutionBlockHash>,
     /// The `execution_payload.block_hash` of the finalized block. Set to `None` before Bellatrix.
     finalized_hash: Option<ExecutionBlockHash>,
 }
@@ -183,6 +185,7 @@ impl<E: EthSpec> CachedHead<E> {
         ForkchoiceUpdateParameters {
             head_root: self.snapshot.beacon_block_root,
             head_hash: self.head_hash,
+            justified_hash: self.justified_hash,
             finalized_hash: self.finalized_hash,
         }
     }
@@ -224,6 +227,7 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
             justified_checkpoint: fork_choice_view.justified_checkpoint,
             finalized_checkpoint: fork_choice_view.finalized_checkpoint,
             head_hash: forkchoice_update_params.head_hash,
+            justified_hash: forkchoice_update_params.justified_hash,
             finalized_hash: forkchoice_update_params.finalized_hash,
         };
 
@@ -272,6 +276,7 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
             justified_checkpoint: fork_choice_view.justified_checkpoint,
             finalized_checkpoint: fork_choice_view.finalized_checkpoint,
             head_hash: forkchoice_update_params.head_hash,
+            justified_hash: forkchoice_update_params.justified_hash,
             finalized_hash: forkchoice_update_params.finalized_hash,
         };
 
@@ -612,6 +617,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 justified_checkpoint: new_view.justified_checkpoint,
                 finalized_checkpoint: new_view.finalized_checkpoint,
                 head_hash: new_forkchoice_update_parameters.head_hash,
+                justified_hash: new_forkchoice_update_parameters.justified_hash,
                 finalized_hash: new_forkchoice_update_parameters.finalized_hash,
             };
 
@@ -638,6 +644,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 justified_checkpoint: new_view.justified_checkpoint,
                 finalized_checkpoint: new_view.finalized_checkpoint,
                 head_hash: new_forkchoice_update_parameters.head_hash,
+                justified_hash: new_forkchoice_update_parameters.justified_hash,
                 finalized_hash: new_forkchoice_update_parameters.finalized_hash,
             };
 
