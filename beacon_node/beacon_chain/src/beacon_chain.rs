@@ -53,7 +53,9 @@ use crate::BeaconForkChoiceStore;
 use crate::BeaconSnapshot;
 use crate::{metrics, BeaconChainError};
 use eth2::types::{EventKind, SseBlock, SyncDuty};
-use execution_layer::{BuilderParams, ExecutionLayer, PayloadAttributes, PayloadStatus};
+use execution_layer::{
+    BuilderParams, ChainHealth, ExecutionLayer, FailedCondition, PayloadAttributes, PayloadStatus,
+};
 use fork_choice::{
     AttestationFromBlock, ExecutionStatus, ForkChoice, ForkchoiceUpdateParameters,
     InvalidationOperation, PayloadVerificationStatus,
@@ -3263,7 +3265,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let builder_params = BuilderParams {
             pubkey,
             slot: state.slot(),
-            chain_is_healthy: self
+            chain_health: self
                 .is_healthy()
                 .map_err(BlockProductionError::BeaconChain)?,
         };
@@ -4502,7 +4504,21 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// Since we are likely calling this during the slot we are going to propose in, don't take into
     /// account the current slot when accounting for skips.
-    pub fn is_healthy(&self) -> Result<bool, Error> {
+    pub fn is_healthy(&self) -> Result<ChainHealth, Error> {
+        // Check if the merge has been finalized.
+        if let Some(finalized_hash) = self
+            .canonical_head
+            .cached_head()
+            .forkchoice_update_parameters()
+            .finalized_hash
+        {
+            if ExecutionBlockHash::zero() != finalized_hash {
+                return Ok(ChainHealth::PreMerge);
+            }
+        } else {
+            return Ok(ChainHealth::PreMerge);
+        };
+
         let current_slot = self.slot()?;
 
         // Check slots at the head of the chain.
@@ -4534,19 +4550,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
         let epoch_skips_check = epoch_skips <= self.config.builder_fallback_skips_per_epoch;
 
-        // Check if the merge has been finalized.
-        let is_merge_finalized_check = if let Some(finalized_hash) = self
-            .canonical_head
-            .cached_head()
-            .forkchoice_update_parameters()
-            .finalized_hash
-        {
-            ExecutionBlockHash::zero() != finalized_hash
+        if !head_skips_check {
+            Ok(ChainHealth::Unhealthy(FailedCondition::Skips))
+        } else if !finalization_check {
+            Ok(ChainHealth::Unhealthy(
+                FailedCondition::EpochsSinceFinalization,
+            ))
+        } else if !epoch_skips_check {
+            Ok(ChainHealth::Unhealthy(FailedCondition::SkipsPerEpoch))
         } else {
-            false
-        };
-
-        Ok(head_skips_check && finalization_check && epoch_skips_check && is_merge_finalized_check)
+            Ok(ChainHealth::Healthy)
+        }
     }
 
     pub fn dump_as_dot<W: Write>(&self, output: &mut W) {

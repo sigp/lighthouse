@@ -116,7 +116,7 @@ impl<T: EthSpec> MockExecutionLayer<T> {
         let builder_params = BuilderParams {
             pubkey: PublicKeyBytes::empty(),
             slot,
-            chain_is_healthy: true,
+            chain_health: ChainHealth::Healthy,
         };
         let payload = self
             .el
@@ -146,7 +146,7 @@ impl<T: EthSpec> MockExecutionLayer<T> {
         let builder_params = BuilderParams {
             pubkey: PublicKeyBytes::empty(),
             slot,
-            chain_is_healthy: true,
+            chain_health: ChainHealth::Healthy,
         };
         let payload_header = self
             .el

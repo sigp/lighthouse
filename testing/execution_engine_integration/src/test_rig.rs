@@ -1,5 +1,7 @@
 use crate::execution_engine::{ExecutionEngine, GenericExecutionEngine};
-use execution_layer::{BuilderParams, ExecutionLayer, PayloadAttributes, PayloadStatus};
+use execution_layer::{
+    BuilderParams, ChainHealth, ExecutionLayer, PayloadAttributes, PayloadStatus,
+};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use task_executor::TaskExecutor;
@@ -171,7 +173,7 @@ impl<E: GenericExecutionEngine> TestRig<E> {
         let builder_params = BuilderParams {
             pubkey: PublicKeyBytes::empty(),
             slot: Slot::new(0),
-            chain_is_healthy: true,
+            chain_health: ChainHealth::Healthy,
         };
         let valid_payload = self
             .ee_a
@@ -271,7 +273,7 @@ impl<E: GenericExecutionEngine> TestRig<E> {
         let builder_params = BuilderParams {
             pubkey: PublicKeyBytes::empty(),
             slot: Slot::new(0),
-            chain_is_healthy: true,
+            chain_health: ChainHealth::Healthy,
         };
         let second_payload = self
             .ee_a
