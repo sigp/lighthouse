@@ -2538,22 +2538,22 @@ impl ApiTester {
         self
     }
 
-    pub async fn test_payload_rejects_changed_fee_recipient(self) -> Self {
+    pub async fn test_payload_accepts_changed_fee_recipient(self) -> Self {
+        let test_fee_recipient = "0x4242424242424242424242424242424242424242"
+            .parse::<Address>()
+            .unwrap();
+
         // Mutate fee recipient.
         self.mock_builder
             .as_ref()
             .unwrap()
             .builder
-            .add_operation(Operation::FeeRecipient(
-                "0x4242424242424242424242424242424242424242"
-                    .parse::<Address>()
-                    .unwrap(),
-            ));
+            .add_operation(Operation::FeeRecipient(test_fee_recipient));
 
         let slot = self.chain.slot().unwrap();
         let epoch = self.chain.epoch().unwrap();
 
-        let (proposer_index, randao_reveal) = self.get_test_randao(slot, epoch).await;
+        let (_, randao_reveal) = self.get_test_randao(slot, epoch).await;
 
         let payload = self
             .client
@@ -2566,20 +2566,19 @@ impl ApiTester {
             .unwrap()
             .clone();
 
-        let expected_fee_recipient = Address::from_low_u64_be(proposer_index as u64);
         assert_eq!(
             payload.execution_payload_header.fee_recipient,
-            expected_fee_recipient
+            test_fee_recipient
         );
 
-        // If this cache is populated, it indicates fallback to the local EE was correctly used.
+        // This cache should not be populated because fallback should not have been used.
         assert!(self
             .chain
             .execution_layer
             .as_ref()
             .unwrap()
             .get_payload_by_root(&payload.tree_hash_root())
-            .is_some());
+            .is_none());
         self
     }
 
@@ -3666,7 +3665,7 @@ async fn post_validator_register_gas_limit_mutation() {
 async fn post_validator_register_fee_recipient_mutation() {
     ApiTester::new_mev_tester()
         .await
-        .test_payload_rejects_changed_fee_recipient()
+        .test_payload_accepts_changed_fee_recipient()
         .await;
 }
 
