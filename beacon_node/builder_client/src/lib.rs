@@ -60,14 +60,6 @@ impl BuilderHttpClient {
         })
     }
 
-    async fn get<T: DeserializeOwned, U: IntoUrl>(&self, url: U) -> Result<T, Error> {
-        self.get_response_with_timeout(url, None)
-            .await?
-            .json()
-            .await
-            .map_err(Error::Reqwest)
-    }
-
     async fn get_with_timeout<T: DeserializeOwned, U: IntoUrl>(
         &self,
         url: U,
@@ -113,14 +105,13 @@ impl BuilderHttpClient {
         &self,
         url: U,
         body: &T,
+        timeout: Option<Duration>,
     ) -> Result<Response, Error> {
-        let response = self
-            .client
-            .post(url)
-            .json(body)
-            .send()
-            .await
-            .map_err(Error::Reqwest)?;
+        let mut builder = self.client.post(url);
+        if let Some(timeout) = timeout {
+            builder = builder.timeout(timeout);
+        }
+        let response = builder.json(body).send().await.map_err(Error::Reqwest)?;
         ok_or_error(response).await
     }
 
@@ -138,7 +129,8 @@ impl BuilderHttpClient {
             .push("builder")
             .push("validators");
 
-        self.post_generic(path, &validator, None).await?;
+        self.post_generic(path, &validator, Some(self.timeouts.post_validators))
+            .await?;
         Ok(())
     }
 
@@ -157,7 +149,11 @@ impl BuilderHttpClient {
             .push("blinded_blocks");
 
         Ok(self
-            .post_with_raw_response(path, &blinded_block)
+            .post_with_raw_response(
+                path,
+                &blinded_block,
+                Some(self.timeouts.post_blinded_blocks),
+            )
             .await?
             .json()
             .await?)
@@ -201,6 +197,7 @@ impl BuilderHttpClient {
             .push("builder")
             .push("status");
 
-        self.get(path).await
+        self.get_with_timeout(path, self.timeouts.get_builder_status)
+            .await
     }
 }
