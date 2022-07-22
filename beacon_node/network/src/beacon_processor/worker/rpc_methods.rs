@@ -157,6 +157,23 @@ impl<T: BeaconChainTypes> Worker<T> {
                                 "request_root" => ?root
                             );
                         }
+                        Err(BeaconChainError::BlockHashMissingFromExecutionLayer(_)) => {
+                            debug!(
+                                self.log,
+                                "Failed to fetch execution payload for blocks by root request";
+                                "block_root" => ?root,
+                                "reason" => "execution layer not synced",
+                            );
+                            // send the stream terminator
+                            self.send_error_response(
+                                peer_id,
+                                RPCResponseErrorCode::ResourceUnavailable,
+                                "Execution layer not synced".into(),
+                                request_id,
+                            );
+                            drop(send_on_drop);
+                            return;
+                        }
                         Err(e) => {
                             debug!(
                                 self.log,
@@ -173,7 +190,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     "Received BlocksByRoot Request";
                     "peer" => %peer_id,
                     "requested" => request.block_roots.len(),
-                    "returned" => send_block_count
+                    "returned" => %send_block_count
                 );
 
                 // send stream termination
@@ -279,6 +296,23 @@ impl<T: BeaconChainTypes> Worker<T> {
                                 "request_root" => ?root
                             );
                             break;
+                        }
+                        Err(BeaconChainError::BlockHashMissingFromExecutionLayer(_)) => {
+                            debug!(
+                                self.log,
+                                "Failed to fetch execution payload for blocks by range request";
+                                "block_root" => ?root,
+                                "reason" => "execution layer not synced",
+                            );
+                            // send the stream terminator
+                            self.send_error_response(
+                                peer_id,
+                                RPCResponseErrorCode::ResourceUnavailable,
+                                "Execution layer not synced".into(),
+                                request_id,
+                            );
+                            drop(send_on_drop);
+                            return;
                         }
                         Err(e) => {
                             error!(
