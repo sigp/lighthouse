@@ -92,19 +92,6 @@ impl ApiTester {
         Self::new_from_spec(spec).await
     }
 
-    pub async fn new_with_hard_forks(altair: bool, bellatrix: bool) -> Self {
-        let mut spec = E::default_spec();
-        spec.shard_committee_period = 2;
-        // Set whether the chain has undergone each hard fork.
-        if altair {
-            spec.altair_fork_epoch = Some(Epoch::new(0));
-        }
-        if bellatrix {
-            spec.bellatrix_fork_epoch = Some(Epoch::new(0));
-        }
-        Self::new_from_spec(spec).await
-    }
-
     pub async fn new_from_spec(spec: ChainSpec) -> Self {
         // Get a random unused port
         let port = unused_port::unused_tcp_port().unwrap();
