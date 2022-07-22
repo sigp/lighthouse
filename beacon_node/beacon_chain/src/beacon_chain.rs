@@ -4518,7 +4518,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .forkchoice_update_parameters()
             .finalized_hash
         {
-            if ExecutionBlockHash::zero() != finalized_hash {
+            if ExecutionBlockHash::zero() == finalized_hash {
                 return Ok(ChainHealth::PreMerge);
             }
         } else {

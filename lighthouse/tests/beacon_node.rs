@@ -405,7 +405,7 @@ fn run_payload_builder_flag_test(flag: &str, builders: &str) {
         assert_eq!(config.builder_url, all_builders.get(0).cloned());
     })
 }
-fn run_payload_builder_flag_test_with_config<C, F: Fn(&C)>(
+fn run_payload_builder_flag_test_with_config<F: Fn(&Config)>(
     flag: &str,
     builders: &str,
     additional_flag: Option<&str>,
@@ -413,19 +413,16 @@ fn run_payload_builder_flag_test_with_config<C, F: Fn(&C)>(
     f: F,
 ) {
     let dir = TempDir::new().expect("Unable to create temporary directory");
-
-    let mut test = CommandLineTest::new()
-        .flag("execution-endpoint", Some("http://meow.cats"))
+    let mut test = CommandLineTest::new();
+    test.flag("execution-endpoint", Some("http://meow.cats"))
         .flag(
             "execution-jwt",
             dir.path().join("jwt-file").as_os_str().to_str(),
         )
         .flag(flag, Some(builders));
-
     if let Some(additional_flag_name) = additional_flag {
-        test = test.flag(additional_flag_name, additional_flag_value);
+        test.flag(additional_flag_name, additional_flag_value);
     }
-
     test.run_with_zero_port().with_config(f);
 }
 
@@ -433,7 +430,6 @@ fn run_payload_builder_flag_test_with_config<C, F: Fn(&C)>(
 fn payload_builder_flags() {
     run_payload_builder_flag_test("builder", "http://meow.cats");
     run_payload_builder_flag_test("payload-builder", "http://meow.cats");
-    run_payload_builder_flag_test("payload-builders", "http://meow.cats,http://woof.dogs");
     run_payload_builder_flag_test("payload-builders", "http://meow.cats,http://woof.dogs");
 }
 
@@ -445,7 +441,7 @@ fn builder_fallback_flags() {
         Some("builder-fallback-skips"),
         Some("7"),
         |config| {
-            assert_eq!(config.chain_config.builder_fallback_skips, 7);
+            assert_eq!(config.chain.builder_fallback_skips, 7);
         },
     );
     run_payload_builder_flag_test_with_config(
@@ -454,7 +450,7 @@ fn builder_fallback_flags() {
         Some("builder-fallback-skips-per_epoch"),
         Some("11"),
         |config| {
-            assert_eq!(config.chain_config.builder_fallback_skips, 11);
+            assert_eq!(config.chain.builder_fallback_skips, 11);
         },
     );
     run_payload_builder_flag_test_with_config(
@@ -463,7 +459,7 @@ fn builder_fallback_flags() {
         Some("builder-fallback-epochs-since-finalization"),
         Some("4"),
         |config| {
-            assert_eq!(config.chain_config.builder_fallback_skips, 4);
+            assert_eq!(config.chain.builder_fallback_skips, 4);
         },
     );
     run_payload_builder_flag_test_with_config(
@@ -472,7 +468,7 @@ fn builder_fallback_flags() {
         Some("builder-fallback-disable-checks"),
         None,
         |config| {
-            assert_eq!(config.chain_config.builder_fallback_disable_checks, true);
+            assert_eq!(config.chain.builder_fallback_disable_checks, true);
         },
     );
 }

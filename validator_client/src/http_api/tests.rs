@@ -272,6 +272,7 @@ impl ApiTester {
                 graffiti: None,
                 suggested_fee_recipient: None,
                 gas_limit: None,
+                builder_proposals: None,
                 deposit_gwei: E::default_spec().max_effective_balance,
             })
             .collect::<Vec<_>>();
@@ -404,6 +405,7 @@ impl ApiTester {
                 graffiti: None,
                 suggested_fee_recipient: None,
                 gas_limit: None,
+                builder_proposals: None,
             };
 
             self.client
@@ -423,6 +425,7 @@ impl ApiTester {
             graffiti: None,
             suggested_fee_recipient: None,
             gas_limit: None,
+            builder_proposals: None,
         };
 
         let response = self
@@ -460,6 +463,7 @@ impl ApiTester {
                     graffiti: None,
                     suggested_fee_recipient: None,
                     gas_limit: None,
+                    builder_proposals: None,
                     voting_public_key: kp.pk,
                     url: format!("http://signer_{}.com/", i),
                     root_certificate_path: None,
@@ -546,20 +550,25 @@ impl ApiTester {
         self
     }
 
-    pub async fn set_builder_proposals(self, index: usize, gas_limit: u64) -> Self {
+    pub async fn set_builder_proposals(self, index: usize, builder_proposals: bool) -> Self {
         let validator = &self.client.get_lighthouse_validators().await.unwrap().data[index];
 
         self.client
-            .patch_lighthouse_validators(&validator.voting_pubkey, None, None, Some(true))
+            .patch_lighthouse_validators(
+                &validator.voting_pubkey,
+                None,
+                None,
+                Some(builder_proposals),
+            )
             .await
             .unwrap();
 
         assert_eq!(
             self.initialized_validators
                 .read()
-                .gas_limit(&validator.voting_pubkey)
+                .builder_proposals(&validator.voting_pubkey)
                 .unwrap(),
-            gas_limit
+            builder_proposals
         );
 
         self
@@ -627,6 +636,7 @@ fn routes_with_invalid_auth() {
                         graffiti: <_>::default(),
                         suggested_fee_recipient: <_>::default(),
                         gas_limit: <_>::default(),
+                        builder_proposals: <_>::default(),
                         deposit_gwei: <_>::default(),
                     }])
                     .await
@@ -657,13 +667,14 @@ fn routes_with_invalid_auth() {
                         graffiti: <_>::default(),
                         suggested_fee_recipient: <_>::default(),
                         gas_limit: <_>::default(),
+                        builder_proposals: <_>::default(),
                     })
                     .await
             })
             .await
             .test_with_invalid_auth(|client| async move {
                 client
-                    .patch_lighthouse_validators(&PublicKeyBytes::empty(), Some(false), None)
+                    .patch_lighthouse_validators(&PublicKeyBytes::empty(), Some(false), None, None)
                     .await
             })
             .await
@@ -803,6 +814,33 @@ fn validator_gas_limit() {
             .assert_enabled_validators_count(1)
             .assert_validators_count(2)
             .set_gas_limit(0, 1000)
+            .await
+    });
+}
+
+#[test]
+fn validator_builder_proposals() {
+    let runtime = build_runtime();
+    let weak_runtime = Arc::downgrade(&runtime);
+    runtime.block_on(async {
+        ApiTester::new(weak_runtime)
+            .await
+            .create_hd_validators(HdValidatorScenario {
+                count: 2,
+                specify_mnemonic: false,
+                key_derivation_path_offset: 0,
+                disabled: vec![],
+            })
+            .await
+            .assert_enabled_validators_count(2)
+            .assert_validators_count(2)
+            .set_builder_proposals(0, true)
+            .await
+            .set_validator_enabled(0, false)
+            .await
+            .assert_enabled_validators_count(1)
+            .assert_validators_count(2)
+            .set_builder_proposals(0, false)
             .await
     });
 }

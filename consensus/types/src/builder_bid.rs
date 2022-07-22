@@ -1,5 +1,5 @@
 use crate::{ChainSpec, EthSpec, ExecPayload, ExecutionPayloadHeader, SignedRoot, Uint256};
-use bls::blst_implementations::PublicKeyBytes;
+use bls::PublicKeyBytes;
 use bls::Signature;
 use serde::{Deserialize as De, Deserializer, Serialize as Ser, Serializer};
 use serde_derive::{Deserialize, Serialize};
