@@ -101,6 +101,10 @@ impl DepositContract {
                 e
             )
         })?;
+        Self::connect(web3, address)
+    }
+
+    pub fn connect(web3: Web3<Http>, address: Address) -> Result<Self, String> {
         Contract::from_json(web3.clone().eth(), address, ABI)
             .map_err(|e| format!("Failed to init contract: {:?}", e))
             .map(move |contract| Self { web3, contract })
