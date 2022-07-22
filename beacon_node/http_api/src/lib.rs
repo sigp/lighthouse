@@ -474,7 +474,7 @@ pub fn serve<T: BeaconChainTypes>(
                     state_id.fork_and_execution_optimistic(&chain)?;
                 Ok(api_types::ExecutionOptimisticResponse {
                     data: fork,
-                    execution_optimistic,
+                    execution_optimistic: Some(execution_optimistic),
                 })
             })
         });
@@ -502,7 +502,7 @@ pub fn serve<T: BeaconChainTypes>(
 
                 Ok(api_types::ExecutionOptimisticResponse {
                     data,
-                    execution_optimistic,
+                    execution_optimistic: Some(execution_optimistic),
                 })
             })
         });
@@ -556,7 +556,7 @@ pub fn serve<T: BeaconChainTypes>(
 
                     Ok(api_types::ExecutionOptimisticResponse {
                         data,
-                        execution_optimistic,
+                        execution_optimistic: Some(execution_optimistic),
                     })
                 })
             },
@@ -633,7 +633,7 @@ pub fn serve<T: BeaconChainTypes>(
 
                     Ok(api_types::ExecutionOptimisticResponse {
                         data,
-                        execution_optimistic,
+                        execution_optimistic: Some(execution_optimistic),
                     })
                 })
             },
@@ -695,7 +695,7 @@ pub fn serve<T: BeaconChainTypes>(
 
                     Ok(api_types::ExecutionOptimisticResponse {
                         data,
-                        execution_optimistic,
+                        execution_optimistic: Some(execution_optimistic),
                     })
                 })
             },
@@ -716,7 +716,7 @@ pub fn serve<T: BeaconChainTypes>(
                 });
 
                 blocking_json_task(move || {
-                    let (data, execution_optimistic) = query_state_id
+                    let (data, execution_optimistic) = state_id
                         .map_state_and_execution_optimistic(
                             &chain,
                             |state, execution_optimistic| {
@@ -807,7 +807,7 @@ pub fn serve<T: BeaconChainTypes>(
                         )?;
                     Ok(api_types::ExecutionOptimisticResponse {
                         data,
-                        execution_optimistic,
+                        execution_optimistic: Some(execution_optimistic),
                     })
                 })
             },
@@ -1007,7 +1007,7 @@ pub fn serve<T: BeaconChainTypes>(
                 };
 
                 Ok(api_types::ExecutionOptimisticResponse {
-                    execution_optimistic,
+                    execution_optimistic: Some(execution_optimistic),
                     data,
                 })
             })

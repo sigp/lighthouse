@@ -146,9 +146,9 @@ fn compute_historic_attester_duties<T: BeaconChainTypes>(
         .collect::<Result<_, _>>()
         .map_err(warp_utils::reject::beacon_chain_error)?;
 
-    let execution_optimistic =
-        StateId::from_slot(request_epoch.start_slot(T::EthSpec::slots_per_epoch()))
-            .is_execution_optimistic(chain)?;
+    let execution_optimistic = chain
+        .is_optimistic_head()
+        .map_err(warp_utils::reject::beacon_chain_error)?;
 
     convert_to_api_response(
         duties,
@@ -230,7 +230,7 @@ fn convert_to_api_response<T: BeaconChainTypes>(
 
     Ok(api_types::DutiesResponse {
         dependent_root,
-        execution_optimistic,
+        execution_optimistic: Some(execution_optimistic),
         data,
     })
 }

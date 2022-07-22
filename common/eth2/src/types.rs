@@ -189,14 +189,14 @@ impl fmt::Display for StateId {
 #[serde(bound = "T: Serialize + serde::de::DeserializeOwned")]
 pub struct DutiesResponse<T: Serialize + serde::de::DeserializeOwned> {
     pub dependent_root: Hash256,
-    pub execution_optimistic: bool,
+    pub execution_optimistic: Option<bool>,
     pub data: T,
 }
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 #[serde(bound = "T: Serialize + serde::de::DeserializeOwned")]
 pub struct ExecutionOptimisticResponse<T: Serialize + serde::de::DeserializeOwned> {
-    pub execution_optimistic: bool,
+    pub execution_optimistic: Option<bool>,
     pub data: T,
 }
 
@@ -218,7 +218,7 @@ impl<T: Serialize + serde::de::DeserializeOwned> GenericResponse<T> {
         execution_optimistic: bool,
     ) -> ExecutionOptimisticResponse<T> {
         ExecutionOptimisticResponse {
-            execution_optimistic,
+            execution_optimistic: Some(execution_optimistic),
             data: self.data,
         }
     }
@@ -240,7 +240,7 @@ impl<'a, T: Serialize> From<&'a T> for GenericResponseRef<'a, T> {
 pub struct ExecutionOptimisticForkVersionedResponse<T> {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub version: Option<ForkName>,
-    pub execution_optimistic: bool,
+    pub execution_optimistic: Option<bool>,
     pub data: T,
 }
 
