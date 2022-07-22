@@ -625,12 +625,9 @@ impl<T: EthSpec> ExecutionLayer<T> {
                         }
                         (Ok(Some(relay)), Ok(local)) => {
                             let is_signature_valid = relay.data.verify_signature(spec);
-
                             let header = relay.data.message.header;
-                            if header.fee_recipient() != suggested_fee_recipient {
-                                info!(self.log(), "Fee recipient from connected builder does not match, using it anyways.");
-                                Ok(local)
-                            } else if header.parent_hash() != parent_hash {
+
+                            if header.parent_hash() != parent_hash {
                                 warn!(self.log(), "Invalid parent hash from connected builder, falling back to local execution engine.");
                                 Ok(local)
                             } else if header.prev_randao() != prev_randao {
@@ -642,20 +639,19 @@ impl<T: EthSpec> ExecutionLayer<T> {
                             } else if header.block_number() != local.block_number() {
                                 warn!(self.log(), "Invalid block number from connected builder, falling back to local execution engine.");
                                 Ok(local)
-                            } else if let Some(version) = relay.version {
+                            } else if !matches!(relay.version, Some(ForkName::Merge)) {
                                 // Once fork information is added to the payload, we will need to check that the local and relay payloads
                                 // match. At this point, if we are requesting a payload at all, we have to assume this is the Bellatrix fork.
-                                if !matches!(version, ForkName::Merge) {
-                                    warn!(self.log(), "Invalid fork from connected builder, falling back to local execution engine.");
-                                    Ok(local)
-                                } else {
-                                    Ok(header)
-                                }
+                                warn!(self.log(), "Invalid fork from connected builder, falling back to local execution engine.");
+                                Ok(local)
                             } else if !is_signature_valid {
                                 let pubkey_bytes = relay.data.message.pubkey;
                                 warn!(self.log(), "Invalid signature for pubkey {pubkey_bytes} on bid from connected builder, falling back to local execution engine.");
                                 Ok(local)
                             } else {
+                                if header.fee_recipient() != suggested_fee_recipient {
+                                    info!(self.log(), "Fee recipient from connected builder does not match, using it anyways.");
+                                }
                                 Ok(header)
                             }
                         }
