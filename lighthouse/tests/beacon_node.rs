@@ -447,7 +447,7 @@ fn builder_fallback_flags() {
     run_payload_builder_flag_test_with_config(
         "builder",
         "http://meow.cats",
-        Some("builder-fallback-skips-per_epoch"),
+        Some("builder-fallback-skips-per-epoch"),
         Some("11"),
         |config| {
             assert_eq!(config.chain.builder_fallback_skips, 11);
