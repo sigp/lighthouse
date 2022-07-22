@@ -52,13 +52,13 @@ pub struct Checks {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(untagged, deny_unknown_fields)]
-pub enum Step<B, A, P, S> {
+pub enum Step<B, A, AS, P> {
     Tick { tick: u64 },
     ValidBlock { block: B },
     MaybeValidBlock { block: B, valid: bool },
     Attestation { attestation: A },
+    AttesterSlashing { attester_slashing: AS },
     PowBlock { pow_block: P },
-    AttesterSlashing { attester_slashing: S },
     Checks { checks: Box<Checks> },
 }
 
@@ -92,7 +92,7 @@ impl<E: EthSpec> LoadCase for ForkChoiceTest<E> {
             .to_str()
             .expect("path must be valid OsStr")
             .to_string();
-        let spec = &fork_choice_spec::<E>(fork_name);
+        let spec = &testing_spec::<E>(fork_name);
         let steps: Vec<Step<String, String, String, String>> =
             yaml_decode_file(&path.join("steps.yaml"))?;
         // Resolve the object names in `steps.yaml` into actual decoded block/attestation objects.
@@ -116,13 +116,13 @@ impl<E: EthSpec> LoadCase for ForkChoiceTest<E> {
                     ssz_decode_file(&path.join(format!("{}.ssz_snappy", attestation)))
                         .map(|attestation| Step::Attestation { attestation })
                 }
-                Step::PowBlock { pow_block } => {
-                    ssz_decode_file(&path.join(format!("{}.ssz_snappy", pow_block)))
-                        .map(|pow_block| Step::PowBlock { pow_block })
-                }
                 Step::AttesterSlashing { attester_slashing } => {
                     ssz_decode_file(&path.join(format!("{}.ssz_snappy", attester_slashing)))
                         .map(|attester_slashing| Step::AttesterSlashing { attester_slashing })
+                }
+                Step::PowBlock { pow_block } => {
+                    ssz_decode_file(&path.join(format!("{}.ssz_snappy", pow_block)))
+                        .map(|pow_block| Step::PowBlock { pow_block })
                 }
                 Step::Checks { checks } => Ok(Step::Checks { checks }),
             })
@@ -159,7 +159,7 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
     }
 
     fn result(&self, _case_index: usize, fork_name: ForkName) -> Result<(), Error> {
-        let tester = Tester::new(self, fork_choice_spec::<E>(fork_name))?;
+        let tester = Tester::new(self, testing_spec::<E>(fork_name))?;
 
         // TODO(merge): re-enable this test before production.
         // This test is skipped until we can do retrospective confirmations of the terminal
@@ -179,6 +179,9 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
                     tester.process_block(block.clone(), *valid)?
                 }
                 Step::Attestation { attestation } => tester.process_attestation(attestation)?,
+                Step::AttesterSlashing { attester_slashing } => {
+                    // FIXME(sproul): do something
+                }
                 Step::PowBlock { pow_block } => tester.process_pow_block(pow_block),
                 //TODO(sean): enable once we implement equivocation logic (https://github.com/sigp/lighthouse/issues/3241)
                 Step::AttesterSlashing {

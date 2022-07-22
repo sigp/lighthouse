@@ -276,7 +276,8 @@ impl<E: EthSpec, T: EpochTransition<E>> Case for EpochProcessing<E, T> {
                     && T::name() != "inactivity_updates"
                     && T::name() != "participation_flag_updates"
             }
-            ForkName::Altair | ForkName::Merge => true, // TODO: revisit when tests are out
+            // No phase0 tests for Altair and later.
+            ForkName::Altair | ForkName::Merge => T::name() != "participation_record_updates",
         }
     }
 
