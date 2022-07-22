@@ -2582,6 +2582,239 @@ impl ApiTester {
         self
     }
 
+    pub async fn test_payload_rejects_invalid_parent_hash(self) -> Self {
+        let invalid_parent_hash =
+            "0x4242424242424242424242424242424242424242424242424242424242424242"
+                .parse::<Hash256>()
+                .unwrap();
+
+        // Mutate parent hash.
+        self.mock_builder
+            .as_ref()
+            .unwrap()
+            .builder
+            .add_operation(Operation::ParentHash(invalid_parent_hash));
+
+        let slot = self.chain.slot().unwrap();
+        let epoch = self.chain.epoch().unwrap();
+        let expected_parent_hash = self
+            .chain
+            .head_snapshot()
+            .beacon_state
+            .latest_execution_payload_header()
+            .unwrap()
+            .block_hash;
+
+        let (_, randao_reveal) = self.get_test_randao(slot, epoch).await;
+
+        let payload = self
+            .client
+            .get_validator_blinded_blocks::<E, BlindedPayload<E>>(slot, &randao_reveal, None)
+            .await
+            .unwrap()
+            .data
+            .body()
+            .execution_payload()
+            .unwrap()
+            .clone();
+
+        assert_eq!(
+            payload.execution_payload_header.parent_hash,
+            expected_parent_hash
+        );
+
+        // If this cache is populated, it indicates fallback to the local EE was correctly used.
+        assert!(self
+            .chain
+            .execution_layer
+            .as_ref()
+            .unwrap()
+            .get_payload_by_root(&payload.tree_hash_root())
+            .is_some());
+        self
+    }
+
+    pub async fn test_payload_rejects_invalid_prev_randao(self) -> Self {
+        let invalid_prev_randao =
+            "0x4242424242424242424242424242424242424242424242424242424242424242"
+                .parse::<Hash256>()
+                .unwrap();
+
+        // Mutate prev randao.
+        self.mock_builder
+            .as_ref()
+            .unwrap()
+            .builder
+            .add_operation(Operation::PrevRandao(invalid_prev_randao));
+
+        let slot = self.chain.slot().unwrap();
+        let epoch = self.chain.epoch().unwrap();
+        let expected_prev_randao = self
+            .chain
+            .canonical_head
+            .cached_head()
+            .head_random()
+            .unwrap();
+
+        let (_, randao_reveal) = self.get_test_randao(slot, epoch).await;
+
+        let payload = self
+            .client
+            .get_validator_blinded_blocks::<E, BlindedPayload<E>>(slot, &randao_reveal, None)
+            .await
+            .unwrap()
+            .data
+            .body()
+            .execution_payload()
+            .unwrap()
+            .clone();
+
+        assert_eq!(
+            payload.execution_payload_header.prev_randao,
+            expected_prev_randao
+        );
+
+        // If this cache is populated, it indicates fallback to the local EE was correctly used.
+        assert!(self
+            .chain
+            .execution_layer
+            .as_ref()
+            .unwrap()
+            .get_payload_by_root(&payload.tree_hash_root())
+            .is_some());
+        self
+    }
+
+    pub async fn test_payload_rejects_invalid_block_number(self) -> Self {
+        let invalid_block_number = 2;
+
+        // Mutate block number.
+        self.mock_builder
+            .as_ref()
+            .unwrap()
+            .builder
+            .add_operation(Operation::BlockNumber(invalid_block_number));
+
+        let slot = self.chain.slot().unwrap();
+        let epoch = self.chain.epoch().unwrap();
+        let expected_block_number = self
+            .chain
+            .head_snapshot()
+            .beacon_state
+            .latest_execution_payload_header()
+            .unwrap()
+            .block_number
+            + 1;
+
+        let (_, randao_reveal) = self.get_test_randao(slot, epoch).await;
+
+        let payload = self
+            .client
+            .get_validator_blinded_blocks::<E, BlindedPayload<E>>(slot, &randao_reveal, None)
+            .await
+            .unwrap()
+            .data
+            .body()
+            .execution_payload()
+            .unwrap()
+            .clone();
+
+        assert_eq!(
+            payload.execution_payload_header.block_number,
+            expected_block_number
+        );
+
+        // If this cache is populated, it indicates fallback to the local EE was correctly used.
+        assert!(self
+            .chain
+            .execution_layer
+            .as_ref()
+            .unwrap()
+            .get_payload_by_root(&payload.tree_hash_root())
+            .is_some());
+        self
+    }
+
+    pub async fn test_payload_rejects_invalid_timestamp(self) -> Self {
+        let invalid_timestamp = 2;
+
+        // Mutate timestamp.
+        self.mock_builder
+            .as_ref()
+            .unwrap()
+            .builder
+            .add_operation(Operation::Timestamp(invalid_timestamp));
+
+        let slot = self.chain.slot().unwrap();
+        let epoch = self.chain.epoch().unwrap();
+        let min_expected_timestamp = self
+            .chain
+            .head_snapshot()
+            .beacon_state
+            .latest_execution_payload_header()
+            .unwrap()
+            .timestamp;
+
+        let (_, randao_reveal) = self.get_test_randao(slot, epoch).await;
+
+        let payload = self
+            .client
+            .get_validator_blinded_blocks::<E, BlindedPayload<E>>(slot, &randao_reveal, None)
+            .await
+            .unwrap()
+            .data
+            .body()
+            .execution_payload()
+            .unwrap()
+            .clone();
+
+        assert!(payload.execution_payload_header.timestamp > min_expected_timestamp);
+
+        // If this cache is populated, it indicates fallback to the local EE was correctly used.
+        assert!(self
+            .chain
+            .execution_layer
+            .as_ref()
+            .unwrap()
+            .get_payload_by_root(&payload.tree_hash_root())
+            .is_some());
+        self
+    }
+
+    pub async fn test_payload_rejects_invalid_signature(self) -> Self {
+        self.mock_builder
+            .as_ref()
+            .unwrap()
+            .builder
+            .invalid_signatures();
+
+        let slot = self.chain.slot().unwrap();
+        let epoch = self.chain.epoch().unwrap();
+
+        let (_, randao_reveal) = self.get_test_randao(slot, epoch).await;
+
+        let payload = self
+            .client
+            .get_validator_blinded_blocks::<E, BlindedPayload<E>>(slot, &randao_reveal, None)
+            .await
+            .unwrap()
+            .data
+            .body()
+            .execution_payload()
+            .unwrap()
+            .clone();
+
+        // If this cache is populated, it indicates fallback to the local EE was correctly used.
+        assert!(self
+            .chain
+            .execution_layer
+            .as_ref()
+            .unwrap()
+            .get_payload_by_root(&payload.tree_hash_root())
+            .is_some());
+        self
+    }
+
     pub async fn test_builder_chain_health_skips(self) -> Self {
         let slot = self.chain.slot().unwrap();
 
@@ -3666,6 +3899,46 @@ async fn post_validator_register_fee_recipient_mutation() {
     ApiTester::new_mev_tester()
         .await
         .test_payload_accepts_changed_fee_recipient()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_blinded_block_invalid_parent_hash() {
+    ApiTester::new_mev_tester()
+        .await
+        .test_payload_rejects_invalid_parent_hash()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_blinded_block_invalid_prev_randao() {
+    ApiTester::new_mev_tester()
+        .await
+        .test_payload_rejects_invalid_prev_randao()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_blinded_block_invalid_block_number() {
+    ApiTester::new_mev_tester()
+        .await
+        .test_payload_rejects_invalid_block_number()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_blinded_block_invalid_timestamp() {
+    ApiTester::new_mev_tester()
+        .await
+        .test_payload_rejects_invalid_timestamp()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_blinded_block_invalid_signature() {
+    ApiTester::new_mev_tester()
+        .await
+        .test_payload_rejects_invalid_signature()
         .await;
 }
 

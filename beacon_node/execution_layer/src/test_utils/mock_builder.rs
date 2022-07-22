@@ -3,7 +3,7 @@ use crate::{Config, ExecutionLayer, PayloadAttributes};
 use async_trait::async_trait;
 use eth2::types::{BlockId, StateId, ValidatorId};
 use eth2::{BeaconNodeHttpClient, Timeouts};
-use ethereum_consensus::crypto::SecretKey;
+use ethereum_consensus::crypto::{SecretKey, Signature};
 use ethereum_consensus::primitives::BlsPublicKey;
 pub use ethereum_consensus::state_transition::Context;
 use fork_choice::ForkchoiceUpdateParameters;
@@ -34,6 +34,10 @@ pub enum Operation {
     FeeRecipient(Address),
     GasLimit(usize),
     Value(usize),
+    ParentHash(Hash256),
+    PrevRandao(Hash256),
+    BlockNumber(usize),
+    Timestamp(usize),
 }
 
 impl Operation {
@@ -44,6 +48,10 @@ impl Operation {
             }
             Operation::GasLimit(gas_limit) => bid.header.gas_limit = gas_limit as u64,
             Operation::Value(value) => bid.value = to_ssz_rs(&Uint256::from(value))?,
+            Operation::ParentHash(parent_hash) => bid.header.parent_hash = to_ssz_rs(&parent_hash)?,
+            Operation::PrevRandao(prev_randao) => bid.header.prev_randao = to_ssz_rs(&prev_randao)?,
+            Operation::BlockNumber(block_number) => bid.header.block_number = block_number as u64,
+            Operation::Timestamp(timestamp) => bid.header.timestamp = timestamp as u64,
         }
         Ok(())
     }
@@ -116,6 +124,7 @@ pub struct MockBuilder<E: EthSpec> {
     val_registration_cache: Arc<RwLock<HashMap<BlsPublicKey, SignedValidatorRegistration>>>,
     builder_sk: SecretKey,
     operations: Arc<RwLock<Vec<Operation>>>,
+    invalidate_signatures: Arc<RwLock<bool>>,
 }
 
 impl<E: EthSpec> MockBuilder<E> {
@@ -135,11 +144,20 @@ impl<E: EthSpec> MockBuilder<E> {
             val_registration_cache: Arc::new(RwLock::new(HashMap::new())),
             builder_sk: sk,
             operations: Arc::new(RwLock::new(vec![])),
+            invalidate_signatures: Arc::new(RwLock::new(false)),
         }
     }
 
     pub fn add_operation(&self, op: Operation) {
         self.operations.write().push(op);
+    }
+
+    pub fn invalid_signatures(&self) {
+        *self.invalidate_signatures.write() = true;
+    }
+
+    pub fn valid_signatures(&mut self) {
+        *self.invalidate_signatures.write() = false;
     }
 
     fn apply_operations(&self, bid: &mut BuilderBid) -> Result<(), BlindedBlockProviderError> {
@@ -311,8 +329,12 @@ impl<E: EthSpec> mev_build_rs::BlindedBlockProvider for MockBuilder<E> {
 
         self.apply_operations(&mut message)?;
 
-        let signature =
+        let mut signature =
             sign_builder_message(&mut message, &self.builder_sk, self.context.as_ref())?;
+
+        if *self.invalidate_signatures.read() {
+            signature = Signature::default();
+        }
 
         let signed_bid = SignedBuilderBid { message, signature };
         Ok(signed_bid)
