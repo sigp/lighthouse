@@ -1,10 +1,9 @@
+use crate::ExecutionOptimistic;
 use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes};
 use eth2::types::StateId as CoreStateId;
 use std::fmt;
 use std::str::FromStr;
-use types::{BeaconState, EthSpec, Fork, Hash256, Slot};
-
-pub type ExecutionOptimistic = bool;
+use types::{BeaconState, Checkpoint, EthSpec, Fork, Hash256, Slot};
 
 /// Wraps `eth2::types::StateId` and provides common state-access functionality. E.g., reading
 /// states or parts of states from the database.
@@ -36,30 +35,12 @@ impl StateId {
             CoreStateId::Finalized => {
                 let finalized_checkpoint =
                     chain.canonical_head.cached_head().finalized_checkpoint();
-                let finalized_slot = finalized_checkpoint
-                    .epoch
-                    .start_slot(T::EthSpec::slots_per_epoch());
-                let execution_optimistic = chain
-                    .canonical_head
-                    .fork_choice_read_lock()
-                    .is_optimistic_block(&finalized_checkpoint.root)
-                    .map_err(BeaconChainError::ForkChoiceError)
-                    .map_err(warp_utils::reject::beacon_chain_error)?;
-                (finalized_slot, execution_optimistic)
+                checkpoint_slot_and_execution_optimistic(chain, finalized_checkpoint)?
             }
             CoreStateId::Justified => {
                 let justified_checkpoint =
                     chain.canonical_head.cached_head().justified_checkpoint();
-                let justified_slot = justified_checkpoint
-                    .epoch
-                    .start_slot(T::EthSpec::slots_per_epoch());
-                let execution_optimistic = chain
-                    .canonical_head
-                    .fork_choice_read_lock()
-                    .is_optimistic_block_no_fallback(&justified_checkpoint.root)
-                    .map_err(BeaconChainError::ForkChoiceError)
-                    .map_err(warp_utils::reject::beacon_chain_error)?;
-                (justified_slot, execution_optimistic)
+                checkpoint_slot_and_execution_optimistic(chain, justified_checkpoint)?
             }
             CoreStateId::Slot(slot) => (
                 *slot,
@@ -68,17 +49,16 @@ impl StateId {
                     .map_err(warp_utils::reject::beacon_chain_error)?,
             ),
             CoreStateId::Root(root) => {
-                if chain
+                if let Some(state_summary) = chain
                     .store
                     .load_hot_state_summary(root)
                     .map_err(BeaconChainError::DBError)
                     .map_err(warp_utils::reject::beacon_chain_error)?
-                    .is_some()
                 {
                     let execution_optimistic = chain
                         .canonical_head
                         .fork_choice_read_lock()
-                        .is_optimistic_block(root)
+                        .is_optimistic_block(&state_summary.latest_block_root)
                         .map_err(BeaconChainError::ForkChoiceError)
                         .map_err(warp_utils::reject::beacon_chain_error)?;
                     return Ok((*root, execution_optimistic));
@@ -234,4 +214,21 @@ impl fmt::Display for StateId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.0)
     }
+}
+
+/// Returns the first slot of the checkpoint's `epoch` and the execution status of the checkpoint's
+/// `root`.
+pub fn checkpoint_slot_and_execution_optimistic<T: BeaconChainTypes>(
+    chain: &BeaconChain<T>,
+    checkpoint: Checkpoint,
+) -> Result<(Slot, ExecutionOptimistic), warp::reject::Rejection> {
+    let slot = checkpoint.epoch.start_slot(T::EthSpec::slots_per_epoch());
+    let execution_optimistic = chain
+        .canonical_head
+        .fork_choice_read_lock()
+        .is_optimistic_block(&checkpoint.root)
+        .map_err(BeaconChainError::ForkChoiceError)
+        .map_err(warp_utils::reject::beacon_chain_error)?;
+
+    Ok((slot, execution_optimistic))
 }

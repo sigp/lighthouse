@@ -1583,7 +1583,7 @@ fn no_state_root_iter() -> Option<std::iter::Empty<Result<(Hash256, Slot), Error
 #[derive(Debug, Clone, Copy, Default, Encode, Decode)]
 pub struct HotStateSummary {
     slot: Slot,
-    latest_block_root: Hash256,
+    pub latest_block_root: Hash256,
     epoch_boundary_state_root: Hash256,
 }
 

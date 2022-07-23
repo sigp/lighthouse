@@ -1,3 +1,4 @@
+use crate::{state_id::checkpoint_slot_and_execution_optimistic, ExecutionOptimistic};
 use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes, WhenSlotSkipped};
 use eth2::types::BlockId as CoreBlockId;
 use std::fmt;
@@ -23,31 +24,50 @@ impl BlockId {
     pub fn root<T: BeaconChainTypes>(
         &self,
         chain: &BeaconChain<T>,
-    ) -> Result<Hash256, warp::Rejection> {
+    ) -> Result<(Hash256, ExecutionOptimistic), warp::Rejection> {
         match &self.0 {
-            CoreBlockId::Head => Ok(chain.canonical_head.cached_head().head_block_root()),
-            CoreBlockId::Genesis => Ok(chain.genesis_block_root),
-            CoreBlockId::Finalized => Ok(chain
-                .canonical_head
-                .cached_head()
-                .finalized_checkpoint()
-                .root),
-            CoreBlockId::Justified => Ok(chain
-                .canonical_head
-                .cached_head()
-                .justified_checkpoint()
-                .root),
-            CoreBlockId::Slot(slot) => chain
-                .block_root_at_slot(*slot, WhenSlotSkipped::None)
-                .map_err(warp_utils::reject::beacon_chain_error)
-                .and_then(|root_opt| {
-                    root_opt.ok_or_else(|| {
-                        warp_utils::reject::custom_not_found(format!(
-                            "beacon block at slot {}",
-                            slot
-                        ))
-                    })
-                }),
+            CoreBlockId::Head => {
+                let (cached_head, execution_status) = chain
+                    .canonical_head
+                    .head_and_execution_status()
+                    .map_err(warp_utils::reject::beacon_chain_error)?;
+                Ok((
+                    cached_head.head_block_root(),
+                    execution_status.is_optimistic(),
+                ))
+            }
+            CoreBlockId::Genesis => Ok((chain.genesis_block_root, false)),
+            CoreBlockId::Finalized => {
+                let finalized_checkpoint =
+                    chain.canonical_head.cached_head().finalized_checkpoint();
+                let (_slot, execution_optimistic) =
+                    checkpoint_slot_and_execution_optimistic(chain, finalized_checkpoint)?;
+                Ok((finalized_checkpoint.root, execution_optimistic))
+            }
+            CoreBlockId::Justified => {
+                let justified_checkpoint =
+                    chain.canonical_head.cached_head().justified_checkpoint();
+                let (_slot, execution_optimistic) =
+                    checkpoint_slot_and_execution_optimistic(chain, justified_checkpoint)?;
+                Ok((justified_checkpoint.root, execution_optimistic))
+            }
+            CoreBlockId::Slot(slot) => {
+                let execution_optimistic = chain
+                    .is_optimistic_head()
+                    .map_err(warp_utils::reject::beacon_chain_error)?;
+                let root = chain
+                    .block_root_at_slot(*slot, WhenSlotSkipped::None)
+                    .map_err(warp_utils::reject::beacon_chain_error)
+                    .and_then(|root_opt| {
+                        root_opt.ok_or_else(|| {
+                            warp_utils::reject::custom_not_found(format!(
+                                "beacon block at slot {}",
+                                slot
+                            ))
+                        })
+                    })?;
+                Ok((root, execution_optimistic))
+            }
             CoreBlockId::Root(root) => {
                 // This matches the behaviour of other consensus clients (e.g. Teku).
                 if root == &Hash256::zero() {
@@ -62,7 +82,13 @@ impl BlockId {
                     .map_err(BeaconChainError::DBError)
                     .map_err(warp_utils::reject::beacon_chain_error)?
                 {
-                    Ok(*root)
+                    let execution_optimistic = chain
+                        .canonical_head
+                        .fork_choice_read_lock()
+                        .is_optimistic_block(root)
+                        .map_err(BeaconChainError::ForkChoiceError)
+                        .map_err(warp_utils::reject::beacon_chain_error)?;
+                    Ok((*root, execution_optimistic))
                 } else {
                     return Err(warp_utils::reject::custom_not_found(format!(
                         "beacon block with root {}",
@@ -77,11 +103,20 @@ impl BlockId {
     pub fn blinded_block<T: BeaconChainTypes>(
         &self,
         chain: &BeaconChain<T>,
-    ) -> Result<SignedBlindedBeaconBlock<T::EthSpec>, warp::Rejection> {
+    ) -> Result<(SignedBlindedBeaconBlock<T::EthSpec>, ExecutionOptimistic), warp::Rejection> {
         match &self.0 {
-            CoreBlockId::Head => Ok(chain.head_beacon_block().clone_as_blinded()),
+            CoreBlockId::Head => {
+                let (cached_head, execution_status) = chain
+                    .canonical_head
+                    .head_and_execution_status()
+                    .map_err(warp_utils::reject::beacon_chain_error)?;
+                Ok((
+                    cached_head.snapshot.beacon_block.clone_as_blinded(),
+                    execution_status.is_optimistic(),
+                ))
+            }
             CoreBlockId::Slot(slot) => {
-                let root = self.root(chain)?;
+                let (root, execution_optimistic) = self.root(chain)?;
                 chain
                     .get_blinded_block(&root)
                     .map_err(warp_utils::reject::beacon_chain_error)
@@ -93,7 +128,7 @@ impl BlockId {
                                     slot
                                 )));
                             }
-                            Ok(block)
+                            Ok((block, execution_optimistic))
                         }
                         None => Err(warp_utils::reject::custom_not_found(format!(
                             "beacon block with root {}",
@@ -102,8 +137,8 @@ impl BlockId {
                     })
             }
             _ => {
-                let root = self.root(chain)?;
-                chain
+                let (root, execution_optimistic) = self.root(chain)?;
+                let block = chain
                     .get_blinded_block(&root)
                     .map_err(warp_utils::reject::beacon_chain_error)
                     .and_then(|root_opt| {
@@ -113,7 +148,8 @@ impl BlockId {
                                 root
                             ))
                         })
-                    })
+                    })?;
+                Ok((block, execution_optimistic))
             }
         }
     }
@@ -122,11 +158,20 @@ impl BlockId {
     pub async fn full_block<T: BeaconChainTypes>(
         &self,
         chain: &BeaconChain<T>,
-    ) -> Result<Arc<SignedBeaconBlock<T::EthSpec>>, warp::Rejection> {
+    ) -> Result<(Arc<SignedBeaconBlock<T::EthSpec>>, ExecutionOptimistic), warp::Rejection> {
         match &self.0 {
-            CoreBlockId::Head => Ok(chain.head_beacon_block()),
+            CoreBlockId::Head => {
+                let (cached_head, execution_status) = chain
+                    .canonical_head
+                    .head_and_execution_status()
+                    .map_err(warp_utils::reject::beacon_chain_error)?;
+                Ok((
+                    cached_head.snapshot.beacon_block.clone(),
+                    execution_status.is_optimistic(),
+                ))
+            }
             CoreBlockId::Slot(slot) => {
-                let root = self.root(chain)?;
+                let (root, execution_optimistic) = self.root(chain)?;
                 chain
                     .get_block(&root)
                     .await
@@ -139,7 +184,7 @@ impl BlockId {
                                     slot
                                 )));
                             }
-                            Ok(Arc::new(block))
+                            Ok((Arc::new(block), execution_optimistic))
                         }
                         None => Err(warp_utils::reject::custom_not_found(format!(
                             "beacon block with root {}",
@@ -148,97 +193,23 @@ impl BlockId {
                     })
             }
             _ => {
-                let root = self.root(chain)?;
+                let (root, execution_optimistic) = self.root(chain)?;
                 chain
                     .get_block(&root)
                     .await
                     .map_err(warp_utils::reject::beacon_chain_error)
                     .and_then(|block_opt| {
-                        block_opt.map(Arc::new).ok_or_else(|| {
-                            warp_utils::reject::custom_not_found(format!(
-                                "beacon block with root {}",
-                                root
-                            ))
-                        })
+                        block_opt
+                            .map(|block| (Arc::new(block), execution_optimistic))
+                            .ok_or_else(|| {
+                                warp_utils::reject::custom_not_found(format!(
+                                    "beacon block with root {}",
+                                    root
+                                ))
+                            })
                     })
             }
         }
-    }
-
-    /// Returns the `blinded_block` along with the `execution_optimistic` value identified by `self`.
-    pub fn blinded_block_and_execution_optimistic<T: BeaconChainTypes>(
-        &self,
-        chain: &BeaconChain<T>,
-    ) -> Result<(SignedBlindedBeaconBlock<T::EthSpec>, bool), warp::Rejection> {
-        let block = self.blinded_block(chain)?;
-        let execution_optimistic = match self.0 {
-            // Genesis block is inherently verified.
-            CoreBlockId::Genesis => false,
-            // Head, Finalized and Justified are determined based on their respective statuses.
-            CoreBlockId::Head => chain
-                .is_optimistic_head_block(&block)
-                .map_err(warp_utils::reject::beacon_chain_error)?,
-            // Note that `Justified` should always be present in fork choice,
-            // so using `is_optimistic_head_block` should be fine here. Although there is a small
-            // risk of `Justified` being pruned from the fork choice store before its status is
-            // computed.
-            CoreBlockId::Justified => chain
-                .is_optimistic_head_block(&block)
-                .map_err(warp_utils::reject::beacon_chain_error)?,
-            // Since `is_optimistic_block` falls back to the status of the finalized block, using
-            // it should minimize the impacts of the possible race condition.
-            CoreBlockId::Finalized => chain
-                .is_optimistic_block(&block)
-                .map_err(warp_utils::reject::beacon_chain_error)?,
-            // If the slot is supplied we cannot use `block`. Instead we compute the
-            // head and use that to determine the status.
-            CoreBlockId::Slot(_) => chain
-                .is_optimistic_head()
-                .map_err(warp_utils::reject::beacon_chain_error)?,
-            // If the root is explicitly given, compute its status directly.
-            CoreBlockId::Root(_) => chain
-                .is_optimistic_block(&block)
-                .map_err(warp_utils::reject::beacon_chain_error)?,
-        };
-        Ok((block, execution_optimistic))
-    }
-
-    /// Returns the `block` along with the `execution_optimistic` value identified by `self`.
-    pub async fn full_block_and_execution_optimistic<T: BeaconChainTypes>(
-        &self,
-        chain: &BeaconChain<T>,
-    ) -> Result<(Arc<SignedBeaconBlock<T::EthSpec>>, bool), warp::Rejection> {
-        let block = self.full_block(chain).await?;
-        let execution_optimistic = match self.0 {
-            // Genesis block is inherently verified.
-            CoreBlockId::Genesis => false,
-            // Head, Finalized and Justified are determined based on their respective statuses.
-            CoreBlockId::Head => chain
-                .is_optimistic_head_block(&block)
-                .map_err(warp_utils::reject::beacon_chain_error)?,
-            // Note that `Justified` should always be present in fork choice,
-            // so using `is_optimistic_head_block` should be fine here. Although there is a small
-            // risk of `Justified` being pruned from the fork choice store before its status is
-            // computed.
-            CoreBlockId::Justified => chain
-                .is_optimistic_head_block(&block)
-                .map_err(warp_utils::reject::beacon_chain_error)?,
-            // Since `is_optimistic_block` falls back to the status of the finalized block, using
-            // it should minimize the impacts of the possible race condition.
-            CoreBlockId::Finalized => chain
-                .is_optimistic_block(&block)
-                .map_err(warp_utils::reject::beacon_chain_error)?,
-            // If the slot is supplied we cannot use `block`. Instead we compute the
-            // head and use that to determine the status.
-            CoreBlockId::Slot(_) => chain
-                .is_optimistic_head()
-                .map_err(warp_utils::reject::beacon_chain_error)?,
-            // If the root is explicitly given, compute its status directly.
-            CoreBlockId::Root(_) => chain
-                .is_optimistic_block(&block)
-                .map_err(warp_utils::reject::beacon_chain_error)?,
-        };
-        Ok((block, execution_optimistic))
     }
 
     /// Convenience function to compute `execution_optimistic` when `block` is not desired.
@@ -246,7 +217,7 @@ impl BlockId {
         &self,
         chain: &BeaconChain<T>,
     ) -> Result<bool, warp::Rejection> {
-        self.blinded_block_and_execution_optimistic(chain)
+        self.blinded_block(chain)
             .map(|(_, execution_optimistic)| execution_optimistic)
     }
 }

@@ -77,6 +77,9 @@ const SYNC_TOLERANCE_EPOCHS: u64 = 8;
 /// A custom type which allows for both unsecured and TLS-enabled HTTP servers.
 type HttpServer = (SocketAddr, Pin<Box<dyn Future<Output = ()> + Send>>);
 
+/// Alias for readability.
+pub type ExecutionOptimistic = bool;
+
 /// Configuration used when serving the HTTP server over TLS.
 #[derive(PartialEq, Debug, Clone, Serialize, Deserialize)]
 pub struct TlsConfig {
@@ -138,12 +141,6 @@ impl From<String> for Error {
     fn from(e: String) -> Self {
         Error::Other(e)
     }
-}
-
-enum HeaderComputationType {
-    UsesHeadWithBlock,
-    UsesHeadNoBlock,
-    NoHead,
 }
 
 /// Creates a `warp` logging wrapper which we use to create `slog` logs.
@@ -888,19 +885,24 @@ pub fn serve<T: BeaconChainTypes>(
         .and_then(
             |query: api_types::HeadersQuery, chain: Arc<BeaconChain<T>>| {
                 blocking_json_task(move || {
-                    let (root, block, uses_head) = match (query.slot, query.parent_root) {
+                    let (root, block, execution_optimistic) = match (query.slot, query.parent_root)
+                    {
                         // No query parameters, return the canonical head block.
                         (None, None) => {
-                            let block = chain.head_beacon_block();
+                            let (cached_head, execution_status) = chain
+                                .canonical_head
+                                .head_and_execution_status()
+                                .map_err(warp_utils::reject::beacon_chain_error)?;
                             (
-                                block.canonical_root(),
-                                block.clone_as_blinded(),
-                                HeaderComputationType::UsesHeadWithBlock,
+                                cached_head.head_block_root(),
+                                cached_head.snapshot.beacon_block.clone_as_blinded(),
+                                execution_status.is_optimistic(),
                             )
                         }
                         // Only the parent root parameter, do a forwards-iterator lookup.
                         (None, Some(parent_root)) => {
-                            let parent = BlockId::from_root(parent_root).blinded_block(&chain)?;
+                            let (parent, execution_optimistic) =
+                                BlockId::from_root(parent_root).blinded_block(&chain)?;
                             let (root, _slot) = chain
                                 .forwards_iter_block_roots(parent.slot())
                                 .map_err(warp_utils::reject::beacon_chain_error)?
@@ -919,14 +921,21 @@ pub fn serve<T: BeaconChainTypes>(
 
                             BlockId::from_root(root)
                                 .blinded_block(&chain)
-                                .map(|block| (root, block, HeaderComputationType::NoHead))?
+                                // Ignore this `execution_optimistic` since the first value has
+                                // more information about the original request.
+                                .map(|(block, _execution_optimistic)| {
+                                    (root, block, execution_optimistic)
+                                })?
                         }
                         // Slot is supplied, search by slot and optionally filter by
                         // parent root.
                         (Some(slot), parent_root_opt) => {
-                            let root = BlockId::from_slot(slot).root(&chain)?;
-                            let block = BlockId::from_root(root).blinded_block(&chain)?;
-                            let mut uses_head = HeaderComputationType::UsesHeadNoBlock;
+                            let (root, execution_optimistic) =
+                                BlockId::from_slot(slot).root(&chain)?;
+                            // Ignore the second `execution_optimistic`, the first one is the
+                            // most relevant since it knows that we queried by slot.
+                            let (block, _execution_optimistic) =
+                                BlockId::from_root(root).blinded_block(&chain)?;
 
                             // If the parent root was supplied, check that it matches the block
                             // obtained via a slot lookup.
@@ -936,25 +945,12 @@ pub fn serve<T: BeaconChainTypes>(
                                         "no canonical block at slot {} with parent root {}",
                                         slot, parent_root
                                     )));
-                                } else {
-                                    uses_head = HeaderComputationType::NoHead;
                                 }
                             }
 
-                            (root, block, uses_head)
+                            (root, block, execution_optimistic)
                         }
                     };
-
-                    // The value of `execution_optimistic` depends on whether the method used to
-                    // compute the response is dependent on the head block.
-                    let execution_optimistic = match uses_head {
-                        HeaderComputationType::NoHead => chain.is_optimistic_block(&block),
-                        HeaderComputationType::UsesHeadWithBlock => {
-                            chain.is_optimistic_head_block(&block)
-                        }
-                        HeaderComputationType::UsesHeadNoBlock => chain.is_optimistic_head(),
-                    }
-                    .map_err(warp_utils::reject::beacon_chain_error)?;
 
                     let data = api_types::BlockHeaderData {
                         root,
@@ -984,9 +980,11 @@ pub fn serve<T: BeaconChainTypes>(
         .and(chain_filter.clone())
         .and_then(|block_id: BlockId, chain: Arc<BeaconChain<T>>| {
             blocking_json_task(move || {
-                let root = block_id.root(&chain)?;
-                let (block, execution_optimistic) =
-                    BlockId::from_root(root).blinded_block_and_execution_optimistic(&chain)?;
+                let (root, execution_optimistic) = block_id.root(&chain)?;
+                // Ignore the second `execution_optimistic` since the first one has more
+                // information about the original request.
+                let (block, _execution_optimistic) =
+                    BlockId::from_root(root).blinded_block(&chain)?;
 
                 let canonical = chain
                     .block_root_at_slot(block.slot(), WhenSlotSkipped::None)
@@ -1235,8 +1233,7 @@ pub fn serve<T: BeaconChainTypes>(
              chain: Arc<BeaconChain<T>>,
              accept_header: Option<api_types::Accept>| {
                 async move {
-                    let (block, execution_optimistic) =
-                        block_id.full_block_and_execution_optimistic(&chain).await?;
+                    let (block, execution_optimistic) = block_id.full_block(&chain).await?;
                     let fork_name = block
                         .fork_name(&chain.spec)
                         .map_err(inconsistent_fork_rejection)?;
@@ -1272,8 +1269,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path::end())
         .and_then(|block_id: BlockId, chain: Arc<BeaconChain<T>>| {
             blocking_json_task(move || {
-                let (block, execution_optimistic) =
-                    block_id.blinded_block_and_execution_optimistic(&chain)?;
+                let (block, execution_optimistic) = block_id.blinded_block(&chain)?;
 
                 Ok(api_types::GenericResponse::from(api_types::RootData::from(
                     block.canonical_root(),
@@ -1289,8 +1285,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path::end())
         .and_then(|block_id: BlockId, chain: Arc<BeaconChain<T>>| {
             blocking_json_task(move || {
-                let (block, execution_optimistic) =
-                    block_id.blinded_block_and_execution_optimistic(&chain)?;
+                let (block, execution_optimistic) = block_id.blinded_block(&chain)?;
 
                 Ok(
                     api_types::GenericResponse::from(block.message().body().attestations().clone())
