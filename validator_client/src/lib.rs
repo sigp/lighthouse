@@ -559,7 +559,7 @@ async fn init_from_beacon_node<E: EthSpec>(
             );
             break;
         } else {
-            warn!(
+            error!(
                 context.log(),
                 "Unable to connect to a beacon node";
                 "retry in" => format!("{} seconds", RETRY_DELAY.as_secs()),
