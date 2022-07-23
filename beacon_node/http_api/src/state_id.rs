@@ -4,6 +4,8 @@ use std::fmt;
 use std::str::FromStr;
 use types::{BeaconState, EthSpec, Fork, Hash256, Slot};
 
+pub type ExecutionOptimistic = bool;
+
 /// Wraps `eth2::types::StateId` and provides common state-access functionality. E.g., reading
 /// states or parts of states from the database.
 #[derive(Debug)]
@@ -18,23 +20,53 @@ impl StateId {
     pub fn root<T: BeaconChainTypes>(
         &self,
         chain: &BeaconChain<T>,
-    ) -> Result<Hash256, warp::Rejection> {
-        let slot = match &self.0 {
-            CoreStateId::Head => return Ok(chain.canonical_head.cached_head().head_state_root()),
-            CoreStateId::Genesis => return Ok(chain.genesis_state_root),
-            CoreStateId::Finalized => chain
-                .canonical_head
-                .cached_head()
-                .finalized_checkpoint()
-                .epoch
-                .start_slot(T::EthSpec::slots_per_epoch()),
-            CoreStateId::Justified => chain
-                .canonical_head
-                .cached_head()
-                .justified_checkpoint()
-                .epoch
-                .start_slot(T::EthSpec::slots_per_epoch()),
-            CoreStateId::Slot(slot) => *slot,
+    ) -> Result<(Hash256, ExecutionOptimistic), warp::Rejection> {
+        let (slot, execution_optimistic) = match &self.0 {
+            CoreStateId::Head => {
+                let (cached_head, execution_status) = chain
+                    .canonical_head
+                    .head_and_execution_status()
+                    .map_err(warp_utils::reject::beacon_chain_error)?;
+                return Ok((
+                    cached_head.head_state_root(),
+                    execution_status.is_optimistic(),
+                ));
+            }
+            CoreStateId::Genesis => return Ok((chain.genesis_state_root, false)),
+            CoreStateId::Finalized => {
+                let finalized_checkpoint =
+                    chain.canonical_head.cached_head().finalized_checkpoint();
+                let finalized_slot = finalized_checkpoint
+                    .epoch
+                    .start_slot(T::EthSpec::slots_per_epoch());
+                let execution_optimistic = chain
+                    .canonical_head
+                    .fork_choice_read_lock()
+                    .is_optimistic_block(&finalized_checkpoint.root)
+                    .map_err(BeaconChainError::ForkChoiceError)
+                    .map_err(warp_utils::reject::beacon_chain_error)?;
+                (finalized_slot, execution_optimistic)
+            }
+            CoreStateId::Justified => {
+                let justified_checkpoint =
+                    chain.canonical_head.cached_head().justified_checkpoint();
+                let justified_slot = justified_checkpoint
+                    .epoch
+                    .start_slot(T::EthSpec::slots_per_epoch());
+                let execution_optimistic = chain
+                    .canonical_head
+                    .fork_choice_read_lock()
+                    .is_optimistic_block_no_fallback(&justified_checkpoint.root)
+                    .map_err(BeaconChainError::ForkChoiceError)
+                    .map_err(warp_utils::reject::beacon_chain_error)?;
+                (justified_slot, execution_optimistic)
+            }
+            CoreStateId::Slot(slot) => (
+                *slot,
+                chain
+                    .is_optimistic_head()
+                    .map_err(warp_utils::reject::beacon_chain_error)?,
+            ),
             CoreStateId::Root(root) => {
                 if chain
                     .store
@@ -43,7 +75,13 @@ impl StateId {
                     .map_err(warp_utils::reject::beacon_chain_error)?
                     .is_some()
                 {
-                    return Ok(*root);
+                    let execution_optimistic = chain
+                        .canonical_head
+                        .fork_choice_read_lock()
+                        .is_optimistic_block(root)
+                        .map_err(BeaconChainError::ForkChoiceError)
+                        .map_err(warp_utils::reject::beacon_chain_error)?;
+                    return Ok((*root, execution_optimistic));
                 } else {
                     return Err(warp_utils::reject::custom_not_found(format!(
                         "beacon state for state root {}",
@@ -53,12 +91,14 @@ impl StateId {
             }
         };
 
-        chain
+        let root = chain
             .state_root_at_slot(slot)
             .map_err(warp_utils::reject::beacon_chain_error)?
             .ok_or_else(|| {
                 warp_utils::reject::custom_not_found(format!("beacon state at slot {}", slot))
-            })
+            })?;
+
+        Ok((root, execution_optimistic))
     }
 
     /// Return the `fork` field of the state identified by `self`.
@@ -85,14 +125,26 @@ impl StateId {
     pub fn state<T: BeaconChainTypes>(
         &self,
         chain: &BeaconChain<T>,
-    ) -> Result<BeaconState<T::EthSpec>, warp::Rejection> {
-        let (state_root, slot_opt) = match &self.0 {
-            CoreStateId::Head => return Ok(chain.head_beacon_state_cloned()),
+    ) -> Result<(BeaconState<T::EthSpec>, ExecutionOptimistic), warp::Rejection> {
+        let ((state_root, execution_optimistic), slot_opt) = match &self.0 {
+            CoreStateId::Head => {
+                let (cached_head, execution_status) = chain
+                    .canonical_head
+                    .head_and_execution_status()
+                    .map_err(warp_utils::reject::beacon_chain_error)?;
+                return Ok((
+                    cached_head
+                        .snapshot
+                        .beacon_state
+                        .clone_with_only_committee_caches(),
+                    execution_status.is_optimistic(),
+                ));
+            }
             CoreStateId::Slot(slot) => (self.root(chain)?, Some(*slot)),
             _ => (self.root(chain)?, None),
         };
 
-        chain
+        let state = chain
             .get_state(&state_root, slot_opt)
             .map_err(warp_utils::reject::beacon_chain_error)
             .and_then(|opt| {
@@ -102,9 +154,12 @@ impl StateId {
                         state_root
                     ))
                 })
-            })
+            })?;
+
+        Ok((state, execution_optimistic))
     }
 
+    /*
     /// Map a function across the `BeaconState` identified by `self`.
     ///
     /// This function will avoid instantiating/copying a new state when `self` points to the head
@@ -125,6 +180,7 @@ impl StateId {
             _ => func(&self.state(chain)?),
         }
     }
+    */
 
     /// Functions the same as `map_state` but additionally computes the value of
     /// `execution_optimistic` of the state identified by `self`.
@@ -138,7 +194,7 @@ impl StateId {
     where
         F: Fn(&BeaconState<T::EthSpec>, bool) -> Result<U, warp::Rejection>,
     {
-        let state = match &self.0 {
+        let (state, execution_optimistic) = match &self.0 {
             CoreStateId::Head => {
                 let (head, execution_status) = chain
                     .canonical_head
@@ -150,25 +206,6 @@ impl StateId {
                 );
             }
             _ => self.state(chain)?,
-        };
-
-        let execution_optimistic = match &self.0 {
-            CoreStateId::Genesis => false,
-            CoreStateId::Head
-            | CoreStateId::Slot(_)
-            | CoreStateId::Finalized
-            | CoreStateId::Justified => chain
-                .is_optimistic_head()
-                .map_err(warp_utils::reject::beacon_chain_error)?,
-            CoreStateId::Root(_) => {
-                let state_root = self.root(chain)?;
-                chain
-                    .canonical_head
-                    .fork_choice_read_lock()
-                    .is_optimistic_block(&state.get_latest_block_root(state_root))
-                    .map_err(BeaconChainError::ForkChoiceError)
-                    .map_err(warp_utils::reject::beacon_chain_error)?
-            }
         };
 
         func(&state, execution_optimistic)

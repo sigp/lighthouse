@@ -456,9 +456,9 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path::end())
         .and_then(|state_id: StateId, chain: Arc<BeaconChain<T>>| {
             blocking_json_task(move || {
-                let execution_optimistic = state_id.is_execution_optimistic(&chain)?;
-                state_id
-                    .root(&chain)
+                let (root, execution_optimistic) = state_id.root(&chain)?;
+
+                Ok(root)
                     .map(api_types::RootData::from)
                     .map(api_types::GenericResponse::from)
                     .map(|resp| resp.add_execution_optimistic(execution_optimistic))
@@ -1703,7 +1703,10 @@ pub fn serve<T: BeaconChainTypes>(
              chain: Arc<BeaconChain<T>>| {
                 blocking_task(move || match accept_header {
                     Some(api_types::Accept::Ssz) => {
-                        let state = state_id.state(&chain)?;
+                        // We can ignore the optimistic status for the "fork" since it's a
+                        // specification constant that doesn't change across competing heads of the
+                        // beacon chain.
+                        let (state, _execution_optimistic) = state_id.state(&chain)?;
                         let fork_name = state
                             .fork_name(&chain.spec)
                             .map_err(inconsistent_fork_rejection)?;
