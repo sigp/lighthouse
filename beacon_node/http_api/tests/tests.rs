@@ -401,7 +401,10 @@ impl ApiTester {
                 .unwrap()
                 .map(|res| res.data.root);
 
-            let expected = state_id.root(&self.chain).ok();
+            let expected = state_id
+                .root(&self.chain)
+                .ok()
+                .map(|(root, _execution_optimistic)| root);
 
             assert_eq!(result, expected, "{:?}", state_id);
         }
@@ -435,14 +438,15 @@ impl ApiTester {
                 .unwrap()
                 .map(|res| res.data);
 
-            let expected = state_id
-                .state(&self.chain)
-                .ok()
-                .map(|state| FinalityCheckpointsData {
-                    previous_justified: state.previous_justified_checkpoint(),
-                    current_justified: state.current_justified_checkpoint(),
-                    finalized: state.finalized_checkpoint(),
-                });
+            let expected =
+                state_id
+                    .state(&self.chain)
+                    .ok()
+                    .map(|(state, _execution_optimistic)| FinalityCheckpointsData {
+                        previous_justified: state.previous_justified_checkpoint(),
+                        current_justified: state.current_justified_checkpoint(),
+                        finalized: state.finalized_checkpoint(),
+                    });
 
             assert_eq!(result, expected, "{:?}", state_id);
         }
@@ -455,7 +459,7 @@ impl ApiTester {
             for validator_indices in self.interesting_validator_indices() {
                 let state_opt = state_id.state(&self.chain).ok();
                 let validators: Vec<Validator> = match state_opt.as_ref() {
-                    Some(state) => state.validators().clone().into(),
+                    Some((state, _execution_optimistic)) => state.validators().clone().into(),
                     None => vec![],
                 };
                 let validator_index_ids = validator_indices
@@ -494,7 +498,7 @@ impl ApiTester {
                     .unwrap()
                     .map(|res| res.data);
 
-                let expected = state_opt.map(|state| {
+                let expected = state_opt.map(|(state, _execution_optimistic)| {
                     let mut validators = Vec::with_capacity(validator_indices.len());
 
                     for i in validator_indices {
@@ -521,7 +525,10 @@ impl ApiTester {
         for state_id in self.interesting_state_ids() {
             for statuses in self.interesting_validator_statuses() {
                 for validator_indices in self.interesting_validator_indices() {
-                    let state_opt = state_id.state(&self.chain).ok();
+                    let state_opt = state_id
+                        .state(&self.chain)
+                        .ok()
+                        .map(|(state, _execution_optimistic)| state);
                     let validators: Vec<Validator> = match state_opt.as_ref() {
                         Some(state) => state.validators().clone().into(),
                         None => vec![],
@@ -608,7 +615,10 @@ impl ApiTester {
 
     pub async fn test_beacon_states_validator_id(self) -> Self {
         for state_id in self.interesting_state_ids() {
-            let state_opt = state_id.state(&self.chain).ok();
+            let state_opt = state_id
+                .state(&self.chain)
+                .ok()
+                .map(|(state, _execution_optimistic)| state);
             let validators = match state_opt.as_ref() {
                 Some(state) => state.validators().clone().into(),
                 None => vec![],
@@ -660,7 +670,10 @@ impl ApiTester {
 
     pub async fn test_beacon_states_committees(self) -> Self {
         for state_id in self.interesting_state_ids() {
-            let mut state_opt = state_id.state(&self.chain).ok();
+            let mut state_opt = state_id
+                .state(&self.chain)
+                .ok()
+                .map(|(state, _execution_optimistic)| state);
 
             let epoch_opt = state_opt.as_ref().map(|state| state.current_epoch());
             let results = self
@@ -784,7 +797,10 @@ impl ApiTester {
                 .unwrap()
                 .map(|res| res.data);
 
-            let block_root_opt = block_id.root(&self.chain).ok();
+            let block_root_opt = block_id
+                .root(&self.chain)
+                .ok()
+                .map(|(root, _execution_optimistic)| root);
 
             if let CoreBlockId::Slot(slot) = block_id.0 {
                 if block_root_opt.is_none() {
@@ -794,7 +810,11 @@ impl ApiTester {
                 }
             }
 
-            let block_opt = block_id.full_block(&self.chain).await.ok();
+            let block_opt = block_id
+                .full_block(&self.chain)
+                .await
+                .ok()
+                .map(|(block, _execution_optimistic)| block);
 
             if block_opt.is_none() && result.is_none() {
                 continue;
@@ -837,7 +857,10 @@ impl ApiTester {
                 .unwrap()
                 .map(|res| res.data.root);
 
-            let expected = block_id.root(&self.chain).ok();
+            let expected = block_id
+                .root(&self.chain)
+                .ok()
+                .map(|(root, _execution_optimistic)| root);
             if let CoreBlockId::Slot(slot) = block_id.0 {
                 if expected.is_none() {
                     assert!(SKIPPED_SLOTS.contains(&slot.as_u64()));
@@ -880,7 +903,11 @@ impl ApiTester {
 
     pub async fn test_beacon_blocks(self) -> Self {
         for block_id in self.interesting_block_ids() {
-            let expected = block_id.full_block(&self.chain).await.ok();
+            let expected = block_id
+                .full_block(&self.chain)
+                .await
+                .ok()
+                .map(|(block, _execution_optimistic)| block);
 
             if let CoreBlockId::Slot(slot) = block_id.0 {
                 if expected.is_none() {
@@ -968,11 +995,11 @@ impl ApiTester {
                 .unwrap()
                 .map(|res| res.data);
 
-            let expected = block_id
-                .full_block(&self.chain)
-                .await
-                .ok()
-                .map(|block| block.message().body().attestations().clone().into());
+            let expected = block_id.full_block(&self.chain).await.ok().map(
+                |(block, _execution_optimistic)| {
+                    block.message().body().attestations().clone().into()
+                },
+            );
 
             if let CoreBlockId::Slot(slot) = block_id.0 {
                 if expected.is_none() {
@@ -1383,7 +1410,10 @@ impl ApiTester {
                 .await
                 .unwrap();
 
-            let mut expected = state_id.state(&self.chain).ok();
+            let mut expected = state_id
+                .state(&self.chain)
+                .ok()
+                .map(|(state, _execution_optimistic)| state);
             expected.as_mut().map(|state| state.drop_all_caches());
 
             if let (Some(json), Some(expected)) = (&result_json, &expected) {
@@ -2307,7 +2337,10 @@ impl ApiTester {
                 .await
                 .unwrap();
 
-            let mut expected = state_id.state(&self.chain).ok();
+            let mut expected = state_id
+                .state(&self.chain)
+                .ok()
+                .map(|(state, _execution_optimistic)| state);
             expected.as_mut().map(|state| state.drop_all_caches());
 
             assert_eq!(result, expected, "{:?}", state_id);

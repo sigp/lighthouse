@@ -2893,7 +2893,8 @@ pub fn serve<T: BeaconChainTypes>(
         .and(chain_filter.clone())
         .and_then(|state_id: StateId, chain: Arc<BeaconChain<T>>| {
             blocking_task(move || {
-                let state = state_id.state(&chain)?;
+                // This debug endpoint provides no indication of optimistic status.
+                let (state, _execution_optimistic) = state_id.state(&chain)?;
                 Response::builder()
                     .status(200)
                     .header("Content-Type", "application/ssz")
