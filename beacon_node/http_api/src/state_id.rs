@@ -213,10 +213,19 @@ pub fn checkpoint_slot_and_execution_optimistic<T: BeaconChainTypes>(
     checkpoint: Checkpoint,
 ) -> Result<(Slot, ExecutionOptimistic), warp::reject::Rejection> {
     let slot = checkpoint.epoch.start_slot(T::EthSpec::slots_per_epoch());
-    let execution_optimistic = chain
-        .canonical_head
-        .fork_choice_read_lock()
-        .is_optimistic_block(&checkpoint.root)
+    let fork_choice = chain.canonical_head.fork_choice_read_lock();
+    let finalized_checkpoint = fork_choice.cached_fork_choice_view().finalized_checkpoint;
+
+    // If the checkpoint is pre-finalization, just use the optimistic status of the finalized
+    // block.
+    let root = if checkpoint.epoch < finalized_checkpoint.epoch {
+        &finalized_checkpoint.root
+    } else {
+        &checkpoint.root
+    };
+
+    let execution_optimistic = fork_choice
+        .is_optimistic_block(root)
         .map_err(BeaconChainError::ForkChoiceError)
         .map_err(warp_utils::reject::beacon_chain_error)?;
 
