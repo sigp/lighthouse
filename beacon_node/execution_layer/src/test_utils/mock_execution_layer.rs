@@ -61,9 +61,9 @@ impl<T: EthSpec> MockExecutionLayer<T> {
         std::fs::write(&path, hex::encode(DEFAULT_JWT_SECRET)).unwrap();
 
         let config = Config {
-            execution_endpoints: vec![url],
+            execution_endpoints: Some(url),
             builder_url,
-            secret_files: vec![path],
+            secret_files: Some(path),
             suggested_fee_recipient: Some(Address::repeat_byte(42)),
             ..Default::default()
         };

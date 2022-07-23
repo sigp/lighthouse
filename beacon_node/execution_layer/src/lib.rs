@@ -117,11 +117,11 @@ struct Inner<E: EthSpec> {
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct Config {
     /// Endpoint urls for EL nodes that are running the engine api.
-    pub execution_endpoints: Vec<SensitiveUrl>,
+    pub execution_endpoints: Option<SensitiveUrl>,
     /// Endpoint urls for services providing the builder api.
     pub builder_url: Option<SensitiveUrl>,
     /// JWT secrets for the above endpoints running the engine api.
-    pub secret_files: Vec<PathBuf>,
+    pub secret_files: Option<PathBuf>,
     /// The default fee recipient to use on the beacon node if none if provided from
     /// the validator client during block preparation.
     pub suggested_fee_recipient: Option<Address>,
@@ -153,9 +153,6 @@ impl<T: EthSpec> ExecutionLayer<T> {
             default_datadir,
         } = config;
 
-        if urls.len() > 1 {
-            warn!(log, "Only the first execution engine url will be used");
-        }
         let execution_url = urls.into_iter().next().ok_or(Error::NoEngine)?;
 
         // Use the default jwt secret path if not provided via cli.

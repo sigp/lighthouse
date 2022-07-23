@@ -113,11 +113,11 @@ impl<E: GenericExecutionEngine> TestRig<E> {
 
         let ee_a = {
             let execution_engine = ExecutionEngine::new(generic_engine.clone());
-            let urls = vec![execution_engine.http_auth_url()];
+            let urls = Some(execution_engine.http_auth_url());
 
             let config = execution_layer::Config {
                 execution_endpoints: urls,
-                secret_files: vec![],
+                secret_files: None,
                 suggested_fee_recipient: Some(Address::repeat_byte(42)),
                 default_datadir: execution_engine.datadir(),
                 ..Default::default()
@@ -132,11 +132,11 @@ impl<E: GenericExecutionEngine> TestRig<E> {
 
         let ee_b = {
             let execution_engine = ExecutionEngine::new(generic_engine);
-            let urls = vec![execution_engine.http_auth_url()];
+            let urls = Some(execution_engine.http_auth_url());
 
             let config = execution_layer::Config {
                 execution_endpoints: urls,
-                secret_files: vec![],
+                secret_files: None,
                 suggested_fee_recipient: fee_recipient,
                 default_datadir: execution_engine.datadir(),
                 ..Default::default()
