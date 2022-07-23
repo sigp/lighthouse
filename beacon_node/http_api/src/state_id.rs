@@ -225,7 +225,7 @@ pub fn checkpoint_slot_and_execution_optimistic<T: BeaconChainTypes>(
     };
 
     let execution_optimistic = fork_choice
-        .is_optimistic_block(root)
+        .is_optimistic_block_no_fallback(root)
         .map_err(BeaconChainError::ForkChoiceError)
         .map_err(warp_utils::reject::beacon_chain_error)?;
 
