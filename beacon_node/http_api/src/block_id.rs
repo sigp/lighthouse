@@ -211,15 +211,6 @@ impl BlockId {
             }
         }
     }
-
-    /// Convenience function to compute `execution_optimistic` when `block` is not desired.
-    pub fn is_execution_optimistic<T: BeaconChainTypes>(
-        &self,
-        chain: &BeaconChain<T>,
-    ) -> Result<bool, warp::Rejection> {
-        self.blinded_block(chain)
-            .map(|(_, execution_optimistic)| execution_optimistic)
-    }
 }
 
 impl FromStr for BlockId {

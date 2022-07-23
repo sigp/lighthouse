@@ -1756,8 +1756,10 @@ pub fn serve<T: BeaconChainTypes>(
                             let execution_optimistic = if endpoint_version == V1 {
                                 None
                             } else if endpoint_version == V2 {
-                                BlockId::from_root(root)
-                                    .is_execution_optimistic(&chain)
+                                chain
+                                    .canonical_head
+                                    .fork_choice_read_lock()
+                                    .is_optimistic_block(&root)
                                     .ok()
                             } else {
                                 return Err(unsupported_version_rejection(endpoint_version));

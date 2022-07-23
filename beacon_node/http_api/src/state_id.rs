@@ -190,16 +190,6 @@ impl StateId {
 
         func(&state, execution_optimistic)
     }
-
-    /// Convenience function to compute `execution_optimistic` when `state` is not desired.
-    pub fn is_execution_optimistic<T: BeaconChainTypes>(
-        &self,
-        chain: &BeaconChain<T>,
-    ) -> Result<bool, warp::Rejection> {
-        self.map_state_and_execution_optimistic(chain, |_, execution_optimistic| {
-            Ok(execution_optimistic)
-        })
-    }
 }
 
 impl FromStr for StateId {
