@@ -450,7 +450,7 @@ fn builder_fallback_flags() {
         Some("builder-fallback-skips-per-epoch"),
         Some("11"),
         |config| {
-            assert_eq!(config.chain.builder_fallback_skips, 11);
+            assert_eq!(config.chain.builder_fallback_skips_per_epoch, 11);
         },
     );
     run_payload_builder_flag_test_with_config(
@@ -459,7 +459,7 @@ fn builder_fallback_flags() {
         Some("builder-fallback-epochs-since-finalization"),
         Some("4"),
         |config| {
-            assert_eq!(config.chain.builder_fallback_skips, 4);
+            assert_eq!(config.chain.builder_fallback_epochs_since_finalization, 4);
         },
     );
     run_payload_builder_flag_test_with_config(

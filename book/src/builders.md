@@ -21,3 +21,25 @@ lighthouse vc --builder-proposals
 ## Multiple builders
 
 Run MEV-boost to multiplex builder connections.
+
+* [`mev-boost`][mev-boost]
+* [`mev-rs`][mev-rs]
+
+## Fallback to local
+
+- `--builder-fallback-skips`
+- `--builder-fallback-skips-per-epoch`
+- `--builder-fallback-epochs-since-finalization`
+- `--builder-fallback-disable-checks`
+
+[mev-rs]: https://github.com/ralexstokes/mev-rs
+[mev-boost]: https://github.com/flashbots/mev-boost
+
+## Per-validator configuration
+
+Refer to [fee recipient documentation](suggested-fee-recipient)
+
+//TODO(sean): add docs about the strict fee recipient flag
+
+## Gas Limit
+
