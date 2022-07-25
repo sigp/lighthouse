@@ -2064,16 +2064,36 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         )?)
     }
 
-    /// Accept some attester slashing and queue it for inclusion in an appropriate block.
+    /// Accept a verified attester slashing and:
+    ///
+    /// 1. Apply it to fork choice.
+    /// 2. Add it to the op pool.
     pub fn import_attester_slashing(
         &self,
         attester_slashing: SigVerifiedOp<AttesterSlashing<T::EthSpec>>,
     ) {
-        if self.eth1_chain.is_some() {
-            self.op_pool.insert_attester_slashing(
-                attester_slashing,
-                self.canonical_head.cached_head().head_fork(),
+        let cached_head = self.canonical_head.cached_head();
+
+        // Add to fork choice.
+        if let Err(e) = self
+            .canonical_head
+            .fork_choice_write_lock()
+            .on_attester_slashing(
+                attester_slashing.as_inner(),
+                &cached_head.snapshot.beacon_state,
             )
+        {
+            warn!(
+                self.log,
+                "Unable to apply attester slashing to fork choice";
+                "error" => ?e,
+            );
+        }
+
+        // Add to the op pool (if we have the ability to propose blocks).
+        if self.eth1_chain.is_some() {
+            self.op_pool
+                .insert_attester_slashing(attester_slashing, cached_head.head_fork())
         }
     }
 
@@ -2531,6 +2551,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         payload_verification_status: PayloadVerificationStatus,
         count_unrealized: CountUnrealized,
     ) -> Result<Hash256, BlockError<T::EthSpec>> {
+        // FIXME(sproul): apply attester slashing (and attestations) to fork choice
         let current_slot = self.slot()?;
         let current_epoch = current_slot.epoch(T::EthSpec::slots_per_epoch());
 

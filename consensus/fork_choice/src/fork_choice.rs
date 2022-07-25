@@ -1,19 +1,23 @@
 use crate::{ForkChoiceStore, InvalidationOperation};
 use proto_array::{Block as ProtoBlock, ExecutionStatus, ProtoArrayForkChoice};
 use ssz_derive::{Decode, Encode};
-use state_processing::per_epoch_processing;
+use state_processing::{
+    per_block_processing::{errors::AttesterSlashingValidationError, get_slashable_indices},
+    per_epoch_processing,
+};
 use std::cmp::Ordering;
 use std::marker::PhantomData;
 use std::time::Duration;
 use types::{
-    consts::merge::INTERVALS_PER_SLOT, AttestationShufflingId, BeaconBlockRef, BeaconState,
-    BeaconStateError, ChainSpec, Checkpoint, Epoch, EthSpec, ExecPayload, ExecutionBlockHash,
-    Hash256, IndexedAttestation, RelativeEpoch, SignedBeaconBlock, Slot,
+    consts::merge::INTERVALS_PER_SLOT, AttestationShufflingId, AttesterSlashing, BeaconBlockRef,
+    BeaconState, BeaconStateError, ChainSpec, Checkpoint, Epoch, EthSpec, ExecPayload,
+    ExecutionBlockHash, Hash256, IndexedAttestation, RelativeEpoch, SignedBeaconBlock, Slot,
 };
 
 #[derive(Debug)]
 pub enum Error<T> {
     InvalidAttestation(InvalidAttestation),
+    InvalidAttesterSlashing(AttesterSlashingValidationError),
     InvalidBlock(InvalidBlock),
     ProtoArrayError(String),
     InvalidProtoArrayBytes(String),
@@ -60,6 +64,12 @@ pub enum Error<T> {
 impl<T> From<InvalidAttestation> for Error<T> {
     fn from(e: InvalidAttestation) -> Self {
         Error::InvalidAttestation(e)
+    }
+}
+
+impl<T> From<AttesterSlashingValidationError> for Error<T> {
+    fn from(e: AttesterSlashingValidationError) -> Self {
+        Error::InvalidAttesterSlashing(e)
     }
 }
 
@@ -413,26 +423,6 @@ where
         Ok(fork_choice)
     }
 
-    /*
-    /// Instantiates `Self` from some existing components.
-    ///
-    /// This is useful if the existing components have been loaded from disk after a process
-    /// restart.
-    pub fn from_components(
-        fc_store: T,
-        proto_array: ProtoArrayForkChoice,
-        queued_attestations: Vec<QueuedAttestation>,
-    ) -> Self {
-        Self {
-            fc_store,
-            proto_array,
-            queued_attestations,
-            forkchoice_update_parameters: None,
-            _phantom: PhantomData,
-        }
-    }
-    */
-
     /// Returns cached information that can be used to issue a `forkchoiceUpdated` message to an
     /// execution engine.
     ///
@@ -507,6 +497,7 @@ where
             *store.finalized_checkpoint(),
             store.justified_balances(),
             store.proposer_boost_root(),
+            store.equivocating_indices(),
             current_slot,
             spec,
         )?;
@@ -1109,6 +1100,25 @@ where
         Ok(())
     }
 
+    pub fn on_attester_slashing(
+        &mut self,
+        slashing: &AttesterSlashing<E>,
+        head_state: &BeaconState<E>,
+    ) -> Result<(), Error<T::Error>> {
+        // We assume that the attester slashing provided to this function has already been verified.
+        //
+        // Instead of loading the justified state as per the spec, we use the head state that the
+        // slashing was verified against. The differences should be negligible, if a validator is
+        // slashable at the justified state but not at the head state then their withdrawable epoch
+        // must fall between justification and the head, which means they are incapable of attesting
+        // anyway. If a validator is slashable at the head but not at justification then it means
+        // their activation has occurred since justification, and we arguably shouldn't be counting
+        // their attestations.
+        let slashed_indices = get_slashable_indices(head_state, slashing)?;
+        self.fc_store.extend_equivocating_indices(slashed_indices);
+        Ok(())
+    }
+
     /// Call `on_tick` for all slots between `fc_store.get_current_slot()` and the provided
     /// `current_slot`. Returns the value of `self.fc_store.get_current_slot`.
     pub fn update_time(
@@ -1324,8 +1334,6 @@ where
         }
 
         // If the parent block has execution enabled, always import the block.
-        //
-        // TODO(bellatrix): this condition has not yet been merged into the spec.
         //
         // See:
         //

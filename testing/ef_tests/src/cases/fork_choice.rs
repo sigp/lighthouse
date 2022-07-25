@@ -11,7 +11,7 @@ use beacon_chain::{
 };
 use serde_derive::Deserialize;
 use ssz_derive::Decode;
-use state_processing::state_advance::complete_state_advance;
+use state_processing::{state_advance::complete_state_advance, SigVerifiedOp};
 use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
@@ -164,10 +164,7 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
         // TODO(merge): re-enable this test before production.
         // This test is skipped until we can do retrospective confirmations of the terminal
         // block after an optimistic sync.
-        if self.description == "block_lookup_failed"
-            //TODO(sean): enable once we implement equivocation logic (https://github.com/sigp/lighthouse/issues/3241)
-            || self.description == "discard_equivocations"
-        {
+        if self.description == "block_lookup_failed" {
             return Err(Error::SkippedKnownFailure);
         };
 
@@ -180,13 +177,9 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
                 }
                 Step::Attestation { attestation } => tester.process_attestation(attestation)?,
                 Step::AttesterSlashing { attester_slashing } => {
-                    // FIXME(sproul): do something
+                    tester.process_attester_slashing(attester_slashing.clone())
                 }
                 Step::PowBlock { pow_block } => tester.process_pow_block(pow_block),
-                //TODO(sean): enable once we implement equivocation logic (https://github.com/sigp/lighthouse/issues/3241)
-                Step::AttesterSlashing {
-                    attester_slashing: _,
-                } => (),
                 Step::Checks { checks } => {
                     let Checks {
                         head,
@@ -444,6 +437,13 @@ impl<E: EthSpec> Tester<E> {
             .chain
             .apply_attestation_to_fork_choice(&verified_attestation)
             .map_err(|e| Error::InternalError(format!("attestation import failed with {:?}", e)))
+    }
+
+    pub fn process_attester_slashing(&self, attester_slashing: AttesterSlashing<E>) {
+        let verified_slashing = SigVerifiedOp::new_unsafe(attester_slashing);
+        self.harness
+            .chain
+            .import_attester_slashing(verified_slashing)
     }
 
     pub fn process_pow_block(&self, pow_block: &PowBlock) {

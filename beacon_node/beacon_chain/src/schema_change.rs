@@ -1,5 +1,6 @@
 //! Utilities for managing database schema changes.
 mod migration_schema_v10;
+mod migration_schema_v11;
 mod migration_schema_v6;
 mod migration_schema_v7;
 mod migration_schema_v8;
@@ -8,7 +9,8 @@ mod types;
 
 use crate::beacon_chain::{BeaconChainTypes, FORK_CHOICE_DB_KEY};
 use crate::persisted_fork_choice::{
-    PersistedForkChoiceV1, PersistedForkChoiceV10, PersistedForkChoiceV7, PersistedForkChoiceV8,
+    PersistedForkChoiceV1, PersistedForkChoiceV10, PersistedForkChoiceV11, PersistedForkChoiceV7,
+    PersistedForkChoiceV8,
 };
 use crate::types::ChainSpec;
 use slog::{warn, Logger};
@@ -33,6 +35,12 @@ pub fn migrate_schema<T: BeaconChainTypes>(
         // Upgrade across multiple versions by recursively migrating one step at a time.
         (_, _) if from.as_u64() + 1 < to.as_u64() => {
             let next = SchemaVersion(from.as_u64() + 1);
+            migrate_schema::<T>(db.clone(), datadir, from, next, log.clone(), spec)?;
+            migrate_schema::<T>(db, datadir, next, to, log, spec)
+        }
+        // Downgrade across multiple versions by recursively migrating one step at a time.
+        (_, _) if to.as_u64() + 1 < from.as_u64() => {
+            let next = SchemaVersion(from.as_u64() - 1);
             migrate_schema::<T>(db.clone(), datadir, from, next, log.clone(), spec)?;
             migrate_schema::<T>(db, datadir, next, to, log, spec)
         }
@@ -151,6 +159,35 @@ pub fn migrate_schema<T: BeaconChainTypes>(
             let fork_choice_opt = db.get_item::<PersistedForkChoiceV10>(&FORK_CHOICE_DB_KEY)?;
             if let Some(fork_choice) = fork_choice_opt {
                 let updated_fork_choice = migration_schema_v10::downgrade_fork_choice(fork_choice)?;
+
+                ops.push(updated_fork_choice.as_kv_store_op(FORK_CHOICE_DB_KEY));
+            }
+
+            db.store_schema_version_atomically(to, ops)?;
+
+            Ok(())
+        }
+        // Upgrade from v10 to v11 adding support for equivocating indices to fork choice.
+        (SchemaVersion(10), SchemaVersion(11)) => {
+            let mut ops = vec![];
+            let fork_choice_opt = db.get_item::<PersistedForkChoiceV10>(&FORK_CHOICE_DB_KEY)?;
+            if let Some(fork_choice) = fork_choice_opt {
+                let updated_fork_choice = migration_schema_v11::update_fork_choice(fork_choice);
+
+                ops.push(updated_fork_choice.as_kv_store_op(FORK_CHOICE_DB_KEY));
+            }
+
+            db.store_schema_version_atomically(to, ops)?;
+
+            Ok(())
+        }
+        // Downgrade from v11 to v10 removing support for equivocating indices from fork choice.
+        (SchemaVersion(11), SchemaVersion(10)) => {
+            let mut ops = vec![];
+            let fork_choice_opt = db.get_item::<PersistedForkChoiceV11>(&FORK_CHOICE_DB_KEY)?;
+            if let Some(fork_choice) = fork_choice_opt {
+                let updated_fork_choice =
+                    migration_schema_v11::downgrade_fork_choice(fork_choice, log);
 
                 ops.push(updated_fork_choice.as_kv_store_op(FORK_CHOICE_DB_KEY));
             }
