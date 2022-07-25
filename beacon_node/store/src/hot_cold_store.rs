@@ -1317,7 +1317,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     }
 
     /// Load a frozen state's slot, given its root.
-    fn load_cold_state_slot(&self, state_root: &Hash256) -> Result<Option<Slot>, Error> {
+    pub fn load_cold_state_slot(&self, state_root: &Hash256) -> Result<Option<Slot>, Error> {
         Ok(self
             .cold_db
             .get(state_root)?

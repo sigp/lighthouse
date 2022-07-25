@@ -49,7 +49,7 @@ impl StateId {
                     .map_err(warp_utils::reject::beacon_chain_error)?,
             ),
             CoreStateId::Root(root) => {
-                if let Some(state_summary) = chain
+                if let Some(hot_summary) = chain
                     .store
                     .load_hot_state_summary(root)
                     .map_err(BeaconChainError::DBError)
@@ -58,7 +58,23 @@ impl StateId {
                     let execution_optimistic = chain
                         .canonical_head
                         .fork_choice_read_lock()
-                        .is_optimistic_block(&state_summary.latest_block_root)
+                        .is_optimistic_block_no_fallback(&hot_summary.latest_block_root)
+                        .map_err(BeaconChainError::ForkChoiceError)
+                        .map_err(warp_utils::reject::beacon_chain_error)?;
+                    return Ok((*root, execution_optimistic));
+                } else if let Some(_cold_state_slot) = chain
+                    .store
+                    .load_cold_state_slot(root)
+                    .map_err(BeaconChainError::DBError)
+                    .map_err(warp_utils::reject::beacon_chain_error)?
+                {
+                    let fork_choice = chain.canonical_head.fork_choice_read_lock();
+                    let finalized_root = fork_choice
+                        .cached_fork_choice_view()
+                        .finalized_checkpoint
+                        .root;
+                    let execution_optimistic = fork_choice
+                        .is_optimistic_block_no_fallback(&finalized_root)
                         .map_err(BeaconChainError::ForkChoiceError)
                         .map_err(warp_utils::reject::beacon_chain_error)?;
                     return Ok((*root, execution_optimistic));
