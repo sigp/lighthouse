@@ -388,3 +388,10 @@ fn no_doppelganger_protection_flag() {
         .run()
         .with_config(|config| assert!(!config.enable_doppelganger_protection));
 }
+#[test]
+fn strict_fee_recipient_flag() {
+    CommandLineTest::new()
+        .flag("strict-fee-recipient", None)
+        .run_with_zero_port()
+        .with_config(|config| assert!(config.strict_fee_recipient));
+}
