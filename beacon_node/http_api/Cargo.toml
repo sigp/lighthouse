@@ -31,8 +31,6 @@ execution_layer = {path = "../execution_layer"}
 parking_lot = "0.12.0"
 safe_arith = {path = "../../consensus/safe_arith"}
 task_executor = { path = "../../common/task_executor" }
-tree_hash = "0.4.1"
-serde_json = "1.0.58"
 lru = "0.7.7"
 
 [dev-dependencies]

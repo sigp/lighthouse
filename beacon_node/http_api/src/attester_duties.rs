@@ -82,34 +82,41 @@ fn compute_historic_attester_duties<T: BeaconChainTypes>(
 ) -> Result<ApiDuties, warp::reject::Rejection> {
     // If the head is quite old then it might still be relevant for a historical request.
     //
-    // Use the `with_head` function to read & clone in a single call to avoid race conditions.
-    let state_opt = chain
-        .with_head(|head| {
-            if head.beacon_state.current_epoch() <= request_epoch {
-                Ok(Some((
-                    head.beacon_state_root(),
-                    head.beacon_state
-                        .clone_with(CloneConfig::committee_caches_only()),
-                )))
-            } else {
-                Ok(None)
-            }
-        })
-        .map_err(warp_utils::reject::beacon_chain_error)?;
+    // Avoid holding the `cached_head` longer than necessary.
+    let state_opt = {
+        let (cached_head, execution_status) = chain
+            .canonical_head
+            .head_and_execution_status()
+            .map_err(warp_utils::reject::beacon_chain_error)?;
+        let head = &cached_head.snapshot;
 
-    let mut state = if let Some((state_root, mut state)) = state_opt {
-        // If we've loaded the head state it might be from a previous epoch, ensure it's in a
-        // suitable epoch.
-        ensure_state_knows_attester_duties_for_epoch(
-            &mut state,
-            state_root,
-            request_epoch,
-            &chain.spec,
-        )?;
-        state
-    } else {
-        StateId::from_slot(request_epoch.start_slot(T::EthSpec::slots_per_epoch())).state(chain)?
+        if head.beacon_state.current_epoch() <= request_epoch {
+            Some((
+                head.beacon_state_root(),
+                head.beacon_state
+                    .clone_with(CloneConfig::committee_caches_only()),
+                execution_status.is_optimistic(),
+            ))
+        } else {
+            None
+        }
     };
+
+    let (mut state, execution_optimistic) =
+        if let Some((state_root, mut state, execution_optimistic)) = state_opt {
+            // If we've loaded the head state it might be from a previous epoch, ensure it's in a
+            // suitable epoch.
+            ensure_state_knows_attester_duties_for_epoch(
+                &mut state,
+                state_root,
+                request_epoch,
+                &chain.spec,
+            )?;
+            (state, execution_optimistic)
+        } else {
+            StateId::from_slot(request_epoch.start_slot(T::EthSpec::slots_per_epoch()))
+                .state(chain)?
+        };
 
     // Sanity-check the state lookup.
     if !(state.current_epoch() == request_epoch || state.current_epoch() + 1 == request_epoch) {
@@ -144,10 +151,6 @@ fn compute_historic_attester_duties<T: BeaconChainTypes>(
                 .map_err(BeaconChainError::from)
         })
         .collect::<Result<_, _>>()
-        .map_err(warp_utils::reject::beacon_chain_error)?;
-
-    let execution_optimistic = chain
-        .is_optimistic_head()
         .map_err(warp_utils::reject::beacon_chain_error)?;
 
     convert_to_api_response(
