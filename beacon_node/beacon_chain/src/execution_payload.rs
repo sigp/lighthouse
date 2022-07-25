@@ -7,6 +7,7 @@
 //! So, this module contains functions that one might expect to find in other crates, but they live
 //! here for good reason.
 
+use crate::otb_verification_service::OptimisticTransitionBlock;
 use crate::{
     BeaconChain, BeaconChainError, BeaconChainTypes, BlockError, BlockProductionError,
     ExecutionPayloadError,
@@ -191,10 +192,13 @@ pub async fn validate_merge_block<'a, T: BeaconChainTypes>(
             if is_optimistic_candidate_block(chain, block.slot(), block.parent_root()).await? {
                 debug!(
                     chain.log,
-                    "Optimistically accepting terminal block";
+                    "Optimistically Importing Merge Transition Block";
                     "block_hash" => ?execution_payload.parent_hash(),
-                    "msg" => "the terminal block/parent was unavailable"
+                    "msg" => "The terminal block/parent was unavailable"
                 );
+                // Store Optimistic Transition Block in Database for later Verification
+                OptimisticTransitionBlock::from_block::<T>(block)
+                    .persist_in_store::<T, _>(&chain.store)?;
                 Ok(())
             } else {
                 Err(ExecutionPayloadError::UnverifiedNonOptimisticCandidate.into())

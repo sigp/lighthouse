@@ -28,6 +28,7 @@ mod observed_aggregates;
 mod observed_attesters;
 mod observed_block_producers;
 pub mod observed_operations;
+pub mod otb_verification_service;
 mod persisted_beacon_chain;
 mod persisted_fork_choice;
 mod pre_finalization_cache;
