@@ -313,8 +313,7 @@ impl<E: EthSpec> Tester<E> {
 
     fn find_head(&self) -> Result<CachedHead<E>, Error> {
         let chain = self.harness.chain.clone();
-        self.block_on_dangerous(chain.recompute_head_at_current_slot())?
-            .map_err(|e| Error::InternalError(format!("failed to find head with {:?}", e)))?;
+        self.block_on_dangerous(chain.recompute_head_at_current_slot())?;
         Ok(self.harness.chain.canonical_head.cached_head())
     }
 

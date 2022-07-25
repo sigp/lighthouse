@@ -927,21 +927,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     "peer_id" => %peer_id
                 );
 
-                if let Err(e) = self.chain.recompute_head_at_current_slot().await {
-                    error!(
-                        self.log,
-                        "Fork choice failed";
-                        "error" => ?e,
-                        "location" => "block_gossip"
-                    )
-                } else {
-                    debug!(
-                        self.log,
-                        "Fork choice success";
-                        "block" => ?block_root,
-                        "location" => "block_gossip"
-                    )
-                }
+                self.chain.recompute_head_at_current_slot().await;
             }
             Err(BlockError::ParentUnknown { .. }) => {
                 // Inform the sync manager to find parents for this block
