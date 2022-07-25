@@ -398,7 +398,6 @@ fn strict_fee_recipient_flag() {
 #[test]
 fn no_strict_fee_recipient_flag() {
     CommandLineTest::new()
-        .flag("strict-fee-recipient", None)
         .run_with_zero_port()
         .with_config(|config| assert!(!config.strict_fee_recipient));
 }
