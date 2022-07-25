@@ -32,6 +32,7 @@ parking_lot = "0.12.0"
 safe_arith = {path = "../../consensus/safe_arith"}
 task_executor = { path = "../../common/task_executor" }
 lru = "0.7.7"
+tree_hash = "0.4.1"
 
 [dev-dependencies]
 store = { path = "../store" }

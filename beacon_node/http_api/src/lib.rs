@@ -141,12 +141,6 @@ impl From<String> for Error {
     }
 }
 
-enum HeaderComputationType {
-    UsesHeadWithBlock,
-    UsesHeadNoBlock,
-    NoHead,
-}
-
 /// Creates a `warp` logging wrapper which we use to create `slog` logs.
 pub fn slog_logging(
     log: Logger,
@@ -949,25 +943,12 @@ pub fn serve<T: BeaconChainTypes>(
                                         "no canonical block at slot {} with parent root {}",
                                         slot, parent_root
                                     )));
-                                } else {
-                                    uses_head = HeaderComputationType::NoHead;
                                 }
                             }
 
                             (root, block, execution_optimistic)
                         }
                     };
-
-                    // The value of `execution_optimistic` depends on whether the method used to
-                    // compute the response is dependent on the head block.
-                    let execution_optimistic = match uses_head {
-                        HeaderComputationType::NoHead => chain.is_optimistic_block(&block),
-                        HeaderComputationType::UsesHeadWithBlock => {
-                            chain.is_optimistic_head_block(&block)
-                        }
-                        HeaderComputationType::UsesHeadNoBlock => chain.is_optimistic_head(),
-                    }
-                    .map_err(warp_utils::reject::beacon_chain_error)?;
 
                     let data = api_types::BlockHeaderData {
                         root,
