@@ -1726,6 +1726,7 @@ version = "0.4.1"
 dependencies = [
  "eth2_ssz_derive",
  "ethereum-types 0.12.1",
+ "itertools",
  "smallvec",
 ]
 
