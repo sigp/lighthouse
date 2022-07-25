@@ -1289,23 +1289,28 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         epoch: Epoch,
         head_block_root: Hash256,
     ) -> Result<(Vec<Option<AttestationDuty>>, Hash256, ExecutionStatus), Error> {
-        self.with_committee_cache(head_block_root, epoch, |committee_cache, dependent_root| {
-            let duties = validator_indices
-                .iter()
-                .map(|validator_index| {
-                    let validator_index = *validator_index as usize;
-                    committee_cache.get_attestation_duties(validator_index)
-                })
-                .collect();
+        let execution_status = self
+            .canonical_head
+            .fork_choice_read_lock()
+            .get_block_execution_status(&head_block_root)
+            .ok_or(Error::AttestationHeadNotInForkChoice(head_block_root))?;
 
-            let execution_status = self
-                .canonical_head
-                .fork_choice_read_lock()
-                .get_block_execution_status(&head_block_root)
-                .ok_or(Error::AttestationHeadNotInForkChoice(head_block_root))?;
+        let (duties, dependent_root) = self.with_committee_cache(
+            head_block_root,
+            epoch,
+            |committee_cache, dependent_root| {
+                let duties = validator_indices
+                    .iter()
+                    .map(|validator_index| {
+                        let validator_index = *validator_index as usize;
+                        committee_cache.get_attestation_duties(validator_index)
+                    })
+                    .collect();
 
-            Ok((duties, dependent_root, execution_status))
-        })
+                Ok((duties, dependent_root))
+            },
+        )?;
+        Ok((duties, dependent_root, execution_status))
     }
 
     /// Returns an aggregated `Attestation`, if any, that has a matching `attestation.data`.
@@ -2908,6 +2913,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 event_handler.register(EventKind::Block(SseBlock {
                     slot,
                     block: block_root,
+                    execution_optimistic: payload_verification_status.is_optimistic(),
                 }));
             }
         }
@@ -4055,9 +4061,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// Returns `Ok(false)` if the block is pre-Bellatrix, or has `ExecutionStatus::Valid`.
     /// Returns `Ok(true)` if the block has `ExecutionStatus::Optimistic`.
-    pub fn is_optimistic_block(
+    pub fn is_optimistic_block<Payload: ExecPayload<T::EthSpec>>(
         &self,
-        block: &SignedBeaconBlock<T::EthSpec>,
+        block: &SignedBeaconBlock<T::EthSpec, Payload>,
     ) -> Result<bool, BeaconChainError> {
         // Check if the block is pre-Bellatrix.
         if self.slot_is_prior_to_bellatrix(block.slot()) {
@@ -4081,9 +4087,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// There is a potential race condition when syncing where the block_root of `head_block` could
     /// be pruned from the fork choice store before being read.
-    pub fn is_optimistic_head_block(
+    pub fn is_optimistic_head_block<Payload: ExecPayload<T::EthSpec>>(
         &self,
-        head_block: &SignedBeaconBlock<T::EthSpec>,
+        head_block: &SignedBeaconBlock<T::EthSpec, Payload>,
     ) -> Result<bool, BeaconChainError> {
         // Check if the block is pre-Bellatrix.
         if self.slot_is_prior_to_bellatrix(head_block.slot()) {

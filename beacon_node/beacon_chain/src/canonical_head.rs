@@ -300,6 +300,23 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
             .ok_or(Error::HeadMissingFromForkChoice(head_block_root))
     }
 
+    /// Returns a clone of the `CachedHead` and the execution status of the contained head block.
+    ///
+    /// This will only return `Err` in the scenario where `self.fork_choice` has advanced
+    /// significantly past the cached `head_snapshot`. In such a scenario it is likely prudent to
+    /// run `BeaconChain::recompute_head` to update the cached values.
+    pub fn head_and_execution_status(
+        &self,
+    ) -> Result<(CachedHead<T::EthSpec>, ExecutionStatus), Error> {
+        let head = self.cached_head();
+        let head_block_root = head.head_block_root();
+        let execution_status = self
+            .fork_choice_read_lock()
+            .get_block_execution_status(&head_block_root)
+            .ok_or(Error::HeadMissingFromForkChoice(head_block_root))?;
+        Ok((head, execution_status))
+    }
+
     /// Returns a clone of `self.cached_head`.
     ///
     /// Takes a read-lock on `self.cached_head` for a short time (just long enough to clone it).
@@ -713,6 +730,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ) -> Result<(), Error> {
         let old_snapshot = &old_cached_head.snapshot;
         let new_snapshot = &new_cached_head.snapshot;
+        let new_head_is_optimistic = new_head_proto_block.execution_status.is_optimistic();
 
         // Detect and potentially report any re-orgs.
         let reorg_distance = detect_reorg(
@@ -798,6 +816,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         current_duty_dependent_root,
                         previous_duty_dependent_root,
                         epoch_transition: is_epoch_transition,
+                        execution_optimistic: new_head_is_optimistic,
                     }));
                 }
                 (Err(e), _) | (_, Err(e)) => {
@@ -825,6 +844,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     new_head_block: new_snapshot.beacon_block_root,
                     new_head_state: new_snapshot.beacon_state_root(),
                     epoch: head_slot.epoch(T::EthSpec::slots_per_epoch()),
+                    execution_optimistic: new_head_is_optimistic,
                 }));
             }
         }
@@ -841,6 +861,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         finalized_proto_block: ProtoBlock,
     ) -> Result<(), Error> {
         let new_snapshot = &new_cached_head.snapshot;
+        let finalized_block_is_optimistic = finalized_proto_block.execution_status.is_optimistic();
 
         self.op_pool
             .prune_all(&new_snapshot.beacon_state, self.epoch()?);
@@ -884,6 +905,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     // specific state root at the first slot of the finalized epoch (which
                     // might be a skip slot).
                     state: finalized_proto_block.state_root,
+                    execution_optimistic: finalized_block_is_optimistic,
                 }));
             }
         }
@@ -1216,6 +1238,7 @@ fn observe_head_block_delays<E: EthSpec, S: SlotClock>(
     let block_time_set_as_head = timestamp_now();
     let head_block_root = head_block.root;
     let head_block_slot = head_block.slot;
+    let head_block_is_optimistic = head_block.execution_status.is_optimistic();
 
     // Calculate the total delay between the start of the slot and when it was set as head.
     let block_delay_total = get_slot_delay_ms(block_time_set_as_head, head_block_slot, slot_clock);
@@ -1308,6 +1331,7 @@ fn observe_head_block_delays<E: EthSpec, S: SlotClock>(
                 observed_delay: block_delays.observed,
                 imported_delay: block_delays.imported,
                 set_as_head_delay: block_delays.set_as_head,
+                execution_optimistic: head_block_is_optimistic,
             }));
         }
     }
