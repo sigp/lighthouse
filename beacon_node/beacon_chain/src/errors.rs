@@ -184,6 +184,9 @@ pub enum BeaconChainError {
     CannotAttestToFinalizedBlock {
         beacon_block_root: Hash256,
     },
+    SyncContributionDataReferencesFinalizedBlock {
+        beacon_block_root: Hash256,
+    },
     RuntimeShutdown,
     TokioJoin(tokio::task::JoinError),
     ProcessInvalidExecutionPayload(JoinError),
