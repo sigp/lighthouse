@@ -37,3 +37,4 @@ web3 = { version = "0.18.0", default-features = false, features = ["http-tls", "
 eth1_test_rig = { path = "../testing/eth1_test_rig" }
 sensitive_url = { path = "../common/sensitive_url" }
 eth2 = { path = "../common/eth2" }
+snap = "1.0.1"

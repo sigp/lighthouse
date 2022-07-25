@@ -7,7 +7,7 @@ use beacon_chain::{
         obtain_indexed_attestation_and_committees_per_slot, VerifiedAttestation,
     },
     test_utils::{BeaconChainHarness, EphemeralHarnessType},
-    BeaconChainTypes, CachedHead,
+    BeaconChainTypes, CachedHead, CountUnrealized,
 };
 use serde_derive::Deserialize;
 use ssz_derive::Decode;
@@ -16,8 +16,8 @@ use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
 use types::{
-    Attestation, BeaconBlock, BeaconState, Checkpoint, EthSpec, ExecutionBlockHash, ForkName,
-    Hash256, IndexedAttestation, SignedBeaconBlock, Slot, Uint256,
+    Attestation, AttesterSlashing, BeaconBlock, BeaconState, Checkpoint, EthSpec,
+    ExecutionBlockHash, ForkName, Hash256, IndexedAttestation, SignedBeaconBlock, Slot, Uint256,
 };
 
 #[derive(Default, Debug, PartialEq, Clone, Deserialize, Decode)]
@@ -45,17 +45,20 @@ pub struct Checks {
     justified_checkpoint_root: Option<Hash256>,
     finalized_checkpoint: Option<Checkpoint>,
     best_justified_checkpoint: Option<Checkpoint>,
+    u_justified_checkpoint: Option<Checkpoint>,
+    u_finalized_checkpoint: Option<Checkpoint>,
     proposer_boost_root: Option<Hash256>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(untagged, deny_unknown_fields)]
-pub enum Step<B, A, P> {
+pub enum Step<B, A, P, S> {
     Tick { tick: u64 },
     ValidBlock { block: B },
     MaybeValidBlock { block: B, valid: bool },
     Attestation { attestation: A },
     PowBlock { pow_block: P },
+    AttesterSlashing { attester_slashing: S },
     Checks { checks: Box<Checks> },
 }
 
@@ -71,16 +74,13 @@ pub struct ForkChoiceTest<E: EthSpec> {
     pub description: String,
     pub anchor_state: BeaconState<E>,
     pub anchor_block: BeaconBlock<E>,
-    pub steps: Vec<Step<SignedBeaconBlock<E>, Attestation<E>, PowBlock>>,
+    #[allow(clippy::type_complexity)]
+    pub steps: Vec<Step<SignedBeaconBlock<E>, Attestation<E>, PowBlock, AttesterSlashing<E>>>,
 }
 
-/// Spec for fork choice tests, with proposer boosting enabled.
-///
-/// This function can be deleted once `ChainSpec::mainnet` enables proposer boosting by default.
+/// Spec to be used for fork choice tests.
 pub fn fork_choice_spec<E: EthSpec>(fork_name: ForkName) -> ChainSpec {
-    let mut spec = testing_spec::<E>(fork_name);
-    spec.proposer_score_boost = Some(70);
-    spec
+    testing_spec::<E>(fork_name)
 }
 
 impl<E: EthSpec> LoadCase for ForkChoiceTest<E> {
@@ -93,7 +93,8 @@ impl<E: EthSpec> LoadCase for ForkChoiceTest<E> {
             .expect("path must be valid OsStr")
             .to_string();
         let spec = &fork_choice_spec::<E>(fork_name);
-        let steps: Vec<Step<String, String, String>> = yaml_decode_file(&path.join("steps.yaml"))?;
+        let steps: Vec<Step<String, String, String, String>> =
+            yaml_decode_file(&path.join("steps.yaml"))?;
         // Resolve the object names in `steps.yaml` into actual decoded block/attestation objects.
         let steps = steps
             .into_iter()
@@ -118,6 +119,10 @@ impl<E: EthSpec> LoadCase for ForkChoiceTest<E> {
                 Step::PowBlock { pow_block } => {
                     ssz_decode_file(&path.join(format!("{}.ssz_snappy", pow_block)))
                         .map(|pow_block| Step::PowBlock { pow_block })
+                }
+                Step::AttesterSlashing { attester_slashing } => {
+                    ssz_decode_file(&path.join(format!("{}.ssz_snappy", attester_slashing)))
+                        .map(|attester_slashing| Step::AttesterSlashing { attester_slashing })
                 }
                 Step::Checks { checks } => Ok(Step::Checks { checks }),
             })
@@ -159,7 +164,10 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
         // TODO(merge): re-enable this test before production.
         // This test is skipped until we can do retrospective confirmations of the terminal
         // block after an optimistic sync.
-        if self.description == "block_lookup_failed" {
+        if self.description == "block_lookup_failed"
+            //TODO(sean): enable once we implement equivocation logic (https://github.com/sigp/lighthouse/issues/3241)
+            || self.description == "discard_equivocations"
+        {
             return Err(Error::SkippedKnownFailure);
         };
 
@@ -172,6 +180,10 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
                 }
                 Step::Attestation { attestation } => tester.process_attestation(attestation)?,
                 Step::PowBlock { pow_block } => tester.process_pow_block(pow_block),
+                //TODO(sean): enable once we implement equivocation logic (https://github.com/sigp/lighthouse/issues/3241)
+                Step::AttesterSlashing {
+                    attester_slashing: _,
+                } => (),
                 Step::Checks { checks } => {
                     let Checks {
                         head,
@@ -181,6 +193,8 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
                         justified_checkpoint_root,
                         finalized_checkpoint,
                         best_justified_checkpoint,
+                        u_justified_checkpoint,
+                        u_finalized_checkpoint,
                         proposer_boost_root,
                     } = checks.as_ref();
 
@@ -212,6 +226,14 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
                     if let Some(expected_best_justified_checkpoint) = best_justified_checkpoint {
                         tester
                             .check_best_justified_checkpoint(*expected_best_justified_checkpoint)?;
+                    }
+
+                    if let Some(expected_u_justified_checkpoint) = u_justified_checkpoint {
+                        tester.check_u_justified_checkpoint(*expected_u_justified_checkpoint)?;
+                    }
+
+                    if let Some(expected_u_finalized_checkpoint) = u_finalized_checkpoint {
+                        tester.check_u_finalized_checkpoint(*expected_u_finalized_checkpoint)?;
                     }
 
                     if let Some(expected_proposer_boost_root) = proposer_boost_root {
@@ -319,14 +341,18 @@ impl<E: EthSpec> Tester<E> {
             .chain
             .canonical_head
             .fork_choice_write_lock()
-            .update_time(slot)
+            .update_time(slot, &self.spec)
             .unwrap();
     }
 
     pub fn process_block(&self, block: SignedBeaconBlock<E>, valid: bool) -> Result<(), Error> {
         let block_root = block.canonical_root();
         let block = Arc::new(block);
-        let result = self.block_on_dangerous(self.harness.chain.process_block(block.clone()))?;
+        let result = self.block_on_dangerous(
+            self.harness
+                .chain
+                .process_block(block.clone(), CountUnrealized::True),
+        )?;
         if result.is_ok() != valid {
             return Err(Error::DidntFail(format!(
                 "block with root {} was valid={} whilst test expects valid={}. result: {:?}",
@@ -384,6 +410,7 @@ impl<E: EthSpec> Tester<E> {
                         &state,
                         PayloadVerificationStatus::Irrelevant,
                         &self.harness.chain.spec,
+                        self.harness.chain.config.count_unrealized.into(),
                     );
 
                 if result.is_ok() {
@@ -516,6 +543,40 @@ impl<E: EthSpec> Tester<E> {
         check_equal(
             "best_justified_checkpoint",
             best_justified_checkpoint,
+            expected_checkpoint,
+        )
+    }
+
+    pub fn check_u_justified_checkpoint(
+        &self,
+        expected_checkpoint: Checkpoint,
+    ) -> Result<(), Error> {
+        let u_justified_checkpoint = self
+            .harness
+            .chain
+            .canonical_head
+            .fork_choice_read_lock()
+            .unrealized_justified_checkpoint();
+        check_equal(
+            "u_justified_checkpoint",
+            u_justified_checkpoint,
+            expected_checkpoint,
+        )
+    }
+
+    pub fn check_u_finalized_checkpoint(
+        &self,
+        expected_checkpoint: Checkpoint,
+    ) -> Result<(), Error> {
+        let u_finalized_checkpoint = self
+            .harness
+            .chain
+            .canonical_head
+            .fork_choice_read_lock()
+            .unrealized_finalized_checkpoint();
+        check_equal(
+            "u_finalized_checkpoint",
+            u_finalized_checkpoint,
             expected_checkpoint,
         )
     }

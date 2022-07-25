@@ -23,7 +23,7 @@ use beacon_chain::{
     observed_operations::ObservationOutcome,
     validator_monitor::{get_block_delay_ms, timestamp_now},
     AttestationError as AttnError, BeaconChain, BeaconChainError, BeaconChainTypes,
-    ProduceBlockVerification, WhenSlotSkipped,
+    CountUnrealized, ProduceBlockVerification, WhenSlotSkipped,
 };
 pub use block_id::BlockId;
 use eth2::types::{self as api_types, EndpointVersion, ValidatorId};
@@ -1035,7 +1035,10 @@ pub fn serve<T: BeaconChainTypes>(
                 let delay = get_block_delay_ms(seen_timestamp, block.message(), &chain.slot_clock);
                 metrics::observe_duration(&metrics::HTTP_API_BLOCK_BROADCAST_DELAY_TIMES, delay);
 
-                match chain.process_block(block.clone()).await {
+                match chain
+                    .process_block(block.clone(), CountUnrealized::True)
+                    .await
+                {
                     Ok(root) => {
                         info!(
                             log,
@@ -1179,7 +1182,7 @@ pub fn serve<T: BeaconChainTypes>(
                         PubsubMessage::BeaconBlock(new_block.clone()),
                     )?;
 
-                    match chain.process_block(new_block).await {
+                    match chain.process_block(new_block, CountUnrealized::True).await {
                         Ok(_) => {
                             // Update the head since it's likely this block will become the new
                             // head.

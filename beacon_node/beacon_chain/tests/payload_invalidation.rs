@@ -9,7 +9,9 @@ use execution_layer::{
     json_structures::{JsonForkChoiceStateV1, JsonPayloadAttributesV1},
     ExecutionLayer, ForkChoiceState, PayloadAttributes,
 };
-use fork_choice::{Error as ForkChoiceError, InvalidationOperation, PayloadVerificationStatus};
+use fork_choice::{
+    CountUnrealized, Error as ForkChoiceError, InvalidationOperation, PayloadVerificationStatus,
+};
 use proto_array::{Error as ProtoArrayError, ExecutionStatus};
 use slot_clock::SlotClock;
 use std::sync::Arc;
@@ -648,7 +650,7 @@ async fn invalidates_all_descendants() {
     let fork_block_root = rig
         .harness
         .chain
-        .process_block(Arc::new(fork_block))
+        .process_block(Arc::new(fork_block), CountUnrealized::True)
         .await
         .unwrap();
     rig.recompute_head().await;
@@ -740,7 +742,7 @@ async fn switches_heads() {
     let fork_block_root = rig
         .harness
         .chain
-        .process_block(Arc::new(fork_block))
+        .process_block(Arc::new(fork_block), CountUnrealized::True)
         .await
         .unwrap();
     rig.recompute_head().await;
@@ -984,7 +986,7 @@ async fn invalid_parent() {
 
     // Ensure the block built atop an invalid payload is invalid for import.
     assert!(matches!(
-        rig.harness.chain.process_block(block.clone()).await,
+        rig.harness.chain.process_block(block.clone(), CountUnrealized::True).await,
         Err(BlockError::ParentExecutionPayloadInvalid { parent_root: invalid_root })
         if invalid_root == parent_root
     ));
@@ -998,7 +1000,8 @@ async fn invalid_parent() {
             Duration::from_secs(0),
             &state,
             PayloadVerificationStatus::Optimistic,
-            &rig.harness.chain.spec
+            &rig.harness.chain.spec,
+            CountUnrealized::True,
         ),
         Err(ForkChoiceError::ProtoArrayError(message))
         if message.contains(&format!(

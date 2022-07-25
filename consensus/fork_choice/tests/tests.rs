@@ -12,7 +12,8 @@ use beacon_chain::{
     StateSkipConfig, WhenSlotSkipped,
 };
 use fork_choice::{
-    ForkChoiceStore, InvalidAttestation, InvalidBlock, PayloadVerificationStatus, QueuedAttestation,
+    CountUnrealized, ForkChoiceStore, InvalidAttestation, InvalidBlock, PayloadVerificationStatus,
+    QueuedAttestation,
 };
 use store::MemoryStore;
 use types::{
@@ -150,7 +151,7 @@ impl ForkChoiceTest {
             .chain
             .canonical_head
             .fork_choice_write_lock()
-            .update_time(self.harness.chain.slot().unwrap())
+            .update_time(self.harness.chain.slot().unwrap(), &self.harness.spec)
             .unwrap();
         func(
             self.harness
@@ -292,6 +293,7 @@ impl ForkChoiceTest {
                 &state,
                 PayloadVerificationStatus::Verified,
                 &self.harness.chain.spec,
+                CountUnrealized::True,
             )
             .unwrap();
         self
@@ -334,6 +336,7 @@ impl ForkChoiceTest {
                 &state,
                 PayloadVerificationStatus::Verified,
                 &self.harness.chain.spec,
+                CountUnrealized::True,
             )
             .err()
             .expect("on_block did not return an error");
