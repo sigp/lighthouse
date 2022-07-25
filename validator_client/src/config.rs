@@ -304,7 +304,7 @@ impl Config {
             config.private_tx_proposals = true;
         }
 
-        if cli_args.is_present("private-tx-proposals") {
+        if cli_args.is_present("strict-fee-recipient") {
             config.strict_fee_recipient = true;
         }
 
