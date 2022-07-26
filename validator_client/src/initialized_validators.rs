@@ -703,6 +703,19 @@ impl InitializedValidators {
 
         self.update_validators().await?;
 
+        if let Some(val) = self
+            .validators
+            .get_mut(&PublicKeyBytes::from(voting_public_key))
+        {
+            // Don't overwrite fields if they are not set in this request.
+            if let Some(gas_limit) = gas_limit {
+                val.gas_limit = Some(gas_limit);
+            }
+            if let Some(builder_proposals) = builder_proposals {
+                val.builder_proposals = Some(builder_proposals);
+            }
+        }
+
         self.definitions
             .save(&self.validators_dir)
             .map_err(Error::UnableToSaveDefinitions)?;

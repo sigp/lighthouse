@@ -539,11 +539,14 @@ impl ApiTester {
             .await
             .unwrap();
 
+        self
+    }
+
+    pub async fn assert_gas_limit(self, index: usize, gas_limit: u64) -> Self {
+        let validator = &self.client.get_lighthouse_validators().await.unwrap().data[index];
+
         assert_eq!(
-            self.initialized_validators
-                .read()
-                .gas_limit(&validator.voting_pubkey)
-                .unwrap(),
+            self.validator_store.get_gas_limit(&validator.voting_pubkey),
             gas_limit
         );
 
@@ -563,11 +566,15 @@ impl ApiTester {
             .await
             .unwrap();
 
+        self
+    }
+
+    pub async fn assert_builder_proposals(self, index: usize, builder_proposals: bool) -> Self {
+        let validator = &self.client.get_lighthouse_validators().await.unwrap().data[index];
+
         assert_eq!(
-            self.initialized_validators
-                .read()
-                .builder_proposals(&validator.voting_pubkey)
-                .unwrap(),
+            self.validator_store
+                .get_builder_proposals(&validator.voting_pubkey),
             builder_proposals
         );
 
@@ -809,11 +816,19 @@ fn validator_gas_limit() {
             .assert_validators_count(2)
             .set_gas_limit(0, 500)
             .await
+            .assert_gas_limit(0, 500)
+            .await
+            // Update gas limit while validator is disabled.
             .set_validator_enabled(0, false)
             .await
             .assert_enabled_validators_count(1)
             .assert_validators_count(2)
             .set_gas_limit(0, 1000)
+            .await
+            .set_validator_enabled(0, true)
+            .await
+            .assert_enabled_validators_count(2)
+            .assert_gas_limit(0, 1000)
             .await
     });
 }
@@ -836,11 +851,17 @@ fn validator_builder_proposals() {
             .assert_validators_count(2)
             .set_builder_proposals(0, true)
             .await
+            // Test setting builder proposals while the validator is disabled
             .set_validator_enabled(0, false)
             .await
             .assert_enabled_validators_count(1)
             .assert_validators_count(2)
             .set_builder_proposals(0, false)
+            .await
+            .set_validator_enabled(0, true)
+            .await
+            .assert_enabled_validators_count(2)
+            .assert_builder_proposals(0, false)
             .await
     });
 }

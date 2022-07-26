@@ -521,21 +521,23 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                     let initialized_validators_rw_lock = validator_store.initialized_validators();
                     let mut initialized_validators = initialized_validators_rw_lock.write();
 
-                    match initialized_validators.validator(&validator_pubkey.compress()) {
-                        None => Err(warp_utils::reject::custom_not_found(format!(
+                    match (
+                        initialized_validators.is_enabled(&validator_pubkey),
+                        initialized_validators.validator(&validator_pubkey.compress()),
+                    ) {
+                        (None, _) => Err(warp_utils::reject::custom_not_found(format!(
                             "no validator for {:?}",
                             validator_pubkey
                         ))),
-                        Some(initialized_validator)
-                            if initialized_validators.is_enabled(&validator_pubkey)
-                                == body.enabled
+                        (Some(is_enabled), Some(initialized_validator))
+                            if Some(is_enabled) == body.enabled
                                 && initialized_validator.get_gas_limit() == body.gas_limit
                                 && initialized_validator.get_builder_proposals()
                                     == body.builder_proposals =>
                         {
                             Ok(())
                         }
-                        Some(_) => {
+                        (Some(_), _) => {
                             if let Some(handle) = task_executor.handle() {
                                 handle
                                     .block_on(
