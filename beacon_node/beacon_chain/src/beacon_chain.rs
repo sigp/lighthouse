@@ -525,6 +525,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     /// Even more efficient variant of `forwards_iter_block_roots` that will avoid cloning the head
     /// state if it isn't required for the requested range of blocks.
+    /// The range [start_slot, end_slot] is inclusive (ie `start_slot <= end_slot`)
     pub fn forwards_iter_block_roots_until(
         &self,
         start_slot: Slot,

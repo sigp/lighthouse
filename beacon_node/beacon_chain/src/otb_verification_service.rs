@@ -68,13 +68,11 @@ impl OptimisticTransitionBlock {
         chain: &BeaconChain<T>,
     ) -> Result<bool, BeaconChainError> {
         Ok(chain
-            // TODO: figure out if this iterator range is inclusive
-            .forwards_iter_block_roots_until(self.slot, self.slot + 1)?
-            .collect::<Result<Vec<_>, _>>()?
-            .into_iter()
+            .forwards_iter_block_roots_until(self.slot, self.slot)?
+            .next()
+            .transpose()?
             .map(|(root, _)| root)
-            .collect::<std::collections::HashSet<_>>()
-            .contains(self.root()))
+            == Some(self.root))
     }
 }
 
@@ -115,32 +113,17 @@ pub fn start_otb_verification_service<T: BeaconChainTypes>(
     }
 }
 
-fn optimistic_transition_block_iter<T: BeaconChainTypes>(
+fn load_optimistic_transition_blocks<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
-) -> impl Iterator<Item = OptimisticTransitionBlock> + '_ {
+) -> Result<Vec<OptimisticTransitionBlock>, StoreError> {
     chain
         .store
         .hot_db
         .iter_column(OTBColumn)
-        .filter_map(|r| {
-            r.map_err(|e| {
-                warn!(
-                    chain.log,
-                    "Error Loading Optimistic Transition Block: {:?}", e
-                )
-            })
-            .ok()
-        })
+        .collect::<Result<Vec<_>, _>>()?
+        .into_iter()
         .map(|(_, bytes)| OptimisticTransitionBlock::from_store_bytes(&bytes))
-        .filter_map(|r| {
-            r.map_err(|e| {
-                warn!(
-                    chain.log,
-                    "Error Deserializing Optimistic Transition Block: {:?}", e
-                )
-            })
-            .ok()
-        })
+        .collect()
 }
 
 /// Loop indefinitely, calling `BeaconChain::prepare_beacon_proposer_async` at an interval.
@@ -185,19 +168,40 @@ async fn otb_verification_service<T: BeaconChainTypes>(chain: Arc<BeaconChain<T>
                 // unfinalized canonical
                 let mut non_canonical_otbs = vec![];
                 let (finalized_canonical_otbs, unfinalized_canonical_otbs) =
-                    optimistic_transition_block_iter(chain.as_ref())
-                        .filter_map(|otb| match otb.is_canonical(chain.as_ref()) {
-                            Ok(true) => Some(otb),
-                            Ok(false) => {
-                                non_canonical_otbs.push(otb);
-                                None
+                    match load_optimistic_transition_blocks(chain.as_ref()) {
+                        Ok(blocks) => {
+                            if blocks.is_empty() {
+                                // there are no optimistic blocks in the database, we can exit
+                                // the service since the merge transition is completed
+                                break;
                             }
-                            Err(e) => {
-                                warn!(chain.log, "Error Iterating Over Canonical Blocks: {:?}", e);
-                                None
-                            }
-                        })
-                        .partition::<Vec<_>, _>(|otb| *otb.slot() <= finalized_slot);
+
+                            blocks
+                                .into_iter()
+                                .filter_map(|otb| match otb.is_canonical(chain.as_ref()) {
+                                    Ok(true) => Some(otb),
+                                    Ok(false) => {
+                                        non_canonical_otbs.push(otb);
+                                        None
+                                    }
+                                    Err(e) => {
+                                        warn!(
+                                            chain.log,
+                                            "Error Iterating Over Canonical Blocks: {:?}", e
+                                        );
+                                        None
+                                    }
+                                })
+                                .partition::<Vec<_>, _>(|otb| *otb.slot() <= finalized_slot)
+                        }
+                        Err(e) => {
+                            warn!(
+                                chain.log,
+                                "Error Loading Optimistic Transition Blocks: {:?}", e
+                            );
+                            continue;
+                        }
+                    };
 
                 // remove non-canonical blocks that conflict with finalized checkpoint from the database
                 for otb in non_canonical_otbs {
@@ -309,4 +313,5 @@ async fn otb_verification_service<T: BeaconChainTypes>(chain: Arc<BeaconChain<T>
             }
         };
     }
+    debug!(chain.log, "No Optimistic Transition Blocks in Database"; "msg" => "Shutting down OTB Verification Service");
 }
