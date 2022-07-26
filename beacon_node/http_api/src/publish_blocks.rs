@@ -1,6 +1,6 @@
 use crate::metrics;
 use beacon_chain::validator_monitor::{get_block_delay_ms, timestamp_now};
-use beacon_chain::{BeaconChain, BeaconChainTypes};
+use beacon_chain::{BeaconChain, BeaconChainTypes, CountUnrealized};
 use lighthouse_network::PubsubMessage;
 use network::NetworkMessage;
 use slog::{crit, debug, error, info, Logger};
@@ -34,7 +34,10 @@ pub async fn publish_block<T: BeaconChainTypes>(
     let delay = get_block_delay_ms(seen_timestamp, block.message(), &chain.slot_clock);
     metrics::observe_duration(&metrics::HTTP_API_BLOCK_BROADCAST_DELAY_TIMES, delay);
 
-    match chain.process_block(block.clone()).await {
+    match chain
+        .process_block(block.clone(), CountUnrealized::True)
+        .await
+    {
         Ok(root) => {
             info!(
                 log,

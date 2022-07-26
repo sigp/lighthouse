@@ -42,7 +42,6 @@ pub struct BlockServiceBuilder<T, E: EthSpec> {
     context: Option<RuntimeContext<E>>,
     graffiti: Option<Graffiti>,
     graffiti_file: Option<GraffitiFile>,
-    private_tx_proposals: bool,
     strict_fee_recipient: bool,
 }
 
@@ -55,7 +54,6 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockServiceBuilder<T, E> {
             context: None,
             graffiti: None,
             graffiti_file: None,
-            private_tx_proposals: false,
             strict_fee_recipient: false,
         }
     }
@@ -112,7 +110,6 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockServiceBuilder<T, E> {
                     .ok_or("Cannot build BlockService without runtime_context")?,
                 graffiti: self.graffiti,
                 graffiti_file: self.graffiti_file,
-                private_tx_proposals: self.private_tx_proposals,
                 strict_fee_recipient: self.strict_fee_recipient,
             }),
         })
@@ -127,7 +124,6 @@ pub struct Inner<T, E: EthSpec> {
     context: RuntimeContext<E>,
     graffiti: Option<Graffiti>,
     graffiti_file: Option<GraffitiFile>,
-    private_tx_proposals: bool,
     strict_fee_recipient: bool,
 }
 

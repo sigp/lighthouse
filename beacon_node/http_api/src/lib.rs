@@ -21,9 +21,8 @@ mod version;
 
 use beacon_chain::{
     attestation_verification::VerifiedAttestation, observed_operations::ObservationOutcome,
-    validator_monitor::{get_block_delay_ms, timestamp_now},
-    AttestationError as AttnError, BeaconChain, BeaconChainError,
-    BeaconChainTypes,CountUnrealized, ProduceBlockVerification, WhenSlotSkipped,
+    validator_monitor::timestamp_now, AttestationError as AttnError, BeaconChain, BeaconChainError,
+    BeaconChainTypes, ProduceBlockVerification, WhenSlotSkipped,
 };
 pub use block_id::BlockId;
 use eth2::types::{self as api_types, EndpointVersion, ValidatorId};
