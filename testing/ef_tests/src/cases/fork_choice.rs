@@ -75,12 +75,7 @@ pub struct ForkChoiceTest<E: EthSpec> {
     pub anchor_state: BeaconState<E>,
     pub anchor_block: BeaconBlock<E>,
     #[allow(clippy::type_complexity)]
-    pub steps: Vec<Step<SignedBeaconBlock<E>, Attestation<E>, PowBlock, AttesterSlashing<E>>>,
-}
-
-/// Spec to be used for fork choice tests.
-pub fn fork_choice_spec<E: EthSpec>(fork_name: ForkName) -> ChainSpec {
-    testing_spec::<E>(fork_name)
+    pub steps: Vec<Step<SignedBeaconBlock<E>, Attestation<E>, AttesterSlashing<E>, PowBlock>>,
 }
 
 impl<E: EthSpec> LoadCase for ForkChoiceTest<E> {
