@@ -488,7 +488,11 @@ impl<E: GenericExecutionEngine> TestRig<E> {
             .notify_new_payload(&second_payload)
             .await
             .unwrap();
-        assert_eq!(status, PayloadStatus::Accepted);
+        // TODO: we should remove the `Accepted` status here once Geth fixes it
+        assert!(matches!(
+            status,
+            PayloadStatus::Syncing | PayloadStatus::Accepted
+        ));
 
         /*
          * Execution Engine B:
