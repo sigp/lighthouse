@@ -135,6 +135,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         executor.spawn(
             async move {
                 let mut send_block_count = 0;
+                let mut send_response = true;
                 for root in request.block_roots.iter() {
                     match self
                         .chain
@@ -171,8 +172,8 @@ impl<T: BeaconChainTypes> Worker<T> {
                                 "Execution layer not synced".into(),
                                 request_id,
                             );
-                            drop(send_on_drop);
-                            return;
+                            send_response = false;
+                            break;
                         }
                         Err(e) => {
                             debug!(
@@ -194,7 +195,9 @@ impl<T: BeaconChainTypes> Worker<T> {
                 );
 
                 // send stream termination
-                self.send_response(peer_id, Response::BlocksByRoot(None), request_id);
+                if send_response {
+                    self.send_response(peer_id, Response::BlocksByRoot(None), request_id);
+                }
                 drop(send_on_drop);
             },
             "load_blocks_by_root_blocks",
@@ -272,6 +275,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         executor.spawn(
             async move {
                 let mut blocks_sent = 0;
+                let mut send_response = true;
 
                 for root in block_roots {
                     match self.chain.get_block(&root).await {
@@ -311,8 +315,8 @@ impl<T: BeaconChainTypes> Worker<T> {
                                 "Execution layer not synced".into(),
                                 request_id,
                             );
-                            drop(send_on_drop);
-                            return;
+                            send_response = false;
+                            break;
                         }
                         Err(e) => {
                             error!(
@@ -354,12 +358,15 @@ impl<T: BeaconChainTypes> Worker<T> {
                     );
                 }
 
-                // send the stream terminator
-                self.send_network_message(NetworkMessage::SendResponse {
-                    peer_id,
-                    response: Response::BlocksByRange(None),
-                    id: request_id,
-                });
+                if send_response {
+                    // send the stream terminator
+                    self.send_network_message(NetworkMessage::SendResponse {
+                        peer_id,
+                        response: Response::BlocksByRange(None),
+                        id: request_id,
+                    });
+                }
+
                 drop(send_on_drop);
             },
             "load_blocks_by_range_blocks",
