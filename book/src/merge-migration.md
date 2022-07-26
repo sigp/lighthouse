@@ -78,7 +78,7 @@ To progress through the Bellatrix upgrade nodes will need a *new* connection to 
 `--execution-endpoint`. This connection has a few different properties. Firstly, the term "eth1
 node" has been deprecated and replaced with "execution engine". Whilst "eth1 node" and "execution
 engine" still refer to the same projects (Geth, Nethermind, etc) the former refers to the pre-merge
-versions and the later refers to post-merge versions. Secondly, there is a strict one-to-one
+versions and the latter refers to post-merge versions. Secondly, there is a strict one-to-one
 relationship between Lighthouse and the execution engine; only one Lighthouse node can connect to
 one execution engine. Thirdly, it is impossible to fully verify the post-merge chain without an
 execution engine. It *was* possible to verify the pre-merge chain without an eth1 node, it was just
