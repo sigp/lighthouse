@@ -3,6 +3,7 @@
 * [Introduction](./intro.md)
 * [Become a Validator](./mainnet-validator.md)
     * [Become a Testnet Validator](./testnet-validator.md)
+* [Merge Migration](./merge-migration.md)
 * [Installation](./installation.md)
     * [System Requirements](./system-requirements.md)
     * [Pre-Built Binaries](./installation-binaries.md)

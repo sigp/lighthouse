@@ -42,6 +42,8 @@ pub struct BlockServiceBuilder<T, E: EthSpec> {
     context: Option<RuntimeContext<E>>,
     graffiti: Option<Graffiti>,
     graffiti_file: Option<GraffitiFile>,
+    private_tx_proposals: bool,
+    strict_fee_recipient: bool,
 }
 
 impl<T: SlotClock + 'static, E: EthSpec> BlockServiceBuilder<T, E> {
@@ -53,6 +55,8 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockServiceBuilder<T, E> {
             context: None,
             graffiti: None,
             graffiti_file: None,
+            private_tx_proposals: false,
+            strict_fee_recipient: false,
         }
     }
 
@@ -86,6 +90,11 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockServiceBuilder<T, E> {
         self
     }
 
+    pub fn strict_fee_recipient(mut self, strict_fee_recipient: bool) -> Self {
+        self.strict_fee_recipient = strict_fee_recipient;
+        self
+    }
+
     pub fn build(self) -> Result<BlockService<T, E>, String> {
         Ok(BlockService {
             inner: Arc::new(Inner {
@@ -103,6 +112,8 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockServiceBuilder<T, E> {
                     .ok_or("Cannot build BlockService without runtime_context")?,
                 graffiti: self.graffiti,
                 graffiti_file: self.graffiti_file,
+                private_tx_proposals: self.private_tx_proposals,
+                strict_fee_recipient: self.strict_fee_recipient,
             }),
         })
     }
@@ -116,6 +127,8 @@ pub struct Inner<T, E: EthSpec> {
     context: RuntimeContext<E>,
     graffiti: Option<Graffiti>,
     graffiti_file: Option<GraffitiFile>,
+    private_tx_proposals: bool,
+    strict_fee_recipient: bool,
 }
 
 /// Attempts to produce attestations for any block producer(s) at the start of the epoch.
@@ -312,7 +325,9 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
         let self_ref = &self;
         let proposer_index = self.validator_store.validator_index(&validator_pubkey);
         let validator_pubkey_ref = &validator_pubkey;
+        let fee_recipient = self.validator_store.get_fee_recipient(&validator_pubkey);
 
+        let strict_fee_recipient = self.strict_fee_recipient;
         // Request block from first responsive beacon node.
         let block = self
             .beacon_nodes
@@ -356,6 +371,17 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                     }
                 };
                 drop(get_timer);
+
+                // Ensure the correctness of the execution payload's fee recipient.
+                if strict_fee_recipient {
+                    if let Ok(execution_payload) = block.body().execution_payload() {
+                        if Some(execution_payload.fee_recipient()) != fee_recipient {
+                            return Err(BlockError::Recoverable(
+                                "Incorrect fee recipient used by builder".to_string(),
+                            ));
+                        }
+                    }
+                }
 
                 if proposer_index != Some(block.proposer_index()) {
                     return Err(BlockError::Recoverable(

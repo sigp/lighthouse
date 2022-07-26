@@ -10,7 +10,8 @@ coinbase and the recipient of other fees or rewards.
 
 There is no guarantee that an execution node will use the `suggested_fee_recipient` to collect fees,
 it may use any address it chooses. It is assumed that an honest execution node *will* use the
-`suggested_fee_recipient`, but users should note this trust assumption.
+`suggested_fee_recipient`, but users should note this trust assumption. Check out the 
+[strict fee recipient](#strict-fee-recipient) section for how to mitigate this assumption.
 
 The `suggested_fee_recipient` can be provided to the VC, who will transmit it to the BN. The BN also
 has a choice regarding the fee recipient it passes to the execution node, creating another
@@ -60,6 +61,15 @@ validators where a `suggested_fee_recipient` is not loaded from another method.
 
 The `--suggested-fee-recipient` can be provided to the BN to act as a default value when the
 validator client does not transmit a `suggested_fee_recipient` to the BN.
+
+## Strict Fee Recipient
+
+If the flag `--strict-fee-recipient` is set in the validator client, Lighthouse will refuse to sign any block whose 
+`fee_recipient` does not match the `suggested_fee_recipient` sent by this validator. This applies to both the normal 
+block proposal flow, as well as block proposals through the builder API. Proposals through the builder API are more likely 
+to have a discrepancy in `fee_recipient` so you should be aware of how your connected relay sends proposer payments before 
+using this flag. If this flag is used, a fee recipient mismatch in the builder API flow will result in a fallback to the
+local execution engine for payload construction, where a strict fee recipient check will still be applied.
 
 ## Setting the fee recipient dynamically using the keymanager API
 

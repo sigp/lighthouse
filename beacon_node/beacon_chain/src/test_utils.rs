@@ -19,6 +19,7 @@ use execution_layer::{
     },
     ExecutionLayer,
 };
+use fork_choice::CountUnrealized;
 use futures::channel::mpsc::Receiver;
 pub use genesis::{interop_genesis_state, DEFAULT_ETH1_BLOCK_HASH};
 use int_to_bytes::int_to_bytes32;
@@ -1408,8 +1409,11 @@ where
         block: SignedBeaconBlock<E>,
     ) -> Result<SignedBeaconBlockHash, BlockError<E>> {
         self.set_current_slot(slot);
-        let block_hash: SignedBeaconBlockHash =
-            self.chain.process_block(Arc::new(block)).await?.into();
+        let block_hash: SignedBeaconBlockHash = self
+            .chain
+            .process_block(Arc::new(block), CountUnrealized::True)
+            .await?
+            .into();
         self.chain.recompute_head_at_current_slot().await?;
         Ok(block_hash)
     }
@@ -1418,8 +1422,11 @@ where
         &self,
         block: SignedBeaconBlock<E>,
     ) -> Result<SignedBeaconBlockHash, BlockError<E>> {
-        let block_hash: SignedBeaconBlockHash =
-            self.chain.process_block(Arc::new(block)).await?.into();
+        let block_hash: SignedBeaconBlockHash = self
+            .chain
+            .process_block(Arc::new(block), CountUnrealized::True)
+            .await?
+            .into();
         self.chain.recompute_head_at_current_slot().await?;
         Ok(block_hash)
     }

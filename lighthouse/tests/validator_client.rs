@@ -430,3 +430,16 @@ fn builder_registration_timestamp_override_flag() {
             assert_eq!(config.builder_registration_timestamp_override, Some(100))
         });
 }
+#[test]
+fn strict_fee_recipient_flag() {
+    CommandLineTest::new()
+        .flag("strict-fee-recipient", None)
+        .run()
+        .with_config(|config| assert!(config.strict_fee_recipient));
+}
+#[test]
+fn no_strict_fee_recipient_flag() {
+    CommandLineTest::new()
+        .run()
+        .with_config(|config| assert!(!config.strict_fee_recipient));
+}

@@ -1300,6 +1300,7 @@ impl ApiTester {
 
         let expected = SyncingData {
             is_syncing: false,
+            is_optimistic: false,
             head_slot,
             sync_distance,
         };

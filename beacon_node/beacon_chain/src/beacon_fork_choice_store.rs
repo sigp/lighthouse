@@ -155,6 +155,8 @@ pub struct BeaconForkChoiceStore<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<
     justified_checkpoint: Checkpoint,
     justified_balances: Vec<u64>,
     best_justified_checkpoint: Checkpoint,
+    unrealized_justified_checkpoint: Checkpoint,
+    unrealized_finalized_checkpoint: Checkpoint,
     proposer_boost_root: Hash256,
     _phantom: PhantomData<E>,
 }
@@ -201,6 +203,8 @@ where
             justified_balances: anchor_state.balances().clone().into(),
             finalized_checkpoint,
             best_justified_checkpoint: justified_checkpoint,
+            unrealized_justified_checkpoint: justified_checkpoint,
+            unrealized_finalized_checkpoint: finalized_checkpoint,
             proposer_boost_root: Hash256::zero(),
             _phantom: PhantomData,
         }
@@ -216,6 +220,8 @@ where
             justified_checkpoint: self.justified_checkpoint,
             justified_balances: self.justified_balances.clone(),
             best_justified_checkpoint: self.best_justified_checkpoint,
+            unrealized_justified_checkpoint: self.unrealized_justified_checkpoint,
+            unrealized_finalized_checkpoint: self.unrealized_finalized_checkpoint,
             proposer_boost_root: self.proposer_boost_root,
         }
     }
@@ -233,6 +239,8 @@ where
             justified_checkpoint: persisted.justified_checkpoint,
             justified_balances: persisted.justified_balances,
             best_justified_checkpoint: persisted.best_justified_checkpoint,
+            unrealized_justified_checkpoint: persisted.unrealized_justified_checkpoint,
+            unrealized_finalized_checkpoint: persisted.unrealized_finalized_checkpoint,
             proposer_boost_root: persisted.proposer_boost_root,
             _phantom: PhantomData,
         })
@@ -280,6 +288,14 @@ where
         &self.finalized_checkpoint
     }
 
+    fn unrealized_justified_checkpoint(&self) -> &Checkpoint {
+        &self.unrealized_justified_checkpoint
+    }
+
+    fn unrealized_finalized_checkpoint(&self) -> &Checkpoint {
+        &self.unrealized_finalized_checkpoint
+    }
+
     fn proposer_boost_root(&self) -> Hash256 {
         self.proposer_boost_root
     }
@@ -323,6 +339,14 @@ where
         self.best_justified_checkpoint = checkpoint
     }
 
+    fn set_unrealized_justified_checkpoint(&mut self, checkpoint: Checkpoint) {
+        self.unrealized_justified_checkpoint = checkpoint;
+    }
+
+    fn set_unrealized_finalized_checkpoint(&mut self, checkpoint: Checkpoint) {
+        self.unrealized_finalized_checkpoint = checkpoint;
+    }
+
     fn set_proposer_boost_root(&mut self, proposer_boost_root: Hash256) {
         self.proposer_boost_root = proposer_boost_root;
     }
@@ -330,22 +354,26 @@ where
 
 /// A container which allows persisting the `BeaconForkChoiceStore` to the on-disk database.
 #[superstruct(
-    variants(V1, V7, V8),
+    variants(V1, V7, V8, V10),
     variant_attributes(derive(Encode, Decode)),
     no_enum
 )]
 pub struct PersistedForkChoiceStore {
     #[superstruct(only(V1, V7))]
     pub balances_cache: BalancesCacheV1,
-    #[superstruct(only(V8))]
+    #[superstruct(only(V8, V10))]
     pub balances_cache: BalancesCacheV8,
     pub time: Slot,
     pub finalized_checkpoint: Checkpoint,
     pub justified_checkpoint: Checkpoint,
     pub justified_balances: Vec<u64>,
     pub best_justified_checkpoint: Checkpoint,
-    #[superstruct(only(V7, V8))]
+    #[superstruct(only(V10))]
+    pub unrealized_justified_checkpoint: Checkpoint,
+    #[superstruct(only(V10))]
+    pub unrealized_finalized_checkpoint: Checkpoint,
+    #[superstruct(only(V7, V8, V10))]
     pub proposer_boost_root: Hash256,
 }
 
-pub type PersistedForkChoiceStore = PersistedForkChoiceStoreV8;
+pub type PersistedForkChoiceStore = PersistedForkChoiceStoreV10;

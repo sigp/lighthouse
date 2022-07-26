@@ -97,6 +97,10 @@ pub struct ProtoNode {
     /// Indicates if an execution node has marked this block as valid. Also contains the execution
     /// block hash.
     pub execution_status: ExecutionStatus,
+    #[ssz(with = "four_byte_option_checkpoint")]
+    pub unrealized_justified_checkpoint: Option<Checkpoint>,
+    #[ssz(with = "four_byte_option_checkpoint")]
+    pub unrealized_finalized_checkpoint: Option<Checkpoint>,
 }
 
 #[derive(PartialEq, Debug, Encode, Decode, Serialize, Deserialize, Copy, Clone)]
@@ -140,6 +144,7 @@ impl ProtoArray {
     /// - Compare the current node with the parents best-child, updating it if the current node
     /// should become the best child.
     /// - If required, update the parents best-descendant with the current node or its best-descendant.
+    #[allow(clippy::too_many_arguments)]
     pub fn apply_score_changes<E: EthSpec>(
         &mut self,
         mut deltas: Vec<i64>,
@@ -147,6 +152,7 @@ impl ProtoArray {
         finalized_checkpoint: Checkpoint,
         new_balances: &[u64],
         proposer_boost_root: Hash256,
+        current_slot: Slot,
         spec: &ChainSpec,
     ) -> Result<(), Error> {
         if deltas.len() != self.indices.len() {
@@ -280,7 +286,11 @@ impl ProtoArray {
 
             // If the node has a parent, try to update its best-child and best-descendant.
             if let Some(parent_index) = node.parent {
-                self.maybe_update_best_child_and_descendant(parent_index, node_index)?;
+                self.maybe_update_best_child_and_descendant::<E>(
+                    parent_index,
+                    node_index,
+                    current_slot,
+                )?;
             }
         }
 
@@ -290,7 +300,7 @@ impl ProtoArray {
     /// Register a block with the fork choice.
     ///
     /// It is only sane to supply a `None` parent for the genesis block.
-    pub fn on_block(&mut self, block: Block) -> Result<(), Error> {
+    pub fn on_block<E: EthSpec>(&mut self, block: Block, current_slot: Slot) -> Result<(), Error> {
         // If the block is already known, simply ignore it.
         if self.indices.contains_key(&block.root) {
             return Ok(());
@@ -314,6 +324,8 @@ impl ProtoArray {
             best_child: None,
             best_descendant: None,
             execution_status: block.execution_status,
+            unrealized_justified_checkpoint: block.unrealized_justified_checkpoint,
+            unrealized_finalized_checkpoint: block.unrealized_finalized_checkpoint,
         };
 
         // If the parent has an invalid execution status, return an error before adding the block to
@@ -335,7 +347,11 @@ impl ProtoArray {
         self.nodes.push(node.clone());
 
         if let Some(parent_index) = node.parent {
-            self.maybe_update_best_child_and_descendant(parent_index, node_index)?;
+            self.maybe_update_best_child_and_descendant::<E>(
+                parent_index,
+                node_index,
+                current_slot,
+            )?;
 
             if matches!(block.execution_status, ExecutionStatus::Valid(_)) {
                 self.propagate_execution_payload_validation_by_index(parent_index)?;
@@ -604,7 +620,11 @@ impl ProtoArray {
     /// been called without a subsequent `Self::apply_score_changes` call. This is because
     /// `on_new_block` does not attempt to walk backwards through the tree and update the
     /// best-child/best-descendant links.
-    pub fn find_head(&self, justified_root: &Hash256) -> Result<Hash256, Error> {
+    pub fn find_head<E: EthSpec>(
+        &self,
+        justified_root: &Hash256,
+        current_slot: Slot,
+    ) -> Result<Hash256, Error> {
         let justified_index = self
             .indices
             .get(justified_root)
@@ -637,7 +657,7 @@ impl ProtoArray {
             .ok_or(Error::InvalidBestDescendant(best_descendant_index))?;
 
         // Perform a sanity check that the node is indeed valid to be the head.
-        if !self.node_is_viable_for_head(best_node) {
+        if !self.node_is_viable_for_head::<E>(best_node, current_slot) {
             return Err(Error::InvalidBestNode(Box::new(InvalidBestNodeInfo {
                 start_root: *justified_root,
                 justified_checkpoint: self.justified_checkpoint,
@@ -733,10 +753,11 @@ impl ProtoArray {
     ///     best-descendant.
     /// - The child is not the best child but becomes the best child.
     /// - The child is not the best child and does not become the best child.
-    fn maybe_update_best_child_and_descendant(
+    fn maybe_update_best_child_and_descendant<E: EthSpec>(
         &mut self,
         parent_index: usize,
         child_index: usize,
+        current_slot: Slot,
     ) -> Result<(), Error> {
         let child = self
             .nodes
@@ -748,7 +769,8 @@ impl ProtoArray {
             .get(parent_index)
             .ok_or(Error::InvalidNodeIndex(parent_index))?;
 
-        let child_leads_to_viable_head = self.node_leads_to_viable_head(child)?;
+        let child_leads_to_viable_head =
+            self.node_leads_to_viable_head::<E>(child, current_slot)?;
 
         // These three variables are aliases to the three options that we may set the
         // `parent.best_child` and `parent.best_descendant` to.
@@ -761,54 +783,54 @@ impl ProtoArray {
         );
         let no_change = (parent.best_child, parent.best_descendant);
 
-        let (new_best_child, new_best_descendant) = if let Some(best_child_index) =
-            parent.best_child
-        {
-            if best_child_index == child_index && !child_leads_to_viable_head {
-                // If the child is already the best-child of the parent but it's not viable for
-                // the head, remove it.
-                change_to_none
-            } else if best_child_index == child_index {
-                // If the child is the best-child already, set it again to ensure that the
-                // best-descendant of the parent is updated.
-                change_to_child
-            } else {
-                let best_child = self
-                    .nodes
-                    .get(best_child_index)
-                    .ok_or(Error::InvalidBestDescendant(best_child_index))?;
-
-                let best_child_leads_to_viable_head = self.node_leads_to_viable_head(best_child)?;
-
-                if child_leads_to_viable_head && !best_child_leads_to_viable_head {
-                    // The child leads to a viable head, but the current best-child doesn't.
+        let (new_best_child, new_best_descendant) =
+            if let Some(best_child_index) = parent.best_child {
+                if best_child_index == child_index && !child_leads_to_viable_head {
+                    // If the child is already the best-child of the parent but it's not viable for
+                    // the head, remove it.
+                    change_to_none
+                } else if best_child_index == child_index {
+                    // If the child is the best-child already, set it again to ensure that the
+                    // best-descendant of the parent is updated.
                     change_to_child
-                } else if !child_leads_to_viable_head && best_child_leads_to_viable_head {
-                    // The best child leads to a viable head, but the child doesn't.
-                    no_change
-                } else if child.weight == best_child.weight {
-                    // Tie-breaker of equal weights by root.
-                    if child.root >= best_child.root {
-                        change_to_child
-                    } else {
-                        no_change
-                    }
                 } else {
-                    // Choose the winner by weight.
-                    if child.weight >= best_child.weight {
+                    let best_child = self
+                        .nodes
+                        .get(best_child_index)
+                        .ok_or(Error::InvalidBestDescendant(best_child_index))?;
+
+                    let best_child_leads_to_viable_head =
+                        self.node_leads_to_viable_head::<E>(best_child, current_slot)?;
+
+                    if child_leads_to_viable_head && !best_child_leads_to_viable_head {
+                        // The child leads to a viable head, but the current best-child doesn't.
                         change_to_child
-                    } else {
+                    } else if !child_leads_to_viable_head && best_child_leads_to_viable_head {
+                        // The best child leads to a viable head, but the child doesn't.
                         no_change
+                    } else if child.weight == best_child.weight {
+                        // Tie-breaker of equal weights by root.
+                        if child.root >= best_child.root {
+                            change_to_child
+                        } else {
+                            no_change
+                        }
+                    } else {
+                        // Choose the winner by weight.
+                        if child.weight >= best_child.weight {
+                            change_to_child
+                        } else {
+                            no_change
+                        }
                     }
                 }
-            }
-        } else if child_leads_to_viable_head {
-            // There is no current best-child and the child is viable.
-            change_to_child
-        } else {
-            // There is no current best-child but the child is not viable.
-            no_change
-        };
+            } else if child_leads_to_viable_head {
+                // There is no current best-child and the child is viable.
+                change_to_child
+            } else {
+                // There is no current best-child but the child is not viable.
+                no_change
+            };
 
         let parent = self
             .nodes
@@ -823,7 +845,11 @@ impl ProtoArray {
 
     /// Indicates if the node itself is viable for the head, or if it's best descendant is viable
     /// for the head.
-    fn node_leads_to_viable_head(&self, node: &ProtoNode) -> Result<bool, Error> {
+    fn node_leads_to_viable_head<E: EthSpec>(
+        &self,
+        node: &ProtoNode,
+        current_slot: Slot,
+    ) -> Result<bool, Error> {
         let best_descendant_is_viable_for_head =
             if let Some(best_descendant_index) = node.best_descendant {
                 let best_descendant = self
@@ -831,12 +857,13 @@ impl ProtoArray {
                     .get(best_descendant_index)
                     .ok_or(Error::InvalidBestDescendant(best_descendant_index))?;
 
-                self.node_is_viable_for_head(best_descendant)
+                self.node_is_viable_for_head::<E>(best_descendant, current_slot)
             } else {
                 false
             };
 
-        Ok(best_descendant_is_viable_for_head || self.node_is_viable_for_head(node))
+        Ok(best_descendant_is_viable_for_head
+            || self.node_is_viable_for_head::<E>(node, current_slot))
     }
 
     /// This is the equivalent to the `filter_block_tree` function in the eth2 spec:
@@ -845,18 +872,43 @@ impl ProtoArray {
     ///
     /// Any node that has a different finalized or justified epoch should not be viable for the
     /// head.
-    fn node_is_viable_for_head(&self, node: &ProtoNode) -> bool {
+    fn node_is_viable_for_head<E: EthSpec>(&self, node: &ProtoNode, current_slot: Slot) -> bool {
         if node.execution_status.is_invalid() {
             return false;
         }
 
-        if let (Some(node_justified_checkpoint), Some(node_finalized_checkpoint)) =
+        let checkpoint_match_predicate =
+            |node_justified_checkpoint: Checkpoint, node_finalized_checkpoint: Checkpoint| {
+                let correct_justified = node_justified_checkpoint == self.justified_checkpoint
+                    || self.justified_checkpoint.epoch == Epoch::new(0);
+                let correct_finalized = node_finalized_checkpoint == self.finalized_checkpoint
+                    || self.finalized_checkpoint.epoch == Epoch::new(0);
+                correct_justified && correct_finalized
+            };
+
+        if let (
+            Some(unrealized_justified_checkpoint),
+            Some(unrealized_finalized_checkpoint),
+            Some(justified_checkpoint),
+            Some(finalized_checkpoint),
+        ) = (
+            node.unrealized_justified_checkpoint,
+            node.unrealized_finalized_checkpoint,
+            node.justified_checkpoint,
+            node.finalized_checkpoint,
+        ) {
+            if node.slot.epoch(E::slots_per_epoch()) < current_slot.epoch(E::slots_per_epoch()) {
+                checkpoint_match_predicate(
+                    unrealized_justified_checkpoint,
+                    unrealized_finalized_checkpoint,
+                )
+            } else {
+                checkpoint_match_predicate(justified_checkpoint, finalized_checkpoint)
+            }
+        } else if let (Some(justified_checkpoint), Some(finalized_checkpoint)) =
             (node.justified_checkpoint, node.finalized_checkpoint)
         {
-            (node_justified_checkpoint == self.justified_checkpoint
-                || self.justified_checkpoint.epoch == Epoch::new(0))
-                && (node_finalized_checkpoint == self.finalized_checkpoint
-                    || self.finalized_checkpoint.epoch == Epoch::new(0))
+            checkpoint_match_predicate(justified_checkpoint, finalized_checkpoint)
         } else {
             false
         }

@@ -413,6 +413,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             .runtime_context(context.service_context("block".into()))
             .graffiti(config.graffiti)
             .graffiti_file(config.graffiti_file.clone())
+            .strict_fee_recipient(config.strict_fee_recipient)
             .build()?;
 
         let attestation_service = AttestationServiceBuilder::new()

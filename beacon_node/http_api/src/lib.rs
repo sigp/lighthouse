@@ -21,8 +21,9 @@ mod version;
 
 use beacon_chain::{
     attestation_verification::VerifiedAttestation, observed_operations::ObservationOutcome,
-    validator_monitor::timestamp_now, AttestationError as AttnError, BeaconChain, BeaconChainError,
-    BeaconChainTypes, ProduceBlockVerification, WhenSlotSkipped,
+    validator_monitor::{get_block_delay_ms, timestamp_now},
+    AttestationError as AttnError, BeaconChain, BeaconChainError,
+    BeaconChainTypes,CountUnrealized, ProduceBlockVerification, WhenSlotSkipped,
 };
 pub use block_id::BlockId;
 use eth2::types::{self as api_types, EndpointVersion, ValidatorId};
@@ -1698,8 +1699,13 @@ pub fn serve<T: BeaconChainTypes>(
                     // Taking advantage of saturating subtraction on slot.
                     let sync_distance = current_slot - head_slot;
 
+                    let is_optimistic = chain
+                        .is_optimistic_head()
+                        .map_err(warp_utils::reject::beacon_chain_error)?;
+
                     let syncing_data = api_types::SyncingData {
                         is_syncing: network_globals.sync_state.read().is_syncing(),
+                        is_optimistic,
                         head_slot,
                         sync_distance,
                     };

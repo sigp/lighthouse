@@ -34,6 +34,7 @@ pub struct ChainConfig {
     pub builder_fallback_epochs_since_finalization: usize,
     /// Whether any chain health checks should be considered when deciding whether to use the builder API.
     pub builder_fallback_disable_checks: bool,
+    pub count_unrealized: bool,
 }
 
 impl Default for ChainConfig {
@@ -50,6 +51,7 @@ impl Default for ChainConfig {
             builder_fallback_skips_per_epoch: 8,
             builder_fallback_epochs_since_finalization: 3,
             builder_fallback_disable_checks: false,
+            count_unrealized: false,
         }
     }
 }
