@@ -656,11 +656,14 @@ impl InitializedValidators {
             .and_then(|v| v.builder_proposals)
     }
 
+    /// Returns an `Option` of a reference to an `InitializedValidator` for a given public key specified in the
+    /// `ValidatorDefinitions`.
     pub fn validator(&self, public_key: &PublicKeyBytes) -> Option<&InitializedValidator> {
         self.validators.get(public_key)
     }
 
-    /// Sets the `InitializedValidator` and `ValidatorDefinition` `enabled` and `gas_limit` values.
+    /// Sets the `InitializedValidator` and `ValidatorDefinition` `enabled`, `gas_limit`, and `builder_proposals`
+    /// values.
     ///
     /// ## Notes
     ///
@@ -670,7 +673,7 @@ impl InitializedValidators {
     ///
     /// If a `gas_limit` is included in the call to this function, it will also be updated and saved
     /// to disk. If `gas_limit` is `None` the `gas_limit` *will not* be unset in `ValidatorDefinition`
-    /// or `InitializedValidator`.
+    /// or `InitializedValidator`. The same logic applies to `builder_proposals`.
     ///
     /// Saves the `ValidatorDefinitions` to file, even if no definitions were changed.
     pub async fn set_validator_definition_fields(
@@ -678,6 +681,7 @@ impl InitializedValidators {
         voting_public_key: &PublicKey,
         enabled: Option<bool>,
         gas_limit: Option<u64>,
+        builder_proposals: Option<bool>,
     ) -> Result<(), Error> {
         if let Some(def) = self
             .definitions
@@ -691,6 +695,9 @@ impl InitializedValidators {
             }
             if let Some(gas_limit) = gas_limit {
                 def.gas_limit = Some(gas_limit);
+            }
+            if let Some(builder_proposals) = builder_proposals {
+                def.builder_proposals = Some(builder_proposals);
             }
         }
 

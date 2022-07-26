@@ -71,8 +71,6 @@ impl From<builder_client::Error> for Error {
     }
 }
 
-pub struct EngineApi;
-
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum PayloadStatusV1Status {
     Valid,

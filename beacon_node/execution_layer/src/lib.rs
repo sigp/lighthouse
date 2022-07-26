@@ -571,8 +571,6 @@ impl<T: EthSpec> ExecutionLayer<T> {
         builder_params: BuilderParams,
         spec: &ChainSpec,
     ) -> Result<Payload, Error> {
-        // Don't attempt to outsource payload construction until after the merge transition has been
-        // finalized. We want to be conservative with payload construction until then.
         if let Some(builder) = self.builder() {
             let slot = builder_params.slot;
             let pubkey = builder_params.pubkey;

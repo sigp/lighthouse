@@ -469,6 +469,7 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
     }
 }
 
+/// A helper struct, used for passing data from the validator store to services.
 pub struct ProposalData {
     pub(crate) validator_index: Option<u64>,
     pub(crate) fee_recipient: Option<Address>,

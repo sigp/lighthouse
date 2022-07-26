@@ -216,22 +216,20 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         Ok(validator_def)
     }
 
+    /// Returns `ProposalData` for the provided `pubkey` if it exists in `InitializedValidators`.
+    /// `ProposalData` fields include defaulting logic described in `get_fee_recipient_defaulting`,
+    /// `get_gas_limit_defaulting`, and `get_builder_proposals_defaulting`.
     pub fn proposal_data(&self, pubkey: &PublicKeyBytes) -> Option<ProposalData> {
         self.validators
             .read()
             .validator(pubkey)
             .map(|validator| ProposalData {
                 validator_index: validator.get_index(),
-                fee_recipient: validator
-                    .get_suggested_fee_recipient()
-                    .or(self.fee_recipient_process),
-                gas_limit: validator
-                    .get_gas_limit()
-                    .or(self.gas_limit)
-                    .unwrap_or(DEFAULT_GAS_LIMIT),
-                builder_proposals: validator
-                    .get_builder_proposals()
-                    .unwrap_or(self.builder_proposals),
+                fee_recipient: self
+                    .get_fee_recipient_defaulting(validator.get_suggested_fee_recipient()),
+                gas_limit: self.get_gas_limit_defaulting(validator.get_gas_limit()),
+                builder_proposals: self
+                    .get_builder_proposals_defaulting(validator.get_builder_proposals()),
             })
     }
 
@@ -401,9 +399,12 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
     pub fn get_fee_recipient(&self, validator_pubkey: &PublicKeyBytes) -> Option<Address> {
         // If there is a `suggested_fee_recipient` in the validator definitions yaml
         // file, use that value.
-        self.suggested_fee_recipient(validator_pubkey)
-            // If there's nothing in the file, try the process-level default value.
-            .or(self.fee_recipient_process)
+        self.get_fee_recipient_defaulting(self.suggested_fee_recipient(validator_pubkey))
+    }
+
+    pub fn get_fee_recipient_defaulting(&self, fee_recipient: Option<Address>) -> Option<Address> {
+        // If there's nothing in the file, try the process-level default value.
+        fee_recipient.or(self.fee_recipient_process)
     }
 
     /// Returns the suggested_fee_recipient from `validator_definitions.yml` if any.
@@ -421,11 +422,13 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
     /// 2. process level gas limit
     /// 3. `DEFAULT_GAS_LIMIT`
     pub fn get_gas_limit(&self, validator_pubkey: &PublicKeyBytes) -> u64 {
+        self.get_gas_limit_defaulting(self.validators.read().gas_limit(validator_pubkey))
+    }
+
+    fn get_gas_limit_defaulting(&self, gas_limit: Option<u64>) -> u64 {
         // If there is a `suggested_fee_recipient` in the validator definitions yaml
         // file, use that value.
-        self.validators
-            .read()
-            .gas_limit(validator_pubkey)
+        gas_limit
             // If there's nothing in the file, try the process-level default value.
             .or(self.gas_limit)
             // If there's no process-level default, use the `DEFAULT_GAS_LIMIT`.
@@ -440,9 +443,13 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
     pub fn get_builder_proposals(&self, validator_pubkey: &PublicKeyBytes) -> bool {
         // If there is a `suggested_fee_recipient` in the validator definitions yaml
         // file, use that value.
-        self.validators
-            .read()
-            .builder_proposals(validator_pubkey)
+        self.get_builder_proposals_defaulting(
+            self.validators.read().builder_proposals(validator_pubkey),
+        )
+    }
+
+    fn get_builder_proposals_defaulting(&self, builder_proposals: Option<bool>) -> bool {
+        builder_proposals
             // If there's nothing in the file, try the process-level default value.
             .unwrap_or(self.builder_proposals)
     }
