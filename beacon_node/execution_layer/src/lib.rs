@@ -450,23 +450,6 @@ impl<T: EthSpec> ExecutionLayer<T> {
         if let Some(preparation_data_entry) =
             self.proposer_preparation_data().await.get(&proposer_index)
         {
-            if let Some(suggested_fee_recipient) = self.inner.suggested_fee_recipient {
-                if preparation_data_entry.preparation_data.fee_recipient != suggested_fee_recipient
-                {
-                    warn!(
-                        self.log(),
-                        "Inconsistent fee recipient";
-                        "msg" => "The fee recipient returned from the Execution Engine differs \
-                        from the suggested_fee_recipient set on the beacon node. This could \
-                        indicate that fees are being diverted to another address. Please \
-                        ensure that the value of suggested_fee_recipient is set correctly and \
-                        that the Execution Engine is trusted.",
-                        "proposer_index" => ?proposer_index,
-                        "fee_recipient" => ?preparation_data_entry.preparation_data.fee_recipient,
-                        "suggested_fee_recipient" => ?suggested_fee_recipient,
-                    )
-                }
-            }
             // The values provided via the API have first priority.
             preparation_data_entry.preparation_data.fee_recipient
         } else if let Some(address) = self.inner.suggested_fee_recipient {
@@ -689,6 +672,19 @@ impl<T: EthSpec> ExecutionLayer<T> {
                     .get_payload_v1::<T>(payload_id)
                     .await
                     .map(|full_payload| {
+                        if full_payload.fee_recipient != suggested_fee_recipient {
+                            error!(
+                                self.log(),
+                                "Inconsistent fee recipient";
+                                "msg" => "The fee recipient returned from the Execution Engine differs \
+                                from the suggested_fee_recipient set on the beacon node. This could \
+                                indicate that fees are being diverted to another address. Please \
+                                ensure that the value of suggested_fee_recipient is set correctly and \
+                                that the Execution Engine is trusted.",
+                                "fee_recipient" => ?full_payload.fee_recipient,
+                                "suggested_fee_recipient" => ?suggested_fee_recipient,
+                            );
+                        }
                         if f(self, &full_payload).is_some() {
                             warn!(
                                 self.log(),

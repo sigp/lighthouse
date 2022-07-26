@@ -414,6 +414,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             .graffiti(config.graffiti)
             .graffiti_file(config.graffiti_file.clone())
             .private_tx_proposals(config.private_tx_proposals)
+            .strict_fee_recipient(config.strict_fee_recipient)
             .build()?;
 
         let attestation_service = AttestationServiceBuilder::new()
