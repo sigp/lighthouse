@@ -377,9 +377,9 @@ fn epoch_processing_participation_record_updates() {
 
 #[test]
 fn epoch_processing_sync_committee_updates() {
+    // There are presently no mainnet tests, see:
+    // https://github.com/ethereum/consensus-spec-tests/issues/29
     EpochProcessingHandler::<MinimalEthSpec, SyncCommitteeUpdates>::default().run();
-    // FIXME(sproul): these mainnet tests have gone missing
-    // EpochProcessingHandler::<MainnetEthSpec, SyncCommitteeUpdates>::default().run();
 }
 
 #[test]

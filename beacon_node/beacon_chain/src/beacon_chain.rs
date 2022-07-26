@@ -2551,7 +2551,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         payload_verification_status: PayloadVerificationStatus,
         count_unrealized: CountUnrealized,
     ) -> Result<Hash256, BlockError<T::EthSpec>> {
-        // FIXME(sproul): apply attester slashing (and attestations) to fork choice
         let current_slot = self.slot()?;
         let current_epoch = current_slot.epoch(T::EthSpec::slots_per_epoch());
 
@@ -2706,6 +2705,23 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .write()
             .process_valid_state(current_slot.epoch(T::EthSpec::slots_per_epoch()), &state);
         let validator_monitor = self.validator_monitor.read();
+
+        // Register each attester slashing in the block with fork choice.
+        for (i, attester_slashing) in block.body().attester_slashings().iter().enumerate() {
+            match fork_choice.on_attester_slashing(attester_slashing, &state) {
+                Ok(()) => (),
+                Err(ForkChoiceError::InvalidAttesterSlashing(e)) => {
+                    warn!(
+                        self.log,
+                        "Attester slashing in block is invalid for fork choice";
+                        "block_root" => ?block_root,
+                        "slashing_index" => i,
+                        "error" => ?e,
+                    );
+                }
+                Err(e) => return Err(BlockError::BeaconChainError(e.into())),
+            }
+        }
 
         // Register each attestation in the block with the fork choice service.
         for attestation in block.body().attestations() {

@@ -1085,5 +1085,71 @@ mod test_compute_deltas {
         }
     }
 
-    // FIXME(sproul): add equivocation test here
+    #[test]
+    fn validator_equivocates() {
+        const OLD_BALANCE: u64 = 42;
+        const NEW_BALANCE: u64 = 43;
+
+        let mut indices = HashMap::new();
+        let mut votes = ElasticList::default();
+
+        // There are two blocks.
+        indices.insert(hash_from_index(1), 0);
+        indices.insert(hash_from_index(2), 1);
+
+        // There are two validators.
+        let old_balances = vec![OLD_BALANCE; 2];
+        let new_balances = vec![NEW_BALANCE; 2];
+
+        // Both validator move votes from block 1 to block 2.
+        for _ in 0..2 {
+            votes.0.push(VoteTracker {
+                current_root: hash_from_index(1),
+                next_root: hash_from_index(2),
+                next_epoch: Epoch::new(0),
+            });
+        }
+
+        // Validator 0 is slashed.
+        let equivocating_indices = BTreeSet::from_iter([0]);
+
+        let deltas = compute_deltas(
+            &indices,
+            &mut votes,
+            &old_balances,
+            &new_balances,
+            &equivocating_indices,
+        )
+        .expect("should compute deltas");
+
+        assert_eq!(deltas.len(), 2, "deltas should have expected length");
+
+        assert_eq!(
+            deltas[0],
+            -2 * OLD_BALANCE as i64,
+            "block 1 should have lost two old balances"
+        );
+        assert_eq!(
+            deltas[1], NEW_BALANCE as i64,
+            "block 2 should have gained one balance"
+        );
+
+        // Validator 0's current root should have been reset.
+        assert_eq!(votes.0[0].current_root, Hash256::zero());
+        assert_eq!(votes.0[0].next_root, hash_from_index(2));
+
+        // Validator 1's current root should have been updated.
+        assert_eq!(votes.0[1].current_root, hash_from_index(2));
+
+        // Re-computing the deltas should be a no-op (no repeat deduction for the slashed validator).
+        let deltas = compute_deltas(
+            &indices,
+            &mut votes,
+            &new_balances,
+            &new_balances,
+            &equivocating_indices,
+        )
+        .expect("should compute deltas");
+        assert_eq!(deltas, vec![0, 0]);
+    }
 }
