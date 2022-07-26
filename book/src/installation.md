@@ -14,7 +14,7 @@ The community maintains additional installation methods (currently only one).
 
 Additionally, there are two extra guides for specific uses:
 
-- [Rapsberry Pi 4 guide](./pi.md).
+- [Raspberry Pi 4 guide](./pi.md).
 - [Cross-compiling guide for developers](./cross-compiling.md).
 
 ## Minimum System Requirements

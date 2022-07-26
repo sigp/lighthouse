@@ -73,7 +73,7 @@ The `stability` is:
 The `arch` is:
 
 * `-amd64` for x86_64, e.g. Intel, AMD
-* `-arm64` for aarch64, e.g. Rasperry Pi 4
+* `-arm64` for aarch64, e.g. Raspberry Pi 4
 * empty for a multi-arch image (works on either `amd64` or `arm64` platforms)
 
 The `modernity` is:
