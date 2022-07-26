@@ -192,9 +192,9 @@ pub async fn validate_merge_block<'a, T: BeaconChainTypes>(
             if is_optimistic_candidate_block(chain, block.slot(), block.parent_root()).await? {
                 debug!(
                     chain.log,
-                    "Optimistically Importing Merge Transition Block";
+                    "Optimistically importing merge transition block";
                     "block_hash" => ?execution_payload.parent_hash(),
-                    "msg" => "The terminal block/parent was unavailable"
+                    "msg" => "the terminal block/parent was unavailable"
                 );
                 // Store Optimistic Transition Block in Database for later Verification
                 OptimisticTransitionBlock::from_block::<T>(block)

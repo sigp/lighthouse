@@ -1,5 +1,6 @@
 use crate::execution_payload::validate_merge_block;
 use crate::{BeaconChain, BeaconChainError, BeaconChainTypes, BlockError, ExecutionPayloadError};
+use itertools::process_results;
 use proto_array::InvalidationOperation;
 use slog::{crit, debug, error, info, warn};
 use slot_clock::SlotClock;
@@ -46,7 +47,7 @@ impl OptimisticTransitionBlock {
             .as_ref()
             .item_exists::<OptimisticTransitionBlock>(&self.root)?
         {
-            return Ok(());
+            Ok(())
         } else {
             store.as_ref().put_item(&self.root, self)
         }
@@ -106,7 +107,7 @@ pub fn start_otb_verification_service<T: BeaconChainTypes>(
 ) {
     // Avoid spawning the service if there's no EL, it'll just error anyway.
     if chain.execution_layer.is_some() {
-        executor.clone().spawn(
+        executor.spawn(
             async move { otb_verification_service(chain).await },
             "otb_verification_service",
         );
@@ -116,14 +117,10 @@ pub fn start_otb_verification_service<T: BeaconChainTypes>(
 fn load_optimistic_transition_blocks<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
 ) -> Result<Vec<OptimisticTransitionBlock>, StoreError> {
-    chain
-        .store
-        .hot_db
-        .iter_column(OTBColumn)
-        .collect::<Result<Vec<_>, _>>()?
-        .into_iter()
-        .map(|(_, bytes)| OptimisticTransitionBlock::from_store_bytes(&bytes))
-        .collect()
+    process_results(chain.store.hot_db.iter_column(OTBColumn), |iter| {
+        iter.map(|(_, bytes)| OptimisticTransitionBlock::from_store_bytes(&bytes))
+            .collect()
+    })?
 }
 
 /// Loop indefinitely, calling `BeaconChain::prepare_beacon_proposer_async` at an interval.
@@ -141,7 +138,7 @@ async fn otb_verification_service<T: BeaconChainTypes>(chain: Arc<BeaconChain<T>
 
                 debug!(
                     chain.log,
-                    "OTB Verification Service Firing";
+                    "OTB verification service firing";
                 );
 
                 if !is_merge_transition_complete(
@@ -158,7 +155,7 @@ async fn otb_verification_service<T: BeaconChainTypes>(chain: Arc<BeaconChain<T>
                 {
                     Ok(block) => block.slot,
                     Err(e) => {
-                        warn!(chain.log, "Error Retrieving Finalized Slot: {:?}", e);
+                        warn!(chain.log, "Error retrieving finalized slot: {:?}", e);
                         continue;
                     }
                 };
@@ -187,7 +184,7 @@ async fn otb_verification_service<T: BeaconChainTypes>(chain: Arc<BeaconChain<T>
                                     Err(e) => {
                                         warn!(
                                             chain.log,
-                                            "Error Iterating Over Canonical Blocks: {:?}", e
+                                            "Error iterating over canonical blocks: {:?}", e
                                         );
                                         None
                                     }
@@ -197,7 +194,7 @@ async fn otb_verification_service<T: BeaconChainTypes>(chain: Arc<BeaconChain<T>
                         Err(e) => {
                             warn!(
                                 chain.log,
-                                "Error Loading Optimistic Transition Blocks: {:?}", e
+                                "Error loading optimistic transition blocks: {:?}", e
                             );
                             continue;
                         }
@@ -209,7 +206,7 @@ async fn otb_verification_service<T: BeaconChainTypes>(chain: Arc<BeaconChain<T>
                         if let Err(e) = otb.remove_from_store::<T, _>(&chain.store) {
                             warn!(
                                 chain.log,
-                                "Error Removing Optimistic Transition Block from Database: {:?}", e
+                                "Error removing non-canonical optimistic transition block from database: {:?}", e
                             );
                         }
                     }
@@ -223,9 +220,9 @@ async fn otb_verification_service<T: BeaconChainTypes>(chain: Arc<BeaconChain<T>
                                 Ok(()) => {
                                     // merge transition block is valid, remove it from OTB
                                     if let Err(e) = otb.remove_from_store::<T, _>(&chain.store) {
-                                        warn!(chain.log, "Error Removing Optimistic Transition Block from Database: {:?}", e);
+                                        warn!(chain.log, "Error removing optimistic transition block from database: {:?}", e);
                                     } else {
-                                        info!(chain.log, "Validated Merge Transition Block");
+                                        info!(chain.log, "Validated merge transition block");
                                     }
                                 }
                                 Err(BlockError::ExecutionPayloadError(
@@ -253,10 +250,10 @@ async fn otb_verification_service<T: BeaconChainTypes>(chain: Arc<BeaconChain<T>
                         }
                         Ok(None) => warn!(
                             chain.log,
-                            "No Block Found for Finalized Optimistic Transition Block: {:?}", otb
+                            "No block found for finalized optimistic transition block: {:?}", otb
                         ),
                         Err(e) => {
-                            warn!(chain.log, "Error Loading Full Block from Database: {:?}", e)
+                            warn!(chain.log, "Error loading full block from database: {:?}", e)
                         }
                     }
                 }
@@ -269,16 +266,16 @@ async fn otb_verification_service<T: BeaconChainTypes>(chain: Arc<BeaconChain<T>
                                 Ok(()) => {
                                     // merge transition block is valid, remove it from OTB
                                     if let Err(e) = otb.remove_from_store::<T, _>(&chain.store) {
-                                        warn!(chain.log, "Error Removing Optimistic Transition Block from Database: {:?}", e);
+                                        warn!(chain.log, "Error removing optimistic transition block from database: {:?}", e);
                                     } else {
-                                        info!(chain.log, "Validated Merge Transition Block");
+                                        info!(chain.log, "Validated merge transition block");
                                     }
                                 }
                                 Err(BlockError::ExecutionPayloadError(
                                     ExecutionPayloadError::InvalidTerminalPoWBlock { .. },
                                 )) => {
                                     // Unfinalized Merge Transition Block is Invalid -> Run process_invalid_execution_payload
-                                    warn!(chain.log, "Merge Transition Block Invalid: {:?}", otb);
+                                    warn!(chain.log, "Merge transition block invalid: {:?}", otb);
                                     if let Err(e) = chain
                                         .process_invalid_execution_payload(
                                             &InvalidationOperation::InvalidateOne {
@@ -287,7 +284,7 @@ async fn otb_verification_service<T: BeaconChainTypes>(chain: Arc<BeaconChain<T>
                                         )
                                         .await
                                     {
-                                        warn!(chain.log, "Error During process_invalid_execution_payload for Invalid Merge Transition Block: {:?}", e);
+                                        warn!(chain.log, "Error during process_invalid_execution_payload for invalid merge transition block: {:?}", e);
                                     }
                                 }
                                 Err(_) => {}
@@ -295,10 +292,10 @@ async fn otb_verification_service<T: BeaconChainTypes>(chain: Arc<BeaconChain<T>
                         }
                         Ok(None) => warn!(
                             chain.log,
-                            "No Block Found for UnFinalized Optimistic Transition Block: {:?}", otb
+                            "No block found for unfinalized optimistic transition block: {:?}", otb
                         ),
                         Err(e) => {
-                            warn!(chain.log, "Error Loading Full Block from Database: {:?}", e)
+                            warn!(chain.log, "Error loading full block from database: {:?}", e)
                         }
                     }
                 }
@@ -313,5 +310,5 @@ async fn otb_verification_service<T: BeaconChainTypes>(chain: Arc<BeaconChain<T>
             }
         };
     }
-    debug!(chain.log, "No Optimistic Transition Blocks in Database"; "msg" => "Shutting down OTB Verification Service");
+    debug!(chain.log, "No optimistic transition blocks in database"; "msg" => "shutting down OTB verification service");
 }
