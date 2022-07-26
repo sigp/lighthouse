@@ -7,6 +7,7 @@ status = [
     "ef-tests-ubuntu",
     "dockerfile-ubuntu",
     "eth1-simulator-ubuntu",
+    "merge-transition-ubuntu",
     "no-eth1-simulator-ubuntu",
     "check-benchmarks",
     "check-consensus",

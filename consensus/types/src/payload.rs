@@ -44,6 +44,7 @@ pub trait ExecPayload<T: EthSpec>:
     fn block_number(&self) -> u64;
     fn timestamp(&self) -> u64;
     fn block_hash(&self) -> ExecutionBlockHash;
+    fn fee_recipient(&self) -> Address;
 }
 
 impl<T: EthSpec> ExecPayload<T> for FullPayload<T> {
@@ -74,6 +75,10 @@ impl<T: EthSpec> ExecPayload<T> for FullPayload<T> {
     fn block_hash(&self) -> ExecutionBlockHash {
         self.execution_payload.block_hash
     }
+
+    fn fee_recipient(&self) -> Address {
+        self.execution_payload.fee_recipient
+    }
 }
 
 impl<T: EthSpec> ExecPayload<T> for BlindedPayload<T> {
@@ -103,6 +108,10 @@ impl<T: EthSpec> ExecPayload<T> for BlindedPayload<T> {
 
     fn block_hash(&self) -> ExecutionBlockHash {
         self.execution_payload_header.block_hash
+    }
+
+    fn fee_recipient(&self) -> Address {
+        self.execution_payload_header.fee_recipient
     }
 }
 

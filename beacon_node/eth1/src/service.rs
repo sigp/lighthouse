@@ -908,11 +908,12 @@ impl Service {
     /// Returns the range of new block numbers to be considered for the given head type.
     fn relevant_new_block_numbers(
         &self,
-        remote_highest_block: u64,
+        remote_highest_block_number: u64,
         remote_highest_block_timestamp: Option<u64>,
         head_type: HeadType,
     ) -> Result<Option<RangeInclusive<u64>>, SingleEndpointError> {
         let follow_distance = self.cache_follow_distance();
+        let latest_cached_block = self.latest_cached_block();
         let next_required_block = match head_type {
             HeadType::Deposit => self
                 .deposits()
@@ -920,18 +921,14 @@ impl Service {
                 .last_processed_block
                 .map(|n| n + 1)
                 .unwrap_or_else(|| self.config().deposit_contract_deploy_block),
-            HeadType::BlockCache => self
-                .inner
-                .block_cache
-                .read()
-                .highest_block_number()
-                .map(|n| n + 1)
+            HeadType::BlockCache => latest_cached_block
+                .as_ref()
+                .map(|block| block.number + 1)
                 .unwrap_or_else(|| self.config().lowest_cached_block_number),
         };
-        let latest_cached_block = self.latest_cached_block();
 
         relevant_block_range(
-            remote_highest_block,
+            remote_highest_block_number,
             remote_highest_block_timestamp,
             next_required_block,
             follow_distance,
@@ -1293,9 +1290,12 @@ fn relevant_block_range(
         let lagging = latest_cached_block.timestamp
             + cache_follow_distance * spec.seconds_per_eth1_block
             < remote_highest_block_timestamp;
-        let end_block = std::cmp::min(
-            remote_highest_block_number.saturating_sub(CATCHUP_MIN_FOLLOW_DISTANCE),
-            next_required_block + CATCHUP_BATCH_SIZE,
+        let end_block = std::cmp::max(
+            std::cmp::min(
+                remote_highest_block_number.saturating_sub(CATCHUP_MIN_FOLLOW_DISTANCE),
+                next_required_block + CATCHUP_BATCH_SIZE,
+            ),
+            remote_highest_block_number.saturating_sub(cache_follow_distance),
         );
         if lagging && next_required_block <= end_block {
             return Ok(Some(next_required_block..=end_block));

@@ -10,6 +10,7 @@ use beacon_chain::{
     BeaconChainError, BeaconChainTypes, BeaconSnapshot, ChainConfig, ServerSentEventHandler,
     WhenSlotSkipped,
 };
+use fork_choice::CountUnrealized;
 use lazy_static::lazy_static;
 use logging::test_logger;
 use maplit::hashset;
@@ -2124,7 +2125,7 @@ async fn weak_subjectivity_sync() {
 
         beacon_chain.slot_clock.set_slot(block.slot().as_u64());
         beacon_chain
-            .process_block(Arc::new(full_block))
+            .process_block(Arc::new(full_block), CountUnrealized::True)
             .await
             .unwrap();
         beacon_chain.recompute_head_at_current_slot().await.unwrap();

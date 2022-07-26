@@ -22,7 +22,7 @@ use types::{
 };
 
 /// The struct that is returned to the requesting HTTP client.
-type SyncDuties = api_types::GenericResponse<Vec<SyncDuty>>;
+type SyncDuties = api_types::ExecutionOptimisticResponse<Vec<SyncDuty>>;
 
 /// Handles a request from the HTTP API for sync committee duties.
 pub fn sync_committee_duties<T: BeaconChainTypes>(
@@ -34,14 +34,20 @@ pub fn sync_committee_duties<T: BeaconChainTypes>(
         altair_fork_epoch
     } else {
         // Empty response for networks with Altair disabled.
-        return Ok(convert_to_response(vec![]));
+        return Ok(convert_to_response(vec![], false));
     };
+
+    // Even when computing duties from state, any block roots pulled using the request epoch are
+    // still dependent on the head. So using `is_optimistic_head` is fine for both cases.
+    let execution_optimistic = chain
+        .is_optimistic_head()
+        .map_err(warp_utils::reject::beacon_chain_error)?;
 
     // Try using the head's sync committees to satisfy the request. This should be sufficient for
     // the vast majority of requests. Rather than checking if we think the request will succeed in a
     // way prone to data races, we attempt the request immediately and check the error code.
     match chain.sync_committee_duties_from_head(request_epoch, request_indices) {
-        Ok(duties) => return Ok(convert_to_response(duties)),
+        Ok(duties) => return Ok(convert_to_response(duties, execution_optimistic)),
         Err(BeaconChainError::SyncDutiesError(BeaconStateError::SyncCommitteeNotKnown {
             ..
         }))
@@ -60,7 +66,7 @@ pub fn sync_committee_duties<T: BeaconChainTypes>(
         )),
         e => warp_utils::reject::beacon_chain_error(e),
     })?;
-    Ok(convert_to_response(duties))
+    Ok(convert_to_response(duties, execution_optimistic))
 }
 
 /// Slow path for duties: load a state and use it to compute the duties.
@@ -117,8 +123,9 @@ fn duties_from_state_load<T: BeaconChainTypes>(
     }
 }
 
-fn convert_to_response(duties: Vec<Option<SyncDuty>>) -> SyncDuties {
+fn convert_to_response(duties: Vec<Option<SyncDuty>>, execution_optimistic: bool) -> SyncDuties {
     api_types::GenericResponse::from(duties.into_iter().flatten().collect::<Vec<_>>())
+        .add_execution_optimistic(execution_optimistic)
 }
 
 /// Receive sync committee duties, storing them in the pools & broadcasting them.

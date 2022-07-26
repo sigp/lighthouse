@@ -6,7 +6,7 @@ use beacon_chain::{
     observed_operations::ObservationOutcome,
     sync_committee_verification::{self, Error as SyncCommitteeError},
     validator_monitor::get_block_delay_ms,
-    BeaconChainError, BeaconChainTypes, BlockError, ExecutionPayloadError, ForkChoiceError,
+    BeaconChainError, BeaconChainTypes, BlockError, CountUnrealized, ForkChoiceError,
     GossipVerifiedBlock,
 };
 use lighthouse_network::{Client, MessageAcceptance, MessageId, PeerAction, PeerId, ReportSource};
@@ -25,7 +25,7 @@ use types::{
 
 use super::{
     super::work_reprocessing_queue::{
-        QueuedAggregate, QueuedBlock, QueuedUnaggregate, ReprocessQueueMessage,
+        QueuedAggregate, QueuedGossipBlock, QueuedUnaggregate, ReprocessQueueMessage,
     },
     Worker,
 };
@@ -776,9 +776,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                 return None;
             }
             // TODO(merge): reconsider peer scoring for this event.
-            Err(e @BlockError::ExecutionPayloadError(ExecutionPayloadError::RequestFailed(_)))
-            | Err(e @ BlockError::ExecutionPayloadError(ExecutionPayloadError::UnverifiedNonOptimisticCandidate))
-            | Err(e @BlockError::ExecutionPayloadError(ExecutionPayloadError::NoExecutionConnection)) => {
+            Err(ref e @BlockError::ExecutionPayloadError(ref epe)) if !epe.penalize_peer() => {
                 debug!(self.log, "Could not verify block for gossip, ignoring the block";
                             "error" => %e);
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
@@ -857,7 +855,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                 metrics::inc_counter(&metrics::BEACON_PROCESSOR_GOSSIP_BLOCK_REQUEUED_TOTAL);
 
                 if reprocess_tx
-                    .try_send(ReprocessQueueMessage::EarlyBlock(QueuedBlock {
+                    .try_send(ReprocessQueueMessage::EarlyBlock(QueuedGossipBlock {
                         peer_id,
                         block: Box::new(verified_block),
                         seen_timestamp: seen_duration,
@@ -902,7 +900,11 @@ impl<T: BeaconChainTypes> Worker<T> {
     ) {
         let block: Arc<_> = verified_block.block.clone();
 
-        match self.chain.process_block(verified_block).await {
+        match self
+            .chain
+            .process_block(verified_block, CountUnrealized::True)
+            .await
+        {
             Ok(block_root) => {
                 metrics::inc_counter(&metrics::BEACON_PROCESSOR_GOSSIP_BLOCK_IMPORTED_TOTAL);
 
@@ -951,10 +953,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                 );
                 self.send_sync_message(SyncMessage::UnknownBlock(peer_id, block));
             }
-            Err(e @ BlockError::ExecutionPayloadError(ExecutionPayloadError::RequestFailed(_)))
-            | Err(
-                e @ BlockError::ExecutionPayloadError(ExecutionPayloadError::NoExecutionConnection),
-            ) => {
+            Err(ref e @ BlockError::ExecutionPayloadError(ref epe)) if !epe.penalize_peer() => {
                 debug!(
                     self.log,
                     "Failed to verify execution payload";

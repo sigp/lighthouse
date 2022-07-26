@@ -9,7 +9,9 @@ use execution_layer::{
     json_structures::{JsonForkChoiceStateV1, JsonPayloadAttributesV1},
     ExecutionLayer, ForkChoiceState, PayloadAttributes,
 };
-use fork_choice::{Error as ForkChoiceError, InvalidationOperation, PayloadVerificationStatus};
+use fork_choice::{
+    CountUnrealized, Error as ForkChoiceError, InvalidationOperation, PayloadVerificationStatus,
+};
 use proto_array::{Error as ProtoArrayError, ExecutionStatus};
 use slot_clock::SlotClock;
 use std::sync::Arc;
@@ -390,7 +392,7 @@ async fn invalid_payload_invalidates_parent() {
     })
     .await;
 
-    assert!(rig.execution_status(roots[0]).is_valid_and_post_bellatrix());
+    assert!(rig.execution_status(roots[0]).is_optimistic());
     assert!(rig.execution_status(roots[1]).is_invalid());
     assert!(rig.execution_status(roots[2]).is_invalid());
 
@@ -532,9 +534,9 @@ async fn pre_finalized_latest_valid_hash() {
 /// Ensure that a `latest_valid_hash` will:
 ///
 /// - Invalidate descendants of `latest_valid_root`.
-/// - Validate `latest_valid_root` and its ancestors.
+/// - Will not validate `latest_valid_root` and its ancestors.
 #[tokio::test]
-async fn latest_valid_hash_will_validate() {
+async fn latest_valid_hash_will_not_validate() {
     const LATEST_VALID_SLOT: u64 = 3;
 
     let mut rig = InvalidPayloadRig::new().enable_attestations();
@@ -571,8 +573,10 @@ async fn latest_valid_hash_will_validate() {
             assert!(execution_status.is_invalid())
         } else if slot == 0 {
             assert!(execution_status.is_irrelevant())
-        } else {
+        } else if slot == 1 {
             assert!(execution_status.is_valid_and_post_bellatrix())
+        } else {
+            assert!(execution_status.is_optimistic())
         }
     }
 }
@@ -646,7 +650,7 @@ async fn invalidates_all_descendants() {
     let fork_block_root = rig
         .harness
         .chain
-        .process_block(Arc::new(fork_block))
+        .process_block(Arc::new(fork_block), CountUnrealized::True)
         .await
         .unwrap();
     rig.recompute_head().await;
@@ -693,9 +697,15 @@ async fn invalidates_all_descendants() {
         }
 
         let execution_status = rig.execution_status(root);
-        if slot <= latest_valid_slot {
-            // Blocks prior to the latest valid hash are valid.
+        if slot == 0 {
+            // Genesis block is pre-bellatrix.
+            assert!(execution_status.is_irrelevant());
+        } else if slot == 1 {
+            // First slot was imported as valid.
             assert!(execution_status.is_valid_and_post_bellatrix());
+        } else if slot <= latest_valid_slot {
+            // Blocks prior to and included the latest valid hash are not marked as valid.
+            assert!(execution_status.is_optimistic());
         } else {
             // Blocks after the latest valid hash are invalid.
             assert!(execution_status.is_invalid());
@@ -732,7 +742,7 @@ async fn switches_heads() {
     let fork_block_root = rig
         .harness
         .chain
-        .process_block(Arc::new(fork_block))
+        .process_block(Arc::new(fork_block), CountUnrealized::True)
         .await
         .unwrap();
     rig.recompute_head().await;
@@ -769,9 +779,15 @@ async fn switches_heads() {
         }
 
         let execution_status = rig.execution_status(root);
-        if slot <= latest_valid_slot {
-            // Blocks prior to the latest valid hash are valid.
+        if slot == 0 {
+            // Genesis block is pre-bellatrix.
+            assert!(execution_status.is_irrelevant());
+        } else if slot == 1 {
+            // First slot was imported as valid.
             assert!(execution_status.is_valid_and_post_bellatrix());
+        } else if slot <= latest_valid_slot {
+            // Blocks prior to and included the latest valid hash are not marked as valid.
+            assert!(execution_status.is_optimistic());
         } else {
             // Blocks after the latest valid hash are invalid.
             assert!(execution_status.is_invalid());
@@ -970,7 +986,7 @@ async fn invalid_parent() {
 
     // Ensure the block built atop an invalid payload is invalid for import.
     assert!(matches!(
-        rig.harness.chain.process_block(block.clone()).await,
+        rig.harness.chain.process_block(block.clone(), CountUnrealized::True).await,
         Err(BlockError::ParentExecutionPayloadInvalid { parent_root: invalid_root })
         if invalid_root == parent_root
     ));
@@ -984,7 +1000,8 @@ async fn invalid_parent() {
             Duration::from_secs(0),
             &state,
             PayloadVerificationStatus::Optimistic,
-            &rig.harness.chain.spec
+            &rig.harness.chain.spec,
+            CountUnrealized::True,
         ),
         Err(ForkChoiceError::ProtoArrayError(message))
         if message.contains(&format!(
@@ -1002,6 +1019,11 @@ async fn invalid_parent() {
 async fn payload_preparation_before_transition_block() {
     let rig = InvalidPayloadRig::new();
     let el = rig.execution_layer();
+
+    // Run the watchdog routine so that the status of the execution engine is set. This ensures
+    // that we don't end up with `eth_syncing` requests later in this function that will impede
+    // testing.
+    el.watchdog_task().await;
 
     let head = rig.harness.chain.head_snapshot();
     assert_eq!(
