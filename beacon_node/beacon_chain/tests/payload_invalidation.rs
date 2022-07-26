@@ -1180,3 +1180,139 @@ async fn attesting_to_optimistic_head() {
     get_aggregated().unwrap();
     get_aggregated_by_slot_and_root().unwrap();
 }
+
+/// A helper struct to build out a chain of some configurable length which undergoes the merge
+/// transition.
+struct OptimisticTransitionSetup {
+    blocks: Vec<Arc<SignedBeaconBlock<E>>>,
+}
+
+impl OptimisticTransitionSetup {
+    async fn new(num_blocks: usize) -> Self {
+        let mut rig = InvalidPayloadRig::new().enable_attestations();
+        rig.move_to_terminal_block();
+
+        let mut blocks = Vec::with_capacity(num_blocks);
+        for _ in 0..num_blocks {
+            let root = rig.import_block(Payload::Valid).await;
+            let block = rig.harness.chain.get_block(&root).await.unwrap().unwrap();
+            blocks.push(Arc::new(block));
+        }
+
+        Self { blocks }
+    }
+}
+
+#[tokio::test]
+async fn optimistic_transition_block() {
+    let OptimisticTransitionSetup { blocks } = OptimisticTransitionSetup::new(3).await;
+
+    // Build a brand-new testing harness. We will apply the blocks from the previous harness to
+    // this one.
+    let rig = InvalidPayloadRig::new();
+    let spec = &rig.harness.chain.spec;
+    let mock_execution_layer = rig.harness.mock_execution_layer.as_ref().unwrap();
+
+    // Make the execution layer respond `SYNCING` to all `newPayload` requests.
+    mock_execution_layer
+        .server
+        .all_payloads_syncing_on_new_payload(true);
+    // Make the execution layer respond `SYNCING` to all `forkchoiceUpdated` requests.
+    mock_execution_layer
+        .server
+        .all_payloads_syncing_on_forkchoice_updated();
+    // Make the execution layer respond `None` to all `getBlockByHash` requests.
+    mock_execution_layer
+        .server
+        .all_get_block_by_hash_requests_return_none();
+
+    rig.harness
+        .set_current_slot(blocks[0].slot() + spec.safe_slots_to_import_optimistically);
+
+    for block in blocks {
+        rig.harness.chain.process_block(block).await.unwrap();
+    }
+
+    rig.harness
+        .chain
+        .recompute_head_at_current_slot()
+        .await
+        .unwrap();
+
+    // Perform some sanity checks to ensure that the transition happened exactly where we expected.
+    let pre_transition_block_root = rig
+        .harness
+        .chain
+        .block_root_at_slot(Slot::new(0), WhenSlotSkipped::None)
+        .unwrap()
+        .unwrap();
+    let pre_transition_block = rig
+        .harness
+        .chain
+        .get_block(&pre_transition_block_root)
+        .await
+        .unwrap()
+        .unwrap();
+    let post_transition_block_root = rig
+        .harness
+        .chain
+        .block_root_at_slot(Slot::new(1), WhenSlotSkipped::None)
+        .unwrap()
+        .unwrap();
+    let post_transition_block = rig
+        .harness
+        .chain
+        .get_block(&post_transition_block_root)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        pre_transition_block_root,
+        post_transition_block.parent_root(),
+        "the blocks form a single chain"
+    );
+    assert!(
+        pre_transition_block
+            .message()
+            .body()
+            .execution_payload()
+            .unwrap()
+            .execution_payload
+            == <_>::default(),
+        "the block *has not* undergone the merge transition"
+    );
+    assert!(
+        post_transition_block
+            .message()
+            .body()
+            .execution_payload()
+            .unwrap()
+            .execution_payload
+            != <_>::default(),
+        "the block *has* undergone the merge transition"
+    );
+
+    // Assert that the transition block was optimistically imported.
+    assert!(
+        rig.harness
+            .chain
+            .canonical_head
+            .fork_choice_read_lock()
+            .is_optimistic_block_no_fallback(&post_transition_block_root)
+            .unwrap(),
+        "the transition block should be imported optimistically"
+    );
+
+    // Get the mock execution layer to respond to `getBlockByHash` requests normally again.
+    mock_execution_layer
+        .server
+        .all_get_block_by_hash_requests_return_natural_value();
+    // Advance the local execution layer to the terminal block.
+    mock_execution_layer
+        .server
+        .execution_block_generator()
+        .move_to_terminal_block()
+        .unwrap();
+
+    // In theory, you should be able to retrospectively validate the transition block now.
+}
