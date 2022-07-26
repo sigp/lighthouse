@@ -1852,8 +1852,13 @@ pub fn serve<T: BeaconChainTypes>(
                     // Taking advantage of saturating subtraction on slot.
                     let sync_distance = current_slot - head_slot;
 
+                    let is_optimistic = chain
+                        .is_optimistic_head()
+                        .map_err(warp_utils::reject::beacon_chain_error)?;
+
                     let syncing_data = api_types::SyncingData {
                         is_syncing: network_globals.sync_state.read().is_syncing(),
+                        is_optimistic,
                         head_slot,
                         sync_distance,
                     };
