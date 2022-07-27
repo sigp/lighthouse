@@ -197,7 +197,7 @@ pub async fn validate_merge_block<'a, T: BeaconChainTypes>(
                     "msg" => "the terminal block/parent was unavailable"
                 );
                 // Store Optimistic Transition Block in Database for later Verification
-                OptimisticTransitionBlock::from_block::<T>(block)
+                OptimisticTransitionBlock::from_block(block)
                     .persist_in_store::<T, _>(&chain.store)?;
                 Ok(())
             } else {

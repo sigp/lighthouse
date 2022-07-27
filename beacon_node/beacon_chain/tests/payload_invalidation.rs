@@ -1,5 +1,9 @@
 #![cfg(not(debug_assertions))]
 
+use beacon_chain::otb_verification_service::{
+    load_optimistic_transition_blocks, validate_optimistic_transition_blocks,
+    OptimisticTransitionBlock,
+};
 use beacon_chain::{
     test_utils::{BeaconChainHarness, EphemeralHarnessType},
     BeaconChainError, BlockError, ExecutionPayloadError, StateSkipConfig, WhenSlotSkipped,
@@ -1315,4 +1319,28 @@ async fn optimistic_transition_block() {
         .unwrap();
 
     // In theory, you should be able to retrospectively validate the transition block now.
+
+    let otbs = load_optimistic_transition_blocks(&rig.harness.chain)
+        .expect("should load optimistic transition block from db");
+    assert_eq!(
+        otbs.len(),
+        1,
+        "There should be one optimistic transition block"
+    );
+    let valid_otb = OptimisticTransitionBlock::from_block(post_transition_block.message());
+    assert_eq!(
+        valid_otb, otbs[0],
+        "The optimistic transition block stored in the database should be what we expect",
+    );
+
+    validate_optimistic_transition_blocks(&rig.harness.chain, otbs)
+        .await
+        .expect("should validate fine");
+    // now that the transition block has been validated, it should have been removed from the database
+    let otbs = load_optimistic_transition_blocks(&rig.harness.chain)
+        .expect("should load optimistic transition block from db");
+    assert!(
+        otbs.is_empty(),
+        "The valid optimistic transition block should have been removed from the database",
+    );
 }
