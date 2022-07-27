@@ -150,14 +150,8 @@ impl<T, E: EthSpec> Deref for PreparationService<T, E> {
 }
 
 impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
-    pub fn start_update_service(
-        self,
-        start_registration_service: bool,
-        spec: &ChainSpec,
-    ) -> Result<(), String> {
-        if start_registration_service {
-            self.clone().start_validator_registration_service(spec)?;
-        }
+    pub fn start_update_service(self, spec: &ChainSpec) -> Result<(), String> {
+        self.clone().start_validator_registration_service(spec)?;
         self.start_proposer_prepare_service(spec)
     }
 
@@ -453,14 +447,14 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
                 })
                 .await
             {
-                Ok(()) => debug!(
+                Ok(()) => info!(
                     log,
-                    "Published validator registration";
+                    "Published validator registrations to the builder network";
                     "count" => registration_data_len,
                 ),
                 Err(e) => error!(
                     log,
-                    "Unable to publish validator registration";
+                    "Unable to publish validator registrations to the builder network";
                     "error" => %e,
                 ),
             }

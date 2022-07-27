@@ -3,7 +3,7 @@ use beacon_chain::validator_monitor::{get_block_delay_ms, timestamp_now};
 use beacon_chain::{BeaconChain, BeaconChainTypes, CountUnrealized};
 use lighthouse_network::PubsubMessage;
 use network::NetworkMessage;
-use slog::{crit, debug, error, info, Logger};
+use slog::{crit, error, info, Logger};
 use slot_clock::SlotClock;
 use std::marker::PhantomData;
 use std::sync::Arc;
@@ -247,8 +247,6 @@ async fn reconstruct_block<T: BeaconChainTypes>(
                 execution_payload_header,
             } = execution_payload;
 
-            debug!(log, "Blinded payload before reconstruction"; "execution_payload_header" => ?execution_payload_header);
-
             let ExecutionPayloadHeader {
                 parent_hash,
                 fee_recipient,
@@ -275,15 +273,18 @@ async fn reconstruct_block<T: BeaconChainTypes>(
                 ExecutionPayload::default()
             // If we already have an execution payload with this transactions root cached, use it.
             } else if let Some(cached_payload) = el.get_payload_by_root(&payload_root) {
+                info!(log, "Reconstructing a full block using a local payload"; "block_hash" => ?cached_payload.block_hash);
                 cached_payload
             // Otherwise, this means we are attempting a blind block proposal.
             } else {
-                el.propose_blinded_beacon_block(&block).await.map_err(|e| {
+                let full_payload = el.propose_blinded_beacon_block(&block).await.map_err(|e| {
                     warp_utils::reject::custom_server_error(format!(
                         "Blind block proposal failed: {:?}",
                         e
                     ))
-                })?
+                })?;
+                info!(log, "Successfully published a block to the builder network"; "block_hash" => ?full_payload.block_hash);
+                full_payload
             };
 
             SignedBeaconBlock::Merge(SignedBeaconBlockMerge {

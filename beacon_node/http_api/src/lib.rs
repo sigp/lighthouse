@@ -2439,12 +2439,6 @@ pub fn serve<T: BeaconChainTypes>(
                     })
                     .collect::<Vec<_>>();
 
-                debug!(
-                    log,
-                    "Resolved validator request pubkeys";
-                    "count" => preparation_data.len()
-                );
-
                 // Update the prepare beacon proposer cache based on this request.
                 execution_layer
                     .update_proposer_preparation(current_epoch, &preparation_data)
@@ -2468,6 +2462,12 @@ pub fn serve<T: BeaconChainTypes>(
                     .as_ref()
                     .ok_or(BeaconChainError::BuilderMissing)
                     .map_err(warp_utils::reject::beacon_chain_error)?;
+
+                info!(
+                    log,
+                    "Forwarding register validator request to connected builder";
+                    "count" => register_val_data.len(),
+                );
 
                 builder
                     .post_builder_validators(&register_val_data)

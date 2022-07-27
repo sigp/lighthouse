@@ -608,6 +608,12 @@ impl<T: EthSpec> ExecutionLayer<T> {
                             let is_signature_valid = relay.data.verify_signature(spec);
                             let header = relay.data.message.header;
 
+                            info!(
+                                self.log(),
+                                "Received a payload header from the connected builder";
+                                "block_hash" => ?header.block_hash(),
+                            );
+
                             if header.parent_hash() != parent_hash {
                                 warn!(self.log(), "Invalid parent hash from connected builder, falling back to local execution engine.");
                                 Ok(local)
@@ -651,7 +657,8 @@ impl<T: EthSpec> ExecutionLayer<T> {
                                         Use `builder-fallback` prefixed flags";
                         "failed_condition" => ?condition)
                 }
-                ChainHealth::PreMerge => { /* no-op */ }
+                // Intentional no-op, so we never attempt builder API proposals pre-merge.
+                ChainHealth::PreMerge => (),
             }
         }
         self.get_full_payload_caching(
