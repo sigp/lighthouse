@@ -2324,6 +2324,12 @@ pub fn serve<T: BeaconChainTypes>(
                 blocking_json_task(move || {
                     chain
                         .get_aggregated_sync_committee_contribution(&sync_committee_data)
+                        .map_err(|e| {
+                            warp_utils::reject::custom_bad_request(format!(
+                                "unable to fetch sync contribution: {:?}",
+                                e
+                            ))
+                        })?
                         .map(api_types::GenericResponse::from)
                         .ok_or_else(|| {
                             warp_utils::reject::custom_not_found(
