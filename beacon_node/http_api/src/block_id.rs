@@ -33,7 +33,7 @@ impl BlockId {
                     .map_err(warp_utils::reject::beacon_chain_error)?;
                 Ok((
                     cached_head.head_block_root(),
-                    execution_status.is_optimistic(),
+                    execution_status.is_optimistic_or_invalid(),
                 ))
             }
             CoreBlockId::Genesis => Ok((chain.genesis_block_root, false)),
@@ -53,7 +53,7 @@ impl BlockId {
             }
             CoreBlockId::Slot(slot) => {
                 let execution_optimistic = chain
-                    .is_optimistic_head()
+                    .is_optimistic_or_invalid_head()
                     .map_err(warp_utils::reject::beacon_chain_error)?;
                 let root = chain
                     .block_root_at_slot(*slot, WhenSlotSkipped::None)
@@ -85,7 +85,7 @@ impl BlockId {
                     let execution_optimistic = chain
                         .canonical_head
                         .fork_choice_read_lock()
-                        .is_optimistic_block(root)
+                        .is_optimistic_or_invalid_block(root)
                         .map_err(BeaconChainError::ForkChoiceError)
                         .map_err(warp_utils::reject::beacon_chain_error)?;
                     Ok((*root, execution_optimistic))
@@ -112,7 +112,7 @@ impl BlockId {
                     .map_err(warp_utils::reject::beacon_chain_error)?;
                 Ok((
                     cached_head.snapshot.beacon_block.clone_as_blinded(),
-                    execution_status.is_optimistic(),
+                    execution_status.is_optimistic_or_invalid(),
                 ))
             }
             CoreBlockId::Slot(slot) => {
@@ -167,7 +167,7 @@ impl BlockId {
                     .map_err(warp_utils::reject::beacon_chain_error)?;
                 Ok((
                     cached_head.snapshot.beacon_block.clone(),
-                    execution_status.is_optimistic(),
+                    execution_status.is_optimistic_or_invalid(),
                 ))
             }
             CoreBlockId::Slot(slot) => {

@@ -894,7 +894,7 @@ pub fn serve<T: BeaconChainTypes>(
                             (
                                 cached_head.head_block_root(),
                                 cached_head.snapshot.beacon_block.clone_as_blinded(),
-                                execution_status.is_optimistic(),
+                                execution_status.is_optimistic_or_invalid(),
                             )
                         }
                         // Only the parent root parameter, do a forwards-iterator lookup.
@@ -1608,7 +1608,7 @@ pub fn serve<T: BeaconChainTypes>(
                                 chain
                                     .canonical_head
                                     .fork_choice_read_lock()
-                                    .is_optimistic_block(&root)
+                                    .is_optimistic_or_invalid_block(&root)
                                     .ok()
                             } else {
                                 return Err(unsupported_version_rejection(endpoint_version));
@@ -1699,7 +1699,7 @@ pub fn serve<T: BeaconChainTypes>(
                     let sync_distance = current_slot - head_slot;
 
                     let is_optimistic = chain
-                        .is_optimistic_head()
+                        .is_optimistic_or_invalid_head()
                         .map_err(warp_utils::reject::beacon_chain_error)?;
 
                     let syncing_data = api_types::SyncingData {

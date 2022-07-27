@@ -752,7 +752,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ) -> Result<(), Error> {
         let old_snapshot = &old_cached_head.snapshot;
         let new_snapshot = &new_cached_head.snapshot;
-        let new_head_is_optimistic = new_head_proto_block.execution_status.is_optimistic();
+        let new_head_is_optimistic = new_head_proto_block
+            .execution_status
+            .is_optimistic_or_invalid();
 
         // Detect and potentially report any re-orgs.
         let reorg_distance = detect_reorg(
@@ -883,7 +885,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         finalized_proto_block: ProtoBlock,
     ) -> Result<(), Error> {
         let new_snapshot = &new_cached_head.snapshot;
-        let finalized_block_is_optimistic = finalized_proto_block.execution_status.is_optimistic();
+        let finalized_block_is_optimistic = finalized_proto_block
+            .execution_status
+            .is_optimistic_or_invalid();
 
         self.op_pool
             .prune_all(&new_snapshot.beacon_state, self.epoch()?);
@@ -1260,7 +1264,7 @@ fn observe_head_block_delays<E: EthSpec, S: SlotClock>(
     let block_time_set_as_head = timestamp_now();
     let head_block_root = head_block.root;
     let head_block_slot = head_block.slot;
-    let head_block_is_optimistic = head_block.execution_status.is_optimistic();
+    let head_block_is_optimistic = head_block.execution_status.is_optimistic_or_invalid();
 
     // Calculate the total delay between the start of the slot and when it was set as head.
     let block_delay_total = get_slot_delay_ms(block_time_set_as_head, head_block_slot, slot_clock);
