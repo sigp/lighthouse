@@ -574,6 +574,9 @@ where
         let slot_clock = self
             .slot_clock
             .ok_or("Cannot build without a slot_clock.")?;
+        if Duration::from_secs(self.spec.seconds_per_slot) != slot_clock.slot_duration() {
+            return Err("Mismatched slot duration between slot clock and spec".into());
+        }
         let store = self.store.clone().ok_or("Cannot build without a store.")?;
         let mut fork_choice = self
             .fork_choice
