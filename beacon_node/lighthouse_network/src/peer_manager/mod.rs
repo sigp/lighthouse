@@ -481,7 +481,15 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                     // implement a new sync type which tracks these peers and prevents the sync
                     // algorithms from requesting blocks from them (at least for a set period of
                     // time, multiple failures would then lead to a ban).
-                    PeerAction::Fatal
+
+                    match direction {
+                        // If the blocks request was initiated by us, then we have no use of this
+                        // peer and so we ban it.
+                        ConnectionDirection::Outgoing => PeerAction::Fatal,
+                        // If the blocks request was initiated by the peer, then we let the peer decide if
+                        // it wants to continue talking to us, we do not ban the peer.
+                        ConnectionDirection::Incoming => return,
+                    }
                 }
                 RPCResponseErrorCode::ServerError => PeerAction::MidToleranceError,
                 RPCResponseErrorCode::InvalidRequest => PeerAction::LowToleranceError,

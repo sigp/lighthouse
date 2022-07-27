@@ -135,6 +135,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         executor.spawn(
             async move {
                 let mut send_block_count = 0;
+                let mut send_response = true;
                 for root in request.block_roots.iter() {
                     match self
                         .chain
@@ -157,6 +158,23 @@ impl<T: BeaconChainTypes> Worker<T> {
                                 "request_root" => ?root
                             );
                         }
+                        Err(BeaconChainError::BlockHashMissingFromExecutionLayer(_)) => {
+                            debug!(
+                                self.log,
+                                "Failed to fetch execution payload for blocks by root request";
+                                "block_root" => ?root,
+                                "reason" => "execution layer not synced",
+                            );
+                            // send the stream terminator
+                            self.send_error_response(
+                                peer_id,
+                                RPCResponseErrorCode::ResourceUnavailable,
+                                "Execution layer not synced".into(),
+                                request_id,
+                            );
+                            send_response = false;
+                            break;
+                        }
                         Err(e) => {
                             debug!(
                                 self.log,
@@ -173,11 +191,13 @@ impl<T: BeaconChainTypes> Worker<T> {
                     "Received BlocksByRoot Request";
                     "peer" => %peer_id,
                     "requested" => request.block_roots.len(),
-                    "returned" => send_block_count
+                    "returned" => %send_block_count
                 );
 
                 // send stream termination
-                self.send_response(peer_id, Response::BlocksByRoot(None), request_id);
+                if send_response {
+                    self.send_response(peer_id, Response::BlocksByRoot(None), request_id);
+                }
                 drop(send_on_drop);
             },
             "load_blocks_by_root_blocks",
@@ -255,6 +275,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         executor.spawn(
             async move {
                 let mut blocks_sent = 0;
+                let mut send_response = true;
 
                 for root in block_roots {
                     match self.chain.get_block(&root).await {
@@ -278,6 +299,23 @@ impl<T: BeaconChainTypes> Worker<T> {
                                 "Block in the chain is not in the store";
                                 "request_root" => ?root
                             );
+                            break;
+                        }
+                        Err(BeaconChainError::BlockHashMissingFromExecutionLayer(_)) => {
+                            debug!(
+                                self.log,
+                                "Failed to fetch execution payload for blocks by range request";
+                                "block_root" => ?root,
+                                "reason" => "execution layer not synced",
+                            );
+                            // send the stream terminator
+                            self.send_error_response(
+                                peer_id,
+                                RPCResponseErrorCode::ResourceUnavailable,
+                                "Execution layer not synced".into(),
+                                request_id,
+                            );
+                            send_response = false;
                             break;
                         }
                         Err(e) => {
@@ -320,12 +358,15 @@ impl<T: BeaconChainTypes> Worker<T> {
                     );
                 }
 
-                // send the stream terminator
-                self.send_network_message(NetworkMessage::SendResponse {
-                    peer_id,
-                    response: Response::BlocksByRange(None),
-                    id: request_id,
-                });
+                if send_response {
+                    // send the stream terminator
+                    self.send_network_message(NetworkMessage::SendResponse {
+                        peer_id,
+                        response: Response::BlocksByRange(None),
+                        id: request_id,
+                    });
+                }
+
                 drop(send_on_drop);
             },
             "load_blocks_by_range_blocks",
