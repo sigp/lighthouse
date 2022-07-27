@@ -82,5 +82,5 @@ pub trait ForkChoiceStore<T: EthSpec>: Sized {
     fn equivocating_indices(&self) -> &BTreeSet<u64>;
 
     /// Adds to the set of equivocating indices.
-    fn extend_equivocating_indices(&mut self, indices: Vec<u64>);
+    fn extend_equivocating_indices(&mut self, indices: impl IntoIterator<Item = u64>);
 }

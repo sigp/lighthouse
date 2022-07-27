@@ -2,10 +2,10 @@ use crate::{ForkChoiceStore, InvalidationOperation};
 use proto_array::{Block as ProtoBlock, ExecutionStatus, ProtoArrayForkChoice};
 use ssz_derive::{Decode, Encode};
 use state_processing::{
-    per_block_processing::{errors::AttesterSlashingValidationError, get_slashable_indices},
-    per_epoch_processing,
+    per_block_processing::errors::AttesterSlashingValidationError, per_epoch_processing,
 };
 use std::cmp::Ordering;
+use std::collections::BTreeSet;
 use std::marker::PhantomData;
 use std::time::Duration;
 use types::{
@@ -1100,23 +1100,20 @@ where
         Ok(())
     }
 
-    pub fn on_attester_slashing(
-        &mut self,
-        slashing: &AttesterSlashing<E>,
-        head_state: &BeaconState<E>,
-    ) -> Result<(), Error<T::Error>> {
-        // We assume that the attester slashing provided to this function has already been verified.
-        //
-        // Instead of loading the justified state as per the spec, we use the head state that the
-        // slashing was verified against. The differences should be negligible, if a validator is
-        // slashable at the justified state but not at the head state then their withdrawable epoch
-        // must fall between justification and the head, which means they are incapable of attesting
-        // anyway. If a validator is slashable at the head but not at justification then it means
-        // their activation has occurred since justification, and we arguably shouldn't be counting
-        // their attestations.
-        let slashed_indices = get_slashable_indices(head_state, slashing)?;
-        self.fc_store.extend_equivocating_indices(slashed_indices);
-        Ok(())
+    /// Apply an attester slashing to fork choice.
+    ///
+    /// We assume that the attester slashing provided to this function has already been verified.
+    pub fn on_attester_slashing(&mut self, slashing: &AttesterSlashing<E>) {
+        let attesting_indices_set = |att: &IndexedAttestation<E>| {
+            att.attesting_indices
+                .iter()
+                .copied()
+                .collect::<BTreeSet<_>>()
+        };
+        let att1_indices = attesting_indices_set(&slashing.attestation_1);
+        let att2_indices = attesting_indices_set(&slashing.attestation_2);
+        self.fc_store
+            .extend_equivocating_indices(att1_indices.intersection(&att2_indices).copied());
     }
 
     /// Call `on_tick` for all slots between `fc_store.get_current_slot()` and the provided

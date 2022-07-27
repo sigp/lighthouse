@@ -360,7 +360,7 @@ where
         &self.equivocating_indices
     }
 
-    fn extend_equivocating_indices(&mut self, indices: Vec<u64>) {
+    fn extend_equivocating_indices(&mut self, indices: impl IntoIterator<Item = u64>) {
         self.equivocating_indices.extend(indices);
     }
 }

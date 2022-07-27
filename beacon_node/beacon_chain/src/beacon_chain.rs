@@ -2072,28 +2072,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         attester_slashing: SigVerifiedOp<AttesterSlashing<T::EthSpec>>,
     ) {
-        let cached_head = self.canonical_head.cached_head();
-
         // Add to fork choice.
-        if let Err(e) = self
-            .canonical_head
+        self.canonical_head
             .fork_choice_write_lock()
-            .on_attester_slashing(
-                attester_slashing.as_inner(),
-                &cached_head.snapshot.beacon_state,
-            )
-        {
-            warn!(
-                self.log,
-                "Unable to apply attester slashing to fork choice";
-                "error" => ?e,
-            );
-        }
+            .on_attester_slashing(attester_slashing.as_inner());
 
         // Add to the op pool (if we have the ability to propose blocks).
         if self.eth1_chain.is_some() {
-            self.op_pool
-                .insert_attester_slashing(attester_slashing, cached_head.head_fork())
+            self.op_pool.insert_attester_slashing(
+                attester_slashing,
+                self.canonical_head.cached_head().head_fork(),
+            )
         }
     }
 
@@ -2707,20 +2696,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let validator_monitor = self.validator_monitor.read();
 
         // Register each attester slashing in the block with fork choice.
-        for (i, attester_slashing) in block.body().attester_slashings().iter().enumerate() {
-            match fork_choice.on_attester_slashing(attester_slashing, &state) {
-                Ok(()) => (),
-                Err(ForkChoiceError::InvalidAttesterSlashing(e)) => {
-                    warn!(
-                        self.log,
-                        "Attester slashing in block is invalid for fork choice";
-                        "block_root" => ?block_root,
-                        "slashing_index" => i,
-                        "error" => ?e,
-                    );
-                }
-                Err(e) => return Err(BlockError::BeaconChainError(e.into())),
-            }
+        for attester_slashing in block.body().attester_slashings() {
+            fork_choice.on_attester_slashing(attester_slashing);
         }
 
         // Register each attestation in the block with the fork choice service.
