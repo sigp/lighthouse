@@ -574,6 +574,7 @@ where
         let slot_clock = self
             .slot_clock
             .ok_or("Cannot build without a slot_clock.")?;
+        #[cfg(not(test))]
         if Duration::from_secs(self.spec.seconds_per_slot) != slot_clock.slot_duration() {
             return Err("Mismatched slot duration between slot clock and spec".into());
         }
