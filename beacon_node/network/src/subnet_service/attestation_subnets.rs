@@ -9,13 +9,12 @@ use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 
+use beacon_chain::{BeaconChain, BeaconChainTypes};
+use delay_map::HashSetDelay;
 use futures::prelude::*;
+use lighthouse_network::{NetworkConfig, Subnet, SubnetDiscovery};
 use rand::seq::SliceRandom;
 use slog::{debug, error, o, trace, warn};
-
-use beacon_chain::{BeaconChain, BeaconChainTypes};
-use hashset_delay::HashSetDelay;
-use lighthouse_network::{NetworkConfig, Subnet, SubnetDiscovery};
 use slot_clock::SlotClock;
 use types::{Attestation, EthSpec, Slot, SubnetId, ValidatorSubscription};
 
@@ -31,13 +30,19 @@ const LAST_SEEN_VALIDATOR_TIMEOUT: u32 = 150;
 /// The fraction of a slot that we subscribe to a subnet before the required slot.
 ///
 /// Note: The time is calculated as `time = seconds_per_slot / ADVANCE_SUBSCRIPTION_TIME`.
-const ADVANCE_SUBSCRIBE_TIME: u32 = 3;
+const ADVANCE_SUBSCRIBE_SLOT_FRACTION: u32 = 3;
 /// The default number of slots before items in hash delay sets used by this class should expire.
 ///  36s at 12s slot time
 const DEFAULT_EXPIRATION_TIMEOUT: u32 = 3;
 
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+enum SubscriptionKind {
+    LongLived,
+    ShortLived,
+}
+
 /// A particular subnet at a given slot.
-#[derive(PartialEq, Eq, Hash, Clone, Debug)]
+#[derive(PartialEq, Eq, Hash, Clone, Debug, Copy)]
 pub struct ExactSubnet {
     /// The `SubnetId` associated with this subnet.
     pub subnet_id: SubnetId,
@@ -52,14 +57,11 @@ pub struct AttestationService<T: BeaconChainTypes> {
     /// A reference to the beacon chain to process received attestations.
     pub(crate) beacon_chain: Arc<BeaconChain<T>>,
 
-    /// The collection of currently subscribed random subnets mapped to their expiry deadline.
-    pub(crate) random_subnets: HashSetDelay<SubnetId>,
+    /// Subnets we are currently subscribed to.
+    current_subscriptions: delay_map::HashMapDelay<SubnetId, SubscriptionKind>,
 
-    /// The collection of all currently subscribed subnets (long-lived **and** short-lived).
-    subscriptions: HashSet<SubnetId>,
-
-    /// A collection of timeouts for when to unsubscribe from a shard subnet.
-    unsubscriptions: HashSetDelay<ExactSubnet>,
+    /// Short lived subscriptions that need to be done in the future.
+    scheduled_short_lived_subscriptions: delay_map::HashSetDelay<ExactSubnet>,
 
     /// A collection timeouts to track the existence of aggregate validator subscriptions at an `ExactSubnet`.
     aggregate_validators_on_subnet: HashSetDelay<ExactSubnet>,
@@ -115,15 +117,14 @@ impl<T: BeaconChainTypes> AttestationService<T> {
         AttestationService {
             events: VecDeque::with_capacity(10),
             beacon_chain,
-            random_subnets: HashSetDelay::new(Duration::from_millis(random_subnet_duration_millis)),
-            subscriptions: HashSet::new(),
-            unsubscriptions: HashSetDelay::new(default_timeout),
+            current_subscriptions: Default::default(),
+            scheduled_short_lived_subscriptions: HashSetDelay::default(),
             aggregate_validators_on_subnet: HashSetDelay::new(default_timeout),
             known_validators: HashSetDelay::new(last_seen_val_timeout),
             waker: None,
+            discovery_disabled: config.disable_discovery,
             subscribe_all_subnets: config.subscribe_all_subnets,
             import_all_attestations: config.import_all_attestations,
-            discovery_disabled: config.disable_discovery,
             log,
         }
     }
@@ -134,7 +135,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
         if self.subscribe_all_subnets {
             self.beacon_chain.spec.attestation_subnet_count as usize
         } else {
-            self.subscriptions.len()
+            self.current_subscriptions.len()
         }
     }
 
@@ -158,7 +159,6 @@ impl<T: BeaconChainTypes> AttestationService<T> {
         let mut subnets_to_discover: HashMap<SubnetId, Slot> = HashMap::new();
         for subscription in subscriptions {
             metrics::inc_counter(&metrics::SUBNET_SUBSCRIPTION_REQUESTS);
-            //NOTE: We assume all subscriptions have been verified before reaching this service
 
             // Registers the validator with the attestation service.
             // This will subscribe to long-lived random subnets if required.
@@ -256,7 +256,8 @@ impl<T: BeaconChainTypes> AttestationService<T> {
             subnet_id: subnet,
             slot: attestation.data.slot,
         };
-        self.aggregate_validators_on_subnet.contains(&exact_subnet)
+
+        true
     }
 
     /* Internal private functions */
@@ -322,9 +323,35 @@ impl<T: BeaconChainTypes> AttestationService<T> {
             .slot_clock
             .now()
             .ok_or("Could not get the current slot")?;
+        let slot_duration = self.beacon_chain.slot_clock.slot_duration();
 
-        // Calculate the duration to the unsubscription event.
-        // There are two main cases. Attempting to subscribe to the current slot and all others.
+        // Calculate how long before we need to subscribe to the subnet.
+        let time_to_subscription_start = {
+            // the short time we schedule the subscription before it's actually required
+            let advance_subscription_duration = slot_duration / ADVANCE_SUBSCRIBE_SLOT_FRACTION;
+            // the time to the required slot
+            let time_to_subscription_slot = self
+                .beacon_chain
+                .slot_clock
+                .duration_to_slot(exact_subnet.slot)
+                .unwrap_or_default();
+            time_to_subscription_slot.saturating_sub(advance_subscription_duration)
+        };
+
+        let time_to_subscription_end = {
+            // the time to the end of the required slot. Here we assume subscriptions are required
+            // for a single slot.
+            self.beacon_chain
+                .slot_clock
+                .duration_to_slot(exact_subnet.slot)
+                .unwrap_or_default()
+                + slot_duration
+        };
+
+        // If the subscription should be done in the future, schedule it. Otherwise subscribe
+        // immediately.
+        if time_to_subscription_start {}
+
         let expected_end_subscription_duration = if current_slot >= exact_subnet.slot {
             self.beacon_chain
                 .slot_clock
@@ -466,7 +493,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
             // to be subscribed, just extend the expiry
             let slot_duration = self.beacon_chain.slot_clock.slot_duration();
             let advance_subscription_duration = slot_duration
-                .checked_div(ADVANCE_SUBSCRIBE_TIME)
+                .checked_div(ADVANCE_SUBSCRIBE_SLOT_FRACTION)
                 .expect("ADVANCE_SUBSCRIPTION_TIME cannot be too large");
             // we require the subnet subscription for at least a slot on top of the initial
             // subscription time
