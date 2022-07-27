@@ -15,6 +15,7 @@ use fork_choice::{
 };
 use proto_array::{Error as ProtoArrayError, ExecutionStatus};
 use slot_clock::SlotClock;
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use task_executor::ShutdownReason;
@@ -1329,7 +1330,7 @@ async fn recover_from_invalid_head_by_importing_blocks() {
 }
 
 #[tokio::test]
-async fn recover_from_invalid_head_after_reboot() {
+async fn recover_from_invalid_head_after_persist_and_reboot() {
     let InvalidHeadSetup {
         rig,
         fork_blocks: _,
@@ -1364,4 +1365,72 @@ async fn recover_from_invalid_head_after_reboot() {
             .unwrap(),
         "the invalid block should have become optimistic"
     );
+}
+
+#[tokio::test]
+async fn weights_after_resetting_optimistic_status() {
+    let mut rig = InvalidPayloadRig::new().enable_attestations();
+    rig.move_to_terminal_block();
+    rig.import_block(Payload::Valid).await; // Import a valid transition block.
+
+    let mut roots = vec![];
+    for _ in 0..4 {
+        roots.push(rig.import_block(Payload::Syncing).await);
+    }
+
+    rig.recompute_head().await;
+    let head = rig.cached_head();
+
+    let original_weights = rig
+        .harness
+        .chain
+        .canonical_head
+        .fork_choice_read_lock()
+        .proto_array()
+        .iter_nodes(&head.head_block_root())
+        .map(|node| (node.root, node.weight))
+        .collect::<HashMap<_, _>>();
+
+    rig.invalidate_manually(roots[1]).await;
+
+    rig.harness
+        .chain
+        .canonical_head
+        .fork_choice_write_lock()
+        .proto_array_mut()
+        .set_all_blocks_to_optimistic::<E>(&rig.harness.chain.spec)
+        .unwrap();
+
+    let new_weights = rig
+        .harness
+        .chain
+        .canonical_head
+        .fork_choice_read_lock()
+        .proto_array()
+        .iter_nodes(&head.head_block_root())
+        .map(|node| (node.root, node.weight))
+        .collect::<HashMap<_, _>>();
+
+    assert_eq!(original_weights, new_weights);
+
+    // Advance the current slot and run fork choice to remove proposer boost.
+    rig.harness
+        .set_current_slot(rig.harness.chain.slot().unwrap() + 1);
+    rig.recompute_head().await;
+
+    assert_eq!(
+        rig.harness
+            .chain
+            .canonical_head
+            .fork_choice_read_lock()
+            .get_block_weight(&head.head_block_root())
+            .unwrap(),
+        head.snapshot.beacon_state.validators()[0].effective_balance,
+        "proposer boost should be removed from the head block and the vote of a single validator applied"
+    );
+
+    // Import a length of chain to ensure the chain can be built atop.
+    for _ in 0..E::slots_per_epoch() * 4 {
+        rig.import_block(Payload::Valid).await; // Import a valid transition block.
+    }
 }

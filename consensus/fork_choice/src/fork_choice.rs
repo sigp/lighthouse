@@ -1455,7 +1455,9 @@ where
         // FFG properties is has an invalid payload. In this scenario, set all the payloads back to
         // an optimistic status so that we can have a head to start from.
         if let Err(_) = fork_choice.get_head(current_slot, spec) {
-            fork_choice.proto_array.set_all_blocks_to_optimistic()?;
+            fork_choice
+                .proto_array
+                .set_all_blocks_to_optimistic::<E>(spec)?;
             // If the second attempt at finding a head fails, return an error since we do not
             // expect this scenario.
             fork_choice.get_head(current_slot, spec)?;
