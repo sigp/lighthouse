@@ -11,7 +11,7 @@ use beacon_chain::{
 };
 use serde_derive::Deserialize;
 use ssz_derive::Decode;
-use state_processing::{state_advance::complete_state_advance, SigVerifiedOp};
+use state_processing::state_advance::complete_state_advance;
 use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
@@ -172,7 +172,7 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
                 }
                 Step::Attestation { attestation } => tester.process_attestation(attestation)?,
                 Step::AttesterSlashing { attester_slashing } => {
-                    tester.process_attester_slashing(attester_slashing.clone())
+                    tester.process_attester_slashing(attester_slashing)
                 }
                 Step::PowBlock { pow_block } => tester.process_pow_block(pow_block),
                 Step::Checks { checks } => {
@@ -434,11 +434,12 @@ impl<E: EthSpec> Tester<E> {
             .map_err(|e| Error::InternalError(format!("attestation import failed with {:?}", e)))
     }
 
-    pub fn process_attester_slashing(&self, attester_slashing: AttesterSlashing<E>) {
-        let verified_slashing = SigVerifiedOp::new_unsafe(attester_slashing);
+    pub fn process_attester_slashing(&self, attester_slashing: &AttesterSlashing<E>) {
         self.harness
             .chain
-            .import_attester_slashing(verified_slashing)
+            .canonical_head
+            .fork_choice_write_lock()
+            .on_attester_slashing(attester_slashing)
     }
 
     pub fn process_pow_block(&self, pow_block: &PowBlock) {

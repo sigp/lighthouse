@@ -12,7 +12,7 @@ use types::{
 /// Wrapper around an operation type that acts as proof that its signature has been checked.
 ///
 /// The inner field is private, meaning instances of this type can only be constructed
-/// by calling `validate` or using `new_unsafe` (which should only be used in tests).
+/// by calling `validate`.
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct SigVerifiedOp<T>(T);
 
@@ -23,10 +23,6 @@ impl<T> SigVerifiedOp<T> {
 
     pub fn as_inner(&self) -> &T {
         &self.0
-    }
-
-    pub fn new_unsafe(val: T) -> Self {
-        SigVerifiedOp(val)
     }
 }
 
