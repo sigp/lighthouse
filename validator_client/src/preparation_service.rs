@@ -22,6 +22,9 @@ const PROPOSER_PREPARATION_LOOKAHEAD_EPOCHS: u64 = 2;
 /// Number of epochs to wait before re-submitting validator registration.
 const EPOCHS_PER_VALIDATOR_REGISTRATION_SUBMISSION: u64 = 1;
 
+/// The number of validator registrations to include per request to the beacon node.
+const VALIDATOR_REGISTRATION_BATCH_SIZE: usize = 500;
+
 /// Builds an `PreparationService`.
 pub struct PreparationServiceBuilder<T: SlotClock + 'static, E: EthSpec> {
     validator_store: Option<Arc<ValidatorStore<T, E>>>,
@@ -436,27 +439,25 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
         }
 
         if !signed.is_empty() {
-            let signed_ref = signed.as_slice();
-
-            match self
-                .beacon_nodes
-                .first_success(RequireSynced::Yes, |beacon_node| async move {
-                    beacon_node
-                        .post_validator_register_validator(signed_ref)
-                        .await
-                })
-                .await
-            {
-                Ok(()) => info!(
-                    log,
-                    "Published validator registrations to the builder network";
-                    "count" => registration_data_len,
-                ),
-                Err(e) => error!(
-                    log,
-                    "Unable to publish validator registrations to the builder network";
-                    "error" => %e,
-                ),
+            for batch in signed.chunks(VALIDATOR_REGISTRATION_BATCH_SIZE) {
+                match self
+                    .beacon_nodes
+                    .first_success(RequireSynced::Yes, |beacon_node| async move {
+                        beacon_node.post_validator_register_validator(batch).await
+                    })
+                    .await
+                {
+                    Ok(()) => info!(
+                        log,
+                        "Published validator registrations to the builder network";
+                        "count" => registration_data_len,
+                    ),
+                    Err(e) => error!(
+                        log,
+                        "Unable to publish validator registrations to the builder network";
+                        "error" => %e,
+                    ),
+                }
             }
         }
         Ok(())

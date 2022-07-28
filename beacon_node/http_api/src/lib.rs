@@ -2480,6 +2480,7 @@ pub fn serve<T: BeaconChainTypes>(
                     .await
                     .map(|resp| warp::reply::json(&resp))
                     .map_err(|e| {
+                        error!(log, "Error from connected relay"; "error" => ?e);
                         // Forward the HTTP status code if we are able to, otherwise fall back
                         // to a server error.
                         if let eth2::Error::ServerMessage(message) = e {
