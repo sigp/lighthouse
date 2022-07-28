@@ -1382,10 +1382,41 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn get_aggregated_sync_committee_contribution(
         &self,
         sync_contribution_data: &SyncContributionData,
-    ) -> Option<SyncCommitteeContribution<T::EthSpec>> {
-        self.naive_sync_aggregation_pool
+    ) -> Result<Option<SyncCommitteeContribution<T::EthSpec>>, Error> {
+        if let Some(contribution) = self
+            .naive_sync_aggregation_pool
             .read()
             .get(sync_contribution_data)
+        {
+            self.filter_optimistic_sync_committee_contribution(contribution)
+                .map(Option::Some)
+        } else {
+            Ok(None)
+        }
+    }
+
+    fn filter_optimistic_sync_committee_contribution(
+        &self,
+        contribution: SyncCommitteeContribution<T::EthSpec>,
+    ) -> Result<SyncCommitteeContribution<T::EthSpec>, Error> {
+        let beacon_block_root = contribution.beacon_block_root;
+        match self
+            .canonical_head
+            .fork_choice_read_lock()
+            .get_block_execution_status(&beacon_block_root)
+        {
+            // The contribution references a block that is not in fork choice, it must be
+            // pre-finalization.
+            None => Err(Error::SyncContributionDataReferencesFinalizedBlock { beacon_block_root }),
+            // The contribution references a fully valid `beacon_block_root`.
+            Some(execution_status) if execution_status.is_valid_or_irrelevant() => Ok(contribution),
+            // The contribution references a block that has not been verified by an EL (i.e. it
+            // is optimistic or invalid). Don't return the block, return an error instead.
+            Some(execution_status) => Err(Error::HeadBlockNotFullyVerified {
+                beacon_block_root,
+                execution_status,
+            }),
+        }
     }
 
     /// Produce an unaggregated `Attestation` that is valid for the given `slot` and `index`.
@@ -2066,11 +2097,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         )?)
     }
 
-    /// Accept some attester slashing and queue it for inclusion in an appropriate block.
+    /// Accept a verified attester slashing and:
+    ///
+    /// 1. Apply it to fork choice.
+    /// 2. Add it to the op pool.
     pub fn import_attester_slashing(
         &self,
         attester_slashing: SigVerifiedOp<AttesterSlashing<T::EthSpec>>,
     ) {
+        // Add to fork choice.
+        self.canonical_head
+            .fork_choice_write_lock()
+            .on_attester_slashing(attester_slashing.as_inner());
+
+        // Add to the op pool (if we have the ability to propose blocks).
         if self.eth1_chain.is_some() {
             self.op_pool.insert_attester_slashing(
                 attester_slashing,
@@ -2687,6 +2727,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .write()
             .process_valid_state(current_slot.epoch(T::EthSpec::slots_per_epoch()), &state);
         let validator_monitor = self.validator_monitor.read();
+
+        // Register each attester slashing in the block with fork choice.
+        for attester_slashing in block.body().attester_slashings() {
+            fork_choice.on_attester_slashing(attester_slashing);
+        }
 
         // Register each attestation in the block with the fork choice service.
         for attestation in block.body().attestations() {

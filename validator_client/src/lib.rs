@@ -440,7 +440,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             context.service_context("sync_committee".into()),
         );
 
-        // Wait until genesis has occured.
+        // Wait until genesis has occurred.
         //
         // It seems most sensible to move this into the `start_service` function, but I'm caution
         // of making too many changes this close to genesis (<1 week).

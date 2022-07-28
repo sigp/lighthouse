@@ -362,7 +362,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                     Some(msg) = self.attestation_service.next() => self.on_attestation_service_msg(msg),
 
                     // process any sync committee service events
-                    Some(msg) = self.sync_committee_service.next() => self.on_sync_commitee_service_message(msg),
+                    Some(msg) = self.sync_committee_service.next() => self.on_sync_committee_service_message(msg),
 
                     event = self.libp2p.next_event() => self.on_libp2p_event(event, &mut shutdown_sender).await,
 
@@ -774,7 +774,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         }
     }
 
-    fn on_sync_commitee_service_message(&mut self, msg: SubnetServiceMessage) {
+    fn on_sync_committee_service_message(&mut self, msg: SubnetServiceMessage) {
         match msg {
             SubnetServiceMessage::Subscribe(subnet) => {
                 for fork_digest in self.required_gossip_fork_digests() {

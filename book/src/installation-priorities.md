@@ -4,10 +4,10 @@ When publishing releases, Lighthouse will include an "Update Priority" section i
 
 The "Update Priority" section will include a table which may appear like so:
 
-|User Class |Beacon Node  | Validator Client|
---- | --- | ---
-|Staking Users| Medium Priority | Low Priority |
-|Non-Staking Users| Low Priority|---|
+| User Class        | Beacon Node     | Validator Client |
+|-------------------|-----------------|------------------|
+| Staking Users     | Medium Priority | Low Priority     |
+| Non-Staking Users | Low Priority    | ---              |
 
 To understand this table, the following terms are important:
 

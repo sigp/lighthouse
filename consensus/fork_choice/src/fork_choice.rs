@@ -1,19 +1,23 @@
 use crate::{ForkChoiceStore, InvalidationOperation};
 use proto_array::{Block as ProtoBlock, ExecutionStatus, ProtoArrayForkChoice};
 use ssz_derive::{Decode, Encode};
-use state_processing::per_epoch_processing;
+use state_processing::{
+    per_block_processing::errors::AttesterSlashingValidationError, per_epoch_processing,
+};
 use std::cmp::Ordering;
+use std::collections::BTreeSet;
 use std::marker::PhantomData;
 use std::time::Duration;
 use types::{
-    consts::merge::INTERVALS_PER_SLOT, AttestationShufflingId, BeaconBlockRef, BeaconState,
-    BeaconStateError, ChainSpec, Checkpoint, Epoch, EthSpec, ExecPayload, ExecutionBlockHash,
-    Hash256, IndexedAttestation, RelativeEpoch, SignedBeaconBlock, Slot,
+    consts::merge::INTERVALS_PER_SLOT, AttestationShufflingId, AttesterSlashing, BeaconBlockRef,
+    BeaconState, BeaconStateError, ChainSpec, Checkpoint, Epoch, EthSpec, ExecPayload,
+    ExecutionBlockHash, Hash256, IndexedAttestation, RelativeEpoch, SignedBeaconBlock, Slot,
 };
 
 #[derive(Debug)]
 pub enum Error<T> {
     InvalidAttestation(InvalidAttestation),
+    InvalidAttesterSlashing(AttesterSlashingValidationError),
     InvalidBlock(InvalidBlock),
     ProtoArrayError(String),
     InvalidProtoArrayBytes(String),
@@ -60,6 +64,12 @@ pub enum Error<T> {
 impl<T> From<InvalidAttestation> for Error<T> {
     fn from(e: InvalidAttestation) -> Self {
         Error::InvalidAttestation(e)
+    }
+}
+
+impl<T> From<AttesterSlashingValidationError> for Error<T> {
+    fn from(e: AttesterSlashingValidationError) -> Self {
+        Error::InvalidAttesterSlashing(e)
     }
 }
 
@@ -413,26 +423,6 @@ where
         Ok(fork_choice)
     }
 
-    /*
-    /// Instantiates `Self` from some existing components.
-    ///
-    /// This is useful if the existing components have been loaded from disk after a process
-    /// restart.
-    pub fn from_components(
-        fc_store: T,
-        proto_array: ProtoArrayForkChoice,
-        queued_attestations: Vec<QueuedAttestation>,
-    ) -> Self {
-        Self {
-            fc_store,
-            proto_array,
-            queued_attestations,
-            forkchoice_update_parameters: None,
-            _phantom: PhantomData,
-        }
-    }
-    */
-
     /// Returns cached information that can be used to issue a `forkchoiceUpdated` message to an
     /// execution engine.
     ///
@@ -507,6 +497,7 @@ where
             *store.finalized_checkpoint(),
             store.justified_balances(),
             store.proposer_boost_root(),
+            store.equivocating_indices(),
             current_slot,
             spec,
         )?;
@@ -1109,6 +1100,22 @@ where
         Ok(())
     }
 
+    /// Apply an attester slashing to fork choice.
+    ///
+    /// We assume that the attester slashing provided to this function has already been verified.
+    pub fn on_attester_slashing(&mut self, slashing: &AttesterSlashing<E>) {
+        let attesting_indices_set = |att: &IndexedAttestation<E>| {
+            att.attesting_indices
+                .iter()
+                .copied()
+                .collect::<BTreeSet<_>>()
+        };
+        let att1_indices = attesting_indices_set(&slashing.attestation_1);
+        let att2_indices = attesting_indices_set(&slashing.attestation_2);
+        self.fc_store
+            .extend_equivocating_indices(att1_indices.intersection(&att2_indices).copied());
+    }
+
     /// Call `on_tick` for all slots between `fc_store.get_current_slot()` and the provided
     /// `current_slot`. Returns the value of `self.fc_store.get_current_slot`.
     pub fn update_time(
@@ -1324,8 +1331,6 @@ where
         }
 
         // If the parent block has execution enabled, always import the block.
-        //
-        // TODO(bellatrix): this condition has not yet been merged into the spec.
         //
         // See:
         //

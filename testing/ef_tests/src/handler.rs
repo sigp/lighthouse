@@ -52,7 +52,7 @@ pub trait Handler {
                 .filter(|e| e.file_type().map(|ty| ty.is_dir()).unwrap_or(false))
         };
         let test_cases = fs::read_dir(&handler_path)
-            .expect("handler dir exists")
+            .unwrap_or_else(|e| panic!("handler dir {} exists: {:?}", handler_path.display(), e))
             .filter_map(as_directory)
             .flat_map(|suite| fs::read_dir(suite.path()).expect("suite dir exists"))
             .filter_map(as_directory)
