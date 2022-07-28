@@ -34,7 +34,6 @@ enum Payload {
     },
     Syncing,
     InvalidBlockHash,
-    InvalidTerminalBlock,
 }
 
 struct InvalidPayloadRig {
