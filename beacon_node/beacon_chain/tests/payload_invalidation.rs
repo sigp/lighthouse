@@ -219,16 +219,20 @@ impl InvalidPayloadRig {
             Payload::Invalid { latest_valid_hash } => {
                 let latest_valid_hash = latest_valid_hash
                     .unwrap_or_else(|| self.block_hash(block.message().parent_root()));
-                mock_execution_layer
-                    .server
-                    .all_payloads_invalid_on_new_payload(latest_valid_hash)
+                if latest_valid_hash == ExecutionBlockHash::zero() {
+                    mock_execution_layer
+                        .server
+                        .all_payloads_invalid_terminal_block_on_new_payload()
+                } else {
+                    mock_execution_layer
+                        .server
+                        .all_payloads_invalid_on_new_payload(latest_valid_hash)
+                }
             }
+
             Payload::InvalidBlockHash => mock_execution_layer
                 .server
                 .all_payloads_invalid_block_hash_on_new_payload(),
-            Payload::InvalidTerminalBlock => mock_execution_layer
-                .server
-                .all_payloads_invalid_terminal_block_on_new_payload(),
         };
         let set_forkchoice_updated = |payload: Payload| match payload {
             Payload::Valid => mock_execution_layer
@@ -240,16 +244,20 @@ impl InvalidPayloadRig {
             Payload::Invalid { latest_valid_hash } => {
                 let latest_valid_hash = latest_valid_hash
                     .unwrap_or_else(|| self.block_hash(block.message().parent_root()));
-                mock_execution_layer
-                    .server
-                    .all_payloads_invalid_on_forkchoice_updated(latest_valid_hash)
+                if latest_valid_hash == ExecutionBlockHash::zero() {
+                    mock_execution_layer
+                        .server
+                        .all_payloads_invalid_terminal_block_on_forkchoice_updated()
+                } else {
+                    mock_execution_layer
+                        .server
+                        .all_payloads_invalid_on_forkchoice_updated(latest_valid_hash)
+                }
             }
+
             Payload::InvalidBlockHash => mock_execution_layer
                 .server
                 .all_payloads_invalid_block_hash_on_forkchoice_updated(),
-            Payload::InvalidTerminalBlock => mock_execution_layer
-                .server
-                .all_payloads_invalid_terminal_block_on_forkchoice_updated(),
         };
 
         match (new_payload_response, forkchoice_response) {
@@ -282,9 +290,7 @@ impl InvalidPayloadRig {
                 match forkchoice_response {
                     Payload::Syncing => assert!(execution_status.is_optimistic()),
                     Payload::Valid => assert!(execution_status.is_valid_and_post_bellatrix()),
-                    Payload::Invalid { .. }
-                    | Payload::InvalidBlockHash
-                    | Payload::InvalidTerminalBlock => unreachable!(),
+                    Payload::Invalid { .. } | Payload::InvalidBlockHash => unreachable!(),
                 }
 
                 assert_eq!(
@@ -298,14 +304,8 @@ impl InvalidPayloadRig {
                     "block from db must match block imported"
                 );
             }
-            (
-                Payload::Invalid { .. } | Payload::InvalidBlockHash | Payload::InvalidTerminalBlock,
-                _,
-            )
-            | (
-                _,
-                Payload::Invalid { .. } | Payload::InvalidBlockHash | Payload::InvalidTerminalBlock,
-            ) => {
+            (Payload::Invalid { .. } | Payload::InvalidBlockHash, _)
+            | (_, Payload::Invalid { .. } | Payload::InvalidBlockHash) => {
                 set_new_payload(new_payload_response);
                 set_forkchoice_updated(forkchoice_response);
 
@@ -458,7 +458,10 @@ async fn immediate_forkchoice_update_payload_invalid_block_hash() {
 
 #[tokio::test]
 async fn immediate_forkchoice_update_payload_invalid_terminal_block() {
-    immediate_forkchoice_update_invalid_test(|_| Payload::InvalidTerminalBlock).await
+    immediate_forkchoice_update_invalid_test(|_| Payload::Invalid {
+        latest_valid_hash: ExecutionBlockHash::zero(),
+    })
+    .await
 }
 
 /// Ensure the client tries to exit when the justified checkpoint is invalidated.
