@@ -359,7 +359,10 @@ impl<E: GenericExecutionEngine> TestRig<E> {
             .notify_new_payload(&valid_payload)
             .await
             .unwrap();
-        assert_eq!(status, PayloadStatus::Valid);
+        assert!(matches!(
+            status,
+            PayloadStatus::Valid | PayloadStatus::Accepted
+        ));
         check_payload_reconstruction(&self.ee_a, &valid_payload).await;
 
         /*
