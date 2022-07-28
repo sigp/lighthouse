@@ -58,10 +58,7 @@ pub async fn publish_block<T: BeaconChainTypes>(
 
             // Update the head since it's likely this block will become the new
             // head.
-            chain
-                .recompute_head_at_current_slot()
-                .await
-                .map_err(warp_utils::reject::beacon_chain_error)?;
+            chain.recompute_head_at_current_slot().await;
 
             // Perform some logging to inform users if their blocks are being produced
             // late.
