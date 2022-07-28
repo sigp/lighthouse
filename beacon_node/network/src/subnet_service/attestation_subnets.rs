@@ -26,7 +26,7 @@ use crate::metrics;
 const MIN_PEER_DISCOVERY_SLOT_LOOK_AHEAD: u64 = 2;
 /// The time (in slots) before a last seen validator is considered absent and we unsubscribe from the random
 /// gossip topics that we subscribed to due to the validator connection.
-const LAST_SEEN_VALIDATOR_TIMEOUT: u32 = 150;
+const LAST_SEEN_VALIDATOR_TIMEOUT_SLOTS: u32 = 150;
 /// The fraction of a slot that we subscribe to a subnet before the required slot.
 ///
 /// Note: The time is calculated as `time = seconds_per_slot / ADVANCE_SUBSCRIPTION_TIME`.
@@ -57,7 +57,7 @@ pub struct AttestationService<T: BeaconChainTypes> {
     /// A reference to the beacon chain to process received attestations.
     pub(crate) beacon_chain: Arc<BeaconChain<T>>,
 
-    /// Subnets we are currently subscribed to.
+    /// Subnets we are currently subscribed to. Once they expire, we unsubscribe from these.
     current_subscriptions: delay_map::HashMapDelay<SubnetId, SubscriptionKind>,
 
     /// Short lived subscriptions that need to be done in the future.
@@ -84,6 +84,12 @@ pub struct AttestationService<T: BeaconChainTypes> {
     /// We process and aggregate all attestations on subscribed subnets.
     import_all_attestations: bool,
 
+    /// For how long we subscribe to long lived subnets.
+    long_lived_subnet_subscription_duration: Duration,
+
+    /// For how long we subscribe to short lived subnets.
+    short_lived_subnet_subscription_duration: Duration,
+
     /// The logger for the attestation service.
     log: slog::Logger,
 }
@@ -101,14 +107,16 @@ impl<T: BeaconChainTypes> AttestationService<T> {
         // calculate the random subnet duration from the spec constants
         let spec = &beacon_chain.spec;
         let slot_duration = beacon_chain.slot_clock.slot_duration();
-        let random_subnet_duration_millis = spec
+        let long_lived_subnet_subscription_duration_millis = spec
             .epochs_per_random_subnet_subscription
             .saturating_mul(T::EthSpec::slots_per_epoch())
             .saturating_mul(slot_duration.as_millis() as u64);
+        let long_lived_subnet_subscription_duration =
+            Duration::from_millis(long_lived_subnet_subscription_duration_millis);
 
         // Panics on overflow. Ensure LAST_SEEN_VALIDATOR_TIMEOUT is not too large.
         let last_seen_val_timeout = slot_duration
-            .checked_mul(LAST_SEEN_VALIDATOR_TIMEOUT)
+            .checked_mul(LAST_SEEN_VALIDATOR_TIMEOUT_SLOTS)
             .expect("LAST_SEEN_VALIDATOR_TIMEOUT must not be ridiculously large");
         let default_timeout = slot_duration
             .checked_mul(DEFAULT_EXPIRATION_TIMEOUT)
@@ -125,6 +133,8 @@ impl<T: BeaconChainTypes> AttestationService<T> {
             discovery_disabled: config.disable_discovery,
             subscribe_all_subnets: config.subscribe_all_subnets,
             import_all_attestations: config.import_all_attestations,
+            long_lived_subnet_subscription_duration,
+            short_lived_subnet_subscription_duration: slot_duration, // TODO: or should it be 3 slots?
             log,
         }
     }
@@ -405,18 +415,12 @@ impl<T: BeaconChainTypes> AttestationService<T> {
     ///
     /// This also updates the ENR to indicate our long-lived subscription to the subnet
     fn add_known_validator(&mut self, validator_index: u64) {
-        if self.known_validators.get(&validator_index).is_none() && !self.subscribe_all_subnets {
+        if !self.subscribe_all_subnets && !self.known_validators.contains_key(&validator_index) {
             // New validator has subscribed
             // Subscribe to random topics and update the ENR if needed.
-
-            let spec = &self.beacon_chain.spec;
-
-            if self.random_subnets.len() < spec.attestation_subnet_count as usize {
-                // Still room for subscriptions
-                self.subscribe_to_random_subnets(
-                    self.beacon_chain.spec.random_subnets_per_validator as usize,
-                );
-            }
+            self.subscribe_to_random_subnets(
+                self.beacon_chain.spec.random_subnets_per_validator as usize,
+            );
         }
         // add the new validator or update the current timeout for a known validator
         self.known_validators.insert(validator_index);
@@ -424,59 +428,62 @@ impl<T: BeaconChainTypes> AttestationService<T> {
 
     /// Subscribe to long-lived random subnets and update the local ENR bitfield.
     fn subscribe_to_random_subnets(&mut self, no_subnets_to_subscribe: usize) {
-        let subnet_count = self.beacon_chain.spec.attestation_subnet_count;
+        let max_subnets = self.beacon_chain.spec.attestation_subnet_count;
+        let subnet_capacity =
+            (max_subnets as usize).saturating_sub(self.current_subscriptions.len());
+        if subnet_capacity == 0 || no_subnets_to_subscribe == 0 {
+            // Nothing to do
+            return;
+        }
 
-        // Build a list of random subnets that we are not currently subscribed to.
-        let available_subnets = (0..subnet_count)
+        // Build a list of the subnets that we are not currently subscribed to.
+        let available_subnets = (0..max_subnets)
             .map(SubnetId::new)
-            .filter(|subnet_id| self.random_subnets.get(subnet_id).is_none())
+            .filter(|subnet_id| !self.current_subscriptions.contains_key(subnet_id))
             .collect::<Vec<_>>();
 
-        let to_subscribe_subnets = {
-            if available_subnets.len() < no_subnets_to_subscribe {
-                debug!(self.log, "Reached maximum random subnet subscriptions");
-                available_subnets
-            } else {
-                // select a random sample of available subnets
-                available_subnets
-                    .choose_multiple(&mut rand::thread_rng(), no_subnets_to_subscribe)
-                    .cloned()
-                    .collect::<Vec<_>>()
-            }
-        };
+        let required_subnets = subnet_capacity.min(no_subnets_to_subscribe);
+        let subnets_to_subscribe: Vec<_> = available_subnets
+            .choose_multiple(&mut rand::thread_rng(), required_subnets)
+            .cloned()
+            .collect();
 
-        for subnet_id in to_subscribe_subnets {
-            // remove this subnet from any immediate un-subscription events
-            self.unsubscriptions
-                .retain(|exact_subnet| exact_subnet.subnet_id != subnet_id);
-
-            // insert a new random subnet
-            self.random_subnets.insert(subnet_id);
-
-            // send discovery request
-            // Note: it's wasteful to send a DiscoverPeers request if we already have peers for this subnet.
-            // However, subscribing to random subnets ideally shouldn't happen very often (once in ~27 hours) and
-            // this makes it easier to deterministically test the attestations service.
-            self.events
-                .push_back(SubnetServiceMessage::DiscoverPeers(vec![SubnetDiscovery {
-                    subnet: Subnet::Attestation(subnet_id),
-                    min_ttl: None,
-                }]));
-
-            // if we are not already subscribed, then subscribe
-            if !self.subscriptions.contains(&subnet_id) {
-                self.subscriptions.insert(subnet_id);
-                debug!(self.log, "Subscribing to random subnet"; "subnet_id" => ?subnet_id);
-                self.events
-                    .push_back(SubnetServiceMessage::Subscribe(Subnet::Attestation(
-                        subnet_id,
-                    )));
-            }
-
-            // add the subnet to the ENR bitfield
-            self.events
-                .push_back(SubnetServiceMessage::EnrAdd(Subnet::Attestation(subnet_id)));
+        for subnet_id in &subnets_to_subscribe {
+            // Register the subscription
+            debug!(self.log, "Subscribing to long lived subnet"; "subnet_id" => ?subnet_id);
+            self.current_subscriptions.insert_at(
+                *subnet_id,
+                SubscriptionKind::LongLived,
+                self.long_lived_subnet_subscription_duration,
+            );
         }
+
+        if !self.discovery_disabled {
+            // send discovery request
+            // Note: it's wasteful to send a DiscoverPeers request if we already have peers for this
+            // subnet. However, subscribing to long lived subnets ideally shouldn't happen very often
+            // (once in ~27 hours) and this makes it easier to deterministically test the attestations
+            // service.
+            let discovery_requests = subnets_to_subscribe
+                .iter()
+                .map(|subnet| SubnetDiscovery {
+                    subnet: Subnet::Attestation(*subnet),
+                    min_ttl: None,
+                })
+                .collect();
+            self.events
+                .push_back(SubnetServiceMessage::DiscoverPeers(discovery_requests));
+        }
+
+        // Subscribe and update the enr
+        self.events
+            .extend(subnets_to_subscribe.into_iter().flat_map(|subnet| {
+                let subnet = Subnet::Attestation(subnet);
+                [
+                    SubnetServiceMessage::Subscribe(subnet),
+                    SubnetServiceMessage::EnrAdd(subnet),
+                ]
+            }));
     }
 
     /* A collection of functions that handle the various timeouts */
