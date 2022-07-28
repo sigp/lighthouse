@@ -160,11 +160,7 @@ async fn chain_segment_full_segment() {
         .into_block_error()
         .expect("should import chain segment");
 
-    harness
-        .chain
-        .recompute_head_at_current_slot()
-        .await
-        .expect("should run fork choice");
+    harness.chain.recompute_head_at_current_slot().await;
 
     assert_eq!(
         harness.head_block_root(),
@@ -194,11 +190,7 @@ async fn chain_segment_varying_chunk_size() {
                 .unwrap_or_else(|_| panic!("should import chain segment of len {}", chunk_size));
         }
 
-        harness
-            .chain
-            .recompute_head_at_current_slot()
-            .await
-            .expect("should run fork choice");
+        harness.chain.recompute_head_at_current_slot().await;
 
         assert_eq!(
             harness.head_block_root(),
@@ -729,11 +721,7 @@ async fn block_gossip_verification() {
     }
 
     // Recompute the head to ensure we cache the latest view of fork choice.
-    harness
-        .chain
-        .recompute_head_at_current_slot()
-        .await
-        .unwrap();
+    harness.chain.recompute_head_at_current_slot().await;
 
     /*
      * This test ensures that:

@@ -2128,7 +2128,7 @@ async fn weak_subjectivity_sync() {
             .process_block(Arc::new(full_block), CountUnrealized::True)
             .await
             .unwrap();
-        beacon_chain.recompute_head_at_current_slot().await.unwrap();
+        beacon_chain.recompute_head_at_current_slot().await;
 
         // Check that the new block's state can be loaded correctly.
         let state_root = block.state_root();
@@ -2460,11 +2460,7 @@ async fn revert_minority_fork_on_resume() {
         .build();
 
     // Head should now be just before the fork.
-    resumed_harness
-        .chain
-        .recompute_head_at_current_slot()
-        .await
-        .unwrap();
+    resumed_harness.chain.recompute_head_at_current_slot().await;
     assert_eq!(resumed_harness.head_slot(), fork_slot - 1);
 
     // Head track should know the canonical head and the rogue head.
@@ -2482,11 +2478,7 @@ async fn revert_minority_fork_on_resume() {
             .unwrap();
 
         // The canonical head should be the block from the majority chain.
-        resumed_harness
-            .chain
-            .recompute_head_at_current_slot()
-            .await
-            .unwrap();
+        resumed_harness.chain.recompute_head_at_current_slot().await;
         assert_eq!(resumed_harness.head_slot(), block.slot());
         assert_eq!(resumed_harness.head_block_root(), block.canonical_root());
     }

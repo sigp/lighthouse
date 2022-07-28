@@ -2805,32 +2805,38 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         if !payload_verification_status.is_optimistic()
             && block.slot() + EARLY_ATTESTER_CACHE_HISTORIC_SLOTS >= current_slot
         {
-            let new_head_root = fork_choice
-                .get_head(current_slot, &self.spec)
-                .map_err(BeaconChainError::from)?;
-
-            if new_head_root == block_root {
-                if let Some(proto_block) = fork_choice.get_block(&block_root) {
-                    if let Err(e) = self.early_attester_cache.add_head_block(
-                        block_root,
-                        signed_block.clone(),
-                        proto_block,
-                        &state,
-                        &self.spec,
-                    ) {
+            match fork_choice.get_head(current_slot, &self.spec) {
+                // This block became the head, add it to the early attester cache.
+                Ok(new_head_root) if new_head_root == block_root => {
+                    if let Some(proto_block) = fork_choice.get_block(&block_root) {
+                        if let Err(e) = self.early_attester_cache.add_head_block(
+                            block_root,
+                            signed_block.clone(),
+                            proto_block,
+                            &state,
+                            &self.spec,
+                        ) {
+                            warn!(
+                                self.log,
+                                "Early attester cache insert failed";
+                                "error" => ?e
+                            );
+                        }
+                    } else {
                         warn!(
                             self.log,
-                            "Early attester cache insert failed";
-                            "error" => ?e
+                            "Early attester block missing";
+                            "block_root" => ?block_root
                         );
                     }
-                } else {
-                    warn!(
-                        self.log,
-                        "Early attester block missing";
-                        "block_root" => ?block_root
-                    );
                 }
+                // This block did not become the head, nothing to do.
+                Ok(_) => (),
+                Err(e) => error!(
+                    self.log,
+                    "Failed to compute head during block import";
+                    "error" => ?e
+                ),
             }
         }
 
@@ -3608,16 +3614,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Run fork choice since it's possible that the payload invalidation might result in a new
         // head.
-        //
-        // Don't return early though, since invalidating the justified checkpoint might cause an
-        // error here.
-        if let Err(e) = self.recompute_head_at_current_slot().await {
-            crit!(
-                self.log,
-                "Failed to run fork choice routine";
-                "error" => ?e,
-            );
-        }
+        self.recompute_head_at_current_slot().await;
 
         // Obtain the justified root from fork choice.
         //
@@ -4262,14 +4259,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
 
             // Run fork choice and signal to any waiting task that it has completed.
-            if let Err(e) = self.recompute_head_at_current_slot().await {
-                error!(
-                    self.log,
-                    "Fork choice error at slot start";
-                    "error" => ?e,
-                    "slot" => slot,
-                );
-            }
+            self.recompute_head_at_current_slot().await;
 
             // Send the notification regardless of fork choice success, this is a "best effort"
             // notification and we don't want block production to hit the timeout in case of error.

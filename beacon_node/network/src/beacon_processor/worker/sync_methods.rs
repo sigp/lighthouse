@@ -111,7 +111,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     None,
                 );
 
-                self.recompute_head("process_rpc_block").await;
+                self.chain.recompute_head_at_current_slot().await;
             }
         }
         // Sync handles these results
@@ -248,7 +248,7 @@ impl<T: BeaconChainTypes> Worker<T> {
             ChainSegmentResult::Successful { imported_blocks } => {
                 metrics::inc_counter(&metrics::BEACON_PROCESSOR_CHAIN_SEGMENT_SUCCESS_TOTAL);
                 if imported_blocks > 0 {
-                    self.recompute_head("process_blocks_ok").await;
+                    self.chain.recompute_head_at_current_slot().await;
                 }
                 (imported_blocks, Ok(()))
             }
@@ -259,7 +259,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                 metrics::inc_counter(&metrics::BEACON_PROCESSOR_CHAIN_SEGMENT_FAILED_TOTAL);
                 let r = self.handle_failed_chain_segment(error);
                 if imported_blocks > 0 {
-                    self.recompute_head("process_blocks_err").await;
+                    self.chain.recompute_head_at_current_slot().await;
                 }
                 (imported_blocks, r)
             }
@@ -389,24 +389,6 @@ impl<T: BeaconChainTypes> Worker<T> {
                 };
                 (0, Err(err))
             }
-        }
-    }
-
-    /// Runs fork-choice on a given chain. This is used during block processing after one successful
-    /// block import.
-    async fn recompute_head(&self, location: &str) {
-        match self.chain.recompute_head_at_current_slot().await {
-            Ok(()) => debug!(
-                self.log,
-                "Fork choice success";
-                "location" => location
-            ),
-            Err(e) => error!(
-                self.log,
-                "Fork choice failed";
-                "error" => ?e,
-                "location" => location
-            ),
         }
     }
 

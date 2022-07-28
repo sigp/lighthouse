@@ -211,6 +211,20 @@ impl<E: EthSpec> Builder<EphemeralHarnessType<E>> {
         self.store = Some(store);
         self.store_mutator(Box::new(mutator))
     }
+
+    /// Manually restore from a given `MemoryStore`.
+    pub fn resumed_ephemeral_store(
+        mut self,
+        store: Arc<HotColdDB<E, MemoryStore<E>, MemoryStore<E>>>,
+    ) -> Self {
+        let mutator = move |builder: BeaconChainBuilder<_>| {
+            builder
+                .resume_from_db()
+                .expect("should resume from database")
+        };
+        self.store = Some(store);
+        self.store_mutator(Box::new(mutator))
+    }
 }
 
 impl<E: EthSpec> Builder<DiskHarnessType<E>> {
@@ -1376,7 +1390,7 @@ where
             .process_block(Arc::new(block), CountUnrealized::True)
             .await?
             .into();
-        self.chain.recompute_head_at_current_slot().await?;
+        self.chain.recompute_head_at_current_slot().await;
         Ok(block_hash)
     }
 
@@ -1389,7 +1403,7 @@ where
             .process_block(Arc::new(block), CountUnrealized::True)
             .await?
             .into();
-        self.chain.recompute_head_at_current_slot().await?;
+        self.chain.recompute_head_at_current_slot().await;
         Ok(block_hash)
     }
 

@@ -221,7 +221,7 @@ impl TestRig {
     }
 
     pub async fn recompute_head(&self) {
-        self.chain.recompute_head_at_current_slot().await.unwrap()
+        self.chain.recompute_head_at_current_slot().await
     }
 
     pub fn head_root(&self) -> Hash256 {
