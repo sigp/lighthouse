@@ -255,7 +255,8 @@ where
                 })
                 .map(Into::into)
         } else {
-            ssz::decode_list_of_variable_length_items(bytes, Some(max_len)).map(|vec| vec.into())
+            ssz::decode_list_of_variable_length_items(bytes, Some(max_len))
+                .map(|vec: Vec<_>| vec.into())
         }
     }
 }

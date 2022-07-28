@@ -2095,11 +2095,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         )?)
     }
 
-    /// Accept some attester slashing and queue it for inclusion in an appropriate block.
+    /// Accept a verified attester slashing and:
+    ///
+    /// 1. Apply it to fork choice.
+    /// 2. Add it to the op pool.
     pub fn import_attester_slashing(
         &self,
         attester_slashing: SigVerifiedOp<AttesterSlashing<T::EthSpec>>,
     ) {
+        // Add to fork choice.
+        self.canonical_head
+            .fork_choice_write_lock()
+            .on_attester_slashing(attester_slashing.as_inner());
+
+        // Add to the op pool (if we have the ability to propose blocks).
         if self.eth1_chain.is_some() {
             self.op_pool.insert_attester_slashing(
                 attester_slashing,
@@ -2716,6 +2725,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .write()
             .process_valid_state(current_slot.epoch(T::EthSpec::slots_per_epoch()), &state);
         let validator_monitor = self.validator_monitor.read();
+
+        // Register each attester slashing in the block with fork choice.
+        for attester_slashing in block.body().attester_slashings() {
+            fork_choice.on_attester_slashing(attester_slashing);
+        }
 
         // Register each attestation in the block with the fork choice service.
         for attestation in block.body().attestations() {

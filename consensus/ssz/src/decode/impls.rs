@@ -1,7 +1,11 @@
 use super::*;
+use crate::decode::try_from_iter::{TryCollect, TryFromIter};
 use core::num::NonZeroUsize;
 use ethereum_types::{H160, H256, U128, U256};
+use itertools::process_results;
 use smallvec::SmallVec;
+use std::collections::{BTreeMap, BTreeSet};
+use std::iter::{self, FromIterator};
 use std::sync::Arc;
 
 macro_rules! impl_decodable_for_uint {
@@ -380,14 +384,14 @@ macro_rules! impl_for_vec {
 
             fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
                 if bytes.is_empty() {
-                    Ok(vec![].into())
+                    Ok(Self::from_iter(iter::empty()))
                 } else if T::is_ssz_fixed_len() {
                     bytes
                         .chunks(T::ssz_fixed_len())
-                        .map(|chunk| T::from_ssz_bytes(chunk))
+                        .map(T::from_ssz_bytes)
                         .collect()
                 } else {
-                    decode_list_of_variable_length_items(bytes, $max_len).map(|vec| vec.into())
+                    decode_list_of_variable_length_items(bytes, $max_len)
                 }
             }
         }
@@ -395,26 +399,73 @@ macro_rules! impl_for_vec {
 }
 
 impl_for_vec!(Vec<T>, None);
-impl_for_vec!(SmallVec<[T; 1]>, Some(1));
-impl_for_vec!(SmallVec<[T; 2]>, Some(2));
-impl_for_vec!(SmallVec<[T; 3]>, Some(3));
-impl_for_vec!(SmallVec<[T; 4]>, Some(4));
-impl_for_vec!(SmallVec<[T; 5]>, Some(5));
-impl_for_vec!(SmallVec<[T; 6]>, Some(6));
-impl_for_vec!(SmallVec<[T; 7]>, Some(7));
-impl_for_vec!(SmallVec<[T; 8]>, Some(8));
+impl_for_vec!(SmallVec<[T; 1]>, None);
+impl_for_vec!(SmallVec<[T; 2]>, None);
+impl_for_vec!(SmallVec<[T; 3]>, None);
+impl_for_vec!(SmallVec<[T; 4]>, None);
+impl_for_vec!(SmallVec<[T; 5]>, None);
+impl_for_vec!(SmallVec<[T; 6]>, None);
+impl_for_vec!(SmallVec<[T; 7]>, None);
+impl_for_vec!(SmallVec<[T; 8]>, None);
+
+impl<K, V> Decode for BTreeMap<K, V>
+where
+    K: Decode + Ord,
+    V: Decode,
+{
+    fn is_ssz_fixed_len() -> bool {
+        false
+    }
+
+    fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
+        if bytes.is_empty() {
+            Ok(Self::from_iter(iter::empty()))
+        } else if <(K, V)>::is_ssz_fixed_len() {
+            bytes
+                .chunks(<(K, V)>::ssz_fixed_len())
+                .map(<(K, V)>::from_ssz_bytes)
+                .collect()
+        } else {
+            decode_list_of_variable_length_items(bytes, None)
+        }
+    }
+}
+
+impl<T> Decode for BTreeSet<T>
+where
+    T: Decode + Ord,
+{
+    fn is_ssz_fixed_len() -> bool {
+        false
+    }
+
+    fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
+        if bytes.is_empty() {
+            Ok(Self::from_iter(iter::empty()))
+        } else if T::is_ssz_fixed_len() {
+            bytes
+                .chunks(T::ssz_fixed_len())
+                .map(T::from_ssz_bytes)
+                .collect()
+        } else {
+            decode_list_of_variable_length_items(bytes, None)
+        }
+    }
+}
 
 /// Decodes `bytes` as if it were a list of variable-length items.
 ///
-/// The `ssz::SszDecoder` can also perform this functionality, however it it significantly faster
-/// as it is optimized to read same-typed items whilst `ssz::SszDecoder` supports reading items of
-/// differing types.
-pub fn decode_list_of_variable_length_items<T: Decode>(
+/// The `ssz::SszDecoder` can also perform this functionality, however this function is
+/// significantly faster as it is optimized to read same-typed items whilst `ssz::SszDecoder`
+/// supports reading items of differing types.
+pub fn decode_list_of_variable_length_items<T: Decode, Container: TryFromIter<T>>(
     bytes: &[u8],
     max_len: Option<usize>,
-) -> Result<Vec<T>, DecodeError> {
+) -> Result<Container, DecodeError> {
     if bytes.is_empty() {
-        return Ok(vec![]);
+        return Container::try_from_iter(iter::empty()).map_err(|e| {
+            DecodeError::BytesInvalid(format!("Error trying to collect empty list: {:?}", e))
+        });
     }
 
     let first_offset = read_offset(bytes)?;
@@ -433,35 +484,27 @@ pub fn decode_list_of_variable_length_items<T: Decode>(
         )));
     }
 
-    // Only initialize the vec with a capacity if a maximum length is provided.
-    //
-    // We assume that if a max length is provided then the application is able to handle an
-    // allocation of this size.
-    let mut values = if max_len.is_some() {
-        Vec::with_capacity(num_items)
-    } else {
-        vec![]
-    };
-
     let mut offset = first_offset;
-    for i in 1..=num_items {
-        let slice_option = if i == num_items {
-            bytes.get(offset..)
-        } else {
-            let start = offset;
+    process_results(
+        (1..=num_items).map(|i| {
+            let slice_option = if i == num_items {
+                bytes.get(offset..)
+            } else {
+                let start = offset;
 
-            let next_offset = read_offset(&bytes[(i * BYTES_PER_LENGTH_OFFSET)..])?;
-            offset = sanitize_offset(next_offset, Some(offset), bytes.len(), Some(first_offset))?;
+                let next_offset = read_offset(&bytes[(i * BYTES_PER_LENGTH_OFFSET)..])?;
+                offset =
+                    sanitize_offset(next_offset, Some(offset), bytes.len(), Some(first_offset))?;
 
-            bytes.get(start..offset)
-        };
+                bytes.get(start..offset)
+            };
 
-        let slice = slice_option.ok_or(DecodeError::OutOfBoundsByte { i: offset })?;
-
-        values.push(T::from_ssz_bytes(slice)?);
-    }
-
-    Ok(values)
+            let slice = slice_option.ok_or(DecodeError::OutOfBoundsByte { i: offset })?;
+            T::from_ssz_bytes(slice)
+        }),
+        |iter| iter.try_collect(),
+    )?
+    .map_err(|e| DecodeError::BytesInvalid(format!("Error collecting into container: {:?}", e)))
 }
 
 #[cfg(test)]
