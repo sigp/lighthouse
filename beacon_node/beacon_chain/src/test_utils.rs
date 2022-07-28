@@ -212,7 +212,7 @@ impl<E: EthSpec> Builder<EphemeralHarnessType<E>> {
         self.store_mutator(Box::new(mutator))
     }
 
-    /// Disk store, resume.
+    /// Manually restore from a given `MemoryStore`.
     pub fn resumed_ephemeral_store(
         mut self,
         store: Arc<HotColdDB<E, MemoryStore<E>, MemoryStore<E>>>,

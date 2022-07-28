@@ -1431,6 +1431,6 @@ async fn weights_after_resetting_optimistic_status() {
 
     // Import a length of chain to ensure the chain can be built atop.
     for _ in 0..E::slots_per_epoch() * 4 {
-        rig.import_block(Payload::Valid).await; // Import a valid transition block.
+        rig.import_block(Payload::Valid).await;
     }
 }
