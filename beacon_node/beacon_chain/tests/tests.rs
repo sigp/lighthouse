@@ -693,11 +693,7 @@ async fn run_skip_slot_test(skip_slots: u64) {
         harness_a.chain.head_snapshot().beacon_block_root
     );
 
-    harness_b
-        .chain
-        .recompute_head_at_current_slot()
-        .await
-        .expect("should run fork choice");
+    harness_b.chain.recompute_head_at_current_slot().await;
 
     assert_eq!(
         harness_b.chain.head_snapshot().beacon_block.slot(),

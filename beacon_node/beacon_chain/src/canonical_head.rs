@@ -434,9 +434,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Execute the fork choice algorithm and enthrone the result as the canonical head.
     ///
     /// This method replaces the old `BeaconChain::fork_choice` method.
-    pub async fn recompute_head_at_current_slot(self: &Arc<Self>) -> Result<(), Error> {
-        let current_slot = self.slot()?;
-        self.recompute_head_at_slot(current_slot).await
+    pub async fn recompute_head_at_current_slot(self: &Arc<Self>) {
+        match self.slot() {
+            Ok(current_slot) => self.recompute_head_at_slot(current_slot).await,
+            Err(e) => error!(
+                self.log,
+                "No slot when recomputing head";
+                "error" => ?e
+            ),
+        }
     }
 
     /// Execute the fork choice algorithm and enthrone the result as the canonical head.
@@ -445,7 +451,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// different slot to the wall-clock can be useful for pushing fork choice into the next slot
     /// *just* before the start of the slot. This ensures that block production can use the correct
     /// head value without being delayed.
-    pub async fn recompute_head_at_slot(self: &Arc<Self>, current_slot: Slot) -> Result<(), Error> {
+    ///
+    /// This function purposefully does *not* return a `Result`. It's possible for fork choice to
+    /// fail to update if there is only one viable head and it has an invalid execution payload. In
+    /// such a case it's critical that the `BeaconChain` keeps importing blocks so that the
+    /// situation can be rectified. We avoid returning an error here so that calling functions
+    /// can't abort block import because an error is returned here.
+    pub async fn recompute_head_at_slot(self: &Arc<Self>, current_slot: Slot) {
         metrics::inc_counter(&metrics::FORK_CHOICE_REQUESTS);
         let _timer = metrics::start_timer(&metrics::FORK_CHOICE_TIMES);
 
@@ -455,15 +467,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 move || chain.recompute_head_at_slot_internal(current_slot),
                 "recompute_head_internal",
             )
-            .await?
+            .await
         {
             // Fork choice returned successfully and did not need to update the EL.
-            Ok(None) => Ok(()),
+            Ok(Ok(None)) => (),
             // Fork choice returned successfully and needed to update the EL. It has returned a
             // join-handle from when it spawned some async tasks. We should await those tasks.
-            Ok(Some(join_handle)) => match join_handle.await {
+            Ok(Ok(Some(join_handle))) => match join_handle.await {
                 // The async task completed successfully.
-                Ok(Some(())) => Ok(()),
+                Ok(Some(())) => (),
                 // The async task did not complete successfully since the runtime is shutting down.
                 Ok(None) => {
                     debug!(
@@ -471,7 +483,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         "Did not update EL fork choice";
                         "info" => "shutting down"
                     );
-                    Err(Error::RuntimeShutdown)
                 }
                 // The async task did not complete successfully, tokio returned an error.
                 Err(e) => {
@@ -480,13 +491,24 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         "Did not update EL fork choice";
                         "error" => ?e
                     );
-                    Err(Error::TokioJoin(e))
                 }
             },
             // There was an error recomputing the head.
-            Err(e) => {
+            Ok(Err(e)) => {
                 metrics::inc_counter(&metrics::FORK_CHOICE_ERRORS);
-                Err(e)
+                error!(
+                    self.log,
+                    "Error whist recomputing head";
+                    "error" => ?e
+                );
+            }
+            // There was an error spawning the task.
+            Err(e) => {
+                error!(
+                    self.log,
+                    "Failed to spawn recompute head task";
+                    "error" => ?e
+                );
             }
         }
     }

@@ -1,5 +1,7 @@
 use crate::error::Error;
-use crate::proto_array::{InvalidationOperation, Iter, ProposerBoost, ProtoArray, ProtoNode};
+use crate::proto_array::{
+    calculate_proposer_boost, InvalidationOperation, Iter, ProposerBoost, ProtoArray, ProtoNode,
+};
 use crate::ssz_container::SszContainer;
 use serde_derive::{Deserialize, Serialize};
 use ssz::{Decode, Encode};
@@ -301,6 +303,106 @@ impl ProtoArrayForkChoice {
         self.proto_array
             .find_head::<E>(&justified_checkpoint.root, current_slot)
             .map_err(|e| format!("find_head failed: {:?}", e))
+    }
+
+    /// For all nodes, regardless of their relationship to the finalized block, set their execution
+    /// status to be optimistic.
+    ///
+    /// In practice this means forgetting any `VALID` or `INVALID` statuses.
+    pub fn set_all_blocks_to_optimistic<E: EthSpec>(
+        &mut self,
+        spec: &ChainSpec,
+    ) -> Result<(), String> {
+        // Iterate backwards through all nodes in the `proto_array`. Whilst it's not strictly
+        // required to do this process in reverse, it seems natural when we consider how LMD votes
+        // are counted.
+        //
+        // This function will touch all blocks, even those that do not descend from the finalized
+        // block. Since this function is expected to run at start-up during very rare
+        // circumstances we prefer simplicity over efficiency.
+        for node_index in (0..self.proto_array.nodes.len()).rev() {
+            let node = self
+                .proto_array
+                .nodes
+                .get_mut(node_index)
+                .ok_or("unreachable index out of bounds in proto_array nodes")?;
+
+            match node.execution_status {
+                ExecutionStatus::Invalid(block_hash) => {
+                    node.execution_status = ExecutionStatus::Optimistic(block_hash);
+
+                    // Restore the weight of the node, it would have been set to `0` in
+                    // `apply_score_changes` when it was invalidated.
+                    let mut restored_weight: u64 = self
+                        .votes
+                        .0
+                        .iter()
+                        .enumerate()
+                        .filter_map(|(validator_index, vote)| {
+                            if vote.current_root == node.root {
+                                // Any voting validator that does not have a balance should be
+                                // ignored. This is consistent with `compute_deltas`.
+                                self.balances.get(validator_index)
+                            } else {
+                                None
+                            }
+                        })
+                        .sum();
+
+                    // If the invalid root was boosted, apply the weight to it and
+                    // ancestors.
+                    if let Some(proposer_score_boost) = spec.proposer_score_boost {
+                        if self.proto_array.previous_proposer_boost.root == node.root {
+                            // Compute the score based upon the current balances. We can't rely on
+                            // the `previous_proposr_boost.score` since it is set to zero with an
+                            // invalid node.
+                            let proposer_score =
+                                calculate_proposer_boost::<E>(&self.balances, proposer_score_boost)
+                                    .ok_or("Failed to compute proposer boost")?;
+                            // Store the score we've applied here so it can be removed in
+                            // a later call to `apply_score_changes`.
+                            self.proto_array.previous_proposer_boost.score = proposer_score;
+                            // Apply this boost to this node.
+                            restored_weight = restored_weight
+                                .checked_add(proposer_score)
+                                .ok_or("Overflow when adding boost to weight")?;
+                        }
+                    }
+
+                    // Add the restored weight to the node and all ancestors.
+                    if restored_weight > 0 {
+                        let mut node_or_ancestor = node;
+                        loop {
+                            node_or_ancestor.weight = node_or_ancestor
+                                .weight
+                                .checked_add(restored_weight)
+                                .ok_or("Overflow when adding weight to ancestor")?;
+
+                            if let Some(parent_index) = node_or_ancestor.parent {
+                                node_or_ancestor = self
+                                    .proto_array
+                                    .nodes
+                                    .get_mut(parent_index)
+                                    .ok_or(format!("Missing parent index: {}", parent_index))?;
+                            } else {
+                                // This is either the finalized block or a block that does not
+                                // descend from the finalized block.
+                                break;
+                            }
+                        }
+                    }
+                }
+                // There are no balance changes required if the node was either valid or
+                // optimistic.
+                ExecutionStatus::Valid(block_hash) | ExecutionStatus::Optimistic(block_hash) => {
+                    node.execution_status = ExecutionStatus::Optimistic(block_hash)
+                }
+                // An irrelevant node cannot become optimistic, this is a no-op.
+                ExecutionStatus::Irrelevant(_) => (),
+            }
+        }
+
+        Ok(())
     }
 
     pub fn maybe_prune(&mut self, finalized_root: Hash256) -> Result<(), String> {

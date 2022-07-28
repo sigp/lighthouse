@@ -980,7 +980,7 @@ impl ProtoArray {
 /// Returns `None` if there is an overflow or underflow when calculating the score.
 ///
 /// https://github.com/ethereum/consensus-specs/blob/dev/specs/phase0/fork-choice.md#get_latest_attesting_balance
-fn calculate_proposer_boost<E: EthSpec>(
+pub fn calculate_proposer_boost<E: EthSpec>(
     validator_balances: &[u64],
     proposer_score_boost: u64,
 ) -> Option<u64> {
