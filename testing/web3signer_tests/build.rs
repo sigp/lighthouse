@@ -29,6 +29,8 @@ pub async fn download_binary(dest_dir: PathBuf) {
 
     let version = if let Some(version) = FIXED_VERSION_STRING {
         version.to_string()
+    } else if let Ok(env_version) = env::var("LIGHTHOUSE_WEB3SIGNER_VERSION") {
+        env_version
     } else {
         // Get the latest release of the web3 signer repo.
         let latest_response: Value = client

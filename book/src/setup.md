@@ -19,7 +19,7 @@ The additional requirements for developers are:
 
 
 ## Using `make`
-Commands to run the test suite are avaiable via the `Makefile` in the
+Commands to run the test suite are available via the `Makefile` in the
 project root for the benefit of CI/CD. We list some of these commands below so
 you can run them locally and avoid CI failures:
 

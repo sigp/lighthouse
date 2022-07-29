@@ -1726,6 +1726,7 @@ version = "0.4.1"
 dependencies = [
  "eth2_ssz_derive",
  "ethereum-types 0.12.1",
+ "itertools",
  "smallvec",
 ]
 
@@ -2125,6 +2126,7 @@ dependencies = [
  "eth2_ssz",
  "eth2_ssz_derive",
  "proto_array",
+ "state_processing",
  "store",
  "tokio",
  "types",
@@ -2604,6 +2606,7 @@ dependencies = [
  "lru",
  "network",
  "parking_lot 0.12.1",
+ "proto_array",
  "safe_arith",
  "sensitive_url",
  "serde",
@@ -3007,6 +3010,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml",
+ "snap",
  "state_processing",
  "tree_hash",
  "types",

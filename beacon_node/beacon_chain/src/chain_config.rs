@@ -24,6 +24,7 @@ pub struct ChainConfig {
     ///
     /// If set to 0 then block proposal will not wait for fork choice at all.
     pub fork_choice_before_proposal_timeout_ms: u64,
+    pub count_unrealized: bool,
 }
 
 impl Default for ChainConfig {
@@ -35,6 +36,7 @@ impl Default for ChainConfig {
             enable_lock_timeouts: true,
             max_network_size: 10 * 1_048_576, // 10M
             fork_choice_before_proposal_timeout_ms: DEFAULT_FORK_CHOICE_BEFORE_PROPOSAL_TIMEOUT,
+            count_unrealized: false,
         }
     }
 }

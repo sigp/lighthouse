@@ -708,4 +708,12 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .default_value("250")
                 .takes_value(true)
         )
+        .arg(
+            Arg::with_name("count-unrealized")
+                .long("count-unrealized")
+                .hidden(true)
+                .help("**EXPERIMENTAL** Enables an alternative, potentially more performant FFG \
+                    vote tracking method.")
+                .takes_value(false)
+        )
 }

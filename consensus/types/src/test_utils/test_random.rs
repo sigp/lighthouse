@@ -129,6 +129,7 @@ macro_rules! impl_test_random_for_u8_array {
     };
 }
 
+impl_test_random_for_u8_array!(3);
 impl_test_random_for_u8_array!(4);
 impl_test_random_for_u8_array!(32);
 impl_test_random_for_u8_array!(48);

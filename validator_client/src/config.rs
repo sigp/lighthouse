@@ -56,6 +56,9 @@ pub struct Config {
     /// A list of custom certificates that the validator client will additionally use when
     /// connecting to a beacon node over SSL/TLS.
     pub beacon_nodes_tls_certs: Option<Vec<PathBuf>>,
+    /// Enabling this will make sure the validator client never signs a block whose `fee_recipient`
+    /// does not match the `suggested_fee_recipient`.
+    pub strict_fee_recipient: bool,
 }
 
 impl Default for Config {
@@ -89,6 +92,7 @@ impl Default for Config {
             enable_doppelganger_protection: false,
             beacon_nodes_tls_certs: None,
             private_tx_proposals: false,
+            strict_fee_recipient: false,
         }
     }
 }
@@ -298,6 +302,10 @@ impl Config {
 
         if cli_args.is_present("private-tx-proposals") {
             config.private_tx_proposals = true;
+        }
+
+        if cli_args.is_present("strict-fee-recipient") {
+            config.strict_fee_recipient = true;
         }
 
         Ok(config)

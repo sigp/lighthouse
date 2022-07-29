@@ -258,4 +258,17 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     execution payload construction during proposals.")
                 .takes_value(false),
         )
+        .arg(
+            Arg::with_name("strict-fee-recipient")
+                .long("strict-fee-recipient")
+                .help("If this flag is set, Lighthouse will refuse to sign any block whose \
+                    `fee_recipient` does not match the `suggested_fee_recipient` sent by this validator. \
+                     This applies to both the normal block proposal flow, as well as block proposals \
+                     through the builder API. Proposals through the builder API are more likely to have a \
+                     discrepancy in `fee_recipient` so you should be aware of how your connected relay \
+                     sends proposer payments before using this flag. If this flag is used, a fee recipient \
+                     mismatch in the builder API flow will result in a fallback to the local execution engine \
+                     for payload construction, where a strict fee recipient check will still be applied.")
+                .takes_value(false),
+        )
 }

@@ -414,6 +414,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             .graffiti(config.graffiti)
             .graffiti_file(config.graffiti_file.clone())
             .private_tx_proposals(config.private_tx_proposals)
+            .strict_fee_recipient(config.strict_fee_recipient)
             .build()?;
 
         let attestation_service = AttestationServiceBuilder::new()
@@ -439,7 +440,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             context.service_context("sync_committee".into()),
         );
 
-        // Wait until genesis has occured.
+        // Wait until genesis has occurred.
         //
         // It seems most sensible to move this into the `start_service` function, but I'm caution
         // of making too many changes this close to genesis (<1 week).

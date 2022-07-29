@@ -532,7 +532,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                             .parent_block_processed(chain_hash, result, &mut self.network),
                     },
                     SyncMessage::BatchProcessed { sync_type, result } => match sync_type {
-                        ChainSegmentProcessId::RangeBatchId(chain_id, epoch) => {
+                        ChainSegmentProcessId::RangeBatchId(chain_id, epoch, _) => {
                             self.range_sync.handle_block_process_result(
                                 &mut self.network,
                                 chain_id,

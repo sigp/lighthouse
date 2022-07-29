@@ -17,6 +17,7 @@ use execution_layer::{
     test_utils::{ExecutionBlockGenerator, MockExecutionLayer, DEFAULT_TERMINAL_BLOCK},
     ExecutionLayer,
 };
+use fork_choice::CountUnrealized;
 use futures::channel::mpsc::Receiver;
 pub use genesis::{interop_genesis_state, DEFAULT_ETH1_BLOCK_HASH};
 use int_to_bytes::int_to_bytes32;
@@ -37,6 +38,7 @@ use state_processing::{
 };
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
+use std::fmt;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
@@ -205,6 +207,20 @@ impl<E: EthSpec> Builder<EphemeralHarnessType<E>> {
             builder
                 .genesis_state(genesis_state)
                 .expect("should build state using recent genesis")
+        };
+        self.store = Some(store);
+        self.store_mutator(Box::new(mutator))
+    }
+
+    /// Manually restore from a given `MemoryStore`.
+    pub fn resumed_ephemeral_store(
+        mut self,
+        store: Arc<HotColdDB<E, MemoryStore<E>, MemoryStore<E>>>,
+    ) -> Self {
+        let mutator = move |builder: BeaconChainBuilder<_>| {
+            builder
+                .resume_from_db()
+                .expect("should resume from database")
         };
         self.store = Some(store);
         self.store_mutator(Box::new(mutator))
@@ -1369,9 +1385,12 @@ where
         block: SignedBeaconBlock<E>,
     ) -> Result<SignedBeaconBlockHash, BlockError<E>> {
         self.set_current_slot(slot);
-        let block_hash: SignedBeaconBlockHash =
-            self.chain.process_block(Arc::new(block)).await?.into();
-        self.chain.recompute_head_at_current_slot().await?;
+        let block_hash: SignedBeaconBlockHash = self
+            .chain
+            .process_block(Arc::new(block), CountUnrealized::True)
+            .await?
+            .into();
+        self.chain.recompute_head_at_current_slot().await;
         Ok(block_hash)
     }
 
@@ -1379,9 +1398,12 @@ where
         &self,
         block: SignedBeaconBlock<E>,
     ) -> Result<SignedBeaconBlockHash, BlockError<E>> {
-        let block_hash: SignedBeaconBlockHash =
-            self.chain.process_block(Arc::new(block)).await?.into();
-        self.chain.recompute_head_at_current_slot().await?;
+        let block_hash: SignedBeaconBlockHash = self
+            .chain
+            .process_block(Arc::new(block), CountUnrealized::True)
+            .await?
+            .into();
+        self.chain.recompute_head_at_current_slot().await;
         Ok(block_hash)
     }
 
@@ -1776,5 +1798,12 @@ where
         assert_ne!(honest_head, faulty_head, "forks should be distinct");
 
         (honest_head, faulty_head)
+    }
+}
+
+// Junk `Debug` impl to satistfy certain trait bounds during testing.
+impl<T: BeaconChainTypes> fmt::Debug for BeaconChainHarness<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "BeaconChainHarness")
     }
 }

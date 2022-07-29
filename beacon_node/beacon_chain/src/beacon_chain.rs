@@ -93,6 +93,7 @@ use types::beacon_state::CloneConfig;
 use types::*;
 
 pub use crate::canonical_head::{CanonicalHead, CanonicalHeadRwLock};
+pub use fork_choice::CountUnrealized;
 
 pub type ForkChoiceError = fork_choice::Error<crate::ForkChoiceStoreError>;
 
@@ -1293,23 +1294,28 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         epoch: Epoch,
         head_block_root: Hash256,
     ) -> Result<(Vec<Option<AttestationDuty>>, Hash256, ExecutionStatus), Error> {
-        self.with_committee_cache(head_block_root, epoch, |committee_cache, dependent_root| {
-            let duties = validator_indices
-                .iter()
-                .map(|validator_index| {
-                    let validator_index = *validator_index as usize;
-                    committee_cache.get_attestation_duties(validator_index)
-                })
-                .collect();
+        let execution_status = self
+            .canonical_head
+            .fork_choice_read_lock()
+            .get_block_execution_status(&head_block_root)
+            .ok_or(Error::AttestationHeadNotInForkChoice(head_block_root))?;
 
-            let execution_status = self
-                .canonical_head
-                .fork_choice_read_lock()
-                .get_block_execution_status(&head_block_root)
-                .ok_or(Error::AttestationHeadNotInForkChoice(head_block_root))?;
+        let (duties, dependent_root) = self.with_committee_cache(
+            head_block_root,
+            epoch,
+            |committee_cache, dependent_root| {
+                let duties = validator_indices
+                    .iter()
+                    .map(|validator_index| {
+                        let validator_index = *validator_index as usize;
+                        committee_cache.get_attestation_duties(validator_index)
+                    })
+                    .collect();
 
-            Ok((duties, dependent_root, execution_status))
-        })
+                Ok((duties, dependent_root))
+            },
+        )?;
+        Ok((duties, dependent_root, execution_status))
     }
 
     /// Returns an aggregated `Attestation`, if any, that has a matching `attestation.data`.
@@ -1378,10 +1384,41 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn get_aggregated_sync_committee_contribution(
         &self,
         sync_contribution_data: &SyncContributionData,
-    ) -> Option<SyncCommitteeContribution<T::EthSpec>> {
-        self.naive_sync_aggregation_pool
+    ) -> Result<Option<SyncCommitteeContribution<T::EthSpec>>, Error> {
+        if let Some(contribution) = self
+            .naive_sync_aggregation_pool
             .read()
             .get(sync_contribution_data)
+        {
+            self.filter_optimistic_sync_committee_contribution(contribution)
+                .map(Option::Some)
+        } else {
+            Ok(None)
+        }
+    }
+
+    fn filter_optimistic_sync_committee_contribution(
+        &self,
+        contribution: SyncCommitteeContribution<T::EthSpec>,
+    ) -> Result<SyncCommitteeContribution<T::EthSpec>, Error> {
+        let beacon_block_root = contribution.beacon_block_root;
+        match self
+            .canonical_head
+            .fork_choice_read_lock()
+            .get_block_execution_status(&beacon_block_root)
+        {
+            // The contribution references a block that is not in fork choice, it must be
+            // pre-finalization.
+            None => Err(Error::SyncContributionDataReferencesFinalizedBlock { beacon_block_root }),
+            // The contribution references a fully valid `beacon_block_root`.
+            Some(execution_status) if execution_status.is_valid_or_irrelevant() => Ok(contribution),
+            // The contribution references a block that has not been verified by an EL (i.e. it
+            // is optimistic or invalid). Don't return the block, return an error instead.
+            Some(execution_status) => Err(Error::HeadBlockNotFullyVerified {
+                beacon_block_root,
+                execution_status,
+            }),
+        }
     }
 
     /// Produce an unaggregated `Attestation` that is valid for the given `slot` and `index`.
@@ -1739,6 +1776,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 self.slot()?,
                 verified.indexed_attestation(),
                 AttestationFromBlock::False,
+                &self.spec,
             )
             .map_err(Into::into)
     }
@@ -2061,11 +2099,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         )?)
     }
 
-    /// Accept some attester slashing and queue it for inclusion in an appropriate block.
+    /// Accept a verified attester slashing and:
+    ///
+    /// 1. Apply it to fork choice.
+    /// 2. Add it to the op pool.
     pub fn import_attester_slashing(
         &self,
         attester_slashing: SigVerifiedOp<AttesterSlashing<T::EthSpec>>,
     ) {
+        // Add to fork choice.
+        self.canonical_head
+            .fork_choice_write_lock()
+            .on_attester_slashing(attester_slashing.as_inner());
+
+        // Add to the op pool (if we have the ability to propose blocks).
         if self.eth1_chain.is_some() {
             self.op_pool.insert_attester_slashing(
                 attester_slashing,
@@ -2219,6 +2266,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub async fn process_chain_segment(
         self: &Arc<Self>,
         chain_segment: Vec<Arc<SignedBeaconBlock<T::EthSpec>>>,
+        count_unrealized: CountUnrealized,
     ) -> ChainSegmentResult<T::EthSpec> {
         let mut imported_blocks = 0;
 
@@ -2283,7 +2331,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             // Import the blocks into the chain.
             for signature_verified_block in signature_verified_blocks {
-                match self.process_block(signature_verified_block).await {
+                match self
+                    .process_block(signature_verified_block, count_unrealized)
+                    .await
+                {
                     Ok(_) => imported_blocks += 1,
                     Err(error) => {
                         return ChainSegmentResult::Failed {
@@ -2367,6 +2418,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub async fn process_block<B: IntoExecutionPendingBlock<T>>(
         self: &Arc<Self>,
         unverified_block: B,
+        count_unrealized: CountUnrealized,
     ) -> Result<Hash256, BlockError<T::EthSpec>> {
         // Start the Prometheus timer.
         let _full_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_TIMES);
@@ -2382,7 +2434,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let import_block = async move {
             let execution_pending = unverified_block.into_execution_pending_block(&chain)?;
             chain
-                .import_execution_pending_block(execution_pending)
+                .import_execution_pending_block(execution_pending, count_unrealized)
                 .await
         };
 
@@ -2440,6 +2492,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     async fn import_execution_pending_block(
         self: Arc<Self>,
         execution_pending_block: ExecutionPendingBlock<T>,
+        count_unrealized: CountUnrealized,
     ) -> Result<Hash256, BlockError<T::EthSpec>> {
         let ExecutionPendingBlock {
             block,
@@ -2498,6 +2551,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         state,
                         confirmed_state_roots,
                         payload_verification_status,
+                        count_unrealized,
                     )
                 },
                 "payload_verification_handle",
@@ -2519,6 +2573,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         mut state: BeaconState<T::EthSpec>,
         confirmed_state_roots: Vec<Hash256>,
         payload_verification_status: PayloadVerificationStatus,
+        count_unrealized: CountUnrealized,
     ) -> Result<Hash256, BlockError<T::EthSpec>> {
         let current_slot = self.slot()?;
         let current_epoch = current_slot.epoch(T::EthSpec::slots_per_epoch());
@@ -2664,6 +2719,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     &state,
                     payload_verification_status,
                     &self.spec,
+                    count_unrealized.and(self.config.count_unrealized.into()),
                 )
                 .map_err(|e| BlockError::BeaconChainError(e.into()))?;
         }
@@ -2673,6 +2729,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .write()
             .process_valid_state(current_slot.epoch(T::EthSpec::slots_per_epoch()), &state);
         let validator_monitor = self.validator_monitor.read();
+
+        // Register each attester slashing in the block with fork choice.
+        for attester_slashing in block.body().attester_slashings() {
+            fork_choice.on_attester_slashing(attester_slashing);
+        }
 
         // Register each attestation in the block with the fork choice service.
         for attestation in block.body().attestations() {
@@ -2689,6 +2750,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 current_slot,
                 &indexed_attestation,
                 AttestationFromBlock::True,
+                &self.spec,
             ) {
                 Ok(()) => Ok(()),
                 // Ignore invalid attestations whilst importing attestations from a block. The
@@ -2747,32 +2809,38 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         if !payload_verification_status.is_optimistic()
             && block.slot() + EARLY_ATTESTER_CACHE_HISTORIC_SLOTS >= current_slot
         {
-            let new_head_root = fork_choice
-                .get_head(current_slot, &self.spec)
-                .map_err(BeaconChainError::from)?;
-
-            if new_head_root == block_root {
-                if let Some(proto_block) = fork_choice.get_block(&block_root) {
-                    if let Err(e) = self.early_attester_cache.add_head_block(
-                        block_root,
-                        signed_block.clone(),
-                        proto_block,
-                        &state,
-                        &self.spec,
-                    ) {
+            match fork_choice.get_head(current_slot, &self.spec) {
+                // This block became the head, add it to the early attester cache.
+                Ok(new_head_root) if new_head_root == block_root => {
+                    if let Some(proto_block) = fork_choice.get_block(&block_root) {
+                        if let Err(e) = self.early_attester_cache.add_head_block(
+                            block_root,
+                            signed_block.clone(),
+                            proto_block,
+                            &state,
+                            &self.spec,
+                        ) {
+                            warn!(
+                                self.log,
+                                "Early attester cache insert failed";
+                                "error" => ?e
+                            );
+                        }
+                    } else {
                         warn!(
                             self.log,
-                            "Early attester cache insert failed";
-                            "error" => ?e
+                            "Early attester block missing";
+                            "block_root" => ?block_root
                         );
                     }
-                } else {
-                    warn!(
-                        self.log,
-                        "Early attester block missing";
-                        "block_root" => ?block_root
-                    );
                 }
+                // This block did not become the head, nothing to do.
+                Ok(_) => (),
+                Err(e) => error!(
+                    self.log,
+                    "Failed to compute head during block import";
+                    "error" => ?e
+                ),
             }
         }
 
@@ -2912,6 +2980,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 event_handler.register(EventKind::Block(SseBlock {
                     slot,
                     block: block_root,
+                    execution_optimistic: payload_verification_status.is_optimistic(),
                 }));
             }
         }
@@ -3549,16 +3618,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Run fork choice since it's possible that the payload invalidation might result in a new
         // head.
-        //
-        // Don't return early though, since invalidating the justified checkpoint might cause an
-        // error here.
-        if let Err(e) = self.recompute_head_at_current_slot().await {
-            crit!(
-                self.log,
-                "Failed to run fork choice routine";
-                "error" => ?e,
-            );
-        }
+        self.recompute_head_at_current_slot().await;
 
         // Obtain the justified root from fork choice.
         //
@@ -4059,9 +4119,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// Returns `Ok(false)` if the block is pre-Bellatrix, or has `ExecutionStatus::Valid`.
     /// Returns `Ok(true)` if the block has `ExecutionStatus::Optimistic`.
-    pub fn is_optimistic_block(
+    pub fn is_optimistic_block<Payload: ExecPayload<T::EthSpec>>(
         &self,
-        block: &SignedBeaconBlock<T::EthSpec>,
+        block: &SignedBeaconBlock<T::EthSpec, Payload>,
     ) -> Result<bool, BeaconChainError> {
         // Check if the block is pre-Bellatrix.
         if self.slot_is_prior_to_bellatrix(block.slot()) {
@@ -4085,9 +4145,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// There is a potential race condition when syncing where the block_root of `head_block` could
     /// be pruned from the fork choice store before being read.
-    pub fn is_optimistic_head_block(
+    pub fn is_optimistic_head_block<Payload: ExecPayload<T::EthSpec>>(
         &self,
-        head_block: &SignedBeaconBlock<T::EthSpec>,
+        head_block: &SignedBeaconBlock<T::EthSpec, Payload>,
     ) -> Result<bool, BeaconChainError> {
         // Check if the block is pre-Bellatrix.
         if self.slot_is_prior_to_bellatrix(head_block.slot()) {
@@ -4203,14 +4263,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
 
             // Run fork choice and signal to any waiting task that it has completed.
-            if let Err(e) = self.recompute_head_at_current_slot().await {
-                error!(
-                    self.log,
-                    "Fork choice error at slot start";
-                    "error" => ?e,
-                    "slot" => slot,
-                );
-            }
+            self.recompute_head_at_current_slot().await;
 
             // Send the notification regardless of fork choice success, this is a "best effort"
             // notification and we don't want block production to hit the timeout in case of error.
