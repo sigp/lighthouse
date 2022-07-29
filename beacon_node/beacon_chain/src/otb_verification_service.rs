@@ -297,7 +297,8 @@ pub async fn validate_optimistic_transition_blocks<T: BeaconChainTypes>(
     Ok(())
 }
 
-/// Loop indefinitely, calling `BeaconChain::prepare_beacon_proposer_async` at an interval.
+/// Loop until any optimistically imported merge transition blocks have been verified and
+/// the merge has been finalized.
 async fn otb_verification_service<T: BeaconChainTypes>(chain: Arc<BeaconChain<T>>) {
     let epoch_duration = chain.slot_clock.slot_duration() * T::EthSpec::slots_per_epoch() as u32;
     loop {
