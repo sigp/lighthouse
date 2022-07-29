@@ -459,7 +459,7 @@ async fn immediate_forkchoice_update_payload_invalid_block_hash() {
 #[tokio::test]
 async fn immediate_forkchoice_update_payload_invalid_terminal_block() {
     immediate_forkchoice_update_invalid_test(|_| Payload::Invalid {
-        latest_valid_hash: ExecutionBlockHash::zero(),
+        latest_valid_hash: Some(ExecutionBlockHash::zero()),
     })
     .await
 }
