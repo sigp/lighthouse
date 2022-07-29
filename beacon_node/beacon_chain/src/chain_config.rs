@@ -26,7 +26,7 @@ pub struct ChainConfig {
     pub fork_choice_before_proposal_timeout_ms: u64,
     /// Number of skip slots in a row before the BN refuses to use connected builders during payload construction.
     pub builder_fallback_skips: usize,
-    /// Number skip slots in the past `SLOTS_PER_EPOCH` before the BN refuses to use connected
+    /// Number of skip slots in the past `SLOTS_PER_EPOCH` before the BN refuses to use connected
     /// builders during payload construction.
     pub builder_fallback_skips_per_epoch: usize,
     /// Number of epochs since finalization before the BN refuses to use connected builders during
