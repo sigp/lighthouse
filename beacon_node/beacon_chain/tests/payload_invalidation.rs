@@ -7,10 +7,12 @@ use beacon_chain::otb_verification_service::{
 use beacon_chain::{
     test_utils::{BeaconChainHarness, EphemeralHarnessType},
     BeaconChainError, BlockError, ExecutionPayloadError, StateSkipConfig, WhenSlotSkipped,
+    INVALID_FINALIZED_MERGE_TRANSITION_BLOCK_SHUTDOWN_REASON,
     INVALID_JUSTIFIED_PAYLOAD_SHUTDOWN_REASON,
 };
 use execution_layer::{
     json_structures::{JsonForkChoiceStateV1, JsonPayloadAttributesV1},
+    test_utils::ExecutionBlockGenerator,
     ExecutionLayer, ForkChoiceState, PayloadAttributes,
 };
 use fork_choice::{Error as ForkChoiceError, InvalidationOperation, PayloadVerificationStatus};
@@ -44,7 +46,11 @@ struct InvalidPayloadRig {
 
 impl InvalidPayloadRig {
     fn new() -> Self {
-        let mut spec = E::default_spec();
+        let spec = E::default_spec();
+        Self::new_with_spec(spec)
+    }
+
+    fn new_with_spec(mut spec: ChainSpec) -> Self {
         spec.altair_fork_epoch = Some(Epoch::new(0));
         spec.bellatrix_fork_epoch = Some(Epoch::new(0));
 
@@ -1189,11 +1195,14 @@ async fn attesting_to_optimistic_head() {
 /// transition.
 struct OptimisticTransitionSetup {
     blocks: Vec<Arc<SignedBeaconBlock<E>>>,
+    execution_block_generator: ExecutionBlockGenerator<E>,
 }
 
 impl OptimisticTransitionSetup {
-    async fn new(num_blocks: usize) -> Self {
-        let mut rig = InvalidPayloadRig::new().enable_attestations();
+    async fn new(num_blocks: usize, ttd: u64) -> Self {
+        let mut spec = E::default_spec();
+        spec.terminal_total_difficulty = ttd.into();
+        let mut rig = InvalidPayloadRig::new_with_spec(spec).enable_attestations();
         rig.move_to_terminal_block();
 
         let mut blocks = Vec::with_capacity(num_blocks);
@@ -1203,19 +1212,42 @@ impl OptimisticTransitionSetup {
             blocks.push(Arc::new(block));
         }
 
-        Self { blocks }
+        let execution_block_generator = rig
+            .harness
+            .mock_execution_layer
+            .as_ref()
+            .unwrap()
+            .server
+            .execution_block_generator()
+            .clone();
+
+        Self {
+            blocks,
+            execution_block_generator,
+        }
     }
 }
 
-#[tokio::test]
-async fn optimistic_transition_block() {
-    let OptimisticTransitionSetup { blocks } = OptimisticTransitionSetup::new(3).await;
-
+async fn build_optimistic_chain(
+    block_ttd: u64,
+    rig_ttd: u64,
+    num_blocks: usize,
+) -> InvalidPayloadRig {
+    let OptimisticTransitionSetup {
+        blocks,
+        execution_block_generator,
+    } = OptimisticTransitionSetup::new(num_blocks, block_ttd).await;
     // Build a brand-new testing harness. We will apply the blocks from the previous harness to
     // this one.
-    let rig = InvalidPayloadRig::new();
+    let mut spec = E::default_spec();
+    spec.terminal_total_difficulty = rig_ttd.into();
+    let rig = InvalidPayloadRig::new_with_spec(spec);
+
     let spec = &rig.harness.chain.spec;
     let mock_execution_layer = rig.harness.mock_execution_layer.as_ref().unwrap();
+
+    // Ensure all the execution blocks from the first rig are available in the second rig.
+    *mock_execution_layer.server.execution_block_generator() = execution_block_generator;
 
     // Make the execution layer respond `SYNCING` to all `newPayload` requests.
     mock_execution_layer
@@ -1230,8 +1262,11 @@ async fn optimistic_transition_block() {
         .server
         .all_get_block_by_hash_requests_return_none();
 
-    rig.harness
-        .set_current_slot(blocks[0].slot() + spec.safe_slots_to_import_optimistically);
+    let current_slot = std::cmp::max(
+        blocks[0].slot() + spec.safe_slots_to_import_optimistically,
+        num_blocks.into(),
+    );
+    rig.harness.set_current_slot(current_slot);
 
     for block in blocks {
         rig.harness.chain.process_block(block).await.unwrap();
@@ -1242,6 +1277,11 @@ async fn optimistic_transition_block() {
         .recompute_head_at_current_slot()
         .await
         .unwrap();
+
+    // Make the execution layer respond normally to `getBlockByHash` requests.
+    mock_execution_layer
+        .server
+        .all_get_block_by_hash_requests_return_natural_value();
 
     // Perform some sanity checks to ensure that the transition happened exactly where we expected.
     let pre_transition_block_root = rig
@@ -1297,12 +1337,15 @@ async fn optimistic_transition_block() {
     );
 
     // Assert that the transition block was optimistically imported.
+    //
+    // Note: we're using the "fallback" check for optimistic status, so if the block was
+    // pre-finality then we'll just use the optimistic status of the finalized block.
     assert!(
         rig.harness
             .chain
             .canonical_head
             .fork_choice_read_lock()
-            .is_optimistic_block_no_fallback(&post_transition_block_root)
+            .is_optimistic_block(&post_transition_block_root)
             .unwrap(),
         "the transition block should be imported optimistically"
     );
@@ -1311,14 +1354,30 @@ async fn optimistic_transition_block() {
     mock_execution_layer
         .server
         .all_get_block_by_hash_requests_return_natural_value();
-    // Advance the local execution layer to the terminal block.
-    mock_execution_layer
-        .server
-        .execution_block_generator()
-        .move_to_terminal_block()
-        .unwrap();
+
+    return rig;
+}
+
+#[tokio::test]
+async fn optimistic_transition_block_valid_unfinalized() {
+    let ttd = 42;
+    let num_blocks = 16 as usize;
+    let rig = build_optimistic_chain(ttd, ttd, num_blocks).await;
 
     // In theory, you should be able to retrospectively validate the transition block now.
+    let post_transition_block_root = rig
+        .harness
+        .chain
+        .block_root_at_slot(Slot::new(1), WhenSlotSkipped::None)
+        .unwrap()
+        .unwrap();
+    let post_transition_block = rig
+        .harness
+        .chain
+        .get_block(&post_transition_block_root)
+        .await
+        .unwrap()
+        .unwrap();
 
     let otbs = load_optimistic_transition_blocks(&rig.harness.chain)
         .expect("should load optimistic transition block from db");
@@ -1342,5 +1401,184 @@ async fn optimistic_transition_block() {
     assert!(
         otbs.is_empty(),
         "The valid optimistic transition block should have been removed from the database",
+    );
+}
+
+#[tokio::test]
+async fn optimistic_transition_block_valid_finalized() {
+    let ttd = 42;
+    let num_blocks = 130 as usize;
+    let rig = build_optimistic_chain(ttd, ttd, num_blocks).await;
+
+    // In theory, you should be able to retrospectively validate the transition block now.
+    let post_transition_block_root = rig
+        .harness
+        .chain
+        .block_root_at_slot(Slot::new(1), WhenSlotSkipped::None)
+        .unwrap()
+        .unwrap();
+    let post_transition_block = rig
+        .harness
+        .chain
+        .get_block(&post_transition_block_root)
+        .await
+        .unwrap()
+        .unwrap();
+
+    let otbs = load_optimistic_transition_blocks(&rig.harness.chain)
+        .expect("should load optimistic transition block from db");
+    assert_eq!(
+        otbs.len(),
+        1,
+        "There should be one optimistic transition block"
+    );
+    let valid_otb = OptimisticTransitionBlock::from_block(post_transition_block.message());
+    assert_eq!(
+        valid_otb, otbs[0],
+        "The optimistic transition block stored in the database should be what we expect",
+    );
+
+    validate_optimistic_transition_blocks(&rig.harness.chain, otbs)
+        .await
+        .expect("should validate fine");
+    // now that the transition block has been validated, it should have been removed from the database
+    let otbs = load_optimistic_transition_blocks(&rig.harness.chain)
+        .expect("should load optimistic transition block from db");
+    assert!(
+        otbs.is_empty(),
+        "The valid optimistic transition block should have been removed from the database",
+    );
+}
+
+#[tokio::test]
+async fn optimistic_transition_block_invalid_unfinalized() {
+    let block_ttd = 42;
+    let rig_ttd = 1337;
+    let num_blocks = 22 as usize;
+    let rig = build_optimistic_chain(block_ttd, rig_ttd, num_blocks).await;
+
+    // In theory, you should be able to retrospectively validate the transition block now.
+    let post_transition_block_root = rig
+        .harness
+        .chain
+        .block_root_at_slot(Slot::new(1), WhenSlotSkipped::None)
+        .unwrap()
+        .unwrap();
+    let post_transition_block = rig
+        .harness
+        .chain
+        .get_block(&post_transition_block_root)
+        .await
+        .unwrap()
+        .unwrap();
+
+    let otbs = load_optimistic_transition_blocks(&rig.harness.chain)
+        .expect("should load optimistic transition block from db");
+    assert_eq!(
+        otbs.len(),
+        1,
+        "There should be one optimistic transition block"
+    );
+
+    let invalid_otb = OptimisticTransitionBlock::from_block(post_transition_block.message());
+    assert_eq!(
+        invalid_otb, otbs[0],
+        "The optimistic transition block stored in the database should be what we expect",
+    );
+
+    // No shutdown should've been triggered.
+    assert_eq!(rig.harness.shutdown_reasons(), vec![]);
+    // It shouldn't be known as invalid yet
+    assert!(!rig
+        .execution_status(post_transition_block_root)
+        .is_invalid());
+
+    validate_optimistic_transition_blocks(&rig.harness.chain, otbs)
+        .await
+        .expect("should invalidate merge transition block and shutdown the client");
+
+    // Still no shutdown should've been triggered.
+    assert_eq!(rig.harness.shutdown_reasons(), vec![]);
+    // It should be marked invalid now
+    assert!(rig
+        .execution_status(post_transition_block_root)
+        .is_invalid());
+
+    // the invalid merge transition block should NOT have been removed from the database
+    let otbs = load_optimistic_transition_blocks(&rig.harness.chain)
+        .expect("should load optimistic transition block from db");
+    assert_eq!(
+        otbs.len(),
+        1,
+        "The invalid merge transition block should still be in the database",
+    );
+    assert_eq!(
+        invalid_otb, otbs[0],
+        "The optimistic transition block stored in the database should be what we expect",
+    );
+}
+
+#[tokio::test]
+async fn optimistic_transition_block_invalid_finalized() {
+    let block_ttd = 42;
+    let rig_ttd = 1337;
+    let num_blocks = 130 as usize;
+    let rig = build_optimistic_chain(block_ttd, rig_ttd, num_blocks).await;
+
+    let post_transition_block_root = rig
+        .harness
+        .chain
+        .block_root_at_slot(Slot::new(1), WhenSlotSkipped::None)
+        .unwrap()
+        .unwrap();
+    let post_transition_block = rig
+        .harness
+        .chain
+        .get_block(&post_transition_block_root)
+        .await
+        .unwrap()
+        .unwrap();
+
+    let otbs = load_optimistic_transition_blocks(&rig.harness.chain)
+        .expect("should load optimistic transition block from db");
+
+    assert_eq!(
+        otbs.len(),
+        1,
+        "There should be one optimistic transition block"
+    );
+
+    let invalid_otb = OptimisticTransitionBlock::from_block(post_transition_block.message());
+    assert_eq!(
+        invalid_otb, otbs[0],
+        "The optimistic transition block stored in the database should be what we expect",
+    );
+
+    // No shutdown should've been triggered yet.
+    assert_eq!(rig.harness.shutdown_reasons(), vec![]);
+
+    validate_optimistic_transition_blocks(&rig.harness.chain, otbs)
+        .await
+        .expect("should invalidate merge transition block and shutdown the client");
+
+    // The beacon chain should have triggered a shutdown.
+    assert_eq!(
+        rig.harness.shutdown_reasons(),
+        vec![ShutdownReason::Failure(
+            INVALID_FINALIZED_MERGE_TRANSITION_BLOCK_SHUTDOWN_REASON
+        )]
+    );
+
+    // the invalid merge transition block should NOT have been removed from the database
+    let otbs = load_optimistic_transition_blocks(&rig.harness.chain)
+        .expect("should load optimistic transition block from db");
+    assert_eq!(
+        otbs.len(),
+        1,
+        "The invalid merge transition block should still be in the database",
+    );
+    assert_eq!(
+        invalid_otb, otbs[0],
+        "The optimistic transition block stored in the database should be what we expect",
     );
 }
