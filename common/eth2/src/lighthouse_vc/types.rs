@@ -90,9 +90,17 @@ pub struct KeystoreValidatorsPostRequest {
     pub password: ZeroizeString,
     pub enable: bool,
     pub keystore: Keystore,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub graffiti: Option<GraffitiString>,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub suggested_fee_recipient: Option<Address>,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub gas_limit: Option<u64>,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub builder_proposals: Option<bool>,
 }
 
