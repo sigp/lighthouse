@@ -94,8 +94,7 @@ impl StoreItem for OptimisticTransitionBlock {
     }
 }
 
-/// At 12s slot times, the means that the payload preparation routine will run 4s before the start
-/// of each slot (`12 / 3 = 4`).
+/// The routine is expected to run once per epoch, 1/4th through the epoch.
 pub const EPOCH_DELAY_FACTOR: u32 = 4;
 
 /// Spawns a routine which checks the validity of any optimistically imported transition blocks
