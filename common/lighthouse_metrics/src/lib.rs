@@ -404,13 +404,3 @@ pub fn decimal_buckets(min_power: i32, max_power: i32) -> Result<Vec<f64>> {
     }
     Ok(buckets)
 }
-
-// pub fn default_buckets() -> Result<Vec<f64>> {
-//     Ok(prometheus::DEFAULT_BUCKETS.to_vec())
-// }
-// pub fn exponential_buckets(start: f64,factor: f64) -> Result<Vec<f64>> {
-//     prometheus::exponential_buckets(start, factor, count)
-// }
-// pub fn default_buckets() -> Result<Vec<f64>> {
-//     Ok(prometheus::DEFAULT_BUCKETS)
-// }
