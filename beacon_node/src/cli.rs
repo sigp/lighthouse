@@ -712,8 +712,8 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("builder-fallback-skips")
                 .long("builder-fallback-skips")
                 .help("If this node is proposing a block and has seen this number of skip slots \
-			on the canonical chain in a row, it will NOT query any connected builders, \
-			and will use the local execution engine for payload construction.")
+                        on the canonical chain in a row, it will NOT query any connected builders, \
+                        and will use the local execution engine for payload construction.")
                 .default_value("3")
                 .takes_value(true)
         )
@@ -721,9 +721,9 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("builder-fallback-skips-per-epoch")
                 .long("builder-fallback-skips-per-epoch")
                 .help("If this node is proposing a block and has seen this number of skip slots \
-			on the canonical chain in the past `SLOTS_PER_EPOCH`, it will NOT query \
-			any connected builders, and will use the local execution engine for \
-			payload construction.")
+                        on the canonical chain in the past `SLOTS_PER_EPOCH`, it will NOT query \
+                        any connected builders, and will use the local execution engine for \
+                        payload construction.")
                 .default_value("8")
                 .takes_value(true)
         )
