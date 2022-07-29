@@ -24,7 +24,7 @@ pub struct ChainConfig {
     ///
     /// If set to 0 then block proposal will not wait for fork choice at all.
     pub fork_choice_before_proposal_timeout_ms: u64,
-    /// Number skip slots in a row before the BN refuses to use connected builders during payload construction.
+    /// Number of skip slots in a row before the BN refuses to use connected builders during payload construction.
     pub builder_fallback_skips: usize,
     /// Number skip slots in the past `SLOTS_PER_EPOCH` before the BN refuses to use connected
     /// builders during payload construction.
