@@ -247,13 +247,15 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                             .await;
                         match result.as_ref() {
                             Err(BlockError::Recoverable(e)) => {
-                                error!(log, "Error whilst producing a blinded block, attempting to publish full block"; "error" => ?e);
+                                error!(log, "Error whilst producing a blinded block, attempting to \
+                                    publish full block"; "error" => ?e);
                                 result = service
                                     .publish_block::<FullPayload<E>>(slot, validator_pubkey)
                                     .await;
                             },
                             Err(BlockError::Irrecoverable(e))  => {
-                                error!(log, "Error whilst producing a blinded block, cannot fallback because the block was signed"; "error" => ?e);
+                                error!(log, "Error whilst producing a blinded block, cannot fallback \
+                                    because the block was signed"; "error" => ?e);
                             },
                             _ => {},
                         };
