@@ -2953,7 +2953,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 snapshot_cache.insert(
                     BeaconSnapshot {
                         beacon_state: state,
-                        beacon_block: signed_block.clone(),
+                        beacon_block: signed_block,
                         beacon_block_root: block_root,
                     },
                     None,
