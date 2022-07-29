@@ -1291,14 +1291,14 @@ async fn build_optimistic_chain(
     rig.harness.set_current_slot(current_slot);
 
     for block in blocks {
-        rig.harness.chain.process_block(block).await.unwrap();
+        rig.harness
+            .chain
+            .process_block(block, CountUnrealized::True)
+            .await
+            .unwrap();
     }
 
-    rig.harness
-        .chain
-        .recompute_head_at_current_slot()
-        .await
-        .unwrap();
+    rig.harness.chain.recompute_head_at_current_slot().await;
 
     // Make the execution layer respond normally to `getBlockByHash` requests.
     mock_execution_layer
