@@ -1250,6 +1250,10 @@ impl OptimisticTransitionSetup {
     }
 }
 
+/// Build a chain which has optimistically imported a transition block.
+///
+/// The initial chain will be built with respect to `block_ttd`, whilst the `rig` which imports the
+/// chain will operate with respect to `rig_ttd`. This allows for testing mismatched TTDs.
 async fn build_optimistic_chain(
     block_ttd: u64,
     rig_ttd: u64,
@@ -1386,7 +1390,6 @@ async fn optimistic_transition_block_valid_unfinalized() {
     let num_blocks = 16 as usize;
     let rig = build_optimistic_chain(ttd, ttd, num_blocks).await;
 
-    // In theory, you should be able to retrospectively validate the transition block now.
     let post_transition_block_root = rig
         .harness
         .chain
@@ -1400,6 +1403,15 @@ async fn optimistic_transition_block_valid_unfinalized() {
         .await
         .unwrap()
         .unwrap();
+
+    assert!(
+        rig.cached_head()
+            .finalized_checkpoint()
+            .epoch
+            .start_slot(E::slots_per_epoch())
+            < post_transition_block.slot(),
+        "the transition block should not be finalized"
+    );
 
     let otbs = load_optimistic_transition_blocks(&rig.harness.chain)
         .expect("should load optimistic transition block from db");
@@ -1432,7 +1444,6 @@ async fn optimistic_transition_block_valid_finalized() {
     let num_blocks = 130 as usize;
     let rig = build_optimistic_chain(ttd, ttd, num_blocks).await;
 
-    // In theory, you should be able to retrospectively validate the transition block now.
     let post_transition_block_root = rig
         .harness
         .chain
@@ -1446,6 +1457,15 @@ async fn optimistic_transition_block_valid_finalized() {
         .await
         .unwrap()
         .unwrap();
+
+    assert!(
+        rig.cached_head()
+            .finalized_checkpoint()
+            .epoch
+            .start_slot(E::slots_per_epoch())
+            > post_transition_block.slot(),
+        "the transition block should be finalized"
+    );
 
     let otbs = load_optimistic_transition_blocks(&rig.harness.chain)
         .expect("should load optimistic transition block from db");
@@ -1479,7 +1499,6 @@ async fn optimistic_transition_block_invalid_unfinalized() {
     let num_blocks = 22 as usize;
     let rig = build_optimistic_chain(block_ttd, rig_ttd, num_blocks).await;
 
-    // In theory, you should be able to retrospectively validate the transition block now.
     let post_transition_block_root = rig
         .harness
         .chain
@@ -1493,6 +1512,15 @@ async fn optimistic_transition_block_invalid_unfinalized() {
         .await
         .unwrap()
         .unwrap();
+
+    assert!(
+        rig.cached_head()
+            .finalized_checkpoint()
+            .epoch
+            .start_slot(E::slots_per_epoch())
+            < post_transition_block.slot(),
+        "the transition block should not be finalized"
+    );
 
     let otbs = load_optimistic_transition_blocks(&rig.harness.chain)
         .expect("should load optimistic transition block from db");
@@ -1517,7 +1545,7 @@ async fn optimistic_transition_block_invalid_unfinalized() {
 
     validate_optimistic_transition_blocks(&rig.harness.chain, otbs)
         .await
-        .expect("should invalidate merge transition block and shutdown the client");
+        .unwrap();
 
     // Still no shutdown should've been triggered.
     assert_eq!(rig.harness.shutdown_reasons(), vec![]);
@@ -1547,7 +1575,6 @@ async fn optimistic_transition_block_invalid_unfinalized_syncing_ee() {
     let num_blocks = 22 as usize;
     let rig = build_optimistic_chain(block_ttd, rig_ttd, num_blocks).await;
 
-    // In theory, you should be able to retrospectively validate the transition block now.
     let post_transition_block_root = rig
         .harness
         .chain
@@ -1561,6 +1588,15 @@ async fn optimistic_transition_block_invalid_unfinalized_syncing_ee() {
         .await
         .unwrap()
         .unwrap();
+
+    assert!(
+        rig.cached_head()
+            .finalized_checkpoint()
+            .epoch
+            .start_slot(E::slots_per_epoch())
+            < post_transition_block.slot(),
+        "the transition block should not be finalized"
+    );
 
     let otbs = load_optimistic_transition_blocks(&rig.harness.chain)
         .expect("should load optimistic transition block from db");
@@ -1622,7 +1658,7 @@ async fn optimistic_transition_block_invalid_unfinalized_syncing_ee() {
 
     validate_optimistic_transition_blocks(&rig.harness.chain, otbs)
         .await
-        .expect("should invalidate merge transition block and shutdown the client");
+        .unwrap();
 
     // Still no shutdown should've been triggered.
     assert_eq!(rig.harness.shutdown_reasons(), vec![]);
@@ -1665,6 +1701,15 @@ async fn optimistic_transition_block_invalid_finalized() {
         .await
         .unwrap()
         .unwrap();
+
+    assert!(
+        rig.cached_head()
+            .finalized_checkpoint()
+            .epoch
+            .start_slot(E::slots_per_epoch())
+            > post_transition_block.slot(),
+        "the transition block should be finalized"
+    );
 
     let otbs = load_optimistic_transition_blocks(&rig.harness.chain)
         .expect("should load optimistic transition block from db");
