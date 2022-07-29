@@ -4585,13 +4585,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Check if finalization is advancing.
         let current_epoch = current_slot.epoch(T::EthSpec::slots_per_epoch());
-        let epoch_since_finalization = current_epoch.saturating_sub(
+        let epochs_since_finalization = current_epoch.saturating_sub(
             self.canonical_head
                 .cached_head()
                 .finalized_checkpoint()
                 .epoch,
         );
-        let finalization_check = epoch_since_finalization.as_usize()
+        let finalization_check = epochs_since_finalization.as_usize()
             <= self.config.builder_fallback_epochs_since_finalization;
 
         // Check skip slots in the last `SLOTS_PER_EPOCH`.
