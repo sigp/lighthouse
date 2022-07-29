@@ -597,11 +597,19 @@ impl<T: EthSpec> ExecutionLayer<T> {
 
                     return match (relay_result, local_result) {
                         (Err(e), Ok(local)) => {
-                            warn!(self.log(),"Unable to retrieve a payload from a connected builder, falling back to the local execution client: {e:?}");
+                            warn!(
+                                self.log(),
+                                "Unable to retrieve a payload from a connected \
+                                builder, falling back to the local execution client: {e:?}"
+                            );
                             Ok(local)
                         }
                         (Ok(None), Ok(local)) => {
-                            warn!(self.log(), "No payload provided by connected builder. Attempting to propose through local execution engine");
+                            warn!(
+                                self.log(),
+                                "No payload provided by connected builder. \
+                                Attempting to propose through local execution engine"
+                            );
                             Ok(local)
                         }
                         (Ok(Some(relay)), Ok(local)) => {
@@ -615,35 +623,63 @@ impl<T: EthSpec> ExecutionLayer<T> {
                             );
 
                             if header.parent_hash() != parent_hash {
-                                warn!(self.log(), "Invalid parent hash from connected builder, falling back to local execution engine.");
+                                warn!(
+                                    self.log(),
+                                    "Invalid parent hash from connected builder, \
+                                    falling back to local execution engine."
+                                );
                                 Ok(local)
                             } else if header.prev_randao() != prev_randao {
-                                warn!(self.log(), "Invalid prev randao from connected builder, falling back to local execution engine.");
+                                warn!(
+                                    self.log(),
+                                    "Invalid prev randao from connected builder, \
+                                    falling back to local execution engine."
+                                );
                                 Ok(local)
                             } else if header.timestamp() != local.timestamp() {
-                                warn!(self.log(), "Invalid timestamp from connected builder, falling back to local execution engine.");
+                                warn!(
+                                    self.log(),
+                                    "Invalid timestamp from connected builder, \
+                                    falling back to local execution engine."
+                                );
                                 Ok(local)
                             } else if header.block_number() != local.block_number() {
-                                warn!(self.log(), "Invalid block number from connected builder, falling back to local execution engine.");
+                                warn!(
+                                    self.log(),
+                                    "Invalid block number from connected builder, \
+                                    falling back to local execution engine."
+                                );
                                 Ok(local)
                             } else if !matches!(relay.version, Some(ForkName::Merge)) {
-                                // Once fork information is added to the payload, we will need to check that the local and relay payloads
-                                // match. At this point, if we are requesting a payload at all, we have to assume this is the Bellatrix fork.
-                                warn!(self.log(), "Invalid fork from connected builder, falling back to local execution engine.");
+                                // Once fork information is added to the payload, we will need to
+                                // check that the local and relay payloads match. At this point, if
+                                // we are requesting a payload at all, we have to assume this is
+                                // the Bellatrix fork.
+                                warn!(
+                                    self.log(),
+                                    "Invalid fork from connected builder, falling \
+                                    back to local execution engine."
+                                );
                                 Ok(local)
                             } else if !is_signature_valid {
                                 let pubkey_bytes = relay.data.message.pubkey;
-                                warn!(self.log(), "Invalid signature for pubkey {pubkey_bytes} on bid from connected builder, falling back to local execution engine.");
+                                warn!(self.log(), "Invalid signature for pubkey {pubkey_bytes} on \
+                                    bid from connected builder, falling back to local execution engine.");
                                 Ok(local)
                             } else {
                                 if header.fee_recipient() != suggested_fee_recipient {
-                                    info!(self.log(), "Fee recipient from connected builder does not match, using it anyways.");
+                                    info!(
+                                        self.log(),
+                                        "Fee recipient from connected builder does \
+                                        not match, using it anyways."
+                                    );
                                 }
                                 Ok(header)
                             }
                         }
                         (relay_result, Err(local_error)) => {
-                            warn!(self.log(), "Failure from local execution engine. Attempting to propose through connected builder"; "error" => ?local_error);
+                            warn!(self.log(), "Failure from local execution engine. Attempting to \
+                                propose through connected builder"; "error" => ?local_error);
                             relay_result
                                 .map_err(Error::Builder)?
                                 .ok_or(Error::NoHeaderFromBuilder)
