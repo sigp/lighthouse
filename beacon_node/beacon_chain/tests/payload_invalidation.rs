@@ -1213,7 +1213,6 @@ async fn attesting_to_optimistic_head() {
     get_aggregated_by_slot_and_root().unwrap();
 }
 
-
 /// A helper struct to build out a chain of some configurable length which undergoes the merge
 /// transition.
 struct OptimisticTransitionSetup {
@@ -1605,7 +1604,6 @@ async fn optimistic_transition_block_invalid_finalized() {
         "The optimistic transition block stored in the database should be what we expect",
     );
 }
-
 
 /// Helper for running tests where we generate a chain with an invalid head and then some
 /// `fork_blocks` to recover it.
