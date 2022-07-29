@@ -312,9 +312,25 @@ async fn otb_verification_service<T: BeaconChainTypes>(chain: Arc<BeaconChain<T>
                 match load_optimistic_transition_blocks(chain.as_ref()) {
                     Ok(otbs) => {
                         if otbs.is_empty() {
-                            // there are no optimistic blocks in the database, we can exit
-                            // the service since the merge transition is completed
-                            break;
+                            if chain
+                                .canonical_head
+                                .fork_choice_read_lock()
+                                .get_finalized_block()
+                                .map_or(false, |block| {
+                                    block.execution_status.is_execution_enabled()
+                                })
+                            {
+                                // there are no optimistic blocks in the database, we can exit
+                                // the service since the merge transition is finalized and we'll
+                                // never see another transition block
+                                break;
+                            } else {
+                                debug!(
+                                    chain.log,
+                                    "No optimistic transition blocks";
+                                    "info" => "waiting for the merge transition to finalize"
+                                )
+                            }
                         }
                         if let Err(e) = validate_optimistic_transition_blocks(&chain, otbs).await {
                             warn!(
