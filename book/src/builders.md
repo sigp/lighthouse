@@ -1,14 +1,18 @@
 # MEV and Lighthouse
 
-Lighthouse is able to interact with servers that implement the [builder API](https://github.com/ethereum/builder-specs), 
-allowing it to produce blocks without having knowledge of the transactions included in the block. This enables 
-Lighthouse to outsource the job of transaction gathering/ordering within a block to parties specialized in this 
-particular task. A primer on MEV can be found [here]([MEV](https://ethereum.org/en/developers/docs/mev/)). 
+Lighthouse is able to interact with servers that implement the [builder
+API](https://github.com/ethereum/builder-specs), allowing it to produce blocks without having
+knowledge of the transactions included in the block. This enables Lighthouse to outsource the job of
+transaction gathering/ordering within a block to parties specialized in this particular task. For
+economic reasons, these parties will refuse to reveal the list of transactions to the validator
+before the validator has committed to (i.e. signed) the block. A primer on MEV can be found
+[here]([MEV](https://ethereum.org/en/developers/docs/mev/)).
 
-There is no slashing risk when connecting to the builder API because Lighthouse will keep you from ever signing over *two*
-blocks, but a live-ness risk is introduced because you will be signing blocks where you haven't actually executed the transactions
-within the block. So you won't know whether the transactions are valid and you might sign a block that the network will
-reject. This leads to a missed proposal which earns a penalty on top of the opportunity cost of lost block rewards.
+Using the builder API is not known to introduce additional slashing risks, however a live-ness risk
+(i.e. the ability for the chain to produce valid blocks) is introduced because your node will be
+signing blocks without executing the transactions within the block. Therefore it won't know whether
+the transactions are valid and it may sign a block that the network will reject. This would lead to
+a missed proposal and the opportunity cost of lost block rewards.
 
 ## How to connect to a builder
 
@@ -17,12 +21,12 @@ The beacon node and validator client each require a new flag for lighthouse to b
 ```
 lighthouse bn --builder https://mainnet-builder.test
 ```
-The `--builder` flag will cause the beacon node to query the provided URL during block production for a block 
-payload whose transactions have been stubbed out. If this request fails, Lighthouse will fall back to the local 
-execution engine and produce a block using transactions gathered and verified locally. 
+The `--builder` flag will cause the beacon node to query the provided URL during block production for a block
+payload with stubbed-out transactions. If this request fails, Lighthouse will fall back to the local
+execution engine and produce a block using transactions gathered and verified locally.
 
 The beacon node will *only* query for this type of block (a "blinded" block) when a validator specifically requests it.
-Otherwise, it will continue to serve full blocks as normal. In order to configure the validator client to query for 
+Otherwise, it will continue to serve full blocks as normal. In order to configure the validator client to query for
 blinded blocks, you should use the following flag:
 
 ```
@@ -33,26 +37,26 @@ In order to configure whether a validator queries for blinded blocks check out [
 
 ## Multiple builders
 
-Lighthouse currently only supports a connection to a single builder. If you'd like to connect to multiple builders or 
-relays, run one of the following services and configure lighthouse to use it with the `--builder` flag. 
+Lighthouse currently only supports a connection to a single builder. If you'd like to connect to multiple builders or
+relays, run one of the following services and configure lighthouse to use it with the `--builder` flag.
 
 * [`mev-boost`][mev-boost]
 * [`mev-rs`][mev-rs]
 
 ## Validator Client Configuration
 
-In the validator client, you can configure gas limit, fee recipient, and whether to use the builder API on a 
+In the validator client you can configure gas limit, fee recipient and whether to use the builder API on a
 per-validator basis or set a configuration for all validators managed by the validator client. CLI flags for each of these
-will serve as default values for all validators managed by the validator client. In order to manage the values 
-per-validator you can either make updates to the `validator_definitions.yml` file or you can use the HTTP requests 
-described below. 
+will serve as default values for all validators managed by the validator client. In order to manage the values
+per-validator you can either make updates to the `validator_definitions.yml` file or you can use the HTTP requests
+described below.
 
-Both the gas limit and fee recipient will be passed along as suggestions to connected builders but if there is a discrepancy
-in either, it will *not* keep you from proposing a block with the builder. This is because the bounds on gas limit are calculated based 
-on prior execution blocks, so it should be managed by an execution engine, even if it is external. Depending on the 
-connected relay, payment to the proposer might be in the form of a transaction within the block to the fee recipient, 
+Both the gas limit and fee recipient will be passed along as suggestions to connected builders. If there is a discrepancy
+in either, it will *not* keep you from proposing a block with the builder. This is because the bounds on gas limit are calculated based
+on prior execution blocks, so it should be managed by an execution engine, even if it is external. Depending on the
+connected relay, payment to the proposer might be in the form of a transaction within the block to the fee recipient,
 so a discrepancy in fee recipient might not indicate that there is something afoot. If you know the relay you are connected to *should*
-only create blocks with a `fee_recipient` field matching the one suggested, you can use 
+only create blocks with a `fee_recipient` field matching the one suggested, you can use
 the [strict fee recipient](suggested-fee-recipient.md#strict-fee-recipient) flag.
 
 ### Enable/Disable builder proposals and set Gas Limit
@@ -116,17 +120,17 @@ Refer to [suggested fee recipient](suggested-fee-recipient.md) documentation.
 
 ## Circuit breaker conditions
 
-By outsourcing payload construction and signing blocks without verifying transactions, we are creating a new risk to 
-live-ness. If most of the network is using a small set of relays and one is bugged, a string of missed proposals could 
-happen quickly. This is not only generally bad for the network, but if you have a proposal coming up, you might not 
-realize that your next proposal is likely to be missed until it's too late. So we've implemented some "chain health" 
-checks to try and avoid scenarios like this. 
+By outsourcing payload construction and signing blocks without verifying transactions, we are creating a new risk to
+live-ness. If most of the network is using a small set of relays and one is bugged, a string of missed proposals could
+happen quickly. This is not only generally bad for the network, but if you have a proposal coming up, you might not
+realize that your next proposal is likely to be missed until it's too late. So we've implemented some "chain health"
+checks to try and avoid scenarios like this.
 
 By default, Lighthouse is strict with these conditions, but we encourage users to learn about and adjust them.
 
-- `--builder-fallback-skips`  - If we've seen this number of skip slots in a row prior to proposing, we will NOT query 
+- `--builder-fallback-skips`  - If we've seen this number of skip slots on the canonical chain in a row prior to proposing, we will NOT query
  any connected builders, and will use the local execution engine for payload construction.
-- `--builder-fallback-skips-per-epoch` - If we've seen this number of skip slots in the past `SLOTS_PER_EPOCH`, we will NOT
+- `--builder-fallback-skips-per-epoch` - If we've seen this number of skip slots on the canonical chain in the past `SLOTS_PER_EPOCH`, we will NOT
  query any connected builders, and will use the local execution engine for payload construction.
 - `--builder-fallback-epochs-since-finalization` - If we're proposing and the chain has not finalized within
   this number of epochs, we will NOT query any connected builders, and will use the local execution engine for payload
