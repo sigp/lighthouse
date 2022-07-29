@@ -1,4 +1,4 @@
-use crate::execution_payload::validate_merge_block;
+use crate::execution_payload::{validate_merge_block, AllowOptimisticImport};
 use crate::{
     BeaconChain, BeaconChainError, BeaconChainTypes, BlockError, ExecutionPayloadError,
     INVALID_FINALIZED_MERGE_TRANSITION_BLOCK_SHUTDOWN_REASON,
@@ -181,7 +181,8 @@ pub async fn validate_optimistic_transition_blocks<T: BeaconChainTypes>(
     for otb in finalized_canonical_otbs {
         match chain.get_block(otb.root()).await {
             Ok(Some(block)) => {
-                match validate_merge_block(chain, block.message()).await {
+                match validate_merge_block(chain, block.message(), AllowOptimisticImport::No).await
+                {
                     Ok(()) => {
                         // merge transition block is valid, remove it from OTB
                         otb.remove_from_store::<T, _>(&chain.store)
@@ -193,6 +194,12 @@ pub async fn validate_optimistic_transition_blocks<T: BeaconChainTypes>(
                             "type" => "finalized"
                         );
                     }
+                    // The block was not able to be verified by the EL. Leave the OTB in the
+                    // database since the EL is likely still syncing and may verify the block
+                    // later.
+                    Err(BlockError::ExecutionPayloadError(
+                        ExecutionPayloadError::UnverifiedNonOptimisticCandidate,
+                    )) => (),
                     Err(BlockError::ExecutionPayloadError(
                         ExecutionPayloadError::InvalidTerminalPoWBlock { .. },
                     )) => {
@@ -231,7 +238,8 @@ pub async fn validate_optimistic_transition_blocks<T: BeaconChainTypes>(
     for otb in unfinalized_canonical_otbs {
         match chain.get_block(otb.root()).await {
             Ok(Some(block)) => {
-                match validate_merge_block(chain, block.message()).await {
+                match validate_merge_block(chain, block.message(), AllowOptimisticImport::No).await
+                {
                     Ok(()) => {
                         // merge transition block is valid, remove it from OTB
                         otb.remove_from_store::<T, _>(&chain.store)
@@ -243,6 +251,12 @@ pub async fn validate_optimistic_transition_blocks<T: BeaconChainTypes>(
                             "type" => "not finalized"
                         );
                     }
+                    // The block was not able to be verified by the EL. Leave the OTB in the
+                    // database since the EL is likely still syncing and may verify the block
+                    // later.
+                    Err(BlockError::ExecutionPayloadError(
+                        ExecutionPayloadError::UnverifiedNonOptimisticCandidate,
+                    )) => (),
                     Err(BlockError::ExecutionPayloadError(
                         ExecutionPayloadError::InvalidTerminalPoWBlock { .. },
                     )) => {

@@ -1541,6 +1541,111 @@ async fn optimistic_transition_block_invalid_unfinalized() {
 }
 
 #[tokio::test]
+async fn optimistic_transition_block_invalid_unfinalized_syncing_ee() {
+    let block_ttd = 42;
+    let rig_ttd = 1337;
+    let num_blocks = 22 as usize;
+    let rig = build_optimistic_chain(block_ttd, rig_ttd, num_blocks).await;
+
+    // In theory, you should be able to retrospectively validate the transition block now.
+    let post_transition_block_root = rig
+        .harness
+        .chain
+        .block_root_at_slot(Slot::new(1), WhenSlotSkipped::None)
+        .unwrap()
+        .unwrap();
+    let post_transition_block = rig
+        .harness
+        .chain
+        .get_block(&post_transition_block_root)
+        .await
+        .unwrap()
+        .unwrap();
+
+    let otbs = load_optimistic_transition_blocks(&rig.harness.chain)
+        .expect("should load optimistic transition block from db");
+    assert_eq!(
+        otbs.len(),
+        1,
+        "There should be one optimistic transition block"
+    );
+
+    let invalid_otb = OptimisticTransitionBlock::from_block(post_transition_block.message());
+    assert_eq!(
+        invalid_otb, otbs[0],
+        "The optimistic transition block stored in the database should be what we expect",
+    );
+
+    // No shutdown should've been triggered.
+    assert_eq!(rig.harness.shutdown_reasons(), vec![]);
+    // It shouldn't be known as invalid yet
+    assert!(!rig
+        .execution_status(post_transition_block_root)
+        .is_invalid());
+
+    // Make the execution layer respond `None` to all `getBlockByHash` requests to simulate a
+    // syncing EE.
+    let mock_execution_layer = rig.harness.mock_execution_layer.as_ref().unwrap();
+    mock_execution_layer
+        .server
+        .all_get_block_by_hash_requests_return_none();
+
+    validate_optimistic_transition_blocks(&rig.harness.chain, otbs)
+        .await
+        .unwrap();
+
+    // Still no shutdown should've been triggered.
+    assert_eq!(rig.harness.shutdown_reasons(), vec![]);
+
+    // It should still be marked as optimistic.
+    assert!(rig
+        .execution_status(post_transition_block_root)
+        .is_optimistic());
+
+    // the optimistic merge transition block should NOT have been removed from the database
+    let otbs = load_optimistic_transition_blocks(&rig.harness.chain)
+        .expect("should load optimistic transition block from db");
+    assert_eq!(
+        otbs.len(),
+        1,
+        "The optimistic merge transition block should still be in the database",
+    );
+    assert_eq!(
+        invalid_otb, otbs[0],
+        "The optimistic transition block stored in the database should be what we expect",
+    );
+
+    // Allow the EL to respond to `getBlockByHash`, as if it has finished syncing.
+    mock_execution_layer
+        .server
+        .all_get_block_by_hash_requests_return_natural_value();
+
+    validate_optimistic_transition_blocks(&rig.harness.chain, otbs)
+        .await
+        .expect("should invalidate merge transition block and shutdown the client");
+
+    // Still no shutdown should've been triggered.
+    assert_eq!(rig.harness.shutdown_reasons(), vec![]);
+    // It should be marked invalid now
+    assert!(rig
+        .execution_status(post_transition_block_root)
+        .is_invalid());
+
+    // the invalid merge transition block should NOT have been removed from the database
+    let otbs = load_optimistic_transition_blocks(&rig.harness.chain)
+        .expect("should load optimistic transition block from db");
+    assert_eq!(
+        otbs.len(),
+        1,
+        "The invalid merge transition block should still be in the database",
+    );
+    assert_eq!(
+        invalid_otb, otbs[0],
+        "The optimistic transition block stored in the database should be what we expect",
+    );
+}
+
+#[tokio::test]
 async fn optimistic_transition_block_invalid_finalized() {
     let block_ttd = 42;
     let rig_ttd = 1337;

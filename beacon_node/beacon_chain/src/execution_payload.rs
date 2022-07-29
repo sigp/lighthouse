@@ -28,6 +28,12 @@ use types::*;
 pub type PreparePayloadResult<Payload> = Result<Payload, BlockProductionError>;
 pub type PreparePayloadHandle<Payload> = JoinHandle<Option<PreparePayloadResult<Payload>>>;
 
+#[derive(PartialEq)]
+pub enum AllowOptimisticImport {
+    Yes,
+    No,
+}
+
 /// Used to await the result of executing payload with a remote EE.
 pub struct PayloadNotifier<T: BeaconChainTypes> {
     pub chain: Arc<BeaconChain<T>>,
@@ -147,6 +153,7 @@ async fn notify_new_payload<'a, T: BeaconChainTypes>(
 pub async fn validate_merge_block<'a, T: BeaconChainTypes>(
     chain: &Arc<BeaconChain<T>>,
     block: BeaconBlockRef<'a, T::EthSpec>,
+    allow_optimistic_import: AllowOptimisticImport,
 ) -> Result<(), BlockError<T::EthSpec>> {
     let spec = &chain.spec;
     let block_epoch = block.slot().epoch(T::EthSpec::slots_per_epoch());
@@ -189,7 +196,9 @@ pub async fn validate_merge_block<'a, T: BeaconChainTypes>(
         }
         .into()),
         None => {
-            if is_optimistic_candidate_block(chain, block.slot(), block.parent_root()).await? {
+            if allow_optimistic_import == AllowOptimisticImport::Yes
+                && is_optimistic_candidate_block(chain, block.slot(), block.parent_root()).await?
+            {
                 debug!(
                     chain.log,
                     "Optimistically importing merge transition block";
