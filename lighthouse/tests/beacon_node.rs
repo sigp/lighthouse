@@ -133,6 +133,37 @@ fn fork_choice_before_proposal_timeout_zero() {
 }
 
 #[test]
+fn count_unrealized_default() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| assert!(config.chain.count_unrealized));
+}
+
+#[test]
+fn count_unrealized_no_arg() {
+    CommandLineTest::new()
+        .flag("count-unrealized", None)
+        .run_with_zero_port()
+        .with_config(|config| assert!(config.chain.count_unrealized));
+}
+
+#[test]
+fn count_unrealized_false() {
+    CommandLineTest::new()
+        .flag("count-unrealized", Some("false"))
+        .run_with_zero_port()
+        .with_config(|config| assert!(!config.chain.count_unrealized));
+}
+
+#[test]
+fn count_unrealized_true() {
+    CommandLineTest::new()
+        .flag("count-unrealized", Some("true"))
+        .run_with_zero_port()
+        .with_config(|config| assert!(config.chain.count_unrealized));
+}
+
+#[test]
 fn freezer_dir_flag() {
     let dir = TempDir::new().expect("Unable to create temporary directory");
     CommandLineTest::new()
