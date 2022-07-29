@@ -426,7 +426,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
     }
 
     fn get_gas_limit_defaulting(&self, gas_limit: Option<u64>) -> u64 {
-        // If there is a `suggested_fee_recipient` in the validator definitions yaml
+        // If there is a `gas_limit` in the validator definitions yaml
         // file, use that value.
         gas_limit
             // If there's nothing in the file, try the process-level default value.
