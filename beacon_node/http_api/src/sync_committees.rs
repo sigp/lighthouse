@@ -40,7 +40,7 @@ pub fn sync_committee_duties<T: BeaconChainTypes>(
     // Even when computing duties from state, any block roots pulled using the request epoch are
     // still dependent on the head. So using `is_optimistic_head` is fine for both cases.
     let execution_optimistic = chain
-        .is_optimistic_head()
+        .is_optimistic_or_invalid_head()
         .map_err(warp_utils::reject::beacon_chain_error)?;
 
     // Try using the head's sync committees to satisfy the request. This should be sufficient for

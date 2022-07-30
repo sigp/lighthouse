@@ -89,8 +89,20 @@ impl ExecutionStatus {
     ///
     /// - Has execution enabled, AND
     /// - Has a payload that has not yet been verified by an EL.
-    pub fn is_optimistic(&self) -> bool {
+    pub fn is_strictly_optimistic(&self) -> bool {
         matches!(self, ExecutionStatus::Optimistic(_))
+    }
+
+    /// Returns `true` if the block:
+    ///
+    /// - Has execution enabled, AND
+    ///     - Has a payload that has not yet been verified by an EL, OR.
+    ///     - Has a payload that has been deemed invalid by an EL.
+    pub fn is_optimistic_or_invalid(&self) -> bool {
+        matches!(
+            self,
+            ExecutionStatus::Optimistic(_) | ExecutionStatus::Invalid(_)
+        )
     }
 
     /// Returns `true` if the block:

@@ -68,7 +68,7 @@ fn cached_attestation_duties<T: BeaconChainTypes>(
         duties,
         request_indices,
         dependent_root,
-        execution_status.is_optimistic(),
+        execution_status.is_optimistic_or_invalid(),
         chain,
     )
 }
@@ -95,7 +95,7 @@ fn compute_historic_attester_duties<T: BeaconChainTypes>(
                 head.beacon_state_root(),
                 head.beacon_state
                     .clone_with(CloneConfig::committee_caches_only()),
-                execution_status.is_optimistic(),
+                execution_status.is_optimistic_or_invalid(),
             ))
         } else {
             None
