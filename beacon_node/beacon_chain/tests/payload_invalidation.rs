@@ -1373,7 +1373,7 @@ async fn build_optimistic_chain(
             .chain
             .canonical_head
             .fork_choice_read_lock()
-            .is_optimistic_block(&post_transition_block_root)
+            .is_optimistic_or_invalid_block(&post_transition_block_root)
             .unwrap(),
         "the transition block should be imported optimistically"
     );
@@ -1638,7 +1638,7 @@ async fn optimistic_transition_block_invalid_unfinalized_syncing_ee() {
     // It should still be marked as optimistic.
     assert!(rig
         .execution_status(post_transition_block_root)
-        .is_optimistic());
+        .is_strictly_optimistic());
 
     // the optimistic merge transition block should NOT have been removed from the database
     let otbs = load_optimistic_transition_blocks(&rig.harness.chain)
