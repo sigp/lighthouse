@@ -709,6 +709,46 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true)
         )
         .arg(
+            Arg::with_name("builder-fallback-skips")
+                .long("builder-fallback-skips")
+                .help("If this node is proposing a block and has seen this number of skip slots \
+                        on the canonical chain in a row, it will NOT query any connected builders, \
+                        and will use the local execution engine for payload construction.")
+                .default_value("3")
+                .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("builder-fallback-skips-per-epoch")
+                .long("builder-fallback-skips-per-epoch")
+                .help("If this node is proposing a block and has seen this number of skip slots \
+                        on the canonical chain in the past `SLOTS_PER_EPOCH`, it will NOT query \
+                        any connected builders, and will use the local execution engine for \
+                        payload construction.")
+                .default_value("8")
+                .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("builder-fallback-epochs-since-finalization")
+                .long("builder-fallback-epochs-since-finalization")
+                .help("If this node is proposing a block and the chain has not finalized within \
+                        this number of epochs, it will NOT query any connected builders, \
+                        and will use the local execution engine for payload construction. Setting \
+                        this value to anything less than 2 will cause the node to NEVER query \
+                        connected builders. Setting it to 2 will cause this condition to be hit \
+                        if there are skips slots at the start of an epoch, right before this node \
+                        is set to propose.")
+                .default_value("3")
+                .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("builder-fallback-disable-checks")
+                .long("builder-fallback-disable-checks")
+                .help("This flag disables all checks related to chain health. This means the builder \
+                        API will always be used for payload construction, regardless of recent chain \
+                        conditions.")
+                .takes_value(false)
+        )
+        .arg(
             Arg::with_name("count-unrealized")
                 .long("count-unrealized")
                 .hidden(true)

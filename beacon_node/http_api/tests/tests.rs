@@ -1,4 +1,4 @@
-use crate::common::{create_api_server, ApiServer};
+use crate::common::{create_api_server, create_api_server_on_port, ApiServer};
 use beacon_chain::test_utils::RelativeSyncCommittee;
 use beacon_chain::{
     test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType},
@@ -11,6 +11,8 @@ use eth2::{
     types::{BlockId as CoreBlockId, StateId as CoreStateId, *},
     BeaconNodeHttpClient, Error, StatusCode, Timeouts,
 };
+use execution_layer::test_utils::Operation;
+use execution_layer::test_utils::TestingBuilder;
 use futures::stream::{Stream, StreamExt};
 use futures::FutureExt;
 use http_api::{BlockId, StateId};
@@ -66,6 +68,7 @@ struct ApiTester {
     network_rx: mpsc::UnboundedReceiver<NetworkMessage<E>>,
     local_enr: Enr,
     external_peer_id: PeerId,
+    mock_builder: Option<Arc<TestingBuilder<E>>>,
 }
 
 impl ApiTester {
@@ -90,12 +93,16 @@ impl ApiTester {
     }
 
     pub async fn new_from_spec(spec: ChainSpec) -> Self {
+        // Get a random unused port
+        let port = unused_port::unused_tcp_port().unwrap();
+        let beacon_url = SensitiveUrl::parse(format!("http://127.0.0.1:{port}").as_str()).unwrap();
+
         let harness = Arc::new(
             BeaconChainHarness::builder(MainnetEthSpec)
                 .spec(spec.clone())
                 .deterministic_keypairs(VALIDATOR_COUNT)
                 .fresh_ephemeral_store()
-                .mock_execution_layer()
+                .mock_execution_layer_with_builder(beacon_url.clone())
                 .build(),
         );
 
@@ -205,24 +212,27 @@ impl ApiTester {
 
         let ApiServer {
             server,
-            listening_socket,
+            listening_socket: _,
             shutdown_tx,
             network_rx,
             local_enr,
             external_peer_id,
-        } = create_api_server(chain.clone(), log).await;
+        } = create_api_server_on_port(chain.clone(), log, port).await;
 
         harness.runtime.task_executor.spawn(server, "api_server");
 
         let client = BeaconNodeHttpClient::new(
-            SensitiveUrl::parse(&format!(
-                "http://{}:{}",
-                listening_socket.ip(),
-                listening_socket.port()
-            ))
-            .unwrap(),
+            beacon_url,
             Timeouts::set_all(Duration::from_secs(SECONDS_PER_SLOT)),
         );
+
+        let builder_ref = harness.mock_builder.as_ref().unwrap().clone();
+        harness.runtime.task_executor.spawn(
+            async move { builder_ref.run().await },
+            "mock_builder_server",
+        );
+
+        let mock_builder = harness.mock_builder.clone();
 
         Self {
             harness,
@@ -239,6 +249,7 @@ impl ApiTester {
             network_rx,
             local_enr,
             external_peer_id,
+            mock_builder,
         }
     }
 
@@ -321,11 +332,19 @@ impl ApiTester {
             network_rx,
             local_enr,
             external_peer_id,
+            mock_builder: None,
         }
     }
 
     fn validator_keypairs(&self) -> &[Keypair] {
         &self.harness.validator_keypairs
+    }
+
+    pub async fn new_mev_tester() -> Self {
+        Self::new_with_hard_forks(true, true)
+            .await
+            .test_post_validator_register_validator()
+            .await
     }
 
     fn skip_slots(self, count: u64) -> Self {
@@ -2005,6 +2024,175 @@ impl ApiTester {
         self
     }
 
+    pub async fn test_blinded_block_production<Payload: ExecPayload<E>>(&self) {
+        let fork = self.chain.canonical_head.cached_head().head_fork();
+        let genesis_validators_root = self.chain.genesis_validators_root;
+
+        for _ in 0..E::slots_per_epoch() * 3 {
+            let slot = self.chain.slot().unwrap();
+            let epoch = self.chain.epoch().unwrap();
+
+            let proposer_pubkey_bytes = self
+                .client
+                .get_validator_duties_proposer(epoch)
+                .await
+                .unwrap()
+                .data
+                .into_iter()
+                .find(|duty| duty.slot == slot)
+                .map(|duty| duty.pubkey)
+                .unwrap();
+            let proposer_pubkey = (&proposer_pubkey_bytes).try_into().unwrap();
+
+            let sk = self
+                .validator_keypairs()
+                .iter()
+                .find(|kp| kp.pk == proposer_pubkey)
+                .map(|kp| kp.sk.clone())
+                .unwrap();
+
+            let randao_reveal = {
+                let domain = self.chain.spec.get_domain(
+                    epoch,
+                    Domain::Randao,
+                    &fork,
+                    genesis_validators_root,
+                );
+                let message = epoch.signing_root(domain);
+                sk.sign(message).into()
+            };
+
+            let block = self
+                .client
+                .get_validator_blinded_blocks::<E, Payload>(slot, &randao_reveal, None)
+                .await
+                .unwrap()
+                .data;
+
+            let signed_block = block.sign(&sk, &fork, genesis_validators_root, &self.chain.spec);
+
+            self.client
+                .post_beacon_blinded_blocks(&signed_block)
+                .await
+                .unwrap();
+
+            // This converts the generic `Payload` to a concrete type for comparison.
+            let head_block = SignedBeaconBlock::from(signed_block.clone());
+            assert_eq!(head_block, signed_block);
+
+            self.chain.slot_clock.set_slot(slot.as_u64() + 1);
+        }
+    }
+
+    pub async fn test_blinded_block_production_no_verify_randao<Payload: ExecPayload<E>>(
+        self,
+    ) -> Self {
+        for _ in 0..E::slots_per_epoch() {
+            let slot = self.chain.slot().unwrap();
+
+            let block = self
+                .client
+                .get_validator_blinded_blocks_with_verify_randao::<E, Payload>(
+                    slot,
+                    None,
+                    None,
+                    Some(false),
+                )
+                .await
+                .unwrap()
+                .data;
+            assert_eq!(block.slot(), slot);
+            self.chain.slot_clock.set_slot(slot.as_u64() + 1);
+        }
+
+        self
+    }
+
+    pub async fn test_blinded_block_production_verify_randao_invalid<Payload: ExecPayload<E>>(
+        self,
+    ) -> Self {
+        let fork = self.chain.canonical_head.cached_head().head_fork();
+        let genesis_validators_root = self.chain.genesis_validators_root;
+
+        for _ in 0..E::slots_per_epoch() {
+            let slot = self.chain.slot().unwrap();
+            let epoch = self.chain.epoch().unwrap();
+
+            let proposer_pubkey_bytes = self
+                .client
+                .get_validator_duties_proposer(epoch)
+                .await
+                .unwrap()
+                .data
+                .into_iter()
+                .find(|duty| duty.slot == slot)
+                .map(|duty| duty.pubkey)
+                .unwrap();
+            let proposer_pubkey = (&proposer_pubkey_bytes).try_into().unwrap();
+
+            let sk = self
+                .validator_keypairs()
+                .iter()
+                .find(|kp| kp.pk == proposer_pubkey)
+                .map(|kp| kp.sk.clone())
+                .unwrap();
+
+            let bad_randao_reveal = {
+                let domain = self.chain.spec.get_domain(
+                    epoch,
+                    Domain::Randao,
+                    &fork,
+                    genesis_validators_root,
+                );
+                let message = (epoch + 1).signing_root(domain);
+                sk.sign(message).into()
+            };
+
+            // Check failure with no `verify_randao` passed.
+            self.client
+                .get_validator_blinded_blocks::<E, Payload>(slot, &bad_randao_reveal, None)
+                .await
+                .unwrap_err();
+
+            // Check failure with `verify_randao=true`.
+            self.client
+                .get_validator_blinded_blocks_with_verify_randao::<E, Payload>(
+                    slot,
+                    Some(&bad_randao_reveal),
+                    None,
+                    Some(true),
+                )
+                .await
+                .unwrap_err();
+
+            // Check failure with no randao reveal provided.
+            self.client
+                .get_validator_blinded_blocks_with_verify_randao::<E, Payload>(
+                    slot, None, None, None,
+                )
+                .await
+                .unwrap_err();
+
+            // Check success with `verify_randao=false`.
+            let block = self
+                .client
+                .get_validator_blinded_blocks_with_verify_randao::<E, Payload>(
+                    slot,
+                    Some(&bad_randao_reveal),
+                    None,
+                    Some(false),
+                )
+                .await
+                .unwrap()
+                .data;
+
+            assert_eq!(block.slot(), slot);
+            self.chain.slot_clock.set_slot(slot.as_u64() + 1);
+        }
+
+        self
+    }
+
     pub async fn test_get_validator_attestation_data(self) -> Self {
         let mut state = self.chain.head_beacon_state_cloned();
         let slot = state.slot();
@@ -2203,7 +2391,14 @@ impl ApiTester {
         let mut registrations = vec![];
         let mut fee_recipients = vec![];
 
-        let fork = self.chain.head_snapshot().beacon_state.fork();
+        let genesis_epoch = self.chain.spec.genesis_slot.epoch(E::slots_per_epoch());
+        let fork = Fork {
+            current_version: self.chain.spec.genesis_fork_version,
+            previous_version: self.chain.spec.genesis_fork_version,
+            epoch: genesis_epoch,
+        };
+
+        let expected_gas_limit = 11_111_111;
 
         for (val_index, keypair) in self.validator_keypairs().iter().enumerate() {
             let pubkey = keypair.pk.compress();
@@ -2211,12 +2406,13 @@ impl ApiTester {
 
             let data = ValidatorRegistrationData {
                 fee_recipient,
-                gas_limit: 0,
+                gas_limit: expected_gas_limit,
                 timestamp: 0,
                 pubkey,
             };
+
             let domain = self.chain.spec.get_domain(
-                Epoch::new(0),
+                genesis_epoch,
                 Domain::ApplicationMask(ApplicationDomain::Builder),
                 &fork,
                 Hash256::zero(),
@@ -2224,11 +2420,13 @@ impl ApiTester {
             let message = data.signing_root(domain);
             let signature = keypair.sk.sign(message);
 
-            fee_recipients.push(fee_recipient);
-            registrations.push(SignedValidatorRegistrationData {
+            let signed = SignedValidatorRegistrationData {
                 message: data,
                 signature,
-            });
+            };
+
+            fee_recipients.push(fee_recipient);
+            registrations.push(signed);
         }
 
         self.client
@@ -2254,6 +2452,594 @@ impl ApiTester {
                 .await;
             assert_eq!(actual, fee_recipient);
         }
+
+        self
+    }
+
+    // Helper function for tests that require a valid RANDAO signature.
+    async fn get_test_randao(&self, slot: Slot, epoch: Epoch) -> (u64, SignatureBytes) {
+        let fork = self.chain.canonical_head.cached_head().head_fork();
+        let genesis_validators_root = self.chain.genesis_validators_root;
+
+        let (proposer_pubkey_bytes, proposer_index) = self
+            .client
+            .get_validator_duties_proposer(epoch)
+            .await
+            .unwrap()
+            .data
+            .into_iter()
+            .find(|duty| duty.slot == slot)
+            .map(|duty| (duty.pubkey, duty.validator_index))
+            .unwrap();
+        let proposer_pubkey = (&proposer_pubkey_bytes).try_into().unwrap();
+
+        let sk = self
+            .validator_keypairs()
+            .iter()
+            .find(|kp| kp.pk == proposer_pubkey)
+            .map(|kp| kp.sk.clone())
+            .unwrap();
+
+        let randao_reveal = {
+            let domain =
+                self.chain
+                    .spec
+                    .get_domain(epoch, Domain::Randao, &fork, genesis_validators_root);
+            let message = epoch.signing_root(domain);
+            sk.sign(message).into()
+        };
+        (proposer_index, randao_reveal)
+    }
+
+    pub async fn test_payload_respects_registration(self) -> Self {
+        let slot = self.chain.slot().unwrap();
+        let epoch = self.chain.epoch().unwrap();
+
+        let (proposer_index, randao_reveal) = self.get_test_randao(slot, epoch).await;
+
+        let payload = self
+            .client
+            .get_validator_blinded_blocks::<E, BlindedPayload<E>>(slot, &randao_reveal, None)
+            .await
+            .unwrap()
+            .data
+            .body()
+            .execution_payload()
+            .unwrap()
+            .clone();
+
+        let expected_fee_recipient = Address::from_low_u64_be(proposer_index as u64);
+        assert_eq!(
+            payload.execution_payload_header.fee_recipient,
+            expected_fee_recipient
+        );
+        assert_eq!(payload.execution_payload_header.gas_limit, 11_111_111);
+
+        // If this cache is empty, it indicates fallback was not used, so the payload came from the
+        // mock builder.
+        assert!(self
+            .chain
+            .execution_layer
+            .as_ref()
+            .unwrap()
+            .get_payload_by_root(&payload.tree_hash_root())
+            .is_none());
+        self
+    }
+
+    pub async fn test_payload_accepts_mutated_gas_limit(self) -> Self {
+        // Mutate gas limit.
+        self.mock_builder
+            .as_ref()
+            .unwrap()
+            .builder
+            .add_operation(Operation::GasLimit(30_000_000));
+
+        let slot = self.chain.slot().unwrap();
+        let epoch = self.chain.epoch().unwrap();
+
+        let (proposer_index, randao_reveal) = self.get_test_randao(slot, epoch).await;
+
+        let payload = self
+            .client
+            .get_validator_blinded_blocks::<E, BlindedPayload<E>>(slot, &randao_reveal, None)
+            .await
+            .unwrap()
+            .data
+            .body()
+            .execution_payload()
+            .unwrap()
+            .clone();
+
+        let expected_fee_recipient = Address::from_low_u64_be(proposer_index as u64);
+        assert_eq!(
+            payload.execution_payload_header.fee_recipient,
+            expected_fee_recipient
+        );
+        assert_eq!(payload.execution_payload_header.gas_limit, 30_000_000);
+
+        // This cache should not be populated because fallback should not have been used.
+        assert!(self
+            .chain
+            .execution_layer
+            .as_ref()
+            .unwrap()
+            .get_payload_by_root(&payload.tree_hash_root())
+            .is_none());
+        self
+    }
+
+    pub async fn test_payload_accepts_changed_fee_recipient(self) -> Self {
+        let test_fee_recipient = "0x4242424242424242424242424242424242424242"
+            .parse::<Address>()
+            .unwrap();
+
+        // Mutate fee recipient.
+        self.mock_builder
+            .as_ref()
+            .unwrap()
+            .builder
+            .add_operation(Operation::FeeRecipient(test_fee_recipient));
+
+        let slot = self.chain.slot().unwrap();
+        let epoch = self.chain.epoch().unwrap();
+
+        let (_, randao_reveal) = self.get_test_randao(slot, epoch).await;
+
+        let payload = self
+            .client
+            .get_validator_blinded_blocks::<E, BlindedPayload<E>>(slot, &randao_reveal, None)
+            .await
+            .unwrap()
+            .data
+            .body()
+            .execution_payload()
+            .unwrap()
+            .clone();
+
+        assert_eq!(
+            payload.execution_payload_header.fee_recipient,
+            test_fee_recipient
+        );
+
+        // This cache should not be populated because fallback should not have been used.
+        assert!(self
+            .chain
+            .execution_layer
+            .as_ref()
+            .unwrap()
+            .get_payload_by_root(&payload.tree_hash_root())
+            .is_none());
+        self
+    }
+
+    pub async fn test_payload_rejects_invalid_parent_hash(self) -> Self {
+        let invalid_parent_hash =
+            "0x4242424242424242424242424242424242424242424242424242424242424242"
+                .parse::<Hash256>()
+                .unwrap();
+
+        // Mutate parent hash.
+        self.mock_builder
+            .as_ref()
+            .unwrap()
+            .builder
+            .add_operation(Operation::ParentHash(invalid_parent_hash));
+
+        let slot = self.chain.slot().unwrap();
+        let epoch = self.chain.epoch().unwrap();
+        let expected_parent_hash = self
+            .chain
+            .head_snapshot()
+            .beacon_state
+            .latest_execution_payload_header()
+            .unwrap()
+            .block_hash;
+
+        let (_, randao_reveal) = self.get_test_randao(slot, epoch).await;
+
+        let payload = self
+            .client
+            .get_validator_blinded_blocks::<E, BlindedPayload<E>>(slot, &randao_reveal, None)
+            .await
+            .unwrap()
+            .data
+            .body()
+            .execution_payload()
+            .unwrap()
+            .clone();
+
+        assert_eq!(
+            payload.execution_payload_header.parent_hash,
+            expected_parent_hash
+        );
+
+        // If this cache is populated, it indicates fallback to the local EE was correctly used.
+        assert!(self
+            .chain
+            .execution_layer
+            .as_ref()
+            .unwrap()
+            .get_payload_by_root(&payload.tree_hash_root())
+            .is_some());
+        self
+    }
+
+    pub async fn test_payload_rejects_invalid_prev_randao(self) -> Self {
+        let invalid_prev_randao =
+            "0x4242424242424242424242424242424242424242424242424242424242424242"
+                .parse::<Hash256>()
+                .unwrap();
+
+        // Mutate prev randao.
+        self.mock_builder
+            .as_ref()
+            .unwrap()
+            .builder
+            .add_operation(Operation::PrevRandao(invalid_prev_randao));
+
+        let slot = self.chain.slot().unwrap();
+        let epoch = self.chain.epoch().unwrap();
+        let expected_prev_randao = self
+            .chain
+            .canonical_head
+            .cached_head()
+            .head_random()
+            .unwrap();
+
+        let (_, randao_reveal) = self.get_test_randao(slot, epoch).await;
+
+        let payload = self
+            .client
+            .get_validator_blinded_blocks::<E, BlindedPayload<E>>(slot, &randao_reveal, None)
+            .await
+            .unwrap()
+            .data
+            .body()
+            .execution_payload()
+            .unwrap()
+            .clone();
+
+        assert_eq!(
+            payload.execution_payload_header.prev_randao,
+            expected_prev_randao
+        );
+
+        // If this cache is populated, it indicates fallback to the local EE was correctly used.
+        assert!(self
+            .chain
+            .execution_layer
+            .as_ref()
+            .unwrap()
+            .get_payload_by_root(&payload.tree_hash_root())
+            .is_some());
+        self
+    }
+
+    pub async fn test_payload_rejects_invalid_block_number(self) -> Self {
+        let invalid_block_number = 2;
+
+        // Mutate block number.
+        self.mock_builder
+            .as_ref()
+            .unwrap()
+            .builder
+            .add_operation(Operation::BlockNumber(invalid_block_number));
+
+        let slot = self.chain.slot().unwrap();
+        let epoch = self.chain.epoch().unwrap();
+        let expected_block_number = self
+            .chain
+            .head_snapshot()
+            .beacon_state
+            .latest_execution_payload_header()
+            .unwrap()
+            .block_number
+            + 1;
+
+        let (_, randao_reveal) = self.get_test_randao(slot, epoch).await;
+
+        let payload = self
+            .client
+            .get_validator_blinded_blocks::<E, BlindedPayload<E>>(slot, &randao_reveal, None)
+            .await
+            .unwrap()
+            .data
+            .body()
+            .execution_payload()
+            .unwrap()
+            .clone();
+
+        assert_eq!(
+            payload.execution_payload_header.block_number,
+            expected_block_number
+        );
+
+        // If this cache is populated, it indicates fallback to the local EE was correctly used.
+        assert!(self
+            .chain
+            .execution_layer
+            .as_ref()
+            .unwrap()
+            .get_payload_by_root(&payload.tree_hash_root())
+            .is_some());
+        self
+    }
+
+    pub async fn test_payload_rejects_invalid_timestamp(self) -> Self {
+        let invalid_timestamp = 2;
+
+        // Mutate timestamp.
+        self.mock_builder
+            .as_ref()
+            .unwrap()
+            .builder
+            .add_operation(Operation::Timestamp(invalid_timestamp));
+
+        let slot = self.chain.slot().unwrap();
+        let epoch = self.chain.epoch().unwrap();
+        let min_expected_timestamp = self
+            .chain
+            .head_snapshot()
+            .beacon_state
+            .latest_execution_payload_header()
+            .unwrap()
+            .timestamp;
+
+        let (_, randao_reveal) = self.get_test_randao(slot, epoch).await;
+
+        let payload = self
+            .client
+            .get_validator_blinded_blocks::<E, BlindedPayload<E>>(slot, &randao_reveal, None)
+            .await
+            .unwrap()
+            .data
+            .body()
+            .execution_payload()
+            .unwrap()
+            .clone();
+
+        assert!(payload.execution_payload_header.timestamp > min_expected_timestamp);
+
+        // If this cache is populated, it indicates fallback to the local EE was correctly used.
+        assert!(self
+            .chain
+            .execution_layer
+            .as_ref()
+            .unwrap()
+            .get_payload_by_root(&payload.tree_hash_root())
+            .is_some());
+        self
+    }
+
+    pub async fn test_payload_rejects_invalid_signature(self) -> Self {
+        self.mock_builder
+            .as_ref()
+            .unwrap()
+            .builder
+            .invalid_signatures();
+
+        let slot = self.chain.slot().unwrap();
+        let epoch = self.chain.epoch().unwrap();
+
+        let (_, randao_reveal) = self.get_test_randao(slot, epoch).await;
+
+        let payload = self
+            .client
+            .get_validator_blinded_blocks::<E, BlindedPayload<E>>(slot, &randao_reveal, None)
+            .await
+            .unwrap()
+            .data
+            .body()
+            .execution_payload()
+            .unwrap()
+            .clone();
+
+        // If this cache is populated, it indicates fallback to the local EE was correctly used.
+        assert!(self
+            .chain
+            .execution_layer
+            .as_ref()
+            .unwrap()
+            .get_payload_by_root(&payload.tree_hash_root())
+            .is_some());
+        self
+    }
+
+    pub async fn test_builder_chain_health_skips(self) -> Self {
+        let slot = self.chain.slot().unwrap();
+
+        // Since we are proposing this slot, start the count from the previous slot.
+        let prev_slot = slot - Slot::new(1);
+        let head_slot = self.chain.canonical_head.cached_head().head_slot();
+        let epoch = self.chain.epoch().unwrap();
+
+        // Inclusive here to make sure we advance one slot past the threshold.
+        for _ in (prev_slot - head_slot).as_usize()..=self.chain.config.builder_fallback_skips {
+            self.harness.advance_slot();
+        }
+
+        let (_, randao_reveal) = self.get_test_randao(slot, epoch).await;
+
+        let payload = self
+            .client
+            .get_validator_blinded_blocks::<E, BlindedPayload<E>>(slot, &randao_reveal, None)
+            .await
+            .unwrap()
+            .data
+            .body()
+            .execution_payload()
+            .unwrap()
+            .clone();
+
+        // If this cache is populated, it indicates fallback to the local EE was correctly used.
+        assert!(self
+            .chain
+            .execution_layer
+            .as_ref()
+            .unwrap()
+            .get_payload_by_root(&payload.tree_hash_root())
+            .is_some());
+        self
+    }
+
+    pub async fn test_builder_chain_health_skips_per_epoch(self) -> Self {
+        // Fill an epoch with `builder_fallback_skips_per_epoch` skip slots.
+        for i in 0..E::slots_per_epoch() {
+            if i == 0 || i as usize > self.chain.config.builder_fallback_skips_per_epoch {
+                self.harness
+                    .extend_chain(
+                        1,
+                        BlockStrategy::OnCanonicalHead,
+                        AttestationStrategy::AllValidators,
+                    )
+                    .await;
+            }
+            self.harness.advance_slot();
+        }
+
+        let next_slot = self.chain.slot().unwrap();
+
+        let (_, randao_reveal) = self
+            .get_test_randao(next_slot, next_slot.epoch(E::slots_per_epoch()))
+            .await;
+
+        let payload = self
+            .client
+            .get_validator_blinded_blocks::<E, BlindedPayload<E>>(next_slot, &randao_reveal, None)
+            .await
+            .unwrap()
+            .data
+            .body()
+            .execution_payload()
+            .unwrap()
+            .clone();
+
+        // This cache should not be populated because fallback should not have been used.
+        assert!(self
+            .chain
+            .execution_layer
+            .as_ref()
+            .unwrap()
+            .get_payload_by_root(&payload.tree_hash_root())
+            .is_none());
+
+        // Without proposing, advance into the next slot, this should make us cross the threshold
+        // number of skips, causing us to use the fallback.
+        self.harness.advance_slot();
+        let next_slot = self.chain.slot().unwrap();
+
+        let (_, randao_reveal) = self
+            .get_test_randao(next_slot, next_slot.epoch(E::slots_per_epoch()))
+            .await;
+
+        let payload = self
+            .client
+            .get_validator_blinded_blocks::<E, BlindedPayload<E>>(next_slot, &randao_reveal, None)
+            .await
+            .unwrap()
+            .data
+            .body()
+            .execution_payload()
+            .unwrap()
+            .clone();
+
+        // If this cache is populated, it indicates fallback to the local EE was correctly used.
+        assert!(self
+            .chain
+            .execution_layer
+            .as_ref()
+            .unwrap()
+            .get_payload_by_root(&payload.tree_hash_root())
+            .is_some());
+
+        self
+    }
+
+    pub async fn test_builder_chain_health_epochs_since_finalization(self) -> Self {
+        let skips = E::slots_per_epoch()
+            * self.chain.config.builder_fallback_epochs_since_finalization as u64;
+
+        for _ in 0..skips {
+            self.harness.advance_slot();
+        }
+
+        // Fill the next epoch with blocks, should be enough to justify, not finalize.
+        for _ in 0..E::slots_per_epoch() {
+            self.harness
+                .extend_chain(
+                    1,
+                    BlockStrategy::OnCanonicalHead,
+                    AttestationStrategy::AllValidators,
+                )
+                .await;
+            self.harness.advance_slot();
+        }
+
+        let next_slot = self.chain.slot().unwrap();
+
+        let (_, randao_reveal) = self
+            .get_test_randao(next_slot, next_slot.epoch(E::slots_per_epoch()))
+            .await;
+
+        let payload = self
+            .client
+            .get_validator_blinded_blocks::<E, BlindedPayload<E>>(next_slot, &randao_reveal, None)
+            .await
+            .unwrap()
+            .data
+            .body()
+            .execution_payload()
+            .unwrap()
+            .clone();
+
+        // If this cache is populated, it indicates fallback to the local EE was correctly used.
+        assert!(self
+            .chain
+            .execution_layer
+            .as_ref()
+            .unwrap()
+            .get_payload_by_root(&payload.tree_hash_root())
+            .is_some());
+
+        // Fill another epoch with blocks, should be enough to finalize. (Sneaky plus 1 because this
+        // scenario starts at an epoch boundary).
+        for _ in 0..E::slots_per_epoch() + 1 {
+            self.harness
+                .extend_chain(
+                    1,
+                    BlockStrategy::OnCanonicalHead,
+                    AttestationStrategy::AllValidators,
+                )
+                .await;
+            self.harness.advance_slot();
+        }
+
+        let next_slot = self.chain.slot().unwrap();
+
+        let (_, randao_reveal) = self
+            .get_test_randao(next_slot, next_slot.epoch(E::slots_per_epoch()))
+            .await;
+
+        let payload = self
+            .client
+            .get_validator_blinded_blocks::<E, BlindedPayload<E>>(next_slot, &randao_reveal, None)
+            .await
+            .unwrap()
+            .data
+            .body()
+            .execution_payload()
+            .unwrap()
+            .clone();
+
+        // This cache should not be populated because fallback should not have been used.
+        assert!(self
+            .chain
+            .execution_layer
+            .as_ref()
+            .unwrap()
+            .get_payload_by_root(&payload.tree_hash_root())
+            .is_none());
 
         self
     }
@@ -2977,6 +3763,72 @@ async fn block_production_verify_randao_invalid() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn blinded_block_production_full_payload_premerge() {
+    ApiTester::new()
+        .await
+        .test_blinded_block_production::<FullPayload<_>>()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn blinded_block_production_with_skip_slots_full_payload_premerge() {
+    ApiTester::new()
+        .await
+        .skip_slots(E::slots_per_epoch() * 2)
+        .test_blinded_block_production::<FullPayload<_>>()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn blinded_block_production_no_verify_randao_full_payload_premerge() {
+    ApiTester::new()
+        .await
+        .test_blinded_block_production_no_verify_randao::<FullPayload<_>>()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn blinded_block_production_verify_randao_invalid_full_payload_premerge() {
+    ApiTester::new()
+        .await
+        .test_blinded_block_production_verify_randao_invalid::<FullPayload<_>>()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn blinded_block_production_blinded_payload_premerge() {
+    ApiTester::new()
+        .await
+        .test_blinded_block_production::<BlindedPayload<_>>()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn blinded_block_production_with_skip_slots_blinded_payload_premerge() {
+    ApiTester::new()
+        .await
+        .skip_slots(E::slots_per_epoch() * 2)
+        .test_blinded_block_production::<BlindedPayload<_>>()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn blinded_block_production_no_verify_randao_blinded_payload_premerge() {
+    ApiTester::new()
+        .await
+        .test_blinded_block_production_no_verify_randao::<BlindedPayload<_>>()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn blinded_block_production_verify_randao_invalid_blinded_payload_premerge() {
+    ApiTester::new()
+        .await
+        .test_blinded_block_production_verify_randao_invalid::<BlindedPayload<_>>()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn get_validator_attestation_data() {
     ApiTester::new()
         .await
@@ -3057,6 +3909,94 @@ async fn post_validator_register_validator() {
     ApiTester::new()
         .await
         .test_post_validator_register_validator()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn post_validator_register_valid() {
+    ApiTester::new_mev_tester()
+        .await
+        .test_payload_respects_registration()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn post_validator_register_gas_limit_mutation() {
+    ApiTester::new_mev_tester()
+        .await
+        .test_payload_accepts_mutated_gas_limit()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn post_validator_register_fee_recipient_mutation() {
+    ApiTester::new_mev_tester()
+        .await
+        .test_payload_accepts_changed_fee_recipient()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_blinded_block_invalid_parent_hash() {
+    ApiTester::new_mev_tester()
+        .await
+        .test_payload_rejects_invalid_parent_hash()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_blinded_block_invalid_prev_randao() {
+    ApiTester::new_mev_tester()
+        .await
+        .test_payload_rejects_invalid_prev_randao()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_blinded_block_invalid_block_number() {
+    ApiTester::new_mev_tester()
+        .await
+        .test_payload_rejects_invalid_block_number()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_blinded_block_invalid_timestamp() {
+    ApiTester::new_mev_tester()
+        .await
+        .test_payload_rejects_invalid_timestamp()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_blinded_block_invalid_signature() {
+    ApiTester::new_mev_tester()
+        .await
+        .test_payload_rejects_invalid_signature()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn builder_chain_health_skips() {
+    ApiTester::new_mev_tester()
+        .await
+        .test_builder_chain_health_skips()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn builder_chain_health_skips_per_epoch() {
+    ApiTester::new_mev_tester()
+        .await
+        .test_builder_chain_health_skips_per_epoch()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn builder_chain_health_epochs_since_finalization() {
+    ApiTester::new_mev_tester()
+        .await
+        .test_builder_chain_health_epochs_since_finalization()
         .await;
 }
 

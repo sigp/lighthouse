@@ -11,7 +11,7 @@ use crate::{
     BeaconChain, BeaconChainError, BeaconChainTypes, BlockError, BlockProductionError,
     ExecutionPayloadError,
 };
-use execution_layer::PayloadStatus;
+use execution_layer::{BuilderParams, PayloadStatus};
 use fork_choice::{InvalidationOperation, PayloadVerificationStatus};
 use proto_array::{Block as ProtoBlock, ExecutionStatus};
 use slog::debug;
@@ -303,12 +303,11 @@ pub fn get_execution_payload<
     chain: Arc<BeaconChain<T>>,
     state: &BeaconState<T::EthSpec>,
     proposer_index: u64,
-    pubkey: Option<PublicKeyBytes>,
+    builder_params: BuilderParams,
 ) -> Result<PreparePayloadHandle<Payload>, BlockProductionError> {
     // Compute all required values from the `state` now to avoid needing to pass it into a spawned
     // task.
     let spec = &chain.spec;
-    let slot = state.slot();
     let current_epoch = state.current_epoch();
     let is_merge_transition_complete = is_merge_transition_complete(state);
     let timestamp = compute_timestamp_at_slot(state, spec).map_err(BeaconStateError::from)?;
@@ -325,13 +324,12 @@ pub fn get_execution_payload<
             async move {
                 prepare_execution_payload::<T, Payload>(
                     &chain,
-                    slot,
                     is_merge_transition_complete,
                     timestamp,
                     random,
                     proposer_index,
-                    pubkey,
                     latest_execution_payload_header_block_hash,
+                    builder_params,
                 )
                 .await
             },
@@ -359,19 +357,18 @@ pub fn get_execution_payload<
 #[allow(clippy::too_many_arguments)]
 pub async fn prepare_execution_payload<T, Payload>(
     chain: &Arc<BeaconChain<T>>,
-    slot: Slot,
     is_merge_transition_complete: bool,
     timestamp: u64,
     random: Hash256,
     proposer_index: u64,
-    pubkey: Option<PublicKeyBytes>,
     latest_execution_payload_header_block_hash: ExecutionBlockHash,
+    builder_params: BuilderParams,
 ) -> Result<Payload, BlockProductionError>
 where
     T: BeaconChainTypes,
     Payload: ExecPayload<T::EthSpec> + Default,
 {
-    let current_epoch = slot.epoch(T::EthSpec::slots_per_epoch());
+    let current_epoch = builder_params.slot.epoch(T::EthSpec::slots_per_epoch());
     let spec = &chain.spec;
     let execution_layer = chain
         .execution_layer
@@ -432,9 +429,9 @@ where
             timestamp,
             random,
             proposer_index,
-            pubkey,
-            slot,
             forkchoice_update_params,
+            builder_params,
+            &chain.spec,
         )
         .await
         .map_err(BlockProductionError::GetPayloadFailed)?;

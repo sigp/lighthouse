@@ -53,7 +53,9 @@ use crate::BeaconForkChoiceStore;
 use crate::BeaconSnapshot;
 use crate::{metrics, BeaconChainError};
 use eth2::types::{EventKind, SseBlock, SyncDuty};
-use execution_layer::{ExecutionLayer, PayloadAttributes, PayloadStatus};
+use execution_layer::{
+    BuilderParams, ChainHealth, ExecutionLayer, FailedCondition, PayloadAttributes, PayloadStatus,
+};
 use fork_choice::{
     AttestationFromBlock, ExecutionStatus, ForkChoice, ForkchoiceUpdateParameters,
     InvalidationOperation, PayloadVerificationStatus,
@@ -3315,10 +3317,21 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let proposer_index = state.get_beacon_proposer_index(state.slot(), &self.spec)? as u64;
 
-        let pubkey_opt = state
+        let pubkey = state
             .validators()
             .get(proposer_index as usize)
-            .map(|v| v.pubkey);
+            .map(|v| v.pubkey)
+            .ok_or(BlockProductionError::BeaconChain(
+                BeaconChainError::ValidatorIndexUnknown(proposer_index as usize),
+            ))?;
+
+        let builder_params = BuilderParams {
+            pubkey,
+            slot: state.slot(),
+            chain_health: self
+                .is_healthy()
+                .map_err(BlockProductionError::BeaconChain)?,
+        };
 
         // If required, start the process of loading an execution payload from the EL early. This
         // allows it to run concurrently with things like attestation packing.
@@ -3326,7 +3339,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             BeaconState::Base(_) | BeaconState::Altair(_) => None,
             BeaconState::Merge(_) => {
                 let prepare_payload_handle =
-                    get_execution_payload(self.clone(), &state, proposer_index, pubkey_opt)?;
+                    get_execution_payload(self.clone(), &state, proposer_index, builder_params)?;
                 Some(prepare_payload_handle)
             }
         };
@@ -4537,6 +4550,74 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self.slot_clock
             .duration_to_slot(epoch.start_slot(T::EthSpec::slots_per_epoch()))
             .map(|duration| (fork_name, duration))
+    }
+
+    /// This method serves to get a sense of the current chain health. It is used in block proposal
+    /// to determine whether we should outsource payload production duties.
+    ///
+    /// Since we are likely calling this during the slot we are going to propose in, don't take into
+    /// account the current slot when accounting for skips.
+    pub fn is_healthy(&self) -> Result<ChainHealth, Error> {
+        // Check if the merge has been finalized.
+        if let Some(finalized_hash) = self
+            .canonical_head
+            .cached_head()
+            .forkchoice_update_parameters()
+            .finalized_hash
+        {
+            if ExecutionBlockHash::zero() == finalized_hash {
+                return Ok(ChainHealth::PreMerge);
+            }
+        } else {
+            return Ok(ChainHealth::PreMerge);
+        };
+
+        if self.config.builder_fallback_disable_checks {
+            return Ok(ChainHealth::Healthy);
+        }
+
+        let current_slot = self.slot()?;
+
+        // Check slots at the head of the chain.
+        let prev_slot = current_slot.saturating_sub(Slot::new(1));
+        let head_skips = prev_slot.saturating_sub(self.canonical_head.cached_head().head_slot());
+        let head_skips_check = head_skips.as_usize() <= self.config.builder_fallback_skips;
+
+        // Check if finalization is advancing.
+        let current_epoch = current_slot.epoch(T::EthSpec::slots_per_epoch());
+        let epochs_since_finalization = current_epoch.saturating_sub(
+            self.canonical_head
+                .cached_head()
+                .finalized_checkpoint()
+                .epoch,
+        );
+        let finalization_check = epochs_since_finalization.as_usize()
+            <= self.config.builder_fallback_epochs_since_finalization;
+
+        // Check skip slots in the last `SLOTS_PER_EPOCH`.
+        let start_slot = current_slot.saturating_sub(T::EthSpec::slots_per_epoch());
+        let mut epoch_skips = 0;
+        for slot in start_slot.as_u64()..current_slot.as_u64() {
+            if self
+                .block_root_at_slot_skips_none(Slot::new(slot))?
+                .is_none()
+            {
+                epoch_skips += 1;
+            }
+        }
+        let epoch_skips_check = epoch_skips <= self.config.builder_fallback_skips_per_epoch;
+
+        if !head_skips_check {
+            Ok(ChainHealth::Unhealthy(FailedCondition::Skips))
+        } else if !finalization_check {
+            Ok(ChainHealth::Unhealthy(
+                FailedCondition::EpochsSinceFinalization,
+            ))
+        } else if !epoch_skips_check {
+            Ok(ChainHealth::Unhealthy(FailedCondition::SkipsPerEpoch))
+        } else {
+            Ok(ChainHealth::Healthy)
+        }
     }
 
     pub fn dump_as_dot<W: Write>(&self, output: &mut W) {

@@ -71,9 +71,15 @@ fn operations_sync_aggregate() {
 }
 
 #[test]
-fn operations_execution_payload() {
+fn operations_execution_payload_full() {
     OperationsHandler::<MinimalEthSpec, FullPayload<_>>::default().run();
     OperationsHandler::<MainnetEthSpec, FullPayload<_>>::default().run();
+}
+
+#[test]
+fn operations_execution_payload_blinded() {
+    OperationsHandler::<MinimalEthSpec, BlindedPayload<_>>::default().run();
+    OperationsHandler::<MainnetEthSpec, BlindedPayload<_>>::default().run();
 }
 
 #[test]

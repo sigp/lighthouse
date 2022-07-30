@@ -14,7 +14,9 @@ use bls::get_withdrawal_credentials;
 use execution_layer::test_utils::DEFAULT_JWT_SECRET;
 use execution_layer::{
     auth::JwtKey,
-    test_utils::{ExecutionBlockGenerator, MockExecutionLayer, DEFAULT_TERMINAL_BLOCK},
+    test_utils::{
+        ExecutionBlockGenerator, MockExecutionLayer, TestingBuilder, DEFAULT_TERMINAL_BLOCK,
+    },
     ExecutionLayer,
 };
 use fork_choice::CountUnrealized;
@@ -154,6 +156,7 @@ pub struct Builder<T: BeaconChainTypes> {
     store_mutator: Option<BoxedMutator<T::EthSpec, T::HotStore, T::ColdStore>>,
     execution_layer: Option<ExecutionLayer<T::EthSpec>>,
     mock_execution_layer: Option<MockExecutionLayer<T::EthSpec>>,
+    mock_builder: Option<TestingBuilder<T::EthSpec>>,
     runtime: TestRuntime,
     log: Logger,
 }
@@ -285,6 +288,7 @@ where
             store_mutator: None,
             execution_layer: None,
             mock_execution_layer: None,
+            mock_builder: None,
             runtime,
             log,
         }
@@ -388,6 +392,38 @@ where
         self
     }
 
+    pub fn mock_execution_layer_with_builder(mut self, beacon_url: SensitiveUrl) -> Self {
+        // Get a random unused port
+        let port = unused_port::unused_tcp_port().unwrap();
+        let builder_url = SensitiveUrl::parse(format!("http://127.0.0.1:{port}").as_str()).unwrap();
+
+        let spec = self.spec.clone().expect("cannot build without spec");
+        let mock_el = MockExecutionLayer::new(
+            self.runtime.task_executor.clone(),
+            spec.terminal_total_difficulty,
+            DEFAULT_TERMINAL_BLOCK,
+            spec.terminal_block_hash,
+            spec.terminal_block_hash_activation_epoch,
+            Some(JwtKey::from_slice(&DEFAULT_JWT_SECRET).unwrap()),
+            Some(builder_url.clone()),
+        )
+        .move_to_terminal_block();
+
+        let mock_el_url = SensitiveUrl::parse(mock_el.server.url().as_str()).unwrap();
+
+        self.mock_builder = Some(TestingBuilder::new(
+            mock_el_url,
+            builder_url,
+            beacon_url,
+            spec,
+            self.runtime.task_executor.clone(),
+        ));
+        self.execution_layer = Some(mock_el.el.clone());
+        self.mock_execution_layer = Some(mock_el);
+
+        self
+    }
+
     /// Instruct the mock execution engine to always return a "valid" response to any payload it is
     /// asked to execute.
     pub fn mock_execution_layer_all_payloads_valid(self) -> Self {
@@ -456,6 +492,7 @@ where
             shutdown_receiver: Arc::new(Mutex::new(shutdown_receiver)),
             runtime: self.runtime,
             mock_execution_layer: self.mock_execution_layer,
+            mock_builder: self.mock_builder.map(Arc::new),
             rng: make_rng(),
         }
     }
@@ -474,6 +511,7 @@ pub struct BeaconChainHarness<T: BeaconChainTypes> {
     pub runtime: TestRuntime,
 
     pub mock_execution_layer: Option<MockExecutionLayer<T::EthSpec>>,
+    pub mock_builder: Option<Arc<TestingBuilder<T::EthSpec>>>,
 
     pub rng: Mutex<StdRng>,
 }

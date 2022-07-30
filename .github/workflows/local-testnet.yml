@@ -40,13 +40,29 @@ jobs:
         run: make && make install-lcli
 
       - name: Start local testnet
-        run: ./start_local_testnet.sh
+        run: ./start_local_testnet.sh && sleep 60
         working-directory: scripts/local_testnet
 
       - name: Print logs
-        run: ./print_logs.sh
+        run: ./dump_logs.sh
         working-directory: scripts/local_testnet
 
       - name: Stop local testnet
+        run: ./stop_local_testnet.sh
+        working-directory: scripts/local_testnet
+
+      - name: Clean-up testnet
+        run: ./clean.sh
+        working-directory: scripts/local_testnet
+
+      - name: Start local testnet with blinded block production
+        run: ./start_local_testnet.sh -p && sleep 60
+        working-directory: scripts/local_testnet
+
+      - name: Print logs for blinded block testnet
+        run: ./dump_logs.sh
+        working-directory: scripts/local_testnet
+
+      - name: Stop local testnet with blinded block production
         run: ./stop_local_testnet.sh
         working-directory: scripts/local_testnet

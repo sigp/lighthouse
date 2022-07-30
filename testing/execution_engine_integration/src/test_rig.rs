@@ -3,7 +3,9 @@ use crate::execution_engine::{
 };
 use crate::transactions::transactions;
 use ethers_providers::Middleware;
-use execution_layer::{ExecutionLayer, PayloadAttributes, PayloadStatus};
+use execution_layer::{
+    BuilderParams, ChainHealth, ExecutionLayer, PayloadAttributes, PayloadStatus,
+};
 use fork_choice::ForkchoiceUpdateParameters;
 use reqwest::{header::CONTENT_TYPE, Client};
 use sensitive_url::SensitiveUrl;
@@ -14,7 +16,7 @@ use task_executor::TaskExecutor;
 use tokio::time::sleep;
 use types::{
     Address, ChainSpec, EthSpec, ExecutionBlockHash, ExecutionPayload, FullPayload, Hash256,
-    MainnetEthSpec, Slot, Uint256,
+    MainnetEthSpec, PublicKeyBytes, Slot, Uint256,
 };
 const EXECUTION_ENGINE_START_TIMEOUT: Duration = Duration::from_secs(20);
 
@@ -305,6 +307,11 @@ impl<E: GenericExecutionEngine> TestRig<E> {
         // in CI.
         sleep(Duration::from_secs(3)).await;
 
+        let builder_params = BuilderParams {
+            pubkey: PublicKeyBytes::empty(),
+            slot: Slot::new(0),
+            chain_health: ChainHealth::Healthy,
+        };
         let valid_payload = self
             .ee_a
             .execution_layer
@@ -313,9 +320,9 @@ impl<E: GenericExecutionEngine> TestRig<E> {
                 timestamp,
                 prev_randao,
                 proposer_index,
-                None,
-                Slot::new(0),
                 forkchoice_update_params,
+                builder_params,
+                &self.spec,
             )
             .await
             .unwrap()
@@ -413,6 +420,11 @@ impl<E: GenericExecutionEngine> TestRig<E> {
         let timestamp = valid_payload.timestamp + 1;
         let prev_randao = Hash256::zero();
         let proposer_index = 0;
+        let builder_params = BuilderParams {
+            pubkey: PublicKeyBytes::empty(),
+            slot: Slot::new(0),
+            chain_health: ChainHealth::Healthy,
+        };
         let second_payload = self
             .ee_a
             .execution_layer
@@ -421,9 +433,9 @@ impl<E: GenericExecutionEngine> TestRig<E> {
                 timestamp,
                 prev_randao,
                 proposer_index,
-                None,
-                Slot::new(0),
                 forkchoice_update_params,
+                builder_params,
+                &self.spec,
             )
             .await
             .unwrap()

@@ -1280,7 +1280,7 @@ impl BeaconNodeHttpClient {
         .await
     }
 
-    /// `GET v2/validator/blocks/{slot}`
+    /// `GET v1/validator/blinded_blocks/{slot}`
     pub async fn get_validator_blinded_blocks_with_verify_randao<
         T: EthSpec,
         Payload: ExecPayload<T>,
@@ -1291,7 +1291,7 @@ impl BeaconNodeHttpClient {
         graffiti: Option<&Graffiti>,
         verify_randao: Option<bool>,
     ) -> Result<ForkVersionedResponse<BeaconBlock<T, Payload>>, Error> {
-        let mut path = self.eth_path(V2)?;
+        let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?

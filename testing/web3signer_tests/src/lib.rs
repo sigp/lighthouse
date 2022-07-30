@@ -302,6 +302,7 @@ mod tests {
 
             let slot_clock =
                 TestingSlotClock::new(Slot::new(0), Duration::from_secs(0), Duration::from_secs(1));
+            let config = validator_client::Config::default();
 
             let validator_store = ValidatorStore::<_, E>::new(
                 initialized_validators,
@@ -310,7 +311,7 @@ mod tests {
                 spec,
                 None,
                 slot_clock,
-                None,
+                &config,
                 executor,
                 log.clone(),
             );
@@ -359,6 +360,8 @@ mod tests {
                     voting_public_key: validator_pubkey.clone(),
                     graffiti: None,
                     suggested_fee_recipient: None,
+                    gas_limit: None,
+                    builder_proposals: None,
                     description: String::default(),
                     signing_definition: SigningDefinition::LocalKeystore {
                         voting_keystore_path: signer_rig.keystore_path.clone(),
@@ -375,6 +378,8 @@ mod tests {
                     voting_public_key: validator_pubkey.clone(),
                     graffiti: None,
                     suggested_fee_recipient: None,
+                    gas_limit: None,
+                    builder_proposals: None,
                     description: String::default(),
                     signing_definition: SigningDefinition::Web3Signer(Web3SignerDefinition {
                         url: signer_rig.url.to_string(),
@@ -450,8 +455,6 @@ mod tests {
         }
     }
 
-    //TODO: remove this once the consensys web3signer includes the `validator_registration` method
-    #[allow(dead_code)]
     fn get_validator_registration(pubkey: PublicKeyBytes) -> ValidatorRegistrationData {
         let fee_recipient = Address::repeat_byte(42);
         ValidatorRegistrationData {
@@ -513,16 +516,17 @@ mod tests {
                     .await
                     .unwrap()
             })
-            //TODO: uncomment this once the consensys web3signer includes the `validator_registration` method
-            //
-            // .await
-            // .assert_signatures_match("validator_registration", |pubkey, validator_store| async move {
-            //     let val_reg_data = get_validator_registration(pubkey);
-            //     validator_store
-            //         .sign_validator_registration_data(val_reg_data)
-            //         .await
-            //         .unwrap()
-            // })
+            .await
+            .assert_signatures_match(
+                "validator_registration",
+                |pubkey, validator_store| async move {
+                    let val_reg_data = get_validator_registration(pubkey);
+                    validator_store
+                        .sign_validator_registration_data(val_reg_data)
+                        .await
+                        .unwrap()
+                },
+            )
             .await;
     }
 
@@ -599,16 +603,17 @@ mod tests {
                         .unwrap()
                 },
             )
-            //TODO: uncomment this once the consensys web3signer includes the `validator_registration` method
-            //
-            // .await
-            // .assert_signatures_match("validator_registration", |pubkey, validator_store| async move {
-            //     let val_reg_data = get_validator_registration(pubkey);
-            //     validator_store
-            //         .sign_validator_registration_data(val_reg_data)
-            //         .await
-            //         .unwrap()
-            // })
+            .await
+            .assert_signatures_match(
+                "validator_registration",
+                |pubkey, validator_store| async move {
+                    let val_reg_data = get_validator_registration(pubkey);
+                    validator_store
+                        .sign_validator_registration_data(val_reg_data)
+                        .await
+                        .unwrap()
+                },
+            )
             .await;
     }
 
