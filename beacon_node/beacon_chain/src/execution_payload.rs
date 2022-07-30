@@ -7,6 +7,7 @@
 //! So, this module contains functions that one might expect to find in other crates, but they live
 //! here for good reason.
 
+use crate::otb_verification_service::OptimisticTransitionBlock;
 use crate::{
     BeaconChain, BeaconChainError, BeaconChainTypes, BlockError, BlockProductionError,
     ExecutionPayloadError,
@@ -26,6 +27,12 @@ use types::*;
 
 pub type PreparePayloadResult<Payload> = Result<Payload, BlockProductionError>;
 pub type PreparePayloadHandle<Payload> = JoinHandle<Option<PreparePayloadResult<Payload>>>;
+
+#[derive(PartialEq)]
+pub enum AllowOptimisticImport {
+    Yes,
+    No,
+}
 
 /// Used to await the result of executing payload with a remote EE.
 pub struct PayloadNotifier<T: BeaconChainTypes> {
@@ -146,6 +153,7 @@ async fn notify_new_payload<'a, T: BeaconChainTypes>(
 pub async fn validate_merge_block<'a, T: BeaconChainTypes>(
     chain: &Arc<BeaconChain<T>>,
     block: BeaconBlockRef<'a, T::EthSpec>,
+    allow_optimistic_import: AllowOptimisticImport,
 ) -> Result<(), BlockError<T::EthSpec>> {
     let spec = &chain.spec;
     let block_epoch = block.slot().epoch(T::EthSpec::slots_per_epoch());
@@ -188,13 +196,18 @@ pub async fn validate_merge_block<'a, T: BeaconChainTypes>(
         }
         .into()),
         None => {
-            if is_optimistic_candidate_block(chain, block.slot(), block.parent_root()).await? {
+            if allow_optimistic_import == AllowOptimisticImport::Yes
+                && is_optimistic_candidate_block(chain, block.slot(), block.parent_root()).await?
+            {
                 debug!(
                     chain.log,
-                    "Optimistically accepting terminal block";
+                    "Optimistically importing merge transition block";
                     "block_hash" => ?execution_payload.parent_hash(),
                     "msg" => "the terminal block/parent was unavailable"
                 );
+                // Store Optimistic Transition Block in Database for later Verification
+                OptimisticTransitionBlock::from_block(block)
+                    .persist_in_store::<T, _>(&chain.store)?;
                 Ok(())
             } else {
                 Err(ExecutionPayloadError::UnverifiedNonOptimisticCandidate.into())

@@ -28,6 +28,7 @@ mod observed_aggregates;
 mod observed_attesters;
 mod observed_block_producers;
 pub mod observed_operations;
+pub mod otb_verification_service;
 mod persisted_beacon_chain;
 mod persisted_fork_choice;
 mod pre_finalization_cache;
@@ -45,6 +46,7 @@ mod validator_pubkey_cache;
 pub use self::beacon_chain::{
     AttestationProcessingOutcome, BeaconChain, BeaconChainTypes, BeaconStore, ChainSegmentResult,
     CountUnrealized, ForkChoiceError, ProduceBlockVerification, StateSkipConfig, WhenSlotSkipped,
+    INVALID_FINALIZED_MERGE_TRANSITION_BLOCK_SHUTDOWN_REASON,
     INVALID_JUSTIFIED_PAYLOAD_SHUTDOWN_REASON, MAXIMUM_GOSSIP_CLOCK_DISPARITY,
 };
 pub use self::beacon_snapshot::BeaconSnapshot;

@@ -48,6 +48,12 @@ pub async fn handle_rpc<T: EthSpec>(
                     s.parse()
                         .map_err(|e| format!("unable to parse hash: {:?}", e))
                 })?;
+
+            // If we have a static response set, just return that.
+            if let Some(response) = *ctx.static_get_block_by_hash_response.lock() {
+                return Ok(serde_json::to_value(response).unwrap());
+            }
+
             let full_tx = params
                 .get(1)
                 .and_then(JsonValue::as_bool)

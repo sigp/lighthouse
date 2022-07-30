@@ -137,6 +137,9 @@ const MAX_PER_SLOT_FORK_CHOICE_DISTANCE: u64 = 4;
 pub const INVALID_JUSTIFIED_PAYLOAD_SHUTDOWN_REASON: &str =
     "Justified block has an invalid execution payload.";
 
+pub const INVALID_FINALIZED_MERGE_TRANSITION_BLOCK_SHUTDOWN_REASON: &str =
+    "Finalized merge transition block is invalid.";
+
 /// Defines the behaviour when a block/block-root for a skipped slot is requested.
 pub enum WhenSlotSkipped {
     /// If the slot is a skip slot, return `None`.
@@ -528,6 +531,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     /// Even more efficient variant of `forwards_iter_block_roots` that will avoid cloning the head
     /// state if it isn't required for the requested range of blocks.
+    /// The range [start_slot, end_slot] is inclusive (ie `start_slot <= end_slot`)
     pub fn forwards_iter_block_roots_until(
         &self,
         start_slot: Slot,

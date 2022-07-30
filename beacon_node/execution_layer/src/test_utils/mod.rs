@@ -2,7 +2,7 @@
 
 use crate::engine_api::auth::JwtKey;
 use crate::engine_api::{
-    auth::Auth, http::JSONRPC_VERSION, PayloadStatusV1, PayloadStatusV1Status,
+    auth::Auth, http::JSONRPC_VERSION, ExecutionBlock, PayloadStatusV1, PayloadStatusV1Status,
 };
 use bytes::Bytes;
 use environment::null_logger;
@@ -96,6 +96,7 @@ impl<T: EthSpec> MockServer<T> {
             preloaded_responses,
             static_new_payload_response: <_>::default(),
             static_forkchoice_updated_response: <_>::default(),
+            static_get_block_by_hash_response: <_>::default(),
             _phantom: PhantomData,
         });
 
@@ -317,6 +318,16 @@ impl<T: EthSpec> MockServer<T> {
         self.set_forkchoice_updated_response(Self::invalid_terminal_block_status());
     }
 
+    /// This will make the node appear like it is syncing.
+    pub fn all_get_block_by_hash_requests_return_none(&self) {
+        *self.ctx.static_get_block_by_hash_response.lock() = Some(None);
+    }
+
+    /// The node will respond "naturally"; it will return blocks if they're known to it.
+    pub fn all_get_block_by_hash_requests_return_natural_value(&self) {
+        *self.ctx.static_get_block_by_hash_response.lock() = None;
+    }
+
     /// Disables any static payload responses so the execution block generator will do its own
     /// verification.
     pub fn full_payload_verification(&self) {
@@ -406,6 +417,7 @@ pub struct Context<T: EthSpec> {
     pub previous_request: Arc<Mutex<Option<serde_json::Value>>>,
     pub static_new_payload_response: Arc<Mutex<Option<StaticNewPayloadResponse>>>,
     pub static_forkchoice_updated_response: Arc<Mutex<Option<PayloadStatusV1>>>,
+    pub static_get_block_by_hash_response: Arc<Mutex<Option<Option<ExecutionBlock>>>>,
     pub _phantom: PhantomData<T>,
 }
 
