@@ -752,8 +752,9 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("count-unrealized")
                 .long("count-unrealized")
                 .hidden(true)
-                .help("**EXPERIMENTAL** Enables an alternative, potentially more performant FFG \
-                    vote tracking method.")
-                .takes_value(false)
+                .help("Enables an alternative, potentially more performant FFG \
+                       vote tracking method.")
+                .takes_value(true)
+                .default_value("true")
         )
 }
