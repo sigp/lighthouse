@@ -389,12 +389,13 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                 )
                 .await
             {
-                Ok(()) => Some(attestation),
+                Ok(()) => Some((attestation, duty.validator_index)),
                 Err(e) => {
                     crit!(
                         log,
                         "Failed to sign attestation";
                         "error" => ?e,
+                        "validator" => ?duty.pubkey,
                         "committee_index" => committee_index,
                         "slot" => slot.as_u64(),
                     );
@@ -404,11 +405,11 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
         });
 
         // Execute all the futures in parallel, collecting any successful results.
-        let attestations = &join_all(signing_futures)
+        let (ref attestations, ref validator_indices): (Vec<_>, Vec<_>) = join_all(signing_futures)
             .await
             .into_iter()
             .flatten()
-            .collect::<Vec<Attestation<E>>>();
+            .unzip();
 
         // Post the attestations to the BN.
         match self
@@ -428,6 +429,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                 log,
                 "Successfully published attestations";
                 "count" => attestations.len(),
+                "validator_indices" => format!("{:?}", validator_indices),
                 "head_block" => ?attestation_data.beacon_block_root,
                 "committee_index" => attestation_data.index,
                 "slot" => attestation_data.slot.as_u64(),
@@ -509,7 +511,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                 )
                 .await
             {
-                Ok(aggregate) => Some(aggregate),
+                Ok(aggregate) => Some((aggregate, duty.validator_index)),
                 Err(e) => {
                     crit!(
                         log,
@@ -523,11 +525,12 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
         });
 
         // Execute all the futures in parallel, collecting any successful results.
-        let signed_aggregate_and_proofs = join_all(signing_futures)
-            .await
-            .into_iter()
-            .flatten()
-            .collect::<Vec<_>>();
+        let (ref signed_aggregate_and_proofs, ref validator_indices): (Vec<_>, Vec<_>) =
+            join_all(signing_futures)
+                .await
+                .into_iter()
+                .flatten()
+                .unzip();
 
         if !signed_aggregate_and_proofs.is_empty() {
             let signed_aggregate_and_proofs_slice = signed_aggregate_and_proofs.as_slice();
@@ -545,11 +548,15 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                 .await
             {
                 Ok(()) => {
-                    for signed_aggregate_and_proof in signed_aggregate_and_proofs {
+                    for (signed_aggregate_and_proof, validator_index) in signed_aggregate_and_proofs
+                        .iter()
+                        .zip(validator_indices.iter())
+                    {
                         let attestation = &signed_aggregate_and_proof.message.aggregate;
                         info!(
                             log,
-                            "Successfully published attestations";
+                            "Successfully published attestation";
+                            "validator_index" => validator_index,
                             "aggregator" => signed_aggregate_and_proof.message.aggregator_index,
                             "signatures" => attestation.aggregation_bits.num_set_bits(),
                             "head_block" => format!("{:?}", attestation.data.beacon_block_root),
@@ -560,12 +567,16 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                     }
                 }
                 Err(e) => {
-                    for signed_aggregate_and_proof in signed_aggregate_and_proofs {
+                    for (signed_aggregate_and_proof, validator_index) in signed_aggregate_and_proofs
+                        .iter()
+                        .zip(validator_indices.iter())
+                    {
                         let attestation = &signed_aggregate_and_proof.message.aggregate;
                         crit!(
                             log,
                             "Failed to publish attestation";
                             "error" => %e,
+                            "validator_index" => validator_index,
                             "committee_index" => attestation.data.index,
                             "slot" => attestation.data.slot.as_u64(),
                             "type" => "aggregated",
