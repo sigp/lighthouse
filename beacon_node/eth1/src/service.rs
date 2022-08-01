@@ -883,7 +883,7 @@ impl Service {
         match update_result {
             Err(e) => error!(
                 self.log,
-                "Error updating deposit contract";
+                "Error updating deposit contract cache";
                 "retry_millis" => update_interval.as_millis(),
                 "error" => e,
             ),
