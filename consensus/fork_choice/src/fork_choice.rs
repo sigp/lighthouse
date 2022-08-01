@@ -488,6 +488,9 @@ where
         current_slot: Slot,
         spec: &ChainSpec,
     ) -> Result<Hash256, Error<T::Error>> {
+        // Update the `self.fc_store` with the current slot. The rest of this function should read
+        // the slot from the `fc_store` rather than the `current_slot` since the `fc_store` ensures
+        // that the current slot is never decreasing.
         self.update_time(current_slot, spec)?;
 
         let store = &mut self.fc_store;
@@ -498,7 +501,7 @@ where
             store.justified_balances(),
             store.proposer_boost_root(),
             store.equivocating_indices(),
-            current_slot,
+            store.get_current_slot(),
             spec,
         )?;
 
