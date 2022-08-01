@@ -429,7 +429,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                 log,
                 "Successfully published attestations";
                 "count" => attestations.len(),
-                "validator_indices" => format!("{:?}", validator_indices),
+                "validator_indices" => ?validator_indices,
                 "head_block" => ?attestation_data.beacon_block_root,
                 "committee_index" => attestation_data.index,
                 "slot" => attestation_data.slot.as_u64(),
