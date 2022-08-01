@@ -441,7 +441,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .alias("jwt-id")
                 .help("Used by the beacon node to communicate a unique identifier to execution nodes \
                        during JWT authentication. It corresponds to the 'id' field in the JWT claims object.\
-                       Set to empty by deafult")
+                       Set to empty by default")
                 .takes_value(true)
         )
         .arg(
@@ -451,7 +451,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .alias("jwt-version")
                 .help("Used by the beacon node to communicate a client version to execution nodes \
                        during JWT authentication. It corresponds to the 'clv' field in the JWT claims object.\
-                       Set to empty by deafult")
+                       Set to empty by default")
                 .takes_value(true)
         )
         .arg(
