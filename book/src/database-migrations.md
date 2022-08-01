@@ -19,8 +19,8 @@ validator client or the slasher**.
 | v2.0.0             | Oct 2021     | v5             | no                   |
 | v2.1.0             | Jan 2022     | v8             | no                   |
 | v2.2.0             | Apr 2022     | v8             | no                   |
-| v2.3.0             | May 2022     | v9             | yes                  |
-| v2.4.0             | Jul 2022     | v9             | yes                  |
+| v2.3.0             | May 2022     | v9             | yes (pre Bellatrix)  |
+| v2.4.0             | Jul 2022     | v9             | yes (pre Bellatrix)  |
 | v2.5.0             | Aug 2022     | v11            | yes                  |
 
 > **Note**: All point releases (e.g. v2.3.1) are schema-compatible with the prior minor release
