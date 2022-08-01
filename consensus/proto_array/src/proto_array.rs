@@ -659,6 +659,7 @@ impl ProtoArray {
         // Perform a sanity check that the node is indeed valid to be the head.
         if !self.node_is_viable_for_head::<E>(best_node, current_slot) {
             return Err(Error::InvalidBestNode(Box::new(InvalidBestNodeInfo {
+                current_slot,
                 start_root: *justified_root,
                 justified_checkpoint: self.justified_checkpoint,
                 finalized_checkpoint: self.finalized_checkpoint,
