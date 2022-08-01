@@ -851,7 +851,7 @@ where
             .runtime_context
             .as_ref()
             .ok_or("caching_eth1_backend requires a runtime_context")?
-            .service_context("eth1_rpc".into());
+            .service_context("deposit_contract_rpc".into());
         let beacon_chain_builder = self
             .beacon_chain_builder
             .ok_or("caching_eth1_backend requires a beacon_chain_builder")?;
