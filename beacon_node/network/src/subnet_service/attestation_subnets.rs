@@ -3,11 +3,13 @@
 //! determines whether attestations should be aggregated and/or passed to the beacon node.
 
 use super::SubnetServiceMessage;
-use std::collections::{HashMap, HashSet, VecDeque};
+#[cfg(test)]
+use std::collections::HashSet;
+use std::collections::{HashMap, VecDeque};
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use delay_map::{HashMapDelay, HashSetDelay};
@@ -29,9 +31,6 @@ const MIN_PEER_DISCOVERY_LOOK_AHEAD_SLOTS: u64 = 2;
 const LAST_SEEN_VALIDATOR_TIMEOUT_SLOTS: u32 = 150;
 /// The fraction of a slot that we subscribe to a subnet before the required slot.
 const ADVANCE_SUBSCRIBE_SLOT_FRACTION: u32 = 4;
-/// The default number of slots before items in hash delay sets used by this class should expire.
-///  36s at 12s slot time
-const DEFAULT_EXPIRATION_TIMEOUT: u32 = 3;
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 enum SubscriptionKind {
@@ -275,8 +274,8 @@ impl<T: BeaconChainTypes> AttestationService<T> {
             subnet_id: subnet,
             slot: attestation.data.slot,
         };
-
-        true
+        self.aggregate_validators_on_subnet
+            .contains_key(&exact_subnet)
     }
 
     /* Internal private functions */
@@ -355,7 +354,11 @@ impl<T: BeaconChainTypes> AttestationService<T> {
         // immediately.
         if time_to_subscription_start.is_zero() {
             // This is a current or past slot, we subscribe immediately.
-            self.subscribe_to_subnet_immediately(subnet_id, SubscriptionKind::ShortLived, slot + 1);
+            self.subscribe_to_subnet_immediately(
+                subnet_id,
+                SubscriptionKind::ShortLived,
+                slot + 1,
+            )?;
         } else {
             // This is a future slot, schedule subscribing
             self.scheduled_short_lived_subscriptions
@@ -379,18 +382,6 @@ impl<T: BeaconChainTypes> AttestationService<T> {
             // Subscribe to random topics and update the ENR if needed.
             self.subscribe_to_random_subnets();
         }
-    }
-
-    fn required_long_lived_subnets(&self) -> usize {
-        let max_subnets = self.beacon_chain.spec.attestation_subnet_count;
-        // Calculate how many subnets we need
-        let subnets_for_validators = self
-            .known_validators
-            .len()
-            .saturating_mul(self.beacon_chain.spec.random_subnets_per_validator as usize);
-        subnets_for_validators // How many subnets we need
-            .min(max_subnets as usize) // capped by the max
-            .saturating_sub(self.long_lived_subscriptions.len()) // minus those we have
     }
 
     /// Subscribe to long-lived random subnets and update the local ENR bitfield.
@@ -418,8 +409,6 @@ impl<T: BeaconChainTypes> AttestationService<T> {
             // Nothing to do
             return;
         }
-
-        let current_slot = self.beacon_chain.slot_clock.now();
 
         // Build a list of the subnets that we are not currently advertising.
         let available_subnets = (0..max_subnets)
@@ -551,6 +540,8 @@ impl<T: BeaconChainTypes> AttestationService<T> {
         let subnet_count = self.beacon_chain.spec.attestation_subnet_count;
         if self.long_lived_subscriptions.len() == (subnet_count - 1) as usize {
             let end_slot = end_slot + self.long_lived_subnet_subscription_slots;
+            // this is just an extra accuracy precaution, we could use the default timeout if
+            // needed
             if let Some(time_to_subscription_end) =
                 self.beacon_chain.slot_clock.duration_to_slot(end_slot)
             {
@@ -560,8 +551,10 @@ impl<T: BeaconChainTypes> AttestationService<T> {
                     end_slot + 1,
                     time_to_subscription_end,
                 );
-                return;
+            } else {
+                self.long_lived_subscriptions.insert(subnet_id, end_slot);
             }
+            return;
         }
 
         // Remove the ENR bitfield bit and choose a new random on from the available subnets
@@ -580,6 +573,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
 
         if !other_subscriptions.contains_key(&subnet_id) {
             // Subscription no longer exists as short lived or long lived
+            debug!(self.log, "Unsubscribing from subnet"; "subnet" => ?subnet_id, "subscription_kind" => ?subscription_kind);
             self.events
                 .push_back(SubnetServiceMessage::Unsubscribe(Subnet::Attestation(
                     subnet_id,
