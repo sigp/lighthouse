@@ -485,10 +485,13 @@ where
     /// https://github.com/ethereum/eth2.0-specs/blob/v0.12.1/specs/phase0/fork-choice.md#get_head
     pub fn get_head(
         &mut self,
-        current_slot: Slot,
+        system_time_current_slot: Slot,
         spec: &ChainSpec,
     ) -> Result<Hash256, Error<T::Error>> {
-        self.update_time(current_slot, spec)?;
+        // Provide the slot (as per the system clock) to the `fc_store` and then return its view of
+        // the current slot. The `fc_store` will ensure that the `current_slot` is never
+        // decreasing, a property which we must maintain.
+        let current_slot = self.update_time(system_time_current_slot, spec)?;
 
         let store = &mut self.fc_store;
 
@@ -639,7 +642,7 @@ where
     #[allow(clippy::too_many_arguments)]
     pub fn on_block<Payload: ExecPayload<E>>(
         &mut self,
-        current_slot: Slot,
+        system_time_current_slot: Slot,
         block: BeaconBlockRef<E, Payload>,
         block_root: Hash256,
         block_delay: Duration,
@@ -648,7 +651,10 @@ where
         spec: &ChainSpec,
         count_unrealized: CountUnrealized,
     ) -> Result<(), Error<T::Error>> {
-        let current_slot = self.update_time(current_slot, spec)?;
+        // Provide the slot (as per the system clock) to the `fc_store` and then return its view of
+        // the current slot. The `fc_store` will ensure that the `current_slot` is never
+        // decreasing, a property which we must maintain.
+        let current_slot = self.update_time(system_time_current_slot, spec)?;
 
         // Parent block must be known.
         let parent_block = self
@@ -1051,13 +1057,12 @@ where
     /// will not be run here.
     pub fn on_attestation(
         &mut self,
-        current_slot: Slot,
+        system_time_current_slot: Slot,
         attestation: &IndexedAttestation<E>,
         is_from_block: AttestationFromBlock,
         spec: &ChainSpec,
     ) -> Result<(), Error<T::Error>> {
-        // Ensure the store is up-to-date.
-        self.update_time(current_slot, spec)?;
+        self.update_time(system_time_current_slot, spec)?;
 
         // Ignore any attestations to the zero hash.
         //
