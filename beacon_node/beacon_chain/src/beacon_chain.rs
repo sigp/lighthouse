@@ -3333,7 +3333,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             pubkey,
             slot: state.slot(),
             chain_health: self
-                .is_healthy()
+                .is_healthy(&parent_root)
                 .map_err(BlockProductionError::BeaconChain)?,
         };
 
@@ -4562,7 +4562,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// Since we are likely calling this during the slot we are going to propose in, don't take into
     /// account the current slot when accounting for skips.
-    pub fn is_healthy(&self) -> Result<ChainHealth, Error> {
+    pub fn is_healthy(&self, parent_root: &Hash256) -> Result<ChainHealth, Error> {
         // Check if the merge has been finalized.
         if let Some(finalized_hash) = self
             .canonical_head
@@ -4576,6 +4576,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         } else {
             return Ok(ChainHealth::PreMerge);
         };
+
+        // Check that the parent is NOT optimistic.
+        if let Some(execution_status) = self
+            .canonical_head
+            .fork_choice_read_lock()
+            .get_block_execution_status(parent_root)
+        {
+            if execution_status.is_strictly_optimistic() {
+                return Ok(ChainHealth::Optimistic);
+            }
+        }
 
         if self.config.builder_fallback_disable_checks {
             return Ok(ChainHealth::Healthy);
