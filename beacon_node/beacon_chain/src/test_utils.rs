@@ -327,17 +327,17 @@ where
         self
     }
 
-    pub fn execution_layer(mut self, urls: &str) -> Self {
+    pub fn execution_layer(mut self, url: &str) -> Self {
         assert!(
             self.execution_layer.is_none(),
             "execution layer already defined"
         );
 
-        let urls = Some(SensitiveUrl::parse(urls).unwrap());
+        let url = Some(SensitiveUrl::parse(url).unwrap());
 
         let config = execution_layer::Config {
-            execution_endpoints: urls,
-            secret_files: None,
+            execution_endpoint: url,
+            secret_file: None,
             suggested_fee_recipient: Some(Address::repeat_byte(42)),
             ..Default::default()
         };

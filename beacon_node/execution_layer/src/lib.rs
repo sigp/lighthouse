@@ -117,11 +117,11 @@ struct Inner<E: EthSpec> {
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct Config {
     /// Endpoint urls for EL nodes that are running the engine api.
-    pub execution_endpoints: Option<SensitiveUrl>,
+    pub execution_endpoint: Option<SensitiveUrl>,
     /// Endpoint urls for services providing the builder api.
     pub builder_url: Option<SensitiveUrl>,
     /// JWT secrets for the above endpoints running the engine api.
-    pub secret_files: Option<PathBuf>,
+    pub secret_file: Option<PathBuf>,
     /// The default fee recipient to use on the beacon node if none if provided from
     /// the validator client during block preparation.
     pub suggested_fee_recipient: Option<Address>,
@@ -144,19 +144,19 @@ impl<T: EthSpec> ExecutionLayer<T> {
     /// Instantiate `Self` with an Execution engine specified in `Config`, using JSON-RPC via HTTP.
     pub fn from_config(config: Config, executor: TaskExecutor, log: Logger) -> Result<Self, Error> {
         let Config {
-            execution_endpoints: urls,
+            execution_endpoint: url,
             builder_url,
-            secret_files,
+            secret_file,
             suggested_fee_recipient,
             jwt_id,
             jwt_version,
             default_datadir,
         } = config;
 
-        let execution_url = urls.into_iter().next().ok_or(Error::NoEngine)?;
+        let execution_url = url.into_iter().next().ok_or(Error::NoEngine)?;
 
         // Use the default jwt secret path if not provided via cli.
-        let secret_file = secret_files
+        let secret_file = secret_file
             .into_iter()
             .next()
             .unwrap_or_else(|| default_datadir.join(DEFAULT_JWT_FILE));

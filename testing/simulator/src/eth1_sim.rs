@@ -152,7 +152,7 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
 
         if post_merge_sim {
             let el_config = execution_layer::Config {
-                execution_endpoints: Some(SensitiveUrl::parse(&format!(
+                execution_endpoint: Some(SensitiveUrl::parse(&format!(
                     "http://localhost:{}",
                     EXECUTION_PORT
                 ))

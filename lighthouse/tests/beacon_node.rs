@@ -287,9 +287,9 @@ fn run_merge_execution_endpoints_flag_test(flag: &str) {
         .run_with_zero_port()
         .with_config(|config| {
             let config = config.execution_layer.as_ref().unwrap();
-            assert_eq!(config.execution_endpoints.len(), 1);
+            assert_eq!(config.execution_endpoint.len(), 1);
             assert_eq!(
-                config.execution_endpoints[0],
+                config.execution_endpoint[0],
                 SensitiveUrl::parse(&urls[0]).unwrap()
             );
             // Only the first secret file should be used.
@@ -322,7 +322,7 @@ fn run_execution_endpoints_overrides_eth1_endpoints_test(eth1_flag: &str, execut
         .run_with_zero_port()
         .with_config(|config| {
             assert_eq!(
-                config.execution_layer.as_ref().unwrap().execution_endpoints,
+                config.execution_layer.as_ref().unwrap().execution_endpoint,
                 vec![SensitiveUrl::parse(execution_endpoint).unwrap()]
             );
 
