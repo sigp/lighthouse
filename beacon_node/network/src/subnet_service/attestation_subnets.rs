@@ -224,7 +224,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
             if subscription.is_aggregator {
                 metrics::inc_counter(&metrics::SUBNET_SUBSCRIPTION_AGGREGATOR_REQUESTS);
                 // set the subscription timer to subscribe to the next subnet if required
-                if let Err(e) = self.subscribe_to_subnet(exact_subnet.clone()) {
+                if let Err(e) = self.subscribe_to_subnet(exact_subnet) {
                     warn!(self.log,
                         "Subscription to subnet error";
                         "error" => e,
