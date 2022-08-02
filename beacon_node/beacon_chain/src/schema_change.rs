@@ -1,5 +1,5 @@
 //! Utilities for managing database schema changes.
-mod migration_schema_v11;
+mod migration_schema_v12;
 mod migration_schema_v6;
 mod migration_schema_v7;
 mod migration_schema_v8;
@@ -133,14 +133,14 @@ pub fn migrate_schema<T: BeaconChainTypes>(
         }
         // FIXME(sproul): stub for Sean's v10 migration
         (SchemaVersion(9), SchemaVersion(10)) => db.store_schema_version(to),
-        // Upgrade from v10 to v11 to store richer metadata in the attestation op pool.
-        (SchemaVersion(10), SchemaVersion(11)) => {
-            let ops = migration_schema_v11::upgrade_to_v11::<T>(db.clone(), log)?;
+        // Upgrade from v11 to v12 to store richer metadata in the attestation op pool.
+        (SchemaVersion(10), SchemaVersion(12)) => {
+            let ops = migration_schema_v12::upgrade_to_v12::<T>(db.clone(), log)?;
             db.store_schema_version_atomically(to, ops)
         }
-        // Downgrade from v11 to v9 to drop richer metadata from the attestation op pool.
-        (SchemaVersion(11), SchemaVersion(9)) => {
-            let ops = migration_schema_v11::downgrade_from_v11::<T>(db.clone(), log)?;
+        // Downgrade from v12 to v9 to drop richer metadata from the attestation op pool.
+        (SchemaVersion(12), SchemaVersion(11)) => {
+            let ops = migration_schema_v12::downgrade_from_v12::<T>(db.clone(), log)?;
             db.store_schema_version_atomically(to, ops)
         }
         // Anything else is an error.

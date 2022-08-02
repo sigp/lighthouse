@@ -18,7 +18,7 @@ type PersistedSyncContributions<T> = Vec<(SyncAggregateId, Vec<SyncCommitteeCont
 /// Operations are stored in arbitrary order, so it's not a good idea to compare instances
 /// of this type (or its encoded form) for equality. Convert back to an `OperationPool` first.
 #[superstruct(
-    variants(V5, V11),
+    variants(V5, V12),
     variant_attributes(
         derive(Derivative, PartialEq, Debug, Serialize, Deserialize, Encode, Decode),
         serde(bound = "T: EthSpec", deny_unknown_fields),
@@ -35,7 +35,7 @@ pub struct PersistedOperationPool<T: EthSpec> {
     #[superstruct(only(V5))]
     pub attestations_v5: Vec<(AttestationId, Vec<Attestation<T>>)>,
     /// Attestations and their attesting indices.
-    #[superstruct(only(V11))]
+    #[superstruct(only(V12))]
     pub attestations: Vec<(Attestation<T>, Vec<u64>)>,
     /// Mapping from sync contribution ID to sync contributions and aggregate.
     pub sync_contributions: PersistedSyncContributions<T>,
@@ -90,7 +90,7 @@ impl<T: EthSpec> PersistedOperationPool<T> {
             .map(|(_, exit)| exit.clone())
             .collect();
 
-        PersistedOperationPool::V11(PersistedOperationPoolV11 {
+        PersistedOperationPool::V12(PersistedOperationPoolV12 {
             attestations,
             sync_contributions,
             attester_slashings,
@@ -119,7 +119,7 @@ impl<T: EthSpec> PersistedOperationPool<T> {
         let sync_contributions = RwLock::new(self.sync_contributions().iter().cloned().collect());
         let attestations = match self {
             PersistedOperationPool::V5(_) => return Err(OpPoolError::IncorrectOpPoolVariant),
-            PersistedOperationPool::V11(pool) => {
+            PersistedOperationPool::V12(pool) => {
                 let mut map = AttestationMap::default();
                 for (att, attesting_indices) in pool.attestations {
                     map.insert(att, attesting_indices);
@@ -154,7 +154,7 @@ impl<T: EthSpec> StoreItem for PersistedOperationPoolV5<T> {
     }
 }
 
-/// Deserialization for `PersistedOperationPool` defaults to `PersistedOperationPool::V11`.
+/// Deserialization for `PersistedOperationPool` defaults to `PersistedOperationPool::V12`.
 impl<T: EthSpec> StoreItem for PersistedOperationPool<T> {
     fn db_column() -> DBColumn {
         DBColumn::OpPool
@@ -166,8 +166,8 @@ impl<T: EthSpec> StoreItem for PersistedOperationPool<T> {
 
     fn from_store_bytes(bytes: &[u8]) -> Result<Self, StoreError> {
         // Default deserialization to the latest variant.
-        PersistedOperationPoolV11::from_ssz_bytes(bytes)
-            .map(Self::V11)
+        PersistedOperationPoolV12::from_ssz_bytes(bytes)
+            .map(Self::V12)
             .map_err(Into::into)
     }
 }
