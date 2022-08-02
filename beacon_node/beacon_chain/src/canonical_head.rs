@@ -973,7 +973,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         )?;
 
         // Take a write-lock on the canonical head and signal for it to prune.
-        self.canonical_head.fork_choice_write_lock.prune()?;
+        self.canonical_head.fork_choice_write_lock().prune()?;
 
         Ok(())
     }
