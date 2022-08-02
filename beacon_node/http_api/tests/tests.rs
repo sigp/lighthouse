@@ -3044,6 +3044,55 @@ impl ApiTester {
         self
     }
 
+    pub async fn test_builder_chain_health_optimistic_head(self) -> Self {
+        // Make sure the next payload verification will return optimistic before advancing the chain.
+        self.harness.mock_execution_layer.as_ref().map(|el| {
+            el.server.all_payloads_syncing(true);
+            el
+        });
+        self.harness
+            .extend_chain(
+                1,
+                BlockStrategy::OnCanonicalHead,
+                AttestationStrategy::AllValidators,
+            )
+            .await;
+        self.harness.advance_slot();
+
+        let slot = self.chain.slot().unwrap();
+        let epoch = self.chain.epoch().unwrap();
+
+        let (proposer_index, randao_reveal) = self.get_test_randao(slot, epoch).await;
+
+        let payload = self
+            .client
+            .get_validator_blinded_blocks::<E, BlindedPayload<E>>(slot, &randao_reveal, None)
+            .await
+            .unwrap()
+            .data
+            .body()
+            .execution_payload()
+            .unwrap()
+            .clone();
+
+        let expected_fee_recipient = Address::from_low_u64_be(proposer_index as u64);
+        assert_eq!(
+            payload.execution_payload_header.fee_recipient,
+            expected_fee_recipient
+        );
+
+        // If this cache is populated, it indicates fallback to the local EE was correctly used.
+        assert!(self
+            .chain
+            .execution_layer
+            .as_ref()
+            .unwrap()
+            .get_payload_by_root(&payload.tree_hash_root())
+            .is_some());
+
+        self
+    }
+
     #[cfg(target_os = "linux")]
     pub async fn test_get_lighthouse_health(self) -> Self {
         self.client.get_lighthouse_health().await.unwrap();
@@ -3997,6 +4046,14 @@ async fn builder_chain_health_epochs_since_finalization() {
     ApiTester::new_mev_tester()
         .await
         .test_builder_chain_health_epochs_since_finalization()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn builder_chain_health_optimistic_head() {
+    ApiTester::new_mev_tester()
+        .await
+        .test_builder_chain_health_optimistic_head()
         .await;
 }
 
