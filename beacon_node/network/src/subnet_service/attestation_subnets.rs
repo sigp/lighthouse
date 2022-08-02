@@ -35,7 +35,13 @@ const DEFAULT_EXPIRATION_TIMEOUT: u32 = 3;
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 enum SubscriptionKind {
+    /// Long lived subscriptions.
+    ///
+    /// These have a longer duration and are advertised in our ENR.
     LongLived,
+    /// Short lived subscriptions.
+    ///
+    /// Subscribing to these subnets has a short duration and we don't advertise it in our ENR.
     ShortLived,
 }
 
@@ -144,7 +150,11 @@ impl<T: BeaconChainTypes> AttestationService<T> {
         if self.subscribe_all_subnets {
             self.beacon_chain.spec.attestation_subnet_count as usize
         } else {
-            self.short_lived_subscriptions.len()
+            self.short_lived_subscriptions
+                .keys()
+                .chain(self.long_lived_subscriptions.keys())
+                .collect::<HashSet<_>>()
+                .len()
         }
     }
 
@@ -371,6 +381,18 @@ impl<T: BeaconChainTypes> AttestationService<T> {
         }
     }
 
+    fn required_long_lived_subnets(&self) -> usize {
+        let max_subnets = self.beacon_chain.spec.attestation_subnet_count;
+        // Calculate how many subnets we need
+        let subnets_for_validators = self
+            .known_validators
+            .len()
+            .saturating_mul(self.beacon_chain.spec.random_subnets_per_validator as usize);
+        subnets_for_validators // How many subnets we need
+            .min(max_subnets as usize) // capped by the max
+            .saturating_sub(self.long_lived_subscriptions.len()) // minus those we have
+    }
+
     /// Subscribe to long-lived random subnets and update the local ENR bitfield.
     /// The number of subnets to subscribe depends on the number of active validators and number of
     /// current subscriptions.
@@ -473,7 +495,6 @@ impl<T: BeaconChainTypes> AttestationService<T> {
             Some(current_end_slot) => {
                 // We are already subscribed. Check if we need to extend the subscription
                 if &end_slot > current_end_slot {
-                    // let subscription_kind = if current_subscription_kind
                     trace!(self.log, "Extending subscription to subnet";
                         "subnet" => ?subnet_id,
                         "prev_end_slot" => current_end_slot,
@@ -526,21 +547,52 @@ impl<T: BeaconChainTypes> AttestationService<T> {
     ///
     /// This function selects a new subnet to join, or extends the expiry if there are no more
     /// available subnets to choose from.
-    fn handle_random_subnet_expiry(&mut self, subnet_id: SubnetId) {
+    fn handle_random_subnet_expiry(&mut self, subnet_id: SubnetId, end_slot: Slot) {
         let subnet_count = self.beacon_chain.spec.attestation_subnet_count;
         if self.long_lived_subscriptions.len() == (subnet_count - 1) as usize {
-            // We are at capacity, simply increase the timeout of the current subnet
-            self.long_lived_subscriptions.insert(subnet_id);
-            return;
+            let end_slot = end_slot + self.long_lived_subnet_subscription_slots;
+            if let Some(time_to_subscription_end) =
+                self.beacon_chain.slot_clock.duration_to_slot(end_slot)
+            {
+                // We are at capacity, simply increase the timeout of the current subnet
+                self.long_lived_subscriptions.insert_at(
+                    subnet_id,
+                    end_slot + 1,
+                    time_to_subscription_end,
+                );
+                return;
+            }
         }
 
         // Remove the ENR bitfield bit and choose a new random on from the available subnets
-        self.events
-            .push_back(SubnetServiceMessage::EnrRemove(Subnet::Attestation(
-                subnet_id,
-            )));
         // Subscribe to a new random subnet
         self.subscribe_to_random_subnets();
+    }
+
+    // Unsubscribes from a subnet that was removed if it does not continue to exist as a
+    // subscription of the other kind. For long lived subscriptions, it also removes the
+    // advertisement from our ENR.
+    fn handle_removed_subnet(&mut self, subnet_id: SubnetId, subscription_kind: SubscriptionKind) {
+        let other_subscriptions = match subscription_kind {
+            SubscriptionKind::LongLived => &self.short_lived_subscriptions,
+            SubscriptionKind::ShortLived => &self.long_lived_subscriptions,
+        };
+
+        if !other_subscriptions.contains_key(&subnet_id) {
+            // Subscription no longer exists as short lived or long lived
+            self.events
+                .push_back(SubnetServiceMessage::Unsubscribe(Subnet::Attestation(
+                    subnet_id,
+                )));
+        }
+
+        if subscription_kind == SubscriptionKind::LongLived {
+            // Remove from our ENR even if we remain subscribed in other way
+            self.events
+                .push_back(SubnetServiceMessage::EnrRemove(Subnet::Attestation(
+                    subnet_id,
+                )));
+        }
     }
 
     /// A known validator has not sent a subscription in a while. They are considered offline and the
@@ -550,39 +602,36 @@ impl<T: BeaconChainTypes> AttestationService<T> {
     /// validators to random subnets. So when a validator goes offline, we can simply remove the
     /// allocated amount of random subnets.
     fn handle_known_validator_expiry(&mut self) {
-        let spec = &self.beacon_chain.spec;
-        let subnet_count = spec.attestation_subnet_count;
-        let random_subnets_per_validator = spec.random_subnets_per_validator;
-        if self.known_validators.len() as u64 * random_subnets_per_validator >= subnet_count {
-            // have too many validators, ignore
+        let extra_subnet_count = {
+            let max_subnets = self.beacon_chain.spec.attestation_subnet_count;
+            let subnets_for_validators = self
+                .known_validators
+                .len()
+                .saturating_mul(self.beacon_chain.spec.random_subnets_per_validator as usize)
+                .min(max_subnets as usize);
+
+            self.long_lived_subscriptions
+                .len()
+                .saturating_sub(subnets_for_validators)
+        };
+
+        if extra_subnet_count == 0 {
+            // Nothing to do
             return;
         }
 
-        let subscribed_subnets = self.random_subnets.keys().cloned().collect::<Vec<_>>();
-        let to_remove_subnets = subscribed_subnets.choose_multiple(
-            &mut rand::thread_rng(),
-            random_subnets_per_validator as usize,
-        );
+        let advertised_subnets = self
+            .long_lived_subscriptions
+            .keys()
+            .cloned()
+            .collect::<Vec<_>>();
+        let to_remove_subnets = advertised_subnets
+            .choose_multiple(&mut rand::thread_rng(), extra_subnet_count)
+            .cloned();
 
         for subnet_id in to_remove_subnets {
-            // If there are no unsubscription events for `subnet_id`, we unsubscribe immediately.
-            if !self
-                .unsubscriptions
-                .keys()
-                .any(|s| s.subnet_id == *subnet_id)
-            {
-                self.events
-                    .push_back(SubnetServiceMessage::Unsubscribe(Subnet::Attestation(
-                        *subnet_id,
-                    )));
-            }
-            // as the long lasting subnet subscription is being removed, remove the subnet_id from
-            // the ENR bitfield
-            self.events
-                .push_back(SubnetServiceMessage::EnrRemove(Subnet::Attestation(
-                    *subnet_id,
-                )));
-            self.random_subnets.remove(subnet_id);
+            self.long_lived_subscriptions.remove(&subnet_id);
+            self.handle_removed_subnet(subnet_id, SubscriptionKind::LongLived);
         }
     }
 }
@@ -591,7 +640,7 @@ impl<T: BeaconChainTypes> Stream for AttestationService<T> {
     type Item = SubnetServiceMessage;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        // update the waker if needed
+        // Update the waker if needed.
         if let Some(waker) = &self.waker {
             if waker.will_wake(cx.waker()) {
                 self.waker = Some(cx.waker().clone());
@@ -600,25 +649,13 @@ impl<T: BeaconChainTypes> Stream for AttestationService<T> {
             self.waker = Some(cx.waker().clone());
         }
 
-        // process any un-subscription events
-        match self.unsubscriptions.poll_next_unpin(cx) {
-            Poll::Ready(Some(Ok(exact_subnet))) => self.handle_unsubscriptions(exact_subnet),
-            Poll::Ready(Some(Err(e))) => {
-                error!(self.log, "Failed to check for subnet unsubscription times"; "error"=> e);
-            }
-            Poll::Ready(None) | Poll::Pending => {}
+        // send out any generated events
+        if let Some(event) = self.events.pop_front() {
+            return Poll::Ready(Some(event));
         }
 
-        // process any random subnet expiries
-        match self.random_subnets.poll_next_unpin(cx) {
-            Poll::Ready(Some(Ok(subnet))) => self.handle_random_subnet_expiry(subnet),
-            Poll::Ready(Some(Err(e))) => {
-                error!(self.log, "Failed to check for random subnet cycles"; "error"=> e);
-            }
-            Poll::Ready(None) | Poll::Pending => {}
-        }
-
-        // process any known validator expiries
+        // Process first any known validator expiries, since these affect how many long lived
+        // subnets we need.
         match self.known_validators.poll_next_unpin(cx) {
             Poll::Ready(Some(Ok(_validator_index))) => {
                 self.handle_known_validator_expiry();
@@ -628,14 +665,44 @@ impl<T: BeaconChainTypes> Stream for AttestationService<T> {
             }
             Poll::Ready(None) | Poll::Pending => {}
         }
+
+        // Process scheduled subscriptions that might be ready, since those can extend a soon to
+        // expire subscription.
+        match self.scheduled_short_lived_subscriptions.poll_next_unpin(cx) {
+            Poll::Ready(Some(Ok(ExactSubnet { subnet_id, slot }))) => self
+                .subscribe_to_subnet_immediately(subnet_id, SubscriptionKind::ShortLived, slot + 1)
+                .unwrap(), // TODO
+            Poll::Ready(Some(Err(e))) => {
+                error!(self.log, "Failed to check for scheduled subnet subscriptions"; "error"=> e);
+            }
+            Poll::Ready(None) | Poll::Pending => {}
+        }
+
+        // Finally process any expired subscriptions.
+        match self.short_lived_subscriptions.poll_next_unpin(cx) {
+            Poll::Ready(Some(Ok((subnet_id, _end_slot)))) => {
+                self.handle_removed_subnet(subnet_id, SubscriptionKind::ShortLived);
+            }
+            Poll::Ready(Some(Err(e))) => {
+                error!(self.log, "Failed to check for subnet unsubscription times"; "error"=> e);
+            }
+            Poll::Ready(None) | Poll::Pending => {}
+        }
+
+        // process any random subnet expiries
+        match self.long_lived_subscriptions.poll_next_unpin(cx) {
+            Poll::Ready(Some(Ok((subnet_id, end_slot)))) => {
+                self.handle_random_subnet_expiry(subnet_id, end_slot)
+            }
+            Poll::Ready(Some(Err(e))) => {
+                error!(self.log, "Failed to check for random subnet cycles"; "error"=> e);
+            }
+            Poll::Ready(None) | Poll::Pending => {}
+        }
+
         // poll to remove entries on expiration, no need to act on expiration events
         if let Poll::Ready(Some(Err(e))) = self.aggregate_validators_on_subnet.poll_next_unpin(cx) {
             error!(self.log, "Failed to check for aggregate validator on subnet expirations"; "error"=> e);
-        }
-
-        // process any generated events
-        if let Some(event) = self.events.pop_front() {
-            return Poll::Ready(Some(event));
         }
 
         Poll::Pending
