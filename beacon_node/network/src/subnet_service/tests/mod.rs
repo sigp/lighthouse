@@ -164,7 +164,8 @@ async fn get_events<S: Stream<Item = SubnetServiceMessage> + Unpin>(
 
         }
     }
-    return events;
+
+    events
 }
 
 mod attestation_service {
