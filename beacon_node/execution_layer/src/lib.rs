@@ -605,7 +605,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                             Ok(local)
                         }
                         (Ok(None), Ok(local)) => {
-                            warn!(
+                            info!(
                                 self.log(),
                                 "No payload provided by connected builder. \
                                 Attempting to propose through local execution engine"
