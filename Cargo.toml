@@ -28,7 +28,6 @@ members = [
     "common/eth2_interop_keypairs",
     "common/eth2_network_config",
     "common/eth2_wallet_manager",
-    "common/hashset_delay",
     "common/lighthouse_metrics",
     "common/lighthouse_version",
     "common/lockfile",

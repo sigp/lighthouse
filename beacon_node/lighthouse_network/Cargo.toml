@@ -8,7 +8,6 @@ edition = "2021"
 discv5 = { version = "0.1.0-beta.13", features = ["libp2p"] }
 unsigned-varint = { version = "0.6.0", features = ["codec"] }
 types = { path =  "../../consensus/types" }
-hashset_delay = { path = "../../common/hashset_delay" }
 eth2_ssz_types = "0.2.2"
 serde = { version = "1.0.116", features = ["derive"] }
 serde_derive = "1.0.116"
@@ -40,6 +39,7 @@ strum = { version = "0.24.0", features = ["derive"] }
 superstruct = "0.5.0"
 prometheus-client = "0.16.0"
 unused_port = { path = "../../common/unused_port" }
+delay_map = "0.1.1"
 
 [dependencies.libp2p]
 version = "0.45.1"
