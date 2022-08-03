@@ -21,7 +21,7 @@ use types::{
     SyncCommitteeSubscription, SyncSubnetId, ValidatorSubscription,
 };
 
-const SLOT_DURATION_MILLIS: u64 = 200;
+const SLOT_DURATION_MILLIS: u64 = 100;
 
 type TestBeaconChainType = Witness<
     SystemTimeSlotClock,
