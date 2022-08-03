@@ -87,6 +87,16 @@ pub async fn create_api_server<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
     log: Logger,
 ) -> ApiServer<T::EthSpec, impl Future<Output = ()>> {
+    // Get a random unused port.
+    let port = unused_port::unused_tcp_port().unwrap();
+    create_api_server_on_port(chain, log, port).await
+}
+
+pub async fn create_api_server_on_port<T: BeaconChainTypes>(
+    chain: Arc<BeaconChain<T>>,
+    log: Logger,
+    port: u16,
+) -> ApiServer<T::EthSpec, impl Future<Output = ()>> {
     let (network_tx, network_rx) = mpsc::unbounded_channel();
 
     // Default metadata
@@ -129,7 +139,7 @@ pub async fn create_api_server<T: BeaconChainTypes>(
         config: Config {
             enabled: true,
             listen_addr: IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
-            listen_port: 0,
+            listen_port: port,
             allow_origin: None,
             serve_legacy_spec: true,
             tls_config: None,

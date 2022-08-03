@@ -45,7 +45,7 @@ impl<T> Fallback<T> {
     {
         match error {
             FallbackError::AllErrored(v) => format!(
-                "All fallback errored: {}",
+                "All fallbacks errored: {}",
                 join(
                     zip(self.servers.iter().map(f), v.iter())
                         .map(|(server, error)| format!("{} => {:?}", server, error)),

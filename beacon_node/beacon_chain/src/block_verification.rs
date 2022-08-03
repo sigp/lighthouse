@@ -44,7 +44,7 @@
 //! ```
 use crate::execution_payload::{
     is_optimistic_candidate_block, validate_execution_payload_for_gossip, validate_merge_block,
-    PayloadNotifier,
+    AllowOptimisticImport, PayloadNotifier,
 };
 use crate::snapshot_cache::PreProcessingSnapshot;
 use crate::validator_monitor::HISTORIC_EPOCHS as VALIDATOR_MONITOR_HISTORIC_EPOCHS;
@@ -335,15 +335,30 @@ pub enum ExecutionPayloadError {
         terminal_block_hash: ExecutionBlockHash,
         payload_parent_hash: ExecutionBlockHash,
     },
-    /// The execution node failed to provide a parent block to a known block. This indicates an
-    /// issue with the execution node.
+    /// The execution node is syncing but we fail the conditions for optimistic sync
     ///
     /// ## Peer scoring
     ///
     /// The peer is not necessarily invalid.
-    PoWParentMissing(ExecutionBlockHash),
-    /// The execution node is syncing but we fail the conditions for optimistic sync
     UnverifiedNonOptimisticCandidate,
+}
+
+impl ExecutionPayloadError {
+    pub fn penalize_peer(&self) -> bool {
+        // This match statement should never have a default case so that we are
+        // always forced to consider here whether or not to penalize a peer when
+        // we add a new error condition.
+        match self {
+            ExecutionPayloadError::NoExecutionConnection => false,
+            ExecutionPayloadError::RequestFailed(_) => false,
+            ExecutionPayloadError::RejectedByExecutionEngine { .. } => true,
+            ExecutionPayloadError::InvalidPayloadTimestamp { .. } => true,
+            ExecutionPayloadError::InvalidTerminalPoWBlock { .. } => true,
+            ExecutionPayloadError::InvalidActivationEpoch { .. } => true,
+            ExecutionPayloadError::InvalidTerminalBlockHash { .. } => true,
+            ExecutionPayloadError::UnverifiedNonOptimisticCandidate => false,
+        }
+    }
 }
 
 impl From<execution_layer::Error> for ExecutionPayloadError {
@@ -1184,7 +1199,7 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
             // - Doing the check here means we can keep our fork-choice implementation "pure". I.e., no
             //   calls to remote servers.
             if is_valid_merge_transition_block {
-                validate_merge_block(&chain, block.message()).await?;
+                validate_merge_block(&chain, block.message(), AllowOptimisticImport::Yes).await?;
             };
 
             // The specification declares that this should be run *inside* `per_block_processing`,
@@ -1407,6 +1422,10 @@ fn check_block_against_finalized_slot<T: BeaconChainTypes>(
     block_root: Hash256,
     chain: &BeaconChain<T>,
 ) -> Result<(), BlockError<T::EthSpec>> {
+    // The finalized checkpoint is being read from fork choice, rather than the cached head.
+    //
+    // Fork choice has the most up-to-date view of finalization and there's no point importing a
+    // block which conflicts with the fork-choice view of finalization.
     let finalized_slot = chain
         .canonical_head
         .cached_head()

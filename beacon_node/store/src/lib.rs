@@ -208,6 +208,9 @@ pub enum DBColumn {
     BeaconRandaoMixes,
     #[strum(serialize = "dht")]
     DhtEnrs,
+    /// For Optimistically Imported Merge Transition Blocks
+    #[strum(serialize = "otb")]
+    OptimisticTransitionBlock,
 }
 
 /// A block from the database, which might have an execution payload or not.

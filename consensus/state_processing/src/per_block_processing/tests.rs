@@ -394,7 +394,7 @@ async fn invalid_attestation_no_committee_for_index() {
         &spec,
     );
 
-    // Expecting NoCommitee because we manually set the attestation's index to be invalid
+    // Expecting NoCommittee because we manually set the attestation's index to be invalid
     assert_eq!(
         result,
         Err(BlockProcessingError::AttestationInvalid {
@@ -471,7 +471,7 @@ async fn invalid_attestation_bad_aggregation_bitfield_len() {
         &spec,
     );
 
-    // Expecting InvalidBitfield because the size of the aggregation_bitfield is bigger than the commitee size.
+    // Expecting InvalidBitfield because the size of the aggregation_bitfield is bigger than the committee size.
     assert_eq!(
         result,
         Err(BlockProcessingError::BeaconStateError(

@@ -220,14 +220,7 @@ async fn state_advance_timer<T: BeaconChainTypes>(
                     return;
                 }
 
-                if let Err(e) = beacon_chain.recompute_head_at_slot(next_slot).await {
-                    warn!(
-                        log,
-                        "Error updating fork choice for next slot";
-                        "error" => ?e,
-                        "slot" => next_slot,
-                    );
-                }
+                beacon_chain.recompute_head_at_slot(next_slot).await;
 
                 // Use a blocking task to avoid blocking the core executor whilst waiting for locks
                 // in `ForkChoiceSignalTx`.

@@ -1,6 +1,6 @@
 # Running a Slasher
 
-Lighthouse includes a slasher for identifying slashable offences comitted by other validators and
+Lighthouse includes a slasher for identifying slashable offences committed by other validators and
 including proof of those offences in blocks.
 
 Running a slasher is a good way to contribute to the health of the network, and doing so can earn
@@ -69,7 +69,7 @@ The slasher uses MDBX as its backing store, which places a hard limit on the siz
 file. You can use the `--slasher-max-db-size` flag to set this limit. It can be adjusted after
 initialization if the limit is reached.
 
-By default the limit is set to accomodate the default history length and around 300K validators but
+By default the limit is set to accommodate the default history length and around 300K validators but
 you can set it lower if running with a reduced history length. The space required scales
 approximately linearly in validator count and history length, i.e. if you halve either you can halve
 the space required.
@@ -134,7 +134,7 @@ the slot duration.
 ### Chunk Size and Validator Chunk Size
 
 * Flags: `--slasher-chunk-size EPOCHS`, `--slasher-validator-chunk-size NUM_VALIDATORS`
-* Arguments: number of ecochs, number of validators
+* Arguments: number of epochs, number of validators
 * Defaults: 16, 256
 
 Adjusting these parameter should only be done in conjunction with reading in detail
