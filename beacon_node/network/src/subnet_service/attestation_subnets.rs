@@ -33,7 +33,7 @@ const LAST_SEEN_VALIDATOR_TIMEOUT_SLOTS: u32 = 150;
 const ADVANCE_SUBSCRIBE_SLOT_FRACTION: u32 = 4;
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
-enum SubscriptionKind {
+pub(crate) enum SubscriptionKind {
     /// Long lived subscriptions.
     ///
     /// These have a longer duration and are advertised in our ENR.
@@ -157,6 +157,16 @@ impl<T: BeaconChainTypes> AttestationService<T> {
         }
     }
 
+    #[cfg(test)]
+    pub(crate) fn subscriptions(
+        &self,
+        subscription_kind: SubscriptionKind,
+    ) -> &HashMapDelay<SubnetId, Slot> {
+        match subscription_kind {
+            SubscriptionKind::LongLived => &self.long_lived_subscriptions,
+            SubscriptionKind::ShortLived => &self.short_lived_subscriptions,
+        }
+    }
     /// Processes a list of validator subscriptions.
     ///
     /// This will:
@@ -252,10 +262,6 @@ impl<T: BeaconChainTypes> AttestationService<T> {
             };
         }
 
-        // pre-emptively wake the thread to check for new events
-        if let Some(waker) = &self.waker {
-            waker.wake_by_ref();
-        }
         Ok(())
     }
 
@@ -280,6 +286,12 @@ impl<T: BeaconChainTypes> AttestationService<T> {
 
     /* Internal private functions */
 
+    fn queue_event(&mut self, ev: SubnetServiceMessage) {
+        self.events.push_back(ev);
+        if let Some(waker) = &self.waker {
+            waker.wake_by_ref()
+        }
+    }
     /// Checks if there are currently queued discovery requests and the time required to make the
     /// request.
     ///
@@ -324,8 +336,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
             .collect();
 
         if !discovery_subnets.is_empty() {
-            self.events
-                .push_back(SubnetServiceMessage::DiscoverPeers(discovery_subnets));
+            self.queue_event(SubnetServiceMessage::DiscoverPeers(discovery_subnets));
         }
         Ok(())
     }
@@ -505,25 +516,29 @@ impl<T: BeaconChainTypes> AttestationService<T> {
 
                 // Inform of the subscription
                 if !already_subscribed_as_other_kind {
-                    self.events
-                        .push_back(SubnetServiceMessage::Subscribe(Subnet::Attestation(
-                            subnet_id,
-                        )));
+                    self.queue_event(SubnetServiceMessage::Subscribe(Subnet::Attestation(
+                        subnet_id,
+                    )));
                 }
 
                 // If this is a new long lived subscription, send out the appropriate events.
                 if SubscriptionKind::LongLived == subscription_kind {
                     let subnet = Subnet::Attestation(subnet_id);
                     // Advertise this subnet in our Enr
-                    self.events.push_back(SubnetServiceMessage::EnrAdd(subnet));
-                    subscriptions.insert(subnet_id, end_slot);
+                    self.long_lived_subscriptions.insert_at(
+                        subnet_id,
+                        end_slot,
+                        time_to_subscription_end,
+                    );
+                    self.queue_event(SubnetServiceMessage::EnrAdd(subnet));
 
                     if !self.discovery_disabled {
-                        self.events
-                            .push_back(SubnetServiceMessage::DiscoverPeers(vec![SubnetDiscovery {
+                        self.queue_event(SubnetServiceMessage::DiscoverPeers(vec![
+                            SubnetDiscovery {
                                 subnet,
                                 min_ttl: None,
-                            }]))
+                            },
+                        ]))
                     }
                 }
             }
@@ -574,18 +589,16 @@ impl<T: BeaconChainTypes> AttestationService<T> {
         if !other_subscriptions.contains_key(&subnet_id) {
             // Subscription no longer exists as short lived or long lived
             debug!(self.log, "Unsubscribing from subnet"; "subnet" => ?subnet_id, "subscription_kind" => ?subscription_kind);
-            self.events
-                .push_back(SubnetServiceMessage::Unsubscribe(Subnet::Attestation(
-                    subnet_id,
-                )));
+            self.queue_event(SubnetServiceMessage::Unsubscribe(Subnet::Attestation(
+                subnet_id,
+            )));
         }
 
         if subscription_kind == SubscriptionKind::LongLived {
             // Remove from our ENR even if we remain subscribed in other way
-            self.events
-                .push_back(SubnetServiceMessage::EnrRemove(Subnet::Attestation(
-                    subnet_id,
-                )));
+            self.queue_event(SubnetServiceMessage::EnrRemove(Subnet::Attestation(
+                subnet_id,
+            )));
         }
     }
 
@@ -645,6 +658,8 @@ impl<T: BeaconChainTypes> Stream for AttestationService<T> {
 
         // send out any generated events
         if let Some(event) = self.events.pop_front() {
+            // let slot = self.beacon_chain.slot_clock.now().unwrap();
+            // slog::info!(self.log, "Emiting event"; "event" => ?event, "slot" => slot);
             return Poll::Ready(Some(event));
         }
 
