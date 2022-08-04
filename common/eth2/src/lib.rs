@@ -977,7 +977,9 @@ impl BeaconNodeHttpClient {
     }
 
     /// `GET config/spec`
-    pub async fn get_config_spec(&self) -> Result<GenericResponse<ConfigAndPreset>, Error> {
+    pub async fn get_config_spec<T: Serialize + DeserializeOwned>(
+        &self,
+    ) -> Result<GenericResponse<T>, Error> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()

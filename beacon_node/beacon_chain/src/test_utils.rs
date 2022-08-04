@@ -132,8 +132,7 @@ pub fn test_spec<E: EthSpec>() -> ChainSpec {
                 FORK_NAME_ENV_VAR, e
             )
         });
-        let fork = ForkName::from_str(fork_name.as_str())
-            .unwrap_or_else(|()| panic!("unknown FORK_NAME: {}", fork_name));
+        let fork = ForkName::from_str(fork_name.as_str()).unwrap();
         fork.make_genesis_spec(E::default_spec())
     } else {
         E::default_spec()

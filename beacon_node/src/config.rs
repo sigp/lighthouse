@@ -116,7 +116,14 @@ pub fn get_config<E: EthSpec>(
     }
 
     if cli_args.is_present("http-disable-legacy-spec") {
-        client_config.http_api.serve_legacy_spec = false;
+        warn!(
+            log,
+            "The flag --http-disable-legacy-spec is deprecated and will be removed"
+        );
+    }
+
+    if let Some(fork_name) = clap_utils::parse_optional(cli_args, "http-spec-fork")? {
+        client_config.http_api.spec_fork_name = Some(fork_name);
     }
 
     if cli_args.is_present("http-enable-tls") {

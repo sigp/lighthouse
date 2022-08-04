@@ -106,14 +106,14 @@ macro_rules! map_fork_name_with {
 }
 
 impl FromStr for ForkName {
-    type Err = ();
+    type Err = String;
 
-    fn from_str(fork_name: &str) -> Result<Self, ()> {
+    fn from_str(fork_name: &str) -> Result<Self, String> {
         Ok(match fork_name.to_lowercase().as_ref() {
             "phase0" | "base" => ForkName::Base,
             "altair" => ForkName::Altair,
             "bellatrix" | "merge" => ForkName::Merge,
-            _ => return Err(()),
+            _ => return Err(format!("unknown fork name: {}", fork_name)),
         })
     }
 }
@@ -138,7 +138,7 @@ impl TryFrom<String> for ForkName {
     type Error = String;
 
     fn try_from(s: String) -> Result<Self, Self::Error> {
-        Self::from_str(&s).map_err(|()| format!("Invalid fork name: {}", s))
+        Self::from_str(&s)
     }
 }
 
@@ -178,8 +178,8 @@ mod test {
         assert_eq!(ForkName::from_str("AlTaIr"), Ok(ForkName::Altair));
         assert_eq!(ForkName::from_str("altair"), Ok(ForkName::Altair));
 
-        assert_eq!(ForkName::from_str("NO_NAME"), Err(()));
-        assert_eq!(ForkName::from_str("no_name"), Err(()));
+        assert!(ForkName::from_str("NO_NAME").is_err());
+        assert!(ForkName::from_str("no_name").is_err());
     }
 
     #[test]
