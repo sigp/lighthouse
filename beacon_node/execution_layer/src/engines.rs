@@ -358,7 +358,7 @@ mod tests {
     use super::*;
     use tokio_stream::StreamExt;
 
-    // This test can/will be removed. Just want to make sure this works
+    // This test can/will be removed. Just want to make sure this works.
     #[tokio::test]
     async fn test_state_notifier() {
         let mut state = State::default();
@@ -366,6 +366,6 @@ mod tests {
         state.update(EngineState::Synced);
         let mut watcher = state.watch();
         let is_synced = watcher.next().await.expect("Last state is always present?");
-        assert!(is_synced)
+        assert!(is_synced);
     }
 }
