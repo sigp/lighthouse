@@ -11,6 +11,7 @@ use std::future::Future;
 use std::sync::Arc;
 use task_executor::TaskExecutor;
 use tokio::sync::{watch, Mutex, RwLock};
+use tokio_stream::wrappers::WatchStream;
 use types::{Address, ExecutionBlockHash, Hash256};
 
 /// The number of payload IDs that will be stored for each `Engine`.
@@ -72,8 +73,8 @@ impl State {
     /// Gives access to a channel containing whether the last state is synced.
     ///
     /// This can be called several times.
-    pub fn watch(&self) -> watch::Receiver<bool> {
-        self.notifier.subscribe()
+    pub fn watch(&self) -> WatchStream<bool> {
+        self.notifier.subscribe().into()
     }
 }
 
@@ -126,7 +127,7 @@ impl Engine {
     /// Gives access to a channel containing if the last engine state is synced or not.
     ///
     /// This can be called several times.
-    pub async fn watch_state(&self) -> watch::Receiver<bool> {
+    pub async fn watch_state(&self) -> WatchStream<bool> {
         self.state.read().await.watch()
     }
 
@@ -349,5 +350,22 @@ impl PayloadIdCacheKey {
             prev_randao: attributes.prev_randao,
             suggested_fee_recipient: attributes.suggested_fee_recipient,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tokio_stream::StreamExt;
+
+    // This test can/will be removed. Just want to make sure this works
+    #[tokio::test]
+    async fn test_state_notifier() {
+        let mut state = State::default();
+        assert!(!state.is_synced());
+        state.update(EngineState::Synced);
+        let mut watcher = state.watch();
+        let is_synced = watcher.next().await.expect("Last state is always present?");
+        assert!(is_synced)
     }
 }
