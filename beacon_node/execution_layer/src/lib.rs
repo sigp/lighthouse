@@ -31,6 +31,7 @@ use tokio::{
     sync::{Mutex, MutexGuard, RwLock},
     time::sleep,
 };
+use tokio_stream::wrappers::WatchStream;
 use types::{
     BlindedPayload, BlockType, ChainSpec, Epoch, ExecPayload, ExecutionBlockHash, ForkName,
     ProposerPreparationData, PublicKeyBytes, SignedBeaconBlock, Slot,
@@ -285,6 +286,10 @@ impl<T: EthSpec> ExecutionLayer<T> {
         self.inner.execution_blocks.lock().await
     }
 
+    pub async fn get_is_synced_watcher(&self) -> WatchStream<bool> {
+        self.engine().watch_state().await
+    }
+
     /// Note: this function returns a mutex guard, be careful to avoid deadlocks.
     async fn proposer_preparation_data(
         &self,
@@ -397,29 +402,6 @@ impl<T: EthSpec> ExecutionLayer<T> {
     /// Returns `true` if the execution engine is synced and reachable.
     pub async fn is_synced(&self) -> bool {
         self.engine().is_synced().await
-    }
-
-    /// Execution nodes return a "SYNCED" response when they do not have any peers.
-    ///
-    /// This function is a wrapper over `Self::is_synced` that makes an additional
-    /// check for the execution layer sync status. Checks if the latest block has
-    /// a `block_number != 0`.
-    /// Returns the `Self::is_synced` response if unable to get latest block.
-    pub async fn is_synced_for_notifier(&self) -> bool {
-        let synced = self.is_synced().await;
-        if synced {
-            if let Ok(Some(block)) = self
-                .engine()
-                .api
-                .get_block_by_number(BlockByNumberQuery::Tag(LATEST_TAG))
-                .await
-            {
-                if block.block_number == 0 {
-                    return false;
-                }
-            }
-        }
-        synced
     }
 
     /// Updates the proposer preparation data provided by validators

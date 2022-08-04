@@ -233,12 +233,25 @@ impl Engine {
         let state: EngineState = match self.api.upcheck().await {
             Ok(()) => {
                 let mut state = self.state.write().await;
-
+                let mut actually_synced = true;
                 if **state != EngineState::Synced {
                     info!(
                         self.log,
                         "Execution engine online";
                     );
+                    // If the engine just became synced, check that we believe it.
+                    if let Ok(Some(block)) = self
+                        .api
+                        .get_block_by_number(crate::BlockByNumberQuery::Tag(crate::LATEST_TAG))
+                        .await
+                    {
+                        // Execution nodes return a "SYNCED" response when they do not have any
+                        // peers.
+                        // Check if the latest block has a `block_number != 0`.
+                        if block.block_number == 0 {
+                            actually_synced = false;
+                        }
+                    }
 
                     // Send the node our latest forkchoice_state.
                     self.send_latest_forkchoice_state().await;
@@ -249,7 +262,11 @@ impl Engine {
                     );
                 }
 
-                state.update(EngineState::Synced);
+                if actually_synced {
+                    state.update(EngineState::Synced);
+                } else {
+                    state.update(EngineState::Syncing)
+                }
                 **state
             }
             Err(EngineApiError::IsSyncing) => {
