@@ -42,6 +42,7 @@ use crate::beacon_processor::{ChainSegmentProcessId, FailureMode, WorkEvent as B
 use crate::service::NetworkMessage;
 use crate::status::ToStatusMessage;
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockError};
+use futures::{future, StreamExt};
 use lighthouse_network::rpc::methods::MAX_REQUEST_BLOCKS;
 use lighthouse_network::types::{NetworkGlobals, SyncState};
 use lighthouse_network::SyncInfo;
@@ -52,6 +53,7 @@ use std::ops::Sub;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
+use tokio_stream::wrappers::WatchStream;
 use types::{EthSpec, Hash256, SignedBeaconBlock, Slot};
 
 /// The number of slots ahead of us that is allowed before requesting a long-range (batch)  Sync
@@ -466,102 +468,127 @@ impl<T: BeaconChainTypes> SyncManager<T> {
 
     /// The main driving future for the sync manager.
     async fn main(&mut self) {
+        let ee_sync_state_watch = self
+            .chain
+            .execution_layer
+            .as_ref()
+            .map(|el| el.ee_sync_state_watch());
+        let check_ee = ee_sync_state_watch.is_some();
+        let check_ee_stream =
+            futures::StreamExt::flatten(futures::stream::iter(ee_sync_state_watch));
+
         // process any inbound messages
         loop {
-            if let Some(sync_message) = self.input_channel.recv().await {
-                match sync_message {
-                    SyncMessage::AddPeer(peer_id, info) => {
-                        self.add_peer(peer_id, info);
-                    }
-                    SyncMessage::RpcBlock {
-                        request_id,
-                        peer_id,
-                        beacon_block,
-                        seen_timestamp,
-                    } => {
-                        self.rpc_block_received(request_id, peer_id, beacon_block, seen_timestamp);
-                    }
-                    SyncMessage::UnknownBlock(peer_id, block) => {
-                        // If we are not synced or within SLOT_IMPORT_TOLERANCE of the block, ignore
-                        if !self.network_globals.sync_state.read().is_synced() {
-                            let head_slot = self.chain.canonical_head.cached_head().head_slot();
-                            let unknown_block_slot = block.slot();
-
-                            // if the block is far in the future, ignore it. If its within the slot tolerance of
-                            // our current head, regardless of the syncing state, fetch it.
-                            if (head_slot >= unknown_block_slot
-                                && head_slot.sub(unknown_block_slot).as_usize()
-                                    > SLOT_IMPORT_TOLERANCE)
-                                || (head_slot < unknown_block_slot
-                                    && unknown_block_slot.sub(head_slot).as_usize()
-                                        > SLOT_IMPORT_TOLERANCE)
-                            {
-                                continue;
-                            }
-                        }
-                        if self.network_globals.peers.read().is_connected(&peer_id) {
-                            self.block_lookups
-                                .search_parent(block, peer_id, &mut self.network);
-                        }
-                    }
-                    SyncMessage::UnknownBlockHash(peer_id, block_hash) => {
-                        // If we are not synced, ignore this block.
-                        if self.network_globals.sync_state.read().is_synced()
-                            && self.network_globals.peers.read().is_connected(&peer_id)
-                        {
-                            self.block_lookups
-                                .search_block(block_hash, peer_id, &mut self.network);
-                        }
-                    }
-                    SyncMessage::Disconnect(peer_id) => {
-                        self.peer_disconnect(&peer_id);
-                    }
-                    SyncMessage::RpcError {
-                        peer_id,
-                        request_id,
-                    } => self.inject_error(peer_id, request_id),
-                    SyncMessage::BlockProcessed {
-                        process_type,
-                        result,
-                    } => match process_type {
-                        BlockProcessType::SingleBlock { id } => self
-                            .block_lookups
-                            .single_block_processed(id, result, &mut self.network),
-                        BlockProcessType::ParentLookup { chain_hash } => self
-                            .block_lookups
-                            .parent_block_processed(chain_hash, result, &mut self.network),
-                    },
-                    SyncMessage::BatchProcessed { sync_type, result } => match sync_type {
-                        ChainSegmentProcessId::RangeBatchId(chain_id, epoch, _) => {
-                            self.range_sync.handle_block_process_result(
-                                &mut self.network,
-                                chain_id,
-                                epoch,
-                                result,
-                            );
-                            self.update_sync_state();
-                        }
-                        ChainSegmentProcessId::BackSyncBatchId(epoch) => {
-                            match self.backfill_sync.on_batch_process_result(
-                                &mut self.network,
-                                epoch,
-                                &result,
-                            ) {
-                                Ok(ProcessResult::Successful) => {}
-                                Ok(ProcessResult::SyncCompleted) => self.update_sync_state(),
-                                Err(error) => {
-                                    error!(self.log, "Backfill sync failed"; "error" => ?error);
-                                    // Update the global status
-                                    self.update_sync_state();
-                                }
-                            }
-                        }
-                        ChainSegmentProcessId::ParentLookup(chain_hash) => self
-                            .block_lookups
-                            .parent_chain_processed(chain_hash, result, &mut self.network),
-                    },
+            tokio::select! {
+                Some(sync_message) = self.input_channel.recv() => {
+                    self.handle_message(sync_message);
+                },
+                Some(is_ee_synced) = check_ee_stream.next(), if check_ee => {
+                    self.handle_new_ee_sync_state(is_ee_synced);
                 }
             }
+        }
+    }
+
+    fn handle_message(&mut self, sync_message: SyncMessage<T::EthSpec>) {
+        match sync_message {
+            SyncMessage::AddPeer(peer_id, info) => {
+                self.add_peer(peer_id, info);
+            }
+            SyncMessage::RpcBlock {
+                request_id,
+                peer_id,
+                beacon_block,
+                seen_timestamp,
+            } => {
+                self.rpc_block_received(request_id, peer_id, beacon_block, seen_timestamp);
+            }
+            SyncMessage::UnknownBlock(peer_id, block) => {
+                // If we are not synced or within SLOT_IMPORT_TOLERANCE of the block, ignore
+                if !self.network_globals.sync_state.read().is_synced() {
+                    let head_slot = self.chain.canonical_head.cached_head().head_slot();
+                    let unknown_block_slot = block.slot();
+
+                    // if the block is far in the future, ignore it. If its within the slot tolerance of
+                    // our current head, regardless of the syncing state, fetch it.
+                    if (head_slot >= unknown_block_slot
+                        && head_slot.sub(unknown_block_slot).as_usize() > SLOT_IMPORT_TOLERANCE)
+                        || (head_slot < unknown_block_slot
+                            && unknown_block_slot.sub(head_slot).as_usize() > SLOT_IMPORT_TOLERANCE)
+                    {
+                        continue;
+                    }
+                }
+                if self.network_globals.peers.read().is_connected(&peer_id) {
+                    self.block_lookups
+                        .search_parent(block, peer_id, &mut self.network);
+                }
+            }
+            SyncMessage::UnknownBlockHash(peer_id, block_hash) => {
+                // If we are not synced, ignore this block.
+                if self.network_globals.sync_state.read().is_synced()
+                    && self.network_globals.peers.read().is_connected(&peer_id)
+                {
+                    self.block_lookups
+                        .search_block(block_hash, peer_id, &mut self.network);
+                }
+            }
+            SyncMessage::Disconnect(peer_id) => {
+                self.peer_disconnect(&peer_id);
+            }
+            SyncMessage::RpcError {
+                peer_id,
+                request_id,
+            } => self.inject_error(peer_id, request_id),
+            SyncMessage::BlockProcessed {
+                process_type,
+                result,
+            } => match process_type {
+                BlockProcessType::SingleBlock { id } => {
+                    self.block_lookups
+                        .single_block_processed(id, result, &mut self.network)
+                }
+                BlockProcessType::ParentLookup { chain_hash } => self
+                    .block_lookups
+                    .parent_block_processed(chain_hash, result, &mut self.network),
+            },
+            SyncMessage::BatchProcessed { sync_type, result } => match sync_type {
+                ChainSegmentProcessId::RangeBatchId(chain_id, epoch, _) => {
+                    self.range_sync.handle_block_process_result(
+                        &mut self.network,
+                        chain_id,
+                        epoch,
+                        result,
+                    );
+                    self.update_sync_state();
+                }
+                ChainSegmentProcessId::BackSyncBatchId(epoch) => {
+                    match self.backfill_sync.on_batch_process_result(
+                        &mut self.network,
+                        epoch,
+                        &result,
+                    ) {
+                        Ok(ProcessResult::Successful) => {}
+                        Ok(ProcessResult::SyncCompleted) => self.update_sync_state(),
+                        Err(error) => {
+                            error!(self.log, "Backfill sync failed"; "error" => ?error);
+                            // Update the global status
+                            self.update_sync_state();
+                        }
+                    }
+                }
+                ChainSegmentProcessId::ParentLookup(chain_hash) => self
+                    .block_lookups
+                    .parent_chain_processed(chain_hash, result, &mut self.network),
+            },
+        }
+    }
+
+    fn handle_new_ee_sync_state(&mut self, ee_is_synced: bool) {
+        if ee_is_synced {
+            // resume
+        } else {
+            // pause
         }
     }
 

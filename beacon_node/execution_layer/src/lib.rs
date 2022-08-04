@@ -404,6 +404,12 @@ impl<T: EthSpec> ExecutionLayer<T> {
         self.engine().is_synced().await
     }
 
+    /// Gives acesss to a stream that watches the engine state. It will return whether the node is
+    /// synced.
+    pub async fn ee_sync_state_watch(&self) -> WatchStream<bool> {
+        self.engine().watch_state().await
+    }
+
     /// Updates the proposer preparation data provided by validators
     pub async fn update_proposer_preparation(
         &self,
