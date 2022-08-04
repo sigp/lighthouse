@@ -36,7 +36,7 @@ const SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS: u8 = 3;
 
 pub(crate) struct BlockLookups<T: BeaconChainTypes> {
     /// A collection of parent block lookups.
-    parent_queue: SmallVec<[ParentLookup<T::EthSpec>; 3]>,
+    parent_queue: SmallVec<[ParentLookup<T>; 3]>,
 
     /// A cache of failed chain lookups to prevent duplicate searches.
     failed_chains: LRUTimeCache<Hash256>,
@@ -47,22 +47,18 @@ pub(crate) struct BlockLookups<T: BeaconChainTypes> {
     /// The flag allows us to determine if the peer returned data or sent us nothing.
     single_block_lookups: FnvHashMap<Id, SingleBlockRequest<SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS>>,
 
-    /// A multi-threaded, non-blocking processor for applying messages to the beacon chain.
-    beacon_processor_send: mpsc::Sender<WorkEvent<T>>,
-
     /// The logger for the import manager.
     log: Logger,
 }
 
 impl<T: BeaconChainTypes> BlockLookups<T> {
-    pub fn new(beacon_processor_send: mpsc::Sender<WorkEvent<T>>, log: Logger) -> Self {
+    pub fn new(log: Logger) -> Self {
         Self {
             parent_queue: Default::default(),
             failed_chains: LRUTimeCache::new(Duration::from_secs(
                 FAILED_CHAINS_CACHE_EXPIRY_SECONDS,
             )),
             single_block_lookups: Default::default(),
-            beacon_processor_send,
             log,
         }
     }
@@ -71,12 +67,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
 
     /// Searches for a single block hash. If the blocks parent is unknown, a chain of blocks is
     /// constructed.
-    pub fn search_block(
-        &mut self,
-        hash: Hash256,
-        peer_id: PeerId,
-        cx: &mut SyncNetworkContext<T::EthSpec>,
-    ) {
+    pub fn search_block(&mut self, hash: Hash256, peer_id: PeerId, cx: &mut SyncNetworkContext<T>) {
         // Do not re-request a block that is already being requested
         if self
             .single_block_lookups
@@ -113,7 +104,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         &mut self,
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
         peer_id: PeerId,
-        cx: &mut SyncNetworkContext<T::EthSpec>,
+        cx: &mut SyncNetworkContext<T>,
     ) {
         let block_root = block.canonical_root();
         let parent_root = block.parent_root();
@@ -147,7 +138,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         peer_id: PeerId,
         block: Option<Arc<SignedBeaconBlock<T::EthSpec>>>,
         seen_timestamp: Duration,
-        cx: &mut SyncNetworkContext<T::EthSpec>,
+        cx: &mut SyncNetworkContext<T>,
     ) {
         let mut request = match self.single_block_lookups.entry(id) {
             Entry::Occupied(req) => req,
@@ -212,7 +203,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         peer_id: PeerId,
         block: Option<Arc<SignedBeaconBlock<T::EthSpec>>>,
         seen_timestamp: Duration,
-        cx: &mut SyncNetworkContext<T::EthSpec>,
+        cx: &mut SyncNetworkContext<T>,
     ) {
         let mut parent_lookup = if let Some(pos) = self
             .parent_queue
@@ -289,7 +280,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     /* Error responses */
 
     #[allow(clippy::needless_collect)] // false positive
-    pub fn peer_disconnected(&mut self, peer_id: &PeerId, cx: &mut SyncNetworkContext<T::EthSpec>) {
+    pub fn peer_disconnected(&mut self, peer_id: &PeerId, cx: &mut SyncNetworkContext<T>) {
         /* Check disconnection for single block lookups */
         // better written after https://github.com/rust-lang/rust/issues/59618
         let remove_retry_ids: Vec<Id> = self
@@ -345,7 +336,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         &mut self,
         id: Id,
         peer_id: PeerId,
-        cx: &mut SyncNetworkContext<T::EthSpec>,
+        cx: &mut SyncNetworkContext<T>,
     ) {
         if let Some(pos) = self
             .parent_queue
@@ -365,7 +356,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         );
     }
 
-    pub fn single_block_lookup_failed(&mut self, id: Id, cx: &mut SyncNetworkContext<T::EthSpec>) {
+    pub fn single_block_lookup_failed(&mut self, id: Id, cx: &mut SyncNetworkContext<T>) {
         if let Some(mut request) = self.single_block_lookups.remove(&id) {
             request.register_failure_downloading();
             trace!(self.log, "Single block lookup failed"; "block" => %request.hash);
@@ -388,7 +379,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         &mut self,
         id: Id,
         result: BlockProcessResult<T::EthSpec>,
-        cx: &mut SyncNetworkContext<T::EthSpec>,
+        cx: &mut SyncNetworkContext<T>,
     ) {
         let mut req = match self.single_block_lookups.remove(&id) {
             Some(req) => req,
@@ -476,7 +467,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         &mut self,
         chain_hash: Hash256,
         result: BlockProcessResult<T::EthSpec>,
-        cx: &mut SyncNetworkContext<T::EthSpec>,
+        cx: &mut SyncNetworkContext<T>,
     ) {
         let (mut parent_lookup, peer_id) = if let Some((pos, peer)) = self
             .parent_queue
@@ -595,7 +586,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         &mut self,
         chain_hash: Hash256,
         result: BatchProcessResult,
-        cx: &mut SyncNetworkContext<T::EthSpec>,
+        cx: &mut SyncNetworkContext<T>,
     ) {
         let parent_lookup = if let Some(pos) = self
             .parent_queue
@@ -671,8 +662,8 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
 
     fn request_parent(
         &mut self,
-        mut parent_lookup: ParentLookup<T::EthSpec>,
-        cx: &mut SyncNetworkContext<T::EthSpec>,
+        mut parent_lookup: ParentLookup<T>,
+        cx: &mut SyncNetworkContext<T>,
     ) {
         match parent_lookup.request_parent(cx) {
             Err(e) => {

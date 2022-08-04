@@ -3,24 +3,25 @@
 
 use super::manager::{Id, RequestId as SyncRequestId};
 use super::range_sync::{BatchId, ChainId};
+use crate::beacon_processor::WorkEvent;
 use crate::service::{NetworkMessage, RequestId};
 use crate::status::ToStatusMessage;
+use beacon_chain::BeaconChainTypes;
 use fnv::FnvHashMap;
 use lighthouse_network::rpc::{BlocksByRangeRequest, BlocksByRootRequest, GoodbyeReason};
 use lighthouse_network::{Client, NetworkGlobals, PeerAction, PeerId, ReportSource, Request};
 use slog::{debug, trace, warn};
 use std::sync::Arc;
 use tokio::sync::mpsc;
-use types::EthSpec;
 
 /// Wraps a Network channel to employ various RPC related network functionality for the Sync manager. This includes management of a global RPC request Id.
 
-pub struct SyncNetworkContext<T: EthSpec> {
+pub struct SyncNetworkContext<T: BeaconChainTypes> {
     /// The network channel to relay messages to the Network service.
-    network_send: mpsc::UnboundedSender<NetworkMessage<T>>,
+    network_send: mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
 
     /// Access to the network global vars.
-    network_globals: Arc<NetworkGlobals<T>>,
+    network_globals: Arc<NetworkGlobals<T::EthSpec>>,
 
     /// A sequential ID for all RPC requests.
     request_id: Id,
@@ -28,24 +29,35 @@ pub struct SyncNetworkContext<T: EthSpec> {
     /// BlocksByRange requests made by the range syncing algorithm.
     range_requests: FnvHashMap<Id, (ChainId, BatchId)>,
 
+    /// BlocksByRange requests made by backfill syncing.
     backfill_requests: FnvHashMap<Id, BatchId>,
+
+    /// Whether the ee is synced. If it's not, we don't allow access to the
+    /// `beacon_processor_send`.
+    is_ee_synced: bool,
+
+    /// Channel to send work to the beacon processor.
+    beacon_processor_send: mpsc::Sender<WorkEvent<T>>,
 
     /// Logger for the `SyncNetworkContext`.
     log: slog::Logger,
 }
 
-impl<T: EthSpec> SyncNetworkContext<T> {
+impl<T: BeaconChainTypes> SyncNetworkContext<T> {
     pub fn new(
-        network_send: mpsc::UnboundedSender<NetworkMessage<T>>,
-        network_globals: Arc<NetworkGlobals<T>>,
+        network_send: mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
+        network_globals: Arc<NetworkGlobals<T::EthSpec>>,
+        beacon_processor_send: mpsc::Sender<WorkEvent<T>>,
         log: slog::Logger,
     ) -> Self {
         Self {
             network_send,
+            is_ee_synced: true, // always assume yes at the start
             network_globals,
             request_id: 1,
             range_requests: FnvHashMap::default(),
             backfill_requests: FnvHashMap::default(),
+            beacon_processor_send,
             log,
         }
     }
@@ -211,6 +223,10 @@ impl<T: EthSpec> SyncNetworkContext<T> {
         Ok(id)
     }
 
+    pub fn ee_sync_state_updated(&mut self, is_synced: bool) {
+        self.is_ee_synced = is_synced;
+    }
+
     /// Terminates the connection with the peer and bans them.
     pub fn goodbye_peer(&mut self, peer_id: PeerId, reason: GoodbyeReason) {
         self.network_send
@@ -249,11 +265,15 @@ impl<T: EthSpec> SyncNetworkContext<T> {
     }
 
     /// Sends an arbitrary network message.
-    fn send_network_msg(&mut self, msg: NetworkMessage<T>) -> Result<(), &'static str> {
+    fn send_network_msg(&mut self, msg: NetworkMessage<T::EthSpec>) -> Result<(), &'static str> {
         self.network_send.send(msg).map_err(|_| {
             debug!(self.log, "Could not send message to the network service");
             "Network channel send Failed"
         })
+    }
+
+    pub fn beacon_processor_send(&self) -> Option<&mpsc::Sender<WorkEvent<T>>> {
+        self.is_ee_synced.then_some(&self.beacon_processor_send)
     }
 
     fn next_id(&mut self) -> Id {

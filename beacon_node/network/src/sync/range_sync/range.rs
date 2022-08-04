@@ -43,7 +43,6 @@ use super::block_storage::BlockStorage;
 use super::chain::{BatchId, ChainId, RemoveChain, SyncingChain};
 use super::chain_collection::ChainCollection;
 use super::sync_type::RangeSyncType;
-use crate::beacon_processor::WorkEvent as BeaconWorkEvent;
 use crate::status::ToStatusMessage;
 use crate::sync::manager::Id;
 use crate::sync::network_context::SyncNetworkContext;
@@ -56,7 +55,6 @@ use lru_cache::LRUTimeCache;
 use slog::{crit, debug, trace, warn};
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::mpsc;
 use types::{Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot};
 
 /// For how long we store failed finalized chains to prevent retries.
@@ -76,8 +74,6 @@ pub struct RangeSync<T: BeaconChainTypes, C = BeaconChain<T>> {
     chains: ChainCollection<T, C>,
     /// Chains that have failed and are stored to prevent being retried.
     failed_chains: LRUTimeCache<Hash256>,
-    /// A multi-threaded, non-blocking processor for applying messages to the beacon chain.
-    beacon_processor_send: mpsc::Sender<BeaconWorkEvent<T>>,
     /// The syncing logger.
     log: slog::Logger,
 }
@@ -87,11 +83,7 @@ where
     C: BlockStorage + ToStatusMessage,
     T: BeaconChainTypes,
 {
-    pub fn new(
-        beacon_chain: Arc<C>,
-        beacon_processor_send: mpsc::Sender<BeaconWorkEvent<T>>,
-        log: slog::Logger,
-    ) -> Self {
+    pub fn new(beacon_chain: Arc<C>, log: slog::Logger) -> Self {
         RangeSync {
             beacon_chain: beacon_chain.clone(),
             chains: ChainCollection::new(beacon_chain, log.clone()),
@@ -99,7 +91,6 @@ where
                 FAILED_CHAINS_EXPIRY_SECONDS,
             )),
             awaiting_head_peers: HashMap::new(),
-            beacon_processor_send,
             log,
         }
     }
@@ -117,7 +108,7 @@ where
     /// prioritised by peer-pool size.
     pub fn add_peer(
         &mut self,
-        network: &mut SyncNetworkContext<T::EthSpec>,
+        network: &mut SyncNetworkContext<T>,
         local_info: SyncInfo,
         peer_id: PeerId,
         remote_info: SyncInfo,
@@ -159,16 +150,11 @@ where
                     remote_finalized_slot,
                     peer_id,
                     RangeSyncType::Finalized,
-                    &self.beacon_processor_send,
                     network,
                 );
 
-                self.chains.update(
-                    network,
-                    &local_info,
-                    &mut self.awaiting_head_peers,
-                    &self.beacon_processor_send,
-                );
+                self.chains
+                    .update(network, &local_info, &mut self.awaiting_head_peers);
             }
             RangeSyncType::Head => {
                 // This peer requires a head chain sync
@@ -197,15 +183,10 @@ where
                     remote_info.head_slot,
                     peer_id,
                     RangeSyncType::Head,
-                    &self.beacon_processor_send,
                     network,
                 );
-                self.chains.update(
-                    network,
-                    &local_info,
-                    &mut self.awaiting_head_peers,
-                    &self.beacon_processor_send,
-                );
+                self.chains
+                    .update(network, &local_info, &mut self.awaiting_head_peers);
             }
         }
     }
@@ -216,7 +197,7 @@ where
     /// This request could complete a chain or simply add to its progress.
     pub fn blocks_by_range_response(
         &mut self,
-        network: &mut SyncNetworkContext<T::EthSpec>,
+        network: &mut SyncNetworkContext<T>,
         peer_id: PeerId,
         chain_id: ChainId,
         batch_id: BatchId,
@@ -246,7 +227,7 @@ where
 
     pub fn handle_block_process_result(
         &mut self,
-        network: &mut SyncNetworkContext<T::EthSpec>,
+        network: &mut SyncNetworkContext<T>,
         chain_id: ChainId,
         batch_id: Epoch,
         result: BatchProcessResult,
@@ -276,11 +257,7 @@ where
 
     /// A peer has disconnected. This removes the peer from any ongoing chains and mappings. A
     /// disconnected peer could remove a chain
-    pub fn peer_disconnect(
-        &mut self,
-        network: &mut SyncNetworkContext<T::EthSpec>,
-        peer_id: &PeerId,
-    ) {
+    pub fn peer_disconnect(&mut self, network: &mut SyncNetworkContext<T>, peer_id: &PeerId) {
         // if the peer is in the awaiting head mapping, remove it
         self.awaiting_head_peers.remove(peer_id);
 
@@ -292,7 +269,7 @@ where
     /// which pool the peer is in. The chain may also have a batch or batches awaiting
     /// for this peer. If so we mark the batch as failed. The batch may then hit it's maximum
     /// retries. In this case, we need to remove the chain.
-    fn remove_peer(&mut self, network: &mut SyncNetworkContext<T::EthSpec>, peer_id: &PeerId) {
+    fn remove_peer(&mut self, network: &mut SyncNetworkContext<T>, peer_id: &PeerId) {
         for (removed_chain, sync_type, remove_reason) in self
             .chains
             .call_all(|chain| chain.remove_peer(peer_id, network))
@@ -315,7 +292,7 @@ where
     /// been too many failed attempts for the batch, remove the chain.
     pub fn inject_error(
         &mut self,
-        network: &mut SyncNetworkContext<T::EthSpec>,
+        network: &mut SyncNetworkContext<T>,
         peer_id: PeerId,
         batch_id: BatchId,
         chain_id: ChainId,
@@ -347,7 +324,7 @@ where
         chain: SyncingChain<T>,
         sync_type: RangeSyncType,
         remove_reason: RemoveChain,
-        network: &mut SyncNetworkContext<T::EthSpec>,
+        network: &mut SyncNetworkContext<T>,
         op: &'static str,
     ) {
         if remove_reason.is_critical() {
@@ -374,12 +351,8 @@ where
         };
 
         // update the state of the collection
-        self.chains.update(
-            network,
-            &local,
-            &mut self.awaiting_head_peers,
-            &self.beacon_processor_send,
-        );
+        self.chains
+            .update(network, &local, &mut self.awaiting_head_peers);
     }
 }
 
@@ -389,6 +362,7 @@ mod tests {
     use crate::NetworkMessage;
 
     use super::*;
+    use crate::beacon_processor::WorkEvent as BeaconWorkEvent;
     use beacon_chain::builder::Witness;
     use beacon_chain::eth1_chain::CachingEth1Backend;
     use beacon_chain::parking_lot::RwLock;
@@ -396,6 +370,7 @@ mod tests {
     use lighthouse_network::Request;
     use lighthouse_network::{rpc::StatusMessage, NetworkGlobals};
     use slog::{o, Drain};
+    use tokio::sync::mpsc;
 
     use slot_clock::SystemTimeSlotClock;
     use std::collections::HashSet;
@@ -470,7 +445,7 @@ mod tests {
         /// To set up different scenarios where sync is told about known/unkown blocks.
         chain: Arc<FakeStorage>,
         /// Needed by range to handle communication with the network.
-        cx: SyncNetworkContext<E>,
+        cx: SyncNetworkContext<TestBeaconChainType>,
         /// To check what the network receives from Range.
         network_rx: mpsc::UnboundedReceiver<NetworkMessage<E>>,
         /// To modify what the network declares about various global variables, in particular about
@@ -583,7 +558,6 @@ mod tests {
         let (beacon_processor_tx, beacon_processor_rx) = mpsc::channel(10);
         let range_sync = RangeSync::<TestBeaconChainType, FakeStorage>::new(
             chain.clone(),
-            beacon_processor_tx,
             log.new(o!("component" => "range")),
         );
         let (network_tx, network_rx) = mpsc::unbounded_channel();
@@ -591,6 +565,7 @@ mod tests {
         let cx = SyncNetworkContext::new(
             network_tx,
             globals.clone(),
+            beacon_processor_tx,
             log.new(o!("component" => "network_context")),
         );
         let test_rig = TestRig {

@@ -164,7 +164,7 @@ pub struct SyncManager<T: BeaconChainTypes> {
     input_channel: mpsc::UnboundedReceiver<SyncMessage<T::EthSpec>>,
 
     /// A network context to contact the network service.
-    network: SyncNetworkContext<T::EthSpec>,
+    network: SyncNetworkContext<T>,
 
     /// The object handling long-range batch load-balanced syncing.
     range_sync: RangeSync<T>,
@@ -201,19 +201,15 @@ pub fn spawn<T: BeaconChainTypes>(
         chain: beacon_chain.clone(),
         network_globals: network_globals.clone(),
         input_channel: sync_recv,
-        network: SyncNetworkContext::new(network_send, network_globals.clone(), log.clone()),
-        range_sync: RangeSync::new(
-            beacon_chain.clone(),
-            beacon_processor_send.clone(),
+        network: SyncNetworkContext::new(
+            network_send,
+            network_globals.clone(),
+            beacon_processor_send,
             log.clone(),
         ),
-        backfill_sync: BackFillSync::new(
-            beacon_chain,
-            network_globals,
-            beacon_processor_send.clone(),
-            log.clone(),
-        ),
-        block_lookups: BlockLookups::new(beacon_processor_send, log.clone()),
+        range_sync: RangeSync::new(beacon_chain.clone(), log.clone()),
+        backfill_sync: BackFillSync::new(beacon_chain, network_globals, log.clone()),
+        block_lookups: BlockLookups::new(log.clone()),
         log: log.clone(),
     };
 
