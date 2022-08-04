@@ -6,10 +6,11 @@ use crate::engine_api::{
 use crate::HttpJsonRpc;
 use lru::LruCache;
 use slog::{debug, error, info, Logger};
+// use std::default;
 use std::future::Future;
 use std::sync::Arc;
 use task_executor::TaskExecutor;
-use tokio::sync::{Mutex, RwLock};
+use tokio::sync::{watch, Mutex, RwLock};
 use types::{Address, ExecutionBlockHash, Hash256};
 
 /// The number of payload IDs that will be stored for each `Engine`.
@@ -18,12 +19,62 @@ use types::{Address, ExecutionBlockHash, Hash256};
 const PAYLOAD_ID_LRU_CACHE_SIZE: usize = 512;
 
 /// Stores the remembered state of a engine.
-#[derive(Copy, Clone, PartialEq, Debug)]
-enum EngineState {
+#[derive(Copy, Clone, PartialEq, Debug, Eq, Default)]
+pub enum EngineState {
     Synced,
+    #[default]
     Offline,
     Syncing,
     AuthFailed,
+}
+
+impl EngineState {
+    pub fn is_synced(&self) -> bool {
+        self == &EngineState::Synced
+    }
+}
+
+struct State {
+    /// The actual engine state.
+    state: EngineState,
+    /// Notifier to watch whether the engine is synced or not.
+    notifier: watch::Sender<bool>,
+}
+
+impl std::ops::Deref for State {
+    type Target = EngineState;
+
+    fn deref(&self) -> &Self::Target {
+        &self.state
+    }
+}
+
+impl Default for State {
+    fn default() -> Self {
+        let state = EngineState::default();
+        let (notifier, _receiver) = watch::channel(state.is_synced());
+        State { state, notifier }
+    }
+}
+
+impl State {
+    // Updates the state and notifies all watchers if the state has changed.
+    pub fn update(&mut self, new_state: EngineState) {
+        let new_sync_state = new_state.is_synced();
+        self.state = new_state;
+        self.notifier.send_if_modified(|last_state| {
+            let changed = *last_state != new_sync_state; // notify conditionally
+            *last_state = new_sync_state; // update the state unconditionally
+            changed
+        });
+    }
+
+    /// Gives access to a channel containing whether the last state is synced.
+    ///
+    /// This can be called several times.
+    pub fn watch(&self) -> watch::Receiver<bool> {
+        self.notifier.subscribe()
+    }
 }
 
 #[derive(Copy, Clone, PartialEq, Debug)]
@@ -53,10 +104,10 @@ pub enum EngineError {
 pub struct Engine {
     pub api: HttpJsonRpc,
     payload_id_cache: Mutex<LruCache<PayloadIdCacheKey, PayloadId>>,
-    state: RwLock<EngineState>,
-    pub latest_forkchoice_state: RwLock<Option<ForkChoiceState>>,
-    pub executor: TaskExecutor,
-    pub log: Logger,
+    state: RwLock<State>,
+    latest_forkchoice_state: RwLock<Option<ForkChoiceState>>,
+    executor: TaskExecutor,
+    log: Logger,
 }
 
 impl Engine {
@@ -65,11 +116,18 @@ impl Engine {
         Self {
             api,
             payload_id_cache: Mutex::new(LruCache::new(PAYLOAD_ID_LRU_CACHE_SIZE)),
-            state: RwLock::new(EngineState::Offline),
+            state: Default::default(),
             latest_forkchoice_state: Default::default(),
             executor,
             log: log.clone(),
         }
+    }
+
+    /// Gives access to a channel containing if the last engine state is synced or not.
+    ///
+    /// This can be called several times.
+    pub async fn watch_state(&self) -> watch::Receiver<bool> {
+        self.state.read().await.watch()
     }
 
     pub async fn get_payload_id(
@@ -165,7 +223,7 @@ impl Engine {
 
     /// Returns `true` if the engine has a "synced" status.
     pub async fn is_synced(&self) -> bool {
-        *self.state.read().await == EngineState::Synced
+        **self.state.read().await == EngineState::Synced
     }
 
     /// Run the `EngineApi::upcheck` function if the node's last known state is not synced. This
@@ -175,7 +233,7 @@ impl Engine {
             Ok(()) => {
                 let mut state = self.state.write().await;
 
-                if *state != EngineState::Synced {
+                if **state != EngineState::Synced {
                     info!(
                         self.log,
                         "Execution engine online";
@@ -190,13 +248,13 @@ impl Engine {
                     );
                 }
 
-                *state = EngineState::Synced;
-                *state
+                state.update(EngineState::Synced);
+                **state
             }
             Err(EngineApiError::IsSyncing) => {
                 let mut state = self.state.write().await;
-                *state = EngineState::Syncing;
-                *state
+                state.update(EngineState::Syncing);
+                **state
             }
             Err(EngineApiError::Auth(err)) => {
                 error!(
@@ -206,8 +264,8 @@ impl Engine {
                 );
 
                 let mut state = self.state.write().await;
-                *state = EngineState::AuthFailed;
-                *state
+                state.update(EngineState::AuthFailed);
+                **state
             }
             Err(e) => {
                 error!(
@@ -217,8 +275,8 @@ impl Engine {
                 );
 
                 let mut state = self.state.write().await;
-                *state = EngineState::Offline;
-                *state
+                state.update(EngineState::Offline);
+                **state
             }
         };
 
@@ -244,7 +302,7 @@ impl Engine {
             Ok(result) => {
                 // Take a clone *without* holding the read-lock since the `upcheck` function will
                 // take a write-lock.
-                let state: EngineState = *self.state.read().await;
+                let state: EngineState = **self.state.read().await;
 
                 // If this request just returned successfully but we don't think this node is
                 // synced, check to see if it just became synced. This helps to ensure that the
