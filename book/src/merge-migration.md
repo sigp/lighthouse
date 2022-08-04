@@ -3,16 +3,25 @@
 This document provides detail for users who have been running a Lighthouse node *before* the merge
 and are now preparing their node for the merge transition.
 
-## "Pre-Merge" and "Post-Merge"
+## Minimum Nessary Actions
 
-As of [v2.4.0](https://github.com/sigp/lighthouse/releases/tag/v2.4.0) Lighthouse can be considered
-to have two modes:
+As of [v2.4.0](https://github.com/sigp/lighthouse/releases/tag/v2.4.0) Lighthouse
+bn and vc have new options that should be added ASAP to the bn and
+vc command lines. These will be required before the Bellatrix
+upgrade. And for testnets Goerli/Prater they are now required when installing
+as The Merge has occurred.
 
-- "Pre-merge": `--execution-endpoint` flag *is not* provided.
-- "Post-merge": `--execution-endpoint` flag *is* provided.
+At a minimum, these options must be added:
 
-A "pre-merge" node, by definition, will fail to transition through the merge. Such a node *must* be
-upgraded before the Bellatrix upgrade.
+* For beacon node add --execution-endpoint \<el url\> and --execution-jwt \<secret file\>
+* For validator clients add --suggested-fee-recipient
+* For Execution Layer add the necessary options; for example, with geth there are two flags:
+  * --authrpc.jwtsecret=\<secret file\>
+  * --authrpc.vhosts="*"
+
+If these flags are not present your system will fail to transition through The Merge.
+A step-by-step guide is available on
+[CoinCashew](https://www.coincashew.com/coins/overview-eth/ethereum-merge-upgrade-checklist-for-home-stakers-and-validators).
 
 ## Migration
 
