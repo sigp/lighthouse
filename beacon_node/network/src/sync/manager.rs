@@ -42,7 +42,7 @@ use crate::beacon_processor::{ChainSegmentProcessId, FailureMode, WorkEvent as B
 use crate::service::NetworkMessage;
 use crate::status::ToStatusMessage;
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockError};
-use futures::{future, StreamExt};
+use futures::StreamExt;
 use lighthouse_network::rpc::methods::MAX_REQUEST_BLOCKS;
 use lighthouse_network::types::{NetworkGlobals, SyncState};
 use lighthouse_network::SyncInfo;
@@ -53,7 +53,6 @@ use std::ops::Sub;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
-use tokio_stream::wrappers::WatchStream;
 use types::{EthSpec, Hash256, SignedBeaconBlock, Slot};
 
 /// The number of slots ahead of us that is allowed before requesting a long-range (batch)  Sync
@@ -468,14 +467,17 @@ impl<T: BeaconChainTypes> SyncManager<T> {
 
     /// The main driving future for the sync manager.
     async fn main(&mut self) {
-        let ee_sync_state_watch = self
-            .chain
-            .execution_layer
-            .as_ref()
-            .map(|el| el.ee_sync_state_watch());
-        let check_ee = ee_sync_state_watch.is_some();
-        let check_ee_stream =
-            futures::StreamExt::flatten(futures::stream::iter(ee_sync_state_watch));
+        let check_ee = self.chain.execution_layer.is_some();
+        let mut check_ee_stream = {
+            // some magic to have an instance implementing stream even if there is no execution layer
+            let ee_sync_state_watch: futures::future::OptionFuture<_> = self
+                .chain
+                .execution_layer
+                .as_ref()
+                .map(|el| el.ee_sync_state_watch())
+                .into();
+            futures::stream::iter(ee_sync_state_watch.await).flatten()
+        };
 
         // process any inbound messages
         loop {
@@ -516,7 +518,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         || (head_slot < unknown_block_slot
                             && unknown_block_slot.sub(head_slot).as_usize() > SLOT_IMPORT_TOLERANCE)
                     {
-                        continue;
+                        return;
                     }
                 }
                 if self.network_globals.peers.read().is_connected(&peer_id) {
