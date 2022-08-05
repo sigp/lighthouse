@@ -56,6 +56,7 @@ type_name!(Eth1Data);
 type_name_generic!(ExecutionPayload);
 type_name_generic!(FullPayload, "ExecutionPayload");
 type_name_generic!(ExecutionPayloadHeader);
+type_name_generic!(BlindedPayload, "ExecutionPayloadHeader");
 type_name!(Fork);
 type_name!(ForkData);
 type_name_generic!(HistoricalBatch);

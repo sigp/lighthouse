@@ -28,7 +28,7 @@ impl StateId {
                     .map_err(warp_utils::reject::beacon_chain_error)?;
                 return Ok((
                     cached_head.head_state_root(),
-                    execution_status.is_optimistic(),
+                    execution_status.is_optimistic_or_invalid(),
                 ));
             }
             CoreStateId::Genesis => return Ok((chain.genesis_state_root, false)),
@@ -45,7 +45,7 @@ impl StateId {
             CoreStateId::Slot(slot) => (
                 *slot,
                 chain
-                    .is_optimistic_head()
+                    .is_optimistic_or_invalid_head()
                     .map_err(warp_utils::reject::beacon_chain_error)?,
             ),
             CoreStateId::Root(root) => {
@@ -58,7 +58,7 @@ impl StateId {
                     let execution_optimistic = chain
                         .canonical_head
                         .fork_choice_read_lock()
-                        .is_optimistic_block_no_fallback(&hot_summary.latest_block_root)
+                        .is_optimistic_or_invalid_block_no_fallback(&hot_summary.latest_block_root)
                         .map_err(BeaconChainError::ForkChoiceError)
                         .map_err(warp_utils::reject::beacon_chain_error)?;
                     return Ok((*root, execution_optimistic));
@@ -74,7 +74,7 @@ impl StateId {
                         .finalized_checkpoint
                         .root;
                     let execution_optimistic = fork_choice
-                        .is_optimistic_block_no_fallback(&finalized_root)
+                        .is_optimistic_or_invalid_block_no_fallback(&finalized_root)
                         .map_err(BeaconChainError::ForkChoiceError)
                         .map_err(warp_utils::reject::beacon_chain_error)?;
                     return Ok((*root, execution_optimistic));
@@ -133,7 +133,7 @@ impl StateId {
                         .snapshot
                         .beacon_state
                         .clone_with_only_committee_caches(),
-                    execution_status.is_optimistic(),
+                    execution_status.is_optimistic_or_invalid(),
                 ));
             }
             CoreStateId::Slot(slot) => (self.root(chain)?, Some(*slot)),
@@ -198,7 +198,7 @@ impl StateId {
                     .map_err(warp_utils::reject::beacon_chain_error)?;
                 return func(
                     &head.snapshot.beacon_state,
-                    execution_status.is_optimistic(),
+                    execution_status.is_optimistic_or_invalid(),
                 );
             }
             _ => self.state(chain)?,
@@ -241,7 +241,7 @@ pub fn checkpoint_slot_and_execution_optimistic<T: BeaconChainTypes>(
     };
 
     let execution_optimistic = fork_choice
-        .is_optimistic_block_no_fallback(root)
+        .is_optimistic_or_invalid_block_no_fallback(root)
         .map_err(BeaconChainError::ForkChoiceError)
         .map_err(warp_utils::reject::beacon_chain_error)?;
 

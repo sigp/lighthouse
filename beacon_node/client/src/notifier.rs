@@ -441,14 +441,14 @@ fn eth1_logging<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>, log: &Logger
 
                 warn!(
                     log,
-                    "Syncing eth1 block cache";
+                    "Syncing deposit contract block cache";
                     "est_blocks_remaining" => distance,
                 );
             }
         } else {
             error!(
                 log,
-                "Unable to determine eth1 sync status";
+                "Unable to determine deposit contract sync status";
             );
         }
     }

@@ -659,6 +659,7 @@ impl ProtoArray {
         // Perform a sanity check that the node is indeed valid to be the head.
         if !self.node_is_viable_for_head::<E>(best_node, current_slot) {
             return Err(Error::InvalidBestNode(Box::new(InvalidBestNodeInfo {
+                current_slot,
                 start_root: *justified_root,
                 justified_checkpoint: self.justified_checkpoint,
                 finalized_checkpoint: self.finalized_checkpoint,
@@ -980,7 +981,7 @@ impl ProtoArray {
 /// Returns `None` if there is an overflow or underflow when calculating the score.
 ///
 /// https://github.com/ethereum/consensus-specs/blob/dev/specs/phase0/fork-choice.md#get_latest_attesting_balance
-fn calculate_proposer_boost<E: EthSpec>(
+pub fn calculate_proposer_boost<E: EthSpec>(
     validator_balances: &[u64],
     proposer_score_boost: u64,
 ) -> Option<u64> {

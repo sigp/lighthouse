@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use types::{BeaconBlockRef, BeaconState, Checkpoint, EthSpec, ExecPayload, Hash256, Slot};
 
 /// Approximates the `Store` in "Ethereum 2.0 Phase 0 -- Beacon Chain Fork Choice":
@@ -76,4 +77,10 @@ pub trait ForkChoiceStore<T: EthSpec>: Sized {
 
     /// Sets the proposer boost root.
     fn set_proposer_boost_root(&mut self, proposer_boost_root: Hash256);
+
+    /// Gets the equivocating indices.
+    fn equivocating_indices(&self) -> &BTreeSet<u64>;
+
+    /// Adds to the set of equivocating indices.
+    fn extend_equivocating_indices(&mut self, indices: impl IntoIterator<Item = u64>);
 }

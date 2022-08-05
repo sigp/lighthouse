@@ -1,10 +1,12 @@
 use crate::error::Error;
-use crate::proto_array::{InvalidationOperation, Iter, ProposerBoost, ProtoArray, ProtoNode};
+use crate::proto_array::{
+    calculate_proposer_boost, InvalidationOperation, Iter, ProposerBoost, ProtoArray, ProtoNode,
+};
 use crate::ssz_container::SszContainer;
 use serde_derive::{Deserialize, Serialize};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use types::{
     AttestationShufflingId, ChainSpec, Checkpoint, Epoch, EthSpec, ExecutionBlockHash, Hash256,
     Slot,
@@ -87,8 +89,20 @@ impl ExecutionStatus {
     ///
     /// - Has execution enabled, AND
     /// - Has a payload that has not yet been verified by an EL.
-    pub fn is_optimistic(&self) -> bool {
+    pub fn is_strictly_optimistic(&self) -> bool {
         matches!(self, ExecutionStatus::Optimistic(_))
+    }
+
+    /// Returns `true` if the block:
+    ///
+    /// - Has execution enabled, AND
+    ///     - Has a payload that has not yet been verified by an EL, OR.
+    ///     - Has a payload that has been deemed invalid by an EL.
+    pub fn is_optimistic_or_invalid(&self) -> bool {
+        matches!(
+            self,
+            ExecutionStatus::Optimistic(_) | ExecutionStatus::Invalid(_)
+        )
     }
 
     /// Returns `true` if the block:
@@ -260,12 +274,14 @@ impl ProtoArrayForkChoice {
             .map_err(|e| format!("process_block_error: {:?}", e))
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn find_head<E: EthSpec>(
         &mut self,
         justified_checkpoint: Checkpoint,
         finalized_checkpoint: Checkpoint,
         justified_state_balances: &[u64],
         proposer_boost_root: Hash256,
+        equivocating_indices: &BTreeSet<u64>,
         current_slot: Slot,
         spec: &ChainSpec,
     ) -> Result<Hash256, String> {
@@ -278,6 +294,7 @@ impl ProtoArrayForkChoice {
             &mut self.votes,
             old_balances,
             new_balances,
+            equivocating_indices,
         )
         .map_err(|e| format!("find_head compute_deltas failed: {:?}", e))?;
 
@@ -298,6 +315,106 @@ impl ProtoArrayForkChoice {
         self.proto_array
             .find_head::<E>(&justified_checkpoint.root, current_slot)
             .map_err(|e| format!("find_head failed: {:?}", e))
+    }
+
+    /// For all nodes, regardless of their relationship to the finalized block, set their execution
+    /// status to be optimistic.
+    ///
+    /// In practice this means forgetting any `VALID` or `INVALID` statuses.
+    pub fn set_all_blocks_to_optimistic<E: EthSpec>(
+        &mut self,
+        spec: &ChainSpec,
+    ) -> Result<(), String> {
+        // Iterate backwards through all nodes in the `proto_array`. Whilst it's not strictly
+        // required to do this process in reverse, it seems natural when we consider how LMD votes
+        // are counted.
+        //
+        // This function will touch all blocks, even those that do not descend from the finalized
+        // block. Since this function is expected to run at start-up during very rare
+        // circumstances we prefer simplicity over efficiency.
+        for node_index in (0..self.proto_array.nodes.len()).rev() {
+            let node = self
+                .proto_array
+                .nodes
+                .get_mut(node_index)
+                .ok_or("unreachable index out of bounds in proto_array nodes")?;
+
+            match node.execution_status {
+                ExecutionStatus::Invalid(block_hash) => {
+                    node.execution_status = ExecutionStatus::Optimistic(block_hash);
+
+                    // Restore the weight of the node, it would have been set to `0` in
+                    // `apply_score_changes` when it was invalidated.
+                    let mut restored_weight: u64 = self
+                        .votes
+                        .0
+                        .iter()
+                        .enumerate()
+                        .filter_map(|(validator_index, vote)| {
+                            if vote.current_root == node.root {
+                                // Any voting validator that does not have a balance should be
+                                // ignored. This is consistent with `compute_deltas`.
+                                self.balances.get(validator_index)
+                            } else {
+                                None
+                            }
+                        })
+                        .sum();
+
+                    // If the invalid root was boosted, apply the weight to it and
+                    // ancestors.
+                    if let Some(proposer_score_boost) = spec.proposer_score_boost {
+                        if self.proto_array.previous_proposer_boost.root == node.root {
+                            // Compute the score based upon the current balances. We can't rely on
+                            // the `previous_proposr_boost.score` since it is set to zero with an
+                            // invalid node.
+                            let proposer_score =
+                                calculate_proposer_boost::<E>(&self.balances, proposer_score_boost)
+                                    .ok_or("Failed to compute proposer boost")?;
+                            // Store the score we've applied here so it can be removed in
+                            // a later call to `apply_score_changes`.
+                            self.proto_array.previous_proposer_boost.score = proposer_score;
+                            // Apply this boost to this node.
+                            restored_weight = restored_weight
+                                .checked_add(proposer_score)
+                                .ok_or("Overflow when adding boost to weight")?;
+                        }
+                    }
+
+                    // Add the restored weight to the node and all ancestors.
+                    if restored_weight > 0 {
+                        let mut node_or_ancestor = node;
+                        loop {
+                            node_or_ancestor.weight = node_or_ancestor
+                                .weight
+                                .checked_add(restored_weight)
+                                .ok_or("Overflow when adding weight to ancestor")?;
+
+                            if let Some(parent_index) = node_or_ancestor.parent {
+                                node_or_ancestor = self
+                                    .proto_array
+                                    .nodes
+                                    .get_mut(parent_index)
+                                    .ok_or(format!("Missing parent index: {}", parent_index))?;
+                            } else {
+                                // This is either the finalized block or a block that does not
+                                // descend from the finalized block.
+                                break;
+                            }
+                        }
+                    }
+                }
+                // There are no balance changes required if the node was either valid or
+                // optimistic.
+                ExecutionStatus::Valid(block_hash) | ExecutionStatus::Optimistic(block_hash) => {
+                    node.execution_status = ExecutionStatus::Optimistic(block_hash)
+                }
+                // An irrelevant node cannot become optimistic, this is a no-op.
+                ExecutionStatus::Irrelevant(_) => (),
+            }
+        }
+
+        Ok(())
     }
 
     pub fn maybe_prune(&mut self, finalized_root: Hash256) -> Result<(), String> {
@@ -439,6 +556,7 @@ fn compute_deltas(
     votes: &mut ElasticList<VoteTracker>,
     old_balances: &[u64],
     new_balances: &[u64],
+    equivocating_indices: &BTreeSet<u64>,
 ) -> Result<Vec<i64>, Error> {
     let mut deltas = vec![0_i64; indices.len()];
 
@@ -446,6 +564,38 @@ fn compute_deltas(
         // There is no need to create a score change if the validator has never voted or both their
         // votes are for the zero hash (alias to the genesis block).
         if vote.current_root == Hash256::zero() && vote.next_root == Hash256::zero() {
+            continue;
+        }
+
+        // Handle newly slashed validators by deducting their weight from their current vote. We
+        // determine if they are newly slashed by checking whether their `vote.current_root` is
+        // non-zero. After applying the deduction a single time we set their `current_root` to zero
+        // and never update it again (thus preventing repeat deductions).
+        //
+        // Even if they make new attestations which are processed by `process_attestation` these
+        // will only update their `vote.next_root`.
+        if equivocating_indices.contains(&(val_index as u64)) {
+            // First time we've processed this slashing in fork choice:
+            //
+            // 1. Add a negative delta for their `current_root`.
+            // 2. Set their `current_root` (permanently) to zero.
+            if !vote.current_root.is_zero() {
+                let old_balance = old_balances.get(val_index).copied().unwrap_or(0);
+
+                if let Some(current_delta_index) = indices.get(&vote.current_root).copied() {
+                    let delta = deltas
+                        .get(current_delta_index)
+                        .ok_or(Error::InvalidNodeDelta(current_delta_index))?
+                        .checked_sub(old_balance as i64)
+                        .ok_or(Error::DeltaOverflow(current_delta_index))?;
+
+                    // Array access safe due to check on previous line.
+                    deltas[current_delta_index] = delta;
+                }
+
+                vote.current_root = Hash256::zero();
+            }
+            // We've handled this slashed validator, continue without applying an ordinary delta.
             continue;
         }
 
@@ -605,6 +755,7 @@ mod test_compute_deltas {
         let mut votes = ElasticList::default();
         let mut old_balances = vec![];
         let mut new_balances = vec![];
+        let equivocating_indices = BTreeSet::new();
 
         for i in 0..validator_count {
             indices.insert(hash_from_index(i), i);
@@ -617,8 +768,14 @@ mod test_compute_deltas {
             new_balances.push(0);
         }
 
-        let deltas = compute_deltas(&indices, &mut votes, &old_balances, &new_balances)
-            .expect("should compute deltas");
+        let deltas = compute_deltas(
+            &indices,
+            &mut votes,
+            &old_balances,
+            &new_balances,
+            &equivocating_indices,
+        )
+        .expect("should compute deltas");
 
         assert_eq!(
             deltas.len(),
@@ -649,6 +806,7 @@ mod test_compute_deltas {
         let mut votes = ElasticList::default();
         let mut old_balances = vec![];
         let mut new_balances = vec![];
+        let equivocating_indices = BTreeSet::new();
 
         for i in 0..validator_count {
             indices.insert(hash_from_index(i), i);
@@ -661,8 +819,14 @@ mod test_compute_deltas {
             new_balances.push(BALANCE);
         }
 
-        let deltas = compute_deltas(&indices, &mut votes, &old_balances, &new_balances)
-            .expect("should compute deltas");
+        let deltas = compute_deltas(
+            &indices,
+            &mut votes,
+            &old_balances,
+            &new_balances,
+            &equivocating_indices,
+        )
+        .expect("should compute deltas");
 
         assert_eq!(
             deltas.len(),
@@ -700,6 +864,7 @@ mod test_compute_deltas {
         let mut votes = ElasticList::default();
         let mut old_balances = vec![];
         let mut new_balances = vec![];
+        let equivocating_indices = BTreeSet::new();
 
         for i in 0..validator_count {
             indices.insert(hash_from_index(i), i);
@@ -712,8 +877,14 @@ mod test_compute_deltas {
             new_balances.push(BALANCE);
         }
 
-        let deltas = compute_deltas(&indices, &mut votes, &old_balances, &new_balances)
-            .expect("should compute deltas");
+        let deltas = compute_deltas(
+            &indices,
+            &mut votes,
+            &old_balances,
+            &new_balances,
+            &equivocating_indices,
+        )
+        .expect("should compute deltas");
 
         assert_eq!(
             deltas.len(),
@@ -746,6 +917,7 @@ mod test_compute_deltas {
         let mut votes = ElasticList::default();
         let mut old_balances = vec![];
         let mut new_balances = vec![];
+        let equivocating_indices = BTreeSet::new();
 
         for i in 0..validator_count {
             indices.insert(hash_from_index(i), i);
@@ -758,8 +930,14 @@ mod test_compute_deltas {
             new_balances.push(BALANCE);
         }
 
-        let deltas = compute_deltas(&indices, &mut votes, &old_balances, &new_balances)
-            .expect("should compute deltas");
+        let deltas = compute_deltas(
+            &indices,
+            &mut votes,
+            &old_balances,
+            &new_balances,
+            &equivocating_indices,
+        )
+        .expect("should compute deltas");
 
         assert_eq!(
             deltas.len(),
@@ -797,6 +975,7 @@ mod test_compute_deltas {
 
         let mut indices = HashMap::new();
         let mut votes = ElasticList::default();
+        let equivocating_indices = BTreeSet::new();
 
         // There is only one block.
         indices.insert(hash_from_index(1), 0);
@@ -819,8 +998,14 @@ mod test_compute_deltas {
             next_epoch: Epoch::new(0),
         });
 
-        let deltas = compute_deltas(&indices, &mut votes, &old_balances, &new_balances)
-            .expect("should compute deltas");
+        let deltas = compute_deltas(
+            &indices,
+            &mut votes,
+            &old_balances,
+            &new_balances,
+            &equivocating_indices,
+        )
+        .expect("should compute deltas");
 
         assert_eq!(deltas.len(), 1, "deltas should have expected length");
 
@@ -849,6 +1034,7 @@ mod test_compute_deltas {
         let mut votes = ElasticList::default();
         let mut old_balances = vec![];
         let mut new_balances = vec![];
+        let equivocating_indices = BTreeSet::new();
 
         for i in 0..validator_count {
             indices.insert(hash_from_index(i), i);
@@ -861,8 +1047,14 @@ mod test_compute_deltas {
             new_balances.push(NEW_BALANCE);
         }
 
-        let deltas = compute_deltas(&indices, &mut votes, &old_balances, &new_balances)
-            .expect("should compute deltas");
+        let deltas = compute_deltas(
+            &indices,
+            &mut votes,
+            &old_balances,
+            &new_balances,
+            &equivocating_indices,
+        )
+        .expect("should compute deltas");
 
         assert_eq!(
             deltas.len(),
@@ -902,6 +1094,7 @@ mod test_compute_deltas {
 
         let mut indices = HashMap::new();
         let mut votes = ElasticList::default();
+        let equivocating_indices = BTreeSet::new();
 
         // There are two blocks.
         indices.insert(hash_from_index(1), 0);
@@ -921,8 +1114,14 @@ mod test_compute_deltas {
             });
         }
 
-        let deltas = compute_deltas(&indices, &mut votes, &old_balances, &new_balances)
-            .expect("should compute deltas");
+        let deltas = compute_deltas(
+            &indices,
+            &mut votes,
+            &old_balances,
+            &new_balances,
+            &equivocating_indices,
+        )
+        .expect("should compute deltas");
 
         assert_eq!(deltas.len(), 2, "deltas should have expected length");
 
@@ -951,6 +1150,7 @@ mod test_compute_deltas {
 
         let mut indices = HashMap::new();
         let mut votes = ElasticList::default();
+        let equivocating_indices = BTreeSet::new();
 
         // There are two blocks.
         indices.insert(hash_from_index(1), 0);
@@ -970,8 +1170,14 @@ mod test_compute_deltas {
             });
         }
 
-        let deltas = compute_deltas(&indices, &mut votes, &old_balances, &new_balances)
-            .expect("should compute deltas");
+        let deltas = compute_deltas(
+            &indices,
+            &mut votes,
+            &old_balances,
+            &new_balances,
+            &equivocating_indices,
+        )
+        .expect("should compute deltas");
 
         assert_eq!(deltas.len(), 2, "deltas should have expected length");
 
@@ -991,5 +1197,73 @@ mod test_compute_deltas {
                 "the vote should have been updated"
             );
         }
+    }
+
+    #[test]
+    fn validator_equivocates() {
+        const OLD_BALANCE: u64 = 42;
+        const NEW_BALANCE: u64 = 43;
+
+        let mut indices = HashMap::new();
+        let mut votes = ElasticList::default();
+
+        // There are two blocks.
+        indices.insert(hash_from_index(1), 0);
+        indices.insert(hash_from_index(2), 1);
+
+        // There are two validators.
+        let old_balances = vec![OLD_BALANCE; 2];
+        let new_balances = vec![NEW_BALANCE; 2];
+
+        // Both validator move votes from block 1 to block 2.
+        for _ in 0..2 {
+            votes.0.push(VoteTracker {
+                current_root: hash_from_index(1),
+                next_root: hash_from_index(2),
+                next_epoch: Epoch::new(0),
+            });
+        }
+
+        // Validator 0 is slashed.
+        let equivocating_indices = BTreeSet::from_iter([0]);
+
+        let deltas = compute_deltas(
+            &indices,
+            &mut votes,
+            &old_balances,
+            &new_balances,
+            &equivocating_indices,
+        )
+        .expect("should compute deltas");
+
+        assert_eq!(deltas.len(), 2, "deltas should have expected length");
+
+        assert_eq!(
+            deltas[0],
+            -2 * OLD_BALANCE as i64,
+            "block 1 should have lost two old balances"
+        );
+        assert_eq!(
+            deltas[1], NEW_BALANCE as i64,
+            "block 2 should have gained one balance"
+        );
+
+        // Validator 0's current root should have been reset.
+        assert_eq!(votes.0[0].current_root, Hash256::zero());
+        assert_eq!(votes.0[0].next_root, hash_from_index(2));
+
+        // Validator 1's current root should have been updated.
+        assert_eq!(votes.0[1].current_root, hash_from_index(2));
+
+        // Re-computing the deltas should be a no-op (no repeat deduction for the slashed validator).
+        let deltas = compute_deltas(
+            &indices,
+            &mut votes,
+            &new_balances,
+            &new_balances,
+            &equivocating_indices,
+        )
+        .expect("should compute deltas");
+        assert_eq!(deltas, vec![0, 0]);
     }
 }

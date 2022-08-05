@@ -22,12 +22,16 @@ const PROPOSER_PREPARATION_LOOKAHEAD_EPOCHS: u64 = 2;
 /// Number of epochs to wait before re-submitting validator registration.
 const EPOCHS_PER_VALIDATOR_REGISTRATION_SUBMISSION: u64 = 1;
 
+/// The number of validator registrations to include per request to the beacon node.
+const VALIDATOR_REGISTRATION_BATCH_SIZE: usize = 500;
+
 /// Builds an `PreparationService`.
 pub struct PreparationServiceBuilder<T: SlotClock + 'static, E: EthSpec> {
     validator_store: Option<Arc<ValidatorStore<T, E>>>,
     slot_clock: Option<T>,
     beacon_nodes: Option<Arc<BeaconNodeFallback<T, E>>>,
     context: Option<RuntimeContext<E>>,
+    builder_registration_timestamp_override: Option<u64>,
 }
 
 impl<T: SlotClock + 'static, E: EthSpec> PreparationServiceBuilder<T, E> {
@@ -37,6 +41,7 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationServiceBuilder<T, E> {
             slot_clock: None,
             beacon_nodes: None,
             context: None,
+            builder_registration_timestamp_override: None,
         }
     }
 
@@ -60,6 +65,14 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationServiceBuilder<T, E> {
         self
     }
 
+    pub fn builder_registration_timestamp_override(
+        mut self,
+        builder_registration_timestamp_override: Option<u64>,
+    ) -> Self {
+        self.builder_registration_timestamp_override = builder_registration_timestamp_override;
+        self
+    }
+
     pub fn build(self) -> Result<PreparationService<T, E>, String> {
         Ok(PreparationService {
             inner: Arc::new(Inner {
@@ -75,6 +88,8 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationServiceBuilder<T, E> {
                 context: self
                     .context
                     .ok_or("Cannot build PreparationService without runtime_context")?,
+                builder_registration_timestamp_override: self
+                    .builder_registration_timestamp_override,
                 validator_registration_cache: RwLock::new(HashMap::new()),
             }),
         })
@@ -87,6 +102,7 @@ pub struct Inner<T, E: EthSpec> {
     slot_clock: T,
     beacon_nodes: Arc<BeaconNodeFallback<T, E>>,
     context: RuntimeContext<E>,
+    builder_registration_timestamp_override: Option<u64>,
     // Used to track unpublished validator registration changes.
     validator_registration_cache:
         RwLock<HashMap<ValidatorRegistrationKey, SignedValidatorRegistrationData>>,
@@ -137,14 +153,8 @@ impl<T, E: EthSpec> Deref for PreparationService<T, E> {
 }
 
 impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
-    pub fn start_update_service(
-        self,
-        start_registration_service: bool,
-        spec: &ChainSpec,
-    ) -> Result<(), String> {
-        if start_registration_service {
-            self.clone().start_validator_registration_service(spec)?;
-        }
+    pub fn start_update_service(self, spec: &ChainSpec) -> Result<(), String> {
+        self.clone().start_validator_registration_service(spec)?;
         self.start_proposer_prepare_service(spec)
     }
 
@@ -208,7 +218,7 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
         let validator_registration_fut = async move {
             loop {
                 // Poll the endpoint immediately to ensure fee recipients are received.
-                if let Err(e) = self.register_validators(&spec).await {
+                if let Err(e) = self.register_validators().await {
                     error!(log,"Error during validator registration";"error" => ?e);
                 }
 
@@ -251,35 +261,48 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
     }
 
     fn collect_preparation_data(&self, spec: &ChainSpec) -> Vec<ProposerPreparationData> {
-        self.collect_data(spec, |_, validator_index, fee_recipient| {
-            ProposerPreparationData {
-                validator_index,
-                fee_recipient,
-            }
-        })
-    }
-
-    fn collect_validator_registration_keys(
-        &self,
-        spec: &ChainSpec,
-    ) -> Vec<ValidatorRegistrationKey> {
-        self.collect_data(spec, |pubkey, _, fee_recipient| {
-            ValidatorRegistrationKey {
-                fee_recipient,
-                //TODO(sean) this is geth's default, we should make this configurable and maybe have the default be dynamic.
-                // Discussion here: https://github.com/ethereum/builder-specs/issues/17
-                gas_limit: 30_000_000,
-                pubkey,
-            }
-        })
-    }
-
-    fn collect_data<G, U>(&self, spec: &ChainSpec, map_fn: G) -> Vec<U>
-    where
-        G: Fn(PublicKeyBytes, u64, Address) -> U,
-    {
         let log = self.context.log();
+        self.collect_proposal_data(|pubkey, proposal_data| {
+            if let Some(fee_recipient) = proposal_data.fee_recipient {
+                Some(ProposerPreparationData {
+                    // Ignore fee recipients for keys without indices, they are inactive.
+                    validator_index: proposal_data.validator_index?,
+                    fee_recipient,
+                })
+            } else {
+                if spec.bellatrix_fork_epoch.is_some() {
+                    error!(
+                        log,
+                        "Validator is missing fee recipient";
+                        "msg" => "update validator_definitions.yml",
+                        "pubkey" => ?pubkey
+                    );
+                }
+                None
+            }
+        })
+    }
 
+    fn collect_validator_registration_keys(&self) -> Vec<ValidatorRegistrationKey> {
+        self.collect_proposal_data(|pubkey, proposal_data| {
+            // We don't log for missing fee recipients here because this will be logged more
+            // frequently in `collect_preparation_data`.
+            proposal_data.fee_recipient.and_then(|fee_recipient| {
+                proposal_data
+                    .builder_proposals
+                    .then(|| ValidatorRegistrationKey {
+                        fee_recipient,
+                        gas_limit: proposal_data.gas_limit,
+                        pubkey,
+                    })
+            })
+        })
+    }
+
+    fn collect_proposal_data<G, U>(&self, map_fn: G) -> Vec<U>
+    where
+        G: Fn(PublicKeyBytes, ProposalData) -> Option<U>,
+    {
         let all_pubkeys: Vec<_> = self
             .validator_store
             .voting_pubkeys(DoppelgangerStatus::ignored);
@@ -287,23 +310,8 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
         all_pubkeys
             .into_iter()
             .filter_map(|pubkey| {
-                // Ignore fee recipients for keys without indices, they are inactive.
-                let validator_index = self.validator_store.validator_index(&pubkey)?;
-                let fee_recipient = self.validator_store.get_fee_recipient(&pubkey);
-
-                if let Some(fee_recipient) = fee_recipient {
-                    Some(map_fn(pubkey, validator_index, fee_recipient))
-                } else {
-                    if spec.bellatrix_fork_epoch.is_some() {
-                        error!(
-                            log,
-                            "Validator is missing fee recipient";
-                            "msg" => "update validator_definitions.yml",
-                            "pubkey" => ?pubkey
-                        );
-                    }
-                    None
-                }
+                let proposal_data = self.validator_store.proposal_data(&pubkey)?;
+                map_fn(pubkey, proposal_data)
             })
             .collect()
     }
@@ -341,8 +349,8 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
     }
 
     /// Register validators with builders, used in the blinded block proposal flow.
-    async fn register_validators(&self, spec: &ChainSpec) -> Result<(), String> {
-        let registration_keys = self.collect_validator_registration_keys(spec);
+    async fn register_validators(&self) -> Result<(), String> {
+        let registration_keys = self.collect_validator_registration_keys();
 
         let mut changed_keys = vec![];
 
@@ -388,10 +396,15 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
             let signed_data = if let Some(signed_data) = cached_registration_opt {
                 signed_data
             } else {
-                let timestamp = SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .map_err(|e| format!("{e:?}"))?
-                    .as_secs();
+                let timestamp =
+                    if let Some(timestamp) = self.builder_registration_timestamp_override {
+                        timestamp
+                    } else {
+                        SystemTime::now()
+                            .duration_since(UNIX_EPOCH)
+                            .map_err(|e| format!("{e:?}"))?
+                            .as_secs()
+                    };
 
                 let ValidatorRegistrationKey {
                     fee_recipient,
@@ -426,29 +439,35 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
         }
 
         if !signed.is_empty() {
-            let signed_ref = signed.as_slice();
-
-            match self
-                .beacon_nodes
-                .first_success(RequireSynced::Yes, |beacon_node| async move {
-                    beacon_node
-                        .post_validator_register_validator(signed_ref)
-                        .await
-                })
-                .await
-            {
-                Ok(()) => debug!(
-                    log,
-                    "Published validator registration";
-                    "count" => registration_data_len,
-                ),
-                Err(e) => error!(
-                    log,
-                    "Unable to publish validator registration";
-                    "error" => %e,
-                ),
+            for batch in signed.chunks(VALIDATOR_REGISTRATION_BATCH_SIZE) {
+                match self
+                    .beacon_nodes
+                    .first_success(RequireSynced::Yes, |beacon_node| async move {
+                        beacon_node.post_validator_register_validator(batch).await
+                    })
+                    .await
+                {
+                    Ok(()) => info!(
+                        log,
+                        "Published validator registrations to the builder network";
+                        "count" => registration_data_len,
+                    ),
+                    Err(e) => error!(
+                        log,
+                        "Unable to publish validator registrations to the builder network";
+                        "error" => %e,
+                    ),
+                }
             }
         }
         Ok(())
     }
+}
+
+/// A helper struct, used for passing data from the validator store to services.
+pub struct ProposalData {
+    pub(crate) validator_index: Option<u64>,
+    pub(crate) fee_recipient: Option<Address>,
+    pub(crate) gas_limit: u64,
+    pub(crate) builder_proposals: bool,
 }

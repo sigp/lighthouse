@@ -2,6 +2,7 @@ use super::*;
 use core::num::NonZeroUsize;
 use ethereum_types::{H160, H256, U128, U256};
 use smallvec::SmallVec;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 macro_rules! impl_encodable_for_uint {
@@ -220,6 +221,65 @@ impl<T: Encode> Encode for Arc<T> {
     }
 }
 
+// Encode transparently through references.
+impl<'a, T: Encode> Encode for &'a T {
+    fn is_ssz_fixed_len() -> bool {
+        T::is_ssz_fixed_len()
+    }
+
+    fn ssz_fixed_len() -> usize {
+        T::ssz_fixed_len()
+    }
+
+    fn ssz_append(&self, buf: &mut Vec<u8>) {
+        T::ssz_append(self, buf)
+    }
+
+    fn ssz_bytes_len(&self) -> usize {
+        T::ssz_bytes_len(self)
+    }
+}
+
+/// Compute the encoded length of a vector-like sequence of `T`.
+pub fn sequence_ssz_bytes_len<I, T>(iter: I) -> usize
+where
+    I: Iterator<Item = T> + ExactSizeIterator,
+    T: Encode,
+{
+    // Compute length before doing any iteration.
+    let length = iter.len();
+    if <T as Encode>::is_ssz_fixed_len() {
+        <T as Encode>::ssz_fixed_len() * length
+    } else {
+        let mut len = iter.map(|item| item.ssz_bytes_len()).sum();
+        len += BYTES_PER_LENGTH_OFFSET * length;
+        len
+    }
+}
+
+/// Encode a vector-like sequence of `T`.
+pub fn sequence_ssz_append<I, T>(iter: I, buf: &mut Vec<u8>)
+where
+    I: Iterator<Item = T> + ExactSizeIterator,
+    T: Encode,
+{
+    if T::is_ssz_fixed_len() {
+        buf.reserve(T::ssz_fixed_len() * iter.len());
+
+        for item in iter {
+            item.ssz_append(buf);
+        }
+    } else {
+        let mut encoder = SszEncoder::container(buf, iter.len() * BYTES_PER_LENGTH_OFFSET);
+
+        for item in iter {
+            encoder.append(&item);
+        }
+
+        encoder.finalize();
+    }
+}
+
 macro_rules! impl_for_vec {
     ($type: ty) => {
         impl<T: Encode> Encode for $type {
@@ -228,32 +288,11 @@ macro_rules! impl_for_vec {
             }
 
             fn ssz_bytes_len(&self) -> usize {
-                if <T as Encode>::is_ssz_fixed_len() {
-                    <T as Encode>::ssz_fixed_len() * self.len()
-                } else {
-                    let mut len = self.iter().map(|item| item.ssz_bytes_len()).sum();
-                    len += BYTES_PER_LENGTH_OFFSET * self.len();
-                    len
-                }
+                sequence_ssz_bytes_len(self.iter())
             }
 
             fn ssz_append(&self, buf: &mut Vec<u8>) {
-                if T::is_ssz_fixed_len() {
-                    buf.reserve(T::ssz_fixed_len() * self.len());
-
-                    for item in self {
-                        item.ssz_append(buf);
-                    }
-                } else {
-                    let mut encoder =
-                        SszEncoder::container(buf, self.len() * BYTES_PER_LENGTH_OFFSET);
-
-                    for item in self {
-                        encoder.append(item);
-                    }
-
-                    encoder.finalize();
-                }
+                sequence_ssz_append(self.iter(), buf)
             }
         }
     };
@@ -268,6 +307,41 @@ impl_for_vec!(SmallVec<[T; 5]>);
 impl_for_vec!(SmallVec<[T; 6]>);
 impl_for_vec!(SmallVec<[T; 7]>);
 impl_for_vec!(SmallVec<[T; 8]>);
+
+impl<K, V> Encode for BTreeMap<K, V>
+where
+    K: Encode + Ord,
+    V: Encode,
+{
+    fn is_ssz_fixed_len() -> bool {
+        false
+    }
+
+    fn ssz_bytes_len(&self) -> usize {
+        sequence_ssz_bytes_len(self.iter())
+    }
+
+    fn ssz_append(&self, buf: &mut Vec<u8>) {
+        sequence_ssz_append(self.iter(), buf)
+    }
+}
+
+impl<T> Encode for BTreeSet<T>
+where
+    T: Encode + Ord,
+{
+    fn is_ssz_fixed_len() -> bool {
+        false
+    }
+
+    fn ssz_bytes_len(&self) -> usize {
+        sequence_ssz_bytes_len(self.iter())
+    }
+
+    fn ssz_append(&self, buf: &mut Vec<u8>) {
+        sequence_ssz_append(self.iter(), buf)
+    }
+}
 
 impl Encode for bool {
     fn is_ssz_fixed_len() -> bool {

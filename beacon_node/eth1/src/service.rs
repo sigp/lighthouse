@@ -14,7 +14,7 @@ use futures::future::TryFutureExt;
 use parking_lot::{RwLock, RwLockReadGuard};
 use sensitive_url::SensitiveUrl;
 use serde::{Deserialize, Serialize};
-use slog::{crit, debug, error, info, trace, warn, Logger};
+use slog::{debug, error, info, trace, warn, Logger};
 use std::fmt::Debug;
 use std::future::Future;
 use std::ops::{Range, RangeInclusive};
@@ -38,8 +38,6 @@ const BLOCK_NUMBER_TIMEOUT_MILLIS: u64 = STANDARD_TIMEOUT_MILLIS;
 const GET_BLOCK_TIMEOUT_MILLIS: u64 = STANDARD_TIMEOUT_MILLIS;
 /// Timeout when doing an eth_getLogs to read the deposit contract logs.
 const GET_DEPOSIT_LOG_TIMEOUT_MILLIS: u64 = 60_000;
-
-const WARNING_MSG: &str = "BLOCK PROPOSALS WILL FAIL WITHOUT VALID, SYNCED ETH1 CONNECTION";
 
 /// Number of blocks to download if the node detects it is lagging behind due to an inaccurate
 /// relationship between block-number-based follow distance and time-based follow distance.
@@ -202,7 +200,7 @@ async fn endpoint_state(
     if chain_id == Eth1Id::Custom(0) {
         warn!(
             log,
-            "Remote eth1 node is not synced";
+            "Remote execution node is not synced";
             "endpoint" => %endpoint,
             "action" => "trying fallbacks"
         );
@@ -211,11 +209,11 @@ async fn endpoint_state(
     if &chain_id != config_chain_id {
         warn!(
             log,
-            "Invalid eth1 chain id. Please switch to correct chain id on endpoint";
+            "Invalid execution chain ID. Please switch to correct chain ID on endpoint";
             "endpoint" => %endpoint,
             "action" => "trying fallbacks",
-            "expected" => format!("{:?}",config_chain_id),
-            "received" => format!("{:?}", chain_id),
+            "expected" => ?config_chain_id,
+            "received" => ?chain_id,
         );
         Err(EndpointError::WrongChainId)
     } else {
@@ -252,7 +250,7 @@ async fn get_remote_head_and_new_block_ranges(
     if remote_head_block.timestamp + node_far_behind_seconds < now {
         warn!(
             service.log,
-            "Eth1 endpoint is not synced";
+            "Execution endpoint is not synced";
             "endpoint" => %endpoint,
             "last_seen_block_unix_timestamp" => remote_head_block.timestamp,
             "action" => "trying fallback"
@@ -264,7 +262,7 @@ async fn get_remote_head_and_new_block_ranges(
         if let SingleEndpointError::RemoteNotSynced { .. } = e {
             warn!(
                 service.log,
-                "Eth1 endpoint is not synced";
+                "Execution endpoint is not synced";
                 "endpoint" => %endpoint,
                 "action" => "trying fallbacks"
             );
@@ -749,15 +747,11 @@ impl Service {
                         .iter()
                         .all(|error| matches!(error, SingleEndpointError::EndpointError(_)))
                     {
-                        crit!(
+                        error!(
                             self.log,
-                            "Could not connect to a suitable eth1 node. Please ensure that you have \
-                             an eth1 http server running locally on http://localhost:8545 or specify \
-                             one or more (remote) endpoints using \
-                             `--eth1-endpoints <COMMA-SEPARATED-SERVER-ADDRESSES>`. \
-                             Also ensure that `eth` and `net` apis are enabled on the eth1 http \
-                             server";
-                             "warning" => WARNING_MSG
+                            "No synced execution endpoint";
+                            "advice" => "ensure you have an execution node configured via \
+                                         --execution-endpoint or if pre-merge, --eth1-endpoints"
                         );
                     }
                 }
@@ -778,12 +772,7 @@ impl Service {
                 get_remote_head_and_new_block_ranges(e, self, node_far_behind_seconds).await
             })
             .await
-            .map_err(|e| {
-                format!(
-                    "Failed to update Eth1 service: {:?}",
-                    process_single_err(&e)
-                )
-            })?;
+            .map_err(|e| format!("{:?}", process_single_err(&e)))?;
 
         if num_errors > 0 {
             info!(self.log, "Fetched data from fallback"; "fallback_number" => num_errors);
@@ -815,16 +804,15 @@ impl Service {
                 deposit_cache.last_processed_block = deposit_cache.cache.latest_block_number();
             }
 
-            let outcome = outcome_result.map_err(|e| {
-                format!("Failed to update eth1 deposit cache: {:?}", process_err(e))
-            })?;
+            let outcome = outcome_result
+                .map_err(|e| format!("Failed to update deposit cache: {:?}", process_err(e)))?;
 
             trace!(
                 self.log,
-                "Updated eth1 deposit cache";
+                "Updated deposit cache";
                 "cached_deposits" => self.inner.deposit_cache.read().cache.len(),
                 "logs_imported" => outcome.logs_imported,
-                "last_processed_eth1_block" => self.inner.deposit_cache.read().last_processed_block,
+                "last_processed_execution_block" => self.inner.deposit_cache.read().last_processed_block,
             );
             Ok::<_, String>(outcome)
         };
@@ -833,11 +821,16 @@ impl Service {
             let outcome = self
                 .update_block_cache(Some(new_block_numbers_block_cache), &endpoints)
                 .await
-                .map_err(|e| format!("Failed to update eth1 block cache: {:?}", process_err(e)))?;
+                .map_err(|e| {
+                    format!(
+                        "Failed to update deposit contract block cache: {:?}",
+                        process_err(e)
+                    )
+                })?;
 
             trace!(
                 self.log,
-                "Updated eth1 block cache";
+                "Updated deposit contract block cache";
                 "cached_blocks" => self.inner.block_cache.read().len(),
                 "blocks_imported" => outcome.blocks_imported,
                 "head_block" => outcome.head_block_number,
@@ -890,13 +883,13 @@ impl Service {
         match update_result {
             Err(e) => error!(
                 self.log,
-                "Failed to update eth1 cache";
+                "Error updating deposit contract cache";
                 "retry_millis" => update_interval.as_millis(),
                 "error" => e,
             ),
             Ok((deposit, block)) => debug!(
                 self.log,
-                "Updated eth1 cache";
+                "Updated deposit contract cache";
                 "retry_millis" => update_interval.as_millis(),
                 "blocks" => format!("{:?}", block),
                 "deposits" => format!("{:?}", deposit),
@@ -1180,7 +1173,7 @@ impl Service {
 
         debug!(
             self.log,
-            "Downloading eth1 blocks";
+            "Downloading execution blocks";
             "first" => ?required_block_numbers.first(),
             "last" => ?required_block_numbers.last(),
         );
@@ -1243,7 +1236,7 @@ impl Service {
         if blocks_imported > 0 {
             debug!(
                 self.log,
-                "Imported eth1 block(s)";
+                "Imported execution block(s)";
                 "latest_block_age" => latest_block_mins,
                 "latest_block" => block_cache.highest_block_number(),
                 "total_cached_blocks" => block_cache.len(),
@@ -1252,7 +1245,7 @@ impl Service {
         } else {
             debug!(
                 self.log,
-                "No new eth1 blocks imported";
+                "No new execution blocks imported";
                 "latest_block" => block_cache.highest_block_number(),
                 "cached_blocks" => block_cache.len(),
             );

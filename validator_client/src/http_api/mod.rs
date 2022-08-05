@@ -413,6 +413,8 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                     let voting_password = body.password.clone();
                     let graffiti = body.graffiti.clone();
                     let suggested_fee_recipient = body.suggested_fee_recipient;
+                    let gas_limit = body.gas_limit;
+                    let builder_proposals = body.builder_proposals;
 
                     let validator_def = {
                         if let Some(handle) = task_executor.handle() {
@@ -423,6 +425,8 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                                     body.enable,
                                     graffiti,
                                     suggested_fee_recipient,
+                                    gas_limit,
+                                    builder_proposals,
                                 ))
                                 .map_err(|e| {
                                     warp_utils::reject::custom_server_error(format!(
@@ -469,6 +473,8 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                                 voting_public_key: web3signer.voting_public_key,
                                 graffiti: web3signer.graffiti,
                                 suggested_fee_recipient: web3signer.suggested_fee_recipient,
+                                gas_limit: web3signer.gas_limit,
+                                builder_proposals: web3signer.builder_proposals,
                                 description: web3signer.description,
                                 signing_definition: SigningDefinition::Web3Signer(
                                     Web3SignerDefinition {
@@ -515,18 +521,32 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                     let initialized_validators_rw_lock = validator_store.initialized_validators();
                     let mut initialized_validators = initialized_validators_rw_lock.write();
 
-                    match initialized_validators.is_enabled(&validator_pubkey) {
-                        None => Err(warp_utils::reject::custom_not_found(format!(
+                    match (
+                        initialized_validators.is_enabled(&validator_pubkey),
+                        initialized_validators.validator(&validator_pubkey.compress()),
+                    ) {
+                        (None, _) => Err(warp_utils::reject::custom_not_found(format!(
                             "no validator for {:?}",
                             validator_pubkey
                         ))),
-                        Some(enabled) if enabled == body.enabled => Ok(()),
-                        Some(_) => {
+                        (Some(is_enabled), Some(initialized_validator))
+                            if Some(is_enabled) == body.enabled
+                                && initialized_validator.get_gas_limit() == body.gas_limit
+                                && initialized_validator.get_builder_proposals()
+                                    == body.builder_proposals =>
+                        {
+                            Ok(())
+                        }
+                        (Some(_), _) => {
                             if let Some(handle) = task_executor.handle() {
                                 handle
                                     .block_on(
-                                        initialized_validators
-                                            .set_validator_status(&validator_pubkey, body.enabled),
+                                        initialized_validators.set_validator_definition_fields(
+                                            &validator_pubkey,
+                                            body.enabled,
+                                            body.gas_limit,
+                                            body.builder_proposals,
+                                        ),
                                     )
                                     .map_err(|e| {
                                         warp_utils::reject::custom_server_error(format!(

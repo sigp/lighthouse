@@ -362,7 +362,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             context.eth2_config.spec.clone(),
             doppelganger_service.clone(),
             slot_clock.clone(),
-            config.fee_recipient,
+            &config,
             context.executor.clone(),
             log.clone(),
         ));
@@ -413,7 +413,6 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             .runtime_context(context.service_context("block".into()))
             .graffiti(config.graffiti)
             .graffiti_file(config.graffiti_file.clone())
-            .private_tx_proposals(config.private_tx_proposals)
             .strict_fee_recipient(config.strict_fee_recipient)
             .build()?;
 
@@ -430,6 +429,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             .validator_store(validator_store.clone())
             .beacon_nodes(beacon_nodes.clone())
             .runtime_context(context.service_context("preparation".into()))
+            .builder_registration_timestamp_override(config.builder_registration_timestamp_override)
             .build()?;
 
         let sync_committee_service = SyncCommitteeService::new(
@@ -487,10 +487,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
 
         self.preparation_service
             .clone()
-            .start_update_service(
-                self.config.private_tx_proposals,
-                &self.context.eth2_config.spec,
-            )
+            .start_update_service(&self.context.eth2_config.spec)
             .map_err(|e| format!("Unable to start preparation service: {}", e))?;
 
         if let Some(doppelganger_service) = self.doppelganger_service.clone() {

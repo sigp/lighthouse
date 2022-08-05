@@ -24,6 +24,16 @@ pub struct ChainConfig {
     ///
     /// If set to 0 then block proposal will not wait for fork choice at all.
     pub fork_choice_before_proposal_timeout_ms: u64,
+    /// Number of skip slots in a row before the BN refuses to use connected builders during payload construction.
+    pub builder_fallback_skips: usize,
+    /// Number of skip slots in the past `SLOTS_PER_EPOCH` before the BN refuses to use connected
+    /// builders during payload construction.
+    pub builder_fallback_skips_per_epoch: usize,
+    /// Number of epochs since finalization before the BN refuses to use connected builders during
+    /// payload construction.
+    pub builder_fallback_epochs_since_finalization: usize,
+    /// Whether any chain health checks should be considered when deciding whether to use the builder API.
+    pub builder_fallback_disable_checks: bool,
     pub count_unrealized: bool,
 }
 
@@ -36,6 +46,11 @@ impl Default for ChainConfig {
             enable_lock_timeouts: true,
             max_network_size: 10 * 1_048_576, // 10M
             fork_choice_before_proposal_timeout_ms: DEFAULT_FORK_CHOICE_BEFORE_PROPOSAL_TIMEOUT,
+            // Builder fallback configs that are set in `clap` will override these.
+            builder_fallback_skips: 3,
+            builder_fallback_skips_per_epoch: 8,
+            builder_fallback_epochs_since_finalization: 3,
+            builder_fallback_disable_checks: false,
             count_unrealized: false,
         }
     }

@@ -630,9 +630,22 @@ pub fn get_config<E: EthSpec>(
         client_config.chain.fork_choice_before_proposal_timeout_ms = timeout;
     }
 
-    if cli_args.is_present("count-unrealized") {
-        client_config.chain.count_unrealized = true;
-    }
+    client_config.chain.count_unrealized =
+        clap_utils::parse_required(cli_args, "count-unrealized")?;
+
+    /*
+     * Builder fallback configs.
+     */
+    client_config.chain.builder_fallback_skips =
+        clap_utils::parse_required(cli_args, "builder-fallback-skips")?;
+    client_config.chain.builder_fallback_skips_per_epoch =
+        clap_utils::parse_required(cli_args, "builder-fallback-skips-per-epoch")?;
+    client_config
+        .chain
+        .builder_fallback_epochs_since_finalization =
+        clap_utils::parse_required(cli_args, "builder-fallback-epochs-since-finalization")?;
+    client_config.chain.builder_fallback_disable_checks =
+        cli_args.is_present("builder-fallback-disable-checks");
 
     Ok(client_config)
 }

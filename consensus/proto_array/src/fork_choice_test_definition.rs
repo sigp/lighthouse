@@ -6,6 +6,7 @@ mod votes;
 use crate::proto_array_fork_choice::{Block, ExecutionStatus, ProtoArrayForkChoice};
 use crate::InvalidationOperation;
 use serde_derive::{Deserialize, Serialize};
+use std::collections::BTreeSet;
 use types::{
     AttestationShufflingId, Checkpoint, Epoch, EthSpec, ExecutionBlockHash, Hash256,
     MainnetEthSpec, Slot,
@@ -88,6 +89,7 @@ impl ForkChoiceTestDefinition {
             ExecutionStatus::Optimistic(ExecutionBlockHash::zero()),
         )
         .expect("should create fork choice struct");
+        let equivocating_indices = BTreeSet::new();
 
         for (op_index, op) in self.operations.into_iter().enumerate() {
             match op.clone() {
@@ -103,6 +105,7 @@ impl ForkChoiceTestDefinition {
                             finalized_checkpoint,
                             &justified_state_balances,
                             Hash256::zero(),
+                            &equivocating_indices,
                             Slot::new(0),
                             &spec,
                         )
@@ -130,6 +133,7 @@ impl ForkChoiceTestDefinition {
                             finalized_checkpoint,
                             &justified_state_balances,
                             proposer_boost_root,
+                            &equivocating_indices,
                             Slot::new(0),
                             &spec,
                         )
@@ -154,6 +158,7 @@ impl ForkChoiceTestDefinition {
                         finalized_checkpoint,
                         &justified_state_balances,
                         Hash256::zero(),
+                        &equivocating_indices,
                         Slot::new(0),
                         &spec,
                     );

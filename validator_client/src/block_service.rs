@@ -11,9 +11,7 @@ use slot_clock::SlotClock;
 use std::ops::Deref;
 use std::sync::Arc;
 use tokio::sync::mpsc;
-use types::{
-    BlindedPayload, BlockType, Epoch, EthSpec, ExecPayload, FullPayload, PublicKeyBytes, Slot,
-};
+use types::{BlindedPayload, BlockType, EthSpec, ExecPayload, FullPayload, PublicKeyBytes, Slot};
 
 #[derive(Debug)]
 pub enum BlockError {
@@ -44,7 +42,6 @@ pub struct BlockServiceBuilder<T, E: EthSpec> {
     context: Option<RuntimeContext<E>>,
     graffiti: Option<Graffiti>,
     graffiti_file: Option<GraffitiFile>,
-    private_tx_proposals: bool,
     strict_fee_recipient: bool,
 }
 
@@ -57,7 +54,6 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockServiceBuilder<T, E> {
             context: None,
             graffiti: None,
             graffiti_file: None,
-            private_tx_proposals: false,
             strict_fee_recipient: false,
         }
     }
@@ -92,11 +88,6 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockServiceBuilder<T, E> {
         self
     }
 
-    pub fn private_tx_proposals(mut self, private_tx_proposals: bool) -> Self {
-        self.private_tx_proposals = private_tx_proposals;
-        self
-    }
-
     pub fn strict_fee_recipient(mut self, strict_fee_recipient: bool) -> Self {
         self.strict_fee_recipient = strict_fee_recipient;
         self
@@ -119,7 +110,6 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockServiceBuilder<T, E> {
                     .ok_or("Cannot build BlockService without runtime_context")?,
                 graffiti: self.graffiti,
                 graffiti_file: self.graffiti_file,
-                private_tx_proposals: self.private_tx_proposals,
                 strict_fee_recipient: self.strict_fee_recipient,
             }),
         })
@@ -134,7 +124,6 @@ pub struct Inner<T, E: EthSpec> {
     context: RuntimeContext<E>,
     graffiti: Option<Graffiti>,
     graffiti_file: Option<GraffitiFile>,
-    private_tx_proposals: bool,
     strict_fee_recipient: bool,
 }
 
@@ -244,32 +233,29 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
             )
         }
 
-        let private_tx_proposals = self.private_tx_proposals;
-        let merge_slot = self
-            .context
-            .eth2_config
-            .spec
-            .bellatrix_fork_epoch
-            .unwrap_or_else(Epoch::max_value)
-            .start_slot(E::slots_per_epoch());
         for validator_pubkey in proposers {
+            let builder_proposals = self
+                .validator_store
+                .get_builder_proposals(&validator_pubkey);
             let service = self.clone();
             let log = log.clone();
             self.inner.context.executor.spawn(
                 async move {
-                    let publish_result = if private_tx_proposals && slot >= merge_slot {
+                    let publish_result = if builder_proposals {
                         let mut result = service.clone()
                             .publish_block::<BlindedPayload<E>>(slot, validator_pubkey)
                             .await;
                         match result.as_ref() {
                             Err(BlockError::Recoverable(e)) => {
-                                error!(log, "Error whilst producing a blinded block, attempting to publish full block"; "error" => ?e);
+                                error!(log, "Error whilst producing a blinded block, attempting to \
+                                    publish full block"; "error" => ?e);
                                 result = service
                                     .publish_block::<FullPayload<E>>(slot, validator_pubkey)
                                     .await;
                             },
                             Err(BlockError::Irrecoverable(e))  => {
-                                error!(log, "Error whilst producing a blinded block, cannot fallback because block was signed"; "error" => ?e);
+                                error!(log, "Error whilst producing a blinded block, cannot fallback \
+                                    because the block was signed"; "error" => ?e);
                             },
                             _ => {},
                         };
@@ -344,12 +330,12 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
         let block = self
             .beacon_nodes
             .first_success(RequireSynced::No, |beacon_node| async move {
-                let get_timer = metrics::start_timer_vec(
-                    &metrics::BLOCK_SERVICE_TIMES,
-                    &[metrics::BEACON_BLOCK_HTTP_GET],
-                );
                 let block = match Payload::block_type() {
                     BlockType::Full => {
+                        let _get_timer = metrics::start_timer_vec(
+                            &metrics::BLOCK_SERVICE_TIMES,
+                            &[metrics::BEACON_BLOCK_HTTP_GET],
+                        );
                         beacon_node
                             .get_validator_blocks::<E, Payload>(
                                 slot,
@@ -366,6 +352,10 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                             .data
                     }
                     BlockType::Blinded => {
+                        let _get_timer = metrics::start_timer_vec(
+                            &metrics::BLOCK_SERVICE_TIMES,
+                            &[metrics::BLINDED_BEACON_BLOCK_HTTP_GET],
+                        );
                         beacon_node
                             .get_validator_blinded_blocks::<E, Payload>(
                                 slot,
@@ -382,7 +372,6 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                             .data
                     }
                 };
-                drop(get_timer);
 
                 // Ensure the correctness of the execution payload's fee recipient.
                 if strict_fee_recipient {
@@ -415,43 +404,51 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
         // Publish block with first available beacon node.
         self.beacon_nodes
             .first_success(RequireSynced::No, |beacon_node| async {
-                let _post_timer = metrics::start_timer_vec(
-                    &metrics::BLOCK_SERVICE_TIMES,
-                    &[metrics::BEACON_BLOCK_HTTP_POST],
-                );
-
                 match Payload::block_type() {
-                    BlockType::Full => beacon_node
-                        .post_beacon_blocks(&signed_block)
-                        .await
-                        .map_err(|e| {
-                            BlockError::Irrecoverable(format!(
-                                "Error from beacon node when publishing block: {:?}",
-                                e
-                            ))
-                        })?,
-                    BlockType::Blinded => beacon_node
-                        .post_beacon_blinded_blocks(&signed_block)
-                        .await
-                        .map_err(|e| {
-                            BlockError::Irrecoverable(format!(
-                                "Error from beacon node when publishing block: {:?}",
-                                e
-                            ))
-                        })?,
+                    BlockType::Full => {
+                        let _post_timer = metrics::start_timer_vec(
+                            &metrics::BLOCK_SERVICE_TIMES,
+                            &[metrics::BEACON_BLOCK_HTTP_POST],
+                        );
+                        beacon_node
+                            .post_beacon_blocks(&signed_block)
+                            .await
+                            .map_err(|e| {
+                                BlockError::Irrecoverable(format!(
+                                    "Error from beacon node when publishing block: {:?}",
+                                    e
+                                ))
+                            })?
+                    }
+                    BlockType::Blinded => {
+                        let _post_timer = metrics::start_timer_vec(
+                            &metrics::BLOCK_SERVICE_TIMES,
+                            &[metrics::BLINDED_BEACON_BLOCK_HTTP_POST],
+                        );
+                        beacon_node
+                            .post_beacon_blinded_blocks(&signed_block)
+                            .await
+                            .map_err(|e| {
+                                BlockError::Irrecoverable(format!(
+                                    "Error from beacon node when publishing block: {:?}",
+                                    e
+                                ))
+                            })?
+                    }
                 }
-
-                info!(
-                    log,
-                    "Successfully published block";
-                    "deposits" => signed_block.message().body().deposits().len(),
-                    "attestations" => signed_block.message().body().attestations().len(),
-                    "graffiti" => ?graffiti.map(|g| g.as_utf8_lossy()),
-                    "slot" => signed_block.slot().as_u64(),
-                );
                 Ok::<_, BlockError>(())
             })
             .await?;
+
+        info!(
+            log,
+            "Successfully published block";
+            "block_type" => ?Payload::block_type(),
+            "deposits" => signed_block.message().body().deposits().len(),
+            "attestations" => signed_block.message().body().attestations().len(),
+            "graffiti" => ?graffiti.map(|g| g.as_utf8_lossy()),
+            "slot" => signed_block.slot().as_u64(),
+        );
         Ok(())
     }
 }

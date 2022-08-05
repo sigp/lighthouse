@@ -280,6 +280,8 @@ pub fn cli_run(matches: &ArgMatches, validator_dir: PathBuf) -> Result<(), Strin
             password_opt,
             graffiti,
             suggested_fee_recipient,
+            None,
+            None,
         )
         .map_err(|e| format!("Unable to create new validator definition: {:?}", e))?;
 
