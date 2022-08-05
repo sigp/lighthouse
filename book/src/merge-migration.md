@@ -9,7 +9,7 @@ This document provides detail for users who want to run a merge-ready Lighthouse
 There are two configuration changes required for a Lighthouse node to operate correctly throughout
 the merge:
 
-1. You *must* run a local execution engine such as Geth or Nethermind alongside Lighthouse.
+1. You *must* run your own execution engine such as Geth or Nethermind alongside Lighthouse.
    You *must* update your Lighthouse configuration to connect to the execution engine using new
    flags which are documented on this page in the
    [Connecting to an execution engine](#connecting-to-an-execution-engine) section.
