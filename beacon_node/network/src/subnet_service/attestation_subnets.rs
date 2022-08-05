@@ -75,7 +75,7 @@ pub struct AttestationService<T: BeaconChainTypes> {
 
     /// A collection timeouts to track the existence of aggregate validator subscriptions at an
     /// `ExactSubnet`.
-    aggregate_validators_on_subnet: HashSetDelay<ExactSubnet>,
+    aggregate_validators_on_subnet: Option<HashSetDelay<ExactSubnet>>,
 
     /// A collection of seen validators. These dictate how many random subnets we should be
     /// subscribed to. As these time out, we unsubscribe for the required random subnets and update
@@ -91,9 +91,6 @@ pub struct AttestationService<T: BeaconChainTypes> {
 
     /// We are always subscribed to all subnets.
     subscribe_all_subnets: bool,
-
-    /// We process and aggregate all attestations on subscribed subnets.
-    import_all_attestations: bool,
 
     /// For how many slots we subscribe to long lived subnets.
     long_lived_subnet_subscription_slots: u64,
@@ -127,18 +124,20 @@ impl<T: BeaconChainTypes> AttestationService<T> {
             .checked_mul(LAST_SEEN_VALIDATOR_TIMEOUT_SLOTS)
             .expect("LAST_SEEN_VALIDATOR_TIMEOUT must not be ridiculously large");
 
+        let track_validators = !config.import_all_attestations;
+        let aggregate_validators_on_subnet =
+            track_validators.then(|| HashSetDelay::new(slot_duration));
         AttestationService {
             events: VecDeque::with_capacity(10),
             beacon_chain,
             short_lived_subscriptions: HashMapDelay::new(slot_duration),
             long_lived_subscriptions: HashMapDelay::new(long_lived_subscription_duration),
             scheduled_short_lived_subscriptions: HashSetDelay::default(),
-            aggregate_validators_on_subnet: HashSetDelay::new(slot_duration),
+            aggregate_validators_on_subnet,
             known_validators: HashSetDelay::new(last_seen_val_timeout),
             waker: None,
             discovery_disabled: config.disable_discovery,
             subscribe_all_subnets: config.subscribe_all_subnets,
-            import_all_attestations: config.import_all_attestations,
             long_lived_subnet_subscription_slots,
             log,
         }
@@ -273,16 +272,15 @@ impl<T: BeaconChainTypes> AttestationService<T> {
         subnet: SubnetId,
         attestation: &Attestation<T::EthSpec>,
     ) -> bool {
-        if self.import_all_attestations {
-            return true;
-        }
-
-        let exact_subnet = ExactSubnet {
-            subnet_id: subnet,
-            slot: attestation.data.slot,
-        };
         self.aggregate_validators_on_subnet
-            .contains_key(&exact_subnet)
+            .as_ref()
+            .map(|tracked_vals| {
+                tracked_vals.contains_key(&ExactSubnet {
+                    subnet_id: subnet,
+                    slot: attestation.data.slot,
+                })
+            })
+            .unwrap_or(true)
     }
 
     /* Internal private functions */
@@ -367,6 +365,10 @@ impl<T: BeaconChainTypes> AttestationService<T> {
             time_to_subscription_slot.saturating_sub(advance_subscription_duration)
         };
 
+        if let Some(tracked_vals) = self.aggregate_validators_on_subnet.as_mut() {
+            tracked_vals.insert(ExactSubnet { subnet_id, slot });
+        }
+
         // If the subscription should be done in the future, schedule it. Otherwise subscribe
         // immediately.
         if time_to_subscription_start.is_zero() {
@@ -382,8 +384,6 @@ impl<T: BeaconChainTypes> AttestationService<T> {
                 .insert_at(ExactSubnet { subnet_id, slot }, time_to_subscription_start);
         }
 
-        self.aggregate_validators_on_subnet
-            .insert(ExactSubnet { subnet_id, slot });
         Ok(())
     }
 
@@ -471,6 +471,11 @@ impl<T: BeaconChainTypes> AttestationService<T> {
         subscription_kind: SubscriptionKind,
         end_slot: Slot,
     ) -> Result<(), &'static str> {
+        if self.subscribe_all_subnets {
+            // Case not handled by this service.
+            return Ok(());
+        }
+
         let time_to_subscription_end = self
             .beacon_chain
             .slot_clock
@@ -512,15 +517,15 @@ impl<T: BeaconChainTypes> AttestationService<T> {
             None => {
                 // This is a new subscription. Add with the corresponding timeout and send the
                 // notification.
-                debug!(self.log, "Subscribing to subnet";
-                    "subnet" => ?subnet_id,
-                    "end_slot" => end_slot,
-                    "subscription_kind" => ?subscription_kind,
-                );
                 subscriptions.insert_at(subnet_id, end_slot, time_to_subscription_end);
 
                 // Inform of the subscription.
                 if !already_subscribed_as_other_kind {
+                    debug!(self.log, "Subscribing to subnet";
+                        "subnet" => ?subnet_id,
+                        "end_slot" => end_slot,
+                        "subscription_kind" => ?subscription_kind,
+                    );
                     self.queue_event(SubnetServiceMessage::Subscribe(Subnet::Attestation(
                         subnet_id,
                     )));
@@ -720,8 +725,10 @@ impl<T: BeaconChainTypes> Stream for AttestationService<T> {
         }
 
         // Poll to remove entries on expiration, no need to act on expiration events.
-        if let Poll::Ready(Some(Err(e))) = self.aggregate_validators_on_subnet.poll_next_unpin(cx) {
-            error!(self.log, "Failed to check for aggregate validator on subnet expirations"; "error"=> e);
+        if let Some(tracked_vals) = self.aggregate_validators_on_subnet.as_mut() {
+            if let Poll::Ready(Some(Err(e))) = tracked_vals.poll_next_unpin(cx) {
+                error!(self.log, "Failed to check for aggregate validator on subnet expirations"; "error"=> e);
+            }
         }
 
         Poll::Pending
