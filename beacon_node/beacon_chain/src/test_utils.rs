@@ -484,14 +484,12 @@ where
         // Initialize the slot clock only if it hasn't already been initialized.
         builder = if let Some(testing_slot_clock) = self.testing_slot_clock {
             builder.slot_clock(testing_slot_clock)
+        } else if builder.get_slot_clock().is_none() {
+            builder
+                .testing_slot_clock(Duration::from_secs(seconds_per_slot))
+                .expect("should configure testing slot clock")
         } else {
-            if builder.get_slot_clock().is_none() {
-                builder
-                    .testing_slot_clock(Duration::from_secs(seconds_per_slot))
-                    .expect("should configure testing slot clock")
-            } else {
-                builder
-            }
+            builder
         };
 
         let chain = builder.build().expect("should build");
