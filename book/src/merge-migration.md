@@ -27,7 +27,7 @@ on which your node is operating.
 
 * **Mainnet**: the Bellatrix fork epoch has not yet been announced. It's possible to set up a
   merge-ready node now, but some execution engines will require additional configuration. Please see
-  the secton on [Execution engine configuration](#execution-engine-configuration) below.
+  the section on [Execution engine configuration](#execution-engine-configuration) below.
 
 * **Goerli (Prater)**, **Ropsten**, **Sepolia**, **Kiln**: you must have a merge-ready configuration
   right now.
@@ -56,8 +56,8 @@ the relevant page for your execution engine for the required flags:
 - [Besu: Prepare For The Merge](https://besu.hyperledger.org/en/stable/HowTo/Upgrade/Prepare-for-The-Merge/)
 
 Once you have configured your execution engine to open up the engine API (usually on port 8551) you
-should add the URL to your `lighthouse bn` flags with `--execution-endpoint URL`, as well as
-the path to the JWT secret with `--execution-jwt`.
+should add the URL to your `lighthouse bn` flags with `--execution-endpoint <URL>`, as well as
+the path to the JWT secret with `--execution-jwt <FILE>`.
 
 > NOTE: Geth v1.10.21 or earlier requires a manual TTD override to communicate with Lighthouse over
 > the engine API on mainnet. We recommend waiting for a compatible Geth release before configuring
