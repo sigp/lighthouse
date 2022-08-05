@@ -179,5 +179,6 @@ local execution engine for payload construction, where a strict fee recipient ch
 You might wonder why the validator can't just accumulate transactions fees in the same way that it
 accumulates other staking rewards. The reason for this is that transaction fees are computed and
 validated by the execution node, and therefore need to be paid to an address that exists on the
-execution chain. In the initial merge fork (Bellatrix) validators have no presence
-
+execution chain. Validators use BLS keys which do not correspond to Ethereum addresses, so they
+have no "presence" on the execution chain. Therefore it's necessary for each validator to nominate
+a separate fee recipient address.
