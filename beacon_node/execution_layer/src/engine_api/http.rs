@@ -45,6 +45,10 @@ pub const ENGINE_EXCHANGE_TRANSITION_CONFIGURATION_V1_TIMEOUT: Duration =
 /// This error is returned during a `chainId` call by Geth.
 pub const EIP155_ERROR_STR: &str = "chain not synced beyond EIP-155 replay-protection fork block";
 
+/// Number of seconds behind the current block's timestamp where we consider the execution
+/// node to be synced.
+pub const FAR_BEHIND_SECONDS: u64 = 64;
+
 /// Contains methods to convert arbitary bytes to an ETH2 deposit contract object.
 pub mod deposit_log {
     use ssz::Decode;
@@ -601,7 +605,28 @@ impl HttpJsonRpc {
          * also seems like it might get annoying during development.
          */
         match result.as_bool() {
-            Some(false) => Ok(()),
+            Some(false) => {
+                // Execution nodes return a "SYNCED" response when they do not have any peers
+                // and in some other rare cases (e.g. Geth syncing beacon headers) even when
+                // they are not synced.
+                // Here we make an additional check to see if the head block returned
+                // by the execution layer is within a tolerable timestamp to consider
+                // it to be synced.
+                let block = self
+                    .get_block_by_number(BlockByNumberQuery::Tag(LATEST_TAG))
+                    .await?
+                    .ok_or(Error::ExecutionHeadBlockNotFound)?;
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_secs())
+                    .unwrap_or(u64::MAX);
+
+                if block.timestamp + FAR_BEHIND_SECONDS > now {
+                    Ok(())
+                } else {
+                    Err(Error::IsSyncing)
+                }
+            }
             _ => Err(Error::IsSyncing),
         }
     }

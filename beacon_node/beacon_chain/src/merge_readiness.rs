@@ -157,7 +157,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 };
             }
 
-            if !el.is_synced_for_notifier().await {
+            if !el.is_synced().await {
                 // The EL is not synced.
                 return MergeReadiness::NotSynced;
             }
