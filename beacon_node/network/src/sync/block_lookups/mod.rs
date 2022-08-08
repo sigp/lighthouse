@@ -5,11 +5,10 @@ use beacon_chain::{BeaconChainTypes, BlockError};
 use fnv::FnvHashMap;
 use lighthouse_network::{PeerAction, PeerId};
 use lru_cache::LRUTimeCache;
-use slog::{crit, debug, error, trace, warn, Logger};
+use slog::{debug, error, trace, warn, Logger};
 use smallvec::SmallVec;
 use std::sync::Arc;
 use store::{Hash256, SignedBeaconBlock};
-use tokio::sync::mpsc;
 
 use crate::beacon_processor::{ChainSegmentProcessId, FailureMode, WorkEvent};
 use crate::metrics;
@@ -144,7 +143,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             Entry::Occupied(req) => req,
             Entry::Vacant(_) => {
                 if block.is_some() {
-                    crit!(
+                    debug!(
                         self.log,
                         "Block returned for single block lookup not present"
                     );
@@ -163,6 +162,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                         block,
                         seen_timestamp,
                         BlockProcessType::SingleBlock { id },
+                        cx,
                     )
                     .is_err()
                 {
@@ -227,6 +227,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                         block,
                         seen_timestamp,
                         BlockProcessType::ParentLookup { chain_hash },
+                        cx,
                     )
                     .is_ok()
                 {
@@ -387,7 +388,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 #[cfg(debug_assertions)]
                 panic!("block processed for single block lookup not present");
                 #[cfg(not(debug_assertions))]
-                return crit!(
+                return debug!(
                     self.log,
                     "Block processed for single block lookup not present"
                 );
@@ -515,14 +516,26 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             }
             BlockProcessResult::Ok
             | BlockProcessResult::Err(BlockError::BlockIsAlreadyKnown { .. }) => {
+                // Check if the beacon processor is available
+                let beacon_processor_send = match cx.beacon_processor_send() {
+                    Some(channel) => channel,
+                    None => {
+                        // The beacon processor if offline if the ee is out of sync. Having a
+                        // parent chain and an out of sync ee should be unlikely and given the
+                        // times needed to be back in sync there is no point in holding on to these
+                        // blocks.
+                        return trace!(
+                            self.log,
+                            "Dropping parent chain segment that was ready for processing.";
+                            parent_lookup
+                        );
+                    }
+                };
                 let chain_hash = parent_lookup.chain_hash();
                 let blocks = parent_lookup.chain_blocks();
                 let process_id = ChainSegmentProcessId::ParentLookup(chain_hash);
 
-                match self
-                    .beacon_processor_send
-                    .try_send(WorkEvent::chain_segment(process_id, blocks))
-                {
+                match beacon_processor_send.try_send(WorkEvent::chain_segment(process_id, blocks)) {
                     Ok(_) => {
                         self.parent_queue.push(parent_lookup);
                     }
@@ -601,7 +614,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 chain_hash
             );
             #[cfg(not(debug_assertions))]
-            return crit!(self.log, "Chain process response for a parent lookup request that was not found"; "chain_hash" => %chain_hash);
+            return debug!(self.log, "Chain process response for a parent lookup request that was not found"; "chain_hash" => %chain_hash);
         };
 
         debug!(self.log, "Parent chain processed"; "chain_hash" => %chain_hash, "result" => ?result);
@@ -645,19 +658,28 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
         duration: Duration,
         process_type: BlockProcessType,
+        cx: &mut SyncNetworkContext<T>,
     ) -> Result<(), ()> {
-        trace!(self.log, "Sending block for processing"; "block" => %block.canonical_root(), "process" => ?process_type);
-        let event = WorkEvent::rpc_beacon_block(block, duration, process_type);
-        if let Err(e) = self.beacon_processor_send.try_send(event) {
-            error!(
-                self.log,
-                "Failed to send sync block to processor";
-                "error" => ?e
-            );
-            return Err(());
+        match cx.beacon_processor_send() {
+            Some(beacon_processor_send) => {
+                trace!(self.log, "Sending block for processing"; "block" => %block.canonical_root(), "process" => ?process_type);
+                let event = WorkEvent::rpc_beacon_block(block, duration, process_type);
+                if let Err(e) = beacon_processor_send.try_send(event) {
+                    error!(
+                        self.log,
+                        "Failed to send sync block to processor";
+                        "error" => ?e
+                    );
+                    Err(())
+                } else {
+                    Ok(())
+                }
+            }
+            None => {
+                trace!(self.log, "Dropping block ready for processing. Beacon processor not available"; "block" => %block.canonical_root());
+                Err(())
+            }
         }
-
-        Ok(())
     }
 
     fn request_parent(

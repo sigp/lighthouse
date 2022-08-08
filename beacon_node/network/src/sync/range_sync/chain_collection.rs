@@ -6,7 +6,6 @@
 use super::block_storage::BlockStorage;
 use super::chain::{ChainId, ProcessingResult, RemoveChain, SyncingChain};
 use super::sync_type::RangeSyncType;
-use crate::beacon_processor::WorkEvent as BeaconWorkEvent;
 use crate::metrics;
 use crate::sync::network_context::SyncNetworkContext;
 use beacon_chain::BeaconChainTypes;
@@ -18,7 +17,6 @@ use smallvec::SmallVec;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::mpsc;
 use types::EthSpec;
 use types::{Epoch, Hash256, Slot};
 

@@ -12,6 +12,7 @@ use lighthouse_network::{NetworkGlobals, Request};
 use slog::{Drain, Level};
 use slot_clock::SystemTimeSlotClock;
 use store::MemoryStore;
+use tokio::sync::mpsc;
 use types::test_utils::{SeedableRng, TestRandom, XorShiftRng};
 use types::MinimalEthSpec as E;
 

@@ -1,7 +1,7 @@
 use beacon_chain::BeaconChainTypes;
 use lighthouse_network::PeerId;
 use std::sync::Arc;
-use store::{EthSpec, Hash256, SignedBeaconBlock};
+use store::{Hash256, SignedBeaconBlock};
 use strum::IntoStaticStr;
 
 use crate::sync::{
