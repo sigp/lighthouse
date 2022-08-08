@@ -70,8 +70,11 @@ impl BatchConfig for RangeSyncBatchConfig {
 // Such errors should never be encountered.
 pub struct WrongState(pub(crate) String);
 
-/// Auxiliary type alias for readability.
-type IsFailed = bool;
+/// After batch operations, we use this to communicate whether a batch can continue or not
+pub enum OpOutcome {
+    Continue,
+    Failed { blacklist: bool },
+}
 
 pub enum BatchProcessingResult {
     Success,
@@ -124,14 +127,6 @@ impl<T: EthSpec> BatchState<T> {
     pub fn poison(&mut self) -> BatchState<T> {
         std::mem::replace(self, BatchState::Poisoned)
     }
-
-    pub fn is_failed(&self) -> IsFailed {
-        match self {
-            BatchState::Failed => true,
-            BatchState::Poisoned => unreachable!("Poisoned batch"),
-            _ => false,
-        }
-    }
 }
 
 impl<T: EthSpec, B: BatchConfig> BatchInfo<T, B> {
@@ -175,6 +170,15 @@ impl<T: EthSpec, B: BatchConfig> BatchInfo<T, B> {
         peers
     }
 
+    /// Return the number of times this batch has failed downloading and failed processing, in this
+    /// order.
+    pub fn failed_attempts(&self) -> (usize, usize) {
+        (
+            self.failed_download_attempts.len(),
+            self.failed_processing_attempts.len(),
+        )
+    }
+
     /// Verifies if an incomming block belongs to this batch.
     pub fn is_expecting_block(&self, peer_id: &PeerId, request_id: &Id) -> bool {
         if let BatchState::Downloading(expected_peer, _, expected_id) = &self.state {
@@ -200,6 +204,17 @@ impl<T: EthSpec, B: BatchConfig> BatchInfo<T, B> {
         BlocksByRangeRequest {
             start_slot: self.start_slot.into(),
             count: self.end_slot.sub(self.start_slot).into(),
+        }
+    }
+
+    pub fn outcome(&self) -> OpOutcome {
+        match self.state {
+            BatchState::Poisoned => unreachable!("Poisoned batch"),
+            BatchState::Failed => OpOutcome::Failed {
+                blacklist: self.failed_processing_attempts.len()
+                    > self.failed_download_attempts.len(),
+            },
+            _ => OpOutcome::Continue,
         }
     }
 
@@ -235,7 +250,7 @@ impl<T: EthSpec, B: BatchConfig> BatchInfo<T, B> {
     #[must_use = "Batch may have failed"]
     pub fn download_completed(
         &mut self,
-    ) -> Result<usize /* Received blocks */, Result<(Slot, Slot, IsFailed), WrongState>> {
+    ) -> Result<usize /* Received blocks */, Result<(Slot, Slot, OpOutcome), WrongState>> {
         match self.state.poison() {
             BatchState::Downloading(peer, blocks, _request_id) => {
                 // verify that blocks are in range
@@ -264,7 +279,7 @@ impl<T: EthSpec, B: BatchConfig> BatchInfo<T, B> {
                             BatchState::AwaitingDownload
                         };
 
-                        return Err(Ok((expected, received, self.state.is_failed())));
+                        return Err(Ok((expected, received, self.outcome())));
                     }
                 }
 
@@ -289,7 +304,7 @@ impl<T: EthSpec, B: BatchConfig> BatchInfo<T, B> {
     /// THe `mark_failed` parameter, when set to false, does not increment the failed attempts of
     /// this batch and register the peer, rather attempts a re-download.
     #[must_use = "Batch may have failed"]
-    pub fn download_failed(&mut self, mark_failed: bool) -> Result<IsFailed, WrongState> {
+    pub fn download_failed(&mut self, mark_failed: bool) -> Result<OpOutcome, WrongState> {
         match self.state.poison() {
             BatchState::Downloading(peer, _, _request_id) => {
                 // register the attempt and check if the batch can be tried again
@@ -304,7 +319,7 @@ impl<T: EthSpec, B: BatchConfig> BatchInfo<T, B> {
                     // drop the blocks
                     BatchState::AwaitingDownload
                 };
-                Ok(self.state.is_failed())
+                Ok(self.outcome())
             }
             BatchState::Poisoned => unreachable!("Poisoned batch"),
             other => {
@@ -359,7 +374,7 @@ impl<T: EthSpec, B: BatchConfig> BatchInfo<T, B> {
     pub fn processing_completed(
         &mut self,
         procesing_result: BatchProcessingResult,
-    ) -> Result<IsFailed, WrongState> {
+    ) -> Result<OpOutcome, WrongState> {
         match self.state.poison() {
             BatchState::Processing(attempt) => {
                 self.state = match procesing_result {
@@ -384,7 +399,7 @@ impl<T: EthSpec, B: BatchConfig> BatchInfo<T, B> {
                         }
                     }
                 };
-                Ok(self.state.is_failed())
+                Ok(self.outcome())
             }
             BatchState::Poisoned => unreachable!("Poisoned batch"),
             other => {
@@ -398,7 +413,7 @@ impl<T: EthSpec, B: BatchConfig> BatchInfo<T, B> {
     }
 
     #[must_use = "Batch may have failed"]
-    pub fn validation_failed(&mut self) -> Result<IsFailed, WrongState> {
+    pub fn validation_failed(&mut self) -> Result<OpOutcome, WrongState> {
         match self.state.poison() {
             BatchState::AwaitingValidation(attempt) => {
                 self.failed_processing_attempts.push(attempt);
@@ -411,7 +426,7 @@ impl<T: EthSpec, B: BatchConfig> BatchInfo<T, B> {
                 } else {
                     BatchState::AwaitingDownload
                 };
-                Ok(self.state.is_failed())
+                Ok(self.outcome())
             }
             BatchState::Poisoned => unreachable!("Poisoned batch"),
             other => {
