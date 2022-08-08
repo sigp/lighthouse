@@ -17,12 +17,12 @@ eth2_hashing = "0.3.0"
 ethereum-types = "0.12.1"
 arbitrary = { version = "1.0", features = ["derive"], optional = true }
 zeroize = { version = "1.4.2", features = ["zeroize_derive"] }
-blst = "0.3.3"
+blst = { version = "0.3.3", optional = true }
 
 [features]
 default = ["supranational"]
 fake_crypto = []
 milagro = ["milagro_bls"]
-supranational = []
+supranational = ["blst"]
 supranational-portable = ["supranational", "blst/portable"]
 supranational-force-adx = ["supranational", "blst/force-adx"]
