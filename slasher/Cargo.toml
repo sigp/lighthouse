@@ -13,8 +13,6 @@ flate2 = { version = "1.0.14", features = ["zlib"], default-features = false }
 lazy_static = "1.4.0"
 lighthouse_metrics = { path = "../common/lighthouse_metrics" }
 filesystem = { path = "../common/filesystem" }
-# MDBX is pinned at the last version with Windows and macOS support. This is only viable short-term.
-mdbx = { package = "libmdbx", version = "=0.1.4" }
 lru = "0.7.1"
 parking_lot = "0.12.0"
 rand = "0.8.5"
@@ -26,6 +24,10 @@ sloggers = { version = "2.1.1", features = ["json"] }
 tree_hash = "0.4.1"
 tree_hash_derive = "0.4.0"
 types = { path = "../consensus/types" }
+
+# MDBX is pinned at the last version with Windows and macOS support.
+mdbx = { package = "libmdbx", git = "https://github.com/sigp/libmdbx-rs", tag = "v0.1.4" }
+lmdb-rkv = "0.14.0"
 
 [dev-dependencies]
 maplit = "1.0.2"

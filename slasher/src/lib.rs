@@ -19,14 +19,13 @@ pub use attestation_queue::{AttestationBatch, AttestationQueue, SimpleBatch};
 pub use attester_record::{AttesterRecord, CompactAttesterRecord, IndexedAttesterRecord};
 pub use block_queue::BlockQueue;
 pub use config::Config;
-pub use database::{IndexedAttestationId, SlasherDB};
+pub use database::{
+    interface::{Database, DatabaseBackend, Environment, RwTransaction},
+    IndexedAttestationId, SlasherDB,
+};
 pub use error::Error;
 
 use types::{AttesterSlashing, EthSpec, IndexedAttestation, ProposerSlashing};
-
-/// LMDB-to-MDBX compatibility shims.
-pub type Environment = mdbx::Environment<mdbx::NoWriteMap>;
-pub type RwTransaction<'env> = mdbx::Transaction<'env, mdbx::RW, mdbx::NoWriteMap>;
 
 #[derive(Debug, PartialEq)]
 pub enum AttesterSlashingStatus<E: EthSpec> {
