@@ -25,7 +25,7 @@ use crate::metrics;
 /// The minimum number of slots ahead that we attempt to discover peers for a subscription. If the
 /// slot is less than this number, skip the peer discovery process.
 /// Subnet discovery query takes at most 30 secs, 2 slots take 24s.
-const MIN_PEER_DISCOVERY_SLOT_LOOK_AHEAD: u64 = 2;
+pub(crate) const MIN_PEER_DISCOVERY_SLOT_LOOK_AHEAD: u64 = 2;
 /// The time (in slots) before a last seen validator is considered absent and we unsubscribe from
 /// the random gossip topics that we subscribed to due to the validator connection.
 const LAST_SEEN_VALIDATOR_TIMEOUT_SLOTS: u32 = 150;
@@ -380,6 +380,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
             )?;
         } else {
             // This is a future slot, schedule subscribing.
+            trace!(self.log, "Scheduling subnet subscription"; "subnet" => ?subnet_id, "time_to_subscription_start" => ?time_to_subscription_start);
             self.scheduled_short_lived_subscriptions
                 .insert_at(ExactSubnet { subnet_id, slot }, time_to_subscription_start);
         }
