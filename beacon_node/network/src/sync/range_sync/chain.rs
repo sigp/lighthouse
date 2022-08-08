@@ -39,7 +39,10 @@ pub enum RemoveChain {
     EmptyPeerPool,
     ChainCompleted,
     /// A chain has failed. This boolean signals whether the chain should be blacklisted.
-    ChainFailed(bool),
+    ChainFailed {
+        blacklist: bool,
+        failing_batch: BatchId,
+    },
     WrongBatchState(String),
     WrongChainState(String),
 }
@@ -190,7 +193,10 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             for id in batch_ids {
                 if let Some(batch) = self.batches.get_mut(&id) {
                     if let OpOutcome::Failed { blacklist } = batch.download_failed(true)? {
-                        return Err(RemoveChain::ChainFailed(blacklist));
+                        return Err(RemoveChain::ChainFailed {
+                            blacklist,
+                            failing_batch: id,
+                        });
                     }
                     self.retry_batch_download(network, id)?;
                 } else {
@@ -272,7 +278,10 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                         "peer_id" => %peer_id, batch);
 
                     if let OpOutcome::Failed { blacklist } = outcome {
-                        return Err(RemoveChain::ChainFailed(blacklist));
+                        return Err(RemoveChain::ChainFailed {
+                            blacklist,
+                            failing_batch: batch_id,
+                        });
                     }
                     // this batch can't be used, so we need to request it again.
                     self.retry_batch_download(network, batch_id)
@@ -556,7 +565,10 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                             network.report_peer(peer, *peer_action, "batch_failed");
                         }
                     }
-                    Err(RemoveChain::ChainFailed(blacklist))
+                    Err(RemoveChain::ChainFailed {
+                        blacklist,
+                        failing_batch: batch_id,
+                    })
                 } else {
                     // chain can continue. Check if it can be moved forward
                     if *imported_blocks {
@@ -743,7 +755,10 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         for (id, batch) in self.batches.range_mut(..batch_id) {
             if let OpOutcome::Failed { blacklist } = batch.validation_failed()? {
                 // remove the chain early
-                return Err(RemoveChain::ChainFailed(blacklist));
+                return Err(RemoveChain::ChainFailed {
+                    blacklist,
+                    failing_batch: *id,
+                });
             }
             redownload_queue.push(*id);
         }
@@ -841,7 +856,10 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 active_requests.remove(&batch_id);
             }
             if let OpOutcome::Failed { blacklist } = batch.download_failed(true)? {
-                return Err(RemoveChain::ChainFailed(blacklist));
+                return Err(RemoveChain::ChainFailed {
+                    blacklist,
+                    failing_batch: batch_id,
+                });
             }
             self.retry_batch_download(network, batch_id)
         } else {
@@ -931,7 +949,10 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                         .map(|request| request.remove(&batch_id));
                     match batch.download_failed(true)? {
                         OpOutcome::Failed { blacklist } => {
-                            return Err(RemoveChain::ChainFailed(blacklist))
+                            return Err(RemoveChain::ChainFailed {
+                                blacklist,
+                                failing_batch: batch_id,
+                            })
                         }
                         OpOutcome::Continue => return self.retry_batch_download(network, batch_id),
                     }
