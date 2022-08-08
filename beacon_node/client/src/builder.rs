@@ -383,7 +383,7 @@ where
                             info!(
                                 context.log(),
                                 "Loaded deposit tree snapshot";
-                                "deposits loaded" => deposit_snapshot.deposits,
+                                "deposits loaded" => deposit_snapshot.deposit_count,
                             );
                             Some(service)
                         }

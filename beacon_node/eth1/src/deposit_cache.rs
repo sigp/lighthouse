@@ -188,7 +188,7 @@ impl DepositCache {
             logs: Vec::new(),
             leaves: Vec::new(),
             deposit_contract_deploy_block,
-            finalized_deposit_count: snapshot.deposits,
+            finalized_deposit_count: snapshot.deposit_count,
             finalized_block_height: snapshot.execution_block_height,
             deposit_tree,
             deposit_roots: Vec::new(),

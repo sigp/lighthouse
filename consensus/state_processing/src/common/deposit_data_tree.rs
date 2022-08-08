@@ -54,13 +54,13 @@ impl DepositDataTree {
         Ok(())
     }
 
-    /// Finalize deposits up to `count`
+    /// Finalize deposits up to `finalized_execution_block.deposit_count`
     pub fn finalize(
         &mut self,
         finalized_execution_block: FinalizedExecutionBlock,
     ) -> Result<(), MerkleTreeError> {
         self.tree
-            .finalize_deposits(finalized_execution_block.deposits as usize, self.depth)?;
+            .finalize_deposits(finalized_execution_block.deposit_count as usize, self.depth)?;
         self.finalized_execution_block = Some(finalized_execution_block);
         Ok(())
     }
@@ -69,8 +69,9 @@ impl DepositDataTree {
     pub fn get_snapshot(&self) -> Option<DepositTreeSnapshot> {
         let finalized_execution_block = self.finalized_execution_block.as_ref()?;
         Some(DepositTreeSnapshot {
-            finalized: self.tree.get_finalized_snapshot(),
-            deposits: finalized_execution_block.deposits,
+            finalized: self.tree.get_finalized_hashes(),
+            deposit_root: finalized_execution_block.deposit_root,
+            deposit_count: finalized_execution_block.deposit_count,
             execution_block_hash: finalized_execution_block.block_hash,
             execution_block_height: finalized_execution_block.block_height,
         })
@@ -84,10 +85,10 @@ impl DepositDataTree {
         Ok(Self {
             tree: MerkleTree::from_finalized_snapshot(
                 &snapshot.finalized,
-                snapshot.deposits as usize,
+                snapshot.deposit_count as usize,
                 depth,
             )?,
-            mix_in_length: snapshot.deposits as usize,
+            mix_in_length: snapshot.deposit_count as usize,
             finalized_execution_block: Some(snapshot.into()),
             depth,
         })

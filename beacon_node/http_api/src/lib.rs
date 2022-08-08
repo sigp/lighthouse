@@ -1533,7 +1533,7 @@ pub fn serve<T: BeaconChainTypes>(
         );
 
     // GET beacon/deposit_snapshot
-    let get_beacon_deposit_snapshot = eth1_v1
+    let get_beacon_deposit_snapshot = eth_v1
         .and(warp::path("beacon"))
         .and(warp::path("deposit_snapshot"))
         .and(warp::path::end())
