@@ -38,7 +38,7 @@ pub type ProcessingResult = Result<KeepChain, RemoveChain>;
 pub enum RemoveChain {
     EmptyPeerPool,
     ChainCompleted,
-    /// A chain has failed. This bool signales whether the chain should be blacklisted.
+    /// A chain has failed. This boolean signals whether the chain should be blacklisted.
     ChainFailed(bool),
     WrongBatchState(String),
     WrongChainState(String),

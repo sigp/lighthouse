@@ -179,7 +179,7 @@ impl<T: EthSpec, B: BatchConfig> BatchInfo<T, B> {
         )
     }
 
-    /// Verifies if an incomming block belongs to this batch.
+    /// Verifies if an incoming block belongs to this batch.
     pub fn is_expecting_block(&self, peer_id: &PeerId, request_id: &Id) -> bool {
         if let BatchState::Downloading(expected_peer, _, expected_id) = &self.state {
             return peer_id == expected_peer && expected_id == request_id;
