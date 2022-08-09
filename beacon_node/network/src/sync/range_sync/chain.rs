@@ -529,10 +529,6 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 imported_blocks,
                 penalty,
             } => {
-                // The peer is considered objectively faulty.
-                debug!(self.log, "Batch processing failed"; "imported_blocks" => imported_blocks, "peer_penalty" => ?penalty,
-                    "batch_epoch" => batch_id, "peer" => %peer, "client" => %network.client_type(&peer));
-
                 // Penalize the peer appropiately.
                 network.report_peer(peer, *penalty, "faulty_batch");
 
