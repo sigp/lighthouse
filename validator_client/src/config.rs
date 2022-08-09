@@ -1,4 +1,3 @@
-use crate::fee_recipient_file::FeeRecipientFile;
 use crate::graffiti_file::GraffitiFile;
 use crate::{http_api, http_metrics};
 use clap::ArgMatches;
@@ -44,8 +43,6 @@ pub struct Config {
     pub graffiti_file: Option<GraffitiFile>,
     /// Fallback fallback address.
     pub fee_recipient: Option<Address>,
-    /// Fee recipient file to load per validator suggested-fee-recipients.
-    pub fee_recipient_file: Option<FeeRecipientFile>,
     /// Configuration for the HTTP REST API.
     pub http_api: http_api::Config,
     /// Configuration for the HTTP REST API.
@@ -55,10 +52,18 @@ pub struct Config {
     /// If true, enable functionality that monitors the network for attestations or proposals from
     /// any of the validators managed by this client before starting up.
     pub enable_doppelganger_protection: bool,
-    pub private_tx_proposals: bool,
+    /// Enable use of the blinded block endpoints during proposals.
+    pub builder_proposals: bool,
+    /// Overrides the timestamp field in builder api ValidatorRegistrationV1
+    pub builder_registration_timestamp_override: Option<u64>,
+    /// Fallback gas limit.
+    pub gas_limit: Option<u64>,
     /// A list of custom certificates that the validator client will additionally use when
     /// connecting to a beacon node over SSL/TLS.
     pub beacon_nodes_tls_certs: Option<Vec<PathBuf>>,
+    /// Enabling this will make sure the validator client never signs a block whose `fee_recipient`
+    /// does not match the `suggested_fee_recipient`.
+    pub strict_fee_recipient: bool,
 }
 
 impl Default for Config {
@@ -86,13 +91,15 @@ impl Default for Config {
             graffiti: None,
             graffiti_file: None,
             fee_recipient: None,
-            fee_recipient_file: None,
             http_api: <_>::default(),
             http_metrics: <_>::default(),
             monitoring_api: None,
             enable_doppelganger_protection: false,
             beacon_nodes_tls_certs: None,
-            private_tx_proposals: false,
+            builder_proposals: false,
+            builder_registration_timestamp_override: None,
+            gas_limit: None,
+            strict_fee_recipient: false,
         }
     }
 }
@@ -206,19 +213,6 @@ impl Config {
             }
         }
 
-        if let Some(fee_recipient_file_path) = cli_args.value_of("suggested-fee-recipient-file") {
-            let mut fee_recipient_file = FeeRecipientFile::new(fee_recipient_file_path.into());
-            fee_recipient_file
-                .read_fee_recipient_file()
-                .map_err(|e| format!("Error reading suggested-fee-recipient file: {:?}", e))?;
-            config.fee_recipient_file = Some(fee_recipient_file);
-            info!(
-                log,
-                "Successfully loaded suggested-fee-recipient file";
-                "path" => fee_recipient_file_path
-            );
-        }
-
         if let Some(input_fee_recipient) =
             parse_optional::<Address>(cli_args, "suggested-fee-recipient")?
         {
@@ -313,8 +307,31 @@ impl Config {
             config.enable_doppelganger_protection = true;
         }
 
-        if cli_args.is_present("private-tx-proposals") {
-            config.private_tx_proposals = true;
+        if cli_args.is_present("builder-proposals") {
+            config.builder_proposals = true;
+        }
+
+        config.gas_limit = cli_args
+            .value_of("gas-limit")
+            .map(|gas_limit| {
+                gas_limit
+                    .parse::<u64>()
+                    .map_err(|_| "gas-limit is not a valid u64.")
+            })
+            .transpose()?;
+
+        if let Some(registration_timestamp_override) =
+            cli_args.value_of("builder-registration-timestamp-override")
+        {
+            config.builder_registration_timestamp_override = Some(
+                registration_timestamp_override
+                    .parse::<u64>()
+                    .map_err(|_| "builder-registration-timestamp-override is not a valid u64.")?,
+            );
+        }
+
+        if cli_args.is_present("strict-fee-recipient") {
+            config.strict_fee_recipient = true;
         }
 
         Ok(config)

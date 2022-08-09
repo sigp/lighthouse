@@ -1355,4 +1355,12 @@ mod yaml_tests {
             )
         );
     }
+
+    #[test]
+    fn test_domain_builder() {
+        assert_eq!(
+            int_to_bytes4(ApplicationDomain::Builder.get_domain_constant()),
+            [0, 0, 0, 1]
+        );
+    }
 }

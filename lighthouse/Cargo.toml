@@ -1,10 +1,10 @@
 [package]
 name = "lighthouse"
-version = "2.3.2-rc.0"
+version = "2.5.1"
 authors = ["Sigma Prime <contact@sigmaprime.io>"]
 edition = "2021"
 autotests = false
-rust-version = "1.58"
+rust-version = "1.62"
 
 [features]
 # Writes debugging .ssz files to /tmp during block processing.

@@ -15,11 +15,12 @@ mod early_attester_cache;
 mod errors;
 pub mod eth1_chain;
 pub mod events;
-mod execution_payload;
+pub mod execution_payload;
 pub mod fork_choice_signal;
 pub mod fork_revert;
 mod head_tracker;
 pub mod historical_blocks;
+pub mod merge_readiness;
 mod metrics;
 pub mod migrate;
 mod naive_aggregation_pool;
@@ -27,6 +28,7 @@ mod observed_aggregates;
 mod observed_attesters;
 mod observed_block_producers;
 pub mod observed_operations;
+pub mod otb_verification_service;
 mod persisted_beacon_chain;
 mod persisted_fork_choice;
 mod pre_finalization_cache;
@@ -43,7 +45,8 @@ pub mod validator_pubkey_cache;
 
 pub use self::beacon_chain::{
     AttestationProcessingOutcome, BeaconChain, BeaconChainTypes, BeaconStore, ChainSegmentResult,
-    ForkChoiceError, ProduceBlockVerification, StateSkipConfig, WhenSlotSkipped,
+    CountUnrealized, ForkChoiceError, ProduceBlockVerification, StateSkipConfig, WhenSlotSkipped,
+    INVALID_FINALIZED_MERGE_TRANSITION_BLOCK_SHUTDOWN_REASON,
     INVALID_JUSTIFIED_PAYLOAD_SHUTDOWN_REASON, MAXIMUM_GOSSIP_CLOCK_DISPARITY,
 };
 pub use self::beacon_snapshot::BeaconSnapshot;
@@ -56,7 +59,7 @@ pub use block_verification::{BlockError, ExecutionPayloadError, GossipVerifiedBl
 pub use canonical_head::{CachedHead, CanonicalHead, CanonicalHeadRwLock};
 pub use eth1_chain::{Eth1Chain, Eth1ChainBackend};
 pub use events::ServerSentEventHandler;
-pub use fork_choice::ExecutionStatus;
+pub use fork_choice::{ExecutionStatus, ForkchoiceUpdateParameters};
 pub use metrics::scrape_for_metrics;
 pub use parking_lot;
 pub use slot_clock;

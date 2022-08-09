@@ -71,8 +71,6 @@ impl From<builder_client::Error> for Error {
     }
 }
 
-pub struct EngineApi;
-
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum PayloadStatusV1Status {
     Valid,
@@ -108,6 +106,8 @@ pub struct ExecutionBlock {
     pub block_number: u64,
     pub parent_hash: ExecutionBlockHash,
     pub total_difficulty: Uint256,
+    #[serde(with = "eth2_serde_utils::u64_hex_be")]
+    pub timestamp: u64,
 }
 
 /// Representation of an exection block with enough detail to reconstruct a payload.

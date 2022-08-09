@@ -88,17 +88,23 @@ impl<E: EthSpec> EpochTransition<E> for JustificationAndFinalization {
             BeaconState::Base(_) => {
                 let mut validator_statuses = base::ValidatorStatuses::new(state, spec)?;
                 validator_statuses.process_attestations(state)?;
-                base::process_justification_and_finalization(
-                    state,
-                    &validator_statuses.total_balances,
-                    spec,
-                )
+                let justification_and_finalization_state =
+                    base::process_justification_and_finalization(
+                        state,
+                        &validator_statuses.total_balances,
+                        spec,
+                    )?;
+                justification_and_finalization_state.apply_changes_to_state(state);
+                Ok(())
             }
             BeaconState::Altair(_) | BeaconState::Merge(_) => {
-                altair::process_justification_and_finalization(
-                    state,
-                    &altair::ParticipationCache::new(state, spec).unwrap(),
-                )
+                let justification_and_finalization_state =
+                    altair::process_justification_and_finalization(
+                        state,
+                        &altair::ParticipationCache::new(state, spec).unwrap(),
+                    )?;
+                justification_and_finalization_state.apply_changes_to_state(state);
+                Ok(())
             }
         }
     }
@@ -270,7 +276,8 @@ impl<E: EthSpec, T: EpochTransition<E>> Case for EpochProcessing<E, T> {
                     && T::name() != "inactivity_updates"
                     && T::name() != "participation_flag_updates"
             }
-            ForkName::Altair | ForkName::Merge => true, // TODO: revisit when tests are out
+            // No phase0 tests for Altair and later.
+            ForkName::Altair | ForkName::Merge => T::name() != "participation_record_updates",
         }
     }
 

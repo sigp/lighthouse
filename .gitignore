@@ -9,3 +9,6 @@ perf.data*
 /bin
 genesis.ssz
 /clippy.toml
+
+# IntelliJ
+/*.iml

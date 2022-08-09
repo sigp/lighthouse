@@ -66,7 +66,7 @@ use types::{
     SyncCommitteeMessage, SyncSubnetId,
 };
 use work_reprocessing_queue::{
-    spawn_reprocess_scheduler, QueuedAggregate, QueuedUnaggregate, ReadyWork,
+    spawn_reprocess_scheduler, QueuedAggregate, QueuedRpcBlock, QueuedUnaggregate, ReadyWork,
 };
 
 use worker::{Toolbox, Worker};
@@ -75,7 +75,7 @@ mod tests;
 mod work_reprocessing_queue;
 mod worker;
 
-use crate::beacon_processor::work_reprocessing_queue::QueuedBlock;
+use crate::beacon_processor::work_reprocessing_queue::QueuedGossipBlock;
 pub use worker::{
     ChainSegmentProcessId, FailureMode, GossipAggregatePackage, GossipAttestationPackage,
 };
@@ -501,6 +501,7 @@ impl<T: BeaconChainTypes> WorkEvent<T> {
                 block,
                 seen_timestamp,
                 process_type,
+                should_process: true,
             },
         }
     }
@@ -565,7 +566,7 @@ impl<T: BeaconChainTypes> WorkEvent<T> {
 impl<T: BeaconChainTypes> std::convert::From<ReadyWork<T>> for WorkEvent<T> {
     fn from(ready_work: ReadyWork<T>) -> Self {
         match ready_work {
-            ReadyWork::Block(QueuedBlock {
+            ReadyWork::Block(QueuedGossipBlock {
                 peer_id,
                 block,
                 seen_timestamp,
@@ -575,6 +576,20 @@ impl<T: BeaconChainTypes> std::convert::From<ReadyWork<T>> for WorkEvent<T> {
                     peer_id,
                     block,
                     seen_timestamp,
+                },
+            },
+            ReadyWork::RpcBlock(QueuedRpcBlock {
+                block,
+                seen_timestamp,
+                process_type,
+                should_process,
+            }) => Self {
+                drop_during_sync: false,
+                work: Work::RpcBlock {
+                    block,
+                    seen_timestamp,
+                    process_type,
+                    should_process,
                 },
             },
             ReadyWork::Unaggregate(QueuedUnaggregate {
@@ -695,6 +710,7 @@ pub enum Work<T: BeaconChainTypes> {
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
         seen_timestamp: Duration,
         process_type: BlockProcessType,
+        should_process: bool,
     },
     ChainSegment {
         process_id: ChainSegmentProcessId,
@@ -1521,12 +1537,14 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                 block,
                 seen_timestamp,
                 process_type,
+                should_process,
             } => task_spawner.spawn_async(worker.process_rpc_block(
                 block,
                 seen_timestamp,
                 process_type,
                 work_reprocessing_tx,
                 duplicate_cache,
+                should_process,
             )),
             /*
              * Verification for a chain segment (multiple blocks).

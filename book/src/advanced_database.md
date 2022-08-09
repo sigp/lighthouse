@@ -23,11 +23,11 @@ states to slow down dramatically. A lower _slots per restore point_ value (SPRP)
 frequent restore points, while a higher SPRP corresponds to less frequent. The table below shows
 some example values.
 
-| Use Case                 | SPRP           | Yearly Disk Usage | Load Historical State |
-| ----------------------   | -------------- | ----------------- | --------------------- |
-| Block explorer/analysis  | 32             | 1.4 TB            | 155 ms                |
-| Hobbyist (prev. default) | 2048           | 23.1 GB           | 10.2 s                |
-| Validator only (default) | 8192           | 5.7 GB            | 41 s                  |
+| Use Case                 | SPRP | Yearly Disk Usage | Load Historical State |
+|--------------------------|------|-------------------|-----------------------|
+| Block explorer/analysis  | 32   | 1.4 TB            | 155 ms                |
+| Hobbyist (prev. default) | 2048 | 23.1 GB           | 10.2 s                |
+| Validator only (default) | 8192 | 5.7 GB            | 41 s                  |
 
 As you can see, it's a high-stakes trade-off! The relationships to disk usage and historical state
 load time are both linear – doubling SPRP halves disk usage and doubles load time. The minimum SPRP

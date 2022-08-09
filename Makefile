@@ -146,10 +146,9 @@ lint:
 		-A clippy::upper-case-acronyms \
 		-A clippy::vec-init-then-push
 
-# FIXME: fails if --release is added due to broken HTTP API tests
 nightly-lint:
 	cp .github/custom/clippy.toml .
-	cargo +$(CLIPPY_PINNED_NIGHTLY) clippy --workspace --tests -- \
+	cargo +$(CLIPPY_PINNED_NIGHTLY) clippy --workspace --tests --release -- \
 		-A clippy::all \
 		-D clippy::disallowed_from_async
 	rm clippy.toml
@@ -170,7 +169,7 @@ arbitrary-fuzz:
 # Runs cargo audit (Audit Cargo.lock files for crates with security vulnerabilities reported to the RustSec Advisory Database)
 audit:
 	cargo install --force cargo-audit
-	cargo audit --ignore RUSTSEC-2020-0071 --ignore RUSTSEC-2020-0159
+	cargo audit --ignore RUSTSEC-2020-0071 --ignore RUSTSEC-2020-0159 --ignore RUSTSEC-2022-0040
 
 # Runs `cargo vendor` to make sure dependencies can be vendored for packaging, reproducibility and archival purpose.
 vendor:
