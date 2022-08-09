@@ -33,6 +33,8 @@ excluded_paths = [
     "tests/.*/.*/ssz_static/LightClientSnapshot",
     # Merkle-proof tests for light clients
     "tests/.*/.*/merkle/single_proof",
+    # Capella tests are disabled for now.
+    "tests/.*/capella",
     # One of the EF researchers likes to pack the tarballs on a Mac
     ".*\.DS_Store.*"
 ]

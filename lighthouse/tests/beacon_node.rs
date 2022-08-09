@@ -133,6 +133,37 @@ fn fork_choice_before_proposal_timeout_zero() {
 }
 
 #[test]
+fn count_unrealized_default() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| assert!(config.chain.count_unrealized));
+}
+
+#[test]
+fn count_unrealized_no_arg() {
+    CommandLineTest::new()
+        .flag("count-unrealized", None)
+        .run_with_zero_port()
+        .with_config(|config| assert!(config.chain.count_unrealized));
+}
+
+#[test]
+fn count_unrealized_false() {
+    CommandLineTest::new()
+        .flag("count-unrealized", Some("false"))
+        .run_with_zero_port()
+        .with_config(|config| assert!(!config.chain.count_unrealized));
+}
+
+#[test]
+fn count_unrealized_true() {
+    CommandLineTest::new()
+        .flag("count-unrealized", Some("true"))
+        .run_with_zero_port()
+        .with_config(|config| assert!(config.chain.count_unrealized));
+}
+
+#[test]
 fn freezer_dir_flag() {
     let dir = TempDir::new().expect("Unable to create temporary directory");
     CommandLineTest::new()
@@ -394,25 +425,36 @@ fn merge_fee_recipient_flag() {
 fn run_payload_builder_flag_test(flag: &str, builders: &str) {
     use sensitive_url::SensitiveUrl;
 
-    let dir = TempDir::new().expect("Unable to create temporary directory");
     let all_builders: Vec<_> = builders
         .split(",")
         .map(|builder| SensitiveUrl::parse(builder).expect("valid builder url"))
         .collect();
-    CommandLineTest::new()
-        .flag("execution-endpoint", Some("http://meow.cats"))
+    run_payload_builder_flag_test_with_config(flag, builders, None, None, |config| {
+        let config = config.execution_layer.as_ref().unwrap();
+        // Only first provided endpoint is parsed as we don't support
+        // redundancy.
+        assert_eq!(config.builder_url, all_builders.get(0).cloned());
+    })
+}
+fn run_payload_builder_flag_test_with_config<F: Fn(&Config)>(
+    flag: &str,
+    builders: &str,
+    additional_flag: Option<&str>,
+    additional_flag_value: Option<&str>,
+    f: F,
+) {
+    let dir = TempDir::new().expect("Unable to create temporary directory");
+    let mut test = CommandLineTest::new();
+    test.flag("execution-endpoint", Some("http://meow.cats"))
         .flag(
             "execution-jwt",
             dir.path().join("jwt-file").as_os_str().to_str(),
         )
-        .flag(flag, Some(builders))
-        .run_with_zero_port()
-        .with_config(|config| {
-            let config = config.execution_layer.as_ref().unwrap();
-            // Only first provided endpoint is parsed as we don't support
-            // redundancy.
-            assert_eq!(config.builder_url, all_builders.get(0).cloned());
-        });
+        .flag(flag, Some(builders));
+    if let Some(additional_flag_name) = additional_flag {
+        test.flag(additional_flag_name, additional_flag_value);
+    }
+    test.run_with_zero_port().with_config(f);
 }
 
 #[test]
@@ -420,7 +462,46 @@ fn payload_builder_flags() {
     run_payload_builder_flag_test("builder", "http://meow.cats");
     run_payload_builder_flag_test("payload-builder", "http://meow.cats");
     run_payload_builder_flag_test("payload-builders", "http://meow.cats,http://woof.dogs");
-    run_payload_builder_flag_test("payload-builders", "http://meow.cats,http://woof.dogs");
+}
+
+#[test]
+fn builder_fallback_flags() {
+    run_payload_builder_flag_test_with_config(
+        "builder",
+        "http://meow.cats",
+        Some("builder-fallback-skips"),
+        Some("7"),
+        |config| {
+            assert_eq!(config.chain.builder_fallback_skips, 7);
+        },
+    );
+    run_payload_builder_flag_test_with_config(
+        "builder",
+        "http://meow.cats",
+        Some("builder-fallback-skips-per-epoch"),
+        Some("11"),
+        |config| {
+            assert_eq!(config.chain.builder_fallback_skips_per_epoch, 11);
+        },
+    );
+    run_payload_builder_flag_test_with_config(
+        "builder",
+        "http://meow.cats",
+        Some("builder-fallback-epochs-since-finalization"),
+        Some("4"),
+        |config| {
+            assert_eq!(config.chain.builder_fallback_epochs_since_finalization, 4);
+        },
+    );
+    run_payload_builder_flag_test_with_config(
+        "builder",
+        "http://meow.cats",
+        Some("builder-fallback-disable-checks"),
+        None,
+        |config| {
+            assert_eq!(config.chain.builder_fallback_disable_checks, true);
+        },
+    );
 }
 
 fn run_jwt_optional_flags_test(jwt_flag: &str, jwt_id_flag: &str, jwt_version_flag: &str) {

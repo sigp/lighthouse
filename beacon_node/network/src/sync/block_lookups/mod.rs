@@ -1,7 +1,7 @@
 use std::collections::hash_map::Entry;
 use std::time::Duration;
 
-use beacon_chain::{BeaconChainTypes, BlockError, ExecutionPayloadError};
+use beacon_chain::{BeaconChainTypes, BlockError};
 use fnv::FnvHashMap;
 use lighthouse_network::{PeerAction, PeerId};
 use lru_cache::LRUTimeCache;
@@ -435,17 +435,12 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                     BlockError::ParentUnknown(block) => {
                         self.search_parent(block, peer_id, cx);
                     }
-                    e @ BlockError::ExecutionPayloadError(ExecutionPayloadError::RequestFailed(
-                        _,
-                    ))
-                    | e @ BlockError::ExecutionPayloadError(
-                        ExecutionPayloadError::NoExecutionConnection,
-                    ) => {
+                    ref e @ BlockError::ExecutionPayloadError(ref epe) if !epe.penalize_peer() => {
                         // These errors indicate that the execution layer is offline
                         // and failed to validate the execution payload. Do not downscore peer.
                         debug!(
                             self.log,
-                            "Single block lookup failed. Execution layer is offline";
+                            "Single block lookup failed. Execution layer is offline / unsynced / misconfigured";
                             "root" => %root,
                             "error" => ?e
                         );
@@ -549,12 +544,9 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                     }
                 }
             }
-            BlockProcessResult::Err(
-                e @ BlockError::ExecutionPayloadError(ExecutionPayloadError::RequestFailed(_)),
-            )
-            | BlockProcessResult::Err(
-                e @ BlockError::ExecutionPayloadError(ExecutionPayloadError::NoExecutionConnection),
-            ) => {
+            ref e @ BlockProcessResult::Err(BlockError::ExecutionPayloadError(ref epe))
+                if !epe.penalize_peer() =>
+            {
                 // These errors indicate that the execution layer is offline
                 // and failed to validate the execution payload. Do not downscore peer.
                 debug!(

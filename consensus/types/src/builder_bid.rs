@@ -1,13 +1,14 @@
-use crate::{EthSpec, ExecPayload, ExecutionPayloadHeader, Uint256};
-use bls::blst_implementations::PublicKeyBytes;
+use crate::{ChainSpec, EthSpec, ExecPayload, ExecutionPayloadHeader, SignedRoot, Uint256};
+use bls::PublicKeyBytes;
 use bls::Signature;
 use serde::{Deserialize as De, Deserializer, Serialize as Ser, Serializer};
 use serde_derive::{Deserialize, Serialize};
 use serde_with::{serde_as, DeserializeAs, SerializeAs};
 use std::marker::PhantomData;
+use tree_hash_derive::TreeHash;
 
 #[serde_as]
-#[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
+#[derive(PartialEq, Debug, Serialize, Deserialize, TreeHash, Clone)]
 #[serde(bound = "E: EthSpec, Payload: ExecPayload<E>")]
 pub struct BuilderBid<E: EthSpec, Payload: ExecPayload<E>> {
     #[serde_as(as = "BlindedPayloadAsHeader<E>")]
@@ -16,8 +17,11 @@ pub struct BuilderBid<E: EthSpec, Payload: ExecPayload<E>> {
     pub value: Uint256,
     pub pubkey: PublicKeyBytes,
     #[serde(skip)]
+    #[tree_hash(skip_hashing)]
     _phantom_data: PhantomData<E>,
 }
+
+impl<E: EthSpec, Payload: ExecPayload<E>> SignedRoot for BuilderBid<E, Payload> {}
 
 /// Validator registration, for use in interacting with servers implementing the builder API.
 #[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
@@ -48,5 +52,19 @@ impl<'de, E: EthSpec, Payload: ExecPayload<E>> DeserializeAs<'de, Payload>
         let payload_header = ExecutionPayloadHeader::deserialize(deserializer)?;
         Payload::try_from(payload_header)
             .map_err(|_| serde::de::Error::custom("unable to convert payload header to payload"))
+    }
+}
+
+impl<E: EthSpec, Payload: ExecPayload<E>> SignedBuilderBid<E, Payload> {
+    pub fn verify_signature(&self, spec: &ChainSpec) -> bool {
+        self.message
+            .pubkey
+            .decompress()
+            .map(|pubkey| {
+                let domain = spec.get_builder_domain();
+                let message = self.message.signing_root(domain);
+                self.signature.verify(&pubkey, message)
+            })
+            .unwrap_or(false)
     }
 }

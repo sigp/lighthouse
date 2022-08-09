@@ -7,7 +7,7 @@ use crate::beacon_processor::DuplicateCache;
 use crate::metrics;
 use crate::sync::manager::{BlockProcessType, SyncMessage};
 use crate::sync::{BatchProcessResult, ChainId};
-use beacon_chain::ExecutionPayloadError;
+use beacon_chain::CountUnrealized;
 use beacon_chain::{
     BeaconChainError, BeaconChainTypes, BlockError, ChainSegmentResult, HistoricalBlockError,
 };
@@ -21,7 +21,7 @@ use types::{Epoch, Hash256, SignedBeaconBlock};
 #[derive(Clone, Debug, PartialEq)]
 pub enum ChainSegmentProcessId {
     /// Processing Id of a range syncing batch.
-    RangeBatchId(ChainId, Epoch),
+    RangeBatchId(ChainId, Epoch, CountUnrealized),
     /// Processing ID for a backfill syncing batch.
     BackSyncBatchId(Epoch),
     /// Processing Id of the parent lookup of a block.
@@ -89,7 +89,7 @@ impl<T: BeaconChainTypes> Worker<T> {
             }
         };
         let slot = block.slot();
-        let result = self.chain.process_block(block).await;
+        let result = self.chain.process_block(block, CountUnrealized::True).await;
 
         metrics::inc_counter(&metrics::BEACON_PROCESSOR_RPC_BLOCK_IMPORTED_TOTAL);
 
@@ -111,7 +111,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     None,
                 );
 
-                self.recompute_head("process_rpc_block").await;
+                self.chain.recompute_head_at_current_slot().await;
             }
         }
         // Sync handles these results
@@ -133,12 +133,15 @@ impl<T: BeaconChainTypes> Worker<T> {
     ) {
         let result = match sync_type {
             // this a request from the range sync
-            ChainSegmentProcessId::RangeBatchId(chain_id, epoch) => {
+            ChainSegmentProcessId::RangeBatchId(chain_id, epoch, count_unrealized) => {
                 let start_slot = downloaded_blocks.first().map(|b| b.slot().as_u64());
                 let end_slot = downloaded_blocks.last().map(|b| b.slot().as_u64());
                 let sent_blocks = downloaded_blocks.len();
 
-                match self.process_blocks(downloaded_blocks.iter()).await {
+                match self
+                    .process_blocks(downloaded_blocks.iter(), count_unrealized)
+                    .await
+                {
                     (_, Ok(_)) => {
                         debug!(self.log, "Batch processed";
                             "batch_epoch" => epoch,
@@ -207,7 +210,10 @@ impl<T: BeaconChainTypes> Worker<T> {
                 );
                 // parent blocks are ordered from highest slot to lowest, so we need to process in
                 // reverse
-                match self.process_blocks(downloaded_blocks.iter().rev()).await {
+                match self
+                    .process_blocks(downloaded_blocks.iter().rev(), CountUnrealized::True)
+                    .await
+                {
                     (imported_blocks, Err(e)) => {
                         debug!(self.log, "Parent lookup failed"; "error" => %e.message);
                         BatchProcessResult::Failed {
@@ -231,13 +237,18 @@ impl<T: BeaconChainTypes> Worker<T> {
     async fn process_blocks<'a>(
         &self,
         downloaded_blocks: impl Iterator<Item = &'a Arc<SignedBeaconBlock<T::EthSpec>>>,
+        count_unrealized: CountUnrealized,
     ) -> (usize, Result<(), ChainSegmentFailed>) {
         let blocks: Vec<Arc<_>> = downloaded_blocks.cloned().collect();
-        match self.chain.process_chain_segment(blocks).await {
+        match self
+            .chain
+            .process_chain_segment(blocks, count_unrealized)
+            .await
+        {
             ChainSegmentResult::Successful { imported_blocks } => {
                 metrics::inc_counter(&metrics::BEACON_PROCESSOR_CHAIN_SEGMENT_SUCCESS_TOTAL);
                 if imported_blocks > 0 {
-                    self.recompute_head("process_blocks_ok").await;
+                    self.chain.recompute_head_at_current_slot().await;
                 }
                 (imported_blocks, Ok(()))
             }
@@ -248,7 +259,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                 metrics::inc_counter(&metrics::BEACON_PROCESSOR_CHAIN_SEGMENT_FAILED_TOTAL);
                 let r = self.handle_failed_chain_segment(error);
                 if imported_blocks > 0 {
-                    self.recompute_head("process_blocks_err").await;
+                    self.chain.recompute_head_at_current_slot().await;
                 }
                 (imported_blocks, r)
             }
@@ -381,24 +392,6 @@ impl<T: BeaconChainTypes> Worker<T> {
         }
     }
 
-    /// Runs fork-choice on a given chain. This is used during block processing after one successful
-    /// block import.
-    async fn recompute_head(&self, location: &str) {
-        match self.chain.recompute_head_at_current_slot().await {
-            Ok(()) => debug!(
-                self.log,
-                "Fork choice success";
-                "location" => location
-            ),
-            Err(e) => error!(
-                self.log,
-                "Fork choice failed";
-                "error" => ?e,
-                "location" => location
-            ),
-        }
-    }
-
     /// Helper function to handle a `BlockError` from `process_chain_segment`
     fn handle_failed_chain_segment(
         &self,
@@ -474,24 +467,22 @@ impl<T: BeaconChainTypes> Worker<T> {
                     mode: FailureMode::ConsensusLayer,
                 })
             }
-            BlockError::ExecutionPayloadError(e) => match &e {
-                ExecutionPayloadError::NoExecutionConnection { .. }
-                | ExecutionPayloadError::RequestFailed { .. } => {
+            ref err @ BlockError::ExecutionPayloadError(ref epe) => {
+                if !epe.penalize_peer() {
                     // These errors indicate an issue with the EL and not the `ChainSegment`.
                     // Pause the syncing while the EL recovers
                     debug!(self.log,
                         "Execution layer verification failed";
                         "outcome" => "pausing sync",
-                        "err" => ?e
+                        "err" => ?err
                     );
                     Err(ChainSegmentFailed {
-                        message: format!("Execution layer offline. Reason: {:?}", e),
+                        message: format!("Execution layer offline. Reason: {:?}", err),
                         // Do not penalize peers for internal errors.
                         peer_action: None,
                         mode: FailureMode::ExecutionLayer { pause_sync: true },
                     })
-                }
-                err => {
+                } else {
                     debug!(self.log,
                         "Invalid execution payload";
                         "error" => ?err
@@ -505,7 +496,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                         mode: FailureMode::ExecutionLayer { pause_sync: false },
                     })
                 }
-            },
+            }
             other => {
                 debug!(
                     self.log, "Invalid block received";

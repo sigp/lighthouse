@@ -10,7 +10,8 @@ use crate::signing_method::SigningMethod;
 use account_utils::{
     read_password, read_password_from_user,
     validator_definitions::{
-        self, SigningDefinition, ValidatorDefinition, ValidatorDefinitions, CONFIG_FILENAME,
+        self, SigningDefinition, ValidatorDefinition, ValidatorDefinitions, Web3SignerDefinition,
+        CONFIG_FILENAME,
     },
     ZeroizeString,
 };
@@ -109,6 +110,8 @@ pub struct InitializedValidator {
     signing_method: Arc<SigningMethod>,
     graffiti: Option<Graffiti>,
     suggested_fee_recipient: Option<Address>,
+    gas_limit: Option<u64>,
+    builder_proposals: Option<bool>,
     /// The validators index in `state.validators`, to be updated by an external service.
     index: Option<u64>,
 }
@@ -127,6 +130,22 @@ impl InitializedValidator {
             // Web3Signer validators do not have any lockfiles.
             SigningMethod::Web3Signer { .. } => None,
         }
+    }
+
+    pub fn get_suggested_fee_recipient(&self) -> Option<Address> {
+        self.suggested_fee_recipient
+    }
+
+    pub fn get_gas_limit(&self) -> Option<u64> {
+        self.gas_limit
+    }
+
+    pub fn get_builder_proposals(&self) -> Option<bool> {
+        self.builder_proposals
+    }
+
+    pub fn get_index(&self) -> Option<u64> {
+        self.index
     }
 }
 
@@ -155,6 +174,7 @@ impl InitializedValidator {
         def: ValidatorDefinition,
         key_cache: &mut KeyCache,
         key_stores: &mut HashMap<PathBuf, Keystore>,
+        web3_signer_client_map: &mut Option<HashMap<Web3SignerDefinition, Client>>,
     ) -> Result<Self, Error> {
         if !def.enabled {
             return Err(Error::UnableToInitializeDisabledValidator);
@@ -239,45 +259,44 @@ impl InitializedValidator {
                     voting_keypair: Arc::new(voting_keypair),
                 }
             }
-            SigningDefinition::Web3Signer {
-                url,
-                root_certificate_path,
-                request_timeout_ms,
-                client_identity_path,
-                client_identity_password,
-            } => {
-                let signing_url = build_web3_signer_url(&url, &def.voting_public_key)
+            SigningDefinition::Web3Signer(web3_signer) => {
+                let signing_url = build_web3_signer_url(&web3_signer.url, &def.voting_public_key)
                     .map_err(|e| Error::InvalidWeb3SignerUrl(e.to_string()))?;
-                let request_timeout = request_timeout_ms
+
+                let request_timeout = web3_signer
+                    .request_timeout_ms
                     .map(Duration::from_millis)
                     .unwrap_or(DEFAULT_REMOTE_SIGNER_REQUEST_TIMEOUT);
 
-                let builder = Client::builder().timeout(request_timeout);
-
-                let builder = if let Some(path) = root_certificate_path {
-                    let certificate = load_pem_certificate(path)?;
-                    builder.add_root_certificate(certificate)
-                } else {
-                    builder
-                };
-
-                let builder = if let Some(path) = client_identity_path {
-                    let identity = load_pkcs12_identity(
-                        path,
-                        &client_identity_password
-                            .ok_or(Error::MissingWeb3SignerClientIdentityPassword)?,
-                    )?;
-                    builder.identity(identity)
-                } else {
-                    if client_identity_password.is_some() {
-                        return Err(Error::MissingWeb3SignerClientIdentityCertificateFile);
+                // Check if a client has already been initialized for this remote signer url.
+                let http_client = if let Some(client_map) = web3_signer_client_map {
+                    match client_map.get(&web3_signer) {
+                        Some(client) => client.clone(),
+                        None => {
+                            let client = build_web3_signer_client(
+                                web3_signer.root_certificate_path.clone(),
+                                web3_signer.client_identity_path.clone(),
+                                web3_signer.client_identity_password.clone(),
+                                request_timeout,
+                            )?;
+                            client_map.insert(web3_signer, client.clone());
+                            client
+                        }
                     }
-                    builder
+                } else {
+                    // There are no clients in the map.
+                    let mut new_web3_signer_client_map: HashMap<Web3SignerDefinition, Client> =
+                        HashMap::new();
+                    let client = build_web3_signer_client(
+                        web3_signer.root_certificate_path.clone(),
+                        web3_signer.client_identity_path.clone(),
+                        web3_signer.client_identity_password.clone(),
+                        request_timeout,
+                    )?;
+                    new_web3_signer_client_map.insert(web3_signer, client.clone());
+                    *web3_signer_client_map = Some(new_web3_signer_client_map);
+                    client
                 };
-
-                let http_client = builder
-                    .build()
-                    .map_err(Error::UnableToBuildWeb3SignerClient)?;
 
                 SigningMethod::Web3Signer {
                     signing_url,
@@ -291,6 +310,8 @@ impl InitializedValidator {
             signing_method: Arc::new(signing_method),
             graffiti: def.graffiti.map(Into::into),
             suggested_fee_recipient: def.suggested_fee_recipient,
+            gas_limit: def.gas_limit,
+            builder_proposals: def.builder_proposals,
             index: None,
         })
     }
@@ -330,6 +351,39 @@ pub fn load_pkcs12_identity<P: AsRef<Path>>(
 
 fn build_web3_signer_url(base_url: &str, voting_public_key: &PublicKey) -> Result<Url, ParseError> {
     Url::parse(base_url)?.join(&format!("api/v1/eth2/sign/{}", voting_public_key))
+}
+
+fn build_web3_signer_client(
+    root_certificate_path: Option<PathBuf>,
+    client_identity_path: Option<PathBuf>,
+    client_identity_password: Option<String>,
+    request_timeout: Duration,
+) -> Result<Client, Error> {
+    let builder = Client::builder().timeout(request_timeout);
+
+    let builder = if let Some(path) = root_certificate_path {
+        let certificate = load_pem_certificate(path)?;
+        builder.add_root_certificate(certificate)
+    } else {
+        builder
+    };
+
+    let builder = if let Some(path) = client_identity_path {
+        let identity = load_pkcs12_identity(
+            path,
+            &client_identity_password.ok_or(Error::MissingWeb3SignerClientIdentityPassword)?,
+        )?;
+        builder.identity(identity)
+    } else {
+        if client_identity_password.is_some() {
+            return Err(Error::MissingWeb3SignerClientIdentityCertificateFile);
+        }
+        builder
+    };
+
+    builder
+        .build()
+        .map_err(Error::UnableToBuildWeb3SignerClient)
 }
 
 /// Try to unlock `keystore` at `keystore_path` by prompting the user via `stdin`.
@@ -382,6 +436,8 @@ pub struct InitializedValidators {
     validators_dir: PathBuf,
     /// The canonical set of validators.
     validators: HashMap<PublicKeyBytes, InitializedValidator>,
+    /// The clients used for communications with a remote signer.
+    web3_signer_client_map: Option<HashMap<Web3SignerDefinition, Client>>,
     /// For logging via `slog`.
     log: Logger,
 }
@@ -397,6 +453,7 @@ impl InitializedValidators {
             validators_dir,
             definitions,
             validators: HashMap::default(),
+            web3_signer_client_map: None,
             log,
         };
         this.update_validators().await?;
@@ -585,7 +642,28 @@ impl InitializedValidators {
             .and_then(|v| v.suggested_fee_recipient)
     }
 
-    /// Sets the `InitializedValidator` and `ValidatorDefinition` `enabled` values.
+    /// Returns the `gas_limit` for a given public key specified in the
+    /// `ValidatorDefinitions`.
+    pub fn gas_limit(&self, public_key: &PublicKeyBytes) -> Option<u64> {
+        self.validators.get(public_key).and_then(|v| v.gas_limit)
+    }
+
+    /// Returns the `builder_proposals` for a given public key specified in the
+    /// `ValidatorDefinitions`.
+    pub fn builder_proposals(&self, public_key: &PublicKeyBytes) -> Option<bool> {
+        self.validators
+            .get(public_key)
+            .and_then(|v| v.builder_proposals)
+    }
+
+    /// Returns an `Option` of a reference to an `InitializedValidator` for a given public key specified in the
+    /// `ValidatorDefinitions`.
+    pub fn validator(&self, public_key: &PublicKeyBytes) -> Option<&InitializedValidator> {
+        self.validators.get(public_key)
+    }
+
+    /// Sets the `InitializedValidator` and `ValidatorDefinition` `enabled`, `gas_limit`, and `builder_proposals`
+    /// values.
     ///
     /// ## Notes
     ///
@@ -593,11 +671,17 @@ impl InitializedValidators {
     /// disk. A newly enabled validator will be added to `self.validators`, whilst a newly disabled
     /// validator will be removed from `self.validators`.
     ///
+    /// If a `gas_limit` is included in the call to this function, it will also be updated and saved
+    /// to disk. If `gas_limit` is `None` the `gas_limit` *will not* be unset in `ValidatorDefinition`
+    /// or `InitializedValidator`. The same logic applies to `builder_proposals`.
+    ///
     /// Saves the `ValidatorDefinitions` to file, even if no definitions were changed.
-    pub async fn set_validator_status(
+    pub async fn set_validator_definition_fields(
         &mut self,
         voting_public_key: &PublicKey,
-        enabled: bool,
+        enabled: Option<bool>,
+        gas_limit: Option<u64>,
+        builder_proposals: Option<bool>,
     ) -> Result<(), Error> {
         if let Some(def) = self
             .definitions
@@ -605,10 +689,32 @@ impl InitializedValidators {
             .iter_mut()
             .find(|def| def.voting_public_key == *voting_public_key)
         {
-            def.enabled = enabled;
+            // Don't overwrite fields if they are not set in this request.
+            if let Some(enabled) = enabled {
+                def.enabled = enabled;
+            }
+            if let Some(gas_limit) = gas_limit {
+                def.gas_limit = Some(gas_limit);
+            }
+            if let Some(builder_proposals) = builder_proposals {
+                def.builder_proposals = Some(builder_proposals);
+            }
         }
 
         self.update_validators().await?;
+
+        if let Some(val) = self
+            .validators
+            .get_mut(&PublicKeyBytes::from(voting_public_key))
+        {
+            // Don't overwrite fields if they are not set in this request.
+            if let Some(gas_limit) = gas_limit {
+                val.gas_limit = Some(gas_limit);
+            }
+            if let Some(builder_proposals) = builder_proposals {
+                val.builder_proposals = Some(builder_proposals);
+            }
+        }
 
         self.definitions
             .save(&self.validators_dir)
@@ -826,6 +932,7 @@ impl InitializedValidators {
                             def.clone(),
                             &mut key_cache,
                             &mut key_stores,
+                            &mut None,
                         )
                         .await
                         {
@@ -870,11 +977,12 @@ impl InitializedValidators {
                             }
                         }
                     }
-                    SigningDefinition::Web3Signer { .. } => {
+                    SigningDefinition::Web3Signer(Web3SignerDefinition { .. }) => {
                         match InitializedValidator::from_definition(
                             def.clone(),
                             &mut key_cache,
                             &mut key_stores,
+                            &mut self.web3_signer_client_map,
                         )
                         .await
                         {

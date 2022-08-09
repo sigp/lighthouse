@@ -13,3 +13,4 @@ eth2 = { path = "../../common/eth2" }
 validator_client = { path = "../../validator_client" }
 validator_dir = { path = "../../common/validator_dir", features = ["insecure_keys"] }
 sensitive_url = { path = "../../common/sensitive_url" }
+execution_layer = { path = "../../beacon_node/execution_layer" }

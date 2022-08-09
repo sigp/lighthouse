@@ -86,7 +86,7 @@ impl<E: EthSpec> EarlyAttesterCache<E> {
     ///
     /// - There is a cache `item` present.
     /// - If `request_slot` is in the same epoch as `item.epoch`.
-    /// - If `request_index` does not exceed `item.comittee_count`.
+    /// - If `request_index` does not exceed `item.committee_count`.
     pub fn try_attest(
         &self,
         request_slot: Slot,

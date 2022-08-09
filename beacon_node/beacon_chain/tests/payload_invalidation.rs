@@ -1,17 +1,27 @@
 #![cfg(not(debug_assertions))]
 
+use beacon_chain::otb_verification_service::{
+    load_optimistic_transition_blocks, validate_optimistic_transition_blocks,
+    OptimisticTransitionBlock,
+};
 use beacon_chain::{
+    canonical_head::{CachedHead, CanonicalHead},
     test_utils::{BeaconChainHarness, EphemeralHarnessType},
     BeaconChainError, BlockError, ExecutionPayloadError, StateSkipConfig, WhenSlotSkipped,
+    INVALID_FINALIZED_MERGE_TRANSITION_BLOCK_SHUTDOWN_REASON,
     INVALID_JUSTIFIED_PAYLOAD_SHUTDOWN_REASON,
 };
 use execution_layer::{
     json_structures::{JsonForkChoiceStateV1, JsonPayloadAttributesV1},
+    test_utils::ExecutionBlockGenerator,
     ExecutionLayer, ForkChoiceState, PayloadAttributes,
 };
-use fork_choice::{Error as ForkChoiceError, InvalidationOperation, PayloadVerificationStatus};
+use fork_choice::{
+    CountUnrealized, Error as ForkChoiceError, InvalidationOperation, PayloadVerificationStatus,
+};
 use proto_array::{Error as ProtoArrayError, ExecutionStatus};
 use slot_clock::SlotClock;
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use task_executor::ShutdownReason;
@@ -40,7 +50,11 @@ struct InvalidPayloadRig {
 
 impl InvalidPayloadRig {
     fn new() -> Self {
-        let mut spec = E::default_spec();
+        let spec = E::default_spec();
+        Self::new_with_spec(spec)
+    }
+
+    fn new_with_spec(mut spec: ChainSpec) -> Self {
         spec.altair_fork_epoch = Some(Epoch::new(0));
         spec.bellatrix_fork_epoch = Some(Epoch::new(0));
 
@@ -93,11 +107,15 @@ impl InvalidPayloadRig {
     }
 
     async fn recompute_head(&self) {
-        self.harness
-            .chain
-            .recompute_head_at_current_slot()
-            .await
-            .unwrap();
+        self.harness.chain.recompute_head_at_current_slot().await;
+    }
+
+    fn cached_head(&self) -> CachedHead<E> {
+        self.harness.chain.canonical_head.cached_head()
+    }
+
+    fn canonical_head(&self) -> &CanonicalHead<EphemeralHarnessType<E>> {
+        &self.harness.chain.canonical_head
     }
 
     fn previous_forkchoice_update_params(&self) -> (ForkChoiceState, PayloadAttributes) {
@@ -273,7 +291,7 @@ impl InvalidPayloadRig {
                 let execution_status = self.execution_status(root.into());
 
                 match forkchoice_response {
-                    Payload::Syncing => assert!(execution_status.is_optimistic()),
+                    Payload::Syncing => assert!(execution_status.is_strictly_optimistic()),
                     Payload::Valid => assert!(execution_status.is_valid_and_post_bellatrix()),
                     Payload::Invalid { .. }
                     | Payload::InvalidBlockHash
@@ -352,6 +370,19 @@ impl InvalidPayloadRig {
             .await
             .unwrap();
     }
+
+    fn assert_get_head_error_contains(&self, s: &str) {
+        match self
+            .harness
+            .chain
+            .canonical_head
+            .fork_choice_write_lock()
+            .get_head(self.harness.chain.slot().unwrap(), &self.harness.chain.spec)
+        {
+            Err(ForkChoiceError::ProtoArrayError(e)) if e.contains(s) => (),
+            other => panic!("expected {} error, got {:?}", s, other),
+        };
+    }
 }
 
 /// Simple test of the different import types.
@@ -390,7 +421,7 @@ async fn invalid_payload_invalidates_parent() {
     })
     .await;
 
-    assert!(rig.execution_status(roots[0]).is_optimistic());
+    assert!(rig.execution_status(roots[0]).is_strictly_optimistic());
     assert!(rig.execution_status(roots[1]).is_invalid());
     assert!(rig.execution_status(roots[2]).is_invalid());
 
@@ -524,7 +555,7 @@ async fn pre_finalized_latest_valid_hash() {
         if slot == 1 {
             assert!(rig.execution_status(root).is_valid_and_post_bellatrix());
         } else {
-            assert!(rig.execution_status(root).is_optimistic());
+            assert!(rig.execution_status(root).is_strictly_optimistic());
         }
     }
 }
@@ -574,7 +605,7 @@ async fn latest_valid_hash_will_not_validate() {
         } else if slot == 1 {
             assert!(execution_status.is_valid_and_post_bellatrix())
         } else {
-            assert!(execution_status.is_optimistic())
+            assert!(execution_status.is_strictly_optimistic())
         }
     }
 }
@@ -615,7 +646,7 @@ async fn latest_valid_hash_is_junk() {
         if slot == 1 {
             assert!(rig.execution_status(root).is_valid_and_post_bellatrix());
         } else {
-            assert!(rig.execution_status(root).is_optimistic());
+            assert!(rig.execution_status(root).is_strictly_optimistic());
         }
     }
 }
@@ -648,7 +679,7 @@ async fn invalidates_all_descendants() {
     let fork_block_root = rig
         .harness
         .chain
-        .process_block(Arc::new(fork_block))
+        .process_block(Arc::new(fork_block), CountUnrealized::True)
         .await
         .unwrap();
     rig.recompute_head().await;
@@ -703,7 +734,7 @@ async fn invalidates_all_descendants() {
             assert!(execution_status.is_valid_and_post_bellatrix());
         } else if slot <= latest_valid_slot {
             // Blocks prior to and included the latest valid hash are not marked as valid.
-            assert!(execution_status.is_optimistic());
+            assert!(execution_status.is_strictly_optimistic());
         } else {
             // Blocks after the latest valid hash are invalid.
             assert!(execution_status.is_invalid());
@@ -740,7 +771,7 @@ async fn switches_heads() {
     let fork_block_root = rig
         .harness
         .chain
-        .process_block(Arc::new(fork_block))
+        .process_block(Arc::new(fork_block), CountUnrealized::True)
         .await
         .unwrap();
     rig.recompute_head().await;
@@ -760,7 +791,9 @@ async fn switches_heads() {
     assert_eq!(rig.harness.head_block_root(), fork_block_root);
 
     // The fork block has not yet been validated.
-    assert!(rig.execution_status(fork_block_root).is_optimistic());
+    assert!(rig
+        .execution_status(fork_block_root)
+        .is_strictly_optimistic());
 
     for root in blocks {
         let slot = rig
@@ -785,7 +818,7 @@ async fn switches_heads() {
             assert!(execution_status.is_valid_and_post_bellatrix());
         } else if slot <= latest_valid_slot {
             // Blocks prior to and included the latest valid hash are not marked as valid.
-            assert!(execution_status.is_optimistic());
+            assert!(execution_status.is_strictly_optimistic());
         } else {
             // Blocks after the latest valid hash are invalid.
             assert!(execution_status.is_invalid());
@@ -868,8 +901,8 @@ async fn manually_validate_child() {
     let parent = rig.import_block(Payload::Syncing).await;
     let child = rig.import_block(Payload::Syncing).await;
 
-    assert!(rig.execution_status(parent).is_optimistic());
-    assert!(rig.execution_status(child).is_optimistic());
+    assert!(rig.execution_status(parent).is_strictly_optimistic());
+    assert!(rig.execution_status(child).is_strictly_optimistic());
 
     rig.validate_manually(child);
 
@@ -886,13 +919,13 @@ async fn manually_validate_parent() {
     let parent = rig.import_block(Payload::Syncing).await;
     let child = rig.import_block(Payload::Syncing).await;
 
-    assert!(rig.execution_status(parent).is_optimistic());
-    assert!(rig.execution_status(child).is_optimistic());
+    assert!(rig.execution_status(parent).is_strictly_optimistic());
+    assert!(rig.execution_status(child).is_strictly_optimistic());
 
     rig.validate_manually(parent);
 
     assert!(rig.execution_status(parent).is_valid_and_post_bellatrix());
-    assert!(rig.execution_status(child).is_optimistic());
+    assert!(rig.execution_status(child).is_strictly_optimistic());
 }
 
 #[tokio::test]
@@ -984,7 +1017,7 @@ async fn invalid_parent() {
 
     // Ensure the block built atop an invalid payload is invalid for import.
     assert!(matches!(
-        rig.harness.chain.process_block(block.clone()).await,
+        rig.harness.chain.process_block(block.clone(), CountUnrealized::True).await,
         Err(BlockError::ParentExecutionPayloadInvalid { parent_root: invalid_root })
         if invalid_root == parent_root
     ));
@@ -998,7 +1031,8 @@ async fn invalid_parent() {
             Duration::from_secs(0),
             &state,
             PayloadVerificationStatus::Optimistic,
-            &rig.harness.chain.spec
+            &rig.harness.chain.spec,
+            CountUnrealized::True,
         ),
         Err(ForkChoiceError::ProtoArrayError(message))
         if message.contains(&format!(
@@ -1092,7 +1126,7 @@ async fn attesting_to_optimistic_head() {
         "the head should be the latest imported block"
     );
     assert!(
-        rig.execution_status(root).is_optimistic(),
+        rig.execution_status(root).is_strictly_optimistic(),
         "the head should be optimistic"
     );
 
@@ -1179,4 +1213,779 @@ async fn attesting_to_optimistic_head() {
     produce_unaggregated().unwrap();
     get_aggregated().unwrap();
     get_aggregated_by_slot_and_root().unwrap();
+}
+
+/// A helper struct to build out a chain of some configurable length which undergoes the merge
+/// transition.
+struct OptimisticTransitionSetup {
+    blocks: Vec<Arc<SignedBeaconBlock<E>>>,
+    execution_block_generator: ExecutionBlockGenerator<E>,
+}
+
+impl OptimisticTransitionSetup {
+    async fn new(num_blocks: usize, ttd: u64) -> Self {
+        let mut spec = E::default_spec();
+        spec.terminal_total_difficulty = ttd.into();
+        let mut rig = InvalidPayloadRig::new_with_spec(spec).enable_attestations();
+        rig.move_to_terminal_block();
+
+        let mut blocks = Vec::with_capacity(num_blocks);
+        for _ in 0..num_blocks {
+            let root = rig.import_block(Payload::Valid).await;
+            let block = rig.harness.chain.get_block(&root).await.unwrap().unwrap();
+            blocks.push(Arc::new(block));
+        }
+
+        let execution_block_generator = rig
+            .harness
+            .mock_execution_layer
+            .as_ref()
+            .unwrap()
+            .server
+            .execution_block_generator()
+            .clone();
+
+        Self {
+            blocks,
+            execution_block_generator,
+        }
+    }
+}
+
+/// Build a chain which has optimistically imported a transition block.
+///
+/// The initial chain will be built with respect to `block_ttd`, whilst the `rig` which imports the
+/// chain will operate with respect to `rig_ttd`. This allows for testing mismatched TTDs.
+async fn build_optimistic_chain(
+    block_ttd: u64,
+    rig_ttd: u64,
+    num_blocks: usize,
+) -> InvalidPayloadRig {
+    let OptimisticTransitionSetup {
+        blocks,
+        execution_block_generator,
+    } = OptimisticTransitionSetup::new(num_blocks, block_ttd).await;
+    // Build a brand-new testing harness. We will apply the blocks from the previous harness to
+    // this one.
+    let mut spec = E::default_spec();
+    spec.terminal_total_difficulty = rig_ttd.into();
+    let rig = InvalidPayloadRig::new_with_spec(spec);
+
+    let spec = &rig.harness.chain.spec;
+    let mock_execution_layer = rig.harness.mock_execution_layer.as_ref().unwrap();
+
+    // Ensure all the execution blocks from the first rig are available in the second rig.
+    *mock_execution_layer.server.execution_block_generator() = execution_block_generator;
+
+    // Make the execution layer respond `SYNCING` to all `newPayload` requests.
+    mock_execution_layer
+        .server
+        .all_payloads_syncing_on_new_payload(true);
+    // Make the execution layer respond `SYNCING` to all `forkchoiceUpdated` requests.
+    mock_execution_layer
+        .server
+        .all_payloads_syncing_on_forkchoice_updated();
+    // Make the execution layer respond `None` to all `getBlockByHash` requests.
+    mock_execution_layer
+        .server
+        .all_get_block_by_hash_requests_return_none();
+
+    let current_slot = std::cmp::max(
+        blocks[0].slot() + spec.safe_slots_to_import_optimistically,
+        num_blocks.into(),
+    );
+    rig.harness.set_current_slot(current_slot);
+
+    for block in blocks {
+        rig.harness
+            .chain
+            .process_block(block, CountUnrealized::True)
+            .await
+            .unwrap();
+    }
+
+    rig.harness.chain.recompute_head_at_current_slot().await;
+
+    // Make the execution layer respond normally to `getBlockByHash` requests.
+    mock_execution_layer
+        .server
+        .all_get_block_by_hash_requests_return_natural_value();
+
+    // Perform some sanity checks to ensure that the transition happened exactly where we expected.
+    let pre_transition_block_root = rig
+        .harness
+        .chain
+        .block_root_at_slot(Slot::new(0), WhenSlotSkipped::None)
+        .unwrap()
+        .unwrap();
+    let pre_transition_block = rig
+        .harness
+        .chain
+        .get_block(&pre_transition_block_root)
+        .await
+        .unwrap()
+        .unwrap();
+    let post_transition_block_root = rig
+        .harness
+        .chain
+        .block_root_at_slot(Slot::new(1), WhenSlotSkipped::None)
+        .unwrap()
+        .unwrap();
+    let post_transition_block = rig
+        .harness
+        .chain
+        .get_block(&post_transition_block_root)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        pre_transition_block_root,
+        post_transition_block.parent_root(),
+        "the blocks form a single chain"
+    );
+    assert!(
+        pre_transition_block
+            .message()
+            .body()
+            .execution_payload()
+            .unwrap()
+            .execution_payload
+            == <_>::default(),
+        "the block *has not* undergone the merge transition"
+    );
+    assert!(
+        post_transition_block
+            .message()
+            .body()
+            .execution_payload()
+            .unwrap()
+            .execution_payload
+            != <_>::default(),
+        "the block *has* undergone the merge transition"
+    );
+
+    // Assert that the transition block was optimistically imported.
+    //
+    // Note: we're using the "fallback" check for optimistic status, so if the block was
+    // pre-finality then we'll just use the optimistic status of the finalized block.
+    assert!(
+        rig.harness
+            .chain
+            .canonical_head
+            .fork_choice_read_lock()
+            .is_optimistic_or_invalid_block(&post_transition_block_root)
+            .unwrap(),
+        "the transition block should be imported optimistically"
+    );
+
+    // Get the mock execution layer to respond to `getBlockByHash` requests normally again.
+    mock_execution_layer
+        .server
+        .all_get_block_by_hash_requests_return_natural_value();
+
+    return rig;
+}
+
+#[tokio::test]
+async fn optimistic_transition_block_valid_unfinalized() {
+    let ttd = 42;
+    let num_blocks = 16 as usize;
+    let rig = build_optimistic_chain(ttd, ttd, num_blocks).await;
+
+    let post_transition_block_root = rig
+        .harness
+        .chain
+        .block_root_at_slot(Slot::new(1), WhenSlotSkipped::None)
+        .unwrap()
+        .unwrap();
+    let post_transition_block = rig
+        .harness
+        .chain
+        .get_block(&post_transition_block_root)
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert!(
+        rig.cached_head()
+            .finalized_checkpoint()
+            .epoch
+            .start_slot(E::slots_per_epoch())
+            < post_transition_block.slot(),
+        "the transition block should not be finalized"
+    );
+
+    let otbs = load_optimistic_transition_blocks(&rig.harness.chain)
+        .expect("should load optimistic transition block from db");
+    assert_eq!(
+        otbs.len(),
+        1,
+        "There should be one optimistic transition block"
+    );
+    let valid_otb = OptimisticTransitionBlock::from_block(post_transition_block.message());
+    assert_eq!(
+        valid_otb, otbs[0],
+        "The optimistic transition block stored in the database should be what we expect",
+    );
+
+    validate_optimistic_transition_blocks(&rig.harness.chain, otbs)
+        .await
+        .expect("should validate fine");
+    // now that the transition block has been validated, it should have been removed from the database
+    let otbs = load_optimistic_transition_blocks(&rig.harness.chain)
+        .expect("should load optimistic transition block from db");
+    assert!(
+        otbs.is_empty(),
+        "The valid optimistic transition block should have been removed from the database",
+    );
+}
+
+#[tokio::test]
+async fn optimistic_transition_block_valid_finalized() {
+    let ttd = 42;
+    let num_blocks = 130 as usize;
+    let rig = build_optimistic_chain(ttd, ttd, num_blocks).await;
+
+    let post_transition_block_root = rig
+        .harness
+        .chain
+        .block_root_at_slot(Slot::new(1), WhenSlotSkipped::None)
+        .unwrap()
+        .unwrap();
+    let post_transition_block = rig
+        .harness
+        .chain
+        .get_block(&post_transition_block_root)
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert!(
+        rig.cached_head()
+            .finalized_checkpoint()
+            .epoch
+            .start_slot(E::slots_per_epoch())
+            > post_transition_block.slot(),
+        "the transition block should be finalized"
+    );
+
+    let otbs = load_optimistic_transition_blocks(&rig.harness.chain)
+        .expect("should load optimistic transition block from db");
+    assert_eq!(
+        otbs.len(),
+        1,
+        "There should be one optimistic transition block"
+    );
+    let valid_otb = OptimisticTransitionBlock::from_block(post_transition_block.message());
+    assert_eq!(
+        valid_otb, otbs[0],
+        "The optimistic transition block stored in the database should be what we expect",
+    );
+
+    validate_optimistic_transition_blocks(&rig.harness.chain, otbs)
+        .await
+        .expect("should validate fine");
+    // now that the transition block has been validated, it should have been removed from the database
+    let otbs = load_optimistic_transition_blocks(&rig.harness.chain)
+        .expect("should load optimistic transition block from db");
+    assert!(
+        otbs.is_empty(),
+        "The valid optimistic transition block should have been removed from the database",
+    );
+}
+
+#[tokio::test]
+async fn optimistic_transition_block_invalid_unfinalized() {
+    let block_ttd = 42;
+    let rig_ttd = 1337;
+    let num_blocks = 22 as usize;
+    let rig = build_optimistic_chain(block_ttd, rig_ttd, num_blocks).await;
+
+    let post_transition_block_root = rig
+        .harness
+        .chain
+        .block_root_at_slot(Slot::new(1), WhenSlotSkipped::None)
+        .unwrap()
+        .unwrap();
+    let post_transition_block = rig
+        .harness
+        .chain
+        .get_block(&post_transition_block_root)
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert!(
+        rig.cached_head()
+            .finalized_checkpoint()
+            .epoch
+            .start_slot(E::slots_per_epoch())
+            < post_transition_block.slot(),
+        "the transition block should not be finalized"
+    );
+
+    let otbs = load_optimistic_transition_blocks(&rig.harness.chain)
+        .expect("should load optimistic transition block from db");
+    assert_eq!(
+        otbs.len(),
+        1,
+        "There should be one optimistic transition block"
+    );
+
+    let invalid_otb = OptimisticTransitionBlock::from_block(post_transition_block.message());
+    assert_eq!(
+        invalid_otb, otbs[0],
+        "The optimistic transition block stored in the database should be what we expect",
+    );
+
+    // No shutdown should've been triggered.
+    assert_eq!(rig.harness.shutdown_reasons(), vec![]);
+    // It shouldn't be known as invalid yet
+    assert!(!rig
+        .execution_status(post_transition_block_root)
+        .is_invalid());
+
+    validate_optimistic_transition_blocks(&rig.harness.chain, otbs)
+        .await
+        .unwrap();
+
+    // Still no shutdown should've been triggered.
+    assert_eq!(rig.harness.shutdown_reasons(), vec![]);
+    // It should be marked invalid now
+    assert!(rig
+        .execution_status(post_transition_block_root)
+        .is_invalid());
+
+    // the invalid merge transition block should NOT have been removed from the database
+    let otbs = load_optimistic_transition_blocks(&rig.harness.chain)
+        .expect("should load optimistic transition block from db");
+    assert_eq!(
+        otbs.len(),
+        1,
+        "The invalid merge transition block should still be in the database",
+    );
+    assert_eq!(
+        invalid_otb, otbs[0],
+        "The optimistic transition block stored in the database should be what we expect",
+    );
+}
+
+#[tokio::test]
+async fn optimistic_transition_block_invalid_unfinalized_syncing_ee() {
+    let block_ttd = 42;
+    let rig_ttd = 1337;
+    let num_blocks = 22 as usize;
+    let rig = build_optimistic_chain(block_ttd, rig_ttd, num_blocks).await;
+
+    let post_transition_block_root = rig
+        .harness
+        .chain
+        .block_root_at_slot(Slot::new(1), WhenSlotSkipped::None)
+        .unwrap()
+        .unwrap();
+    let post_transition_block = rig
+        .harness
+        .chain
+        .get_block(&post_transition_block_root)
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert!(
+        rig.cached_head()
+            .finalized_checkpoint()
+            .epoch
+            .start_slot(E::slots_per_epoch())
+            < post_transition_block.slot(),
+        "the transition block should not be finalized"
+    );
+
+    let otbs = load_optimistic_transition_blocks(&rig.harness.chain)
+        .expect("should load optimistic transition block from db");
+    assert_eq!(
+        otbs.len(),
+        1,
+        "There should be one optimistic transition block"
+    );
+
+    let invalid_otb = OptimisticTransitionBlock::from_block(post_transition_block.message());
+    assert_eq!(
+        invalid_otb, otbs[0],
+        "The optimistic transition block stored in the database should be what we expect",
+    );
+
+    // No shutdown should've been triggered.
+    assert_eq!(rig.harness.shutdown_reasons(), vec![]);
+    // It shouldn't be known as invalid yet
+    assert!(!rig
+        .execution_status(post_transition_block_root)
+        .is_invalid());
+
+    // Make the execution layer respond `None` to all `getBlockByHash` requests to simulate a
+    // syncing EE.
+    let mock_execution_layer = rig.harness.mock_execution_layer.as_ref().unwrap();
+    mock_execution_layer
+        .server
+        .all_get_block_by_hash_requests_return_none();
+
+    validate_optimistic_transition_blocks(&rig.harness.chain, otbs)
+        .await
+        .unwrap();
+
+    // Still no shutdown should've been triggered.
+    assert_eq!(rig.harness.shutdown_reasons(), vec![]);
+
+    // It should still be marked as optimistic.
+    assert!(rig
+        .execution_status(post_transition_block_root)
+        .is_strictly_optimistic());
+
+    // the optimistic merge transition block should NOT have been removed from the database
+    let otbs = load_optimistic_transition_blocks(&rig.harness.chain)
+        .expect("should load optimistic transition block from db");
+    assert_eq!(
+        otbs.len(),
+        1,
+        "The optimistic merge transition block should still be in the database",
+    );
+    assert_eq!(
+        invalid_otb, otbs[0],
+        "The optimistic transition block stored in the database should be what we expect",
+    );
+
+    // Allow the EL to respond to `getBlockByHash`, as if it has finished syncing.
+    mock_execution_layer
+        .server
+        .all_get_block_by_hash_requests_return_natural_value();
+
+    validate_optimistic_transition_blocks(&rig.harness.chain, otbs)
+        .await
+        .unwrap();
+
+    // Still no shutdown should've been triggered.
+    assert_eq!(rig.harness.shutdown_reasons(), vec![]);
+    // It should be marked invalid now
+    assert!(rig
+        .execution_status(post_transition_block_root)
+        .is_invalid());
+
+    // the invalid merge transition block should NOT have been removed from the database
+    let otbs = load_optimistic_transition_blocks(&rig.harness.chain)
+        .expect("should load optimistic transition block from db");
+    assert_eq!(
+        otbs.len(),
+        1,
+        "The invalid merge transition block should still be in the database",
+    );
+    assert_eq!(
+        invalid_otb, otbs[0],
+        "The optimistic transition block stored in the database should be what we expect",
+    );
+}
+
+#[tokio::test]
+async fn optimistic_transition_block_invalid_finalized() {
+    let block_ttd = 42;
+    let rig_ttd = 1337;
+    let num_blocks = 130 as usize;
+    let rig = build_optimistic_chain(block_ttd, rig_ttd, num_blocks).await;
+
+    let post_transition_block_root = rig
+        .harness
+        .chain
+        .block_root_at_slot(Slot::new(1), WhenSlotSkipped::None)
+        .unwrap()
+        .unwrap();
+    let post_transition_block = rig
+        .harness
+        .chain
+        .get_block(&post_transition_block_root)
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert!(
+        rig.cached_head()
+            .finalized_checkpoint()
+            .epoch
+            .start_slot(E::slots_per_epoch())
+            > post_transition_block.slot(),
+        "the transition block should be finalized"
+    );
+
+    let otbs = load_optimistic_transition_blocks(&rig.harness.chain)
+        .expect("should load optimistic transition block from db");
+
+    assert_eq!(
+        otbs.len(),
+        1,
+        "There should be one optimistic transition block"
+    );
+
+    let invalid_otb = OptimisticTransitionBlock::from_block(post_transition_block.message());
+    assert_eq!(
+        invalid_otb, otbs[0],
+        "The optimistic transition block stored in the database should be what we expect",
+    );
+
+    // No shutdown should've been triggered yet.
+    assert_eq!(rig.harness.shutdown_reasons(), vec![]);
+
+    validate_optimistic_transition_blocks(&rig.harness.chain, otbs)
+        .await
+        .expect("should invalidate merge transition block and shutdown the client");
+
+    // The beacon chain should have triggered a shutdown.
+    assert_eq!(
+        rig.harness.shutdown_reasons(),
+        vec![ShutdownReason::Failure(
+            INVALID_FINALIZED_MERGE_TRANSITION_BLOCK_SHUTDOWN_REASON
+        )]
+    );
+
+    // the invalid merge transition block should NOT have been removed from the database
+    let otbs = load_optimistic_transition_blocks(&rig.harness.chain)
+        .expect("should load optimistic transition block from db");
+    assert_eq!(
+        otbs.len(),
+        1,
+        "The invalid merge transition block should still be in the database",
+    );
+    assert_eq!(
+        invalid_otb, otbs[0],
+        "The optimistic transition block stored in the database should be what we expect",
+    );
+}
+
+/// Helper for running tests where we generate a chain with an invalid head and then some
+/// `fork_blocks` to recover it.
+struct InvalidHeadSetup {
+    rig: InvalidPayloadRig,
+    fork_blocks: Vec<Arc<SignedBeaconBlock<E>>>,
+    invalid_head: CachedHead<E>,
+}
+
+impl InvalidHeadSetup {
+    async fn new() -> InvalidHeadSetup {
+        let mut rig = InvalidPayloadRig::new().enable_attestations();
+        rig.move_to_terminal_block();
+        rig.import_block(Payload::Valid).await; // Import a valid transition block.
+
+        // Import blocks until the first time the chain finalizes.
+        while rig.cached_head().finalized_checkpoint().epoch == 0 {
+            rig.import_block(Payload::Syncing).await;
+        }
+
+        let invalid_head = rig.cached_head();
+
+        // Invalidate the head block.
+        rig.invalidate_manually(invalid_head.head_block_root())
+            .await;
+        assert!(rig
+            .canonical_head()
+            .head_execution_status()
+            .unwrap()
+            .is_invalid());
+
+        // Finding a new head should fail since the only possible head is not valid.
+        rig.assert_get_head_error_contains("InvalidBestNode");
+
+        // Build three "fork" blocks that conflict with the current canonical head. Don't apply them to
+        // the chain yet.
+        let mut fork_blocks = vec![];
+        let mut parent_state = rig
+            .harness
+            .chain
+            .state_at_slot(
+                invalid_head.head_slot() - 3,
+                StateSkipConfig::WithStateRoots,
+            )
+            .unwrap();
+        for _ in 0..3 {
+            let slot = parent_state.slot() + 1;
+            let (fork_block, post_state) = rig.harness.make_block(parent_state, slot).await;
+            parent_state = post_state;
+            fork_blocks.push(Arc::new(fork_block))
+        }
+
+        Self {
+            rig,
+            fork_blocks,
+            invalid_head,
+        }
+    }
+}
+
+#[tokio::test]
+async fn recover_from_invalid_head_by_importing_blocks() {
+    let InvalidHeadSetup {
+        rig,
+        fork_blocks,
+        invalid_head,
+    } = InvalidHeadSetup::new().await;
+
+    // Import the first two blocks, they should not become the head.
+    for i in 0..2 {
+        if i == 0 {
+            // The first block should be `VALID` during import.
+            rig.harness
+                .mock_execution_layer
+                .as_ref()
+                .unwrap()
+                .server
+                .all_payloads_valid_on_new_payload();
+        } else {
+            // All blocks after the first block should return `SYNCING`.
+            rig.harness
+                .mock_execution_layer
+                .as_ref()
+                .unwrap()
+                .server
+                .all_payloads_syncing_on_new_payload(true);
+        }
+
+        rig.harness
+            .chain
+            .process_block(fork_blocks[i].clone(), CountUnrealized::True)
+            .await
+            .unwrap();
+        rig.recompute_head().await;
+        rig.assert_get_head_error_contains("InvalidBestNode");
+        let new_head = rig.cached_head();
+        assert_eq!(
+            new_head.head_block_root(),
+            invalid_head.head_block_root(),
+            "the head should not change"
+        );
+    }
+
+    // Import the third block, it should become the head.
+    rig.harness
+        .chain
+        .process_block(fork_blocks[2].clone(), CountUnrealized::True)
+        .await
+        .unwrap();
+    rig.recompute_head().await;
+    let new_head = rig.cached_head();
+    assert_eq!(
+        new_head.head_block_root(),
+        fork_blocks[2].canonical_root(),
+        "the third block should become the head"
+    );
+
+    let manual_get_head = rig
+        .harness
+        .chain
+        .canonical_head
+        .fork_choice_write_lock()
+        .get_head(rig.harness.chain.slot().unwrap(), &rig.harness.chain.spec)
+        .unwrap();
+    assert_eq!(manual_get_head, new_head.head_block_root(),);
+}
+
+#[tokio::test]
+async fn recover_from_invalid_head_after_persist_and_reboot() {
+    let InvalidHeadSetup {
+        rig,
+        fork_blocks: _,
+        invalid_head,
+    } = InvalidHeadSetup::new().await;
+
+    // Forcefully persist the head and fork choice.
+    rig.harness.chain.persist_head_and_fork_choice().unwrap();
+
+    let resumed = BeaconChainHarness::builder(MainnetEthSpec)
+        .default_spec()
+        .deterministic_keypairs(VALIDATOR_COUNT)
+        .resumed_ephemeral_store(rig.harness.chain.store.clone())
+        .mock_execution_layer()
+        .build();
+
+    // Forget the original rig so we don't accidentally use it again.
+    drop(rig);
+
+    let resumed_head = resumed.chain.canonical_head.cached_head();
+    assert_eq!(
+        resumed_head.head_block_root(),
+        invalid_head.head_block_root(),
+        "the resumed harness should have the invalid block as the head"
+    );
+    assert!(
+        resumed
+            .chain
+            .canonical_head
+            .fork_choice_read_lock()
+            .get_block_execution_status(&resumed_head.head_block_root())
+            .unwrap()
+            .is_strictly_optimistic(),
+        "the invalid block should have become optimistic"
+    );
+}
+
+#[tokio::test]
+async fn weights_after_resetting_optimistic_status() {
+    let mut rig = InvalidPayloadRig::new().enable_attestations();
+    rig.move_to_terminal_block();
+    rig.import_block(Payload::Valid).await; // Import a valid transition block.
+
+    let mut roots = vec![];
+    for _ in 0..4 {
+        roots.push(rig.import_block(Payload::Syncing).await);
+    }
+
+    rig.recompute_head().await;
+    let head = rig.cached_head();
+
+    let original_weights = rig
+        .harness
+        .chain
+        .canonical_head
+        .fork_choice_read_lock()
+        .proto_array()
+        .iter_nodes(&head.head_block_root())
+        .map(|node| (node.root, node.weight))
+        .collect::<HashMap<_, _>>();
+
+    rig.invalidate_manually(roots[1]).await;
+
+    rig.harness
+        .chain
+        .canonical_head
+        .fork_choice_write_lock()
+        .proto_array_mut()
+        .set_all_blocks_to_optimistic::<E>(&rig.harness.chain.spec)
+        .unwrap();
+
+    let new_weights = rig
+        .harness
+        .chain
+        .canonical_head
+        .fork_choice_read_lock()
+        .proto_array()
+        .iter_nodes(&head.head_block_root())
+        .map(|node| (node.root, node.weight))
+        .collect::<HashMap<_, _>>();
+
+    assert_eq!(original_weights, new_weights);
+
+    // Advance the current slot and run fork choice to remove proposer boost.
+    rig.harness
+        .set_current_slot(rig.harness.chain.slot().unwrap() + 1);
+    rig.recompute_head().await;
+
+    assert_eq!(
+        rig.harness
+            .chain
+            .canonical_head
+            .fork_choice_read_lock()
+            .get_block_weight(&head.head_block_root())
+            .unwrap(),
+        head.snapshot.beacon_state.validators()[0].effective_balance,
+        "proposer boost should be removed from the head block and the vote of a single validator applied"
+    );
+
+    // Import a length of chain to ensure the chain can be built atop.
+    for _ in 0..E::slots_per_epoch() * 4 {
+        rig.import_block(Payload::Valid).await;
+    }
 }

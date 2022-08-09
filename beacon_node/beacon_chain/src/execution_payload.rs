@@ -7,11 +7,12 @@
 //! So, this module contains functions that one might expect to find in other crates, but they live
 //! here for good reason.
 
+use crate::otb_verification_service::OptimisticTransitionBlock;
 use crate::{
     BeaconChain, BeaconChainError, BeaconChainTypes, BlockError, BlockProductionError,
     ExecutionPayloadError,
 };
-use execution_layer::PayloadStatus;
+use execution_layer::{BuilderParams, PayloadStatus};
 use fork_choice::{InvalidationOperation, PayloadVerificationStatus};
 use proto_array::{Block as ProtoBlock, ExecutionStatus};
 use slog::debug;
@@ -26,6 +27,12 @@ use types::*;
 
 pub type PreparePayloadResult<Payload> = Result<Payload, BlockProductionError>;
 pub type PreparePayloadHandle<Payload> = JoinHandle<Option<PreparePayloadResult<Payload>>>;
+
+#[derive(PartialEq)]
+pub enum AllowOptimisticImport {
+    Yes,
+    No,
+}
 
 /// Used to await the result of executing payload with a remote EE.
 pub struct PayloadNotifier<T: BeaconChainTypes> {
@@ -146,6 +153,7 @@ async fn notify_new_payload<'a, T: BeaconChainTypes>(
 pub async fn validate_merge_block<'a, T: BeaconChainTypes>(
     chain: &Arc<BeaconChain<T>>,
     block: BeaconBlockRef<'a, T::EthSpec>,
+    allow_optimistic_import: AllowOptimisticImport,
 ) -> Result<(), BlockError<T::EthSpec>> {
     let spec = &chain.spec;
     let block_epoch = block.slot().epoch(T::EthSpec::slots_per_epoch());
@@ -188,13 +196,18 @@ pub async fn validate_merge_block<'a, T: BeaconChainTypes>(
         }
         .into()),
         None => {
-            if is_optimistic_candidate_block(chain, block.slot(), block.parent_root()).await? {
+            if allow_optimistic_import == AllowOptimisticImport::Yes
+                && is_optimistic_candidate_block(chain, block.slot(), block.parent_root()).await?
+            {
                 debug!(
                     chain.log,
-                    "Optimistically accepting terminal block";
+                    "Optimistically importing merge transition block";
                     "block_hash" => ?execution_payload.parent_hash(),
                     "msg" => "the terminal block/parent was unavailable"
                 );
+                // Store Optimistic Transition Block in Database for later Verification
+                OptimisticTransitionBlock::from_block(block)
+                    .persist_in_store::<T, _>(&chain.store)?;
                 Ok(())
             } else {
                 Err(ExecutionPayloadError::UnverifiedNonOptimisticCandidate.into())
@@ -302,14 +315,12 @@ pub fn get_execution_payload<
 >(
     chain: Arc<BeaconChain<T>>,
     state: &BeaconState<T::EthSpec>,
-    finalized_checkpoint: Checkpoint,
     proposer_index: u64,
-    pubkey: Option<PublicKeyBytes>,
+    builder_params: BuilderParams,
 ) -> Result<PreparePayloadHandle<Payload>, BlockProductionError> {
     // Compute all required values from the `state` now to avoid needing to pass it into a spawned
     // task.
     let spec = &chain.spec;
-    let slot = state.slot();
     let current_epoch = state.current_epoch();
     let is_merge_transition_complete = is_merge_transition_complete(state);
     let timestamp = compute_timestamp_at_slot(state, spec).map_err(BeaconStateError::from)?;
@@ -326,14 +337,12 @@ pub fn get_execution_payload<
             async move {
                 prepare_execution_payload::<T, Payload>(
                     &chain,
-                    slot,
                     is_merge_transition_complete,
                     timestamp,
                     random,
-                    finalized_checkpoint,
                     proposer_index,
-                    pubkey,
                     latest_execution_payload_header_block_hash,
+                    builder_params,
                 )
                 .await
             },
@@ -361,20 +370,18 @@ pub fn get_execution_payload<
 #[allow(clippy::too_many_arguments)]
 pub async fn prepare_execution_payload<T, Payload>(
     chain: &Arc<BeaconChain<T>>,
-    slot: Slot,
     is_merge_transition_complete: bool,
     timestamp: u64,
     random: Hash256,
-    finalized_checkpoint: Checkpoint,
     proposer_index: u64,
-    pubkey: Option<PublicKeyBytes>,
     latest_execution_payload_header_block_hash: ExecutionBlockHash,
+    builder_params: BuilderParams,
 ) -> Result<Payload, BlockProductionError>
 where
     T: BeaconChainTypes,
     Payload: ExecPayload<T::EthSpec> + Default,
 {
-    let current_epoch = slot.epoch(T::EthSpec::slots_per_epoch());
+    let current_epoch = builder_params.slot.epoch(T::EthSpec::slots_per_epoch());
     let spec = &chain.spec;
     let execution_layer = chain
         .execution_layer
@@ -393,7 +400,7 @@ where
         }
 
         let terminal_pow_block_hash = execution_layer
-            .get_terminal_pow_block_hash(spec)
+            .get_terminal_pow_block_hash(spec, timestamp)
             .await
             .map_err(BlockProductionError::TerminalPoWBlockLookupFailed)?;
 
@@ -408,43 +415,23 @@ where
         latest_execution_payload_header_block_hash
     };
 
-    // Try to obtain the finalized proto block from fork choice.
+    // Try to obtain the fork choice update parameters from the cached head.
     //
-    // Use a blocking task to interact with the `fork_choice` lock otherwise we risk blocking the
+    // Use a blocking task to interact with the `canonical_head` lock otherwise we risk blocking the
     // core `tokio` executor.
     let inner_chain = chain.clone();
-    let finalized_proto_block = chain
+    let forkchoice_update_params = chain
         .spawn_blocking_handle(
             move || {
                 inner_chain
                     .canonical_head
-                    .fork_choice_read_lock()
-                    .get_block(&finalized_checkpoint.root)
+                    .cached_head()
+                    .forkchoice_update_parameters()
             },
-            "prepare_execution_payload_finalized_hash",
+            "prepare_execution_payload_forkchoice_update_params",
         )
         .await
         .map_err(BlockProductionError::BeaconChain)?;
-
-    // The finalized block hash is not included in the specification, however we provide this
-    // parameter so that the execution layer can produce a payload id if one is not already known
-    // (e.g., due to a recent reorg).
-    let finalized_block_hash = if let Some(block) = finalized_proto_block {
-        block.execution_status.block_hash()
-    } else {
-        chain
-            .store
-            .get_blinded_block(&finalized_checkpoint.root)
-            .map_err(BlockProductionError::FailedToReadFinalizedBlock)?
-            .ok_or(BlockProductionError::MissingFinalizedBlock(
-                finalized_checkpoint.root,
-            ))?
-            .message()
-            .body()
-            .execution_payload()
-            .ok()
-            .map(|ep| ep.block_hash())
-    };
 
     // Note: the suggested_fee_recipient is stored in the `execution_layer`, it will add this parameter.
     //
@@ -454,10 +441,10 @@ where
             parent_hash,
             timestamp,
             random,
-            finalized_block_hash.unwrap_or_else(ExecutionBlockHash::zero),
             proposer_index,
-            pubkey,
-            slot,
+            forkchoice_update_params,
+            builder_params,
+            &chain.spec,
         )
         .await
         .map_err(BlockProductionError::GetPayloadFailed)?;

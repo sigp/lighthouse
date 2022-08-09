@@ -1,4 +1,3 @@
-use eth2::ok_or_error;
 use eth2::types::builder_bid::SignedBuilderBid;
 use eth2::types::{
     BlindedPayload, EthSpec, ExecPayload, ExecutionBlockHash, ExecutionPayload,
@@ -6,23 +5,33 @@ use eth2::types::{
     Slot,
 };
 pub use eth2::Error;
+use eth2::{ok_or_error, StatusCode};
 use reqwest::{IntoUrl, Response};
 use sensitive_url::SensitiveUrl;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use std::time::Duration;
 
-pub const DEFAULT_GET_HEADER_TIMEOUT_MILLIS: u64 = 500;
+pub const DEFAULT_TIMEOUT_MILLIS: u64 = 15000;
+
+/// This timeout is in accordance with v0.2.0 of the [builder specs](https://github.com/flashbots/mev-boost/pull/20).
+pub const DEFAULT_GET_HEADER_TIMEOUT_MILLIS: u64 = 1000;
 
 #[derive(Clone)]
 pub struct Timeouts {
     get_header: Duration,
+    post_validators: Duration,
+    post_blinded_blocks: Duration,
+    get_builder_status: Duration,
 }
 
 impl Default for Timeouts {
     fn default() -> Self {
         Self {
             get_header: Duration::from_millis(DEFAULT_GET_HEADER_TIMEOUT_MILLIS),
+            post_validators: Duration::from_millis(DEFAULT_TIMEOUT_MILLIS),
+            post_blinded_blocks: Duration::from_millis(DEFAULT_TIMEOUT_MILLIS),
+            get_builder_status: Duration::from_millis(DEFAULT_TIMEOUT_MILLIS),
         }
     }
 }
@@ -49,14 +58,6 @@ impl BuilderHttpClient {
             server,
             timeouts,
         })
-    }
-
-    async fn get<T: DeserializeOwned, U: IntoUrl>(&self, url: U) -> Result<T, Error> {
-        self.get_response_with_timeout(url, None)
-            .await?
-            .json()
-            .await
-            .map_err(Error::Reqwest)
     }
 
     async fn get_with_timeout<T: DeserializeOwned, U: IntoUrl>(
@@ -104,14 +105,13 @@ impl BuilderHttpClient {
         &self,
         url: U,
         body: &T,
+        timeout: Option<Duration>,
     ) -> Result<Response, Error> {
-        let response = self
-            .client
-            .post(url)
-            .json(body)
-            .send()
-            .await
-            .map_err(Error::Reqwest)?;
+        let mut builder = self.client.post(url);
+        if let Some(timeout) = timeout {
+            builder = builder.timeout(timeout);
+        }
+        let response = builder.json(body).send().await.map_err(Error::Reqwest)?;
         ok_or_error(response).await
     }
 
@@ -129,7 +129,8 @@ impl BuilderHttpClient {
             .push("builder")
             .push("validators");
 
-        self.post_generic(path, &validator, None).await?;
+        self.post_generic(path, &validator, Some(self.timeouts.post_validators))
+            .await?;
         Ok(())
     }
 
@@ -148,7 +149,11 @@ impl BuilderHttpClient {
             .push("blinded_blocks");
 
         Ok(self
-            .post_with_raw_response(path, &blinded_block)
+            .post_with_raw_response(
+                path,
+                &blinded_block,
+                Some(self.timeouts.post_blinded_blocks),
+            )
             .await?
             .json()
             .await?)
@@ -160,7 +165,7 @@ impl BuilderHttpClient {
         slot: Slot,
         parent_hash: ExecutionBlockHash,
         pubkey: &PublicKeyBytes,
-    ) -> Result<ForkVersionedResponse<SignedBuilderBid<E, Payload>>, Error> {
+    ) -> Result<Option<ForkVersionedResponse<SignedBuilderBid<E, Payload>>>, Error> {
         let mut path = self.server.full.clone();
 
         path.path_segments_mut()
@@ -173,7 +178,13 @@ impl BuilderHttpClient {
             .push(format!("{parent_hash:?}").as_str())
             .push(pubkey.as_hex_string().as_str());
 
-        self.get_with_timeout(path, self.timeouts.get_header).await
+        let resp = self.get_with_timeout(path, self.timeouts.get_header).await;
+
+        if matches!(resp, Err(Error::StatusCode(StatusCode::NO_CONTENT))) {
+            Ok(None)
+        } else {
+            resp.map(Some)
+        }
     }
 
     /// `GET /eth/v1/builder/status`
@@ -187,6 +198,7 @@ impl BuilderHttpClient {
             .push("builder")
             .push("status");
 
-        self.get(path).await
+        self.get_with_timeout(path, self.timeouts.get_builder_status)
+            .await
     }
 }

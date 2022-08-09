@@ -138,6 +138,7 @@ pub enum BeaconChainError {
         new_slot: Slot,
     },
     AltairForkDisabled,
+    BuilderMissing,
     ExecutionLayerMissing,
     BlockVariantLacksExecutionPayload(Hash256),
     ExecutionLayerErrorPayloadReconstruction(ExecutionBlockHash, execution_layer::Error),
@@ -182,6 +183,9 @@ pub enum BeaconChainError {
         execution_status: ExecutionStatus,
     },
     CannotAttestToFinalizedBlock {
+        beacon_block_root: Hash256,
+    },
+    SyncContributionDataReferencesFinalizedBlock {
         beacon_block_root: Hash256,
     },
     RuntimeShutdown,

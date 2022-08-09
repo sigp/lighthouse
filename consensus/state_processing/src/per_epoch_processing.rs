@@ -2,6 +2,7 @@
 
 pub use epoch_processing_summary::EpochProcessingSummary;
 use errors::EpochProcessingError as Error;
+pub use justification_and_finalization_state::JustificationAndFinalizationState;
 pub use registry_updates::process_registry_updates;
 use safe_arith::SafeArith;
 pub use slashings::process_slashings;
@@ -14,6 +15,7 @@ pub mod effective_balance_updates;
 pub mod epoch_processing_summary;
 pub mod errors;
 pub mod historical_roots_update;
+pub mod justification_and_finalization_state;
 pub mod registry_updates;
 pub mod resets;
 pub mod slashings;
