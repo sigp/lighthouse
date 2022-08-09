@@ -11,7 +11,7 @@ pub const DEFAULT_SLOT_OFFSET: f64 = 10.5;
 pub const DEFAULT_MAX_DB_SIZE: usize = 256 * 1024; // 256 GiB
 pub const DEFAULT_ATTESTATION_ROOT_CACHE_SIZE: usize = 100_000;
 pub const DEFAULT_BROADCAST: bool = false;
-pub const DEFAULT_BACKEND: DatabaseBackend = DatabaseBackend::Mdbx;
+pub const DEFAULT_BACKEND: DatabaseBackend = DatabaseBackend::Lmdb;
 
 pub const MAX_HISTORY_LENGTH: usize = 1 << 16;
 pub const MEGABYTE: usize = 1 << 20;

@@ -149,10 +149,7 @@ pub trait TargetArrayChunk: Sized + serde::Serialize + serde::de::DeserializeOwn
 
     fn next_start_epoch(start_epoch: Epoch, config: &Config) -> Epoch;
 
-    fn select_db<'txn, E: EthSpec>(
-        db: &SlasherDB<E>,
-        txn: &'txn RwTransaction<'txn>,
-    ) -> Result<Database<'txn>, Error>;
+    fn select_db<E: EthSpec>(db: &SlasherDB<E>) -> &Database;
 
     fn load<E: EthSpec>(
         db: &SlasherDB<E>,
@@ -162,7 +159,7 @@ pub trait TargetArrayChunk: Sized + serde::Serialize + serde::de::DeserializeOwn
         config: &Config,
     ) -> Result<Option<Self>, Error> {
         let disk_key = config.disk_key(validator_chunk_index, chunk_index);
-        let chunk_bytes = match txn.get(&Self::select_db(db, txn)?, &disk_key.to_be_bytes())? {
+        let chunk_bytes = match txn.get(Self::select_db(db), &disk_key.to_be_bytes())? {
             Some(chunk_bytes) => chunk_bytes,
             None => return Ok(None),
         };
@@ -190,7 +187,7 @@ pub trait TargetArrayChunk: Sized + serde::Serialize + serde::de::DeserializeOwn
         metrics::set_float_gauge(&SLASHER_COMPRESSION_RATIO, compression_ratio);
 
         txn.put(
-            &Self::select_db(db, txn)?,
+            Self::select_db(db),
             &disk_key.to_be_bytes(),
             &compressed_value,
         )?;
@@ -296,11 +293,8 @@ impl TargetArrayChunk for MinTargetChunk {
         start_epoch / chunk_size * chunk_size - 1
     }
 
-    fn select_db<'txn, E: EthSpec>(
-        db: &SlasherDB<E>,
-        txn: &'txn RwTransaction<'txn>,
-    ) -> Result<Database<'txn>, Error> {
-        db.min_targets_db(txn)
+    fn select_db<E: EthSpec>(db: &SlasherDB<E>) -> &Database {
+        &db.databases.min_targets_db
     }
 }
 
@@ -398,11 +392,8 @@ impl TargetArrayChunk for MaxTargetChunk {
         (start_epoch / chunk_size + 1) * chunk_size
     }
 
-    fn select_db<'txn, E: EthSpec>(
-        db: &SlasherDB<E>,
-        txn: &'txn RwTransaction<'txn>,
-    ) -> Result<Database<'txn>, Error> {
-        db.max_targets_db(txn)
+    fn select_db<E: EthSpec>(db: &SlasherDB<E>) -> &Database {
+        &db.databases.max_targets_db
     }
 }
 

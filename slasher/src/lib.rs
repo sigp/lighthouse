@@ -12,7 +12,6 @@ pub mod metrics;
 mod migrate;
 mod slasher;
 pub mod test_utils;
-mod utils;
 
 pub use crate::slasher::Slasher;
 pub use attestation_queue::{AttestationBatch, AttestationQueue, SimpleBatch};

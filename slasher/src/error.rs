@@ -4,7 +4,9 @@ use types::Epoch;
 
 #[derive(Debug)]
 pub enum Error {
-    DatabaseError(mdbx::Error),
+    DatabaseMdbxError(mdbx::Error),
+    DatabaseLmdbError(lmdb::Error),
+    MismatchedDatabaseVariant,
     DatabaseIOError(io::Error),
     DatabasePermissionsError(filesystem::Error),
     SszDecodeError(ssz::DecodeError),
@@ -67,7 +69,16 @@ impl From<mdbx::Error> for Error {
     fn from(e: mdbx::Error) -> Self {
         match e {
             mdbx::Error::Other(os_error) => Error::from(io::Error::from_raw_os_error(os_error)),
-            _ => Error::DatabaseError(e),
+            _ => Error::DatabaseMdbxError(e),
+        }
+    }
+}
+
+impl From<lmdb::Error> for Error {
+    fn from(e: lmdb::Error) -> Self {
+        match e {
+            lmdb::Error::Other(os_error) => Error::from(io::Error::from_raw_os_error(os_error)),
+            _ => Error::DatabaseLmdbError(e),
         }
     }
 }

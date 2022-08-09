@@ -1,4 +1,8 @@
-use crate::{config::MEGABYTE, Config, Error};
+use crate::{
+    config::MEGABYTE,
+    database::{interface::OpenDatabases, *},
+    Config, Error,
+};
 use mdbx::{DatabaseFlags, Geometry, WriteFlags};
 use std::borrow::Cow;
 use std::ops::Range;
@@ -34,6 +38,39 @@ impl Environment {
         Ok(Environment { env })
     }
 
+    pub fn create_databases(&self) -> Result<OpenDatabases, Error> {
+        let txn = self.begin_rw_txn()?;
+        txn.create_db(INDEXED_ATTESTATION_DB)?;
+        txn.create_db(INDEXED_ATTESTATION_ID_DB)?;
+        txn.create_db(ATTESTERS_DB)?;
+        txn.create_db(ATTESTERS_MAX_TARGETS_DB)?;
+        txn.create_db(MIN_TARGETS_DB)?;
+        txn.create_db(MAX_TARGETS_DB)?;
+        txn.create_db(CURRENT_EPOCHS_DB)?;
+        txn.create_db(PROPOSERS_DB)?;
+        txn.create_db(METADATA_DB)?;
+
+        // This is all rather nasty
+        let (_, mut databases) = txn.txn.commit_and_rebind_open_dbs()?;
+        let mut next_db = || {
+            crate::Database::Mdbx(Database {
+                db: databases.remove(0),
+            })
+        };
+
+        Ok(OpenDatabases {
+            indexed_attestation_db: next_db(),
+            indexed_attestation_id_db: next_db(),
+            attesters_db: next_db(),
+            attesters_max_targets_db: next_db(),
+            min_targets_db: next_db(),
+            max_targets_db: next_db(),
+            current_epochs_db: next_db(),
+            proposers_db: next_db(),
+            metadata_db: next_db(),
+        })
+    }
+
     pub fn begin_rw_txn(&self) -> Result<RwTransaction, Error> {
         let txn = self.env.begin_rw_txn()?;
         Ok(RwTransaction { txn })
@@ -51,7 +88,8 @@ impl Environment {
 
 impl<'env> RwTransaction<'env> {
     pub fn create_db(&self, name: &'static str) -> Result<(), Error> {
-        self.txn.create_db(Some(name), Self::db_flags())?;
+        let db = self.txn.create_db(Some(name), Self::db_flags())?;
+        self.txn.prime_for_permaopen(db);
         Ok(())
     }
 
@@ -83,7 +121,7 @@ impl<'env> RwTransaction<'env> {
         Ok(())
     }
 
-    pub fn cursor(&self, db: &Database<'env>) -> Result<Cursor<'env>, Error> {
+    pub fn cursor<'a>(&'a self, db: &Database) -> Result<Cursor<'a>, Error> {
         let cursor = self.txn.cursor(&db.db)?;
         Ok(Cursor { cursor })
     }
