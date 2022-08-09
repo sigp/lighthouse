@@ -12,7 +12,7 @@ use crate::beacon_processor::{ChainSegmentProcessId, WorkEvent as BeaconWorkEven
 use crate::sync::manager::{BatchProcessResult, Id};
 use crate::sync::network_context::SyncNetworkContext;
 use crate::sync::range_sync::{
-    BatchConfig, BatchId, BatchInfo, BatchProcessingResult, BatchState, BatchOperationOutcome,
+    BatchConfig, BatchId, BatchInfo, BatchOperationOutcome, BatchProcessingResult, BatchState,
 };
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use lighthouse_network::types::{BackFillState, NetworkGlobals};
