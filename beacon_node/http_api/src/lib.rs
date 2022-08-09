@@ -78,7 +78,7 @@ const SYNC_TOLERANCE_EPOCHS: u64 = 8;
 type HttpServer = (SocketAddr, Pin<Box<dyn Future<Output = ()> + Send>>);
 
 /// Logged to the user when a duplicate block is provided.
-const REPEAT_PROPOSAL_INFO: &str = "this can happen a VC uses fallback BNs. \
+const REPEAT_PROPOSAL_INFO: &str = "this can happen when a VC uses fallback BNs. \
     whilst this is not necessarily an error, it can indicate issues with a BN or between \
     the VC and BN.";
 
