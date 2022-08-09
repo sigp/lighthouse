@@ -285,7 +285,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             return Ok(KeepChain);
         }
 
-        let beacon_processor_send = match network.beacon_processor_send() {
+        let beacon_processor_send = match network.processor_channel_if_enabled() {
             Some(channel) => channel,
             None => return Ok(KeepChain),
         };
@@ -937,6 +937,18 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             ChainSyncingState::Syncing => true,
             ChainSyncingState::Stopped => false,
         }
+    }
+
+    /// Kickstarts the chain by sending for processing batches that are ready and requesting more
+    /// batches if needed.
+    pub fn resume(
+        &mut self,
+        network: &mut SyncNetworkContext<T>,
+    ) -> Result<KeepChain, RemoveChain> {
+        // Request more batches if needed.
+        self.request_batches(network)?;
+        // If there is any batch ready for processing, send it.
+        self.process_completed_batches(network)
     }
 
     /// Attempts to request the next required batches from the peer pool if the chain is syncing. It will exhaust the peer

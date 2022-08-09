@@ -281,8 +281,6 @@ where
                 network,
                 "peer removed",
             );
-
-            // update the state of the collection
         }
     }
 
@@ -353,6 +351,21 @@ where
         // update the state of the collection
         self.chains
             .update(network, &local, &mut self.awaiting_head_peers);
+    }
+
+    /// Kickstarts sync.
+    pub fn resume(&mut self, network: &mut SyncNetworkContext<T>) {
+        for (removed_chain, sync_type, remove_reason) in
+            self.chains.call_all(|chain| chain.resume(network))
+        {
+            self.on_chain_removed(
+                removed_chain,
+                sync_type,
+                remove_reason,
+                network,
+                "chain resumed",
+            );
+        }
     }
 }
 

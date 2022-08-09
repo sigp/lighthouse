@@ -498,14 +498,6 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
         network: &mut SyncNetworkContext<T>,
         batch_id: BatchId,
     ) -> Result<ProcessResult, BackFillError> {
-        let beacon_processor_send = match network.beacon_processor_send() {
-            Some(channel) => channel,
-            None => {
-                slog::trace!(self.log, "Backfill batch not sent for processing"; "batch_id" => batch_id);
-                return Ok(ProcessResult::Successful);
-            }
-        };
-
         // Only process batches if this chain is Syncing, and only one at a time
         if self.state() != BackFillState::Syncing || self.current_processing_batch.is_some() {
             return Ok(ProcessResult::Successful);
@@ -539,8 +531,9 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
         let process_id = ChainSegmentProcessId::BackSyncBatchId(batch_id);
         self.current_processing_batch = Some(batch_id);
 
-        if let Err(e) =
-            beacon_processor_send.try_send(BeaconWorkEvent::chain_segment(process_id, blocks))
+        if let Err(e) = network
+            .processor_channel()
+            .try_send(BeaconWorkEvent::chain_segment(process_id, blocks))
         {
             crit!(self.log, "Failed to send backfill segment to processor."; "msg" => "process_batch",
                 "error" => %e, "batch" => self.processing_target);

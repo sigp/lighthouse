@@ -147,8 +147,6 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                         self.log,
                         "Block returned for single block lookup not present"
                     );
-                    #[cfg(debug_assertions)]
-                    panic!("block returned for single block lookup not present");
                 }
                 return;
             }
@@ -385,9 +383,6 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         let mut req = match self.single_block_lookups.remove(&id) {
             Some(req) => req,
             None => {
-                #[cfg(debug_assertions)]
-                panic!("block processed for single block lookup not present");
-                #[cfg(not(debug_assertions))]
                 return debug!(
                     self.log,
                     "Block processed for single block lookup not present"
@@ -481,13 +476,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             }) {
             (self.parent_queue.remove(pos), peer)
         } else {
-            #[cfg(debug_assertions)]
-            panic!(
-                "Process response for a parent lookup request that was not found. Chain_hash: {}",
-                chain_hash
-            );
-            #[cfg(not(debug_assertions))]
-            return crit!(self.log, "Process response for a parent lookup request that was not found"; "chain_hash" => %chain_hash);
+            return debug!(self.log, "Process response for a parent lookup request that was not found"; "chain_hash" => %chain_hash);
         };
 
         match &result {
@@ -517,7 +506,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             BlockProcessResult::Ok
             | BlockProcessResult::Err(BlockError::BlockIsAlreadyKnown { .. }) => {
                 // Check if the beacon processor is available
-                let beacon_processor_send = match cx.beacon_processor_send() {
+                let beacon_processor_send = match cx.processor_channel_if_enabled() {
                     Some(channel) => channel,
                     None => {
                         // The beacon processor if offline if the ee is out of sync. Having a
@@ -608,12 +597,6 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         {
             self.parent_queue.remove(pos)
         } else {
-            #[cfg(debug_assertions)]
-            panic!(
-                "Chain process response for a parent lookup request that was not found. Chain_hash: {}",
-                chain_hash
-            );
-            #[cfg(not(debug_assertions))]
             return debug!(self.log, "Chain process response for a parent lookup request that was not found"; "chain_hash" => %chain_hash);
         };
 
@@ -660,7 +643,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         process_type: BlockProcessType,
         cx: &mut SyncNetworkContext<T>,
     ) -> Result<(), ()> {
-        match cx.beacon_processor_send() {
+        match cx.processor_channel_if_enabled() {
             Some(beacon_processor_send) => {
                 trace!(self.log, "Sending block for processing"; "block" => %block.canonical_root(), "process" => ?process_type);
                 let event = WorkEvent::rpc_beacon_block(block, duration, process_type);
@@ -731,5 +714,15 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             &metrics::SYNC_PARENT_BLOCK_LOOKUPS,
             self.parent_queue.len() as i64,
         );
+    }
+
+    /// Drops all the single block requests and returns how many requests were dropped.
+    pub fn drop_single_block_requests(&mut self) -> usize {
+        self.single_block_lookups.drain().len()
+    }
+
+    /// Drops all the parent chain requests and returns how many requests were dropped.
+    pub fn drop_parent_chain_requests(&mut self) -> usize {
+        self.parent_queue.drain(..).len()
     }
 }

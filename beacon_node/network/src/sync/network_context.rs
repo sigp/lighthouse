@@ -223,6 +223,10 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         Ok(id)
     }
 
+    pub fn is_ee_synced(&self) -> bool {
+        self.is_ee_synced
+    }
+
     pub fn ee_sync_state_updated(&mut self, is_synced: bool) {
         self.is_ee_synced = is_synced;
     }
@@ -272,8 +276,12 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         })
     }
 
-    pub fn beacon_processor_send(&self) -> Option<&mpsc::Sender<WorkEvent<T>>> {
+    pub fn processor_channel_if_enabled(&self) -> Option<&mpsc::Sender<WorkEvent<T>>> {
         self.is_ee_synced.then_some(&self.beacon_processor_send)
+    }
+
+    pub fn processor_channel(&self) -> &mpsc::Sender<WorkEvent<T>> {
+        &self.beacon_processor_send
     }
 
     fn next_id(&mut self) -> Id {

@@ -517,7 +517,9 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         return;
                     }
                 }
-                if self.network_globals.peers.read().is_connected(&peer_id) {
+                if self.network_globals.peers.read().is_connected(&peer_id)
+                    && self.network.is_ee_synced()
+                {
                     self.block_lookups
                         .search_parent(block, peer_id, &mut self.network);
                 }
@@ -526,6 +528,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 // If we are not synced, ignore this block.
                 if self.network_globals.sync_state.read().is_synced()
                     && self.network_globals.peers.read().is_connected(&peer_id)
+                    && self.network.is_ee_synced()
                 {
                     self.block_lookups
                         .search_block(block_hash, peer_id, &mut self.network);
@@ -583,10 +586,52 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     }
 
     fn handle_new_ee_sync_state(&mut self, ee_is_synced: bool) {
+        self.network.ee_sync_state_updated(ee_is_synced);
+
         if ee_is_synced {
-            // resume
+            // Resume sync components.
+
+            // - Block lookups:
+            //   We start searching for blocks again. This is done by updating the stored ee sync
+            //   state. No further action required.
+
+            // - Parent lookups:
+            //   We start searching for parents again. This is done by updating the stored ee sync
+            //   state. No further action required.
+
+            // - Range:
+            //   Actively resume.
+            self.range_sync.resume(&mut self.network);
+
+            // - Backfill:
+            //   Not affected by ee states, nothing to do.
         } else {
-            // pause
+            // Pause sync components.
+
+            // - Block lookups:
+            //   Disabled while in this state. We drop current requests and don't search for new
+            //   blocks.
+            let dropped_single_blocks_requests = self.block_lookups.drop_single_block_requests();
+
+            // - Parent lookups:
+            //   Disabled while in this state. We drop current requests and don't search for new
+            //   blocks.
+            let dropped_parent_chain_requests = self.block_lookups.drop_parent_chain_requests();
+
+            // - Range:
+            //   We still send found peers to range so that it can keep track of potential chains
+            //   with respect to our current peers. Range will stop processing batches in the
+            //   meantime. No further action from the manager is required for this.
+
+            // - Backfill: Not affected by ee states, nothing to do.
+
+            // Some logs.
+            if dropped_single_blocks_requests > 0 || dropped_parent_chain_requests > 0 {
+                debug!(self.log, "Execution engine not synced and online, dropping active requests.";
+                    "dropped_single_blocks_requests" => dropped_single_blocks_requests,
+                    "dropped_parent_chain_requests" => dropped_parent_chain_requests,
+                );
+            }
         }
     }
 
