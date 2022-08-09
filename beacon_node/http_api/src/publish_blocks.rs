@@ -99,7 +99,7 @@ pub async fn publish_block<T: BeaconChainTypes>(
             warn!(
                 log,
                 "Block ignored due to repeat proposal";
-                "msg" => "this can happen a VC uses fallback BNs. \
+                "msg" => "this can happen when a VC uses fallback BNs. \
                     whilst this is not necessarily an error, it can indicate issues with a BN \
                     or between the VC and BN.",
                 "slot" => slot,

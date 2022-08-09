@@ -202,7 +202,7 @@ pub fn process_sync_committee_signatures<T: BeaconChainTypes>(
                 }) => {
                     debug!(
                         log,
-                        "Ignoring already-known symc message";
+                        "Ignoring already-known sync message";
                         "slot" => slot,
                         "validator_index" => validator_index,
                     );
