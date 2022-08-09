@@ -78,7 +78,8 @@ pub enum OpOutcome {
 
 pub enum BatchProcessingResult {
     Success,
-    Failed { count_attempt: bool },
+    FaultyFailure,
+    NonFaultyFailure,
 }
 
 /// A segment of a chain.
@@ -90,7 +91,7 @@ pub struct BatchInfo<T: EthSpec, B: BatchConfig = RangeSyncBatchConfig> {
     /// The `Attempts` that have been made and failed to send us this batch.
     failed_processing_attempts: Vec<Attempt>,
     /// Number of processing attempts that have failed but we do not count.
-    other_failed_processing_attempts: u8,
+    non_faulty_processing_attempts: u8,
     /// The number of download retries this batch has undergone due to a failed request.
     failed_download_attempts: Vec<PeerId>,
     /// State of the batch.
@@ -146,7 +147,7 @@ impl<T: EthSpec, B: BatchConfig> BatchInfo<T, B> {
             end_slot,
             failed_processing_attempts: Vec::new(),
             failed_download_attempts: Vec::new(),
-            other_failed_processing_attempts: 0,
+            non_faulty_processing_attempts: 0,
             state: BatchState::AwaitingDownload,
             marker: std::marker::PhantomData,
         }
@@ -379,24 +380,23 @@ impl<T: EthSpec, B: BatchConfig> BatchInfo<T, B> {
             BatchState::Processing(attempt) => {
                 self.state = match procesing_result {
                     BatchProcessingResult::Success => BatchState::AwaitingValidation(attempt),
-                    BatchProcessingResult::Failed { count_attempt } => {
-                        if count_attempt {
-                            // register the failed attempt
-                            self.failed_processing_attempts.push(attempt);
+                    BatchProcessingResult::FaultyFailure => {
+                        // register the failed attempt
+                        self.failed_processing_attempts.push(attempt);
 
-                            // check if the batch can be downloaded again
-                            if self.failed_processing_attempts.len()
-                                >= B::max_batch_processing_attempts() as usize
-                            {
-                                BatchState::Failed
-                            } else {
-                                BatchState::AwaitingDownload
-                            }
+                        // check if the batch can be downloaded again
+                        if self.failed_processing_attempts.len()
+                            >= B::max_batch_processing_attempts() as usize
+                        {
+                            BatchState::Failed
                         } else {
-                            self.other_failed_processing_attempts =
-                                self.other_failed_processing_attempts.saturating_add(1);
                             BatchState::AwaitingDownload
                         }
+                    }
+                    BatchProcessingResult::NonFaultyFailure => {
+                        self.non_faulty_processing_attempts =
+                            self.non_faulty_processing_attempts.saturating_add(1);
+                        BatchState::AwaitingDownload
                     }
                 };
                 Ok(self.outcome())
@@ -487,10 +487,7 @@ impl<T: EthSpec, B: BatchConfig> slog::KV for BatchInfo<T, B> {
         )?;
         serializer.emit_usize("downloaded", self.failed_download_attempts.len())?;
         serializer.emit_usize("processed", self.failed_processing_attempts.len())?;
-        serializer.emit_u8(
-            "processed_no_penalty",
-            self.other_failed_processing_attempts,
-        )?;
+        serializer.emit_u8("processed_no_penalty", self.non_faulty_processing_attempts)?;
         serializer.emit_arguments("state", &format_args!("{:?}", self.state))?;
         slog::Result::Ok(())
     }
