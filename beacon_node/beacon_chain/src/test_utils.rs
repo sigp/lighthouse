@@ -157,6 +157,7 @@ pub struct Builder<T: BeaconChainTypes> {
     execution_layer: Option<ExecutionLayer<T::EthSpec>>,
     mock_execution_layer: Option<MockExecutionLayer<T::EthSpec>>,
     mock_builder: Option<TestingBuilder<T::EthSpec>>,
+    testing_slot_clock: Option<TestingSlotClock>,
     runtime: TestRuntime,
     log: Logger,
 }
@@ -289,6 +290,7 @@ where
             execution_layer: None,
             mock_execution_layer: None,
             mock_builder: None,
+            testing_slot_clock: None,
             runtime,
             log,
         }
@@ -435,6 +437,11 @@ where
         self
     }
 
+    pub fn testing_slot_clock(mut self, slot_clock: TestingSlotClock) -> Self {
+        self.testing_slot_clock = Some(slot_clock);
+        self
+    }
+
     pub fn build(self) -> BeaconChainHarness<BaseHarnessType<E, Hot, Cold>> {
         let (shutdown_tx, shutdown_receiver) = futures::channel::mpsc::channel(1);
 
@@ -475,7 +482,9 @@ where
         };
 
         // Initialize the slot clock only if it hasn't already been initialized.
-        builder = if builder.get_slot_clock().is_none() {
+        builder = if let Some(testing_slot_clock) = self.testing_slot_clock {
+            builder.slot_clock(testing_slot_clock)
+        } else if builder.get_slot_clock().is_none() {
             builder
                 .testing_slot_clock(Duration::from_secs(seconds_per_slot))
                 .expect("should configure testing slot clock")

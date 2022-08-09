@@ -327,6 +327,9 @@ async fn assert_invalid_signature(
         item
     );
 
+    // Call fork choice to update cached head (including finalization).
+    harness.chain.recompute_head_at_current_slot().await;
+
     // Ensure the block will be rejected if imported on its own (without gossip checking).
     let ancestor_blocks = chain_segment
         .iter()
@@ -339,19 +342,20 @@ async fn assert_invalid_signature(
         .chain
         .process_chain_segment(ancestor_blocks, CountUnrealized::True)
         .await;
+    harness.chain.recompute_head_at_current_slot().await;
+
+    let process_res = harness
+        .chain
+        .process_block(
+            snapshots[block_index].beacon_block.clone(),
+            CountUnrealized::True,
+        )
+        .await;
     assert!(
-        matches!(
-            harness
-                .chain
-                .process_block(
-                    snapshots[block_index].beacon_block.clone(),
-                    CountUnrealized::True
-                )
-                .await,
-            Err(BlockError::InvalidSignature)
-        ),
-        "should not import individual block with an invalid {} signature",
-        item
+        matches!(process_res, Err(BlockError::InvalidSignature)),
+        "should not import individual block with an invalid {} signature, got: {:?}",
+        item,
+        process_res
     );
 
     // NOTE: we choose not to check gossip verification here. It only checks one signature

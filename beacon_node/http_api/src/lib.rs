@@ -1988,7 +1988,7 @@ pub fn serve<T: BeaconChainTypes>(
         );
 
     // GET validator/blinded_blocks/{slot}
-    let get_validator_blinded_blocks = any_version
+    let get_validator_blinded_blocks = eth_v1
         .and(warp::path("validator"))
         .and(warp::path("blinded_blocks"))
         .and(warp::path::param::<Slot>().or_else(|_| async {
@@ -2001,8 +2001,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::query::<api_types::ValidatorBlocksQuery>())
         .and(chain_filter.clone())
         .and_then(
-            |endpoint_version: EndpointVersion,
-             slot: Slot,
+            |slot: Slot,
              query: api_types::ValidatorBlocksQuery,
              chain: Arc<BeaconChain<T>>| async move {
                 let randao_reveal = query.randao_reveal.as_ref().map_or_else(
@@ -2044,7 +2043,8 @@ pub fn serve<T: BeaconChainTypes>(
                     .to_ref()
                     .fork_name(&chain.spec)
                     .map_err(inconsistent_fork_rejection)?;
-                fork_versioned_response(endpoint_version, fork_name, block)
+                // Pose as a V2 endpoint so we return the fork `version`. 
+                fork_versioned_response(V2, fork_name, block)
                     .map(|response| warp::reply::json(&response))
             },
         );

@@ -51,7 +51,7 @@ impl Default for ChainConfig {
             builder_fallback_skips_per_epoch: 8,
             builder_fallback_epochs_since_finalization: 3,
             builder_fallback_disable_checks: false,
-            count_unrealized: false,
+            count_unrealized: true,
         }
     }
 }

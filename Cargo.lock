@@ -3106,6 +3106,7 @@ name = "lcli"
 version = "2.5.1"
 dependencies = [
  "account_utils",
+ "beacon_chain",
  "bls",
  "clap",
  "clap_utils",
@@ -3129,6 +3130,7 @@ dependencies = [
  "serde_yaml",
  "snap",
  "state_processing",
+ "store",
  "tree_hash",
  "types",
  "validator_dir",

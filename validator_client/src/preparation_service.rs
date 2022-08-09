@@ -285,6 +285,9 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
 
     fn collect_validator_registration_keys(&self) -> Vec<ValidatorRegistrationKey> {
         self.collect_proposal_data(|pubkey, proposal_data| {
+            // Ignore fee recipients for keys without indices, they are inactive.
+            proposal_data.validator_index?;
+
             // We don't log for missing fee recipients here because this will be logged more
             // frequently in `collect_preparation_data`.
             proposal_data.fee_recipient.and_then(|fee_recipient| {

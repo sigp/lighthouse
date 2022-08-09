@@ -1,8 +1,10 @@
 # Suggested Fee Recipient
 
-*Note: these documents are not relevant until the Bellatrix (Merge) upgrade has occurred.*
+The _fee recipient_ is an Ethereum address nominated by a beacon chain validator to receive
+tips from user transactions. If you run validators on a network that has already merged
+or is due to merge soon then you should nominate a fee recipient for your validators.
 
-## Fee recipient trust assumptions
+## Background
 
 During post-merge block production, the Beacon Node (BN) will provide a `suggested_fee_recipient` to
 the execution node. This is a 20-byte Ethereum address which the EL might choose to set as the
@@ -13,31 +15,24 @@ it may use any address it chooses. It is assumed that an honest execution node *
 `suggested_fee_recipient`, but users should note this trust assumption. Check out the
 [strict fee recipient](#strict-fee-recipient) section for how to mitigate this assumption.
 
-The `suggested_fee_recipient` can be provided to the VC, who will transmit it to the BN. The BN also
+The `suggested_fee_recipient` can be provided to the VC, which will transmit it to the BN. The BN also
 has a choice regarding the fee recipient it passes to the execution node, creating another
 noteworthy trust assumption.
 
 To be sure *you* control your fee recipient value, run your own BN and execution node (don't use
 third-party services).
 
-The Lighthouse VC provides three methods for setting the `suggested_fee_recipient` (also known
+## How to configure a suggested fee recipient
+
+The Lighthouse VC provides two methods for setting the `suggested_fee_recipient` (also known
 simply as the "fee recipient") to be passed to the execution layer during block production. The
 Lighthouse BN also provides a method for defining this value, should the VC not transmit a value.
 
-Assuming trustworthy nodes, the priority for the four methods is:
+Assuming trustworthy nodes, the priority for the three methods is:
 
 1. `validator_definitions.yml`
 1. `--suggested-fee-recipient` provided to the VC.
 1. `--suggested-fee-recipient` provided to the BN.
-
-## Strict Fee Recipient
-
-If the flag `--strict-fee-recipient` is set in the validator client, Lighthouse will refuse to sign any block whose
-`fee_recipient` does not match the `suggested_fee_recipient` sent by this validator. This applies to both the normal
-block proposal flow and block proposals through the builder API. Proposals through the builder API are more likely
-to have a discrepancy in `fee_recipient` so you should be aware of how your connected relay sends proposer payments before
-using this flag. If this flag is used, a fee recipient mismatch in the builder API flow will result in a fallback to the
-local execution engine for payload construction, where a strict fee recipient check will still be applied.
 
 ### 1. Setting the fee recipient in the `validator_definitions.yml`
 
@@ -168,4 +163,22 @@ curl -X DELETE \
 null
 ```
 
+## Strict Fee Recipient
 
+If the flag `--strict-fee-recipient` is set in the validator client, Lighthouse will refuse to sign any block whose
+`fee_recipient` does not match the `suggested_fee_recipient` sent by this validator. This applies to both the normal
+block proposal flow and block proposals through the builder API. Proposals through the builder API are more likely
+to have a discrepancy in `fee_recipient` so you should be aware of how your connected relay sends proposer payments before
+using this flag. If this flag is used, a fee recipient mismatch in the builder API flow will result in a fallback to the
+local execution engine for payload construction, where a strict fee recipient check will still be applied.
+
+## FAQ
+
+### Why do I have to nominate an Ethereum address as the fee recipient?
+
+You might wonder why the validator can't just accumulate transactions fees in the same way that it
+accumulates other staking rewards. The reason for this is that transaction fees are computed and
+validated by the execution node, and therefore need to be paid to an address that exists on the
+execution chain. Validators use BLS keys which do not correspond to Ethereum addresses, so they
+have no "presence" on the execution chain. Therefore it's necessary for each validator to nominate
+a separate fee recipient address.
