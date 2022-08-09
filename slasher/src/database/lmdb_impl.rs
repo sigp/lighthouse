@@ -1,3 +1,5 @@
+#![cfg(feature = "lmdb")]
+
 use crate::{
     config::MEGABYTE,
     database::{

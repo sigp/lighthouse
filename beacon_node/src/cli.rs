@@ -1,4 +1,5 @@
 use clap::{App, Arg};
+use strum::VariantNames;
 
 pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
     App::new("beacon_node")
@@ -627,6 +628,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .long("slasher-backend")
                 .help("Set the database backend to be used by the slasher.")
                 .takes_value(true)
+                .possible_values(slasher::DatabaseBackend::VARIANTS)
                 .requires("slasher")
         )
         .arg(

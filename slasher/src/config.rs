@@ -1,7 +1,7 @@
 use crate::Error;
 use serde_derive::{Deserialize, Serialize};
 use std::path::PathBuf;
-use strum::{Display, EnumString};
+use strum::{Display, EnumString, EnumVariantNames};
 use types::{Epoch, EthSpec, IndexedAttestation};
 
 pub const DEFAULT_CHUNK_SIZE: usize = 16;
@@ -12,7 +12,13 @@ pub const DEFAULT_SLOT_OFFSET: f64 = 10.5;
 pub const DEFAULT_MAX_DB_SIZE: usize = 256 * 1024; // 256 GiB
 pub const DEFAULT_ATTESTATION_ROOT_CACHE_SIZE: usize = 100_000;
 pub const DEFAULT_BROADCAST: bool = false;
+
+#[cfg(feature = "mdbx")]
 pub const DEFAULT_BACKEND: DatabaseBackend = DatabaseBackend::Mdbx;
+#[cfg(all(feature = "lmdb", not(feature = "mdbx")))]
+pub const DEFAULT_BACKEND: DatabaseBackend = DatabaseBackend::Lmdb;
+#[cfg(not(any(feature = "mdbx", feature = "lmdb")))]
+pub const DEFAULT_BACKEND: DatabaseBackend = DatabaseBackend::Disabled;
 
 pub const MAX_HISTORY_LENGTH: usize = 1 << 16;
 pub const MEGABYTE: usize = 1 << 20;
@@ -46,11 +52,16 @@ pub struct DiskConfig {
     pub history_length: usize,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, Display, EnumString)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Display, EnumString, EnumVariantNames,
+)]
 #[strum(serialize_all = "lowercase")]
 pub enum DatabaseBackend {
+    #[cfg(feature = "mdbx")]
     Mdbx,
+    #[cfg(feature = "lmdb")]
     Lmdb,
+    Disabled,
 }
 
 impl Config {

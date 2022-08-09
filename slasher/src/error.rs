@@ -4,8 +4,11 @@ use types::Epoch;
 
 #[derive(Debug)]
 pub enum Error {
+    #[cfg(feature = "mdbx")]
     DatabaseMdbxError(mdbx::Error),
+    #[cfg(feature = "lmdb")]
     DatabaseLmdbError(lmdb::Error),
+    SlasherDatabaseBackendDisabled,
     MismatchedDatabaseVariant,
     DatabaseIOError(io::Error),
     DatabasePermissionsError(filesystem::Error),
@@ -65,6 +68,7 @@ pub enum Error {
     InconsistentAttestationDataRoot,
 }
 
+#[cfg(feature = "mdbx")]
 impl From<mdbx::Error> for Error {
     fn from(e: mdbx::Error) -> Self {
         match e {
@@ -74,6 +78,7 @@ impl From<mdbx::Error> for Error {
     }
 }
 
+#[cfg(feature = "lmdb")]
 impl From<lmdb::Error> for Error {
     fn from(e: lmdb::Error) -> Self {
         match e {

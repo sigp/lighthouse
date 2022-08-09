@@ -1,3 +1,5 @@
+#![cfg(feature = "mdbx")]
+
 use crate::{
     config::MEGABYTE,
     database::{

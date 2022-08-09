@@ -1,4 +1,8 @@
 #![deny(missing_debug_implementations)]
+#![cfg_attr(
+    not(any(feature = "mdbx", feature = "lmdb")),
+    allow(unused, clippy::drop_non_drop)
+)]
 
 mod array;
 mod attestation_queue;
