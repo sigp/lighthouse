@@ -7,6 +7,7 @@ use lmdb::{Cursor as _, DatabaseFlags, Transaction, WriteFlags};
 use lmdb_sys::{MDB_FIRST, MDB_GET_CURRENT, MDB_LAST, MDB_NEXT};
 use std::borrow::Cow;
 use std::marker::PhantomData;
+use std::path::PathBuf;
 
 #[derive(Debug)]
 pub struct Environment {
@@ -30,9 +31,9 @@ pub struct Cursor<'env> {
 }
 
 impl Environment {
-    pub fn new(max_num_dbs: usize, config: &Config) -> Result<Environment, Error> {
+    pub fn new(config: &Config) -> Result<Environment, Error> {
         let env = lmdb::Environment::new()
-            .set_max_dbs(max_num_dbs as u32)
+            .set_max_dbs(MAX_NUM_DBS as u32)
             .set_map_size(config.max_db_size_mbs * MEGABYTE)
             .open_with_permissions(&config.database_path, 0o600)?;
         Ok(Environment { env })
@@ -80,6 +81,13 @@ impl Environment {
     pub fn begin_rw_txn(&self) -> Result<RwTransaction, Error> {
         let txn = self.env.begin_rw_txn()?;
         Ok(RwTransaction { txn })
+    }
+
+    pub fn filenames(&self, config: &Config) -> Vec<PathBuf> {
+        vec![
+            config.database_path.join("data.mdb"),
+            config.database_path.join("lock.mdb"),
+        ]
     }
 
     fn db_flags() -> DatabaseFlags {

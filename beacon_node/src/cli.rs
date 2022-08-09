@@ -623,6 +623,13 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .requires("slasher")
         )
         .arg(
+            Arg::with_name("slasher-backend")
+                .long("slasher-backend")
+                .help("Set the database backend to be used by the slasher.")
+                .takes_value(true)
+                .requires("slasher")
+        )
+        .arg(
             Arg::with_name("wss-checkpoint")
                 .long("wss-checkpoint")
                 .help(

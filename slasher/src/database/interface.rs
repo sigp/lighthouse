@@ -1,13 +1,7 @@
 use crate::database::{lmdb_impl, mdbx_impl};
-use crate::{Config, Error};
-use serde::{Deserialize, Serialize};
+use crate::{Config, DatabaseBackend, Error};
 use std::borrow::Cow;
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
-pub enum DatabaseBackend {
-    Mdbx,
-    Lmdb,
-}
+use std::path::PathBuf;
 
 #[derive(Debug)]
 pub enum Environment {
@@ -47,14 +41,10 @@ pub enum Cursor<'env> {
 }
 
 impl Environment {
-    pub fn new(max_dbs: usize, config: &Config) -> Result<Environment, Error> {
+    pub fn new(config: &Config) -> Result<Environment, Error> {
         match config.backend {
-            DatabaseBackend::Mdbx => {
-                mdbx_impl::Environment::new(max_dbs, config).map(Environment::Mdbx)
-            }
-            DatabaseBackend::Lmdb => {
-                lmdb_impl::Environment::new(max_dbs, config).map(Environment::Lmdb)
-            }
+            DatabaseBackend::Mdbx => mdbx_impl::Environment::new(config).map(Environment::Mdbx),
+            DatabaseBackend::Lmdb => lmdb_impl::Environment::new(config).map(Environment::Lmdb),
         }
     }
 
@@ -69,6 +59,14 @@ impl Environment {
         match self {
             Self::Mdbx(env) => env.begin_rw_txn().map(RwTransaction::Mdbx),
             Self::Lmdb(env) => env.begin_rw_txn().map(RwTransaction::Lmdb),
+        }
+    }
+
+    /// List of all files used by the database.
+    pub fn filenames(&self, config: &Config) -> Vec<PathBuf> {
+        match self {
+            Self::Mdbx(env) => env.filenames(config),
+            Self::Lmdb(env) => env.filenames(config),
         }
     }
 }

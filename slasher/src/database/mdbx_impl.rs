@@ -6,6 +6,7 @@ use crate::{
 use mdbx::{DatabaseFlags, Geometry, WriteFlags};
 use std::borrow::Cow;
 use std::ops::Range;
+use std::path::PathBuf;
 
 pub const MDBX_GROWTH_STEP: isize = 256 * (1 << 20); // 256 MiB
 
@@ -30,9 +31,9 @@ pub struct Cursor<'env> {
 }
 
 impl Environment {
-    pub fn new(max_num_dbs: usize, config: &Config) -> Result<Environment, Error> {
+    pub fn new(config: &Config) -> Result<Environment, Error> {
         let env = mdbx::Environment::new()
-            .set_max_dbs(max_num_dbs)
+            .set_max_dbs(MAX_NUM_DBS)
             .set_geometry(Self::geometry(&config))
             .open_with_permissions(&config.database_path, 0o600)?;
         Ok(Environment { env })
@@ -74,6 +75,13 @@ impl Environment {
     pub fn begin_rw_txn(&self) -> Result<RwTransaction, Error> {
         let txn = self.env.begin_rw_txn()?;
         Ok(RwTransaction { txn })
+    }
+
+    pub fn filenames(&self, config: &Config) -> Vec<PathBuf> {
+        vec![
+            config.database_path.join("mdbx.dat"),
+            config.database_path.join("mdbx.lck"),
+        ]
     }
 
     fn geometry(config: &Config) -> Geometry<Range<usize>> {

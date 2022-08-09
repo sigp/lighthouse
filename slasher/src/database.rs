@@ -15,7 +15,6 @@ use slog::{info, Logger};
 use ssz::{Decode, Encode};
 use std::borrow::{Borrow, Cow};
 use std::marker::PhantomData;
-use std::path::Path;
 use std::sync::Arc;
 use tree_hash::TreeHash;
 use types::{
@@ -51,10 +50,6 @@ const PROPOSERS_DB: &str = "proposers";
 
 /// The number of DBs for MDBX to use (equal to the number of DBs defined above).
 const MAX_NUM_DBS: usize = 9;
-
-/// Filename for the legacy (LMDB) database file, so that it may be deleted.
-const LEGACY_DB_FILENAME: &str = "data.mdb";
-const LEGACY_DB_LOCK_FILENAME: &str = "lock.mdb";
 
 /// Constant key under which the schema version is stored in the `metadata_db`.
 const METADATA_VERSION_KEY: &[u8] = &[0];
@@ -251,22 +246,19 @@ fn ssz_decode<T: Decode>(bytes: Cow<[u8]>) -> Result<T, Error> {
 
 impl<E: EthSpec> SlasherDB<E> {
     pub fn open(config: Arc<Config>, log: Logger) -> Result<Self, Error> {
-        // Delete any legacy LMDB database.
-        Self::delete_legacy_file(&config.database_path, LEGACY_DB_FILENAME, &log)?;
-        Self::delete_legacy_file(&config.database_path, LEGACY_DB_LOCK_FILENAME, &log)?;
+        info!(log, "Opening slasher database"; "backend" => %config.backend);
 
         std::fs::create_dir_all(&config.database_path)?;
 
-        let env = Box::leak(Box::new(Environment::new(MAX_NUM_DBS, &config)?));
+        let env = Box::leak(Box::new(Environment::new(&config)?));
         let databases = env.create_databases()?;
 
         #[cfg(windows)]
         {
-            use filesystem::restrict_file_permissions;
-            let data = config.database_path.join("mdbx.dat");
-            let lock = config.database_path.join("mdbx.lck");
-            restrict_file_permissions(data).map_err(Error::DatabasePermissionsError)?;
-            restrict_file_permissions(lock).map_err(Error::DatabasePermissionsError)?;
+            for database_file in env.filenames() {
+                filesystem::restrict_file_permissions(data)
+                    .map_err(Error::DatabasePermissionsError)?;
+            }
         }
 
         let attestation_root_cache = Mutex::new(LruCache::new(config.attestation_root_cache_size));
@@ -294,20 +286,6 @@ impl<E: EthSpec> SlasherDB<E> {
         txn.commit()?;
 
         Ok(db)
-    }
-
-    fn delete_legacy_file(slasher_dir: &Path, filename: &str, log: &Logger) -> Result<(), Error> {
-        let path = slasher_dir.join(filename);
-
-        if path.is_file() {
-            info!(
-                log,
-                "Deleting legacy slasher DB";
-                "file" => ?path.display(),
-            );
-            std::fs::remove_file(&path)?;
-        }
-        Ok(())
     }
 
     pub fn begin_rw_txn(&self) -> Result<RwTransaction, Error> {
