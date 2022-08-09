@@ -255,8 +255,8 @@ impl<E: EthSpec> SlasherDB<E> {
 
         #[cfg(windows)]
         {
-            for database_file in env.filenames() {
-                filesystem::restrict_file_permissions(data)
+            for database_file in env.filenames(&config) {
+                filesystem::restrict_file_permissions(database_file)
                     .map_err(Error::DatabasePermissionsError)?;
             }
         }
