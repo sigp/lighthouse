@@ -1,6 +1,9 @@
 use crate::{
     config::MEGABYTE,
-    database::{interface::OpenDatabases, *},
+    database::{
+        interface::{Key, OpenDatabases, Value},
+        *,
+    },
     Config, Error,
 };
 use lmdb::{Cursor as _, DatabaseFlags, Transaction, WriteFlags};
@@ -101,11 +104,7 @@ impl<'env> RwTransaction<'env> {
         db: &Database<'env>,
         key: &K,
     ) -> Result<Option<Cow<'env, [u8]>>, Error> {
-        Ok(self
-            .txn
-            .get(db.db, key)
-            .optional()?
-            .map(|bytes| Cow::Borrowed(bytes)))
+        Ok(self.txn.get(db.db, key).optional()?.map(Cow::Borrowed))
     }
 
     pub fn put<K: AsRef<[u8]>, V: AsRef<[u8]>>(
@@ -139,7 +138,7 @@ impl<'env> RwTransaction<'env> {
 }
 
 impl<'env> Cursor<'env> {
-    pub fn first_key(&mut self) -> Result<Option<Cow<'env, [u8]>>, Error> {
+    pub fn first_key(&mut self) -> Result<Option<Key>, Error> {
         let opt_key = self
             .cursor
             .get(None, None, MDB_FIRST)
@@ -148,7 +147,7 @@ impl<'env> Cursor<'env> {
         Ok(opt_key)
     }
 
-    pub fn last_key(&mut self) -> Result<Option<Cow<'env, [u8]>>, Error> {
+    pub fn last_key(&mut self) -> Result<Option<Key<'env>>, Error> {
         let opt_key = self
             .cursor
             .get(None, None, MDB_LAST)
@@ -157,7 +156,7 @@ impl<'env> Cursor<'env> {
         Ok(opt_key)
     }
 
-    pub fn next_key(&mut self) -> Result<Option<Cow<'env, [u8]>>, Error> {
+    pub fn next_key(&mut self) -> Result<Option<Key<'env>>, Error> {
         let opt_key = self
             .cursor
             .get(None, None, MDB_NEXT)
@@ -166,7 +165,7 @@ impl<'env> Cursor<'env> {
         Ok(opt_key)
     }
 
-    pub fn get_current(&mut self) -> Result<Option<(Cow<'env, [u8]>, Cow<'env, [u8]>)>, Error> {
+    pub fn get_current(&mut self) -> Result<Option<(Key<'env>, Value<'env>)>, Error> {
         if let Some((Some(key), value)) = self.cursor.get(None, None, MDB_GET_CURRENT).optional()? {
             Ok(Some((Cow::Borrowed(key), Cow::Borrowed(value))))
         } else {

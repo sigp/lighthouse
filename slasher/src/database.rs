@@ -289,7 +289,7 @@ impl<E: EthSpec> SlasherDB<E> {
     }
 
     pub fn begin_rw_txn(&self) -> Result<RwTransaction, Error> {
-        Ok(self.env.begin_rw_txn()?)
+        self.env.begin_rw_txn()
     }
 
     pub fn load_schema_version(&self, txn: &mut RwTransaction<'_>) -> Result<Option<u64>, Error> {

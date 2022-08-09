@@ -5995,6 +5995,7 @@ dependencies = [
  "serde_derive",
  "slog",
  "sloggers",
+ "strum",
  "tempfile",
  "tree_hash",
  "tree_hash_derive",

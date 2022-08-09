@@ -40,6 +40,9 @@ pub enum Cursor<'env> {
     Lmdb(lmdb_impl::Cursor<'env>),
 }
 
+pub type Key<'a> = Cow<'a, [u8]>;
+pub type Value<'a> = Cow<'a, [u8]>;
+
 impl Environment {
     pub fn new(config: &Config) -> Result<Environment, Error> {
         match config.backend {
@@ -123,7 +126,7 @@ impl<'env> RwTransaction<'env> {
 
 impl<'env> Cursor<'env> {
     /// Return the first key in the current database while advancing the cursor's position.
-    pub fn first_key(&mut self) -> Result<Option<Cow<'env, [u8]>>, Error> {
+    pub fn first_key(&mut self) -> Result<Option<Key>, Error> {
         match self {
             Cursor::Mdbx(cursor) => cursor.first_key(),
             Cursor::Lmdb(cursor) => cursor.first_key(),
@@ -131,14 +134,14 @@ impl<'env> Cursor<'env> {
     }
 
     /// Return the last key in the current database while advancing the cursor's position.
-    pub fn last_key(&mut self) -> Result<Option<Cow<'env, [u8]>>, Error> {
+    pub fn last_key(&mut self) -> Result<Option<Key>, Error> {
         match self {
             Cursor::Mdbx(cursor) => cursor.last_key(),
             Cursor::Lmdb(cursor) => cursor.last_key(),
         }
     }
 
-    pub fn next_key(&mut self) -> Result<Option<Cow<'env, [u8]>>, Error> {
+    pub fn next_key(&mut self) -> Result<Option<Key>, Error> {
         match self {
             Cursor::Mdbx(cursor) => cursor.next_key(),
             Cursor::Lmdb(cursor) => cursor.next_key(),
@@ -146,7 +149,7 @@ impl<'env> Cursor<'env> {
     }
 
     /// Get the key value pair at the current position.
-    pub fn get_current(&mut self) -> Result<Option<(Cow<'env, [u8]>, Cow<'env, [u8]>)>, Error> {
+    pub fn get_current(&mut self) -> Result<Option<(Key, Value)>, Error> {
         match self {
             Cursor::Mdbx(cursor) => cursor.get_current(),
             Cursor::Lmdb(cursor) => cursor.get_current(),

@@ -1,6 +1,9 @@
 use crate::{
     config::MEGABYTE,
-    database::{interface::OpenDatabases, *},
+    database::{
+        interface::{Key, OpenDatabases, Value},
+        *,
+    },
     Config, Error,
 };
 use mdbx::{DatabaseFlags, Geometry, WriteFlags};
@@ -34,7 +37,7 @@ impl Environment {
     pub fn new(config: &Config) -> Result<Environment, Error> {
         let env = mdbx::Environment::new()
             .set_max_dbs(MAX_NUM_DBS)
-            .set_geometry(Self::geometry(&config))
+            .set_geometry(Self::geometry(config))
             .open_with_permissions(&config.database_path, 0o600)?;
         Ok(Environment { env })
     }
@@ -164,7 +167,7 @@ impl<'env> Cursor<'env> {
         Ok(opt_key)
     }
 
-    pub fn get_current(&mut self) -> Result<Option<(Cow<'env, [u8]>, Cow<'env, [u8]>)>, Error> {
+    pub fn get_current(&mut self) -> Result<Option<(Key<'env>, Value<'env>)>, Error> {
         Ok(self.cursor.get_current()?)
     }
 
