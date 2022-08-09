@@ -12,7 +12,7 @@ use crate::beacon_processor::{ChainSegmentProcessId, WorkEvent as BeaconWorkEven
 use crate::sync::manager::{BatchProcessResult, Id};
 use crate::sync::network_context::SyncNetworkContext;
 use crate::sync::range_sync::{
-    BatchConfig, BatchId, BatchInfo, BatchProcessingResult, BatchState, OpOutcome,
+    BatchConfig, BatchId, BatchInfo, BatchProcessingResult, BatchState, BatchOperationOutcome,
 };
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use lighthouse_network::types::{BackFillState, NetworkGlobals};
@@ -326,10 +326,10 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
             for id in batch_ids {
                 if let Some(batch) = self.batches.get_mut(&id) {
                     match batch.download_failed(false) {
-                        Ok(OpOutcome::Failed { blacklist: _ }) => {
+                        Ok(BatchOperationOutcome::Failed { blacklist: _ }) => {
                             self.fail_sync(BackFillError::BatchDownloadFailed(id))?;
                         }
-                        Ok(OpOutcome::Continue) => {}
+                        Ok(BatchOperationOutcome::Continue) => {}
                         Err(e) => {
                             self.fail_sync(BackFillError::BatchInvalidState(id, e.0))?;
                         }
@@ -373,10 +373,10 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
             }
             match batch.download_failed(true) {
                 Err(e) => self.fail_sync(BackFillError::BatchInvalidState(batch_id, e.0)),
-                Ok(OpOutcome::Failed { blacklist: _ }) => {
+                Ok(BatchOperationOutcome::Failed { blacklist: _ }) => {
                     self.fail_sync(BackFillError::BatchDownloadFailed(batch_id))
                 }
-                Ok(OpOutcome::Continue) => self.retry_batch_download(network, batch_id),
+                Ok(BatchOperationOutcome::Continue) => self.retry_batch_download(network, batch_id),
             }
         } else {
             // this could be an error for an old batch, removed when the chain advances
@@ -454,7 +454,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                     warn!(self.log, "Batch received out of range blocks"; "expected_boundary" => expected_boundary, "received_boundary" => received_boundary,
                         "peer_id" => %peer_id, batch);
 
-                    if let OpOutcome::Failed { blacklist: _ } = outcome {
+                    if let BatchOperationOutcome::Failed { blacklist: _ } = outcome {
                         error!(self.log, "Backfill failed"; "epoch" => batch_id, "received_boundary" => received_boundary, "expected_boundary" => expected_boundary);
                         return self
                             .fail_sync(BackFillError::BatchDownloadFailed(batch_id))
@@ -656,7 +656,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                         self.fail_sync(BackFillError::BatchInvalidState(batch_id, e.0))
                             .map(|_| ProcessResult::Successful)
                     }
-                    Ok(OpOutcome::Failed { blacklist: _ }) => {
+                    Ok(BatchOperationOutcome::Failed { blacklist: _ }) => {
                         // check that we have not exceeded the re-process retry counter
                         // If a batch has exceeded the invalid batch lookup attempts limit, it means
                         // that it is likely all peers are sending invalid batches
@@ -676,7 +676,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                             .map(|_| ProcessResult::Successful)
                     }
 
-                    Ok(OpOutcome::Continue) => {
+                    Ok(BatchOperationOutcome::Continue) => {
                         // chain can continue. Check if it can be progressed
                         if *imported_blocks {
                             // At least one block was successfully verified and imported, then we can be sure all
@@ -890,11 +890,11 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                 .validation_failed()
                 .map_err(|e| BackFillError::BatchInvalidState(batch_id, e.0))?
             {
-                OpOutcome::Failed { blacklist: _ } => {
+                BatchOperationOutcome::Failed { blacklist: _ } => {
                     // Batch has failed and cannot be redownloaded.
                     return self.fail_sync(BackFillError::BatchProcessingFailed(batch_id));
                 }
-                OpOutcome::Continue => {
+                BatchOperationOutcome::Continue => {
                     redownload_queue.push(*id);
                 }
             }
@@ -995,10 +995,10 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                         Err(e) => {
                             self.fail_sync(BackFillError::BatchInvalidState(batch_id, e.0))?
                         }
-                        Ok(OpOutcome::Failed { blacklist: _ }) => {
+                        Ok(BatchOperationOutcome::Failed { blacklist: _ }) => {
                             self.fail_sync(BackFillError::BatchDownloadFailed(batch_id))?
                         }
-                        Ok(OpOutcome::Continue) => {
+                        Ok(BatchOperationOutcome::Continue) => {
                             return self.retry_batch_download(network, batch_id)
                         }
                     }

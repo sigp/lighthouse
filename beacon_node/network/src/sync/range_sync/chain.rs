@@ -1,7 +1,8 @@
 use super::batch::{BatchInfo, BatchProcessingResult, BatchState};
 use crate::beacon_processor::{ChainSegmentProcessId, WorkEvent as BeaconWorkEvent};
-use crate::sync::range_sync::batch::OpOutcome;
-use crate::sync::{manager::Id, network_context::SyncNetworkContext, BatchProcessResult};
+use crate::sync::{
+    manager::Id, network_context::SyncNetworkContext, BatchOperationOutcome, BatchProcessResult,
+};
 use beacon_chain::{BeaconChainTypes, CountUnrealized};
 use fnv::FnvHashMap;
 use lighthouse_network::{PeerAction, PeerId};
@@ -191,7 +192,9 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             // fail the batches
             for id in batch_ids {
                 if let Some(batch) = self.batches.get_mut(&id) {
-                    if let OpOutcome::Failed { blacklist } = batch.download_failed(true)? {
+                    if let BatchOperationOutcome::Failed { blacklist } =
+                        batch.download_failed(true)?
+                    {
                         return Err(RemoveChain::ChainFailed {
                             blacklist,
                             failing_batch: id,
@@ -276,7 +279,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                     warn!(self.log, "Batch received out of range blocks"; "expected_boundary" => expected_boundary, "received_boundary" => received_boundary,
                         "peer_id" => %peer_id, batch);
 
-                    if let OpOutcome::Failed { blacklist } = outcome {
+                    if let BatchOperationOutcome::Failed { blacklist } = outcome {
                         return Err(RemoveChain::ChainFailed {
                             blacklist,
                             failing_batch: batch_id,
@@ -535,7 +538,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
 
                 // Check if this batch is allowed to continue
                 match batch.processing_completed(BatchProcessingResult::FaultyFailure)? {
-                    OpOutcome::Continue => {
+                    BatchOperationOutcome::Continue => {
                         // Chain can continue. Check if it can be moved forward.
                         if *imported_blocks {
                             // At least one block was successfully verified and imported, so we can be sure all
@@ -546,7 +549,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                         // Handle this invalid batch, that is within the re-process retries limit.
                         self.handle_invalid_batch(network, batch_id)
                     }
-                    OpOutcome::Failed { blacklist } => {
+                    BatchOperationOutcome::Failed { blacklist } => {
                         // Check that we have not exceeded the re-process retry counter,
                         // If a batch has exceeded the invalid batch lookup attempts limit, it means
                         // that it is likely all peers in this chain are are sending invalid batches
@@ -748,7 +751,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         let mut redownload_queue = Vec::new();
 
         for (id, batch) in self.batches.range_mut(..batch_id) {
-            if let OpOutcome::Failed { blacklist } = batch.validation_failed()? {
+            if let BatchOperationOutcome::Failed { blacklist } = batch.validation_failed()? {
                 // remove the chain early
                 return Err(RemoveChain::ChainFailed {
                     blacklist,
@@ -850,7 +853,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             if let Some(active_requests) = self.peers.get_mut(peer_id) {
                 active_requests.remove(&batch_id);
             }
-            if let OpOutcome::Failed { blacklist } = batch.download_failed(true)? {
+            if let BatchOperationOutcome::Failed { blacklist } = batch.download_failed(true)? {
                 return Err(RemoveChain::ChainFailed {
                     blacklist,
                     failing_batch: batch_id,
@@ -943,13 +946,15 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                         .get_mut(&peer)
                         .map(|request| request.remove(&batch_id));
                     match batch.download_failed(true)? {
-                        OpOutcome::Failed { blacklist } => {
+                        BatchOperationOutcome::Failed { blacklist } => {
                             return Err(RemoveChain::ChainFailed {
                                 blacklist,
                                 failing_batch: batch_id,
                             })
                         }
-                        OpOutcome::Continue => return self.retry_batch_download(network, batch_id),
+                        BatchOperationOutcome::Continue => {
+                            return self.retry_batch_download(network, batch_id)
+                        }
                     }
                 }
             }
