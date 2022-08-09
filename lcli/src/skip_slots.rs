@@ -40,7 +40,7 @@
 //!
 //! ```ignore
 //! lcli skip-slots \
-//!     --state-path /tmp/state-0x3cdc.ssz \
+//!     --pre-state-path /tmp/state-0x3cdc.ssz \
 //!     --slots 32 \
 //!     --runs 2
 //! ```
@@ -64,7 +64,7 @@ pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<
     let executor = env.core_context().executor;
 
     let output_path: Option<PathBuf> = parse_optional(matches, "output-path")?;
-    let state_path: Option<PathBuf> = parse_optional(matches, "state-path")?;
+    let state_path: Option<PathBuf> = parse_optional(matches, "pre-state-path")?;
     let beacon_url: Option<SensitiveUrl> = parse_optional(matches, "beacon-url")?;
     let runs: usize = parse_required(matches, "runs")?;
     let slots: u64 = parse_required(matches, "slots")?;

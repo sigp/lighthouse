@@ -63,8 +63,8 @@ fn main() {
                         .help("Path to output a SSZ file."),
                 )
                 .arg(
-                    Arg::with_name("state-path")
-                        .long("state-path")
+                    Arg::with_name("pre-state-path")
+                        .long("pre-state-path")
                         .value_name("PATH")
                         .takes_value(true)
                         .conflicts_with("beacon-url")
