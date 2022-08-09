@@ -111,6 +111,7 @@ pub struct InitializedValidator {
     graffiti: Option<Graffiti>,
     suggested_fee_recipient: Option<Address>,
     gas_limit: Option<u64>,
+    builder_registration_pubkey_override: Option<PublicKey>,
     builder_proposals: Option<bool>,
     /// The validators index in `state.validators`, to be updated by an external service.
     index: Option<u64>,
@@ -138,6 +139,10 @@ impl InitializedValidator {
 
     pub fn get_gas_limit(&self) -> Option<u64> {
         self.gas_limit
+    }
+
+    pub fn get_builder_registration_pubkey_override(&self) -> Option<PublicKey> {
+        self.builder_registration_pubkey_override
     }
 
     pub fn get_builder_proposals(&self) -> Option<bool> {
@@ -311,6 +316,7 @@ impl InitializedValidator {
             graffiti: def.graffiti.map(Into::into),
             suggested_fee_recipient: def.suggested_fee_recipient,
             gas_limit: def.gas_limit,
+            builder_registration_pubkey_override: def.builder_registration_pubkey_override,
             builder_proposals: def.builder_proposals,
             index: None,
         })
@@ -648,6 +654,12 @@ impl InitializedValidators {
         self.validators.get(public_key).and_then(|v| v.gas_limit)
     }
 
+     /// Returns the `builder_registration_pubkey_override` for a given public key specified in the
+    /// `ValidatorDefinitions`.
+    pub fn builder_registration_pubkey_override(&self, public_key: &PublicKeyBytes) -> Option<PublicKey> {
+        self.validators.get(public_key).and_then(|v| v.builder_registration_pubkey_override)
+    }
+
     /// Returns the `builder_proposals` for a given public key specified in the
     /// `ValidatorDefinitions`.
     pub fn builder_proposals(&self, public_key: &PublicKeyBytes) -> Option<bool> {
@@ -681,6 +693,7 @@ impl InitializedValidators {
         voting_public_key: &PublicKey,
         enabled: Option<bool>,
         gas_limit: Option<u64>,
+        builder_registration_pubkey_override: Option<PublicKey>,
         builder_proposals: Option<bool>,
     ) -> Result<(), Error> {
         if let Some(def) = self
@@ -696,6 +709,9 @@ impl InitializedValidators {
             if let Some(gas_limit) = gas_limit {
                 def.gas_limit = Some(gas_limit);
             }
+            if let Some(builder_registration_pubkey_override) = builder_registration_pubkey_override {
+                def.builder_registration_pubkey_override = Some(builder_registration_pubkey_override);
+            }
             if let Some(builder_proposals) = builder_proposals {
                 def.builder_proposals = Some(builder_proposals);
             }
@@ -710,6 +726,9 @@ impl InitializedValidators {
             // Don't overwrite fields if they are not set in this request.
             if let Some(gas_limit) = gas_limit {
                 val.gas_limit = Some(gas_limit);
+            }
+            if let Some(builder_registration_pubkey_override) = builder_registration_pubkey_override {
+                val.builder_registration_pubkey_override = Some(builder_registration_pubkey_override);
             }
             if let Some(builder_proposals) = builder_proposals {
                 val.builder_proposals = Some(builder_proposals);

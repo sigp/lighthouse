@@ -415,6 +415,13 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
                     pubkey,
                 } = key.clone();
 
+                // If pubkey override set in validator_definitions.yaml for this specific pubkey
+                let pubkey =
+                    if let Some(pubkey) = builder_registration_pubkey_override(&self, pubkey)  {
+                        pubkey
+                    };
+
+
                 let signed_data = match self
                     .validator_store
                     .sign_validator_registration_data(ValidatorRegistrationData {

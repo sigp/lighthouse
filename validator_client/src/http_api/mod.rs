@@ -414,6 +414,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                     let graffiti = body.graffiti.clone();
                     let suggested_fee_recipient = body.suggested_fee_recipient;
                     let gas_limit = body.gas_limit;
+                    let builder_registration_pubkey_override = body.builder_registration_pubkey_override;
                     let builder_proposals = body.builder_proposals;
 
                     let validator_def = {
@@ -426,6 +427,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                                     graffiti,
                                     suggested_fee_recipient,
                                     gas_limit,
+                                    builder_registration_pubkey_override,
                                     builder_proposals,
                                 ))
                                 .map_err(|e| {
@@ -474,6 +476,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                                 graffiti: web3signer.graffiti,
                                 suggested_fee_recipient: web3signer.suggested_fee_recipient,
                                 gas_limit: web3signer.gas_limit,
+                                builder_registration_pubkey_override: web3signer.
                                 builder_proposals: web3signer.builder_proposals,
                                 description: web3signer.description,
                                 signing_definition: SigningDefinition::Web3Signer(
@@ -545,6 +548,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                                             &validator_pubkey,
                                             body.enabled,
                                             body.gas_limit,
+                                            body.builder_registration_pubkey_override,
                                             body.builder_proposals,
                                         ),
                                     )

@@ -495,6 +495,7 @@ fn validator_import_launchpad() {
         graffiti: None,
         suggested_fee_recipient: None,
         gas_limit: None,
+        builder_registration_pubkey_override: None,
         builder_proposals: None,
         voting_public_key: keystore.public_key().unwrap(),
         signing_definition: SigningDefinition::LocalKeystore {
@@ -617,6 +618,7 @@ fn validator_import_launchpad_no_password_then_add_password() {
         graffiti: None,
         suggested_fee_recipient: None,
         gas_limit: None,
+        builder_registration_pubkey_override: None,
         builder_proposals: None,
         voting_public_key: keystore.public_key().unwrap(),
         signing_definition: SigningDefinition::LocalKeystore {
@@ -643,6 +645,7 @@ fn validator_import_launchpad_no_password_then_add_password() {
         graffiti: None,
         suggested_fee_recipient: None,
         gas_limit: None,
+        builder_registration_pubkey_override: None,
         builder_proposals: None,
         voting_public_key: keystore.public_key().unwrap(),
         signing_definition: SigningDefinition::LocalKeystore {
@@ -745,6 +748,7 @@ fn validator_import_launchpad_password_file() {
         graffiti: None,
         suggested_fee_recipient: None,
         gas_limit: None,
+        builder_registration_pubkey_override: None,
         builder_proposals: None,
         signing_definition: SigningDefinition::LocalKeystore {
             voting_keystore_path,

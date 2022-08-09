@@ -6,6 +6,7 @@ use crate::{
     Config,
 };
 use account_utils::{validator_definitions::ValidatorDefinition, ZeroizeString};
+use bls::PublicKey;
 use parking_lot::{Mutex, RwLock};
 use slashing_protection::{
     interchange::Interchange, InterchangeError, NotSafe, Safe, SlashingDatabase,

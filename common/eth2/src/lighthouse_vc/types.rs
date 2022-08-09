@@ -1,6 +1,7 @@
 use account_utils::ZeroizeString;
 use eth2_keystore::Keystore;
 use graffiti::GraffitiString;
+use libsecp256k1::PublicKey;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
@@ -29,6 +30,9 @@ pub struct ValidatorRequest {
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub gas_limit: Option<u64>,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub builder_registration_pubkey_override: Option<PublicKey>,
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub builder_proposals: Option<bool>,
@@ -60,6 +64,9 @@ pub struct CreatedValidator {
     pub gas_limit: Option<u64>,
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub builder_registration_pubkey_override: Option<PublicKey>,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub builder_proposals: Option<bool>,
     pub eth1_deposit_tx_data: String,
     #[serde(with = "eth2_serde_utils::quoted_u64")]
@@ -82,6 +89,9 @@ pub struct ValidatorPatchRequest {
     pub gas_limit: Option<u64>,
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub builder_registration_pubkey_override: Option<PublicKey>,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub builder_proposals: Option<bool>,
 }
 
@@ -101,6 +111,9 @@ pub struct KeystoreValidatorsPostRequest {
     pub gas_limit: Option<u64>,
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub builder_registration_pubkey_override: Option<PublicKey>,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub builder_proposals: Option<bool>,
 }
 
@@ -117,6 +130,9 @@ pub struct Web3SignerValidatorRequest {
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub gas_limit: Option<u64>,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub builder_registration_pubkey_override: Option<PublicKey>,
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub builder_proposals: Option<bool>,
