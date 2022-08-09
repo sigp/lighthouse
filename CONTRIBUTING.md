@@ -1,4 +1,5 @@
 # Contributors Guide
+[![GitPOAP badge](https://public-api.gitpoap.io/v1/repo/sigp/lighthouse/badge)](https://www.gitpoap.io/gh/sigp/lighthouse)
 
 Lighthouse is an open-source Ethereum 2.0 client. We're community driven and
 welcome all contribution. We aim to provide a constructive, respectful and fun
