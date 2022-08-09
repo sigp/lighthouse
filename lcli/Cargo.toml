@@ -38,3 +38,5 @@ eth1_test_rig = { path = "../testing/eth1_test_rig" }
 sensitive_url = { path = "../common/sensitive_url" }
 eth2 = { path = "../common/eth2" }
 snap = "1.0.1"
+beacon_chain = { path = "../beacon_node/beacon_chain" }
+store = { path = "../beacon_node/store" }
