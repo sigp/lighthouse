@@ -86,7 +86,7 @@ pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<
             let client = BeaconNodeHttpClient::new(beacon_url, Timeouts::set_all(HTTP_TIMEOUT));
             let state = executor
                 .handle()
-                .ok_or("shut down in progress")?
+                .ok_or("shutdown in progress")?
                 .block_on(async move {
                     client
                         .get_debug_beacon_states::<T>(state_id)
@@ -102,7 +102,7 @@ pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<
             };
             (state, state_root)
         }
-        _ => return Err("mut supply either --state-file or --beacon-url".into()),
+        _ => return Err("must supply either --state-path or --beacon-url".into()),
     };
 
     let initial_slot = state.slot();
@@ -130,7 +130,7 @@ pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<
                 .map_err(|e| format!("Unable to perform partial advance: {:?}", e))?;
         } else {
             complete_state_advance(&mut state, Some(state_root), target_slot, spec)
-                .map_err(|e| format!("Unable to perform partial advance: {:?}", e))?;
+                .map_err(|e| format!("Unable to perform complete advance: {:?}", e))?;
         }
 
         let duration = Instant::now().duration_since(start);

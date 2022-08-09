@@ -11,7 +11,7 @@
 //! ### Run using a block from a beaconAPI
 //!
 //! Download the 0x6c69 block and its pre-state (the state from its parent block) from the
-//! beaconAPI. Advance the pre-state to the slot of the 0x6c69 and apply that block to the
+//! beaconAPI. Advance the pre-state to the slot of the 0x6c69 block and apply that block to the
 //! pre-state.
 //!
 //! ```ignore
@@ -135,7 +135,7 @@ pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<
             let client = BeaconNodeHttpClient::new(beacon_url, Timeouts::set_all(HTTP_TIMEOUT));
             executor
                 .handle()
-                .ok_or("shut down in progress")?
+                .ok_or("shutdown in progress")?
                 .block_on(async move {
                     let block = client
                         .get_beacon_blocks(block_id)
@@ -248,7 +248,7 @@ pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<
     }
 
     /*
-     * Write artefacts to disk, if required.
+     * Write artifacts to disk, if required.
      */
 
     if let Some(path) = post_state_output_path {
