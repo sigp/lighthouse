@@ -504,12 +504,13 @@ mod tests {
         }
 
         /// Reads an BlocksByRange request to a given peer from the network receiver channel.
+        #[track_caller]
         fn grab_request(&mut self, expected_peer: &PeerId) -> (RequestId, BlocksByRangeRequest) {
-            if let Some(NetworkMessage::SendRequest {
+            if let Ok(NetworkMessage::SendRequest {
                 peer_id,
                 request: Request::BlocksByRange(request),
                 request_id,
-            }) = self.network_rx.blocking_recv()
+            }) = self.network_rx.try_recv()
             {
                 assert_eq!(&peer_id, expected_peer);
                 (request_id, request)
@@ -562,6 +563,29 @@ mod tests {
 
             let peer_id = PeerId::random();
             (peer_id, local_info, remote_info)
+        }
+
+        #[track_caller]
+        fn expect_empty_processor(&mut self) {
+            match self.beacon_processor_rx.try_recv() {
+                Ok(work) => {
+                    panic!("Expected empty processor. Instead got {}", work.work_type());
+                }
+                Err(e) => match e {
+                    mpsc::error::TryRecvError::Empty => {}
+                    mpsc::error::TryRecvError::Disconnected => unreachable!("bad coded test?"),
+                },
+            }
+        }
+
+        #[track_caller]
+        fn expect_chain_segment(&mut self) {
+            match self.beacon_processor_rx.try_recv() {
+                Ok(work) => {
+                    assert_eq!(work.work_type(), crate::beacon_processor::CHAIN_SEGMENT);
+                }
+                other => panic!("Expected chain segment process, found {:?}", other),
+            }
         }
     }
 
@@ -648,5 +672,52 @@ mod tests {
         // Add an additional peer to the second chain to make range update it's status
         let (finalized_peer, local_info, remote_info) = rig.finalized_peer();
         range.add_peer(&mut rig.cx, local_info, finalized_peer, remote_info);
+    }
+
+    #[test]
+    fn pause_and_resume_on_ee_not_synced() {
+        let (mut rig, mut range) = range(true);
+
+        // add some peers
+        let (peer1, local_info, head_info) = rig.head_peer();
+        range.add_peer(&mut rig.cx, local_info, peer1, head_info);
+        let ((chain1, batch1), id1) = match rig.grab_request(&peer1).0 {
+            RequestId::Sync(crate::sync::manager::RequestId::RangeSync { id }) => {
+                (rig.cx.range_sync_response(id, true).unwrap(), id)
+            }
+            other => panic!("unexpected request {:?}", other),
+        };
+
+        // make the ee offline / not synced
+        let is_ee_synced = false;
+        rig.cx.ee_sync_state_updated(is_ee_synced);
+
+        // send the response to the request
+        range.blocks_by_range_response(&mut rig.cx, peer1, chain1, batch1, id1, None);
+
+        // the beacon processor shouldn't have received any work
+        rig.expect_empty_processor();
+
+        // while the ee is not synced, more peers might arrive. Add a new finalized peer.
+        let (peer2, local_info, finalized_info) = rig.finalized_peer();
+        range.add_peer(&mut rig.cx, local_info, peer2, finalized_info);
+        let ((chain2, batch2), id2) = match rig.grab_request(&peer2).0 {
+            RequestId::Sync(crate::sync::manager::RequestId::RangeSync { id }) => {
+                (rig.cx.range_sync_response(id, true).unwrap(), id)
+            }
+            other => panic!("unexpected request {:?}", other),
+        };
+
+        // send the response to the request
+        range.blocks_by_range_response(&mut rig.cx, peer2, chain2, batch2, id2, None);
+
+        // the beacon processor shouldn't have received any work
+        rig.expect_empty_processor();
+
+        // no resume range, we should have two processing requests
+        rig.cx.ee_sync_state_updated(is_ee_synced);
+        range.resume(&mut rig.cx);
+        rig.expect_chain_segment();
+        rig.expect_chain_segment();
     }
 }
