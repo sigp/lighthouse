@@ -114,6 +114,7 @@ pub struct BuilderParams {
 pub enum ChainHealth {
     Healthy,
     Unhealthy(FailedCondition),
+    Optimistic,
     PreMerge,
 }
 
@@ -695,6 +696,9 @@ impl<T: EthSpec> ExecutionLayer<T> {
                 }
                 // Intentional no-op, so we never attempt builder API proposals pre-merge.
                 ChainHealth::PreMerge => (),
+                ChainHealth::Optimistic => info!(self.log(), "The local execution engine is syncing \
+                                            so the builder network cannot safely be used. Attempting \
+                                            to build a block with the local execution engine"),
             }
         }
         self.get_full_payload_caching(
