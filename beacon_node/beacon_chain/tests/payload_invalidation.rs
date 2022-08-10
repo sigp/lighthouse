@@ -179,7 +179,7 @@ impl InvalidPayloadRig {
 
     /// Import a block while setting the newPayload and forkchoiceUpdated responses to `is_valid`.
     async fn import_block(&mut self, is_valid: Payload) -> Hash256 {
-        self.import_block_parametric(is_valid, is_valid, |error| {
+        self.import_block_parametric(is_valid, is_valid, None, |error| {
             matches!(
                 error,
                 BlockError::ExecutionPayloadError(
@@ -210,13 +210,14 @@ impl InvalidPayloadRig {
         &mut self,
         new_payload_response: Payload,
         forkchoice_response: Payload,
+        slot_override: Option<Slot>,
         evaluate_error: F,
     ) -> Hash256 {
         let mock_execution_layer = self.harness.mock_execution_layer.as_ref().unwrap();
 
         let head = self.harness.chain.head_snapshot();
         let state = head.beacon_state.clone_with_only_committee_caches();
-        let slot = state.slot() + 1;
+        let slot = slot_override.unwrap_or(state.slot() + 1);
         let (block, post_state) = self.harness.make_block(state, slot).await;
         let block_root = block.canonical_root();
 
@@ -445,9 +446,12 @@ async fn immediate_forkchoice_update_invalid_test(
 
     // Import a block which returns syncing when supplied via newPayload, and then
     // invalid when the forkchoice update is sent.
-    rig.import_block_parametric(Payload::Syncing, invalid_payload(latest_valid_hash), |_| {
-        false
-    })
+    rig.import_block_parametric(
+        Payload::Syncing,
+        invalid_payload(latest_valid_hash),
+        None,
+        |_| false,
+    )
     .await;
 
     // The head should be the latest valid block.
@@ -497,7 +501,7 @@ async fn justified_checkpoint_becomes_invalid() {
     let is_valid = Payload::Invalid {
         latest_valid_hash: Some(parent_hash_of_justified),
     };
-    rig.import_block_parametric(is_valid, is_valid, |error| {
+    rig.import_block_parametric(is_valid, is_valid, None, |error| {
         matches!(
             error,
             // The block import should fail since the beacon chain knows the justified payload
@@ -1757,11 +1761,11 @@ async fn optimistic_transition_block_invalid_finalized() {
     );
 }
 
-/// Helper for running tests where we generate a chain with an invalid head and then some
-/// `fork_blocks` to recover it.
+/// Helper for running tests where we generate a chain with an invalid head and then a
+/// `fork_block` to recover it.
 struct InvalidHeadSetup {
     rig: InvalidPayloadRig,
-    fork_blocks: Vec<Arc<SignedBeaconBlock<E>>>,
+    fork_block: Arc<SignedBeaconBlock<E>>,
     invalid_head: CachedHead<E>,
 }
 
@@ -1776,11 +1780,59 @@ impl InvalidHeadSetup {
             rig.import_block(Payload::Syncing).await;
         }
 
+        let slots_per_epoch = E::slots_per_epoch();
+        let start_slot = rig.cached_head().head_slot() + 1;
+        let mut opt_fork_block = None;
+
+        assert_eq!(start_slot % slots_per_epoch, 1);
+        for i in 0..slots_per_epoch - 1 {
+            let slot = start_slot + i;
+            let slot_offset = slot.as_u64() % slots_per_epoch;
+
+            rig.harness.set_current_slot(slot);
+
+            if slot_offset == slots_per_epoch - 1 {
+                // Optimistic head block right before epoch boundary.
+                let is_valid = Payload::Syncing;
+                rig.import_block_parametric(is_valid, is_valid, Some(slot), |error| {
+                    matches!(
+                        error,
+                        BlockError::ExecutionPayloadError(
+                            ExecutionPayloadError::RejectedByExecutionEngine { .. }
+                        )
+                    )
+                })
+                .await;
+            } else if 3 * slot_offset < 2 * slots_per_epoch {
+                // Valid block in previous epoch.
+                rig.import_block(Payload::Valid).await;
+            } else if slot_offset == slots_per_epoch - 2 {
+                // Fork block one slot prior to invalid head, not applied immediately.
+                let parent_state = rig
+                    .harness
+                    .chain
+                    .state_at_slot(slot - 1, StateSkipConfig::WithStateRoots)
+                    .unwrap();
+                let (fork_block, _) = rig.harness.make_block(parent_state, slot).await;
+                opt_fork_block = Some(Arc::new(fork_block));
+            } else {
+                // Skipped slot.
+            };
+        }
+
         let invalid_head = rig.cached_head();
+        assert_eq!(
+            invalid_head.head_slot() % slots_per_epoch,
+            slots_per_epoch - 1
+        );
+
+        // Advance clock to new epoch to realize the justification of soon-to-be-invalid head block.
+        rig.harness.set_current_slot(invalid_head.head_slot() + 1);
 
         // Invalidate the head block.
         rig.invalidate_manually(invalid_head.head_block_root())
             .await;
+
         assert!(rig
             .canonical_head()
             .head_execution_status()
@@ -1790,27 +1842,9 @@ impl InvalidHeadSetup {
         // Finding a new head should fail since the only possible head is not valid.
         rig.assert_get_head_error_contains("InvalidBestNode");
 
-        // Build three "fork" blocks that conflict with the current canonical head. Don't apply them to
-        // the chain yet.
-        let mut fork_blocks = vec![];
-        let mut parent_state = rig
-            .harness
-            .chain
-            .state_at_slot(
-                invalid_head.head_slot() - 3,
-                StateSkipConfig::WithStateRoots,
-            )
-            .unwrap();
-        for _ in 0..3 {
-            let slot = parent_state.slot() + 1;
-            let (fork_block, post_state) = rig.harness.make_block(parent_state, slot).await;
-            parent_state = post_state;
-            fork_blocks.push(Arc::new(fork_block))
-        }
-
         Self {
             rig,
-            fork_blocks,
+            fork_block: opt_fork_block.unwrap(),
             invalid_head,
         }
     }
@@ -1820,57 +1854,22 @@ impl InvalidHeadSetup {
 async fn recover_from_invalid_head_by_importing_blocks() {
     let InvalidHeadSetup {
         rig,
-        fork_blocks,
-        invalid_head,
+        fork_block,
+        invalid_head: _,
     } = InvalidHeadSetup::new().await;
 
-    // Import the first two blocks, they should not become the head.
-    for i in 0..2 {
-        if i == 0 {
-            // The first block should be `VALID` during import.
-            rig.harness
-                .mock_execution_layer
-                .as_ref()
-                .unwrap()
-                .server
-                .all_payloads_valid_on_new_payload();
-        } else {
-            // All blocks after the first block should return `SYNCING`.
-            rig.harness
-                .mock_execution_layer
-                .as_ref()
-                .unwrap()
-                .server
-                .all_payloads_syncing_on_new_payload(true);
-        }
-
-        rig.harness
-            .chain
-            .process_block(fork_blocks[i].clone(), CountUnrealized::True)
-            .await
-            .unwrap();
-        rig.recompute_head().await;
-        rig.assert_get_head_error_contains("InvalidBestNode");
-        let new_head = rig.cached_head();
-        assert_eq!(
-            new_head.head_block_root(),
-            invalid_head.head_block_root(),
-            "the head should not change"
-        );
-    }
-
-    // Import the third block, it should become the head.
+    // Import the fork block, it should become the head.
     rig.harness
         .chain
-        .process_block(fork_blocks[2].clone(), CountUnrealized::True)
+        .process_block(fork_block.clone(), CountUnrealized::True)
         .await
         .unwrap();
     rig.recompute_head().await;
     let new_head = rig.cached_head();
     assert_eq!(
         new_head.head_block_root(),
-        fork_blocks[2].canonical_root(),
-        "the third block should become the head"
+        fork_block.canonical_root(),
+        "the fork block should become the head"
     );
 
     let manual_get_head = rig
@@ -1880,16 +1879,18 @@ async fn recover_from_invalid_head_by_importing_blocks() {
         .fork_choice_write_lock()
         .get_head(rig.harness.chain.slot().unwrap(), &rig.harness.chain.spec)
         .unwrap();
-    assert_eq!(manual_get_head, new_head.head_block_root(),);
+    assert_eq!(manual_get_head, new_head.head_block_root());
 }
 
 #[tokio::test]
 async fn recover_from_invalid_head_after_persist_and_reboot() {
     let InvalidHeadSetup {
         rig,
-        fork_blocks: _,
+        fork_block: _,
         invalid_head,
     } = InvalidHeadSetup::new().await;
+
+    let slot_clock = rig.harness.chain.slot_clock.clone();
 
     // Forcefully persist the head and fork choice.
     rig.harness.chain.persist_head_and_fork_choice().unwrap();
@@ -1899,6 +1900,7 @@ async fn recover_from_invalid_head_after_persist_and_reboot() {
         .deterministic_keypairs(VALIDATOR_COUNT)
         .resumed_ephemeral_store(rig.harness.chain.store.clone())
         .mock_execution_layer()
+        .testing_slot_clock(slot_clock)
         .build();
 
     // Forget the original rig so we don't accidentally use it again.

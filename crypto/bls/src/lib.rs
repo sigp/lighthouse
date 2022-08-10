@@ -41,6 +41,7 @@ pub use generic_signature::{INFINITY_SIGNATURE, SIGNATURE_BYTES_LEN};
 pub use get_withdrawal_credentials::get_withdrawal_credentials;
 pub use zeroize_hash::ZeroizeHash;
 
+#[cfg(feature = "supranational")]
 use blst::BLST_ERROR as BlstError;
 #[cfg(feature = "milagro")]
 use milagro_bls::AmclError;
@@ -53,6 +54,7 @@ pub enum Error {
     #[cfg(feature = "milagro")]
     MilagroError(AmclError),
     /// An error was raised from the Supranational BLST BLS library.
+    #[cfg(feature = "supranational")]
     BlstError(BlstError),
     /// The provided bytes were an incorrect length.
     InvalidByteLength { got: usize, expected: usize },
@@ -71,6 +73,7 @@ impl From<AmclError> for Error {
     }
 }
 
+#[cfg(feature = "supranational")]
 impl From<BlstError> for Error {
     fn from(e: BlstError) -> Error {
         Error::BlstError(e)
@@ -130,6 +133,7 @@ macro_rules! define_mod {
 
 #[cfg(feature = "milagro")]
 define_mod!(milagro_implementations, crate::impls::milagro::types);
+#[cfg(feature = "supranational")]
 define_mod!(blst_implementations, crate::impls::blst::types);
 #[cfg(feature = "fake_crypto")]
 define_mod!(

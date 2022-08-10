@@ -6,7 +6,7 @@ knowledge of the transactions included in the block. This enables Lighthouse to 
 transaction gathering/ordering within a block to parties specialized in this particular task. For
 economic reasons, these parties will refuse to reveal the list of transactions to the validator
 before the validator has committed to (i.e. signed) the block. A primer on MEV can be found
-[here]([MEV](https://ethereum.org/en/developers/docs/mev/)).
+[here](https://ethereum.org/en/developers/docs/mev).
 
 Using the builder API is not known to introduce additional slashing risks, however a live-ness risk
 (i.e. the ability for the chain to produce valid blocks) is introduced because your node will be
