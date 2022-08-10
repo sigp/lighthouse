@@ -245,8 +245,8 @@ impl<T: EthSpec> MockServer<T> {
 
     fn invalid_terminal_block_status() -> PayloadStatusV1 {
         PayloadStatusV1 {
-            status: PayloadStatusV1Status::InvalidTerminalBlock,
-            latest_valid_hash: None,
+            status: PayloadStatusV1Status::Invalid,
+            latest_valid_hash: Some(ExecutionBlockHash::zero()),
             validation_error: Some("static response".into()),
         }
     }

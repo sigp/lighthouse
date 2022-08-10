@@ -114,6 +114,11 @@ async fn notify_new_payload<'a, T: BeaconChainTypes>(
             PayloadStatus::Invalid {
                 latest_valid_hash, ..
             } => {
+                // latest_valid_hash == 0 implies that this was the terminal block
+                // Hence, we don't need to run `BeaconChain::process_invalid_execution_payload`.
+                if latest_valid_hash == ExecutionBlockHash::zero() {
+                    return Err(ExecutionPayloadError::RejectedByExecutionEngine { status }.into());
+                }
                 // This block has not yet been applied to fork choice, so the latest block that was
                 // imported to fork choice was the parent.
                 let latest_root = block.parent_root();
@@ -127,7 +132,7 @@ async fn notify_new_payload<'a, T: BeaconChainTypes>(
 
                 Err(ExecutionPayloadError::RejectedByExecutionEngine { status }.into())
             }
-            PayloadStatus::InvalidTerminalBlock { .. } | PayloadStatus::InvalidBlockHash { .. } => {
+            PayloadStatus::InvalidBlockHash { .. } => {
                 // Returning an error here should be sufficient to invalidate the block. We have no
                 // information to indicate its parent is invalid, so no need to run
                 // `BeaconChain::process_invalid_execution_payload`.

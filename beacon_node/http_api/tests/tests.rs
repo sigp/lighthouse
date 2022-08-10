@@ -1253,10 +1253,13 @@ impl ApiTester {
     }
 
     pub async fn test_get_config_spec(self) -> Self {
-        let result = self.client.get_config_spec().await.unwrap().data;
-
-        let mut expected = ConfigAndPreset::from_chain_spec::<E>(&self.chain.spec);
-        expected.make_backwards_compat(&self.chain.spec);
+        let result = self
+            .client
+            .get_config_spec::<ConfigAndPresetBellatrix>()
+            .await
+            .map(|res| ConfigAndPreset::Bellatrix(res.data))
+            .unwrap();
+        let expected = ConfigAndPreset::from_chain_spec::<E>(&self.chain.spec, None);
 
         assert_eq!(result, expected);
 

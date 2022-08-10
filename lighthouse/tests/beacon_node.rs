@@ -11,7 +11,7 @@ use std::process::Command;
 use std::str::FromStr;
 use std::string::ToString;
 use tempfile::TempDir;
-use types::{Address, Checkpoint, Epoch, ExecutionBlockHash, Hash256, MainnetEthSpec};
+use types::{Address, Checkpoint, Epoch, ExecutionBlockHash, ForkName, Hash256, MainnetEthSpec};
 use unused_port::{unused_tcp_port, unused_udp_port};
 
 const DEFAULT_ETH1_ENDPOINT: &str = "http://localhost:8545/";
@@ -947,6 +947,21 @@ fn http_tls_flags() {
             assert_eq!(tls_config.cert, dir.path().join("certificate.crt"));
             assert_eq!(tls_config.key, dir.path().join("private.key"));
         });
+}
+
+#[test]
+fn http_spec_fork_default() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| assert_eq!(config.http_api.spec_fork_name, None));
+}
+
+#[test]
+fn http_spec_fork_override() {
+    CommandLineTest::new()
+        .flag("http-spec-fork", Some("altair"))
+        .run_with_zero_port()
+        .with_config(|config| assert_eq!(config.http_api.spec_fork_name, Some(ForkName::Altair)));
 }
 
 // Tests for Metrics flags.
