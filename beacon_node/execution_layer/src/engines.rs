@@ -29,7 +29,7 @@ enum EngineState {
 }
 
 impl EngineState {
-    /// Returns true if the engine is responsive, regardless of it's syncing state; returns false
+    /// Returns true if the engine is responsive, regardless of its syncing state; returns false
     /// otherwise.
     pub fn is_online(&self) -> bool {
         match self {

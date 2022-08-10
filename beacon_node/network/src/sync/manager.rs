@@ -585,19 +585,19 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         }
     }
 
-    fn handle_new_ee_sync_state(&mut self, ee_is_synced: bool) {
-        self.network.ee_online_state_updated(ee_is_synced);
+    fn handle_new_ee_sync_state(&mut self, ee_is_online: bool) {
+        self.network.ee_online_state_updated(ee_is_online);
 
-        if ee_is_synced {
+        if ee_is_online {
             // Resume sync components.
 
             // - Block lookups:
-            //   We start searching for blocks again. This is done by updating the stored ee sync
+            //   We start searching for blocks again. This is done by updating the stored ee online
             //   state. No further action required.
 
             // - Parent lookups:
-            //   We start searching for parents again. This is done by updating the stored ee sync
-            //   state. No further action required.
+            //   We start searching for parents again. This is done by updating the stored ee
+            //   online state. No further action required.
 
             // - Range:
             //   Actively resume.
@@ -627,7 +627,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
 
             // Some logs.
             if dropped_single_blocks_requests > 0 || dropped_parent_chain_requests > 0 {
-                debug!(self.log, "Execution engine not synced and online, dropping active requests.";
+                debug!(self.log, "Execution engine not online, dropping active requests.";
                     "dropped_single_blocks_requests" => dropped_single_blocks_requests,
                     "dropped_parent_chain_requests" => dropped_parent_chain_requests,
                 );
