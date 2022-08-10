@@ -4084,21 +4084,32 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         "Fork choice update invalidated payload";
                         "status" => ?status
                     );
-                    // The execution engine has stated that all blocks between the
-                    // `head_execution_block_hash` and `latest_valid_hash` are invalid.
-                    self.process_invalid_execution_payload(
-                        &InvalidationOperation::InvalidateMany {
-                            head_block_root,
-                            always_invalidate_head: true,
-                            latest_valid_ancestor: latest_valid_hash,
-                        },
-                    )
-                    .await?;
+
+                    // This implies that the terminal block was invalid. We are being explicit in
+                    // invalidating only the head block in this case.
+                    if latest_valid_hash == ExecutionBlockHash::zero() {
+                        self.process_invalid_execution_payload(
+                            &InvalidationOperation::InvalidateOne {
+                                block_root: head_block_root,
+                            },
+                        )
+                        .await?;
+                    } else {
+                        // The execution engine has stated that all blocks between the
+                        // `head_execution_block_hash` and `latest_valid_hash` are invalid.
+                        self.process_invalid_execution_payload(
+                            &InvalidationOperation::InvalidateMany {
+                                head_block_root,
+                                always_invalidate_head: true,
+                                latest_valid_ancestor: latest_valid_hash,
+                            },
+                        )
+                        .await?;
+                    }
 
                     Err(BeaconChainError::ExecutionForkChoiceUpdateInvalid { status })
                 }
-                PayloadStatus::InvalidTerminalBlock { .. }
-                | PayloadStatus::InvalidBlockHash { .. } => {
+                PayloadStatus::InvalidBlockHash { .. } => {
                     warn!(
                         self.log,
                         "Fork choice update invalidated payload";
