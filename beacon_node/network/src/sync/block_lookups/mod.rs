@@ -509,10 +509,6 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 let beacon_processor_send = match cx.processor_channel_if_enabled() {
                     Some(channel) => channel,
                     None => {
-                        // The beacon processor if offline if the ee is out of sync. Having a
-                        // parent chain and an out of sync ee should be unlikely and given the
-                        // times needed to be back in sync there is no point in holding on to these
-                        // blocks.
                         return trace!(
                             self.log,
                             "Dropping parent chain segment that was ready for processing.";

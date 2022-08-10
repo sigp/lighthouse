@@ -6,7 +6,6 @@ use crate::engine_api::{
 use crate::HttpJsonRpc;
 use lru::LruCache;
 use slog::{debug, error, info, Logger};
-// use std::default;
 use std::future::Future;
 use std::sync::Arc;
 use task_executor::TaskExecutor;
@@ -21,7 +20,7 @@ const PAYLOAD_ID_LRU_CACHE_SIZE: usize = 512;
 
 /// Stores the remembered state of a engine.
 #[derive(Copy, Clone, PartialEq, Debug, Eq, Default)]
-pub enum EngineState {
+enum EngineState {
     Synced,
     #[default]
     Offline,
@@ -30,6 +29,8 @@ pub enum EngineState {
 }
 
 impl EngineState {
+    /// Returns true if the engine is responsive, regardless of it's syncing state; returns false
+    /// otherwise.
     pub fn is_online(&self) -> bool {
         match self {
             EngineState::Synced | EngineState::Syncing => true,
@@ -38,6 +39,7 @@ impl EngineState {
     }
 }
 
+/// Wrapper structure that ensures changes to the engine state are correctly reported to watchers.
 struct State {
     /// The actual engine state.
     state: EngineState,
@@ -306,7 +308,7 @@ impl Engine {
                 // take a write-lock.
                 let state: EngineState = **self.state.read().await;
 
-                // TODO: comment no longer relevant?
+                // TODO: comment/code no longer relevant?
                 // If this request just returned successfully but we don't think this node is
                 // synced, check to see if it just became synced. This helps to ensure that the
                 // networking stack can get fast feedback about a synced engine.
