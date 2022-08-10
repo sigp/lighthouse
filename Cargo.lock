@@ -7073,6 +7073,7 @@ dependencies = [
  "itertools",
  "lazy_static",
  "log",
+ "maplit",
  "parking_lot 0.12.1",
  "rand 0.8.5",
  "rand_xorshift",

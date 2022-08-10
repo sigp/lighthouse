@@ -208,10 +208,13 @@ impl ApiTester {
     }
 
     pub async fn test_get_lighthouse_spec(self) -> Self {
-        let result = self.client.get_lighthouse_spec().await.unwrap().data;
-
-        let mut expected = ConfigAndPreset::from_chain_spec::<E>(&E::default_spec());
-        expected.make_backwards_compat(&E::default_spec());
+        let result = self
+            .client
+            .get_lighthouse_spec::<ConfigAndPresetBellatrix>()
+            .await
+            .map(|res| ConfigAndPreset::Bellatrix(res.data))
+            .unwrap();
+        let expected = ConfigAndPreset::from_chain_spec::<E>(&E::default_spec(), None);
 
         assert_eq!(result, expected);
 
@@ -623,7 +626,9 @@ fn routes_with_invalid_auth() {
             .await
             .test_with_invalid_auth(|client| async move { client.get_lighthouse_health().await })
             .await
-            .test_with_invalid_auth(|client| async move { client.get_lighthouse_spec().await })
+            .test_with_invalid_auth(|client| async move {
+                client.get_lighthouse_spec::<types::Config>().await
+            })
             .await
             .test_with_invalid_auth(
                 |client| async move { client.get_lighthouse_validators().await },

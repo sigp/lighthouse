@@ -354,7 +354,9 @@ impl ValidatorClientHttpClient {
     }
 
     /// `GET lighthouse/spec`
-    pub async fn get_lighthouse_spec(&self) -> Result<GenericResponse<ConfigAndPreset>, Error> {
+    pub async fn get_lighthouse_spec<T: Serialize + DeserializeOwned>(
+        &self,
+    ) -> Result<GenericResponse<T>, Error> {
         let mut path = self.server.full.clone();
 
         path.path_segments_mut()

@@ -104,9 +104,9 @@ pub struct Config {
     pub listen_addr: IpAddr,
     pub listen_port: u16,
     pub allow_origin: Option<String>,
-    pub serve_legacy_spec: bool,
     pub tls_config: Option<TlsConfig>,
     pub allow_sync_stalled: bool,
+    pub spec_fork_name: Option<ForkName>,
 }
 
 impl Default for Config {
@@ -116,9 +116,9 @@ impl Default for Config {
             listen_addr: IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
             listen_port: 5052,
             allow_origin: None,
-            serve_legacy_spec: true,
             tls_config: None,
             allow_sync_stalled: false,
+            spec_fork_name: None,
         }
     }
 }
@@ -1534,18 +1534,15 @@ pub fn serve<T: BeaconChainTypes>(
         });
 
     // GET config/spec
-    let serve_legacy_spec = ctx.config.serve_legacy_spec;
+    let spec_fork_name = ctx.config.spec_fork_name;
     let get_config_spec = config_path
         .and(warp::path("spec"))
         .and(warp::path::end())
         .and(chain_filter.clone())
         .and_then(move |chain: Arc<BeaconChain<T>>| {
             blocking_json_task(move || {
-                let mut config_and_preset =
-                    ConfigAndPreset::from_chain_spec::<T::EthSpec>(&chain.spec);
-                if serve_legacy_spec {
-                    config_and_preset.make_backwards_compat(&chain.spec);
-                }
+                let config_and_preset =
+                    ConfigAndPreset::from_chain_spec::<T::EthSpec>(&chain.spec, spec_fork_name);
                 Ok(api_types::GenericResponse::from(config_and_preset))
             })
         });
