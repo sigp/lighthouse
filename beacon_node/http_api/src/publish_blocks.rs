@@ -1,9 +1,9 @@
 use crate::metrics;
 use beacon_chain::validator_monitor::{get_block_delay_ms, timestamp_now};
-use beacon_chain::{BeaconChain, BeaconChainTypes, CountUnrealized};
+use beacon_chain::{BeaconChain, BeaconChainTypes, BlockError, CountUnrealized};
 use lighthouse_network::PubsubMessage;
 use network::NetworkMessage;
-use slog::{crit, error, info, Logger};
+use slog::{crit, error, info, warn, Logger};
 use slot_clock::SlotClock;
 use std::sync::Arc;
 use tokio::sync::mpsc::UnboundedSender;
@@ -84,6 +84,27 @@ pub async fn publish_block<T: BeaconChainTypes>(
                 )
             }
 
+            Ok(())
+        }
+        Err(BlockError::BlockIsAlreadyKnown) => {
+            info!(
+                log,
+                "Block from HTTP API already known";
+                "block" => ?block.canonical_root(),
+                "slot" => block.slot(),
+            );
+            Ok(())
+        }
+        Err(BlockError::RepeatProposal { proposer, slot }) => {
+            warn!(
+                log,
+                "Block ignored due to repeat proposal";
+                "msg" => "this can happen when a VC uses fallback BNs. \
+                    whilst this is not necessarily an error, it can indicate issues with a BN \
+                    or between the VC and BN.",
+                "slot" => slot,
+                "proposer" => proposer,
+            );
             Ok(())
         }
         Err(e) => {

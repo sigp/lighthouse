@@ -1168,12 +1168,46 @@ pub fn serve<T: BeaconChainTypes>(
                 blocking_json_task(move || {
                     let seen_timestamp = timestamp_now();
                     let mut failures = Vec::new();
+                    let mut num_already_known = 0;
 
                     for (index, attestation) in attestations.as_slice().iter().enumerate() {
                         let attestation = match chain
                             .verify_unaggregated_attestation_for_gossip(attestation, None)
                         {
                             Ok(attestation) => attestation,
+                            Err(AttnError::PriorAttestationKnown { .. }) => {
+                                num_already_known += 1;
+
+                                // Skip to the next attestation since an attestation for this
+                                // validator is already known in this epoch.
+                                //
+                                // There's little value for the network in validating a second
+                                // attestation for another validator since it is either:
+                                //
+                                // 1. A duplicate.
+                                // 2. Slashable.
+                                // 3. Invalid.
+                                //
+                                // We are likely to get duplicates in the case where a VC is using
+                                // fallback BNs. If the first BN actually publishes some/all of a
+                                // batch of attestations but fails to respond in a timely fashion,
+                                // the VC is likely to try publishing the attestations on another
+                                // BN. That second BN may have already seen the attestations from
+                                // the first BN and therefore indicate that the attestations are
+                                // "already seen". An attestation that has already been seen has
+                                // been published on the network so there's no actual error from
+                                // the perspective of the user.
+                                //
+                                // It's better to prevent slashable attestations from ever
+                                // appearing on the network than trying to slash validators,
+                                // especially those validators connected to the local API.
+                                //
+                                // There might be *some* value in determining that this attestation
+                                // is invalid, but since a valid attestation already it exists it
+                                // appears that this validator is capable of producing valid
+                                // attestations and there's no immediate cause for concern.
+                                continue;
+                            }
                             Err(e) => {
                                 error!(log,
                                     "Failure verifying attestation for gossip";
@@ -1240,6 +1274,15 @@ pub fn serve<T: BeaconChainTypes>(
                             ));
                         }
                     }
+
+                    if num_already_known > 0 {
+                        debug!(
+                            log,
+                            "Some unagg attestations already known";
+                            "count" => num_already_known
+                        );
+                    }
+
                     if failures.is_empty() {
                         Ok(())
                     } else {
@@ -2234,6 +2277,16 @@ pub fn serve<T: BeaconChainTypes>(
                             // identical aggregates, especially if they're using the same beacon
                             // node.
                             Err(AttnError::AttestationAlreadyKnown(_)) => continue,
+                            // If we've already seen this aggregator produce an aggregate, just
+                            // skip this one.
+                            //
+                            // We're likely to see this with VCs that use fallback BNs. The first
+                            // BN might time-out *after* publishing the aggregate and then the
+                            // second BN will indicate it's already seen the aggregate.
+                            //
+                            // There's no actual error for the user or the network since the
+                            // aggregate has been successfully published by some other node.
+                            Err(AttnError::AggregatorAlreadyKnown(_)) => continue,
                             Err(e) => {
                                 error!(log,
                                     "Failure verifying aggregate and proofs";
