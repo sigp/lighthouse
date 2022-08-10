@@ -61,7 +61,7 @@ the [strict fee recipient](suggested-fee-recipient.md#strict-fee-recipient) flag
 
 ### Set Gas Limit via HTTP
 
-To update gas limit per-validator you can use the [standard key manager API](https://ethereum.github.io/keymanager-APIs/#/Gas%20Limit).
+To update gas limit per-validator you can use the [standard key manager API][gas-limit-api].
 
 Alternatively, you can use the [lighthouse API](api-vc-endpoints.md). See below for an example.
 
@@ -153,3 +153,4 @@ By default, Lighthouse is strict with these conditions, but we encourage users t
 
 [mev-rs]: https://github.com/ralexstokes/mev-rs
 [mev-boost]: https://github.com/flashbots/mev-boost
+[gas-limit-api]: https://ethereum.github.io/keymanager-APIs/#/Gas%20Limit

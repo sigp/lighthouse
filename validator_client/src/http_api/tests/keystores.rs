@@ -1,3 +1,4 @@
+use super::super::super::validator_store::DEFAULT_GAS_LIMIT;
 use super::*;
 use account_utils::random_password_string;
 use bls::PublicKeyBytes;
