@@ -1267,14 +1267,6 @@ impl<T: EthSpec> ExecutionLayer<T> {
     }
 
     /// Maps to the `eth_getBlockByHash` JSON-RPC call.
-    ///
-    /// ## TODO(merge)
-    ///
-    /// This will return an execution block regardless of whether or not it was created by a PoW
-    /// miner (pre-merge) or a PoS validator (post-merge). It's not immediately clear if this is
-    /// correct or not, see the discussion here:
-    ///
-    /// https://github.com/ethereum/consensus-specs/issues/2636
     async fn get_pow_block(
         &self,
         engine: &Engine,
