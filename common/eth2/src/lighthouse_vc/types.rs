@@ -138,3 +138,9 @@ pub struct Web3SignerValidatorRequest {
 pub struct UpdateFeeRecipientRequest {
     pub ethaddress: Address,
 }
+
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+pub struct UpdateGasLimitRequest {
+    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    pub gas_limit: u64,
+}

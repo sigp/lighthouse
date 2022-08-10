@@ -795,6 +795,78 @@ impl InitializedValidators {
         Ok(())
     }
 
+    /// Sets the `InitializedValidator` and `ValidatorDefinition` `gas_limit` values.
+    ///
+    /// ## Notes
+    ///
+    /// Setting a validator `gas_limit` will cause `self.definitions` to be updated and saved to
+    /// disk.
+    ///
+    /// Saves the `ValidatorDefinitions` to file, even if no definitions were changed.
+    pub fn set_validator_gas_limit(
+        &mut self,
+        voting_public_key: &PublicKey,
+        gas_limit: u64,
+    ) -> Result<(), Error> {
+        if let Some(def) = self
+            .definitions
+            .as_mut_slice()
+            .iter_mut()
+            .find(|def| def.voting_public_key == *voting_public_key)
+        {
+            def.gas_limit = Some(gas_limit);
+        }
+
+        if let Some(val) = self
+            .validators
+            .get_mut(&PublicKeyBytes::from(voting_public_key))
+        {
+            val.gas_limit = Some(gas_limit);
+        }
+
+        self.definitions
+            .save(&self.validators_dir)
+            .map_err(Error::UnableToSaveDefinitions)?;
+
+        Ok(())
+    }
+
+    /// Removes the `InitializedValidator` and `ValidatorDefinition` `gas_limit` values.
+    ///
+    /// ## Notes
+    ///
+    /// Removing a validator `gas_limit` will cause `self.definitions` to be updated and saved to
+    /// disk. The gas_limit for the validator will then fall back to the process level default if
+    /// it is set.
+    ///
+    /// Saves the `ValidatorDefinitions` to file, even if no definitions were changed.
+    pub fn delete_validator_gas_limit(
+        &mut self,
+        voting_public_key: &PublicKey,
+    ) -> Result<(), Error> {
+        if let Some(def) = self
+            .definitions
+            .as_mut_slice()
+            .iter_mut()
+            .find(|def| def.voting_public_key == *voting_public_key)
+        {
+            def.gas_limit = None;
+        }
+
+        if let Some(val) = self
+            .validators
+            .get_mut(&PublicKeyBytes::from(voting_public_key))
+        {
+            val.gas_limit = None;
+        }
+
+        self.definitions
+            .save(&self.validators_dir)
+            .map_err(Error::UnableToSaveDefinitions)?;
+
+        Ok(())
+    }
+
     /// Tries to decrypt the key cache.
     ///
     /// Returns the decrypted cache if decryption was successful, or an error if a required password
