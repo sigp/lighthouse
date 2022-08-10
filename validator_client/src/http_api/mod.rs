@@ -626,8 +626,8 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
     let post_fee_recipient = eth_v1
         .and(warp::path("validator"))
         .and(warp::path::param::<PublicKey>())
-        .and(warp::body::json())
         .and(warp::path("feerecipient"))
+        .and(warp::body::json())
         .and(warp::path::end())
         .and(validator_store_filter.clone())
         .and(signer.clone())
@@ -735,8 +735,8 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
     let post_gas_limit = eth_v1
         .and(warp::path("validator"))
         .and(warp::path::param::<PublicKey>())
-        .and(warp::body::json())
         .and(warp::path("gas_limit"))
+        .and(warp::body::json())
         .and(warp::path::end())
         .and(validator_store_filter.clone())
         .and(signer.clone())
