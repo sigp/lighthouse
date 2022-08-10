@@ -518,7 +518,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     }
                 }
                 if self.network_globals.peers.read().is_connected(&peer_id)
-                    && self.network.is_ee_synced()
+                    && self.network.is_ee_online()
                 {
                     self.block_lookups
                         .search_parent(block, peer_id, &mut self.network);
@@ -528,7 +528,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 // If we are not synced, ignore this block.
                 if self.network_globals.sync_state.read().is_synced()
                     && self.network_globals.peers.read().is_connected(&peer_id)
-                    && self.network.is_ee_synced()
+                    && self.network.is_ee_online()
                 {
                     self.block_lookups
                         .search_block(block_hash, peer_id, &mut self.network);

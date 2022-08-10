@@ -223,7 +223,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         Ok(id)
     }
 
-    pub fn is_ee_synced(&self) -> bool {
+    pub fn is_ee_online(&self) -> bool {
         self.is_ee_online
     }
 
