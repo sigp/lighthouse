@@ -38,7 +38,7 @@ pub enum ExecutionStatus {
     ///
     /// This `bool` only exists to satisfy our SSZ implementation which requires all variants
     /// to have a value. It can be set to anything.
-    Irrelevant(bool), // TODO(merge): fix bool.
+    Irrelevant(bool),
 }
 
 impl ExecutionStatus {
