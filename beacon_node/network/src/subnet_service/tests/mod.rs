@@ -8,7 +8,7 @@ use futures::prelude::*;
 use genesis::{generate_deterministic_keypairs, interop_genesis_state, DEFAULT_ETH1_BLOCK_HASH};
 use lazy_static::lazy_static;
 use lighthouse_network::NetworkConfig;
-use slog::{o, Drain, Level, Logger};
+use slog::{o, Drain, Logger};
 use sloggers::{null::NullLoggerBuilder, Build};
 use slot_clock::{SlotClock, SystemTimeSlotClock};
 use std::sync::Arc;
@@ -22,7 +22,6 @@ use types::{
 };
 
 const SLOT_DURATION_MILLIS: u64 = 400;
-const EPOCHS_PER_RANDOM_SUBNET_SUBSCRIPTION: u64 = 10;
 
 type TestBeaconChainType = Witness<
     SystemTimeSlotClock,
@@ -39,8 +38,7 @@ pub struct TestBeaconChain {
 
 impl TestBeaconChain {
     pub fn new_with_system_clock() -> Self {
-        let mut spec = MainnetEthSpec::default_spec();
-        spec.epochs_per_random_subnet_subscription = EPOCHS_PER_RANDOM_SUBNET_SUBSCRIPTION;
+        let spec = MainnetEthSpec::default_spec();
 
         let keypairs = generate_deterministic_keypairs(1);
 
