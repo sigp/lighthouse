@@ -32,9 +32,9 @@ pub struct SyncNetworkContext<T: BeaconChainTypes> {
     /// BlocksByRange requests made by backfill syncing.
     backfill_requests: FnvHashMap<Id, BatchId>,
 
-    /// Whether the ee is synced. If it's not, we don't allow access to the
+    /// Whether the ee is online. If it's not, we don't allow access to the
     /// `beacon_processor_send`.
-    is_ee_synced: bool,
+    is_ee_online: bool,
 
     /// Channel to send work to the beacon processor.
     beacon_processor_send: mpsc::Sender<WorkEvent<T>>,
@@ -52,7 +52,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
     ) -> Self {
         Self {
             network_send,
-            is_ee_synced: true, // always assume yes at the start
+            is_ee_online: true, // always assume yes at the start
             network_globals,
             request_id: 1,
             range_requests: FnvHashMap::default(),
@@ -224,11 +224,11 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
     }
 
     pub fn is_ee_synced(&self) -> bool {
-        self.is_ee_synced
+        self.is_ee_online
     }
 
-    pub fn ee_sync_state_updated(&mut self, is_synced: bool) {
-        self.is_ee_synced = is_synced;
+    pub fn ee_online_state_updated(&mut self, is_synced: bool) {
+        self.is_ee_online = is_synced;
     }
 
     /// Terminates the connection with the peer and bans them.
@@ -277,7 +277,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
     }
 
     pub fn processor_channel_if_enabled(&self) -> Option<&mpsc::Sender<WorkEvent<T>>> {
-        self.is_ee_synced.then_some(&self.beacon_processor_send)
+        self.is_ee_online.then_some(&self.beacon_processor_send)
     }
 
     pub fn processor_channel(&self) -> &mpsc::Sender<WorkEvent<T>> {

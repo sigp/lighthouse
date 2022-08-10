@@ -675,7 +675,7 @@ mod tests {
     }
 
     #[test]
-    fn pause_and_resume_on_ee_not_synced() {
+    fn pause_and_resume_on_ee_offline() {
         let (mut rig, mut range) = range(true);
 
         // add some peers
@@ -688,9 +688,9 @@ mod tests {
             other => panic!("unexpected request {:?}", other),
         };
 
-        // make the ee offline / not synced
-        let is_ee_synced = false;
-        rig.cx.ee_sync_state_updated(is_ee_synced);
+        // make the ee offline
+        let is_ee_online = false;
+        rig.cx.ee_online_state_updated(is_ee_online);
 
         // send the response to the request
         range.blocks_by_range_response(&mut rig.cx, peer1, chain1, batch1, id1, None);
@@ -698,7 +698,7 @@ mod tests {
         // the beacon processor shouldn't have received any work
         rig.expect_empty_processor();
 
-        // while the ee is not synced, more peers might arrive. Add a new finalized peer.
+        // while the ee is offline, more peers might arrive. Add a new finalized peer.
         let (peer2, local_info, finalized_info) = rig.finalized_peer();
         range.add_peer(&mut rig.cx, local_info, peer2, finalized_info);
         let ((chain2, batch2), id2) = match rig.grab_request(&peer2).0 {
@@ -715,8 +715,8 @@ mod tests {
         rig.expect_empty_processor();
 
         // make the beacon processor available again.
-        let is_ee_synced = true;
-        rig.cx.ee_sync_state_updated(is_ee_synced);
+        let is_ee_online = true;
+        rig.cx.ee_online_state_updated(is_ee_online);
 
         // now resume range, we should have two processing requests in the beacon processor.
         range.resume(&mut rig.cx);

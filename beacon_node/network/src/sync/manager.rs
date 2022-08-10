@@ -470,7 +470,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 .chain
                 .execution_layer
                 .as_ref()
-                .map(|el| el.ee_sync_state_watch())
+                .map(|el| el.ee_online_state_watch())
                 .into();
             futures::stream::iter(ee_sync_state_watch.await).flatten()
         };
@@ -586,7 +586,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     }
 
     fn handle_new_ee_sync_state(&mut self, ee_is_synced: bool) {
-        self.network.ee_sync_state_updated(ee_is_synced);
+        self.network.ee_online_state_updated(ee_is_synced);
 
         if ee_is_synced {
             // Resume sync components.

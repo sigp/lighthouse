@@ -30,15 +30,18 @@ pub enum EngineState {
 }
 
 impl EngineState {
-    pub fn is_synced(&self) -> bool {
-        self == &EngineState::Synced
+    pub fn is_online(&self) -> bool {
+        match self {
+            EngineState::Synced | EngineState::Syncing => true,
+            EngineState::Offline | EngineState::AuthFailed => false,
+        }
     }
 }
 
 struct State {
     /// The actual engine state.
     state: EngineState,
-    /// Notifier to watch whether the engine is synced or not.
+    /// Notifier to watch whether the engine is online or not.
     notifier: watch::Sender<bool>,
 }
 
@@ -53,7 +56,7 @@ impl std::ops::Deref for State {
 impl Default for State {
     fn default() -> Self {
         let state = EngineState::default();
-        let (notifier, _receiver) = watch::channel(state.is_synced());
+        let (notifier, _receiver) = watch::channel(state.is_online());
         State { state, notifier }
     }
 }
@@ -61,16 +64,16 @@ impl Default for State {
 impl State {
     // Updates the state and notifies all watchers if the state has changed.
     pub fn update(&mut self, new_state: EngineState) {
-        let new_sync_state = new_state.is_synced();
+        let new_online_state = new_state.is_online();
         self.state = new_state;
         self.notifier.send_if_modified(|last_state| {
-            let changed = *last_state != new_sync_state; // notify conditionally
-            *last_state = new_sync_state; // update the state unconditionally
+            let changed = *last_state != new_online_state; // notify conditionally
+            *last_state = new_online_state; // update the state unconditionally
             changed
         });
     }
 
-    /// Gives access to a channel containing whether the last state is synced.
+    /// Gives access to a channel containing whether the last state is online.
     ///
     /// This can be called several times.
     pub fn watch(&self) -> WatchStream<bool> {
@@ -124,7 +127,7 @@ impl Engine {
         }
     }
 
-    /// Gives access to a channel containing if the last engine state is synced or not.
+    /// Gives access to a channel containing if the last engine state is online or not.
     ///
     /// This can be called several times.
     pub async fn watch_state(&self) -> WatchStream<bool> {
@@ -233,25 +236,11 @@ impl Engine {
         let state: EngineState = match self.api.upcheck().await {
             Ok(()) => {
                 let mut state = self.state.write().await;
-                let mut actually_synced = true;
                 if **state != EngineState::Synced {
                     info!(
                         self.log,
                         "Execution engine online";
                     );
-                    // If the engine just became synced, check that we believe it.
-                    if let Ok(Some(block)) = self
-                        .api
-                        .get_block_by_number(crate::BlockByNumberQuery::Tag(crate::LATEST_TAG))
-                        .await
-                    {
-                        // Execution nodes return a "SYNCED" response when they do not have any
-                        // peers.
-                        // Check if the latest block has a `block_number != 0`.
-                        if block.block_number == 0 {
-                            actually_synced = false;
-                        }
-                    }
 
                     // Send the node our latest forkchoice_state.
                     self.send_latest_forkchoice_state().await;
@@ -261,12 +250,7 @@ impl Engine {
                         "Execution engine online";
                     );
                 }
-
-                if actually_synced {
-                    state.update(EngineState::Synced);
-                } else {
-                    state.update(EngineState::Syncing)
-                }
+                state.update(EngineState::Synced);
                 **state
             }
             Err(EngineApiError::IsSyncing) => {
@@ -322,6 +306,7 @@ impl Engine {
                 // take a write-lock.
                 let state: EngineState = **self.state.read().await;
 
+                // TODO: comment no longer relevant?
                 // If this request just returned successfully but we don't think this node is
                 // synced, check to see if it just became synced. This helps to ensure that the
                 // networking stack can get fast feedback about a synced engine.
@@ -379,10 +364,10 @@ mod tests {
     #[tokio::test]
     async fn test_state_notifier() {
         let mut state = State::default();
-        assert!(!state.is_synced());
+        assert!(!state.is_online());
         state.update(EngineState::Synced);
         let mut watcher = state.watch();
-        let is_synced = watcher.next().await.expect("Last state is always present?");
-        assert!(is_synced);
+        let is_online = watcher.next().await.expect("Last state is always present?");
+        assert!(is_online);
     }
 }
