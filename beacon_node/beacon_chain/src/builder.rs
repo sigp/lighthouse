@@ -835,6 +835,7 @@ where
             "head_state" => format!("{}", head.beacon_state_root()),
             "head_block" => format!("{}", head.beacon_block_root),
             "head_slot" => format!("{}", head.beacon_block.slot()),
+            "optimistic_sync" => %beacon_chain.config.optimistic_sync,
         );
 
         // Check for states to reconstruct (in the background).

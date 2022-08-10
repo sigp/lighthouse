@@ -41,3 +41,4 @@ monitoring_api = { path = "../common/monitoring_api" }
 sensitive_url = { path = "../common/sensitive_url" }
 http_api = { path = "http_api" }
 unused_port = { path = "../common/unused_port" }
+strum = "0.24.1"

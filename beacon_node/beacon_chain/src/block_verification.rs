@@ -54,7 +54,7 @@ use crate::{
         BeaconForkChoice, BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT, MAXIMUM_GOSSIP_CLOCK_DISPARITY,
         VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT,
     },
-    metrics, BeaconChain, BeaconChainError, BeaconChainTypes,
+    metrics, BeaconChain, BeaconChainError, BeaconChainTypes, OptimisticSyncConfig,
 };
 use derivative::Derivative;
 use eth2::types::EventKind;
@@ -341,6 +341,8 @@ pub enum ExecutionPayloadError {
     ///
     /// The peer is not necessarily invalid.
     UnverifiedNonOptimisticCandidate,
+    /// The execution node is syncing and optimistic sync is disabled.
+    OptimisticSyncDisabled,
 }
 
 impl ExecutionPayloadError {
@@ -357,6 +359,7 @@ impl ExecutionPayloadError {
             ExecutionPayloadError::InvalidActivationEpoch { .. } => true,
             ExecutionPayloadError::InvalidTerminalBlockHash { .. } => true,
             ExecutionPayloadError::UnverifiedNonOptimisticCandidate => false,
+            ExecutionPayloadError::OptimisticSyncDisabled => false,
         }
     }
 }
@@ -1199,7 +1202,13 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
             // - Doing the check here means we can keep our fork-choice implementation "pure". I.e., no
             //   calls to remote servers.
             if is_valid_merge_transition_block {
-                validate_merge_block(&chain, block.message(), AllowOptimisticImport::Yes).await?;
+                let allow_optimistic_import =
+                    if chain.config.optimistic_sync == OptimisticSyncConfig::Off {
+                        AllowOptimisticImport::No
+                    } else {
+                        AllowOptimisticImport::Yes
+                    };
+                validate_merge_block(&chain, block.message(), allow_optimistic_import).await?;
             };
 
             // The specification declares that this should be run *inside* `per_block_processing`,

@@ -1,4 +1,5 @@
 use serde_derive::{Deserialize, Serialize};
+use strum::{Display, EnumString, EnumVariantNames};
 use types::Checkpoint;
 
 pub const DEFAULT_FORK_CHOICE_BEFORE_PROPOSAL_TIMEOUT: u64 = 250;
@@ -35,6 +36,19 @@ pub struct ChainConfig {
     /// Whether any chain health checks should be considered when deciding whether to use the builder API.
     pub builder_fallback_disable_checks: bool,
     pub count_unrealized: bool,
+    /// Optimistic sync configuration.
+    ///
+    /// This controls whether or not to import blocks while the execution node is syncing.
+    pub optimistic_sync: OptimisticSyncConfig,
+}
+
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Display, EnumString, EnumVariantNames,
+)]
+#[strum(serialize_all = "lowercase")]
+pub enum OptimisticSyncConfig {
+    On,
+    Off,
 }
 
 impl Default for ChainConfig {
@@ -52,6 +66,7 @@ impl Default for ChainConfig {
             builder_fallback_epochs_since_finalization: 3,
             builder_fallback_disable_checks: false,
             count_unrealized: true,
+            optimistic_sync: OptimisticSyncConfig::On,
         }
     }
 }

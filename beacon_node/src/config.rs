@@ -633,6 +633,8 @@ pub fn get_config<E: EthSpec>(
     client_config.chain.count_unrealized =
         clap_utils::parse_required(cli_args, "count-unrealized")?;
 
+    client_config.chain.optimistic_sync = clap_utils::parse_required(cli_args, "optimistic-sync")?;
+
     /*
      * Builder fallback configs.
      */

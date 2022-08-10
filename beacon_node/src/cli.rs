@@ -1,4 +1,5 @@
 use clap::{App, Arg};
+use strum::VariantNames;
 
 pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
     App::new("beacon_node")
@@ -756,5 +757,13 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                        vote tracking method.")
                 .takes_value(true)
                 .default_value("true")
+        )
+        .arg(
+            Arg::with_name("optimistic-sync")
+                .long("optimistic-sync")
+                .help("Control the optimistic import of blocks while the execution node is syncing")
+                .takes_value(true)
+                .possible_values(beacon_chain::OptimisticSyncConfig::VARIANTS)
+                .default_value("on")
         )
 }

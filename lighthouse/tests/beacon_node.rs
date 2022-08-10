@@ -164,6 +164,31 @@ fn count_unrealized_true() {
 }
 
 #[test]
+fn optimistic_sync_default() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config.chain.optimistic_sync,
+                beacon_node::beacon_chain::OptimisticSyncConfig::On
+            )
+        });
+}
+
+#[test]
+fn optimistic_sync_off() {
+    CommandLineTest::new()
+        .flag("optimistic-sync", Some("off"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config.chain.optimistic_sync,
+                beacon_node::beacon_chain::OptimisticSyncConfig::Off
+            )
+        });
+}
+
+#[test]
 fn freezer_dir_flag() {
     let dir = TempDir::new().expect("Unable to create temporary directory");
     CommandLineTest::new()

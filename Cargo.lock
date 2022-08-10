@@ -462,6 +462,7 @@ dependencies = [
  "slasher",
  "slog",
  "store",
+ "strum",
  "task_executor",
  "types",
  "unused_port",

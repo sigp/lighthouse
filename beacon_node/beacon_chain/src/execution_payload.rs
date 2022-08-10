@@ -10,7 +10,7 @@
 use crate::otb_verification_service::OptimisticTransitionBlock;
 use crate::{
     BeaconChain, BeaconChainError, BeaconChainTypes, BlockError, BlockProductionError,
-    ExecutionPayloadError,
+    ExecutionPayloadError, OptimisticSyncConfig,
 };
 use execution_layer::{BuilderParams, PayloadStatus};
 use fork_choice::{InvalidationOperation, PayloadVerificationStatus};
@@ -109,7 +109,11 @@ async fn notify_new_payload<'a, T: BeaconChainTypes>(
         Ok(status) => match status {
             PayloadStatus::Valid => Ok(PayloadVerificationStatus::Verified),
             PayloadStatus::Syncing | PayloadStatus::Accepted => {
-                Ok(PayloadVerificationStatus::Optimistic)
+                if chain.config.optimistic_sync == OptimisticSyncConfig::Off {
+                    Err(ExecutionPayloadError::OptimisticSyncDisabled.into())
+                } else {
+                    Ok(PayloadVerificationStatus::Optimistic)
+                }
             }
             PayloadStatus::Invalid {
                 latest_valid_hash, ..
