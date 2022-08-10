@@ -714,9 +714,13 @@ mod tests {
         // the beacon processor shouldn't have received any work
         rig.expect_empty_processor();
 
-        // no resume range, we should have two processing requests
+        // make the beacon processor available again.
+        let is_ee_synced = true;
         rig.cx.ee_sync_state_updated(is_ee_synced);
+
+        // now resume range, we should have two processing requests in the beacon processor.
         range.resume(&mut rig.cx);
+
         rig.expect_chain_segment();
         rig.expect_chain_segment();
     }
