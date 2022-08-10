@@ -287,7 +287,10 @@ impl<T: EthSpec> ExecutionLayer<T> {
         self.inner.execution_blocks.lock().await
     }
 
-    pub async fn get_is_synced_watcher(&self) -> WatchStream<bool> {
+    /// Gives access to a channel containing if the last engine state is online or not.
+    ///
+    /// This can be called several times.
+    pub async fn get_responsiveness_watch(&self) -> WatchStream<bool> {
         self.engine().watch_state().await
     }
 

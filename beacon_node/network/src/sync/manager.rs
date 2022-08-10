@@ -466,13 +466,13 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         let check_ee = self.chain.execution_layer.is_some();
         let mut check_ee_stream = {
             // some magic to have an instance implementing stream even if there is no execution layer
-            let ee_sync_state_watch: futures::future::OptionFuture<_> = self
+            let ee_responsiveness_watch: futures::future::OptionFuture<_> = self
                 .chain
                 .execution_layer
                 .as_ref()
-                .map(|el| el.ee_online_state_watch())
+                .map(|el| el.get_responsiveness_watch())
                 .into();
-            futures::stream::iter(ee_sync_state_watch.await).flatten()
+            futures::stream::iter(ee_responsiveness_watch.await).flatten()
         };
 
         // process any inbound messages
