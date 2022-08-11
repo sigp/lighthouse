@@ -797,7 +797,7 @@ fn check_get_set_gas_limit() {
         let get_res = tester.client.get_keystores().await.unwrap();
         check_keystore_get_response(&get_res, &keystores);
 
-        // Before setting anything, every fee recipient should be set to DEFAULT_GAS_LIMIT
+        // Before setting anything, every gas limit should be set to DEFAULT_GAS_LIMIT
         for pubkey in &all_pubkeys {
             let get_res = tester
                 .client
