@@ -350,6 +350,11 @@ fn do_transition<T: EthSpec>(
             get_pubkey(validator_index)
         };
 
+        // Compute the proposer index outside the timer.
+        let proposer_index = pre_state
+            .get_beacon_proposer_index(block.slot(), spec)
+            .map_err(|e| format!("Unable to determine proposer index: {:?}", e))?;
+
         let t = Instant::now();
         BlockSignatureVerifier::verify_entire_block(
             &pre_state,
@@ -357,6 +362,7 @@ fn do_transition<T: EthSpec>(
             decompressor,
             &block,
             Some(block_root),
+            proposer_index as u64,
             spec,
         )
         .map_err(|e| format!("Invalid block signature: {:?}", e))?;

@@ -646,8 +646,8 @@ async fn valid_insert_attester_slashing() {
     let result = process_operations::process_attester_slashings(
         &mut state,
         &[attester_slashing],
-        VerifySignatures::True,
         proposer_index,
+        VerifySignatures::True,
         &spec,
     );
 
@@ -670,8 +670,8 @@ async fn invalid_attester_slashing_not_slashable() {
     let result = process_operations::process_attester_slashings(
         &mut state,
         &[attester_slashing],
-        VerifySignatures::True,
         proposer_index,
+        VerifySignatures::True,
         &spec,
     );
 
@@ -700,8 +700,8 @@ async fn invalid_attester_slashing_1_invalid() {
     let result = process_operations::process_attester_slashings(
         &mut state,
         &[attester_slashing],
-        VerifySignatures::True,
         proposer_index,
+        VerifySignatures::True,
         &spec,
     );
 
@@ -733,8 +733,8 @@ async fn invalid_attester_slashing_2_invalid() {
     let result = process_operations::process_attester_slashings(
         &mut state,
         &[attester_slashing],
-        VerifySignatures::True,
         proposer_index,
+        VerifySignatures::True,
         &spec,
     );
 
@@ -763,8 +763,8 @@ async fn valid_insert_proposer_slashing() {
     let result = process_operations::process_proposer_slashings(
         &mut state,
         &[proposer_slashing],
-        VerifySignatures::True,
         proposer_index,
+        VerifySignatures::True,
         &spec,
     );
     // Expecting Ok(_) because we inserted a valid proposer slashing
@@ -786,8 +786,8 @@ async fn invalid_proposer_slashing_proposals_identical() {
     let result = process_operations::process_proposer_slashings(
         &mut state,
         &[proposer_slashing],
-        VerifySignatures::True,
         proposer_index,
+        VerifySignatures::True,
         &spec,
     );
 
@@ -817,8 +817,8 @@ async fn invalid_proposer_slashing_proposer_unknown() {
     let result = process_operations::process_proposer_slashings(
         &mut state,
         &[proposer_slashing],
-        VerifySignatures::True,
         proposer_index,
+        VerifySignatures::True,
         &spec,
     );
 
@@ -845,8 +845,8 @@ async fn invalid_proposer_slashing_duplicate_slashing() {
     let result_1 = process_operations::process_proposer_slashings(
         &mut state,
         &[proposer_slashing.clone()],
-        VerifySignatures::False,
         proposer_index,
+        VerifySignatures::False,
         &spec,
     );
     assert!(result_1.is_ok());
@@ -854,8 +854,8 @@ async fn invalid_proposer_slashing_duplicate_slashing() {
     let result_2 = process_operations::process_proposer_slashings(
         &mut state,
         &[proposer_slashing],
-        VerifySignatures::False,
         proposer_index,
+        VerifySignatures::False,
         &spec,
     );
     // Expecting ProposerNotSlashable because we've already slashed the validator
@@ -881,8 +881,8 @@ async fn invalid_bad_proposal_1_signature() {
     let result = process_operations::process_proposer_slashings(
         &mut state,
         &[proposer_slashing],
-        VerifySignatures::True,
         proposer_index,
+        VerifySignatures::True,
         &spec,
     );
 
@@ -909,8 +909,8 @@ async fn invalid_bad_proposal_2_signature() {
     let result = process_operations::process_proposer_slashings(
         &mut state,
         &[proposer_slashing],
-        VerifySignatures::True,
         proposer_index,
+        VerifySignatures::True,
         &spec,
     );
 
@@ -938,8 +938,8 @@ async fn invalid_proposer_slashing_proposal_epoch_mismatch() {
     let result = process_operations::process_proposer_slashings(
         &mut state,
         &[proposer_slashing],
-        VerifySignatures::False,
         proposer_index,
+        VerifySignatures::False,
         &spec,
     );
 

@@ -53,15 +53,16 @@ impl ExitTest {
         let validator_index = self.validator_index;
         let exit_epoch = self.exit_epoch;
 
-        let (signed_block, state) =
-            harness.make_block_with_modifier(state.clone(), state.slot() + 1, |block| {
+        let (signed_block, state) = harness
+            .make_block_with_modifier(state.clone(), state.slot() + 1, |block| {
                 // Drop any attestations included in the block. The irregular change to the state
                 // via `self.state_modifier` might have invalidated attestations floating around in
                 // the op pool.
                 *block.body_mut().attestations_mut() = vec![].into();
                 harness.add_voluntary_exit(block, validator_index, exit_epoch);
                 block_modifier(&harness, block);
-            });
+            })
+            .await;
 
         (signed_block, state)
     }

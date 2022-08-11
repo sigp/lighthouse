@@ -78,9 +78,13 @@ impl<E: EthSpec> Operation<E> for Attestation<E> {
     ) -> Result<(), BlockProcessingError> {
         let proposer_index = state.get_beacon_proposer_index(state.slot(), spec)? as u64;
         match state {
-            BeaconState::Base(_) => {
-                base::process_attestations(state, &[self.clone()], VerifySignatures::True, spec)
-            }
+            BeaconState::Base(_) => base::process_attestations(
+                state,
+                &[self.clone()],
+                proposer_index,
+                VerifySignatures::True,
+                spec,
+            ),
             BeaconState::Altair(_) | BeaconState::Merge(_) => altair::process_attestation(
                 state,
                 self,
@@ -108,7 +112,14 @@ impl<E: EthSpec> Operation<E> for AttesterSlashing<E> {
         spec: &ChainSpec,
         _: &Operations<E, Self>,
     ) -> Result<(), BlockProcessingError> {
-        process_attester_slashings(state, &[self.clone()], VerifySignatures::True, spec)
+        let proposer_index = state.get_beacon_proposer_index(state.slot(), spec)? as u64;
+        process_attester_slashings(
+            state,
+            &[self.clone()],
+            proposer_index as usize,
+            VerifySignatures::True,
+            spec,
+        )
     }
 }
 
@@ -142,7 +153,14 @@ impl<E: EthSpec> Operation<E> for ProposerSlashing {
         spec: &ChainSpec,
         _: &Operations<E, Self>,
     ) -> Result<(), BlockProcessingError> {
-        process_proposer_slashings(state, &[self.clone()], VerifySignatures::True, spec)
+        let proposer_index = state.get_beacon_proposer_index(state.slot(), spec)? as u64;
+        process_proposer_slashings(
+            state,
+            &[self.clone()],
+            proposer_index as usize,
+            VerifySignatures::True,
+            spec,
+        )
     }
 }
 

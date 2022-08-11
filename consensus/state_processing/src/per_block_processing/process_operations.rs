@@ -19,15 +19,15 @@ pub fn process_operations<'a, T: EthSpec, Payload: ExecPayload<T>>(
     process_proposer_slashings(
         state,
         block_body.proposer_slashings(),
-        verify_signatures,
         proposer_index as usize,
+        verify_signatures,
         spec,
     )?;
     process_attester_slashings(
         state,
         block_body.attester_slashings(),
-        verify_signatures,
         proposer_index as usize,
+        verify_signatures,
         spec,
     )?;
     process_attestations(state, block_body, proposer_index, verify_signatures, spec)?;
@@ -46,8 +46,8 @@ pub mod base {
     pub fn process_attestations<T: EthSpec>(
         state: &mut BeaconState<T>,
         attestations: &[Attestation<T>],
-        verify_signatures: VerifySignatures,
         proposer_index: u64,
+        verify_signatures: VerifySignatures,
         spec: &ChainSpec,
     ) -> Result<(), BlockProcessingError> {
         // Ensure the previous epoch cache exists.
@@ -170,8 +170,8 @@ pub mod altair {
 pub fn process_proposer_slashings<T: EthSpec>(
     state: &mut BeaconState<T>,
     proposer_slashings: &[ProposerSlashing],
-    verify_signatures: VerifySignatures,
     proposer_index: usize,
+    verify_signatures: VerifySignatures,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
     // Verify and apply proposer slashings in series.
@@ -202,8 +202,8 @@ pub fn process_proposer_slashings<T: EthSpec>(
 pub fn process_attester_slashings<T: EthSpec>(
     state: &mut BeaconState<T>,
     attester_slashings: &[AttesterSlashing<T>],
-    verify_signatures: VerifySignatures,
     proposer_index: usize,
+    verify_signatures: VerifySignatures,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
     for (i, attester_slashing) in attester_slashings.iter().enumerate() {
@@ -234,8 +234,8 @@ pub fn process_attestations<'a, T: EthSpec, Payload: ExecPayload<T>>(
             base::process_attestations(
                 state,
                 block_body.attestations(),
-                verify_signatures,
                 proposer_index,
+                verify_signatures,
                 spec,
             )?;
         }
