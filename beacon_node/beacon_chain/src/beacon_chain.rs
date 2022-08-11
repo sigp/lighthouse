@@ -3403,18 +3403,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             )
             .map_err(BlockProductionError::OpPoolError)?;
 
-        let paranoid = false;
-        let ultra_paranoid = true;
-
-        if paranoid {
-            let verify_sigs = if ultra_paranoid {
-                VerifySignatures::True
-            } else {
-                VerifySignatures::False
-            };
+        if self.config.paranoid_block_proposal {
             attestations.retain(|att| {
-                let res =
-                    verify_attestation_for_block_inclusion(&state, att, verify_sigs, &self.spec);
+                let res = verify_attestation_for_block_inclusion(
+                    &state,
+                    att,
+                    VerifySignatures::True,
+                    &self.spec,
+                );
                 if let Err(e) = res {
                     error!(
                         self.log,
@@ -3422,8 +3418,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         "err" => ?e,
                         "block_slot" => state.slot(),
                     );
-                    panic!("Attempted to include an invalid attestation");
-                    // false
+                    false
                 } else {
                     true
                 }

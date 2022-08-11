@@ -23,7 +23,6 @@ pub fn upgrade_to_v12<T: BeaconChainTypes>(
         "count" => v5.attestations_v5.len(),
     );
 
-    // FIXME(sproul): work out whether it's worth trying to carry across the attestations
     let v12 = PersistedOperationPool::V12(PersistedOperationPoolV12 {
         attestations: vec![],
         sync_contributions: v5.sync_contributions,
