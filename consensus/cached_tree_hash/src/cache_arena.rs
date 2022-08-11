@@ -20,7 +20,7 @@ pub enum Error {
 ///
 /// Because all of the allocations are stored in one big `Vec`, resizing any of the allocations
 /// will mean all items to the right of that allocation will be moved.
-#[derive(Debug, PartialEq, Clone, Default, Encode, Decode)]
+#[derive(Clone, Debug, Default, Eq, PartialEq, Encode, Decode)]
 pub struct CacheArena<T: Encode + Decode> {
     /// The backing array, storing cached values.
     backing: Vec<T>,

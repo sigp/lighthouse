@@ -31,7 +31,7 @@ const NODES_PER_VALIDATOR: usize = 15;
 /// Do not set to 0.
 const VALIDATORS_PER_ARENA: usize = 4_096;
 
-#[derive(Debug, PartialEq, Clone, Encode, Decode)]
+#[derive(Clone, Debug, PartialEq, Eq, Encode, Decode)]
 pub struct Eth1DataVotesTreeHashCache<T: EthSpec> {
     arena: CacheArena,
     tree_hash_cache: TreeHashCache,
@@ -455,7 +455,7 @@ impl<V, I: Iterator<Item = V>> ExactSizeIterator for ForcedExactSizeIterator<I> 
 
 /// Provides a cache for each of the `Validator` objects in `state.validators` and computes the
 /// roots of these using Rayon parallelization.
-#[derive(Debug, PartialEq, Clone, Default, Encode, Decode)]
+#[derive(Clone, Debug, Default, Eq, PartialEq, Encode, Decode)]
 pub struct ParallelValidatorTreeHash {
     /// Each arena and its associated sub-trees.
     arenas: Vec<(CacheArena, Vec<TreeHashCache>)>,
@@ -554,12 +554,12 @@ impl ParallelValidatorTreeHash {
     }
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct OptionalTreeHashCache {
     inner: Option<OptionalTreeHashCacheInner>,
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct OptionalTreeHashCacheInner {
     arena: CacheArena,
     tree_hash_cache: TreeHashCache,

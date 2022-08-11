@@ -8,7 +8,7 @@ use std::marker::PhantomData;
 use tree_hash_derive::TreeHash;
 
 #[serde_as]
-#[derive(PartialEq, Debug, Serialize, Deserialize, TreeHash, Clone)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, TreeHash)]
 #[serde(bound = "E: EthSpec, Payload: ExecPayload<E>")]
 pub struct BuilderBid<E: EthSpec, Payload: ExecPayload<E>> {
     #[serde_as(as = "BlindedPayloadAsHeader<E>")]
@@ -24,7 +24,7 @@ pub struct BuilderBid<E: EthSpec, Payload: ExecPayload<E>> {
 impl<E: EthSpec, Payload: ExecPayload<E>> SignedRoot for BuilderBid<E, Payload> {}
 
 /// Validator registration, for use in interacting with servers implementing the builder API.
-#[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(bound = "E: EthSpec, Payload: ExecPayload<E>")]
 pub struct SignedBuilderBid<E: EthSpec, Payload: ExecPayload<E>> {
     pub message: BuilderBid<E, Payload>,

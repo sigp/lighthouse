@@ -56,7 +56,7 @@ pub trait TAggregateSignature<Pub, AggPub, Sig>: Sized + Clone {
 ///
 /// Provides generic functionality whilst deferring all serious cryptographic operations to the
 /// generics.
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Eq, PartialEq)]
 pub struct GenericAggregateSignature<Pub, AggPub, Sig, AggSig> {
     /// The underlying point which performs *actual* cryptographic operations.
     point: Option<AggSig>,
