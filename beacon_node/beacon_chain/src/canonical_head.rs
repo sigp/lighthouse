@@ -719,6 +719,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         drop(old_cached_head);
 
         // If the finalized checkpoint changed, perform some updates.
+        //
+        // The `after_finalization` function will take a write-lock on `fork_choice`, therefore it
+        // is a dead-lock risk to hold any other lock on fork choice at this point.
         if new_view.finalized_checkpoint != old_view.finalized_checkpoint {
             if let Err(e) =
                 self.after_finalization(&new_cached_head, new_view, finalized_proto_block)
@@ -878,6 +881,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     /// Perform updates to caches and other components after the finalized checkpoint has been
     /// changed.
+    ///
+    /// This function will take a write-lock on `canonical_head.fork_choice`, therefore it would be
+    /// unwise to hold any lock on fork choice while calling this function.
     fn after_finalization(
         self: &Arc<Self>,
         new_cached_head: &CachedHead<T::EthSpec>,
@@ -965,6 +971,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             new_view.finalized_checkpoint,
             self.head_tracker.clone(),
         )?;
+
+        // Take a write-lock on the canonical head and signal for it to prune.
+        self.canonical_head.fork_choice_write_lock().prune()?;
 
         Ok(())
     }

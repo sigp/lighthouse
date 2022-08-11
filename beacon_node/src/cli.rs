@@ -229,8 +229,14 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .arg(
             Arg::with_name("http-disable-legacy-spec")
                 .long("http-disable-legacy-spec")
-                .help("Disable serving of legacy data on the /config/spec endpoint. May be \
-                       disabled by default in a future release.")
+                .hidden(true)
+        )
+        .arg(
+            Arg::with_name("http-spec-fork")
+                .long("http-spec-fork")
+                .help("Serve the spec for a specific hard fork on /eth/v1/config/spec. It should \
+                       not be necessary to set this flag.")
+                .takes_value(true)
         )
         .arg(
             Arg::with_name("http-enable-tls")

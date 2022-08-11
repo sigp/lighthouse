@@ -105,9 +105,9 @@ pub struct Config {
     pub listen_addr: IpAddr,
     pub listen_port: u16,
     pub allow_origin: Option<String>,
-    pub serve_legacy_spec: bool,
     pub tls_config: Option<TlsConfig>,
     pub allow_sync_stalled: bool,
+    pub spec_fork_name: Option<ForkName>,
 }
 
 impl Default for Config {
@@ -117,9 +117,9 @@ impl Default for Config {
             listen_addr: IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
             listen_port: 5052,
             allow_origin: None,
-            serve_legacy_spec: true,
             tls_config: None,
             allow_sync_stalled: false,
+            spec_fork_name: None,
         }
     }
 }
@@ -1169,12 +1169,46 @@ pub fn serve<T: BeaconChainTypes>(
                 blocking_json_task(move || {
                     let seen_timestamp = timestamp_now();
                     let mut failures = Vec::new();
+                    let mut num_already_known = 0;
 
                     for (index, attestation) in attestations.as_slice().iter().enumerate() {
                         let attestation = match chain
                             .verify_unaggregated_attestation_for_gossip(attestation, None)
                         {
                             Ok(attestation) => attestation,
+                            Err(AttnError::PriorAttestationKnown { .. }) => {
+                                num_already_known += 1;
+
+                                // Skip to the next attestation since an attestation for this
+                                // validator is already known in this epoch.
+                                //
+                                // There's little value for the network in validating a second
+                                // attestation for another validator since it is either:
+                                //
+                                // 1. A duplicate.
+                                // 2. Slashable.
+                                // 3. Invalid.
+                                //
+                                // We are likely to get duplicates in the case where a VC is using
+                                // fallback BNs. If the first BN actually publishes some/all of a
+                                // batch of attestations but fails to respond in a timely fashion,
+                                // the VC is likely to try publishing the attestations on another
+                                // BN. That second BN may have already seen the attestations from
+                                // the first BN and therefore indicate that the attestations are
+                                // "already seen". An attestation that has already been seen has
+                                // been published on the network so there's no actual error from
+                                // the perspective of the user.
+                                //
+                                // It's better to prevent slashable attestations from ever
+                                // appearing on the network than trying to slash validators,
+                                // especially those validators connected to the local API.
+                                //
+                                // There might be *some* value in determining that this attestation
+                                // is invalid, but since a valid attestation already it exists it
+                                // appears that this validator is capable of producing valid
+                                // attestations and there's no immediate cause for concern.
+                                continue;
+                            }
                             Err(e) => {
                                 error!(log,
                                     "Failure verifying attestation for gossip";
@@ -1241,6 +1275,15 @@ pub fn serve<T: BeaconChainTypes>(
                             ));
                         }
                     }
+
+                    if num_already_known > 0 {
+                        debug!(
+                            log,
+                            "Some unagg attestations already known";
+                            "count" => num_already_known
+                        );
+                    }
+
                     if failures.is_empty() {
                         Ok(())
                     } else {
@@ -1490,18 +1533,15 @@ pub fn serve<T: BeaconChainTypes>(
         });
 
     // GET config/spec
-    let serve_legacy_spec = ctx.config.serve_legacy_spec;
+    let spec_fork_name = ctx.config.spec_fork_name;
     let get_config_spec = config_path
         .and(warp::path("spec"))
         .and(warp::path::end())
         .and(chain_filter.clone())
         .and_then(move |chain: Arc<BeaconChain<T>>| {
             blocking_json_task(move || {
-                let mut config_and_preset =
-                    ConfigAndPreset::from_chain_spec::<T::EthSpec>(&chain.spec);
-                if serve_legacy_spec {
-                    config_and_preset.make_backwards_compat(&chain.spec);
-                }
+                let config_and_preset =
+                    ConfigAndPreset::from_chain_spec::<T::EthSpec>(&chain.spec, spec_fork_name);
                 Ok(api_types::GenericResponse::from(config_and_preset))
             })
         });
@@ -1703,7 +1743,7 @@ pub fn serve<T: BeaconChainTypes>(
 
                     let syncing_data = api_types::SyncingData {
                         is_syncing: network_globals.sync_state.read().is_syncing(),
-                        is_optimistic,
+                        is_optimistic: Some(is_optimistic),
                         head_slot,
                         sync_distance,
                     };
@@ -1987,7 +2027,7 @@ pub fn serve<T: BeaconChainTypes>(
         );
 
     // GET validator/blinded_blocks/{slot}
-    let get_validator_blinded_blocks = any_version
+    let get_validator_blinded_blocks = eth_v1
         .and(warp::path("validator"))
         .and(warp::path("blinded_blocks"))
         .and(warp::path::param::<Slot>().or_else(|_| async {
@@ -2000,8 +2040,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::query::<api_types::ValidatorBlocksQuery>())
         .and(chain_filter.clone())
         .and_then(
-            |endpoint_version: EndpointVersion,
-             slot: Slot,
+            |slot: Slot,
              query: api_types::ValidatorBlocksQuery,
              chain: Arc<BeaconChain<T>>| async move {
                 let randao_reveal = query.randao_reveal.as_ref().map_or_else(
@@ -2043,7 +2082,8 @@ pub fn serve<T: BeaconChainTypes>(
                     .to_ref()
                     .fork_name(&chain.spec)
                     .map_err(inconsistent_fork_rejection)?;
-                fork_versioned_response(endpoint_version, fork_name, block)
+                // Pose as a V2 endpoint so we return the fork `version`. 
+                fork_versioned_response(V2, fork_name, block)
                     .map(|response| warp::reply::json(&response))
             },
         );
@@ -2233,6 +2273,16 @@ pub fn serve<T: BeaconChainTypes>(
                             // identical aggregates, especially if they're using the same beacon
                             // node.
                             Err(AttnError::AttestationAlreadyKnown(_)) => continue,
+                            // If we've already seen this aggregator produce an aggregate, just
+                            // skip this one.
+                            //
+                            // We're likely to see this with VCs that use fallback BNs. The first
+                            // BN might time-out *after* publishing the aggregate and then the
+                            // second BN will indicate it's already seen the aggregate.
+                            //
+                            // There's no actual error for the user or the network since the
+                            // aggregate has been successfully published by some other node.
+                            Err(AttnError::AggregatorAlreadyKnown(_)) => continue,
                             Err(e) => {
                                 error!(log,
                                     "Failure verifying aggregate and proofs";
