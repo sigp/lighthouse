@@ -46,7 +46,7 @@ impl From<reqwest::Error> for Error {
             e.status(),
             Some(StatusCode::UNAUTHORIZED) | Some(StatusCode::FORBIDDEN)
         ) {
-            Error::Auth(auth::Error::InvalidToken)
+            Error::Auth(auth::Error::InvalidToken(e))
         } else {
             Error::Reqwest(e)
         }

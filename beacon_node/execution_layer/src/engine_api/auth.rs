@@ -14,7 +14,7 @@ pub const JWT_SECRET_LENGTH: usize = 32;
 #[derive(Debug)]
 pub enum Error {
     JWT(jsonwebtoken::errors::Error),
-    InvalidToken,
+    InvalidToken(reqwest::Error),
     InvalidKey(String),
 }
 
