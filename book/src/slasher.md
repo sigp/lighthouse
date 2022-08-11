@@ -58,7 +58,10 @@ The advantage of MDBX is that it performs compaction, resulting in less disk usa
 disadvantage is that upstream MDBX has removed support for Windows and macOS, so Lighthouse is stuck
 on an older version. If bugs are found in our pinned version of MDBX it may be deprecated in future.
 
-LMDB does not have compaction but is more stable than MDBX. More backends may be added in future.
+LMDB does not have compaction but is more stable upstream than MDBX. It is not currently recommended
+to use the LMDB backend on Windows.
+
+More backends may be added in future.
 
 ### Switching Backends
 
