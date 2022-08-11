@@ -7,7 +7,7 @@ pub struct Fallback<T> {
     pub servers: Vec<T>,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Eq, PartialEq)]
 pub enum FallbackError<E> {
     AllErrored(Vec<E>),
 }
