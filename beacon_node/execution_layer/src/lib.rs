@@ -982,7 +982,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
             &[metrics::FORKCHOICE_UPDATED],
         );
 
-        trace!(
+        debug!(
             self.log(),
             "Issuing engine_forkchoiceUpdated";
             "finalized_block_hash" => ?finalized_block_hash,
