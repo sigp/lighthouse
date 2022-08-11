@@ -125,7 +125,13 @@ fn get_attestation_service(
 
     let beacon_chain = CHAIN.chain.clone();
 
-    AttestationService::new(beacon_chain, &config, &log)
+    AttestationService::new(
+        beacon_chain,
+        &config,
+        #[cfg(feature = "deterministic_long_lived_attnets")]
+        lighthouse_network::discv5::enr::NodeId::random().raw(),
+        &log,
+    )
 }
 
 fn get_sync_committee_service() -> SyncCommitteeService<TestBeaconChainType> {

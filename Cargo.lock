@@ -4150,6 +4150,7 @@ dependencies = [
  "error-chain",
  "eth2_ssz",
  "eth2_ssz_types",
+ "ethereum-types 0.12.1",
  "exit-future",
  "fnv",
  "futures",
