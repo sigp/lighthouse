@@ -10,7 +10,9 @@ use tree_hash_derive::TreeHash;
 ///
 /// Spec v0.12.1
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Encode, Decode, TestRandom, TreeHash)]
+#[derive(
+    Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Encode, Decode, TestRandom, TreeHash,
+)]
 pub struct Validator {
     pub pubkey: PublicKeyBytes,
     pub withdrawal_credentials: Hash256,

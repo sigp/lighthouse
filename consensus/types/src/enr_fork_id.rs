@@ -12,7 +12,17 @@ use tree_hash_derive::TreeHash;
 /// Spec v0.11
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 #[derive(
-    Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom,
+    Clone,
+    Debug,
+    Default,
+    Eq,
+    PartialEq,
+    Serialize,
+    Deserialize,
+    Encode,
+    Decode,
+    TreeHash,
+    TestRandom,
 )]
 pub struct EnrForkId {
     #[serde(with = "eth2_serde_utils::bytes_4_hex")]

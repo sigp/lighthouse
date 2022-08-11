@@ -76,7 +76,9 @@ impl<T: EthSpec> SyncCommitteeContribution<T> {
 impl SignedRoot for Hash256 {}
 
 /// This is not in the spec, but useful for determining uniqueness of sync committee contributions
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom)]
+#[derive(
+    Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom,
+)]
 pub struct SyncContributionData {
     pub slot: Slot,
     pub beacon_block_root: Hash256,

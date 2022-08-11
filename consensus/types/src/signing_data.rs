@@ -8,7 +8,9 @@ use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom)]
+#[derive(
+    Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom,
+)]
 pub struct SigningData {
     pub object_root: Hash256,
     pub domain: Hash256,
