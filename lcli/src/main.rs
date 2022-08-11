@@ -1,5 +1,6 @@
 #[macro_use]
 extern crate log;
+mod analyze_proto_array;
 mod change_genesis_time;
 mod check_deposit_data;
 mod create_payload_header;
@@ -714,6 +715,28 @@ fn main() {
                         .help("List of Attestations to convert to indexed form (JSON)"),
                 )
         )
+        .subcommand(
+            SubCommand::with_name("analyze-proto-array")
+                .about(
+                    "Performs analysis on a ProtoArray JSON dump",
+                )
+                .arg(
+                    Arg::with_name("output-path")
+                        .long("output-path")
+                        .value_name("DIRECTORY")
+                        .takes_value(true)
+                        .help("A directory to output the analysis files (will be created if does not exist)."),
+                )
+                .arg(
+                    Arg::with_name("json-file")
+                        .long("json-file")
+                        .value_name("PATH")
+                        .takes_value(true)
+                        .help("Path to a JSON file of the ProtoArray. The JSON should be the same format \
+                            as that from the lighthouse/proto_array HTTP endpoint (wrapped in an object \
+                            with a 'data' field)."),
+                )
+        )
         .get_matches();
 
     let result = matches
@@ -798,6 +821,8 @@ fn run<T: EthSpec>(
             .map_err(|e| format!("Failed to run insecure-validators command: {}", e)),
         ("indexed-attestations", Some(matches)) => indexed_attestations::run::<T>(matches)
             .map_err(|e| format!("Failed to run indexed-attestations command: {}", e)),
+        ("analyze-proto-array", Some(matches)) => analyze_proto_array::run::<T>(matches)
+            .map_err(|e| format!("Failed to run analyze-proto-array command: {}", e)),
         (other, _) => Err(format!("Unknown subcommand {}. See --help.", other)),
     }
 }

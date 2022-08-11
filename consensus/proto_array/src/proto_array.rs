@@ -66,7 +66,7 @@ impl InvalidationOperation {
     }
 }
 
-#[derive(Clone, PartialEq, Debug, Encode, Decode, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Debug, Encode, Decode, Serialize, Deserialize, Hash)]
 pub struct ProtoNode {
     /// The `slot` is not necessary for `ProtoArray`, it just exists so external components can
     /// easily query the block slot. This is useful for upstream fork choice logic.
