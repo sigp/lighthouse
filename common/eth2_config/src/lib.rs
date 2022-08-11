@@ -66,7 +66,7 @@ impl Eth2Config {
 ///
 /// Used by the `eth2_network_config` crate to initialize the network directories during build and
 /// access them at runtime.
-#[derive(Copy, Clone, Debug, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct Eth2NetArchiveAndDirectory<'a> {
     pub name: &'a str,
     pub config_dir: &'a str,
@@ -93,7 +93,7 @@ impl<'a> Eth2NetArchiveAndDirectory<'a> {
 /// deposit ceremony has concluded and the final genesis `BeaconState` is known.
 const GENESIS_STATE_IS_KNOWN: bool = true;
 
-#[derive(Copy, Clone, Debug, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct HardcodedNet {
     pub name: &'static str,
     pub config_dir: &'static str,

@@ -137,7 +137,7 @@ impl<T> From<String> for Error<T> {
 /// Indicates whether the unrealized justification of a block should be calculated and tracked.
 /// If a block has been finalized, this can be set to false. This is useful when syncing finalized
 /// portions of the chain. Otherwise this should always be set to true.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CountUnrealized {
     True,
     False,
@@ -197,7 +197,7 @@ impl UpdateJustifiedCheckpointSlots {
 /// Indicates if a block has been verified by an execution payload.
 ///
 /// There is no variant for "invalid", since such a block should never be added to fork choice.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PayloadVerificationStatus {
     /// An EL has declared the execution payload to be valid.
     Verified,
@@ -244,7 +244,7 @@ fn compute_start_slot_at_epoch<E: EthSpec>(epoch: Epoch) -> Slot {
 
 /// Used for queuing attestations from the current slot. Only contains the minimum necessary
 /// information about the attestation.
-#[derive(Clone, PartialEq, Encode, Decode)]
+#[derive(Clone, Eq, PartialEq, Encode, Decode)]
 pub struct QueuedAttestation {
     slot: Slot,
     attesting_indices: Vec<u64>,
@@ -298,7 +298,7 @@ pub struct ForkchoiceUpdateParameters {
     pub finalized_hash: Option<ExecutionBlockHash>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ForkChoiceView {
     pub head_block_root: Hash256,
     pub justified_checkpoint: Checkpoint,

@@ -64,7 +64,7 @@ pub const DEFAULT_PBKDF2_C: u32 = 262_144;
 /// Provides a new-type wrapper around `String` that is zeroized on `Drop`.
 ///
 /// Useful for ensuring that password memory is zeroed-out on drop.
-#[derive(Clone, PartialEq, Serialize, Deserialize, Zeroize)]
+#[derive(Clone, Eq, PartialEq, Serialize, Deserialize, Zeroize)]
 #[zeroize(drop)]
 #[serde(transparent)]
 struct ZeroizeString(String);
@@ -100,7 +100,7 @@ impl FromIterator<char> for ZeroizeString {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Eq, PartialEq)]
 pub enum Error {
     InvalidSecretKeyLen { len: usize, expected: usize },
     InvalidPassword,
@@ -187,7 +187,7 @@ impl<'a> KeystoreBuilder<'a> {
 /// Provides a BLS keystore as defined in [EIP-2335](https://eips.ethereum.org/EIPS/eip-2335).
 ///
 /// Use `KeystoreBuilder` to create a new keystore.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct Keystore {
     json: JsonKeystore,

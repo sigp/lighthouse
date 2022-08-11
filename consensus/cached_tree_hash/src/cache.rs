@@ -10,7 +10,7 @@ type CacheArena = cache_arena::CacheArena<Hash256>;
 type CacheArenaAllocation = cache_arena::CacheArenaAllocation<Hash256>;
 
 /// Sparse Merkle tree suitable for tree hashing vectors and lists.
-#[derive(Debug, PartialEq, Clone, Default, Encode, Decode)]
+#[derive(Clone, Debug, Default, Eq, PartialEq, Encode, Decode)]
 pub struct TreeHashCache {
     pub initialized: bool,
     /// Depth is such that the tree has a capacity for 2^depth leaves

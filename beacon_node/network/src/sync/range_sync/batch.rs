@@ -428,7 +428,7 @@ impl<T: EthSpec, B: BatchConfig> BatchInfo<T, B> {
 /// Represents a peer's attempt and providing the result for this batch.
 ///
 /// Invalid attempts will downscore a peer.
-#[derive(PartialEq, Debug)]
+#[derive(Debug, Eq, PartialEq)]
 pub struct Attempt {
     /// The peer that made the attempt.
     pub peer_id: PeerId,

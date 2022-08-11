@@ -18,7 +18,7 @@ use types::{Address, ExecutionBlockHash, Hash256};
 const PAYLOAD_ID_LRU_CACHE_SIZE: usize = 512;
 
 /// Stores the remembered state of a engine.
-#[derive(Copy, Clone, PartialEq, Debug)]
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
 enum EngineState {
     Synced,
     Offline,
@@ -26,7 +26,7 @@ enum EngineState {
     AuthFailed,
 }
 
-#[derive(Copy, Clone, PartialEq, Debug)]
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub struct ForkChoiceState {
     pub head_block_hash: ExecutionBlockHash,
     pub safe_block_hash: ExecutionBlockHash,

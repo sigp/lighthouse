@@ -4,7 +4,7 @@ use ssz_derive::{Decode, Encode};
 
 /// A validator subscription, created when a validator subscribes to a slot to perform optional aggregation
 /// duties.
-#[derive(PartialEq, Debug, Serialize, Deserialize, Clone, Encode, Decode)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
 pub struct ValidatorSubscription {
     /// The validators index.
     pub validator_index: u64,

@@ -164,7 +164,7 @@ pub enum StoreOp<'a, E: EthSpec> {
 }
 
 /// A unique column identifier.
-#[derive(Debug, Clone, Copy, PartialEq, IntoStaticStr, EnumString)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, IntoStaticStr, EnumString)]
 pub enum DBColumn {
     /// For data related to the database itself.
     #[strum(serialize = "bma")]
@@ -255,7 +255,7 @@ mod tests {
     use ssz_derive::{Decode, Encode};
     use tempfile::tempdir;
 
-    #[derive(PartialEq, Debug, Encode, Decode)]
+    #[derive(Debug, Eq, PartialEq, Encode, Decode)]
     struct StorableThing {
         a: u64,
         b: u64,

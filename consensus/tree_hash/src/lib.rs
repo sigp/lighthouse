@@ -98,7 +98,7 @@ fn get_zero_hash(height: usize) -> &'static [u8] {
     }
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, Eq, PartialEq, Clone)]
 pub enum TreeHashType {
     Basic,
     Vector,

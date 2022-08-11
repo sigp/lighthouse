@@ -7,7 +7,7 @@
 use crate::*;
 use types::{BeaconState, ChainSpec, EthSpec, Hash256, Slot};
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Eq, PartialEq)]
 pub enum Error {
     BadTargetSlot { target_slot: Slot, state_slot: Slot },
     PerSlotProcessing(per_slot_processing::Error),

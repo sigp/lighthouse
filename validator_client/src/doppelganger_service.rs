@@ -45,7 +45,7 @@ use types::{Epoch, EthSpec, PublicKeyBytes, Slot};
 
 /// A wrapper around `PublicKeyBytes` which encodes information about the status of a validator
 /// pubkey with regards to doppelganger protection.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Eq, PartialEq)]
 pub enum DoppelgangerStatus {
     /// Doppelganger protection has approved this for signing.
     ///
@@ -115,7 +115,7 @@ struct LivenessResponses {
 pub const DEFAULT_REMAINING_DETECTION_EPOCHS: u64 = 1;
 
 /// Store the per-validator status of doppelganger checking.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Eq, PartialEq)]
 pub struct DoppelgangerState {
     /// The next epoch for which the validator should be checked for liveness.
     ///

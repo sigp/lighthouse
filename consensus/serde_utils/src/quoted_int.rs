@@ -196,7 +196,7 @@ pub mod quoted_u256 {
 mod test {
     use super::*;
 
-    #[derive(Debug, PartialEq, Serialize, Deserialize)]
+    #[derive(Debug, Eq, PartialEq, Serialize, Deserialize)]
     #[serde(transparent)]
     struct WrappedU256(#[serde(with = "quoted_u256")] U256);
 

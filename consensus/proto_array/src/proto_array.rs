@@ -66,7 +66,7 @@ impl InvalidationOperation {
     }
 }
 
-#[derive(Clone, PartialEq, Debug, Encode, Decode, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Encode, Decode, Serialize, Deserialize)]
 pub struct ProtoNode {
     /// The `slot` is not necessary for `ProtoArray`, it just exists so external components can
     /// easily query the block slot. This is useful for upstream fork choice logic.
@@ -103,7 +103,7 @@ pub struct ProtoNode {
     pub unrealized_finalized_checkpoint: Option<Checkpoint>,
 }
 
-#[derive(PartialEq, Debug, Encode, Decode, Serialize, Deserialize, Copy, Clone)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Encode, Decode, Serialize, Deserialize)]
 pub struct ProposerBoost {
     pub root: Hash256,
     pub score: u64,
@@ -118,7 +118,7 @@ impl Default for ProposerBoost {
     }
 }
 
-#[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct ProtoArray {
     /// Do not attempt to prune the tree unless it has at least this many nodes. Small prunes
     /// simply waste time.

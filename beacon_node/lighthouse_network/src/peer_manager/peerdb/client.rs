@@ -21,7 +21,7 @@ pub struct Client {
     pub agent_string: Option<String>,
 }
 
-#[derive(Clone, Copy, Debug, Serialize, PartialEq, AsRefStr, IntoStaticStr, EnumIter)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, AsRefStr, IntoStaticStr, EnumIter)]
 pub enum ClientKind {
     /// A lighthouse node (the best kind).
     Lighthouse,

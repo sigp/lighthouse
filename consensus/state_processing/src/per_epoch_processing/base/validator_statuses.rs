@@ -17,7 +17,7 @@ macro_rules! set_self_if_other_is_true {
 
 /// The information required to reward a block producer for including an attestation in a block.
 #[cfg_attr(feature = "arbitrary-fuzz", derive(Arbitrary))]
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct InclusionInfo {
     /// The distance between the attestation slot and the slot that attestation was included in a
     /// block.
@@ -49,7 +49,7 @@ impl InclusionInfo {
 
 /// Information required to reward some validator during the current and previous epoch.
 #[cfg_attr(feature = "arbitrary-fuzz", derive(Arbitrary))]
-#[derive(Debug, Default, Clone, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct ValidatorStatus {
     /// True if the validator has been slashed, ever.
     pub is_slashed: bool,
@@ -114,7 +114,7 @@ impl ValidatorStatus {
 /// The total effective balances for different sets of validators during the previous and current
 /// epochs.
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 #[cfg_attr(feature = "arbitrary-fuzz", derive(Arbitrary))]
 pub struct TotalBalances {
     /// The effective balance increment from the spec.

@@ -18,7 +18,7 @@ use tree_hash::TreeHash;
 use types::{BeaconBlockRef, EthSpec, Hash256, Slot};
 use DBColumn::OptimisticTransitionBlock as OTBColumn;
 
-#[derive(Clone, Debug, Decode, Encode, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Decode, Encode)]
 pub struct OptimisticTransitionBlock {
     root: Hash256,
     slot: Slot,

@@ -48,7 +48,7 @@ use milagro_bls::AmclError;
 
 pub type Hash256 = ethereum_types::H256;
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Error {
     /// An error was raised from the Milagro BLS library.
     #[cfg(feature = "milagro")]

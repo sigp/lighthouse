@@ -81,7 +81,7 @@ mod test {
     use serde::{Deserialize, Serialize};
     use serde_json;
 
-    #[derive(Debug, PartialEq, Serialize, Deserialize)]
+    #[derive(Debug, Eq, PartialEq, Serialize, Deserialize)]
     #[serde(transparent)]
     struct Wrapper {
         #[serde(with = "super")]

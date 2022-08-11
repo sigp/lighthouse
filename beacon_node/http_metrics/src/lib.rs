@@ -45,7 +45,7 @@ pub struct Context<T: BeaconChainTypes> {
 }
 
 /// Configuration for the HTTP server.
-#[derive(PartialEq, Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct Config {
     pub enabled: bool,
     pub listen_addr: IpAddr,

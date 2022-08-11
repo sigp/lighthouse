@@ -69,7 +69,7 @@ pub struct Web3SignerDefinition {
 }
 
 /// Defines how the validator client should attempt to sign messages for this validator.
-#[derive(Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum SigningDefinition {
     /// A validator that is defined by an EIP-2335 keystore on the local filesystem.
@@ -98,7 +98,7 @@ impl SigningDefinition {
 ///
 /// Presently there is only a single variant, however we expect more variants to arise (e.g.,
 /// remote signing).
-#[derive(Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub struct ValidatorDefinition {
     pub enabled: bool,
     pub voting_public_key: PublicKey,

@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Eq, PartialEq)]
 pub enum Error {
     ArithError(ArithError),
     InvalidSubcommitteeRange {

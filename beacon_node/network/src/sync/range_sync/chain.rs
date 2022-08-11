@@ -106,7 +106,7 @@ pub struct SyncingChain<T: BeaconChainTypes> {
     log: slog::Logger,
 }
 
-#[derive(PartialEq, Debug)]
+#[derive(Debug, Eq, PartialEq)]
 pub enum ChainSyncingState {
     /// The chain is not being synced.
     Stopped,

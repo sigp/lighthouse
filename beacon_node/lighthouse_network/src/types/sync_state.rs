@@ -26,7 +26,7 @@ pub enum SyncState {
     Stalled,
 }
 
-#[derive(PartialEq, Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 /// The state of the backfill sync.
 pub enum BackFillState {
     /// The sync is partially completed and currently paused.

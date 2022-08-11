@@ -58,7 +58,7 @@ impl ToString for ErrorType {
 /* Requests */
 
 /// The STATUS request/response handshake message.
-#[derive(Encode, Decode, Clone, Debug, PartialEq)]
+#[derive(Encode, Decode, Clone, Debug, Eq, PartialEq)]
 pub struct StatusMessage {
     /// The fork version of the chain we are broadcasting.
     pub fork_digest: [u8; 4],
@@ -77,7 +77,7 @@ pub struct StatusMessage {
 }
 
 /// The PING request/response message.
-#[derive(Encode, Decode, Clone, Debug, PartialEq)]
+#[derive(Encode, Decode, Clone, Debug, Eq, PartialEq)]
 pub struct Ping {
     /// The metadata sequence number.
     pub data: u64,
@@ -109,7 +109,7 @@ pub struct MetaData<T: EthSpec> {
 /// Note: any unknown `u64::into(n)` will resolve to `Goodbye::Unknown` for any unknown `n`,
 /// however `GoodbyeReason::Unknown.into()` will go into `0_u64`. Therefore de-serializing then
 /// re-serializing may not return the same bytes.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum GoodbyeReason {
     /// This node has shutdown.
     ClientShutdown = 1,
@@ -195,7 +195,7 @@ impl ssz::Decode for GoodbyeReason {
 }
 
 /// Request a number of beacon block roots from a peer.
-#[derive(Encode, Decode, Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Encode, Decode)]
 pub struct BlocksByRangeRequest {
     /// The starting slot to request blocks.
     pub start_slot: u64,
@@ -205,7 +205,7 @@ pub struct BlocksByRangeRequest {
 }
 
 /// Request a number of beacon block roots from a peer.
-#[derive(Encode, Decode, Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Encode, Decode)]
 pub struct OldBlocksByRangeRequest {
     /// The starting slot to request blocks.
     pub start_slot: u64,
@@ -222,7 +222,7 @@ pub struct OldBlocksByRangeRequest {
 }
 
 /// Request a number of beacon block bodies from a peer.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct BlocksByRootRequest {
     /// The list of beacon block bodies being requested.
     pub block_roots: VariableList<Hash256, MaxRequestBlocks>,
@@ -274,7 +274,7 @@ pub enum RPCCodedResponse<T: EthSpec> {
 }
 
 /// The code assigned to an erroneous `RPCResponse`.
-#[derive(Debug, Clone, Copy, PartialEq, IntoStaticStr)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, IntoStaticStr)]
 #[strum(serialize_all = "snake_case")]
 pub enum RPCResponseErrorCode {
     RateLimited,

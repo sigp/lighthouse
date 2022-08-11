@@ -3,7 +3,7 @@ use std::ops::RangeInclusive;
 
 pub use eth2::lighthouse::Eth1Block;
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Error {
     /// The timestamp of each block equal to or later than the block prior to it.
     InconsistentTimestamp { parent: u64, child: u64 },
@@ -18,7 +18,7 @@ pub enum Error {
 
 /// Stores block and deposit contract information and provides queries based upon the block
 /// timestamp.
-#[derive(Debug, PartialEq, Clone, Default, Encode, Decode)]
+#[derive(Clone, Debug, Default, Eq, PartialEq, Encode, Decode)]
 pub struct BlockCache {
     blocks: Vec<Eth1Block>,
 }

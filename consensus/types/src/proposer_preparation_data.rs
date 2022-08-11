@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 
 /// A proposer preparation, created when a validator prepares the beacon node for potential proposers
 /// by supplying information required when proposing blocks for the given validators.
-#[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct ProposerPreparationData {
     /// The validators index.
     #[serde(with = "eth2_serde_utils::quoted_u64")]

@@ -5,7 +5,7 @@ use std::cmp::Ordering;
 use std::marker::PhantomData;
 use std::ops::Range;
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Error {
     UnknownAllocId(usize),
     OffsetOverflow,
@@ -199,7 +199,7 @@ impl<T: Encode + Decode> CacheArena<T> {
 /// For all functions that accept a `CacheArena<T>` parameter, that arena should always be the one
 /// that created `Self`. I.e., do not mix-and-match allocations and arenas unless you _really_ know
 /// what you're doing (or want to have a bad time).
-#[derive(Debug, PartialEq, Clone, Default, Encode, Decode)]
+#[derive(Clone, Debug, Default, Eq, PartialEq, Encode, Decode)]
 pub struct CacheArenaAllocation<T> {
     alloc_id: usize,
     #[ssz(skip_serializing, skip_deserializing)]

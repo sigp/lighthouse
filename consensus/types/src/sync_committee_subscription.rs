@@ -4,7 +4,7 @@ use ssz_derive::{Decode, Encode};
 
 /// A sync committee subscription created when a validator subscribes to sync committee subnets to perform
 /// sync committee duties.
-#[derive(PartialEq, Debug, Serialize, Deserialize, Clone, Encode, Decode)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
 pub struct SyncCommitteeSubscription {
     /// The validators index.
     #[serde(with = "eth2_serde_utils::quoted_u64")]

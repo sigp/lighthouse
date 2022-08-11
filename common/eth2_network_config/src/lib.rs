@@ -35,7 +35,7 @@ pub const DEFAULT_HARDCODED_NETWORK: &str = "mainnet";
 /// Specifies an Eth2 network.
 ///
 /// See the crate-level documentation for more details.
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Eth2NetworkConfig {
     /// Note: instead of the block where the contract is deployed, it is acceptable to set this
     /// value to be the block number where the first deposit occurs.

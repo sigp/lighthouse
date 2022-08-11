@@ -86,19 +86,19 @@ impl From<ApiError> for Error {
     }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Eq, PartialEq)]
 pub struct ProposerPreparationDataEntry {
     update_epoch: Epoch,
     preparation_data: ProposerPreparationData,
 }
 
-#[derive(Hash, PartialEq, Eq)]
+#[derive(Eq, Hash, PartialEq)]
 pub struct ProposerKey {
     slot: Slot,
     head_block_root: Hash256,
 }
 
-#[derive(PartialEq, Clone)]
+#[derive(Clone, Eq, PartialEq)]
 pub struct Proposer {
     validator_index: u64,
     payload_attributes: PayloadAttributes,
@@ -138,7 +138,7 @@ struct Inner<E: EthSpec> {
     log: Logger,
 }
 
-#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Config {
     /// Endpoint urls for EL nodes that are running the engine api.
     pub execution_endpoints: Vec<SensitiveUrl>,

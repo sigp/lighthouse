@@ -48,7 +48,7 @@ pub struct OperationPool<T: EthSpec + Default> {
     _phantom: PhantomData<T>,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Eq, PartialEq)]
 pub enum OpPoolError {
     GetAttestationsTotalBalanceError(BeaconStateError),
     GetBlockRootError(BeaconStateError),

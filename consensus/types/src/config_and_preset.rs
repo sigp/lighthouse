@@ -12,9 +12,9 @@ use superstruct::superstruct;
 /// Mostly useful for the API.
 #[superstruct(
     variants(Altair, Bellatrix),
-    variant_attributes(derive(Serialize, Deserialize, Debug, PartialEq, Clone))
+    variant_attributes(derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize))
 )]
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub struct ConfigAndPreset {
     #[serde(flatten)]

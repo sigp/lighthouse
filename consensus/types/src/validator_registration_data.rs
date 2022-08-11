@@ -4,13 +4,13 @@ use ssz_derive::{Decode, Encode};
 use tree_hash_derive::TreeHash;
 
 /// Validator registration, for use in interacting with servers implementing the builder API.
-#[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct SignedValidatorRegistrationData {
     pub message: ValidatorRegistrationData,
     pub signature: Signature,
 }
 
-#[derive(PartialEq, Debug, Serialize, Deserialize, Clone, Encode, Decode, TreeHash)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Encode, Decode, TreeHash)]
 pub struct ValidatorRegistrationData {
     pub fee_recipient: Address,
     #[serde(with = "eth2_serde_utils::quoted_u64")]

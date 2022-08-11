@@ -224,7 +224,7 @@ impl<E: EthSpec> KeyValueStore<E> for LevelDB<E> {
 impl<E: EthSpec> ItemStore<E> for LevelDB<E> {}
 
 /// Used for keying leveldb.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Eq, PartialEq)]
 pub struct BytesKey {
     key: Vec<u8>,
 }

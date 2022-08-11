@@ -25,14 +25,14 @@ use types::{EthSpec, ForkContext};
 // Combines all the RPC requests into a single enum to implement `UpgradeInfo` and
 // `OutboundUpgrade`
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct OutboundRequestContainer<TSpec: EthSpec> {
     pub req: OutboundRequest<TSpec>,
     pub fork_context: Arc<ForkContext>,
     pub max_rpc_size: usize,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum OutboundRequest<TSpec: EthSpec> {
     Status(StatusMessage),
     Goodbye(GoodbyeReason),

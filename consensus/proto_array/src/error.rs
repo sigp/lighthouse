@@ -1,6 +1,6 @@
 use types::{Checkpoint, Epoch, ExecutionBlockHash, Hash256, Slot};
 
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Error {
     FinalizedNodeUnknown(Hash256),
     JustifiedNodeUnknown(Hash256),
@@ -50,7 +50,7 @@ pub enum Error {
     },
 }
 
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct InvalidBestNodeInfo {
     pub current_slot: Slot,
     pub start_root: Hash256,

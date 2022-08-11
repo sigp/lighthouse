@@ -4,7 +4,7 @@ use safe_arith::ArithError;
 use serde_derive::{Deserialize, Serialize};
 use std::collections::HashSet;
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct SyncDuty {
     pub pubkey: PublicKeyBytes,
     #[serde(with = "eth2_serde_utils::quoted_u64")]

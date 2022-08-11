@@ -1321,7 +1321,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> NetworkBehaviourEventProcess<PeerManagerEv
 // NOTE: This is an application-level wrapper over the lower network level requests that can be
 //       sent. The main difference is the absence of the Ping, Metadata and Goodbye protocols, which don't
 //       leave the Behaviour. For all protocols managed by RPC see `RPCRequest`.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Request {
     /// A Status message.
     Status(StatusMessage),

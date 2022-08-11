@@ -10,7 +10,7 @@ use tokio::runtime::{Handle, Runtime};
 pub use tokio::task::JoinHandle;
 
 /// Provides a reason when Lighthouse is shut down.
-#[derive(Copy, Clone, Debug, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum ShutdownReason {
     /// The node shut down successfully.
     Success(&'static str),

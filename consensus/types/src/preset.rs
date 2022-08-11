@@ -9,7 +9,7 @@ use serde_derive::{Deserialize, Serialize};
 /// one of these structs.
 ///
 /// https://github.com/ethereum/eth2.0-specs/blob/dev/presets/mainnet/phase0.yaml
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "UPPERCASE")]
 pub struct BasePreset {
     #[serde(with = "eth2_serde_utils::quoted_u64")]
@@ -120,7 +120,7 @@ impl BasePreset {
     }
 }
 
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "UPPERCASE")]
 pub struct AltairPreset {
     #[serde(with = "eth2_serde_utils::quoted_u64")]
@@ -150,7 +150,7 @@ impl AltairPreset {
     }
 }
 
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "UPPERCASE")]
 pub struct BellatrixPreset {
     #[serde(with = "eth2_serde_utils::quoted_u64")]

@@ -8,7 +8,7 @@ use types::{AttestationData, Hash256, Slot};
 ///
 /// Presently this only counts attestation rewards, but in future should be expanded
 /// to include information on slashings and sync committee aggregates too.
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct BlockReward {
     /// Sum of all reward components.
     pub total: u64,
@@ -22,7 +22,7 @@ pub struct BlockReward {
     pub sync_committee_rewards: u64,
 }
 
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct BlockRewardMeta {
     pub slot: Slot,
     pub parent_slot: Slot,
@@ -30,7 +30,7 @@ pub struct BlockRewardMeta {
     pub graffiti: String,
 }
 
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct AttestationRewards {
     /// Total block reward from attestations included.
     pub total: u64,
@@ -48,7 +48,7 @@ pub struct AttestationRewards {
 }
 
 /// Query parameters for the `/lighthouse/block_rewards` endpoint.
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct BlockRewardsQuery {
     /// Lower slot limit for block rewards returned (inclusive).
     pub start_slot: Slot,

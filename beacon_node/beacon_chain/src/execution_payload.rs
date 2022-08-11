@@ -28,7 +28,7 @@ use types::*;
 pub type PreparePayloadResult<Payload> = Result<Payload, BlockProductionError>;
 pub type PreparePayloadHandle<Payload> = JoinHandle<Option<PreparePayloadResult<Payload>>>;
 
-#[derive(PartialEq)]
+#[derive(Eq, PartialEq)]
 pub enum AllowOptimisticImport {
     Yes,
     No,

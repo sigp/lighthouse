@@ -3,7 +3,7 @@ use ssz_derive::{Decode, Encode};
 use std::collections::HashMap;
 use types::{Hash256, Slot};
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Eq, PartialEq)]
 pub enum Error {
     MismatchingLengths { roots_len: usize, slots_len: usize },
 }

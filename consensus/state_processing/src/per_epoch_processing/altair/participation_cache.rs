@@ -20,7 +20,7 @@ use types::{
     BeaconState, BeaconStateError, ChainSpec, Epoch, EthSpec, ParticipationFlags, RelativeEpoch,
 };
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Eq, PartialEq)]
 pub enum Error {
     InvalidFlagIndex(usize),
     InvalidValidatorIndex(usize),
@@ -29,7 +29,7 @@ pub enum Error {
 /// A balance which will never be below the specified `minimum`.
 ///
 /// This is an effort to ensure the `EFFECTIVE_BALANCE_INCREMENT` minimum is always respected.
-#[derive(PartialEq, Debug, Clone, Copy)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 struct Balance {
     raw: u64,
     minimum: u64,
@@ -53,7 +53,7 @@ impl Balance {
 }
 
 /// Caches the participation values for one epoch (either the previous or current).
-#[derive(PartialEq, Debug)]
+#[derive(Debug, Eq, PartialEq)]
 struct SingleEpochParticipationCache {
     /// Maps an active validator index to their participation flags.
     ///
@@ -173,7 +173,7 @@ impl SingleEpochParticipationCache {
 }
 
 /// Maintains a cache to be used during `altair::process_epoch`.
-#[derive(PartialEq, Debug)]
+#[derive(Debug, Eq, PartialEq)]
 pub struct ParticipationCache {
     current_epoch: Epoch,
     /// Caches information about active validators pertaining to `self.current_epoch`.

@@ -99,7 +99,7 @@ impl std::fmt::Display for PeerAction {
 }
 
 /// The expected state of the peer given the peer's score.
-#[derive(Debug, PartialEq, Clone, Copy)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum ScoreState {
     /// We are content with the peers performance. We permit connections and messages.
     Healthy,

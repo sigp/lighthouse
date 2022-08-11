@@ -76,7 +76,7 @@ pub enum DiscoveryEvent {
     SocketUpdated(SocketAddr),
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Eq, PartialEq)]
 struct SubnetQuery {
     subnet: Subnet,
     min_ttl: Option<Instant>,
@@ -109,7 +109,7 @@ impl std::fmt::Debug for SubnetQuery {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 enum QueryType {
     /// We are searching for subnet peers.
     Subnet(Vec<SubnetQuery>),

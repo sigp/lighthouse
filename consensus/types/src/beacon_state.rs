@@ -42,7 +42,7 @@ mod tree_hash_cache;
 pub const CACHED_EPOCHS: usize = 3;
 const MAX_RANDOM_BYTE: u64 = (1 << 8) - 1;
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Error {
     /// A state for a different hard-fork was required -- a severe logic error.
     IncorrectStateVariant,
@@ -127,7 +127,7 @@ pub enum Error {
 }
 
 /// Control whether an epoch-indexed field can be indexed at the next epoch or not.
-#[derive(Debug, PartialEq, Clone, Copy)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum AllowNextEpoch {
     True,
     False,

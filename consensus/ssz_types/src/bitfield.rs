@@ -22,7 +22,7 @@ pub trait BitfieldBehaviour: Clone {}
 /// A marker struct used to declare SSZ `Variable` behaviour on a `Bitfield`.
 ///
 /// See the [`Bitfield`](struct.Bitfield.html) docs for usage.
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, Eq, PartialEq, Debug)]
 pub struct Variable<N> {
     _phantom: PhantomData<N>,
 }
@@ -30,7 +30,7 @@ pub struct Variable<N> {
 /// A marker struct used to declare SSZ `Fixed` behaviour on a `Bitfield`.
 ///
 /// See the [`Bitfield`](struct.Bitfield.html) docs for usage.
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, Eq, PartialEq, Debug)]
 pub struct Fixed<N> {
     _phantom: PhantomData<N>,
 }

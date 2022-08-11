@@ -12,14 +12,14 @@ use tree_hash_derive::TreeHash;
 use types::typenum::*;
 use types::{BitList, BitVector, FixedVector, ForkName, VariableList};
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 struct Metadata {
     root: String,
     #[serde(rename(deserialize = "signing_root"))]
     _signing_root: Option<String>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct SszGeneric {
     path: PathBuf,
     handler_name: String,
@@ -232,32 +232,32 @@ fn ssz_generic_test<T: SszStaticType + ssz::Decode>(path: &Path) -> Result<(), E
 }
 
 // Containers for SSZ generic tests
-#[derive(Debug, Clone, Default, PartialEq, Decode, Encode, TreeHash, Deserialize)]
+#[derive(Clone, Debug, Default, Eq, PartialEq, Decode, Encode, TreeHash, Deserialize)]
 struct SingleFieldTestStruct {
     A: u8,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Decode, Encode, TreeHash, Deserialize)]
+#[derive(Clone, Debug, Default, Eq, PartialEq, Decode, Encode, TreeHash, Deserialize)]
 struct SmallTestStruct {
     A: u16,
     B: u16,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Decode, Encode, TreeHash, Deserialize)]
+#[derive(Clone, Debug, Default, Eq, PartialEq, Decode, Encode, TreeHash, Deserialize)]
 struct FixedTestStruct {
     A: u8,
     B: u64,
     C: u32,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Decode, Encode, TreeHash, Deserialize)]
+#[derive(Clone, Debug, Default, Eq, PartialEq, Decode, Encode, TreeHash, Deserialize)]
 struct VarTestStruct {
     A: u16,
     B: VariableList<u16, U1024>,
     C: u8,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Decode, Encode, TreeHash, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Decode, Encode, TreeHash, Deserialize)]
 struct ComplexTestStruct {
     A: u16,
     B: VariableList<u16, U128>,
@@ -269,7 +269,7 @@ struct ComplexTestStruct {
     G: FixedVector<VarTestStruct, U2>,
 }
 
-#[derive(Debug, Clone, PartialEq, Decode, Encode, TreeHash, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Decode, Encode, TreeHash, Deserialize)]
 struct BitsStruct {
     A: BitList<U5>,
     B: BitVector<U2>,

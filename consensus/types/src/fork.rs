@@ -14,6 +14,7 @@ use tree_hash_derive::TreeHash;
     Debug,
     Clone,
     Copy,
+    Eq,
     PartialEq,
     Default,
     Serialize,

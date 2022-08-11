@@ -79,7 +79,7 @@ type HttpServer = (SocketAddr, Pin<Box<dyn Future<Output = ()> + Send>>);
 pub type ExecutionOptimistic = bool;
 
 /// Configuration used when serving the HTTP server over TLS.
-#[derive(PartialEq, Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct TlsConfig {
     pub cert: PathBuf,
     pub key: PathBuf,
@@ -98,7 +98,7 @@ pub struct Context<T: BeaconChainTypes> {
 }
 
 /// Configuration for the HTTP server.
-#[derive(PartialEq, Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct Config {
     pub enabled: bool,
     pub listen_addr: IpAddr,
@@ -2083,7 +2083,7 @@ pub fn serve<T: BeaconChainTypes>(
                     .to_ref()
                     .fork_name(&chain.spec)
                     .map_err(inconsistent_fork_rejection)?;
-                // Pose as a V2 endpoint so we return the fork `version`. 
+                // Pose as a V2 endpoint so we return the fork `version`.
                 fork_versioned_response(V2, fork_name, block)
                     .map(|response| warp::reply::json(&response))
             },

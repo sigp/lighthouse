@@ -168,7 +168,7 @@ mod test {
         }
     }
 
-    #[derive(Debug, PartialEq, Encode, Decode)]
+    #[derive(Debug, Eq, PartialEq, Encode, Decode)]
     struct TwoVariableLenOptions {
         a: u16,
         #[ssz(with = "impl_u16")]

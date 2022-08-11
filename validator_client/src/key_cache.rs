@@ -21,7 +21,7 @@ pub const CACHE_FILENAME: &str = "validator_key_cache.json";
 /// The file name for the temporary `KeyCache`.
 pub const TEMP_CACHE_FILENAME: &str = ".validator_key_cache.json.tmp";
 
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum State {
     NotDecrypted,
     DecryptedAndSaved,

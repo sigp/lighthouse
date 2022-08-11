@@ -8,7 +8,7 @@ use tree_hash_derive::TreeHash;
 
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 #[derive(
-    Debug, PartialEq, Clone, Serialize, Deserialize, Hash, Encode, Decode, TreeHash, TestRandom,
+    Clone, Debug, Eq, Hash, PartialEq, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom,
 )]
 pub struct SyncAggregatorSelectionData {
     pub slot: Slot,

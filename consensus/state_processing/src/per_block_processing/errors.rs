@@ -199,7 +199,7 @@ impl<T> From<ArithError> for BlockOperationError<T> {
     }
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum HeaderInvalid {
     ProposalSignatureInvalid,
     StateSlotMismatch,
@@ -218,7 +218,7 @@ pub enum HeaderInvalid {
     ProposerSlashed(usize),
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ProposerSlashingInvalid {
     /// The proposer index is not a known validator.
     ProposerUnknown(u64),
@@ -240,7 +240,7 @@ pub enum ProposerSlashingInvalid {
     BadProposal2Signature,
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum AttesterSlashingInvalid {
     /// The attestations were not in conflict.
     NotSlashable,
@@ -255,7 +255,7 @@ pub enum AttesterSlashingInvalid {
 }
 
 /// Describes why an object is invalid.
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum AttestationInvalid {
     /// Commmittee index exceeds number of committees in that slot.
     BadCommitteeIndex,
@@ -315,7 +315,7 @@ impl From<BlockOperationError<IndexedAttestationInvalid>>
     }
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum IndexedAttestationInvalid {
     /// The number of indices is 0.
     IndicesEmpty,
@@ -332,7 +332,7 @@ pub enum IndexedAttestationInvalid {
     SignatureSetError(SignatureSetError),
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum DepositInvalid {
     /// The signature (proof-of-possession) does not match the given pubkey.
     BadSignature,
@@ -343,7 +343,7 @@ pub enum DepositInvalid {
     BadMerkleProof,
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ExitInvalid {
     /// The specified validator is not active.
     NotActive(u64),
@@ -367,7 +367,7 @@ pub enum ExitInvalid {
     SignatureSetError(SignatureSetError),
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum SyncAggregateInvalid {
     /// One or more of the aggregate public keys is invalid.
     PubkeyInvalid,

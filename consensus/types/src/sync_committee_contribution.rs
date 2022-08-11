@@ -7,7 +7,7 @@ use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Eq, PartialEq)]
 pub enum Error {
     SszTypesError(ssz_types::Error),
     AlreadySigned(usize),
@@ -76,7 +76,7 @@ impl<T: EthSpec> SyncCommitteeContribution<T> {
 impl SignedRoot for Hash256 {}
 
 /// This is not in the spec, but useful for determining uniqueness of sync committee contributions
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom)]
 pub struct SyncContributionData {
     pub slot: Slot,
     pub beacon_block_root: Hash256,

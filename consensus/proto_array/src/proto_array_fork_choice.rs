@@ -14,7 +14,7 @@ use types::{
 
 pub const DEFAULT_PRUNE_THRESHOLD: usize = 256;
 
-#[derive(Default, PartialEq, Clone, Encode, Decode)]
+#[derive(Clone, Default, Eq, PartialEq, Encode, Decode)]
 pub struct VoteTracker {
     current_root: Hash256,
     next_root: Hash256,
@@ -22,7 +22,7 @@ pub struct VoteTracker {
 }
 
 /// Represents the verification status of an execution payload.
-#[derive(Clone, Copy, Debug, PartialEq, Encode, Decode, Serialize, Deserialize)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Encode, Decode, Serialize, Deserialize)]
 #[ssz(enum_behaviour = "union")]
 pub enum ExecutionStatus {
     /// An EL has determined that the payload is valid.
@@ -124,7 +124,7 @@ impl ExecutionStatus {
 /// A block that is to be applied to the fork choice.
 ///
 /// A simplified version of `types::BeaconBlock`.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Block {
     pub slot: Slot,
     pub root: Hash256,

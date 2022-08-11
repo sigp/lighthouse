@@ -7,7 +7,7 @@ pub const VERSION: u64 = 1;
 pub const CLIENT_NAME: &str = "lighthouse";
 
 /// An API error serializable to JSON.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct ErrorMessage {
     pub code: u16,
     pub message: String,
@@ -15,7 +15,7 @@ pub struct ErrorMessage {
     pub stacktraces: Vec<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct MonitoringMetrics {
     #[serde(flatten)]
     pub metadata: Metadata,
@@ -23,7 +23,7 @@ pub struct MonitoringMetrics {
     pub process_metrics: Process,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ProcessType {
     BeaconNode,
@@ -31,7 +31,7 @@ pub enum ProcessType {
     System,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct Metadata {
     version: u64,
     timestamp: u128,
@@ -51,7 +51,7 @@ impl Metadata {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum Process {
     Beacon(BeaconProcessMetrics),
@@ -60,7 +60,7 @@ pub enum Process {
 }
 
 /// Common metrics for all processes.
-#[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 pub struct ProcessMetrics {
     cpu_process_seconds_total: u64,
     memory_process_bytes: u64,
@@ -83,7 +83,7 @@ impl From<ProcessHealth> for ProcessMetrics {
 }
 
 /// Metrics related to the system.
-#[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 pub struct SystemMetrics {
     cpu_cores: u64,
     cpu_threads: u64,
@@ -146,7 +146,7 @@ impl From<SystemHealth> for SystemMetrics {
 }
 
 /// All beacon process metrics.
-#[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 pub struct BeaconProcessMetrics {
     #[serde(flatten)]
     pub common: ProcessMetrics,
@@ -155,7 +155,7 @@ pub struct BeaconProcessMetrics {
 }
 
 /// All validator process metrics
-#[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 pub struct ValidatorProcessMetrics {
     #[serde(flatten)]
     pub common: ProcessMetrics,

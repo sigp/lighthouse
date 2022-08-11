@@ -5,7 +5,7 @@ use std::collections::{HashMap, HashSet};
 use std::io;
 use types::{Epoch, Hash256, PublicKeyBytes, Slot};
 
-#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct InterchangeMetadata {
@@ -14,7 +14,7 @@ pub struct InterchangeMetadata {
     pub genesis_validators_root: Hash256,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize, Serialize)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct InterchangeData {
@@ -23,7 +23,7 @@ pub struct InterchangeData {
     pub signed_attestations: Vec<SignedAttestation>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize, Serialize)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct SignedBlock {
@@ -33,7 +33,7 @@ pub struct SignedBlock {
     pub signing_root: Option<Hash256>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize, Serialize)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct SignedAttestation {
@@ -45,7 +45,7 @@ pub struct SignedAttestation {
     pub signing_root: Option<Hash256>,
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct Interchange {
     pub metadata: InterchangeMetadata,

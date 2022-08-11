@@ -6,7 +6,7 @@ use types::ExecutionBlockHash;
 /// Provides a simpler, easier to parse version of `PayloadStatusV1` for upstream users.
 ///
 /// It primarily ensures that the `latest_valid_hash` is always present when relevant.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum PayloadStatus {
     Valid,
     Invalid {

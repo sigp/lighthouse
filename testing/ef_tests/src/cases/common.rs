@@ -22,7 +22,7 @@ impl<T: BlsCase> LoadCase for T {
 /// Macro to wrap U128 and U256 so they deserialize correctly.
 macro_rules! uint_wrapper {
     ($wrapper_name:ident, $wrapped_type:ty) => {
-        #[derive(Debug, Clone, Copy, Default, PartialEq, Decode, Encode, Deserialize)]
+        #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Decode, Encode, Deserialize)]
         #[serde(try_from = "String")]
         pub struct $wrapper_name {
             pub x: $wrapped_type,

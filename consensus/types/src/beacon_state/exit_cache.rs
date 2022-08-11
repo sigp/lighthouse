@@ -4,7 +4,7 @@ use serde_derive::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 /// Map from exit epoch to the number of validators with that exit epoch.
-#[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 pub struct ExitCache {
     initialized: bool,
     exit_epoch_counts: HashMap<Epoch, u64>,

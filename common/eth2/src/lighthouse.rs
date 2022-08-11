@@ -32,7 +32,7 @@ four_byte_option_impl!(four_byte_option_hash256, Hash256);
 
 /// Information returned by `peers` and `connected_peers`.
 // TODO: this should be deserializable..
-#[derive(Debug, Clone, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 #[serde(bound = "T: EthSpec")]
 pub struct Peer<T: EthSpec> {
     /// The Peer's ID
@@ -44,7 +44,7 @@ pub struct Peer<T: EthSpec> {
 /// The results of validators voting during an epoch.
 ///
 /// Provides information about the current and previous epochs.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct GlobalValidatorInclusionData {
     /// The total effective balance of all active validators during the _current_ epoch.
     pub current_epoch_active_gwei: u64,
@@ -61,7 +61,7 @@ pub struct GlobalValidatorInclusionData {
     pub previous_epoch_head_attesting_gwei: u64,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct ValidatorInclusionData {
     /// True if the validator has been slashed, ever.
     pub is_slashed: bool,
@@ -224,7 +224,7 @@ impl SystemHealth {
 }
 
 /// Process specific health
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct ProcessHealth {
     /// The pid of this process.
     pub pid: u32,
@@ -310,7 +310,7 @@ pub struct DepositLog {
 }
 
 /// A block of the eth1 chain.
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Encode, Decode)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Encode, Decode)]
 pub struct Eth1Block {
     pub hash: Hash256,
     pub timestamp: u64,

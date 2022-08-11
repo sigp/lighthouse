@@ -16,7 +16,7 @@ pub use types::*;
 use crate::lighthouse::BlockReward;
 
 /// An API error serializable to JSON.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum Error {
     Indexed(IndexedErrorMessage),
@@ -24,7 +24,7 @@ pub enum Error {
 }
 
 /// An API error serializable to JSON.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct ErrorMessage {
     pub code: u16,
     pub message: String,
@@ -33,7 +33,7 @@ pub struct ErrorMessage {
 }
 
 /// An indexed API error serializable to JSON.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct IndexedErrorMessage {
     pub code: u16,
     pub message: String,
@@ -41,7 +41,7 @@ pub struct IndexedErrorMessage {
 }
 
 /// A single failure in an index of API errors, serializable to JSON.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct Failure {
     pub index: u64,
     pub message: String,
@@ -57,7 +57,7 @@ impl Failure {
 }
 
 /// The version of a single API endpoint, e.g. the `v1` in `/eth/v1/beacon/blocks`.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct EndpointVersion(pub u64);
 
 impl FromStr for EndpointVersion {
@@ -80,7 +80,7 @@ impl std::fmt::Display for EndpointVersion {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct GenesisData {
     #[serde(with = "eth2_serde_utils::quoted_u64")]
     pub genesis_time: u64,
@@ -89,7 +89,7 @@ pub struct GenesisData {
     pub genesis_fork_version: [u8; 4],
 }
 
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum BlockId {
     Head,
     Genesis,
@@ -137,7 +137,7 @@ impl fmt::Display for BlockId {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum StateId {
     Head,
     Genesis,
@@ -251,7 +251,7 @@ pub struct ForkVersionedResponse<T> {
     pub data: T,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct RootData {
     pub root: Hash256,
 }
@@ -262,14 +262,14 @@ impl From<Hash256> for RootData {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct FinalityCheckpointsData {
     pub previous_justified: Checkpoint,
     pub current_justified: Checkpoint,
     pub finalized: Checkpoint,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub enum ValidatorId {
     PublicKey(PublicKeyBytes),
     Index(u64),
@@ -300,7 +300,7 @@ impl fmt::Display for ValidatorId {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct ValidatorData {
     #[serde(with = "eth2_serde_utils::quoted_u64")]
     pub index: u64,
@@ -310,7 +310,7 @@ pub struct ValidatorData {
     pub validator: Validator,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct ValidatorBalanceData {
     #[serde(with = "eth2_serde_utils::quoted_u64")]
     pub index: u64,
@@ -326,7 +326,7 @@ pub struct ValidatorBalanceData {
 // this proposal:
 //
 // https://hackmd.io/bQxMDRt1RbS1TLno8K4NPg?view
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ValidatorStatus {
     PendingInitialized,
@@ -470,7 +470,7 @@ pub struct ValidatorsQuery {
     pub status: Option<Vec<ValidatorStatus>>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct CommitteeData {
     #[serde(with = "eth2_serde_utils::quoted_u64")]
     pub index: u64,
@@ -479,14 +479,14 @@ pub struct CommitteeData {
     pub validators: Vec<u64>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct SyncCommitteeByValidatorIndices {
     #[serde(with = "eth2_serde_utils::quoted_u64_vec")]
     pub validators: Vec<u64>,
     pub validator_aggregates: Vec<SyncSubcommittee>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct SyncSubcommittee {
     #[serde(with = "eth2_serde_utils::quoted_u64_vec")]
@@ -499,27 +499,27 @@ pub struct HeadersQuery {
     pub parent_root: Option<Hash256>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct BlockHeaderAndSignature {
     pub message: BeaconBlockHeader,
     pub signature: SignatureBytes,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct BlockHeaderData {
     pub root: Hash256,
     pub canonical: bool,
     pub header: BlockHeaderAndSignature,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct DepositContractData {
     #[serde(with = "eth2_serde_utils::quoted_u64")]
     pub chain_id: u64,
     pub address: Address,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct ChainHeadData {
     pub slot: Slot,
     pub root: Hash256,
@@ -527,7 +527,7 @@ pub struct ChainHeadData {
     pub execution_optimistic: Option<bool>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct IdentityData {
     pub peer_id: String,
     pub enr: Enr,
@@ -536,7 +536,7 @@ pub struct IdentityData {
     pub metadata: MetaData,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct MetaData {
     #[serde(with = "eth2_serde_utils::quoted_u64")]
     pub seq_number: u64,
@@ -544,12 +544,12 @@ pub struct MetaData {
     pub syncnets: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct VersionData {
     pub version: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct SyncingData {
     pub is_syncing: bool,
     pub is_optimistic: Option<bool>,
@@ -634,7 +634,7 @@ pub struct ValidatorIndexDataRef<'a>(
     #[serde(serialize_with = "eth2_serde_utils::quoted_u64_vec::serialize")] pub &'a [u64],
 );
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct AttesterData {
     pub pubkey: PublicKeyBytes,
     #[serde(with = "eth2_serde_utils::quoted_u64")]
@@ -650,7 +650,7 @@ pub struct AttesterData {
     pub slot: Slot,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct ProposerData {
     pub pubkey: PublicKeyBytes,
     #[serde(with = "eth2_serde_utils::quoted_u64")]
@@ -682,7 +682,7 @@ pub struct ValidatorAggregateAttestationQuery {
     pub slot: Slot,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct BeaconCommitteeSubscription {
     #[serde(with = "eth2_serde_utils::quoted_u64")]
     pub validator_index: u64,
@@ -703,7 +703,7 @@ pub struct PeersQuery {
     pub direction: Option<Vec<PeerDirection>>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct PeerData {
     pub peer_id: String,
     pub enr: Option<String>,
@@ -712,18 +712,18 @@ pub struct PeerData {
     pub direction: PeerDirection,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct PeersData {
     pub data: Vec<PeerData>,
     pub meta: PeersMetaData,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct PeersMetaData {
     pub count: u64,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum PeerState {
     Connected,
@@ -770,7 +770,7 @@ impl fmt::Display for PeerState {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum PeerDirection {
     Inbound,
@@ -807,7 +807,7 @@ impl fmt::Display for PeerDirection {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct PeerCount {
     #[serde(with = "eth2_serde_utils::quoted_u64")]
     pub connected: u64,
@@ -821,14 +821,14 @@ pub struct PeerCount {
 
 // --------- Server Sent Event Types -----------
 
-#[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct SseBlock {
     pub slot: Slot,
     pub block: Hash256,
     pub execution_optimistic: bool,
 }
 
-#[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct SseFinalizedCheckpoint {
     pub block: Hash256,
     pub state: Hash256,
@@ -836,7 +836,7 @@ pub struct SseFinalizedCheckpoint {
     pub execution_optimistic: bool,
 }
 
-#[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct SseHead {
     pub slot: Slot,
     pub block: Hash256,
@@ -847,7 +847,7 @@ pub struct SseHead {
     pub execution_optimistic: bool,
 }
 
-#[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct SseChainReorg {
     pub slot: Slot,
     #[serde(with = "eth2_serde_utils::quoted_u64")]
@@ -860,7 +860,7 @@ pub struct SseChainReorg {
     pub execution_optimistic: bool,
 }
 
-#[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct SseLateHead {
     pub slot: Slot,
     pub block: Hash256,
@@ -973,7 +973,7 @@ pub struct EventQuery {
     pub topics: Vec<EventTopic>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum EventTopic {
     Head,
@@ -1025,7 +1025,7 @@ impl fmt::Display for EventTopic {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Accept {
     Json,
     Ssz,
@@ -1084,7 +1084,7 @@ pub struct LivenessRequestData {
     pub indices: Vec<u64>,
 }
 
-#[derive(PartialEq, Debug, Serialize, Deserialize)]
+#[derive(Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct LivenessResponseData {
     #[serde(with = "eth2_serde_utils::quoted_u64")]
     pub index: u64,

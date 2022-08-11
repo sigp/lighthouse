@@ -64,7 +64,7 @@ pub fn start_fallback_updater_service<T: SlotClock + 'static, E: EthSpec>(
 }
 
 /// Indicates if a beacon node must be synced before some action is performed on it.
-#[derive(PartialEq, Clone, Copy)]
+#[derive(Clone, Copy, Eq, PartialEq)]
 pub enum RequireSynced {
     Yes,
     No,

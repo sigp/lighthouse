@@ -645,7 +645,7 @@ where
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Eq, PartialEq)]
 pub enum ChunkError {
     ZeroLengthVector,
     InvalidSize {

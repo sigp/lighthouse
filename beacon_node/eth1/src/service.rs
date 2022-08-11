@@ -50,7 +50,7 @@ const CATCHUP_MIN_FOLLOW_DISTANCE: u64 = 64;
 /// distance would imply, we store `CACHE_FACTOR` more blocks in our cache.
 const CACHE_FACTOR: u64 = 2;
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum EndpointError {
     RequestFailed(String),
     WrongNetworkId,
@@ -304,7 +304,7 @@ async fn relevant_new_block_numbers_from_endpoint(
     service.relevant_new_block_numbers(remote_highest_block, None, head_type)
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Eq, PartialEq)]
 pub enum SingleEndpointError {
     /// Endpoint is currently not functional.
     EndpointError(EndpointError),
@@ -345,21 +345,21 @@ pub enum Error {
 }
 
 /// The success message for an Eth1Data cache update.
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct BlockCacheUpdateOutcome {
     pub blocks_imported: usize,
     pub head_block_number: Option<u64>,
 }
 
 /// The success message for an Eth1 deposit cache update.
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DepositCacheUpdateOutcome {
     pub logs_imported: usize,
 }
 
 /// Supports either one authenticated jwt JSON-RPC endpoint **or**
 /// multiple non-authenticated endpoints with fallback.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub enum Eth1Endpoint {
     Auth {
         endpoint: SensitiveUrl,
@@ -386,7 +386,7 @@ impl Eth1Endpoint {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Config {
     /// An Eth1 node (e.g., Geth) running a HTTP JSON-RPC endpoint.
     pub endpoints: Eth1Endpoint,

@@ -2,7 +2,7 @@
 /// Little endian hex: 0x00000001, Binary: 1000000000000000000000000
 pub const APPLICATION_DOMAIN_BUILDER: u32 = 16777216;
 
-#[derive(Debug, PartialEq, Clone, Copy)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ApplicationDomain {
     Builder,
 }

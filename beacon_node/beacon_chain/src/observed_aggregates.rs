@@ -69,7 +69,7 @@ impl<T: EthSpec> Consts for SyncCommitteeContribution<T> {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Eq, PartialEq)]
 pub enum ObserveOutcome {
     /// This item was already known.
     AlreadyKnown,
@@ -77,7 +77,7 @@ pub enum ObserveOutcome {
     New,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Eq, PartialEq)]
 pub enum Error {
     SlotTooLow {
         slot: Slot,

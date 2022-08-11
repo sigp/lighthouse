@@ -44,7 +44,7 @@ pub type ObservedAggregators<E> = AutoPruningEpochContainer<EpochHashSet, E>;
 pub type ObservedSyncAggregators<E> =
     AutoPruningSlotContainer<SlotSubcommitteeIndex, SyncAggregatorSlotHashSet, E>;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Eq, PartialEq)]
 pub enum Error {
     EpochTooLow {
         epoch: Epoch,

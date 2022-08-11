@@ -54,7 +54,7 @@ pub mod length {
 }
 
 /// Returned when an item encounters an error.
-#[derive(PartialEq, Debug, Clone)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Error {
     OutOfBounds {
         i: usize,

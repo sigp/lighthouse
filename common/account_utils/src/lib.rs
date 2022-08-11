@@ -191,7 +191,7 @@ pub fn mnemonic_from_phrase(phrase: &str) -> Result<Mnemonic, String> {
 /// Provides a new-type wrapper around `String` that is zeroized on `Drop`.
 ///
 /// Useful for ensuring that password memory is zeroed-out on drop.
-#[derive(Clone, PartialEq, Serialize, Deserialize, Zeroize)]
+#[derive(Clone, Eq, PartialEq, Serialize, Deserialize, Zeroize)]
 #[zeroize(drop)]
 #[serde(transparent)]
 pub struct ZeroizeString(String);

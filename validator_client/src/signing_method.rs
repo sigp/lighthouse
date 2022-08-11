@@ -19,7 +19,7 @@ pub use web3signer::Web3SignerObject;
 
 mod web3signer;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Eq, PartialEq)]
 pub enum Error {
     InconsistentDomains {
         message_type_domain: Domain,

@@ -9,7 +9,7 @@ use std::path::Path;
 use tree_hash::TreeHash;
 
 /// Each of the BLS signature domains.
-#[derive(Debug, PartialEq, Clone, Copy)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Domain {
     BeaconProposer,
     BeaconAttester,
@@ -28,7 +28,7 @@ pub enum Domain {
 ///
 /// Contains a mixture of "preset" and "config" values w.r.t to the EF definitions.
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
-#[derive(PartialEq, Debug, Clone)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ChainSpec {
     /*
      * Config name
@@ -807,7 +807,7 @@ impl Default for ChainSpec {
 /// Fields relevant to hard forks after Altair should be optional so that we can continue
 /// to parse Altair configs. This default approach turns out to be much simpler than trying to
 /// make `Config` a superstruct because of the hassle of deserializing an untagged enum.
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "UPPERCASE")]
 pub struct Config {
     #[serde(default)]

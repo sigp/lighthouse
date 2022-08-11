@@ -5,7 +5,7 @@ use std::cmp::Ordering;
 use tree_hash::TreeHash;
 use types::{Deposit, Hash256, DEPOSIT_TREE_DEPTH};
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Eq, PartialEq)]
 pub enum Error {
     /// A deposit log was added when a prior deposit was not already in the cache.
     ///
@@ -31,7 +31,7 @@ pub enum Error {
     Internal(String),
 }
 
-#[derive(Encode, Decode, Clone)]
+#[derive(Clone, Encode, Decode)]
 pub struct SszDepositCache {
     logs: Vec<DepositLog>,
     leaves: Vec<Hash256>,
@@ -102,7 +102,7 @@ impl Default for DepositCache {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Eq, PartialEq)]
 pub enum DepositCacheInsertOutcome {
     Inserted,
     Duplicate,

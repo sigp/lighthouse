@@ -71,7 +71,7 @@ impl From<builder_client::Error> for Error {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PayloadStatusV1Status {
     Valid,
     Invalid,
@@ -80,14 +80,14 @@ pub enum PayloadStatusV1Status {
     InvalidBlockHash,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PayloadStatusV1 {
     pub status: PayloadStatusV1Status,
     pub latest_valid_hash: Option<ExecutionBlockHash>,
     pub validation_error: Option<String>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 #[serde(untagged)]
 pub enum BlockByNumberQuery<'a> {
     Tag(&'a str),
@@ -96,7 +96,7 @@ pub enum BlockByNumberQuery<'a> {
 /// Representation of an exection block with enough detail to determine the terminal PoW block.
 ///
 /// See `get_pow_block_hash_at_total_difficulty`.
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ExecutionBlock {
     #[serde(rename = "hash")]
@@ -138,27 +138,27 @@ pub struct ExecutionBlockWithTransactions<T: EthSpec> {
     pub transactions: Vec<Transaction>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct PayloadAttributes {
     pub timestamp: u64,
     pub prev_randao: Hash256,
     pub suggested_fee_recipient: Address,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ForkchoiceUpdatedResponse {
     pub payload_status: PayloadStatusV1,
     pub payload_id: Option<PayloadId>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ProposeBlindedBlockResponseStatus {
     Valid,
     Invalid,
     Syncing,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ProposeBlindedBlockResponse {
     pub status: ProposeBlindedBlockResponseStatus,
     pub latest_valid_hash: Option<Hash256>,

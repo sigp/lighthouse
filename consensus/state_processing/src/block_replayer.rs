@@ -60,7 +60,7 @@ impl From<BlockProcessingError> for BlockReplayError {
 }
 
 /// Defines how state roots should be computed during block replay.
-#[derive(PartialEq)]
+#[derive(Eq, PartialEq)]
 pub enum StateRootStrategy {
     /// Perform all transitions faithfully to the specification.
     Accurate,

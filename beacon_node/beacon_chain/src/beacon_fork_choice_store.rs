@@ -62,7 +62,7 @@ pub fn get_effective_balances<T: EthSpec>(state: &BeaconState<T>) -> Vec<u64> {
 
 #[superstruct(
     variants(V1, V8),
-    variant_attributes(derive(PartialEq, Clone, Debug, Encode, Decode)),
+    variant_attributes(derive(Clone, Debug, Eq, PartialEq, Encode, Decode)),
     no_enum
 )]
 pub(crate) struct CacheItem {
@@ -76,7 +76,7 @@ pub(crate) type CacheItem = CacheItemV8;
 
 #[superstruct(
     variants(V1, V8),
-    variant_attributes(derive(PartialEq, Clone, Default, Debug, Encode, Decode)),
+    variant_attributes(derive(Clone, Debug, Default, Eq, PartialEq, Encode, Decode)),
     no_enum
 )]
 pub struct BalancesCache {

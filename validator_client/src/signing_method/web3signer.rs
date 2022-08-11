@@ -4,7 +4,7 @@ use super::Error;
 use serde::{Deserialize, Serialize};
 use types::*;
 
-#[derive(Debug, PartialEq, Copy, Clone, Serialize)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum MessageType {
     AggregationSlot,
@@ -20,7 +20,7 @@ pub enum MessageType {
     ValidatorRegistration,
 }
 
-#[derive(Debug, PartialEq, Copy, Clone, Serialize)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum ForkName {
     Phase0,
@@ -28,7 +28,7 @@ pub enum ForkName {
     Bellatrix,
 }
 
-#[derive(Debug, PartialEq, Serialize)]
+#[derive(Debug, Eq, PartialEq, Serialize)]
 pub struct ForkInfo {
     pub fork: Fork,
     pub genesis_validators_root: Hash256,
@@ -127,7 +127,7 @@ pub struct SigningRequest<'a, T: EthSpec, Payload: ExecPayload<T>> {
     pub object: Web3SignerObject<'a, T, Payload>,
 }
 
-#[derive(Debug, PartialEq, Deserialize)]
+#[derive(Debug, Eq, PartialEq, Deserialize)]
 pub struct SigningResponse {
     pub signature: Signature,
 }

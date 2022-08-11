@@ -232,7 +232,7 @@ impl<TSpec: EthSpec> UpgradeInfo for RPCProtocol<TSpec> {
 }
 
 /// Represents the ssz length bounds for RPC messages.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Eq, PartialEq)]
 pub struct RpcLimits {
     pub min: usize,
     pub max: usize,
@@ -411,7 +411,7 @@ where
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum InboundRequest<TSpec: EthSpec> {
     Status(StatusMessage),
     Goodbye(GoodbyeReason),
@@ -511,7 +511,7 @@ impl<TSpec: EthSpec> InboundRequest<TSpec> {
 }
 
 /// Error in RPC Encoding/Decoding.
-#[derive(Debug, Clone, PartialEq, IntoStaticStr)]
+#[derive(Clone, Debug, Eq, PartialEq, IntoStaticStr)]
 #[strum(serialize_all = "snake_case")]
 pub enum RPCError {
     /// Error when decoding the raw buffer from ssz.

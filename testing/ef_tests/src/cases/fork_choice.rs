@@ -20,7 +20,7 @@ use types::{
     ExecutionBlockHash, ForkName, Hash256, IndexedAttestation, SignedBeaconBlock, Slot, Uint256,
 };
 
-#[derive(Default, Debug, PartialEq, Clone, Deserialize, Decode)]
+#[derive(Clone, Debug, Default, Eq, PartialEq, Deserialize, Decode)]
 #[serde(deny_unknown_fields)]
 pub struct PowBlock {
     pub block_hash: ExecutionBlockHash,
@@ -28,14 +28,14 @@ pub struct PowBlock {
     pub total_difficulty: Uint256,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Head {
     slot: Slot,
     root: Hash256,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Checks {
     head: Option<Head>,
@@ -50,7 +50,7 @@ pub struct Checks {
     proposer_boost_root: Option<Hash256>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 #[serde(untagged, deny_unknown_fields)]
 pub enum Step<B, A, AS, P> {
     Tick { tick: u64 },
@@ -62,7 +62,7 @@ pub enum Step<B, A, AS, P> {
     Checks { checks: Box<Checks> },
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Meta {
     #[serde(rename(deserialize = "description"))]

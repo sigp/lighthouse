@@ -67,7 +67,7 @@ pub mod deposit_log {
     const INDEX_LEN: usize = 8;
 
     /// A reduced set of fields from an Eth1 contract log.
-    #[derive(Debug, PartialEq, Clone)]
+    #[derive(Clone, Debug, Eq, PartialEq)]
     pub struct Log {
         pub block_number: u64,
         pub data: Vec<u8>,
@@ -191,14 +191,14 @@ pub mod deposit_methods {
     pub const DEPOSIT_ROOT_BYTES: usize = 32;
 
     /// Represents an eth1 chain/network id.
-    #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+    #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
     pub enum Eth1Id {
         Goerli,
         Mainnet,
         Custom(u64),
     }
 
-    #[derive(Debug, PartialEq, Clone)]
+    #[derive(Clone, Debug, Eq, PartialEq)]
     pub struct Block {
         pub hash: Hash256,
         pub timestamp: u64,

@@ -19,7 +19,7 @@ use types::{
     BeaconState, EthSpec, ForkName,
 };
 
-#[derive(Debug, Clone, PartialEq, Decode, Encode, CompareFields)]
+#[derive(Clone, Debug, Eq, PartialEq, Decode, Encode, CompareFields)]
 pub struct Deltas {
     #[compare_fields(as_slice)]
     rewards: Vec<u64>,
@@ -31,7 +31,7 @@ pub struct Deltas {
 // for encoding the union selector.
 four_byte_option_impl!(four_byte_option_deltas, Deltas);
 
-#[derive(Debug, Clone, PartialEq, Decode, Encode, CompareFields)]
+#[derive(Clone, Debug, Eq, PartialEq, Decode, Encode, CompareFields)]
 pub struct AllDeltas {
     source_deltas: Deltas,
     target_deltas: Deltas,
@@ -41,12 +41,12 @@ pub struct AllDeltas {
     inactivity_penalty_deltas: Deltas,
 }
 
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Clone, Debug, Default, Deserialize)]
 pub struct Metadata {
     pub description: Option<String>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct RewardsTest<E: EthSpec> {
     pub path: PathBuf,
     pub metadata: Metadata,

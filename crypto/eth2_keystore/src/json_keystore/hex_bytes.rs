@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::convert::TryFrom;
 
 /// To allow serde to encode/decode byte arrays from HEX ASCII strings.
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(try_from = "String", into = "String")]
 pub struct HexBytes(Vec<u8>);
 

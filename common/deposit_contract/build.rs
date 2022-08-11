@@ -55,7 +55,7 @@ fn read_contract_file_from_url(url: Url) -> Result<Value, String> {
                 Ok(contract)
             }
             Err(e) => {
-                return Err(format!(
+                Err(format!(
                     "No abi file found. Failed to download from github: {:?}",
                     e
                 ))

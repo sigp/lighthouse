@@ -1552,7 +1552,7 @@ pub fn migrate_database<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
 }
 
 /// Struct for storing the split slot and state root in the database.
-#[derive(Debug, Clone, Copy, PartialEq, Default, Encode, Decode, Deserialize, Serialize)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Encode, Decode, Deserialize, Serialize)]
 pub struct Split {
     pub(crate) slot: Slot,
     pub(crate) state_root: Hash256,

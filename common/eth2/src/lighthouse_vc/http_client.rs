@@ -28,7 +28,7 @@ pub struct ValidatorClientHttpClient {
     authorization_header: AuthorizationHeader,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum AuthorizationHeader {
     /// Do not send any Authorization header.
     Omit,

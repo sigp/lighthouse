@@ -22,7 +22,7 @@ const SLOTS_RETAINED: usize = 3;
 const MAX_ATTESTATIONS_PER_SLOT: usize = 16_384;
 
 /// Returned upon successfully inserting an item into the pool.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Eq, PartialEq)]
 pub enum InsertOutcome {
     /// The item had not been seen before and was added to the pool.
     NewItemInserted { committee_index: usize },
@@ -34,7 +34,7 @@ pub enum InsertOutcome {
     SignatureAggregated { committee_index: usize },
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Eq, PartialEq)]
 pub enum Error {
     /// The given `data.slot` was too low to be stored. No changes were made.
     SlotTooLow {

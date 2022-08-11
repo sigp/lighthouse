@@ -4,7 +4,7 @@ use std::collections::HashMap;
 
 type ValidatorIndex = usize;
 
-#[derive(Debug, PartialEq, Clone, Default, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 pub struct PubkeyCache {
     /// Maintain the number of keys added to the map. It is not sufficient to just use the HashMap
     /// len, as it does not increase when duplicate keys are added. Duplicate keys are used during

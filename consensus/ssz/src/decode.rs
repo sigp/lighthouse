@@ -8,7 +8,7 @@ pub mod impls;
 pub mod try_from_iter;
 
 /// Returned when SSZ decoding fails.
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, Eq, PartialEq, Clone)]
 pub enum DecodeError {
     /// The bytes supplied were too short to be decoded into the specified type.
     InvalidByteLength { len: usize, expected: usize },

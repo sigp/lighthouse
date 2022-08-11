@@ -394,7 +394,7 @@ struct MissingIdField;
 
 impl warp::reject::Reject for MissingIdField {}
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct StaticNewPayloadResponse {
     status: PayloadStatusV1,
     should_import: bool,
@@ -422,7 +422,7 @@ pub struct Context<T: EthSpec> {
 }
 
 /// Configuration for the HTTP server.
-#[derive(PartialEq, Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct Config {
     pub listen_addr: Ipv4Addr,
     pub listen_port: u16,

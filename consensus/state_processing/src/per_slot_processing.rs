@@ -3,7 +3,7 @@ use crate::{per_epoch_processing::EpochProcessingSummary, *};
 use safe_arith::{ArithError, SafeArith};
 use types::*;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Eq, PartialEq)]
 pub enum Error {
     BeaconStateError(BeaconStateError),
     EpochProcessingError(EpochProcessingError),

@@ -77,7 +77,7 @@ mod round_trip {
         round_trip(items);
     }
 
-    #[derive(Debug, PartialEq, Encode, Decode)]
+    #[derive(Debug, Eq, PartialEq, Encode, Decode)]
     struct FixedLen {
         a: u16,
         b: u64,
@@ -137,7 +137,7 @@ mod round_trip {
         round_trip(items);
     }
 
-    #[derive(Debug, PartialEq, Encode, Decode)]
+    #[derive(Debug, Eq, PartialEq, Encode, Decode)]
     struct VariableLen {
         a: u16,
         b: Vec<u16>,
@@ -259,7 +259,7 @@ mod round_trip {
         round_trip(items);
     }
 
-    #[derive(Debug, PartialEq, Encode, Decode)]
+    #[derive(Debug, Eq, PartialEq, Encode, Decode)]
     struct ThreeVariableLen {
         a: u16,
         b: Vec<u16>,
@@ -385,14 +385,14 @@ mod derive_macro {
         assert_eq!(T::from_ssz_bytes(bytes).unwrap(), *item);
     }
 
-    #[derive(PartialEq, Debug, Encode, Decode)]
+    #[derive(Debug, Eq, PartialEq, Encode, Decode)]
     #[ssz(enum_behaviour = "union")]
     enum TwoFixedUnion {
         U8(u8),
         U16(u16),
     }
 
-    #[derive(PartialEq, Debug, Encode, Decode)]
+    #[derive(Debug, Eq, PartialEq, Encode, Decode)]
     struct TwoFixedUnionStruct {
         a: TwoFixedUnion,
     }
@@ -409,38 +409,38 @@ mod derive_macro {
         assert_encode_decode(&TwoFixedUnionStruct { a: sixteen }, &[4, 0, 0, 0, 1, 1, 0]);
     }
 
-    #[derive(PartialEq, Debug, Encode, Decode)]
+    #[derive(Debug, Eq, PartialEq, Encode, Decode)]
     struct VariableA {
         a: u8,
         b: Vec<u8>,
     }
 
-    #[derive(PartialEq, Debug, Encode, Decode)]
+    #[derive(Debug, Eq, PartialEq, Encode, Decode)]
     struct VariableB {
         a: Vec<u8>,
         b: u8,
     }
 
-    #[derive(PartialEq, Debug, Encode)]
+    #[derive(Debug, Eq, PartialEq, Encode)]
     #[ssz(enum_behaviour = "transparent")]
     enum TwoVariableTrans {
         A(VariableA),
         B(VariableB),
     }
 
-    #[derive(PartialEq, Debug, Encode)]
+    #[derive(Debug, Eq, PartialEq, Encode)]
     struct TwoVariableTransStruct {
         a: TwoVariableTrans,
     }
 
-    #[derive(PartialEq, Debug, Encode, Decode)]
+    #[derive(Debug, Eq, PartialEq, Encode, Decode)]
     #[ssz(enum_behaviour = "union")]
     enum TwoVariableUnion {
         A(VariableA),
         B(VariableB),
     }
 
-    #[derive(PartialEq, Debug, Encode, Decode)]
+    #[derive(Debug, Eq, PartialEq, Encode, Decode)]
     struct TwoVariableUnionStruct {
         a: TwoVariableUnion,
     }
@@ -493,7 +493,7 @@ mod derive_macro {
         );
     }
 
-    #[derive(PartialEq, Debug, Encode, Decode)]
+    #[derive(Debug, Eq, PartialEq, Encode, Decode)]
     #[ssz(enum_behaviour = "union")]
     enum TwoVecUnion {
         A(Vec<u8>),

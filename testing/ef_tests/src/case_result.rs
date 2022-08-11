@@ -6,7 +6,7 @@ use types::BeaconState;
 
 pub const MAX_VALUE_STRING_LEN: usize = 500;
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CaseResult {
     pub case_index: usize,
     pub desc: String,

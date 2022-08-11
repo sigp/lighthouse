@@ -13,7 +13,7 @@ four_byte_option_impl!(four_byte_option_checkpoint, Checkpoint);
 
 #[superstruct(
     variants(V1, V6, V7, V10),
-    variant_attributes(derive(Clone, PartialEq, Debug, Encode, Decode)),
+    variant_attributes(derive(Clone, Debug, Eq, PartialEq, Encode, Decode)),
     no_enum
 )]
 pub struct ProtoNode {

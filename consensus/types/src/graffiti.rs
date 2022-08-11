@@ -12,7 +12,7 @@ use tree_hash::TreeHash;
 pub const GRAFFITI_BYTES_LEN: usize = 32;
 
 /// The 32-byte `graffiti` field on a beacon block.
-#[derive(Default, Debug, PartialEq, Hash, Clone, Copy, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq, Serialize, Deserialize)]
 #[serde(transparent)]
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 pub struct Graffiti(#[serde(with = "serde_graffiti")] pub [u8; GRAFFITI_BYTES_LEN]);
@@ -43,7 +43,7 @@ impl Into<[u8; GRAFFITI_BYTES_LEN]> for Graffiti {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Default)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Default)]
 #[serde(transparent)]
 pub struct GraffitiString(String);
 

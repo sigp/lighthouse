@@ -28,7 +28,7 @@ use types::{AttesterSlashing, EthSpec, IndexedAttestation, ProposerSlashing};
 pub type Environment = mdbx::Environment<mdbx::NoWriteMap>;
 pub type RwTransaction<'env> = mdbx::Transaction<'env, mdbx::RW, mdbx::NoWriteMap>;
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum AttesterSlashingStatus<E: EthSpec> {
     NotSlashable,
     /// A weird outcome that can occur when we go to lookup an attestation by its target
@@ -40,7 +40,7 @@ pub enum AttesterSlashingStatus<E: EthSpec> {
     SurroundedByExisting(Box<IndexedAttestation<E>>),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ProposerSlashingStatus {
     NotSlashable,
     DoubleVote(Box<ProposerSlashing>),

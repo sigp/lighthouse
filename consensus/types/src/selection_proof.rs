@@ -8,7 +8,7 @@ use std::cmp;
 use std::convert::TryInto;
 
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
-#[derive(PartialEq, Debug, Clone)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SelectionProof(Signature);
 
 impl SelectionProof {

@@ -1,6 +1,6 @@
 use crate::*;
 
-#[derive(Default, Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct BeaconCommittee<'a> {
     pub slot: Slot,
     pub index: CommitteeIndex,
@@ -18,7 +18,7 @@ impl<'a> BeaconCommittee<'a> {
 }
 
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
-#[derive(Default, Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct OwnedBeaconCommittee {
     pub slot: Slot,
     pub index: CommitteeIndex,

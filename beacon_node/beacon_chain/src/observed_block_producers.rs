@@ -5,7 +5,7 @@ use std::collections::{HashMap, HashSet};
 use std::marker::PhantomData;
 use types::{BeaconBlockRef, Epoch, EthSpec, Slot, Unsigned};
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Eq, PartialEq)]
 pub enum Error {
     /// The slot of the provided block is prior to finalization and should not have been provided
     /// to this function. This is an internal error.
