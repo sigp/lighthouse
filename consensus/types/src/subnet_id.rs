@@ -1,8 +1,9 @@
 //! Identifies each shard by an integer identifier.
-use crate::{AttestationData, ChainSpec, CommitteeIndex, EthSpec, Slot};
+use crate::{AttestationData, ChainSpec, CommitteeIndex, Epoch, EthSpec, Slot};
 use safe_arith::{ArithError, SafeArith};
 use serde_derive::{Deserialize, Serialize};
 use std::ops::{Deref, DerefMut};
+use swap_or_not_shuffle::compute_shuffled_index;
 
 const MAX_SUBNET_ID: usize = 64;
 
@@ -70,6 +71,38 @@ impl SubnetId {
             .safe_add(committee_index)?
             .safe_rem(spec.attestation_subnet_count)?
             .into())
+    }
+
+    #[allow(clippy::integer_arithmetic)]
+    // TODO: get someone to review this
+    /// Computes the set of subnets the node should be subscribed to during the current epoch,
+    /// along with the first epoch in which these subscriptions are no longer valid.
+    pub fn compute_subnets_for_epoch<'a, T: EthSpec>(
+        node_id: ethereum_types::U256,
+        epoch: Epoch,
+        spec: &'a ChainSpec,
+    ) -> Result<(impl Iterator<Item = SubnetId> + 'a, Epoch), &'static str> {
+        let node_id_prefix =
+            (node_id >> (256 - spec.attestation_subnet_prefix_bits() as usize)).as_usize();
+
+        let subscription_event_idx = epoch.as_u64() / spec.epochs_per_subnet_subscription;
+        let permutation_seed =
+            eth2_hashing::hash(&int_to_bytes::int_to_bytes8(subscription_event_idx));
+
+        let num_subnets = 1 << spec.attestation_subnet_prefix_bits();
+
+        let permutated_prefix = compute_shuffled_index(
+            node_id_prefix,
+            num_subnets,
+            &permutation_seed,
+            spec.shuffle_round_count,
+        )
+        .ok_or("Unable to shuffle")? as u64;
+        let subnet_set_generator = (0..spec.subnets_per_node).map(move |idx| {
+            SubnetId::new((permutated_prefix + idx as u64) % spec.attestation_subnet_count)
+        });
+        let valid_until_epoch = (subscription_event_idx + 1) * spec.epochs_per_subnet_subscription;
+        Ok((subnet_set_generator, valid_until_epoch.into()))
     }
 }
 
