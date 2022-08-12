@@ -356,8 +356,8 @@ where
             debug!(self.log, "Chain removed"; "sync_type" => ?sync_type, &chain, "reason" => ?remove_reason, "op" => op);
         }
 
-        if let RemoveChain::ChainFailed(_) = remove_reason {
-            if RangeSyncType::Finalized == sync_type {
+        if let RemoveChain::ChainFailed { blacklist, .. } = remove_reason {
+            if RangeSyncType::Finalized == sync_type && blacklist {
                 warn!(self.log, "Chain failed! Syncing to its head won't be retried for at least the next {} seconds", FAILED_CHAINS_EXPIRY_SECONDS; &chain);
                 self.failed_chains.insert(chain.target_head_root);
             }
