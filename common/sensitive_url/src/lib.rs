@@ -46,7 +46,7 @@ impl Serialize for SensitiveUrl {
     where
         S: Serializer,
     {
-        serializer.serialize_str(&self.full.to_string())
+        serializer.serialize_str(self.full.as_ref())
     }
 }
 
