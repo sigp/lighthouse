@@ -217,8 +217,13 @@ impl<T: EthSpec> ExecutionLayer<T> {
         }?;
 
         let engine: Engine = {
+            debug!(log,
+                "Loaded execution endpoint";
+                "endpoint" => %execution_url,
+                "jwt_path" => ?secret_file.as_path(),
+                "crc" => jwt_key.crc()
+            );
             let auth = Auth::new(jwt_key, jwt_id, jwt_version);
-            debug!(log, "Loaded execution endpoint"; "endpoint" => %execution_url, "jwt_path" => ?secret_file.as_path());
             let api = HttpJsonRpc::new_with_auth(execution_url, auth).map_err(Error::ApiError)?;
             Engine::new(api, executor.clone(), &log)
         };

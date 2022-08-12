@@ -2056,6 +2056,7 @@ dependencies = [
  "async-trait",
  "builder_client",
  "bytes",
+ "crc32fast",
  "environment",
  "eth2",
  "eth2_serde_utils",

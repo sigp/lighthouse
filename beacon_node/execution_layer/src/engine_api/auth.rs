@@ -44,6 +44,10 @@ impl JwtKey {
         Ok(Self(res))
     }
 
+    pub fn crc(&self) -> String {
+        format!("{:x}", crc32fast::hash(&self.0))
+    }
+
     /// Generate a random secret.
     pub fn random() -> Self {
         Self(rand::thread_rng().gen::<[u8; JWT_SECRET_LENGTH]>())
