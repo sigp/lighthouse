@@ -9,7 +9,7 @@ use types::*;
 
 /// The time before the Bellatrix fork when we will start issuing warnings about preparation.
 const SECONDS_IN_A_WEEK: u64 = 604800;
-pub const MERGE_READINESS_PREPARATION_SECONDS: u64 = SECONDS_IN_A_WEEK * 5 / 2;
+pub const MERGE_READINESS_PREPARATION_SECONDS: u64 = SECONDS_IN_A_WEEK * 2;
 
 #[derive(Default, Debug, Serialize, Deserialize)]
 pub struct MergeConfig {
