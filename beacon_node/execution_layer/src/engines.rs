@@ -312,10 +312,7 @@ impl Engine {
                 // take a write-lock.
                 let state: EngineStateInternal = **self.state.read().await;
 
-                // TODO: comment/code no longer relevant?
-                // If this request just returned successfully but we don't think this node is
-                // synced, check to see if it just became synced. This helps to ensure that the
-                // networking stack can get fast feedback about a synced engine.
+                // Keep an up to date engine state.
                 if state != EngineStateInternal::Synced {
                     // Spawn the upcheck in another task to avoid slowing down this request.
                     let inner_self = self.clone();
@@ -366,13 +363,14 @@ mod tests {
     use super::*;
     use tokio_stream::StreamExt;
 
-    // This test can/will be removed. Just want to make sure this works.
     #[tokio::test]
     async fn test_state_notifier() {
         let mut state = State::default();
         let initial_state: EngineState = state.state.into();
         assert_eq!(initial_state, EngineState::Offline);
         state.update(EngineStateInternal::Synced);
+
+        // a watcher that arrives after the first update.
         let mut watcher = state.watch();
         let new_state = watcher.next().await.expect("Last state is always present");
         assert_eq!(new_state, EngineState::Online);
