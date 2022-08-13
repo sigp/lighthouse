@@ -370,10 +370,11 @@ mod tests {
     #[tokio::test]
     async fn test_state_notifier() {
         let mut state = State::default();
-        assert!(!state.is_online());
+        let initial_state: EngineState = state.state.into();
+        assert_eq!(initial_state, EngineState::Offline);
         state.update(EngineStateInternal::Synced);
         let mut watcher = state.watch();
-        let is_online = watcher.next().await.expect("Last state is always present?");
-        assert!(is_online);
+        let new_state = watcher.next().await.expect("Last state is always present");
+        assert_eq!(new_state, EngineState::Online);
     }
 }

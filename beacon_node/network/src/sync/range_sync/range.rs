@@ -331,8 +331,8 @@ where
             debug!(self.log, "Chain removed"; "sync_type" => ?sync_type, &chain, "reason" => ?remove_reason, "op" => op);
         }
 
-        if let RemoveChain::ChainFailed(_) = remove_reason {
-            if RangeSyncType::Finalized == sync_type {
+        if let RemoveChain::ChainFailed { blacklist, .. } = remove_reason {
+            if RangeSyncType::Finalized == sync_type && blacklist {
                 warn!(self.log, "Chain failed! Syncing to its head won't be retried for at least the next {} seconds", FAILED_CHAINS_EXPIRY_SECONDS; &chain);
                 self.failed_chains.insert(chain.target_head_root);
             }
@@ -379,6 +379,7 @@ mod tests {
     use beacon_chain::builder::Witness;
     use beacon_chain::eth1_chain::CachingEth1Backend;
     use beacon_chain::parking_lot::RwLock;
+    use beacon_chain::EngineState;
     use lighthouse_network::rpc::BlocksByRangeRequest;
     use lighthouse_network::Request;
     use lighthouse_network::{rpc::StatusMessage, NetworkGlobals};
@@ -689,8 +690,7 @@ mod tests {
         };
 
         // make the ee offline
-        let is_ee_online = false;
-        rig.cx.ee_online_state_updated(is_ee_online);
+        rig.cx.update_execution_engine_state(EngineState::Offline);
 
         // send the response to the request
         range.blocks_by_range_response(&mut rig.cx, peer1, chain1, batch1, id1, None);
@@ -715,8 +715,7 @@ mod tests {
         rig.expect_empty_processor();
 
         // make the beacon processor available again.
-        let is_ee_online = true;
-        rig.cx.ee_online_state_updated(is_ee_online);
+        rig.cx.update_execution_engine_state(EngineState::Online);
 
         // now resume range, we should have two processing requests in the beacon processor.
         range.resume(&mut rig.cx);

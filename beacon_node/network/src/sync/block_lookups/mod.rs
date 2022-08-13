@@ -10,7 +10,7 @@ use smallvec::SmallVec;
 use std::sync::Arc;
 use store::{Hash256, SignedBeaconBlock};
 
-use crate::beacon_processor::{ChainSegmentProcessId, FailureMode, WorkEvent};
+use crate::beacon_processor::{ChainSegmentProcessId, WorkEvent};
 use crate::metrics;
 
 use self::{
@@ -598,29 +598,20 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
 
         debug!(self.log, "Parent chain processed"; "chain_hash" => %chain_hash, "result" => ?result);
         match result {
-            BatchProcessResult::Success(_) => {
+            BatchProcessResult::Success { .. } => {
                 // nothing to do.
             }
-            BatchProcessResult::Failed {
+            BatchProcessResult::FaultyFailure {
                 imported_blocks: _,
-                peer_action,
-                mode,
+                penalty,
             } => {
-                if let FailureMode::ExecutionLayer { pause_sync: _ } = mode {
-                    debug!(
-                        self.log,
-                        "Chain segment processing failed. Execution layer is offline";
-                        "chain_hash" => %chain_hash,
-                        "error" => ?mode
-                    );
-                } else {
-                    self.failed_chains.insert(parent_lookup.chain_hash());
-                    if let Some(peer_action) = peer_action {
-                        for &peer_id in parent_lookup.used_peers() {
-                            cx.report_peer(peer_id, peer_action, "parent_chain_failure")
-                        }
-                    }
+                self.failed_chains.insert(parent_lookup.chain_hash());
+                for &peer_id in parent_lookup.used_peers() {
+                    cx.report_peer(peer_id, penalty, "parent_chain_failure")
                 }
+            }
+            BatchProcessResult::NonFaultyFailure => {
+                // We might request this chain again if there is need but otherwise, don't try again
             }
         }
 
