@@ -10,8 +10,8 @@ use builder_client::BuilderHttpClient;
 use engine_api::Error as ApiError;
 pub use engine_api::*;
 pub use engine_api::{http, http::deposit_methods, http::HttpJsonRpc};
-pub use engines::ForkChoiceState;
 use engines::{Engine, EngineError};
+pub use engines::{EngineState, ForkChoiceState};
 use fork_choice::ForkchoiceUpdateParameters;
 use lru::LruCache;
 use payload_status::process_payload_status;
@@ -290,7 +290,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
     /// Gives access to a channel containing if the last engine state is online or not.
     ///
     /// This can be called several times.
-    pub async fn get_responsiveness_watch(&self) -> WatchStream<bool> {
+    pub async fn get_responsiveness_watch(&self) -> WatchStream<EngineState> {
         self.engine().watch_state().await
     }
 

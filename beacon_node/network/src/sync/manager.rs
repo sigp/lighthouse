@@ -41,7 +41,7 @@ use super::range_sync::{RangeSync, RangeSyncType, EPOCHS_PER_BATCH};
 use crate::beacon_processor::{ChainSegmentProcessId, FailureMode, WorkEvent as BeaconWorkEvent};
 use crate::service::NetworkMessage;
 use crate::status::ToStatusMessage;
-use beacon_chain::{BeaconChain, BeaconChainTypes, BlockError};
+use beacon_chain::{BeaconChain, BeaconChainTypes, BlockError, EngineState};
 use futures::StreamExt;
 use lighthouse_network::rpc::methods::MAX_REQUEST_BLOCKS;
 use lighthouse_network::types::{NetworkGlobals, SyncState};
@@ -481,8 +481,8 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 Some(sync_message) = self.input_channel.recv() => {
                     self.handle_message(sync_message);
                 },
-                Some(is_ee_synced) = check_ee_stream.next(), if check_ee => {
-                    self.handle_new_ee_sync_state(is_ee_synced);
+                Some(engine_state) = check_ee_stream.next(), if check_ee => {
+                    self.handle_new_execution_engine_state(engine_state);
                 }
             }
         }
@@ -518,7 +518,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     }
                 }
                 if self.network_globals.peers.read().is_connected(&peer_id)
-                    && self.network.is_ee_online()
+                    && self.network.is_execution_engine_online()
                 {
                     self.block_lookups
                         .search_parent(block, peer_id, &mut self.network);
@@ -528,7 +528,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 // If we are not synced, ignore this block.
                 if self.network_globals.sync_state.read().is_synced()
                     && self.network_globals.peers.read().is_connected(&peer_id)
-                    && self.network.is_ee_online()
+                    && self.network.is_execution_engine_online()
                 {
                     self.block_lookups
                         .search_block(block_hash, peer_id, &mut self.network);
@@ -585,52 +585,57 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         }
     }
 
-    fn handle_new_ee_sync_state(&mut self, ee_is_online: bool) {
-        self.network.ee_online_state_updated(ee_is_online);
+    fn handle_new_execution_engine_state(&mut self, engine_state: EngineState) {
+        self.network.update_execution_engine_state(engine_state);
 
-        if ee_is_online {
-            // Resume sync components.
+        match engine_state {
+            EngineState::Online => {
+                // Resume sync components.
 
-            // - Block lookups:
-            //   We start searching for blocks again. This is done by updating the stored ee online
-            //   state. No further action required.
+                // - Block lookups:
+                //   We start searching for blocks again. This is done by updating the stored ee online
+                //   state. No further action required.
 
-            // - Parent lookups:
-            //   We start searching for parents again. This is done by updating the stored ee
-            //   online state. No further action required.
+                // - Parent lookups:
+                //   We start searching for parents again. This is done by updating the stored ee
+                //   online state. No further action required.
 
-            // - Range:
-            //   Actively resume.
-            self.range_sync.resume(&mut self.network);
+                // - Range:
+                //   Actively resume.
+                self.range_sync.resume(&mut self.network);
 
-            // - Backfill:
-            //   Not affected by ee states, nothing to do.
-        } else {
-            // Pause sync components.
+                // - Backfill:
+                //   Not affected by ee states, nothing to do.
+            }
 
-            // - Block lookups:
-            //   Disabled while in this state. We drop current requests and don't search for new
-            //   blocks.
-            let dropped_single_blocks_requests = self.block_lookups.drop_single_block_requests();
+            EngineState::Offline => {
+                // Pause sync components.
 
-            // - Parent lookups:
-            //   Disabled while in this state. We drop current requests and don't search for new
-            //   blocks.
-            let dropped_parent_chain_requests = self.block_lookups.drop_parent_chain_requests();
+                // - Block lookups:
+                //   Disabled while in this state. We drop current requests and don't search for new
+                //   blocks.
+                let dropped_single_blocks_requests =
+                    self.block_lookups.drop_single_block_requests();
 
-            // - Range:
-            //   We still send found peers to range so that it can keep track of potential chains
-            //   with respect to our current peers. Range will stop processing batches in the
-            //   meantime. No further action from the manager is required for this.
+                // - Parent lookups:
+                //   Disabled while in this state. We drop current requests and don't search for new
+                //   blocks.
+                let dropped_parent_chain_requests = self.block_lookups.drop_parent_chain_requests();
 
-            // - Backfill: Not affected by ee states, nothing to do.
+                // - Range:
+                //   We still send found peers to range so that it can keep track of potential chains
+                //   with respect to our current peers. Range will stop processing batches in the
+                //   meantime. No further action from the manager is required for this.
 
-            // Some logs.
-            if dropped_single_blocks_requests > 0 || dropped_parent_chain_requests > 0 {
-                debug!(self.log, "Execution engine not online, dropping active requests.";
-                    "dropped_single_blocks_requests" => dropped_single_blocks_requests,
-                    "dropped_parent_chain_requests" => dropped_parent_chain_requests,
-                );
+                // - Backfill: Not affected by ee states, nothing to do.
+
+                // Some logs.
+                if dropped_single_blocks_requests > 0 || dropped_parent_chain_requests > 0 {
+                    debug!(self.log, "Execution engine not online, dropping active requests.";
+                        "dropped_single_blocks_requests" => dropped_single_blocks_requests,
+                        "dropped_parent_chain_requests" => dropped_parent_chain_requests,
+                    );
+                }
             }
         }
     }

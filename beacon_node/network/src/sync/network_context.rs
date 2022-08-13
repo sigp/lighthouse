@@ -6,7 +6,7 @@ use super::range_sync::{BatchId, ChainId};
 use crate::beacon_processor::WorkEvent;
 use crate::service::{NetworkMessage, RequestId};
 use crate::status::ToStatusMessage;
-use beacon_chain::BeaconChainTypes;
+use beacon_chain::{BeaconChainTypes, EngineState};
 use fnv::FnvHashMap;
 use lighthouse_network::rpc::{BlocksByRangeRequest, BlocksByRootRequest, GoodbyeReason};
 use lighthouse_network::{Client, NetworkGlobals, PeerAction, PeerId, ReportSource, Request};
@@ -34,7 +34,7 @@ pub struct SyncNetworkContext<T: BeaconChainTypes> {
 
     /// Whether the ee is online. If it's not, we don't allow access to the
     /// `beacon_processor_send`.
-    is_ee_online: bool,
+    execution_engine_state: EngineState,
 
     /// Channel to send work to the beacon processor.
     beacon_processor_send: mpsc::Sender<WorkEvent<T>>,
@@ -52,7 +52,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
     ) -> Self {
         Self {
             network_send,
-            is_ee_online: true, // always assume yes at the start
+            execution_engine_state: EngineState::Online, // always assume `Online` at the start
             network_globals,
             request_id: 1,
             range_requests: FnvHashMap::default(),
@@ -223,12 +223,12 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         Ok(id)
     }
 
-    pub fn is_ee_online(&self) -> bool {
-        self.is_ee_online
+    pub fn is_execution_engine_online(&self) -> bool {
+        self.execution_engine_state == EngineState::Online
     }
 
-    pub fn ee_online_state_updated(&mut self, is_synced: bool) {
-        self.is_ee_online = is_synced;
+    pub fn update_execution_engine_state(&mut self, engine_state: EngineState) {
+        self.execution_engine_state = engine_state;
     }
 
     /// Terminates the connection with the peer and bans them.
@@ -277,7 +277,8 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
     }
 
     pub fn processor_channel_if_enabled(&self) -> Option<&mpsc::Sender<WorkEvent<T>>> {
-        self.is_ee_online.then_some(&self.beacon_processor_send)
+        self.is_execution_engine_online()
+            .then_some(&self.beacon_processor_send)
     }
 
     pub fn processor_channel(&self) -> &mpsc::Sender<WorkEvent<T>> {

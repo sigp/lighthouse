@@ -20,7 +20,7 @@ const PAYLOAD_ID_LRU_CACHE_SIZE: usize = 512;
 
 /// Stores the remembered state of a engine.
 #[derive(Copy, Clone, PartialEq, Debug, Eq, Default)]
-enum EngineState {
+enum EngineStateInternal {
     Synced,
     #[default]
     Offline,
@@ -28,13 +28,18 @@ enum EngineState {
     AuthFailed,
 }
 
-impl EngineState {
-    /// Returns true if the engine is responsive, regardless of its syncing state; returns false
-    /// otherwise.
-    pub fn is_online(&self) -> bool {
-        match self {
-            EngineState::Synced | EngineState::Syncing => true,
-            EngineState::Offline | EngineState::AuthFailed => false,
+/// A subset of the engine state to inform other services if the engine is online or offline.
+#[derive(Debug, Clone, PartialEq, Eq, Copy)]
+pub enum EngineState {
+    Online,
+    Offline,
+}
+
+impl From<EngineStateInternal> for EngineState {
+    fn from(state: EngineStateInternal) -> Self {
+        match state {
+            EngineStateInternal::Synced | EngineStateInternal::Syncing => EngineState::Online,
+            EngineStateInternal::Offline | EngineStateInternal::AuthFailed => EngineState::Offline,
         }
     }
 }
@@ -42,13 +47,13 @@ impl EngineState {
 /// Wrapper structure that ensures changes to the engine state are correctly reported to watchers.
 struct State {
     /// The actual engine state.
-    state: EngineState,
-    /// Notifier to watch whether the engine is online or not.
-    notifier: watch::Sender<bool>,
+    state: EngineStateInternal,
+    /// Notifier to watch the engine state.
+    notifier: watch::Sender<EngineState>,
 }
 
 impl std::ops::Deref for State {
-    type Target = EngineState;
+    type Target = EngineStateInternal;
 
     fn deref(&self) -> &Self::Target {
         &self.state
@@ -57,20 +62,19 @@ impl std::ops::Deref for State {
 
 impl Default for State {
     fn default() -> Self {
-        let state = EngineState::default();
-        let (notifier, _receiver) = watch::channel(state.is_online());
+        let state = EngineStateInternal::default();
+        let (notifier, _receiver) = watch::channel(state.into());
         State { state, notifier }
     }
 }
 
 impl State {
     // Updates the state and notifies all watchers if the state has changed.
-    pub fn update(&mut self, new_state: EngineState) {
-        let new_online_state = new_state.is_online();
+    pub fn update(&mut self, new_state: EngineStateInternal) {
         self.state = new_state;
         self.notifier.send_if_modified(|last_state| {
-            let changed = *last_state != new_online_state; // notify conditionally
-            *last_state = new_online_state; // update the state unconditionally
+            let changed = *last_state != new_state.into(); // notify conditionally
+            *last_state = new_state.into(); // update the state unconditionally
             changed
         });
     }
@@ -78,7 +82,7 @@ impl State {
     /// Gives access to a channel containing whether the last state is online.
     ///
     /// This can be called several times.
-    pub fn watch(&self) -> WatchStream<bool> {
+    pub fn watch(&self) -> WatchStream<EngineState> {
         self.notifier.subscribe().into()
     }
 }
@@ -129,10 +133,10 @@ impl Engine {
         }
     }
 
-    /// Gives access to a channel containing if the last engine state is online or not.
+    /// Gives access to a channel containing the last engine state.
     ///
     /// This can be called several times.
-    pub async fn watch_state(&self) -> WatchStream<bool> {
+    pub async fn watch_state(&self) -> WatchStream<EngineState> {
         self.state.read().await.watch()
     }
 
@@ -229,16 +233,16 @@ impl Engine {
 
     /// Returns `true` if the engine has a "synced" status.
     pub async fn is_synced(&self) -> bool {
-        **self.state.read().await == EngineState::Synced
+        **self.state.read().await == EngineStateInternal::Synced
     }
 
     /// Run the `EngineApi::upcheck` function if the node's last known state is not synced. This
     /// might be used to recover the node if offline.
     pub async fn upcheck(&self) {
-        let state: EngineState = match self.api.upcheck().await {
+        let state: EngineStateInternal = match self.api.upcheck().await {
             Ok(()) => {
                 let mut state = self.state.write().await;
-                if **state != EngineState::Synced {
+                if **state != EngineStateInternal::Synced {
                     info!(
                         self.log,
                         "Execution engine online";
@@ -252,12 +256,12 @@ impl Engine {
                         "Execution engine online";
                     );
                 }
-                state.update(EngineState::Synced);
+                state.update(EngineStateInternal::Synced);
                 **state
             }
             Err(EngineApiError::IsSyncing) => {
                 let mut state = self.state.write().await;
-                state.update(EngineState::Syncing);
+                state.update(EngineStateInternal::Syncing);
                 **state
             }
             Err(EngineApiError::Auth(err)) => {
@@ -268,7 +272,7 @@ impl Engine {
                 );
 
                 let mut state = self.state.write().await;
-                state.update(EngineState::AuthFailed);
+                state.update(EngineStateInternal::AuthFailed);
                 **state
             }
             Err(e) => {
@@ -279,7 +283,7 @@ impl Engine {
                 );
 
                 let mut state = self.state.write().await;
-                state.update(EngineState::Offline);
+                state.update(EngineStateInternal::Offline);
                 **state
             }
         };
@@ -306,13 +310,13 @@ impl Engine {
             Ok(result) => {
                 // Take a clone *without* holding the read-lock since the `upcheck` function will
                 // take a write-lock.
-                let state: EngineState = **self.state.read().await;
+                let state: EngineStateInternal = **self.state.read().await;
 
                 // TODO: comment/code no longer relevant?
                 // If this request just returned successfully but we don't think this node is
                 // synced, check to see if it just became synced. This helps to ensure that the
                 // networking stack can get fast feedback about a synced engine.
-                if state != EngineState::Synced {
+                if state != EngineStateInternal::Synced {
                     // Spawn the upcheck in another task to avoid slowing down this request.
                     let inner_self = self.clone();
                     self.executor.spawn(
@@ -367,7 +371,7 @@ mod tests {
     async fn test_state_notifier() {
         let mut state = State::default();
         assert!(!state.is_online());
-        state.update(EngineState::Synced);
+        state.update(EngineStateInternal::Synced);
         let mut watcher = state.watch();
         let is_online = watcher.next().await.expect("Last state is always present?");
         assert!(is_online);
