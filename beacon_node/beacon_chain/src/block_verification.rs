@@ -504,8 +504,8 @@ fn process_block_slash_info<T: BeaconChainTypes>(
 ///
 /// ## Errors
 ///
-/// The given `chain_segment` must span no more than two epochs, otherwise an error will be
-/// returned.
+/// The given `chain_segment` must contain only blocks from the same epoch, otherwise an error
+/// will be returned.
 pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
     mut chain_segment: Vec<(Hash256, Arc<SignedBeaconBlock<T::EthSpec>>)>,
     chain: &BeaconChain<T>,
@@ -1702,6 +1702,9 @@ fn cheap_state_advance_to_obtain_committees<'a, E: EthSpec>(
     let block_epoch = block_slot.epoch(E::slots_per_epoch());
 
     if state.current_epoch() == block_epoch {
+        // Build both the current and previous epoch caches, as the previous epoch caches are
+        // useful for verifying attestations in blocks from the current epoch.
+        state.build_committee_cache(RelativeEpoch::Previous, spec)?;
         state.build_committee_cache(RelativeEpoch::Current, spec)?;
 
         Ok(Cow::Borrowed(state))
@@ -1719,6 +1722,7 @@ fn cheap_state_advance_to_obtain_committees<'a, E: EthSpec>(
         partial_state_advance(&mut state, state_root_opt, target_slot, spec)
             .map_err(|e| BlockError::BeaconChainError(BeaconChainError::from(e)))?;
 
+        state.build_committee_cache(RelativeEpoch::Previous, spec)?;
         state.build_committee_cache(RelativeEpoch::Current, spec)?;
 
         Ok(Cow::Owned(state))

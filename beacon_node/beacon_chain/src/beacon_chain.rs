@@ -2293,8 +2293,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             // Determine the epoch of the first block in the remaining segment.
             let start_epoch = block.slot().epoch(T::EthSpec::slots_per_epoch());
 
-            // The `last_index` indicates the position of the last block that is in the current
-            // epoch of `start_epoch`.
+            // The `last_index` indicates the position of the first block in an epoch greater
+            // than the current epoch: partitioning the blocks into a run of blocks in the same
+            // epoch and everything else. These same-epoch blocks can all be signature-verified with
+            // the same `BeaconState`.
             let last_index = filtered_chain_segment
                 .iter()
                 .position(|(_root, block)| {
@@ -2302,9 +2304,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 })
                 .unwrap_or(filtered_chain_segment.len());
 
-            // Split off the first section blocks that are all either within the current epoch of
-            // the first block. These blocks can all be signature-verified with the same
-            // `BeaconState`.
             let mut blocks = filtered_chain_segment.split_off(last_index);
             std::mem::swap(&mut blocks, &mut filtered_chain_segment);
 
