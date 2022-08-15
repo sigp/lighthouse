@@ -387,6 +387,7 @@ async fn merge_readiness_logging<T: BeaconChainTypes>(
                 log,
                 "Not ready for merge";
                 "info" => %readiness,
+                "hint" => "try updating Lighthouse and/or the execution layer",
             )
         }
         readiness @ MergeReadiness::NotSynced => warn!(

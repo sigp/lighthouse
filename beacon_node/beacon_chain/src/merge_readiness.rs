@@ -9,7 +9,7 @@ use types::*;
 
 /// The time before the Bellatrix fork when we will start issuing warnings about preparation.
 const SECONDS_IN_A_WEEK: u64 = 604800;
-pub const MERGE_READINESS_PREPARATION_SECONDS: u64 = SECONDS_IN_A_WEEK;
+pub const MERGE_READINESS_PREPARATION_SECONDS: u64 = SECONDS_IN_A_WEEK * 2;
 
 #[derive(Default, Debug, Serialize, Deserialize)]
 pub struct MergeConfig {
@@ -130,16 +130,22 @@ impl fmt::Display for MergeReadiness {
 }
 
 impl<T: BeaconChainTypes> BeaconChain<T> {
-    /// Returns `true` if the Bellatrix fork has occurred or will occur within
-    /// `MERGE_READINESS_PREPARATION_SECONDS`.
+    /// Returns `true` if user has an EL configured, or if the Bellatrix fork has occurred or will
+    /// occur within `MERGE_READINESS_PREPARATION_SECONDS`.
     pub fn is_time_to_prepare_for_bellatrix(&self, current_slot: Slot) -> bool {
         if let Some(bellatrix_epoch) = self.spec.bellatrix_fork_epoch {
             let bellatrix_slot = bellatrix_epoch.start_slot(T::EthSpec::slots_per_epoch());
             let merge_readiness_preparation_slots =
                 MERGE_READINESS_PREPARATION_SECONDS / self.spec.seconds_per_slot;
 
-            // Return `true` if Bellatrix has happened or is within the preparation time.
-            current_slot + merge_readiness_preparation_slots > bellatrix_slot
+            if self.execution_layer.is_some() {
+                // The user has already configured an execution layer, start checking for readiness
+                // right away.
+                true
+            } else {
+                // Return `true` if Bellatrix has happened or is within the preparation time.
+                current_slot + merge_readiness_preparation_slots > bellatrix_slot
+            }
         } else {
             // The Bellatrix fork epoch has not been defined yet, no need to prepare.
             false
