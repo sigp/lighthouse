@@ -167,6 +167,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         suggested_fee_recipient: Option<Address>,
         gas_limit: Option<u64>,
         builder_proposals: Option<bool>,
+        builder_pubkey_override: Option<PublicKeyBytes>,
     ) -> Result<ValidatorDefinition, String> {
         let mut validator_def = ValidatorDefinition::new_keystore_with_password(
             voting_keystore_path,
@@ -175,6 +176,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             suggested_fee_recipient,
             gas_limit,
             builder_proposals,
+            builder_pubkey_override,
         )
         .map_err(|e| format!("failed to create validator definitions: {:?}", e))?;
 
@@ -230,6 +232,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
                 gas_limit: self.get_gas_limit_defaulting(validator.get_gas_limit()),
                 builder_proposals: self
                     .get_builder_proposals_defaulting(validator.get_builder_proposals()),
+                builder_pubkey_override: validator.get_builder_pubkey_override(),
             })
     }
 
@@ -618,13 +621,15 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
 
     pub async fn sign_validator_registration_data(
         &self,
+        signing_pubkey: PublicKeyBytes,
         validator_registration_data: ValidatorRegistrationData,
     ) -> Result<SignedValidatorRegistrationData, Error> {
         let domain_hash = self.spec.get_builder_domain();
         let signing_root = validator_registration_data.signing_root(domain_hash);
 
-        let signing_method =
-            self.doppelganger_bypassed_signing_method(validator_registration_data.pubkey)?;
+        // Use the provided pubkey rather than the pubkey in the message itself. This is to support
+        // distributed validators who must sign with a partial key over the aggregate pubkey.
+        let signing_method = self.doppelganger_bypassed_signing_method(signing_pubkey)?;
         let signature = signing_method
             .get_signature_from_root::<E, BlindedPayload<E>>(
                 SignableMessage::ValidatorRegistration(&validator_registration_data),

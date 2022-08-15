@@ -464,7 +464,7 @@ impl ValidatorClientHttpClient {
         voting_pubkey: &PublicKeyBytes,
         enabled: Option<bool>,
         gas_limit: Option<u64>,
-        builder_registration_pubkey_override: Option<PublicKey>,
+        builder_pubkey_override: Option<PublicKeyBytes>,
         builder_proposals: Option<bool>,
     ) -> Result<(), Error> {
         let mut path = self.server.full.clone();
@@ -480,7 +480,7 @@ impl ValidatorClientHttpClient {
             &ValidatorPatchRequest {
                 enabled,
                 gas_limit,
-                builder_registration_pubkey_override, // not sure why this is saying expected is Option<{unknown}>
+                builder_pubkey_override,
                 builder_proposals,
             },
         )

@@ -142,6 +142,7 @@ pub async fn create_validators_mnemonic<P: AsRef<Path>, T: 'static + SlotClock, 
                 request.suggested_fee_recipient,
                 request.gas_limit,
                 request.builder_proposals,
+                request.builder_pubkey_override,
             )
             .await
             .map_err(|e| {
@@ -157,7 +158,7 @@ pub async fn create_validators_mnemonic<P: AsRef<Path>, T: 'static + SlotClock, 
             graffiti: request.graffiti.clone(),
             suggested_fee_recipient: request.suggested_fee_recipient,
             gas_limit: request.gas_limit,
-            builder_registration_pubkey_override: request.builder_registration_pubkey_override,
+            builder_pubkey_override: request.builder_pubkey_override.clone(),
             builder_proposals: request.builder_proposals,
             voting_pubkey,
             eth1_deposit_tx_data: eth2_serde_utils::hex::encode(&eth1_deposit_data.rlp),

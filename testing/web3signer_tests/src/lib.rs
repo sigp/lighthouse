@@ -361,7 +361,7 @@ mod tests {
                     graffiti: None,
                     suggested_fee_recipient: None,
                     gas_limit: None,
-                    builder_registration_pubkey_override: None,
+                    builder_pubkey_override: None,
                     builder_proposals: None,
                     description: String::default(),
                     signing_definition: SigningDefinition::LocalKeystore {
@@ -380,7 +380,7 @@ mod tests {
                     graffiti: None,
                     suggested_fee_recipient: None,
                     gas_limit: None,
-                    builder_registration_pubkey_override: None,
+                    builder_pubkey_override: None,
                     builder_proposals: None,
                     description: String::default(),
                     signing_definition: SigningDefinition::Web3Signer(Web3SignerDefinition {
