@@ -519,6 +519,18 @@ impl ValidatorClientHttpClient {
         Ok(url)
     }
 
+    fn make_gas_limit_url(&self, pubkey: &PublicKeyBytes) -> Result<Url, Error> {
+        let mut url = self.server.full.clone();
+        url.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("eth")
+            .push("v1")
+            .push("validator")
+            .push(&pubkey.to_string())
+            .push("gas_limit");
+        Ok(url)
+    }
+
     /// `GET lighthouse/auth`
     pub async fn get_auth(&self) -> Result<AuthResponse, Error> {
         let mut url = self.server.full.clone();
@@ -598,9 +610,36 @@ impl ValidatorClientHttpClient {
         self.post_with_raw_response(url, req).await
     }
 
-    /// `POST /eth/v1/validator/{pubkey}/feerecipient`
+    /// `DELETE /eth/v1/validator/{pubkey}/feerecipient`
     pub async fn delete_fee_recipient(&self, pubkey: &PublicKeyBytes) -> Result<Response, Error> {
         let url = self.make_fee_recipient_url(pubkey)?;
+        self.delete_with_raw_response(url, &()).await
+    }
+
+    /// `GET /eth/v1/validator/{pubkey}/gas_limit`
+    pub async fn get_gas_limit(
+        &self,
+        pubkey: &PublicKeyBytes,
+    ) -> Result<GetGasLimitResponse, Error> {
+        let url = self.make_gas_limit_url(pubkey)?;
+        self.get(url)
+            .await
+            .map(|generic: GenericResponse<GetGasLimitResponse>| generic.data)
+    }
+
+    /// `POST /eth/v1/validator/{pubkey}/gas_limit`
+    pub async fn post_gas_limit(
+        &self,
+        pubkey: &PublicKeyBytes,
+        req: &UpdateGasLimitRequest,
+    ) -> Result<Response, Error> {
+        let url = self.make_gas_limit_url(pubkey)?;
+        self.post_with_raw_response(url, req).await
+    }
+
+    /// `DELETE /eth/v1/validator/{pubkey}/gas_limit`
+    pub async fn delete_gas_limit(&self, pubkey: &PublicKeyBytes) -> Result<Response, Error> {
+        let url = self.make_gas_limit_url(pubkey)?;
         self.delete_with_raw_response(url, &()).await
     }
 }
