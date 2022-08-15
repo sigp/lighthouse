@@ -460,5 +460,4 @@ fn no_strict_fee_recipient_flag() {
     CommandLineTest::new()
         .run()
         .with_config(|config| assert!(!config.strict_fee_recipient));
->>>>>>> origin/unstable
 }
