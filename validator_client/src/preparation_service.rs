@@ -349,7 +349,7 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
 
     /// Register validators with builders, used in the blinded block proposal flow.
     /// This method re-publishes all messages if it's been `EPOCHS_PER_VALIDATOR_REGISTRATION_SUBMISSION`.
-    /// Otherwise it publishes any messages that have been updated since the previous
+    /// Otherwise it publishes any messages that have been updated since they were last published.
     async fn register_validators(&self) -> Result<(), String> {
         let registration_keys = self.collect_validator_registration_keys();
 
