@@ -23,20 +23,17 @@ pub fn build(execution_clients_dir: &Path) {
 
     if !repo_dir.exists() {
         // Clone the repo
-        assert!(build_utils::clone_repo(
-            execution_clients_dir,
-            GETH_REPO_URL
-        ));
+        build_utils::clone_repo(execution_clients_dir, GETH_REPO_URL).unwrap();
     }
 
-    // Checkout the correct branch
-    assert!(build_utils::checkout_branch(&repo_dir, GETH_BRANCH));
-
-    // Update the branch
-    assert!(build_utils::update_branch(&repo_dir, GETH_BRANCH));
+    // Get the latest tag on the branch
+    let last_release = build_utils::get_latest_release(&repo_dir, GETH_BRANCH).unwrap();
+    build_utils::checkout(&repo_dir, dbg!(&last_release)).unwrap();
 
     // Build geth
-    build_utils::check_command_output(build_result(&repo_dir), "make failed");
+    build_utils::check_command_output(build_result(&repo_dir), || {
+        format!("geth make failed using release {last_release}")
+    });
 }
 
 /*
@@ -75,7 +72,7 @@ impl GenericExecutionEngine for GethEngine {
             .output()
             .expect("failed to init geth");
 
-        build_utils::check_command_output(output, "geth init failed");
+        build_utils::check_command_output(output, || "geth init failed".into());
 
         datadir
     }
@@ -93,15 +90,21 @@ impl GenericExecutionEngine for GethEngine {
             .arg(datadir.path().to_str().unwrap())
             .arg("--http")
             .arg("--http.api")
-            .arg("engine,eth")
+            .arg("engine,eth,personal")
             .arg("--http.port")
             .arg(http_port.to_string())
             .arg("--authrpc.port")
             .arg(http_auth_port.to_string())
             .arg("--port")
             .arg(network_port.to_string())
+            .arg("--allow-insecure-unlock")
             .arg("--authrpc.jwtsecret")
             .arg(jwt_secret_path.as_path().to_str().unwrap())
+            // This flag is required to help Geth perform reliably when feeding it blocks
+            // one-by-one. For more information, see:
+            //
+            // https://github.com/sigp/lighthouse/pull/3382#issuecomment-1197680345
+            .arg("--syncmode=full")
             .stdout(build_utils::build_stdio())
             .stderr(build_utils::build_stdio())
             .spawn()

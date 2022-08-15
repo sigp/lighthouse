@@ -43,3 +43,4 @@ lru_cache = { path = "../../common/lru_cache" }
 if-addrs = "0.6.4"
 strum = "0.24.0"
 tokio-util = { version = "0.6.3", features = ["time"] }
+derivative = "2.2.0"

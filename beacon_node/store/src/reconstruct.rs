@@ -76,7 +76,7 @@ where
                     None
                 } else {
                     Some(
-                        self.get_block(&block_root)?
+                        self.get_blinded_block(&block_root)?
                             .ok_or(Error::BlockNotFound(block_root))?,
                     )
                 };

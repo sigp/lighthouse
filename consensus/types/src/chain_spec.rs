@@ -1,3 +1,4 @@
+use crate::application_domain::{ApplicationDomain, APPLICATION_DOMAIN_BUILDER};
 use crate::*;
 use eth2_serde_utils::quoted_u64::MaybeQuoted;
 use int_to_bytes::int_to_bytes4;
@@ -20,6 +21,7 @@ pub enum Domain {
     SyncCommittee,
     ContributionAndProof,
     SyncCommitteeSelectionProof,
+    ApplicationMask(ApplicationDomain),
 }
 
 /// Lighthouse's internal configuration struct.
@@ -159,6 +161,11 @@ pub struct ChainSpec {
     pub attestation_subnet_count: u64,
     pub random_subnets_per_validator: u64,
     pub epochs_per_random_subnet_subscription: u64,
+
+    /*
+     * Application params
+     */
+    pub(crate) domain_application_mask: u32,
 }
 
 impl ChainSpec {
@@ -326,6 +333,7 @@ impl ChainSpec {
             Domain::SyncCommittee => self.domain_sync_committee,
             Domain::ContributionAndProof => self.domain_contribution_and_proof,
             Domain::SyncCommitteeSelectionProof => self.domain_sync_committee_selection_proof,
+            Domain::ApplicationMask(application_domain) => application_domain.get_domain_constant(),
         }
     }
 
@@ -351,6 +359,17 @@ impl ChainSpec {
     /// Spec v0.12.1
     pub fn get_deposit_domain(&self) -> Hash256 {
         self.compute_domain(Domain::Deposit, self.genesis_fork_version, Hash256::zero())
+    }
+
+    // This should be updated to include the current fork and the genesis validators root, but discussion is ongoing:
+    //
+    // https://github.com/ethereum/builder-specs/issues/14
+    pub fn get_builder_domain(&self) -> Hash256 {
+        self.compute_domain(
+            Domain::ApplicationMask(ApplicationDomain::Builder),
+            self.genesis_fork_version,
+            Hash256::zero(),
+        )
     }
 
     /// Return the 32-byte fork data root for the `current_version` and `genesis_validators_root`.
@@ -500,7 +519,7 @@ impl ChainSpec {
              * Fork choice
              */
             safe_slots_to_update_justified: 8,
-            proposer_score_boost: Some(70),
+            proposer_score_boost: Some(40),
 
             /*
              * Eth1
@@ -565,6 +584,11 @@ impl ChainSpec {
             maximum_gossip_clock_disparity_millis: 500,
             target_aggregators_per_committee: 16,
             epochs_per_random_subnet_subscription: 256,
+
+            /*
+             * Application specific
+             */
+            domain_application_mask: APPLICATION_DOMAIN_BUILDER,
         }
     }
 
@@ -698,7 +722,7 @@ impl ChainSpec {
              * Fork choice
              */
             safe_slots_to_update_justified: 8,
-            proposer_score_boost: Some(70),
+            proposer_score_boost: Some(40),
 
             /*
              * Eth1
@@ -763,6 +787,11 @@ impl ChainSpec {
             maximum_gossip_clock_disparity_millis: 500,
             target_aggregators_per_committee: 16,
             epochs_per_random_subnet_subscription: 256,
+
+            /*
+             * Application specific
+             */
+            domain_application_mask: APPLICATION_DOMAIN_BUILDER,
         }
     }
 }
@@ -774,6 +803,10 @@ impl Default for ChainSpec {
 }
 
 /// Exact implementation of the *config* object from the Ethereum spec (YAML/JSON).
+///
+/// Fields relevant to hard forks after Altair should be optional so that we can continue
+/// to parse Altair configs. This default approach turns out to be much simpler than trying to
+/// make `Config` a superstruct because of the hassle of deserializing an untagged enum.
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 #[serde(rename_all = "UPPERCASE")]
 pub struct Config {
@@ -784,17 +817,13 @@ pub struct Config {
     #[serde(default)]
     pub preset_base: String,
 
-    // TODO(merge): remove this default
     #[serde(default = "default_terminal_total_difficulty")]
     #[serde(with = "eth2_serde_utils::quoted_u256")]
     pub terminal_total_difficulty: Uint256,
-    // TODO(merge): remove this default
     #[serde(default = "default_terminal_block_hash")]
     pub terminal_block_hash: ExecutionBlockHash,
-    // TODO(merge): remove this default
     #[serde(default = "default_terminal_block_hash_activation_epoch")]
     pub terminal_block_hash_activation_epoch: Epoch,
-    // TODO(merge): remove this default
     #[serde(default = "default_safe_slots_to_import_optimistically")]
     #[serde(with = "eth2_serde_utils::quoted_u64")]
     pub safe_slots_to_import_optimistically: u64,
@@ -814,12 +843,10 @@ pub struct Config {
     #[serde(deserialize_with = "deserialize_fork_epoch")]
     pub altair_fork_epoch: Option<MaybeQuoted<Epoch>>,
 
-    // TODO(merge): remove this default
     #[serde(default = "default_bellatrix_fork_version")]
     #[serde(with = "eth2_serde_utils::bytes_4_hex")]
     bellatrix_fork_version: [u8; 4],
-    // TODO(merge): remove this default
-    #[serde(default = "default_bellatrix_fork_epoch")]
+    #[serde(default)]
     #[serde(serialize_with = "serialize_fork_epoch")]
     #[serde(deserialize_with = "deserialize_fork_epoch")]
     pub bellatrix_fork_epoch: Option<MaybeQuoted<Epoch>>,
@@ -859,10 +886,6 @@ pub struct Config {
 fn default_bellatrix_fork_version() -> [u8; 4] {
     // This value shouldn't be used.
     [0xff, 0xff, 0xff, 0xff]
-}
-
-fn default_bellatrix_fork_epoch() -> Option<MaybeQuoted<Epoch>> {
-    None
 }
 
 /// Placeholder value: 2^256-2^10 (115792089237316195423570985008687907853269984665640564039457584007913129638912).
@@ -1119,6 +1142,27 @@ mod tests {
             &spec,
         );
         test_domain(Domain::SyncCommittee, spec.domain_sync_committee, &spec);
+
+        // The builder domain index is zero
+        let builder_domain_pre_mask = [0; 4];
+        test_domain(
+            Domain::ApplicationMask(ApplicationDomain::Builder),
+            apply_bit_mask(builder_domain_pre_mask, &spec),
+            &spec,
+        );
+    }
+
+    fn apply_bit_mask(domain_bytes: [u8; 4], spec: &ChainSpec) -> u32 {
+        let mut domain = [0; 4];
+        let mask_bytes = int_to_bytes4(spec.domain_application_mask);
+
+        // Apply application bit mask
+        for (i, (domain_byte, mask_byte)) in domain_bytes.iter().zip(mask_bytes.iter()).enumerate()
+        {
+            domain[i] = domain_byte | mask_byte;
+        }
+
+        u32::from_le_bytes(domain)
     }
 
     // Test that `fork_name_at_epoch` and `fork_epoch` are consistent.
@@ -1261,7 +1305,7 @@ mod yaml_tests {
         EJECTION_BALANCE: 16000000000
         MIN_PER_EPOCH_CHURN_LIMIT: 4
         CHURN_LIMIT_QUOTIENT: 65536
-        PROPOSER_SCORE_BOOST: 70
+        PROPOSER_SCORE_BOOST: 40
         DEPOSIT_CHAIN_ID: 1
         DEPOSIT_NETWORK_ID: 1
         DEPOSIT_CONTRACT_ADDRESS: 0x00000000219ab540356cBB839Cbe05303d7705Fa
@@ -1285,10 +1329,7 @@ mod yaml_tests {
             default_safe_slots_to_import_optimistically()
         );
 
-        assert_eq!(
-            chain_spec.bellatrix_fork_epoch,
-            default_bellatrix_fork_epoch()
-        );
+        assert_eq!(chain_spec.bellatrix_fork_epoch, None);
 
         assert_eq!(
             chain_spec.bellatrix_fork_version,
@@ -1303,6 +1344,14 @@ mod yaml_tests {
             Uint256::from_dec_str(
                 "115792089237316195423570985008687907853269984665640564039457584007913129638912"
             )
+        );
+    }
+
+    #[test]
+    fn test_domain_builder() {
+        assert_eq!(
+            int_to_bytes4(ApplicationDomain::Builder.get_domain_constant()),
+            [0, 0, 0, 1]
         );
     }
 }

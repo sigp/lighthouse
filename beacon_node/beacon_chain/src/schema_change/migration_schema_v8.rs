@@ -34,7 +34,7 @@ pub fn update_fork_choice<T: BeaconChainTypes>(
     // before schema v8 the cache would always miss on skipped slots.
     for item in balances_cache.items {
         // Drop any blocks that aren't found, they're presumably too old and this is only a cache.
-        if let Some(block) = db.get_block(&item.block_root)? {
+        if let Some(block) = db.get_full_block_prior_to_v9(&item.block_root)? {
             fork_choice_store.balances_cache.items.push(CacheItemV8 {
                 block_root: item.block_root,
                 epoch: block.slot().epoch(T::EthSpec::slots_per_epoch()),

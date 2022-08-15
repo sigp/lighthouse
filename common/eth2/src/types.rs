@@ -3,7 +3,9 @@
 
 use crate::Error as ServerError;
 use lighthouse_network::{ConnectionDirection, Enr, Multiaddr, PeerConnectionStatus};
+use mime::{Mime, APPLICATION, JSON, OCTET_STREAM, STAR};
 use serde::{Deserialize, Serialize};
+use std::cmp::Reverse;
 use std::convert::TryFrom;
 use std::fmt;
 use std::str::{from_utf8, FromStr};
@@ -187,6 +189,14 @@ impl fmt::Display for StateId {
 #[serde(bound = "T: Serialize + serde::de::DeserializeOwned")]
 pub struct DutiesResponse<T: Serialize + serde::de::DeserializeOwned> {
     pub dependent_root: Hash256,
+    pub execution_optimistic: Option<bool>,
+    pub data: T,
+}
+
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[serde(bound = "T: Serialize + serde::de::DeserializeOwned")]
+pub struct ExecutionOptimisticResponse<T: Serialize + serde::de::DeserializeOwned> {
+    pub execution_optimistic: Option<bool>,
     pub data: T,
 }
 
@@ -202,6 +212,18 @@ impl<T: Serialize + serde::de::DeserializeOwned> From<T> for GenericResponse<T> 
     }
 }
 
+impl<T: Serialize + serde::de::DeserializeOwned> GenericResponse<T> {
+    pub fn add_execution_optimistic(
+        self,
+        execution_optimistic: bool,
+    ) -> ExecutionOptimisticResponse<T> {
+        ExecutionOptimisticResponse {
+            execution_optimistic: Some(execution_optimistic),
+            data: self.data,
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, Clone, Serialize)]
 #[serde(bound = "T: Serialize")]
 pub struct GenericResponseRef<'a, T: Serialize> {
@@ -212,6 +234,14 @@ impl<'a, T: Serialize> From<&'a T> for GenericResponseRef<'a, T> {
     fn from(data: &'a T) -> Self {
         Self { data }
     }
+}
+
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+pub struct ExecutionOptimisticForkVersionedResponse<T> {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub version: Option<ForkName>,
+    pub execution_optimistic: Option<bool>,
+    pub data: T,
 }
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
@@ -493,6 +523,8 @@ pub struct DepositContractData {
 pub struct ChainHeadData {
     pub slot: Slot,
     pub root: Hash256,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub execution_optimistic: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -520,6 +552,7 @@ pub struct VersionData {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SyncingData {
     pub is_syncing: bool,
+    pub is_optimistic: Option<bool>,
     pub head_slot: Slot,
     pub sync_distance: Slot,
 }
@@ -792,6 +825,7 @@ pub struct PeerCount {
 pub struct SseBlock {
     pub slot: Slot,
     pub block: Hash256,
+    pub execution_optimistic: bool,
 }
 
 #[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
@@ -799,6 +833,7 @@ pub struct SseFinalizedCheckpoint {
     pub block: Hash256,
     pub state: Hash256,
     pub epoch: Epoch,
+    pub execution_optimistic: bool,
 }
 
 #[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
@@ -809,6 +844,7 @@ pub struct SseHead {
     pub current_duty_dependent_root: Hash256,
     pub previous_duty_dependent_root: Hash256,
     pub epoch_transition: bool,
+    pub execution_optimistic: bool,
 }
 
 #[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
@@ -821,6 +857,7 @@ pub struct SseChainReorg {
     pub new_head_block: Hash256,
     pub new_head_state: Hash256,
     pub epoch: Epoch,
+    pub execution_optimistic: bool,
 }
 
 #[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
@@ -835,6 +872,7 @@ pub struct SseLateHead {
     pub observed_delay: Option<Duration>,
     pub imported_delay: Option<Duration>,
     pub set_as_head_delay: Option<Duration>,
+    pub execution_optimistic: bool,
 }
 
 #[derive(PartialEq, Debug, Serialize, Clone)]
@@ -1008,13 +1046,35 @@ impl FromStr for Accept {
     type Err = String;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "application/octet-stream" => Ok(Accept::Ssz),
-            "application/json" => Ok(Accept::Json),
-            "*/*" => Ok(Accept::Any),
-            _ => Err("accept header cannot be parsed.".to_string()),
-        }
+        let mut mimes = parse_accept(s)?;
+
+        // [q-factor weighting]: https://datatracker.ietf.org/doc/html/rfc7231#section-5.3.2
+        // find the highest q-factor supported accept type
+        mimes.sort_by_key(|m| {
+            Reverse(m.get_param("q").map_or(1000_u16, |n| {
+                (n.as_ref().parse::<f32>().unwrap_or(0_f32) * 1000_f32) as u16
+            }))
+        });
+        mimes
+            .into_iter()
+            .find_map(|m| match (m.type_(), m.subtype()) {
+                (APPLICATION, OCTET_STREAM) => Some(Accept::Ssz),
+                (APPLICATION, JSON) => Some(Accept::Json),
+                (STAR, STAR) => Some(Accept::Any),
+                _ => None,
+            })
+            .ok_or_else(|| "accept header is not supported".to_string())
     }
+}
+
+fn parse_accept(accept: &str) -> Result<Vec<Mime>, String> {
+    accept
+        .split(',')
+        .map(|part| {
+            part.parse()
+                .map_err(|e| format!("error parsing Accept header: {}", e))
+        })
+        .collect()
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -1044,5 +1104,24 @@ mod tests {
                 values: vec![0_u64, 1, 2]
             }
         );
+    }
+
+    #[test]
+    fn parse_accept_header_content() {
+        assert_eq!(
+            Accept::from_str("application/json; charset=utf-8").unwrap(),
+            Accept::Json
+        );
+
+        assert_eq!(
+            Accept::from_str("text/plain,application/octet-stream;q=0.3,application/json;q=0.9")
+                .unwrap(),
+            Accept::Json
+        );
+
+        assert_eq!(
+            Accept::from_str("text/plain"),
+            Err("accept header is not supported".to_string())
+        )
     }
 }

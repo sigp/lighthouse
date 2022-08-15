@@ -1,4 +1,5 @@
-use types::{BeaconBlock, BeaconState, Checkpoint, EthSpec, Hash256, Slot};
+use std::collections::BTreeSet;
+use types::{BeaconBlockRef, BeaconState, Checkpoint, EthSpec, ExecPayload, Hash256, Slot};
 
 /// Approximates the `Store` in "Ethereum 2.0 Phase 0 -- Beacon Chain Fork Choice":
 ///
@@ -31,9 +32,9 @@ pub trait ForkChoiceStore<T: EthSpec>: Sized {
 
     /// Called whenever `ForkChoice::on_block` has verified a block, but not yet added it to fork
     /// choice. Allows the implementer to performing caching or other housekeeping duties.
-    fn on_verified_block(
+    fn on_verified_block<Payload: ExecPayload<T>>(
         &mut self,
-        block: &BeaconBlock<T>,
+        block: BeaconBlockRef<T, Payload>,
         block_root: Hash256,
         state: &BeaconState<T>,
     ) -> Result<(), Self::Error>;
@@ -50,6 +51,12 @@ pub trait ForkChoiceStore<T: EthSpec>: Sized {
     /// Returns the `finalized_checkpoint`.
     fn finalized_checkpoint(&self) -> &Checkpoint;
 
+    /// Returns the `unrealized_justified_checkpoint`.
+    fn unrealized_justified_checkpoint(&self) -> &Checkpoint;
+
+    /// Returns the `unrealized_finalized_checkpoint`.
+    fn unrealized_finalized_checkpoint(&self) -> &Checkpoint;
+
     /// Returns the `proposer_boost_root`.
     fn proposer_boost_root(&self) -> Hash256;
 
@@ -62,6 +69,18 @@ pub trait ForkChoiceStore<T: EthSpec>: Sized {
     /// Sets the `best_justified_checkpoint`.
     fn set_best_justified_checkpoint(&mut self, checkpoint: Checkpoint);
 
+    /// Sets the `unrealized_justified_checkpoint`.
+    fn set_unrealized_justified_checkpoint(&mut self, checkpoint: Checkpoint);
+
+    /// Sets the `unrealized_finalized_checkpoint`.
+    fn set_unrealized_finalized_checkpoint(&mut self, checkpoint: Checkpoint);
+
     /// Sets the proposer boost root.
     fn set_proposer_boost_root(&mut self, proposer_boost_root: Hash256);
+
+    /// Gets the equivocating indices.
+    fn equivocating_indices(&self) -> &BTreeSet<u64>;
+
+    /// Adds to the set of equivocating indices.
+    fn extend_equivocating_indices(&mut self, indices: impl IntoIterator<Item = u64>);
 }

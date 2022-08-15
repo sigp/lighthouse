@@ -646,17 +646,18 @@ async fn poll_beacon_attesters_for_epoch<T: SlotClock + 'static, E: EthSpec>(
         response
             .data
             .into_iter()
-            .filter(|duty| local_pubkeys.contains(&duty.pubkey))
             .filter(|duty| {
-                // Only update the duties if either is true:
-                //
-                // - There were no known duties for this epoch.
-                // - The dependent root has changed, signalling a re-org.
-                attesters.get(&duty.pubkey).map_or(true, |duties| {
-                    duties
-                        .get(&epoch)
-                        .map_or(true, |(prior, _)| *prior != dependent_root)
-                })
+                local_pubkeys.contains(&duty.pubkey) && {
+                    // Only update the duties if either is true:
+                    //
+                    // - There were no known duties for this epoch.
+                    // - The dependent root has changed, signalling a re-org.
+                    attesters.get(&duty.pubkey).map_or(true, |duties| {
+                        duties
+                            .get(&epoch)
+                            .map_or(true, |(prior, _)| *prior != dependent_root)
+                    })
+                }
             })
             .collect::<Vec<_>>()
     };

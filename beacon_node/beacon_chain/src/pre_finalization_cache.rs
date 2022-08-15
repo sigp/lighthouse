@@ -71,7 +71,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         // 2. Check on disk.
-        if self.store.get_block(&block_root)?.is_some() {
+        if self.store.get_blinded_block(&block_root)?.is_some() {
             cache.block_roots.put(block_root, ());
             return Ok(true);
         }

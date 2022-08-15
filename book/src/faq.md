@@ -6,7 +6,7 @@
 - [What should I do if I lose my slashing protection database?](#what-should-i-do-if-i-lose-my-slashing-protection-database)
 - [How do I update lighthouse?](#how-do-i-update-lighthouse)
 - [I can't compile lighthouse](#i-cant-compile-lighthouse)
-- [What is "Syncing eth1 block cache"](#what-is-syncing-eth1-block-cache)
+- [What is "Syncing deposit contract block cache"](#what-is-syncing-deposit-contract-block-cache)
 - [Can I use redundancy in my staking setup?](#can-i-use-redundancy-in-my-staking-setup)
 - [How can I monitor my validators](#how-can-i-monitor-my-validators)
 
@@ -154,10 +154,10 @@ You will just also need to make sure the code you have checked out is up to date
 
 See [here.](./installation-source.md#troubleshooting)
 
-### What is "Syncing eth1 block cache"
+### What is "Syncing deposit contract block cache"
 
 ```
-Nov 30 21:04:28.268 WARN Syncing eth1 block cache   est_blocks_remaining: initializing deposits, service: slot_notifier
+Nov 30 21:04:28.268 WARN Syncing deposit contract block cache   est_blocks_remaining: initializing deposits, service: slot_notifier
 ```
 
 This log indicates that your beacon node is downloading blocks and deposits

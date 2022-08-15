@@ -9,6 +9,7 @@ edition = "2021"
 [dependencies]
 node_test_rig = { path = "../node_test_rig" }
 eth1 = {path = "../../beacon_node/eth1"}
+execution_layer = {path = "../../beacon_node/execution_layer"}
 types = { path = "../../consensus/types" }
 parking_lot = "0.12.0"
 futures = "0.3.7"

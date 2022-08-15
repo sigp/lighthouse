@@ -13,9 +13,7 @@ use futures::channel::mpsc::{channel, Receiver, Sender};
 use futures::{future, StreamExt};
 
 use slog::{error, info, o, warn, Drain, Duplicate, Level, Logger};
-use sloggers::{
-    file::FileLoggerBuilder, null::NullLoggerBuilder, types::Format, types::Severity, Build,
-};
+use sloggers::{file::FileLoggerBuilder, types::Format, types::Severity, Build};
 use std::fs::create_dir_all;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -32,6 +30,8 @@ use {
 
 #[cfg(not(target_family = "unix"))]
 use {futures::channel::oneshot, std::cell::RefCell};
+
+pub use task_executor::test_utils::null_logger;
 
 const LOG_CHANNEL_SIZE: usize = 2048;
 /// The maximum time in seconds the client will wait for all internal tasks to shutdown.
@@ -504,13 +504,6 @@ impl<E: EthSpec> Environment<E> {
     pub fn eth2_config(&self) -> &Eth2Config {
         &self.eth2_config
     }
-}
-
-pub fn null_logger() -> Result<Logger, String> {
-    let log_builder = NullLoggerBuilder;
-    log_builder
-        .build()
-        .map_err(|e| format!("Failed to start null logger: {:?}", e))
 }
 
 #[cfg(target_family = "unix")]

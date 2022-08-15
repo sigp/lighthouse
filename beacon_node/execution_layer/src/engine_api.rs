@@ -1,13 +1,12 @@
 use crate::engines::ForkChoiceState;
-use async_trait::async_trait;
-use eth1::http::RpcError;
+pub use ethers_core::types::Transaction;
+use http::deposit_methods::RpcError;
 pub use json_structures::TransitionConfigurationV1;
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
-use slog::Logger;
 pub use types::{
-    Address, EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadHeader, Hash256,
-    Uint256,
+    Address, EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadHeader, FixedVector,
+    Hash256, Uint256, VariableList,
 };
 
 pub mod auth;
@@ -27,10 +26,7 @@ pub enum Error {
     InvalidExecutePayloadResponse(&'static str),
     JsonRpc(RpcError),
     Json(serde_json::Error),
-    ServerMessage {
-        code: i64,
-        message: String,
-    },
+    ServerMessage { code: i64, message: String },
     Eip155Failure,
     IsSyncing,
     ExecutionBlockNotFound(ExecutionBlockHash),
@@ -39,13 +35,9 @@ pub enum Error {
     PayloadIdUnavailable,
     TransitionConfigurationMismatch,
     PayloadConversionLogicFlaw,
-    InvalidBuilderQuery,
-    MissingPayloadId {
-        parent_hash: ExecutionBlockHash,
-        timestamp: u64,
-        prev_randao: Hash256,
-        suggested_fee_recipient: Address,
-    },
+    DeserializeTransaction(ssz_types::Error),
+    DeserializeTransactions(ssz_types::Error),
+    BuilderApi(builder_client::Error),
 }
 
 impl From<reqwest::Error> for Error {
@@ -73,17 +65,10 @@ impl From<auth::Error> for Error {
     }
 }
 
-pub struct EngineApi;
-pub struct BuilderApi;
-
-#[async_trait]
-pub trait Builder {
-    async fn notify_forkchoice_updated(
-        &self,
-        forkchoice_state: ForkChoiceState,
-        payload_attributes: Option<PayloadAttributes>,
-        log: &Logger,
-    ) -> Result<ForkchoiceUpdatedResponse, Error>;
+impl From<builder_client::Error> for Error {
+    fn from(e: builder_client::Error) -> Self {
+        Error::BuilderApi(e)
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -93,7 +78,6 @@ pub enum PayloadStatusV1Status {
     Syncing,
     Accepted,
     InvalidBlockHash,
-    InvalidTerminalBlock,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -109,6 +93,9 @@ pub enum BlockByNumberQuery<'a> {
     Tag(&'a str),
 }
 
+/// Representation of an exection block with enough detail to determine the terminal PoW block.
+///
+/// See `get_pow_block_hash_at_total_difficulty`.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ExecutionBlock {
@@ -118,6 +105,37 @@ pub struct ExecutionBlock {
     pub block_number: u64,
     pub parent_hash: ExecutionBlockHash,
     pub total_difficulty: Uint256,
+    #[serde(with = "eth2_serde_utils::u64_hex_be")]
+    pub timestamp: u64,
+}
+
+/// Representation of an exection block with enough detail to reconstruct a payload.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExecutionBlockWithTransactions<T: EthSpec> {
+    pub parent_hash: ExecutionBlockHash,
+    #[serde(alias = "miner")]
+    pub fee_recipient: Address,
+    pub state_root: Hash256,
+    pub receipts_root: Hash256,
+    #[serde(with = "ssz_types::serde_utils::hex_fixed_vec")]
+    pub logs_bloom: FixedVector<u8, T::BytesPerLogsBloom>,
+    #[serde(alias = "mixHash")]
+    pub prev_randao: Hash256,
+    #[serde(rename = "number", with = "eth2_serde_utils::u64_hex_be")]
+    pub block_number: u64,
+    #[serde(with = "eth2_serde_utils::u64_hex_be")]
+    pub gas_limit: u64,
+    #[serde(with = "eth2_serde_utils::u64_hex_be")]
+    pub gas_used: u64,
+    #[serde(with = "eth2_serde_utils::u64_hex_be")]
+    pub timestamp: u64,
+    #[serde(with = "ssz_types::serde_utils::hex_var_list")]
+    pub extra_data: VariableList<u8, T::MaxExtraDataBytes>,
+    pub base_fee_per_gas: Uint256,
+    #[serde(rename = "hash")]
+    pub block_hash: ExecutionBlockHash,
+    pub transactions: Vec<Transaction>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]

@@ -407,7 +407,6 @@ impl<T: BeaconChainTypes, C: BlockStorage> ChainCollection<T, C> {
         local_info: &SyncInfo,
         awaiting_head_peers: &mut HashMap<PeerId, SyncInfo>,
     ) {
-        debug!(self.log, "Purging chains");
         let local_finalized_slot = local_info
             .finalized_epoch
             .start_slot(T::EthSpec::slots_per_epoch());
@@ -416,10 +415,7 @@ impl<T: BeaconChainTypes, C: BlockStorage> ChainCollection<T, C> {
         let log_ref = &self.log;
 
         let is_outdated = |target_slot: &Slot, target_root: &Hash256| {
-            let is =
-                target_slot <= &local_finalized_slot || beacon_chain.is_block_known(target_root);
-            debug!(log_ref, "Chain is outdated {}", is);
-            is
+            target_slot <= &local_finalized_slot || beacon_chain.is_block_known(target_root)
         };
 
         // Retain only head peers that remain relevant
@@ -476,10 +472,10 @@ impl<T: BeaconChainTypes, C: BlockStorage> ChainCollection<T, C> {
         network: &mut SyncNetworkContext<T::EthSpec>,
     ) {
         let id = SyncingChain::<T>::id(&target_head_root, &target_head_slot);
-        let collection = if let RangeSyncType::Finalized = sync_type {
-            &mut self.finalized_chains
+        let (collection, is_finalized) = if let RangeSyncType::Finalized = sync_type {
+            (&mut self.finalized_chains, true)
         } else {
-            &mut self.head_chains
+            (&mut self.head_chains, false)
         };
         match collection.entry(id) {
             Entry::Occupied(mut entry) => {
@@ -505,6 +501,7 @@ impl<T: BeaconChainTypes, C: BlockStorage> ChainCollection<T, C> {
                     target_head_root,
                     peer,
                     beacon_processor_send.clone(),
+                    is_finalized,
                     &self.log,
                 );
                 debug_assert_eq!(new_chain.get_id(), id);

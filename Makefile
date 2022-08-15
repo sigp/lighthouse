@@ -12,6 +12,7 @@ AARCH64_TAG = "aarch64-unknown-linux-gnu"
 BUILD_PATH_AARCH64 = "target/$(AARCH64_TAG)/release"
 
 PINNED_NIGHTLY ?= nightly
+CLIPPY_PINNED_NIGHTLY=nightly-2022-05-19
 
 # List of all hard forks. This list is used to set env variables for several tests so that
 # they run for different forks.
@@ -141,9 +142,17 @@ lint:
 	cargo clippy --workspace --tests -- \
 		-D clippy::fn_to_numeric_cast_any \
 		-D warnings \
+		-A clippy::derive_partial_eq_without_eq \
 		-A clippy::from-over-into \
 		-A clippy::upper-case-acronyms \
 		-A clippy::vec-init-then-push
+
+nightly-lint:
+	cp .github/custom/clippy.toml .
+	cargo +$(CLIPPY_PINNED_NIGHTLY) clippy --workspace --tests --release -- \
+		-A clippy::all \
+		-D clippy::disallowed_from_async
+	rm clippy.toml
 
 # Runs the makefile in the `ef_tests` repo.
 #
@@ -161,7 +170,7 @@ arbitrary-fuzz:
 # Runs cargo audit (Audit Cargo.lock files for crates with security vulnerabilities reported to the RustSec Advisory Database)
 audit:
 	cargo install --force cargo-audit
-	cargo audit --ignore RUSTSEC-2020-0071 --ignore RUSTSEC-2020-0159
+	cargo audit --ignore RUSTSEC-2020-0071 --ignore RUSTSEC-2020-0159 --ignore RUSTSEC-2022-0040
 
 # Runs `cargo vendor` to make sure dependencies can be vendored for packaging, reproducibility and archival purpose.
 vendor:

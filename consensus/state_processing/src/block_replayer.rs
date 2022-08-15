@@ -3,10 +3,12 @@ use crate::{
     BlockProcessingError, BlockSignatureStrategy, SlotProcessingError, VerifyBlockRoot,
 };
 use std::marker::PhantomData;
-use types::{BeaconState, ChainSpec, EthSpec, Hash256, SignedBeaconBlock, Slot};
+use types::{BeaconState, BlindedPayload, ChainSpec, EthSpec, Hash256, SignedBeaconBlock, Slot};
 
-type PreBlockHook<'a, E, Error> =
-    Box<dyn FnMut(&mut BeaconState<E>, &SignedBeaconBlock<E>) -> Result<(), Error> + 'a>;
+type PreBlockHook<'a, E, Error> = Box<
+    dyn FnMut(&mut BeaconState<E>, &SignedBeaconBlock<E, BlindedPayload<E>>) -> Result<(), Error>
+        + 'a,
+>;
 type PostBlockHook<'a, E, Error> = PreBlockHook<'a, E, Error>;
 type PreSlotHook<'a, E, Error> = Box<dyn FnMut(&mut BeaconState<E>) -> Result<(), Error> + 'a>;
 type PostSlotHook<'a, E, Error> = Box<
@@ -175,7 +177,7 @@ where
     fn get_state_root(
         &mut self,
         slot: Slot,
-        blocks: &[SignedBeaconBlock<E>],
+        blocks: &[SignedBeaconBlock<E, BlindedPayload<E>>],
         i: usize,
     ) -> Result<Option<Hash256>, Error> {
         // If we don't care about state roots then return immediately.
@@ -214,7 +216,7 @@ where
     /// after the blocks have been applied.
     pub fn apply_blocks(
         mut self,
-        blocks: Vec<SignedBeaconBlock<E>>,
+        blocks: Vec<SignedBeaconBlock<E, BlindedPayload<E>>>,
         target_slot: Option<Slot>,
     ) -> Result<Self, Error> {
         for (i, block) in blocks.iter().enumerate() {

@@ -65,7 +65,7 @@ where
             .try_read_for(VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT)
             .ok_or(BeaconChainError::ValidatorPubkeyCacheLockTimeout)?;
 
-        let fork = chain.with_head(|head| Ok::<_, BeaconChainError>(head.beacon_state.fork()))?;
+        let fork = chain.canonical_head.cached_head().head_fork();
 
         let mut signature_sets = Vec::with_capacity(num_indexed * 3);
 
@@ -169,12 +169,12 @@ where
             &metrics::ATTESTATION_PROCESSING_BATCH_UNAGG_SIGNATURE_SETUP_TIMES,
         );
 
+        let fork = chain.canonical_head.cached_head().head_fork();
+
         let pubkey_cache = chain
             .validator_pubkey_cache
             .try_read_for(VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT)
             .ok_or(BeaconChainError::ValidatorPubkeyCacheLockTimeout)?;
-
-        let fork = chain.with_head(|head| Ok::<_, BeaconChainError>(head.beacon_state.fork()))?;
 
         let mut signature_sets = Vec::with_capacity(num_partially_verified);
 

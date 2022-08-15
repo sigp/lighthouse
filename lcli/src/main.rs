@@ -5,8 +5,8 @@ mod check_deposit_data;
 mod create_payload_header;
 mod deploy_deposit_contract;
 mod eth1_genesis;
-mod etl;
 mod generate_bootnode_enr;
+mod indexed_attestations;
 mod insecure_validators;
 mod interop_genesis;
 mod new_testnet;
@@ -22,7 +22,6 @@ use parse_ssz::run_parse_ssz;
 use std::path::PathBuf;
 use std::process;
 use std::str::FromStr;
-use transition_blocks::run_transition_blocks;
 use types::{EthSpec, EthSpecId};
 
 fn main() {
@@ -57,53 +56,149 @@ fn main() {
                     "Performs a state transition from some state across some number of skip slots",
                 )
                 .arg(
-                    Arg::with_name("pre-state")
-                        .value_name("BEACON_STATE")
+                    Arg::with_name("output-path")
+                        .long("output-path")
+                        .value_name("PATH")
                         .takes_value(true)
-                        .required(true)
+                        .help("Path to output a SSZ file."),
+                )
+                .arg(
+                    Arg::with_name("pre-state-path")
+                        .long("pre-state-path")
+                        .value_name("PATH")
+                        .takes_value(true)
+                        .conflicts_with("beacon-url")
                         .help("Path to a SSZ file of the pre-state."),
                 )
                 .arg(
-                    Arg::with_name("slots")
-                        .value_name("SLOT_COUNT")
+                    Arg::with_name("beacon-url")
+                        .long("beacon-url")
+                        .value_name("URL")
                         .takes_value(true)
-                        .required(true)
-                        .help("Number of slots to skip before outputting a state.."),
+                        .help("URL to a beacon-API provider."),
                 )
                 .arg(
-                    Arg::with_name("output")
-                        .value_name("SSZ_FILE")
+                    Arg::with_name("state-id")
+                        .long("state-id")
+                        .value_name("STATE_ID")
                         .takes_value(true)
-                        .required(true)
-                        .default_value("./output.ssz")
-                        .help("Path to output a SSZ file."),
-                ),
+                        .requires("beacon-url")
+                        .help("Identifier for a state as per beacon-API standards (slot, root, etc.)"),
+                )
+                .arg(
+                    Arg::with_name("runs")
+                        .long("runs")
+                        .value_name("INTEGER")
+                        .takes_value(true)
+                        .default_value("1")
+                        .help("Number of repeat runs, useful for benchmarking."),
+                )
+                .arg(
+                    Arg::with_name("state-root")
+                        .long("state-root")
+                        .value_name("HASH256")
+                        .takes_value(true)
+                        .help("Tree hash root of the provided state, to avoid computing it."),
+                )
+                .arg(
+                    Arg::with_name("slots")
+                        .long("slots")
+                        .value_name("INTEGER")
+                        .takes_value(true)
+                        .help("Number of slots to skip forward."),
+                )
+                .arg(
+                    Arg::with_name("partial-state-advance")
+                        .long("partial-state-advance")
+                        .takes_value(false)
+                        .help("If present, don't compute state roots when skipping forward."),
+                )
         )
         .subcommand(
             SubCommand::with_name("transition-blocks")
                 .about("Performs a state transition given a pre-state and block")
                 .arg(
-                    Arg::with_name("pre-state")
-                        .value_name("BEACON_STATE")
+                    Arg::with_name("pre-state-path")
+                        .long("pre-state-path")
+                        .value_name("PATH")
                         .takes_value(true)
-                        .required(true)
-                        .help("Path to a SSZ file of the pre-state."),
+                        .conflicts_with("beacon-url")
+                        .requires("block-path")
+                        .help("Path to load a BeaconState from file as SSZ."),
                 )
                 .arg(
-                    Arg::with_name("block")
-                        .value_name("BEACON_BLOCK")
+                    Arg::with_name("block-path")
+                        .long("block-path")
+                        .value_name("PATH")
                         .takes_value(true)
-                        .required(true)
-                        .help("Path to a SSZ file of the block to apply to pre-state."),
+                        .conflicts_with("beacon-url")
+                        .requires("pre-state-path")
+                        .help("Path to load a SignedBeaconBlock from file as SSZ."),
                 )
                 .arg(
-                    Arg::with_name("output")
-                        .value_name("SSZ_FILE")
+                    Arg::with_name("post-state-output-path")
+                        .long("post-state-output-path")
+                        .value_name("PATH")
                         .takes_value(true)
-                        .required(true)
-                        .default_value("./output.ssz")
-                        .help("Path to output a SSZ file."),
-                ),
+                        .help("Path to output the post-state."),
+                )
+                .arg(
+                    Arg::with_name("pre-state-output-path")
+                        .long("pre-state-output-path")
+                        .value_name("PATH")
+                        .takes_value(true)
+                        .help("Path to output the pre-state, useful when used with --beacon-url."),
+                )
+                .arg(
+                    Arg::with_name("block-output-path")
+                        .long("block-output-path")
+                        .value_name("PATH")
+                        .takes_value(true)
+                        .help("Path to output the block, useful when used with --beacon-url."),
+                )
+                .arg(
+                    Arg::with_name("beacon-url")
+                        .long("beacon-url")
+                        .value_name("URL")
+                        .takes_value(true)
+                        .help("URL to a beacon-API provider."),
+                )
+                .arg(
+                    Arg::with_name("block-id")
+                        .long("block-id")
+                        .value_name("BLOCK_ID")
+                        .takes_value(true)
+                        .requires("beacon-url")
+                        .help("Identifier for a block as per beacon-API standards (slot, root, etc.)"),
+                )
+                .arg(
+                    Arg::with_name("runs")
+                        .long("runs")
+                        .value_name("INTEGER")
+                        .takes_value(true)
+                        .default_value("1")
+                        .help("Number of repeat runs, useful for benchmarking."),
+                )
+                .arg(
+                    Arg::with_name("no-signature-verification")
+                        .long("no-signature-verification")
+                        .takes_value(false)
+                        .help("Disable signature verification.")
+                )
+                .arg(
+                    Arg::with_name("exclude-cache-builds")
+                        .long("exclude-cache-builds")
+                        .takes_value(false)
+                        .help("If present, pre-build the committee and tree-hash caches without \
+                            including them in the timings."),
+                )
+                .arg(
+                    Arg::with_name("exclude-post-block-thc")
+                        .long("exclude-post-block-thc")
+                        .takes_value(false)
+                        .help("If present, don't rebuild the tree-hash-cache after applying \
+                            the block."),
+                )
         )
         .subcommand(
             SubCommand::with_name("pretty-ssz")
@@ -608,60 +703,23 @@ fn main() {
                 )
         )
         .subcommand(
-            SubCommand::with_name("etl-block-efficiency")
-                .about(
-                    "Performs ETL analysis of block efficiency. Requires a Beacon Node API to \
-                    extract data from.",
+            SubCommand::with_name("indexed-attestations")
+                .about("Convert attestations to indexed form, using the committees from a state.")
+                .arg(
+                    Arg::with_name("state")
+                        .long("state")
+                        .value_name("SSZ_STATE")
+                        .takes_value(true)
+                        .required(true)
+                        .help("BeaconState to generate committees from (SSZ)"),
                 )
                 .arg(
-                    Arg::with_name("endpoint")
-                        .long("endpoint")
-                        .short("e")
+                    Arg::with_name("attestations")
+                        .long("attestations")
+                        .value_name("JSON_ATTESTATIONS")
                         .takes_value(true)
-                        .default_value("http://localhost:5052")
-                        .help(
-                            "The endpoint of the Beacon Node API."
-                        ),
-                )
-                .arg(
-                    Arg::with_name("output")
-                        .long("output")
-                        .short("o")
-                        .takes_value(true)
-                        .help("The path of the output data in CSV file.")
-                        .required(true),
-                )
-                .arg(
-                    Arg::with_name("start-epoch")
-                        .long("start-epoch")
-                        .takes_value(true)
-                        .help(
-                            "The first epoch in the range of epochs to be evaluated. Use with \
-                            --end-epoch.",
-                        )
-                        .required(true),
-                )
-                .arg(
-                    Arg::with_name("end-epoch")
-                        .long("end-epoch")
-                        .takes_value(true)
-                        .help(
-                            "The last epoch in the range of epochs to be evaluated. Use with \
-                            --start-epoch.",
-                        )
-                        .required(true),
-                )
-                .arg(
-                    Arg::with_name("offline-window")
-                        .long("offline-window")
-                        .takes_value(true)
-                        .default_value("3")
-                        .help(
-                            "If a validator does not submit an attestion within this many epochs, \
-                            they are deemed offline. For example, for a offline window of 3, if a \
-                            validator does not attest in epochs 4, 5 or 6, it is deemed offline \
-                            during epoch 6. A value of 0 will skip these checks."
-                        )
+                        .required(true)
+                        .help("List of Attestations to convert to indexed form (JSON)"),
                 )
         )
         .get_matches();
@@ -712,10 +770,11 @@ fn run<T: EthSpec>(
     )?;
 
     match matches.subcommand() {
-        ("transition-blocks", Some(matches)) => run_transition_blocks::<T>(testnet_dir, matches)
+        ("transition-blocks", Some(matches)) => transition_blocks::run::<T>(env, matches)
             .map_err(|e| format!("Failed to transition blocks: {}", e)),
-        ("skip-slots", Some(matches)) => skip_slots::run::<T>(testnet_dir, matches)
-            .map_err(|e| format!("Failed to skip slots: {}", e)),
+        ("skip-slots", Some(matches)) => {
+            skip_slots::run::<T>(env, matches).map_err(|e| format!("Failed to skip slots: {}", e))
+        }
         ("pretty-ssz", Some(matches)) => {
             run_parse_ssz::<T>(matches).map_err(|e| format!("Failed to pretty print hex: {}", e))
         }
@@ -745,10 +804,8 @@ fn run<T: EthSpec>(
             .map_err(|e| format!("Failed to run generate-bootnode-enr command: {}", e)),
         ("insecure-validators", Some(matches)) => insecure_validators::run(matches)
             .map_err(|e| format!("Failed to run insecure-validators command: {}", e)),
-        ("etl-block-efficiency", Some(matches)) => env
-            .runtime()
-            .block_on(etl::block_efficiency::run::<T>(matches))
-            .map_err(|e| format!("Failed to run etl-block_efficiency: {}", e)),
+        ("indexed-attestations", Some(matches)) => indexed_attestations::run::<T>(matches)
+            .map_err(|e| format!("Failed to run indexed-attestations command: {}", e)),
         (other, _) => Err(format!("Unknown subcommand {}. See --help.", other)),
     }
 }

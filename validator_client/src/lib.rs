@@ -5,7 +5,6 @@ mod check_synced;
 mod cli;
 mod config;
 mod duties_service;
-mod fee_recipient_file;
 mod graffiti_file;
 mod http_metrics;
 mod key_cache;
@@ -73,6 +72,7 @@ const HTTP_ATTESTER_DUTIES_TIMEOUT_QUOTIENT: u32 = 4;
 const HTTP_LIVENESS_TIMEOUT_QUOTIENT: u32 = 4;
 const HTTP_PROPOSAL_TIMEOUT_QUOTIENT: u32 = 2;
 const HTTP_PROPOSER_DUTIES_TIMEOUT_QUOTIENT: u32 = 4;
+const HTTP_SYNC_COMMITTEE_CONTRIBUTION_TIMEOUT_QUOTIENT: u32 = 4;
 const HTTP_SYNC_DUTIES_TIMEOUT_QUOTIENT: u32 = 4;
 
 const DOPPELGANGER_SERVICE_NAME: &str = "doppelganger";
@@ -281,6 +281,8 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
                         liveness: slot_duration / HTTP_LIVENESS_TIMEOUT_QUOTIENT,
                         proposal: slot_duration / HTTP_PROPOSAL_TIMEOUT_QUOTIENT,
                         proposer_duties: slot_duration / HTTP_PROPOSER_DUTIES_TIMEOUT_QUOTIENT,
+                        sync_committee_contribution: slot_duration
+                            / HTTP_SYNC_COMMITTEE_CONTRIBUTION_TIMEOUT_QUOTIENT,
                         sync_duties: slot_duration / HTTP_SYNC_DUTIES_TIMEOUT_QUOTIENT,
                     }
                 } else {
@@ -306,8 +308,18 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             &http_metrics::metrics::ETH2_FALLBACK_CONFIGURED,
             num_nodes.saturating_sub(1) as i64,
         );
-        // Initialize the number of connected, synced fallbacks to 0.
+        // Set the total beacon node count.
+        set_gauge(
+            &http_metrics::metrics::TOTAL_BEACON_NODES_COUNT,
+            num_nodes as i64,
+        );
+
+        // Initialize the number of connected, synced beacon nodes to 0.
         set_gauge(&http_metrics::metrics::ETH2_FALLBACK_CONNECTED, 0);
+        set_gauge(&http_metrics::metrics::SYNCED_BEACON_NODES_COUNT, 0);
+        // Initialize the number of connected, avaliable beacon nodes to 0.
+        set_gauge(&http_metrics::metrics::AVAILABLE_BEACON_NODES_COUNT, 0);
+
         let mut beacon_nodes: BeaconNodeFallback<_, T> =
             BeaconNodeFallback::new(candidates, context.eth2_config.spec.clone(), log.clone());
 
@@ -350,6 +362,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             context.eth2_config.spec.clone(),
             doppelganger_service.clone(),
             slot_clock.clone(),
+            &config,
             context.executor.clone(),
             log.clone(),
         ));
@@ -401,7 +414,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             .graffiti(config.graffiti)
             .graffiti_file(config.graffiti_file.clone())
             .block_delay(config.block_delay)
-            .private_tx_proposals(config.private_tx_proposals)
+            .strict_fee_recipient(config.strict_fee_recipient)
             .build()?;
 
         let attestation_service = AttestationServiceBuilder::new()
@@ -417,8 +430,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             .validator_store(validator_store.clone())
             .beacon_nodes(beacon_nodes.clone())
             .runtime_context(context.service_context("preparation".into()))
-            .fee_recipient(config.fee_recipient)
-            .fee_recipient_file(config.fee_recipient_file.clone())
+            .builder_registration_timestamp_override(config.builder_registration_timestamp_override)
             .build()?;
 
         let sync_committee_service = SyncCommitteeService::new(
@@ -429,7 +441,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             context.service_context("sync_committee".into()),
         );
 
-        // Wait until genesis has occured.
+        // Wait until genesis has occurred.
         //
         // It seems most sensible to move this into the `start_service` function, but I'm caution
         // of making too many changes this close to genesis (<1 week).
@@ -499,7 +511,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
 
         self.http_api_listen_addr = if self.config.http_api.enabled {
             let ctx = Arc::new(http_api::Context {
-                runtime: self.context.executor.runtime(),
+                task_executor: self.context.executor.clone(),
                 api_secret,
                 validator_store: Some(self.validator_store.clone()),
                 validator_dir: Some(self.config.validator_dir.clone()),

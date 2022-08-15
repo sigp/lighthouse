@@ -1,10 +1,10 @@
 [package]
 name = "lighthouse"
-version = "2.2.1"
+version = "2.5.1"
 authors = ["Sigma Prime <contact@sigmaprime.io>"]
 edition = "2021"
 autotests = false
-rust-version = "1.58"
+rust-version = "1.62"
 
 [features]
 # Writes debugging .ssz files to /tmp during block processing.
@@ -55,6 +55,7 @@ validator_dir = { path = "../common/validator_dir" }
 slashing_protection = { path = "../validator_client/slashing_protection" }
 lighthouse_network = { path = "../beacon_node/lighthouse_network" }
 sensitive_url = { path = "../common/sensitive_url" }
+eth1 = { path = "../beacon_node/eth1" }
 
 [[test]]
 name = "lighthouse_tests"

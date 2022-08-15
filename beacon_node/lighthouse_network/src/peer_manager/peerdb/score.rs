@@ -223,6 +223,7 @@ impl RealScore {
     #[cfg(test)]
     pub fn set_gossipsub_score(&mut self, score: f64) {
         self.gossipsub_score = score;
+        self.update_state();
     }
 
     /// Applies time-based logic such as decay rates to the score.

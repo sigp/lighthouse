@@ -188,29 +188,7 @@ impl RPCRateLimiter {
         request: &InboundRequest<T>,
     ) -> Result<(), RateLimitedErr> {
         let time_since_start = self.init_time.elapsed();
-        let mut tokens = request.expected_responses().max(1);
-
-        // Increase the rate limit for blocks by range requests with large step counts.
-        // We count to tokens as a quadratic increase with step size.
-        // Using (step_size/5)^2 + 1 as penalty factor allows step sizes of 1-4 to have no penalty
-        // but step sizes higher than this add a quadratic penalty.
-        // Penalty's go:
-        // Step size | Penalty Factor
-        //     1     |   1
-        //     2     |   1
-        //     3     |   1
-        //     4     |   1
-        //     5     |   2
-        //     6     |   2
-        //     7     |   2
-        //     8     |   3
-        //     9     |   4
-        //     10    |   5
-
-        if let InboundRequest::BlocksByRange(bbr_req) = request {
-            let penalty_factor = (bbr_req.step as f64 / 5.0).powi(2) as u64 + 1;
-            tokens *= penalty_factor;
-        }
+        let tokens = request.expected_responses().max(1);
 
         let check =
             |limiter: &mut Limiter<PeerId>| limiter.allows(time_since_start, peer_id, tokens);

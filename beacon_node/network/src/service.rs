@@ -7,7 +7,7 @@ use crate::{
     subnet_service::{AttestationService, SubnetServiceMessage},
     NetworkConfig,
 };
-use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes};
+use beacon_chain::{BeaconChain, BeaconChainTypes};
 use futures::channel::mpsc::Sender;
 use futures::future::OptionFuture;
 use futures::prelude::*;
@@ -30,8 +30,8 @@ use task_executor::ShutdownReason;
 use tokio::sync::mpsc;
 use tokio::time::Sleep;
 use types::{
-    ChainSpec, EthSpec, ForkContext, RelativeEpoch, Slot, SubnetId, SyncCommitteeSubscription,
-    SyncSubnetId, Unsigned, ValidatorSubscription,
+    ChainSpec, EthSpec, ForkContext, Slot, SubnetId, SyncCommitteeSubscription, SyncSubnetId,
+    Unsigned, ValidatorSubscription,
 };
 
 mod tests;
@@ -362,7 +362,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                     Some(msg) = self.attestation_service.next() => self.on_attestation_service_msg(msg),
 
                     // process any sync committee service events
-                    Some(msg) = self.sync_committee_service.next() => self.on_sync_commitee_service_message(msg),
+                    Some(msg) = self.sync_committee_service.next() => self.on_sync_committee_service_message(msg),
 
                     event = self.libp2p.next_event() => self.on_libp2p_event(event, &mut shutdown_sender).await,
 
@@ -706,29 +706,12 @@ impl<T: BeaconChainTypes> NetworkService<T> {
 
     fn update_gossipsub_parameters(&mut self) {
         if let Ok(slot) = self.beacon_chain.slot() {
-            if let Some(active_validators) = self
+            let active_validators_opt = self
                 .beacon_chain
-                .with_head(|head| {
-                    Ok::<_, BeaconChainError>(
-                        head.beacon_state
-                            .get_cached_active_validator_indices(RelativeEpoch::Current)
-                            .map(|indices| indices.len())
-                            .ok()
-                            .or_else(|| {
-                                // if active validator cached was not build we count the
-                                // active validators
-                                self.beacon_chain.epoch().ok().map(|current_epoch| {
-                                    head.beacon_state
-                                        .validators()
-                                        .iter()
-                                        .filter(|validator| validator.is_active_at(current_epoch))
-                                        .count()
-                                })
-                            }),
-                    )
-                })
-                .unwrap_or(None)
-            {
+                .canonical_head
+                .cached_head()
+                .active_validator_count();
+            if let Some(active_validators) = active_validators_opt {
                 if self
                     .libp2p
                     .swarm
@@ -742,6 +725,14 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                         "active_validators" => active_validators
                     );
                 }
+            } else {
+                // This scenario will only happen if the caches on the cached canonical head aren't
+                // built. That should never be the case.
+                error!(
+                    self.log,
+                    "Active validator count unavailable";
+                    "info" => "please report this bug"
+                );
             }
         }
     }
@@ -783,7 +774,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         }
     }
 
-    fn on_sync_commitee_service_message(&mut self, msg: SubnetServiceMessage) {
+    fn on_sync_committee_service_message(&mut self, msg: SubnetServiceMessage) {
         match msg {
             SubnetServiceMessage::Subscribe(subnet) => {
                 for fork_digest in self.required_gossip_fork_digests() {

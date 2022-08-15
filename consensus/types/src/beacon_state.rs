@@ -779,14 +779,14 @@ impl<T: EthSpec> BeaconState<T> {
         &mut self,
         sync_committee: &SyncCommittee<T>,
     ) -> Result<Vec<usize>, Error> {
-        sync_committee
-            .pubkeys
-            .iter()
-            .map(|pubkey| {
+        let mut indices = Vec::with_capacity(sync_committee.pubkeys.len());
+        for pubkey in sync_committee.pubkeys.iter() {
+            indices.push(
                 self.get_validator_index(pubkey)?
-                    .ok_or(Error::PubkeyCacheInconsistent)
-            })
-            .collect()
+                    .ok_or(Error::PubkeyCacheInconsistent)?,
+            )
+        }
+        Ok(indices)
     }
 
     /// Compute the sync committee indices for the next sync committee.
@@ -961,6 +961,13 @@ impl<T: EthSpec> BeaconState<T> {
         } else {
             Err(Error::EpochOutOfBounds)
         }
+    }
+
+    /// Return the minimum epoch for which `get_randao_mix` will return a non-error value.
+    pub fn min_randao_epoch(&self) -> Epoch {
+        self.current_epoch()
+            .saturating_add(1u64)
+            .saturating_sub(T::EpochsPerHistoricalVector::to_u64())
     }
 
     /// XOR-assigns the existing `epoch` randao mix with the hash of the `signature`.
@@ -1602,17 +1609,23 @@ impl<T: EthSpec> BeaconState<T> {
         self.clone_with(CloneConfig::committee_caches_only())
     }
 
-    pub fn is_eligible_validator(&self, val_index: usize) -> Result<bool, Error> {
-        let previous_epoch = self.previous_epoch();
+    /// Passing `previous_epoch` to this function rather than computing it internally provides
+    /// a tangible speed improvement in state processing.
+    pub fn is_eligible_validator(
+        &self,
+        previous_epoch: Epoch,
+        val_index: usize,
+    ) -> Result<bool, Error> {
         self.get_validator(val_index).map(|val| {
             val.is_active_at(previous_epoch)
                 || (val.slashed && previous_epoch + Epoch::new(1) < val.withdrawable_epoch)
         })
     }
 
-    pub fn is_in_inactivity_leak(&self, spec: &ChainSpec) -> bool {
-        (self.previous_epoch() - self.finalized_checkpoint().epoch)
-            > spec.min_epochs_to_inactivity_penalty
+    /// Passing `previous_epoch` to this function rather than computing it internally provides
+    /// a tangible speed improvement in state processing.
+    pub fn is_in_inactivity_leak(&self, previous_epoch: Epoch, spec: &ChainSpec) -> bool {
+        (previous_epoch - self.finalized_checkpoint().epoch) > spec.min_epochs_to_inactivity_penalty
     }
 
     /// Get the `SyncCommittee` associated with the next slot. Useful because sync committees

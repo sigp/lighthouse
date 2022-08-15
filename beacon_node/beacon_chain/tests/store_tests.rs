@@ -10,6 +10,7 @@ use beacon_chain::{
     BeaconChainError, BeaconChainTypes, BeaconSnapshot, ChainConfig, ServerSentEventHandler,
     WhenSlotSkipped,
 };
+use fork_choice::CountUnrealized;
 use lazy_static::lazy_static;
 use logging::test_logger;
 use maplit::hashset;
@@ -72,18 +73,20 @@ fn get_harness(
     harness
 }
 
-#[test]
-fn full_participation_no_skips() {
+#[tokio::test]
+async fn full_participation_no_skips() {
     let num_blocks_produced = E::slots_per_epoch() * 5;
     let db_path = tempdir().unwrap();
     let store = get_store(&db_path);
     let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
 
-    harness.extend_chain(
-        num_blocks_produced as usize,
-        BlockStrategy::OnCanonicalHead,
-        AttestationStrategy::AllValidators,
-    );
+    harness
+        .extend_chain(
+            num_blocks_produced as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
 
     check_finalization(&harness, num_blocks_produced);
     check_split_slot(&harness, store);
@@ -91,8 +94,8 @@ fn full_participation_no_skips() {
     check_iterators(&harness);
 }
 
-#[test]
-fn randomised_skips() {
+#[tokio::test]
+async fn randomised_skips() {
     let num_slots = E::slots_per_epoch() * 5;
     let mut num_blocks_produced = 0;
     let db_path = tempdir().unwrap();
@@ -104,14 +107,16 @@ fn randomised_skips() {
 
     for slot in 1..=num_slots {
         if rng.gen_bool(0.8) {
-            harness.extend_chain(
-                1,
-                BlockStrategy::ForkCanonicalChainAt {
-                    previous_slot: Slot::new(head_slot),
-                    first_slot: Slot::new(slot),
-                },
-                AttestationStrategy::AllValidators,
-            );
+            harness
+                .extend_chain(
+                    1,
+                    BlockStrategy::ForkCanonicalChainAt {
+                        previous_slot: Slot::new(head_slot),
+                        first_slot: Slot::new(slot),
+                    },
+                    AttestationStrategy::AllValidators,
+                )
+                .await;
             harness.advance_slot();
             num_blocks_produced += 1;
             head_slot = slot;
@@ -120,7 +125,7 @@ fn randomised_skips() {
         }
     }
 
-    let state = &harness.chain.head().expect("should get head").beacon_state;
+    let state = &harness.chain.head_snapshot().beacon_state;
 
     assert_eq!(
         state.slot(),
@@ -133,8 +138,8 @@ fn randomised_skips() {
     check_iterators(&harness);
 }
 
-#[test]
-fn long_skip() {
+#[tokio::test]
+async fn long_skip() {
     let db_path = tempdir().unwrap();
     let store = get_store(&db_path);
     let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
@@ -148,11 +153,13 @@ fn long_skip() {
     // Having this set lower ensures that we start justifying and finalizing quickly after a skip.
     let final_blocks = 2 * E::slots_per_epoch() + E::slots_per_epoch() / 2;
 
-    harness.extend_chain(
-        initial_blocks as usize,
-        BlockStrategy::OnCanonicalHead,
-        AttestationStrategy::AllValidators,
-    );
+    harness
+        .extend_chain(
+            initial_blocks as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
 
     check_finalization(&harness, initial_blocks);
 
@@ -162,14 +169,16 @@ fn long_skip() {
     }
 
     // 3. Produce more blocks, establish a new finalized epoch
-    harness.extend_chain(
-        final_blocks as usize,
-        BlockStrategy::ForkCanonicalChainAt {
-            previous_slot: Slot::new(initial_blocks),
-            first_slot: Slot::new(initial_blocks + skip_slots as u64 + 1),
-        },
-        AttestationStrategy::AllValidators,
-    );
+    harness
+        .extend_chain(
+            final_blocks as usize,
+            BlockStrategy::ForkCanonicalChainAt {
+                previous_slot: Slot::new(initial_blocks),
+                first_slot: Slot::new(initial_blocks + skip_slots as u64 + 1),
+            },
+            AttestationStrategy::AllValidators,
+        )
+        .await;
 
     check_finalization(&harness, initial_blocks + skip_slots + final_blocks);
     check_split_slot(&harness, store);
@@ -183,8 +192,8 @@ fn long_skip() {
 /// 1. The chunked vector scheme doesn't attempt to store an incorrect genesis value
 /// 2. We correctly load the genesis value for all required slots
 /// NOTE: this test takes about a minute to run
-#[test]
-fn randao_genesis_storage() {
+#[tokio::test]
+async fn randao_genesis_storage() {
     let validator_count = 8;
     let db_path = tempdir().unwrap();
     let store = get_store(&db_path);
@@ -195,24 +204,24 @@ fn randao_genesis_storage() {
     // Check we have a non-trivial genesis value
     let genesis_value = *harness
         .chain
-        .head()
-        .expect("should get head")
+        .head_snapshot()
         .beacon_state
         .get_randao_mix(Epoch::new(0))
         .expect("randao mix ok");
     assert!(!genesis_value.is_zero());
 
-    harness.extend_chain(
-        num_slots as usize - 1,
-        BlockStrategy::OnCanonicalHead,
-        AttestationStrategy::AllValidators,
-    );
+    harness
+        .extend_chain(
+            num_slots as usize - 1,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
 
     // Check that genesis value is still present
     assert!(harness
         .chain
-        .head()
-        .expect("should get head")
+        .head_snapshot()
         .beacon_state
         .randao_mixes()
         .iter()
@@ -221,15 +230,16 @@ fn randao_genesis_storage() {
 
     // Then upon adding one more block, it isn't
     harness.advance_slot();
-    harness.extend_chain(
-        1,
-        BlockStrategy::OnCanonicalHead,
-        AttestationStrategy::AllValidators,
-    );
+    harness
+        .extend_chain(
+            1,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
     assert!(harness
         .chain
-        .head()
-        .expect("should get head")
+        .head_snapshot()
         .beacon_state
         .randao_mixes()
         .iter()
@@ -243,8 +253,8 @@ fn randao_genesis_storage() {
 }
 
 // Check that closing and reopening a freezer DB restores the split slot to its correct value.
-#[test]
-fn split_slot_restore() {
+#[tokio::test]
+async fn split_slot_restore() {
     let db_path = tempdir().unwrap();
 
     let split_slot = {
@@ -253,11 +263,13 @@ fn split_slot_restore() {
 
         let num_blocks = 4 * E::slots_per_epoch();
 
-        harness.extend_chain(
-            num_blocks as usize,
-            BlockStrategy::OnCanonicalHead,
-            AttestationStrategy::AllValidators,
-        );
+        harness
+            .extend_chain(
+                num_blocks as usize,
+                BlockStrategy::OnCanonicalHead,
+                AttestationStrategy::AllValidators,
+            )
+            .await;
 
         store.get_split_slot()
     };
@@ -272,8 +284,8 @@ fn split_slot_restore() {
 // Check attestation processing and `load_epoch_boundary_state` in the presence of a split DB.
 // This is a bit of a monster test in that it tests lots of different things, but until they're
 // tested elsewhere, this is as good a place as any.
-#[test]
-fn epoch_boundary_state_attestation_processing() {
+#[tokio::test]
+async fn epoch_boundary_state_attestation_processing() {
     let num_blocks_produced = E::slots_per_epoch() * 5;
     let db_path = tempdir().unwrap();
     let store = get_store(&db_path);
@@ -285,13 +297,15 @@ fn epoch_boundary_state_attestation_processing() {
     let mut late_attestations = vec![];
 
     for _ in 0..num_blocks_produced {
-        harness.extend_chain(
-            1,
-            BlockStrategy::OnCanonicalHead,
-            AttestationStrategy::SomeValidators(timely_validators.clone()),
-        );
+        harness
+            .extend_chain(
+                1,
+                BlockStrategy::OnCanonicalHead,
+                AttestationStrategy::SomeValidators(timely_validators.clone()),
+            )
+            .await;
 
-        let head = harness.chain.head().expect("head ok");
+        let head = harness.chain.head_snapshot();
         late_attestations.extend(harness.get_unaggregated_attestations(
             &AttestationStrategy::SomeValidators(late_validators.clone()),
             &head.beacon_state,
@@ -313,7 +327,10 @@ fn epoch_boundary_state_attestation_processing() {
     for (attestation, subnet_id) in late_attestations.into_iter().flatten() {
         // load_epoch_boundary_state is idempotent!
         let block_root = attestation.data.beacon_block_root;
-        let block = store.get_block(&block_root).unwrap().expect("block exists");
+        let block = store
+            .get_blinded_block(&block_root)
+            .unwrap()
+            .expect("block exists");
         let epoch_boundary_state = store
             .load_epoch_boundary_state(&block.state_root())
             .expect("no error")
@@ -325,12 +342,7 @@ fn epoch_boundary_state_attestation_processing() {
         assert_eq!(epoch_boundary_state, ebs_of_ebs);
 
         // If the attestation is pre-finalization it should be rejected.
-        let finalized_epoch = harness
-            .chain
-            .head_info()
-            .expect("should get head")
-            .finalized_checkpoint
-            .epoch;
+        let finalized_epoch = harness.finalized_checkpoint().epoch;
 
         let res = harness
             .chain
@@ -361,8 +373,8 @@ fn epoch_boundary_state_attestation_processing() {
 }
 
 // Test that the `end_slot` for forwards block and state root iterators works correctly.
-#[test]
-fn forwards_iter_block_and_state_roots_until() {
+#[tokio::test]
+async fn forwards_iter_block_and_state_roots_until() {
     let num_blocks_produced = E::slots_per_epoch() * 17;
     let db_path = tempdir().unwrap();
     let store = get_store(&db_path);
@@ -370,13 +382,14 @@ fn forwards_iter_block_and_state_roots_until() {
 
     let all_validators = &harness.get_all_validators();
     let (mut head_state, mut head_state_root) = harness.get_current_state_and_root();
-    let head_block_root = harness.chain.head_info().unwrap().block_root;
+    let head_block_root = harness.head_block_root();
     let mut block_roots = vec![head_block_root];
     let mut state_roots = vec![head_state_root];
 
     for slot in (1..=num_blocks_produced).map(Slot::from) {
         let (block_root, mut state) = harness
             .add_attested_block_at_slot(slot, head_state, head_state_root, all_validators)
+            .await
             .unwrap();
         head_state_root = state.update_tree_hash_cache().unwrap();
         head_state = state;
@@ -426,19 +439,21 @@ fn forwards_iter_block_and_state_roots_until() {
     test_range(Slot::new(0), head_state.slot());
 }
 
-#[test]
-fn block_replay_with_inaccurate_state_roots() {
+#[tokio::test]
+async fn block_replay_with_inaccurate_state_roots() {
     let num_blocks_produced = E::slots_per_epoch() * 3 + 31;
     let db_path = tempdir().unwrap();
     let store = get_store(&db_path);
     let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
     let chain = &harness.chain;
 
-    harness.extend_chain(
-        num_blocks_produced as usize,
-        BlockStrategy::OnCanonicalHead,
-        AttestationStrategy::AllValidators,
-    );
+    harness
+        .extend_chain(
+            num_blocks_produced as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
 
     // Slot must not be 0 mod 32 or else no blocks will be replayed.
     let (mut head_state, head_root) = harness.get_current_state_and_root();
@@ -468,8 +483,8 @@ fn block_replay_with_inaccurate_state_roots() {
     );
 }
 
-#[test]
-fn block_replayer_hooks() {
+#[tokio::test]
+async fn block_replayer_hooks() {
     let db_path = tempdir().unwrap();
     let store = get_store(&db_path);
     let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
@@ -484,12 +499,9 @@ fn block_replayer_hooks() {
 
     let (state, state_root) = harness.get_current_state_and_root();
     let all_validators = harness.get_all_validators();
-    let (_, _, end_block_root, mut end_state) = harness.add_attested_blocks_at_slots(
-        state.clone(),
-        state_root,
-        &block_slots,
-        &all_validators,
-    );
+    let (_, _, end_block_root, mut end_state) = harness
+        .add_attested_blocks_at_slots(state.clone(), state_root, &block_slots, &all_validators)
+        .await;
 
     let blocks = store
         .load_blocks_to_replay(Slot::new(0), max_slot, end_block_root.into())
@@ -545,8 +557,8 @@ fn block_replayer_hooks() {
     assert_eq!(end_state, replay_state);
 }
 
-#[test]
-fn delete_blocks_and_states() {
+#[tokio::test]
+async fn delete_blocks_and_states() {
     let db_path = tempdir().unwrap();
     let store = get_store(&db_path);
     let validators_keypairs =
@@ -564,7 +576,9 @@ fn delete_blocks_and_states() {
     let initial_slots: Vec<Slot> = (1..=unforked_blocks).map(Into::into).collect();
     let (state, state_root) = harness.get_current_state_and_root();
     let all_validators = harness.get_all_validators();
-    harness.add_attested_blocks_at_slots(state, state_root, &initial_slots, &all_validators);
+    harness
+        .add_attested_blocks_at_slots(state, state_root, &initial_slots, &all_validators)
+        .await;
 
     // Create a fork post-finalization.
     let two_thirds = (LOW_VALIDATOR_COUNT / 3) * 2;
@@ -584,26 +598,27 @@ fn delete_blocks_and_states() {
 
     let fork1_state = harness.get_current_state();
     let fork2_state = fork1_state.clone();
-    let results = harness.add_blocks_on_multiple_chains(vec![
-        (fork1_state, fork1_slots, honest_validators),
-        (fork2_state, fork2_slots, faulty_validators),
-    ]);
+    let results = harness
+        .add_blocks_on_multiple_chains(vec![
+            (fork1_state, fork1_slots, honest_validators),
+            (fork2_state, fork2_slots, faulty_validators),
+        ])
+        .await;
 
     let honest_head = results[0].2;
     let faulty_head = results[1].2;
 
     assert_ne!(honest_head, faulty_head, "forks should be distinct");
-    let head_info = harness.chain.head_info().expect("should get head");
-    assert_eq!(head_info.slot, unforked_blocks + fork_blocks);
+    assert_eq!(harness.head_slot(), unforked_blocks + fork_blocks);
 
     assert_eq!(
-        head_info.block_root,
+        harness.head_block_root(),
         honest_head.into(),
         "the honest chain should be the canonical chain",
     );
 
     let faulty_head_block = store
-        .get_block(&faulty_head.into())
+        .get_blinded_block(&faulty_head.into())
         .expect("no errors")
         .expect("faulty head block exists");
 
@@ -645,7 +660,7 @@ fn delete_blocks_and_states() {
             break;
         }
         store.delete_block(&block_root).unwrap();
-        assert_eq!(store.get_block(&block_root).unwrap(), None);
+        assert_eq!(store.get_blinded_block(&block_root).unwrap(), None);
     }
 
     // Deleting frozen states should do nothing
@@ -668,7 +683,7 @@ fn delete_blocks_and_states() {
 
 // Check that we never produce invalid blocks when there is deep forking that changes the shuffling.
 // See https://github.com/sigp/lighthouse/issues/845
-fn multi_epoch_fork_valid_blocks_test(
+async fn multi_epoch_fork_valid_blocks_test(
     initial_blocks: usize,
     num_fork1_blocks_: usize,
     num_fork2_blocks_: usize,
@@ -693,7 +708,9 @@ fn multi_epoch_fork_valid_blocks_test(
         let initial_slots: Vec<Slot> = (1..=initial_blocks).map(Into::into).collect();
         let (state, state_root) = harness.get_current_state_and_root();
         let all_validators = harness.get_all_validators();
-        harness.add_attested_blocks_at_slots(state, state_root, &initial_slots, &all_validators);
+        harness
+            .add_attested_blocks_at_slots(state, state_root, &initial_slots, &all_validators)
+            .await;
     }
 
     assert!(num_fork1_validators <= LOW_VALIDATOR_COUNT);
@@ -711,10 +728,12 @@ fn multi_epoch_fork_valid_blocks_test(
         .map(Into::into)
         .collect();
 
-    let results = harness.add_blocks_on_multiple_chains(vec![
-        (fork1_state, fork1_slots, fork1_validators),
-        (fork2_state, fork2_slots, fork2_validators),
-    ]);
+    let results = harness
+        .add_blocks_on_multiple_chains(vec![
+            (fork1_state, fork1_slots, fork1_validators),
+            (fork2_state, fork2_slots, fork2_validators),
+        ])
+        .await;
 
     let head1 = results[0].2;
     let head2 = results[1].2;
@@ -723,43 +742,47 @@ fn multi_epoch_fork_valid_blocks_test(
 }
 
 // This is the minimal test of block production with different shufflings.
-#[test]
-fn block_production_different_shuffling_early() {
+#[tokio::test]
+async fn block_production_different_shuffling_early() {
     let slots_per_epoch = E::slots_per_epoch() as usize;
     multi_epoch_fork_valid_blocks_test(
         slots_per_epoch - 2,
         slots_per_epoch + 3,
         slots_per_epoch + 3,
         LOW_VALIDATOR_COUNT / 2,
-    );
+    )
+    .await;
 }
 
-#[test]
-fn block_production_different_shuffling_long() {
+#[tokio::test]
+async fn block_production_different_shuffling_long() {
     let slots_per_epoch = E::slots_per_epoch() as usize;
     multi_epoch_fork_valid_blocks_test(
         2 * slots_per_epoch - 2,
         3 * slots_per_epoch,
         3 * slots_per_epoch,
         LOW_VALIDATOR_COUNT / 2,
-    );
+    )
+    .await;
 }
 
 // Check that the op pool safely includes multiple attestations per block when necessary.
 // This checks the correctness of the shuffling compatibility memoization.
-#[test]
-fn multiple_attestations_per_block() {
+#[tokio::test]
+async fn multiple_attestations_per_block() {
     let db_path = tempdir().unwrap();
     let store = get_store(&db_path);
     let harness = get_harness(store, HIGH_VALIDATOR_COUNT);
 
-    harness.extend_chain(
-        E::slots_per_epoch() as usize * 3,
-        BlockStrategy::OnCanonicalHead,
-        AttestationStrategy::AllValidators,
-    );
+    harness
+        .extend_chain(
+            E::slots_per_epoch() as usize * 3,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
 
-    let head = harness.chain.head().unwrap();
+    let head = harness.chain.head_snapshot();
     let committees_per_slot = head
         .beacon_state
         .get_committee_count_at_slot(head.beacon_state.slot())
@@ -771,6 +794,8 @@ fn multiple_attestations_per_block() {
         assert_eq!(
             snapshot
                 .beacon_block
+                .as_ref()
+                .clone()
                 .deconstruct()
                 .0
                 .body()
@@ -781,18 +806,20 @@ fn multiple_attestations_per_block() {
     }
 }
 
-#[test]
-fn shuffling_compatible_linear_chain() {
+#[tokio::test]
+async fn shuffling_compatible_linear_chain() {
     let db_path = tempdir().unwrap();
     let store = get_store(&db_path);
     let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
 
     // Skip the block at the end of the first epoch.
-    let head_block_root = harness.extend_chain(
-        4 * E::slots_per_epoch() as usize,
-        BlockStrategy::OnCanonicalHead,
-        AttestationStrategy::AllValidators,
-    );
+    let head_block_root = harness
+        .extend_chain(
+            4 * E::slots_per_epoch() as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
 
     check_shuffling_compatible(
         &harness,
@@ -805,25 +832,29 @@ fn shuffling_compatible_linear_chain() {
     );
 }
 
-#[test]
-fn shuffling_compatible_missing_pivot_block() {
+#[tokio::test]
+async fn shuffling_compatible_missing_pivot_block() {
     let db_path = tempdir().unwrap();
     let store = get_store(&db_path);
     let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
 
     // Skip the block at the end of the first epoch.
-    harness.extend_chain(
-        E::slots_per_epoch() as usize - 2,
-        BlockStrategy::OnCanonicalHead,
-        AttestationStrategy::AllValidators,
-    );
+    harness
+        .extend_chain(
+            E::slots_per_epoch() as usize - 2,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
     harness.advance_slot();
     harness.advance_slot();
-    let head_block_root = harness.extend_chain(
-        2 * E::slots_per_epoch() as usize,
-        BlockStrategy::OnCanonicalHead,
-        AttestationStrategy::AllValidators,
-    );
+    let head_block_root = harness
+        .extend_chain(
+            2 * E::slots_per_epoch() as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
 
     check_shuffling_compatible(
         &harness,
@@ -836,15 +867,16 @@ fn shuffling_compatible_missing_pivot_block() {
     );
 }
 
-#[test]
-fn shuffling_compatible_simple_fork() {
+#[tokio::test]
+async fn shuffling_compatible_simple_fork() {
     let slots_per_epoch = E::slots_per_epoch() as usize;
     let (db_path, harness, head1, head2) = multi_epoch_fork_valid_blocks_test(
         2 * slots_per_epoch,
         3 * slots_per_epoch,
         3 * slots_per_epoch,
         LOW_VALIDATOR_COUNT / 2,
-    );
+    )
+    .await;
 
     let head1_state = get_state_for_block(&harness, head1);
     let head2_state = get_state_for_block(&harness, head2);
@@ -857,15 +889,16 @@ fn shuffling_compatible_simple_fork() {
     drop(db_path);
 }
 
-#[test]
-fn shuffling_compatible_short_fork() {
+#[tokio::test]
+async fn shuffling_compatible_short_fork() {
     let slots_per_epoch = E::slots_per_epoch() as usize;
     let (db_path, harness, head1, head2) = multi_epoch_fork_valid_blocks_test(
         2 * slots_per_epoch - 2,
         slots_per_epoch + 2,
         slots_per_epoch + 2,
         LOW_VALIDATOR_COUNT / 2,
-    );
+    )
+    .await;
 
     let head1_state = get_state_for_block(&harness, head1);
     let head2_state = get_state_for_block(&harness, head2);
@@ -890,7 +923,12 @@ fn shuffling_compatible_short_fork() {
 }
 
 fn get_state_for_block(harness: &TestHarness, block_root: Hash256) -> BeaconState<E> {
-    let head_block = harness.chain.get_block(&block_root).unwrap().unwrap();
+    let head_block = harness
+        .chain
+        .store
+        .get_blinded_block(&block_root)
+        .unwrap()
+        .unwrap();
     harness
         .chain
         .get_state(&head_block.state_root(), Some(head_block.slot()))
@@ -965,8 +1003,8 @@ fn check_shuffling_compatible(
 }
 
 // Ensure blocks from abandoned forks are pruned from the Hot DB
-#[test]
-fn prunes_abandoned_fork_between_two_finalized_checkpoints() {
+#[tokio::test]
+async fn prunes_abandoned_fork_between_two_finalized_checkpoints() {
     const HONEST_VALIDATOR_COUNT: usize = 16 + 0;
     const ADVERSARIAL_VALIDATOR_COUNT: usize = 8 - 0;
     const VALIDATOR_COUNT: usize = HONEST_VALIDATOR_COUNT + ADVERSARIAL_VALIDATOR_COUNT;
@@ -989,7 +1027,8 @@ fn prunes_abandoned_fork_between_two_finalized_checkpoints() {
             state_root,
             &canonical_chain_slots,
             &honest_validators,
-        );
+        )
+        .await;
     state = new_state;
     let canonical_chain_slot: u64 = rig.get_current_slot().into();
 
@@ -997,12 +1036,14 @@ fn prunes_abandoned_fork_between_two_finalized_checkpoints() {
         .map(Slot::new)
         .collect();
     let (current_state, current_state_root) = rig.get_current_state_and_root();
-    let (stray_blocks, stray_states, stray_head, _) = rig.add_attested_blocks_at_slots(
-        current_state,
-        current_state_root,
-        &stray_slots,
-        &adversarial_validators,
-    );
+    let (stray_blocks, stray_states, stray_head, _) = rig
+        .add_attested_blocks_at_slots(
+            current_state,
+            current_state_root,
+            &stray_slots,
+            &adversarial_validators,
+        )
+        .await;
 
     // Precondition: Ensure all stray_blocks blocks are still known
     for &block_hash in stray_blocks.values() {
@@ -1032,12 +1073,9 @@ fn prunes_abandoned_fork_between_two_finalized_checkpoints() {
         .map(Slot::new)
         .collect();
     let state_root = state.update_tree_hash_cache().unwrap();
-    let (canonical_chain_blocks_post_finalization, _, _, _) = rig.add_attested_blocks_at_slots(
-        state,
-        state_root,
-        &finalization_slots,
-        &honest_validators,
-    );
+    let (canonical_chain_blocks_post_finalization, _, _, _) = rig
+        .add_attested_blocks_at_slots(state, state_root, &finalization_slots, &honest_validators)
+        .await;
 
     // Postcondition: New blocks got finalized
     assert_eq!(
@@ -1075,8 +1113,8 @@ fn prunes_abandoned_fork_between_two_finalized_checkpoints() {
     assert!(!rig.chain.knows_head(&stray_head));
 }
 
-#[test]
-fn pruning_does_not_touch_abandoned_block_shared_with_canonical_chain() {
+#[tokio::test]
+async fn pruning_does_not_touch_abandoned_block_shared_with_canonical_chain() {
     const HONEST_VALIDATOR_COUNT: usize = 16 + 0;
     const ADVERSARIAL_VALIDATOR_COUNT: usize = 8 - 0;
     const VALIDATOR_COUNT: usize = HONEST_VALIDATOR_COUNT + ADVERSARIAL_VALIDATOR_COUNT;
@@ -1095,12 +1133,14 @@ fn pruning_does_not_touch_abandoned_block_shared_with_canonical_chain() {
     // Fill up 0th epoch
     let canonical_chain_slots_zeroth_epoch: Vec<Slot> =
         (1..rig.epoch_start_slot(1)).map(Slot::new).collect();
-    let (_, _, _, mut state) = rig.add_attested_blocks_at_slots(
-        state,
-        state_root,
-        &canonical_chain_slots_zeroth_epoch,
-        &honest_validators,
-    );
+    let (_, _, _, mut state) = rig
+        .add_attested_blocks_at_slots(
+            state,
+            state_root,
+            &canonical_chain_slots_zeroth_epoch,
+            &honest_validators,
+        )
+        .await;
 
     // Fill up 1st epoch
     let canonical_chain_slots_first_epoch: Vec<Slot> = (rig.epoch_start_slot(1)
@@ -1114,7 +1154,8 @@ fn pruning_does_not_touch_abandoned_block_shared_with_canonical_chain() {
             state_root,
             &canonical_chain_slots_first_epoch,
             &honest_validators,
-        );
+        )
+        .await;
     let canonical_chain_slot: u64 = rig.get_current_slot().into();
 
     let stray_chain_slots_first_epoch: Vec<Slot> = (rig.epoch_start_slot(1) + 2
@@ -1122,12 +1163,14 @@ fn pruning_does_not_touch_abandoned_block_shared_with_canonical_chain() {
         .map(Slot::new)
         .collect();
     let state_root = state.update_tree_hash_cache().unwrap();
-    let (stray_blocks, stray_states, stray_head, _) = rig.add_attested_blocks_at_slots(
-        state.clone(),
-        state_root,
-        &stray_chain_slots_first_epoch,
-        &adversarial_validators,
-    );
+    let (stray_blocks, stray_states, stray_head, _) = rig
+        .add_attested_blocks_at_slots(
+            state.clone(),
+            state_root,
+            &stray_chain_slots_first_epoch,
+            &adversarial_validators,
+        )
+        .await;
 
     // Preconditions
     for &block_hash in stray_blocks.values() {
@@ -1161,12 +1204,9 @@ fn pruning_does_not_touch_abandoned_block_shared_with_canonical_chain() {
         .map(Slot::new)
         .collect();
     let state_root = state.update_tree_hash_cache().unwrap();
-    let (canonical_chain_blocks, _, _, _) = rig.add_attested_blocks_at_slots(
-        state,
-        state_root,
-        &finalization_slots,
-        &honest_validators,
-    );
+    let (canonical_chain_blocks, _, _, _) = rig
+        .add_attested_blocks_at_slots(state, state_root, &finalization_slots, &honest_validators)
+        .await;
 
     // Postconditions
     assert_eq!(
@@ -1205,8 +1245,8 @@ fn pruning_does_not_touch_abandoned_block_shared_with_canonical_chain() {
     assert!(get_blocks(&chain_dump).contains(&shared_head));
 }
 
-#[test]
-fn pruning_does_not_touch_blocks_prior_to_finalization() {
+#[tokio::test]
+async fn pruning_does_not_touch_blocks_prior_to_finalization() {
     const HONEST_VALIDATOR_COUNT: usize = 16;
     const ADVERSARIAL_VALIDATOR_COUNT: usize = 8;
     const VALIDATOR_COUNT: usize = HONEST_VALIDATOR_COUNT + ADVERSARIAL_VALIDATOR_COUNT;
@@ -1224,12 +1264,9 @@ fn pruning_does_not_touch_blocks_prior_to_finalization() {
 
     // Fill up 0th epoch with canonical chain blocks
     let zeroth_epoch_slots: Vec<Slot> = (1..=rig.epoch_start_slot(1)).map(Slot::new).collect();
-    let (canonical_chain_blocks, _, _, new_state) = rig.add_attested_blocks_at_slots(
-        state,
-        state_root,
-        &zeroth_epoch_slots,
-        &honest_validators,
-    );
+    let (canonical_chain_blocks, _, _, new_state) = rig
+        .add_attested_blocks_at_slots(state, state_root, &zeroth_epoch_slots, &honest_validators)
+        .await;
     state = new_state;
     let canonical_chain_slot: u64 = rig.get_current_slot().into();
 
@@ -1238,12 +1275,14 @@ fn pruning_does_not_touch_blocks_prior_to_finalization() {
         .map(Slot::new)
         .collect();
     let state_root = state.update_tree_hash_cache().unwrap();
-    let (stray_blocks, stray_states, stray_head, _) = rig.add_attested_blocks_at_slots(
-        state.clone(),
-        state_root,
-        &first_epoch_slots,
-        &adversarial_validators,
-    );
+    let (stray_blocks, stray_states, stray_head, _) = rig
+        .add_attested_blocks_at_slots(
+            state.clone(),
+            state_root,
+            &first_epoch_slots,
+            &adversarial_validators,
+        )
+        .await;
 
     // Preconditions
     for &block_hash in stray_blocks.values() {
@@ -1271,8 +1310,9 @@ fn pruning_does_not_touch_blocks_prior_to_finalization() {
         .map(Slot::new)
         .collect();
     let state_root = state.update_tree_hash_cache().unwrap();
-    let (_, _, _, _) =
-        rig.add_attested_blocks_at_slots(state, state_root, &slots, &honest_validators);
+    let (_, _, _, _) = rig
+        .add_attested_blocks_at_slots(state, state_root, &slots, &honest_validators)
+        .await;
 
     // Postconditions
     assert_eq!(
@@ -1300,8 +1340,8 @@ fn pruning_does_not_touch_blocks_prior_to_finalization() {
     assert!(rig.chain.knows_head(&stray_head));
 }
 
-#[test]
-fn prunes_fork_growing_past_youngest_finalized_checkpoint() {
+#[tokio::test]
+async fn prunes_fork_growing_past_youngest_finalized_checkpoint() {
     const HONEST_VALIDATOR_COUNT: usize = 16 + 0;
     const ADVERSARIAL_VALIDATOR_COUNT: usize = 8 - 0;
     const VALIDATOR_COUNT: usize = HONEST_VALIDATOR_COUNT + ADVERSARIAL_VALIDATOR_COUNT;
@@ -1318,12 +1358,9 @@ fn prunes_fork_growing_past_youngest_finalized_checkpoint() {
 
     // Fill up 0th epoch with canonical chain blocks
     let zeroth_epoch_slots: Vec<Slot> = (1..=rig.epoch_start_slot(1)).map(Slot::new).collect();
-    let (canonical_blocks_zeroth_epoch, _, _, mut state) = rig.add_attested_blocks_at_slots(
-        state,
-        state_root,
-        &zeroth_epoch_slots,
-        &honest_validators,
-    );
+    let (canonical_blocks_zeroth_epoch, _, _, mut state) = rig
+        .add_attested_blocks_at_slots(state, state_root, &zeroth_epoch_slots, &honest_validators)
+        .await;
 
     // Fill up 1st epoch.  Contains a fork.
     let slots_first_epoch: Vec<Slot> = (rig.epoch_start_slot(1) + 1..rig.epoch_start_slot(2))
@@ -1336,9 +1373,11 @@ fn prunes_fork_growing_past_youngest_finalized_checkpoint() {
             state_root,
             &slots_first_epoch,
             &adversarial_validators,
-        );
-    let (canonical_blocks_first_epoch, _, _, mut canonical_state) =
-        rig.add_attested_blocks_at_slots(state, state_root, &slots_first_epoch, &honest_validators);
+        )
+        .await;
+    let (canonical_blocks_first_epoch, _, _, mut canonical_state) = rig
+        .add_attested_blocks_at_slots(state, state_root, &slots_first_epoch, &honest_validators)
+        .await;
 
     // Fill up 2nd epoch.  Extends both the canonical chain and the fork.
     let stray_slots_second_epoch: Vec<Slot> = (rig.epoch_start_slot(2)
@@ -1352,7 +1391,8 @@ fn prunes_fork_growing_past_youngest_finalized_checkpoint() {
             stray_state_root,
             &stray_slots_second_epoch,
             &adversarial_validators,
-        );
+        )
+        .await;
 
     // Precondition: Ensure all stray_blocks blocks are still known
     let stray_blocks: HashMap<Slot, SignedBeaconBlockHash> = stray_blocks_first_epoch
@@ -1392,12 +1432,14 @@ fn prunes_fork_growing_past_youngest_finalized_checkpoint() {
         .map(Into::into)
         .collect();
     let canonical_state_root = canonical_state.update_tree_hash_cache().unwrap();
-    let (canonical_blocks, _, _, _) = rig.add_attested_blocks_at_slots(
-        canonical_state,
-        canonical_state_root,
-        &canonical_slots,
-        &honest_validators,
-    );
+    let (canonical_blocks, _, _, _) = rig
+        .add_attested_blocks_at_slots(
+            canonical_state,
+            canonical_state_root,
+            &canonical_slots,
+            &honest_validators,
+        )
+        .await;
 
     // Postconditions
     let canonical_blocks: HashMap<Slot, SignedBeaconBlockHash> = canonical_blocks_zeroth_epoch
@@ -1443,8 +1485,8 @@ fn prunes_fork_growing_past_youngest_finalized_checkpoint() {
 }
 
 // This is to check if state outside of normal block processing are pruned correctly.
-#[test]
-fn prunes_skipped_slots_states() {
+#[tokio::test]
+async fn prunes_skipped_slots_states() {
     const HONEST_VALIDATOR_COUNT: usize = 16 + 0;
     const ADVERSARIAL_VALIDATOR_COUNT: usize = 8 - 0;
     const VALIDATOR_COUNT: usize = HONEST_VALIDATOR_COUNT + ADVERSARIAL_VALIDATOR_COUNT;
@@ -1467,7 +1509,8 @@ fn prunes_skipped_slots_states() {
             state_root,
             &canonical_slots_zeroth_epoch,
             &honest_validators,
-        );
+        )
+        .await;
 
     let skipped_slot: Slot = (rig.epoch_start_slot(1) + 1).into();
 
@@ -1475,12 +1518,14 @@ fn prunes_skipped_slots_states() {
         .map(Into::into)
         .collect();
     let canonical_state_root = canonical_state.update_tree_hash_cache().unwrap();
-    let (stray_blocks, stray_states, _, stray_state) = rig.add_attested_blocks_at_slots(
-        canonical_state.clone(),
-        canonical_state_root,
-        &stray_slots,
-        &adversarial_validators,
-    );
+    let (stray_blocks, stray_states, _, stray_state) = rig
+        .add_attested_blocks_at_slots(
+            canonical_state.clone(),
+            canonical_state_root,
+            &stray_slots,
+            &adversarial_validators,
+        )
+        .await;
 
     // Preconditions
     for &block_hash in stray_blocks.values() {
@@ -1518,12 +1563,14 @@ fn prunes_skipped_slots_states() {
         .map(Into::into)
         .collect();
     let canonical_state_root = canonical_state.update_tree_hash_cache().unwrap();
-    let (canonical_blocks_post_finalization, _, _, _) = rig.add_attested_blocks_at_slots(
-        canonical_state,
-        canonical_state_root,
-        &canonical_slots,
-        &honest_validators,
-    );
+    let (canonical_blocks_post_finalization, _, _, _) = rig
+        .add_attested_blocks_at_slots(
+            canonical_state,
+            canonical_state_root,
+            &canonical_slots,
+            &honest_validators,
+        )
+        .await;
 
     // Postconditions
     let canonical_blocks: HashMap<Slot, SignedBeaconBlockHash> = canonical_blocks_zeroth_epoch
@@ -1567,8 +1614,8 @@ fn prunes_skipped_slots_states() {
 }
 
 // This is to check if state outside of normal block processing are pruned correctly.
-#[test]
-fn finalizes_non_epoch_start_slot() {
+#[tokio::test]
+async fn finalizes_non_epoch_start_slot() {
     const HONEST_VALIDATOR_COUNT: usize = 16 + 0;
     const ADVERSARIAL_VALIDATOR_COUNT: usize = 8 - 0;
     const VALIDATOR_COUNT: usize = HONEST_VALIDATOR_COUNT + ADVERSARIAL_VALIDATOR_COUNT;
@@ -1591,7 +1638,8 @@ fn finalizes_non_epoch_start_slot() {
             state_root,
             &canonical_slots_zeroth_epoch,
             &honest_validators,
-        );
+        )
+        .await;
 
     let skipped_slot: Slot = rig.epoch_start_slot(1).into();
 
@@ -1599,12 +1647,14 @@ fn finalizes_non_epoch_start_slot() {
         .map(Into::into)
         .collect();
     let canonical_state_root = canonical_state.update_tree_hash_cache().unwrap();
-    let (stray_blocks, stray_states, _, stray_state) = rig.add_attested_blocks_at_slots(
-        canonical_state.clone(),
-        canonical_state_root,
-        &stray_slots,
-        &adversarial_validators,
-    );
+    let (stray_blocks, stray_states, _, stray_state) = rig
+        .add_attested_blocks_at_slots(
+            canonical_state.clone(),
+            canonical_state_root,
+            &stray_slots,
+            &adversarial_validators,
+        )
+        .await;
 
     // Preconditions
     for &block_hash in stray_blocks.values() {
@@ -1642,12 +1692,14 @@ fn finalizes_non_epoch_start_slot() {
         .map(Into::into)
         .collect();
     let canonical_state_root = canonical_state.update_tree_hash_cache().unwrap();
-    let (canonical_blocks_post_finalization, _, _, _) = rig.add_attested_blocks_at_slots(
-        canonical_state,
-        canonical_state_root,
-        &canonical_slots,
-        &honest_validators,
-    );
+    let (canonical_blocks_post_finalization, _, _, _) = rig
+        .add_attested_blocks_at_slots(
+            canonical_state,
+            canonical_state_root,
+            &canonical_slots,
+            &honest_validators,
+        )
+        .await;
 
     // Postconditions
     let canonical_blocks: HashMap<Slot, SignedBeaconBlockHash> = canonical_blocks_zeroth_epoch
@@ -1695,7 +1747,7 @@ fn check_all_blocks_exist<'a>(
     blocks: impl Iterator<Item = &'a SignedBeaconBlockHash>,
 ) {
     for &block_hash in blocks {
-        let block = harness.chain.get_block(&block_hash.into()).unwrap();
+        let block = harness.chain.get_blinded_block(&block_hash.into()).unwrap();
         assert!(
             block.is_some(),
             "expected block {:?} to be in DB",
@@ -1742,7 +1794,7 @@ fn check_no_blocks_exist<'a>(
     blocks: impl Iterator<Item = &'a SignedBeaconBlockHash>,
 ) {
     for &block_hash in blocks {
-        let block = harness.chain.get_block(&block_hash.into()).unwrap();
+        let block = harness.chain.get_blinded_block(&block_hash.into()).unwrap();
         assert!(
             block.is_none(),
             "did not expect block {:?} to be in the DB",
@@ -1751,14 +1803,14 @@ fn check_no_blocks_exist<'a>(
     }
 }
 
-#[test]
-fn prune_single_block_fork() {
+#[tokio::test]
+async fn prune_single_block_fork() {
     let slots_per_epoch = E::slots_per_epoch();
-    pruning_test(3 * slots_per_epoch, 1, slots_per_epoch, 0, 1);
+    pruning_test(3 * slots_per_epoch, 1, slots_per_epoch, 0, 1).await;
 }
 
-#[test]
-fn prune_single_block_long_skip() {
+#[tokio::test]
+async fn prune_single_block_long_skip() {
     let slots_per_epoch = E::slots_per_epoch();
     pruning_test(
         2 * slots_per_epoch,
@@ -1766,11 +1818,12 @@ fn prune_single_block_long_skip() {
         2 * slots_per_epoch,
         2 * slots_per_epoch as u64,
         1,
-    );
+    )
+    .await;
 }
 
-#[test]
-fn prune_shared_skip_states_mid_epoch() {
+#[tokio::test]
+async fn prune_shared_skip_states_mid_epoch() {
     let slots_per_epoch = E::slots_per_epoch();
     pruning_test(
         slots_per_epoch + slots_per_epoch / 2,
@@ -1778,39 +1831,43 @@ fn prune_shared_skip_states_mid_epoch() {
         slots_per_epoch,
         2,
         slots_per_epoch - 1,
-    );
+    )
+    .await;
 }
 
-#[test]
-fn prune_shared_skip_states_epoch_boundaries() {
+#[tokio::test]
+async fn prune_shared_skip_states_epoch_boundaries() {
     let slots_per_epoch = E::slots_per_epoch();
-    pruning_test(slots_per_epoch - 1, 1, slots_per_epoch, 2, slots_per_epoch);
-    pruning_test(slots_per_epoch - 1, 2, slots_per_epoch, 1, slots_per_epoch);
+    pruning_test(slots_per_epoch - 1, 1, slots_per_epoch, 2, slots_per_epoch).await;
+    pruning_test(slots_per_epoch - 1, 2, slots_per_epoch, 1, slots_per_epoch).await;
     pruning_test(
         2 * slots_per_epoch + slots_per_epoch / 2,
         slots_per_epoch as u64 / 2,
         slots_per_epoch,
         slots_per_epoch as u64 / 2 + 1,
         slots_per_epoch,
-    );
+    )
+    .await;
     pruning_test(
         2 * slots_per_epoch + slots_per_epoch / 2,
         slots_per_epoch as u64 / 2,
         slots_per_epoch,
         slots_per_epoch as u64 / 2 + 1,
         slots_per_epoch,
-    );
+    )
+    .await;
     pruning_test(
         2 * slots_per_epoch - 1,
         slots_per_epoch as u64,
         1,
         0,
         2 * slots_per_epoch,
-    );
+    )
+    .await;
 }
 
 /// Generic harness for pruning tests.
-fn pruning_test(
+async fn pruning_test(
     // Number of blocks to start the chain with before forking.
     num_initial_blocks: u64,
     // Number of skip slots on the main chain after the initial blocks.
@@ -1842,30 +1899,34 @@ fn pruning_test(
     let start_slot = Slot::new(1);
     let divergence_slot = start_slot + num_initial_blocks;
     let (state, state_root) = harness.get_current_state_and_root();
-    let (_, _, _, divergence_state) = harness.add_attested_blocks_at_slots(
-        state,
-        state_root,
-        &slots(start_slot, num_initial_blocks)[..],
-        &honest_validators,
-    );
+    let (_, _, _, divergence_state) = harness
+        .add_attested_blocks_at_slots(
+            state,
+            state_root,
+            &slots(start_slot, num_initial_blocks)[..],
+            &honest_validators,
+        )
+        .await;
 
-    let mut chains = harness.add_blocks_on_multiple_chains(vec![
-        // Canonical chain
-        (
-            divergence_state.clone(),
-            slots(
-                divergence_slot + num_canonical_skips,
-                num_canonical_middle_blocks,
+    let mut chains = harness
+        .add_blocks_on_multiple_chains(vec![
+            // Canonical chain
+            (
+                divergence_state.clone(),
+                slots(
+                    divergence_slot + num_canonical_skips,
+                    num_canonical_middle_blocks,
+                ),
+                honest_validators.clone(),
             ),
-            honest_validators.clone(),
-        ),
-        // Fork chain
-        (
-            divergence_state.clone(),
-            slots(divergence_slot + num_fork_skips, num_fork_blocks),
-            faulty_validators,
-        ),
-    ]);
+            // Fork chain
+            (
+                divergence_state.clone(),
+                slots(divergence_slot + num_fork_skips, num_fork_blocks),
+                faulty_validators,
+            ),
+        ])
+        .await;
     let (_, _, _, mut canonical_state) = chains.remove(0);
     let (stray_blocks, stray_states, _, stray_head_state) = chains.remove(0);
 
@@ -1891,20 +1952,19 @@ fn pruning_test(
     let num_finalization_blocks = 4 * E::slots_per_epoch();
     let canonical_slot = divergence_slot + num_canonical_skips + num_canonical_middle_blocks;
     let canonical_state_root = canonical_state.update_tree_hash_cache().unwrap();
-    harness.add_attested_blocks_at_slots(
-        canonical_state,
-        canonical_state_root,
-        &slots(canonical_slot, num_finalization_blocks),
-        &honest_validators,
-    );
+    harness
+        .add_attested_blocks_at_slots(
+            canonical_state,
+            canonical_state_root,
+            &slots(canonical_slot, num_finalization_blocks),
+            &honest_validators,
+        )
+        .await;
 
     // Check that finalization has advanced past the divergence slot.
     assert!(
         harness
-            .chain
-            .head_info()
-            .unwrap()
-            .finalized_checkpoint
+            .finalized_checkpoint()
             .epoch
             .start_slot(E::slots_per_epoch())
             > divergence_slot
@@ -1932,43 +1992,48 @@ fn garbage_collect_temp_states_from_failed_block() {
     let db_path = tempdir().unwrap();
     let store = get_store(&db_path);
     let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
-    let slots_per_epoch = E::slots_per_epoch();
 
-    let genesis_state = harness.get_current_state();
-    let block_slot = Slot::new(2 * slots_per_epoch);
-    let (signed_block, state) = harness.make_block(genesis_state, block_slot);
+    // Use a `block_on_dangerous` rather than an async test to stop spawned processes from holding
+    // a reference to the store.
+    harness.chain.task_executor.clone().block_on_dangerous(
+        async move {
+            let slots_per_epoch = E::slots_per_epoch();
 
-    let (mut block, _) = signed_block.deconstruct();
+            let genesis_state = harness.get_current_state();
+            let block_slot = Slot::new(2 * slots_per_epoch);
+            let (signed_block, state) = harness.make_block(genesis_state, block_slot).await;
 
-    // Mutate the block to make it invalid, and re-sign it.
-    *block.state_root_mut() = Hash256::repeat_byte(0xff);
-    let proposer_index = block.proposer_index() as usize;
-    let block = block.sign(
-        &harness.validator_keypairs[proposer_index].sk,
-        &state.fork(),
-        state.genesis_validators_root(),
-        &harness.spec,
+            let (mut block, _) = signed_block.deconstruct();
+
+            // Mutate the block to make it invalid, and re-sign it.
+            *block.state_root_mut() = Hash256::repeat_byte(0xff);
+            let proposer_index = block.proposer_index() as usize;
+            let block = block.sign(
+                &harness.validator_keypairs[proposer_index].sk,
+                &state.fork(),
+                state.genesis_validators_root(),
+                &harness.spec,
+            );
+
+            // The block should be rejected, but should store a bunch of temporary states.
+            harness.set_current_slot(block_slot);
+            harness.process_block_result(block).await.unwrap_err();
+
+            assert_eq!(
+                store.iter_temporary_state_roots().count(),
+                block_slot.as_usize() - 1
+            );
+        },
+        "test",
     );
-
-    // The block should be rejected, but should store a bunch of temporary states.
-    harness.set_current_slot(block_slot);
-    harness.process_block_result(block).unwrap_err();
-
-    assert_eq!(
-        store.iter_temporary_state_roots().count(),
-        block_slot.as_usize() - 1
-    );
-
-    drop(harness);
-    drop(store);
 
     // On startup, the store should garbage collect all the temporary states.
     let store = get_store(&db_path);
     assert_eq!(store.iter_temporary_state_roots().count(), 0);
 }
 
-#[test]
-fn weak_subjectivity_sync() {
+#[tokio::test]
+async fn weak_subjectivity_sync() {
     // Build an initial chain on one harness, representing a synced node with full history.
     let num_initial_blocks = E::slots_per_epoch() * 11;
     let num_final_blocks = E::slots_per_epoch() * 2;
@@ -1977,18 +2042,25 @@ fn weak_subjectivity_sync() {
     let full_store = get_store(&temp1);
     let harness = get_harness(full_store.clone(), LOW_VALIDATOR_COUNT);
 
-    harness.extend_chain(
-        num_initial_blocks as usize,
-        BlockStrategy::OnCanonicalHead,
-        AttestationStrategy::AllValidators,
-    );
+    harness
+        .extend_chain(
+            num_initial_blocks as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
 
     let genesis_state = full_store
         .get_state(&harness.chain.genesis_state_root, Some(Slot::new(0)))
         .unwrap()
         .unwrap();
-    let wss_checkpoint = harness.chain.head_info().unwrap().finalized_checkpoint;
-    let wss_block = harness.get_block(wss_checkpoint.root.into()).unwrap();
+    let wss_checkpoint = harness.finalized_checkpoint();
+    let wss_block = harness
+        .chain
+        .store
+        .get_full_block(&wss_checkpoint.root)
+        .unwrap()
+        .unwrap();
     let wss_state = full_store
         .get_state(&wss_block.state_root(), None)
         .unwrap()
@@ -1997,11 +2069,13 @@ fn weak_subjectivity_sync() {
 
     // Add more blocks that advance finalization further.
     harness.advance_slot();
-    harness.extend_chain(
-        num_final_blocks as usize,
-        BlockStrategy::OnCanonicalHead,
-        AttestationStrategy::AllValidators,
-    );
+    harness
+        .extend_chain(
+            num_final_blocks as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
 
     let (shutdown_tx, _shutdown_rx) = futures::channel::mpsc::channel(1);
     let log = test_logger();
@@ -2011,26 +2085,29 @@ fn weak_subjectivity_sync() {
     let seconds_per_slot = spec.seconds_per_slot;
 
     // Initialise a new beacon chain from the finalized checkpoint
-    let beacon_chain = BeaconChainBuilder::new(MinimalEthSpec)
-        .store(store.clone())
-        .custom_spec(test_spec::<E>())
-        .weak_subjectivity_state(wss_state, wss_block.clone(), genesis_state)
-        .unwrap()
-        .logger(log.clone())
-        .store_migrator_config(MigratorConfig::default().blocking())
-        .dummy_eth1_backend()
-        .expect("should build dummy backend")
-        .testing_slot_clock(Duration::from_secs(seconds_per_slot))
-        .expect("should configure testing slot clock")
-        .shutdown_sender(shutdown_tx)
-        .chain_config(ChainConfig::default())
-        .event_handler(Some(ServerSentEventHandler::new_with_capacity(
-            log.clone(),
-            1,
-        )))
-        .monitor_validators(true, vec![], log)
-        .build()
-        .expect("should build");
+    let beacon_chain = Arc::new(
+        BeaconChainBuilder::new(MinimalEthSpec)
+            .store(store.clone())
+            .custom_spec(test_spec::<E>())
+            .task_executor(harness.chain.task_executor.clone())
+            .weak_subjectivity_state(wss_state, wss_block.clone(), genesis_state)
+            .unwrap()
+            .logger(log.clone())
+            .store_migrator_config(MigratorConfig::default().blocking())
+            .dummy_eth1_backend()
+            .expect("should build dummy backend")
+            .testing_slot_clock(Duration::from_secs(seconds_per_slot))
+            .expect("should configure testing slot clock")
+            .shutdown_sender(shutdown_tx)
+            .chain_config(ChainConfig::default())
+            .event_handler(Some(ServerSentEventHandler::new_with_capacity(
+                log.clone(),
+                1,
+            )))
+            .monitor_validators(true, vec![], log)
+            .build()
+            .expect("should build"),
+    );
 
     // Apply blocks forward to reach head.
     let chain_dump = harness.chain.chain_dump().unwrap();
@@ -2040,9 +2117,18 @@ fn weak_subjectivity_sync() {
 
     for snapshot in new_blocks {
         let block = &snapshot.beacon_block;
+        let full_block = harness
+            .chain
+            .store
+            .make_full_block(&snapshot.beacon_block_root, block.as_ref().clone())
+            .unwrap();
+
         beacon_chain.slot_clock.set_slot(block.slot().as_u64());
-        beacon_chain.process_block(block.clone()).unwrap();
-        beacon_chain.fork_choice().unwrap();
+        beacon_chain
+            .process_block(Arc::new(full_block), CountUnrealized::True)
+            .await
+            .unwrap();
+        beacon_chain.recompute_head_at_current_slot().await;
 
         // Check that the new block's state can be loaded correctly.
         let state_root = block.state_root();
@@ -2083,13 +2169,13 @@ fn weak_subjectivity_sync() {
         .map(|s| s.beacon_block.clone())
         .collect::<Vec<_>>();
     beacon_chain
-        .import_historical_block_batch(&historical_blocks)
+        .import_historical_block_batch(historical_blocks.clone())
         .unwrap();
     assert_eq!(beacon_chain.store.get_oldest_block_slot(), 0);
 
     // Resupplying the blocks should not fail, they can be safely ignored.
     beacon_chain
-        .import_historical_block_batch(&historical_blocks)
+        .import_historical_block_batch(historical_blocks)
         .unwrap();
 
     // The forwards iterator should now match the original chain
@@ -2112,7 +2198,7 @@ fn weak_subjectivity_sync() {
         .unwrap()
         .map(Result::unwrap)
     {
-        let block = store.get_block(&block_root).unwrap().unwrap();
+        let block = store.get_blinded_block(&block_root).unwrap().unwrap();
         assert_eq!(block.slot(), slot);
     }
 
@@ -2136,8 +2222,8 @@ fn weak_subjectivity_sync() {
     assert_eq!(store.get_anchor_slot(), None);
 }
 
-#[test]
-fn finalizes_after_resuming_from_db() {
+#[tokio::test]
+async fn finalizes_after_resuming_from_db() {
     let validator_count = 16;
     let num_blocks_produced = MinimalEthSpec::slots_per_epoch() * 8;
     let first_half = num_blocks_produced / 2;
@@ -2154,17 +2240,18 @@ fn finalizes_after_resuming_from_db() {
 
     harness.advance_slot();
 
-    harness.extend_chain(
-        first_half as usize,
-        BlockStrategy::OnCanonicalHead,
-        AttestationStrategy::AllValidators,
-    );
+    harness
+        .extend_chain(
+            first_half as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
 
     assert!(
         harness
             .chain
-            .head()
-            .expect("should read head")
+            .head_snapshot()
             .beacon_state
             .finalized_checkpoint()
             .epoch
@@ -2206,17 +2293,15 @@ fn finalizes_after_resuming_from_db() {
         .slot_clock
         .set_slot(latest_slot.as_u64() + 1);
 
-    resumed_harness.extend_chain(
-        (num_blocks_produced - first_half) as usize,
-        BlockStrategy::OnCanonicalHead,
-        AttestationStrategy::AllValidators,
-    );
+    resumed_harness
+        .extend_chain(
+            (num_blocks_produced - first_half) as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
 
-    let state = &resumed_harness
-        .chain
-        .head()
-        .expect("should read head")
-        .beacon_state;
+    let state = &resumed_harness.chain.head_snapshot().beacon_state;
     assert_eq!(
         state.slot(),
         num_blocks_produced,
@@ -2239,8 +2324,8 @@ fn finalizes_after_resuming_from_db() {
     );
 }
 
-#[test]
-fn revert_minority_fork_on_resume() {
+#[tokio::test]
+async fn revert_minority_fork_on_resume() {
     let validator_count = 16;
     let slots_per_epoch = MinimalEthSpec::slots_per_epoch();
 
@@ -2296,17 +2381,17 @@ fn revert_minority_fork_on_resume() {
         harness1.process_attestations(attestations.clone());
         harness2.process_attestations(attestations);
 
-        let (block, new_state) = harness1.make_block(state, slot);
+        let (block, new_state) = harness1.make_block(state, slot).await;
 
-        harness1.process_block(slot, block.clone()).unwrap();
-        harness2.process_block(slot, block.clone()).unwrap();
+        harness1.process_block(slot, block.clone()).await.unwrap();
+        harness2.process_block(slot, block.clone()).await.unwrap();
 
         state = new_state;
         block_root = block.canonical_root();
     }
 
-    assert_eq!(harness1.chain.head_info().unwrap().slot, fork_slot - 1);
-    assert_eq!(harness2.chain.head_info().unwrap().slot, fork_slot - 1);
+    assert_eq!(harness1.head_slot(), fork_slot - 1);
+    assert_eq!(harness2.head_slot(), fork_slot - 1);
 
     // Fork the two chains.
     let mut state1 = state.clone();
@@ -2331,13 +2416,13 @@ fn revert_minority_fork_on_resume() {
         harness2.process_attestations(attestations);
 
         // Minority chain block (no attesters).
-        let (block1, new_state1) = harness1.make_block(state1, slot);
-        harness1.process_block(slot, block1).unwrap();
+        let (block1, new_state1) = harness1.make_block(state1, slot).await;
+        harness1.process_block(slot, block1).await.unwrap();
         state1 = new_state1;
 
         // Majority chain block (all attesters).
-        let (block2, new_state2) = harness2.make_block(state2, slot);
-        harness2.process_block(slot, block2.clone()).unwrap();
+        let (block2, new_state2) = harness2.make_block(state2, slot).await;
+        harness2.process_block(slot, block2.clone()).await.unwrap();
 
         state2 = new_state2;
         block_root = block2.canonical_root();
@@ -2346,8 +2431,8 @@ fn revert_minority_fork_on_resume() {
     }
 
     let end_slot = fork_slot + post_fork_blocks - 1;
-    assert_eq!(harness1.chain.head_info().unwrap().slot, end_slot);
-    assert_eq!(harness2.chain.head_info().unwrap().slot, end_slot);
+    assert_eq!(harness1.head_slot(), end_slot);
+    assert_eq!(harness2.head_slot(), end_slot);
 
     // Resume from disk with the hard-fork activated: this should revert the post-fork blocks.
     // We have to do some hackery with the `slot_clock` so that the correct slot is set when
@@ -2375,24 +2460,27 @@ fn revert_minority_fork_on_resume() {
         .build();
 
     // Head should now be just before the fork.
-    resumed_harness.chain.fork_choice().unwrap();
-    let head = resumed_harness.chain.head_info().unwrap();
-    assert_eq!(head.slot, fork_slot - 1);
+    resumed_harness.chain.recompute_head_at_current_slot().await;
+    assert_eq!(resumed_harness.head_slot(), fork_slot - 1);
 
     // Head track should know the canonical head and the rogue head.
     assert_eq!(resumed_harness.chain.heads().len(), 2);
-    assert!(resumed_harness.chain.knows_head(&head.block_root.into()));
+    assert!(resumed_harness
+        .chain
+        .knows_head(&resumed_harness.head_block_root().into()));
 
     // Apply blocks from the majority chain and trigger finalization.
     let initial_split_slot = resumed_harness.chain.store.get_split_slot();
     for block in &majority_blocks {
-        resumed_harness.process_block_result(block.clone()).unwrap();
+        resumed_harness
+            .process_block_result(block.clone())
+            .await
+            .unwrap();
 
         // The canonical head should be the block from the majority chain.
-        resumed_harness.chain.fork_choice().unwrap();
-        let head_info = resumed_harness.chain.head_info().unwrap();
-        assert_eq!(head_info.slot, block.slot());
-        assert_eq!(head_info.block_root, block.canonical_root());
+        resumed_harness.chain.recompute_head_at_current_slot().await;
+        assert_eq!(resumed_harness.head_slot(), block.slot());
+        assert_eq!(resumed_harness.head_block_root(), block.canonical_root());
     }
     let advanced_split_slot = resumed_harness.chain.store.get_split_slot();
 
@@ -2411,10 +2499,22 @@ fn revert_minority_fork_on_resume() {
 fn assert_chains_pretty_much_the_same<T: BeaconChainTypes>(a: &BeaconChain<T>, b: &BeaconChain<T>) {
     assert_eq!(a.spec, b.spec, "spec should be equal");
     assert_eq!(a.op_pool, b.op_pool, "op_pool should be equal");
+    let a_head = a.head_snapshot();
+    let b_head = b.head_snapshot();
     assert_eq!(
-        a.head().unwrap(),
-        b.head().unwrap(),
-        "head() should be equal"
+        a_head.beacon_block_root, b_head.beacon_block_root,
+        "head block roots should be equal"
+    );
+    assert_eq!(
+        a_head.beacon_block, b_head.beacon_block,
+        "head blocks should be equal"
+    );
+    // Clone with committee caches only to prevent other caches from messing with the equality
+    // check.
+    assert_eq!(
+        a_head.beacon_state.clone_with_only_committee_caches(),
+        b_head.beacon_state.clone_with_only_committee_caches(),
+        "head states should be equal"
     );
     assert_eq!(a.heads(), b.heads(), "heads() should be equal");
     assert_eq!(
@@ -2425,15 +2525,21 @@ fn assert_chains_pretty_much_the_same<T: BeaconChainTypes>(a: &BeaconChain<T>, b
     let slot = a.slot().unwrap();
     let spec = T::EthSpec::default_spec();
     assert!(
-        a.fork_choice.write().get_head(slot, &spec).unwrap()
-            == b.fork_choice.write().get_head(slot, &spec).unwrap(),
+        a.canonical_head
+            .fork_choice_write_lock()
+            .get_head(slot, &spec)
+            .unwrap()
+            == b.canonical_head
+                .fork_choice_write_lock()
+                .get_head(slot, &spec)
+                .unwrap(),
         "fork_choice heads should be equal"
     );
 }
 
 /// Check that the head state's slot matches `expected_slot`.
 fn check_slot(harness: &TestHarness, expected_slot: u64) {
-    let state = &harness.chain.head().expect("should get head").beacon_state;
+    let state = &harness.chain.head_snapshot().beacon_state;
 
     assert_eq!(
         state.slot(),
@@ -2444,7 +2550,7 @@ fn check_slot(harness: &TestHarness, expected_slot: u64) {
 
 /// Check that the chain has finalized under best-case assumptions, and check the head slot.
 fn check_finalization(harness: &TestHarness, expected_slot: u64) {
-    let state = &harness.chain.head().expect("should get head").beacon_state;
+    let state = &harness.chain.head_snapshot().beacon_state;
 
     check_slot(harness, expected_slot);
 
@@ -2466,8 +2572,7 @@ fn check_split_slot(harness: &TestHarness, store: Arc<HotColdDB<E, LevelDB<E>, L
     assert_eq!(
         harness
             .chain
-            .head()
-            .expect("should get head")
+            .head_snapshot()
             .beacon_state
             .finalized_checkpoint()
             .epoch
@@ -2554,10 +2659,7 @@ fn check_iterators(harness: &TestHarness) {
         max_slot = Some(slot);
     }
     // Assert that we reached the head.
-    assert_eq!(
-        max_slot,
-        Some(harness.chain.head_info().expect("should get head").slot)
-    );
+    assert_eq!(max_slot, Some(harness.head_slot()));
     // Assert that the block root iterator reaches the head.
     assert_eq!(
         harness
@@ -2567,12 +2669,12 @@ fn check_iterators(harness: &TestHarness) {
             .last()
             .map(Result::unwrap)
             .map(|(_, slot)| slot),
-        Some(harness.chain.head_info().expect("should get head").slot)
+        Some(harness.head_slot())
     );
 }
 
 fn get_finalized_epoch_boundary_blocks(
-    dump: &[BeaconSnapshot<MinimalEthSpec>],
+    dump: &[BeaconSnapshot<MinimalEthSpec, BlindedPayload<MinimalEthSpec>>],
 ) -> HashSet<SignedBeaconBlockHash> {
     dump.iter()
         .cloned()
@@ -2580,7 +2682,9 @@ fn get_finalized_epoch_boundary_blocks(
         .collect()
 }
 
-fn get_blocks(dump: &[BeaconSnapshot<MinimalEthSpec>]) -> HashSet<SignedBeaconBlockHash> {
+fn get_blocks(
+    dump: &[BeaconSnapshot<MinimalEthSpec, BlindedPayload<MinimalEthSpec>>],
+) -> HashSet<SignedBeaconBlockHash> {
     dump.iter()
         .cloned()
         .map(|checkpoint| checkpoint.beacon_block_root.into())

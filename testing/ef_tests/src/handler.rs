@@ -30,6 +30,10 @@ pub trait Handler {
         }
     }
 
+    fn use_rayon() -> bool {
+        true
+    }
+
     fn run_for_fork(&self, fork_name: ForkName) {
         let fork_name_str = fork_name.to_string();
 
@@ -48,7 +52,7 @@ pub trait Handler {
                 .filter(|e| e.file_type().map(|ty| ty.is_dir()).unwrap_or(false))
         };
         let test_cases = fs::read_dir(&handler_path)
-            .expect("handler dir exists")
+            .unwrap_or_else(|e| panic!("handler dir {} exists: {:?}", handler_path.display(), e))
             .filter_map(as_directory)
             .flat_map(|suite| fs::read_dir(suite.path()).expect("suite dir exists"))
             .filter_map(as_directory)
@@ -59,7 +63,7 @@ pub trait Handler {
             })
             .collect();
 
-        let results = Cases { test_cases }.test_results(fork_name);
+        let results = Cases { test_cases }.test_results(fork_name, Self::use_rayon());
 
         let name = format!(
             "{}/{}/{}",
@@ -458,6 +462,11 @@ impl<E: EthSpec + TypeName> Handler for ForkChoiceHandler<E> {
 
     fn handler_name(&self) -> String {
         self.handler_name.clone()
+    }
+
+    fn use_rayon() -> bool {
+        // The fork choice tests use `block_on` which can cause panics with rayon.
+        false
     }
 
     fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {

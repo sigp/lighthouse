@@ -1,15 +1,5 @@
-[build.env]
-passthrough = [
-    "RUSTFLAGS",
-]
-
-# These custom images are required to work around the lack of Clang in the default `cross` images.
-# We need Clang to run `bindgen` for MDBX, and the `BINDGEN_EXTRA_CLANG_ARGS` flags must also be set
-# while cross-compiling for ARM to prevent bindgen from attempting to include headers from the host.
-#
-# For more information see https://github.com/rust-embedded/cross/pull/608
 [target.x86_64-unknown-linux-gnu]
-image = "michaelsproul/cross-clang:x86_64-latest"
+pre-build = ["apt-get install -y cmake clang-3.9"]
 
 [target.aarch64-unknown-linux-gnu]
-image = "michaelsproul/cross-clang:aarch64-latest"
+pre-build = ["apt-get install -y cmake clang-3.9"]

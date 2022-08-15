@@ -13,7 +13,8 @@ flate2 = { version = "1.0.14", features = ["zlib"], default-features = false }
 lazy_static = "1.4.0"
 lighthouse_metrics = { path = "../common/lighthouse_metrics" }
 filesystem = { path = "../common/filesystem" }
-mdbx = { package = "libmdbx", version = "0.1.0" }
+# MDBX is pinned at the last version with Windows and macOS support. This is only viable short-term.
+mdbx = { package = "libmdbx", version = "=0.1.4" }
 lru = "0.7.1"
 parking_lot = "0.12.0"
 rand = "0.8.5"

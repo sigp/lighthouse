@@ -1,25 +1,24 @@
 //! Utilities for managing database schema changes.
+mod migration_schema_v10;
+mod migration_schema_v11;
 mod migration_schema_v6;
 mod migration_schema_v7;
 mod migration_schema_v8;
+mod migration_schema_v9;
 mod types;
 
-use crate::beacon_chain::{BeaconChainTypes, FORK_CHOICE_DB_KEY, OP_POOL_DB_KEY};
-use crate::persisted_fork_choice::{PersistedForkChoiceV1, PersistedForkChoiceV7};
-use crate::validator_pubkey_cache::ValidatorPubkeyCache;
-use operation_pool::{PersistedOperationPool, PersistedOperationPoolBase};
+use crate::beacon_chain::{BeaconChainTypes, FORK_CHOICE_DB_KEY};
+use crate::persisted_fork_choice::{
+    PersistedForkChoiceV1, PersistedForkChoiceV10, PersistedForkChoiceV11, PersistedForkChoiceV7,
+    PersistedForkChoiceV8,
+};
+use crate::types::ChainSpec;
 use slog::{warn, Logger};
-use ssz::{Decode, Encode};
-use ssz_derive::{Decode, Encode};
-use std::fs;
 use std::path::Path;
 use std::sync::Arc;
-use store::config::OnDiskStoreConfig;
 use store::hot_cold_store::{HotColdDB, HotColdDBError};
-use store::metadata::{SchemaVersion, CONFIG_KEY, CURRENT_SCHEMA_VERSION};
-use store::{DBColumn, Error as StoreError, ItemStore, StoreItem};
-
-const PUBKEY_CACHE_FILENAME: &str = "pubkey_cache.ssz";
+use store::metadata::{SchemaVersion, CURRENT_SCHEMA_VERSION};
+use store::{Error as StoreError, StoreItem};
 
 /// Migrate the database from one schema version to another, applying all requisite mutations.
 pub fn migrate_schema<T: BeaconChainTypes>(
@@ -28,79 +27,28 @@ pub fn migrate_schema<T: BeaconChainTypes>(
     from: SchemaVersion,
     to: SchemaVersion,
     log: Logger,
+    spec: &ChainSpec,
 ) -> Result<(), StoreError> {
     match (from, to) {
         // Migrating from the current schema version to iself is always OK, a no-op.
         (_, _) if from == to && to == CURRENT_SCHEMA_VERSION => Ok(()),
-        // Migrate across multiple versions by recursively migrating one step at a time.
+        // Upgrade across multiple versions by recursively migrating one step at a time.
         (_, _) if from.as_u64() + 1 < to.as_u64() => {
             let next = SchemaVersion(from.as_u64() + 1);
-            migrate_schema::<T>(db.clone(), datadir, from, next, log.clone())?;
-            migrate_schema::<T>(db, datadir, next, to, log)
+            migrate_schema::<T>(db.clone(), datadir, from, next, log.clone(), spec)?;
+            migrate_schema::<T>(db, datadir, next, to, log, spec)
         }
-        // Migration from v0.3.0 to v0.3.x, adding the temporary states column.
-        // Nothing actually needs to be done, but once a DB uses v2 it shouldn't go back.
-        (SchemaVersion(1), SchemaVersion(2)) => {
-            db.store_schema_version(to)?;
-            Ok(())
+        // Downgrade across multiple versions by recursively migrating one step at a time.
+        (_, _) if to.as_u64() + 1 < from.as_u64() => {
+            let next = SchemaVersion(from.as_u64() - 1);
+            migrate_schema::<T>(db.clone(), datadir, from, next, log.clone(), spec)?;
+            migrate_schema::<T>(db, datadir, next, to, log, spec)
         }
-        // Migration for removing the pubkey cache.
-        (SchemaVersion(2), SchemaVersion(3)) => {
-            let pk_cache_path = datadir.join(PUBKEY_CACHE_FILENAME);
 
-            // Load from file, store to DB.
-            ValidatorPubkeyCache::<T>::load_from_file(&pk_cache_path)
-                .and_then(|cache| ValidatorPubkeyCache::convert(cache, db.clone()))
-                .map_err(|e| StoreError::SchemaMigrationError(format!("{:?}", e)))?;
+        //
+        // Migrations from before SchemaVersion(5) are deprecated.
+        //
 
-            db.store_schema_version(to)?;
-
-            // Delete cache file now that keys are stored in the DB.
-            fs::remove_file(&pk_cache_path).map_err(|e| {
-                StoreError::SchemaMigrationError(format!(
-                    "unable to delete {}: {:?}",
-                    pk_cache_path.display(),
-                    e
-                ))
-            })?;
-
-            Ok(())
-        }
-        // Migration for adding sync committee contributions to the persisted op pool.
-        (SchemaVersion(3), SchemaVersion(4)) => {
-            // Deserialize from what exists in the database using the `PersistedOperationPoolBase`
-            // variant and convert it to the Altair variant.
-            let pool_opt = db
-                .get_item::<PersistedOperationPoolBase<T::EthSpec>>(&OP_POOL_DB_KEY)?
-                .map(PersistedOperationPool::Base)
-                .map(PersistedOperationPool::base_to_altair);
-
-            if let Some(pool) = pool_opt {
-                // Store the converted pool under the same key.
-                db.put_item::<PersistedOperationPool<T::EthSpec>>(&OP_POOL_DB_KEY, &pool)?;
-            }
-
-            db.store_schema_version(to)?;
-
-            Ok(())
-        }
-        // Migration for weak subjectivity sync support and clean up of `OnDiskStoreConfig` (#1784).
-        (SchemaVersion(4), SchemaVersion(5)) => {
-            if let Some(OnDiskStoreConfigV4 {
-                slots_per_restore_point,
-                ..
-            }) = db.hot_db.get(&CONFIG_KEY)?
-            {
-                let new_config = OnDiskStoreConfig {
-                    slots_per_restore_point,
-                };
-                db.hot_db.put(&CONFIG_KEY, &new_config)?;
-            }
-
-            db.store_schema_version(to)?;
-
-            Ok(())
-        }
         // Migration for adding `execution_status` field to the fork choice store.
         (SchemaVersion(5), SchemaVersion(6)) => {
             // Database operations to be done atomically
@@ -154,6 +102,7 @@ pub fn migrate_schema<T: BeaconChainTypes>(
                     migration_schema_v7::update_with_reinitialized_fork_choice::<T>(
                         &mut persisted_fork_choice_v7,
                         db.clone(),
+                        spec,
                     )
                     .map_err(StoreError::SchemaMigrationError)?;
                 }
@@ -181,32 +130,77 @@ pub fn migrate_schema<T: BeaconChainTypes>(
 
             Ok(())
         }
+        // Upgrade from v8 to v9 to separate the execution payloads into their own column.
+        (SchemaVersion(8), SchemaVersion(9)) => {
+            migration_schema_v9::upgrade_to_v9::<T>(db.clone(), log)?;
+            db.store_schema_version(to)
+        }
+        // Downgrade from v9 to v8 to ignore the separation of execution payloads
+        // NOTE: only works before the Bellatrix fork epoch.
+        (SchemaVersion(9), SchemaVersion(8)) => {
+            migration_schema_v9::downgrade_from_v9::<T>(db.clone(), log)?;
+            db.store_schema_version(to)
+        }
+        (SchemaVersion(9), SchemaVersion(10)) => {
+            let mut ops = vec![];
+            let fork_choice_opt = db.get_item::<PersistedForkChoiceV8>(&FORK_CHOICE_DB_KEY)?;
+            if let Some(fork_choice) = fork_choice_opt {
+                let updated_fork_choice = migration_schema_v10::update_fork_choice(fork_choice)?;
+
+                ops.push(updated_fork_choice.as_kv_store_op(FORK_CHOICE_DB_KEY));
+            }
+
+            db.store_schema_version_atomically(to, ops)?;
+
+            Ok(())
+        }
+        (SchemaVersion(10), SchemaVersion(9)) => {
+            let mut ops = vec![];
+            let fork_choice_opt = db.get_item::<PersistedForkChoiceV10>(&FORK_CHOICE_DB_KEY)?;
+            if let Some(fork_choice) = fork_choice_opt {
+                let updated_fork_choice = migration_schema_v10::downgrade_fork_choice(fork_choice)?;
+
+                ops.push(updated_fork_choice.as_kv_store_op(FORK_CHOICE_DB_KEY));
+            }
+
+            db.store_schema_version_atomically(to, ops)?;
+
+            Ok(())
+        }
+        // Upgrade from v10 to v11 adding support for equivocating indices to fork choice.
+        (SchemaVersion(10), SchemaVersion(11)) => {
+            let mut ops = vec![];
+            let fork_choice_opt = db.get_item::<PersistedForkChoiceV10>(&FORK_CHOICE_DB_KEY)?;
+            if let Some(fork_choice) = fork_choice_opt {
+                let updated_fork_choice = migration_schema_v11::update_fork_choice(fork_choice);
+
+                ops.push(updated_fork_choice.as_kv_store_op(FORK_CHOICE_DB_KEY));
+            }
+
+            db.store_schema_version_atomically(to, ops)?;
+
+            Ok(())
+        }
+        // Downgrade from v11 to v10 removing support for equivocating indices from fork choice.
+        (SchemaVersion(11), SchemaVersion(10)) => {
+            let mut ops = vec![];
+            let fork_choice_opt = db.get_item::<PersistedForkChoiceV11>(&FORK_CHOICE_DB_KEY)?;
+            if let Some(fork_choice) = fork_choice_opt {
+                let updated_fork_choice =
+                    migration_schema_v11::downgrade_fork_choice(fork_choice, log);
+
+                ops.push(updated_fork_choice.as_kv_store_op(FORK_CHOICE_DB_KEY));
+            }
+
+            db.store_schema_version_atomically(to, ops)?;
+
+            Ok(())
+        }
         // Anything else is an error.
         (_, _) => Err(HotColdDBError::UnsupportedSchemaVersion {
             target_version: to,
             current_version: from,
         }
         .into()),
-    }
-}
-
-// Store config used in v4 schema and earlier.
-#[derive(Debug, Clone, PartialEq, Eq, Encode, Decode)]
-pub struct OnDiskStoreConfigV4 {
-    pub slots_per_restore_point: u64,
-    pub _block_cache_size: usize,
-}
-
-impl StoreItem for OnDiskStoreConfigV4 {
-    fn db_column() -> DBColumn {
-        DBColumn::BeaconMeta
-    }
-
-    fn as_store_bytes(&self) -> Vec<u8> {
-        self.as_ssz_bytes()
-    }
-
-    fn from_store_bytes(bytes: &[u8]) -> Result<Self, StoreError> {
-        Ok(Self::from_ssz_bytes(bytes)?)
     }
 }

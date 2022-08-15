@@ -90,6 +90,10 @@ lazy_static! {
     );
     pub static ref BLOCK_PRODUCTION_TIMES: Result<Histogram> =
         try_create_histogram("beacon_block_production_seconds", "Full runtime of block production");
+    pub static ref BLOCK_PRODUCTION_FORK_CHOICE_TIMES: Result<Histogram> = try_create_histogram(
+        "beacon_block_production_fork_choice_seconds",
+        "Time taken to run fork choice before block production"
+    );
     pub static ref BLOCK_PRODUCTION_STATE_LOAD_TIMES: Result<Histogram> = try_create_histogram(
         "beacon_block_production_state_load_seconds",
         "Time taken to load the base state for block production"

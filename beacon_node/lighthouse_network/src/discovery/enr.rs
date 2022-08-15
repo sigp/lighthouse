@@ -210,10 +210,8 @@ pub fn load_enr_from_disk(dir: &Path) -> Result<Enr, String> {
     let mut enr_string = String::new();
     match enr_file.read_to_string(&mut enr_string) {
         Err(_) => Err("Could not read ENR from file".to_string()),
-        Ok(_) => match Enr::from_str(&enr_string) {
-            Ok(disk_enr) => Ok(disk_enr),
-            Err(e) => Err(format!("ENR from file could not be decoded: {:?}", e)),
-        },
+        Ok(_) => Enr::from_str(&enr_string)
+            .map_err(|e| format!("ENR from file could not be decoded: {:?}", e)),
     }
 }
 

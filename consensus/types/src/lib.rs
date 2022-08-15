@@ -18,6 +18,7 @@ extern crate lazy_static;
 pub mod test_utils;
 
 pub mod aggregate_and_proof;
+pub mod application_domain;
 pub mod attestation;
 pub mod attestation_data;
 pub mod attestation_duty;
@@ -27,6 +28,7 @@ pub mod beacon_block_body;
 pub mod beacon_block_header;
 pub mod beacon_committee;
 pub mod beacon_state;
+pub mod builder_bid;
 pub mod chain_spec;
 pub mod checkpoint;
 pub mod consts;
@@ -82,6 +84,7 @@ pub mod sync_committee_message;
 pub mod sync_selection_proof;
 pub mod sync_subnet_id;
 mod tree_hash_impls;
+pub mod validator_registration_data;
 
 pub mod slot_data;
 #[cfg(feature = "sqlite")]
@@ -107,7 +110,9 @@ pub use crate::beacon_committee::{BeaconCommittee, OwnedBeaconCommittee};
 pub use crate::beacon_state::{BeaconTreeHashCache, Error as BeaconStateError, *};
 pub use crate::chain_spec::{ChainSpec, Config, Domain};
 pub use crate::checkpoint::Checkpoint;
-pub use crate::config_and_preset::ConfigAndPreset;
+pub use crate::config_and_preset::{
+    ConfigAndPreset, ConfigAndPresetAltair, ConfigAndPresetBellatrix,
+};
 pub use crate::contribution_and_proof::ContributionAndProof;
 pub use crate::deposit::{Deposit, DEPOSIT_TREE_DEPTH};
 pub use crate::deposit_data::DepositData;
@@ -139,7 +144,7 @@ pub use crate::shuffling_id::AttestationShufflingId;
 pub use crate::signed_aggregate_and_proof::SignedAggregateAndProof;
 pub use crate::signed_beacon_block::{
     SignedBeaconBlock, SignedBeaconBlockAltair, SignedBeaconBlockBase, SignedBeaconBlockHash,
-    SignedBeaconBlockMerge,
+    SignedBeaconBlockMerge, SignedBlindedBeaconBlock,
 };
 pub use crate::signed_beacon_block_header::SignedBeaconBlockHeader;
 pub use crate::signed_contribution_and_proof::SignedContributionAndProof;
@@ -157,6 +162,7 @@ pub use crate::sync_duty::SyncDuty;
 pub use crate::sync_selection_proof::SyncSelectionProof;
 pub use crate::sync_subnet_id::SyncSubnetId;
 pub use crate::validator::Validator;
+pub use crate::validator_registration_data::*;
 pub use crate::validator_subscription::ValidatorSubscription;
 pub use crate::voluntary_exit::VoluntaryExit;
 

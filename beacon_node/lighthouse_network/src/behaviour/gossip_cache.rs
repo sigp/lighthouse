@@ -30,9 +30,9 @@ pub struct GossipCache {
     proposer_slashing: Option<Duration>,
     /// Timeout for attester slashings.
     attester_slashing: Option<Duration>,
-    /// Timeout for aggregated sync commitee signatures.
+    /// Timeout for aggregated sync committee signatures.
     signed_contribution_and_proof: Option<Duration>,
-    /// Timeout for sync commitee messages.
+    /// Timeout for sync committee messages.
     sync_committee_message: Option<Duration>,
 }
 
@@ -51,9 +51,9 @@ pub struct GossipCacheBuilder {
     proposer_slashing: Option<Duration>,
     /// Timeout for attester slashings.
     attester_slashing: Option<Duration>,
-    /// Timeout for aggregated sync commitee signatures.
+    /// Timeout for aggregated sync committee signatures.
     signed_contribution_and_proof: Option<Duration>,
-    /// Timeout for sync commitee messages.
+    /// Timeout for sync committee messages.
     sync_committee_message: Option<Duration>,
 }
 
@@ -101,13 +101,13 @@ impl GossipCacheBuilder {
         self
     }
 
-    /// Timeout for aggregated sync commitee signatures.
+    /// Timeout for aggregated sync committee signatures.
     pub fn signed_contribution_and_proof_timeout(mut self, timeout: Duration) -> Self {
         self.signed_contribution_and_proof = Some(timeout);
         self
     }
 
-    /// Timeout for sync commitee messages.
+    /// Timeout for sync committee messages.
     pub fn sync_committee_message_timeout(mut self, timeout: Duration) -> Self {
         self.sync_committee_message = Some(timeout);
         self

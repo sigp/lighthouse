@@ -8,6 +8,6 @@ pub trait BlockStorage {
 
 impl<T: BeaconChainTypes> BlockStorage for BeaconChain<T> {
     fn is_block_known(&self, block_root: &Hash256) -> bool {
-        self.fork_choice.read().contains_block(block_root)
+        self.block_is_known_to_fork_choice(block_root)
     }
 }

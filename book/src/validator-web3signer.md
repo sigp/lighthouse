@@ -43,12 +43,15 @@ remote signer:
   type: web3signer
   url: "https://my-remote-signer.com:1234"
   root_certificate_path: /home/paul/my-certificates/my-remote-signer.pem
+  client_identity_path: /home/paul/my-keys/my-identity-certificate.p12
+  client_identity_password: "password"
 ```
 
 When using this file, the Lighthouse VC will perform duties for the `0xa5566..` validator and defer
 to the `https://my-remote-signer.com:1234` server to obtain any signatures. It will load a
 "self-signed" SSL certificate from `/home/paul/my-certificates/my-remote-signer.pem` (on the
-filesystem of the VC) to encrypt the communications between the VC and Web3Signer.
+filesystem of the VC) to encrypt the communications between the VC and Web3Signer. It will use
+SSL client authentication with the "self-signed" certificate in `/home/paul/my-keys/my-identity-certificate.p12`.
 
 > The `request_timeout_ms` key can also be specified. Use this key to override the default timeout
 > with a new timeout in milliseconds. This is the timeout before requests to Web3Signer are

@@ -8,9 +8,9 @@ description = "Hashing primitives used in Ethereum 2.0"
 
 [dependencies]
 lazy_static = { version = "1.4.0", optional = true }
+cpufeatures = { version = "0.2.2", optional = true }
 ring = "0.16.19"
 sha2 = "0.10.2"
-cpufeatures = "0.2.2"
 
 [dev-dependencies]
 rustc-hex = "2.1.0"
@@ -19,5 +19,6 @@ rustc-hex = "2.1.0"
 wasm-bindgen-test = "0.3.18"
 
 [features]
-default = ["zero_hash_cache"]
+default = ["zero_hash_cache", "detect-cpufeatures"]
 zero_hash_cache = ["lazy_static"]
+detect-cpufeatures = ["cpufeatures"]
