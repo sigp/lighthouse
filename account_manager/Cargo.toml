@@ -24,6 +24,8 @@ safe_arith = {path = "../consensus/safe_arith"}
 slot_clock = { path = "../common/slot_clock" }
 filesystem = { path = "../common/filesystem" }
 sensitive_url = { path = "../common/sensitive_url" }
+serde = { version = "1.0.116", features = ["derive"] }
+serde_json = "1.0.58"
 
 [dev-dependencies]
 tempfile = "3.1.0"

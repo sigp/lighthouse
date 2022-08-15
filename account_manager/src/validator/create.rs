@@ -22,6 +22,7 @@ pub const WALLET_NAME_FLAG: &str = "wallet-name";
 pub const WALLET_PASSWORD_FLAG: &str = "wallet-password";
 pub const DEPOSIT_GWEI_FLAG: &str = "deposit-gwei";
 pub const STORE_WITHDRAW_FLAG: &str = "store-withdrawal-keystore";
+pub const JSON_DEPOSIT_DATA_PATH: &str = "json-deposit-data-path";
 pub const COUNT_FLAG: &str = "count";
 pub const AT_MOST_FLAG: &str = "at-most";
 pub const WALLET_PASSWORD_PROMPT: &str = "Enter your wallet's password:";
@@ -110,6 +111,17 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .long(STDIN_INPUTS_FLAG)
                 .help("If present, read all user inputs from stdin instead of tty."),
         )
+        .arg(
+            Arg::with_name(JSON_DEPOSIT_DATA_PATH)
+                .long(JSON_DEPOSIT_DATA_PATH)
+                .value_name("PATH")
+                .help(
+                    "When provided, outputs a JSON file containing deposit data which \
+                    is equivalent to the 'deposit-data-*.json' file used by the \
+                    staking-deposit-cli tool.",
+                )
+                .takes_value(true),
+        )
 }
 
 pub fn cli_run<T: EthSpec>(
@@ -139,6 +151,9 @@ pub fn cli_run<T: EthSpec>(
         .unwrap_or(spec.max_effective_balance);
     let count: Option<usize> = clap_utils::parse_optional(matches, COUNT_FLAG)?;
     let at_most: Option<usize> = clap_utils::parse_optional(matches, AT_MOST_FLAG)?;
+
+    let json_deposit_data_path: Option<PathBuf> =
+        clap_utils::parse_optional(matches, JSON_DEPOSIT_DATA_PATH)?;
 
     // The command will always fail if the wallet dir does not exist.
     if !wallet_base_dir.exists() {
@@ -212,6 +227,8 @@ pub fn cli_run<T: EthSpec>(
         )
     })?;
 
+    let mut json_deposit_data = Some(vec![]).filter(|_| json_deposit_data_path.is_some());
+
     for i in 0..n {
         let voting_password = random_password();
         let withdrawal_password = random_password();
@@ -241,7 +258,7 @@ pub fn cli_run<T: EthSpec>(
                 )
             })?;
 
-        ValidatorDirBuilder::new(validator_dir.clone())
+        let validator_dir = ValidatorDirBuilder::new(validator_dir.clone())
             .password_dir(secrets_dir.clone())
             .voting_keystore(keystores.voting, voting_password.as_bytes())
             .withdrawal_keystore(keystores.withdrawal, withdrawal_password.as_bytes())
@@ -250,7 +267,30 @@ pub fn cli_run<T: EthSpec>(
             .build()
             .map_err(|e| format!("Unable to build validator directory: {:?}", e))?;
 
+        if let Some(json_deposit_data) = &mut json_deposit_data {
+            let standard_deposit_data_json = validator_dir
+                .standard_deposit_data_json(&spec)
+                .map_err(|e| format!("Unable to create standard JSON deposit data: {:?}", e))?;
+            json_deposit_data.push(standard_deposit_data_json);
+        }
+
         println!("{}/{}\t{}", i + 1, n, voting_pubkey.as_hex_string());
+    }
+
+    // If configured, create a single JSON file which contains deposit data information for all
+    // validators.
+    if let Some(json_deposit_data_path) = json_deposit_data_path {
+        let json_deposit_data =
+            json_deposit_data.ok_or("Internal error: JSON deposit data is None")?;
+
+        let mut file = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&json_deposit_data_path)
+            .map_err(|e| format!("Unable to create {:?}: {:?}", json_deposit_data_path, e))?;
+
+        serde_json::to_writer(&mut file, &json_deposit_data)
+            .map_err(|e| format!("Unable write JSON to {:?}: {:?}", json_deposit_data_path, e))?;
     }
 
     Ok(())

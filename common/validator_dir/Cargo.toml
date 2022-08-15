@@ -20,6 +20,8 @@ tree_hash = "0.4.1"
 hex = "0.4.2"
 derivative = "2.1.1"
 lockfile = { path = "../lockfile" }
+serde = { version = "1.0.116", features = ["derive"] }
+eth2_serde_utils = "0.1.1"
 
 [dev-dependencies]
 tempfile = "3.1.0"
