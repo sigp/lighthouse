@@ -402,9 +402,6 @@ fn gas_limit_flag() {
         .run()
         .with_config(|config| assert_eq!(config.gas_limit, Some(600)));
 }
-
-// does builder registration pubkey override need to be here, it wont be a flag, a flag would be a global value which does make sense when we need a different value per validator?
-
 #[test]
 fn no_builder_proposals_flag() {
     CommandLineTest::new()
