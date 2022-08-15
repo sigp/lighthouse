@@ -403,6 +403,12 @@ where
             ));
         }
 
+        // Prime all caches before storing the state in the database and computing the tree hash
+        // root.
+        weak_subj_state
+            .build_all_caches(&self.spec)
+            .map_err(|e| format!("Error building caches on checkpoint state: {e:?}"))?;
+
         let computed_state_root = weak_subj_state
             .update_tree_hash_cache()
             .map_err(|e| format!("Error computing checkpoint state root: {:?}", e))?;
