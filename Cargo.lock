@@ -462,6 +462,7 @@ dependencies = [
  "slasher",
  "slog",
  "store",
+ "strum",
  "task_executor",
  "types",
  "unused_port",
@@ -3204,8 +3205,7 @@ checksum = "33a33a362ce288760ec6a508b94caaec573ae7d3bbbd91b87aa0bad4456839db"
 [[package]]
 name = "libmdbx"
 version = "0.1.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "002d7890ec770d222903165b6ba279b0fa3dba8e82610820833184066b006ce0"
+source = "git+https://github.com/sigp/libmdbx-rs?tag=v0.1.4#096da80a83d14343f8df833006483f48075cd135"
 dependencies = [
  "bitflags",
  "byteorder",
@@ -3629,6 +3629,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml",
+ "slasher",
  "slashing_protection",
  "slog",
  "sloggers",
@@ -3711,6 +3712,27 @@ name = "linked-hash-map"
 version = "0.5.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0717cef1bc8b636c6e1c1bbdefc09e6322da8a9321966e8928ef80d20f7f770f"
+
+[[package]]
+name = "lmdb-rkv"
+version = "0.14.0"
+source = "git+https://github.com/sigp/lmdb-rs?rev=f33845c6469b94265319aac0ed5085597862c27e#f33845c6469b94265319aac0ed5085597862c27e"
+dependencies = [
+ "bitflags",
+ "byteorder",
+ "libc",
+ "lmdb-rkv-sys",
+]
+
+[[package]]
+name = "lmdb-rkv-sys"
+version = "0.11.2"
+source = "git+https://github.com/sigp/lmdb-rs?rev=f33845c6469b94265319aac0ed5085597862c27e#f33845c6469b94265319aac0ed5085597862c27e"
+dependencies = [
+ "cc",
+ "libc",
+ "pkg-config",
+]
 
 [[package]]
 name = "lock_api"
@@ -3830,8 +3852,7 @@ checksum = "73cbba799671b762df5a175adf59ce145165747bb891505c43d09aefbbf38beb"
 [[package]]
 name = "mdbx-sys"
 version = "0.11.6-4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9dde320ea35df4678486346065386943ed6c5920f2ab445dff8dd5d9c8cd04ad"
+source = "git+https://github.com/sigp/libmdbx-rs?tag=v0.1.4#096da80a83d14343f8df833006483f48075cd135"
 dependencies = [
  "bindgen",
  "cc",
@@ -5965,6 +5986,8 @@ dependencies = [
  "lazy_static",
  "libmdbx",
  "lighthouse_metrics",
+ "lmdb-rkv",
+ "lmdb-rkv-sys",
  "logging",
  "lru",
  "maplit",
@@ -5976,6 +5999,7 @@ dependencies = [
  "serde_derive",
  "slog",
  "sloggers",
+ "strum",
  "tempfile",
  "tree_hash",
  "tree_hash_derive",

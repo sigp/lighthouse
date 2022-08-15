@@ -1288,6 +1288,32 @@ fn slasher_broadcast_flag() {
             assert!(slasher_config.broadcast);
         });
 }
+
+#[test]
+fn slasher_backend_default() {
+    CommandLineTest::new()
+        .flag("slasher", None)
+        .run_with_zero_port()
+        .with_config(|config| {
+            let slasher_config = config.slasher.as_ref().unwrap();
+            assert_eq!(slasher_config.backend, slasher::DatabaseBackend::Mdbx);
+        });
+}
+
+#[test]
+fn slasher_backend_override_to_default() {
+    // Hard to test this flag because all but one backend is disabled by default and the backend
+    // called "disabled" results in a panic.
+    CommandLineTest::new()
+        .flag("slasher", None)
+        .flag("slasher-backend", Some("mdbx"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            let slasher_config = config.slasher.as_ref().unwrap();
+            assert_eq!(slasher_config.backend, slasher::DatabaseBackend::Mdbx);
+        });
+}
+
 #[test]
 pub fn malloc_tuning_flag() {
     CommandLineTest::new()

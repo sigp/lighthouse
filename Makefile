@@ -14,6 +14,9 @@ BUILD_PATH_AARCH64 = "target/$(AARCH64_TAG)/release"
 PINNED_NIGHTLY ?= nightly
 CLIPPY_PINNED_NIGHTLY=nightly-2022-05-19
 
+# List of features to use when cross-compiling. Can be overridden via the environment.
+CROSS_FEATURES ?= gnosis,slasher-lmdb,slasher-mdbx
+
 # List of all hard forks. This list is used to set env variables for several tests so that
 # they run for different forks.
 FORKS=phase0 altair merge
@@ -42,13 +45,13 @@ install-lcli:
 # optimized CPU functions that may not be available on some systems. This
 # results in a more portable binary with ~20% slower BLS verification.
 build-x86_64:
-	cross build --release --bin lighthouse --target x86_64-unknown-linux-gnu --features modern,gnosis
+	cross build --release --bin lighthouse --target x86_64-unknown-linux-gnu --features "modern,$(CROSS_FEATURES)"
 build-x86_64-portable:
-	cross build --release --bin lighthouse --target x86_64-unknown-linux-gnu --features portable,gnosis
+	cross build --release --bin lighthouse --target x86_64-unknown-linux-gnu --features "portable,$(CROSS_FEATURES)"
 build-aarch64:
-	cross build --release --bin lighthouse --target aarch64-unknown-linux-gnu --features gnosis
+	cross build --release --bin lighthouse --target aarch64-unknown-linux-gnu --features "$(CROSS_FEATURES)"
 build-aarch64-portable:
-	cross build --release --bin lighthouse --target aarch64-unknown-linux-gnu --features portable,gnosis
+	cross build --release --bin lighthouse --target aarch64-unknown-linux-gnu --features "portable,$(CROSS_FEATURES)"
 
 # Create a `.tar.gz` containing a binary for a specific target.
 define tarball_release_binary
@@ -77,7 +80,7 @@ build-release-tarballs:
 # Runs the full workspace tests in **release**, without downloading any additional
 # test vectors.
 test-release:
-	cargo test --workspace --release --exclude ef_tests --exclude beacon_chain
+	cargo test --workspace --release --exclude ef_tests --exclude beacon_chain --exclude slasher
 
 # Runs the full workspace tests in **debug**, without downloading any additional test
 # vectors.
@@ -117,6 +120,11 @@ test-op-pool-%:
 	env FORK_NAME=$* cargo test --release \
 		--features 'beacon_chain/fork_from_env'\
 		-p operation_pool
+
+# Run the tests in the `slasher` crate for all supported database backends.
+test-slasher:
+	cargo test --release -p slasher --features mdbx
+	cargo test --release -p slasher --no-default-features --features lmdb
 
 # Runs only the tests/state_transition_vectors tests.
 run-state-transition-tests:

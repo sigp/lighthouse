@@ -1,9 +1,11 @@
 use crate::metrics::{self, SLASHER_COMPRESSION_RATIO, SLASHER_NUM_CHUNKS_UPDATED};
-use crate::RwTransaction;
-use crate::{AttesterSlashingStatus, Config, Error, IndexedAttesterRecord, SlasherDB};
+use crate::{
+    AttesterSlashingStatus, Config, Database, Error, IndexedAttesterRecord, RwTransaction,
+    SlasherDB,
+};
 use flate2::bufread::{ZlibDecoder, ZlibEncoder};
 use serde_derive::{Deserialize, Serialize};
-use std::borrow::{Borrow, Cow};
+use std::borrow::Borrow;
 use std::collections::{btree_map::Entry, BTreeMap, HashSet};
 use std::convert::TryFrom;
 use std::io::Read;
@@ -147,10 +149,7 @@ pub trait TargetArrayChunk: Sized + serde::Serialize + serde::de::DeserializeOwn
 
     fn next_start_epoch(start_epoch: Epoch, config: &Config) -> Epoch;
 
-    fn select_db<'txn, E: EthSpec>(
-        db: &SlasherDB<E>,
-        txn: &'txn RwTransaction<'txn>,
-    ) -> Result<mdbx::Database<'txn>, Error>;
+    fn select_db<E: EthSpec>(db: &SlasherDB<E>) -> &Database;
 
     fn load<E: EthSpec>(
         db: &SlasherDB<E>,
@@ -160,11 +159,10 @@ pub trait TargetArrayChunk: Sized + serde::Serialize + serde::de::DeserializeOwn
         config: &Config,
     ) -> Result<Option<Self>, Error> {
         let disk_key = config.disk_key(validator_chunk_index, chunk_index);
-        let chunk_bytes: Cow<[u8]> =
-            match txn.get(&Self::select_db(db, txn)?, &disk_key.to_be_bytes())? {
-                Some(chunk_bytes) => chunk_bytes,
-                None => return Ok(None),
-            };
+        let chunk_bytes = match txn.get(Self::select_db(db), &disk_key.to_be_bytes())? {
+            Some(chunk_bytes) => chunk_bytes,
+            None => return Ok(None),
+        };
 
         let chunk = bincode::deserialize_from(ZlibDecoder::new(chunk_bytes.borrow()))?;
 
@@ -189,10 +187,9 @@ pub trait TargetArrayChunk: Sized + serde::Serialize + serde::de::DeserializeOwn
         metrics::set_float_gauge(&SLASHER_COMPRESSION_RATIO, compression_ratio);
 
         txn.put(
-            &Self::select_db(db, txn)?,
+            Self::select_db(db),
             &disk_key.to_be_bytes(),
             &compressed_value,
-            SlasherDB::<E>::write_flags(),
         )?;
         Ok(())
     }
@@ -296,11 +293,8 @@ impl TargetArrayChunk for MinTargetChunk {
         start_epoch / chunk_size * chunk_size - 1
     }
 
-    fn select_db<'txn, E: EthSpec>(
-        db: &SlasherDB<E>,
-        txn: &'txn RwTransaction<'txn>,
-    ) -> Result<mdbx::Database<'txn>, Error> {
-        db.min_targets_db(txn)
+    fn select_db<E: EthSpec>(db: &SlasherDB<E>) -> &Database {
+        &db.databases.min_targets_db
     }
 }
 
@@ -398,11 +392,8 @@ impl TargetArrayChunk for MaxTargetChunk {
         (start_epoch / chunk_size + 1) * chunk_size
     }
 
-    fn select_db<'txn, E: EthSpec>(
-        db: &SlasherDB<E>,
-        txn: &'txn RwTransaction<'txn>,
-    ) -> Result<mdbx::Database<'txn>, Error> {
-        db.max_targets_db(txn)
+    fn select_db<E: EthSpec>(db: &SlasherDB<E>) -> &Database {
+        &db.databases.max_targets_db
     }
 }
 
