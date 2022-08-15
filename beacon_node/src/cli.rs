@@ -1,4 +1,5 @@
 use clap::{App, Arg};
+use strum::VariantNames;
 
 pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
     App::new("beacon_node")
@@ -229,8 +230,14 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .arg(
             Arg::with_name("http-disable-legacy-spec")
                 .long("http-disable-legacy-spec")
-                .help("Disable serving of legacy data on the /config/spec endpoint. May be \
-                       disabled by default in a future release.")
+                .hidden(true)
+        )
+        .arg(
+            Arg::with_name("http-spec-fork")
+                .long("http-spec-fork")
+                .help("Serve the spec for a specific hard fork on /eth/v1/config/spec. It should \
+                       not be necessary to set this flag.")
+                .takes_value(true)
         )
         .arg(
             Arg::with_name("http-enable-tls")
@@ -620,6 +627,14 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .long("slasher-broadcast")
                 .help("Broadcast slashings found by the slasher to the rest of the network \
                        [disabled by default].")
+                .requires("slasher")
+        )
+        .arg(
+            Arg::with_name("slasher-backend")
+                .long("slasher-backend")
+                .help("Set the database backend to be used by the slasher.")
+                .takes_value(true)
+                .possible_values(slasher::DatabaseBackend::VARIANTS)
                 .requires("slasher")
         )
         .arg(

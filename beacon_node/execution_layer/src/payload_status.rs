@@ -18,9 +18,6 @@ pub enum PayloadStatus {
     InvalidBlockHash {
         validation_error: Option<String>,
     },
-    InvalidTerminalBlock {
-        validation_error: Option<String>,
-    },
 }
 
 /// Processes the response from the execution engine.
@@ -87,22 +84,6 @@ pub fn process_payload_status(
                 }
 
                 Ok(PayloadStatus::InvalidBlockHash {
-                    validation_error: response.validation_error.clone(),
-                })
-            }
-            PayloadStatusV1Status::InvalidTerminalBlock => {
-                // In the interests of being liberal with what we accept, only raise a
-                // warning here.
-                if response.latest_valid_hash.is_some() {
-                    warn!(
-                    log,
-                    "Malformed response from execution engine";
-                    "msg" => "expected a null latest_valid_hash",
-                    "status" => ?response.status
-                    )
-                }
-
-                Ok(PayloadStatus::InvalidTerminalBlock {
                     validation_error: response.validation_error.clone(),
                 })
             }

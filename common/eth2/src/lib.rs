@@ -23,7 +23,7 @@ use lighthouse_network::PeerId;
 pub use reqwest;
 use reqwest::{IntoUrl, RequestBuilder, Response};
 pub use reqwest::{StatusCode, Url};
-use sensitive_url::SensitiveUrl;
+pub use sensitive_url::SensitiveUrl;
 use serde::{de::DeserializeOwned, Serialize};
 use std::convert::TryFrom;
 use std::fmt;
@@ -977,7 +977,9 @@ impl BeaconNodeHttpClient {
     }
 
     /// `GET config/spec`
-    pub async fn get_config_spec(&self) -> Result<GenericResponse<ConfigAndPreset>, Error> {
+    pub async fn get_config_spec<T: Serialize + DeserializeOwned>(
+        &self,
+    ) -> Result<GenericResponse<T>, Error> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()

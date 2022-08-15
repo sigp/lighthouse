@@ -43,6 +43,34 @@ By default the slasher stores data in the `slasher_db` directory inside the beac
 e.g. `~/.lighthouse/{network}/beacon/slasher_db`. You can use this flag to change that storage
 directory.
 
+### Database Backend
+
+* Flag: `--slasher-backend NAME`
+* Argument: one of `mdbx`, `lmdb` or `disabled`
+* Default: `mdbx`
+
+Since Lighthouse v2.6.0 it is possible to use one of several database backends with the slasher:
+
+- MDBX (default)
+- LMDB
+
+The advantage of MDBX is that it performs compaction, resulting in less disk usage over time. The
+disadvantage is that upstream MDBX has removed support for Windows and macOS, so Lighthouse is stuck
+on an older version. If bugs are found in our pinned version of MDBX it may be deprecated in future.
+
+LMDB does not have compaction but is more stable upstream than MDBX. It is not currently recommended
+to use the LMDB backend on Windows.
+
+More backends may be added in future.
+
+### Switching Backends
+
+If you change database backends and want to reclaim the space used by the old backend you can
+delete the following files from your `slasher_db` directory:
+
+* removing MDBX: delete `mdbx.dat` and `mdbx.lck`
+* removing LMDB: delete `data.mdb` and `lock.mdb`
+
 ### History Length
 
 * Flag: `--slasher-history-length EPOCHS`
@@ -65,7 +93,7 @@ changed after initialization.
 * Argument: maximum size of the database in gigabytes
 * Default: 256 GB
 
-The slasher uses MDBX as its backing store, which places a hard limit on the size of the database
+Both database backends LMDB and MDBX place a hard limit on the size of the database
 file. You can use the `--slasher-max-db-size` flag to set this limit. It can be adjusted after
 initialization if the limit is reached.
 
@@ -84,10 +112,6 @@ where `V` is the validator count and `N` is the history length.
 
 You should set the maximum size higher than the estimate to allow room for growth in the validator
 count.
-
-> NOTE: In Lighthouse v2.1.0 the slasher database was switched from LMDB to MDBX. Unlike LMDB, MDBX
-> does garbage collection of free pages and is capable of shrinking the database file and preventing
-> it from growing indefinitely.
 
 ### Update Period
 

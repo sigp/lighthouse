@@ -102,6 +102,16 @@ jobs:
       run: rustup update stable
     - name: Run operation_pool tests for all known forks
       run: make test-op-pool
+  slasher-tests:
+    name: slasher-tests
+    runs-on: ubuntu-latest
+    needs: cargo-fmt
+    steps:
+    - uses: actions/checkout@v1
+    - name: Get latest version of stable Rust
+      run: rustup update stable
+    - name: Run slasher tests for all supported backends
+      run: make test-slasher
   debug-tests-ubuntu:
     name: debug-tests-ubuntu
     runs-on: ubuntu-22.04

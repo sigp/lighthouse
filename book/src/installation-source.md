@@ -107,6 +107,23 @@ git checkout ${VERSION}
 make
 ```
 
+## Feature Flags
+
+You can customise the features that Lighthouse is built with using the `FEATURES` environment
+variable. E.g.
+
+```
+env FEATURES="gnosis,slasher-lmdb" make
+```
+
+Commonly used features include:
+
+* `gnosis`: support for the Gnosis Beacon Chain.
+* `portable`: support for legacy hardware.
+* `modern`: support for exclusively modern hardware.
+* `slasher-mdbx`: support for the MDBX slasher backend (enabled by default).
+* `slasher-lmdb`: support for the LMDB slasher backend.
+
 ## Troubleshooting
 
 ### Command is not found

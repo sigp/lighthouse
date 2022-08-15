@@ -6,7 +6,7 @@ knowledge of the transactions included in the block. This enables Lighthouse to 
 transaction gathering/ordering within a block to parties specialized in this particular task. For
 economic reasons, these parties will refuse to reveal the list of transactions to the validator
 before the validator has committed to (i.e. signed) the block. A primer on MEV can be found
-[here]([MEV](https://ethereum.org/en/developers/docs/mev/)).
+[here](https://ethereum.org/en/developers/docs/mev).
 
 Using the builder API is not known to introduce additional slashing risks, however a live-ness risk
 (i.e. the ability for the chain to produce valid blocks) is introduced because your node will be
@@ -59,8 +59,16 @@ so a discrepancy in fee recipient might not indicate that there is something afo
 only create blocks with a `fee_recipient` field matching the one suggested, you can use
 the [strict fee recipient](suggested-fee-recipient.md#strict-fee-recipient) flag.
 
-### Enable/Disable builder proposals and set Gas Limit
-Use the [lighthouse API](api-vc-endpoints.md) to configure these fields per-validator.
+### Set Gas Limit via HTTP
+
+To update gas limit per-validator you can use the [standard key manager API][gas-limit-api].
+
+Alternatively, you can use the [lighthouse API](api-vc-endpoints.md). See below for an example.
+
+### Enable/Disable builder proposals via HTTP
+
+Use the [lighthouse API](api-vc-endpoints.md) to enable/disable use of the builder API on a per-validator basis.
+You can also update the configured gas limit with these requests.
 
 #### `PATCH /lighthouse/validators/:voting_pubkey`
 
@@ -99,6 +107,9 @@ null
 Refer to [suggested fee recipient](suggested-fee-recipient.md) documentation.
 
 ### Validator definitions example
+
+You can also directly configure these fields in the `validator_definitions.yml` file.
+
 ```
 ---
 - enabled: true
@@ -142,3 +153,4 @@ By default, Lighthouse is strict with these conditions, but we encourage users t
 
 [mev-rs]: https://github.com/ralexstokes/mev-rs
 [mev-boost]: https://github.com/flashbots/mev-boost
+[gas-limit-api]: https://ethereum.github.io/keymanager-APIs/#/Gas%20Limit
