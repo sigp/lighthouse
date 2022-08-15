@@ -339,7 +339,21 @@ async fn merge_readiness_logging<T: BeaconChainTypes>(
             payload.parent_hash() != ExecutionBlockHash::zero()
         });
 
-    if merge_completed || !beacon_chain.is_time_to_prepare_for_bellatrix(current_slot) {
+    let has_execution_layer = beacon_chain.execution_layer.is_some();
+
+    if merge_completed && has_execution_layer
+        || !beacon_chain.is_time_to_prepare_for_bellatrix(current_slot)
+    {
+        return;
+    }
+
+    if merge_completed && !has_execution_layer {
+        error!(
+            log,
+            "Execution endpoint required";
+            "info" => "you need an execution engine to validate blocks, see: \
+                       https://lighthouse-book.sigmaprime.io/merge-migration.html"
+        );
         return;
     }
 
