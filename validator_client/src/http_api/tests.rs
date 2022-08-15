@@ -921,6 +921,8 @@ fn validator_builder_proposals() {
 
 #[test]
 fn validator_builder_pubkey_override() {
+    use std::str::FromStr;
+
     let runtime = build_runtime();
     let weak_runtime = Arc::downgrade(&runtime);
     runtime.block_on(async {
