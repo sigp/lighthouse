@@ -8,18 +8,13 @@ use account_utils::random_password;
 use clap::{App, Arg, ArgMatches};
 use directory::ensure_dir_exists;
 use directory::{parse_path_or_default_with_flag, DEFAULT_SECRET_DIR};
-use environment::Environment;
 use eth2_wallet::bip39::Seed;
 use eth2_wallet::{recover_validator_secret_from_mnemonic, KeyType, ValidatorKeystores};
-use std::fs;
 use std::path::PathBuf;
-use types::*;
 use validator_dir::Builder as ValidatorDirBuilder;
-
 pub const CMD: &str = "recover";
 pub const FIRST_INDEX_FLAG: &str = "first-index";
 pub const MNEMONIC_FLAG: &str = "mnemonic-path";
-pub const JSON_DEPOSIT_DATA_PATH: &str = "json-deposit-data-path";
 
 pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
     App::new(CMD)
@@ -81,26 +76,9 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .long(STDIN_INPUTS_FLAG)
                 .help("If present, read all user inputs from stdin instead of tty."),
         )
-        .arg(
-            Arg::with_name(JSON_DEPOSIT_DATA_PATH)
-                .long(JSON_DEPOSIT_DATA_PATH)
-                .value_name("PATH")
-                .help(
-                    "When provided, outputs a JSON file containing deposit data which \
-                    is equivalent to the 'deposit-data-*.json' file used by the \
-                    staking-deposit-cli tool.",
-                )
-                .takes_value(true),
-        )
 }
 
-pub fn cli_run<T: EthSpec>(
-    matches: &ArgMatches,
-    mut env: Environment<T>,
-    validator_dir: PathBuf,
-) -> Result<(), String> {
-    let spec = env.core_context().eth2_config.spec;
-
+pub fn cli_run(matches: &ArgMatches, validator_dir: PathBuf) -> Result<(), String> {
     let secrets_dir = if matches.value_of("datadir").is_some() {
         let path: PathBuf = clap_utils::parse_required(matches, "datadir")?;
         path.join(DEFAULT_SECRET_DIR)
@@ -111,8 +89,6 @@ pub fn cli_run<T: EthSpec>(
     let count: u32 = clap_utils::parse_required(matches, COUNT_FLAG)?;
     let mnemonic_path: Option<PathBuf> = clap_utils::parse_optional(matches, MNEMONIC_FLAG)?;
     let stdin_inputs = cfg!(windows) || matches.is_present(STDIN_INPUTS_FLAG);
-    let json_deposit_data_path: Option<PathBuf> =
-        clap_utils::parse_optional(matches, JSON_DEPOSIT_DATA_PATH)?;
 
     eprintln!("secrets-dir path: {:?}", secrets_dir);
 
@@ -126,8 +102,6 @@ pub fn cli_run<T: EthSpec>(
     let mnemonic = read_mnemonic_from_cli(mnemonic_path, stdin_inputs)?;
 
     let seed = Seed::new(&mnemonic, "");
-
-    let mut json_deposit_data = Some(vec![]).filter(|_| json_deposit_data_path.is_some());
 
     for index in first_index..first_index + count {
         let voting_password = random_password();
@@ -154,20 +128,13 @@ pub fn cli_run<T: EthSpec>(
 
         let voting_pubkey = keystores.voting.pubkey().to_string();
 
-        let validator_dir = ValidatorDirBuilder::new(validator_dir.clone())
+        ValidatorDirBuilder::new(validator_dir.clone())
             .password_dir(secrets_dir.clone())
             .voting_keystore(keystores.voting, voting_password.as_bytes())
             .withdrawal_keystore(keystores.withdrawal, withdrawal_password.as_bytes())
             .store_withdrawal_keystore(matches.is_present(STORE_WITHDRAW_FLAG))
             .build()
             .map_err(|e| format!("Unable to build validator directory: {:?}", e))?;
-
-        if let Some(json_deposit_data) = &mut json_deposit_data {
-            let standard_deposit_data_json = validator_dir
-                .standard_deposit_data_json(&spec)
-                .map_err(|e| format!("Unable to create standard JSON deposit data: {:?}", e))?;
-            json_deposit_data.push(standard_deposit_data_json);
-        }
 
         println!(
             "{}/{}\tIndex: {}\t0x{}",
@@ -176,22 +143,6 @@ pub fn cli_run<T: EthSpec>(
             index,
             voting_pubkey
         );
-    }
-
-    // If configured, create a single JSON file which contains deposit data information for all
-    // validators.
-    if let Some(json_deposit_data_path) = json_deposit_data_path {
-        let json_deposit_data =
-            json_deposit_data.ok_or("Internal error: JSON deposit data is None")?;
-
-        let mut file = fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&json_deposit_data_path)
-            .map_err(|e| format!("Unable to create {:?}: {:?}", json_deposit_data_path, e))?;
-
-        serde_json::to_writer(&mut file, &json_deposit_data)
-            .map_err(|e| format!("Unable write JSON to {:?}: {:?}", json_deposit_data_path, e))?;
     }
 
     Ok(())

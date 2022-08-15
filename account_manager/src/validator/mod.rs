@@ -53,7 +53,7 @@ pub fn cli_run<T: EthSpec>(matches: &ArgMatches, env: Environment<T>) -> Result<
         (modify::CMD, Some(matches)) => modify::cli_run(matches, validator_base_dir),
         (import::CMD, Some(matches)) => import::cli_run(matches, validator_base_dir),
         (list::CMD, Some(_)) => list::cli_run(validator_base_dir),
-        (recover::CMD, Some(matches)) => recover::cli_run::<T>(matches, env, validator_base_dir),
+        (recover::CMD, Some(matches)) => recover::cli_run(matches, validator_base_dir),
         (slashing_protection::CMD, Some(matches)) => {
             slashing_protection::cli_run(matches, env, validator_base_dir)
         }
