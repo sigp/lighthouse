@@ -276,6 +276,7 @@ impl ApiTester {
                 suggested_fee_recipient: None,
                 gas_limit: None,
                 builder_proposals: None,
+                builder_pubkey_override: None,
                 deposit_gwei: E::default_spec().max_effective_balance,
             })
             .collect::<Vec<_>>();
@@ -409,6 +410,7 @@ impl ApiTester {
                 suggested_fee_recipient: None,
                 gas_limit: None,
                 builder_proposals: None,
+                builder_pubkey_override: None,
             };
 
             self.client
@@ -429,6 +431,7 @@ impl ApiTester {
             suggested_fee_recipient: None,
             gas_limit: None,
             builder_proposals: None,
+            builder_pubkey_override: None,
         };
 
         let response = self
@@ -467,6 +470,7 @@ impl ApiTester {
                     suggested_fee_recipient: None,
                     gas_limit: None,
                     builder_proposals: None,
+                    builder_pubkey_override: None,
                     voting_public_key: kp.pk,
                     url: format!("http://signer_{}.com/", i),
                     root_certificate_path: None,
@@ -496,7 +500,7 @@ impl ApiTester {
         let validator = &self.client.get_lighthouse_validators().await.unwrap().data[index];
 
         self.client
-            .patch_lighthouse_validators(&validator.voting_pubkey, Some(enabled), None, None)
+            .patch_lighthouse_validators(&validator.voting_pubkey, Some(enabled), None, None, None)
             .await
             .unwrap();
 
@@ -538,7 +542,13 @@ impl ApiTester {
         let validator = &self.client.get_lighthouse_validators().await.unwrap().data[index];
 
         self.client
-            .patch_lighthouse_validators(&validator.voting_pubkey, None, Some(gas_limit), None)
+            .patch_lighthouse_validators(
+                &validator.voting_pubkey,
+                None,
+                Some(gas_limit),
+                None,
+                None,
+            )
             .await
             .unwrap();
 
@@ -565,6 +575,7 @@ impl ApiTester {
                 None,
                 None,
                 Some(builder_proposals),
+                None,
             )
             .await
             .unwrap();
@@ -579,6 +590,35 @@ impl ApiTester {
             self.validator_store
                 .get_builder_proposals(&validator.voting_pubkey),
             builder_proposals
+        );
+
+        self
+    }
+
+    pub async fn set_builder_pubkey_override(self, index: usize, pubkey: PublicKeyBytes) -> Self {
+        let validator = &self.client.get_lighthouse_validators().await.unwrap().data[index];
+
+        self.client
+            .patch_lighthouse_validators(&validator.voting_pubkey, None, None, None, Some(pubkey))
+            .await
+            .unwrap();
+
+        self
+    }
+
+    pub async fn assert_builder_pubkey_override(
+        self,
+        index: usize,
+        pubkey: PublicKeyBytes,
+    ) -> Self {
+        let validator = &self.client.get_lighthouse_validators().await.unwrap().data[index];
+
+        assert_eq!(
+            self.validator_store
+                .proposal_data(&validator.voting_pubkey)
+                .map(|data| data.builder_pubkey_override)
+                .flatten(),
+            Some(pubkey)
         );
 
         self
@@ -649,6 +689,7 @@ fn routes_with_invalid_auth() {
                         suggested_fee_recipient: <_>::default(),
                         gas_limit: <_>::default(),
                         builder_proposals: <_>::default(),
+                        builder_pubkey_override: <_>::default(),
                         deposit_gwei: <_>::default(),
                     }])
                     .await
@@ -680,13 +721,20 @@ fn routes_with_invalid_auth() {
                         suggested_fee_recipient: <_>::default(),
                         gas_limit: <_>::default(),
                         builder_proposals: <_>::default(),
+                        builder_pubkey_override: <_>::default(),
                     })
                     .await
             })
             .await
             .test_with_invalid_auth(|client| async move {
                 client
-                    .patch_lighthouse_validators(&PublicKeyBytes::empty(), Some(false), None, None)
+                    .patch_lighthouse_validators(
+                        &PublicKeyBytes::empty(),
+                        Some(false),
+                        None,
+                        None,
+                        None,
+                    )
                     .await
             })
             .await
@@ -867,6 +915,47 @@ fn validator_builder_proposals() {
             .await
             .assert_enabled_validators_count(2)
             .assert_builder_proposals(0, false)
+            .await
+    });
+}
+
+#[test]
+fn validator_builder_pubkey_override() {
+    let runtime = build_runtime();
+    let weak_runtime = Arc::downgrade(&runtime);
+    runtime.block_on(async {
+
+        let pubkey_1 = PublicKeyBytes::from_str("0xaf3c7ddab7e293834710fca2d39d068f884455ede270e0d0293dc818e4f2f0f975355067e8437955cb29aec674e5c9e7").unwrap();
+        let pubkey_2 = PublicKeyBytes::from_str("0x424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242424242").unwrap();
+
+        ApiTester::new(weak_runtime)
+            .await
+            .create_hd_validators(HdValidatorScenario {
+                count: 2,
+                specify_mnemonic: false,
+                key_derivation_path_offset: 0,
+                disabled: vec![],
+            })
+            .await
+            .assert_enabled_validators_count(2)
+            .assert_validators_count(2)
+            .set_builder_pubkey_override(0, pubkey_1)
+            .await
+            .assert_builder_pubkey_override(0, pubkey_1)
+            .await
+            // Test setting builder pubkey override while the validator is disabled
+            .set_validator_enabled(0, false)
+            .await
+            .assert_enabled_validators_count(1)
+            .assert_validators_count(2)
+            .set_builder_pubkey_override(0, pubkey_2)
+            .await
+            .assert_builder_pubkey_override(0, pubkey_2)
+            .await
+            .set_validator_enabled(0, true)
+            .await
+            .assert_enabled_validators_count(2)
+            .assert_builder_pubkey_override(0, pubkey_2)
             .await
     });
 }

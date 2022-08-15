@@ -657,12 +657,12 @@ mod tests {
         enabled: true
         type: local_keystore
         suggested_fee_recipient: "0xa2e334e71511686bcfe38bb3ee1ad8f6babcc03d"
-        voting_keystore_path: "
         builder_pubkey_override: "0xaf3c7ddab7e293834710fca2d39d068f884455ede270e0d0293dc818e4f2f0f975355067e8437955cb29aec674e5c9e7"
+        voting_keystore_path: ""
         voting_public_key: "0xaf3c7ddab7e293834710fca2d39d068f884455ede270e0d0293dc818e4f2f0f975355067e8437955cb29aec674e5c9e7"
         "#;
 
         let def: ValidatorDefinition = serde_yaml::from_str(valid_builder_pubkey_override).unwrap();
-        assert_eq!(def.builder_pubkey_override, Some(PublicKey::from_str("0xaf3c7ddab7e293834710fca2d39d068f884455ede270e0d0293dc818e4f2f0f975355067e8437955cb29aec674e5c9e7").unwrap()));
+        assert_eq!(def.builder_pubkey_override, Some(PublicKeyBytes::from_str("0xaf3c7ddab7e293834710fca2d39d068f884455ede270e0d0293dc818e4f2f0f975355067e8437955cb29aec674e5c9e7").unwrap()));
     }
 }

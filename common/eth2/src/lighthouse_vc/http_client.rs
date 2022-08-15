@@ -466,8 +466,8 @@ impl ValidatorClientHttpClient {
         voting_pubkey: &PublicKeyBytes,
         enabled: Option<bool>,
         gas_limit: Option<u64>,
-        builder_pubkey_override: Option<PublicKeyBytes>,
         builder_proposals: Option<bool>,
+        builder_pubkey_override: Option<PublicKeyBytes>,
     ) -> Result<(), Error> {
         let mut path = self.server.full.clone();
 

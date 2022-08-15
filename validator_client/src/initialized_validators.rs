@@ -142,7 +142,7 @@ impl InitializedValidator {
     }
 
     pub fn get_builder_pubkey_override(&self) -> Option<PublicKeyBytes> {
-        self.builder_pubkey_override.clone()
+        self.builder_pubkey_override
     }
 
     pub fn get_builder_proposals(&self) -> Option<bool> {

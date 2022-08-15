@@ -429,7 +429,7 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
                 {
                     Ok(data) => data,
                     Err(e) => {
-                        error!(log, "Unable to sign validator registration data"; "error" => ?e, "pubkey" => ?pubkey);
+                        error!(log, "Unable to sign validator registration data"; "error" => ?e, "pubkey" => ?signing_pubkey);
                         continue;
                     }
                 };
