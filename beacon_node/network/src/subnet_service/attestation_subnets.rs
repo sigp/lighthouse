@@ -635,7 +635,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
 
         #[cfg(feature = "deterministic_long_lived_attnets")]
         let (subscriptions, already_subscribed_as_other_kind) = (
-            self.short_lived_subscriptions,
+            &mut self.short_lived_subscriptions,
             self.long_lived_subscriptions.contains(&subnet_id),
         );
 
@@ -731,12 +731,15 @@ impl<T: BeaconChainTypes> AttestationService<T> {
     // subscription of the other kind. For long lived subscriptions, it also removes the
     // advertisement from our ENR.
     fn handle_removed_subnet(&mut self, subnet_id: SubnetId, subscription_kind: SubscriptionKind) {
-        let other_subscriptions = match subscription_kind {
-            SubscriptionKind::LongLived => &self.short_lived_subscriptions,
-            SubscriptionKind::ShortLived => &self.long_lived_subscriptions,
+        let exists_in_other_subscriptions = match subscription_kind {
+            SubscriptionKind::LongLived => self.short_lived_subscriptions.contains_key(&subnet_id),
+            #[cfg(feature = "deterministic_long_lived_attnets")]
+            SubscriptionKind::ShortLived => self.long_lived_subscriptions.contains(&subnet_id),
+            #[cfg(not(feature = "deterministic_long_lived_attnets"))]
+            SubscriptionKind::ShortLived => self.long_lived_subscriptions.contains_key(&subnet_id),
         };
 
-        if !other_subscriptions.contains_key(&subnet_id) {
+        if !exists_in_other_subscriptions {
             // Subscription no longer exists as short lived or long lived.
             debug!(self.log, "Unsubscribing from subnet"; "subnet" => ?subnet_id, "subscription_kind" => ?subscription_kind);
             self.queue_event(SubnetServiceMessage::Unsubscribe(Subnet::Attestation(
