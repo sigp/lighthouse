@@ -2485,14 +2485,17 @@ pub fn serve<T: BeaconChainTypes>(
                 let head_snapshot = chain.head_snapshot();
                 let spec = &chain.spec;
 
-                let preparation_data = register_val_data
-                    .iter()
+                let (preparation_data, filtered_registration_data): (
+                    Vec<ProposerPreparationData>,
+                    Vec<SignedValidatorRegistrationData>,
+                ) = register_val_data
+                    .into_iter()
                     .filter_map(|register_data| {
                         chain
                             .validator_index(&register_data.message.pubkey)
                             .ok()
                             .flatten()
-                            .map(|validator_index| {
+                            .and_then(|validator_index| {
                                 let validator = head_snapshot
                                     .beacon_state
                                     .get_validator(validator_index)
@@ -2508,14 +2511,18 @@ pub fn serve<T: BeaconChainTypes>(
                                         || matches!(validator_status, ValidatorStatus::Active);
 
                                 // Filter out validators who are not 'active' or 'pending'.
-                                is_active_or_pending.then(|| ProposerPreparationData {
-                                    validator_index: validator_index as u64,
-                                    fee_recipient: register_data.message.fee_recipient,
+                                is_active_or_pending.then(|| {
+                                    (
+                                        ProposerPreparationData {
+                                            validator_index: validator_index as u64,
+                                            fee_recipient: register_data.message.fee_recipient,
+                                        },
+                                        register_data,
+                                    )
                                 })
                             })
-                            .flatten()
                     })
-                    .collect::<Vec<_>>();
+                    .unzip();
 
                 // Update the prepare beacon proposer cache based on this request.
                 execution_layer
@@ -2544,11 +2551,11 @@ pub fn serve<T: BeaconChainTypes>(
                 info!(
                     log,
                     "Forwarding register validator request to connected builder";
-                    "count" => register_val_data.len(),
+                    "count" => filtered_registration_data.len(),
                 );
 
                 builder
-                    .post_builder_validators(&register_val_data)
+                    .post_builder_validators(&filtered_registration_data)
                     .await
                     .map(|resp| warp::reply::json(&resp))
                     .map_err(|e| {
