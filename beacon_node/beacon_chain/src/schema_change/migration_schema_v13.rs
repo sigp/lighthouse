@@ -30,14 +30,13 @@ pub fn update_eth1_cache(persisted_eth1_v1: SszEth1) -> Result<SszEth1, Error> {
         deposit_roots,
     } = deposit_cache_v1;
 
-    let deposit_tree = DepositDataTree::create(&leaves, leaves.len(), DEPOSIT_TREE_DEPTH);
     let deposit_cache_v13 = SszDepositCacheV13 {
         logs,
         leaves,
         deposit_contract_deploy_block,
         finalized_deposit_count: 0,
         finalized_block_height: deposit_contract_deploy_block.saturating_sub(1),
-        deposit_tree_snapshot: deposit_tree.get_snapshot(),
+        deposit_tree_snapshot: None,
         deposit_roots,
     };
 

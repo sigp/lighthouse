@@ -383,7 +383,7 @@ impl DepositCache {
                 })
                 .unwrap_or_else(|| {
                     Ok(DepositDataTree::create(
-                        &leaves,
+                        leaves,
                         leaves.len(),
                         DEPOSIT_TREE_DEPTH,
                     ))

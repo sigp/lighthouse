@@ -75,6 +75,5 @@ impl DepositTreeSnapshot {
 #[cfg(test)]
 mod tests {
     use super::*;
-    ssz_tests!(FinalizedExecutionBlock);
     ssz_tests!(DepositTreeSnapshot);
 }
