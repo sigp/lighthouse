@@ -952,8 +952,6 @@ fn validator_builder_pubkey_override() {
             .assert_validators_count(2)
             .set_builder_pubkey_override(0, pubkey_2)
             .await
-            .assert_builder_pubkey_override(0, pubkey_2)
-            .await
             .set_validator_enabled(0, true)
             .await
             .assert_enabled_validators_count(2)
