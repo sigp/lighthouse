@@ -64,6 +64,18 @@ pub fn read_password<P: AsRef<Path>>(path: P) -> Result<PlainText, io::Error> {
     fs::read(path).map(strip_off_newlines).map(Into::into)
 }
 
+/// Reads a password file into a `ZeroizeString` struct, with new-lines removed.
+pub fn read_password_string<P: AsRef<Path>>(path: P) -> Result<ZeroizeString, String> {
+    fs::read(path)
+        .map_err(|e| format!("Error opening file: {:?}", e))
+        .map(strip_off_newlines)
+        .and_then(|bytes| {
+            String::from_utf8(bytes)
+                .map_err(|e| format!("Error decoding utf8: {:?}", e))
+                .map(Into::into)
+        })
+}
+
 /// Write a file atomically by using a temporary file as an intermediate.
 ///
 /// Care is taken to preserve the permissions of the file at `file_path` being written.

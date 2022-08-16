@@ -1,7 +1,13 @@
-use account_utils::{random_password, read_mnemonic_from_cli, read_password};
+use account_utils::{random_password_string, read_mnemonic_from_cli, read_password_string};
 use clap::{App, Arg, ArgMatches};
 use environment::Environment;
-use eth2::{lighthouse_vc::http_client::ValidatorClientHttpClient, SensitiveUrl};
+use eth2::{
+    lighthouse_vc::{
+        http_client::ValidatorClientHttpClient,
+        std_types::{ImportKeystoresRequest, KeystoreJsonStr},
+    },
+    SensitiveUrl,
+};
 use eth2_wallet::WalletBuilder;
 use serde::Serialize;
 use std::fs;
@@ -210,7 +216,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .value_name("INTEGER")
                 .help("The number of keystores to be submitted to the VC per request.")
                 .takes_value(true)
-                .default_value("16"),
+                .default_value("4"),
         )
 }
 
@@ -239,6 +245,10 @@ pub async fn cli_run<'a, T: EthSpec>(
     let ignore_duplicates = matches.is_present(IGNORE_DUPLICATES_FLAG);
     let keystore_upload_batch_size: usize =
         clap_utils::parse_required(matches, KEYSTORE_UPLOAD_BATCH_SIZE)?;
+
+    let num_batches = (count + (count - 1))
+        .checked_div(keystore_upload_batch_size as u32)
+        .ok_or_else(|| format!("--{} cannot be zero", KEYSTORE_UPLOAD_BATCH_SIZE))?;
 
     let http_client = match (dry_run, vc_url, vc_token_path) {
         (false, Some(vc_url), Some(vc_token_path)) => {
@@ -278,19 +288,19 @@ pub async fn cli_run<'a, T: EthSpec>(
 
     let mnemonic = read_mnemonic_from_cli(mnemonic_path, stdin_inputs)?;
     // A random password is always appropriate for the wallet since it is ephemeral.
-    let wallet_password = random_password();
+    let wallet_password = random_password_string();
     let voting_keystore_password = if let Some(path) = wallet_password_path {
-        read_password(&path)
+        read_password_string(&path)
             .map_err(|e| format!("Failed to read password from {:?}: {:?}", path, e))?
     } else {
-        random_password()
+        random_password_string()
     };
     // A random password is always appropriate for the withdrawal keystore since we don't ever store
     // it anywhere.
-    let withdrawal_keystore_password = random_password();
+    let withdrawal_keystore_password = random_password_string();
 
     let mut wallet =
-        WalletBuilder::from_mnemonic(&mnemonic, wallet_password.as_bytes(), "".to_string())
+        WalletBuilder::from_mnemonic(&mnemonic, wallet_password.as_ref(), "".to_string())
             .map_err(|e| format!("Unable create seed from mnemonic: {:?}", e))?
             .build()
             .map_err(|e| format!("Unable to create wallet: {:?}", e))?;
@@ -307,14 +317,14 @@ pub async fn cli_run<'a, T: EthSpec>(
     for i in 0..count {
         let keystores = wallet
             .next_validator(
-                wallet_password.as_bytes(),
-                voting_keystore_password.as_bytes(),
-                withdrawal_keystore_password.as_bytes(),
+                wallet_password.as_ref(),
+                voting_keystore_password.as_ref(),
+                withdrawal_keystore_password.as_ref(),
             )
             .map_err(|e| format!("Failed to derive keystore {}: {:?}", i, e))?;
         let voting_keystore = keystores.voting;
         let voting_keypair = voting_keystore
-            .decrypt_keypair(voting_keystore_password.as_bytes())
+            .decrypt_keypair(voting_keystore_password.as_ref())
             .map_err(|e| format!("Failed to decrypt voting keystore {}: {:?}", i, e))?;
         let voting_pubkey_bytes = voting_keypair.pk.clone().into();
 
@@ -352,7 +362,7 @@ pub async fn cli_run<'a, T: EthSpec>(
         } else {
             let withdrawal_keypair = keystores
                 .withdrawal
-                .decrypt_keypair(withdrawal_keystore_password.as_bytes())
+                .decrypt_keypair(withdrawal_keystore_password.as_ref())
                 .map_err(|e| format!("Failed to decrypt withdrawal keystore {}: {:?}", i, e))?;
             WithdrawalCredentials::bls(&withdrawal_keypair.pk, &spec)
         };
@@ -378,15 +388,72 @@ pub async fn cli_run<'a, T: EthSpec>(
         voting_keystores.push(voting_keystore);
     }
 
-    eprintln!(
-        "Generated {} keystores. Starting to submit keystores to VC, \
-        each keystore may take several seconds",
-        count
-    );
+    if let Some(http_client) = http_client {
+        eprintln!(
+            "Generated {} keystores. Starting to submit keystores to VC, \
+            each keystore may take several seconds",
+            count
+        );
 
-    for voting_keystore_chunk in voting_keystores.chunks(keystore_upload_batch_size) {
-        todo!("submit to VC")
+        for (i, chunk) in voting_keystores
+            .chunks(keystore_upload_batch_size)
+            .enumerate()
+        {
+            let keystores = chunk
+                .iter()
+                .cloned()
+                .map(KeystoreJsonStr)
+                .collect::<Vec<_>>();
+            let passwords = keystores
+                .iter()
+                .map(|_| voting_keystore_password.clone())
+                .collect();
+            let request = ImportKeystoresRequest {
+                keystores,
+                passwords,
+                // New validators have no slashing protection history.
+                slashing_protection: None,
+            };
+
+            if let Err(e) = http_client.post_keystores(&request).await {
+                eprintln!(
+                    "Failed to upload batch {}. Some keys were imported whilst \
+                    others may not have been imported. A potential solution is to use the \
+                    --{} flag, however care should be taken to ensure that there are no \
+                    duplicate deposits submitted.",
+                    i, IGNORE_DUPLICATES_FLAG
+                );
+                // Return here *without* writing the deposit JSON file. This might help prevent
+                // users from submitting duplicate deposits or deposits for validators that weren't
+                // initialized on a VC.
+                //
+                // Next the the user runs with the --ignore-duplicates flag there should be a new,
+                // complete deposit JSON file created.
+                return Err(format!("Key upload failed: {:?}", e));
+            }
+
+            eprintln!(
+                "Uploaded keystore batch {} of {} to the VC",
+                i + 1,
+                num_batches
+            );
+        }
     }
 
-    todo!();
+    // If configured, create a single JSON file which contains deposit data information for all
+    // validators.
+    if let Some(json_deposit_data_path) = json_deposit_data_path {
+        let json_deposits = json_deposits.ok_or("Internal error: JSON deposit data is None")?;
+
+        let mut file = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&json_deposit_data_path)
+            .map_err(|e| format!("Unable to create {:?}: {:?}", json_deposit_data_path, e))?;
+
+        serde_json::to_writer(&mut file, &json_deposits)
+            .map_err(|e| format!("Unable write JSON to {:?}: {:?}", json_deposit_data_path, e))?;
+    }
+
+    Ok(())
 }
