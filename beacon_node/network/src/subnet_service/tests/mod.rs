@@ -127,9 +127,11 @@ fn get_attestation_service(
 
     AttestationService::new(
         beacon_chain,
-        &config,
         #[cfg(feature = "deterministic_long_lived_attnets")]
-        lighthouse_network::discv5::enr::NodeId::random().raw(),
+        lighthouse_network::discv5::enr::NodeId::random()
+            .raw()
+            .into(),
+        &config,
         &log,
     )
 }
@@ -276,8 +278,7 @@ mod attestation_service {
         // If the long lived and short lived subnets are the same, there should be no more events
         // as we don't resubscribe already subscribed subnets.
         if !attestation_service
-            .subscriptions(attestation_subnets::SubscriptionKind::LongLived)
-            .contains_key(&subnet_id)
+            .is_subscribed(&subnet_id, attestation_subnets::SubscriptionKind::LongLived)
         {
             assert_eq!(expected[..], events[3..]);
         }
@@ -363,10 +364,10 @@ mod attestation_service {
 
         // Should be still subscribed to 1 long lived and 1 short lived subnet if both are
         // different.
-        if !attestation_service
-            .subscriptions(attestation_subnets::SubscriptionKind::LongLived)
-            .contains_key(&subnet_id1)
-        {
+        if !attestation_service.is_subscribed(
+            &subnet_id1,
+            attestation_subnets::SubscriptionKind::LongLived,
+        ) {
             assert_eq!(expected, events[3]);
             assert_eq!(attestation_service.subscription_count(), 2);
         } else {
@@ -378,10 +379,10 @@ mod attestation_service {
 
         // If the long lived and short lived subnets are different, we should get an unsubscription
         // event.
-        if !attestation_service
-            .subscriptions(attestation_subnets::SubscriptionKind::LongLived)
-            .contains_key(&subnet_id1)
-        {
+        if !attestation_service.is_subscribed(
+            &subnet_id1,
+            attestation_subnets::SubscriptionKind::LongLived,
+        ) {
             assert_eq!(
                 [SubnetServiceMessage::Unsubscribe(Subnet::Attestation(
                     subnet_id1
@@ -584,10 +585,10 @@ mod attestation_service {
         let expected_unsubscription =
             SubnetServiceMessage::Unsubscribe(Subnet::Attestation(subnet_id1));
 
-        if !attestation_service
-            .subscriptions(attestation_subnets::SubscriptionKind::LongLived)
-            .contains_key(&subnet_id1)
-        {
+        if !attestation_service.is_subscribed(
+            &subnet_id1,
+            attestation_subnets::SubscriptionKind::LongLived,
+        ) {
             assert_eq!(expected_subscription, events[3]);
             // fourth is a discovery event
             assert_eq!(expected_unsubscription, events[5]);
@@ -611,10 +612,10 @@ mod attestation_service {
 
         let second_subscribe_event = get_events(&mut attestation_service, None, 2).await;
         // If the long lived and short lived subnets are different, we should get an unsubscription event.
-        if !attestation_service
-            .subscriptions(attestation_subnets::SubscriptionKind::LongLived)
-            .contains_key(&subnet_id1)
-        {
+        if !attestation_service.is_subscribed(
+            &subnet_id1,
+            attestation_subnets::SubscriptionKind::LongLived,
+        ) {
             assert_eq!(
                 [SubnetServiceMessage::Subscribe(Subnet::Attestation(
                     subnet_id1

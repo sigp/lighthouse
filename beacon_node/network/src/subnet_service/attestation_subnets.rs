@@ -3,7 +3,7 @@
 //! determines whether attestations should be aggregated and/or passed to the beacon node.
 
 use super::SubnetServiceMessage;
-#[cfg(test)]
+#[cfg(any(test, feature = "deterministic_long_lived_attnets"))]
 use std::collections::HashSet;
 use std::collections::{HashMap, VecDeque};
 use std::pin::Pin;
@@ -67,10 +67,9 @@ pub struct AttestationService<T: BeaconChainTypes> {
     /// Once they expire, we unsubscribe from these.
     short_lived_subscriptions: HashMapDelay<SubnetId, Slot>,
 
-    /// Subnets we are currently subscribed to as long lived subscriptions.
-    ///
-    /// We advertise these in our ENR. When these expire, the subnet is removed from our ENR.
-    long_lived_subscriptions: HashMapDelay<SubnetId, Slot>,
+    /// Long lived subnets for which we are currently subscribed.
+    #[cfg(feature = "deterministic_long_lived_attnets")]
+    long_lived_subscriptions: HashSet<SubnetId>,
 
     /// Short lived subscriptions that need to be done in the future.
     scheduled_short_lived_subscriptions: HashSetDelay<ExactSubnet>,
@@ -98,6 +97,14 @@ pub struct AttestationService<T: BeaconChainTypes> {
     /// For how many slots we subscribe to long lived subnets.
     long_lived_subnet_subscription_slots: u64,
 
+    /// Our Discv5 node_id.
+    #[cfg(feature = "deterministic_long_lived_attnets")]
+    node_id: ethereum_types::U256,
+
+    /// Future used to manage subscribing and unsubscribing from long lived subnets.
+    #[cfg(feature = "deterministic_long_lived_attnets")]
+    next_long_lived_subscription_event: Pin<Box<tokio::time::Sleep>>,
+
     /// The logger for the attestation service.
     log: slog::Logger,
 }
@@ -105,10 +112,10 @@ pub struct AttestationService<T: BeaconChainTypes> {
 impl<T: BeaconChainTypes> AttestationService<T> {
     /* Public functions */
 
+    #[cfg(not(feature = "deterministic_long_lived_attnets"))]
     pub fn new(
         beacon_chain: Arc<BeaconChain<T>>,
         config: &NetworkConfig,
-        #[cfg(feature = "deterministic_long_lived_attnets")] node_id: [u8; 32],
         log: &slog::Logger,
     ) -> Self {
         let log = log.new(o!("service" => "attestation_service"));
@@ -124,7 +131,6 @@ impl<T: BeaconChainTypes> AttestationService<T> {
         );
 
         // Panics on overflow. Ensure LAST_SEEN_VALIDATOR_TIMEOUT_SLOTS is not too large.
-        #[cfg(not(feature = "deterministic_long_lived_attnets"))]
         let last_seen_val_timeout = slot_duration
             .checked_mul(LAST_SEEN_VALIDATOR_TIMEOUT_SLOTS)
             .expect("LAST_SEEN_VALIDATOR_TIMEOUT must not be ridiculously large");
@@ -139,7 +145,6 @@ impl<T: BeaconChainTypes> AttestationService<T> {
             long_lived_subscriptions: HashMapDelay::new(long_lived_subscription_duration),
             scheduled_short_lived_subscriptions: HashSetDelay::default(),
             aggregate_validators_on_subnet,
-            #[cfg(not(feature = "deterministic_long_lived_attnets"))]
             known_validators: HashSetDelay::new(last_seen_val_timeout),
             waker: None,
             discovery_disabled: config.disable_discovery,
@@ -147,6 +152,51 @@ impl<T: BeaconChainTypes> AttestationService<T> {
             long_lived_subnet_subscription_slots,
             log,
         }
+    }
+
+    #[cfg(feature = "deterministic_long_lived_attnets")]
+    pub fn new(
+        beacon_chain: Arc<BeaconChain<T>>,
+        node_id: ethereum_types::U256,
+        config: &NetworkConfig,
+        log: &slog::Logger,
+    ) -> Self {
+        let log = log.new(o!("service" => "attestation_service"));
+
+        // Calculate the random subnet duration from the spec constants.
+        let spec = &beacon_chain.spec;
+        let slot_duration = beacon_chain.slot_clock.slot_duration();
+        let long_lived_subnet_subscription_slots = spec
+            .epochs_per_random_subnet_subscription
+            .saturating_mul(T::EthSpec::slots_per_epoch());
+        let long_lived_subscription_duration = Duration::from_millis(
+            slot_duration.as_millis() as u64 * long_lived_subnet_subscription_slots,
+        );
+
+        let track_validators = !config.import_all_attestations;
+        let aggregate_validators_on_subnet =
+            track_validators.then(|| HashSetDelay::new(slot_duration));
+        let mut service = AttestationService {
+            events: VecDeque::with_capacity(10),
+            beacon_chain,
+            short_lived_subscriptions: HashMapDelay::new(slot_duration),
+            long_lived_subscriptions: HashSet::default(),
+            scheduled_short_lived_subscriptions: HashSetDelay::default(),
+            aggregate_validators_on_subnet,
+            waker: None,
+            discovery_disabled: config.disable_discovery,
+            subscribe_all_subnets: config.subscribe_all_subnets,
+            long_lived_subnet_subscription_slots,
+            node_id,
+            next_long_lived_subscription_event: {
+                // Set a dummy sleep. Calculating the current subnet subscriptions will update this
+                // value with a smarter timing
+                Box::pin(tokio::time::sleep(Duration::from_secs(1)))
+            },
+            log,
+        };
+        service.recompute_long_lived_subnets();
+        service
     }
 
     /// Return count of all currently subscribed subnets (long-lived **and** short-lived).
@@ -157,23 +207,25 @@ impl<T: BeaconChainTypes> AttestationService<T> {
         } else {
             self.short_lived_subscriptions
                 .keys()
-                .chain(self.long_lived_subscriptions.keys())
+                .chain(self.long_lived_subscriptions.iter())
                 .collect::<HashSet<_>>()
                 .len()
         }
     }
 
-    /// Give access to the current subscriptions for testing purposes.
+    /// Returns whether we are subscribed to a subnet for testing purposes.
     #[cfg(test)]
-    pub(crate) fn subscriptions(
+    pub(crate) fn is_subscribed(
         &self,
+        subnet_id: &SubnetId,
         subscription_kind: SubscriptionKind,
-    ) -> &HashMapDelay<SubnetId, Slot> {
+    ) -> bool {
         match subscription_kind {
-            SubscriptionKind::LongLived => &self.long_lived_subscriptions,
-            SubscriptionKind::ShortLived => &self.short_lived_subscriptions,
+            SubscriptionKind::LongLived => self.long_lived_subscriptions.contains(subnet_id),
+            SubscriptionKind::ShortLived => self.short_lived_subscriptions.contains_key(subnet_id),
         }
     }
+
     /// Processes a list of validator subscriptions.
     ///
     /// This will:
@@ -270,6 +322,68 @@ impl<T: BeaconChainTypes> AttestationService<T> {
         }
 
         Ok(())
+    }
+
+    #[cfg(feature = "deterministic_long_lived_attnets")]
+    fn recompute_long_lived_subnets(&mut self) {
+        let next_subscription_event = match self.recompute_long_lived_subnets_inner() {
+            Ok((subnets, next_subscription_event)) => next_subscription_event,
+            Err(_) => {
+                // On failure, try again in the next slot
+                let time_to_next_slot = self
+                    .beacon_chain
+                    .slot_clock
+                    .duration_to_next_slot()
+                    .unwrap_or_else(|| {
+                        error!(
+                        self.log,
+                        "Failed to get duration to next epoch for long lived subnet subscription"
+                    );
+                        self.beacon_chain.slot_clock.slot_duration()
+                    });
+
+                time_to_next_slot
+            }
+        };
+
+        self.next_long_lived_subscription_event =
+            Box::pin(tokio::time::sleep(next_subscription_event));
+
+        if let Some(waker) = self.waker.as_ref() {
+            waker.wake_by_ref();
+        }
+    }
+
+    /// Gets the long lived subnets the node should be subscribed to during the current epoch and
+    /// the remaining duration for which they remain valid.
+    #[cfg(feature = "deterministic_long_lived_attnets")]
+    fn recompute_long_lived_subnets_inner(&self) -> Result<(HashSet<SubnetId>, Duration), ()> {
+        let current_epoch = self.beacon_chain.epoch().map_err(
+            |e| error!(self.log, "Failed to get the current epoch from clock"; "err" => ?e),
+        )?;
+
+        let (subnets, next_subscription_epoch) = SubnetId::compute_subnets_for_epoch::<T::EthSpec>(
+            self.node_id,
+            current_epoch,
+            &self.beacon_chain.spec,
+        )
+        .map(|(iter, epoch)| (iter.collect::<HashSet<SubnetId>>(), epoch))
+        .map_err(|e| error!(self.log, "Could not compute subnets for current epoch"; "err" => e))?;
+
+        let next_subscription_slot =
+            next_subscription_epoch.start_slot(T::EthSpec::slots_per_epoch());
+        let next_subscription_event = self
+            .beacon_chain
+            .slot_clock
+            .duration_to_slot(next_subscription_slot)
+            .ok_or_else(|| {
+                error!(
+                    self.log,
+                    "Failed to compute duration to next to long lived subscription event"
+                )
+            })?;
+
+        Ok((subnets, next_subscription_event))
     }
 
     /// Checks if we have subscribed aggregate validators for the subnet. If not, checks the gossip
@@ -382,6 +496,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
             // This is a current or past slot, we subscribe immediately.
             self.subscribe_to_subnet_immediately(
                 subnet_id,
+                #[cfg(not(feature = "deterministic_long_lived_attnets"))]
                 SubscriptionKind::ShortLived,
                 slot + 1,
             )?;
@@ -475,9 +590,12 @@ impl<T: BeaconChainTypes> AttestationService<T> {
     /// Checks that the time in which the subscription would end is not in the past. If we are
     /// already subscribed, extends the timeout if necessary. If this is a new subscription, we send
     /// out the appropriate events.
+    ///
+    /// On determinist long lived subnets, this is only used for short lived subscriptions.
     fn subscribe_to_subnet_immediately(
         &mut self,
         subnet_id: SubnetId,
+        #[cfg(not(feature = "deterministic_long_lived_attnets"))]
         subscription_kind: SubscriptionKind,
         end_slot: Slot,
     ) -> Result<(), &'static str> {
@@ -497,9 +615,13 @@ impl<T: BeaconChainTypes> AttestationService<T> {
             return Err("Time when subscription would end has already passed.");
         }
 
+        #[cfg(feature = "deterministic_long_lived_attnets")]
+        let subscription_kind = SubscriptionKind::ShortLived;
+
         // We need to check and add a subscription for the right kind, regardless of the presence
         // of the subnet as a subscription of the other kind. This is mainly since long lived
         // subscriptions can be removed at any time when a validator goes offline.
+        #[cfg(not(feature = "deterministic_long_lived_attnets"))]
         let (subscriptions, already_subscribed_as_other_kind) = match subscription_kind {
             SubscriptionKind::ShortLived => (
                 &mut self.short_lived_subscriptions,
@@ -510,6 +632,12 @@ impl<T: BeaconChainTypes> AttestationService<T> {
                 self.short_lived_subscriptions.contains_key(&subnet_id),
             ),
         };
+
+        #[cfg(feature = "deterministic_long_lived_attnets")]
+        let (subscriptions, already_subscribed_as_other_kind) = (
+            self.short_lived_subscriptions,
+            self.long_lived_subscriptions.contains(&subnet_id),
+        );
 
         match subscriptions.get(&subnet_id) {
             Some(current_end_slot) => {
@@ -542,6 +670,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
                 }
 
                 // If this is a new long lived subscription, send out the appropriate events.
+                #[cfg(not(feature = "deterministic_long_lived_attnets"))]
                 if SubscriptionKind::LongLived == subscription_kind {
                     let subnet = Subnet::Attestation(subnet_id);
                     // Advertise this subnet in our ENR.
@@ -703,6 +832,7 @@ impl<T: BeaconChainTypes> Stream for AttestationService<T> {
             Poll::Ready(Some(Ok(ExactSubnet { subnet_id, slot }))) => {
                 if let Err(e) = self.subscribe_to_subnet_immediately(
                     subnet_id,
+                    #[cfg(not(feature = "deterministic_long_lived_attnets"))]
                     SubscriptionKind::ShortLived,
                     slot + 1,
                 ) {
