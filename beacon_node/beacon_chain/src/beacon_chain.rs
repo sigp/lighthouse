@@ -3223,6 +3223,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok((state, state_root_opt))
     }
 
+    /// Fetch the beacon state to use for producing a block if a 1-slot proposer re-org is viable.
+    ///
+    /// This function will return `Ok(None)` if proposer re-orgs are disabled.
     fn get_state_for_re_org(
         &self,
         slot: Slot,
@@ -3234,7 +3237,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 warn!(
                     self.log,
                     "Ignoring proposer re-org configuration";
-                    "reason" => "this network does not have proposer boosting enabled"
+                    "reason" => "this network does not have proposer boost enabled"
                 );
                 return Ok(None);
             }
@@ -3246,10 +3249,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             // Check that we're producing a block one slot after the current head, and early enough
             // in the slot to be able to propagate widely. For simplicity of analysis, also avoid
-            // proposing a re-org block in the first slot of the epoch, as
+            // proposing a re-org block in the first slot of the epoch, as re-orging the last block
+            // of the previous epoch could change the proposer shuffling.
+            //
+            // Additionally, do a quick check that the current canonical head block was observed
+            // late. This aligns with `should_suppress_fork_choice_update` and prevents
+            // unnecessarily taking the fork choice write lock.
             if head_slot + 1 == slot
                 && slot % T::EthSpec::slots_per_epoch() != 0
                 && slot_delay < max_re_org_slot_delay(self.spec.seconds_per_slot)
+                && self.block_observed_after_attestation_deadline(canonical_head, head_slot)
             {
                 // Is the current head weak and appropriate for re-orging?
                 let proposer_head = self
@@ -3303,6 +3312,93 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         Ok(None)
+    }
+
+    /// Determine whether a fork choice update to the execution layer should be suppressed.
+    ///
+    /// This is *only* necessary when proposer re-orgs are enabled, because we have to prevent the
+    /// execution layer from enshrining the block we want to re-org as the head.
+    ///
+    /// This function uses heuristics that align quite closely but not exactly with the re-org
+    /// conditions set out in `get_state_for_re_org` and `get_proposer_head`. The differences are
+    /// documented below.
+    async fn should_suppress_fork_choice_update(
+        &self,
+        current_slot: Slot,
+        head_block_root: Hash256,
+    ) -> Result<bool, Error> {
+        // Never supress if proposer re-orgs are disabled.
+        if self.config.re_org_threshold.is_none() {
+            return Ok(false);
+        }
+
+        // Load details of the head block and its parent from fork choice.
+        let (head_slot, parent_root, parent_slot) = {
+            let nodes = self
+                .canonical_head
+                .fork_choice_read_lock()
+                .proto_array()
+                .core_proto_array()
+                .iter_nodes(&head_block_root)
+                .take(2)
+                .cloned()
+                .collect::<Vec<_>>();
+
+            if nodes.len() != 2 {
+                return Ok(false);
+            }
+
+            (nodes[0].slot, nodes[1].root, nodes[1].slot)
+        };
+
+        // The slot of our potential re-org block is always 1 greater than the head block because we
+        // only attempt single-slot re-orgs.
+        let re_org_block_slot = head_slot + 1;
+
+        // Suppress only during the head block's slot, or at most until the end of the next slot.
+        // If our proposal fails entirely we will attest to the wrong head during
+        // `re_org_block_slot` and only re-align with the canonical chain 500ms before the start of
+        // the next slot (i.e. `head_slot + 2`).
+        let current_slot_ok = head_slot == current_slot || re_org_block_slot == current_slot;
+
+        // Only attempt single slot re-orgs, and not at epoch boundaries.
+        let block_slot_ok =
+            parent_slot + 1 == head_slot && re_org_block_slot % T::EthSpec::slots_per_epoch() != 0;
+
+        // Check that this node has a proposer prepared to execute a re-org.
+        let prepared_for_re_org = self
+            .execution_layer
+            .as_ref()
+            .ok_or(Error::ExecutionLayerMissing)?
+            .payload_attributes(re_org_block_slot, parent_root)
+            .await
+            .is_some();
+
+        // Check that the head block arrived late and is vulnerable to a re-org. This check is only
+        // a heuristic compared to the proper weight check in `get_state_for_re_org`, the reason
+        // being that we may have only *just* received the block and not yet processed any
+        // attestations for it. We also can't dequeue attestations for the block during the
+        // current slot, which would be necessary for determining its weight.
+        let head_block_late =
+            self.block_observed_after_attestation_deadline(head_block_root, head_slot);
+
+        let might_re_org =
+            current_slot_ok && block_slot_ok && prepared_for_re_org && head_block_late;
+
+        Ok(might_re_org)
+    }
+
+    /// Check if the block with `block_root` was observed after the attestation deadline of `slot`.
+    fn block_observed_after_attestation_deadline(&self, block_root: Hash256, slot: Slot) -> bool {
+        let block_delays = self.block_times_cache.read().get_block_delays(
+            block_root,
+            self.slot_clock
+                .start_of(slot)
+                .unwrap_or_else(|| Duration::from_secs(0)),
+        );
+        block_delays.observed.map_or(false, |delay| {
+            delay > self.slot_clock.unagg_attestation_production_delay()
+        })
     }
 
     /// Produce a block for some `slot` upon the given `state`.
@@ -3974,6 +4070,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 "already_known" => already_known,
                 "prepare_slot" => prepare_slot,
                 "validator" => proposer,
+                "parent_root" => ?head_root,
             );
         }
 
@@ -4119,6 +4216,21 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 }
             }
         };
+
+        // Determine whether to suppress the forkchoiceUpdated message if we want to re-org
+        // the current head at the next slot.
+        if self
+            .should_suppress_fork_choice_update(current_slot, head_block_root)
+            .await?
+        {
+            debug!(
+                self.log,
+                "Suppressing fork choice update";
+                "head_block_root" => ?head_block_root,
+                "current_slot" => current_slot,
+            );
+            return Ok(());
+        }
 
         let forkchoice_updated_response = execution_layer
             .notify_forkchoice_updated(

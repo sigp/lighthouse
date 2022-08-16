@@ -982,12 +982,13 @@ impl<T: EthSpec> ExecutionLayer<T> {
             &[metrics::FORKCHOICE_UPDATED],
         );
 
-        trace!(
+        debug!(
             self.log(),
             "Issuing engine_forkchoiceUpdated";
             "finalized_block_hash" => ?finalized_block_hash,
             "justified_block_hash" => ?justified_block_hash,
             "head_block_hash" => ?head_block_hash,
+            "current_slot" => current_slot,
         );
 
         let next_slot = current_slot + 1;
