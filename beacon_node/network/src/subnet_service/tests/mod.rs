@@ -8,7 +8,7 @@ use futures::prelude::*;
 use genesis::{generate_deterministic_keypairs, interop_genesis_state, DEFAULT_ETH1_BLOCK_HASH};
 use lazy_static::lazy_static;
 use lighthouse_network::NetworkConfig;
-use slog::{o, Drain, Level, Logger};
+use slog::{o, Drain, Logger};
 use sloggers::{null::NullLoggerBuilder, Build};
 use slot_clock::{SlotClock, SystemTimeSlotClock};
 use std::sync::Arc;
@@ -340,8 +340,9 @@ mod attestation_service {
             .validator_subscriptions(vec![sub1, sub2])
             .unwrap();
 
-        // Unsubscription event should happen at slot 2 (since subnet id's are the same, unsubscription event should be at higher slot + 1)
-        // Get all events for 1 slot duration (unsubscription event should happen after 2 slot durations).
+        // Unsubscription event should happen at slot 2 (since subnet id's are the same,
+        // unsubscription event should be at higher slot + 1) Get all events for 1 slot duration
+        // (unsubscription event should happen after 2 slot durations).
         let events = get_events(&mut attestation_service, None, 1).await;
         matches::assert_matches!(
             events[..3],
@@ -354,7 +355,8 @@ mod attestation_service {
 
         let expected = SubnetServiceMessage::Subscribe(Subnet::Attestation(subnet_id1));
 
-        // Should be still subscribed to 1 long lived and 1 short lived subnet if both are different.
+        // Should be still subscribed to 1 long lived and 1 short lived subnet if both are
+        // different.
         if !attestation_service
             .subscriptions(attestation_subnets::SubscriptionKind::LongLived)
             .contains_key(&subnet_id1)
@@ -368,7 +370,8 @@ mod attestation_service {
         // Get event for 1 more slot duration, we should get the unsubscribe event now.
         let unsubscribe_event = get_events(&mut attestation_service, None, 1).await;
 
-        // If the long lived and short lived subnets are different, we should get an unsubscription event.
+        // If the long lived and short lived subnets are different, we should get an unsubscription
+        // event.
         if !attestation_service
             .subscriptions(attestation_subnets::SubscriptionKind::LongLived)
             .contains_key(&subnet_id1)
