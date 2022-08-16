@@ -616,6 +616,13 @@ impl ChainSpec {
             // Merge
             bellatrix_fork_version: [0x02, 0x00, 0x00, 0x01],
             bellatrix_fork_epoch: None,
+            terminal_total_difficulty: Uint256::MAX
+                .checked_sub(Uint256::from(2u64.pow(10)))
+                .expect("subtraction does not overflow")
+                // Add 1 since the spec declares `2**256 - 2**10` and we use
+                // `Uint256::MAX` which is `2*256- 1`.
+                .checked_add(Uint256::one())
+                .expect("addition does not overflow"),
             // Other
             network_id: 2, // lighthouse testnet network id
             deposit_chain_id: 5,
