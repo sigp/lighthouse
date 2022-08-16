@@ -25,6 +25,7 @@ use beacon_chain::{
     BeaconChainTypes, ProduceBlockVerification, WhenSlotSkipped,
 };
 pub use block_id::BlockId;
+use eth2::types::ValidatorStatus;
 use eth2::types::{self as api_types, EndpointVersion, ValidatorId};
 use lighthouse_network::{types::SyncState, EnrExt, NetworkGlobals, PeerId, PubsubMessage};
 use lighthouse_version::version_with_platform;
@@ -2481,6 +2482,9 @@ pub fn serve<T: BeaconChainTypes>(
                     "count" => register_val_data.len(),
                 );
 
+                let head_snapshot = chain.head_snapshot();
+                let spec = &chain.spec;
+
                 let preparation_data = register_val_data
                     .iter()
                     .filter_map(|register_data| {
@@ -2488,10 +2492,28 @@ pub fn serve<T: BeaconChainTypes>(
                             .validator_index(&register_data.message.pubkey)
                             .ok()
                             .flatten()
-                            .map(|validator_index| ProposerPreparationData {
-                                validator_index: validator_index as u64,
-                                fee_recipient: register_data.message.fee_recipient,
+                            .map(|validator_index| {
+                                let validator = head_snapshot
+                                    .beacon_state
+                                    .get_validator(validator_index)
+                                    .ok()?;
+                                let validator_status = ValidatorStatus::from_validator(
+                                    validator,
+                                    current_epoch,
+                                    spec.far_future_epoch,
+                                )
+                                .superstatus();
+                                let is_active_or_pending =
+                                    matches!(validator_status, ValidatorStatus::Pending)
+                                        || matches!(validator_status, ValidatorStatus::Active);
+
+                                // Filter out validators who are not 'active' or 'pending'.
+                                is_active_or_pending.then(|| ProposerPreparationData {
+                                    validator_index: validator_index as u64,
+                                    fee_recipient: register_data.message.fee_recipient,
+                                })
                             })
+                            .flatten()
                     })
                     .collect::<Vec<_>>();
 
