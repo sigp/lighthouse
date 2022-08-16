@@ -15,6 +15,7 @@ struct ExitTest {
     validator_index: u64,
     exit_epoch: Epoch,
     state_epoch: Epoch,
+    #[allow(clippy::type_complexity)]
     state_modifier: Box<dyn FnOnce(&mut BeaconState<E>)>,
     #[allow(clippy::type_complexity)]
     block_modifier:

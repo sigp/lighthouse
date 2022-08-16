@@ -11,7 +11,7 @@ use beacon_chain::{
 use eth2::types::{self as api_types};
 use lighthouse_network::PubsubMessage;
 use network::NetworkMessage;
-use slog::{error, warn, Logger};
+use slog::{debug, error, warn, Logger};
 use slot_clock::SlotClock;
 use std::cmp::max;
 use std::collections::HashMap;
@@ -189,6 +189,24 @@ pub fn process_sync_committee_signatures<T: BeaconChainTypes>(
 
                     verified_for_pool = Some(verified);
                 }
+                // If this validator has already published a sync message, just ignore this message
+                // without returning an error.
+                //
+                // This is likely to happen when a VC uses fallback BNs. If the first BN publishes
+                // the message and then fails to respond in a timely fashion then the VC will move
+                // to the second BN. The BN will then report that this message has already been
+                // seen, which is not actually an error as far as the network or user are concerned.
+                Err(SyncVerificationError::PriorSyncCommitteeMessageKnown {
+                    validator_index,
+                    slot,
+                }) => {
+                    debug!(
+                        log,
+                        "Ignoring already-known sync message";
+                        "slot" => slot,
+                        "validator_index" => validator_index,
+                    );
+                }
                 Err(e) => {
                     error!(
                         log,
@@ -283,6 +301,16 @@ pub fn process_signed_contribution_and_proofs<T: BeaconChainTypes>(
             // If we already know the contribution, don't broadcast it or attempt to
             // further verify it. Return success.
             Err(SyncVerificationError::SyncContributionAlreadyKnown(_)) => continue,
+            // If we've already seen this aggregator produce an aggregate, just
+            // skip this one.
+            //
+            // We're likely to see this with VCs that use fallback BNs. The first
+            // BN might time-out *after* publishing the aggregate and then the
+            // second BN will indicate it's already seen the aggregate.
+            //
+            // There's no actual error for the user or the network since the
+            // aggregate has been successfully published by some other node.
+            Err(SyncVerificationError::AggregatorAlreadyKnown(_)) => continue,
             Err(e) => {
                 error!(
                     log,

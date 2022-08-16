@@ -1,3 +1,4 @@
+use super::super::super::validator_store::DEFAULT_GAS_LIMIT;
 use super::*;
 use account_utils::random_password_string;
 use bls::PublicKeyBytes;
@@ -763,6 +764,181 @@ fn check_get_set_fee_recipient() {
                 GetFeeRecipientResponse {
                     pubkey: pubkey.clone(),
                     ethaddress: expected,
+                }
+            );
+        }
+    })
+}
+
+#[test]
+fn check_get_set_gas_limit() {
+    run_test(|tester: ApiTester| async move {
+        let _ = &tester;
+        let password = random_password_string();
+        let keystores = (0..3)
+            .map(|_| new_keystore(password.clone()))
+            .collect::<Vec<_>>();
+        let all_pubkeys = keystores.iter().map(keystore_pubkey).collect::<Vec<_>>();
+
+        let import_res = tester
+            .client
+            .post_keystores(&ImportKeystoresRequest {
+                keystores: keystores.clone(),
+                passwords: vec![password.clone(); keystores.len()],
+                slashing_protection: None,
+            })
+            .await
+            .unwrap();
+
+        // All keystores should be imported.
+        check_keystore_import_response(&import_res, all_imported(keystores.len()));
+
+        // Check that GET lists all the imported keystores.
+        let get_res = tester.client.get_keystores().await.unwrap();
+        check_keystore_get_response(&get_res, &keystores);
+
+        // Before setting anything, every gas limit should be set to DEFAULT_GAS_LIMIT
+        for pubkey in &all_pubkeys {
+            let get_res = tester
+                .client
+                .get_gas_limit(pubkey)
+                .await
+                .expect("should get gas limit");
+            assert_eq!(
+                get_res,
+                GetGasLimitResponse {
+                    pubkey: pubkey.clone(),
+                    gas_limit: DEFAULT_GAS_LIMIT,
+                }
+            );
+        }
+
+        let gas_limit_public_key_1 = 40_000_000;
+        let gas_limit_public_key_2 = 42;
+        let gas_limit_override = 100;
+
+        // set the gas limit for pubkey[1] using the API
+        tester
+            .client
+            .post_gas_limit(
+                &all_pubkeys[1],
+                &UpdateGasLimitRequest {
+                    gas_limit: gas_limit_public_key_1,
+                },
+            )
+            .await
+            .expect("should update gas limit");
+        // now everything but pubkey[1] should be DEFAULT_GAS_LIMIT
+        for (i, pubkey) in all_pubkeys.iter().enumerate() {
+            let get_res = tester
+                .client
+                .get_gas_limit(pubkey)
+                .await
+                .expect("should get gas limit");
+            let expected = if i == 1 {
+                gas_limit_public_key_1.clone()
+            } else {
+                DEFAULT_GAS_LIMIT
+            };
+            assert_eq!(
+                get_res,
+                GetGasLimitResponse {
+                    pubkey: pubkey.clone(),
+                    gas_limit: expected,
+                }
+            );
+        }
+
+        // set the gas limit for pubkey[2] using the API
+        tester
+            .client
+            .post_gas_limit(
+                &all_pubkeys[2],
+                &UpdateGasLimitRequest {
+                    gas_limit: gas_limit_public_key_2,
+                },
+            )
+            .await
+            .expect("should update gas limit");
+        // now everything but pubkey[1] & pubkey[2] should be DEFAULT_GAS_LIMIT
+        for (i, pubkey) in all_pubkeys.iter().enumerate() {
+            let get_res = tester
+                .client
+                .get_gas_limit(pubkey)
+                .await
+                .expect("should get gas limit");
+            let expected = if i == 1 {
+                gas_limit_public_key_1
+            } else if i == 2 {
+                gas_limit_public_key_2
+            } else {
+                DEFAULT_GAS_LIMIT
+            };
+            assert_eq!(
+                get_res,
+                GetGasLimitResponse {
+                    pubkey: pubkey.clone(),
+                    gas_limit: expected,
+                }
+            );
+        }
+
+        // should be able to override previous gas_limit
+        tester
+            .client
+            .post_gas_limit(
+                &all_pubkeys[1],
+                &UpdateGasLimitRequest {
+                    gas_limit: gas_limit_override,
+                },
+            )
+            .await
+            .expect("should update gas limit");
+        for (i, pubkey) in all_pubkeys.iter().enumerate() {
+            let get_res = tester
+                .client
+                .get_gas_limit(pubkey)
+                .await
+                .expect("should get gas limit");
+            let expected = if i == 1 {
+                gas_limit_override
+            } else if i == 2 {
+                gas_limit_public_key_2
+            } else {
+                DEFAULT_GAS_LIMIT
+            };
+            assert_eq!(
+                get_res,
+                GetGasLimitResponse {
+                    pubkey: pubkey.clone(),
+                    gas_limit: expected,
+                }
+            );
+        }
+
+        // delete gas limit for pubkey[1] using the API
+        tester
+            .client
+            .delete_gas_limit(&all_pubkeys[1])
+            .await
+            .expect("should delete gas limit");
+        // now everything but pubkey[2] should be DEFAULT_GAS_LIMIT
+        for (i, pubkey) in all_pubkeys.iter().enumerate() {
+            let get_res = tester
+                .client
+                .get_gas_limit(pubkey)
+                .await
+                .expect("should get gas limit");
+            let expected = if i == 2 {
+                gas_limit_public_key_2
+            } else {
+                DEFAULT_GAS_LIMIT
+            };
+            assert_eq!(
+                get_res,
+                GetGasLimitResponse {
+                    pubkey: pubkey.clone(),
+                    gas_limit: expected,
                 }
             );
         }

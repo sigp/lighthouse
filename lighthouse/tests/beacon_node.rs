@@ -11,7 +11,7 @@ use std::process::Command;
 use std::str::FromStr;
 use std::string::ToString;
 use tempfile::TempDir;
-use types::{Address, Checkpoint, Epoch, ExecutionBlockHash, Hash256, MainnetEthSpec};
+use types::{Address, Checkpoint, Epoch, ExecutionBlockHash, ForkName, Hash256, MainnetEthSpec};
 use unused_port::{unused_tcp_port, unused_udp_port};
 
 const DEFAULT_ETH1_ENDPOINT: &str = "http://localhost:8545/";
@@ -949,6 +949,21 @@ fn http_tls_flags() {
         });
 }
 
+#[test]
+fn http_spec_fork_default() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| assert_eq!(config.http_api.spec_fork_name, None));
+}
+
+#[test]
+fn http_spec_fork_override() {
+    CommandLineTest::new()
+        .flag("http-spec-fork", Some("altair"))
+        .run_with_zero_port()
+        .with_config(|config| assert_eq!(config.http_api.spec_fork_name, Some(ForkName::Altair)));
+}
+
 // Tests for Metrics flags.
 #[test]
 fn metrics_flag() {
@@ -1273,6 +1288,32 @@ fn slasher_broadcast_flag() {
             assert!(slasher_config.broadcast);
         });
 }
+
+#[test]
+fn slasher_backend_default() {
+    CommandLineTest::new()
+        .flag("slasher", None)
+        .run_with_zero_port()
+        .with_config(|config| {
+            let slasher_config = config.slasher.as_ref().unwrap();
+            assert_eq!(slasher_config.backend, slasher::DatabaseBackend::Mdbx);
+        });
+}
+
+#[test]
+fn slasher_backend_override_to_default() {
+    // Hard to test this flag because all but one backend is disabled by default and the backend
+    // called "disabled" results in a panic.
+    CommandLineTest::new()
+        .flag("slasher", None)
+        .flag("slasher-backend", Some("mdbx"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            let slasher_config = config.slasher.as_ref().unwrap();
+            assert_eq!(slasher_config.backend, slasher::DatabaseBackend::Mdbx);
+        });
+}
+
 #[test]
 pub fn malloc_tuning_flag() {
     CommandLineTest::new()
