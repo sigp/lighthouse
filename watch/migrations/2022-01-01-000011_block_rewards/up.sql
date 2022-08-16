@@ -1,6 +1,5 @@
 CREATE TABLE block_rewards (
-    block_root bytea PRIMARY KEY REFERENCES beacon_blocks(root) ON DELETE CASCADE,
-    slot integer NOT NULL,
+    slot integer PRIMARY KEY REFERENCES beacon_blocks(slot) ON DELETE CASCADE,
     total integer NOT NULL,
     attestation_reward integer NOT NULL,
     sync_committee_reward integer NOT NULL

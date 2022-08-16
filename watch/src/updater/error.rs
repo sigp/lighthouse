@@ -11,6 +11,7 @@ pub enum Error {
     UnableToGetRemoteHead,
     BeaconNodeSyncing,
     NotEnabled(String),
+    NoValidatorsFound,
 }
 
 impl fmt::Display for Error {

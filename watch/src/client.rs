@@ -1,5 +1,5 @@
 use crate::database::models::{
-    WatchBeaconBlock, WatchBlockPacking, WatchBlockRewards, WatchProposerInfo,
+    WatchBeaconBlock, WatchBlockPacking, WatchBlockRewards, WatchProposerInfo, WatchValidator,
 };
 use eth2::types::BlockId;
 use reqwest::Client;
@@ -106,8 +106,21 @@ impl WatchHttpClient {
             .server
             .join("v1/")?
             .join("beacon_blocks/")?
-            .join(&format!("{:?}/", parent))?
+            .join(&format!("{parent:?}/"))?
             .join("next")?;
+
+        self.get_opt(url).await
+    }
+
+    pub async fn get_validator_by_index(
+        &self,
+        index: i32,
+    ) -> Result<Option<WatchValidator>, Error> {
+        let url = self
+            .server
+            .join("v1/")?
+            .join("validator/")?
+            .join(&format!("{index:?}/"))?;
 
         self.get_opt(url).await
     }

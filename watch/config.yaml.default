@@ -8,8 +8,8 @@ database:
   connect_timeout_millis: 2000
 
 server:
-  server_listen_addr: "127.0.0.1"
-  server_listen_port: 5059
+  listen_addr: "127.0.0.1"
+  listen_port: 5059
 
 updater:
   # The URL of the Beacon Node to perform sync tasks with. 
@@ -19,6 +19,8 @@ updater:
   max_backfill_size_epochs: 2
   # The epoch at which to stop backfilling.
   backfill_stop_epoch: 0
+  # Whether to sync the attestations table.
+  attestations: true
   # Whether to sync the proposer_info table.
   proposer_info: true
   # Whether to sync the block_rewards table.

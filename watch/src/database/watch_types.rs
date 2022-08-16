@@ -5,8 +5,7 @@ use diesel::{
 };
 use serde::{Deserialize, Serialize};
 use std::fmt;
-use types::{Hash256, PublicKeyBytes, Slot};
-
+use types::{Epoch, Hash256, PublicKeyBytes, Slot};
 #[derive(
     Clone,
     Copy,
@@ -44,6 +43,10 @@ impl WatchSlot {
 
     pub fn as_u64(self) -> u64 {
         self.0.as_u64()
+    }
+
+    pub fn epoch(self, slots_per_epoch: u64) -> Epoch {
+        self.as_slot().epoch(slots_per_epoch)
     }
 }
 
@@ -93,7 +96,33 @@ impl WatchPK {
     pub fn as_bytes(&self) -> &[u8] {
         self.0.as_serialized()
     }
+
     pub fn from_bytes(src: &[u8]) -> Result<WatchPK, Error> {
         Ok(WatchPK(PublicKeyBytes::deserialize(src)?))
+    }
+
+    pub fn from_pubkey(key: PublicKeyBytes) -> Self {
+        WatchPK(key)
+    }
+}
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+pub struct WatchAttestation {
+    pub index: i32,
+    pub epoch: Epoch,
+    pub source: bool,
+    pub head: bool,
+    pub target: bool,
+}
+
+impl WatchAttestation {
+    pub fn optimal(index: i32, epoch: Epoch) -> WatchAttestation {
+        WatchAttestation {
+            index,
+            epoch,
+            source: true,
+            head: true,
+            target: true,
+        }
     }
 }

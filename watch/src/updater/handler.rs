@@ -10,10 +10,14 @@ use log::{debug, error, info, warn};
 use std::time::Duration;
 use types::{BeaconBlockHeader, Epoch, Hash256, Slot};
 
-use crate::updater::{get_block_packing, get_block_rewards_and_proposer_info, get_header};
+use crate::updater::{
+    get_attestation_performances, get_block_packing, get_block_rewards_and_proposer_info,
+    get_header, get_validators,
+};
 
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(5);
 const MAX_EXPECTED_REORG_LENGTH: u64 = 32;
+const MAX_SIZE_SINGLE_REQUEST_ATTESTATIONS: u64 = 50;
 const MAX_SIZE_SINGLE_REQUEST_BLOCK_REWARDS: u64 = 1600;
 const MAX_SIZE_SINGLE_REQUEST_BLOCK_PACKING: u64 = 50;
 
@@ -86,21 +90,31 @@ impl UpdateHandler {
             // Check for reorgs.
             let latest_db_slot = self.check_for_reorg(latest_matching_canonical_slot).await?;
 
-            // Remove all slots above `stop_sync_slot` from the database.
+            // Remove all slots above `latest_db_slot` from the database.
             let result = database::delete_canonical_slots_above(
                 &mut conn,
                 WatchSlot::from_slot(latest_db_slot),
             )?;
-            info!("{} old records removed during head update", result);
+            info!("{result} old records removed during head update");
+
+            if result > 0 {
+                // If slots were removed, we need to resync the suboptimal_attestations table for
+                // the epoch since they will have changed and cannot be fixed by a simple update.
+                let epoch = latest_db_slot
+                    .epoch(self.slots_per_epoch)
+                    .saturating_sub(1_u64);
+                debug!("Preparing to resync attestations above epoch {epoch}");
+                database::delete_suboptimal_attestations_above(
+                    &mut conn,
+                    WatchSlot::from_slot(epoch.start_slot(self.slots_per_epoch)),
+                )?;
+            }
 
             let start_slot = bn_header.slot;
             let end_slot = latest_db_slot + 1;
             self.reverse_fill_canonical_slots(bn_header, header_root, false, start_slot, end_slot)
                 .await?;
-            info!(
-                "Reverse sync begun at slot {} and stopped at slot {}",
-                start_slot, end_slot,
-            );
+            info!("Reverse sync begun at slot {start_slot} and stopped at slot {end_slot}");
         } else {
             // There are no matching parent blocks. Sync from the head block back until the first
             // block of the epoch.
@@ -108,10 +122,7 @@ impl UpdateHandler {
             let end_slot = start_slot.saturating_sub(start_slot % self.slots_per_epoch);
             self.reverse_fill_canonical_slots(bn_header, header_root, false, start_slot, end_slot)
                 .await?;
-            info!(
-                "Reverse sync begun at slot {} and stopped at slot {}",
-                start_slot, end_slot,
-            );
+            info!("Reverse sync begun at slot {start_slot} and stopped at slot {end_slot}");
         }
 
         Ok(())
@@ -209,16 +220,13 @@ impl UpdateHandler {
                         continue;
                     } else {
                         // The block roots do not match. We need to re-sync from here.
-                        warn!("Block {} does not match the beacon node. Resyncing", slot);
+                        warn!("Block {slot} does not match the beacon node. Resyncing");
                         return Ok(slot.saturating_sub(1_u64));
                     }
                 } else if !db_canonical_slot.skipped {
                     // The block exists in the database, but does not exist on the beacon node.
                     // We need to re-sync from here.
-                    warn!(
-                        "Block {} does not exist on the beacon node. Resyncing",
-                        slot
-                    );
+                    warn!("Block {slot} does not exist on the beacon node. Resyncing");
                     return Ok(slot.saturating_sub(1_u64));
                 }
             } else {
@@ -231,7 +239,7 @@ impl UpdateHandler {
                 } else {
                     // The database does not contain this block, but has back-filled past it.
                     // We need to resync from here.
-                    warn!("Slot {} missing from database. Resyncing", slot);
+                    warn!("Slot {slot} missing from database. Resyncing");
                     return Ok(slot.saturating_sub(1_u64));
                 }
             }
@@ -342,10 +350,7 @@ impl UpdateHandler {
                     .reverse_fill_canonical_slots(header, header_root, false, start_slot, end_slot)
                     .await?;
 
-                info!(
-                    "Backfill completed to slot {}. {} records added",
-                    end_slot, count
-                );
+                info!("Backfill completed to slot: {end_slot}, records added: {count}");
             } else {
                 // The lowest slot of the database is inconsistent with the beacon node.
                 // Currently we have no way to recover from this. The entire database will need to
@@ -353,7 +358,7 @@ impl UpdateHandler {
                 error!(
                     "Database is inconsistent with the beacon node. \
                     Please ensure your beacon node is set to the right network, \
-                    otherwise you may need to resync."
+                    otherwise you may need to resync"
                 );
             }
         } else {
@@ -365,18 +370,241 @@ impl UpdateHandler {
         Ok(())
     }
 
-    // TODO(mac)
-    // pub async fn insert_per_slot_block_metadata(&mut self, _block_root: Hash256) -> Result<(), Error> {
-    //     let mut conn = database::get_connection(&self.pool)?;
-    //
-    //     Ok(())
-    // }
-    //
-    // pub async fn insert_per_epoch_block_metadata(&mut self) -> Result<(), Error> {
-    //     let mut conn = database::get_connection(&self.pool)?;
-    //
-    //     Ok(())
-    // }
+    pub async fn update_validator_set(&mut self) -> Result<(), Error> {
+        let mut conn = database::get_connection(&self.pool)?;
+
+        // Pull all validators from the beacon node.
+        let validators = get_validators(&self.bn).await?;
+
+        database::insert_batch_validators(&mut conn, validators)?;
+
+        Ok(())
+    }
+
+    /// Forward fills the `suboptimal_attestations` table starting from the entry with the highest
+    /// slot.
+    ///
+    /// It construts a request to the `attestation_performance` API endpoint with:
+    /// `start_epoch` -> highest completely filled epoch + 1 (or epoch of lowest canonical slot)
+    /// `end_epoch` -> epoch of highest canonical slot
+    ///
+    /// It will resync the latest epoch if it is not fully filled but will not overwrite existing
+    /// values unless there is a re-org.
+    /// That is, `if highest_filled_slot % slots_per_epoch != 31`.
+    ///
+    /// In the event the most recent epoch has no suboptimal attestations, it will attempt to
+    /// resync that epoch. The odds of this occuring on mainnet are vanishingly small so it is not
+    /// accounted for.
+    ///
+    /// Request range will not exceed `MAX_SIZE_SINGLE_REQUEST_ATTESTATIONS`.
+    pub async fn fill_suboptimal_attestations(&mut self) -> Result<(), Error> {
+        let mut conn = database::get_connection(&self.pool)?;
+
+        let highest_filled_slot_opt = if self.config.attestations {
+            database::get_highest_attestation(&mut conn)?
+                .map(|attestation| attestation.epoch_start_slot.as_slot())
+        } else {
+            return Err(Error::NotEnabled("attestations".to_string()));
+        };
+
+        let start_epoch = if let Some(highest_filled_slot) = highest_filled_slot_opt {
+            if highest_filled_slot % self.slots_per_epoch == self.slots_per_epoch.saturating_sub(1)
+            {
+                // The whole epoch is filled so we can begin syncing the next one.
+                highest_filled_slot.epoch(self.slots_per_epoch) + 1
+            } else {
+                // The epoch is only partially synced. Try to sync it fully.
+                highest_filled_slot.epoch(self.slots_per_epoch)
+            }
+        } else {
+            // No rows present in the `suboptimal_attestations` table. Use `canonical_slots`
+            // instead.
+            if let Some(lowest_canonical_slot) = database::get_lowest_canonical_slot(&mut conn)? {
+                lowest_canonical_slot
+                    .slot
+                    .as_slot()
+                    .epoch(self.slots_per_epoch)
+            } else {
+                // There are no slots in the database, do not fill the `suboptimal_attestations`
+                // table.
+                warn!("Refusing to fill the `suboptimal_attestations` table as there are no slots in the database");
+                return Ok(());
+            }
+        };
+
+        if let Some(highest_canonical_slot) =
+            database::get_highest_canonical_slot(&mut conn)?.map(|slot| slot.slot.as_slot())
+        {
+            let mut end_epoch = highest_canonical_slot.epoch(self.slots_per_epoch);
+
+            // The `lighthouse/analysis/attestation_performance` endpoint can only retrieve attestations
+            // which are more than 1 epoch old.
+            // We assume that `highest_canonical_slot` is near the head of the chain.
+            end_epoch = end_epoch.saturating_sub(2_u64);
+
+            // If end_epoch == 0 then the chain just started so we need to wait until
+            // `current_epoch >= 2`.
+            if end_epoch == 0 {
+                debug!("Chain just begun, refusing to sync attestations");
+                return Ok(());
+            }
+
+            if start_epoch > end_epoch {
+                debug!("Attestations are up to date with the head of the database");
+                return Ok(());
+            }
+
+            // Ensure the size of the request does not exceed the maximum allowed value.
+            if start_epoch > end_epoch + MAX_SIZE_SINGLE_REQUEST_ATTESTATIONS {
+                end_epoch = start_epoch + MAX_SIZE_SINGLE_REQUEST_ATTESTATIONS
+            }
+
+            if let Some(lowest_canonical_slot) =
+                database::get_lowest_canonical_slot(&mut conn)?.map(|slot| slot.slot.as_slot())
+            {
+                let mut attestations = get_attestation_performances(
+                    &self.bn,
+                    start_epoch,
+                    end_epoch,
+                    self.slots_per_epoch,
+                )
+                .await?;
+
+                // Only insert attestations with corresponding `canonical_slot`s.
+                attestations.retain(|attestation| {
+                    attestation.epoch_start_slot.as_slot() >= lowest_canonical_slot
+                        && attestation.epoch_start_slot.as_slot() <= highest_canonical_slot
+                });
+                database::insert_batch_suboptimal_attestations(&mut conn, attestations)?;
+            } else {
+                return Err(Error::Database(DbError::Other(
+                    "Database did not return a lowest canonical slot when one exists".to_string(),
+                )));
+            }
+        } else {
+            // There are no slots in the `canonical_slots` table, but there are entries in the
+            // `suboptimal_attestations` table. This is a critical failure. It usually means
+            // someone has manually tampered with the database tables and should not occur during
+            // normal operation.
+            error!("Database is corrupted. Please re-sync the database.");
+            return Err(Error::Database(DbError::DatabaseCorrupted));
+        }
+
+        Ok(())
+    }
+
+    /// Backfill the `suboptimal_attestations` table starting from the entry with the lowest slot.
+    ///
+    /// It constructs a request to the `attestation_performance` API endpoint with:
+    /// `start_epoch` -> epoch of the lowest `canonical_slot`.
+    /// `end_epoch` -> epoch of the lowest filled `suboptimal_attestation` - 1 (or epoch of highest
+    /// canonical slot)
+    ///
+    /// It will resync the lowest epoch if it is not fully filled.
+    /// That is, `if lowest_filled_slot % slots_per_epoch != 0`
+    ///
+    /// In the event there are no suboptimal attestations present in the lowest epoch, it will attempt to
+    /// resync the epoch. The odds of this occuring on mainnet are vanishingly small so it is not
+    /// accounted for.
+    ///
+    /// Request range will not exceed `MAX_SIZE_SINGLE_REQUEST_ATTESTATIONS`.
+    pub async fn backfill_suboptimal_attestations(&mut self) -> Result<(), Error> {
+        let mut conn = database::get_connection(&self.pool)?;
+        let max_attestation_backfill = self.config.max_backfill_size_epochs;
+
+        // Get the slot of the lowest entry in the `suboptimal_attestations` table.
+        let lowest_filled_slot_opt = if self.config.attestations {
+            database::get_lowest_attestation(&mut conn)?
+                .map(|attestation| attestation.epoch_start_slot.as_slot())
+        } else {
+            return Err(Error::NotEnabled("attestations".to_string()));
+        };
+
+        let end_epoch = if let Some(lowest_filled_slot) = lowest_filled_slot_opt {
+            if lowest_filled_slot % self.slots_per_epoch == 0 {
+                lowest_filled_slot
+                    .epoch(self.slots_per_epoch)
+                    .saturating_sub(1_u64)
+            } else {
+                // The epoch is only partially synced. Try to sync it fully.
+                lowest_filled_slot.epoch(self.slots_per_epoch)
+            }
+        } else {
+            // No entries in the `suboptimal_attestations` table. Use `canonical_slots` instead.
+            if let Some(highest_canonical_slot) =
+                database::get_highest_canonical_slot(&mut conn)?.map(|slot| slot.slot.as_slot())
+            {
+                highest_canonical_slot.epoch(self.slots_per_epoch)
+            } else {
+                // There are no slots in the database, do not backfill the
+                // `suboptimal_attestations` table.
+                warn!("Refusing to backfill attestations as there are no slots in the database");
+                return Ok(());
+            }
+        };
+
+        if end_epoch == 0 {
+            debug!("Attestations backfill is complete");
+            return Ok(());
+        }
+
+        if let Some(lowest_canonical_slot) =
+            database::get_lowest_canonical_slot(&mut conn)?.map(|slot| slot.slot.as_slot())
+        {
+            let mut start_epoch = lowest_canonical_slot.epoch(self.slots_per_epoch);
+
+            if start_epoch >= end_epoch {
+                debug!("Attestations are up to date with the base of the database");
+                return Ok(());
+            }
+
+            // Ensure the request range does not exceed `max_attestation_backfill` or
+            // `MAX_SIZE_SINGLE_REQUEST_ATTESTATIONS`.
+            if start_epoch < end_epoch.saturating_sub(max_attestation_backfill) {
+                start_epoch = end_epoch.saturating_sub(max_attestation_backfill)
+            }
+            if start_epoch < end_epoch.saturating_sub(MAX_SIZE_SINGLE_REQUEST_ATTESTATIONS) {
+                start_epoch = end_epoch.saturating_sub(MAX_SIZE_SINGLE_REQUEST_ATTESTATIONS)
+            }
+
+            // Start epoch cannot be within 2 epochs of the current head. This should never occur
+            // during backfill, but if this edge case is ever hit, this is likely the time we need
+            // to check for it.
+
+            if let Some(highest_canonical_slot) =
+                database::get_highest_canonical_slot(&mut conn)?.map(|slot| slot.slot.as_slot())
+            {
+                let mut attestations = get_attestation_performances(
+                    &self.bn,
+                    start_epoch,
+                    end_epoch,
+                    self.slots_per_epoch,
+                )
+                .await?;
+
+                // Only insert `suboptimal_attestations` with corresponding `canonical_slots`.
+                attestations.retain(|attestation| {
+                    attestation.epoch_start_slot.as_slot() >= lowest_canonical_slot
+                        && attestation.epoch_start_slot.as_slot() <= highest_canonical_slot
+                });
+
+                database::insert_batch_suboptimal_attestations(&mut conn, attestations)?;
+            } else {
+                return Err(Error::Database(DbError::Other(
+                    "Database did not return a lowest slot when one exists".to_string(),
+                )));
+            }
+        } else {
+            // There are no slots in the `canonical_slot` table, but there are entries in the
+            // `suboptimal_attestations` table. This is a critical failure. It usually means
+            // someone has manually tampered with the database tables and should not occur during
+            // normal operation.
+            error!("Database is corrupted. Please re-sync the database");
+            return Err(Error::Database(DbError::DatabaseCorrupted));
+        }
+
+        Ok(())
+    }
 
     /// Forward fills the `block_rewards`/`proposer_info` tables starting from the entry with the
     /// highest slot.
@@ -395,9 +623,7 @@ impl UpdateHandler {
         } else if self.config.proposer_info {
             database::get_highest_proposer_info(&mut conn)?.map(|info| info.slot)
         } else {
-            return Err(Error::NotEnabled(
-                "block_rewards and proposer_info".to_string(),
-            ));
+            return Err(Error::NotEnabled("block_rewards/proposer_info".to_string()));
         };
 
         let mut start_slot = if let Some(highest_filled_slot) = highest_filled_slot_opt {
@@ -410,9 +636,9 @@ impl UpdateHandler {
             {
                 lowest_beacon_block.as_slot()
             } else {
-                // There are no blocks in the database, do not fill `block_rewards` or
+                // There are no blocks in the database, do not fill the `block_rewards` or
                 // `proposer_info` tables.
-                info!("Refusing to fill the block_rewards/proposer_info tables as there are no blocks in the database");
+                warn!("Refusing to fill block rewards/proposer info as there are no blocks in the database");
                 return Ok(());
             }
         };
@@ -428,7 +654,7 @@ impl UpdateHandler {
             let mut end_slot = highest_beacon_block.as_slot();
 
             if start_slot > end_slot {
-                debug!("Block rewards/proposer info are up to date with the head of the database.");
+                debug!("Block rewards/proposer info are up to date with the head of the database");
                 return Ok(());
             }
 
@@ -451,7 +677,7 @@ impl UpdateHandler {
             // `block_rewards`/`proposer_info` tables. This is a critical failure. It usually means
             // someone has manually tampered with the database tables and should not occur during
             // normal operation.
-            error!("Database is corrupted. Please re-sync the database.");
+            error!("Database is corrupted. Please re-sync the database");
             return Err(Error::Database(DbError::DatabaseCorrupted));
         }
 
@@ -477,7 +703,7 @@ impl UpdateHandler {
             database::get_lowest_proposer_info(&mut conn)?.map(|info| info.slot)
         } else {
             return Err(Error::NotEnabled(
-                "block_rewards and proposer_info".to_string(),
+                "block_rewards or proposer_info".to_string(),
             ));
         };
 
@@ -493,13 +719,13 @@ impl UpdateHandler {
             } else {
                 // There are no blocks in the database, do not backfill the `block_rewards` or
                 // `proposer_info` tables.
-                info!("Refusing to backfill the block_rewards/proposer_info tables as there are no blocks in the database");
+                warn!("Refusing to backfill block rewards/proposer info as there are no blocks in the database");
                 return Ok(());
             }
         };
 
         if end_slot <= 1 {
-            info!("block_rewards/proposer_info backfill is complete");
+            debug!("Block rewards/proposer info backfill is complete");
             return Ok(());
         }
 
@@ -507,7 +733,7 @@ impl UpdateHandler {
             let mut start_slot = lowest_block_slot.slot.as_slot();
 
             if start_slot >= end_slot {
-                debug!("Block rewards/proposer info are up to date with the base of the database.");
+                debug!("Block rewards/proposer info are up to date with the base of the database");
                 return Ok(());
             }
 
@@ -589,7 +815,7 @@ impl UpdateHandler {
                     .epoch(self.slots_per_epoch)
             } else {
                 // There are no blocks in the database, do not fill the `block_packing` table.
-                info!("Refusing to fill the block_packing table as there are no blocks in the database");
+                warn!("Refusing to fill block packing as there are no blocks in the database");
                 return Ok(());
             }
         };
@@ -605,7 +831,7 @@ impl UpdateHandler {
             let mut end_epoch = highest_block_slot.epoch(self.slots_per_epoch);
 
             if start_epoch > end_epoch {
-                debug!("Block packing is up to date with the head of the database.");
+                debug!("Block packing is up to date with the head of the database");
                 return Ok(());
             }
 
@@ -644,7 +870,7 @@ impl UpdateHandler {
 
     /// Backfill the `block_packing` table starting from the entry with the lowest slot.
     ///
-    /// It constructs a request to the `get_block_packing` API with:
+    /// It constructs a request to the `get_block_packing` function with:
     /// `start_epoch` -> epoch of lowest_beacon_block
     /// `end_epoch` -> epoch of lowest filled `block_packing` - 1 (or epoch of highest beacon block)
     ///
@@ -683,13 +909,13 @@ impl UpdateHandler {
                 highest_beacon_block.as_slot().epoch(self.slots_per_epoch)
             } else {
                 // There are no blocks in the database, do not backfill the `block_packing` table.
-                info!("Refusing to backfill the block_packing table as there are no blocks in the database");
+                warn!("Refusing to backfill block packing as there are no blocks in the database.");
                 return Ok(());
             }
         };
 
         if end_epoch <= 1 {
-            info!("block_packing backfill is complete");
+            debug!("Block packing backfill is complete.");
             return Ok(());
         }
 
@@ -731,7 +957,7 @@ impl UpdateHandler {
                 database::insert_batch_block_packing(&mut conn, packing)?;
             } else {
                 return Err(Error::Database(DbError::Other(
-                    "Database did not return a lowest block when one exists".to_string(),
+                    "Database did not return a lowest block when one exists.".to_string(),
                 )));
             }
         } else {
@@ -739,7 +965,7 @@ impl UpdateHandler {
             // `block_packing` table. This is a critical failure. It usually means someone has
             // manually tampered with the database tables and should not occur during normal
             // operation.
-            error!("Database is corrupted. Please re-sync the database");
+            error!("Database is corrupted. Please re-sync the database.");
             return Err(Error::Database(DbError::DatabaseCorrupted));
         }
 

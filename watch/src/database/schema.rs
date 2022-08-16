@@ -1,16 +1,15 @@
 // @generated automatically by Diesel CLI.
 
 diesel::table! {
-    beacon_blocks (root) {
+    beacon_blocks (slot) {
+        slot -> Int4,
         root -> Bytea,
         parent_root -> Bytea,
-        slot -> Int4,
     }
 }
 
 diesel::table! {
-    block_packing (block_root) {
-        block_root -> Bytea,
+    block_packing (slot) {
         slot -> Int4,
         available -> Int4,
         included -> Int4,
@@ -19,8 +18,7 @@ diesel::table! {
 }
 
 diesel::table! {
-    block_rewards (block_root) {
-        block_root -> Bytea,
+    block_rewards (slot) {
         slot -> Int4,
         total -> Int4,
         attestation_reward -> Int4,
@@ -38,8 +36,7 @@ diesel::table! {
 }
 
 diesel::table! {
-    proposer_info (block_root) {
-        block_root -> Bytea,
+    proposer_info (slot) {
         slot -> Int4,
         proposer_index -> Int4,
         graffiti -> Text,
@@ -47,16 +44,32 @@ diesel::table! {
 }
 
 diesel::table! {
-    validators (id) {
-        id -> Int4,
-        validator_index -> Int4,
-        public_key -> Bytea,
+    suboptimal_attestations (epoch_start_slot, index) {
+        epoch_start_slot -> Int4,
+        index -> Int4,
+        source -> Bool,
+        head -> Bool,
+        target -> Bool,
     }
 }
 
-diesel::joinable!(block_packing -> beacon_blocks (block_root));
-diesel::joinable!(block_rewards -> beacon_blocks (block_root));
-diesel::joinable!(proposer_info -> beacon_blocks (block_root));
+diesel::table! {
+    validators (index) {
+        index -> Int4,
+        public_key -> Bytea,
+        status -> Text,
+        balance -> Int8,
+        activation_epoch -> Int4,
+        exit_epoch -> Nullable<Int4>,
+    }
+}
+
+diesel::joinable!(block_packing -> beacon_blocks (slot));
+diesel::joinable!(block_rewards -> beacon_blocks (slot));
+diesel::joinable!(proposer_info -> beacon_blocks (slot));
+diesel::joinable!(proposer_info -> validators (proposer_index));
+diesel::joinable!(suboptimal_attestations -> canonical_slots (epoch_start_slot));
+diesel::joinable!(suboptimal_attestations -> validators (index));
 
 diesel::allow_tables_to_appear_in_same_query!(
     beacon_blocks,
@@ -64,5 +77,6 @@ diesel::allow_tables_to_appear_in_same_query!(
     block_rewards,
     canonical_slots,
     proposer_info,
+    suboptimal_attestations,
     validators,
 );

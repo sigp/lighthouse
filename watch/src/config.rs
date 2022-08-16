@@ -3,7 +3,6 @@ use crate::server::Config as ServerConfig;
 use crate::updater::Config as UpdaterConfig;
 
 use serde::{Deserialize, Serialize};
-use serde_yaml;
 use std::fs::File;
 
 pub const fn slots_per_epoch() -> u64 {

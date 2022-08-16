@@ -31,6 +31,7 @@ use testcontainers::{clients::Cli, images::postgres::Postgres, RunnableImage};
 type E = MainnetEthSpec;
 
 const VALIDATOR_COUNT: usize = 32;
+const SLOTS_PER_EPOCH: u64 = 32;
 
 fn build_test_config(config: &DatabaseConfig) -> PostgresConfig {
     let mut postgres_config = PostgresConfig::new();
@@ -105,7 +106,7 @@ impl TesterBuilder {
                 ..Default::default()
             },
             server: ServerConfig {
-                server_listen_port: 0,
+                listen_port: 0,
                 ..Default::default()
             },
             updater: UpdaterConfig {
@@ -132,7 +133,7 @@ impl TesterBuilder {
          */
         let (_watch_shutdown_tx, watch_shutdown_rx) = oneshot::channel();
         let (watch_listening_socket, watch_server) =
-            start_server(&self.config.server, pool, async {
+            start_server(&self.config.server, SLOTS_PER_EPOCH, pool, async {
                 let _ = watch_shutdown_rx.await;
             })
             .unwrap();
@@ -242,6 +243,11 @@ impl Tester {
 
     pub async fn update_unknown_blocks(&mut self) -> &mut Self {
         self.updater.update_unknown_blocks().await.unwrap();
+        self
+    }
+
+    pub async fn update_validator_set(&mut self) -> &mut Self {
+        self.updater.update_validator_set().await.unwrap();
         self
     }
 
@@ -774,6 +780,9 @@ async fn chain_grows_with_metadata() {
         // Insert all blocks.
         .update_unknown_blocks()
         .await
+        // Insert all validators
+        .update_validator_set()
+        .await
         // Check the chain is consistent
         .assert_canonical_chain_consistent(0)
         .await
@@ -871,6 +880,9 @@ async fn chain_grows_with_metadata_and_multiple_skip_slots() {
         .await
         // Insert all blocks.
         .update_unknown_blocks()
+        .await
+        // Insert all validators
+        .update_validator_set()
         .await
         // Check the chain is consistent.
         .assert_canonical_chain_consistent(0)
@@ -973,6 +985,9 @@ async fn chain_grows_to_second_epoch() {
         // Insert all blocks.
         .update_unknown_blocks()
         .await
+        // Insert all validators
+        .update_validator_set()
+        .await
         // Check the chain is consistent.
         .assert_canonical_chain_consistent(0)
         .await
@@ -1052,6 +1067,9 @@ async fn large_chain() {
         // Insert all blocks.
         .update_unknown_blocks()
         .await
+        // Insert all validators
+        .update_validator_set()
+        .await
         // Check the chain is consistent.
         .assert_canonical_chain_consistent(384)
         .await
@@ -1102,6 +1120,9 @@ async fn large_chain() {
         .await
         // Insert all blocks.
         .update_unknown_blocks()
+        .await
+        // Update validators
+        .update_validator_set()
         .await
         // Get block rewards and proposer info.
         .fill_rewards_and_proposer_info()

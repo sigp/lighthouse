@@ -8,6 +8,9 @@ pub const fn max_backfill_size_epochs() -> u64 {
 pub const fn backfill_stop_epoch() -> u64 {
     0
 }
+pub const fn attestations() -> bool {
+    true
+}
 pub const fn proposer_info() -> bool {
     true
 }
@@ -33,6 +36,9 @@ pub struct Config {
     /// The epoch at which to never backfill past.
     #[serde(default = "backfill_stop_epoch")]
     pub backfill_stop_epoch: u64,
+    /// Whether to sync the suboptimal_attestations table.
+    #[serde(default = "attestations")]
+    pub attestations: bool,
     /// Whether to sync the proposer_info table.
     #[serde(default = "proposer_info")]
     pub proposer_info: bool,
@@ -50,6 +56,7 @@ impl Default for Config {
             beacon_node_url: beacon_node_url(),
             max_backfill_size_epochs: max_backfill_size_epochs(),
             backfill_stop_epoch: backfill_stop_epoch(),
+            attestations: attestations(),
             proposer_info: proposer_info(),
             block_rewards: block_rewards(),
             block_packing: block_packing(),
