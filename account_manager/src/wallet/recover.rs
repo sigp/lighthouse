@@ -1,6 +1,6 @@
-use crate::common::read_mnemonic_from_cli;
 use crate::wallet::create::{create_wallet_from_mnemonic, STDIN_INPUTS_FLAG};
 use crate::wallet::create::{HD_TYPE, NAME_FLAG, PASSWORD_FLAG, TYPE_FLAG};
+use account_utils::read_mnemonic_from_cli;
 use clap::{App, Arg, ArgMatches};
 use std::path::PathBuf;
 

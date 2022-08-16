@@ -7356,6 +7356,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "validator_manager"
+version = "0.1.0"
+dependencies = [
+ "account_utils",
+ "bls",
+ "clap",
+ "clap_utils",
+ "environment",
+ "eth2",
+ "eth2_keystore",
+ "eth2_network_config",
+ "eth2_serde_utils",
+ "eth2_wallet",
+ "serde",
+ "serde_json",
+ "tree_hash",
+ "types",
+]
+
+[[package]]
 name = "valuable"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

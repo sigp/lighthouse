@@ -66,6 +66,7 @@ pub mod sync_duty;
 pub mod validator;
 pub mod validator_subscription;
 pub mod voluntary_exit;
+pub mod withdrawal_credentials;
 #[macro_use]
 pub mod slot_epoch_macros;
 pub mod config_and_preset;
@@ -165,6 +166,7 @@ pub use crate::validator::Validator;
 pub use crate::validator_registration_data::*;
 pub use crate::validator_subscription::ValidatorSubscription;
 pub use crate::voluntary_exit::VoluntaryExit;
+pub use crate::withdrawal_credentials::WithdrawalCredentials;
 
 pub type CommitteeIndex = u64;
 pub type Hash256 = H256;
