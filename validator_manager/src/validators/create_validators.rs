@@ -1,7 +1,6 @@
 use super::common::*;
 use account_utils::{random_password_string, read_mnemonic_from_cli, read_password_from_user};
 use clap::{App, Arg, ArgMatches};
-use environment::Environment;
 use eth2::{
     lighthouse_vc::std_types::KeystoreJsonStr,
     types::{StateId, ValidatorId},
@@ -184,12 +183,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         )
 }
 
-pub async fn cli_run<'a, T: EthSpec>(
-    matches: &'a ArgMatches<'a>,
-    mut env: Environment<T>,
-) -> Result<(), String> {
-    let spec = &env.core_context().eth2_config.spec;
-
+pub async fn cli_run<'a>(matches: &'a ArgMatches<'a>, spec: &ChainSpec) -> Result<(), String> {
     let output_path: PathBuf = clap_utils::parse_required(matches, OUTPUT_PATH_FLAG)?;
 
     if !output_path.exists() {

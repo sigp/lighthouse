@@ -20,6 +20,7 @@ pub fn run<'a, T: EthSpec>(
     mut env: Environment<T>,
 ) -> Result<(), String> {
     let context = env.core_context();
+    let spec = context.eth2_config.spec.clone();
 
     context
         .executor
@@ -29,7 +30,7 @@ pub fn run<'a, T: EthSpec>(
         .block_on_dangerous(
             async {
                 match matches.subcommand() {
-                    (validators::CMD, Some(matches)) => validators::cli_run(matches, env).await,
+                    (validators::CMD, Some(matches)) => validators::cli_run(matches, &spec).await,
                     (unknown, _) => Err(format!(
                         "{} is not a valid {} command. See --help.",
                         unknown, CMD
