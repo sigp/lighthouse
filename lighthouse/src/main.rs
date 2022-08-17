@@ -499,7 +499,7 @@ fn run<E: EthSpec>(
         return Ok(());
     }
 
-    if let Some(sub_matches) = matches.subcommand_matches(account_manager::CMD) {
+    if let Some(sub_matches) = matches.subcommand_matches(validator_manager::CMD) {
         eprintln!("Running validator manager for {} network", network_name);
 
         // Pass the entire `environment` to the account manager so it can run blocking operations.
