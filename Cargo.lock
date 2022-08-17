@@ -3648,6 +3648,7 @@ dependencies = [
  "unused_port",
  "validator_client",
  "validator_dir",
+ "validator_manager",
 ]
 
 [[package]]

@@ -54,6 +54,7 @@ directory = { path = "../common/directory" }
 unused_port = { path = "../common/unused_port" }
 database_manager = { path = "../database_manager" }
 slasher = { path = "../slasher" }
+validator_manager = { path = "../validator_manager" }
 
 [dev-dependencies]
 tempfile = "3.1.0"
