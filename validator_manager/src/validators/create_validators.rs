@@ -210,6 +210,8 @@ pub async fn cli_run<'a>(matches: &'a ArgMatches<'a>, spec: &ChainSpec) -> Resul
 
     let validators_and_deposits = build_validator_spec_from_cli(matches, spec).await?;
 
+    eprintln!("Keystore generation complete");
+
     write_to_json_file(&validators_path, &validators_and_deposits.validators)?;
 
     if let Some(deposits) = &validators_and_deposits.deposits {
@@ -220,6 +222,7 @@ pub async fn cli_run<'a>(matches: &'a ArgMatches<'a>, spec: &ChainSpec) -> Resul
 }
 
 fn write_to_json_file<P: AsRef<Path>, S: Serialize>(path: P, contents: &S) -> Result<(), String> {
+    eprintln!("Writing {:?}", path.as_ref());
     let mut file = fs::OpenOptions::new()
         .write(true)
         .create_new(true)
@@ -294,6 +297,11 @@ async fn build_validator_spec_from_cli<'a>(
      * Start deriving individual validators.
      */
 
+    eprintln!(
+        "Starting derivation of {} keystores. Each keystore may take several seconds.",
+        count
+    );
+
     let mut validators = Vec::with_capacity(count as usize);
     let mut deposits = disable_deposits.then(Vec::new);
 
@@ -318,17 +326,14 @@ async fn build_validator_spec_from_cli<'a>(
             )
             .map_err(|e| format!("Failed to derive keystore {}: {:?}", i, e))?;
         let voting_keystore = keystores.voting;
+        let voting_public_key = voting_keystore
+            .public_key()
+            .ok_or_else(|| format!("Validator keystore at index {} is missing a public key", i))?
+            .into();
 
         // If the user has provided a beacon node URL, check that the validator doesn't already
         // exist in the beacon chain.
         if let Some(bn_http_client) = &bn_http_client {
-            let voting_public_key = voting_keystore
-                .public_key()
-                .ok_or_else(|| {
-                    format!("Validator keystore at index {} is missing a public key", i)
-                })?
-                .into();
-
             match bn_http_client
                 .get_beacon_states_validator_id(
                     StateId::Head,
@@ -362,6 +367,15 @@ async fn build_validator_spec_from_cli<'a>(
             let voting_keypair = voting_keystore
                 .decrypt_keypair(voting_keystore_password.as_ref())
                 .map_err(|e| format!("Failed to decrypt voting keystore {}: {:?}", i, e))?;
+
+            // Sanity check to ensure the keystore is reporting the correct public key.
+            if PublicKeyBytes::from(voting_keypair.pk.clone()) != voting_public_key {
+                return Err(format!(
+                    "Mismatch for keystore public key and derived public key \
+                    for derivation index {}",
+                    derivation_index
+                ));
+            }
 
             let withdrawal_credentials = if let Some(eth1_withdrawal_address) =
                 eth1_withdrawal_address
@@ -401,6 +415,9 @@ async fn build_validator_spec_from_cli<'a>(
             builder_proposals: Some(builder_proposals),
             enabled: Some(true),
         };
+
+        eprintln!("{}/{}: {:?}", i.saturating_add(1), count, voting_public_key);
+
         validators.push(validator);
     }
 
