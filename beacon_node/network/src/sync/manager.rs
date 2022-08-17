@@ -38,7 +38,7 @@ use super::block_lookups::BlockLookups;
 use super::network_context::SyncNetworkContext;
 use super::peer_sync_info::{remote_sync_type, PeerSyncType};
 use super::range_sync::{RangeSync, RangeSyncType, EPOCHS_PER_BATCH};
-use crate::beacon_processor::{ChainSegmentProcessId, FailureMode, WorkEvent as BeaconWorkEvent};
+use crate::beacon_processor::{ChainSegmentProcessId, WorkEvent as BeaconWorkEvent};
 use crate::service::NetworkMessage;
 use crate::status::ToStatusMessage;
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockError};
@@ -139,13 +139,15 @@ pub enum BlockProcessResult<T: EthSpec> {
 #[derive(Debug)]
 pub enum BatchProcessResult {
     /// The batch was completed successfully. It carries whether the sent batch contained blocks.
-    Success(bool),
-    /// The batch processing failed. It carries whether the processing imported any block.
-    Failed {
-        imported_blocks: bool,
-        peer_action: Option<PeerAction>,
-        mode: FailureMode,
+    Success {
+        was_non_empty: bool,
     },
+    /// The batch processing failed. It carries whether the processing imported any block.
+    FaultyFailure {
+        imported_blocks: bool,
+        penalty: PeerAction,
+    },
+    NonFaultyFailure,
 }
 
 /// The primary object for handling and driving all the current syncing logic. It maintains the

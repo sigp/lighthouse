@@ -25,12 +25,20 @@ excluded_paths = [
     # Intentionally omitted, as per https://github.com/sigp/lighthouse/issues/1835
     "tests/.*/.*/ssz_static/Eth1Block/",
     "tests/.*/.*/ssz_static/PowBlock/",
+    # light_client
+    "tests/.*/.*/light_client",
     # LightClientStore
     "tests/.*/.*/ssz_static/LightClientStore",
     # LightClientUpdate
     "tests/.*/.*/ssz_static/LightClientUpdate",
     # LightClientSnapshot
     "tests/.*/.*/ssz_static/LightClientSnapshot",
+    # LightClientBootstrap
+    "tests/.*/.*/ssz_static/LightClientBootstrap",
+    # LightClientOptimistic
+    "tests/.*/.*/ssz_static/LightClientOptimistic",
+    # LightClientFinalityUpdate
+    "tests/.*/.*/ssz_static/LightClientFinalityUpdate",
     # Merkle-proof tests for light clients
     "tests/.*/.*/merkle/single_proof",
     # Capella tests are disabled for now.

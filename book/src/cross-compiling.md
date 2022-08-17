@@ -38,3 +38,9 @@ make build-aarch64
 
 The `lighthouse` binary will be compiled inside a Docker container and placed
 in `lighthouse/target/aarch64-unknown-linux-gnu/release`.
+
+## Feature Flags
+
+When using the makefile the set of features used for building can be controlled with
+the environment variable `CROSS_FEATURES`. See [Feature
+ Flags](./installation-source.md#feature-flags) for available features.

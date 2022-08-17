@@ -284,7 +284,10 @@ fn test_parent_lookup_happy_path() {
     // Processing succeeds, now the rest of the chain should be sent for processing.
     bl.parent_block_processed(chain_hash, BlockError::BlockIsAlreadyKnown.into(), &mut cx);
     rig.expect_parent_chain_process();
-    bl.parent_chain_processed(chain_hash, BatchProcessResult::Success(true), &mut cx);
+    let process_result = BatchProcessResult::Success {
+        was_non_empty: true,
+    };
+    bl.parent_chain_processed(chain_hash, process_result, &mut cx);
     assert_eq!(bl.parent_queue.len(), 0);
 }
 
@@ -318,7 +321,10 @@ fn test_parent_lookup_wrong_response() {
     // Processing succeeds, now the rest of the chain should be sent for processing.
     bl.parent_block_processed(chain_hash, Ok(()).into(), &mut cx);
     rig.expect_parent_chain_process();
-    bl.parent_chain_processed(chain_hash, BatchProcessResult::Success(true), &mut cx);
+    let process_result = BatchProcessResult::Success {
+        was_non_empty: true,
+    };
+    bl.parent_chain_processed(chain_hash, process_result, &mut cx);
     assert_eq!(bl.parent_queue.len(), 0);
 }
 
@@ -347,7 +353,10 @@ fn test_parent_lookup_empty_response() {
     // Processing succeeds, now the rest of the chain should be sent for processing.
     bl.parent_block_processed(chain_hash, Ok(()).into(), &mut cx);
     rig.expect_parent_chain_process();
-    bl.parent_chain_processed(chain_hash, BatchProcessResult::Success(true), &mut cx);
+    let process_result = BatchProcessResult::Success {
+        was_non_empty: true,
+    };
+    bl.parent_chain_processed(chain_hash, process_result, &mut cx);
     assert_eq!(bl.parent_queue.len(), 0);
 }
 
@@ -375,7 +384,10 @@ fn test_parent_lookup_rpc_failure() {
     // Processing succeeds, now the rest of the chain should be sent for processing.
     bl.parent_block_processed(chain_hash, Ok(()).into(), &mut cx);
     rig.expect_parent_chain_process();
-    bl.parent_chain_processed(chain_hash, BatchProcessResult::Success(true), &mut cx);
+    let process_result = BatchProcessResult::Success {
+        was_non_empty: true,
+    };
+    bl.parent_chain_processed(chain_hash, process_result, &mut cx);
     assert_eq!(bl.parent_queue.len(), 0);
 }
 

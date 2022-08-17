@@ -1,5 +1,6 @@
 use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
 use std::fmt;
+use std::str::FromStr;
 use url::Url;
 
 #[derive(Debug)]
@@ -7,6 +8,12 @@ pub enum SensitiveError {
     InvalidUrl(String),
     ParseError(url::ParseError),
     RedactError(String),
+}
+
+impl fmt::Display for SensitiveError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:?}", self)
+    }
 }
 
 // Wrapper around Url which provides a custom `Display` implementation to protect user secrets.
@@ -39,7 +46,7 @@ impl Serialize for SensitiveUrl {
     where
         S: Serializer,
     {
-        serializer.serialize_str(&self.full.to_string())
+        serializer.serialize_str(self.full.as_ref())
     }
 }
 
@@ -51,6 +58,14 @@ impl<'de> Deserialize<'de> for SensitiveUrl {
         let s: String = Deserialize::deserialize(deserializer)?;
         SensitiveUrl::parse(&s)
             .map_err(|e| de::Error::custom(format!("Failed to deserialize sensitive URL {:?}", e)))
+    }
+}
+
+impl FromStr for SensitiveUrl {
+    type Err = SensitiveError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::parse(s)
     }
 }
 

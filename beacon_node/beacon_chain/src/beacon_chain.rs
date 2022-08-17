@@ -2293,8 +2293,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             // Determine the epoch of the first block in the remaining segment.
             let start_epoch = block.slot().epoch(T::EthSpec::slots_per_epoch());
 
-            // The `last_index` indicates the position of the last block that is in the current
-            // epoch of `start_epoch`.
+            // The `last_index` indicates the position of the first block in an epoch greater
+            // than the current epoch: partitioning the blocks into a run of blocks in the same
+            // epoch and everything else. These same-epoch blocks can all be signature-verified with
+            // the same `BeaconState`.
             let last_index = filtered_chain_segment
                 .iter()
                 .position(|(_root, block)| {
@@ -2302,9 +2304,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 })
                 .unwrap_or(filtered_chain_segment.len());
 
-            // Split off the first section blocks that are all either within the current epoch of
-            // the first block. These blocks can all be signature-verified with the same
-            // `BeaconState`.
             let mut blocks = filtered_chain_segment.split_off(last_index);
             std::mem::swap(&mut blocks, &mut filtered_chain_segment);
 
@@ -3333,7 +3332,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             pubkey,
             slot: state.slot(),
             chain_health: self
-                .is_healthy()
+                .is_healthy(&parent_root)
                 .map_err(BlockProductionError::BeaconChain)?,
         };
 
@@ -4084,21 +4083,32 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         "Fork choice update invalidated payload";
                         "status" => ?status
                     );
-                    // The execution engine has stated that all blocks between the
-                    // `head_execution_block_hash` and `latest_valid_hash` are invalid.
-                    self.process_invalid_execution_payload(
-                        &InvalidationOperation::InvalidateMany {
-                            head_block_root,
-                            always_invalidate_head: true,
-                            latest_valid_ancestor: latest_valid_hash,
-                        },
-                    )
-                    .await?;
+
+                    // This implies that the terminal block was invalid. We are being explicit in
+                    // invalidating only the head block in this case.
+                    if latest_valid_hash == ExecutionBlockHash::zero() {
+                        self.process_invalid_execution_payload(
+                            &InvalidationOperation::InvalidateOne {
+                                block_root: head_block_root,
+                            },
+                        )
+                        .await?;
+                    } else {
+                        // The execution engine has stated that all blocks between the
+                        // `head_execution_block_hash` and `latest_valid_hash` are invalid.
+                        self.process_invalid_execution_payload(
+                            &InvalidationOperation::InvalidateMany {
+                                head_block_root,
+                                always_invalidate_head: true,
+                                latest_valid_ancestor: latest_valid_hash,
+                            },
+                        )
+                        .await?;
+                    }
 
                     Err(BeaconChainError::ExecutionForkChoiceUpdateInvalid { status })
                 }
-                PayloadStatus::InvalidTerminalBlock { .. }
-                | PayloadStatus::InvalidBlockHash { .. } => {
+                PayloadStatus::InvalidBlockHash { .. } => {
                     warn!(
                         self.log,
                         "Fork choice update invalidated payload";
@@ -4562,7 +4572,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// Since we are likely calling this during the slot we are going to propose in, don't take into
     /// account the current slot when accounting for skips.
-    pub fn is_healthy(&self) -> Result<ChainHealth, Error> {
+    pub fn is_healthy(&self, parent_root: &Hash256) -> Result<ChainHealth, Error> {
         // Check if the merge has been finalized.
         if let Some(finalized_hash) = self
             .canonical_head
@@ -4576,6 +4586,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         } else {
             return Ok(ChainHealth::PreMerge);
         };
+
+        // Check that the parent is NOT optimistic.
+        if let Some(execution_status) = self
+            .canonical_head
+            .fork_choice_read_lock()
+            .get_block_execution_status(parent_root)
+        {
+            if execution_status.is_strictly_optimistic() {
+                return Ok(ChainHealth::Optimistic);
+            }
+        }
 
         if self.config.builder_fallback_disable_checks {
             return Ok(ChainHealth::Healthy);

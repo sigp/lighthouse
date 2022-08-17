@@ -114,6 +114,7 @@ pub struct BuilderParams {
 pub enum ChainHealth {
     Healthy,
     Unhealthy(FailedCondition),
+    Optimistic,
     PreMerge,
 }
 
@@ -695,6 +696,9 @@ impl<T: EthSpec> ExecutionLayer<T> {
                 }
                 // Intentional no-op, so we never attempt builder API proposals pre-merge.
                 ChainHealth::PreMerge => (),
+                ChainHealth::Optimistic => info!(self.log(), "The local execution engine is syncing \
+                                            so the builder network cannot safely be used. Attempting \
+                                            to build a block with the local execution engine"),
             }
         }
         self.get_full_payload_caching(
@@ -1263,14 +1267,6 @@ impl<T: EthSpec> ExecutionLayer<T> {
     }
 
     /// Maps to the `eth_getBlockByHash` JSON-RPC call.
-    ///
-    /// ## TODO(merge)
-    ///
-    /// This will return an execution block regardless of whether or not it was created by a PoW
-    /// miner (pre-merge) or a PoS validator (post-merge). It's not immediately clear if this is
-    /// correct or not, see the discussion here:
-    ///
-    /// https://github.com/ethereum/consensus-specs/issues/2636
     async fn get_pow_block(
         &self,
         engine: &Engine,

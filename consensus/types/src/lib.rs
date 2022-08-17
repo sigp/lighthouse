@@ -110,7 +110,9 @@ pub use crate::beacon_committee::{BeaconCommittee, OwnedBeaconCommittee};
 pub use crate::beacon_state::{BeaconTreeHashCache, Error as BeaconStateError, *};
 pub use crate::chain_spec::{ChainSpec, Config, Domain};
 pub use crate::checkpoint::Checkpoint;
-pub use crate::config_and_preset::ConfigAndPreset;
+pub use crate::config_and_preset::{
+    ConfigAndPreset, ConfigAndPresetAltair, ConfigAndPresetBellatrix,
+};
 pub use crate::contribution_and_proof::ContributionAndProof;
 pub use crate::deposit::{Deposit, DEPOSIT_TREE_DEPTH};
 pub use crate::deposit_data::DepositData;

@@ -90,10 +90,10 @@ impl BlockId {
                         .map_err(warp_utils::reject::beacon_chain_error)?;
                     Ok((*root, execution_optimistic))
                 } else {
-                    return Err(warp_utils::reject::custom_not_found(format!(
+                    Err(warp_utils::reject::custom_not_found(format!(
                         "beacon block with root {}",
                         root
-                    )));
+                    )))
                 }
             }
         }
