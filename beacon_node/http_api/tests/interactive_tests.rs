@@ -2,6 +2,7 @@
 use crate::common::*;
 use beacon_chain::test_utils::{AttestationStrategy, BlockStrategy};
 use eth2::types::DepositContractData;
+use slot_clock::SlotClock;
 use tree_hash::TreeHash;
 use types::{EthSpec, FullPayload, MainnetEthSpec, Slot};
 
@@ -36,8 +37,83 @@ async fn deposit_contract_custom_network() {
 // Test that the beacon node will try to perform proposer boost re-orgs on late blocks when
 // configured.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-pub fn proposer_boost_re_org_success() {
-    // FIXME(sproul): todo
+pub async fn proposer_boost_re_org_success() {
+    // Validator count needs to be at least 32 or proposer boost gets set to 0 when computing
+    // `validator_count // 32`.
+    let validator_count = 32;
+    let num_initial: u64 = 31;
+
+    let tester = InteractiveTester::<E>::new_with_mutator(
+        None,
+        validator_count,
+        Some(Box::new(|builder| {
+            builder.proposer_re_org_threshold(Some(10))
+        })),
+    )
+    .await;
+    let harness = &tester.harness;
+    let slot_clock = &harness.chain.slot_clock;
+
+    // Create some chain depth.
+    harness.advance_slot();
+    harness
+        .extend_chain(
+            num_initial as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    // We set up the following block graph, where B is a block that arrives late and is re-orged
+    // by C.
+    //
+    // A | B | - |
+    // ^ | - | C |
+    let slot_a = Slot::new(num_initial);
+    let slot_b = slot_a + 1;
+    let slot_c = slot_a + 2;
+
+    let block_a_root = harness.head_block_root();
+    let state_a = harness.get_current_state();
+
+    // Produce block B and process it halfway through the slot.
+    let (block_b, state_b) = harness.make_block(state_a.clone(), slot_b).await;
+
+    let obs_time = slot_clock.start_of(slot_b).unwrap() + slot_clock.slot_duration() / 2;
+    slot_clock.set_current_time(obs_time);
+    harness.chain.block_times_cache.write().set_time_observed(
+        block_b.canonical_root(),
+        slot_b,
+        obs_time,
+        None,
+        None,
+    );
+    harness.process_block_result(block_b).await.unwrap();
+
+    // Produce block C.
+    harness.advance_slot();
+    harness.chain.per_slot_task().await;
+
+    let proposer_index = state_b
+        .get_beacon_proposer_index(slot_c, &harness.chain.spec)
+        .unwrap();
+    let randao_reveal = harness
+        .sign_randao_reveal(&state_b, proposer_index, slot_c)
+        .into();
+    let unsigned_block_c = tester
+        .client
+        .get_validator_blocks(slot_c, &randao_reveal, None)
+        .await
+        .unwrap()
+        .data;
+    let block_c = harness.sign_beacon_block(unsigned_block_c, &state_b);
+
+    // Block C should build on A.
+    assert_eq!(block_c.parent_root(), block_a_root);
+
+    // Applying block C should cause a re-org from B to C.
+    let block_root_c = harness.process_block_result(block_c).await.unwrap().into();
+    assert_eq!(harness.head_block_root(), block_root_c);
 }
 
 // Test that running fork choice before proposing results in selection of the correct head.

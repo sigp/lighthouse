@@ -158,6 +158,12 @@ where
         self
     }
 
+    /// Sets the proposer re-org threshold.
+    pub fn proposer_re_org_threshold(mut self, threshold: Option<u64>) -> Self {
+        self.chain_config.re_org_threshold = threshold;
+        self
+    }
+
     /// Sets the store (database).
     ///
     /// Should generally be called early in the build chain.

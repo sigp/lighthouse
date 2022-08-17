@@ -3255,11 +3255,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             // Additionally, do a quick check that the current canonical head block was observed
             // late. This aligns with `should_suppress_fork_choice_update` and prevents
             // unnecessarily taking the fork choice write lock.
-            if head_slot + 1 == slot
-                && slot % T::EthSpec::slots_per_epoch() != 0
-                && slot_delay < max_re_org_slot_delay(self.spec.seconds_per_slot)
-                && self.block_observed_after_attestation_deadline(canonical_head, head_slot)
-            {
+            let single_slot_re_org =
+                head_slot + 1 == slot && slot % T::EthSpec::slots_per_epoch() != 0;
+            let proposing_on_time = slot_delay < max_re_org_slot_delay(self.spec.seconds_per_slot);
+            let head_late =
+                self.block_observed_after_attestation_deadline(canonical_head, head_slot);
+            if single_slot_re_org && proposing_on_time && head_late {
                 // Is the current head weak and appropriate for re-orging?
                 let proposer_head = self
                     .canonical_head
@@ -3302,6 +3303,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         "re_org_weight" => ?proposer_head.re_org_weight_threshold,
                     );
                 }
+            } else if !head_late {
+                debug!(
+                    self.log,
+                    "Not attempting re-org of timely block";
+                    "head" => ?canonical_head,
+                );
+            } else if !proposing_on_time {
+                debug!(
+                    self.log,
+                    "Not attempting re-org due to insufficient time";
+                    "head" => ?canonical_head,
+                )
             } else {
                 debug!(
                     self.log,

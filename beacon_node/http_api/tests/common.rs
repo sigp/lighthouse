@@ -1,5 +1,5 @@
 use beacon_chain::{
-    test_utils::{BeaconChainHarness, EphemeralHarnessType},
+    test_utils::{BeaconChainHarness, BoxedMutator, EphemeralHarnessType},
     BeaconChain, BeaconChainTypes,
 };
 use eth2::{BeaconNodeHttpClient, Timeouts};
@@ -11,6 +11,7 @@ use lighthouse_network::{
     types::{EnrAttestationBitfield, EnrSyncCommitteeBitfield, SyncState},
     ConnectedPoint, Enr, NetworkGlobals, PeerId, PeerManager,
 };
+use logging::test_logger;
 use network::NetworkMessage;
 use sensitive_url::SensitiveUrl;
 use slog::Logger;
@@ -18,6 +19,7 @@ use std::future::Future;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 use std::time::Duration;
+use store::MemoryStore;
 use tokio::sync::{mpsc, oneshot};
 use types::{ChainSpec, EthSpec};
 
@@ -50,7 +52,7 @@ type Mutator<E> = BoxedMutator<E, MemoryStore<E>, MemoryStore<E>>;
 
 impl<E: EthSpec> InteractiveTester<E> {
     pub async fn new(spec: Option<ChainSpec>, validator_count: usize) -> Self {
-        Self::new_with_mutator(spec, validator_count, None)
+        Self::new_with_mutator(spec, validator_count, None).await
     }
 
     pub async fn new_with_mutator(
@@ -58,9 +60,10 @@ impl<E: EthSpec> InteractiveTester<E> {
         validator_count: usize,
         mutator: Option<Mutator<E>>,
     ) -> Self {
-        let harness_builder = BeaconChainHarness::builder(E::default())
+        let mut harness_builder = BeaconChainHarness::builder(E::default())
             .spec_or_default(spec)
             .deterministic_keypairs(validator_count)
+            .logger(test_logger())
             .fresh_ephemeral_store();
 
         if let Some(mutator) = mutator {

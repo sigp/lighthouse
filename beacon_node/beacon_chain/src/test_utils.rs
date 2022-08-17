@@ -319,6 +319,12 @@ where
         self
     }
 
+    pub fn logger(mut self, log: Logger) -> Self {
+        self.log = log.clone();
+        self.runtime.set_logger(log);
+        self
+    }
+
     /// This mutator will be run before the `store_mutator`.
     pub fn initial_mutator(mut self, mutator: BoxedMutator<E, Hot, Cold>) -> Self {
         assert!(
@@ -776,6 +782,21 @@ where
         let message = epoch.signing_root(domain);
         let sk = &self.validator_keypairs[proposer_index].sk;
         sk.sign(message)
+    }
+
+    /// Sign a beacon block using the proposer's key.
+    pub fn sign_beacon_block(
+        &self,
+        block: BeaconBlock<E>,
+        state: &BeaconState<E>,
+    ) -> SignedBeaconBlock<E> {
+        let proposer_index = block.proposer_index() as usize;
+        block.sign(
+            &self.validator_keypairs[proposer_index].sk,
+            &state.fork(),
+            state.genesis_validators_root(),
+            &self.spec,
+        )
     }
 
     /// Produces an "unaggregated" attestation for the given `slot` and `index` that attests to
