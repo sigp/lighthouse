@@ -71,9 +71,15 @@ fn operations_sync_aggregate() {
 }
 
 #[test]
-fn operations_execution_payload() {
+fn operations_execution_payload_full() {
     OperationsHandler::<MinimalEthSpec, FullPayload<_>>::default().run();
     OperationsHandler::<MainnetEthSpec, FullPayload<_>>::default().run();
+}
+
+#[test]
+fn operations_execution_payload_blinded() {
+    OperationsHandler::<MinimalEthSpec, BlindedPayload<_>>::default().run();
+    OperationsHandler::<MainnetEthSpec, BlindedPayload<_>>::default().run();
 }
 
 #[test]
@@ -377,8 +383,9 @@ fn epoch_processing_participation_record_updates() {
 
 #[test]
 fn epoch_processing_sync_committee_updates() {
+    // There are presently no mainnet tests, see:
+    // https://github.com/ethereum/consensus-spec-tests/issues/29
     EpochProcessingHandler::<MinimalEthSpec, SyncCommitteeUpdates>::default().run();
-    EpochProcessingHandler::<MainnetEthSpec, SyncCommitteeUpdates>::default().run();
 }
 
 #[test]

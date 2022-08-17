@@ -1,19 +1,23 @@
 use crate::{ForkChoiceStore, InvalidationOperation};
 use proto_array::{Block as ProtoBlock, ExecutionStatus, ProtoArrayForkChoice};
 use ssz_derive::{Decode, Encode};
-use state_processing::per_epoch_processing;
+use state_processing::{
+    per_block_processing::errors::AttesterSlashingValidationError, per_epoch_processing,
+};
 use std::cmp::Ordering;
+use std::collections::BTreeSet;
 use std::marker::PhantomData;
 use std::time::Duration;
 use types::{
-    consts::merge::INTERVALS_PER_SLOT, AttestationShufflingId, BeaconBlockRef, BeaconState,
-    BeaconStateError, ChainSpec, Checkpoint, Epoch, EthSpec, ExecPayload, ExecutionBlockHash,
-    Hash256, IndexedAttestation, RelativeEpoch, SignedBeaconBlock, Slot,
+    consts::merge::INTERVALS_PER_SLOT, AttestationShufflingId, AttesterSlashing, BeaconBlockRef,
+    BeaconState, BeaconStateError, ChainSpec, Checkpoint, Epoch, EthSpec, ExecPayload,
+    ExecutionBlockHash, Hash256, IndexedAttestation, RelativeEpoch, SignedBeaconBlock, Slot,
 };
 
 #[derive(Debug)]
 pub enum Error<T> {
     InvalidAttestation(InvalidAttestation),
+    InvalidAttesterSlashing(AttesterSlashingValidationError),
     InvalidBlock(InvalidBlock),
     ProtoArrayError(String),
     InvalidProtoArrayBytes(String),
@@ -60,6 +64,12 @@ pub enum Error<T> {
 impl<T> From<InvalidAttestation> for Error<T> {
     fn from(e: InvalidAttestation) -> Self {
         Error::InvalidAttestation(e)
+    }
+}
+
+impl<T> From<AttesterSlashingValidationError> for Error<T> {
+    fn from(e: AttesterSlashingValidationError) -> Self {
+        Error::InvalidAttesterSlashing(e)
     }
 }
 
@@ -413,26 +423,6 @@ where
         Ok(fork_choice)
     }
 
-    /*
-    /// Instantiates `Self` from some existing components.
-    ///
-    /// This is useful if the existing components have been loaded from disk after a process
-    /// restart.
-    pub fn from_components(
-        fc_store: T,
-        proto_array: ProtoArrayForkChoice,
-        queued_attestations: Vec<QueuedAttestation>,
-    ) -> Self {
-        Self {
-            fc_store,
-            proto_array,
-            queued_attestations,
-            forkchoice_update_parameters: None,
-            _phantom: PhantomData,
-        }
-    }
-    */
-
     /// Returns cached information that can be used to issue a `forkchoiceUpdated` message to an
     /// execution engine.
     ///
@@ -495,10 +485,13 @@ where
     /// https://github.com/ethereum/eth2.0-specs/blob/v0.12.1/specs/phase0/fork-choice.md#get_head
     pub fn get_head(
         &mut self,
-        current_slot: Slot,
+        system_time_current_slot: Slot,
         spec: &ChainSpec,
     ) -> Result<Hash256, Error<T::Error>> {
-        self.update_time(current_slot, spec)?;
+        // Provide the slot (as per the system clock) to the `fc_store` and then return its view of
+        // the current slot. The `fc_store` will ensure that the `current_slot` is never
+        // decreasing, a property which we must maintain.
+        let current_slot = self.update_time(system_time_current_slot, spec)?;
 
         let store = &mut self.fc_store;
 
@@ -507,6 +500,7 @@ where
             *store.finalized_checkpoint(),
             store.justified_balances(),
             store.proposer_boost_root(),
+            store.equivocating_indices(),
             current_slot,
             spec,
         )?;
@@ -648,7 +642,7 @@ where
     #[allow(clippy::too_many_arguments)]
     pub fn on_block<Payload: ExecPayload<E>>(
         &mut self,
-        current_slot: Slot,
+        system_time_current_slot: Slot,
         block: BeaconBlockRef<E, Payload>,
         block_root: Hash256,
         block_delay: Duration,
@@ -657,7 +651,10 @@ where
         spec: &ChainSpec,
         count_unrealized: CountUnrealized,
     ) -> Result<(), Error<T::Error>> {
-        let current_slot = self.update_time(current_slot, spec)?;
+        // Provide the slot (as per the system clock) to the `fc_store` and then return its view of
+        // the current slot. The `fc_store` will ensure that the `current_slot` is never
+        // decreasing, a property which we must maintain.
+        let current_slot = self.update_time(system_time_current_slot, spec)?;
 
         // Parent block must be known.
         let parent_block = self
@@ -1060,13 +1057,12 @@ where
     /// will not be run here.
     pub fn on_attestation(
         &mut self,
-        current_slot: Slot,
+        system_time_current_slot: Slot,
         attestation: &IndexedAttestation<E>,
         is_from_block: AttestationFromBlock,
         spec: &ChainSpec,
     ) -> Result<(), Error<T::Error>> {
-        // Ensure the store is up-to-date.
-        self.update_time(current_slot, spec)?;
+        self.update_time(system_time_current_slot, spec)?;
 
         // Ignore any attestations to the zero hash.
         //
@@ -1107,6 +1103,22 @@ where
         }
 
         Ok(())
+    }
+
+    /// Apply an attester slashing to fork choice.
+    ///
+    /// We assume that the attester slashing provided to this function has already been verified.
+    pub fn on_attester_slashing(&mut self, slashing: &AttesterSlashing<E>) {
+        let attesting_indices_set = |att: &IndexedAttestation<E>| {
+            att.attesting_indices
+                .iter()
+                .copied()
+                .collect::<BTreeSet<_>>()
+        };
+        let att1_indices = attesting_indices_set(&slashing.attestation_1);
+        let att2_indices = attesting_indices_set(&slashing.attestation_2);
+        self.fc_store
+            .extend_equivocating_indices(att1_indices.intersection(&att2_indices).copied());
     }
 
     /// Call `on_tick` for all slots between `fc_store.get_current_slot()` and the provided
@@ -1262,34 +1274,40 @@ where
             .is_descendant(self.fc_store.finalized_checkpoint().root, block_root)
     }
 
-    /// Returns `Ok(true)` if `block_root` has been imported optimistically. That is, the
-    /// execution payload has not been verified.
+    /// Returns `Ok(true)` if `block_root` has been imported optimistically or deemed invalid.
     ///
-    /// Returns `Ok(false)` if `block_root`'s execution payload has been verfied, if it is a
-    /// pre-Bellatrix block or if it is before the PoW terminal block.
+    /// Returns `Ok(false)` if `block_root`'s execution payload has been elected as fully VALID, if
+    /// it is a pre-Bellatrix block or if it is before the PoW terminal block.
     ///
     /// In the case where the block could not be found in fork-choice, it returns the
     /// `execution_status` of the current finalized block.
     ///
     /// This function assumes the `block_root` exists.
-    pub fn is_optimistic_block(&self, block_root: &Hash256) -> Result<bool, Error<T::Error>> {
+    pub fn is_optimistic_or_invalid_block(
+        &self,
+        block_root: &Hash256,
+    ) -> Result<bool, Error<T::Error>> {
         if let Some(status) = self.get_block_execution_status(block_root) {
-            Ok(status.is_optimistic())
+            Ok(status.is_optimistic_or_invalid())
         } else {
-            Ok(self.get_finalized_block()?.execution_status.is_optimistic())
+            Ok(self
+                .get_finalized_block()?
+                .execution_status
+                .is_optimistic_or_invalid())
         }
     }
 
     /// The same as `is_optimistic_block` but does not fallback to `self.get_finalized_block`
     /// when the block cannot be found.
     ///
-    /// Intended to be used when checking if the head has been imported optimistically.
-    pub fn is_optimistic_block_no_fallback(
+    /// Intended to be used when checking if the head has been imported optimistically or is
+    /// invalid.
+    pub fn is_optimistic_or_invalid_block_no_fallback(
         &self,
         block_root: &Hash256,
     ) -> Result<bool, Error<T::Error>> {
         if let Some(status) = self.get_block_execution_status(block_root) {
-            Ok(status.is_optimistic())
+            Ok(status.is_optimistic_or_invalid())
         } else {
             Err(Error::MissingProtoArrayBlock(*block_root))
         }
@@ -1314,18 +1332,7 @@ where
             return Ok(true);
         }
 
-        // If the justified block has execution enabled, then optimistically import any block.
-        if self
-            .get_justified_block()?
-            .execution_status
-            .is_execution_enabled()
-        {
-            return Ok(true);
-        }
-
         // If the parent block has execution enabled, always import the block.
-        //
-        // TODO(bellatrix): this condition has not yet been merged into the spec.
         //
         // See:
         //
@@ -1446,7 +1453,17 @@ where
             _phantom: PhantomData,
         };
 
-        fork_choice.get_head(current_slot, spec)?;
+        // If a call to `get_head` fails, the only known cause is because the only head with viable
+        // FFG properties is has an invalid payload. In this scenario, set all the payloads back to
+        // an optimistic status so that we can have a head to start from.
+        if fork_choice.get_head(current_slot, spec).is_err() {
+            fork_choice
+                .proto_array
+                .set_all_blocks_to_optimistic::<E>(spec)?;
+            // If the second attempt at finding a head fails, return an error since we do not
+            // expect this scenario.
+            fork_choice.get_head(current_slot, spec)?;
+        }
 
         Ok(fork_choice)
     }

@@ -11,6 +11,13 @@ pub struct GetFeeRecipientResponse {
 }
 
 #[derive(Debug, Deserialize, Serialize, PartialEq)]
+pub struct GetGasLimitResponse {
+    pub pubkey: PublicKeyBytes,
+    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    pub gas_limit: u64,
+}
+
+#[derive(Debug, Deserialize, Serialize, PartialEq)]
 pub struct AuthResponse {
     pub token_path: String,
 }

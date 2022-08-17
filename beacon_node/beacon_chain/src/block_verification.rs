@@ -44,7 +44,7 @@
 //! ```
 use crate::execution_payload::{
     is_optimistic_candidate_block, validate_execution_payload_for_gossip, validate_merge_block,
-    PayloadNotifier,
+    AllowOptimisticImport, PayloadNotifier,
 };
 use crate::snapshot_cache::PreProcessingSnapshot;
 use crate::validator_monitor::HISTORIC_EPOCHS as VALIDATOR_MONITOR_HISTORIC_EPOCHS;
@@ -504,8 +504,8 @@ fn process_block_slash_info<T: BeaconChainTypes>(
 ///
 /// ## Errors
 ///
-/// The given `chain_segment` must span no more than two epochs, otherwise an error will be
-/// returned.
+/// The given `chain_segment` must contain only blocks from the same epoch, otherwise an error
+/// will be returned.
 pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
     mut chain_segment: Vec<(Hash256, Arc<SignedBeaconBlock<T::EthSpec>>)>,
     chain: &BeaconChain<T>,
@@ -1199,7 +1199,7 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
             // - Doing the check here means we can keep our fork-choice implementation "pure". I.e., no
             //   calls to remote servers.
             if is_valid_merge_transition_block {
-                validate_merge_block(&chain, block.message()).await?;
+                validate_merge_block(&chain, block.message(), AllowOptimisticImport::Yes).await?;
             };
 
             // The specification declares that this should be run *inside* `per_block_processing`,
@@ -1702,6 +1702,9 @@ fn cheap_state_advance_to_obtain_committees<'a, E: EthSpec>(
     let block_epoch = block_slot.epoch(E::slots_per_epoch());
 
     if state.current_epoch() == block_epoch {
+        // Build both the current and previous epoch caches, as the previous epoch caches are
+        // useful for verifying attestations in blocks from the current epoch.
+        state.build_committee_cache(RelativeEpoch::Previous, spec)?;
         state.build_committee_cache(RelativeEpoch::Current, spec)?;
 
         Ok(Cow::Borrowed(state))
@@ -1719,6 +1722,7 @@ fn cheap_state_advance_to_obtain_committees<'a, E: EthSpec>(
         partial_state_advance(&mut state, state_root_opt, target_slot, spec)
             .map_err(|e| BlockError::BeaconChainError(BeaconChainError::from(e)))?;
 
+        state.build_committee_cache(RelativeEpoch::Previous, spec)?;
         state.build_committee_cache(RelativeEpoch::Current, spec)?;
 
         Ok(Cow::Owned(state))

@@ -7,8 +7,8 @@ use crate::per_block_processing::errors::{
     ProposerSlashingInvalid,
 };
 use crate::{
-    per_block_processing::process_operations, BlockSignatureStrategy, VerifyBlockRoot,
-    VerifySignatures,
+    per_block_processing::{process_operations, verify_exit::verify_exit},
+    BlockSignatureStrategy, VerifyBlockRoot, VerifySignatures,
 };
 use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
 use lazy_static::lazy_static;
@@ -909,4 +909,71 @@ async fn invalid_proposer_slashing_proposal_epoch_mismatch() {
             )
         })
     );
+}
+
+#[tokio::test]
+async fn fork_spanning_exit() {
+    let mut spec = MainnetEthSpec::default_spec();
+    let slots_per_epoch = MainnetEthSpec::slots_per_epoch();
+
+    spec.altair_fork_epoch = Some(Epoch::new(2));
+    spec.bellatrix_fork_epoch = Some(Epoch::new(4));
+    spec.shard_committee_period = 0;
+
+    let harness = BeaconChainHarness::builder(MainnetEthSpec::default())
+        .spec(spec.clone())
+        .deterministic_keypairs(VALIDATOR_COUNT)
+        .mock_execution_layer()
+        .fresh_ephemeral_store()
+        .build();
+
+    harness.extend_to_slot(slots_per_epoch.into()).await;
+
+    /*
+     * Produce an exit *before* Altair.
+     */
+
+    let signed_exit = harness.make_voluntary_exit(0, Epoch::new(1));
+    assert!(signed_exit.message.epoch < spec.altair_fork_epoch.unwrap());
+
+    /*
+     * Ensure the exit verifies before Altair.
+     */
+
+    let head = harness.chain.canonical_head.cached_head();
+    let head_state = &head.snapshot.beacon_state;
+    assert!(head_state.current_epoch() < spec.altair_fork_epoch.unwrap());
+    verify_exit(head_state, &signed_exit, VerifySignatures::True, &spec)
+        .expect("phase0 exit verifies against phase0 state");
+
+    /*
+     * Ensure the exit verifies after Altair.
+     */
+
+    harness
+        .extend_to_slot(spec.altair_fork_epoch.unwrap().start_slot(slots_per_epoch))
+        .await;
+    let head = harness.chain.canonical_head.cached_head();
+    let head_state = &head.snapshot.beacon_state;
+    assert!(head_state.current_epoch() >= spec.altair_fork_epoch.unwrap());
+    assert!(head_state.current_epoch() < spec.bellatrix_fork_epoch.unwrap());
+    verify_exit(head_state, &signed_exit, VerifySignatures::True, &spec)
+        .expect("phase0 exit verifies against altair state");
+
+    /*
+     * Ensure the exit no longer verifies after Bellatrix.
+     */
+
+    harness
+        .extend_to_slot(
+            spec.bellatrix_fork_epoch
+                .unwrap()
+                .start_slot(slots_per_epoch),
+        )
+        .await;
+    let head = harness.chain.canonical_head.cached_head();
+    let head_state = &head.snapshot.beacon_state;
+    assert!(head_state.current_epoch() >= spec.bellatrix_fork_epoch.unwrap());
+    verify_exit(head_state, &signed_exit, VerifySignatures::True, &spec)
+        .expect_err("phase0 exit does not verify against bellatrix state");
 }

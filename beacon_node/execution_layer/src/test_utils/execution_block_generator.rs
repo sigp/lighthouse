@@ -105,6 +105,7 @@ pub struct PoWBlock {
     pub timestamp: u64,
 }
 
+#[derive(Clone)]
 pub struct ExecutionBlockGenerator<T: EthSpec> {
     /*
      * Common database

@@ -1,4 +1,5 @@
 use clap::{App, Arg};
+use strum::VariantNames;
 
 pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
     App::new("beacon_node")
@@ -148,7 +149,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 If a DNS address is provided, the enr-address is set to the IP address it resolves to and \
                 does not auto-update based on PONG responses in discovery. \
                 Set this only if you are sure other nodes can connect to your local node on this address. \
-                Discovery will automatically find your external address,if possible.")
+                Discovery will automatically find your external address, if possible.")
                 .requires("enr-udp-port")
                 .takes_value(true),
         )
@@ -229,8 +230,14 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .arg(
             Arg::with_name("http-disable-legacy-spec")
                 .long("http-disable-legacy-spec")
-                .help("Disable serving of legacy data on the /config/spec endpoint. May be \
-                       disabled by default in a future release.")
+                .hidden(true)
+        )
+        .arg(
+            Arg::with_name("http-spec-fork")
+                .long("http-spec-fork")
+                .help("Serve the spec for a specific hard fork on /eth/v1/config/spec. It should \
+                       not be necessary to set this flag.")
+                .takes_value(true)
         )
         .arg(
             Arg::with_name("http-enable-tls")
@@ -441,7 +448,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .alias("jwt-id")
                 .help("Used by the beacon node to communicate a unique identifier to execution nodes \
                        during JWT authentication. It corresponds to the 'id' field in the JWT claims object.\
-                       Set to empty by deafult")
+                       Set to empty by default")
                 .takes_value(true)
         )
         .arg(
@@ -451,7 +458,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .alias("jwt-version")
                 .help("Used by the beacon node to communicate a client version to execution nodes \
                        during JWT authentication. It corresponds to the 'clv' field in the JWT claims object.\
-                       Set to empty by deafult")
+                       Set to empty by default")
                 .takes_value(true)
         )
         .arg(
@@ -623,6 +630,14 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .requires("slasher")
         )
         .arg(
+            Arg::with_name("slasher-backend")
+                .long("slasher-backend")
+                .help("Set the database backend to be used by the slasher.")
+                .takes_value(true)
+                .possible_values(slasher::DatabaseBackend::VARIANTS)
+                .requires("slasher")
+        )
+        .arg(
             Arg::with_name("wss-checkpoint")
                 .long("wss-checkpoint")
                 .help(
@@ -709,11 +724,52 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true)
         )
         .arg(
+            Arg::with_name("builder-fallback-skips")
+                .long("builder-fallback-skips")
+                .help("If this node is proposing a block and has seen this number of skip slots \
+                        on the canonical chain in a row, it will NOT query any connected builders, \
+                        and will use the local execution engine for payload construction.")
+                .default_value("3")
+                .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("builder-fallback-skips-per-epoch")
+                .long("builder-fallback-skips-per-epoch")
+                .help("If this node is proposing a block and has seen this number of skip slots \
+                        on the canonical chain in the past `SLOTS_PER_EPOCH`, it will NOT query \
+                        any connected builders, and will use the local execution engine for \
+                        payload construction.")
+                .default_value("8")
+                .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("builder-fallback-epochs-since-finalization")
+                .long("builder-fallback-epochs-since-finalization")
+                .help("If this node is proposing a block and the chain has not finalized within \
+                        this number of epochs, it will NOT query any connected builders, \
+                        and will use the local execution engine for payload construction. Setting \
+                        this value to anything less than 2 will cause the node to NEVER query \
+                        connected builders. Setting it to 2 will cause this condition to be hit \
+                        if there are skips slots at the start of an epoch, right before this node \
+                        is set to propose.")
+                .default_value("3")
+                .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("builder-fallback-disable-checks")
+                .long("builder-fallback-disable-checks")
+                .help("This flag disables all checks related to chain health. This means the builder \
+                        API will always be used for payload construction, regardless of recent chain \
+                        conditions.")
+                .takes_value(false)
+        )
+        .arg(
             Arg::with_name("count-unrealized")
                 .long("count-unrealized")
                 .hidden(true)
-                .help("**EXPERIMENTAL** Enables an alternative, potentially more performant FFG \
-                    vote tracking method.")
-                .takes_value(false)
+                .help("Enables an alternative, potentially more performant FFG \
+                       vote tracking method.")
+                .takes_value(true)
+                .default_value("true")
         )
 }

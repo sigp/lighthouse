@@ -255,7 +255,8 @@ where
                 })
                 .map(Into::into)
         } else {
-            ssz::decode_list_of_variable_length_items(bytes, Some(max_len)).map(|vec| vec.into())
+            ssz::decode_list_of_variable_length_items(bytes, Some(max_len))
+                .map(|vec: Vec<_>| vec.into())
         }
     }
 }
@@ -334,7 +335,7 @@ mod test {
         let vec = vec![0, 2, 4, 6];
         let fixed: VariableList<u64, U4> = VariableList::from(vec);
 
-        assert_eq!(fixed.get(0), Some(&0));
+        assert_eq!(fixed.first(), Some(&0));
         assert_eq!(fixed.get(3), Some(&6));
         assert_eq!(fixed.get(4), None);
     }

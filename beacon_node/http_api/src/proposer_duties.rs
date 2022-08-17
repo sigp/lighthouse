@@ -62,7 +62,7 @@ pub fn proposer_duties<T: BeaconChainTypes>(
             chain,
             request_epoch,
             dependent_root,
-            execution_status.is_optimistic(),
+            execution_status.is_optimistic_or_invalid(),
             proposers,
         )
     } else if request_epoch
@@ -104,7 +104,7 @@ fn try_proposer_duties_from_cache<T: BeaconChainTypes>(
         .map_err(warp_utils::reject::beacon_state_error)?;
     let head_epoch = head_block.slot().epoch(T::EthSpec::slots_per_epoch());
     let execution_optimistic = chain
-        .is_optimistic_head_block(head_block)
+        .is_optimistic_or_invalid_head_block(head_block)
         .map_err(warp_utils::reject::beacon_chain_error)?;
 
     let dependent_root = match head_epoch.cmp(&request_epoch) {
@@ -168,7 +168,7 @@ fn compute_and_cache_proposer_duties<T: BeaconChainTypes>(
         chain,
         current_epoch,
         dependent_root,
-        execution_status.is_optimistic(),
+        execution_status.is_optimistic_or_invalid(),
         indices,
     )
 }
@@ -194,7 +194,7 @@ fn compute_historic_proposer_duties<T: BeaconChainTypes>(
                 head.beacon_state_root(),
                 head.beacon_state
                     .clone_with(CloneConfig::committee_caches_only()),
-                execution_status.is_optimistic(),
+                execution_status.is_optimistic_or_invalid(),
             ))
         } else {
             None

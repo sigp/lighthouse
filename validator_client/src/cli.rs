@@ -251,8 +251,9 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(false),
         )
         .arg(
-            Arg::with_name("private-tx-proposals")
-                .long("private-tx-proposals")
+            Arg::with_name("builder-proposals")
+                .long("builder-proposals")
+                .alias("private-tx-proposals")
                 .help("If this flag is set, Lighthouse will query the Beacon Node for only block \
                     headers during proposals and will sign over headers. Useful for outsourcing \
                     execution payload construction during proposals.")
@@ -271,4 +272,22 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                      for payload construction, where a strict fee recipient check will still be applied.")
                 .takes_value(false),
         )
+        .arg(
+            Arg::with_name("builder-registration-timestamp-override")
+                .long("builder-registration-timestamp-override")
+                .alias("builder-registration-timestamp-override")
+                .help("This flag takes a unix timestamp value that will be used to override the \
+                    timestamp used in the builder api registration")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("gas-limit")
+                .long("gas-limit")
+                .value_name("INTEGER")
+                .takes_value(true)
+                .help("The gas limit to be used in all builder proposals for all validators managed \
+                    by this validator client. Note this will not necessarily be used if the gas limit \
+                    set here moves too far from the previous block's gas limit. [default: 30,000,000]")
+                .requires("builder-proposals"),
+    )
 }

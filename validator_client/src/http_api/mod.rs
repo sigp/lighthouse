@@ -12,7 +12,7 @@ use account_utils::{
 pub use api_secret::ApiSecret;
 use create_validator::{create_validators_mnemonic, create_validators_web3signer};
 use eth2::lighthouse_vc::{
-    std_types::{AuthResponse, GetFeeRecipientResponse},
+    std_types::{AuthResponse, GetFeeRecipientResponse, GetGasLimitResponse},
     types::{self as api_types, GenericResponse, PublicKey, PublicKeyBytes},
 };
 use lighthouse_version::version_with_platform;
@@ -217,8 +217,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(signer.clone())
         .and_then(|spec: Arc<_>, signer| {
             blocking_signed_json_task(signer, move || {
-                let mut config = ConfigAndPreset::from_chain_spec::<E>(&spec);
-                config.make_backwards_compat(&spec);
+                let config = ConfigAndPreset::from_chain_spec::<E>(&spec, None);
                 Ok(api_types::GenericResponse::from(config))
             })
         });
@@ -413,6 +412,8 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                     let voting_password = body.password.clone();
                     let graffiti = body.graffiti.clone();
                     let suggested_fee_recipient = body.suggested_fee_recipient;
+                    let gas_limit = body.gas_limit;
+                    let builder_proposals = body.builder_proposals;
 
                     let validator_def = {
                         if let Some(handle) = task_executor.handle() {
@@ -423,6 +424,8 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                                     body.enable,
                                     graffiti,
                                     suggested_fee_recipient,
+                                    gas_limit,
+                                    builder_proposals,
                                 ))
                                 .map_err(|e| {
                                     warp_utils::reject::custom_server_error(format!(
@@ -469,6 +472,8 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                                 voting_public_key: web3signer.voting_public_key,
                                 graffiti: web3signer.graffiti,
                                 suggested_fee_recipient: web3signer.suggested_fee_recipient,
+                                gas_limit: web3signer.gas_limit,
+                                builder_proposals: web3signer.builder_proposals,
                                 description: web3signer.description,
                                 signing_definition: SigningDefinition::Web3Signer(
                                     Web3SignerDefinition {
@@ -515,18 +520,32 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                     let initialized_validators_rw_lock = validator_store.initialized_validators();
                     let mut initialized_validators = initialized_validators_rw_lock.write();
 
-                    match initialized_validators.is_enabled(&validator_pubkey) {
-                        None => Err(warp_utils::reject::custom_not_found(format!(
+                    match (
+                        initialized_validators.is_enabled(&validator_pubkey),
+                        initialized_validators.validator(&validator_pubkey.compress()),
+                    ) {
+                        (None, _) => Err(warp_utils::reject::custom_not_found(format!(
                             "no validator for {:?}",
                             validator_pubkey
                         ))),
-                        Some(enabled) if enabled == body.enabled => Ok(()),
-                        Some(_) => {
+                        (Some(is_enabled), Some(initialized_validator))
+                            if Some(is_enabled) == body.enabled
+                                && initialized_validator.get_gas_limit() == body.gas_limit
+                                && initialized_validator.get_builder_proposals()
+                                    == body.builder_proposals =>
+                        {
+                            Ok(())
+                        }
+                        (Some(_), _) => {
                             if let Some(handle) = task_executor.handle() {
                                 handle
                                     .block_on(
-                                        initialized_validators
-                                            .set_validator_status(&validator_pubkey, body.enabled),
+                                        initialized_validators.set_validator_definition_fields(
+                                            &validator_pubkey,
+                                            body.enabled,
+                                            body.gas_limit,
+                                            body.builder_proposals,
+                                        ),
                                     )
                                     .map_err(|e| {
                                         warp_utils::reject::custom_server_error(format!(
@@ -607,8 +626,8 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
     let post_fee_recipient = eth_v1
         .and(warp::path("validator"))
         .and(warp::path::param::<PublicKey>())
-        .and(warp::body::json())
         .and(warp::path("feerecipient"))
+        .and(warp::body::json())
         .and(warp::path::end())
         .and(validator_store_filter.clone())
         .and(signer.clone())
@@ -673,6 +692,115 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                         .map_err(|e| {
                             warp_utils::reject::custom_server_error(format!(
                                 "Error persisting fee recipient removal: {:?}",
+                                e
+                            ))
+                        })
+                })
+            },
+        )
+        .map(|reply| warp::reply::with_status(reply, warp::http::StatusCode::NO_CONTENT));
+
+    // GET /eth/v1/validator/{pubkey}/gas_limit
+    let get_gas_limit = eth_v1
+        .and(warp::path("validator"))
+        .and(warp::path::param::<PublicKey>())
+        .and(warp::path("gas_limit"))
+        .and(warp::path::end())
+        .and(validator_store_filter.clone())
+        .and(signer.clone())
+        .and_then(
+            |validator_pubkey: PublicKey, validator_store: Arc<ValidatorStore<T, E>>, signer| {
+                blocking_signed_json_task(signer, move || {
+                    if validator_store
+                        .initialized_validators()
+                        .read()
+                        .is_enabled(&validator_pubkey)
+                        .is_none()
+                    {
+                        return Err(warp_utils::reject::custom_not_found(format!(
+                            "no validator found with pubkey {:?}",
+                            validator_pubkey
+                        )));
+                    }
+                    Ok(GenericResponse::from(GetGasLimitResponse {
+                        pubkey: PublicKeyBytes::from(validator_pubkey.clone()),
+                        gas_limit: validator_store
+                            .get_gas_limit(&PublicKeyBytes::from(&validator_pubkey)),
+                    }))
+                })
+            },
+        );
+
+    // POST /eth/v1/validator/{pubkey}/gas_limit
+    let post_gas_limit = eth_v1
+        .and(warp::path("validator"))
+        .and(warp::path::param::<PublicKey>())
+        .and(warp::path("gas_limit"))
+        .and(warp::body::json())
+        .and(warp::path::end())
+        .and(validator_store_filter.clone())
+        .and(signer.clone())
+        .and_then(
+            |validator_pubkey: PublicKey,
+             request: api_types::UpdateGasLimitRequest,
+             validator_store: Arc<ValidatorStore<T, E>>,
+             signer| {
+                blocking_signed_json_task(signer, move || {
+                    if validator_store
+                        .initialized_validators()
+                        .read()
+                        .is_enabled(&validator_pubkey)
+                        .is_none()
+                    {
+                        return Err(warp_utils::reject::custom_not_found(format!(
+                            "no validator found with pubkey {:?}",
+                            validator_pubkey
+                        )));
+                    }
+                    validator_store
+                        .initialized_validators()
+                        .write()
+                        .set_validator_gas_limit(&validator_pubkey, request.gas_limit)
+                        .map_err(|e| {
+                            warp_utils::reject::custom_server_error(format!(
+                                "Error persisting gas limit: {:?}",
+                                e
+                            ))
+                        })
+                })
+            },
+        )
+        .map(|reply| warp::reply::with_status(reply, warp::http::StatusCode::ACCEPTED));
+
+    // DELETE /eth/v1/validator/{pubkey}/gas_limit
+    let delete_gas_limit = eth_v1
+        .and(warp::path("validator"))
+        .and(warp::path::param::<PublicKey>())
+        .and(warp::path("gas_limit"))
+        .and(warp::path::end())
+        .and(validator_store_filter.clone())
+        .and(signer.clone())
+        .and_then(
+            |validator_pubkey: PublicKey, validator_store: Arc<ValidatorStore<T, E>>, signer| {
+                blocking_signed_json_task(signer, move || {
+                    if validator_store
+                        .initialized_validators()
+                        .read()
+                        .is_enabled(&validator_pubkey)
+                        .is_none()
+                    {
+                        return Err(warp_utils::reject::custom_not_found(format!(
+                            "no validator found with pubkey {:?}",
+                            validator_pubkey
+                        )));
+                    }
+                    validator_store
+                        .initialized_validators()
+                        .write()
+                        .delete_validator_gas_limit(&validator_pubkey)
+                        .map_err(|e| {
+                            warp_utils::reject::custom_server_error(format!(
+                                "Error persisting gas limit removal: {:?}",
                                 e
                             ))
                         })
@@ -767,6 +895,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                         .or(get_lighthouse_validators)
                         .or(get_lighthouse_validators_pubkey)
                         .or(get_fee_recipient)
+                        .or(get_gas_limit)
                         .or(get_std_keystores)
                         .or(get_std_remotekeys),
                 )
@@ -776,12 +905,14 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                         .or(post_validators_mnemonic)
                         .or(post_validators_web3signer)
                         .or(post_fee_recipient)
+                        .or(post_gas_limit)
                         .or(post_std_keystores)
                         .or(post_std_remotekeys),
                 ))
                 .or(warp::patch().and(patch_validators))
                 .or(warp::delete().and(
                     delete_fee_recipient
+                        .or(delete_gas_limit)
                         .or(delete_std_keystores)
                         .or(delete_std_remotekeys),
                 )),

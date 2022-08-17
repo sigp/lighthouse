@@ -2,8 +2,9 @@ FROM rust:1.62.1-bullseye AS builder
 RUN apt-get update && apt-get -y upgrade && apt-get install -y cmake libclang-dev
 COPY . lighthouse
 
-# build lighthouse directly with a cargo build command, bypassing the makefile
-RUN cd lighthouse && LD_LIBRARY_PATH=/lighthouse/testing/antithesis/libvoidstar/ RUSTFLAGS="-Cpasses=sancov -Cllvm-args=-sanitizer-coverage-level=3 -Cllvm-args=-sanitizer-coverage-trace-pc-guard -Ccodegen-units=1 -Cdebuginfo=2 -L/lighthouse/testing/antithesis/libvoidstar/ -lvoidstar" cargo build --release --manifest-path lighthouse/Cargo.toml --target x86_64-unknown-linux-gnu --features modern --verbose --bin lighthouse
+# Build lighthouse directly with a cargo build command, bypassing the Makefile.
+# We have to use nightly in order to disable the new LLVM pass manager.
+RUN rustup default nightly-2022-07-26 && cd lighthouse && LD_LIBRARY_PATH=/lighthouse/testing/antithesis/libvoidstar/ RUSTFLAGS="-Znew-llvm-pass-manager=no -Cpasses=sancov -Cllvm-args=-sanitizer-coverage-level=3 -Cllvm-args=-sanitizer-coverage-trace-pc-guard -Ccodegen-units=1 -Cdebuginfo=2 -L/lighthouse/testing/antithesis/libvoidstar/ -lvoidstar" cargo build --release --manifest-path lighthouse/Cargo.toml --target x86_64-unknown-linux-gnu --features modern --verbose --bin lighthouse
 
 # build lcli binary directly with cargo install command, bypassing the makefile
 RUN cargo install --path /lighthouse/lcli --force --locked

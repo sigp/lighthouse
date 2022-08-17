@@ -110,6 +110,8 @@ pub struct InitializedValidator {
     signing_method: Arc<SigningMethod>,
     graffiti: Option<Graffiti>,
     suggested_fee_recipient: Option<Address>,
+    gas_limit: Option<u64>,
+    builder_proposals: Option<bool>,
     /// The validators index in `state.validators`, to be updated by an external service.
     index: Option<u64>,
 }
@@ -128,6 +130,22 @@ impl InitializedValidator {
             // Web3Signer validators do not have any lockfiles.
             SigningMethod::Web3Signer { .. } => None,
         }
+    }
+
+    pub fn get_suggested_fee_recipient(&self) -> Option<Address> {
+        self.suggested_fee_recipient
+    }
+
+    pub fn get_gas_limit(&self) -> Option<u64> {
+        self.gas_limit
+    }
+
+    pub fn get_builder_proposals(&self) -> Option<bool> {
+        self.builder_proposals
+    }
+
+    pub fn get_index(&self) -> Option<u64> {
+        self.index
     }
 }
 
@@ -292,6 +310,8 @@ impl InitializedValidator {
             signing_method: Arc::new(signing_method),
             graffiti: def.graffiti.map(Into::into),
             suggested_fee_recipient: def.suggested_fee_recipient,
+            gas_limit: def.gas_limit,
+            builder_proposals: def.builder_proposals,
             index: None,
         })
     }
@@ -622,7 +642,28 @@ impl InitializedValidators {
             .and_then(|v| v.suggested_fee_recipient)
     }
 
-    /// Sets the `InitializedValidator` and `ValidatorDefinition` `enabled` values.
+    /// Returns the `gas_limit` for a given public key specified in the
+    /// `ValidatorDefinitions`.
+    pub fn gas_limit(&self, public_key: &PublicKeyBytes) -> Option<u64> {
+        self.validators.get(public_key).and_then(|v| v.gas_limit)
+    }
+
+    /// Returns the `builder_proposals` for a given public key specified in the
+    /// `ValidatorDefinitions`.
+    pub fn builder_proposals(&self, public_key: &PublicKeyBytes) -> Option<bool> {
+        self.validators
+            .get(public_key)
+            .and_then(|v| v.builder_proposals)
+    }
+
+    /// Returns an `Option` of a reference to an `InitializedValidator` for a given public key specified in the
+    /// `ValidatorDefinitions`.
+    pub fn validator(&self, public_key: &PublicKeyBytes) -> Option<&InitializedValidator> {
+        self.validators.get(public_key)
+    }
+
+    /// Sets the `InitializedValidator` and `ValidatorDefinition` `enabled`, `gas_limit`, and `builder_proposals`
+    /// values.
     ///
     /// ## Notes
     ///
@@ -630,11 +671,17 @@ impl InitializedValidators {
     /// disk. A newly enabled validator will be added to `self.validators`, whilst a newly disabled
     /// validator will be removed from `self.validators`.
     ///
+    /// If a `gas_limit` is included in the call to this function, it will also be updated and saved
+    /// to disk. If `gas_limit` is `None` the `gas_limit` *will not* be unset in `ValidatorDefinition`
+    /// or `InitializedValidator`. The same logic applies to `builder_proposals`.
+    ///
     /// Saves the `ValidatorDefinitions` to file, even if no definitions were changed.
-    pub async fn set_validator_status(
+    pub async fn set_validator_definition_fields(
         &mut self,
         voting_public_key: &PublicKey,
-        enabled: bool,
+        enabled: Option<bool>,
+        gas_limit: Option<u64>,
+        builder_proposals: Option<bool>,
     ) -> Result<(), Error> {
         if let Some(def) = self
             .definitions
@@ -642,10 +689,32 @@ impl InitializedValidators {
             .iter_mut()
             .find(|def| def.voting_public_key == *voting_public_key)
         {
-            def.enabled = enabled;
+            // Don't overwrite fields if they are not set in this request.
+            if let Some(enabled) = enabled {
+                def.enabled = enabled;
+            }
+            if let Some(gas_limit) = gas_limit {
+                def.gas_limit = Some(gas_limit);
+            }
+            if let Some(builder_proposals) = builder_proposals {
+                def.builder_proposals = Some(builder_proposals);
+            }
         }
 
         self.update_validators().await?;
+
+        if let Some(val) = self
+            .validators
+            .get_mut(&PublicKeyBytes::from(voting_public_key))
+        {
+            // Don't overwrite fields if they are not set in this request.
+            if let Some(gas_limit) = gas_limit {
+                val.gas_limit = Some(gas_limit);
+            }
+            if let Some(builder_proposals) = builder_proposals {
+                val.builder_proposals = Some(builder_proposals);
+            }
+        }
 
         self.definitions
             .save(&self.validators_dir)
@@ -717,6 +786,78 @@ impl InitializedValidators {
             .get_mut(&PublicKeyBytes::from(voting_public_key))
         {
             val.suggested_fee_recipient = None;
+        }
+
+        self.definitions
+            .save(&self.validators_dir)
+            .map_err(Error::UnableToSaveDefinitions)?;
+
+        Ok(())
+    }
+
+    /// Sets the `InitializedValidator` and `ValidatorDefinition` `gas_limit` values.
+    ///
+    /// ## Notes
+    ///
+    /// Setting a validator `gas_limit` will cause `self.definitions` to be updated and saved to
+    /// disk.
+    ///
+    /// Saves the `ValidatorDefinitions` to file, even if no definitions were changed.
+    pub fn set_validator_gas_limit(
+        &mut self,
+        voting_public_key: &PublicKey,
+        gas_limit: u64,
+    ) -> Result<(), Error> {
+        if let Some(def) = self
+            .definitions
+            .as_mut_slice()
+            .iter_mut()
+            .find(|def| def.voting_public_key == *voting_public_key)
+        {
+            def.gas_limit = Some(gas_limit);
+        }
+
+        if let Some(val) = self
+            .validators
+            .get_mut(&PublicKeyBytes::from(voting_public_key))
+        {
+            val.gas_limit = Some(gas_limit);
+        }
+
+        self.definitions
+            .save(&self.validators_dir)
+            .map_err(Error::UnableToSaveDefinitions)?;
+
+        Ok(())
+    }
+
+    /// Removes the `InitializedValidator` and `ValidatorDefinition` `gas_limit` values.
+    ///
+    /// ## Notes
+    ///
+    /// Removing a validator `gas_limit` will cause `self.definitions` to be updated and saved to
+    /// disk. The gas_limit for the validator will then fall back to the process level default if
+    /// it is set.
+    ///
+    /// Saves the `ValidatorDefinitions` to file, even if no definitions were changed.
+    pub fn delete_validator_gas_limit(
+        &mut self,
+        voting_public_key: &PublicKey,
+    ) -> Result<(), Error> {
+        if let Some(def) = self
+            .definitions
+            .as_mut_slice()
+            .iter_mut()
+            .find(|def| def.voting_public_key == *voting_public_key)
+        {
+            def.gas_limit = None;
+        }
+
+        if let Some(val) = self
+            .validators
+            .get_mut(&PublicKeyBytes::from(voting_public_key))
+        {
+            val.gas_limit = None;
         }
 
         self.definitions
