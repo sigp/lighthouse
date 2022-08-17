@@ -303,7 +303,7 @@ async fn build_validator_spec_from_cli<'a>(
     );
 
     let mut validators = Vec::with_capacity(count as usize);
-    let mut deposits = disable_deposits.then(Vec::new);
+    let mut deposits = (!disable_deposits).then(Vec::new);
 
     for (i, derivation_index) in (first_index..first_index + count).enumerate() {
         // If the voting keystore password was not provided by the user then use a unique random
