@@ -2,11 +2,16 @@ use super::common::*;
 use account_utils::{random_password_string, read_mnemonic_from_cli, read_password_from_user};
 use clap::{App, Arg, ArgMatches};
 use environment::Environment;
-use eth2::lighthouse_vc::std_types::KeystoreJsonStr;
+use eth2::{
+    lighthouse_vc::std_types::KeystoreJsonStr,
+    types::{StateId, ValidatorId},
+    BeaconNodeHttpClient, SensitiveUrl, Timeouts,
+};
 use eth2_wallet::WalletBuilder;
 use serde::Serialize;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 use types::*;
 
 pub const CMD: &str = "create";
@@ -22,9 +27,12 @@ pub const ETH1_WITHDRAWAL_ADDRESS_FLAG: &str = "eth1-withdrawal-address";
 pub const GAS_LIMIT_FLAG: &str = "gas-limit";
 pub const FEE_RECIPIENT_FLAG: &str = "suggested-fee-recipient";
 pub const BUILDER_PROPOSALS_FLAG: &str = "builder-proposals";
+pub const BEACON_NODE_FLAG: &str = "beacon-node";
 
 pub const VALIDATORS_FILENAME: &str = "validators.json";
 pub const DEPOSITS_FILENAME: &str = "deposits.json";
+
+const BEACON_NODE_HTTP_TIMEOUT: Duration = Duration::from_secs(2);
 
 struct ValidatorsAndDeposits {
     validators: Vec<ValidatorSpecification>,
@@ -161,6 +169,19 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 )
                 .required(false),
         )
+        .arg(
+            Arg::with_name(BEACON_NODE_FLAG)
+                .long(BEACON_NODE_FLAG)
+                .value_name("HTTP_ADDRESS")
+                .help(
+                    "A HTTP(S) address of a beacon node using the beacon-API. \
+                    If this value is provided, an error will be raised if any validator \
+                    key here is already known as a validator by that beacon node. This helps \
+                    prevent the same validator being created twice and therefore slashable \
+                    conditions.",
+                )
+                .takes_value(true),
+        )
 }
 
 pub async fn cli_run<'a, T: EthSpec>(
@@ -193,7 +214,7 @@ pub async fn cli_run<'a, T: EthSpec>(
         ));
     }
 
-    let validators_and_deposits = build_validator_spec_from_cli(matches, spec)?;
+    let validators_and_deposits = build_validator_spec_from_cli(matches, spec).await?;
 
     write_to_json_file(&validators_path, &validators_and_deposits.validators)?;
 
@@ -214,7 +235,7 @@ fn write_to_json_file<P: AsRef<Path>, S: Serialize>(path: P, contents: &S) -> Re
         .map_err(|e| format!("Failed to write JSON to {:?}: {:?}", path.as_ref(), e))
 }
 
-fn build_validator_spec_from_cli<'a>(
+async fn build_validator_spec_from_cli<'a>(
     matches: &'a ArgMatches<'a>,
     spec: &ChainSpec,
 ) -> Result<ValidatorsAndDeposits, String> {
@@ -232,6 +253,25 @@ fn build_validator_spec_from_cli<'a>(
     let builder_proposals = matches.is_present(BUILDER_PROPOSALS_FLAG);
     let fee_recipient: Option<Address> = clap_utils::parse_optional(matches, FEE_RECIPIENT_FLAG)?;
     let gas_limit: Option<u64> = clap_utils::parse_optional(matches, GAS_LIMIT_FLAG)?;
+    let bn_url: Option<SensitiveUrl> = clap_utils::parse_optional(matches, BEACON_NODE_FLAG)?;
+
+    let bn_http_client = if let Some(bn_url) = bn_url {
+        let bn_http_client =
+            BeaconNodeHttpClient::new(bn_url, Timeouts::set_all(BEACON_NODE_HTTP_TIMEOUT));
+
+        let version = bn_http_client
+            .get_node_version()
+            .await
+            .map_err(|e| format!("Failed to test connection to beacon node: {:?}", e))?
+            .data
+            .version;
+
+        eprintln!("Connected to beacon node running version {}", version);
+
+        Some(bn_http_client)
+    } else {
+        None
+    };
 
     let mnemonic = read_mnemonic_from_cli(mnemonic_path, stdin_inputs)?;
     let voting_keystore_password = if specify_voting_keystore_password {
@@ -284,6 +324,44 @@ fn build_validator_spec_from_cli<'a>(
             )
             .map_err(|e| format!("Failed to derive keystore {}: {:?}", i, e))?;
         let voting_keystore = keystores.voting;
+
+        // If the user has provided a beacon node URL, check that the validator doesn't already
+        // exist in the beacon chain.
+        if let Some(bn_http_client) = &bn_http_client {
+            let voting_public_key = voting_keystore
+                .public_key()
+                .ok_or_else(|| {
+                    format!("Validator keystore at index {} is missing a public key", i)
+                })?
+                .into();
+
+            match bn_http_client
+                .get_beacon_states_validator_id(
+                    StateId::Head,
+                    &ValidatorId::PublicKey(voting_public_key),
+                )
+                .await
+            {
+                Ok(Some(_)) => {
+                    return Err(format!(
+                        "Validator {:?} at derivation index {} already exists in the beacon chain. \
+                        This indicates a slashing risk, be sure to never run the same validator on two \
+                        different validator clients",
+                        voting_public_key, derivation_index
+                    ))?
+                }
+                Ok(None) => eprintln!(
+                    "Validator {:?} was not found in the beacon chain",
+                    voting_public_key
+                ),
+                Err(e) => {
+                    return Err(format!(
+                        "Error checking if validator exists in beacon chain: {:?}",
+                        e
+                    ))
+                }
+            }
+        }
 
         if let Some(deposits) = &mut deposits {
             // Decrypt the voting keystore so a deposit message can be signed.
