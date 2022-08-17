@@ -1,8 +1,9 @@
 use account_utils::ZeroizeString;
 use eth2_keystore::Keystore;
 use serde::{Deserialize, Serialize};
-use slashing_protection::interchange::Interchange;
 use types::{Address, PublicKeyBytes};
+
+pub use slashing_protection::interchange::Interchange;
 
 #[derive(Debug, Deserialize, Serialize, PartialEq)]
 pub struct GetFeeRecipientResponse {
