@@ -178,7 +178,10 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         )
 }
 
-struct Config {
+/// The CLI arguments are parsed into this struct before running the application. This step of
+/// indirection allows for testing the underlying logic without needing to parse CLI arguments.
+#[derive(Clone)]
+struct CreateConfig {
     output_path: PathBuf,
     first_index: u32,
     count: u32,
@@ -194,7 +197,7 @@ struct Config {
     bn_url: Option<SensitiveUrl>,
 }
 
-impl Config {
+impl CreateConfig {
     fn from_cli(matches: &ArgMatches, spec: &ChainSpec) -> Result<Self, String> {
         Ok(Self {
             output_path: clap_utils::parse_required(matches, OUTPUT_PATH_FLAG)?,
@@ -225,8 +228,8 @@ struct ValidatorsAndDeposits {
 }
 
 impl ValidatorsAndDeposits {
-    async fn new<'a, T: EthSpec>(config: Config, spec: &ChainSpec) -> Result<Self, String> {
-        let Config {
+    async fn new<'a, T: EthSpec>(config: CreateConfig, spec: &ChainSpec) -> Result<Self, String> {
+        let CreateConfig {
             // The output path is handled upstream.
             output_path: _,
             first_index,
@@ -242,6 +245,10 @@ impl ValidatorsAndDeposits {
             gas_limit,
             bn_url,
         } = config;
+
+        if count == 0 {
+            return Err(format!("--{} cannot be 0", COUNT_FLAG));
+        }
 
         let bn_http_client = if let Some(bn_url) = bn_url {
             let bn_http_client =
@@ -454,11 +461,11 @@ pub async fn cli_run<'a, T: EthSpec>(
     matches: &'a ArgMatches<'a>,
     spec: &ChainSpec,
 ) -> Result<(), String> {
-    let config = Config::from_cli(matches, spec)?;
+    let config = CreateConfig::from_cli(matches, spec)?;
     run::<T>(config, spec).await
 }
 
-async fn run<'a, T: EthSpec>(config: Config, spec: &ChainSpec) -> Result<(), String> {
+async fn run<'a, T: EthSpec>(config: CreateConfig, spec: &ChainSpec) -> Result<(), String> {
     let output_path = config.output_path.clone();
 
     if !output_path.exists() {
@@ -505,4 +512,258 @@ fn write_to_json_file<P: AsRef<Path>, S: Serialize>(path: P, contents: &S) -> Re
         .map_err(|e| format!("Failed to open {:?}: {:?}", path.as_ref(), e))?;
     serde_json::to_writer(&mut file, contents)
         .map_err(|e| format!("Failed to write JSON to {:?}: {:?}", path.as_ref(), e))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::str::FromStr;
+    use tempfile::{tempdir, TempDir};
+    use tree_hash::TreeHash;
+
+    type E = MainnetEthSpec;
+
+    struct TestBuilder {
+        spec: ChainSpec,
+        output_dir: TempDir,
+        mnemonic_dir: TempDir,
+        config: CreateConfig,
+    }
+
+    impl Default for TestBuilder {
+        fn default() -> Self {
+            let spec = E::default_spec();
+            let output_dir = tempdir().unwrap();
+            let mnemonic_dir = tempdir().unwrap();
+            let mnemonic_path = mnemonic_dir.path().join("mnemonic");
+            fs::write(
+                &mnemonic_path,
+                "test test test test test test test test test test test waste",
+            )
+            .unwrap();
+
+            let config = CreateConfig {
+                output_path: output_dir.path().into(),
+                first_index: 0,
+                count: 1,
+                deposit_gwei: spec.max_effective_balance,
+                mnemonic_path: Some(mnemonic_path),
+                stdin_inputs: false,
+                disable_deposits: false,
+                specify_voting_keystore_password: false,
+                eth1_withdrawal_address: None,
+                builder_proposals: false,
+                fee_recipient: None,
+                gas_limit: None,
+                bn_url: None,
+            };
+
+            Self {
+                spec,
+                output_dir,
+                mnemonic_dir,
+                config,
+            }
+        }
+    }
+
+    impl TestBuilder {
+        fn mutate_config<F: Fn(&mut CreateConfig)>(mut self, func: F) -> Self {
+            func(&mut self.config);
+            self
+        }
+
+        async fn run_test(self) -> TestResult {
+            let Self {
+                spec,
+                output_dir,
+                mnemonic_dir,
+                config,
+            } = self;
+
+            let result = run::<E>(config.clone(), &spec).await;
+
+            if result.is_ok() {
+                let validators_file_contents =
+                    fs::read_to_string(output_dir.path().join(VALIDATORS_FILENAME)).unwrap();
+                let validators: Vec<ValidatorSpecification> =
+                    serde_json::from_str(&validators_file_contents).unwrap();
+
+                assert_eq!(validators.len(), config.count as usize);
+
+                for (i, validator) in validators.iter().enumerate() {
+                    let voting_keystore = &validator.voting_keystore.0;
+                    let keypair = voting_keystore
+                        .decrypt_keypair(validator.voting_keystore_password.as_ref())
+                        .unwrap();
+                    assert_eq!(keypair.pk, voting_keystore.public_key().unwrap());
+                    assert_eq!(
+                        voting_keystore.path().unwrap(),
+                        format!("m/12381/3600/{}/0/0", config.first_index as usize + i)
+                    );
+                    assert!(validator.slashing_protection.is_none());
+                    assert_eq!(validator.fee_recipient, config.fee_recipient);
+                    assert_eq!(validator.gas_limit, config.gas_limit);
+                    assert_eq!(validator.builder_proposals, Some(config.builder_proposals));
+                    assert_eq!(validator.enabled, Some(true));
+                }
+
+                let deposits_path = output_dir.path().join(DEPOSITS_FILENAME);
+                if config.disable_deposits {
+                    assert!(!deposits_path.exists());
+                } else {
+                    let deposits_file_contents = fs::read_to_string(&deposits_path).unwrap();
+                    let deposits: Vec<StandardDepositDataJson> =
+                        serde_json::from_str(&deposits_file_contents).unwrap();
+
+                    assert_eq!(deposits.len(), config.count as usize);
+
+                    for (validator, deposit) in validators.iter().zip(deposits.iter()) {
+                        let validator_pubkey = validator.voting_keystore.0.public_key().unwrap();
+                        assert_eq!(deposit.pubkey, validator_pubkey.clone().into());
+                        if let Some(address) = config.eth1_withdrawal_address {
+                            assert_eq!(
+                                deposit.withdrawal_credentials.as_bytes()[0],
+                                spec.eth1_address_withdrawal_prefix_byte
+                            );
+                            assert_eq!(
+                                &deposit.withdrawal_credentials.as_bytes()[12..],
+                                address.as_bytes()
+                            );
+                        } else {
+                            assert_eq!(
+                                deposit.withdrawal_credentials.as_bytes()[0],
+                                spec.bls_withdrawal_prefix_byte
+                            );
+                        }
+                        assert_eq!(deposit.amount, config.deposit_gwei);
+                        let deposit_message_root = DepositData {
+                            pubkey: deposit.pubkey,
+                            withdrawal_credentials: deposit.withdrawal_credentials,
+                            amount: deposit.amount,
+                            signature: SignatureBytes::empty(),
+                        }
+                        .as_deposit_message()
+                        .signing_root(spec.get_deposit_domain());
+                        assert!(deposit
+                            .signature
+                            .decompress()
+                            .unwrap()
+                            .verify(&validator_pubkey, deposit_message_root));
+                        assert_eq!(deposit.fork_version, spec.genesis_fork_version);
+                        assert_eq!(
+                            &deposit.eth2_network_name,
+                            spec.config_name.as_ref().unwrap()
+                        );
+                        assert_eq!(deposit.deposit_message_root, deposit_message_root);
+                        assert_eq!(
+                            deposit.deposit_data_root,
+                            DepositData {
+                                pubkey: deposit.pubkey,
+                                withdrawal_credentials: deposit.withdrawal_credentials,
+                                amount: deposit.amount,
+                                signature: deposit.signature.clone()
+                            }
+                            .tree_hash_root()
+                        );
+                    }
+                }
+                //
+            }
+
+            // The directory containing the mnemonic can now be removed.
+            drop(mnemonic_dir);
+
+            TestResult { result, output_dir }
+        }
+    }
+
+    #[must_use] // Use the `assert_ok` or `assert_err` fns to "use" this value.
+    struct TestResult {
+        result: Result<(), String>,
+        output_dir: TempDir,
+    }
+
+    impl TestResult {
+        fn assert_ok(self) {
+            assert_eq!(self.result, Ok(()))
+        }
+
+        fn assert_err(self) {
+            assert!(self.result.is_err())
+        }
+    }
+
+    #[tokio::test]
+    async fn default_test_values() {
+        TestBuilder::default().run_test().await.assert_ok();
+    }
+
+    #[tokio::test]
+    async fn default_test_values_deposits_disabled() {
+        TestBuilder::default()
+            .mutate_config(|config| config.disable_deposits = true)
+            .run_test()
+            .await
+            .assert_ok();
+    }
+
+    #[tokio::test]
+    async fn count_is_zero() {
+        TestBuilder::default()
+            .mutate_config(|config| config.count = 0)
+            .run_test()
+            .await
+            .assert_err();
+    }
+
+    #[tokio::test]
+    async fn eth1_withdrawal_addresses() {
+        TestBuilder::default()
+            .mutate_config(|config| {
+                config.count = 2;
+                config.eth1_withdrawal_address =
+                    Some(Address::from_str("0x0f51bb10119727a7e5ea3538074fb341f56b09ad").unwrap());
+            })
+            .run_test()
+            .await
+            .assert_ok();
+    }
+
+    #[tokio::test]
+    async fn non_zero_first_index() {
+        TestBuilder::default()
+            .mutate_config(|config| {
+                config.first_index = 2;
+                config.count = 2;
+            })
+            .run_test()
+            .await
+            .assert_ok();
+    }
+
+    #[tokio::test]
+    async fn misc_modifications() {
+        TestBuilder::default()
+            .mutate_config(|config| {
+                config.deposit_gwei = 42;
+                config.builder_proposals = true;
+                config.gas_limit = Some(1337);
+            })
+            .run_test()
+            .await
+            .assert_ok();
+    }
+
+    #[tokio::test]
+    async fn bogus_bn_url() {
+        TestBuilder::default()
+            .mutate_config(|config| {
+                config.bn_url =
+                    Some(SensitiveUrl::from_str("http://sdjfvwfhsdhfschwkeyfwhwlga.com").unwrap());
+            })
+            .run_test()
+            .await
+            .assert_err();
+    }
 }

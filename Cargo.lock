@@ -7372,6 +7372,8 @@ dependencies = [
  "eth2_wallet",
  "serde",
  "serde_json",
+ "tempfile",
+ "tokio",
  "tree_hash",
  "types",
 ]

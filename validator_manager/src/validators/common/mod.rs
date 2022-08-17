@@ -33,7 +33,7 @@ pub struct CreateSpec {
 /// We assume this code as the canonical definition:
 ///
 /// https://github.com/ethereum/staking-deposit-cli/blob/76ed78224fdfe3daca788d12442b3d1a37978296/staking_deposit/credentials.py#L131-L144
-#[derive(Debug, PartialEq, Serialize)]
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub struct StandardDepositDataJson {
     pub pubkey: PublicKeyBytes,
     pub withdrawal_credentials: Hash256,
