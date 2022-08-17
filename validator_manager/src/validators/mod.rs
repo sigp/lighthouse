@@ -3,7 +3,7 @@ pub mod create_validators;
 pub mod import_validators;
 
 use clap::{App, ArgMatches};
-use types::ChainSpec;
+use types::{ChainSpec, EthSpec};
 
 pub const CMD: &str = "validators";
 
@@ -14,9 +14,14 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .subcommand(import_validators::cli_app())
 }
 
-pub async fn cli_run<'a>(matches: &'a ArgMatches<'a>, spec: &ChainSpec) -> Result<(), String> {
+pub async fn cli_run<'a, T: EthSpec>(
+    matches: &'a ArgMatches<'a>,
+    spec: &ChainSpec,
+) -> Result<(), String> {
     match matches.subcommand() {
-        (create_validators::CMD, Some(matches)) => create_validators::cli_run(matches, spec).await,
+        (create_validators::CMD, Some(matches)) => {
+            create_validators::cli_run::<T>(matches, spec).await
+        }
         (import_validators::CMD, Some(matches)) => import_validators::cli_run(matches).await,
         (unknown, _) => Err(format!(
             "{} does not have a {} command. See --help",

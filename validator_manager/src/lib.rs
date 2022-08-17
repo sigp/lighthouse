@@ -30,7 +30,9 @@ pub fn run<'a, T: EthSpec>(
         .block_on_dangerous(
             async {
                 match matches.subcommand() {
-                    (validators::CMD, Some(matches)) => validators::cli_run(matches, &spec).await,
+                    (validators::CMD, Some(matches)) => {
+                        validators::cli_run::<T>(matches, &spec).await
+                    }
                     (unknown, _) => Err(format!(
                         "{} is not a valid {} command. See --help.",
                         unknown, CMD

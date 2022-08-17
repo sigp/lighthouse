@@ -33,11 +33,6 @@ pub const DEPOSITS_FILENAME: &str = "deposits.json";
 
 const BEACON_NODE_HTTP_TIMEOUT: Duration = Duration::from_secs(2);
 
-struct ValidatorsAndDeposits {
-    validators: Vec<ValidatorSpecification>,
-    deposits: Option<Vec<StandardDepositDataJson>>,
-}
-
 pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
     App::new(CMD)
         .about(
@@ -183,8 +178,288 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         )
 }
 
-pub async fn cli_run<'a>(matches: &'a ArgMatches<'a>, spec: &ChainSpec) -> Result<(), String> {
-    let output_path: PathBuf = clap_utils::parse_required(matches, OUTPUT_PATH_FLAG)?;
+struct Config {
+    output_path: PathBuf,
+    first_index: u32,
+    count: u32,
+    deposit_gwei: u64,
+    mnemonic_path: Option<PathBuf>,
+    stdin_inputs: bool,
+    disable_deposits: bool,
+    specify_voting_keystore_password: bool,
+    eth1_withdrawal_address: Option<Address>,
+    builder_proposals: bool,
+    fee_recipient: Option<Address>,
+    gas_limit: Option<u64>,
+    bn_url: Option<SensitiveUrl>,
+}
+
+impl Config {
+    fn from_cli(matches: &ArgMatches, spec: &ChainSpec) -> Result<Self, String> {
+        Ok(Self {
+            output_path: clap_utils::parse_required(matches, OUTPUT_PATH_FLAG)?,
+            deposit_gwei: clap_utils::parse_optional(matches, DEPOSIT_GWEI_FLAG)?
+                .unwrap_or(spec.max_effective_balance),
+            first_index: clap_utils::parse_required(matches, FIRST_INDEX_FLAG)?,
+            count: clap_utils::parse_required(matches, COUNT_FLAG)?,
+            mnemonic_path: clap_utils::parse_optional(matches, MNEMONIC_FLAG)?,
+            stdin_inputs: cfg!(windows) || matches.is_present(STDIN_INPUTS_FLAG),
+            disable_deposits: matches.is_present(DISABLE_DEPOSITS_FLAG),
+            specify_voting_keystore_password: matches
+                .is_present(SPECIFY_VOTING_KEYSTORE_PASSWORD_FLAG),
+            eth1_withdrawal_address: clap_utils::parse_optional(
+                matches,
+                ETH1_WITHDRAWAL_ADDRESS_FLAG,
+            )?,
+            builder_proposals: matches.is_present(BUILDER_PROPOSALS_FLAG),
+            fee_recipient: clap_utils::parse_optional(matches, FEE_RECIPIENT_FLAG)?,
+            gas_limit: clap_utils::parse_optional(matches, GAS_LIMIT_FLAG)?,
+            bn_url: clap_utils::parse_optional(matches, BEACON_NODE_FLAG)?,
+        })
+    }
+}
+
+struct ValidatorsAndDeposits {
+    validators: Vec<ValidatorSpecification>,
+    deposits: Option<Vec<StandardDepositDataJson>>,
+}
+
+impl ValidatorsAndDeposits {
+    async fn new<'a, T: EthSpec>(config: Config, spec: &ChainSpec) -> Result<Self, String> {
+        let Config {
+            // The output path is handled upstream.
+            output_path: _,
+            first_index,
+            count,
+            deposit_gwei,
+            mnemonic_path,
+            stdin_inputs,
+            disable_deposits,
+            specify_voting_keystore_password,
+            eth1_withdrawal_address,
+            builder_proposals,
+            fee_recipient,
+            gas_limit,
+            bn_url,
+        } = config;
+
+        let bn_http_client = if let Some(bn_url) = bn_url {
+            let bn_http_client =
+                BeaconNodeHttpClient::new(bn_url, Timeouts::set_all(BEACON_NODE_HTTP_TIMEOUT));
+
+            /*
+             * Print the version of the remote beacon node.
+             */
+            let version = bn_http_client
+                .get_node_version()
+                .await
+                .map_err(|e| format!("Failed to test connection to beacon node: {:?}", e))?
+                .data
+                .version;
+            eprintln!("Connected to beacon node running version {}", version);
+
+            /*
+             * Attempt to ensure that the beacon node is on the same network.
+             */
+            let bn_config = bn_http_client
+                .get_config_spec::<types::Config>()
+                .await
+                .map_err(|e| format!("Failed to get spec from beacon node: {:?}", e))?
+                .data;
+            if let Some(config_name) = &bn_config.config_name {
+                eprintln!("Beacon node is on {} network", config_name)
+            }
+            let bn_spec = bn_config
+                .apply_to_chain_spec::<T>(&T::default_spec())
+                .ok_or("Beacon node appears to be on an incorrect network")?;
+            if bn_spec.genesis_fork_version != spec.genesis_fork_version {
+                if let Some(config_name) = bn_spec.config_name {
+                    eprintln!("Beacon node is on {} network", config_name)
+                }
+                return Err("Beacon node appears to be on the wrong network".to_string());
+            }
+
+            Some(bn_http_client)
+        } else {
+            None
+        };
+
+        let mnemonic = read_mnemonic_from_cli(mnemonic_path, stdin_inputs)?;
+        let voting_keystore_password = if specify_voting_keystore_password {
+            eprintln!("Please enter a voting keystore password when prompted.");
+            Some(read_password_from_user(stdin_inputs)?)
+        } else {
+            None
+        };
+
+        /*
+         * Generate a wallet to be used for HD key generation.
+         */
+
+        // A random password is always appropriate for the wallet since it is ephemeral.
+        let wallet_password = random_password_string();
+        // A random password is always appropriate for the withdrawal keystore since we don't ever store
+        // it anywhere.
+        let withdrawal_keystore_password = random_password_string();
+        let mut wallet =
+            WalletBuilder::from_mnemonic(&mnemonic, wallet_password.as_ref(), "".to_string())
+                .map_err(|e| format!("Unable create seed from mnemonic: {:?}", e))?
+                .build()
+                .map_err(|e| format!("Unable to create wallet: {:?}", e))?;
+
+        /*
+         * Start deriving individual validators.
+         */
+
+        eprintln!(
+            "Starting derivation of {} keystores. Each keystore may take several seconds.",
+            count
+        );
+
+        let mut validators = Vec::with_capacity(count as usize);
+        let mut deposits = (!disable_deposits).then(Vec::new);
+
+        for (i, derivation_index) in (first_index..first_index + count).enumerate() {
+            // If the voting keystore password was not provided by the user then use a unique random
+            // string for each validator.
+            let voting_keystore_password = voting_keystore_password
+                .clone()
+                .unwrap_or_else(random_password_string);
+
+            // Set the wallet to the appropriate derivation index.
+            wallet
+                .set_nextaccount(derivation_index)
+                .map_err(|e| format!("Failure to set validator derivation index: {:?}", e))?;
+
+            // Derive the keystore from the HD wallet.
+            let keystores = wallet
+                .next_validator(
+                    wallet_password.as_ref(),
+                    voting_keystore_password.as_ref(),
+                    withdrawal_keystore_password.as_ref(),
+                )
+                .map_err(|e| format!("Failed to derive keystore {}: {:?}", i, e))?;
+            let voting_keystore = keystores.voting;
+            let voting_public_key = voting_keystore
+                .public_key()
+                .ok_or_else(|| {
+                    format!("Validator keystore at index {} is missing a public key", i)
+                })?
+                .into();
+
+            // If the user has provided a beacon node URL, check that the validator doesn't already
+            // exist in the beacon chain.
+            if let Some(bn_http_client) = &bn_http_client {
+                match bn_http_client
+                    .get_beacon_states_validator_id(
+                        StateId::Head,
+                        &ValidatorId::PublicKey(voting_public_key),
+                    )
+                    .await
+                {
+                    Ok(Some(_)) => {
+                        return Err(format!(
+                            "Validator {:?} at derivation index {} already exists in the beacon chain. \
+                            This indicates a slashing risk, be sure to never run the same validator on two \
+                            different validator clients",
+                            voting_public_key, derivation_index
+                        ))?
+                    }
+                    Ok(None) => eprintln!(
+                        "{:?} was not found in the beacon chain",
+                        voting_public_key
+                    ),
+                    Err(e) => {
+                        return Err(format!(
+                            "Error checking if validator exists in beacon chain: {:?}",
+                            e
+                        ))
+                    }
+                }
+            }
+
+            if let Some(deposits) = &mut deposits {
+                // Decrypt the voting keystore so a deposit message can be signed.
+                let voting_keypair = voting_keystore
+                    .decrypt_keypair(voting_keystore_password.as_ref())
+                    .map_err(|e| format!("Failed to decrypt voting keystore {}: {:?}", i, e))?;
+
+                // Sanity check to ensure the keystore is reporting the correct public key.
+                if PublicKeyBytes::from(voting_keypair.pk.clone()) != voting_public_key {
+                    return Err(format!(
+                        "Mismatch for keystore public key and derived public key \
+                        for derivation index {}",
+                        derivation_index
+                    ));
+                }
+
+                let withdrawal_credentials =
+                    if let Some(eth1_withdrawal_address) = eth1_withdrawal_address {
+                        WithdrawalCredentials::eth1(eth1_withdrawal_address, spec)
+                    } else {
+                        // Decrypt the withdrawal keystore so withdrawal credentials can be created. It's
+                        // not strictly necessary to decrypt the keystore since we can read the pubkey
+                        // directly from the keystore. However we decrypt the keystore to be more certain
+                        // that we have access to the withdrawal keys.
+                        let withdrawal_keypair = keystores
+                            .withdrawal
+                            .decrypt_keypair(withdrawal_keystore_password.as_ref())
+                            .map_err(|e| {
+                                format!("Failed to decrypt withdrawal keystore {}: {:?}", i, e)
+                            })?;
+                        WithdrawalCredentials::bls(&withdrawal_keypair.pk, spec)
+                    };
+
+                // Create a JSON structure equivalent to the one generated by
+                // `ethereum/staking-deposit-cli`.
+                let json_deposit = StandardDepositDataJson::new(
+                    &voting_keypair,
+                    withdrawal_credentials.into(),
+                    deposit_gwei,
+                    spec,
+                )?;
+
+                deposits.push(json_deposit);
+            }
+
+            let validator = ValidatorSpecification {
+                voting_keystore: KeystoreJsonStr(voting_keystore),
+                voting_keystore_password: voting_keystore_password.clone(),
+                // New validators have no slashing protection history.
+                slashing_protection: None,
+                fee_recipient,
+                gas_limit,
+                builder_proposals: Some(builder_proposals),
+                enabled: Some(true),
+            };
+
+            eprintln!(
+                "Completed {}/{}: {:?}",
+                i.saturating_add(1),
+                count,
+                voting_public_key
+            );
+
+            validators.push(validator);
+        }
+
+        Ok(Self {
+            validators,
+            deposits,
+        })
+    }
+}
+
+pub async fn cli_run<'a, T: EthSpec>(
+    matches: &'a ArgMatches<'a>,
+    spec: &ChainSpec,
+) -> Result<(), String> {
+    let config = Config::from_cli(matches, spec)?;
+    run::<T>(config, spec).await
+}
+
+async fn run<'a, T: EthSpec>(config: Config, spec: &ChainSpec) -> Result<(), String> {
+    let output_path = config.output_path.clone();
 
     if !output_path.exists() {
         fs::create_dir(&output_path)
@@ -208,7 +483,7 @@ pub async fn cli_run<'a>(matches: &'a ArgMatches<'a>, spec: &ChainSpec) -> Resul
         ));
     }
 
-    let validators_and_deposits = build_validator_spec_from_cli(matches, spec).await?;
+    let validators_and_deposits = ValidatorsAndDeposits::new::<T>(config, spec).await?;
 
     eprintln!("Keystore generation complete");
 
@@ -230,199 +505,4 @@ fn write_to_json_file<P: AsRef<Path>, S: Serialize>(path: P, contents: &S) -> Re
         .map_err(|e| format!("Failed to open {:?}: {:?}", path.as_ref(), e))?;
     serde_json::to_writer(&mut file, contents)
         .map_err(|e| format!("Failed to write JSON to {:?}: {:?}", path.as_ref(), e))
-}
-
-async fn build_validator_spec_from_cli<'a>(
-    matches: &'a ArgMatches<'a>,
-    spec: &ChainSpec,
-) -> Result<ValidatorsAndDeposits, String> {
-    let deposit_gwei = clap_utils::parse_optional(matches, DEPOSIT_GWEI_FLAG)?
-        .unwrap_or(spec.max_effective_balance);
-    let first_index: u32 = clap_utils::parse_required(matches, FIRST_INDEX_FLAG)?;
-    let count: u32 = clap_utils::parse_required(matches, COUNT_FLAG)?;
-    let mnemonic_path: Option<PathBuf> = clap_utils::parse_optional(matches, MNEMONIC_FLAG)?;
-    let stdin_inputs = cfg!(windows) || matches.is_present(STDIN_INPUTS_FLAG);
-    let disable_deposits = matches.is_present(DISABLE_DEPOSITS_FLAG);
-    let specify_voting_keystore_password =
-        matches.is_present(SPECIFY_VOTING_KEYSTORE_PASSWORD_FLAG);
-    let eth1_withdrawal_address: Option<Address> =
-        clap_utils::parse_optional(matches, ETH1_WITHDRAWAL_ADDRESS_FLAG)?;
-    let builder_proposals = matches.is_present(BUILDER_PROPOSALS_FLAG);
-    let fee_recipient: Option<Address> = clap_utils::parse_optional(matches, FEE_RECIPIENT_FLAG)?;
-    let gas_limit: Option<u64> = clap_utils::parse_optional(matches, GAS_LIMIT_FLAG)?;
-    let bn_url: Option<SensitiveUrl> = clap_utils::parse_optional(matches, BEACON_NODE_FLAG)?;
-
-    let bn_http_client = if let Some(bn_url) = bn_url {
-        let bn_http_client =
-            BeaconNodeHttpClient::new(bn_url, Timeouts::set_all(BEACON_NODE_HTTP_TIMEOUT));
-
-        let version = bn_http_client
-            .get_node_version()
-            .await
-            .map_err(|e| format!("Failed to test connection to beacon node: {:?}", e))?
-            .data
-            .version;
-
-        eprintln!("Connected to beacon node running version {}", version);
-
-        Some(bn_http_client)
-    } else {
-        None
-    };
-
-    let mnemonic = read_mnemonic_from_cli(mnemonic_path, stdin_inputs)?;
-    let voting_keystore_password = if specify_voting_keystore_password {
-        eprintln!("Please enter a voting keystore password when prompted.");
-        Some(read_password_from_user(stdin_inputs)?)
-    } else {
-        None
-    };
-
-    /*
-     * Generate a wallet to be used for HD key generation.
-     */
-
-    // A random password is always appropriate for the wallet since it is ephemeral.
-    let wallet_password = random_password_string();
-    // A random password is always appropriate for the withdrawal keystore since we don't ever store
-    // it anywhere.
-    let withdrawal_keystore_password = random_password_string();
-    let mut wallet =
-        WalletBuilder::from_mnemonic(&mnemonic, wallet_password.as_ref(), "".to_string())
-            .map_err(|e| format!("Unable create seed from mnemonic: {:?}", e))?
-            .build()
-            .map_err(|e| format!("Unable to create wallet: {:?}", e))?;
-
-    /*
-     * Start deriving individual validators.
-     */
-
-    eprintln!(
-        "Starting derivation of {} keystores. Each keystore may take several seconds.",
-        count
-    );
-
-    let mut validators = Vec::with_capacity(count as usize);
-    let mut deposits = (!disable_deposits).then(Vec::new);
-
-    for (i, derivation_index) in (first_index..first_index + count).enumerate() {
-        // If the voting keystore password was not provided by the user then use a unique random
-        // string for each validator.
-        let voting_keystore_password = voting_keystore_password
-            .clone()
-            .unwrap_or_else(random_password_string);
-
-        // Set the wallet to the appropriate derivation index.
-        wallet
-            .set_nextaccount(derivation_index)
-            .map_err(|e| format!("Failure to set validator derivation index: {:?}", e))?;
-
-        // Derive the keystore from the HD wallet.
-        let keystores = wallet
-            .next_validator(
-                wallet_password.as_ref(),
-                voting_keystore_password.as_ref(),
-                withdrawal_keystore_password.as_ref(),
-            )
-            .map_err(|e| format!("Failed to derive keystore {}: {:?}", i, e))?;
-        let voting_keystore = keystores.voting;
-        let voting_public_key = voting_keystore
-            .public_key()
-            .ok_or_else(|| format!("Validator keystore at index {} is missing a public key", i))?
-            .into();
-
-        // If the user has provided a beacon node URL, check that the validator doesn't already
-        // exist in the beacon chain.
-        if let Some(bn_http_client) = &bn_http_client {
-            match bn_http_client
-                .get_beacon_states_validator_id(
-                    StateId::Head,
-                    &ValidatorId::PublicKey(voting_public_key),
-                )
-                .await
-            {
-                Ok(Some(_)) => {
-                    return Err(format!(
-                        "Validator {:?} at derivation index {} already exists in the beacon chain. \
-                        This indicates a slashing risk, be sure to never run the same validator on two \
-                        different validator clients",
-                        voting_public_key, derivation_index
-                    ))?
-                }
-                Ok(None) => eprintln!(
-                    "Validator {:?} was not found in the beacon chain",
-                    voting_public_key
-                ),
-                Err(e) => {
-                    return Err(format!(
-                        "Error checking if validator exists in beacon chain: {:?}",
-                        e
-                    ))
-                }
-            }
-        }
-
-        if let Some(deposits) = &mut deposits {
-            // Decrypt the voting keystore so a deposit message can be signed.
-            let voting_keypair = voting_keystore
-                .decrypt_keypair(voting_keystore_password.as_ref())
-                .map_err(|e| format!("Failed to decrypt voting keystore {}: {:?}", i, e))?;
-
-            // Sanity check to ensure the keystore is reporting the correct public key.
-            if PublicKeyBytes::from(voting_keypair.pk.clone()) != voting_public_key {
-                return Err(format!(
-                    "Mismatch for keystore public key and derived public key \
-                    for derivation index {}",
-                    derivation_index
-                ));
-            }
-
-            let withdrawal_credentials = if let Some(eth1_withdrawal_address) =
-                eth1_withdrawal_address
-            {
-                WithdrawalCredentials::eth1(eth1_withdrawal_address, spec)
-            } else {
-                // Decrypt the withdrawal keystore so withdrawal credentials can be created. It's
-                // not strictly necessary to decrypt the keystore since we can read the pubkey
-                // directly from the keystore. However we decrypt the keystore to be more certain
-                // that we have access to the withdrawal keys.
-                let withdrawal_keypair = keystores
-                    .withdrawal
-                    .decrypt_keypair(withdrawal_keystore_password.as_ref())
-                    .map_err(|e| format!("Failed to decrypt withdrawal keystore {}: {:?}", i, e))?;
-                WithdrawalCredentials::bls(&withdrawal_keypair.pk, spec)
-            };
-
-            // Create a JSON structure equivalent to the one generated by
-            // `ethereum/staking-deposit-cli`.
-            let json_deposit = StandardDepositDataJson::new(
-                &voting_keypair,
-                withdrawal_credentials.into(),
-                deposit_gwei,
-                spec,
-            )?;
-
-            deposits.push(json_deposit);
-        }
-
-        let validator = ValidatorSpecification {
-            voting_keystore: KeystoreJsonStr(voting_keystore),
-            voting_keystore_password: voting_keystore_password.clone(),
-            // New validators have no slashing protection history.
-            slashing_protection: None,
-            fee_recipient,
-            gas_limit,
-            builder_proposals: Some(builder_proposals),
-            enabled: Some(true),
-        };
-
-        eprintln!("{}/{}: {:?}", i.saturating_add(1), count, voting_public_key);
-
-        validators.push(validator);
-    }
-
-    Ok(ValidatorsAndDeposits {
-        validators,
-        deposits,
-    })
 }

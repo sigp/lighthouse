@@ -503,7 +503,7 @@ fn run<E: EthSpec>(
         eprintln!("Running validator manager for {} network", network_name);
 
         // Pass the entire `environment` to the account manager so it can run blocking operations.
-        validator_manager::run(sub_matches, environment)?;
+        validator_manager::run::<E>(sub_matches, environment)?;
 
         // Exit as soon as account manager returns control.
         return Ok(());
