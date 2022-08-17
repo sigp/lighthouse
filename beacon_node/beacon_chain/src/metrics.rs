@@ -125,13 +125,14 @@ lazy_static! {
     pub static ref OPERATIONS_PER_BLOCK_ATTESTATION: Result<Histogram> = try_create_histogram_with_buckets(
         "beacon_operations_per_block_attestation_total",
         "Number of attestations in a block",
-        decimal_buckets(0,1)
+        // Full block is 128.
+        Ok(vec![0_f64, 1_f64, 3_f64, 15_f64, 31_f64, 63_f64, 127_f64, 255_f64])
     );
 
     pub static ref BLOCK_SIZE: Result<Histogram> = try_create_histogram_with_buckets(
         "beacon_block_total_size",
         "Size of a signed beacon block",
-        linear_buckets(0_f64,25_f64*1024_f64,12)
+        linear_buckets(5120_f64,5120_f64*1024_f64,10)
     );
 
     /*
@@ -780,22 +781,26 @@ lazy_static! {
     pub static ref BEACON_BLOCK_OBSERVED_SLOT_START_DELAY_TIME: Result<Histogram> = try_create_histogram_with_buckets(
         "beacon_block_observed_slot_start_delay_time",
         "Duration between the start of the block's slot and the time the block was observed.",
-        linear_buckets(12_f64,12_f64,8)
+        // [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+        linear_buckets(1_f64,2_f64,10)
     );
     pub static ref BEACON_BLOCK_IMPORTED_OBSERVED_DELAY_TIME: Result<Histogram> = try_create_histogram_with_buckets(
         "beacon_block_imported_observed_delay_time",
         "Duration between the time the block was observed and the time when it was imported.",
-        linear_buckets(12_f64,12_f64,8)
+        // [0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, 2, 5]
+        decimal_buckets(-2,-1)
     );
     pub static ref BEACON_BLOCK_HEAD_IMPORTED_DELAY_TIME: Result<Histogram> = try_create_histogram_with_buckets(
         "beacon_block_head_imported_delay_time",
         "Duration between the time the block was imported and the time when it was set as head.",
-        linear_buckets(12_f64,12_f64,8)
-    );
+        // [0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, 2, 5]
+        decimal_buckets(-2,-1)
+        );
     pub static ref BEACON_BLOCK_HEAD_SLOT_START_DELAY_TIME: Result<Histogram> = try_create_histogram_with_buckets(
         "beacon_block_head_slot_start_delay_time",
         "Duration between the start of the block's slot and the time when it was set as head.",
-        linear_buckets(12_f64,12_f64,8)
+        // [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+        linear_buckets(1_f64,2_f64,10)
     );
     pub static ref BEACON_BLOCK_HEAD_SLOT_START_DELAY_EXCEEDED_TOTAL: Result<IntCounter> = try_create_int_counter(
         "beacon_block_head_slot_start_delay_exceeded_total",

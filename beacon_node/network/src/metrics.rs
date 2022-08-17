@@ -300,12 +300,15 @@ lazy_static! {
     pub static ref BEACON_BLOCK_GOSSIP_PROPAGATION_VERIFICATION_DELAY_TIME: Result<Histogram> = try_create_histogram_with_buckets(
         "beacon_block_gossip_propagation_verification_delay_time",
         "Duration between when the block is received and when it is verified for propagation.",
-        linear_buckets(12_f64,12_f64,8)
+        // [0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5]
+        decimal_buckets(-3,-1)
     );
     pub static ref BEACON_BLOCK_GOSSIP_SLOT_START_DELAY_TIME: Result<Histogram> = try_create_histogram_with_buckets(
         "beacon_block_gossip_slot_start_delay_time",
         "Duration between when the block is received and the start of the slot it belongs to.",
-        linear_buckets(12_f64,12_f64,8)
+        // [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+        linear_buckets(1_f64,2_f64,10)
+
     );
     pub static ref BEACON_BLOCK_GOSSIP_ARRIVED_LATE_TOTAL: Result<IntCounter> = try_create_int_counter(
         "beacon_block_gossip_arrived_late_total",
