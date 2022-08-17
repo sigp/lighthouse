@@ -1,26 +1,14 @@
 use super::common::*;
-use account_utils::{
-    random_password_string, read_mnemonic_from_cli, read_password_from_user, ZeroizeString,
-};
 use clap::{App, Arg, ArgMatches};
-use environment::Environment;
 use eth2::{
     lighthouse_vc::{
-        http_client::ValidatorClientHttpClient,
-        std_types::{ImportKeystoresRequest, KeystoreJsonStr},
+        http_client::ValidatorClientHttpClient, std_types::ImportKeystoresRequest,
         types::UpdateFeeRecipientRequest,
     },
     SensitiveUrl,
 };
-use eth2_keystore::Keystore;
-use eth2_wallet::{
-    bip39::{Language, Mnemonic},
-    WalletBuilder,
-};
-use serde::Serialize;
 use std::fs;
 use std::path::PathBuf;
-use types::*;
 
 pub const CMD: &str = "import";
 pub const VALIDATORS_FILE_FLAG: &str = "validators-file";
@@ -28,24 +16,13 @@ pub const VALIDATOR_CLIENT_URL_FLAG: &str = "validator-client-url";
 pub const VALIDATOR_CLIENT_TOKEN_FLAG: &str = "validator-client-token";
 pub const IGNORE_DUPLICATES_FLAG: &str = "ignore-duplicates";
 
-struct ValidatorKeystore {
-    voting_keystore: Keystore,
-    voting_keystore_password: ZeroizeString,
-    voting_pubkey_bytes: PublicKeyBytes,
-    fee_recipient: Option<Address>,
-    gas_limit: Option<u64>,
-    builder_proposals: Option<bool>,
-    enabled: Option<bool>,
-}
-
-struct ValidatorsAndDeposits {
-    validators: Vec<ValidatorSpecification>,
-    deposits: Option<Vec<StandardDepositDataJson>>,
-}
-
 pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
     App::new(CMD)
-        .about("Uploads validators to a validator client.")
+        .about(
+            "Uploads validators to a validator client using the HTTP API. The validators \
+                are defined in a JSON file which can be generated using the \"create-validators\" \
+                command.",
+        )
         .arg(
             Arg::with_name(VALIDATORS_FILE_FLAG)
                 .long(VALIDATORS_FILE_FLAG)
@@ -93,32 +70,39 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         )
 }
 
-pub async fn cli_run<'a, T: EthSpec>(
-    matches: &'a ArgMatches<'a>,
-    mut env: Environment<T>,
-) -> Result<(), String> {
-    let spec = &env.core_context().eth2_config.spec;
+pub async fn cli_run<'a>(matches: &'a ArgMatches<'a>) -> Result<(), String> {
+    let validators_file_path: PathBuf = clap_utils::parse_required(matches, VALIDATORS_FILE_FLAG)?;
+    if !validators_file_path.exists() {
+        return Err(format!("Unable to find file at {:?}", validators_file_path));
+    }
 
-    let create_spec = build_validator_spec_from_cli(matches, spec)?;
-    enact_spec(create_spec, spec).await
+    let validators_file = fs::OpenOptions::new()
+        .read(true)
+        .create(false)
+        .open(&validators_file_path)
+        .map_err(|e| format!("Unable to open {:?}: {:?}", validators_file_path, e))?;
+    let validators = serde_json::from_reader(&validators_file).map_err(|e| {
+        format!(
+            "Unable to parse JSON in {:?}: {:?}",
+            validators_file_path, e
+        )
+    })?;
+
+    import_validators(matches, validators).await
 }
 
-pub async fn enact_spec<'a>(create_spec: CreateSpec, spec: &ChainSpec) -> Result<(), String> {
-    let CreateSpec {
-        mnemonic,
-        validator_client_url,
-        validator_client_token_path,
-        json_deposit_data_path,
-        ignore_duplicates,
-        validators,
-    } = create_spec;
-
+pub async fn import_validators<'a>(
+    matches: &'a ArgMatches<'a>,
+    validators: Vec<ValidatorSpecification>,
+) -> Result<(), String> {
     let count = validators.len();
 
-    let mnemonic = Mnemonic::from_phrase(&mnemonic, Language::English)
-        .map_err(|e| format!("Failed to parse mnemonic from create spec: {:?}", e))?;
+    let vc_url: Option<SensitiveUrl> =
+        clap_utils::parse_optional(matches, VALIDATOR_CLIENT_URL_FLAG)?;
+    let vc_token_path: Option<PathBuf> =
+        clap_utils::parse_optional(matches, VALIDATOR_CLIENT_TOKEN_FLAG)?;
 
-    let http_client = match (validator_client_url, validator_client_token_path) {
+    let http_client = match (vc_url, vc_token_path) {
         (Some(vc_url), Some(vc_token_path)) => {
             let token_bytes = fs::read(&vc_token_path)
                 .map_err(|e| format!("Failed to read {:?}: {:?}", vc_token_path, e))?;
@@ -145,7 +129,6 @@ pub async fn enact_spec<'a>(create_spec: CreateSpec, spec: &ChainSpec) -> Result
 
             Some(http_client)
         }
-        (None, None) => None,
         _ => {
             return Err(format!(
                 "Inconsistent use of {} and {}",
@@ -154,108 +137,34 @@ pub async fn enact_spec<'a>(create_spec: CreateSpec, spec: &ChainSpec) -> Result
         }
     };
 
-    // A random password is always appropriate for the wallet since it is ephemeral.
-    let wallet_password = random_password_string();
-    // A random password is always appropriate for the withdrawal keystore since we don't ever store
-    // it anywhere.
-    let withdrawal_keystore_password = random_password_string();
-
-    let mut wallet =
-        WalletBuilder::from_mnemonic(&mnemonic, wallet_password.as_ref(), "".to_string())
-            .map_err(|e| format!("Unable create seed from mnemonic: {:?}", e))?
-            .build()
-            .map_err(|e| format!("Unable to create wallet: {:?}", e))?;
-
-    let mut validator_keystores = Vec::with_capacity(count);
-
-    eprintln!("Starting key generation. Each validator may take several seconds.");
-
-    for (i, validator) in validators.into_iter().enumerate() {
-        let CreateValidatorSpec {
-            voting_keystore,
-            voting_keystore_password,
-            fee_recipient,
-            gas_limit,
-            builder_proposals,
-            enabled,
-        } = validator;
-
-        let voting_keystore = voting_keystore.0;
-
-        let voting_keypair = voting_keystore
-            .decrypt_keypair(voting_keystore_password.as_ref())
-            .map_err(|e| format!("Failed to decrypt voting keystore {}: {:?}", i, e))?;
-        let voting_pubkey_bytes = voting_keypair.pk.clone().into();
-
-        // Check to see if this validator already exists in the VC.
-        if let Some(http_client) = &http_client {
-            let remote_keystores = http_client
-                .get_keystores()
-                .await
-                .map_err(|e| format!("Failed to list keystores on VC: {:?}", e))?;
-
-            if remote_keystores
-                .data
-                .iter()
-                .find(|keystore| keystore.validating_pubkey == voting_pubkey_bytes)
-                .is_some()
-            {
-                if ignore_duplicates {
-                    eprintln!(
-                        "Validator {:?} already exists in the VC, be cautious of submitting \
-                        duplicate deposits",
-                        IGNORE_DUPLICATES_FLAG
-                    );
-                } else {
-                    return Err(format!(
-                        "Duplicate validator {:?} detected, see --{} for more information",
-                        voting_keypair.pk, IGNORE_DUPLICATES_FLAG
-                    ));
-                }
-            }
-        }
-
-        eprintln!(
-            "{}/{}: {:?}",
-            i.saturating_add(1),
-            count,
-            &voting_keypair.pk
-        );
-
-        validator_keystores.push(ValidatorKeystore {
-            voting_keystore,
-            voting_keystore_password,
-            voting_pubkey_bytes,
-            fee_recipient,
-            gas_limit,
-            builder_proposals,
-            enabled,
-        });
-    }
-
     if let Some(http_client) = http_client {
         eprintln!(
-            "Generated {} keystores. Starting to submit keystores to VC, \
-            each keystore may take several seconds",
+            "Starting to submit validators {} to VC, each validator may take several seconds",
             count
         );
 
-        for (i, validator_keystore) in validator_keystores.into_iter().enumerate() {
-            let ValidatorKeystore {
+        for (i, validator) in validators.into_iter().enumerate() {
+            let ValidatorSpecification {
                 voting_keystore,
                 voting_keystore_password,
-                voting_pubkey_bytes,
+                slashing_protection,
                 fee_recipient,
                 gas_limit,
                 builder_proposals,
                 enabled,
-            } = validator_keystore;
+            } = validator;
+
+            let voting_public_key = voting_keystore
+                .public_key()
+                .ok_or_else(|| {
+                    format!("Validator keystore at index {} is missing a public key", i)
+                })?
+                .into();
 
             let request = ImportKeystoresRequest {
-                keystores: vec![KeystoreJsonStr(voting_keystore)],
+                keystores: vec![voting_keystore],
                 passwords: vec![voting_keystore_password],
-                // New validators have no slashing protection history.
-                slashing_protection: None,
+                slashing_protection,
             };
 
             if let Err(e) = http_client.post_keystores(&request).await {
@@ -278,7 +187,7 @@ pub async fn enact_spec<'a>(create_spec: CreateSpec, spec: &ChainSpec) -> Result
             if let Some(fee_recipient) = fee_recipient {
                 http_client
                     .post_fee_recipient(
-                        &voting_pubkey_bytes,
+                        &voting_public_key,
                         &UpdateFeeRecipientRequest {
                             ethaddress: fee_recipient,
                         },
@@ -290,7 +199,7 @@ pub async fn enact_spec<'a>(create_spec: CreateSpec, spec: &ChainSpec) -> Result
             if gas_limit.is_some() || builder_proposals.is_some() || enabled.is_some() {
                 http_client
                     .patch_lighthouse_validators(
-                        &voting_pubkey_bytes,
+                        &voting_public_key,
                         enabled,
                         gas_limit,
                         builder_proposals,
@@ -301,21 +210,6 @@ pub async fn enact_spec<'a>(create_spec: CreateSpec, spec: &ChainSpec) -> Result
 
             eprintln!("Uploaded keystore {} of {} to the VC", i + 1, count);
         }
-    }
-
-    // If configured, create a single JSON file which contains deposit data information for all
-    // validators.
-    if let Some(json_deposit_data_path) = json_deposit_data_path {
-        let json_deposits = json_deposits.ok_or("Internal error: JSON deposit data is None")?;
-
-        let mut file = fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&json_deposit_data_path)
-            .map_err(|e| format!("Unable to create {:?}: {:?}", json_deposit_data_path, e))?;
-
-        serde_json::to_writer(&mut file, &json_deposits)
-            .map_err(|e| format!("Unable write JSON to {:?}: {:?}", json_deposit_data_path, e))?;
     }
 
     Ok(())

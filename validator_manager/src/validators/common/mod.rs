@@ -1,5 +1,5 @@
 use account_utils::ZeroizeString;
-use eth2::lighthouse_vc::std_types::KeystoreJsonStr;
+use eth2::lighthouse_vc::std_types::{InterchangeJsonStr, KeystoreJsonStr};
 use eth2::SensitiveUrl;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -10,6 +10,7 @@ use types::*;
 pub struct ValidatorSpecification {
     pub voting_keystore: KeystoreJsonStr,
     pub voting_keystore_password: ZeroizeString,
+    pub slashing_protection: Option<InterchangeJsonStr>,
     pub fee_recipient: Option<Address>,
     pub gas_limit: Option<u64>,
     pub builder_proposals: Option<bool>,

@@ -1,5 +1,4 @@
 pub mod common;
-pub mod create;
 pub mod create_validators;
 pub mod import_validators;
 
@@ -7,12 +6,13 @@ use clap::{App, ArgMatches};
 use environment::Environment;
 use types::EthSpec;
 
-pub const CMD: &str = "validator";
+pub const CMD: &str = "validators";
 
 pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
     App::new(CMD)
         .about("Provides commands for managing validators in a Lighthouse Validator Client.")
-        .subcommand(create::cli_app())
+        .subcommand(create_validators::cli_app())
+        .subcommand(import_validators::cli_app())
 }
 
 pub async fn cli_run<'a, T: EthSpec>(
@@ -20,7 +20,10 @@ pub async fn cli_run<'a, T: EthSpec>(
     env: Environment<T>,
 ) -> Result<(), String> {
     match matches.subcommand() {
-        (create::CMD, Some(matches)) => create::cli_run::<T>(matches, env).await,
+        (create_validators::CMD, Some(matches)) => {
+            create_validators::cli_run::<T>(matches, env).await
+        }
+        (import_validators::CMD, Some(matches)) => import_validators::cli_run(matches).await,
         (unknown, _) => Err(format!(
             "{} does not have a {} command. See --help",
             CMD, unknown

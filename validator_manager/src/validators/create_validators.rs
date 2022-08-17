@@ -1,11 +1,8 @@
 use super::common::*;
-use account_utils::{
-    random_password_string, read_mnemonic_from_cli, read_password_from_user, ZeroizeString,
-};
+use account_utils::{random_password_string, read_mnemonic_from_cli, read_password_from_user};
 use clap::{App, Arg, ArgMatches};
 use environment::Environment;
 use eth2::lighthouse_vc::std_types::KeystoreJsonStr;
-use eth2_keystore::Keystore;
 use eth2_wallet::WalletBuilder;
 use serde::Serialize;
 use std::fs;
@@ -22,23 +19,12 @@ pub const FIRST_INDEX_FLAG: &str = "first-index";
 pub const MNEMONIC_FLAG: &str = "mnemonic-path";
 pub const SPECIFY_VOTING_KEYSTORE_PASSWORD_FLAG: &str = "specify-voting-keystore-password";
 pub const ETH1_WITHDRAWAL_ADDRESS_FLAG: &str = "eth1-withdrawal-address";
-pub const IGNORE_DUPLICATES_FLAG: &str = "ignore-duplicates";
 pub const GAS_LIMIT_FLAG: &str = "gas-limit";
 pub const FEE_RECIPIENT_FLAG: &str = "suggested-fee-recipient";
 pub const BUILDER_PROPOSALS_FLAG: &str = "builder-proposals";
 
 pub const VALIDATORS_FILENAME: &str = "validators.json";
 pub const DEPOSITS_FILENAME: &str = "deposits.json";
-
-struct ValidatorKeystore {
-    voting_keystore: Keystore,
-    voting_keystore_password: ZeroizeString,
-    voting_pubkey_bytes: PublicKeyBytes,
-    fee_recipient: Option<Address>,
-    gas_limit: Option<u64>,
-    builder_proposals: Option<bool>,
-    enabled: Option<bool>,
-}
 
 struct ValidatorsAndDeposits {
     validators: Vec<ValidatorSpecification>,
@@ -47,7 +33,13 @@ struct ValidatorsAndDeposits {
 
 pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
     App::new(CMD)
-        .about("Creates new validators from BIP-39 mnemonic.")
+        .about(
+            "Creates new validators from BIP-39 mnemonic. A JSON file will be created which \
+                contains all the validator keystores and other validator data. This file can then \
+                be imported to a validator client using the \"import-validators\" command. \
+                Another, optional JSON file is created which contains a list of validator \
+                deposits in the same format as the \"ethereum/staking-deposit-cli\" tool.",
+        )
         .arg(
             Arg::with_name(OUTPUT_PATH_FLAG)
                 .long(OUTPUT_PATH_FLAG)
@@ -176,6 +168,7 @@ pub async fn cli_run<'a, T: EthSpec>(
     mut env: Environment<T>,
 ) -> Result<(), String> {
     let spec = &env.core_context().eth2_config.spec;
+
     let output_path: PathBuf = clap_utils::parse_required(matches, OUTPUT_PATH_FLAG)?;
 
     if !output_path.exists() {
@@ -204,8 +197,8 @@ pub async fn cli_run<'a, T: EthSpec>(
 
     write_to_json_file(&validators_path, &validators_and_deposits.validators)?;
 
-    if let Some(deposits) = validators_and_deposits.deposits {
-        write_to_json_file(&deposits_path, &validators_and_deposits.validators)?;
+    if let Some(deposits) = &validators_and_deposits.deposits {
+        write_to_json_file(&deposits_path, deposits)?;
     }
 
     Ok(())
@@ -215,13 +208,13 @@ fn write_to_json_file<P: AsRef<Path>, S: Serialize>(path: P, contents: &S) -> Re
     let mut file = fs::OpenOptions::new()
         .write(true)
         .create_new(true)
-        .open(path)
+        .open(&path)
         .map_err(|e| format!("Failed to open {:?}: {:?}", path.as_ref(), e))?;
     serde_json::to_writer(&mut file, contents)
         .map_err(|e| format!("Failed to write JSON to {:?}: {:?}", path.as_ref(), e))
 }
 
-pub fn build_validator_spec_from_cli<'a>(
+fn build_validator_spec_from_cli<'a>(
     matches: &'a ArgMatches<'a>,
     spec: &ChainSpec,
 ) -> Result<ValidatorsAndDeposits, String> {
@@ -236,7 +229,6 @@ pub fn build_validator_spec_from_cli<'a>(
         matches.is_present(SPECIFY_VOTING_KEYSTORE_PASSWORD_FLAG);
     let eth1_withdrawal_address: Option<Address> =
         clap_utils::parse_optional(matches, ETH1_WITHDRAWAL_ADDRESS_FLAG)?;
-    let ignore_duplicates = matches.is_present(IGNORE_DUPLICATES_FLAG);
     let builder_proposals = matches.is_present(BUILDER_PROPOSALS_FLAG);
     let fee_recipient: Option<Address> = clap_utils::parse_optional(matches, FEE_RECIPIENT_FLAG)?;
     let gas_limit: Option<u64> = clap_utils::parse_optional(matches, GAS_LIMIT_FLAG)?;
@@ -274,8 +266,9 @@ pub fn build_validator_spec_from_cli<'a>(
     for (i, derivation_index) in (first_index..first_index + count).enumerate() {
         // If the voting keystore password was not provided by the user then use a unique random
         // string for each validator.
-        let voting_keystore_password =
-            voting_keystore_password.unwrap_or_else(|| random_password_string());
+        let voting_keystore_password = voting_keystore_password
+            .clone()
+            .unwrap_or_else(|| random_password_string());
 
         // Set the wallet to the appropriate derivation index.
         wallet
@@ -329,6 +322,8 @@ pub fn build_validator_spec_from_cli<'a>(
         let validator = ValidatorSpecification {
             voting_keystore: KeystoreJsonStr(voting_keystore),
             voting_keystore_password: voting_keystore_password.clone(),
+            // New validators have no slashing protection history.
+            slashing_protection: None,
             fee_recipient,
             gas_limit,
             builder_proposals: Some(builder_proposals),
