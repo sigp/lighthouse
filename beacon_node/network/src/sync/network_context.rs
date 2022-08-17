@@ -228,6 +228,8 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
     }
 
     pub fn update_execution_engine_state(&mut self, engine_state: EngineState) {
+        debug!(self.log, "Sync's view on execution engine state updated";
+            "past_state" => ?self.execution_engine_state, "new_state" => ?engine_state);
         self.execution_engine_state = engine_state;
     }
 
