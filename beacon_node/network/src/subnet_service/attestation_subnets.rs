@@ -326,25 +326,10 @@ impl<T: BeaconChainTypes> AttestationService<T> {
 
     #[cfg(feature = "deterministic_long_lived_attnets")]
     fn recompute_long_lived_subnets(&mut self) {
-        let next_subscription_event = match self.recompute_long_lived_subnets_inner() {
-            Ok((subnets, next_subscription_event)) => next_subscription_event,
-            Err(_) => {
-                // On failure, try again in the next slot
-                let time_to_next_slot = self
-                    .beacon_chain
-                    .slot_clock
-                    .duration_to_next_slot()
-                    .unwrap_or_else(|| {
-                        error!(
-                        self.log,
-                        "Failed to get duration to next epoch for long lived subnet subscription"
-                    );
-                        self.beacon_chain.slot_clock.slot_duration()
-                    });
-
-                time_to_next_slot
-            }
-        };
+        // Ensure the next computation is scheduled even if assigning subnets fails.
+        let next_subscription_event = self
+            .recompute_long_lived_subnets_inner()
+            .unwrap_or_else(|_| self.beacon_chain.slot_clock.slot_duration());
 
         self.next_long_lived_subscription_event =
             Box::pin(tokio::time::sleep(next_subscription_event));
@@ -357,7 +342,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
     /// Gets the long lived subnets the node should be subscribed to during the current epoch and
     /// the remaining duration for which they remain valid.
     #[cfg(feature = "deterministic_long_lived_attnets")]
-    fn recompute_long_lived_subnets_inner(&self) -> Result<(HashSet<SubnetId>, Duration), ()> {
+    fn recompute_long_lived_subnets_inner(&mut self) -> Result<Duration, ()> {
         let current_epoch = self.beacon_chain.epoch().map_err(
             |e| error!(self.log, "Failed to get the current epoch from clock"; "err" => ?e),
         )?;
@@ -367,7 +352,6 @@ impl<T: BeaconChainTypes> AttestationService<T> {
             current_epoch,
             &self.beacon_chain.spec,
         )
-        .map(|(iter, epoch)| (iter.collect::<HashSet<SubnetId>>(), epoch))
         .map_err(|e| error!(self.log, "Could not compute subnets for current epoch"; "err" => e))?;
 
         let next_subscription_slot =
@@ -383,7 +367,20 @@ impl<T: BeaconChainTypes> AttestationService<T> {
                 )
             })?;
 
-        Ok((subnets, next_subscription_event))
+        for subnet in subnets {
+            let exists_as_short_lived = self.short_lived_subscriptions.contains_key(&subnet);
+            let exists_as_long_lived = self.long_lived_subscriptions.contains(&subnet);
+            // Check if this subnet is new and send the subscription event if needed.
+            if !exists_as_long_lived && !exists_as_short_lived {
+                self.queue_event(SubnetServiceMessage::Subscribe(Subnet::Attestation(subnet)));
+            }
+
+            if !exists_as_long_lived {
+
+            }
+        }
+
+        Ok((next_subscription_event))
     }
 
     /// Checks if we have subscribed aggregate validators for the subnet. If not, checks the gossip
