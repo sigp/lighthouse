@@ -180,6 +180,8 @@ async fn get_events<S: Stream<Item = SubnetServiceMessage> + Unpin>(
 
 mod attestation_service {
 
+    use std::collections::HashSet;
+
     use crate::subnet_service::attestation_subnets::MIN_PEER_DISCOVERY_SLOT_LOOK_AHEAD;
 
     use super::*;
@@ -623,6 +625,42 @@ mod attestation_service {
                 second_subscribe_event[..]
             );
         }
+    }
+
+    #[tokio::test]
+    async fn test_update_deterministic_long_lived_subnets() {
+        let mut attestation_service = get_attestation_service(None);
+        let new_subnet = SubnetId::new(1);
+        let maintained_subnet = SubnetId::new(2);
+        let removed_subnet = SubnetId::new(3);
+
+        attestation_service
+            .set_long_lived_subscriptions(HashSet::from([removed_subnet, maintained_subnet]));
+        // clear initial events
+        let _events = get_events(&mut attestation_service, None, 1).await;
+
+        attestation_service
+            .update_long_lived_subnets_testing(HashSet::from([maintained_subnet, new_subnet]));
+
+        let events = get_events(&mut attestation_service, None, 1).await;
+        let new_subnet = Subnet::Attestation(new_subnet);
+        let removed_subnet = Subnet::Attestation(removed_subnet);
+        assert_eq!(
+            events,
+            [
+                // events for the new subnet
+                SubnetServiceMessage::Subscribe(new_subnet),
+                SubnetServiceMessage::EnrAdd(new_subnet),
+                SubnetServiceMessage::DiscoverPeers(vec![SubnetDiscovery {
+                    subnet: new_subnet,
+                    min_ttl: None
+                }]),
+                // events for the removed subnet
+                SubnetServiceMessage::Unsubscribe(removed_subnet),
+                SubnetServiceMessage::EnrRemove(removed_subnet),
+            ]
+        );
+        println!("{events:?}")
     }
 }
 

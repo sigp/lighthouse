@@ -365,6 +365,11 @@ impl<T: BeaconChainTypes> AttestationService<T> {
         Ok(next_subscription_event)
     }
 
+    #[cfg(test)]
+    pub fn update_long_lived_subnets_testing(&mut self, subnets: HashSet<SubnetId>) {
+        self.update_long_lived_subnets(subnets)
+    }
+
     /// Updates the long lived subnets.
     ///
     /// New subnets are registered as subscribed, removed subnets as unsubscribed and the Enr
@@ -379,7 +384,6 @@ impl<T: BeaconChainTypes> AttestationService<T> {
                         *subnet,
                     )));
                 }
-
                 self.queue_event(SubnetServiceMessage::EnrAdd(Subnet::Attestation(*subnet)));
                 if !self.discovery_disabled {
                     self.queue_event(SubnetServiceMessage::DiscoverPeers(vec![SubnetDiscovery {
@@ -402,6 +406,29 @@ impl<T: BeaconChainTypes> AttestationService<T> {
 
                 self.queue_event(SubnetServiceMessage::EnrRemove(Subnet::Attestation(subnet)));
             }
+        }
+    }
+
+    /// Overwrites the long lived subscriptions for testing.
+    #[cfg(all(test, feature = "deterministic_long_lived_attnets"))]
+    pub fn set_long_lived_subscriptions(&mut self, subnets: HashSet<SubnetId>) {
+        self.long_lived_subscriptions = subnets
+    }
+
+    /// Overwrites the short lived subscriptions for testing.
+    #[cfg(all(test, feature = "deterministic_long_lived_attnets"))]
+    pub fn set_short_lived_subscriptions(&mut self, subnets: HashSet<SubnetId>) {
+        let current_slot = self
+            .beacon_chain
+            .slot_clock
+            .now()
+            .expect("Should get current slot");
+        // use a full slot even if the next slot is closer to help testing timing
+        let delay = self.beacon_chain.slot_clock.slot_duration();
+        self.short_lived_subscriptions.clear();
+        for subnet in subnets {
+            self.short_lived_subscriptions
+                .insert_at(subnet, current_slot + 1, delay);
         }
     }
 
