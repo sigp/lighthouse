@@ -367,20 +367,49 @@ impl<T: BeaconChainTypes> AttestationService<T> {
                 )
             })?;
 
-        for subnet in subnets {
-            let exists_as_short_lived = self.short_lived_subscriptions.contains_key(&subnet);
-            let exists_as_long_lived = self.long_lived_subscriptions.contains(&subnet);
-            // Check if this subnet is new and send the subscription event if needed.
-            if !exists_as_long_lived && !exists_as_short_lived {
-                self.queue_event(SubnetServiceMessage::Subscribe(Subnet::Attestation(subnet)));
-            }
+        self.update_long_lived_subnets(subnets.collect());
 
-            if !exists_as_long_lived {
+        Ok(next_subscription_event)
+    }
 
+    /// Updates the long lived subnets.
+    ///
+    /// New subnets are registered as subscribed, removed subnets as unsubscribed and the Enr
+    /// updated accordingly.
+    fn update_long_lived_subnets(&mut self, mut subnets: HashSet<SubnetId>) {
+        for subnet in &subnets {
+            // Add the events for those subnets that are new as long lived subscriptions.
+            if !self.long_lived_subscriptions.contains(subnet) {
+                // Check if this subnet is new and send the subscription event if needed.
+                if !self.short_lived_subscriptions.contains_key(&subnet) {
+                    self.queue_event(SubnetServiceMessage::Subscribe(Subnet::Attestation(
+                        *subnet,
+                    )));
+                }
+
+                self.queue_event(SubnetServiceMessage::EnrAdd(Subnet::Attestation(*subnet)));
+                if !self.discovery_disabled {
+                    self.queue_event(SubnetServiceMessage::DiscoverPeers(vec![SubnetDiscovery {
+                        subnet: Subnet::Attestation(*subnet),
+                        min_ttl: None,
+                    }]))
+                }
             }
         }
 
-        Ok((next_subscription_event))
+        // Check for subnets that are being removed
+        std::mem::swap(&mut self.long_lived_subscriptions, &mut subnets);
+        for subnet in subnets {
+            if !self.long_lived_subscriptions.contains(&subnet) {
+                if !self.short_lived_subscriptions.contains_key(&subnet) {
+                    self.queue_event(SubnetServiceMessage::Unsubscribe(Subnet::Attestation(
+                        subnet,
+                    )));
+                }
+
+                self.queue_event(SubnetServiceMessage::EnrRemove(Subnet::Attestation(subnet)));
+            }
+        }
     }
 
     /// Checks if we have subscribed aggregate validators for the subnet. If not, checks the gossip
