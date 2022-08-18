@@ -1332,15 +1332,6 @@ where
             return Ok(true);
         }
 
-        // If the justified block has execution enabled, then optimistically import any block.
-        if self
-            .get_justified_block()?
-            .execution_status
-            .is_execution_enabled()
-        {
-            return Ok(true);
-        }
-
         // If the parent block has execution enabled, always import the block.
         //
         // See:
