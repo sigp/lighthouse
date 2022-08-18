@@ -503,6 +503,9 @@ async fn run<'a, T: EthSpec>(config: CreateConfig, spec: &ChainSpec) -> Result<(
     Ok(())
 }
 
+/// Write some object to a file as JSON.
+///
+/// The file must be created new, it must not already exist.
 fn write_to_json_file<P: AsRef<Path>, S: Serialize>(path: P, contents: &S) -> Result<(), String> {
     eprintln!("Writing {:?}", path.as_ref());
     let mut file = fs::OpenOptions::new()
