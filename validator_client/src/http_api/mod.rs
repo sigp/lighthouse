@@ -4,6 +4,8 @@ mod keystores;
 mod remotekeys;
 mod tests;
 
+pub mod test_utils;
+
 use crate::ValidatorStore;
 use account_utils::{
     mnemonic_from_phrase,
