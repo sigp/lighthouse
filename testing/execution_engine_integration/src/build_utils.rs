@@ -20,7 +20,6 @@ pub fn clone_repo(repo_dir: &Path, repo_url: &str) -> Result<(), String> {
         Command::new("git")
             .arg("clone")
             .arg(repo_url)
-            .arg("--recursive")
             .current_dir(repo_dir)
             .output()
             .map_err(|_| format!("failed to clone repo at {repo_url}"))?,
@@ -38,6 +37,21 @@ pub fn checkout(repo_dir: &Path, revision_or_branch: &str) -> Result<(), String>
             .map_err(|_| {
                 format!(
                     "failed to checkout branch or revision at {repo_dir:?}/{revision_or_branch}",
+                )
+            })?,
+        |_| {},
+    )?;
+    output_to_result(
+        Command::new("git")
+            .arg("submodule")
+            .arg("update")
+            .arg("--init")
+            .arg("--recursive")
+            .current_dir(repo_dir)
+            .output()
+            .map_err(|_| {
+                format!(
+                    "failed to update submodules on branch or revision at {repo_dir:?}/{revision_or_branch}",
                 )
             })?,
         |_| {},
