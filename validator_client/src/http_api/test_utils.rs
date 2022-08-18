@@ -36,30 +36,30 @@ pub const TEST_DEFAULT_FEE_RECIPIENT: Address = Address::repeat_byte(42);
 type E = MainnetEthSpec;
 
 pub struct HdValidatorScenario {
-    count: usize,
-    specify_mnemonic: bool,
-    key_derivation_path_offset: u32,
-    disabled: Vec<usize>,
+    pub count: usize,
+    pub specify_mnemonic: bool,
+    pub key_derivation_path_offset: u32,
+    pub disabled: Vec<usize>,
 }
 
 pub struct KeystoreValidatorScenario {
-    enabled: bool,
-    correct_password: bool,
+    pub enabled: bool,
+    pub correct_password: bool,
 }
 
 pub struct Web3SignerValidatorScenario {
-    count: usize,
-    enabled: bool,
+    pub count: usize,
+    pub enabled: bool,
 }
 
 pub struct ApiTester {
-    client: ValidatorClientHttpClient,
-    initialized_validators: Arc<RwLock<InitializedValidators>>,
-    validator_store: Arc<ValidatorStore<TestingSlotClock, E>>,
-    url: SensitiveUrl,
-    _server_shutdown: oneshot::Sender<()>,
-    _validator_dir: TempDir,
-    _runtime_shutdown: exit_future::Signal,
+    pub client: ValidatorClientHttpClient,
+    pub initialized_validators: Arc<RwLock<InitializedValidators>>,
+    pub validator_store: Arc<ValidatorStore<TestingSlotClock, E>>,
+    pub url: SensitiveUrl,
+    pub _server_shutdown: oneshot::Sender<()>,
+    pub _validator_dir: TempDir,
+    pub _runtime_shutdown: exit_future::Signal,
 }
 
 // Builds a runtime to be used in the testing configuration.
