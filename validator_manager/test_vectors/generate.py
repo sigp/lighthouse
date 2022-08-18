@@ -1,12 +1,21 @@
+# This script uses the `ethereum/staking-deposit-cli` tool to generate
+# deposit data files which are then used for testing by Lighthouse.
+#
+# To generate vectors, simply run this Python script:
+#
+# `python generate.py`
+#
 import os
 import sys
 import shutil
 import subprocess
 from subprocess import Popen, PIPE, STDOUT
 
+
 NUM_VALIDATORS=3
 TEST_MNEMONIC = "test test test test test test test test test test test waste"
 WALLET_NAME="test_wallet"
+
 
 tmp_dir = os.path.join(".", "tmp")
 mnemonic_path = os.path.join(tmp_dir, "mnemonic.txt")
@@ -34,6 +43,13 @@ def cleanup():
     if os.path.exists(tmp_dir):
         shutil.rmtree(tmp_dir)
 
+    # Remove all the keystores since we don't use them in testing.
+    if os.path.exists(vectors_dir):
+        for root, dirs, files in os.walk(vectors_dir):
+            for file in files:
+                if file.startswith("keystore"):
+                    os.remove(os.path.join(root, file))
+
 
 def setup_sdc():
     result = subprocess.run([
@@ -57,6 +73,7 @@ def setup_sdc():
         "install",
     ], cwd=sdc_git_dir)
     assert(result.returncode == 0)
+
 
 def sdc_generate(network, first_index, count, eth1_withdrawal_address=None):
     if eth1_withdrawal_address is not None:
@@ -88,7 +105,6 @@ def sdc_generate(network, first_index, count, eth1_withdrawal_address=None):
     print("Running " + test_name)
     process = Popen(command, cwd=sdc_git_dir, text=True, stdin = PIPE)
     process.wait()
-
 
 
 def test_network(network):
