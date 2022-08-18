@@ -95,6 +95,7 @@ pub struct AttestationService<T: BeaconChainTypes> {
     subscribe_all_subnets: bool,
 
     /// For how many slots we subscribe to long lived subnets.
+    #[cfg(not(feature = "deterministic_long_lived_attnets"))]
     long_lived_subnet_subscription_slots: u64,
 
     /// Our Discv5 node_id.
@@ -164,14 +165,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
         let log = log.new(o!("service" => "attestation_service"));
 
         // Calculate the random subnet duration from the spec constants.
-        let spec = &beacon_chain.spec;
         let slot_duration = beacon_chain.slot_clock.slot_duration();
-        let long_lived_subnet_subscription_slots = spec
-            .epochs_per_random_subnet_subscription
-            .saturating_mul(T::EthSpec::slots_per_epoch());
-        let long_lived_subscription_duration = Duration::from_millis(
-            slot_duration.as_millis() as u64 * long_lived_subnet_subscription_slots,
-        );
 
         let track_validators = !config.import_all_attestations;
         let aggregate_validators_on_subnet =
@@ -186,7 +180,6 @@ impl<T: BeaconChainTypes> AttestationService<T> {
             waker: None,
             discovery_disabled: config.disable_discovery,
             subscribe_all_subnets: config.subscribe_all_subnets,
-            long_lived_subnet_subscription_slots,
             node_id,
             next_long_lived_subscription_event: {
                 // Set a dummy sleep. Calculating the current subnet subscriptions will update this
