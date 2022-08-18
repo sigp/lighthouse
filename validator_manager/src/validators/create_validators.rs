@@ -517,11 +517,15 @@ fn write_to_json_file<P: AsRef<Path>, S: Serialize>(path: P, contents: &S) -> Re
 #[cfg(test)]
 mod tests {
     use super::*;
+    use eth2_network_config::Eth2NetworkConfig;
+    use regex::Regex;
     use std::str::FromStr;
     use tempfile::{tempdir, TempDir};
     use tree_hash::TreeHash;
 
     type E = MainnetEthSpec;
+
+    const TEST_VECTOR_DEPOSIT_CLI_VERSION: &str = "2.3.0";
 
     struct TestBuilder {
         spec: ChainSpec,
@@ -532,7 +536,12 @@ mod tests {
 
     impl Default for TestBuilder {
         fn default() -> Self {
-            let spec = E::default_spec();
+            Self::new(E::default_spec())
+        }
+    }
+
+    impl TestBuilder {
+        fn new(spec: ChainSpec) -> Self {
             let output_dir = tempdir().unwrap();
             let mnemonic_dir = tempdir().unwrap();
             let mnemonic_path = mnemonic_dir.path().join("mnemonic");
@@ -565,9 +574,7 @@ mod tests {
                 config,
             }
         }
-    }
 
-    impl TestBuilder {
         fn mutate_config<F: Fn(&mut CreateConfig)>(mut self, func: F) -> Self {
             func(&mut self.config);
             self
@@ -637,25 +644,23 @@ mod tests {
                             );
                         }
                         assert_eq!(deposit.amount, config.deposit_gwei);
-                        let deposit_message_root = DepositData {
+                        let deposit_message = DepositData {
                             pubkey: deposit.pubkey,
                             withdrawal_credentials: deposit.withdrawal_credentials,
                             amount: deposit.amount,
                             signature: SignatureBytes::empty(),
                         }
-                        .as_deposit_message()
-                        .signing_root(spec.get_deposit_domain());
-                        assert!(deposit
-                            .signature
-                            .decompress()
-                            .unwrap()
-                            .verify(&validator_pubkey, deposit_message_root));
+                        .as_deposit_message();
+                        assert!(deposit.signature.decompress().unwrap().verify(
+                            &validator_pubkey,
+                            deposit_message.signing_root(spec.get_deposit_domain())
+                        ));
                         assert_eq!(deposit.fork_version, spec.genesis_fork_version);
+                        assert_eq!(&deposit.network_name, spec.config_name.as_ref().unwrap());
                         assert_eq!(
-                            &deposit.eth2_network_name,
-                            spec.config_name.as_ref().unwrap()
+                            deposit.deposit_message_root,
+                            deposit_message.tree_hash_root()
                         );
-                        assert_eq!(deposit.deposit_message_root, deposit_message_root);
                         assert_eq!(
                             deposit.deposit_data_root,
                             DepositData {
@@ -668,7 +673,6 @@ mod tests {
                         );
                     }
                 }
-                //
             }
 
             // The directory containing the mnemonic can now be removed.
@@ -765,5 +769,107 @@ mod tests {
             .run_test()
             .await
             .assert_err();
+    }
+
+    #[tokio::test]
+    async fn staking_deposit_cli_vectors() {
+        let vectors_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("test_vectors")
+            .join("vectors");
+        for entry in fs::read_dir(vectors_dir).unwrap() {
+            let entry = entry.unwrap();
+            let file_name = entry.file_name();
+            let vector_name = file_name.to_str().unwrap();
+            let path = entry.path();
+            // Leave this `println!` so we can tell which test fails.
+            println!("Running test {}", vector_name);
+            run_test_vector(vector_name, &path).await;
+        }
+    }
+
+    async fn run_test_vector<P: AsRef<Path>>(name: &str, vectors_path: P) {
+        /*
+         * Parse the test vector name into a set of test parameters.
+         */
+        let re = Regex::new(r"(.*)_(.*)_(.*)_(.*)_(.*)_(.*)_(.*)").unwrap();
+        let capture = re.captures_iter(name).next().unwrap();
+        let network = capture.get(1).unwrap().as_str();
+        let first = u32::from_str(capture.get(3).unwrap().as_str()).unwrap();
+        let count = u32::from_str(capture.get(5).unwrap().as_str()).unwrap();
+        let uses_eth1 = bool::from_str(capture.get(7).unwrap().as_str()).unwrap();
+
+        /*
+         * Use the test parameters to generate equivalent files "locally" (i.e., with our code).
+         */
+
+        let spec = Eth2NetworkConfig::constant(network)
+            .unwrap()
+            .unwrap()
+            .chain_spec::<E>()
+            .unwrap();
+
+        let test_result = TestBuilder::new(spec)
+            .mutate_config(|config| {
+                config.first_index = first;
+                config.count = count;
+                if uses_eth1 {
+                    config.eth1_withdrawal_address = Some(
+                        Address::from_str("0x0f51bb10119727a7e5ea3538074fb341f56b09ad").unwrap(),
+                    );
+                }
+            })
+            .run_test()
+            .await;
+        let TestResult { result, output_dir } = test_result;
+        result.expect("local generation should succeed");
+
+        /*
+         * Ensure the deposit data is identical when parsed as JSON.
+         */
+
+        let local_deposits = {
+            let path = output_dir.path().join(DEPOSITS_FILENAME);
+            let contents = fs::read_to_string(&path).unwrap();
+            let mut deposits: Vec<StandardDepositDataJson> =
+                serde_json::from_str(&contents).unwrap();
+            for deposit in &mut deposits {
+                // Ensures we can match test vectors.
+                deposit.deposit_cli_version = TEST_VECTOR_DEPOSIT_CLI_VERSION.to_string();
+
+                // We use "prater" and the vectors use "goerli" now. The two names refer to the same
+                // network so there should be no issue here.
+                if deposit.network_name == "prater" {
+                    deposit.network_name = "goerli".to_string();
+                }
+            }
+            deposits
+        };
+        let vector_deposits: Vec<StandardDepositDataJson> = {
+            let path = fs::read_dir(vectors_path.as_ref().join("validator_keys"))
+                .unwrap()
+                .find_map(|entry| {
+                    let entry = entry.unwrap();
+                    let file_name = entry.file_name();
+                    if file_name.to_str().unwrap().starts_with("deposit_data") {
+                        Some(entry.path())
+                    } else {
+                        None
+                    }
+                })
+                .unwrap();
+            let contents = fs::read_to_string(&path).unwrap();
+            serde_json::from_str(&contents).unwrap()
+        };
+
+        assert_eq!(local_deposits, vector_deposits);
+
+        /*
+         * Note: we don't check the keystores generated by the deposit-cli since there is little
+         * value in this.
+         *
+         * If we check the deposits then we are verifying the signature across the deposit message.
+         * This implicitly verifies that the keypair generated by the deposit-cli is identical to
+         * the one created by Lighthouse.
+         */
     }
 }

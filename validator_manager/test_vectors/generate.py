@@ -58,13 +58,20 @@ def setup_sdc():
     ], cwd=sdc_git_dir)
     assert(result.returncode == 0)
 
-def sdc_generate(network, first_index, count):
-    test_name = "{}_first_{}_count_{}".format(network, first_index, count)
+def sdc_generate(network, first_index, count, eth1_withdrawal_address=None):
+    if eth1_withdrawal_address is not None:
+        eth1_flags = ['--eth1_withdrawal_address', eth1_withdrawal_address]
+        uses_eth1 = True
+    else:
+        eth1_flags = []
+        uses_eth1 = False
+
+    test_name = "{}_first_{}_count_{}_eth1_{}".format(network, first_index, count,
+                                                      str(uses_eth1).lower())
     output_dir = os.path.join(vectors_dir, test_name)
     os.mkdir(output_dir)
 
-    print("Running " + test_name)
-    process = Popen([
+    command = [
         '/bin/sh',
         'deposit.sh',
         '--language', 'english',
@@ -73,10 +80,13 @@ def sdc_generate(network, first_index, count):
         '--validator_start_index', str(first_index),
         '--num_validators', str(count),
         '--mnemonic', TEST_MNEMONIC,
-        '--chain', 'mainnet',
+        '--chain', network,
         '--keystore_password', 'MyPassword',
         '--folder', os.path.abspath(output_dir),
-    ], cwd=sdc_git_dir, text=True, stdin = PIPE)
+    ] + eth1_flags
+
+    print("Running " + test_name)
+    process = Popen(command, cwd=sdc_git_dir, text=True, stdin = PIPE)
     process.wait()
 
 
@@ -84,10 +94,11 @@ def sdc_generate(network, first_index, count):
 def test_network(network):
     sdc_generate(network, first_index=0, count=1)
     sdc_generate(network, first_index=0, count=2)
-    sdc_generate(network, first_index=0, count=3)
     sdc_generate(network, first_index=12, count=1)
     sdc_generate(network, first_index=99, count=2)
     sdc_generate(network, first_index=1024, count=3)
+    sdc_generate(network, first_index=0, count=2,
+                 eth1_withdrawal_address="0x0f51bb10119727a7e5ea3538074fb341f56b09ad")
 
 
 setup()
