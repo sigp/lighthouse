@@ -38,7 +38,7 @@ use types::{AttestationShufflingId, EthSpec, Hash256, RelativeEpoch, Slot};
 const MAX_ADVANCE_DISTANCE: u64 = 4;
 
 /// Similarly for fork choice: avoid the fork choice lookahead during sync.
-const MAX_FORK_CHOICE_DISTANCE: u64 = 64;
+const MAX_FORK_CHOICE_DISTANCE: u64 = 128;
 
 #[derive(Debug)]
 enum Error {

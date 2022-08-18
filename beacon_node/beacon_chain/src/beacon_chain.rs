@@ -131,7 +131,7 @@ const PREPARE_PROPOSER_HISTORIC_EPOCHS: u64 = 4;
 /// run the per-slot tasks (primarily fork choice).
 ///
 /// This prevents unnecessary work during sync.
-const MAX_PER_SLOT_FORK_CHOICE_DISTANCE: u64 = 64;
+const MAX_PER_SLOT_FORK_CHOICE_DISTANCE: u64 = 128;
 
 /// Reported to the user when the justified block has an invalid execution payload.
 pub const INVALID_JUSTIFIED_PAYLOAD_SHUTDOWN_REASON: &str =
