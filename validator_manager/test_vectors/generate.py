@@ -12,14 +12,18 @@ tmp_dir = os.path.join(".", "tmp")
 mnemonic_path = os.path.join(tmp_dir, "mnemonic.txt")
 sdc_dir = os.path.join(tmp_dir, "sdc")
 sdc_git_dir = os.path.join(sdc_dir, "staking-deposit-cli")
+vectors_dir = os.path.join(".", "vectors")
 
 
 def setup():
-    if os.path.exists(tmp_dir):
-        cleanup()
+    cleanup()
+
+    if os.path.exists(vectors_dir):
+        shutil.rmtree(vectors_dir)
 
     os.mkdir(tmp_dir)
     os.mkdir(sdc_dir)
+    os.mkdir(vectors_dir)
 
     setup_sdc()
     with open(mnemonic_path, "x") as file:
@@ -27,7 +31,8 @@ def setup():
 
 
 def cleanup():
-    shutil.rmtree(tmp_dir)
+    if os.path.exists(tmp_dir):
+        shutil.rmtree(tmp_dir)
 
 
 def setup_sdc():
@@ -53,34 +58,39 @@ def setup_sdc():
     ], cwd=sdc_git_dir)
     assert(result.returncode == 0)
 
-
 def sdc_generate(network, first_index, count):
+    test_name = "{}_first_{}_count_{}".format(network, first_index, count)
+    output_dir = os.path.join(vectors_dir, test_name)
+    os.mkdir(output_dir)
+
+    print("Running " + test_name)
     process = Popen([
         '/bin/sh',
         'deposit.sh',
+        '--language', 'english',
+        '--non_interactive',
         'existing-mnemonic',
-    ], stdout=PIPE, stdin=PIPE, stderr=STDOUT, cwd=sdc_git_dir, text=True)
-    process.stdin.write('3\n') # Select "3. English" as the mnemonic language.
-    process.stdin.write(TEST_MNEMONIC + '\n')
-    process.stdin.write(str(first_index) + '\n')
-    process.stdin.write(str(first_index) + '\n')
-    process.stdin.write(str(count) + '\n')
-    process.stdin.write(network + '\n')
-    process.stdin.write('junk_password\n')
-    process.stdin.write('junk_password\n')
+        '--validator_start_index', str(first_index),
+        '--num_validators', str(count),
+        '--mnemonic', TEST_MNEMONIC,
+        '--chain', 'mainnet',
+        '--keystore_password', 'MyPassword',
+        '--folder', os.path.abspath(output_dir),
+    ], cwd=sdc_git_dir, text=True, stdin = PIPE)
     process.wait()
-    # process.wait()
-    # Select "3. English" as the mnemonic language.
-    # p.communicate(input='3'.encode('utf-8'))
-    # Input the mnemonic.
-    # p.communicate(input=TEST_MNEMONIC.encode('utf-8'))
 
 
 
-def test(network):
-    setup()
-    sdc_generate(network, 0, 2)
-    # cleanup()
+def test_network(network):
+    sdc_generate(network, first_index=0, count=1)
+    sdc_generate(network, first_index=0, count=2)
+    sdc_generate(network, first_index=0, count=3)
+    sdc_generate(network, first_index=12, count=1)
+    sdc_generate(network, first_index=99, count=2)
+    sdc_generate(network, first_index=1024, count=3)
 
 
-test("mainnet")
+setup()
+test_network("mainnet")
+test_network("prater")
+cleanup()
