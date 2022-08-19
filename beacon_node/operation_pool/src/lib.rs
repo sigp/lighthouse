@@ -519,7 +519,18 @@ impl<T: EthSpec> OperationPool<T> {
     {
         filter_limit_operations(
             self.voluntary_exits.read().values(),
-            |exit| filter(exit) && verify_exit(state, exit, VerifySignatures::False, spec).is_ok(),
+            |exit| {
+                // If the exit was verified against the most recent fork domain there's no need
+                // to re-verify it. Otherwise, it might have been signed with a fork domain from
+                // two (or more) forks ago, in which case we need to re-verify it. Only signatures
+                // using the current or previous fork domain are valid.
+                let verify_signatures = if exit.message.epoch >= state.fork().epoch {
+                    VerifySignatures::False
+                } else {
+                    VerifySignatures::True
+                };
+                filter(exit) && verify_exit(state, exit, verify_signatures, spec).is_ok()
+            },
             T::MaxVoluntaryExits::to_usize(),
         )
     }
@@ -689,6 +700,7 @@ mod release_tests {
             .spec_or_default(spec)
             .keypairs(KEYPAIRS[0..validator_count].to_vec())
             .fresh_ephemeral_store()
+            .mock_execution_layer()
             .build();
 
         harness.advance_slot();
@@ -1717,5 +1729,81 @@ mod release_tests {
             sync_aggregate.sync_committee_bits.num_set_bits(),
             expected_bits
         );
+    }
+
+    fn cross_fork_harness<E: EthSpec>() -> (BeaconChainHarness<EphemeralHarnessType<E>>, ChainSpec)
+    {
+        let mut spec = test_spec::<E>();
+
+        spec.altair_fork_epoch = Some(Epoch::new(1));
+        spec.bellatrix_fork_epoch = Some(Epoch::new(2));
+
+        // To make exits immediately valid.
+        spec.shard_committee_period = 0;
+
+        let num_validators = 32;
+
+        let harness = get_harness::<E>(num_validators, Some(spec.clone()));
+        (harness, spec)
+    }
+
+    /// Test that the op pool doesn't return phase0 exits after the Bellatrix fork.
+    #[tokio::test]
+    async fn reject_cross_fork_exit() {
+        let (harness, spec) = cross_fork_harness::<MainnetEthSpec>();
+        let altair_fork_epoch = spec.altair_fork_epoch.unwrap();
+        let bellatrix_fork_epoch = spec.bellatrix_fork_epoch.unwrap();
+        let slots_per_epoch = MainnetEthSpec::slots_per_epoch();
+
+        let op_pool = OperationPool::<MainnetEthSpec>::new();
+
+        // Sign an exit in phase0 with a phase0 epoch.
+        let exit1 = harness.make_voluntary_exit(0, Epoch::new(0));
+
+        // Advance to Altair.
+        harness
+            .extend_to_slot(altair_fork_epoch.start_slot(slots_per_epoch))
+            .await;
+        let altair_head = harness.chain.canonical_head.cached_head().snapshot;
+        assert_eq!(altair_head.beacon_state.current_epoch(), altair_fork_epoch);
+
+        // Add exit 1 to the op pool during Altair. It's still valid at this point and should be
+        // returned.
+        let verified_exit1 = exit1
+            .clone()
+            .validate(&altair_head.beacon_state, &harness.chain.spec)
+            .unwrap();
+        op_pool.insert_voluntary_exit(verified_exit1);
+        let exits =
+            op_pool.get_voluntary_exits(&altair_head.beacon_state, |_| true, &harness.chain.spec);
+        assert_eq!(&exits[0], &exit1);
+        assert_eq!(exits.len(), 1);
+
+        // Advance to Bellatrix.
+        harness
+            .extend_to_slot(bellatrix_fork_epoch.start_slot(slots_per_epoch))
+            .await;
+        let bellatrix_head = harness.chain.canonical_head.cached_head().snapshot;
+        assert_eq!(
+            bellatrix_head.beacon_state.current_epoch(),
+            bellatrix_fork_epoch
+        );
+
+        // Sign an exit with the Altair domain and a phase0 epoch. This is a weird type of exit
+        // that is valid because after the Bellatrix fork we'll use the Altair fork domain to verify
+        // all prior epochs.
+        let exit2 = harness.make_voluntary_exit(1, Epoch::new(0));
+        let verified_exit2 = exit2
+            .clone()
+            .validate(&bellatrix_head.beacon_state, &harness.chain.spec)
+            .unwrap();
+        op_pool.insert_voluntary_exit(verified_exit2);
+
+        // Attempting to fetch exit1 now should fail, despite it still being in the pool.
+        // exit2 should still be valid, because it was signed with the Altair fork domain.
+        assert_eq!(op_pool.voluntary_exits.read().len(), 2);
+        let exits =
+            op_pool.get_voluntary_exits(&bellatrix_head.beacon_state, |_| true, &harness.spec);
+        assert_eq!(&exits, &[exit2]);
     }
 }
