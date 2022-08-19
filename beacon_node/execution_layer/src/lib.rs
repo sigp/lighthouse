@@ -893,6 +893,13 @@ impl<T: EthSpec> ExecutionLayer<T> {
             .request(|engine| engine.api.new_payload_v1(execution_payload.clone()))
             .await;
 
+        if let Ok(status) = &result {
+            metrics::inc_counter_vec(
+                &metrics::EXECUTION_LAYER_PAYLOAD_STATUS,
+                &["new_payload", status.status.into()],
+            );
+        }
+
         process_payload_status(execution_payload.block_hash, result, self.log())
             .map_err(Box::new)
             .map_err(Error::EngineError)
@@ -1031,6 +1038,13 @@ impl<T: EthSpec> ExecutionLayer<T> {
                     .await
             })
             .await;
+
+        if let Ok(status) = &result {
+            metrics::inc_counter_vec(
+                &metrics::EXECUTION_LAYER_PAYLOAD_STATUS,
+                &["forkchoice_updated", status.payload_status.status.into()],
+            );
+        }
 
         process_payload_status(
             head_block_hash,

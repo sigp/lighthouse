@@ -2083,6 +2083,7 @@ dependencies = [
  "slot_clock",
  "ssz-rs",
  "state_processing",
+ "strum",
  "task_executor",
  "tempfile",
  "tokio",
