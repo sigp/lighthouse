@@ -5,9 +5,9 @@ use crate::OpPoolError;
 use crate::OperationPool;
 use derivative::Derivative;
 use parking_lot::RwLock;
-use serde_derive::{Deserialize, Serialize};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
+use state_processing::SigVerifiedOp;
 use store::{DBColumn, Error as StoreError, StoreItem};
 use types::*;
 
@@ -20,15 +20,12 @@ type PersistedSyncContributions<T> = Vec<(SyncAggregateId, Vec<SyncCommitteeCont
 #[superstruct(
     variants(V5, V12),
     variant_attributes(
-        derive(Derivative, PartialEq, Debug, Serialize, Deserialize, Encode, Decode),
-        serde(bound = "T: EthSpec", deny_unknown_fields),
+        derive(Derivative, PartialEq, Debug, Encode, Decode),
         derivative(Clone),
     ),
     partial_getter_error(ty = "OpPoolError", expr = "OpPoolError::IncorrectOpPoolVariant")
 )]
-#[derive(PartialEq, Debug, Serialize, Deserialize, Encode)]
-#[serde(untagged)]
-#[serde(bound = "T: EthSpec")]
+#[derive(PartialEq, Debug, Encode)]
 #[ssz(enum_behaviour = "transparent")]
 pub struct PersistedOperationPool<T: EthSpec> {
     /// [DEPRECATED] Mapping from attestation ID to attestation mappings.
@@ -39,12 +36,24 @@ pub struct PersistedOperationPool<T: EthSpec> {
     pub attestations: Vec<(Attestation<T>, Vec<u64>)>,
     /// Mapping from sync contribution ID to sync contributions and aggregate.
     pub sync_contributions: PersistedSyncContributions<T>,
+    /// [DEPRECATED] Attester slashings.
+    #[superstruct(only(V5))]
+    pub attester_slashings_v5: Vec<(AttesterSlashing<T>, ForkVersion)>,
     /// Attester slashings.
-    pub attester_slashings: Vec<(AttesterSlashing<T>, ForkVersion)>,
-    /// Proposer slashings.
-    pub proposer_slashings: Vec<ProposerSlashing>,
-    /// Voluntary exits.
-    pub voluntary_exits: Vec<SignedVoluntaryExit>,
+    #[superstruct(only(V12))]
+    pub attester_slashings: Vec<SigVerifiedOp<AttesterSlashing<T>, T>>,
+    /// [DEPRECATED] Proposer slashings.
+    #[superstruct(only(V5))]
+    pub proposer_slashings_v5: Vec<ProposerSlashing>,
+    /// Proposer slashings with fork information.
+    #[superstruct(only(V12))]
+    pub proposer_slashings: Vec<SigVerifiedOp<ProposerSlashing, T>>,
+    /// [DEPRECATED] Voluntary exits.
+    #[superstruct(only(V5))]
+    pub voluntary_exits_v5: Vec<SignedVoluntaryExit>,
+    /// Voluntary exits with fork information.
+    #[superstruct(only(V12))]
+    pub voluntary_exits: Vec<SigVerifiedOp<SignedVoluntaryExit, T>>,
 }
 
 impl<T: EthSpec> PersistedOperationPool<T> {
@@ -101,19 +110,19 @@ impl<T: EthSpec> PersistedOperationPool<T> {
 
     /// Reconstruct an `OperationPool`.
     pub fn into_operation_pool(self) -> Result<OperationPool<T>, OpPoolError> {
-        let attester_slashings = RwLock::new(self.attester_slashings().iter().cloned().collect());
+        let attester_slashings = RwLock::new(self.attester_slashings()?.iter().cloned().collect());
         let proposer_slashings = RwLock::new(
-            self.proposer_slashings()
+            self.proposer_slashings()?
                 .iter()
                 .cloned()
-                .map(|slashing| (slashing.signed_header_1.message.proposer_index, slashing))
+                .map(|slashing| (slashing.as_inner().proposer_index(), slashing))
                 .collect(),
         );
         let voluntary_exits = RwLock::new(
-            self.voluntary_exits()
+            self.voluntary_exits()?
                 .iter()
                 .cloned()
-                .map(|exit| (exit.message.validator_index, exit))
+                .map(|exit| (exit.as_inner().message.validator_index, exit))
                 .collect(),
         );
         let sync_contributions = RwLock::new(self.sync_contributions().iter().cloned().collect());

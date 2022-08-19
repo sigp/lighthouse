@@ -2041,7 +2041,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn verify_voluntary_exit_for_gossip(
         &self,
         exit: SignedVoluntaryExit,
-    ) -> Result<ObservationOutcome<SignedVoluntaryExit>, Error> {
+    ) -> Result<ObservationOutcome<SignedVoluntaryExit, T::EthSpec>, Error> {
         // NOTE: this could be more efficient if it avoided cloning the head state
         let wall_clock_state = self.wall_clock_state()?;
         Ok(self
@@ -2062,7 +2062,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 
     /// Accept a pre-verified exit and queue it for inclusion in an appropriate block.
-    pub fn import_voluntary_exit(&self, exit: SigVerifiedOp<SignedVoluntaryExit>) {
+    pub fn import_voluntary_exit(&self, exit: SigVerifiedOp<SignedVoluntaryExit, T::EthSpec>) {
         if self.eth1_chain.is_some() {
             self.op_pool.insert_voluntary_exit(exit)
         }
@@ -2072,7 +2072,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn verify_proposer_slashing_for_gossip(
         &self,
         proposer_slashing: ProposerSlashing,
-    ) -> Result<ObservationOutcome<ProposerSlashing>, Error> {
+    ) -> Result<ObservationOutcome<ProposerSlashing, T::EthSpec>, Error> {
         let wall_clock_state = self.wall_clock_state()?;
         Ok(self.observed_proposer_slashings.lock().verify_and_observe(
             proposer_slashing,
@@ -2082,7 +2082,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 
     /// Accept some proposer slashing and queue it for inclusion in an appropriate block.
-    pub fn import_proposer_slashing(&self, proposer_slashing: SigVerifiedOp<ProposerSlashing>) {
+    pub fn import_proposer_slashing(
+        &self,
+        proposer_slashing: SigVerifiedOp<ProposerSlashing, T::EthSpec>,
+    ) {
         if self.eth1_chain.is_some() {
             self.op_pool.insert_proposer_slashing(proposer_slashing)
         }
@@ -2092,7 +2095,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn verify_attester_slashing_for_gossip(
         &self,
         attester_slashing: AttesterSlashing<T::EthSpec>,
-    ) -> Result<ObservationOutcome<AttesterSlashing<T::EthSpec>>, Error> {
+    ) -> Result<ObservationOutcome<AttesterSlashing<T::EthSpec>, T::EthSpec>, Error> {
         let wall_clock_state = self.wall_clock_state()?;
         Ok(self.observed_attester_slashings.lock().verify_and_observe(
             attester_slashing,
@@ -2107,7 +2110,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// 2. Add it to the op pool.
     pub fn import_attester_slashing(
         &self,
-        attester_slashing: SigVerifiedOp<AttesterSlashing<T::EthSpec>>,
+        attester_slashing: SigVerifiedOp<AttesterSlashing<T::EthSpec>, T::EthSpec>,
     ) {
         // Add to fork choice.
         self.canonical_head
@@ -2116,10 +2119,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Add to the op pool (if we have the ability to propose blocks).
         if self.eth1_chain.is_some() {
-            self.op_pool.insert_attester_slashing(
-                attester_slashing,
-                self.canonical_head.cached_head().head_fork(),
-            )
+            self.op_pool.insert_attester_slashing(attester_slashing)
         }
     }
 

@@ -23,12 +23,13 @@ pub fn upgrade_to_v12<T: BeaconChainTypes>(
         "count" => v5.attestations_v5.len(),
     );
 
+    // FIXME(sproul): actually transfer the operations across
     let v12 = PersistedOperationPool::V12(PersistedOperationPoolV12 {
         attestations: vec![],
         sync_contributions: v5.sync_contributions,
-        attester_slashings: v5.attester_slashings,
-        proposer_slashings: v5.proposer_slashings,
-        voluntary_exits: v5.voluntary_exits,
+        attester_slashings: vec![],
+        proposer_slashings: vec![],
+        voluntary_exits: vec![],
     });
     Ok(vec![v12.as_kv_store_op(OP_POOL_DB_KEY)])
 }
@@ -55,9 +56,9 @@ pub fn downgrade_from_v12<T: BeaconChainTypes>(
     let v5 = PersistedOperationPoolV5 {
         attestations_v5: vec![],
         sync_contributions: v12.sync_contributions,
-        attester_slashings: v12.attester_slashings,
-        proposer_slashings: v12.proposer_slashings,
-        voluntary_exits: v12.voluntary_exits,
+        attester_slashings_v5: vec![],
+        proposer_slashings_v5: vec![],
+        voluntary_exits_v5: vec![],
     };
     Ok(vec![v5.as_kv_store_op(OP_POOL_DB_KEY)])
 }

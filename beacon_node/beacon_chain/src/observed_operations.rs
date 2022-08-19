@@ -1,5 +1,6 @@
 use derivative::Derivative;
 use smallvec::SmallVec;
+use ssz::{Decode, Encode};
 use state_processing::{SigVerifiedOp, VerifyOperation};
 use std::collections::HashSet;
 use std::marker::PhantomData;
@@ -29,8 +30,8 @@ pub struct ObservedOperations<T: ObservableOperation<E>, E: EthSpec> {
 
 /// Was the observed operation new and valid for further processing, or a useless duplicate?
 #[derive(Debug, PartialEq, Eq, Clone)]
-pub enum ObservationOutcome<T> {
-    New(SigVerifiedOp<T>),
+pub enum ObservationOutcome<T: Encode + Decode, E: EthSpec> {
+    New(SigVerifiedOp<T, E>),
     AlreadyKnown,
 }
 
@@ -81,7 +82,7 @@ impl<T: ObservableOperation<E>, E: EthSpec> ObservedOperations<T, E> {
         op: T,
         head_state: &BeaconState<E>,
         spec: &ChainSpec,
-    ) -> Result<ObservationOutcome<T>, T::Error> {
+    ) -> Result<ObservationOutcome<T, E>, T::Error> {
         let observed_validator_indices = &mut self.observed_validator_indices;
         let new_validator_indices = op.observed_validators();
 
@@ -95,6 +96,8 @@ impl<T: ObservableOperation<E>, E: EthSpec> ObservedOperations<T, E> {
             .iter()
             .all(|index| observed_validator_indices.contains(index))
         {
+            // FIXME(sproul): consider verifying that those already-observed slashings are
+            // still valid.
             return Ok(ObservationOutcome::AlreadyKnown);
         }
 
