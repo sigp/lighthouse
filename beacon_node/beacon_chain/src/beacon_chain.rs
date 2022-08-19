@@ -131,7 +131,11 @@ const PREPARE_PROPOSER_HISTORIC_EPOCHS: u64 = 4;
 /// run the per-slot tasks (primarily fork choice).
 ///
 /// This prevents unnecessary work during sync.
-const MAX_PER_SLOT_FORK_CHOICE_DISTANCE: u64 = 4;
+///
+/// The value is set to 256 since this would be just over one slot (12.8s) when syncing at
+/// 20 slots/second. Having a single fork-choice run interrupt syncing would have very little
+/// impact whilst having 8 epochs without a block is a comfortable grace period.
+const MAX_PER_SLOT_FORK_CHOICE_DISTANCE: u64 = 256;
 
 /// Reported to the user when the justified block has an invalid execution payload.
 pub const INVALID_JUSTIFIED_PAYLOAD_SHUTDOWN_REASON: &str =
@@ -4274,8 +4278,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// it contains a call to `fork_choice` which may eventually call
     /// `tokio::runtime::block_on` in certain cases.
     pub async fn per_slot_task(self: &Arc<Self>) {
-        trace!(self.log, "Running beacon chain per slot tasks");
         if let Some(slot) = self.slot_clock.now() {
+            debug!(
+                self.log,
+                "Running beacon chain per slot tasks";
+                "slot" => ?slot
+            );
+
             // Always run the light-weight pruning tasks (these structures should be empty during
             // sync anyway).
             self.naive_aggregation_pool.write().prune(slot);

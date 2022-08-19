@@ -36,4 +36,9 @@ lazy_static::lazy_static! {
         "execution_layer_get_payload_by_block_hash_time",
         "Time to reconstruct a payload from the EE using eth_getBlockByHash"
     );
+    pub static ref EXECUTION_LAYER_PAYLOAD_STATUS: Result<IntCounterVec> = try_create_int_counter_vec(
+        "execution_layer_payload_status",
+        "Indicates the payload status returned for a particular method",
+        &["method", "status"]
+    );
 }
