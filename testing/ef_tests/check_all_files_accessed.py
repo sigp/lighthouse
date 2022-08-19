@@ -45,6 +45,8 @@ excluded_paths = [
     "tests/.*/capella",
     # One of the EF researchers likes to pack the tarballs on a Mac
     ".*\.DS_Store.*"
+    # More Mac weirdness.
+    "tests/mainnet/bellatrix/operations/deposit/pyspec_tests/deposit_with_previous_fork_version__valid_ineffective/._meta.yaml"
 ]
 
 def normalize_path(path):
