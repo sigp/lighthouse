@@ -407,7 +407,7 @@ impl<T: EthSpec> OperationPool<T> {
 
         let relevant_attester_slashings = reader.iter().flat_map(|slashing| {
             if slashing.signature_is_still_valid(&state.fork()) {
-                AttesterSlashingMaxCover::new(slashing.as_inner(), &to_be_slashed, state)
+                AttesterSlashingMaxCover::new(slashing.as_inner(), to_be_slashed, state)
             } else {
                 None
             }
