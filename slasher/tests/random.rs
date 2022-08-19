@@ -1,3 +1,5 @@
+#![cfg(any(feature = "mdbx", feature = "lmdb"))]
+
 use logging::test_logger;
 use rand::prelude::*;
 use rand::{rngs::StdRng, thread_rng, Rng, SeedableRng};

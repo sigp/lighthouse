@@ -651,18 +651,16 @@ mod tests {
     #[test]
     fn decode_base_and_altair() {
         type E = MainnetEthSpec;
+        let spec = E::default_spec();
 
         let rng = &mut XorShiftRng::from_seed([42; 16]);
 
-        let fork_epoch = Epoch::from_ssz_bytes(&[7, 6, 5, 4, 3, 2, 1, 0]).unwrap();
+        let fork_epoch = spec.altair_fork_epoch.unwrap();
 
         let base_epoch = fork_epoch.saturating_sub(1_u64);
         let base_slot = base_epoch.end_slot(E::slots_per_epoch());
         let altair_epoch = fork_epoch;
         let altair_slot = altair_epoch.start_slot(E::slots_per_epoch());
-
-        let mut spec = E::default_spec();
-        spec.altair_fork_epoch = Some(fork_epoch);
 
         // BeaconBlockBase
         {

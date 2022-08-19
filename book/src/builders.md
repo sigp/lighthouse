@@ -59,8 +59,16 @@ so a discrepancy in fee recipient might not indicate that there is something afo
 only create blocks with a `fee_recipient` field matching the one suggested, you can use
 the [strict fee recipient](suggested-fee-recipient.md#strict-fee-recipient) flag.
 
-### Enable/Disable builder proposals and set Gas Limit
-Use the [lighthouse API](api-vc-endpoints.md) to configure these fields per-validator.
+### Set Gas Limit via HTTP
+
+To update gas limit per-validator you can use the [standard key manager API][gas-limit-api].
+
+Alternatively, you can use the [lighthouse API](api-vc-endpoints.md). See below for an example.
+
+### Enable/Disable builder proposals via HTTP
+
+Use the [lighthouse API](api-vc-endpoints.md) to enable/disable use of the builder API on a per-validator basis.
+You can also update the configured gas limit with these requests.
 
 #### `PATCH /lighthouse/validators/:voting_pubkey`
 
@@ -99,6 +107,9 @@ null
 Refer to [suggested fee recipient](suggested-fee-recipient.md) documentation.
 
 ### Validator definitions example
+
+You can also directly configure these fields in the `validator_definitions.yml` file.
+
 ```
 ---
 - enabled: true
@@ -142,3 +153,4 @@ By default, Lighthouse is strict with these conditions, but we encourage users t
 
 [mev-rs]: https://github.com/ralexstokes/mev-rs
 [mev-boost]: https://github.com/flashbots/mev-boost
+[gas-limit-api]: https://ethereum.github.io/keymanager-APIs/#/Gas%20Limit
