@@ -4274,8 +4274,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// it contains a call to `fork_choice` which may eventually call
     /// `tokio::runtime::block_on` in certain cases.
     pub async fn per_slot_task(self: &Arc<Self>) {
-        trace!(self.log, "Running beacon chain per slot tasks");
         if let Some(slot) = self.slot_clock.now() {
+            debug!(
+                self.log,
+                "Running beacon chain per slot tasks";
+                "slot" => ?slot
+            );
+
             // Always run the light-weight pruning tasks (these structures should be empty during
             // sync anyway).
             self.naive_aggregation_pool.write().prune(slot);
