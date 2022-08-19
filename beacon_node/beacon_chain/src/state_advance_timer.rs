@@ -38,7 +38,11 @@ use types::{AttestationShufflingId, EthSpec, Hash256, RelativeEpoch, Slot};
 const MAX_ADVANCE_DISTANCE: u64 = 4;
 
 /// Similarly for fork choice: avoid the fork choice lookahead during sync.
-const MAX_FORK_CHOICE_DISTANCE: u64 = 4;
+///
+/// The value is set to 256 since this would be just over one slot (12.8s) when syncing at
+/// 20 slots/second. Having a single fork-choice run interrupt syncing would have very little
+/// impact whilst having 8 epochs without a block is a comfortable grace period.
+const MAX_FORK_CHOICE_DISTANCE: u64 = 256;
 
 #[derive(Debug)]
 enum Error {

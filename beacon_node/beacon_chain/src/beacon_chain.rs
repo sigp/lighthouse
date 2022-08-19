@@ -134,7 +134,11 @@ const PREPARE_PROPOSER_HISTORIC_EPOCHS: u64 = 4;
 /// run the per-slot tasks (primarily fork choice).
 ///
 /// This prevents unnecessary work during sync.
-const MAX_PER_SLOT_FORK_CHOICE_DISTANCE: u64 = 4;
+///
+/// The value is set to 256 since this would be just over one slot (12.8s) when syncing at
+/// 20 slots/second. Having a single fork-choice run interrupt syncing would have very little
+/// impact whilst having 8 epochs without a block is a comfortable grace period.
+const MAX_PER_SLOT_FORK_CHOICE_DISTANCE: u64 = 256;
 
 /// Reported to the user when the justified block has an invalid execution payload.
 pub const INVALID_JUSTIFIED_PAYLOAD_SHUTDOWN_REASON: &str =
@@ -2293,8 +2297,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             // Determine the epoch of the first block in the remaining segment.
             let start_epoch = block.slot().epoch(T::EthSpec::slots_per_epoch());
 
-            // The `last_index` indicates the position of the last block that is in the current
-            // epoch of `start_epoch`.
+            // The `last_index` indicates the position of the first block in an epoch greater
+            // than the current epoch: partitioning the blocks into a run of blocks in the same
+            // epoch and everything else. These same-epoch blocks can all be signature-verified with
+            // the same `BeaconState`.
             let last_index = filtered_chain_segment
                 .iter()
                 .position(|(_root, block)| {
@@ -2302,9 +2308,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 })
                 .unwrap_or(filtered_chain_segment.len());
 
-            // Split off the first section blocks that are all either within the current epoch of
-            // the first block. These blocks can all be signature-verified with the same
-            // `BeaconState`.
             let mut blocks = filtered_chain_segment.split_off(last_index);
             std::mem::swap(&mut blocks, &mut filtered_chain_segment);
 
@@ -4297,8 +4300,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// it contains a call to `fork_choice` which may eventually call
     /// `tokio::runtime::block_on` in certain cases.
     pub async fn per_slot_task(self: &Arc<Self>) {
-        trace!(self.log, "Running beacon chain per slot tasks");
         if let Some(slot) = self.slot_clock.now() {
+            debug!(
+                self.log,
+                "Running beacon chain per slot tasks";
+                "slot" => ?slot
+            );
+
             // Always run the light-weight pruning tasks (these structures should be empty during
             // sync anyway).
             self.naive_aggregation_pool.write().prune(slot);

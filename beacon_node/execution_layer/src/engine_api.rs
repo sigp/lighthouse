@@ -4,6 +4,7 @@ use http::deposit_methods::RpcError;
 pub use json_structures::TransitionConfigurationV1;
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
+use strum::IntoStaticStr;
 pub use types::{
     Address, EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadHeader, FixedVector,
     Hash256, Uint256, VariableList,
@@ -71,7 +72,8 @@ impl From<builder_client::Error> for Error {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, IntoStaticStr)]
+#[strum(serialize_all = "snake_case")]
 pub enum PayloadStatusV1Status {
     Valid,
     Invalid,
