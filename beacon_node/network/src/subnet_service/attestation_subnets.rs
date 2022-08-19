@@ -70,6 +70,8 @@ pub struct AttestationService<T: BeaconChainTypes> {
     /// Long lived subnets for which we are currently subscribed.
     #[cfg(feature = "deterministic_long_lived_attnets")]
     long_lived_subscriptions: HashSet<SubnetId>,
+    #[cfg(not(feature = "deterministic_long_lived_attnets"))]
+    long_lived_subscriptions: HashMapDelay<SubnetId, Slot>,
 
     /// Short lived subscriptions that need to be done in the future.
     scheduled_short_lived_subscriptions: HashSetDelay<ExactSubnet>,
@@ -198,11 +200,21 @@ impl<T: BeaconChainTypes> AttestationService<T> {
         if self.subscribe_all_subnets {
             self.beacon_chain.spec.attestation_subnet_count as usize
         } else {
-            self.short_lived_subscriptions
+            #[cfg(feature = "deterministic_long_lived_attnets")]
+            let count = self
+                .short_lived_subscriptions
                 .keys()
                 .chain(self.long_lived_subscriptions.iter())
                 .collect::<HashSet<_>>()
-                .len()
+                .len();
+            #[cfg(not(feature = "deterministic_long_lived_attnets"))]
+            let count = self
+                .short_lived_subscriptions
+                .keys()
+                .chain(self.long_lived_subscriptions.keys())
+                .collect::<HashSet<_>>()
+                .len();
+            count
         }
     }
 
@@ -214,7 +226,10 @@ impl<T: BeaconChainTypes> AttestationService<T> {
         subscription_kind: SubscriptionKind,
     ) -> bool {
         match subscription_kind {
+            #[cfg(feature = "deterministic_long_lived_attnets")]
             SubscriptionKind::LongLived => self.long_lived_subscriptions.contains(subnet_id),
+            #[cfg(not(feature = "deterministic_long_lived_attnets"))]
+            SubscriptionKind::LongLived => self.long_lived_subscriptions.contains_key(subnet_id),
             SubscriptionKind::ShortLived => self.short_lived_subscriptions.contains_key(subnet_id),
         }
     }
@@ -365,7 +380,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
         Ok(next_subscription_event)
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, feature = "deterministic_long_lived_attnets"))]
     pub fn update_long_lived_subnets_testing(&mut self, subnets: HashSet<SubnetId>) {
         self.update_long_lived_subnets(subnets)
     }
@@ -374,6 +389,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
     ///
     /// New subnets are registered as subscribed, removed subnets as unsubscribed and the Enr
     /// updated accordingly.
+    #[cfg(feature = "deterministic_long_lived_attnets")]
     fn update_long_lived_subnets(&mut self, mut subnets: HashSet<SubnetId>) {
         for subnet in &subnets {
             // Add the events for those subnets that are new as long lived subscriptions.
@@ -413,23 +429,6 @@ impl<T: BeaconChainTypes> AttestationService<T> {
     #[cfg(all(test, feature = "deterministic_long_lived_attnets"))]
     pub fn set_long_lived_subscriptions(&mut self, subnets: HashSet<SubnetId>) {
         self.long_lived_subscriptions = subnets
-    }
-
-    /// Overwrites the short lived subscriptions for testing.
-    #[cfg(all(test, feature = "deterministic_long_lived_attnets"))]
-    pub fn set_short_lived_subscriptions(&mut self, subnets: HashSet<SubnetId>) {
-        let current_slot = self
-            .beacon_chain
-            .slot_clock
-            .now()
-            .expect("Should get current slot");
-        // use a full slot even if the next slot is closer to help testing timing
-        let delay = self.beacon_chain.slot_clock.slot_duration();
-        self.short_lived_subscriptions.clear();
-        for subnet in subnets {
-            self.short_lived_subscriptions
-                .insert_at(subnet, current_slot + 1, delay);
-        }
     }
 
     /// Checks if we have subscribed aggregate validators for the subnet. If not, checks the gossip
@@ -908,7 +907,9 @@ impl<T: BeaconChainTypes> Stream for AttestationService<T> {
         // Process any random subnet expiries.
         #[cfg(not(feature = "deterministic_long_lived_attnets"))]
         match self.long_lived_subscriptions.poll_next_unpin(cx) {
-            Poll::Ready(Some(Ok((subnet_id, end_slot)))) => {}
+            Poll::Ready(Some(Ok((subnet_id, end_slot)))) => {
+                self.handle_random_subnet_expiry(subnet_id, end_slot)
+            }
             Poll::Ready(Some(Err(e))) => {
                 error!(self.log, "Failed to check for random subnet cycles"; "error"=> e);
             }

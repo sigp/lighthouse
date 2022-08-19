@@ -48,4 +48,3 @@ ethereum-types = { version = "0.12.1", optional = true }
 
 [features]
 deterministic_long_lived_attnets = [ "ethereum-types" ]
-default = ["deterministic_long_lived_attnets"]
