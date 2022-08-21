@@ -25,9 +25,8 @@ use std::marker::PhantomData;
 use std::net::{IpAddr, Ipv4Addr};
 use std::sync::Arc;
 use std::time::Duration;
-use task_executor::TaskExecutor;
+use task_executor::test_utils::TestRuntime;
 use tempfile::{tempdir, TempDir};
-use tokio::runtime::Runtime;
 use tokio::sync::oneshot;
 
 pub const PASSWORD_BYTES: &[u8] = &[42, 50, 37];
@@ -57,23 +56,13 @@ pub struct ApiTester {
     pub initialized_validators: Arc<RwLock<InitializedValidators>>,
     pub validator_store: Arc<ValidatorStore<TestingSlotClock, E>>,
     pub url: SensitiveUrl,
+    pub test_runtime: TestRuntime,
     pub _server_shutdown: oneshot::Sender<()>,
     pub _validator_dir: TempDir,
-    pub _runtime_shutdown: exit_future::Signal,
-}
-
-// Builds a runtime to be used in the testing configuration.
-pub fn build_runtime() -> Arc<Runtime> {
-    Arc::new(
-        tokio::runtime::Builder::new_multi_thread()
-            .enable_all()
-            .build()
-            .expect("Should be able to build a testing runtime"),
-    )
 }
 
 impl ApiTester {
-    pub async fn new(runtime: std::sync::Weak<Runtime>) -> Self {
+    pub async fn new() -> Self {
         let log = test_logger();
 
         let validator_dir = tempdir().unwrap();
@@ -105,9 +94,7 @@ impl ApiTester {
         let slot_clock =
             TestingSlotClock::new(Slot::new(0), Duration::from_secs(0), Duration::from_secs(1));
 
-        let (runtime_shutdown, exit) = exit_future::signal();
-        let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
-        let executor = TaskExecutor::new(runtime.clone(), exit, log.clone(), shutdown_tx);
+        let test_runtime = TestRuntime::default();
 
         let validator_store = Arc::new(ValidatorStore::<_, E>::new(
             initialized_validators,
@@ -117,7 +104,7 @@ impl ApiTester {
             Some(Arc::new(DoppelgangerService::new(log.clone()))),
             slot_clock,
             &config,
-            executor.clone(),
+            test_runtime.task_executor.clone(),
             log.clone(),
         ));
 
@@ -128,7 +115,7 @@ impl ApiTester {
         let initialized_validators = validator_store.initialized_validators();
 
         let context = Arc::new(Context {
-            task_executor: executor,
+            task_executor: test_runtime.task_executor.clone(),
             api_secret,
             validator_dir: Some(validator_dir.path().into()),
             validator_store: Some(validator_store.clone()),
@@ -166,9 +153,9 @@ impl ApiTester {
             initialized_validators,
             validator_store,
             url,
+            test_runtime,
             _server_shutdown: shutdown_tx,
             _validator_dir: validator_dir,
-            _runtime_shutdown: runtime_shutdown,
         }
     }
 
