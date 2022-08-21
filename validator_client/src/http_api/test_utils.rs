@@ -56,6 +56,7 @@ pub struct ApiTester {
     pub initialized_validators: Arc<RwLock<InitializedValidators>>,
     pub validator_store: Arc<ValidatorStore<TestingSlotClock, E>>,
     pub url: SensitiveUrl,
+    pub api_token: String,
     pub test_runtime: TestRuntime,
     pub _server_shutdown: oneshot::Sender<()>,
     pub _validator_dir: TempDir,
@@ -116,7 +117,7 @@ impl ApiTester {
 
         let context = Arc::new(Context {
             task_executor: test_runtime.task_executor.clone(),
-            api_secret,
+            api_secret: api_secret,
             validator_dir: Some(validator_dir.path().into()),
             validator_store: Some(validator_store.clone()),
             spec: E::default_spec(),
@@ -146,13 +147,14 @@ impl ApiTester {
         ))
         .unwrap();
 
-        let client = ValidatorClientHttpClient::new(url.clone(), api_pubkey).unwrap();
+        let client = ValidatorClientHttpClient::new(url.clone(), api_pubkey.clone()).unwrap();
 
         Self {
             client,
             initialized_validators,
             validator_store,
             url,
+            api_token: api_pubkey,
             test_runtime,
             _server_shutdown: shutdown_tx,
             _validator_dir: validator_dir,

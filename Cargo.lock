@@ -7378,6 +7378,7 @@ dependencies = [
  "tokio",
  "tree_hash",
  "types",
+ "validator_client",
 ]
 
 [[package]]
