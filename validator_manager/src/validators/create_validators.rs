@@ -181,20 +181,20 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
 /// The CLI arguments are parsed into this struct before running the application. This step of
 /// indirection allows for testing the underlying logic without needing to parse CLI arguments.
 #[derive(Clone)]
-struct CreateConfig {
-    output_path: PathBuf,
-    first_index: u32,
-    count: u32,
-    deposit_gwei: u64,
-    mnemonic_path: Option<PathBuf>,
-    stdin_inputs: bool,
-    disable_deposits: bool,
-    specify_voting_keystore_password: bool,
-    eth1_withdrawal_address: Option<Address>,
-    builder_proposals: bool,
-    fee_recipient: Option<Address>,
-    gas_limit: Option<u64>,
-    bn_url: Option<SensitiveUrl>,
+pub struct CreateConfig {
+    pub output_path: PathBuf,
+    pub first_index: u32,
+    pub count: u32,
+    pub deposit_gwei: u64,
+    pub mnemonic_path: Option<PathBuf>,
+    pub stdin_inputs: bool,
+    pub disable_deposits: bool,
+    pub specify_voting_keystore_password: bool,
+    pub eth1_withdrawal_address: Option<Address>,
+    pub builder_proposals: bool,
+    pub fee_recipient: Option<Address>,
+    pub gas_limit: Option<u64>,
+    pub bn_url: Option<SensitiveUrl>,
 }
 
 impl CreateConfig {
@@ -518,7 +518,7 @@ fn write_to_json_file<P: AsRef<Path>, S: Serialize>(path: P, contents: &S) -> Re
 }
 
 #[cfg(test)]
-mod tests {
+pub mod tests {
     use super::*;
     use eth2_network_config::Eth2NetworkConfig;
     use regex::Regex;
@@ -530,7 +530,7 @@ mod tests {
 
     const TEST_VECTOR_DEPOSIT_CLI_VERSION: &str = "2.3.0";
 
-    struct TestBuilder {
+    pub struct TestBuilder {
         spec: ChainSpec,
         output_dir: TempDir,
         mnemonic_dir: TempDir,
@@ -544,7 +544,7 @@ mod tests {
     }
 
     impl TestBuilder {
-        fn new(spec: ChainSpec) -> Self {
+        pub fn new(spec: ChainSpec) -> Self {
             let output_dir = tempdir().unwrap();
             let mnemonic_dir = tempdir().unwrap();
             let mnemonic_path = mnemonic_dir.path().join("mnemonic");
@@ -578,12 +578,12 @@ mod tests {
             }
         }
 
-        fn mutate_config<F: Fn(&mut CreateConfig)>(mut self, func: F) -> Self {
+        pub fn mutate_config<F: Fn(&mut CreateConfig)>(mut self, func: F) -> Self {
             func(&mut self.config);
             self
         }
 
-        async fn run_test(self) -> TestResult {
+        pub async fn run_test(self) -> TestResult {
             let Self {
                 spec,
                 output_dir,
@@ -686,12 +686,21 @@ mod tests {
     }
 
     #[must_use] // Use the `assert_ok` or `assert_err` fns to "use" this value.
-    struct TestResult {
-        result: Result<(), String>,
-        output_dir: TempDir,
+    pub struct TestResult {
+        pub result: Result<(), String>,
+        pub output_dir: TempDir,
     }
 
     impl TestResult {
+        pub fn validators_file_path(&self) -> PathBuf {
+            self.output_dir.path().join(VALIDATORS_FILENAME)
+        }
+
+        pub fn validators(&self) -> Vec<ValidatorSpecification> {
+            let contents = fs::read_to_string(self.validators_file_path()).unwrap();
+            serde_json::from_str(&contents).unwrap()
+        }
+
         fn assert_ok(self) {
             assert_eq!(self.result, Ok(()))
         }

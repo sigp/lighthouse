@@ -225,17 +225,20 @@ async fn run<'a>(config: ImportConfig) -> Result<(), String> {
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::validators::create_validators::tests::TestBuilder as CreateTestBuilder;
     use std::fs;
     use tempfile::{tempdir, TempDir};
     use validator_client::http_api::test_utils::ApiTester;
 
-    const VALIDATORS_FILE_NAME: &str = "validators.json";
     const VC_TOKEN_FILE_NAME: &str = "vc_token.json";
 
     struct TestBuilder {
-        config: ImportConfig,
+        import_config: ImportConfig,
         vc: ApiTester,
         dir: TempDir,
+        /// Holds the temp directory owned by the `CreateTestBuilder` so it doesn't get cleaned-up
+        /// before we can read it.
+        create_dir: Option<TempDir>,
     }
 
     impl TestBuilder {
@@ -246,20 +249,128 @@ mod test {
             fs::write(&vc_token_path, &vc.api_token).unwrap();
 
             Self {
-                config: ImportConfig {
-                    validators_file_path: dir.path().join(VALIDATORS_FILE_NAME),
+                import_config: ImportConfig {
+                    // This field will be overwritten later on.
+                    validators_file_path: dir.path().into(),
                     vc_url: vc.url.clone(),
                     vc_token_path,
                     ignore_duplicates: false,
                 },
                 vc,
                 dir,
+                create_dir: None,
             }
+        }
+
+        async fn create_validators(mut self, count: u32, first_index: u32) -> Self {
+            let create_result = CreateTestBuilder::default()
+                .mutate_config(|config| {
+                    config.count = count;
+                    config.first_index = first_index;
+                })
+                .run_test()
+                .await;
+            assert!(
+                create_result.result.is_ok(),
+                "precondition: validators are created"
+            );
+            self.import_config.validators_file_path = create_result.validators_file_path();
+            self.create_dir = Some(create_result.output_dir);
+            self
+        }
+
+        async fn run_test(self) -> TestResult {
+            let result = run(self.import_config.clone()).await;
+
+            if result.is_ok() {
+                let local_validators: Vec<ValidatorSpecification> = {
+                    let contents =
+                        fs::read_to_string(&self.import_config.validators_file_path).unwrap();
+                    serde_json::from_str(&contents).unwrap()
+                };
+                let list_keystores_response = self.vc.client.get_keystores().await.unwrap().data;
+
+                assert_eq!(
+                    local_validators.len(),
+                    list_keystores_response.len(),
+                    "vc should have exactly the number of validators imported"
+                );
+
+                for local_validator in &local_validators {
+                    let local_keystore = &local_validator.voting_keystore.0;
+                    let local_pubkey = local_keystore.public_key().unwrap().into();
+                    let remote_validator = list_keystores_response
+                        .iter()
+                        .find(|validator| validator.validating_pubkey == local_pubkey)
+                        .expect("validator must exist on VC");
+                    assert_eq!(&remote_validator.derivation_path, &local_keystore.path());
+                    // It's not immediately clear why Lighthouse returns `None` rather than
+                    // `Some(false)` here, I would expect the latter to be the most accurate.
+                    // However, it doesn't seem like a big deal.
+                    assert_eq!(remote_validator.readonly, None);
+                }
+            }
+
+            TestResult { result }
+        }
+    }
+
+    #[must_use] // Use the `assert_ok` or `assert_err` fns to "use" this value.
+    struct TestResult {
+        result: Result<(), String>,
+    }
+
+    impl TestResult {
+        fn assert_ok(self) {
+            assert_eq!(self.result, Ok(()))
+        }
+
+        fn assert_err(self) {
+            assert!(self.result.is_err())
         }
     }
 
     #[tokio::test]
-    async fn blah() {
-        TestBuilder::new().await;
+    async fn create_one_validator() {
+        TestBuilder::new()
+            .await
+            .create_validators(1, 0)
+            .await
+            .run_test()
+            .await
+            .assert_ok();
+    }
+
+    #[tokio::test]
+    async fn create_three_validators() {
+        TestBuilder::new()
+            .await
+            .create_validators(3, 0)
+            .await
+            .run_test()
+            .await
+            .assert_ok();
+    }
+
+    #[tokio::test]
+    async fn create_one_validator_with_offset() {
+        TestBuilder::new()
+            .await
+            .create_validators(1, 42)
+            .await
+            .run_test()
+            .await
+            .assert_ok();
+    }
+
+    #[tokio::test]
+    async fn create_three_validators_with_offset() {
+        TestBuilder::new()
+            .await
+            .create_validators(3, 1337)
+            .await
+            .run_test()
+            .await
+            .assert_ok();
     }
 }
