@@ -6,7 +6,7 @@ use std::collections::HashSet;
 use std::marker::PhantomData;
 use types::{
     AttesterSlashing, BeaconState, ChainSpec, EthSpec, ForkName, ProposerSlashing,
-    SignedVoluntaryExit,
+    SignedVoluntaryExit, Slot,
 };
 
 /// Number of validator indices to store on the stack in `observed_validators`.
@@ -127,7 +127,7 @@ impl<T: ObservableOperation<E>, E: EthSpec> ObservedOperations<T, E> {
     /// In future we could check slashing relevance against the op pool itself, but that would
     /// require indexing the attester slashings in the op pool by validator index.
     fn reset_at_fork_boundary(&mut self, head_slot: Slot, spec: &ChainSpec) {
-        let head_fork = spec.fork_name_at_slot(head_slot);
+        let head_fork = spec.fork_name_at_slot::<E>(head_slot);
         if head_fork != self.current_fork {
             self.observed_validator_indices.clear();
             self.current_fork = head_fork;

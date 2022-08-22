@@ -79,7 +79,7 @@ use state_processing::{
     },
     per_slot_processing,
     state_advance::{complete_state_advance, partial_state_advance},
-    BlockSignatureStrategy, SigVerifiedOp, VerifyBlockRoot,
+    BlockSignatureStrategy, SigVerifiedOp, VerifyBlockRoot, VerifyOperation,
 };
 use std::cmp::Ordering;
 use std::collections::HashMap;
@@ -3351,7 +3351,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
         };
 
-        let (proposer_slashings, attester_slashings, voluntary_exits) =
+        let (mut proposer_slashings, mut attester_slashings, mut voluntary_exits) =
             self.op_pool.get_slashings_and_exits(&state, &self.spec);
 
         let eth1_data = eth1_chain.eth1_data_for_block_production(&state, &self.spec)?;
@@ -3405,29 +3405,78 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 &self.spec,
             )
             .map_err(BlockProductionError::OpPoolError)?;
+        drop(attestation_packing_timer);
 
+        // If paranoid mode is enabled re-check the signatures of every included message.
+        // This will be a lot slower but guards against bugs in block production and can be
+        // quickly rolled out without a release.
         if self.config.paranoid_block_proposal {
             attestations.retain(|att| {
-                let res = verify_attestation_for_block_inclusion(
+                verify_attestation_for_block_inclusion(
                     &state,
                     att,
                     VerifySignatures::True,
                     &self.spec,
-                );
-                if let Err(e) = res {
-                    error!(
+                )
+                .map_err(|e| {
+                    warn!(
                         self.log,
                         "Attempted to include an invalid attestation";
                         "err" => ?e,
                         "block_slot" => state.slot(),
+                        "attestation" => ?att
                     );
-                    false
-                } else {
-                    true
-                }
+                })
+                .is_ok()
+            });
+
+            proposer_slashings.retain(|slashing| {
+                slashing
+                    .clone()
+                    .validate(&state, &self.spec)
+                    .map_err(|e| {
+                        warn!(
+                            self.log,
+                            "Attempted to include an invalid proposer slashing";
+                            "err" => ?e,
+                            "block_slot" => state.slot(),
+                            "slashing" => ?slashing
+                        );
+                    })
+                    .is_ok()
+            });
+
+            attester_slashings.retain(|slashing| {
+                slashing
+                    .clone()
+                    .validate(&state, &self.spec)
+                    .map_err(|e| {
+                        warn!(
+                            self.log,
+                            "Attempted to include an invalid attester slashing";
+                            "err" => ?e,
+                            "block_slot" => state.slot(),
+                            "slashing" => ?slashing
+                        );
+                    })
+                    .is_ok()
+            });
+
+            voluntary_exits.retain(|exit| {
+                exit.clone()
+                    .validate(&state, &self.spec)
+                    .map_err(|e| {
+                        warn!(
+                            self.log,
+                            "Attempted to include an invalid proposer slashing";
+                            "err" => ?e,
+                            "block_slot" => state.slot(),
+                            "exit" => ?exit
+                        );
+                    })
+                    .is_ok()
             });
         }
-        drop(attestation_packing_timer);
 
         let slot = state.slot();
         let proposer_index = state.get_beacon_proposer_index(state.slot(), &self.spec)? as u64;
