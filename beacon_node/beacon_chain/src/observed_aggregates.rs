@@ -1,7 +1,8 @@
 //! Provides an `ObservedAggregates` struct which allows us to reject aggregated attestations or
 //! sync committee contributions if we've already seen them.
 
-use std::collections::HashSet;
+use ssz_types::{BitList, BitVector};
+use std::collections::HashMap;
 use std::marker::PhantomData;
 use tree_hash::TreeHash;
 use types::consts::altair::{
@@ -69,12 +70,78 @@ impl<T: EthSpec> Consts for SyncCommitteeContribution<T> {
     }
 }
 
+pub trait SubsetBitVec {
+    type Item;
+
+    fn is_subset(&self, other: &Self) -> bool;
+
+    fn get_item(&self) -> Self::Item;
+}
+
+impl<'a, T: EthSpec> SubsetBitVec for &'a Attestation<T> {
+    type Item = BitList<T::MaxValidatorsPerCommittee>;
+    fn is_subset(&self, other: &Self) -> bool {
+        let self_bitlist = &self.aggregation_bits;
+        let other_bitlist = &other.aggregation_bits;
+        let intersection = self_bitlist.intersection(other_bitlist);
+        intersection == *self_bitlist
+    }
+
+    fn get_item(&self) -> Self::Item {
+        self.aggregation_bits.clone()
+    }
+}
+
+impl<'a, T: EthSpec> SubsetBitVec for &'a SyncCommitteeContribution<T> {
+    type Item = BitVector<T::SyncSubcommitteeSize>;
+    fn is_subset(&self, other: &Self) -> bool {
+        let self_bitlist = &self.aggregation_bits;
+        let other_bitlist = &other.aggregation_bits;
+        let intersection = self_bitlist.intersection(other_bitlist);
+        intersection == *self_bitlist
+    }
+
+    fn get_item(&self) -> Self::Item {
+        self.aggregation_bits.clone()
+    }
+}
+
+impl<T: EthSpec> SubsetBitVec for Attestation<T> {
+    type Item = BitList<T::MaxValidatorsPerCommittee>;
+    fn is_subset(&self, other: &Self) -> bool {
+        let self_bitlist = &self.aggregation_bits;
+        let other_bitlist = &other.aggregation_bits;
+        let intersection = self_bitlist.intersection(other_bitlist);
+        intersection == *self_bitlist
+    }
+
+    fn get_item(&self) -> Self::Item {
+        self.aggregation_bits.clone()
+    }
+}
+
+impl<T: EthSpec> SubsetBitVec for SyncCommitteeContribution<T> {
+    type Item = BitVector<T::SyncSubcommitteeSize>;
+    fn is_subset(&self, other: &Self) -> bool {
+        let self_bitlist = &self.aggregation_bits;
+        let other_bitlist = &other.aggregation_bits;
+        let intersection = self_bitlist.intersection(other_bitlist);
+        intersection == *self_bitlist
+    }
+
+    fn get_item(&self) -> Self::Item {
+        self.aggregation_bits.clone()
+    }
+}
+
 #[derive(Debug, PartialEq)]
 pub enum ObserveOutcome {
     /// This item was already known.
     AlreadyKnown,
     /// This was the first time this item was observed.
     New,
+    /// This item is a subset of an already observed item.
+    Subset,
 }
 
 #[derive(Debug, PartialEq)]
@@ -95,27 +162,23 @@ pub enum Error {
 }
 
 /// A `HashSet` that contains entries related to some `Slot`.
-struct SlotHashSet {
-    set: HashSet<Hash256>,
+struct SlotHashSet<I> {
+    set: HashMap<Hash256, I>,
     slot: Slot,
     max_capacity: usize,
 }
 
-impl SlotHashSet {
+impl<I: SubsetBitVec<Item = I> + SlotData> SlotHashSet<I> {
     pub fn new(slot: Slot, initial_capacity: usize, max_capacity: usize) -> Self {
         Self {
             slot,
-            set: HashSet::with_capacity(initial_capacity),
+            set: HashMap::with_capacity(initial_capacity),
             max_capacity,
         }
     }
 
     /// Store the items in self so future observations recognise its existence.
-    pub fn observe_item<T: SlotData>(
-        &mut self,
-        item: &T,
-        root: Hash256,
-    ) -> Result<ObserveOutcome, Error> {
+    pub fn observe_item(&mut self, item: &I, root: Hash256) -> Result<ObserveOutcome, Error> {
         if item.get_slot() != self.slot {
             return Err(Error::IncorrectSlot {
                 expected: self.slot,
@@ -123,8 +186,12 @@ impl SlotHashSet {
             });
         }
 
-        if self.set.contains(&root) {
-            Ok(ObserveOutcome::AlreadyKnown)
+        if let Some(existing_item) = self.set.get(&root) {
+            if item.is_subset(existing_item) {
+                Ok(ObserveOutcome::Subset)
+            } else {
+                Ok(ObserveOutcome::AlreadyKnown)
+            }
         } else {
             // Here we check to see if this slot has reached the maximum observation count.
             //
@@ -138,14 +205,14 @@ impl SlotHashSet {
                 return Err(Error::ReachedMaxObservationsPerSlot(self.max_capacity));
             }
 
-            self.set.insert(root);
-
+            let item = item.get_item();
+            self.set.insert(root, item);
             Ok(ObserveOutcome::New)
         }
     }
 
     /// Indicates if `item` has been observed before.
-    pub fn is_known<T: SlotData>(&self, item: &T, root: Hash256) -> Result<bool, Error> {
+    pub fn is_known(&self, item: &I, root: Hash256) -> Result<bool, Error> {
         if item.get_slot() != self.slot {
             return Err(Error::IncorrectSlot {
                 expected: self.slot,
@@ -153,7 +220,7 @@ impl SlotHashSet {
             });
         }
 
-        Ok(self.set.contains(&root))
+        Ok(self.set.contains_key(&root))
     }
 
     /// The number of observed items in `self`.
@@ -166,7 +233,7 @@ impl SlotHashSet {
 /// these have previously been seen on the network.
 pub struct ObservedAggregates<T: TreeHash + SlotData + Consts, E: EthSpec> {
     lowest_permissible_slot: Slot,
-    sets: Vec<SlotHashSet>,
+    sets: Vec<SlotHashSet<T>>,
     _phantom_spec: PhantomData<E>,
     _phantom_tree_hash: PhantomData<T>,
 }
@@ -182,7 +249,9 @@ impl<T: TreeHash + SlotData + Consts, E: EthSpec> Default for ObservedAggregates
     }
 }
 
-impl<T: TreeHash + SlotData + Consts, E: EthSpec> ObservedAggregates<T, E> {
+impl<T: TreeHash + SlotData + Consts + SubsetBitVec<Item = T>, E: EthSpec>
+    ObservedAggregates<T, E>
+{
     /// Store the root of `item` in `self`.
     ///
     /// `root` must equal `item.tree_hash_root()`.
