@@ -273,10 +273,10 @@ mod test {
     struct TestBuilder {
         import_config: ImportConfig,
         vc: ApiTester,
-        dir: TempDir,
         /// Holds the temp directory owned by the `CreateTestBuilder` so it doesn't get cleaned-up
         /// before we can read it.
         create_dir: Option<TempDir>,
+        _dir: TempDir,
     }
 
     impl TestBuilder {
@@ -295,8 +295,8 @@ mod test {
                     ignore_duplicates: false,
                 },
                 vc,
-                dir,
                 create_dir: None,
+                _dir: dir,
             }
         }
 
