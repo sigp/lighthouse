@@ -1,4 +1,5 @@
 use super::common::*;
+use crate::DumpConfigs;
 use account_utils::{random_password_string, read_mnemonic_from_cli, read_password_from_user};
 use clap::{App, Arg, ArgMatches};
 use eth2::{
@@ -7,7 +8,7 @@ use eth2::{
     BeaconNodeHttpClient, SensitiveUrl, Timeouts,
 };
 use eth2_wallet::WalletBuilder;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -180,7 +181,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
 
 /// The CLI arguments are parsed into this struct before running the application. This step of
 /// indirection allows for testing the underlying logic without needing to parse CLI arguments.
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct CreateConfig {
     pub output_path: PathBuf,
     pub first_index: u32,
@@ -460,9 +461,14 @@ impl ValidatorsAndDeposits {
 pub async fn cli_run<'a, T: EthSpec>(
     matches: &'a ArgMatches<'a>,
     spec: &ChainSpec,
+    dump_configs: DumpConfigs,
 ) -> Result<(), String> {
     let config = CreateConfig::from_cli(matches, spec)?;
-    run::<T>(config, spec).await
+    if dump_configs.should_exit_early(&config)? {
+        Ok(())
+    } else {
+        run::<T>(config, spec).await
+    }
 }
 
 async fn run<'a, T: EthSpec>(config: CreateConfig, spec: &ChainSpec) -> Result<(), String> {
@@ -506,7 +512,10 @@ async fn run<'a, T: EthSpec>(config: CreateConfig, spec: &ChainSpec) -> Result<(
 /// Write some object to a file as JSON.
 ///
 /// The file must be created new, it must not already exist.
-fn write_to_json_file<P: AsRef<Path>, S: Serialize>(path: P, contents: &S) -> Result<(), String> {
+pub fn write_to_json_file<P: AsRef<Path>, S: Serialize>(
+    path: P,
+    contents: &S,
+) -> Result<(), String> {
     eprintln!("Writing {:?}", path.as_ref());
     let mut file = fs::OpenOptions::new()
         .write(true)

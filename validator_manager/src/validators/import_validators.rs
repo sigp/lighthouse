@@ -1,4 +1,5 @@
 use super::common::*;
+use crate::DumpConfigs;
 use clap::{App, Arg, ArgMatches};
 use eth2::{
     lighthouse_vc::{
@@ -7,6 +8,7 @@ use eth2::{
     },
     SensitiveUrl,
 };
+use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 
@@ -72,7 +74,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         )
 }
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 struct ImportConfig {
     validators_file_path: PathBuf,
     vc_url: SensitiveUrl,
@@ -91,9 +93,16 @@ impl ImportConfig {
     }
 }
 
-pub async fn cli_run<'a>(matches: &'a ArgMatches<'a>) -> Result<(), String> {
+pub async fn cli_run<'a>(
+    matches: &'a ArgMatches<'a>,
+    dump_configs: DumpConfigs,
+) -> Result<(), String> {
     let config = ImportConfig::from_cli(matches)?;
-    run(config).await
+    if dump_configs.should_exit_early(&config)? {
+        Ok(())
+    } else {
+        run(config).await
+    }
 }
 
 async fn run<'a>(config: ImportConfig) -> Result<(), String> {
