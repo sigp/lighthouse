@@ -181,7 +181,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
 
 /// The CLI arguments are parsed into this struct before running the application. This step of
 /// indirection allows for testing the underlying logic without needing to parse CLI arguments.
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct CreateConfig {
     pub output_path: PathBuf,
     pub first_index: u32,

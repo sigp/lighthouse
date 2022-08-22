@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use types::EthSpec;
 use validators::create_validators::write_to_json_file;
 
-mod validators;
+pub mod validators;
 
 pub const CMD: &str = "validator_manager";
 
