@@ -5,7 +5,8 @@ use state_processing::{SigVerifiedOp, VerifyOperation};
 use std::collections::HashSet;
 use std::marker::PhantomData;
 use types::{
-    AttesterSlashing, BeaconState, ChainSpec, EthSpec, ProposerSlashing, SignedVoluntaryExit,
+    AttesterSlashing, BeaconState, ChainSpec, EthSpec, ForkName, ProposerSlashing,
+    SignedVoluntaryExit,
 };
 
 /// Number of validator indices to store on the stack in `observed_validators`.
@@ -25,6 +26,9 @@ pub struct ObservedOperations<T: ObservableOperation<E>, E: EthSpec> {
     /// previously seen attester slashings, i.e. those validators in the intersection of
     /// `attestation_1.attester_indices` and `attestation_2.attester_indices`.
     observed_validator_indices: HashSet<u64>,
+    /// The name of the current fork. The default will be overwritten on first use.
+    #[derivative(Default(value = "ForkName::Base"))]
+    current_fork: ForkName,
     _phantom: PhantomData<(T, E)>,
 }
 
@@ -83,6 +87,8 @@ impl<T: ObservableOperation<E>, E: EthSpec> ObservedOperations<T, E> {
         head_state: &BeaconState<E>,
         spec: &ChainSpec,
     ) -> Result<ObservationOutcome<T, E>, T::Error> {
+        self.reset_at_fork_boundary(head_state.slot(), spec);
+
         let observed_validator_indices = &mut self.observed_validator_indices;
         let new_validator_indices = op.observed_validators();
 
@@ -96,8 +102,6 @@ impl<T: ObservableOperation<E>, E: EthSpec> ObservedOperations<T, E> {
             .iter()
             .all(|index| observed_validator_indices.contains(index))
         {
-            // FIXME(sproul): consider verifying that those already-observed slashings are
-            // still valid.
             return Ok(ObservationOutcome::AlreadyKnown);
         }
 
@@ -109,5 +113,24 @@ impl<T: ObservableOperation<E>, E: EthSpec> ObservedOperations<T, E> {
         observed_validator_indices.extend(new_validator_indices);
 
         Ok(ObservationOutcome::New(verified_op))
+    }
+
+    /// Reset the cache when crossing a fork boundary.
+    ///
+    /// This prevents an attacker from crafting a self-slashing which is only valid before the fork
+    /// (e.g. using the Altair fork domain at a Bellatrix epoch), in order to prevent propagation of
+    /// all other slashings due to the duplicate check.
+    ///
+    /// It doesn't matter if this cache gets reset too often, as we reset it on restart anyway and a
+    /// false negative just results in propagation of messages which should have been ignored.
+    ///
+    /// In future we could check slashing relevance against the op pool itself, but that would
+    /// require indexing the attester slashings in the op pool by validator index.
+    fn reset_at_fork_boundary(&mut self, head_slot: Slot, spec: &ChainSpec) {
+        let head_fork = spec.fork_name_at_slot(head_slot);
+        if head_fork != self.current_fork {
+            self.observed_validator_indices.clear();
+            self.current_fork = head_fork;
+        }
     }
 }
