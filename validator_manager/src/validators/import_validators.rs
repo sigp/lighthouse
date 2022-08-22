@@ -16,6 +16,8 @@ pub const VALIDATOR_CLIENT_URL_FLAG: &str = "validator-client-url";
 pub const VALIDATOR_CLIENT_TOKEN_FLAG: &str = "validator-client-token";
 pub const IGNORE_DUPLICATES_FLAG: &str = "ignore-duplicates";
 
+pub const DETECTED_DUPLICATE_MESSAGE: &str = "Duplicate validator detected!";
+
 pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
     App::new(CMD)
         .about(
@@ -175,9 +177,45 @@ async fn run<'a>(config: ImportConfig) -> Result<(), String> {
             slashing_protection,
         };
 
+        // Check to see if this validator already exists on the remote validator.
+        match http_client.get_keystores().await {
+            Ok(response) => {
+                if response
+                    .data
+                    .iter()
+                    .find(|validator| validator.validating_pubkey == voting_public_key)
+                    .is_some()
+                {
+                    if ignore_duplicates {
+                        eprintln!(
+                            "Duplicate validators are ignored, ignoring {:?} which exists \
+                            on the validator client and in {:?}",
+                            voting_public_key, validators_file_path
+                        );
+                    } else {
+                        eprintln!(
+                            "{} {:?} exists on the remote validator client and in {:?}",
+                            DETECTED_DUPLICATE_MESSAGE, voting_public_key, validators_file_path
+                        );
+                        return Err(DETECTED_DUPLICATE_MESSAGE.to_string());
+                    }
+                }
+            }
+            Err(e) => {
+                eprintln!(
+                    "Failed to list keystores during batch {}. Some keys may have been imported whilst \
+                        others may not have been imported. A potential solution is to use the \
+                        --{} flag, however care should be taken to ensure that there are no \
+                        duplicate deposits submitted.",
+                    i, IGNORE_DUPLICATES_FLAG
+                );
+                return Err(format!("Failed to list keys: {:?}", e));
+            }
+        };
+
         if let Err(e) = http_client.post_keystores(&request).await {
             eprintln!(
-                "Failed to upload batch {}. Some keys were imported whilst \
+                "Failed to upload batch {}. Some keys may have been imported whilst \
                     others may not have been imported. A potential solution is to use the \
                     --{} flag, however care should be taken to ensure that there are no \
                     duplicate deposits submitted.",
@@ -262,6 +300,11 @@ mod test {
             }
         }
 
+        pub fn mutate_import_config<F: Fn(&mut ImportConfig)>(mut self, func: F) -> Self {
+            func(&mut self.import_config);
+            self
+        }
+
         async fn create_validators(mut self, count: u32, first_index: u32) -> Self {
             let create_result = CreateTestBuilder::default()
                 .mutate_config(|config| {
@@ -276,6 +319,13 @@ mod test {
             );
             self.import_config.validators_file_path = create_result.validators_file_path();
             self.create_dir = Some(create_result.output_dir);
+            self
+        }
+
+        /// Imports validators without running the entire test suite in `Self::run_test`. This is
+        /// useful for simulating duplicate imports.
+        async fn import_validators_without_checks(self) -> Self {
+            run(self.import_config.clone()).await.unwrap();
             self
         }
 
@@ -307,6 +357,10 @@ mod test {
                     // It's not immediately clear why Lighthouse returns `None` rather than
                     // `Some(false)` here, I would expect the latter to be the most accurate.
                     // However, it doesn't seem like a big deal.
+                    //
+                    // See: https://github.com/sigp/lighthouse/pull/3490
+                    //
+                    // If that PR changes we'll need to change this line.
                     assert_eq!(remote_validator.readonly, None);
                 }
             }
@@ -325,8 +379,8 @@ mod test {
             assert_eq!(self.result, Ok(()))
         }
 
-        fn assert_err(self) {
-            assert!(self.result.is_err())
+        fn assert_err_is(self, msg: String) {
+            assert_eq!(self.result, Err(msg))
         }
     }
 
@@ -368,6 +422,35 @@ mod test {
         TestBuilder::new()
             .await
             .create_validators(3, 1337)
+            .await
+            .run_test()
+            .await
+            .assert_ok();
+    }
+
+    #[tokio::test]
+    async fn import_duplicates_when_disallowed() {
+        TestBuilder::new()
+            .await
+            .create_validators(1, 0)
+            .await
+            .import_validators_without_checks()
+            .await
+            .run_test()
+            .await
+            .assert_err_is(DETECTED_DUPLICATE_MESSAGE.to_string());
+    }
+
+    #[tokio::test]
+    async fn import_duplicates_when_allowed() {
+        TestBuilder::new()
+            .await
+            .mutate_import_config(|config| {
+                config.ignore_duplicates = true;
+            })
+            .create_validators(1, 0)
+            .await
+            .import_validators_without_checks()
             .await
             .run_test()
             .await
