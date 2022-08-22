@@ -95,6 +95,14 @@ where
                 current_fork.get_fork_version(epoch) == *verified_fork_version
             })
     }
+
+    /// Return one of the fork versions this message was verified against.
+    ///
+    /// This is only required for the v12 schema downgrade and can be deleted once all nodes
+    /// are upgraded to v12.
+    pub fn first_fork_verified_against(&self) -> Option<ForkVersion> {
+        self.verified_against.fork_versions.first().copied()
+    }
 }
 
 /// Trait for operations that can be verified and transformed into a `SigVerifiedOp`.
