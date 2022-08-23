@@ -51,8 +51,10 @@ pub enum Libp2pEvent<AppReqId: ReqId, TSpec: EthSpec> {
 
 /// The configuration and state of the libp2p components for the beacon node.
 pub struct Service<AppReqId: ReqId, TSpec: EthSpec> {
+    _p_a: std::marker::PhantomData<AppReqId>,
+    _p_b: std::marker::PhantomData<TSpec>,
     /// The libp2p Swarm handler.
-    pub swarm: Swarm<Network<AppReqId, TSpec>>,
+    pub swarm: Swarm<libp2p::swarm::DummyBehaviour>,
     /// The bandwidth logger for the underlying libp2p transport.
     pub bandwidth: Arc<BandwidthSinks>,
     /// This node's PeerId.
@@ -119,8 +121,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Service<AppReqId, TSpec> {
                 .map_err(|e| format!("Failed to build transport: {:?}", e))?;
 
             // Lighthouse network behaviour
-            let behaviour =
-                Network::new(&local_keypair, ctx, network_globals.clone(), &log).await?;
+            let behaviour = libp2p::swarm::DummyBehaviour::default();
 
             // use the executor for libp2p
             struct Executor(task_executor::TaskExecutor);
@@ -236,11 +237,12 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Service<AppReqId, TSpec> {
         let mut subscribed_topics: Vec<GossipKind> = vec![];
 
         for topic_kind in &config.topics {
-            if swarm.behaviour_mut().subscribe_kind(topic_kind.clone()) {
-                subscribed_topics.push(topic_kind.clone());
-            } else {
-                warn!(log, "Could not subscribe to topic"; "topic" => %topic_kind);
-            }
+            // TODO
+            // if swarm.behaviour_mut().subscribe_kind(topic_kind.clone()) {
+            //     subscribed_topics.push(topic_kind.clone());
+            // } else {
+            //     warn!(log, "Could not subscribe to topic"; "topic" => %topic_kind);
+            // }
         }
 
         if !subscribed_topics.is_empty() {
@@ -248,6 +250,8 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Service<AppReqId, TSpec> {
         }
 
         let service = Service {
+            _p_a: Default::default(),
+            _p_b: Default::default(),
             swarm,
             bandwidth,
             local_peer_id,
@@ -259,9 +263,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Service<AppReqId, TSpec> {
 
     /// Sends a request to a peer, with a given Id.
     pub fn send_request(&mut self, peer_id: PeerId, request_id: AppReqId, request: Request) {
-        self.swarm
-            .behaviour_mut()
-            .send_request(peer_id, request_id, request);
+        todo!()
     }
 
     /// Informs the peer that their request failed.
@@ -272,9 +274,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Service<AppReqId, TSpec> {
         error: RPCResponseErrorCode,
         reason: String,
     ) {
-        self.swarm
-            .behaviour_mut()
-            .send_error_reponse(peer_id, id, error, reason);
+        todo!()
     }
 
     /// Report a peer's action.
@@ -285,27 +285,22 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Service<AppReqId, TSpec> {
         source: ReportSource,
         msg: &'static str,
     ) {
-        self.swarm
-            .behaviour_mut()
-            .peer_manager_mut()
-            .report_peer(peer_id, action, source, None, msg);
+        todo!()
     }
 
     /// Disconnect and ban a peer, providing a reason.
     pub fn goodbye_peer(&mut self, peer_id: &PeerId, reason: GoodbyeReason, source: ReportSource) {
-        self.swarm
-            .behaviour_mut()
-            .goodbye_peer(peer_id, reason, source);
+        todo!()
     }
 
     /// Sends a response to a peer's request.
     pub fn send_response(&mut self, peer_id: PeerId, id: PeerRequestId, response: Response<TSpec>) {
-        self.swarm
-            .behaviour_mut()
-            .send_successful_response(peer_id, id, response);
+        todo!()
     }
 
     pub async fn next_event(&mut self) -> Libp2pEvent<AppReqId, TSpec> {
+        todo!()
+        /*
         loop {
             match self.swarm.select_next_some().await {
                 SwarmEvent::Behaviour(behaviour) => {
@@ -376,6 +371,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Service<AppReqId, TSpec> {
                 SwarmEvent::Dialing(_peer_id) => {}
             }
         }
+            */
     }
 }
 
@@ -386,7 +382,8 @@ type BoxedTransport = Boxed<(PeerId, StreamMuxerBox)>;
 fn build_transport(
     local_private_key: Keypair,
 ) -> std::io::Result<(BoxedTransport, Arc<BandwidthSinks>)> {
-    let tcp = libp2p::tcp::TokioTcpConfig::new().nodelay(true);
+    let tcp =
+        libp2p::tcp::TokioTcpTransport::new(libp2p::tcp::GenTcpConfig::default().nodelay(true));
     let transport = libp2p::dns::TokioDnsConfig::system(tcp)?;
     #[cfg(feature = "libp2p-websocket")]
     let transport = {
