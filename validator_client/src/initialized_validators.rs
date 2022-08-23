@@ -8,7 +8,7 @@
 
 use crate::signing_method::SigningMethod;
 use account_utils::{
-    read_password, read_password_from_user,
+    read_password, read_password_from_user, read_password_string,
     validator_definitions::{
         self, SigningDefinition, ValidatorDefinition, ValidatorDefinitions, Web3SignerDefinition,
         CONFIG_FILENAME,
@@ -42,6 +42,11 @@ const DEFAULT_REMOTE_SIGNER_REQUEST_TIMEOUT: Duration = Duration::from_secs(12);
 
 // Use TTY instead of stdin to capture passwords from users.
 const USE_STDIN: bool = false;
+
+pub struct KeystoreAndPassword {
+    pub keystore: Keystore,
+    pub password: ZeroizeString,
+}
 
 #[derive(Debug)]
 pub enum Error {
@@ -97,6 +102,9 @@ pub enum Error {
     UnableToBuildWeb3SignerClient(ReqwestError),
     /// Unable to apply an action to a validator.
     InvalidActionOnValidator,
+    UnableToReadValidatorPassword(String),
+    MissingKeystorePassword,
+    UnableToReadKeystoreFile(eth2_keystore::Error),
 }
 
 impl From<LockfileError> for Error {
@@ -534,31 +542,49 @@ impl InitializedValidators {
         &mut self,
         pubkey: &PublicKey,
         is_local_keystore: bool,
-    ) -> Result<(), Error> {
+    ) -> Result<Option<KeystoreAndPassword>, Error> {
         // 1. Disable the validator definition.
         //
         // We disable before removing so that in case of a crash the auto-discovery mechanism
         // won't re-activate the keystore.
-        if let Some(def) = self
+        let keystore_and_password = if let Some(def) = self
             .definitions
             .as_mut_slice()
             .iter_mut()
             .find(|def| &def.voting_public_key == pubkey)
         {
-            // Update definition for local keystore
-            if def.signing_definition.is_local_keystore() && is_local_keystore {
-                def.enabled = false;
-                self.definitions
-                    .save(&self.validators_dir)
-                    .map_err(Error::UnableToSaveDefinitions)?;
-            } else if !def.signing_definition.is_local_keystore() && !is_local_keystore {
-                def.enabled = false;
-            } else {
-                return Err(Error::InvalidActionOnValidator);
+            match &def.signing_definition {
+                SigningDefinition::LocalKeystore {
+                    voting_keystore_path,
+                    voting_keystore_password,
+                    voting_keystore_password_path,
+                    ..
+                } if is_local_keystore => {
+                    let password = match (voting_keystore_password, voting_keystore_password_path) {
+                        (Some(password), _) => password.clone(),
+                        (_, Some(path)) => read_password_string(path)
+                            .map_err(Error::UnableToReadValidatorPassword)?,
+                        (None, None) => return Err(Error::MissingKeystorePassword),
+                    };
+                    let keystore = Keystore::from_json_file(voting_keystore_path)
+                        .map_err(Error::UnableToReadKeystoreFile)?;
+
+                    def.enabled = false;
+                    self.definitions
+                        .save(&self.validators_dir)
+                        .map_err(Error::UnableToSaveDefinitions)?;
+
+                    Some(KeystoreAndPassword { keystore, password })
+                }
+                SigningDefinition::Web3Signer(_) if !is_local_keystore => {
+                    def.enabled = false;
+                    None
+                }
+                _ => return Err(Error::InvalidActionOnValidator),
             }
         } else {
             return Err(Error::ValidatorNotInitialized(pubkey.clone()));
-        }
+        };
 
         // 2. Delete from `self.validators`, which holds the signing method.
         //    Delete the keystore files.
@@ -585,7 +611,7 @@ impl InitializedValidators {
             .save(&self.validators_dir)
             .map_err(Error::UnableToSaveDefinitions)?;
 
-        Ok(())
+        Ok(keystore_and_password)
     }
 
     /// Attempt to delete the voting keystore file, or its entire validator directory.

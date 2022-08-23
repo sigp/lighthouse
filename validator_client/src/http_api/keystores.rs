@@ -4,10 +4,13 @@ use crate::{
     ValidatorStore,
 };
 use account_utils::ZeroizeString;
-use eth2::lighthouse_vc::std_types::{
-    DeleteKeystoreStatus, DeleteKeystoresRequest, DeleteKeystoresResponse, ImportKeystoreStatus,
-    ImportKeystoresRequest, ImportKeystoresResponse, InterchangeJsonStr, KeystoreJsonStr,
-    ListKeystoresResponse, SingleKeystoreResponse, Status,
+use eth2::lighthouse_vc::{
+    std_types::{
+        DeleteKeystoreStatus, DeleteKeystoresRequest, DeleteKeystoresResponse,
+        ImportKeystoreStatus, ImportKeystoresRequest, ImportKeystoresResponse, InterchangeJsonStr,
+        KeystoreJsonStr, ListKeystoresResponse, SingleKeystoreResponse, Status,
+    },
+    types::{ExportKeystoresResponse, SingleExportKeystoresResponse},
 };
 use eth2_keystore::Keystore;
 use slog::{info, warn, Logger};
@@ -219,11 +222,28 @@ pub fn delete<T: SlotClock + 'static, E: EthSpec>(
     task_executor: TaskExecutor,
     log: Logger,
 ) -> Result<DeleteKeystoresResponse, Rejection> {
+    let export_response = export(request, validator_store, task_executor, log)?;
+    Ok(DeleteKeystoresResponse {
+        data: export_response
+            .data
+            .into_iter()
+            .map(|response| response.status)
+            .collect(),
+        slashing_protection: export_response.slashing_protection,
+    })
+}
+
+pub fn export<T: SlotClock + 'static, E: EthSpec>(
+    request: DeleteKeystoresRequest,
+    validator_store: Arc<ValidatorStore<T, E>>,
+    task_executor: TaskExecutor,
+    log: Logger,
+) -> Result<ExportKeystoresResponse, Rejection> {
     // Remove from initialized validators.
     let initialized_validators_rwlock = validator_store.initialized_validators();
     let mut initialized_validators = initialized_validators_rwlock.write();
 
-    let mut statuses = request
+    let mut responses = request
         .pubkeys
         .iter()
         .map(|pubkey_bytes| {
@@ -232,7 +252,7 @@ pub fn delete<T: SlotClock + 'static, E: EthSpec>(
                 &mut initialized_validators,
                 task_executor.clone(),
             ) {
-                Ok(status) => Status::ok(status),
+                Ok(status) => status,
                 Err(error) => {
                     warn!(
                         log,
@@ -240,7 +260,11 @@ pub fn delete<T: SlotClock + 'static, E: EthSpec>(
                         "pubkey" => ?pubkey_bytes,
                         "error" => ?error,
                     );
-                    Status::error(DeleteKeystoreStatus::Error, error)
+                    SingleExportKeystoresResponse {
+                        status: Status::error(DeleteKeystoreStatus::Error, error),
+                        validating_keystore: None,
+                        validating_keystore_password: None,
+                    }
                 }
             }
         })
@@ -263,19 +287,19 @@ pub fn delete<T: SlotClock + 'static, E: EthSpec>(
         })?;
 
     // Update stasuses based on availability of slashing protection data.
-    for (pubkey, status) in request.pubkeys.iter().zip(statuses.iter_mut()) {
-        if status.status == DeleteKeystoreStatus::NotFound
+    for (pubkey, response) in request.pubkeys.iter().zip(responses.iter_mut()) {
+        if response.status.status == DeleteKeystoreStatus::NotFound
             && slashing_protection
                 .data
                 .iter()
                 .any(|interchange_data| interchange_data.pubkey == *pubkey)
         {
-            status.status = DeleteKeystoreStatus::NotActive;
+            response.status.status = DeleteKeystoreStatus::NotActive;
         }
     }
 
-    Ok(DeleteKeystoresResponse {
-        data: statuses,
+    Ok(ExportKeystoresResponse {
+        data: responses,
         slashing_protection,
     })
 }
@@ -284,7 +308,7 @@ fn delete_single_keystore(
     pubkey_bytes: &PublicKeyBytes,
     initialized_validators: &mut InitializedValidators,
     task_executor: TaskExecutor,
-) -> Result<DeleteKeystoreStatus, String> {
+) -> Result<SingleExportKeystoresResponse, String> {
     if let Some(handle) = task_executor.handle() {
         let pubkey = pubkey_bytes
             .decompress()
@@ -292,9 +316,22 @@ fn delete_single_keystore(
 
         match handle.block_on(initialized_validators.delete_definition_and_keystore(&pubkey, true))
         {
-            Ok(_) => Ok(DeleteKeystoreStatus::Deleted),
+            Ok(Some(keystore_and_password)) => Ok(SingleExportKeystoresResponse {
+                status: Status::ok(DeleteKeystoreStatus::Deleted),
+                validating_keystore: Some(KeystoreJsonStr(keystore_and_password.keystore)),
+                validating_keystore_password: Some(keystore_and_password.password),
+            }),
+            Ok(None) => Ok(SingleExportKeystoresResponse {
+                status: Status::ok(DeleteKeystoreStatus::Deleted),
+                validating_keystore: None,
+                validating_keystore_password: None,
+            }),
             Err(e) => match e {
-                Error::ValidatorNotInitialized(_) => Ok(DeleteKeystoreStatus::NotFound),
+                Error::ValidatorNotInitialized(_) => Ok(SingleExportKeystoresResponse {
+                    status: Status::ok(DeleteKeystoreStatus::NotFound),
+                    validating_keystore: None,
+                    validating_keystore_password: None,
+                }),
                 _ => Err(format!("unable to disable and delete: {:?}", e)),
             },
         }

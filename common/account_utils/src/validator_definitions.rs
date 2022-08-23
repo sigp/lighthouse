@@ -3,7 +3,9 @@
 //! Serves as the source-of-truth of which validators this validator client should attempt (or not
 //! attempt) to load into the `crate::intialized_validators::InitializedValidators` struct.
 
-use crate::{default_keystore_password_path, write_file_via_temporary, ZeroizeString};
+use crate::{
+    default_keystore_password_path, read_password_string, write_file_via_temporary, ZeroizeString,
+};
 use directory::ensure_dir_exists;
 use eth2_keystore::Keystore;
 use regex::Regex;
@@ -43,6 +45,8 @@ pub enum Error {
     UnableToOpenKeystore(eth2_keystore::Error),
     /// The validator directory could not be created.
     UnableToCreateValidatorDir(PathBuf),
+    UnableToReadKeystorePassword(String),
+    KeystoreWithoutPassword,
 }
 
 #[derive(Clone, PartialEq, Serialize, Deserialize, Hash, Eq)]
@@ -91,6 +95,24 @@ pub enum SigningDefinition {
 impl SigningDefinition {
     pub fn is_local_keystore(&self) -> bool {
         matches!(self, SigningDefinition::LocalKeystore { .. })
+    }
+
+    pub fn voting_keystore_password(&self) -> Result<Option<ZeroizeString>, Error> {
+        match self {
+            SigningDefinition::LocalKeystore {
+                voting_keystore_password: Some(password),
+                ..
+            } => Ok(Some(password.clone())),
+            SigningDefinition::LocalKeystore {
+                voting_keystore_password_path: Some(path),
+                ..
+            } => read_password_string(path)
+                .map(Into::into)
+                .map(Option::Some)
+                .map_err(Error::UnableToReadKeystorePassword),
+            SigningDefinition::LocalKeystore { .. } => Err(Error::KeystoreWithoutPassword),
+            SigningDefinition::Web3Signer(_) => Ok(None),
+        }
     }
 }
 

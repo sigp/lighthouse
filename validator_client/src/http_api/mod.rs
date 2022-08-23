@@ -77,6 +77,7 @@ pub struct Config {
     pub listen_addr: IpAddr,
     pub listen_port: u16,
     pub allow_origin: Option<String>,
+    pub allow_keystore_export: bool,
 }
 
 impl Default for Config {
@@ -86,6 +87,7 @@ impl Default for Config {
             listen_addr: IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
             listen_port: 5062,
             allow_origin: None,
+            allow_keystore_export: false,
         }
     }
 }
@@ -110,6 +112,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
     shutdown: impl Future<Output = ()> + Send + Sync + 'static,
 ) -> Result<(SocketAddr, impl Future<Output = ()>), Error> {
     let config = &ctx.config;
+    let allow_keystore_export = config.allow_keystore_export;
     let log = ctx.log.clone();
 
     // Configure CORS.
@@ -580,6 +583,29 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
             })
         });
 
+    // DELETE /lighthouse/keystores
+    let delete_lighthouse_keystores = warp::path("lighthouse")
+        .and(warp::path("keystores"))
+        .and(warp::path::end())
+        .and(warp::body::json())
+        .and(signer.clone())
+        .and(validator_store_filter.clone())
+        .and(task_executor_filter.clone())
+        .and(log_filter.clone())
+        .and_then(
+            move |request, signer, validator_store, task_executor, log| {
+                blocking_signed_json_task(signer, move || {
+                    if allow_keystore_export {
+                        keystores::export(request, validator_store, task_executor, log)
+                    } else {
+                        return Err(warp_utils::reject::custom_bad_request(
+                            "keystore export is disabled".to_string(),
+                        ));
+                    }
+                })
+            },
+        );
+
     // Standard key-manager endpoints.
     let eth_v1 = warp::path("eth").and(warp::path("v1"));
     let std_keystores = eth_v1.and(warp::path("keystores")).and(warp::path::end());
@@ -913,7 +939,8 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                 ))
                 .or(warp::patch().and(patch_validators))
                 .or(warp::delete().and(
-                    delete_fee_recipient
+                    delete_lighthouse_keystores
+                        .or(delete_fee_recipient)
                         .or(delete_gas_limit)
                         .or(delete_std_keystores)
                         .or(delete_std_remotekeys),
