@@ -2,14 +2,13 @@ use crate::OpPoolError;
 use bitvec::vec::BitVec;
 use types::{BeaconState, BeaconStateError, Epoch, EthSpec, Hash256, ParticipationFlags, Slot};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 struct Initialization {
     current_epoch: Epoch,
-    prev_epoch_last_block_root: Hash256,
     latest_block_root: Hash256,
 }
 
-/// Cache to store validator effective balances and base rewards for block proposal.
+/// Cache to store pre-computed information for block proposal.
 #[derive(Debug, Clone, Default)]
 pub struct RewardCache {
     initialization: Option<Initialization>,
@@ -73,42 +72,27 @@ impl RewardCache {
         }
 
         let current_epoch = state.current_epoch();
-        let prev_epoch_last_block_root = Self::marker_block_root(
-            state,
-            state.previous_epoch().start_slot(E::slots_per_epoch()),
-        )?;
         let latest_block_root = Self::marker_block_root(state, state.slot() - 1)?;
 
-        // If the `state` is from a new epoch or a different fork with a different last epoch block,
-        // then update the effective balance cache (the effective balances are liable to have
-        // changed at the epoch boundary).
-        //
-        // Similarly, update the previous epoch participation cache as previous epoch participation
-        // is now fixed.
-        if self.initialization.as_ref().map_or(true, |init| {
-            init.current_epoch != current_epoch
-                || init.prev_epoch_last_block_root != prev_epoch_last_block_root
-        }) {
-            self.update_previous_epoch_participation(state)
-                .map_err(OpPoolError::RewardCacheUpdatePrevEpoch)?;
-        }
+        let new_init = Initialization {
+            current_epoch,
+            latest_block_root,
+        };
 
-        // The current epoch participation flags change every block, and will almost always need
-        // updating when this function is called at a new slot.
+        // The participation flags change every block, and will almost always need updating when
+        // this function is called at a new slot.
         if self
             .initialization
             .as_ref()
-            .map_or(true, |init| init.latest_block_root != latest_block_root)
+            .map_or(true, |init| *init != new_init)
         {
+            self.update_previous_epoch_participation(state)
+                .map_err(OpPoolError::RewardCacheUpdatePrevEpoch)?;
             self.update_current_epoch_participation(state)
                 .map_err(OpPoolError::RewardCacheUpdateCurrEpoch)?;
-        }
 
-        self.initialization = Some(Initialization {
-            current_epoch,
-            prev_epoch_last_block_root,
-            latest_block_root,
-        });
+            self.initialization = Some(new_init);
+        }
 
         Ok(())
     }
