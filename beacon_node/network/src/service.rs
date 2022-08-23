@@ -21,7 +21,7 @@ use lighthouse_network::{
 };
 use lighthouse_network::{
     types::{GossipEncoding, GossipTopic},
-    BehaviourEvent, MessageId, NetworkGlobals, PeerId,
+    OldBehaviourEvent, MessageId, NetworkGlobals, PeerId,
 };
 use slog::{crit, debug, error, info, o, trace, warn};
 use std::{net::SocketAddr, pin::Pin, sync::Arc, time::Duration};
@@ -461,18 +461,18 @@ impl<T: BeaconChainTypes> NetworkService<T> {
     ) {
         match ev {
             Libp2pEvent::Behaviour(event) => match event {
-                BehaviourEvent::PeerConnectedOutgoing(peer_id) => {
+                OldBehaviourEvent::PeerConnectedOutgoing(peer_id) => {
                     self.send_to_router(RouterMessage::PeerDialed(peer_id));
                 }
-                BehaviourEvent::PeerConnectedIncoming(_)
-                | BehaviourEvent::PeerBanned(_)
-                | BehaviourEvent::PeerUnbanned(_) => {
+                OldBehaviourEvent::PeerConnectedIncoming(_)
+                | OldBehaviourEvent::PeerBanned(_)
+                | OldBehaviourEvent::PeerUnbanned(_) => {
                     // No action required for these events.
                 }
-                BehaviourEvent::PeerDisconnected(peer_id) => {
+                OldBehaviourEvent::PeerDisconnected(peer_id) => {
                     self.send_to_router(RouterMessage::PeerDisconnected(peer_id));
                 }
-                BehaviourEvent::RequestReceived {
+                OldBehaviourEvent::RequestReceived {
                     peer_id,
                     id,
                     request,
@@ -483,7 +483,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                         request,
                     });
                 }
-                BehaviourEvent::ResponseReceived {
+                OldBehaviourEvent::ResponseReceived {
                     peer_id,
                     id,
                     response,
@@ -494,16 +494,16 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                         response,
                     });
                 }
-                BehaviourEvent::RPCFailed { id, peer_id } => {
+                OldBehaviourEvent::RPCFailed { id, peer_id } => {
                     self.send_to_router(RouterMessage::RPCFailed {
                         peer_id,
                         request_id: id,
                     });
                 }
-                BehaviourEvent::StatusPeer(peer_id) => {
+                OldBehaviourEvent::StatusPeer(peer_id) => {
                     self.send_to_router(RouterMessage::StatusPeer(peer_id));
                 }
-                BehaviourEvent::PubsubMessage {
+                OldBehaviourEvent::PubsubMessage {
                     id,
                     source,
                     message,

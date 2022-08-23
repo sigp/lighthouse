@@ -69,7 +69,7 @@ pub use crate::types::{
 
 pub use prometheus_client;
 
-pub use behaviour::{BehaviourEvent, Gossipsub, PeerRequestId, Request, Response};
+pub use behaviour::{OldBehaviourEvent, Gossipsub, PeerRequestId, Request, Response};
 pub use config::Config as NetworkConfig;
 pub use discovery::{CombinedKeyExt, EnrExt, Eth2Enr};
 pub use discv5;

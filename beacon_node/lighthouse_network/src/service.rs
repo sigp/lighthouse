@@ -1,5 +1,5 @@
 use crate::behaviour::{
-    save_metadata_to_disk, Behaviour, BehaviourEvent, PeerRequestId, Request, Response,
+    save_metadata_to_disk, Network, OldBehaviourEvent, PeerRequestId, Request, Response,
 };
 use crate::config::NetworkLoad;
 use crate::discovery::enr;
@@ -42,7 +42,7 @@ pub const METADATA_FILENAME: &str = "metadata";
 #[derive(Debug)]
 pub enum Libp2pEvent<AppReqId: ReqId, TSpec: EthSpec> {
     /// A behaviour event
-    Behaviour(BehaviourEvent<AppReqId, TSpec>),
+    Behaviour(OldBehaviourEvent<AppReqId, TSpec>),
     /// A new listening address has been established.
     NewListenAddr(Multiaddr),
     /// We reached zero listening addresses.
@@ -52,7 +52,7 @@ pub enum Libp2pEvent<AppReqId: ReqId, TSpec: EthSpec> {
 /// The configuration and state of the libp2p components for the beacon node.
 pub struct Service<AppReqId: ReqId, TSpec: EthSpec> {
     /// The libp2p Swarm handler.
-    pub swarm: Swarm<Behaviour<AppReqId, TSpec>>,
+    pub swarm: Swarm<Network<AppReqId, TSpec>>,
     /// The bandwidth logger for the underlying libp2p transport.
     pub bandwidth: Arc<BandwidthSinks>,
     /// This node's PeerId.
@@ -120,7 +120,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Service<AppReqId, TSpec> {
 
             // Lighthouse network behaviour
             let behaviour =
-                Behaviour::new(&local_keypair, ctx, network_globals.clone(), &log).await?;
+                Network::new(&local_keypair, ctx, network_globals.clone(), &log).await?;
 
             // use the executor for libp2p
             struct Executor(task_executor::TaskExecutor);
@@ -311,10 +311,10 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Service<AppReqId, TSpec> {
                 SwarmEvent::Behaviour(behaviour) => {
                     // Handle banning here
                     match &behaviour {
-                        BehaviourEvent::PeerBanned(peer_id) => {
+                        OldBehaviourEvent::PeerBanned(peer_id) => {
                             self.swarm.ban_peer_id(*peer_id);
                         }
-                        BehaviourEvent::PeerUnbanned(peer_id) => {
+                        OldBehaviourEvent::PeerUnbanned(peer_id) => {
                             self.swarm.unban_peer_id(*peer_id);
                         }
                         _ => {}
