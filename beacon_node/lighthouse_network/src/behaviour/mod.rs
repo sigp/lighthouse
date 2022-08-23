@@ -3,7 +3,7 @@ use crate::behaviour::gossipsub_scoring_parameters::{
 };
 use crate::config::gossipsub_config;
 use crate::discovery::{
-    subnet_predicate, Discovery, DiscoveryEvent, FIND_NODE_QUERY_CLOSEST_PEERS,
+    subnet_predicate, DiscoveredPeers, Discovery, FIND_NODE_QUERY_CLOSEST_PEERS,
 };
 use crate::peer_manager::{
     config::Config as PeerManagerCfg, peerdb::score::PeerAction, peerdb::score::ReportSource,
@@ -20,9 +20,7 @@ use crate::{error, metrics, Enr, NetworkGlobals, PubsubMessage, TopicHash};
 use futures::stream::StreamExt;
 use libp2p::gossipsub::error::PublishError;
 use libp2p::{
-    core::{
-        connection::ConnectionId, identity::Keypair, multiaddr::Protocol as MProtocol, Multiaddr,
-    },
+    core::{connection::ConnectionId, identity::Keypair},
     gossipsub::{
         metrics::Config as GossipsubMetricsConfig,
         subscription_filter::{MaxCountSubscriptionFilter, WhitelistSubscriptionFilter},
@@ -32,8 +30,8 @@ use libp2p::{
     identify::{Identify, IdentifyConfig, IdentifyEvent},
     swarm::{
         dial_opts::{DialOpts, PeerCondition},
-        AddressScore, NetworkBehaviour, NetworkBehaviourAction as NBAction,
-        NetworkBehaviourEventProcess, PollParameters,
+        NetworkBehaviour, NetworkBehaviourAction as NBAction, NetworkBehaviourEventProcess,
+        PollParameters,
     },
     NetworkBehaviour, PeerId,
 };
@@ -132,8 +130,6 @@ pub enum BehaviourEvent<AppReqId: ReqId, TSpec: EthSpec> {
 enum InternalBehaviourMessage {
     /// Dial a Peer.
     DialPeer(PeerId),
-    /// The socket has been updated.
-    SocketUpdated(Multiaddr),
 }
 
 /// Builds the network behaviour that manages the core protocols of eth2.
@@ -1131,34 +1127,21 @@ where
 }
 
 // Discovery
-impl<AppReqId, TSpec> NetworkBehaviourEventProcess<DiscoveryEvent> for Behaviour<AppReqId, TSpec>
+impl<AppReqId, TSpec> NetworkBehaviourEventProcess<DiscoveredPeers> for Behaviour<AppReqId, TSpec>
 where
     AppReqId: ReqId,
     TSpec: EthSpec,
 {
-    fn inject_event(&mut self, event: DiscoveryEvent) {
-        match event {
-            DiscoveryEvent::SocketUpdated(socket_addr) => {
-                // A new UDP socket has been detected.
-                // Build a multiaddr to report to libp2p
-                let mut multiaddr = Multiaddr::from(socket_addr.ip());
-                // NOTE: This doesn't actually track the external TCP port. More sophisticated NAT handling
-                // should handle this.
-                multiaddr.push(MProtocol::Tcp(self.network_globals.listen_port_tcp()));
-                self.internal_events
-                    .push_back(InternalBehaviourMessage::SocketUpdated(multiaddr));
-            }
-            DiscoveryEvent::QueryResult(results) => {
-                let to_dial_peers = self.peer_manager.peers_discovered(results);
-                for peer_id in to_dial_peers {
-                    debug!(self.log, "Dialing discovered peer"; "peer_id" => %peer_id);
-                    // For any dial event, inform the peer manager
-                    let enr = self.discovery_mut().enr_of_peer(&peer_id);
-                    self.peer_manager.inject_dialing(&peer_id, enr);
-                    self.internal_events
-                        .push_back(InternalBehaviourMessage::DialPeer(peer_id));
-                }
-            }
+    fn inject_event(&mut self, event: DiscoveredPeers) {
+        let DiscoveredPeers { peers } = event;
+        let to_dial_peers = self.peer_manager.peers_discovered(peers);
+        for peer_id in to_dial_peers {
+            debug!(self.log, "Dialing discovered peer"; "peer_id" => %peer_id);
+            // For any dial event, inform the peer manager
+            let enr = self.discovery_mut().enr_of_peer(&peer_id);
+            self.peer_manager.inject_dialing(&peer_id, enr);
+            self.internal_events
+                .push_back(InternalBehaviourMessage::DialPeer(peer_id));
         }
     }
 }
@@ -1222,12 +1205,6 @@ where
                             .condition(PeerCondition::Disconnected)
                             .build(),
                         handler,
-                    });
-                }
-                InternalBehaviourMessage::SocketUpdated(address) => {
-                    return Poll::Ready(NBAction::ReportObservedAddr {
-                        address,
-                        score: AddressScore::Finite(1),
                     });
                 }
             }
