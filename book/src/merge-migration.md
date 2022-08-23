@@ -2,7 +2,8 @@
 
 This document provides detail for users who want to run a merge-ready Lighthouse node.
 
-> If you are running a testnet node, this configuration is necessary _now_.
+> The merge is occuring on mainnet in September. You _must_ have a merge-ready setup by September 6
+> 2022.
 
 ## Necessary Configuration
 
@@ -17,20 +18,20 @@ the merge:
    receive transactions tips from blocks proposed by your validators. This is covered on the
    [Suggested fee recipient](./suggested-fee-recipient.md) page.
 
-Additionally, you _must_ update Lighthouse to a merge-compatible release in the weeks before
-the merge. Merge releases are available now for all testnets.
+Additionally, you _must_ update Lighthouse to v3.0.0 (or later), and must update your execution
+engine to a merge-ready version.
 
 ## When?
 
 You must configure your node to be merge-ready before the Bellatrix fork occurs on the network
 on which your node is operating.
 
-* **Mainnet**: the Bellatrix fork epoch has not yet been announced. It's possible to set up a
-  merge-ready node now, but some execution engines will require additional configuration. Please see
-  the section on [Execution engine configuration](#execution-engine-configuration) below.
+* **Mainnet**: the Bellatrix fork is scheduled for epoch 144896, September 6 2022 11:34 UTC.
+  You must ensure your node configuration is updated before then in order to continue following
+  the chain. We recommend updating your configuration now.
 
-* **Goerli (Prater)**, **Ropsten**, **Sepolia**, **Kiln**: you must have a merge-ready configuration
-  right now.
+* **Goerli (Prater)**, **Ropsten**, **Sepolia**, **Kiln**: the Bellatrix fork has already occurred.
+  You must have a merge-ready configuration right now.
 
 ## Connecting to an execution engine
 
@@ -59,9 +60,7 @@ Once you have configured your execution engine to open up the engine API (usuall
 should add the URL to your `lighthouse bn` flags with `--execution-endpoint <URL>`, as well as
 the path to the JWT secret with `--execution-jwt <FILE>`.
 
-> NOTE: Geth v1.10.21 or earlier requires a manual TTD override to communicate with Lighthouse over
-> the engine API on mainnet. We recommend waiting for a compatible Geth release before configuring
-> Lighthouse-Geth on mainnet.
+There are merge-ready releases of all compatible execution engines available now.
 
 ### Example
 
@@ -137,6 +136,27 @@ be used for all such queries. Therefore we can say that where `--execution-endpo
 `--eth1-endpoints` should be omitted.
 
 ## FAQ
+
+### How do I know if my node is set up correctly?
+
+Lighthouse will log a message indicating that it is ready for the merge:
+
+```
+INFO Ready for the merge, current_difficulty: 10789363, terminal_total_difficulty: 10790000
+```
+
+Once the merge has occurred you should see that Lighthouse remains in sync and marks blocks
+as `verified` indicating that they have been processed successfully by the execution engine:
+
+```
+INFO Synced, slot: 3690668, block: 0x1244…cb92, epoch: 115333, finalized_epoch: 115331, finalized_root: 0x0764…2a3d, exec_hash: 0x929c…1ff6 (verified), peers: 78
+```
+
+### Can I still use the `--staking` flag?
+
+Yes. The `--staking` flag is just an alias for `--http --eth1`. The `--eth1` flag is now superfluous
+so `--staking` is equivalent to `--http`. You need either `--staking` or `--http` for the validator
+client to be able to connect to the beacon node.
 
 ### Can I use `http://localhost:8545` for the execution endpoint?
 
