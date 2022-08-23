@@ -1,8 +1,12 @@
 use account_utils::ZeroizeString;
 use eth2::lighthouse_vc::std_types::{InterchangeJsonStr, KeystoreJsonStr};
-use eth2::SensitiveUrl;
+use eth2::{
+    lighthouse_vc::{http_client::ValidatorClientHttpClient, std_types::SingleKeystoreResponse},
+    SensitiveUrl,
+};
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::fs;
+use std::path::{Path, PathBuf};
 use tree_hash::TreeHash;
 use types::*;
 
@@ -188,4 +192,36 @@ mod bytes_4_without_0x_prefix {
         array.copy_from_slice(&decoded);
         Ok(array)
     }
+}
+
+pub async fn vc_http_client<P: AsRef<Path>>(
+    url: SensitiveUrl,
+    token_path: P,
+) -> Result<(ValidatorClientHttpClient, Vec<SingleKeystoreResponse>), String> {
+    let token_path = token_path.as_ref();
+    let token_bytes =
+        fs::read(&token_path).map_err(|e| format!("Failed to read {:?}: {:?}", token_path, e))?;
+    let token_string = String::from_utf8(token_bytes)
+        .map_err(|e| format!("Failed to parse {:?} as utf8: {:?}", token_path, e))?;
+    let http_client = ValidatorClientHttpClient::new(url.clone(), token_string).map_err(|e| {
+        format!(
+            "Could not instantiate HTTP client from URL and secret: {:?}",
+            e
+        )
+    })?;
+
+    // Perform a request to check that the connection works
+    let remote_keystores = http_client
+        .get_keystores()
+        .await
+        .map_err(|e| format!("Failed to list keystores on VC: {:?}", e))?
+        .data;
+
+    eprintln!(
+        "Validator client is reachable at {} and reports {} validators",
+        url,
+        remote_keystores.len()
+    );
+
+    Ok((http_client, remote_keystores))
 }

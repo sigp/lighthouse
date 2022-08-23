@@ -1,6 +1,7 @@
 pub mod common;
 pub mod create_validators;
 pub mod import_validators;
+pub mod move_validators;
 
 use crate::DumpConfig;
 use clap::{App, ArgMatches};

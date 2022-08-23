@@ -2,10 +2,7 @@ use super::common::*;
 use crate::DumpConfig;
 use clap::{App, Arg, ArgMatches};
 use eth2::{
-    lighthouse_vc::{
-        http_client::ValidatorClientHttpClient, std_types::ImportKeystoresRequest,
-        types::UpdateFeeRecipientRequest,
-    },
+    lighthouse_vc::{std_types::ImportKeystoresRequest, types::UpdateFeeRecipientRequest},
     SensitiveUrl,
 };
 use serde::{Deserialize, Serialize};
@@ -132,32 +129,7 @@ async fn run<'a>(config: ImportConfig) -> Result<(), String> {
 
     let count = validators.len();
 
-    let http_client = {
-        let token_bytes = fs::read(&vc_token_path)
-            .map_err(|e| format!("Failed to read {:?}: {:?}", vc_token_path, e))?;
-        let token_string = String::from_utf8(token_bytes)
-            .map_err(|e| format!("Failed to parse {:?} as utf8: {:?}", vc_token_path, e))?;
-        let http_client =
-            ValidatorClientHttpClient::new(vc_url.clone(), token_string).map_err(|e| {
-                format!(
-                    "Could not instantiate HTTP client from URL and secret: {:?}",
-                    e
-                )
-            })?;
-
-        // Perform a request to check that the connection works
-        let remote_keystores = http_client
-            .get_keystores()
-            .await
-            .map_err(|e| format!("Failed to list keystores on VC: {:?}", e))?;
-        eprintln!(
-            "Validator client is reachable at {} and reports {} validators",
-            vc_url,
-            remote_keystores.data.len()
-        );
-
-        http_client
-    };
+    let (http_client, _keystores) = vc_http_client(vc_url.clone(), &vc_token_path).await?;
 
     eprintln!(
         "Starting to submit validators {} to VC, each validator may take several seconds",
