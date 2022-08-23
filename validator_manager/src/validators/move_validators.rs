@@ -3,18 +3,17 @@ use crate::DumpConfig;
 use clap::{App, Arg, ArgMatches};
 use eth2::{
     lighthouse_vc::{
-        http_client::ValidatorClientHttpClient,
-        std_types::{DeleteKeystoresRequest, ImportKeystoresRequest},
-        types::UpdateFeeRecipientRequest,
+        std_types::{DeleteKeystoreStatus, DeleteKeystoresRequest, InterchangeJsonStr, Status},
+        types::{ExportKeystoresResponse, SingleExportKeystoresResponse},
     },
     SensitiveUrl,
 };
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::PathBuf;
 use std::str::FromStr;
-use types::PublicKeyBytes;
+use types::{Address, PublicKeyBytes};
 
 pub const MOVE_DIR_NAME: &str = "lighthouse-validator-move";
 
@@ -25,6 +24,9 @@ pub const SRC_VALIDATOR_CLIENT_TOKEN_FLAG: &str = "src-validator-client-token";
 pub const DEST_VALIDATOR_CLIENT_URL_FLAG: &str = "dest-validator-client-url";
 pub const DEST_VALIDATOR_CLIENT_TOKEN_FLAG: &str = "dest-validator-client-token";
 pub const VALIDATORS_FLAG: &str = "validators";
+pub const GAS_LIMIT_FLAG: &str = "gas-limit";
+pub const FEE_RECIPIENT_FLAG: &str = "suggested-fee-recipient";
+pub const BUILDER_PROPOSALS_FLAG: &str = "builder-proposals";
 
 pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
     App::new(CMD)
@@ -97,6 +99,37 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .required(true)
                 .takes_value(true),
         )
+        .arg(
+            Arg::with_name(GAS_LIMIT_FLAG)
+                .long(GAS_LIMIT_FLAG)
+                .value_name("UINT64")
+                .help(
+                    "All created validators will use this gas limit. It is recommended \
+                    to leave this as the default value by not specifying this flag.",
+                )
+                .required(false)
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name(FEE_RECIPIENT_FLAG)
+                .long(FEE_RECIPIENT_FLAG)
+                .value_name("ETH1_ADDRESS")
+                .help(
+                    "All created validators will use this value for the suggested \
+                    fee recipient. Omit this flag to use the default value from the VC.",
+                )
+                .required(false)
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name(BUILDER_PROPOSALS_FLAG)
+                .long(BUILDER_PROPOSALS_FLAG)
+                .help(
+                    "When provided, all created validators will attempt to create \
+                    blocks via builder rather than the local EL.",
+                )
+                .required(false),
+        )
 }
 
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
@@ -128,6 +161,9 @@ pub struct MoveConfig {
     pub dest_vc_url: SensitiveUrl,
     pub dest_vc_token_path: PathBuf,
     pub validators: Validators,
+    pub builder_proposals: bool,
+    pub fee_recipient: Option<Address>,
+    pub gas_limit: Option<u64>,
 }
 
 impl MoveConfig {
@@ -145,6 +181,9 @@ impl MoveConfig {
                 DEST_VALIDATOR_CLIENT_TOKEN_FLAG,
             )?,
             validators: clap_utils::parse_required(matches, VALIDATORS_FLAG)?,
+            builder_proposals: matches.is_present(BUILDER_PROPOSALS_FLAG),
+            fee_recipient: clap_utils::parse_optional(matches, FEE_RECIPIENT_FLAG)?,
+            gas_limit: clap_utils::parse_optional(matches, GAS_LIMIT_FLAG)?,
         })
     }
 }
@@ -169,6 +208,9 @@ async fn run<'a>(config: MoveConfig) -> Result<(), String> {
         dest_vc_url,
         dest_vc_token_path,
         validators,
+        builder_proposals,
+        fee_recipient,
+        gas_limit,
     } = config;
 
     if !working_directory_path.exists() {
@@ -228,16 +270,27 @@ async fn run<'a>(config: MoveConfig) -> Result<(), String> {
         }
     };
 
-    // It doesn't make sense to move no validators.
-    if pubkeys_to_move.is_empty() {
-        return Err(format!("--{} cannot be an empty list", VALIDATORS_FLAG));
-    }
+    let src_keystores_map: HashMap<_, _> = src_keystores
+        .iter()
+        .map(|k| (k.validating_pubkey, k))
+        .collect();
 
     for pubkey_to_move in pubkeys_to_move {
+        // Skip read-only validators rather than exiting. This makes it a bit easier to use the
+        // "all" flag.
+        if src_keystores_map
+            .get(&pubkey_to_move)
+            .ok_or("Inconsistent src keystore map")?
+            .readonly
+            .unwrap_or(true)
+        {
+            eprintln!("Skipping read-only validator {:?}", pubkey_to_move);
+        }
+
         let request = DeleteKeystoresRequest {
             pubkeys: vec![pubkey_to_move],
         };
-        let deleted_keystore = match src_http_client.delete_keystores(&request).await {
+        let deleted = match src_http_client.delete_lighthouse_keystores(&request).await {
             Ok(deleted) => deleted,
             Err(e) => {
                 match src_http_client.get_keystores().await {
@@ -266,6 +319,98 @@ async fn run<'a>(config: MoveConfig) -> Result<(), String> {
 
                 return Err(format!("Deleting {:?} failed with {:?}", pubkey_to_move, e));
             }
+        };
+
+        let ExportKeystoresResponse {
+            mut data,
+            slashing_protection,
+        } = deleted;
+
+        if data.len() != 1 {
+            return Err(format!(
+                "Too many deleted validators from VC: {}",
+                data.len()
+            ));
+        }
+
+        let exported_validator = data
+            .pop()
+            .ok_or("VC responded with zero deleted validators")?;
+
+        let (voting_keystore, voting_keystore_password) = match exported_validator {
+            SingleExportKeystoresResponse {
+                status:
+                    Status {
+                        status: DeleteKeystoreStatus::Deleted,
+                        message: _,
+                    },
+                validating_keystore,
+                validating_keystore_password,
+            } => match (validating_keystore, validating_keystore_password) {
+                (Some(keystore), Some(password)) => (keystore, password),
+                (keystore_opt, password_opt) => {
+                    eprintln!(
+                        "Validator {:?} was not moved since the validator client did \
+                            not return both a keystore and password. It is likely that the \
+                            validator has been deleted from the source validator client \
+                            without being moved to the destination validator client. \
+                            This validator will most likely need to be manually recovered \
+                            from a mnemonic or backup.",
+                        pubkey_to_move
+                    );
+                    return Err(format!(
+                        "VC returned deleted but keystore {}, password {}",
+                        keystore_opt.is_some(),
+                        password_opt.is_some()
+                    ));
+                }
+            },
+            SingleExportKeystoresResponse {
+                status: Status { status, .. },
+                ..
+            } if matches!(
+                status,
+                DeleteKeystoreStatus::NotFound | DeleteKeystoreStatus::NotActive
+            ) =>
+            {
+                eprintln!(
+                    "Validator {:?} was not moved since it was not found or not active. This scenario \
+                    is unexpected and might indicate that another process is also performing \
+                    an export from the source validator client. Exiting now for safety. \
+                    If there is definitely no other process exporting validators then it \
+                    may be safe to run this command again.",
+                    pubkey_to_move
+                );
+                return Err(format!(
+                    "VC indicated that a previously known validator was {:?}",
+                    status,
+                ));
+            }
+            SingleExportKeystoresResponse {
+                status: Status { status, message },
+                ..
+            } => {
+                eprintln!(
+                    "Validator {:?} was not moved because the source validator client \
+                    indicated there was an error disabling it. Manual intervention is \
+                    required to recover from this scenario.",
+                    pubkey_to_move
+                );
+                return Err(format!(
+                    "VC returned status {:?} with message {:?}",
+                    status, message
+                ));
+            }
+        };
+
+        let validator_specification = ValidatorSpecification {
+            voting_keystore,
+            voting_keystore_password,
+            slashing_protection: Some(InterchangeJsonStr(slashing_protection)),
+            fee_recipient,
+            gas_limit,
+            builder_proposals: Some(builder_proposals),
+            enabled: Some(true),
         };
     }
 
