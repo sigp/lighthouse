@@ -2234,6 +2234,7 @@ dependencies = [
  "eth2_ssz",
  "eth2_ssz_derive",
  "proto_array",
+ "slog",
  "state_processing",
  "store",
  "tokio",

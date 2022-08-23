@@ -246,6 +246,7 @@ where
             BeaconChain::<Witness<TSlotClock, TEth1Backend, _, _, _>>::load_fork_choice(
                 store.clone(),
                 &self.spec,
+                log,
             )
             .map_err(|e| format!("Unable to load fork choice from disk: {:?}", e))?
             .ok_or("Fork choice not found in store")?;

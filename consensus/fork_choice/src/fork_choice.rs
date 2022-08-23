@@ -1,5 +1,6 @@
 use crate::{ForkChoiceStore, InvalidationOperation};
 use proto_array::{Block as ProtoBlock, ExecutionStatus, ProtoArrayForkChoice};
+use slog::{crit, Logger};
 use ssz_derive::{Decode, Encode};
 use state_processing::{
     per_block_processing::errors::AttesterSlashingValidationError, per_epoch_processing,
@@ -1431,9 +1432,30 @@ where
         persisted: PersistedForkChoice,
         fc_store: T,
         spec: &ChainSpec,
+        log: &Logger,
     ) -> Result<Self, Error<T::Error>> {
-        let proto_array = ProtoArrayForkChoice::from_bytes(&persisted.proto_array_bytes)
-            .map_err(Error::InvalidProtoArrayBytes)?;
+        let proto_array = {
+            let mut proto_array = ProtoArrayForkChoice::from_bytes(&persisted.proto_array_bytes)
+                .map_err(Error::InvalidProtoArrayBytes)?;
+
+            // Reset any "invalid" blocks back to being "optimistic". This helps recover from an EL
+            // consensus fault where an invalid payload becomes valid.
+            if let Err(e) = proto_array.set_all_blocks_to_optimistic::<E>(spec) {
+                // If there is an error resetting the optimistic status then log loudly and revert
+                // back to a proto-array which does not have the reset applied. This indicates a
+                // significant error in Lighthouse and warrants detailed investigation.
+                crit!(
+                    log,
+                    "Failed to reset payload statuses";
+                    "error" => e,
+                    "info" => "please report this error",
+                );
+                ProtoArrayForkChoice::from_bytes(&persisted.proto_array_bytes)
+                    .map_err(Error::InvalidProtoArrayBytes)?
+            } else {
+                proto_array
+            }
+        };
 
         let current_slot = fc_store.get_current_slot();
 

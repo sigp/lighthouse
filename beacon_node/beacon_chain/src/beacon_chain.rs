@@ -430,6 +430,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn load_fork_choice(
         store: BeaconStore<T>,
         spec: &ChainSpec,
+        log: &Logger,
     ) -> Result<Option<BeaconForkChoice<T>>, Error> {
         let persisted_fork_choice =
             match store.get_item::<PersistedForkChoice>(&FORK_CHOICE_DB_KEY)? {
@@ -444,6 +445,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             persisted_fork_choice.fork_choice,
             fc_store,
             spec,
+            log,
         )?))
     }
 
@@ -2925,10 +2927,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             // Since the write failed, try to revert the canonical head back to what was stored
             // in the database. This attempts to prevent inconsistency between the database and
             // fork choice.
-            if let Err(e) =
-                self.canonical_head
-                    .restore_from_store(fork_choice, &self.store, &self.spec)
-            {
+            if let Err(e) = self.canonical_head.restore_from_store(
+                fork_choice,
+                &self.store,
+                &self.spec,
+                &self.log,
+            ) {
                 crit!(
                     self.log,
                     "No stored fork choice found to restore from";
