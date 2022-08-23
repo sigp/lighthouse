@@ -1,7 +1,7 @@
 use crate::behaviour::gossipsub_scoring_parameters::{
     lighthouse_gossip_thresholds, PeerScoreSettings,
 };
-use crate::config::gossipsub_config;
+use crate::config::{gossipsub_config, NetworkLoad};
 use crate::discovery::{
     subnet_predicate, DiscoveredPeers, Discovery, FIND_NODE_QUERY_CLOSEST_PEERS,
 };
@@ -9,16 +9,22 @@ use crate::peer_manager::{
     config::Config as PeerManagerCfg, peerdb::score::PeerAction, peerdb::score::ReportSource,
     ConnectionDirection, PeerManager, PeerManagerEvent,
 };
-use crate::rpc::*;
-use crate::service::{Context as ServiceContext, METADATA_FILENAME};
+use crate::peer_manager::{MIN_OUTBOUND_ONLY_FACTOR, PEER_EXCESS_FACTOR, PRIORITY_PEER_EXCESS};
+use crate::service::{
+    build_transport, strip_peer_id, Context as ServiceContext, MAX_CONNECTIONS_PER_PEER,
+    METADATA_FILENAME,
+};
 use crate::types::{
     subnet_from_topic_hash, GossipEncoding, GossipKind, GossipTopic, SnappyTransform, Subnet,
     SubnetDiscovery,
 };
 use crate::Eth2Enr;
 use crate::{error, metrics, Enr, NetworkGlobals, PubsubMessage, TopicHash};
+use crate::{rpc::*, EnrExt};
 use futures::stream::StreamExt;
+use libp2p::bandwidth::BandwidthSinks;
 use libp2p::gossipsub::error::PublishError;
+use libp2p::swarm::{ConnectionLimits, SwarmBuilder};
 use libp2p::Swarm;
 use libp2p::{
     core::{connection::ConnectionId, identity::Keypair},
@@ -29,21 +35,24 @@ use libp2p::{
         MessageAuthenticity, MessageId,
     },
     identify::{Identify, IdentifyConfig, IdentifyEvent},
+    multiaddr::{Multiaddr, Protocol as MProtocol},
     swarm::NetworkBehaviour,
     NetworkBehaviour, PeerId,
 };
-use slog::{crit, debug, o, trace, warn};
+use slog::{crit, debug, info, o, trace, warn};
 use ssz::Encode;
 use std::collections::HashSet;
 use std::fs::File;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::pin::Pin;
 use std::{
     collections::VecDeque,
     marker::PhantomData,
     sync::Arc,
     task::{Context, Poll},
 };
+use types::eth_spec;
 use types::{
     consts::altair::SYNC_COMMITTEE_SUBNET_COUNT, EnrForkId, EthSpec, ForkContext,
     SignedBeaconBlock, Slot, SubnetId, SyncSubnetId,
@@ -163,6 +172,10 @@ pub struct Network<AppReqId: ReqId, TSpec: EthSpec> {
     /// The interval for updating gossipsub scores
     update_gossipsub_scores: tokio::time::Interval,
     gossip_cache: GossipCache,
+    /// The bandwidth logger for the underlying libp2p transport.
+    pub bandwidth: Arc<BandwidthSinks>,
+    /// This node's PeerId.
+    pub local_peer_id: PeerId,
     /// Logger for behaviour actions.
     log: slog::Logger,
 }
@@ -170,33 +183,42 @@ pub struct Network<AppReqId: ReqId, TSpec: EthSpec> {
 /// Implements the combined behaviour for the libp2p service.
 impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
     pub async fn new(
-        local_key: &Keypair,
+        executor: task_executor::TaskExecutor,
         ctx: ServiceContext<'_>,
-        network_globals: Arc<NetworkGlobals<TSpec>>,
         log: &slog::Logger,
-    ) -> error::Result<Self> {
-        let behaviour_log = log.new(o!());
-
+    ) -> error::Result<(Self, Arc<NetworkGlobals<TSpec>>)> {
+        let log = log.new(o!("service"=> "libp2p"));
         let mut config = ctx.config.clone();
+        trace!(log, "Libp2p Service starting");
 
-        // Set up the Identify Behaviour
-        let identify_config = if config.private {
-            IdentifyConfig::new(
-                "".into(),
-                local_key.public(), // Still send legitimate public key
-            )
-            .with_cache_size(0)
-        } else {
-            IdentifyConfig::new("eth2/1.0.0".into(), local_key.public())
-                .with_agent_version(lighthouse_version::version_with_platform())
-                .with_cache_size(0)
+        // initialise the node's ID
+        let local_keypair = crate::load_private_key(&config, &log);
+
+        // set up a collection of variables accessible outside of the network crate
+        let network_globals = {
+            // Create an ENR or load from disk if appropriate
+            let enr = crate::discovery::enr::build_or_load_enr::<TSpec>(
+                local_keypair.clone(),
+                &config,
+                &ctx.enr_fork_id,
+                &log,
+            )?;
+            // Construct the metadata
+            let meta_data = crate::service::load_or_build_metadata(&config.network_dir, &log);
+            let globals = NetworkGlobals::new(
+                enr.clone(),
+                config.libp2p_port,
+                config.discovery_port,
+                meta_data,
+                config
+                    .trusted_peers
+                    .iter()
+                    .map(|x| PeerId::from(x.clone()))
+                    .collect(),
+                &log,
+            );
+            Arc::new(globals)
         };
-
-        // Build and start the discovery sub-behaviour
-        let mut discovery =
-            Discovery::new(local_key, &config, network_globals.clone(), log).await?;
-        // start searching for peers
-        discovery.discover_peers(FIND_NODE_QUERY_CLOSEST_PEERS);
 
         // Grab our local ENR FORK ID
         let enr_fork_id = network_globals
@@ -204,104 +226,306 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
             .eth2()
             .expect("Local ENR must have a fork id");
 
-        let possible_fork_digests = ctx.fork_context.all_fork_digests();
-        let filter = MaxCountSubscriptionFilter {
-            filter: Self::create_whitelist_filter(
-                possible_fork_digests,
-                ctx.chain_spec.attestation_subnet_count,
-                SYNC_COMMITTEE_SUBNET_COUNT,
-            ),
-            max_subscribed_topics: 200,
-            max_subscriptions_per_request: 150, // 148 in theory = (64 attestation + 4 sync committee + 6 core topics) * 2
-        };
-
-        config.gs_config = gossipsub_config(config.network_load, ctx.fork_context.clone());
-
-        // If metrics are enabled for gossipsub build the configuration
-        let gossipsub_metrics = ctx
-            .gossipsub_registry
-            .map(|registry| (registry, GossipsubMetricsConfig::default()));
-
-        let snappy_transform = SnappyTransform::new(config.gs_config.max_transmit_size());
-        let mut gossipsub = Gossipsub::new_with_subscription_filter_and_transform(
-            MessageAuthenticity::Anonymous,
-            config.gs_config.clone(),
-            gossipsub_metrics,
-            filter,
-            snappy_transform,
-        )
-        .map_err(|e| format!("Could not construct gossipsub: {:?}", e))?;
-
-        // Construct a set of gossipsub peer scoring parameters
-        // We don't know the number of active validators and the current slot yet
-        let active_validators = TSpec::minimum_validator_count();
-        let current_slot = Slot::new(0);
-
-        let thresholds = lighthouse_gossip_thresholds();
-
         let score_settings = PeerScoreSettings::new(ctx.chain_spec, &config.gs_config);
 
-        // Prepare scoring parameters
-        let params = score_settings.get_peer_score_params(
-            active_validators,
-            &thresholds,
-            &enr_fork_id,
-            current_slot,
-        )?;
+        let gossip_cache = {
+            let slot_duration = std::time::Duration::from_secs(ctx.chain_spec.seconds_per_slot);
+            let half_epoch = std::time::Duration::from_secs(
+                ctx.chain_spec.seconds_per_slot * TSpec::slots_per_epoch() / 2,
+            );
 
-        trace!(behaviour_log, "Using peer score params"; "params" => ?params);
-
-        // Set up a scoring update interval
-        let update_gossipsub_scores = tokio::time::interval(params.decay_interval);
-
-        gossipsub
-            .with_peer_score(params, thresholds)
-            .expect("Valid score params and thresholds");
-
-        let peer_manager_cfg = PeerManagerCfg {
-            discovery_enabled: !config.disable_discovery,
-            metrics_enabled: config.metrics_enabled,
-            target_peer_count: config.target_peers,
-            ..Default::default()
+            GossipCache::builder()
+                .beacon_block_timeout(slot_duration)
+                .aggregates_timeout(half_epoch)
+                .attestation_timeout(half_epoch)
+                .voluntary_exit_timeout(half_epoch * 2)
+                .proposer_slashing_timeout(half_epoch * 2)
+                .attester_slashing_timeout(half_epoch * 2)
+                // .signed_contribution_and_proof_timeout(timeout) // Do not retry
+                // .sync_committee_message_timeout(timeout) // Do not retry
+                .build()
         };
 
-        let slot_duration = std::time::Duration::from_secs(ctx.chain_spec.seconds_per_slot);
-        let half_epoch = std::time::Duration::from_secs(
-            ctx.chain_spec.seconds_per_slot * TSpec::slots_per_epoch() / 2,
-        );
-        let gossip_cache = GossipCache::builder()
-            .beacon_block_timeout(slot_duration)
-            .aggregates_timeout(half_epoch)
-            .attestation_timeout(half_epoch)
-            .voluntary_exit_timeout(half_epoch * 2)
-            .proposer_slashing_timeout(half_epoch * 2)
-            .attester_slashing_timeout(half_epoch * 2)
-            // .signed_contribution_and_proof_timeout(timeout) // Do not retry
-            // .sync_committee_message_timeout(timeout) // Do not retry
-            .build();
+        let local_peer_id = network_globals.local_peer_id();
+
+        let (gossipsub, update_gossipsub_scores) = {
+            let thresholds = lighthouse_gossip_thresholds();
+
+            // Prepare scoring parameters
+            let params = {
+                // Construct a set of gossipsub peer scoring parameters
+                // We don't know the number of active validators and the current slot yet
+                let active_validators = TSpec::minimum_validator_count();
+                let current_slot = Slot::new(0);
+                score_settings.get_peer_score_params(
+                    active_validators,
+                    &thresholds,
+                    &enr_fork_id,
+                    current_slot,
+                )?
+            };
+
+            trace!(log, "Using peer score params"; "params" => ?params);
+
+            // Set up a scoring update interval
+            let update_gossipsub_scores = tokio::time::interval(params.decay_interval);
+
+            let possible_fork_digests = ctx.fork_context.all_fork_digests();
+            let filter = MaxCountSubscriptionFilter {
+                filter: Self::create_whitelist_filter(
+                    possible_fork_digests,
+                    ctx.chain_spec.attestation_subnet_count,
+                    SYNC_COMMITTEE_SUBNET_COUNT,
+                ),
+                max_subscribed_topics: 200,
+                max_subscriptions_per_request: 150, // 148 in theory = (64 attestation + 4 sync committee + 6 core topics) * 2
+            };
+
+            config.gs_config = gossipsub_config(config.network_load, ctx.fork_context.clone());
+
+            // If metrics are enabled for gossipsub build the configuration
+            let gossipsub_metrics = ctx
+                .gossipsub_registry
+                .map(|registry| (registry, GossipsubMetricsConfig::default()));
+
+            let snappy_transform = SnappyTransform::new(config.gs_config.max_transmit_size());
+            let mut gossipsub = Gossipsub::new_with_subscription_filter_and_transform(
+                MessageAuthenticity::Anonymous,
+                config.gs_config.clone(),
+                gossipsub_metrics,
+                filter,
+                snappy_transform,
+            )
+            .map_err(|e| format!("Could not construct gossipsub: {:?}", e))?;
+
+            gossipsub
+                .with_peer_score(params, thresholds)
+                .expect("Valid score params and thresholds");
+
+            (gossipsub, update_gossipsub_scores)
+        };
+
+        let eth2_rpc = RPC::new(ctx.fork_context.clone(), log.clone());
+
+        let discovery = {
+            // Build and start the discovery sub-behaviour
+            let mut discovery =
+                Discovery::new(&local_keypair, &config, network_globals.clone(), &log).await?;
+            // start searching for peers
+            discovery.discover_peers(FIND_NODE_QUERY_CLOSEST_PEERS);
+            discovery
+        };
+
+        let identify = {
+            let identify_config = if config.private {
+                IdentifyConfig::new(
+                    "".into(),
+                    local_keypair.public(), // Still send legitimate public key
+                )
+                .with_cache_size(0)
+            } else {
+                IdentifyConfig::new("eth2/1.0.0".into(), local_keypair.public())
+                    .with_agent_version(lighthouse_version::version_with_platform())
+                    .with_cache_size(0)
+            };
+            Identify::new(identify_config)
+        };
+
+        let peer_manager = {
+            let peer_manager_cfg = PeerManagerCfg {
+                discovery_enabled: !config.disable_discovery,
+                metrics_enabled: config.metrics_enabled,
+                target_peer_count: config.target_peers,
+                ..Default::default()
+            };
+            PeerManager::new(peer_manager_cfg, network_globals.clone(), &log)?
+        };
+
+        let behaviour = {
+            Behaviour {
+                gossipsub,
+                eth2_rpc,
+                discovery,
+                identify,
+                peer_manager,
+            }
+        };
+
+        let (swarm, bandwidth) = {
+            // Set up the transport - tcp/ws with noise and mplex
+            let (transport, bandwidth) = build_transport(local_keypair.clone())
+                .map_err(|e| format!("Failed to build transport: {:?}", e))?;
+
+            // use the executor for libp2p
+            struct Executor(task_executor::TaskExecutor);
+            impl libp2p::core::Executor for Executor {
+                fn exec(&self, f: Pin<Box<dyn futures::Future<Output = ()> + Send>>) {
+                    self.0.spawn(f, "libp2p");
+                }
+            }
+
+            // sets up the libp2p connection limits
+            let limits = ConnectionLimits::default()
+                .with_max_pending_incoming(Some(5))
+                .with_max_pending_outgoing(Some(16))
+                .with_max_established_incoming(Some(
+                    (config.target_peers as f32
+                        * (1.0 + PEER_EXCESS_FACTOR - MIN_OUTBOUND_ONLY_FACTOR))
+                        .ceil() as u32,
+                ))
+                .with_max_established_outgoing(Some(
+                    (config.target_peers as f32 * (1.0 + PEER_EXCESS_FACTOR)).ceil() as u32,
+                ))
+                .with_max_established(Some(
+                    (config.target_peers as f32 * (1.0 + PEER_EXCESS_FACTOR + PRIORITY_PEER_EXCESS))
+                        .ceil() as u32,
+                ))
+                .with_max_established_per_peer(Some(MAX_CONNECTIONS_PER_PEER));
+
+            (
+                SwarmBuilder::new(transport, behaviour, local_peer_id)
+                    .notify_handler_buffer_size(std::num::NonZeroUsize::new(7).expect("Not zero"))
+                    .connection_event_buffer_size(64)
+                    .connection_limits(limits)
+                    .executor(Box::new(Executor(executor)))
+                    .build(),
+                bandwidth,
+            )
+        };
+
+        /*
+        info!(log, "Libp2p Starting"; "peer_id" => %enr.peer_id(), "bandwidth_config" => format!("{}-{}", config.network_load, NetworkLoad::from(config.network_load).name));
+        let discovery_string = if config.disable_discovery {
+            "None".into()
+        } else {
+            config.discovery_port.to_string()
+        };
+        debug!(log, "Attempting to open listening ports"; "address" => ?config.listen_address, "tcp_port" => config.libp2p_port, "udp_port" => discovery_string);
+
+
+        let listen_multiaddr = {
+            let mut m = Multiaddr::from(config.listen_address);
+            m.push(MProtocol::Tcp(config.libp2p_port));
+            m
+        };
+
+        match Swarm::listen_on(&mut swarm, listen_multiaddr.clone()) {
+            Ok(_) => {
+                let mut log_address = listen_multiaddr;
+                log_address.push(MProtocol::P2p(local_peer_id.into()));
+                info!(log, "Listening established"; "address" => %log_address);
+            }
+            Err(err) => {
+                crit!(
+                    log,
+                    "Unable to listen on libp2p address";
+                    "error" => ?err,
+                    "listen_multiaddr" => %listen_multiaddr,
+                );
+                return Err("Libp2p was unable to listen on the given listen address.".into());
+            }
+        };
+
+        // helper closure for dialing peers
+        let mut dial = |mut multiaddr: Multiaddr| {
+            // strip the p2p protocol if it exists
+            strip_peer_id(&mut multiaddr);
+            match Swarm::dial(&mut swarm, multiaddr.clone()) {
+                Ok(()) => debug!(log, "Dialing libp2p peer"; "address" => %multiaddr),
+                Err(err) => debug!(
+                    log,
+                    "Could not connect to peer"; "address" => %multiaddr, "error" => ?err
+                ),
+            };
+        };
+
+        // attempt to connect to user-input libp2p nodes
+        for multiaddr in &config.libp2p_nodes {
+            dial(multiaddr.clone());
+        }
+
+        // attempt to connect to any specified boot-nodes
+        let mut boot_nodes = config.boot_nodes_enr.clone();
+        boot_nodes.dedup();
+
+        for bootnode_enr in boot_nodes {
+            for multiaddr in &bootnode_enr.multiaddr() {
+                // ignore udp multiaddr if it exists
+                let components = multiaddr.iter().collect::<Vec<_>>();
+                if let MProtocol::Udp(_) = components[1] {
+                    continue;
+                }
+
+                if !network_globals
+                    .peers
+                    .read()
+                    .is_connected_or_dialing(&bootnode_enr.peer_id())
+                {
+                    dial(multiaddr.clone());
+                }
+            }
+        }
+
+        for multiaddr in &config.boot_nodes_multiaddr {
+            // check TCP support for dialing
+            if multiaddr
+                .iter()
+                .any(|proto| matches!(proto, MProtocol::Tcp(_)))
+            {
+                dial(multiaddr.clone());
+            }
+        }
+
+        let mut subscribed_topics: Vec<GossipKind> = vec![];
+
+        for topic_kind in &config.topics {
+            // TODO
+            // if swarm.behaviour_mut().subscribe_kind(topic_kind.clone()) {
+            //     subscribed_topics.push(topic_kind.clone());
+            // } else {
+            //     warn!(log, "Could not subscribe to topic"; "topic" => %topic_kind);
+            // }
+        }
+
+        if !subscribed_topics.is_empty() {
+            info!(log, "Subscribed to topics"; "topics" => ?subscribed_topics);
+        }
+
+        let mut config = ctx.config.clone();
+
+        // Set up the Identify Behaviour
+
+
+
+
+
 
         /*
         *             gossipsub,
-           eth2_rpc: RPC::new(ctx.fork_context.clone(), log.clone()),
+           eth2_rpc: ,
            discovery,
-           identify: Identify::new(identify_config),
+           identify: ,
            // Auxiliary fields
-           peer_manager: PeerManager::new(peer_manager_cfg, network_globals.clone(), log).await?,
+           peer_manager:
 
         */
-        Ok(Network {
-            swarm: make_swarm(),
+        */
+        let network = Network {
+            swarm,
             events: VecDeque::new(),
-            network_globals,
+            network_globals: network_globals.clone(),
             enr_fork_id,
             waker: None,
             network_dir: config.network_dir.clone(),
-            log: behaviour_log,
-            score_settings,
             fork_context: ctx.fork_context,
-            gossip_cache,
+            score_settings,
             update_gossipsub_scores,
-        })
+            gossip_cache,
+            bandwidth,
+            local_peer_id,
+            log,
+        };
+        Ok((network, network_globals))
     }
 
     /* Public Accessible Functions to interact with the behaviour */
@@ -1110,6 +1334,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
             }
         }
     }
+
     fn inject_discovery_event(&mut self, event: DiscoveredPeers) {
         let DiscoveredPeers { peers } = event;
         let to_dial_peers = self.peer_manager_mut().peers_discovered(peers);
@@ -1120,6 +1345,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
             self.peer_manager_mut().dial_peer(&peer_id, enr);
         }
     }
+
     fn inject_identify_event(&mut self, event: IdentifyEvent) {
         match event {
             IdentifyEvent::Received { peer_id, mut info } => {
@@ -1138,6 +1364,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
             IdentifyEvent::Pushed { .. } => {}
         }
     }
+
     fn inject_pm_event(&mut self, event: PeerManagerEvent) {
         match event {
             PeerManagerEvent::PeerConnectedIncoming(peer_id) => {

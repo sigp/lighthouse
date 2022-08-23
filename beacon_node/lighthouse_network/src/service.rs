@@ -32,7 +32,7 @@ use crate::peer_manager::{MIN_OUTBOUND_ONLY_FACTOR, PEER_EXCESS_FACTOR, PRIORITY
 
 pub const NETWORK_KEY_FILENAME: &str = "key";
 /// The maximum simultaneous libp2p connections per peer.
-const MAX_CONNECTIONS_PER_PEER: u32 = 1;
+pub const MAX_CONNECTIONS_PER_PEER: u32 = 1;
 /// The filename to store our local metadata.
 pub const METADATA_FILENAME: &str = "metadata";
 
@@ -77,177 +77,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Service<AppReqId, TSpec> {
         ctx: Context<'_>,
         log: &Logger,
     ) -> error::Result<(Arc<NetworkGlobals<TSpec>>, Self)> {
-        let log = log.new(o!("service"=> "libp2p"));
-        trace!(log, "Libp2p Service starting");
-
-        let config = ctx.config;
-        // initialise the node's ID
-        let local_keypair = load_private_key(config, &log);
-
-        // Create an ENR or load from disk if appropriate
-        let enr =
-            enr::build_or_load_enr::<TSpec>(local_keypair.clone(), config, &ctx.enr_fork_id, &log)?;
-
-        let local_peer_id = enr.peer_id();
-
-        // Construct the metadata
-        let meta_data = load_or_build_metadata(&config.network_dir, &log);
-
-        // set up a collection of variables accessible outside of the network crate
-        let network_globals = Arc::new(NetworkGlobals::new(
-            enr.clone(),
-            config.libp2p_port,
-            config.discovery_port,
-            meta_data,
-            config
-                .trusted_peers
-                .iter()
-                .map(|x| PeerId::from(x.clone()))
-                .collect(),
-            &log,
-        ));
-
-        info!(log, "Libp2p Starting"; "peer_id" => %enr.peer_id(), "bandwidth_config" => format!("{}-{}", config.network_load, NetworkLoad::from(config.network_load).name));
-        let discovery_string = if config.disable_discovery {
-            "None".into()
-        } else {
-            config.discovery_port.to_string()
-        };
-        debug!(log, "Attempting to open listening ports"; "address" => ?config.listen_address, "tcp_port" => config.libp2p_port, "udp_port" => discovery_string);
-
-        let (mut swarm, bandwidth) = {
-            // Set up the transport - tcp/ws with noise and mplex
-            let (transport, bandwidth) = build_transport(local_keypair.clone())
-                .map_err(|e| format!("Failed to build transport: {:?}", e))?;
-
-            // Lighthouse network behaviour
-            let behaviour = libp2p::swarm::DummyBehaviour::default();
-
-            // use the executor for libp2p
-            struct Executor(task_executor::TaskExecutor);
-            impl libp2p::core::Executor for Executor {
-                fn exec(&self, f: Pin<Box<dyn Future<Output = ()> + Send>>) {
-                    self.0.spawn(f, "libp2p");
-                }
-            }
-
-            // sets up the libp2p connection limits
-            let limits = ConnectionLimits::default()
-                .with_max_pending_incoming(Some(5))
-                .with_max_pending_outgoing(Some(16))
-                .with_max_established_incoming(Some(
-                    (config.target_peers as f32
-                        * (1.0 + PEER_EXCESS_FACTOR - MIN_OUTBOUND_ONLY_FACTOR))
-                        .ceil() as u32,
-                ))
-                .with_max_established_outgoing(Some(
-                    (config.target_peers as f32 * (1.0 + PEER_EXCESS_FACTOR)).ceil() as u32,
-                ))
-                .with_max_established(Some(
-                    (config.target_peers as f32 * (1.0 + PEER_EXCESS_FACTOR + PRIORITY_PEER_EXCESS))
-                        .ceil() as u32,
-                ))
-                .with_max_established_per_peer(Some(MAX_CONNECTIONS_PER_PEER));
-
-            (
-                SwarmBuilder::new(transport, behaviour, local_peer_id)
-                    .notify_handler_buffer_size(std::num::NonZeroUsize::new(7).expect("Not zero"))
-                    .connection_event_buffer_size(64)
-                    .connection_limits(limits)
-                    .executor(Box::new(Executor(executor)))
-                    .build(),
-                bandwidth,
-            )
-        };
-
         // listen on the specified address
-        let listen_multiaddr = {
-            let mut m = Multiaddr::from(config.listen_address);
-            m.push(Protocol::Tcp(config.libp2p_port));
-            m
-        };
-
-        match Swarm::listen_on(&mut swarm, listen_multiaddr.clone()) {
-            Ok(_) => {
-                let mut log_address = listen_multiaddr;
-                log_address.push(Protocol::P2p(local_peer_id.into()));
-                info!(log, "Listening established"; "address" => %log_address);
-            }
-            Err(err) => {
-                crit!(
-                    log,
-                    "Unable to listen on libp2p address";
-                    "error" => ?err,
-                    "listen_multiaddr" => %listen_multiaddr,
-                );
-                return Err("Libp2p was unable to listen on the given listen address.".into());
-            }
-        };
-
-        // helper closure for dialing peers
-        let mut dial = |mut multiaddr: Multiaddr| {
-            // strip the p2p protocol if it exists
-            strip_peer_id(&mut multiaddr);
-            match Swarm::dial(&mut swarm, multiaddr.clone()) {
-                Ok(()) => debug!(log, "Dialing libp2p peer"; "address" => %multiaddr),
-                Err(err) => debug!(
-                    log,
-                    "Could not connect to peer"; "address" => %multiaddr, "error" => ?err
-                ),
-            };
-        };
-
-        // attempt to connect to user-input libp2p nodes
-        for multiaddr in &config.libp2p_nodes {
-            dial(multiaddr.clone());
-        }
-
-        // attempt to connect to any specified boot-nodes
-        let mut boot_nodes = config.boot_nodes_enr.clone();
-        boot_nodes.dedup();
-
-        for bootnode_enr in boot_nodes {
-            for multiaddr in &bootnode_enr.multiaddr() {
-                // ignore udp multiaddr if it exists
-                let components = multiaddr.iter().collect::<Vec<_>>();
-                if let Protocol::Udp(_) = components[1] {
-                    continue;
-                }
-
-                if !network_globals
-                    .peers
-                    .read()
-                    .is_connected_or_dialing(&bootnode_enr.peer_id())
-                {
-                    dial(multiaddr.clone());
-                }
-            }
-        }
-
-        for multiaddr in &config.boot_nodes_multiaddr {
-            // check TCP support for dialing
-            if multiaddr
-                .iter()
-                .any(|proto| matches!(proto, Protocol::Tcp(_)))
-            {
-                dial(multiaddr.clone());
-            }
-        }
-
-        let mut subscribed_topics: Vec<GossipKind> = vec![];
-
-        for topic_kind in &config.topics {
-            // TODO
-            // if swarm.behaviour_mut().subscribe_kind(topic_kind.clone()) {
-            //     subscribed_topics.push(topic_kind.clone());
-            // } else {
-            //     warn!(log, "Could not subscribe to topic"; "topic" => %topic_kind);
-            // }
-        }
-
-        if !subscribed_topics.is_empty() {
-            info!(log, "Subscribed to topics"; "topics" => ?subscribed_topics);
-        }
 
         let service = Service {
             _p_a: Default::default(),
@@ -379,7 +209,7 @@ type BoxedTransport = Boxed<(PeerId, StreamMuxerBox)>;
 
 /// The implementation supports TCP/IP, WebSockets over TCP/IP, noise as the encryption layer, and
 /// mplex as the multiplexing layer.
-fn build_transport(
+pub fn build_transport(
     local_private_key: Keypair,
 ) -> std::io::Result<(BoxedTransport, Arc<BandwidthSinks>)> {
     let tcp =
@@ -500,7 +330,7 @@ fn generate_noise_config(
 
 /// For a multiaddr that ends with a peer id, this strips this suffix. Rust-libp2p
 /// only supports dialing to an address without providing the peer id.
-fn strip_peer_id(addr: &mut Multiaddr) {
+pub fn strip_peer_id(addr: &mut Multiaddr) {
     let last = addr.pop();
     match last {
         Some(Protocol::P2p(_)) => {}
@@ -510,7 +340,7 @@ fn strip_peer_id(addr: &mut Multiaddr) {
 }
 
 /// Load metadata from persisted file. Return default metadata if loading fails.
-fn load_or_build_metadata<E: EthSpec>(
+pub fn load_or_build_metadata<E: EthSpec>(
     network_dir: &std::path::Path,
     log: &slog::Logger,
 ) -> MetaData<E> {

@@ -118,7 +118,7 @@ pub enum PeerManagerEvent {
 
 impl<TSpec: EthSpec> PeerManager<TSpec> {
     // NOTE: Must be run inside a tokio executor.
-    pub async fn new(
+    pub fn new(
         cfg: config::Config,
         network_globals: Arc<NetworkGlobals<TSpec>>,
         log: &slog::Logger,
@@ -1251,9 +1251,7 @@ mod tests {
         };
         let log = build_log(slog::Level::Debug, false);
         let globals = NetworkGlobals::new_test_globals(&log);
-        PeerManager::new(config, Arc::new(globals), &log)
-            .await
-            .unwrap()
+        PeerManager::new(config, Arc::new(globals), &log).unwrap()
     }
 
     #[tokio::test]
