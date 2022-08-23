@@ -47,6 +47,11 @@ If you set up an execution engine with `--execution-endpoint` then you *must* pr
 using `--execution-jwt`. This is a mandatory form of authentication that ensures that Lighthouse
 has authority to control the execution engine.
 
+The execution engine connection must be **exclusive**, i.e. you must have one execution node
+per beacon node. The reason for this is that the beacon node _controls_ the execution node. Please
+see the [FAQ](#faq) for further information about why many:1 and 1:many configurations are not
+supported.
+
 ### Execution engine configuration
 
 Each execution engine has its own flags for configuring the engine API and JWT. Please consult
@@ -165,9 +170,22 @@ used, an execution node _will not_ provide the necessary engine API on port `854
 not attempt to use `http://localhost:8545` as your engine URL and should instead use
 `http://localhost:8551`.
 
-### What about multiple execution endpoints?
+### Can I share an execution node between multiple beacon nodes (many:1)?
 
-Since an execution engine can only have one connected BN, the value of having multiple execution
+It is **not** possible to connect more than one beacon node to the same execution engine. There must be a 1:1 relationship between beacon nodes and execution nodes.
+
+The beacon node controls the execution node via the engine API, telling it which block is the
+current head of the chain. If multiple beacon nodes were to connect to a single execution node they
+could set conflicting head blocks, leading to frequent re-orgs on the execution node.
+
+We imagine that in future there will be HTTP proxies available which allow users to nominate a
+single controlling beacon node, while allowing consistent updates from other beacon nodes.
+
+### What about multiple execution endpoints (1:many)?
+
+It is **not** possible to connect one beacon node to more than one execution engine. There must be a 1:1 relationship between beacon nodes and execution nodes.
+
+Since an execution engine can only have one controlling BN, the value of having multiple execution
 engines connected to the same BN is very low. An execution engine cannot be shared between BNs to
 reduce costs.
 
