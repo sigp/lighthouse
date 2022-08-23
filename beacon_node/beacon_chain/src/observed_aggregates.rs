@@ -168,29 +168,30 @@ impl<I> SlotHashSet<I> {
             });
         }
 
-        if let Some(existing_item) = self.set.get(&root) {
-            if item.is_subset(existing_item) {
-                Ok(ObserveOutcome::Subset)
-            } else {
-                Ok(ObserveOutcome::AlreadyKnown)
-            }
-        } else {
-            // Here we check to see if this slot has reached the maximum observation count.
-            //
-            // The resulting behaviour is that we are no longer able to successfully observe new
-            // items, however we will continue to return `is_known` values. We could also
-            // disable `is_known`, however then we would stop forwarding items across the
-            // gossip network and I think that this is a worse case than sending some invalid ones.
-            // The underlying libp2p network is responsible for removing duplicate messages, so
-            // this doesn't risk a broadcast loop.
-            if self.set.len() >= self.max_capacity {
-                return Err(Error::ReachedMaxObservationsPerSlot(self.max_capacity));
-            }
-
-            let item = item.get_item();
-            self.set.insert(root, item);
-            Ok(ObserveOutcome::New)
+        if self.set.contains_key(&root) {
+            return Ok(ObserveOutcome::AlreadyKnown);
         }
+
+        // Check if `item` is a subset of any of the already observed aggregates for this slot
+        if self.set.values().any(|val| item.is_subset(val)) {
+            return Ok(ObserveOutcome::Subset);
+        }
+
+        // Here we check to see if this slot has reached the maximum observation count.
+        //
+        // The resulting behaviour is that we are no longer able to successfully observe new
+        // items, however we will continue to return `is_known` values. We could also
+        // disable `is_known`, however then we would stop forwarding items across the
+        // gossip network and I think that this is a worse case than sending some invalid ones.
+        // The underlying libp2p network is responsible for removing duplicate messages, so
+        // this doesn't risk a broadcast loop.
+        if self.set.len() >= self.max_capacity {
+            return Err(Error::ReachedMaxObservationsPerSlot(self.max_capacity));
+        }
+
+        let item = item.get_item();
+        self.set.insert(root, item);
+        Ok(ObserveOutcome::New)
     }
 
     /// Indicates if `item` has been observed before.
