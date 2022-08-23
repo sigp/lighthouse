@@ -34,6 +34,10 @@ Assuming trustworthy nodes, the priority for the three methods is:
 1. `--suggested-fee-recipient` provided to the VC.
 1. `--suggested-fee-recipient` provided to the BN.
 
+> **NOTE**: It is **not** recommended to _only_ set the fee recipient on the beacon node, as this results
+> in sub-optimal block proposals. See [this issue](https://github.com/sigp/lighthouse/issues/3432)
+> for details.
+
 ### 1. Setting the fee recipient in the `validator_definitions.yml`
 
 Users can set the fee recipient in `validator_definitions.yml` with the `suggested_fee_recipient`
@@ -65,6 +69,9 @@ validators where a `suggested_fee_recipient` is not loaded from another method.
 
 The `--suggested-fee-recipient` can be provided to the BN to act as a default value when the
 validator client does not transmit a `suggested_fee_recipient` to the BN.
+
+**This value should be considered an emergency fallback**. You should set the fee recipient in the
+validator client in order for the execution node to be given adequate notice of block proposal.
 
 ## Setting the fee recipient dynamically using the keymanager API
 
