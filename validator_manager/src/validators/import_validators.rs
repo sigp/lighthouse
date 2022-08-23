@@ -74,12 +74,12 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         )
 }
 
-#[derive(Clone, Serialize, Deserialize)]
-struct ImportConfig {
-    validators_file_path: PathBuf,
-    vc_url: SensitiveUrl,
-    vc_token_path: PathBuf,
-    ignore_duplicates: bool,
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
+pub struct ImportConfig {
+    pub validators_file_path: PathBuf,
+    pub vc_url: SensitiveUrl,
+    pub vc_token_path: PathBuf,
+    pub ignore_duplicates: bool,
 }
 
 impl ImportConfig {

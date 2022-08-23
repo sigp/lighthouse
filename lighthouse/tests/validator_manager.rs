@@ -7,7 +7,9 @@ use std::process::{Command, Stdio};
 use std::str::FromStr;
 use tempfile::{tempdir, TempDir};
 use types::*;
-use validator_manager::validators::create_validators::CreateConfig;
+use validator_manager::validators::{
+    create_validators::CreateConfig, import_validators::ImportConfig,
+};
 
 const EXAMPLE_ETH1_ADDRESS: &str = "0x00000000219ab540356cBB839Cbe05303d7705Fa";
 
@@ -76,21 +78,29 @@ impl<T: DeserializeOwned> CommandLineTest<T> {
 }
 
 impl CommandLineTest<CreateConfig> {
-    fn validator_create() -> Self {
+    fn validators_create() -> Self {
         Self::default()
             .flag("validators", None)
             .flag("create", None)
     }
 }
 
+impl CommandLineTest<ImportConfig> {
+    fn validators_import() -> Self {
+        Self::default()
+            .flag("validators", None)
+            .flag("import", None)
+    }
+}
+
 #[test]
 pub fn validator_create_without_output_path() {
-    CommandLineTest::validator_create().assert_failed();
+    CommandLineTest::validators_create().assert_failed();
 }
 
 #[test]
 pub fn validator_create_defaults() {
-    CommandLineTest::validator_create()
+    CommandLineTest::validators_create()
         .flag("--output-path", Some("./meow"))
         .flag("--count", Some("1"))
         .assert_success(|config| {
@@ -114,8 +124,8 @@ pub fn validator_create_defaults() {
 }
 
 #[test]
-pub fn validator_create_misc_flags_01() {
-    CommandLineTest::validator_create()
+pub fn validator_create_misc_flags() {
+    CommandLineTest::validators_create()
         .flag("--output-path", Some("./meow"))
         .flag("--deposit-gwei", Some("42"))
         .flag("--first-index", Some("12"))
@@ -150,11 +160,58 @@ pub fn validator_create_misc_flags_01() {
 
 #[test]
 pub fn validator_create_disable_deposits() {
-    CommandLineTest::validator_create()
+    CommandLineTest::validators_create()
         .flag("--output-path", Some("./meow"))
         .flag("--count", Some("1"))
         .flag("--disable-deposits", None)
         .assert_success(|config| {
             assert_eq!(config.disable_deposits, true);
         });
+}
+
+#[test]
+pub fn validator_import_defaults() {
+    CommandLineTest::validators_import()
+        .flag("--validators-file", Some("./vals.json"))
+        .flag("--validator-client-token", Some("./token.json"))
+        .assert_success(|config| {
+            let expected = ImportConfig {
+                validators_file_path: PathBuf::from("./vals.json"),
+                vc_url: SensitiveUrl::parse("http://localhost:5062").unwrap(),
+                vc_token_path: PathBuf::from("./token.json"),
+                ignore_duplicates: false,
+            };
+            assert_eq!(expected, config);
+        });
+}
+
+#[test]
+pub fn validator_import_misc_flags() {
+    CommandLineTest::validators_import()
+        .flag("--validators-file", Some("./vals.json"))
+        .flag("--validator-client-token", Some("./token.json"))
+        .flag("--ignore-duplicates", None)
+        .assert_success(|config| {
+            let expected = ImportConfig {
+                validators_file_path: PathBuf::from("./vals.json"),
+                vc_url: SensitiveUrl::parse("http://localhost:5062").unwrap(),
+                vc_token_path: PathBuf::from("./token.json"),
+                ignore_duplicates: true,
+            };
+            assert_eq!(expected, config);
+        });
+}
+
+#[test]
+pub fn validator_import_missing_token() {
+    CommandLineTest::validators_import()
+        .flag("--validators-file", Some("./vals.json"))
+        .assert_failed();
+}
+
+#[test]
+pub fn validator_import_missing_validators_file() {
+    CommandLineTest::validators_import()
+        .flag("--validator-client-token", Some("./token.json"))
+        .assert_failed();
 }
