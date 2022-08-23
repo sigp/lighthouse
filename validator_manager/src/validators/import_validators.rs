@@ -1,5 +1,5 @@
 use super::common::*;
-use crate::DumpConfigs;
+use crate::DumpConfig;
 use clap::{App, Arg, ArgMatches};
 use eth2::{
     lighthouse_vc::{
@@ -95,10 +95,10 @@ impl ImportConfig {
 
 pub async fn cli_run<'a>(
     matches: &'a ArgMatches<'a>,
-    dump_configs: DumpConfigs,
+    dump_config: DumpConfig,
 ) -> Result<(), String> {
     let config = ImportConfig::from_cli(matches)?;
-    if dump_configs.should_exit_early(&config)? {
+    if dump_config.should_exit_early(&config)? {
         Ok(())
     } else {
         run(config).await

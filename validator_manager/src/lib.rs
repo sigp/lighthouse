@@ -11,29 +11,33 @@ pub mod validators;
 pub const CMD: &str = "validator_manager";
 
 /// This flag is on the top-level `lighthouse` binary.
-const DUMP_CONFIGS_FLAG: &str = "dump-configs";
+const DUMP_CONFIGS_FLAG: &str = "dump-config";
 
 /// Used only in testing, this allows a command to dump its configuration to a file and then exit
 /// successfully. This allows for testing how the CLI arguments translate to some configuration.
-pub enum DumpConfigs {
+pub enum DumpConfig {
     Disabled,
     Enabled(PathBuf),
 }
 
-impl DumpConfigs {
+impl DumpConfig {
     /// Returns `Ok(true)` if the configuration was successfully written to a file and the
     /// application should exit successfully without doing anything else.
     pub fn should_exit_early<T: Serialize>(&self, config: &T) -> Result<bool, String> {
         match self {
-            DumpConfigs::Disabled => Ok(false),
-            DumpConfigs::Enabled(dump_path) => write_to_json_file(dump_path, config).map(|()| true),
+            DumpConfig::Disabled => Ok(false),
+            DumpConfig::Enabled(dump_path) => {
+                dbg!(dump_path);
+                write_to_json_file(dump_path, config)?;
+                Ok(true)
+            }
         }
     }
 }
 
 pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
     App::new(CMD)
-        .visible_aliases(&["vm", CMD])
+        .visible_aliases(&["vm", "validator-manager", CMD])
         .about("Utilities for managing a Lighthouse validator client via the HTTP API.")
         .subcommand(validators::cli_app())
 }
@@ -45,9 +49,9 @@ pub fn run<'a, T: EthSpec>(
 ) -> Result<(), String> {
     let context = env.core_context();
     let spec = context.eth2_config.spec.clone();
-    let dump_configs = clap_utils::parse_optional(matches, DUMP_CONFIGS_FLAG)?
-        .map(DumpConfigs::Enabled)
-        .unwrap_or_else(|| DumpConfigs::Disabled);
+    let dump_config = clap_utils::parse_optional(matches, DUMP_CONFIGS_FLAG)?
+        .map(DumpConfig::Enabled)
+        .unwrap_or_else(|| DumpConfig::Disabled);
 
     context
         .executor
@@ -58,7 +62,7 @@ pub fn run<'a, T: EthSpec>(
             async {
                 match matches.subcommand() {
                     (validators::CMD, Some(matches)) => {
-                        validators::cli_run::<T>(matches, &spec, dump_configs).await
+                        validators::cli_run::<T>(matches, &spec, dump_config).await
                     }
                     (unknown, _) => Err(format!(
                         "{} is not a valid {} command. See --help.",

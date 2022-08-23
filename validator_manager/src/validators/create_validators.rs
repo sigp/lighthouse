@@ -1,5 +1,5 @@
 use super::common::*;
-use crate::DumpConfigs;
+use crate::DumpConfig;
 use account_utils::{random_password_string, read_mnemonic_from_cli, read_password_from_user};
 use clap::{App, Arg, ArgMatches};
 use eth2::{
@@ -51,7 +51,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     "The path to a directory where the validator and (optionally) deposits \
                     files will be created. The directory will be created if it does not exist.",
                 )
-                .conflicts_with(DISABLE_DEPOSITS_FLAG)
                 .required(true)
                 .takes_value(true),
         )
@@ -100,7 +99,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .arg(
             Arg::with_name(DISABLE_DEPOSITS_FLAG)
                 .long(DISABLE_DEPOSITS_FLAG)
-                .value_name("PATH")
                 .help(
                     "When provided don't generate the deposits JSON file that is \
                     commonly used for submitting validator deposits via a web UI. \
@@ -111,8 +109,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .arg(
             Arg::with_name(SPECIFY_VOTING_KEYSTORE_PASSWORD_FLAG)
                 .long(SPECIFY_VOTING_KEYSTORE_PASSWORD_FLAG)
-                .value_name("STRING")
-                .takes_value(true)
                 .help(
                     "If present, the user will be prompted to enter the voting keystore \
                     password that will be used to encrypt the voting keystores. If this \
@@ -181,7 +177,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
 
 /// The CLI arguments are parsed into this struct before running the application. This step of
 /// indirection allows for testing the underlying logic without needing to parse CLI arguments.
-#[derive(Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 pub struct CreateConfig {
     pub output_path: PathBuf,
     pub first_index: u32,
@@ -461,10 +457,10 @@ impl ValidatorsAndDeposits {
 pub async fn cli_run<'a, T: EthSpec>(
     matches: &'a ArgMatches<'a>,
     spec: &ChainSpec,
-    dump_configs: DumpConfigs,
+    dump_config: DumpConfig,
 ) -> Result<(), String> {
     let config = CreateConfig::from_cli(matches, spec)?;
-    if dump_configs.should_exit_early(&config)? {
+    if dump_config.should_exit_early(&config)? {
         Ok(())
     } else {
         run::<T>(config, spec).await

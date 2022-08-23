@@ -2,7 +2,7 @@ pub mod common;
 pub mod create_validators;
 pub mod import_validators;
 
-use crate::DumpConfigs;
+use crate::DumpConfig;
 use clap::{App, ArgMatches};
 use types::{ChainSpec, EthSpec};
 
@@ -18,14 +18,14 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
 pub async fn cli_run<'a, T: EthSpec>(
     matches: &'a ArgMatches<'a>,
     spec: &ChainSpec,
-    dump_configs: DumpConfigs,
+    dump_config: DumpConfig,
 ) -> Result<(), String> {
     match matches.subcommand() {
         (create_validators::CMD, Some(matches)) => {
-            create_validators::cli_run::<T>(matches, spec, dump_configs).await
+            create_validators::cli_run::<T>(matches, spec, dump_config).await
         }
         (import_validators::CMD, Some(matches)) => {
-            import_validators::cli_run(matches, dump_configs).await
+            import_validators::cli_run(matches, dump_config).await
         }
         (unknown, _) => Err(format!(
             "{} does not have a {} command. See --help",
