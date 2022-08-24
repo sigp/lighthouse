@@ -190,7 +190,7 @@ async fn run<'a>(config: ImportConfig) -> Result<(), String> {
 }
 
 #[cfg(test)]
-mod test {
+pub mod tests {
     use super::*;
     use crate::validators::create_validators::tests::TestBuilder as CreateTestBuilder;
     use std::fs;
@@ -199,7 +199,7 @@ mod test {
 
     const VC_TOKEN_FILE_NAME: &str = "vc_token.json";
 
-    struct TestBuilder {
+    pub struct TestBuilder {
         import_config: ImportConfig,
         vc: ApiTester,
         /// Holds the temp directory owned by the `CreateTestBuilder` so it doesn't get cleaned-up
@@ -209,7 +209,7 @@ mod test {
     }
 
     impl TestBuilder {
-        async fn new() -> Self {
+        pub async fn new() -> Self {
             let dir = tempdir().unwrap();
             let vc = ApiTester::new().await;
             let vc_token_path = dir.path().join(VC_TOKEN_FILE_NAME);
@@ -234,7 +234,7 @@ mod test {
             self
         }
 
-        async fn create_validators(mut self, count: u32, first_index: u32) -> Self {
+        pub async fn create_validators(mut self, count: u32, first_index: u32) -> Self {
             let create_result = CreateTestBuilder::default()
                 .mutate_config(|config| {
                     config.count = count;
@@ -253,12 +253,12 @@ mod test {
 
         /// Imports validators without running the entire test suite in `Self::run_test`. This is
         /// useful for simulating duplicate imports.
-        async fn import_validators_without_checks(self) -> Self {
+        pub async fn import_validators_without_checks(self) -> Self {
             run(self.import_config.clone()).await.unwrap();
             self
         }
 
-        async fn run_test(self) -> TestResult {
+        pub async fn run_test(self) -> TestResult {
             let result = run(self.import_config.clone()).await;
 
             if result.is_ok() {
@@ -294,13 +294,17 @@ mod test {
                 }
             }
 
-            TestResult { result }
+            TestResult {
+                result,
+                vc: self.vc,
+            }
         }
     }
 
     #[must_use] // Use the `assert_ok` or `assert_err` fns to "use" this value.
-    struct TestResult {
-        result: Result<(), String>,
+    pub struct TestResult {
+        pub result: Result<(), String>,
+        pub vc: ApiTester,
     }
 
     impl TestResult {
@@ -308,8 +312,8 @@ mod test {
             assert_eq!(self.result, Ok(()))
         }
 
-        fn assert_err_is(self, msg: String) {
-            assert_eq!(self.result, Err(msg))
+        fn assert_err_contains(self, msg: &str) {
+            assert!(self.result.unwrap_err().contains(msg))
         }
     }
 
@@ -367,7 +371,7 @@ mod test {
             .await
             .run_test()
             .await
-            .assert_err_is(DETECTED_DUPLICATE_MESSAGE.to_string());
+            .assert_err_contains("DuplicateValidator");
     }
 
     #[tokio::test]

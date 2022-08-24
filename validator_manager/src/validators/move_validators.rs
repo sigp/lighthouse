@@ -433,6 +433,7 @@ async fn run<'a>(config: MoveConfig) -> Result<(), String> {
         let ignore_duplicates = true;
 
         match validator_specification
+            .clone()
             .upload(&dest_http_client, ignore_duplicates)
             .await
         {
@@ -455,9 +456,9 @@ async fn run<'a>(config: MoveConfig) -> Result<(), String> {
                     "Failed to list keystores. Some keys may have been moved whilst \
                     others may not.",
                 );
-                eprint_recovery_advice(
+                backup_validator(
+                    &validator_specification,
                     &working_directory_path,
-                    &validator_specification_path,
                     &dest_vc_url,
                     &dest_vc_token_path,
                 );
@@ -468,9 +469,9 @@ async fn run<'a>(config: MoveConfig) -> Result<(), String> {
                     "Failed to upload keystore. Some keys may have been moved whilst \
                     others may not.",
                 );
-                eprint_recovery_advice(
+                backup_validator(
+                    &validator_specification,
                     &working_directory_path,
-                    &validator_specification_path,
                     &dest_vc_url,
                     &dest_vc_token_path,
                 );
@@ -497,15 +498,27 @@ async fn run<'a>(config: MoveConfig) -> Result<(), String> {
     Ok(())
 }
 
-pub fn eprint_recovery_advice<P: AsRef<Path>>(
+pub fn backup_validator<P: AsRef<Path>>(
+    validator_specification: &ValidatorSpecification,
     working_directory_path: P,
-    validator_file: P,
     dest_vc_url: &SensitiveUrl,
     dest_vc_token_path: P,
 ) {
     use crate::validators::import_validators::{
         CMD, VALIDATORS_FILE_FLAG, VALIDATOR_CLIENT_TOKEN_FLAG, VALIDATOR_CLIENT_URL_FLAG,
     };
+
+    let validator_specification_path = working_directory_path
+        .as_ref()
+        .join(VALIDATOR_SPECIFICATION_FILE);
+    if let Err(e) = write_to_json_file(&validator_specification_path, &validator_specification) {
+        eprintln!(
+            "A validator was removed from the source validator client but it could not be \
+            saved to disk after an upload failure. The validator may need to be recovered \
+            from a backup or mnemonic. Error was {:?}",
+            e
+        );
+    }
 
     eprintln!(
         "It may be possible to recover this validator by running the following command: \n\n\
@@ -517,7 +530,7 @@ pub fn eprint_recovery_advice<P: AsRef<Path>>(
         crate::validators::CMD,
         CMD,
         VALIDATORS_FILE_FLAG,
-        validator_file.as_ref().as_os_str(),
+        validator_specification_path.as_os_str(),
         VALIDATOR_CLIENT_URL_FLAG,
         dest_vc_url.full,
         VALIDATOR_CLIENT_TOKEN_FLAG,
@@ -526,111 +539,70 @@ pub fn eprint_recovery_advice<P: AsRef<Path>>(
     )
 }
 
-/*
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::validators::create_validators::tests::TestBuilder as CreateTestBuilder;
+    use crate::validators::import_validators::tests::TestBuilder as ImportTestBuilder;
     use std::fs;
     use tempfile::{tempdir, TempDir};
     use validator_client::http_api::test_utils::ApiTester;
 
-    const VC_TOKEN_FILE_NAME: &str = "vc_token.json";
+    const SRC_VC_TOKEN_FILE_NAME: &str = "src_vc_token.json";
+    const DEST_VC_TOKEN_FILE_NAME: &str = "dest_vc_token.json";
 
     struct TestBuilder {
-        import_config: MoveConfig,
-        vc: ApiTester,
-        /// Holds the temp directory owned by the `CreateTestBuilder` so it doesn't get cleaned-up
-        /// before we can read it.
-        create_dir: Option<TempDir>,
-        _dir: TempDir,
+        import_builder: Option<ImportTestBuilder>,
+        validators: Validators,
+        dir: TempDir,
     }
 
     impl TestBuilder {
         async fn new() -> Self {
             let dir = tempdir().unwrap();
-            let vc = ApiTester::new().await;
-            let vc_token_path = dir.path().join(VC_TOKEN_FILE_NAME);
-            fs::write(&vc_token_path, &vc.api_token).unwrap();
-
             Self {
-                import_config: MoveConfig {
-                    // This field will be overwritten later on.
-                    validators_file_path: dir.path().into(),
-                    vc_url: vc.url.clone(),
-                    vc_token_path,
-                    ignore_duplicates: false,
-                },
-                vc,
-                create_dir: None,
-                _dir: dir,
+                import_builder: None,
+                validators: Validators::All,
+                dir: dir,
             }
         }
 
-        pub fn mutate_import_config<F: Fn(&mut MoveConfig)>(mut self, func: F) -> Self {
-            func(&mut self.import_config);
-            self
-        }
-
-        async fn create_validators(mut self, count: u32, first_index: u32) -> Self {
-            let create_result = CreateTestBuilder::default()
-                .mutate_config(|config| {
-                    config.count = count;
-                    config.first_index = first_index;
-                })
-                .run_test()
+        async fn with_src_validators(mut self, count: u32, first_index: u32) -> Self {
+            let builder = ImportTestBuilder::new()
+                .await
+                .create_validators(count, first_index)
                 .await;
-            assert!(
-                create_result.result.is_ok(),
-                "precondition: validators are created"
-            );
-            self.import_config.validators_file_path = create_result.validators_file_path();
-            self.create_dir = Some(create_result.output_dir);
-            self
-        }
-
-        /// Imports validators without running the entire test suite in `Self::run_test`. This is
-        /// useful for simulating duplicate imports.
-        async fn import_validators_without_checks(self) -> Self {
-            run(self.import_config.clone()).await.unwrap();
+            self.import_builder = Some(builder);
             self
         }
 
         async fn run_test(self) -> TestResult {
-            let result = run(self.import_config.clone()).await;
+            let import_test_result = self
+                .import_builder
+                .expect("test requires an import builder")
+                .run_test()
+                .await;
+            assert!(import_test_result.result.is_ok());
+            let src_vc = import_test_result.vc;
+            let src_vc_token_path = self.dir.path().join(SRC_VC_TOKEN_FILE_NAME);
+            fs::write(&src_vc_token_path, &src_vc.api_token).unwrap();
 
-            if result.is_ok() {
-                let local_validators: Vec<ValidatorSpecification> = {
-                    let contents =
-                        fs::read_to_string(&self.import_config.validators_file_path).unwrap();
-                    serde_json::from_str(&contents).unwrap()
-                };
-                let list_keystores_response = self.vc.client.get_keystores().await.unwrap().data;
+            let dest_vc = ApiTester::new().await;
+            let dest_vc_token_path = self.dir.path().join(DEST_VC_TOKEN_FILE_NAME);
+            fs::write(&dest_vc_token_path, &dest_vc.api_token).unwrap();
 
-                assert_eq!(
-                    local_validators.len(),
-                    list_keystores_response.len(),
-                    "vc should have exactly the number of validators imported"
-                );
+            let move_config = MoveConfig {
+                working_directory_path: self.dir.path().into(),
+                src_vc_url: src_vc.url.clone(),
+                src_vc_token_path,
+                dest_vc_url: dest_vc.url.clone(),
+                dest_vc_token_path,
+                validators: self.validators,
+                builder_proposals: false,
+                fee_recipient: None,
+                gas_limit: None,
+            };
 
-                for local_validator in &local_validators {
-                    let local_keystore = &local_validator.voting_keystore.0;
-                    let local_pubkey = local_keystore.public_key().unwrap().into();
-                    let remote_validator = list_keystores_response
-                        .iter()
-                        .find(|validator| validator.validating_pubkey == local_pubkey)
-                        .expect("validator must exist on VC");
-                    assert_eq!(&remote_validator.derivation_path, &local_keystore.path());
-                    // It's not immediately clear why Lighthouse returns `None` rather than
-                    // `Some(false)` here, I would expect the latter to be the most accurate.
-                    // However, it doesn't seem like a big deal.
-                    //
-                    // See: https://github.com/sigp/lighthouse/pull/3490
-                    //
-                    // If that PR changes we'll need to change this line.
-                    assert_eq!(remote_validator.readonly, None);
-                }
-            }
+            let result = run(move_config).await;
 
             TestResult { result }
         }
@@ -652,76 +624,13 @@ mod test {
     }
 
     #[tokio::test]
-    async fn create_one_validator() {
+    async fn one_validator() {
         TestBuilder::new()
             .await
-            .create_validators(1, 0)
-            .await
-            .run_test()
-            .await
-            .assert_ok();
-    }
-
-    #[tokio::test]
-    async fn create_three_validators() {
-        TestBuilder::new()
-            .await
-            .create_validators(3, 0)
-            .await
-            .run_test()
-            .await
-            .assert_ok();
-    }
-
-    #[tokio::test]
-    async fn create_one_validator_with_offset() {
-        TestBuilder::new()
-            .await
-            .create_validators(1, 42)
-            .await
-            .run_test()
-            .await
-            .assert_ok();
-    }
-
-    #[tokio::test]
-    async fn create_three_validators_with_offset() {
-        TestBuilder::new()
-            .await
-            .create_validators(3, 1337)
-            .await
-            .run_test()
-            .await
-            .assert_ok();
-    }
-
-    #[tokio::test]
-    async fn import_duplicates_when_disallowed() {
-        TestBuilder::new()
-            .await
-            .create_validators(1, 0)
-            .await
-            .import_validators_without_checks()
-            .await
-            .run_test()
-            .await
-            .assert_err_is(DETECTED_DUPLICATE_MESSAGE.to_string());
-    }
-
-    #[tokio::test]
-    async fn import_duplicates_when_allowed() {
-        TestBuilder::new()
-            .await
-            .mutate_import_config(|config| {
-                config.ignore_duplicates = true;
-            })
-            .create_validators(1, 0)
-            .await
-            .import_validators_without_checks()
+            .with_src_validators(1, 0)
             .await
             .run_test()
             .await
             .assert_ok();
     }
 }
-*/

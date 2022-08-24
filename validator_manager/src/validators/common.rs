@@ -35,7 +35,7 @@ pub enum UploadError {
     PatchValidatorFailed(eth2::Error),
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct ValidatorSpecification {
     pub voting_keystore: KeystoreJsonStr,
     pub voting_keystore_password: ZeroizeString,
