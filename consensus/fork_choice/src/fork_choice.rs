@@ -80,12 +80,16 @@ impl<T> From<state_processing::EpochProcessingError> for Error<T> {
     }
 }
 
+/// Controls how fork choice should behave when restoring from a persisted fork choice.
 pub enum ResetPayloadStatuses {
+    /// Reset all payload statuses back to "optimistic".
     Always,
+    /// Only reset all payload statuses back to "optimistic" when an "invalid" block is present.
     OnlyWithInvalidPayload,
 }
 
 impl ResetPayloadStatuses {
+    /// When `should_always_reset == True`, return `ResetPayloadStatuses::Always`.
     pub fn always_reset_conditionally(should_always_reset: bool) -> Self {
         if should_always_reset {
             ResetPayloadStatuses::Always
