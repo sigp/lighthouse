@@ -36,6 +36,7 @@ eth2_ssz_types = "0.2.2"
 eth2_ssz_derive = "0.3.0"
 state_processing = { path = "../../consensus/state_processing" }
 tree_hash = "0.4.1"
+tree_hash_derive = "0.4.0"
 types = { path = "../../consensus/types" }
 tokio = "1.14.0"
 eth1 = { path = "../eth1" }

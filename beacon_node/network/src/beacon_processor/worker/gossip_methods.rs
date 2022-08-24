@@ -1404,7 +1404,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     "attn_agg_not_in_committee",
                 );
             }
-            AttnError::AttestationAlreadyKnown { .. } => {
+            AttnError::AttestationSupersetKnown { .. } => {
                 /*
                  * The aggregate attestation has already been observed on the network or in
                  * a block.
@@ -1897,7 +1897,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     "sync_bad_aggregator",
                 );
             }
-            SyncCommitteeError::SyncContributionAlreadyKnown(_)
+            SyncCommitteeError::SyncContribtionSupersetKnown(_)
             | SyncCommitteeError::AggregatorAlreadyKnown(_) => {
                 /*
                  * The sync committee message already been observed on the network or in

@@ -155,6 +155,10 @@ lazy_static! {
         "beacon_aggregated_attestation_processing_requests_total",
         "Count of all aggregated attestations submitted for processing"
     );
+    pub static ref AGGREGATED_ATTESTATION_SUBSETS: Result<IntCounter> = try_create_int_counter(
+        "beacon_aggregated_attestation_subsets_total",
+        "Count of new aggregated attestations that are subsets of already known aggregates"
+    );
     pub static ref AGGREGATED_ATTESTATION_PROCESSING_SUCCESSES: Result<IntCounter> = try_create_int_counter(
         "beacon_aggregated_attestation_processing_successes_total",
         "Number of aggregated attestations verified for gossip"
@@ -831,6 +835,10 @@ lazy_static! {
     pub static ref SYNC_CONTRIBUTION_PROCESSING_REQUESTS: Result<IntCounter> = try_create_int_counter(
         "beacon_sync_contribution_processing_requests_total",
         "Count of all sync contributions submitted for processing"
+    );
+    pub static ref SYNC_CONTRIBUTION_SUBSETS: Result<IntCounter> = try_create_int_counter(
+        "beacon_sync_contribtion_subsets_total",
+        "Count of new sync contribtuions that are subsets of already known aggregates"
     );
     pub static ref SYNC_CONTRIBUTION_PROCESSING_SUCCESSES: Result<IntCounter> = try_create_int_counter(
         "beacon_sync_contribution_processing_successes_total",

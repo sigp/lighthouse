@@ -430,6 +430,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "tree_hash",
+ "tree_hash_derive",
  "types",
  "unused_port",
 ]

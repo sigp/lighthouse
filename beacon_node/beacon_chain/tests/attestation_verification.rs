@@ -648,7 +648,7 @@ async fn aggregated_gossip_verification() {
             |tester, err| {
                 assert!(matches!(
                     err,
-                    AttnError::AttestationAlreadyKnown(hash)
+                    AttnError::AttestationSupersetKnown(hash)
                     if hash == tester.valid_aggregate.message.aggregate.tree_hash_root()
                 ))
             },

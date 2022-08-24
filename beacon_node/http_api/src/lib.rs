@@ -2273,7 +2273,7 @@ pub fn serve<T: BeaconChainTypes>(
                             // It's reasonably likely that two different validators produce
                             // identical aggregates, especially if they're using the same beacon
                             // node.
-                            Err(AttnError::AttestationAlreadyKnown(_)) => continue,
+                            Err(AttnError::AttestationSupersetKnown(_)) => continue,
                             // If we've already seen this aggregator produce an aggregate, just
                             // skip this one.
                             //

@@ -423,7 +423,7 @@ async fn aggregated_gossip_verification() {
     assert_invalid!(
         "aggregate that has already been seen",
         valid_aggregate.clone(),
-        SyncCommitteeError::SyncContributionAlreadyKnown(hash)
+        SyncCommitteeError::SyncContribtionSupersetKnown(hash)
         if hash == valid_aggregate.message.contribution.tree_hash_root()
     );
 
