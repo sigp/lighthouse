@@ -598,9 +598,9 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                     if allow_keystore_export {
                         keystores::export(request, validator_store, task_executor, log)
                     } else {
-                        return Err(warp_utils::reject::custom_bad_request(
+                        Err(warp_utils::reject::custom_bad_request(
                             "keystore export is disabled".to_string(),
-                        ));
+                        ))
                     }
                 })
             },

@@ -82,10 +82,12 @@ impl ApiTester {
         let api_secret = ApiSecret::create_or_open(validator_dir.path()).unwrap();
         let api_pubkey = api_secret.api_token();
 
-        let mut config = Config::default();
-        config.validator_dir = validator_dir.path().into();
-        config.secrets_dir = secrets_dir.path().into();
-        config.fee_recipient = Some(TEST_DEFAULT_FEE_RECIPIENT);
+        let config = Config {
+            validator_dir: validator_dir.path().into(),
+            secrets_dir: secrets_dir.path().into(),
+            fee_recipient: Some(TEST_DEFAULT_FEE_RECIPIENT),
+            ..Default::default()
+        };
 
         let spec = E::default_spec();
 
@@ -117,7 +119,7 @@ impl ApiTester {
 
         let context = Arc::new(Context {
             task_executor: test_runtime.task_executor.clone(),
-            api_secret: api_secret,
+            api_secret,
             validator_dir: Some(validator_dir.path().into()),
             validator_store: Some(validator_store.clone()),
             spec: E::default_spec(),
@@ -131,7 +133,7 @@ impl ApiTester {
             log,
             _phantom: PhantomData,
         });
-        let ctx = context.clone();
+        let ctx = context;
         let (shutdown_tx, shutdown_rx) = oneshot::channel();
         let server_shutdown = async {
             // It's not really interesting why this triggered, just that it happened.
@@ -166,7 +168,7 @@ impl ApiTester {
         let tmp = tempdir().unwrap();
         let api_secret = ApiSecret::create_or_open(tmp.path()).unwrap();
         let invalid_pubkey = api_secret.api_token();
-        ValidatorClientHttpClient::new(self.url.clone(), invalid_pubkey.clone()).unwrap()
+        ValidatorClientHttpClient::new(self.url.clone(), invalid_pubkey).unwrap()
     }
 
     pub async fn test_with_invalid_auth<F, A, T>(self, func: F) -> Self
@@ -308,7 +310,7 @@ impl ApiTester {
                 .await
                 .unwrap()
                 .data;
-            (response.validators.clone(), response.mnemonic.clone())
+            (response.validators.clone(), response.mnemonic)
         };
 
         assert_eq!(response.len(), s.count);
@@ -343,22 +345,21 @@ impl ApiTester {
             .set_nextaccount(s.key_derivation_path_offset)
             .unwrap();
 
-        for i in 0..s.count {
+        for item in response.iter().take(s.count) {
             let keypairs = wallet
                 .next_validator(PASSWORD_BYTES, PASSWORD_BYTES, PASSWORD_BYTES)
                 .unwrap();
             let voting_keypair = keypairs.voting.decrypt_keypair(PASSWORD_BYTES).unwrap();
 
             assert_eq!(
-                response[i].voting_pubkey,
+                item.voting_pubkey,
                 voting_keypair.pk.clone().into(),
                 "the locally generated voting pk should match the server response"
             );
 
             let withdrawal_keypair = keypairs.withdrawal.decrypt_keypair(PASSWORD_BYTES).unwrap();
 
-            let deposit_bytes =
-                eth2_serde_utils::hex::decode(&response[i].eth1_deposit_tx_data).unwrap();
+            let deposit_bytes = eth2_serde_utils::hex::decode(&item.eth1_deposit_tx_data).unwrap();
 
             let (deposit_data, _) =
                 decode_eth1_tx_data(&deposit_bytes, E::default_spec().max_effective_balance)

@@ -774,8 +774,8 @@ async fn check_get_set_fee_recipient() {
     .await;
 }
 
-#[test]
-fn check_get_set_gas_limit() {
+#[tokio::test]
+async fn check_get_set_gas_limit() {
     run_test(|tester: ApiTester| async move {
         let _ = &tester;
         let password = random_password_string();
@@ -947,6 +947,7 @@ fn check_get_set_gas_limit() {
             );
         }
     })
+    .await
 }
 
 fn all_indices(count: usize) -> Vec<usize> {

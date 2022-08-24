@@ -80,8 +80,7 @@ impl ValidatorSpecification {
                 if response
                     .data
                     .iter()
-                    .find(|validator| validator.validating_pubkey == voting_public_key)
-                    .is_some()
+                    .any(|validator| validator.validating_pubkey == voting_public_key)
                 {
                     if ignore_duplicates {
                         eprintln!(
@@ -278,7 +277,7 @@ mod bytes_4_without_0x_prefix {
         S: serde::Serializer,
     {
         let hex_string = &hex::encode(&bytes);
-        serializer.serialize_str(&hex_string)
+        serializer.serialize_str(hex_string)
     }
 
     pub fn deserialize<'de, D>(deserializer: D) -> Result<[u8; BYTES_LEN], D::Error>

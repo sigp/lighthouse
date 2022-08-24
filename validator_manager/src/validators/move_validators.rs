@@ -300,8 +300,7 @@ async fn run<'a>(config: MoveConfig) -> Result<(), String> {
                         if response
                             .data
                             .iter()
-                            .find(|v| v.validating_pubkey == pubkey_to_move)
-                            .is_some()
+                            .any(|v| v.validating_pubkey == pubkey_to_move)
                         {
                             eprintln!(
                                 "There was an error removing a validator, however the validator \
@@ -434,9 +433,7 @@ async fn run<'a>(config: MoveConfig) -> Result<(), String> {
                 return Err(format!("{:?}", e));
             }
             Err(UploadError::DuplicateValidator(_)) => {
-                return Err(format!(
-                    "Duplicate validator detected when duplicates are ignored"
-                ));
+                return Err("Duplicate validator detected when duplicates are ignored".to_string());
             }
             Err(UploadError::FailedToListKeys(e)) => {
                 eprintln!(
