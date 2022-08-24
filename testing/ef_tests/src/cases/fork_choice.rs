@@ -156,13 +156,6 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
     fn result(&self, _case_index: usize, fork_name: ForkName) -> Result<(), Error> {
         let tester = Tester::new(self, testing_spec::<E>(fork_name))?;
 
-        // TODO(merge): re-enable this test before production.
-        // This test is skipped until we can do retrospective confirmations of the terminal
-        // block after an optimistic sync.
-        if self.description == "block_lookup_failed" {
-            return Err(Error::SkippedKnownFailure);
-        };
-
         for step in &self.steps {
             match step {
                 Step::Tick { tick } => tester.set_tick(*tick),
