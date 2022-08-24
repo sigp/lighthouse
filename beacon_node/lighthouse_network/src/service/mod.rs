@@ -174,7 +174,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
             // Construct the metadata
             let meta_data = crate::load_or_build_metadata(&config.network_dir, &log);
             let globals = NetworkGlobals::new(
-                enr.clone(),
+                enr,
                 config.libp2p_port,
                 config.discovery_port,
                 meta_data,
@@ -993,11 +993,11 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                 metrics::inc_counter_vec(&metrics::TOTAL_RPC_REQUESTS, &["blocks_by_root"])
             }
         }
-        return NetworkEvent::RequestReceived {
+        NetworkEvent::RequestReceived {
             peer_id,
             id,
             request,
-        };
+        }
     }
 
     /// Dial cached enrs in discovery service that are in the given `subnet_id` and aren't
@@ -1491,7 +1491,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
 
         // perform gossipsub score updates when necessary
         while self.update_gossipsub_scores.poll_tick(cx).is_ready() {
-            let ref mut this = self.swarm.behaviour_mut();
+            let this = self.swarm.behaviour_mut();
             this.peer_manager.update_gossipsub_scores(&this.gossipsub);
         }
 
