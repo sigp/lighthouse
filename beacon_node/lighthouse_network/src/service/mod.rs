@@ -75,7 +75,7 @@ pub type PeerRequestId = (ConnectionId, SubstreamId);
 
 /// The types of events than can be obtained from polling the behaviour.
 #[derive(Debug)]
-pub enum OldBehaviourEvent<AppReqId: ReqId, TSpec: EthSpec> {
+pub enum NetworkEvent<AppReqId: ReqId, TSpec: EthSpec> {
     /// We have successfully dialed and connected to a peer.
     PeerConnectedOutgoing(PeerId),
     /// A peer has successfully dialed and connected to us.
@@ -956,9 +956,9 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
         id: RequestId<AppReqId>,
         peer_id: PeerId,
         response: Response<TSpec>,
-    ) -> Option<OldBehaviourEvent<AppReqId, TSpec>> {
+    ) -> Option<NetworkEvent<AppReqId, TSpec>> {
         match id {
-            RequestId::Application(id) => Some(OldBehaviourEvent::ResponseReceived {
+            RequestId::Application(id) => Some(NetworkEvent::ResponseReceived {
                 peer_id,
                 id,
                 response,
@@ -974,7 +974,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
         id: PeerRequestId,
         peer_id: PeerId,
         request: Request,
-    ) -> OldBehaviourEvent<AppReqId, TSpec> {
+    ) -> NetworkEvent<AppReqId, TSpec> {
         // Increment metrics
         match &request {
             Request::Status(_) => {
@@ -987,7 +987,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                 metrics::inc_counter_vec(&metrics::TOTAL_RPC_REQUESTS, &["blocks_by_root"])
             }
         }
-        return OldBehaviourEvent::RequestReceived {
+        return NetworkEvent::RequestReceived {
             peer_id,
             id,
             request,
@@ -1055,7 +1055,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
     fn inject_gs_event(
         &mut self,
         event: GossipsubEvent,
-    ) -> Option<OldBehaviourEvent<AppReqId, TSpec>> {
+    ) -> Option<NetworkEvent<AppReqId, TSpec>> {
         match event {
             GossipsubEvent::Message {
                 propagation_source,
@@ -1078,7 +1078,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                     }
                     Ok(msg) => {
                         // Notify the network
-                        return Some(OldBehaviourEvent::PubsubMessage {
+                        return Some(NetworkEvent::PubsubMessage {
                             id,
                             source: propagation_source,
                             topic: gs_msg.topic,
@@ -1153,7 +1153,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
     fn inject_rpc_event(
         &mut self,
         event: RPCMessage<RequestId<AppReqId>, TSpec>,
-    ) -> Option<OldBehaviourEvent<AppReqId, TSpec>> {
+    ) -> Option<NetworkEvent<AppReqId, TSpec>> {
         let peer_id = event.peer_id;
 
         if !self.peer_manager().is_connected(&peer_id) {
@@ -1196,7 +1196,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                         );
                         // inform failures of requests comming outside the behaviour
                         if let RequestId::Application(id) = id {
-                            Some(OldBehaviourEvent::RPCFailed { peer_id, id })
+                            Some(NetworkEvent::RPCFailed { peer_id, id })
                         } else {
                             None
                         }
@@ -1321,7 +1321,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
     fn inject_discovery_event(
         &mut self,
         event: DiscoveredPeers,
-    ) -> Option<OldBehaviourEvent<AppReqId, TSpec>> {
+    ) -> Option<NetworkEvent<AppReqId, TSpec>> {
         let DiscoveredPeers { peers } = event;
         let to_dial_peers = self.peer_manager_mut().peers_discovered(peers);
         for peer_id in to_dial_peers {
@@ -1336,7 +1336,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
     fn inject_identify_event(
         &mut self,
         event: IdentifyEvent,
-    ) -> Option<OldBehaviourEvent<AppReqId, TSpec>> {
+    ) -> Option<NetworkEvent<AppReqId, TSpec>> {
         match event {
             IdentifyEvent::Received { peer_id, mut info } => {
                 if info.listen_addrs.len() > MAX_IDENTIFY_ADDRESSES {
@@ -1359,29 +1359,29 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
     fn inject_pm_event(
         &mut self,
         event: PeerManagerEvent,
-    ) -> Option<OldBehaviourEvent<AppReqId, TSpec>> {
+    ) -> Option<NetworkEvent<AppReqId, TSpec>> {
         match event {
             PeerManagerEvent::PeerConnectedIncoming(peer_id) => {
-                Some(OldBehaviourEvent::PeerConnectedIncoming(peer_id))
+                Some(NetworkEvent::PeerConnectedIncoming(peer_id))
             }
             PeerManagerEvent::PeerConnectedOutgoing(peer_id) => {
-                Some(OldBehaviourEvent::PeerConnectedOutgoing(peer_id))
+                Some(NetworkEvent::PeerConnectedOutgoing(peer_id))
             }
             PeerManagerEvent::PeerDisconnected(peer_id) => {
-                Some(OldBehaviourEvent::PeerDisconnected(peer_id))
+                Some(NetworkEvent::PeerDisconnected(peer_id))
             }
             PeerManagerEvent::Banned(peer_id, associated_ips) => {
                 self.discovery_mut().ban_peer(&peer_id, associated_ips);
-                Some(OldBehaviourEvent::PeerBanned(peer_id))
+                Some(NetworkEvent::PeerBanned(peer_id))
             }
             PeerManagerEvent::UnBanned(peer_id, associated_ips) => {
                 self.discovery_mut().unban_peer(&peer_id, associated_ips);
-                Some(OldBehaviourEvent::PeerUnbanned(peer_id))
+                Some(NetworkEvent::PeerUnbanned(peer_id))
             }
             PeerManagerEvent::Status(peer_id) => {
                 // it's time to status. We don't keep a beacon chain reference here, so we inform
                 // the network to send a status to this peer
-                Some(OldBehaviourEvent::StatusPeer(peer_id))
+                Some(NetworkEvent::StatusPeer(peer_id))
             }
             PeerManagerEvent::DiscoverPeers(peers_to_find) => {
                 // Peer manager has requested a discovery query for more peers.
@@ -1413,7 +1413,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
         }
     }
 
-    pub fn poll(&mut self, cx: &mut Context) -> Poll<OldBehaviourEvent<AppReqId, TSpec>> {
+    pub fn poll(&mut self, cx: &mut Context) -> Poll<NetworkEvent<AppReqId, TSpec>> {
         let maybe_event = match self.swarm.poll_next_unpin(cx) {
             Poll::Ready(Some(swarm_event)) => match swarm_event {
                 SwarmEvent::Behaviour(behaviour_event) => match behaviour_event {
@@ -1466,7 +1466,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                 } => {
                     crit!(self.log, "Listener closed"; "addresses" => ?addresses, "reason" => ?reason);
                     if Swarm::listeners(&self.swarm).count() == 0 {
-                        Some(OldBehaviourEvent::ZeroListeners)
+                        Some(NetworkEvent::ZeroListeners)
                     } else {
                         None
                     }
@@ -1475,7 +1475,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                     // this is non fatal, but we still check
                     warn!(self.log, "Listener error"; "error" => ?error);
                     if Swarm::listeners(&self.swarm).count() == 0 {
-                        Some(OldBehaviourEvent::ZeroListeners)
+                        Some(NetworkEvent::ZeroListeners)
                     } else {
                         None
                     }

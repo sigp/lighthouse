@@ -1,6 +1,6 @@
 use crate::multiaddr::Protocol;
 use crate::rpc::{GoodbyeReason, MetaData, MetaDataV1, MetaDataV2, RPCResponseErrorCode, ReqId};
-use crate::service::{save_metadata_to_disk, OldBehaviourEvent, PeerRequestId, Request, Response};
+use crate::service::{save_metadata_to_disk, NetworkEvent, PeerRequestId, Request, Response};
 use crate::types::{error, EnrAttestationBitfield, EnrSyncCommitteeBitfield};
 use crate::{NetworkConfig, NetworkGlobals, PeerAction, ReportSource};
 use libp2p::core::{
@@ -31,7 +31,7 @@ pub const METADATA_FILENAME: &str = "metadata";
 #[derive(Debug)]
 pub enum Libp2pEvent<AppReqId: ReqId, TSpec: EthSpec> {
     /// A behaviour event
-    Behaviour(OldBehaviourEvent<AppReqId, TSpec>),
+    Behaviour(NetworkEvent<AppReqId, TSpec>),
     /// A new listening address has been established.
     NewListenAddr(Multiaddr),
     /// We reached zero listening addresses.
