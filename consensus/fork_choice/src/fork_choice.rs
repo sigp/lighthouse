@@ -80,6 +80,21 @@ impl<T> From<state_processing::EpochProcessingError> for Error<T> {
     }
 }
 
+pub enum ResetPayloadStatuses {
+    Always,
+    OnlyWithInvalidPayload,
+}
+
+impl ResetPayloadStatuses {
+    pub fn always_reset_conditionally(should_always_reset: bool) -> Self {
+        if should_always_reset {
+            ResetPayloadStatuses::Always
+        } else {
+            ResetPayloadStatuses::OnlyWithInvalidPayload
+        }
+    }
+}
+
 #[derive(Debug)]
 pub enum InvalidBlock {
     UnknownParent(Hash256),
@@ -1430,15 +1445,19 @@ where
     /// `Self::to_persisted`.
     pub fn proto_array_from_persisted(
         persisted: &PersistedForkChoice,
+        reset_payload_statuses: ResetPayloadStatuses,
         spec: &ChainSpec,
         log: &Logger,
     ) -> Result<ProtoArrayForkChoice, Error<T::Error>> {
         let mut proto_array = ProtoArrayForkChoice::from_bytes(&persisted.proto_array_bytes)
             .map_err(Error::InvalidProtoArrayBytes)?;
 
-        // If there are no known "invalid" payloads then there is no need to further modify the
-        // `proto_array`.
-        if !proto_array.contains_invalid_payloads() {
+        // Exit early if there are no "invalid" payloads, if requested.
+        if matches!(
+            reset_payload_statuses,
+            ResetPayloadStatuses::OnlyWithInvalidPayload
+        ) && !proto_array.contains_invalid_payloads()
+        {
             return Ok(proto_array);
         }
 
@@ -1465,11 +1484,13 @@ where
     /// `Self::to_persisted`.
     pub fn from_persisted(
         persisted: PersistedForkChoice,
+        reset_payload_statuses: ResetPayloadStatuses,
         fc_store: T,
         spec: &ChainSpec,
         log: &Logger,
     ) -> Result<Self, Error<T::Error>> {
-        let proto_array = Self::proto_array_from_persisted(&persisted, spec, log)?;
+        let proto_array =
+            Self::proto_array_from_persisted(&persisted, reset_payload_statuses, spec, log)?;
 
         let current_slot = fc_store.get_current_slot();
 
