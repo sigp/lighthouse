@@ -505,6 +505,8 @@ async fn run<'a, T: EthSpec>(config: CreateConfig, spec: &ChainSpec) -> Result<(
     Ok(())
 }
 
+// The tests use crypto and are too slow in debug.
+#[cfg(not(debug_assertions))]
 #[cfg(test)]
 pub mod tests {
     use super::*;

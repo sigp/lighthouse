@@ -189,6 +189,8 @@ async fn run<'a>(config: ImportConfig) -> Result<(), String> {
     Ok(())
 }
 
+// The tests use crypto and are too slow in debug.
+#[cfg(not(debug_assertions))]
 #[cfg(test)]
 pub mod tests {
     use super::*;

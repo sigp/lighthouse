@@ -529,6 +529,8 @@ pub fn backup_validator<P: AsRef<Path>>(
     )
 }
 
+// The tests use crypto and are too slow in debug.
+#[cfg(not(debug_assertions))]
 #[cfg(test)]
 mod test {
     use super::*;
