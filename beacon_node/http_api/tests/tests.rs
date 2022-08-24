@@ -2459,6 +2459,93 @@ impl ApiTester {
         self
     }
 
+    pub async fn test_post_validator_register_validator_slashed(self) -> Self {
+        // slash a validator
+        self.client
+            .post_beacon_pool_attester_slashings(&self.attester_slashing)
+            .await
+            .unwrap();
+
+        self.harness
+            .extend_chain(
+                1,
+                BlockStrategy::OnCanonicalHead,
+                AttestationStrategy::AllValidators,
+            )
+            .await;
+
+        let mut registrations = vec![];
+        let mut fee_recipients = vec![];
+
+        let genesis_epoch = self.chain.spec.genesis_slot.epoch(E::slots_per_epoch());
+        let fork = Fork {
+            current_version: self.chain.spec.genesis_fork_version,
+            previous_version: self.chain.spec.genesis_fork_version,
+            epoch: genesis_epoch,
+        };
+
+        let expected_gas_limit = 11_111_111;
+
+        for (val_index, keypair) in self.validator_keypairs().iter().enumerate() {
+            let pubkey = keypair.pk.compress();
+            let fee_recipient = Address::from_low_u64_be(val_index as u64);
+
+            let data = ValidatorRegistrationData {
+                fee_recipient,
+                gas_limit: expected_gas_limit,
+                timestamp: 0,
+                pubkey,
+            };
+
+            let domain = self.chain.spec.get_domain(
+                genesis_epoch,
+                Domain::ApplicationMask(ApplicationDomain::Builder),
+                &fork,
+                Hash256::zero(),
+            );
+            let message = data.signing_root(domain);
+            let signature = keypair.sk.sign(message);
+
+            let signed = SignedValidatorRegistrationData {
+                message: data,
+                signature,
+            };
+
+            fee_recipients.push(fee_recipient);
+            registrations.push(signed);
+        }
+
+        self.client
+            .post_validator_register_validator(&registrations)
+            .await
+            .unwrap();
+
+        for (val_index, (_, fee_recipient)) in self
+            .chain
+            .head_snapshot()
+            .beacon_state
+            .validators()
+            .into_iter()
+            .zip(fee_recipients.into_iter())
+            .enumerate()
+        {
+            let actual = self
+                .chain
+                .execution_layer
+                .as_ref()
+                .unwrap()
+                .get_suggested_fee_recipient(val_index as u64)
+                .await;
+            if val_index == 0 || val_index == 1 {
+                assert_eq!(actual, Address::from_low_u64_be(val_index as u64));
+            } else {
+                assert_eq!(actual, fee_recipient);
+            }
+        }
+
+        self
+    }
+
     // Helper function for tests that require a valid RANDAO signature.
     async fn get_test_randao(&self, slot: Slot, epoch: Epoch) -> (u64, SignatureBytes) {
         let fork = self.chain.canonical_head.cached_head().head_fork();
@@ -3961,6 +4048,14 @@ async fn post_validator_register_validator() {
     ApiTester::new()
         .await
         .test_post_validator_register_validator()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn post_validator_register_validator_slashed() {
+    ApiTester::new()
+        .await
+        .test_post_validator_register_validator_slashed()
         .await;
 }
 
