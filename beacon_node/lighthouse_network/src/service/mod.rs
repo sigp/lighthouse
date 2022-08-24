@@ -1,6 +1,3 @@
-use crate::behaviour::gossipsub_scoring_parameters::{
-    lighthouse_gossip_thresholds, PeerScoreSettings,
-};
 use crate::config::{gossipsub_config, NetworkLoad};
 use crate::discovery::{
     subnet_predicate, DiscoveredPeers, Discovery, FIND_NODE_QUERY_CLOSEST_PEERS,
@@ -10,18 +7,21 @@ use crate::peer_manager::{
     ConnectionDirection, PeerManager, PeerManagerEvent,
 };
 use crate::peer_manager::{MIN_OUTBOUND_ONLY_FACTOR, PEER_EXCESS_FACTOR, PRIORITY_PEER_EXCESS};
-use crate::service::{
-    build_transport, strip_peer_id, Context as ServiceContext, MAX_CONNECTIONS_PER_PEER,
-    METADATA_FILENAME,
-};
+use crate::service::behaviour::BehaviourEvent;
+pub use crate::service::behaviour::Gossipsub;
 use crate::types::{
     subnet_from_topic_hash, GossipEncoding, GossipKind, GossipTopic, SnappyTransform, Subnet,
     SubnetDiscovery,
 };
 use crate::Eth2Enr;
+use crate::{
+    build_transport, strip_peer_id, Context as ServiceContext, MAX_CONNECTIONS_PER_PEER,
+    METADATA_FILENAME,
+};
 use crate::{error, metrics, Enr, NetworkGlobals, PubsubMessage, TopicHash};
 use crate::{rpc::*, EnrExt};
 use futures::stream::StreamExt;
+use gossipsub_scoring_parameters::{lighthouse_gossip_thresholds, PeerScoreSettings};
 use libp2p::bandwidth::BandwidthSinks;
 use libp2p::gossipsub::error::PublishError;
 use libp2p::swarm::{ConnectionLimits, SwarmBuilder, SwarmEvent};
@@ -58,8 +58,10 @@ use types::{
     SignedBeaconBlock, Slot, SubnetId, SyncSubnetId,
 };
 
+use self::behaviour::{Behaviour, RequestId};
 use self::gossip_cache::GossipCache;
 
+mod behaviour;
 mod gossip_cache;
 pub mod gossipsub_scoring_parameters;
 
@@ -70,16 +72,6 @@ const MAX_IDENTIFY_ADDRESSES: usize = 10;
 
 /// Identifier of requests sent by a peer.
 pub type PeerRequestId = (ConnectionId, SubstreamId);
-
-pub type SubscriptionFilter = MaxCountSubscriptionFilter<WhitelistSubscriptionFilter>;
-pub type Gossipsub = BaseGossipsub<SnappyTransform, SubscriptionFilter>;
-
-/// Identifier of a request.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RequestId<AppReqId> {
-    Application(AppReqId),
-    Behaviour,
-}
 
 /// The types of events than can be obtained from polling the behaviour.
 #[derive(Debug)]
@@ -133,22 +125,6 @@ pub enum OldBehaviourEvent<AppReqId: ReqId, TSpec: EthSpec> {
     ZeroListeners,
 }
 
-#[derive(NetworkBehaviour)]
-struct Behaviour<AppReqId: ReqId, TSpec: EthSpec> {
-    /// The routing pub-sub mechanism for eth2.
-    gossipsub: Gossipsub,
-    /// The Eth2 RPC specified in the wire-0 protocol.
-    eth2_rpc: RPC<RequestId<AppReqId>, TSpec>,
-    /// Discv5 Discovery protocol.
-    discovery: Discovery<TSpec>,
-    /// Keep regular connection to peers and disconnect if absent.
-    // NOTE: The id protocol is used for initial interop. This will be removed by mainnet.
-    /// Provides IP addresses and peer information.
-    identify: Identify,
-    /// The peer manager that keeps track of peer's reputation and status.
-    peer_manager: PeerManager<TSpec>,
-}
-
 /// Builds the network behaviour that manages the core protocols of eth2.
 /// This core behaviour is managed by `Behaviour` which adds peer management to all core
 /// behaviours.
@@ -200,7 +176,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                 &log,
             )?;
             // Construct the metadata
-            let meta_data = crate::service::load_or_build_metadata(&config.network_dir, &log);
+            let meta_data = crate::load_or_build_metadata(&config.network_dir, &log);
             let globals = NetworkGlobals::new(
                 enr.clone(),
                 config.libp2p_port,
@@ -942,7 +918,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
             data: *self.network_globals.local_metadata.read().seq_number(),
         };
         trace!(self.log, "Sending Ping"; "peer_id" => %peer_id);
-        let id = RequestId::Behaviour;
+        let id = RequestId::Internal;
         self.eth2_rpc_mut()
             .send_request(peer_id, id, OutboundRequest::Ping(ping));
     }
@@ -961,7 +937,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
     fn send_meta_data_request(&mut self, peer_id: PeerId) {
         let event = OutboundRequest::MetaData(PhantomData);
         self.eth2_rpc_mut()
-            .send_request(peer_id, RequestId::Behaviour, event);
+            .send_request(peer_id, RequestId::Internal, event);
     }
 
     /// Sends a METADATA response to a peer.
@@ -987,7 +963,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                 id,
                 response,
             }),
-            RequestId::Behaviour => None,
+            RequestId::Internal => None,
         }
     }
 
@@ -1431,7 +1407,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                        "peer_id" => %peer_id, "reason" => %reason);
                 // send one goodbye
                 self.eth2_rpc_mut()
-                    .shutdown(peer_id, RequestId::Behaviour, reason);
+                    .shutdown(peer_id, RequestId::Internal, reason);
                 None
             }
         }
@@ -1630,14 +1606,10 @@ impl<AppReqId: std::fmt::Debug> slog::Value for RequestId<AppReqId> {
         serializer: &mut dyn slog::Serializer,
     ) -> slog::Result {
         match self {
-            RequestId::Behaviour => slog::Value::serialize("Behaviour", record, key, serializer),
+            RequestId::Internal => slog::Value::serialize("Behaviour", record, key, serializer),
             RequestId::Application(ref id) => {
                 slog::Value::serialize(&format_args!("{:?}", id), record, key, serializer)
             }
         }
     }
-}
-
-fn make_swarm<AppReqId: ReqId, TSpec: EthSpec>() -> Swarm<Behaviour<AppReqId, TSpec>> {
-    todo!()
 }

@@ -7,7 +7,7 @@ pub(crate) mod enr;
 pub mod enr_ext;
 
 // Allow external use of the lighthouse ENR builder
-use crate::behaviour::TARGET_SUBNET_PEERS;
+use crate::service::TARGET_SUBNET_PEERS;
 use crate::metrics;
 use crate::{error, Enr, NetworkConfig, NetworkGlobals, Subnet, SubnetDiscovery};
 use discv5::{enr::NodeId, Discv5, Discv5Event};
