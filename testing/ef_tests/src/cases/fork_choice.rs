@@ -153,7 +153,7 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
         self.description.clone()
     }
 
-    fn result(&self, case_index: usize, fork_name: ForkName) -> Result<(), Error> {
+    fn result(&self, _case_index: usize, fork_name: ForkName) -> Result<(), Error> {
         let tester = Tester::new(self, testing_spec::<E>(fork_name))?;
 
         for step in &self.steps {
