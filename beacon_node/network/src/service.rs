@@ -11,6 +11,7 @@ use beacon_chain::{BeaconChain, BeaconChainTypes};
 use futures::channel::mpsc::Sender;
 use futures::future::OptionFuture;
 use futures::prelude::*;
+use futures::StreamExt;
 use lighthouse_network::service::Network;
 use lighthouse_network::{
     prometheus_client::registry::Registry, MessageAcceptance, Service as LibP2PService,
@@ -22,7 +23,7 @@ use lighthouse_network::{
 };
 use lighthouse_network::{
     types::{GossipEncoding, GossipTopic},
-    MessageId, NetworkGlobals, NetworkEvent, PeerId,
+    MessageId, NetworkEvent, NetworkGlobals, PeerId,
 };
 use slog::{crit, debug, error, info, o, trace, warn};
 use std::{net::SocketAddr, pin::Pin, sync::Arc, time::Duration};
@@ -457,92 +458,90 @@ impl<T: BeaconChainTypes> NetworkService<T> {
     /// Handle an event received from the network.
     async fn on_libp2p_event(
         &mut self,
-        ev: Libp2pEvent<RequestId, T::EthSpec>,
+        ev: NetworkEvent<RequestId, T::EthSpec>,
         shutdown_sender: &mut Sender<ShutdownReason>,
     ) {
         match ev {
-            Libp2pEvent::Behaviour(event) => match event {
-                NetworkEvent::PeerConnectedOutgoing(peer_id) => {
-                    self.send_to_router(RouterMessage::PeerDialed(peer_id));
-                }
-                NetworkEvent::PeerConnectedIncoming(_)
-                | NetworkEvent::PeerBanned(_)
-                | NetworkEvent::PeerUnbanned(_) => {
-                    // No action required for these events.
-                }
-                NetworkEvent::PeerDisconnected(peer_id) => {
-                    self.send_to_router(RouterMessage::PeerDisconnected(peer_id));
-                }
-                NetworkEvent::RequestReceived {
+            NetworkEvent::PeerConnectedOutgoing(peer_id) => {
+                self.send_to_router(RouterMessage::PeerDialed(peer_id));
+            }
+            NetworkEvent::PeerConnectedIncoming(_)
+            | NetworkEvent::PeerBanned(_)
+            | NetworkEvent::PeerUnbanned(_) => {
+                // No action required for these events.
+            }
+            NetworkEvent::PeerDisconnected(peer_id) => {
+                self.send_to_router(RouterMessage::PeerDisconnected(peer_id));
+            }
+            NetworkEvent::RequestReceived {
+                peer_id,
+                id,
+                request,
+            } => {
+                self.send_to_router(RouterMessage::RPCRequestReceived {
                     peer_id,
                     id,
                     request,
-                } => {
-                    self.send_to_router(RouterMessage::RPCRequestReceived {
-                        peer_id,
-                        id,
-                        request,
-                    });
-                }
-                NetworkEvent::ResponseReceived {
+                });
+            }
+            NetworkEvent::ResponseReceived {
+                peer_id,
+                id,
+                response,
+            } => {
+                self.send_to_router(RouterMessage::RPCResponseReceived {
                     peer_id,
-                    id,
+                    request_id: id,
                     response,
-                } => {
-                    self.send_to_router(RouterMessage::RPCResponseReceived {
-                        peer_id,
-                        request_id: id,
-                        response,
-                    });
-                }
-                NetworkEvent::RPCFailed { id, peer_id } => {
-                    self.send_to_router(RouterMessage::RPCFailed {
-                        peer_id,
-                        request_id: id,
-                    });
-                }
-                NetworkEvent::StatusPeer(peer_id) => {
-                    self.send_to_router(RouterMessage::StatusPeer(peer_id));
-                }
-                NetworkEvent::PubsubMessage {
-                    id,
-                    source,
-                    message,
-                    ..
-                } => {
-                    match message {
-                        // attestation information gets processed in the attestation service
-                        PubsubMessage::Attestation(ref subnet_and_attestation) => {
-                            let subnet = subnet_and_attestation.0;
-                            let attestation = &subnet_and_attestation.1;
-                            // checks if we have an aggregator for the slot. If so, we should process
-                            // the attestation, else we just just propagate the Attestation.
-                            let should_process = self
-                                .attestation_service
-                                .should_process_attestation(subnet, attestation);
-                            self.send_to_router(RouterMessage::PubsubMessage(
-                                id,
-                                source,
-                                message,
-                                should_process,
-                            ));
-                        }
-                        _ => {
-                            // all else is sent to the router
-                            self.send_to_router(RouterMessage::PubsubMessage(
-                                id, source, message, true,
-                            ));
-                        }
+                });
+            }
+            NetworkEvent::RPCFailed { id, peer_id } => {
+                self.send_to_router(RouterMessage::RPCFailed {
+                    peer_id,
+                    request_id: id,
+                });
+            }
+            NetworkEvent::StatusPeer(peer_id) => {
+                self.send_to_router(RouterMessage::StatusPeer(peer_id));
+            }
+            NetworkEvent::PubsubMessage {
+                id,
+                source,
+                message,
+                ..
+            } => {
+                match message {
+                    // attestation information gets processed in the attestation service
+                    PubsubMessage::Attestation(ref subnet_and_attestation) => {
+                        let subnet = subnet_and_attestation.0;
+                        let attestation = &subnet_and_attestation.1;
+                        // checks if we have an aggregator for the slot. If so, we should process
+                        // the attestation, else we just just propagate the Attestation.
+                        let should_process = self
+                            .attestation_service
+                            .should_process_attestation(subnet, attestation);
+                        self.send_to_router(RouterMessage::PubsubMessage(
+                            id,
+                            source,
+                            message,
+                            should_process,
+                        ));
+                    }
+                    _ => {
+                        // all else is sent to the router
+                        self.send_to_router(RouterMessage::PubsubMessage(
+                            id, source, message, true,
+                        ));
                     }
                 }
-            },
-            Libp2pEvent::NewListenAddr(multiaddr) => {
+            }
+            NetworkEvent::NewListenAddr(multiaddr) => {
                 self.network_globals
                     .listen_multiaddrs
                     .write()
                     .push(multiaddr);
             }
-            Libp2pEvent::ZeroListeners => {
+            NetworkEvent::ZeroListeners => {
                 let _ = shutdown_sender
                     .send(ShutdownReason::Failure(
                         "All listeners are closed. Unable to listen",
@@ -581,7 +580,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                 response,
                 id,
             } => {
-                self.libp2p.send_successful_response(peer_id, id, response);
+                self.libp2p.send_response(peer_id, id, response);
             }
             NetworkMessage::SendErrorResponse {
                 peer_id,

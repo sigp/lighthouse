@@ -21,6 +21,7 @@ use crate::{
 use crate::{error, metrics, Enr, NetworkGlobals, PubsubMessage, TopicHash};
 use crate::{rpc::*, EnrExt};
 use futures::stream::StreamExt;
+use futures::FutureExt;
 use gossipsub_scoring_parameters::{lighthouse_gossip_thresholds, PeerScoreSettings};
 use libp2p::bandwidth::BandwidthSinks;
 use libp2p::gossipsub::error::PublishError;
@@ -758,12 +759,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
     }
 
     /// Send a successful response to a peer over RPC.
-    pub fn send_successful_response(
-        &mut self,
-        peer_id: PeerId,
-        id: PeerRequestId,
-        response: Response<TSpec>,
-    ) {
+    pub fn send_response(&mut self, peer_id: PeerId, id: PeerRequestId, response: Response<TSpec>) {
         self.eth2_rpc_mut()
             .send_response(peer_id, id, response.into())
     }
@@ -784,6 +780,21 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
     }
 
     /* Peer management functions */
+
+    pub fn testing_dial(&mut self, addr: Multiaddr) -> Result<(), libp2p::swarm::DialError> {
+        self.swarm.dial(addr)
+    }
+
+    pub fn report_peer(
+        &mut self,
+        peer_id: &PeerId,
+        action: PeerAction,
+        source: ReportSource,
+        msg: &'static str,
+    ) {
+        self.peer_manager_mut()
+            .report_peer(peer_id, action, source, None, msg);
+    }
 
     /// Disconnects from a peer providing a reason.
     ///
@@ -1052,10 +1063,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
         }
         WhitelistSubscriptionFilter(possible_hashes)
     }
-    fn inject_gs_event(
-        &mut self,
-        event: GossipsubEvent,
-    ) -> Option<NetworkEvent<AppReqId, TSpec>> {
+    fn inject_gs_event(&mut self, event: GossipsubEvent) -> Option<NetworkEvent<AppReqId, TSpec>> {
         match event {
             GossipsubEvent::Message {
                 propagation_source,
@@ -1413,7 +1421,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
         }
     }
 
-    pub fn poll(&mut self, cx: &mut Context) -> Poll<NetworkEvent<AppReqId, TSpec>> {
+    pub fn poll_network(&mut self, cx: &mut Context) -> Poll<NetworkEvent<AppReqId, TSpec>> {
         let maybe_event = match self.swarm.poll_next_unpin(cx) {
             Poll::Ready(Some(swarm_event)) => match swarm_event {
                 SwarmEvent::Behaviour(behaviour_event) => match behaviour_event {
@@ -1510,6 +1518,10 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
             }
         }
         Poll::Pending
+    }
+
+    pub async fn next_event(&mut self) -> NetworkEvent<AppReqId, TSpec> {
+        futures::future::poll_fn(|cx| self.poll_network(cx)).await
     }
 }
 
