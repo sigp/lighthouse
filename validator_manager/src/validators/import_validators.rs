@@ -283,14 +283,7 @@ pub mod tests {
                         .find(|validator| validator.validating_pubkey == local_pubkey)
                         .expect("validator must exist on VC");
                     assert_eq!(&remote_validator.derivation_path, &local_keystore.path());
-                    // It's not immediately clear why Lighthouse returns `None` rather than
-                    // `Some(false)` here, I would expect the latter to be the most accurate.
-                    // However, it doesn't seem like a big deal.
-                    //
-                    // See: https://github.com/sigp/lighthouse/pull/3490
-                    //
-                    // If that PR changes we'll need to change this line.
-                    assert_eq!(remote_validator.readonly, None);
+                    assert_eq!(remote_validator.readonly, Some(false));
                 }
             }
 

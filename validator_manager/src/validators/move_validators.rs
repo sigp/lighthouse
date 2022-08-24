@@ -29,6 +29,8 @@ pub const GAS_LIMIT_FLAG: &str = "gas-limit";
 pub const FEE_RECIPIENT_FLAG: &str = "suggested-fee-recipient";
 pub const BUILDER_PROPOSALS_FLAG: &str = "builder-proposals";
 
+const NO_VALIDATORS_MSG: &str = "No validators present on source validator client";
+
 pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
     App::new(CMD)
         .about(
@@ -247,6 +249,10 @@ async fn run<'a>(config: MoveConfig) -> Result<(), String> {
         vc_http_client(src_vc_url.clone(), &src_vc_token_path).await?;
     let (dest_http_client, _dest_keystores) =
         vc_http_client(dest_vc_url.clone(), &dest_vc_token_path).await?;
+
+    if src_keystores.is_empty() {
+        return Err(NO_VALIDATORS_MSG.to_string());
+    }
 
     let pubkeys_to_move = match validators {
         Validators::All => src_keystores.iter().map(|v| v.validating_pubkey).collect(),
@@ -561,13 +567,14 @@ mod test {
         where
             F: Fn(&[PublicKeyBytes]) -> Validators,
         {
-            let import_test_result = self
-                .import_builder
-                .expect("test requires an import builder")
-                .run_test()
-                .await;
-            assert!(import_test_result.result.is_ok());
-            let src_vc = import_test_result.vc;
+            let src_vc = if let Some(import_builder) = self.import_builder {
+                let import_test_result = import_builder.run_test().await;
+                assert!(import_test_result.result.is_ok());
+                import_test_result.vc
+            } else {
+                ApiTester::new().await
+            };
+
             let src_vc_token_path = self.dir.path().join(SRC_VC_TOKEN_FILE_NAME);
             fs::write(&src_vc_token_path, &src_vc.api_token).unwrap();
             let (src_vc_client, src_vc_initial_keystores) =
@@ -599,7 +606,7 @@ mod test {
 
             let result = run(move_config).await;
 
-            let (dest_vc_client, dest_vc_keystores) =
+            let (_dest_vc_client, dest_vc_keystores) =
                 vc_http_client(dest_vc.url.clone(), &dest_vc_token_path)
                     .await
                     .unwrap();
@@ -632,6 +639,15 @@ mod test {
         fn assert_err_is(self, msg: String) {
             assert_eq!(self.result, Err(msg))
         }
+    }
+
+    #[tokio::test]
+    async fn no_validators() {
+        TestBuilder::new()
+            .await
+            .run_test(|_| Validators::All)
+            .await
+            .assert_err_is(NO_VALIDATORS_MSG.to_string());
     }
 
     #[tokio::test]
