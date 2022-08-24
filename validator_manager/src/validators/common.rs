@@ -1,7 +1,11 @@
 use account_utils::ZeroizeString;
 use eth2::lighthouse_vc::std_types::{InterchangeJsonStr, KeystoreJsonStr};
 use eth2::{
-    lighthouse_vc::{http_client::ValidatorClientHttpClient, std_types::SingleKeystoreResponse},
+    lighthouse_vc::{
+        http_client::ValidatorClientHttpClient,
+        std_types::{ImportKeystoresRequest, SingleKeystoreResponse},
+        types::UpdateFeeRecipientRequest,
+    },
     SensitiveUrl,
 };
 use serde::{Deserialize, Serialize};
@@ -9,6 +13,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use tree_hash::TreeHash;
 use types::*;
+
+pub const IGNORE_DUPLICATES_FLAG: &str = "ignore-duplicates";
 
 /// When the `ethereum/staking-deposit-cli` tool generates deposit data JSON, it adds a
 /// `deposit_cli_version` to protect the web-based "Launchpad" tool against a breaking change that
@@ -19,6 +25,16 @@ use types::*;
 /// 2. Weird enough to identify Lighthouse.
 const LIGHTHOUSE_DEPOSIT_CLI_VERSION: &str = "20.18.20";
 
+#[derive(Debug)]
+pub enum UploadError {
+    InvalidPublicKey,
+    DuplicateValidator(PublicKeyBytes),
+    FailedToListKeys(eth2::Error),
+    KeyUploadFailed(eth2::Error),
+    FeeRecipientUpdateFailed(eth2::Error),
+    PatchValidatorFailed(eth2::Error),
+}
+
 #[derive(Serialize, Deserialize)]
 pub struct ValidatorSpecification {
     pub voting_keystore: KeystoreJsonStr,
@@ -28,6 +44,97 @@ pub struct ValidatorSpecification {
     pub gas_limit: Option<u64>,
     pub builder_proposals: Option<bool>,
     pub enabled: Option<bool>,
+}
+
+impl ValidatorSpecification {
+    /// Upload the validator to a validator client via HTTP.
+    pub async fn upload(
+        self,
+        http_client: &ValidatorClientHttpClient,
+        ignore_duplicates: bool,
+    ) -> Result<(), UploadError> {
+        let ValidatorSpecification {
+            voting_keystore,
+            voting_keystore_password,
+            slashing_protection,
+            fee_recipient,
+            gas_limit,
+            builder_proposals,
+            enabled,
+        } = self;
+
+        let voting_public_key = voting_keystore
+            .public_key()
+            .ok_or(UploadError::InvalidPublicKey)?
+            .into();
+
+        let request = ImportKeystoresRequest {
+            keystores: vec![voting_keystore],
+            passwords: vec![voting_keystore_password],
+            slashing_protection,
+        };
+
+        // Check to see if this validator already exists on the remote validator.
+        match http_client.get_keystores().await {
+            Ok(response) => {
+                if response
+                    .data
+                    .iter()
+                    .find(|validator| validator.validating_pubkey == voting_public_key)
+                    .is_some()
+                {
+                    if ignore_duplicates {
+                        eprintln!(
+                            "Duplicate validators are ignored, ignoring {:?} which exists \
+                            on the destination validator client",
+                            voting_public_key
+                        );
+                    } else {
+                        return Err(UploadError::DuplicateValidator(voting_public_key));
+                    }
+                }
+            }
+            Err(e) => {
+                return Err(UploadError::FailedToListKeys(e));
+            }
+        };
+
+        if let Err(e) = http_client.post_keystores(&request).await {
+            // Return here *without* writing the deposit JSON file. This might help prevent
+            // users from submitting duplicate deposits or deposits for validators that weren't
+            // initialized on a VC.
+            //
+            // Next the the user runs with the --ignore-duplicates flag there should be a new,
+            // complete deposit JSON file created.
+            return Err(UploadError::KeyUploadFailed(e));
+        }
+
+        if let Some(fee_recipient) = fee_recipient {
+            http_client
+                .post_fee_recipient(
+                    &voting_public_key,
+                    &UpdateFeeRecipientRequest {
+                        ethaddress: fee_recipient,
+                    },
+                )
+                .await
+                .map_err(UploadError::FeeRecipientUpdateFailed)?;
+        }
+
+        if gas_limit.is_some() || builder_proposals.is_some() || enabled.is_some() {
+            http_client
+                .patch_lighthouse_validators(
+                    &voting_public_key,
+                    enabled,
+                    gas_limit,
+                    builder_proposals,
+                )
+                .await
+                .map_err(UploadError::PatchValidatorFailed)?;
+        }
+
+        Ok(())
+    }
 }
 
 #[derive(Serialize, Deserialize)]
@@ -224,4 +331,21 @@ pub async fn vc_http_client<P: AsRef<Path>>(
     );
 
     Ok((http_client, remote_keystores))
+}
+
+/// Write some object to a file as JSON.
+///
+/// The file must be created new, it must not already exist.
+pub fn write_to_json_file<P: AsRef<Path>, S: Serialize>(
+    path: P,
+    contents: &S,
+) -> Result<(), String> {
+    eprintln!("Writing {:?}", path.as_ref());
+    let mut file = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&path)
+        .map_err(|e| format!("Failed to open {:?}: {:?}", path.as_ref(), e))?;
+    serde_json::to_writer(&mut file, contents)
+        .map_err(|e| format!("Failed to write JSON to {:?}: {:?}", path.as_ref(), e))
 }

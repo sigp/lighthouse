@@ -10,7 +10,7 @@ use eth2::{
 use eth2_wallet::WalletBuilder;
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::time::Duration;
 use types::*;
 
@@ -505,28 +505,12 @@ async fn run<'a, T: EthSpec>(config: CreateConfig, spec: &ChainSpec) -> Result<(
     Ok(())
 }
 
-/// Write some object to a file as JSON.
-///
-/// The file must be created new, it must not already exist.
-pub fn write_to_json_file<P: AsRef<Path>, S: Serialize>(
-    path: P,
-    contents: &S,
-) -> Result<(), String> {
-    eprintln!("Writing {:?}", path.as_ref());
-    let mut file = fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&path)
-        .map_err(|e| format!("Failed to open {:?}: {:?}", path.as_ref(), e))?;
-    serde_json::to_writer(&mut file, contents)
-        .map_err(|e| format!("Failed to write JSON to {:?}: {:?}", path.as_ref(), e))
-}
-
 #[cfg(test)]
 pub mod tests {
     use super::*;
     use eth2_network_config::Eth2NetworkConfig;
     use regex::Regex;
+    use std::path::Path;
     use std::str::FromStr;
     use tempfile::{tempdir, TempDir};
     use tree_hash::TreeHash;

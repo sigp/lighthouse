@@ -11,11 +11,12 @@ use eth2::{
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use types::{Address, PublicKeyBytes};
 
 pub const MOVE_DIR_NAME: &str = "lighthouse-validator-move";
+pub const VALIDATOR_SPECIFICATION_FILE: &str = "validator-specification.json";
 
 pub const CMD: &str = "move";
 pub const WORKING_DIRECTORY_FLAG: &str = "working-directory";
@@ -244,7 +245,7 @@ async fn run<'a>(config: MoveConfig) -> Result<(), String> {
 
     let (src_http_client, src_keystores) =
         vc_http_client(src_vc_url.clone(), &src_vc_token_path).await?;
-    let (dest_http_client, dest_keystores) =
+    let (dest_http_client, _dest_keystores) =
         vc_http_client(dest_vc_url.clone(), &dest_vc_token_path).await?;
 
     let pubkeys_to_move = match validators {
@@ -275,7 +276,8 @@ async fn run<'a>(config: MoveConfig) -> Result<(), String> {
         .map(|k| (k.validating_pubkey, k))
         .collect();
 
-    for pubkey_to_move in pubkeys_to_move {
+    let count = pubkeys_to_move.len();
+    for (i, &pubkey_to_move) in pubkeys_to_move.iter().enumerate() {
         // Skip read-only validators rather than exiting. This makes it a bit easier to use the
         // "all" flag.
         if src_keystores_map
@@ -412,9 +414,116 @@ async fn run<'a>(config: MoveConfig) -> Result<(), String> {
             builder_proposals: Some(builder_proposals),
             enabled: Some(true),
         };
+
+        let validator_specification_path =
+            working_directory_path.join(VALIDATOR_SPECIFICATION_FILE);
+        if let Err(e) = write_to_json_file(&validator_specification_path, &validator_specification)
+        {
+            eprintln!(
+                "Validator {:?} was removed from the source validator but it could not be \
+                saved to disk locally in the case of an upload failure. The application will \
+                continue since it may be possible to upload the validator successfully, \
+                however recovery options are limited. Write filed with {:?}",
+                pubkey_to_move, e
+            );
+        }
+
+        // We might as well just ignore validators that already exist on the destination machine,
+        // there doesn't appear to be much harm just adding them again.
+        let ignore_duplicates = true;
+
+        match validator_specification
+            .upload(&dest_http_client, ignore_duplicates)
+            .await
+        {
+            Ok(()) => eprintln!(
+                "Uploaded keystore {} of {} to the destination VC",
+                i + 1,
+                count
+            ),
+            e @ Err(UploadError::InvalidPublicKey) => {
+                eprintln!("Validator {} has an invalid public key", i);
+                return Err(format!("{:?}", e));
+            }
+            Err(UploadError::DuplicateValidator(_)) => {
+                return Err(format!(
+                    "Duplicate validator detected when duplicates are ignored"
+                ));
+            }
+            Err(UploadError::FailedToListKeys(e)) => {
+                eprintln!(
+                    "Failed to list keystores. Some keys may have been moved whilst \
+                    others may not.",
+                );
+                eprint_recovery_advice(
+                    &working_directory_path,
+                    &validator_specification_path,
+                    &dest_vc_url,
+                    &dest_vc_token_path,
+                );
+                return Err(format!("{:?}", e));
+            }
+            Err(UploadError::KeyUploadFailed(e)) => {
+                eprintln!(
+                    "Failed to upload keystore. Some keys may have been moved whilst \
+                    others may not.",
+                );
+                eprint_recovery_advice(
+                    &working_directory_path,
+                    &validator_specification_path,
+                    &dest_vc_url,
+                    &dest_vc_token_path,
+                );
+                return Err(format!("{:?}", e));
+            }
+            Err(UploadError::FeeRecipientUpdateFailed(e)) => {
+                eprintln!(
+                    "Failed to set fee recipient for validator {}. This value may need \
+                    to be set manually. Continuing with other validators. Error was {:?}",
+                    i, e
+                );
+            }
+            Err(UploadError::PatchValidatorFailed(e)) => {
+                eprintln!(
+                    "Failed to set some values on validator {} (e.g., builder, enabled or gas limit. \
+                    These values value may need to be set manually. Continuing with other validators. \
+                    Error was {:?}",
+                    i, e
+                );
+            }
+        }
     }
 
     Ok(())
+}
+
+pub fn eprint_recovery_advice<P: AsRef<Path>>(
+    working_directory_path: P,
+    validator_file: P,
+    dest_vc_url: &SensitiveUrl,
+    dest_vc_token_path: P,
+) {
+    use crate::validators::import_validators::{
+        CMD, VALIDATORS_FILE_FLAG, VALIDATOR_CLIENT_TOKEN_FLAG, VALIDATOR_CLIENT_URL_FLAG,
+    };
+
+    eprintln!(
+        "It may be possible to recover this validator by running the following command: \n\n\
+        lighthouse {} {} {} --{} {:?} --{} {} --{} {:?} \n\n\
+        The {:?} directory contains a backup of the validator that was unable to be uploaded. \
+        That backup contains the unencrypted validator secret key and should not be shared with \
+        anyone. If the recovery command (above) succeeds, it is safe to remove that directory.",
+        crate::CMD,
+        crate::validators::CMD,
+        CMD,
+        VALIDATORS_FILE_FLAG,
+        validator_file.as_ref().as_os_str(),
+        VALIDATOR_CLIENT_URL_FLAG,
+        dest_vc_url.full,
+        VALIDATOR_CLIENT_TOKEN_FLAG,
+        dest_vc_token_path.as_ref().as_os_str(),
+        working_directory_path.as_ref().as_os_str(),
+    )
 }
 
 /*

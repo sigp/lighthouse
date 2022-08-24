@@ -4,7 +4,7 @@ use environment::Environment;
 use serde::Serialize;
 use std::path::PathBuf;
 use types::EthSpec;
-use validators::create_validators::write_to_json_file;
+use validators::common::write_to_json_file;
 
 pub mod validators;
 

@@ -1,10 +1,7 @@
 use super::common::*;
 use crate::DumpConfig;
 use clap::{App, Arg, ArgMatches};
-use eth2::{
-    lighthouse_vc::{std_types::ImportKeystoresRequest, types::UpdateFeeRecipientRequest},
-    SensitiveUrl,
-};
+use eth2::SensitiveUrl;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
@@ -13,7 +10,6 @@ pub const CMD: &str = "import";
 pub const VALIDATORS_FILE_FLAG: &str = "validators-file";
 pub const VALIDATOR_CLIENT_URL_FLAG: &str = "validator-client-url";
 pub const VALIDATOR_CLIENT_TOKEN_FLAG: &str = "validator-client-token";
-pub const IGNORE_DUPLICATES_FLAG: &str = "ignore-duplicates";
 
 pub const DETECTED_DUPLICATE_MESSAGE: &str = "Duplicate validator detected!";
 
@@ -137,105 +133,57 @@ async fn run<'a>(config: ImportConfig) -> Result<(), String> {
     );
 
     for (i, validator) in validators.into_iter().enumerate() {
-        let ValidatorSpecification {
-            voting_keystore,
-            voting_keystore_password,
-            slashing_protection,
-            fee_recipient,
-            gas_limit,
-            builder_proposals,
-            enabled,
-        } = validator;
-
-        let voting_public_key = voting_keystore
-            .public_key()
-            .ok_or_else(|| format!("Validator keystore at index {} is missing a public key", i))?
-            .into();
-
-        let request = ImportKeystoresRequest {
-            keystores: vec![voting_keystore],
-            passwords: vec![voting_keystore_password],
-            slashing_protection,
-        };
-
-        // Check to see if this validator already exists on the remote validator.
-        match http_client.get_keystores().await {
-            Ok(response) => {
-                if response
-                    .data
-                    .iter()
-                    .find(|validator| validator.validating_pubkey == voting_public_key)
-                    .is_some()
-                {
-                    if ignore_duplicates {
-                        eprintln!(
-                            "Duplicate validators are ignored, ignoring {:?} which exists \
-                            on the validator client and in {:?}",
-                            voting_public_key, validators_file_path
-                        );
-                    } else {
-                        eprintln!(
-                            "{} {:?} exists on the remote validator client and in {:?}",
-                            DETECTED_DUPLICATE_MESSAGE, voting_public_key, validators_file_path
-                        );
-                        return Err(DETECTED_DUPLICATE_MESSAGE.to_string());
-                    }
-                }
+        match validator.upload(&http_client, ignore_duplicates).await {
+            Ok(()) => eprintln!("Uploaded keystore {} of {} to the VC", i + 1, count),
+            e @ Err(UploadError::InvalidPublicKey) => {
+                eprintln!("Validator {} has an invalid public key", i);
+                return Err(format!("{:?}", e));
             }
-            Err(e) => {
+            ref e @ Err(UploadError::DuplicateValidator(voting_public_key)) => {
                 eprintln!(
-                    "Failed to list keystores during batch {}. Some keys may have been imported whilst \
-                        others may not have been imported. A potential solution is to use the \
-                        --{} flag, however care should be taken to ensure that there are no \
-                        duplicate deposits submitted.",
-                    i, IGNORE_DUPLICATES_FLAG
+                    "Duplicate validator {:?} already exists on the destination validator client. \
+                    This may indicate that some validators are running in two places at once, which \
+                    can lead to slashing. If you are certain that there is no risk, add the --{} flag.",
+                    voting_public_key, IGNORE_DUPLICATES_FLAG
                 );
-                return Err(format!("Failed to list keys: {:?}", e));
+                return Err(format!("{:?}", e));
             }
-        };
-
-        if let Err(e) = http_client.post_keystores(&request).await {
-            eprintln!(
-                "Failed to upload batch {}. Some keys may have been imported whilst \
-                    others may not have been imported. A potential solution is to use the \
-                    --{} flag, however care should be taken to ensure that there are no \
+            Err(UploadError::FailedToListKeys(e)) => {
+                eprintln!(
+                    "Failed to list keystores. Some keys may have been imported whilst \
+                    others may not have been imported. A potential solution is run this command again \
+                    using the --{} flag, however care should be taken to ensure that there are no \
                     duplicate deposits submitted.",
-                i, IGNORE_DUPLICATES_FLAG
-            );
-            // Return here *without* writing the deposit JSON file. This might help prevent
-            // users from submitting duplicate deposits or deposits for validators that weren't
-            // initialized on a VC.
-            //
-            // Next the the user runs with the --ignore-duplicates flag there should be a new,
-            // complete deposit JSON file created.
-            return Err(format!("Key upload failed: {:?}", e));
+                    IGNORE_DUPLICATES_FLAG
+                );
+                return Err(format!("{:?}", e));
+            }
+            Err(UploadError::KeyUploadFailed(e)) => {
+                eprintln!(
+                    "Failed to upload keystore. Some keys may have been imported whilst \
+                    others may not have been imported. A potential solution is run this command again \
+                    using the --{} flag, however care should be taken to ensure that there are no \
+                    duplicate deposits submitted.",
+                    IGNORE_DUPLICATES_FLAG
+                );
+                return Err(format!("{:?}", e));
+            }
+            Err(UploadError::FeeRecipientUpdateFailed(e)) => {
+                eprintln!(
+                    "Failed to set fee recipient for validator {}. This value may need \
+                    to be set manually. Continuing with other validators. Error was {:?}",
+                    i, e
+                );
+            }
+            Err(UploadError::PatchValidatorFailed(e)) => {
+                eprintln!(
+                    "Failed to set some values on validator {} (e.g., builder, enabled or gas limit. \
+                    These values value may need to be set manually. Continuing with other validators. \
+                    Error was {:?}",
+                    i, e
+                );
+            }
         }
-
-        if let Some(fee_recipient) = fee_recipient {
-            http_client
-                .post_fee_recipient(
-                    &voting_public_key,
-                    &UpdateFeeRecipientRequest {
-                        ethaddress: fee_recipient,
-                    },
-                )
-                .await
-                .map_err(|e| format!("Failed to update fee recipient on VC: {:?}", e))?;
-        }
-
-        if gas_limit.is_some() || builder_proposals.is_some() || enabled.is_some() {
-            http_client
-                .patch_lighthouse_validators(
-                    &voting_public_key,
-                    enabled,
-                    gas_limit,
-                    builder_proposals,
-                )
-                .await
-                .map_err(|e| format!("Failed to update lighthouse validator on VC: {:?}", e))?;
-        }
-
-        eprintln!("Uploaded keystore {} of {} to the VC", i + 1, count);
     }
 
     Ok(())
