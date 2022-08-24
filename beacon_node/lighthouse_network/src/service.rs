@@ -82,10 +82,10 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Service<AppReqId, TSpec> {
         let service = Service {
             _p_a: Default::default(),
             _p_b: Default::default(),
-            swarm,
-            bandwidth,
-            local_peer_id,
-            log,
+            swarm: todo!(),
+            bandwidth: todo!(),
+            local_peer_id: todo!(),
+            log: log.clone(),
         };
 
         Ok((network_globals, service))
