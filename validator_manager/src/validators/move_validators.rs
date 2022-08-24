@@ -415,19 +415,6 @@ async fn run<'a>(config: MoveConfig) -> Result<(), String> {
             enabled: Some(true),
         };
 
-        let validator_specification_path =
-            working_directory_path.join(VALIDATOR_SPECIFICATION_FILE);
-        if let Err(e) = write_to_json_file(&validator_specification_path, &validator_specification)
-        {
-            eprintln!(
-                "Validator {:?} was removed from the source validator but it could not be \
-                saved to disk locally in the case of an upload failure. The application will \
-                continue since it may be possible to upload the validator successfully, \
-                however recovery options are limited. Write filed with {:?}",
-                pubkey_to_move, e
-            );
-        }
-
         // We might as well just ignore validators that already exist on the destination machine,
         // there doesn't appear to be much harm just adding them again.
         let ignore_duplicates = true;
@@ -552,7 +539,6 @@ mod test {
 
     struct TestBuilder {
         import_builder: Option<ImportTestBuilder>,
-        validators: Validators,
         dir: TempDir,
     }
 
@@ -561,7 +547,6 @@ mod test {
             let dir = tempdir().unwrap();
             Self {
                 import_builder: None,
-                validators: Validators::All,
                 dir: dir,
             }
         }
@@ -575,7 +560,10 @@ mod test {
             self
         }
 
-        async fn run_test(self) -> TestResult {
+        async fn run_test<F>(self, gen_validators_enum: F) -> TestResult
+        where
+            F: Fn(&[PublicKeyBytes]) -> Validators,
+        {
             let import_test_result = self
                 .import_builder
                 .expect("test requires an import builder")
@@ -590,6 +578,12 @@ mod test {
                     .await
                     .unwrap();
 
+            let src_vc_initial_pubkeys: Vec<_> = src_vc_initial_keystores
+                .iter()
+                .map(|k| k.validating_pubkey)
+                .collect();
+            let validators = gen_validators_enum(&src_vc_initial_pubkeys);
+
             let dest_vc = ApiTester::new().await;
             let dest_vc_token_path = self.dir.path().join(DEST_VC_TOKEN_FILE_NAME);
             fs::write(&dest_vc_token_path, &dest_vc.api_token).unwrap();
@@ -600,7 +594,7 @@ mod test {
                 src_vc_token_path,
                 dest_vc_url: dest_vc.url.clone(),
                 dest_vc_token_path: dest_vc_token_path.clone(),
-                validators: self.validators.clone(),
+                validators: validators.clone(),
                 builder_proposals: false,
                 fee_recipient: None,
                 gas_limit: None,
@@ -614,7 +608,7 @@ mod test {
                     .unwrap();
             let src_vc_final_keystores = src_vc_client.get_keystores().await.unwrap().data;
 
-            match self.validators {
+            match validators {
                 Validators::All => {
                     assert!(src_vc_final_keystores.is_empty());
                     for initial_keystore in &src_vc_initial_keystores {
@@ -644,12 +638,67 @@ mod test {
     }
 
     #[tokio::test]
-    async fn one_validator() {
+    async fn one_validator_move_all() {
         TestBuilder::new()
             .await
             .with_src_validators(1, 0)
             .await
-            .run_test()
+            .run_test(|_| Validators::All)
+            .await
+            .assert_ok();
+    }
+
+    #[tokio::test]
+    async fn one_validator_move_one() {
+        TestBuilder::new()
+            .await
+            .with_src_validators(1, 0)
+            .await
+            .run_test(|pubkeys| Validators::Some(pubkeys.to_vec()))
+            .await
+            .assert_ok();
+    }
+
+    #[tokio::test]
+    async fn three_validators_move_all() {
+        TestBuilder::new()
+            .await
+            .with_src_validators(3, 0)
+            .await
+            .run_test(|_| Validators::All)
+            .await
+            .assert_ok();
+    }
+
+    #[tokio::test]
+    async fn three_validators_move_one() {
+        TestBuilder::new()
+            .await
+            .with_src_validators(3, 0)
+            .await
+            .run_test(|pubkeys| Validators::Some(pubkeys[0..1].to_vec()))
+            .await
+            .assert_ok();
+    }
+
+    #[tokio::test]
+    async fn three_validators_move_two() {
+        TestBuilder::new()
+            .await
+            .with_src_validators(3, 0)
+            .await
+            .run_test(|pubkeys| Validators::Some(pubkeys[0..2].to_vec()))
+            .await
+            .assert_ok();
+    }
+
+    #[tokio::test]
+    async fn three_validators_move_three() {
+        TestBuilder::new()
+            .await
+            .with_src_validators(3, 42)
+            .await
+            .run_test(|pubkeys| Validators::Some(pubkeys.to_vec()))
             .await
             .assert_ok();
     }
