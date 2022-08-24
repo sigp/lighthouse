@@ -619,7 +619,24 @@ mod test {
                         assert!(dest_vc_keystores.contains(initial_keystore))
                     }
                 }
-                Validators::Some(_) => unimplemented!(),
+                Validators::Some(pubkeys) => {
+                    assert_eq!(
+                        src_vc_final_keystores.len(),
+                        src_vc_initial_keystores
+                            .len()
+                            .checked_sub(pubkeys.len())
+                            .unwrap()
+                    );
+                    assert_eq!(dest_vc_keystores.len(), pubkeys.len());
+                    for pubkey in pubkeys {
+                        let initial_keystore = src_vc_initial_keystores
+                            .iter()
+                            .find(|k| k.validating_pubkey == pubkey)
+                            .unwrap();
+                        assert!(!src_vc_final_keystores.contains(initial_keystore));
+                        assert!(dest_vc_keystores.contains(initial_keystore));
+                    }
+                }
             }
 
             TestResult { result }
