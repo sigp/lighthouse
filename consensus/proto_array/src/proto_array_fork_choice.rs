@@ -317,6 +317,17 @@ impl ProtoArrayForkChoice {
             .map_err(|e| format!("find_head failed: {:?}", e))
     }
 
+    /// Returns `true` if there are any blocks in `self` with an `INVALID` execution payload status.
+    ///
+    /// This will operate on *all* blocks, even those that do not descend from the finalized
+    /// ancestor.
+    pub fn contains_invalid_payloads(&mut self) -> bool {
+        self.proto_array
+            .nodes
+            .iter()
+            .any(|node| node.execution_status.is_invalid())
+    }
+
     /// For all nodes, regardless of their relationship to the finalized block, set their execution
     /// status to be optimistic.
     ///
