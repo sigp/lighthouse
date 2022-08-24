@@ -83,6 +83,10 @@ pub fn get_attestation_performance<T: BeaconChainTypes>(
     }
 
     // Either use the global validator set, or the specified index.
+    //
+    // Does no further validation of the indices, so in the event an index has not yet been
+    // activated or does not yet exist (according to the head state), it will return all fields as
+    // `false`.
     let index_range = if target.to_lowercase() == "global" {
         chain
             .with_head(|head| Ok((0..head.beacon_state.validators().len() as u64).collect()))
@@ -159,11 +163,17 @@ pub fn get_attestation_performance<T: BeaconChainTypes>(
 
                 let is_active = summary.is_active_unslashed_in_previous_epoch(index);
 
-                let received_source_reward = summary.is_previous_epoch_source_attester(index)?;
+                let received_source_reward = summary
+                    .is_previous_epoch_source_attester(index)
+                    .unwrap_or(false);
 
-                let received_head_reward = summary.is_previous_epoch_head_attester(index)?;
+                let received_head_reward = summary
+                    .is_previous_epoch_head_attester(index)
+                    .unwrap_or(false);
 
-                let received_target_reward = summary.is_previous_epoch_target_attester(index)?;
+                let received_target_reward = summary
+                    .is_previous_epoch_target_attester(index)
+                    .unwrap_or(false);
 
                 let inclusion_delay = summary
                     .previous_epoch_inclusion_info(index)
