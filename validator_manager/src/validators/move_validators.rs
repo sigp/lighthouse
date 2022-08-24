@@ -13,6 +13,8 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
+use std::time::Duration;
+use tokio::time::sleep;
 use types::{Address, PublicKeyBytes};
 
 pub const MOVE_DIR_NAME: &str = "lighthouse-validator-move";
@@ -30,6 +32,8 @@ pub const FEE_RECIPIENT_FLAG: &str = "suggested-fee-recipient";
 pub const BUILDER_PROPOSALS_FLAG: &str = "builder-proposals";
 
 const NO_VALIDATORS_MSG: &str = "No validators present on source validator client";
+
+const UPLOAD_RETRY_WAIT: Duration = Duration::from_secs(5);
 
 pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
     App::new(CMD)
@@ -410,6 +414,8 @@ async fn run<'a>(config: MoveConfig) -> Result<(), String> {
             }
         };
 
+        let keystore_derivation_path = voting_keystore.0.path();
+
         let validator_specification = ValidatorSpecification {
             voting_keystore,
             voting_keystore_password,
@@ -424,68 +430,83 @@ async fn run<'a>(config: MoveConfig) -> Result<(), String> {
         // there doesn't appear to be much harm just adding them again.
         let ignore_duplicates = true;
 
-        match validator_specification
-            .clone()
-            .upload(&dest_http_client, ignore_duplicates)
-            .await
-        {
-            Ok(()) => eprintln!(
+        loop {
+            match validator_specification
+                .clone()
+                .upload(&dest_http_client, ignore_duplicates)
+                .await
+            {
+                Ok(()) => break,
+                e @ Err(UploadError::InvalidPublicKey) => {
+                    eprintln!("Validator {} has an invalid public key", i);
+                    return Err(format!("{:?}", e));
+                }
+                Err(UploadError::DuplicateValidator(_)) => {
+                    return Err(
+                        "Duplicate validator detected when duplicates are ignored".to_string()
+                    );
+                }
+                Err(UploadError::FailedToListKeys(e)) => {
+                    eprintln!(
+                        "Failed to list keystores. Some keys may have been moved whilst \
+                        others may not. Error was {:?}",
+                        e
+                    );
+                    // Retry uploading this validator.
+                    sleep_with_retry_message(&pubkey_to_move, keystore_derivation_path.as_deref())
+                        .await;
+                }
+                Err(UploadError::KeyUploadFailed(e)) => {
+                    eprintln!(
+                        "Failed to upload keystore. Some keys may have been moved whilst \
+                        others may not. Error was {:?}",
+                        e
+                    );
+                    // Retry uploading this validator.
+                    sleep_with_retry_message(&pubkey_to_move, keystore_derivation_path.as_deref())
+                        .await;
+                }
+                Err(UploadError::FeeRecipientUpdateFailed(e)) => {
+                    eprintln!(
+                        "Failed to set fee recipient for validator {}. This value may need \
+                        to be set manually. Continuing with other validators. Error was {:?}",
+                        i, e
+                    );
+                    // Continue onto the next validator.
+                    break;
+                }
+                Err(UploadError::PatchValidatorFailed(e)) => {
+                    eprintln!(
+                        "Failed to set some values on validator {} (e.g., builder, enabled or gas limit. \
+                        These values value may need to be set manually. Continuing with other validators. \
+                        Error was {:?}",
+                        i, e
+                    );
+                    // Continue onto the next validator.
+                    break;
+                }
+            }
+            eprintln!(
                 "Uploaded keystore {} of {} to the destination VC",
                 i + 1,
                 count
-            ),
-            e @ Err(UploadError::InvalidPublicKey) => {
-                eprintln!("Validator {} has an invalid public key", i);
-                return Err(format!("{:?}", e));
-            }
-            Err(UploadError::DuplicateValidator(_)) => {
-                return Err("Duplicate validator detected when duplicates are ignored".to_string());
-            }
-            Err(UploadError::FailedToListKeys(e)) => {
-                eprintln!(
-                    "Failed to list keystores. Some keys may have been moved whilst \
-                    others may not.",
-                );
-                backup_validator(
-                    &validator_specification,
-                    &working_directory_path,
-                    &dest_vc_url,
-                    &dest_vc_token_path,
-                );
-                return Err(format!("{:?}", e));
-            }
-            Err(UploadError::KeyUploadFailed(e)) => {
-                eprintln!(
-                    "Failed to upload keystore. Some keys may have been moved whilst \
-                    others may not.",
-                );
-                backup_validator(
-                    &validator_specification,
-                    &working_directory_path,
-                    &dest_vc_url,
-                    &dest_vc_token_path,
-                );
-                return Err(format!("{:?}", e));
-            }
-            Err(UploadError::FeeRecipientUpdateFailed(e)) => {
-                eprintln!(
-                    "Failed to set fee recipient for validator {}. This value may need \
-                    to be set manually. Continuing with other validators. Error was {:?}",
-                    i, e
-                );
-            }
-            Err(UploadError::PatchValidatorFailed(e)) => {
-                eprintln!(
-                    "Failed to set some values on validator {} (e.g., builder, enabled or gas limit. \
-                    These values value may need to be set manually. Continuing with other validators. \
-                    Error was {:?}",
-                    i, e
-                );
-            }
+            );
         }
     }
 
     Ok(())
+}
+
+async fn sleep_with_retry_message(pubkey: &PublicKeyBytes, path: Option<&str>) {
+    let path = path.unwrap_or("<unspecified>");
+    eprintln!(
+        "Sleeping for {:?} before retrying. Exiting the application before it completes \
+        may result in the loss of a validator keystore. The keystore would need to be \
+        restored from a backup or mnemonic. The keystore which may be lost has a public \
+        key of {:?} and a derivation path of {}",
+        UPLOAD_RETRY_WAIT, pubkey, path
+    );
+    sleep(UPLOAD_RETRY_WAIT).await
 }
 
 pub fn backup_validator<P: AsRef<Path>>(
