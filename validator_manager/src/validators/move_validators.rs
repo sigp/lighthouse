@@ -544,7 +544,7 @@ mod test {
             let dir = tempdir().unwrap();
             Self {
                 import_builder: None,
-                dir: dir,
+                dir,
             }
         }
 
