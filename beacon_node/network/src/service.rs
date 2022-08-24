@@ -13,13 +13,10 @@ use futures::future::OptionFuture;
 use futures::prelude::*;
 use futures::StreamExt;
 use lighthouse_network::service::Network;
-use lighthouse_network::{
-    prometheus_client::registry::Registry, MessageAcceptance, Service as LibP2PService,
-};
+use lighthouse_network::{prometheus_client::registry::Registry, MessageAcceptance};
 use lighthouse_network::{
     rpc::{GoodbyeReason, RPCResponseErrorCode},
-    Context, Libp2pEvent, PeerAction, PeerRequestId, PubsubMessage, ReportSource, Request,
-    Response, Subnet,
+    Context, PeerAction, PeerRequestId, PubsubMessage, ReportSource, Request, Response, Subnet,
 };
 use lighthouse_network::{
     types::{GossipEncoding, GossipTopic},

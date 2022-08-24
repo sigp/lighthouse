@@ -1,17 +1,15 @@
 use crate::multiaddr::Protocol;
-use crate::rpc::{GoodbyeReason, MetaData, MetaDataV1, MetaDataV2, RPCResponseErrorCode, ReqId};
-use crate::service::{save_metadata_to_disk, NetworkEvent, PeerRequestId, Request, Response};
+use crate::rpc::{MetaData, MetaDataV1, MetaDataV2};
+use crate::service::save_metadata_to_disk;
 use crate::types::{error, EnrAttestationBitfield, EnrSyncCommitteeBitfield};
-use crate::{NetworkConfig, NetworkGlobals, PeerAction, ReportSource};
+use crate::NetworkConfig;
+use libp2p::bandwidth::{BandwidthLogging, BandwidthSinks};
 use libp2p::core::{
     identity::Keypair, multiaddr::Multiaddr, muxing::StreamMuxerBox, transport::Boxed,
 };
-use libp2p::{
-    bandwidth::{BandwidthLogging, BandwidthSinks},
-    core, noise, PeerId, Swarm, Transport,
-};
+use libp2p::{core, noise, PeerId, Transport};
 use prometheus_client::registry::Registry;
-use slog::{debug, warn, Logger};
+use slog::{debug, warn};
 use ssz::Decode;
 use std::fs::File;
 use std::io::prelude::*;
@@ -25,174 +23,12 @@ pub const MAX_CONNECTIONS_PER_PEER: u32 = 1;
 /// The filename to store our local metadata.
 pub const METADATA_FILENAME: &str = "metadata";
 
-/// The types of events than can be obtained from polling the libp2p service.
-///
-/// This is a subset of the events that a libp2p swarm emits.
-#[derive(Debug)]
-pub enum Libp2pEvent<AppReqId: ReqId, TSpec: EthSpec> {
-    /// A behaviour event
-    Behaviour(NetworkEvent<AppReqId, TSpec>),
-    /// A new listening address has been established.
-    NewListenAddr(Multiaddr),
-    /// We reached zero listening addresses.
-    ZeroListeners,
-}
-
-/// The configuration and state of the libp2p components for the beacon node.
-pub struct Service<AppReqId: ReqId, TSpec: EthSpec> {
-    _p_a: std::marker::PhantomData<AppReqId>,
-    _p_b: std::marker::PhantomData<TSpec>,
-    /// The libp2p Swarm handler.
-    pub swarm: Swarm<libp2p::swarm::DummyBehaviour>,
-    /// The bandwidth logger for the underlying libp2p transport.
-    pub bandwidth: Arc<BandwidthSinks>,
-    /// This node's PeerId.
-    pub local_peer_id: PeerId,
-    /// The libp2p logger handle.
-    pub log: Logger,
-}
-
 pub struct Context<'a> {
     pub config: &'a NetworkConfig,
     pub enr_fork_id: EnrForkId,
     pub fork_context: Arc<ForkContext>,
     pub chain_spec: &'a ChainSpec,
     pub gossipsub_registry: Option<&'a mut Registry>,
-}
-
-impl<AppReqId: ReqId, TSpec: EthSpec> Service<AppReqId, TSpec> {
-    pub async fn new(
-        executor: task_executor::TaskExecutor,
-        ctx: Context<'_>,
-        log: &Logger,
-    ) -> error::Result<(Arc<NetworkGlobals<TSpec>>, Self)> {
-        // listen on the specified address
-
-        let service = Service {
-            _p_a: Default::default(),
-            _p_b: Default::default(),
-            swarm: todo!(),
-            bandwidth: todo!(),
-            local_peer_id: todo!(),
-            log: log.clone(),
-        };
-        let network_globals = todo!();
-
-        Ok((network_globals, service))
-    }
-
-    /// Sends a request to a peer, with a given Id.
-    pub fn send_request(&mut self, peer_id: PeerId, request_id: AppReqId, request: Request) {
-        todo!()
-    }
-
-    /// Informs the peer that their request failed.
-    pub fn respond_with_error(
-        &mut self,
-        peer_id: PeerId,
-        id: PeerRequestId,
-        error: RPCResponseErrorCode,
-        reason: String,
-    ) {
-        todo!()
-    }
-
-    /// Report a peer's action.
-    pub fn report_peer(
-        &mut self,
-        peer_id: &PeerId,
-        action: PeerAction,
-        source: ReportSource,
-        msg: &'static str,
-    ) {
-        todo!()
-    }
-
-    /// Disconnect and ban a peer, providing a reason.
-    pub fn goodbye_peer(&mut self, peer_id: &PeerId, reason: GoodbyeReason, source: ReportSource) {
-        todo!()
-    }
-
-    /// Sends a response to a peer's request.
-    pub fn send_response(&mut self, peer_id: PeerId, id: PeerRequestId, response: Response<TSpec>) {
-        todo!()
-    }
-
-    pub async fn next_event(&mut self) -> Libp2pEvent<AppReqId, TSpec> {
-        todo!()
-        /*
-        loop {
-            match self.swarm.select_next_some().await {
-                SwarmEvent::Behaviour(behaviour) => {
-                    // Handle banning here
-                    match &behaviour {
-                        OldBehaviourEvent::PeerBanned(peer_id) => {
-                            self.swarm.ban_peer_id(*peer_id);
-                        }
-                        OldBehaviourEvent::PeerUnbanned(peer_id) => {
-                            self.swarm.unban_peer_id(*peer_id);
-                        }
-                        _ => {}
-                    }
-                    return Libp2pEvent::Behaviour(behaviour);
-                }
-                SwarmEvent::ConnectionEstablished {
-                    peer_id: _,
-                    endpoint: _,
-                    num_established: _,
-                    concurrent_dial_errors: _,
-                } => {}
-                SwarmEvent::ConnectionClosed {
-                    peer_id: _,
-                    cause: _,
-                    endpoint: _,
-                    num_established: _,
-                } => {}
-                SwarmEvent::NewListenAddr { address, .. } => {
-                    return Libp2pEvent::NewListenAddr(address)
-                }
-                SwarmEvent::IncomingConnection {
-                    local_addr,
-                    send_back_addr,
-                } => {
-                    trace!(self.log, "Incoming connection"; "our_addr" => %local_addr, "from" => %send_back_addr)
-                }
-                SwarmEvent::IncomingConnectionError {
-                    local_addr,
-                    send_back_addr,
-                    error,
-                } => {
-                    debug!(self.log, "Failed incoming connection"; "our_addr" => %local_addr, "from" => %send_back_addr, "error" => %error);
-                }
-                SwarmEvent::BannedPeer { peer_id, .. } => {
-                    debug!(self.log, "Banned peer connection rejected"; "peer_id" => %peer_id);
-                }
-                SwarmEvent::OutgoingConnectionError { peer_id, error } => {
-                    debug!(self.log, "Failed to dial address"; "peer_id" => ?peer_id,  "error" => %error);
-                }
-                SwarmEvent::ExpiredListenAddr { address, .. } => {
-                    debug!(self.log, "Listen address expired"; "address" => %address)
-                }
-                SwarmEvent::ListenerClosed {
-                    addresses, reason, ..
-                } => {
-                    crit!(self.log, "Listener closed"; "addresses" => ?addresses, "reason" => ?reason);
-                    if Swarm::listeners(&self.swarm).count() == 0 {
-                        return Libp2pEvent::ZeroListeners;
-                    }
-                }
-                SwarmEvent::ListenerError { error, .. } => {
-                    // this is non fatal, but we still check
-                    warn!(self.log, "Listener error"; "error" => ?error);
-                    if Swarm::listeners(&self.swarm).count() == 0 {
-                        return Libp2pEvent::ZeroListeners;
-                    }
-                }
-                SwarmEvent::Dialing(_peer_id) => {}
-            }
-        }
-            */
-    }
 }
 
 type BoxedTransport = Boxed<(PeerId, StreamMuxerBox)>;

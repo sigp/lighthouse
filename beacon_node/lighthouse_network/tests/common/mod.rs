@@ -1,5 +1,4 @@
 #![cfg(test)]
-use futures::StreamExt;
 use libp2p::gossipsub::GossipsubConfigBuilder;
 use lighthouse_network::service::Network as LibP2PService;
 use lighthouse_network::Enr;

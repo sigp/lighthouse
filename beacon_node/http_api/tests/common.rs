@@ -119,7 +119,6 @@ pub async fn create_api_server_on_port<T: BeaconChainTypes>(
     // Only a peer manager can add peers, so we create a dummy manager.
     let config = lighthouse_network::peer_manager::config::Config::default();
     let mut pm = PeerManager::new(config, network_globals.clone(), &log)
-        .await
         .unwrap();
 
     // add a peer

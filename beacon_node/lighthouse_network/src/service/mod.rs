@@ -21,24 +21,21 @@ use crate::{
 use crate::{error, metrics, Enr, NetworkGlobals, PubsubMessage, TopicHash};
 use crate::{rpc::*, EnrExt};
 use futures::stream::StreamExt;
-use futures::FutureExt;
 use gossipsub_scoring_parameters::{lighthouse_gossip_thresholds, PeerScoreSettings};
 use libp2p::bandwidth::BandwidthSinks;
 use libp2p::gossipsub::error::PublishError;
 use libp2p::swarm::{ConnectionLimits, SwarmBuilder, SwarmEvent};
 use libp2p::Swarm;
 use libp2p::{
-    core::{connection::ConnectionId, identity::Keypair},
+    core::connection::ConnectionId,
     gossipsub::{
         metrics::Config as GossipsubMetricsConfig,
         subscription_filter::{MaxCountSubscriptionFilter, WhitelistSubscriptionFilter},
-        Gossipsub as BaseGossipsub, GossipsubEvent, IdentTopic as Topic, MessageAcceptance,
-        MessageAuthenticity, MessageId,
+        GossipsubEvent, IdentTopic as Topic, MessageAcceptance, MessageAuthenticity, MessageId,
     },
     identify::{Identify, IdentifyConfig, IdentifyEvent},
     multiaddr::{Multiaddr, Protocol as MProtocol},
-    swarm::NetworkBehaviour,
-    NetworkBehaviour, PeerId,
+    PeerId,
 };
 use slog::{crit, debug, info, o, trace, warn};
 use ssz::Encode;
@@ -48,12 +45,10 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::{
-    collections::VecDeque,
     marker::PhantomData,
     sync::Arc,
     task::{Context, Poll},
 };
-use types::eth_spec;
 use types::{
     consts::altair::SYNC_COMMITTEE_SUBNET_COUNT, EnrForkId, EthSpec, ForkContext,
     SignedBeaconBlock, Slot, SubnetId, SyncSubnetId,
@@ -1452,25 +1447,22 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                     debug!(self.log, "Failed to dial address"; "peer_id" => ?peer_id,  "error" => %error);
                     None
                 }
-                SwarmEvent::BannedPeer { peer_id, endpoint } => {
+                SwarmEvent::BannedPeer {
+                    peer_id,
+                    endpoint: _,
+                } => {
                     debug!(self.log, "Banned peer connection rejected"; "peer_id" => %peer_id);
                     None
                 }
-                SwarmEvent::NewListenAddr {
-                    listener_id,
-                    address,
-                } => todo!(),
-                SwarmEvent::ExpiredListenAddr {
-                    listener_id,
-                    address,
-                } => {
+                SwarmEvent::NewListenAddr { address, .. } => {
+                    Some(NetworkEvent::NewListenAddr(address))
+                }
+                SwarmEvent::ExpiredListenAddr { address, .. } => {
                     debug!(self.log, "Listen address expired"; "address" => %address);
                     None
                 }
                 SwarmEvent::ListenerClosed {
-                    listener_id,
-                    addresses,
-                    reason,
+                    addresses, reason, ..
                 } => {
                     crit!(self.log, "Listener closed"; "addresses" => ?addresses, "reason" => ?reason);
                     if Swarm::listeners(&self.swarm).count() == 0 {
@@ -1479,7 +1471,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                         None
                     }
                 }
-                SwarmEvent::ListenerError { listener_id, error } => {
+                SwarmEvent::ListenerError { error, .. } => {
                     // this is non fatal, but we still check
                     warn!(self.log, "Listener error"; "error" => ?error);
                     if Swarm::listeners(&self.swarm).count() == 0 {
