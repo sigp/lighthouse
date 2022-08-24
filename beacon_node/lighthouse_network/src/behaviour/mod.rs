@@ -393,15 +393,38 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
             )
         };
 
-        /*
-        info!(log, "Libp2p Starting"; "peer_id" => %enr.peer_id(), "bandwidth_config" => format!("{}-{}", config.network_load, NetworkLoad::from(config.network_load).name));
+        let network = Network {
+            swarm,
+            events: VecDeque::new(),
+            network_globals: network_globals.clone(),
+            enr_fork_id,
+            waker: None,
+            network_dir: config.network_dir.clone(),
+            fork_context: ctx.fork_context,
+            score_settings,
+            update_gossipsub_scores,
+            gossip_cache,
+            bandwidth,
+            local_peer_id,
+            log,
+        };
+
+        // Start initialization routine
+        // TODO: split new and start functions?
+
+        Ok((network, network_globals))
+    }
+
+    async fn start(&mut self, config: &crate::NetworkConfig) -> error::Result<()> {
+        let enr = self.network_globals.local_enr();
+        info!(self.log, "Libp2p Starting"; "peer_id" => %enr.peer_id(), "bandwidth_config" => format!("{}-{}", config.network_load, NetworkLoad::from(config.network_load).name));
         let discovery_string = if config.disable_discovery {
             "None".into()
         } else {
             config.discovery_port.to_string()
         };
-        debug!(log, "Attempting to open listening ports"; "address" => ?config.listen_address, "tcp_port" => config.libp2p_port, "udp_port" => discovery_string);
 
+        debug!(self.log, "Attempting to open listening ports"; "address" => ?config.listen_address, "tcp_port" => config.libp2p_port, "udp_port" => discovery_string);
 
         let listen_multiaddr = {
             let mut m = Multiaddr::from(config.listen_address);
@@ -409,15 +432,15 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
             m
         };
 
-        match Swarm::listen_on(&mut swarm, listen_multiaddr.clone()) {
+        match self.swarm.listen_on(listen_multiaddr.clone()) {
             Ok(_) => {
                 let mut log_address = listen_multiaddr;
-                log_address.push(MProtocol::P2p(local_peer_id.into()));
-                info!(log, "Listening established"; "address" => %log_address);
+                log_address.push(MProtocol::P2p(enr.peer_id().into()));
+                info!(self.log, "Listening established"; "address" => %log_address);
             }
             Err(err) => {
                 crit!(
-                    log,
+                    self.log,
                     "Unable to listen on libp2p address";
                     "error" => ?err,
                     "listen_multiaddr" => %listen_multiaddr,
@@ -430,12 +453,11 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
         let mut dial = |mut multiaddr: Multiaddr| {
             // strip the p2p protocol if it exists
             strip_peer_id(&mut multiaddr);
-            match Swarm::dial(&mut swarm, multiaddr.clone()) {
-                Ok(()) => debug!(log, "Dialing libp2p peer"; "address" => %multiaddr),
-                Err(err) => debug!(
-                    log,
-                    "Could not connect to peer"; "address" => %multiaddr, "error" => ?err
-                ),
+            match self.swarm.dial(multiaddr.clone()) {
+                Ok(()) => debug!(self.log, "Dialing libp2p peer"; "address" => %multiaddr),
+                Err(err) => {
+                    debug!(self.log, "Could not connect to peer"; "address" => %multiaddr, "error" => ?err)
+                }
             };
         };
 
@@ -456,7 +478,8 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                     continue;
                 }
 
-                if !network_globals
+                if !self
+                    .network_globals
                     .peers
                     .read()
                     .is_connected_or_dialing(&bootnode_enr.peer_id())
@@ -479,53 +502,18 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
         let mut subscribed_topics: Vec<GossipKind> = vec![];
 
         for topic_kind in &config.topics {
-            // TODO
-            // if swarm.behaviour_mut().subscribe_kind(topic_kind.clone()) {
-            //     subscribed_topics.push(topic_kind.clone());
-            // } else {
-            //     warn!(log, "Could not subscribe to topic"; "topic" => %topic_kind);
-            // }
+            if self.subscribe_kind(topic_kind.clone()) {
+                subscribed_topics.push(topic_kind.clone());
+            } else {
+                warn!(self.log, "Could not subscribe to topic"; "topic" => %topic_kind);
+            }
         }
 
         if !subscribed_topics.is_empty() {
-            info!(log, "Subscribed to topics"; "topics" => ?subscribed_topics);
+            info!(self.log, "Subscribed to topics"; "topics" => ?subscribed_topics);
         }
 
-        let mut config = ctx.config.clone();
-
-        // Set up the Identify Behaviour
-
-
-
-
-
-
-        /*
-        *             gossipsub,
-           eth2_rpc: ,
-           discovery,
-           identify: ,
-           // Auxiliary fields
-           peer_manager:
-
-        */
-        */
-        let network = Network {
-            swarm,
-            events: VecDeque::new(),
-            network_globals: network_globals.clone(),
-            enr_fork_id,
-            waker: None,
-            network_dir: config.network_dir.clone(),
-            fork_context: ctx.fork_context,
-            score_settings,
-            update_gossipsub_scores,
-            gossip_cache,
-            bandwidth,
-            local_peer_id,
-            log,
-        };
-        Ok((network, network_globals))
+        Ok(())
     }
 
     /* Public Accessible Functions to interact with the behaviour */
