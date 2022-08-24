@@ -175,7 +175,7 @@ fn reset_payload_statuses_present() {
     CommandLineTest::new()
         .flag("reset-payload-statuses", None)
         .run_with_zero_port()
-        .with_config(|config| assert!(config.chain.reset_payload_statuses));
+        .with_config(|config| assert!(config.chain.always_reset_payload_statuses));
 }
 
 #[test]
