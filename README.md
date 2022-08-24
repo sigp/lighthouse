@@ -22,11 +22,11 @@ Lighthouse is:
 
 - Ready for use on Ethereum consensus mainnet.
 - Fully open-source, licensed under Apache 2.0.
-- Security-focused. Fuzzing techniques have been continuously applied and several external security reviews have been performed.
+- Security-focused. Fuzzing techniques have been continuously applied, and several external security reviews have been performed.
 - Built in [Rust](https://www.rust-lang.org), a modern language providing unique safety guarantees and
 	excellent performance (comparable to C++).
-- Funded by various organisations, including Sigma Prime, the
-	Ethereum Foundation, ConsenSys, the Decentralization Foundation and private individuals.
+- Funded by various organizations, including Sigma Prime, the
+Ethereum Foundation, ConsenSys, the Decentralization Foundation, and private individuals.
 - Actively involved in the specification and security analysis of the
 	Ethereum proof-of-stake consensus specification.
 
@@ -74,8 +74,8 @@ key](https://keybase.io/sigp/pgp_keys.asc?fingerprint=15e66d941f697e28f49381f426
 
 ## Donations
 
-Lighthouse is an open-source project and a public good. Funding public goods is
-hard and we're grateful for the donations we receive from the community via:
+Lighthouse is an open-source project and a public good. Funding public goods are
+complex, and we're grateful for the donations we receive from the community via:
 
 - [Gitcoin Grants](https://gitcoin.co/grants/25/lighthouse-ethereum-20-client).
 - Ethereum address: `0x25c4a76E7d118705e7Ea2e9b7d8C59930d8aCD3b` (donation.sigmaprime.eth).
