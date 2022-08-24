@@ -585,6 +585,10 @@ mod test {
             let src_vc = import_test_result.vc;
             let src_vc_token_path = self.dir.path().join(SRC_VC_TOKEN_FILE_NAME);
             fs::write(&src_vc_token_path, &src_vc.api_token).unwrap();
+            let (src_vc_client, src_vc_initial_keystores) =
+                vc_http_client(src_vc.url.clone(), &src_vc_token_path)
+                    .await
+                    .unwrap();
 
             let dest_vc = ApiTester::new().await;
             let dest_vc_token_path = self.dir.path().join(DEST_VC_TOKEN_FILE_NAME);
@@ -595,14 +599,30 @@ mod test {
                 src_vc_url: src_vc.url.clone(),
                 src_vc_token_path,
                 dest_vc_url: dest_vc.url.clone(),
-                dest_vc_token_path,
-                validators: self.validators,
+                dest_vc_token_path: dest_vc_token_path.clone(),
+                validators: self.validators.clone(),
                 builder_proposals: false,
                 fee_recipient: None,
                 gas_limit: None,
             };
 
             let result = run(move_config).await;
+
+            let (dest_vc_client, dest_vc_keystores) =
+                vc_http_client(dest_vc.url.clone(), &dest_vc_token_path)
+                    .await
+                    .unwrap();
+            let src_vc_final_keystores = src_vc_client.get_keystores().await.unwrap().data;
+
+            match self.validators {
+                Validators::All => {
+                    assert!(src_vc_final_keystores.is_empty());
+                    for initial_keystore in &src_vc_initial_keystores {
+                        assert!(dest_vc_keystores.contains(initial_keystore))
+                    }
+                }
+                Validators::Some(_) => unimplemented!(),
+            }
 
             TestResult { result }
         }
