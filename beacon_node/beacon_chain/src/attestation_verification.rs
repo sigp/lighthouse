@@ -112,8 +112,8 @@ pub enum Error {
     ///
     /// The peer has sent an invalid message.
     AggregatorPubkeyUnknown(u64),
-    /// The attestation or a superset of this attestation has been seen before; either in a block,
-    /// on the gossip network or from a local validator.
+    /// The attestation or a superset of this attestation's aggregations bits for the same data
+    /// has been seen before; either in a block, on the gossip network or from a local validator.
     ///
     /// ## Peer scoring
     ///

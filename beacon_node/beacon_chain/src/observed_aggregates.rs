@@ -79,41 +79,54 @@ impl<T: EthSpec> Consts for SyncCommitteeContribution<T> {
     }
 }
 
-pub trait SubsetBitVec {
+/// A trait for types that implement a behaviour where one object of that type
+/// can be a subset of another.
+pub trait SubsetItem {
+    /// The item that is stored for later comparison with new incoming aggregate items.
     type Item;
 
+    /// Returns `true` if `self` is a subset of `other` and `false` otherwise.
     fn is_subset(&self, other: &Self::Item) -> bool;
 
+    /// Returns the item that gets stored in `ObservedAggregates` for later subset
+    /// comparison with incoming aggregates.
     fn get_item(&self) -> Self::Item;
 
+    /// Returns a unique value that keys the object to the item that is being stored
+    /// in `ObservedAggregates`.
     fn root(&self) -> Hash256;
 }
 
-impl<T: EthSpec> SubsetBitVec for Attestation<T> {
+impl<T: EthSpec> SubsetItem for Attestation<T> {
     type Item = BitList<T::MaxValidatorsPerCommittee>;
     fn is_subset(&self, other: &Self::Item) -> bool {
         self.aggregation_bits.is_subset(other)
     }
 
+    /// Returns the sync contribution aggregation bits.
     fn get_item(&self) -> Self::Item {
         self.aggregation_bits.clone()
     }
 
+    /// Returns the hash tree root of the attestation data.
     fn root(&self) -> Hash256 {
         self.data.tree_hash_root()
     }
 }
 
-impl<T: EthSpec> SubsetBitVec for SyncCommitteeContribution<T> {
+impl<T: EthSpec> SubsetItem for SyncCommitteeContribution<T> {
     type Item = BitVector<T::SyncSubcommitteeSize>;
     fn is_subset(&self, other: &Self::Item) -> bool {
         self.aggregation_bits.is_subset(other)
     }
 
+    /// Returns the sync contribution aggregation bits.
     fn get_item(&self) -> Self::Item {
         self.aggregation_bits.clone()
     }
 
+    /// Returns the hash tree root of the root, slot and subcommittee index
+    /// of the sync contribution.
     fn root(&self) -> Hash256 {
         SyncCommitteeData {
             root: self.beacon_block_root,
@@ -149,9 +162,11 @@ pub enum Error {
     },
 }
 
-/// A `HashSet` that contains entries related to some `Slot`.
+/// A `HashMap` that contains entries related to some `Slot`.
 struct SlotHashSet<I> {
-    set: HashMap<Hash256, Vec<I>>,
+    /// Contains a vector of disjoint aggregation bitfields/bitvectors keyed to the hash of
+    /// the corresponding data.
+    map: HashMap<Hash256, Vec<I>>,
     slot: Slot,
     max_capacity: usize,
 }
@@ -160,13 +175,13 @@ impl<I> SlotHashSet<I> {
     pub fn new(slot: Slot, initial_capacity: usize, max_capacity: usize) -> Self {
         Self {
             slot,
-            set: HashMap::with_capacity(initial_capacity),
+            map: HashMap::with_capacity(initial_capacity),
             max_capacity,
         }
     }
 
     /// Store the items in self so future observations recognise its existence.
-    pub fn observe_item<S: SlotData + SubsetBitVec<Item = I>>(
+    pub fn observe_item<S: SlotData + SubsetItem<Item = I>>(
         &mut self,
         item: &S,
         root: Hash256,
@@ -180,7 +195,7 @@ impl<I> SlotHashSet<I> {
 
         // Check if `item` is a non-strict subset of any of the already observed aggregates for
         // the given data root for this slot.
-        if let Some(aggregates) = self.set.get(&root) {
+        if let Some(aggregates) = self.map.get(&root) {
             if aggregates.iter().any(|val| item.is_subset(val)) {
                 return Ok(ObserveOutcome::Subset);
             }
@@ -194,18 +209,18 @@ impl<I> SlotHashSet<I> {
         // gossip network and I think that this is a worse case than sending some invalid ones.
         // The underlying libp2p network is responsible for removing duplicate messages, so
         // this doesn't risk a broadcast loop.
-        if self.set.len() >= self.max_capacity {
+        if self.map.len() >= self.max_capacity {
             return Err(Error::ReachedMaxObservationsPerSlot(self.max_capacity));
         }
 
         let item = item.get_item();
-        self.set.entry(root).or_insert(Vec::new()).push(item);
+        self.map.entry(root).or_insert(Vec::new()).push(item);
         Ok(ObserveOutcome::New)
     }
 
     /// Check if `item` is a non-strict subset of any of the already observed aggregates for
     /// the given root and slot.
-    pub fn is_known_subset<S: SlotData + SubsetBitVec<Item = I>>(
+    pub fn is_known_subset<S: SlotData + SubsetItem<Item = I>>(
         &self,
         item: &S,
         root: Hash256,
@@ -218,14 +233,14 @@ impl<I> SlotHashSet<I> {
         }
 
         Ok(self
-            .set
+            .map
             .get(&root)
             .map_or(false, |agg| agg.iter().any(|val| item.is_subset(val))))
     }
 
     /// The number of observed items in `self`.
     pub fn len(&self) -> usize {
-        self.set.len()
+        self.map.len()
     }
 }
 
@@ -249,10 +264,10 @@ impl<T: SlotData + Consts, E: EthSpec, I> Default for ObservedAggregates<T, E, I
     }
 }
 
-impl<T: SlotData + Consts + SubsetBitVec<Item = I>, E: EthSpec, I> ObservedAggregates<T, E, I> {
+impl<T: SlotData + Consts + SubsetItem<Item = I>, E: EthSpec, I> ObservedAggregates<T, E, I> {
     /// Store `item` in `self` keyed at `root`.
     ///
-    /// `root` must equal `item.tree_hash_root()`.
+    /// `root` must equal `item.root::<SubsetItem>()`.
     pub fn observe_item(
         &mut self,
         item: &T,
@@ -270,7 +285,7 @@ impl<T: SlotData + Consts + SubsetBitVec<Item = I>, E: EthSpec, I> ObservedAggre
     /// Check if `item` is a non-strict subset of any of the already observed aggregates for
     /// the given root and slot.
     ///
-    /// `root` must equal `a.tree_hash_root()`.
+    /// `root` must equal `item.root::<SubsetItem>()`.
     #[allow(clippy::wrong_self_convention)]
     pub fn is_known_subset(&mut self, item: &T, root: Hash256) -> Result<bool, Error> {
         let index = self.get_set_index(item.get_slot())?;

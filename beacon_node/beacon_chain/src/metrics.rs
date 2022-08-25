@@ -837,7 +837,7 @@ lazy_static! {
         "Count of all sync contributions submitted for processing"
     );
     pub static ref SYNC_CONTRIBUTION_SUBSETS: Result<IntCounter> = try_create_int_counter(
-        "beacon_sync_contribtion_subsets_total",
+        "beacon_sync_contribution_subsets_total",
         "Count of new sync contribtuions that are subsets of already known aggregates"
     );
     pub static ref SYNC_CONTRIBUTION_PROCESSING_SUCCESSES: Result<IntCounter> = try_create_int_counter(

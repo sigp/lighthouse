@@ -112,14 +112,14 @@ pub enum Error {
     ///
     /// The peer has sent an invalid message.
     AggregatorPubkeyUnknown(u64),
-    /// The sync contribtion or a superset of this sync contribtion has been seen before; either in a block,
-    /// on the gossip network or from a local validator.
+    /// The sync contribution or a superset of this sync contribution's aggregation bits for the same data
+    /// has been seen before; either in a block on the gossip network or from a local validator.
     ///
     /// ## Peer scoring
     ///
     /// It's unclear if this sync contribution is valid, however we have already observed it and do not
     /// need to observe it again.
-    SyncContribtionSupersetKnown(Hash256),
+    SyncContributionSupersetKnown(Hash256),
     /// There has already been an aggregation observed for this validator, we refuse to process a
     /// second.
     ///
@@ -256,6 +256,7 @@ pub struct VerifiedSyncContribution<T: BeaconChainTypes> {
     participant_pubkeys: Vec<PublicKeyBytes>,
 }
 
+/// The sync contribution data.
 #[derive(Encode, Decode, TreeHash)]
 pub(crate) struct SyncCommitteeData {
     pub slot: Slot,
@@ -324,7 +325,7 @@ impl<T: BeaconChainTypes> VerifiedSyncContribution<T> {
             .map_err(|e| Error::BeaconChainError(e.into()))?
         {
             metrics::inc_counter(&metrics::SYNC_CONTRIBUTION_SUBSETS);
-            return Err(Error::SyncContribtionSupersetKnown(contribution_data_root));
+            return Err(Error::SyncContributionSupersetKnown(contribution_data_root));
         }
 
         // Ensure there has been no other observed aggregate for the given `aggregator_index`.
@@ -384,7 +385,7 @@ impl<T: BeaconChainTypes> VerifiedSyncContribution<T> {
             .observe_item(contribution, Some(contribution_data_root))
             .map_err(|e| Error::BeaconChainError(e.into()))?
         {
-            return Err(Error::SyncContribtionSupersetKnown(contribution_data_root));
+            return Err(Error::SyncContributionSupersetKnown(contribution_data_root));
         }
 
         // Observe the aggregator so we don't process another aggregate from them.
