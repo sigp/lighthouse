@@ -23,18 +23,27 @@ use slog::{debug, error, info, warn, Logger};
 use slot_clock::SlotClock;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+use std::time::Duration;
 use sync::poll_sync_committee_duties;
 use sync::SyncDutiesMap;
 use tokio::{sync::mpsc::Sender, time::sleep};
 use types::{ChainSpec, Epoch, EthSpec, Hash256, PublicKeyBytes, SelectionProof, Slot};
 
 /// Since the BN does not like it when we subscribe to slots that are close to the current time, we
-/// will only subscribe to slots which are further than `SUBSCRIPTION_BUFFER_SLOTS` away.
+/// will only subscribe to slots which are further than `subscription_buffer_duration()` away.
 ///
 /// This number is based upon `MIN_PEER_DISCOVERY_SLOT_LOOK_AHEAD` value in the
 /// `beacon_node::network::attestation_service` crate. It is not imported directly to avoid
 /// bringing in the entire crate.
-const SUBSCRIPTION_BUFFER_SLOTS: u64 = 2;
+///
+/// We add an extra 2s delay to allow for latency on the VC->BN connection.
+const MAX_VC_TO_BN_DELAY: Duration = Duration::from_secs(2);
+
+fn subscription_buffer_duration(spec: &ChainSpec) -> Duration {
+    let min_peer_discovery_slot_look_ahead = 2;
+    Duration::from_secs(spec.seconds_per_slot) * min_peer_discovery_slot_look_ahead
+        + MAX_VC_TO_BN_DELAY
+}
 
 /// Only retain `HISTORICAL_DUTIES_EPOCHS` duties prior to the current epoch.
 const HISTORICAL_DUTIES_EPOCHS: u64 = 2;
@@ -538,7 +547,12 @@ async fn poll_beacon_attesters<T: SlotClock + 'static, E: EthSpec>(
             // The BN logs a warning if we try and subscribe to current or near-by slots. Give it a
             // buffer.
             .filter(|(_, duty_and_proof)| {
-                current_slot + SUBSCRIPTION_BUFFER_SLOTS < duty_and_proof.duty.slot
+                duties_service
+                    .slot_clock
+                    .duration_to_slot(duty_and_proof.duty.slot)
+                    .map_or(false, |duration_to_duty_slot| {
+                        duration_to_duty_slot > subscription_buffer_duration(&duties_service.spec)
+                    })
             })
             .for_each(|(_, duty_and_proof)| {
                 let duty = &duty_and_proof.duty;
