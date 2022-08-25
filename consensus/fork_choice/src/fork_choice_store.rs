@@ -1,4 +1,5 @@
 use std::collections::BTreeSet;
+use std::fmt::Debug;
 use types::{BeaconBlockRef, BeaconState, Checkpoint, EthSpec, ExecPayload, Hash256, Slot};
 
 /// Approximates the `Store` in "Ethereum 2.0 Phase 0 -- Beacon Chain Fork Choice":
@@ -18,7 +19,7 @@ use types::{BeaconBlockRef, BeaconState, Checkpoint, EthSpec, ExecPayload, Hash2
 /// concrete struct is to allow this crate to be free from "impure" on-disk database logic,
 /// hopefully making auditing easier.
 pub trait ForkChoiceStore<T: EthSpec>: Sized {
-    type Error;
+    type Error: Debug;
 
     /// Returns the last value passed to `Self::set_current_slot`.
     fn get_current_slot(&self) -> Slot;

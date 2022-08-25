@@ -1,6 +1,6 @@
 use crate::{ForkChoiceStore, InvalidationOperation};
 use proto_array::{Block as ProtoBlock, ExecutionStatus, ProtoArrayForkChoice};
-use slog::{crit, Logger};
+use slog::{crit, debug, warn, Logger};
 use ssz_derive::{Decode, Encode};
 use state_processing::{
     per_block_processing::errors::AttesterSlashingValidationError, per_epoch_processing,
@@ -80,6 +80,7 @@ impl<T> From<state_processing::EpochProcessingError> for Error<T> {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
 /// Controls how fork choice should behave when restoring from a persisted fork choice.
 pub enum ResetPayloadStatuses {
     /// Reset all payload statuses back to "optimistic".
@@ -1455,12 +1456,20 @@ where
     ) -> Result<ProtoArrayForkChoice, Error<T::Error>> {
         let mut proto_array = ProtoArrayForkChoice::from_bytes(&persisted.proto_array_bytes)
             .map_err(Error::InvalidProtoArrayBytes)?;
+        let contains_invalid_payloads = proto_array.contains_invalid_payloads();
+
+        debug!(
+            log,
+            "Restoring fork choice from persisted";
+            "reset_payload_statuses" => ?reset_payload_statuses,
+            "contains_invalid_payloads" => contains_invalid_payloads,
+        );
 
         // Exit early if there are no "invalid" payloads, if requested.
         if matches!(
             reset_payload_statuses,
             ResetPayloadStatuses::OnlyWithInvalidPayload
-        ) && !proto_array.contains_invalid_payloads()
+        ) && !contains_invalid_payloads
         {
             return Ok(proto_array);
         }
@@ -1480,6 +1489,10 @@ where
             ProtoArrayForkChoice::from_bytes(&persisted.proto_array_bytes)
                 .map_err(Error::InvalidProtoArrayBytes)
         } else {
+            debug!(
+                log,
+                "Successfully reset all payload statuses";
+            );
             Ok(proto_array)
         }
     }
@@ -1517,7 +1530,13 @@ where
         // If a call to `get_head` fails, the only known cause is because the only head with viable
         // FFG properties is has an invalid payload. In this scenario, set all the payloads back to
         // an optimistic status so that we can have a head to start from.
-        if fork_choice.get_head(current_slot, spec).is_err() {
+        if let Err(e) = fork_choice.get_head(current_slot, spec) {
+            warn!(
+                log,
+                "Could not find head on persisted FC";
+                "info" => "resetting all payload statuses and retrying",
+                "error" => ?e
+            );
             // Although we may have already made this call whilst loading `proto_array`, try it
             // again since we may have mutated the `proto_array` during `get_head` and therefore may
             // get a different result.
