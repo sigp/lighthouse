@@ -204,8 +204,8 @@ impl<I> SlotHashSet<I> {
         // Here we check to see if this slot has reached the maximum observation count.
         //
         // The resulting behaviour is that we are no longer able to successfully observe new
-        // items, however we will continue to return `is_known` values. We could also
-        // disable `is_known`, however then we would stop forwarding items across the
+        // items, however we will continue to return `is_known_subset` values. We could also
+        // disable `is_known_subset`, however then we would stop forwarding items across the
         // gossip network and I think that this is a worse case than sending some invalid ones.
         // The underlying libp2p network is responsible for removing duplicate messages, so
         // this doesn't risk a broadcast loop.
@@ -379,7 +379,6 @@ impl<T: SlotData + Consts + SubsetItem<Item = I>, E: EthSpec, I> ObservedAggrega
 #[cfg(not(debug_assertions))]
 mod tests {
     use super::*;
-    use tree_hash::TreeHash;
     use types::{test_utils::test_random_instance, Hash256};
 
     type E = types::MainnetEthSpec;
@@ -413,7 +412,7 @@ mod tests {
 
                     for a in &items {
                         assert_eq!(
-                            store.is_known(a, a.tree_hash_root()),
+                            store.is_known_subset(a, a.root()),
                             Ok(false),
                             "should indicate an unknown attestation is unknown"
                         );
@@ -426,13 +425,13 @@ mod tests {
 
                     for a in &items {
                         assert_eq!(
-                            store.is_known(a, a.tree_hash_root()),
+                            store.is_known_subset(a, a.root()),
                             Ok(true),
                             "should indicate a known attestation is known"
                         );
                         assert_eq!(
-                            store.observe_item(a, Some(a.tree_hash_root())),
-                            Ok(ObserveOutcome::AlreadyKnown),
+                            store.observe_item(a, Some(a.root())),
+                            Ok(ObserveOutcome::Subset),
                             "should acknowledge an existing attestation"
                         );
                     }

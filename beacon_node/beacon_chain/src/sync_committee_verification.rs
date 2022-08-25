@@ -258,7 +258,7 @@ pub struct VerifiedSyncContribution<T: BeaconChainTypes> {
 
 /// The sync contribution data.
 #[derive(Encode, Decode, TreeHash)]
-pub(crate) struct SyncCommitteeData {
+pub struct SyncCommitteeData {
     pub slot: Slot,
     pub root: Hash256,
     pub subcommittee_index: u64,

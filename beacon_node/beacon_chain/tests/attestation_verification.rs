@@ -649,7 +649,7 @@ async fn aggregated_gossip_verification() {
                 assert!(matches!(
                     err,
                     AttnError::AttestationSupersetKnown(hash)
-                    if hash == tester.valid_aggregate.message.aggregate.tree_hash_root()
+                    if hash == tester.valid_aggregate.message.aggregate.data.tree_hash_root()
                 ))
             },
         )
