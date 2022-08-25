@@ -92,8 +92,7 @@ pub trait SubsetBitVec {
 impl<T: EthSpec> SubsetBitVec for Attestation<T> {
     type Item = BitList<T::MaxValidatorsPerCommittee>;
     fn is_subset(&self, other: &Self::Item) -> bool {
-        let self_bitlist = &self.aggregation_bits;
-        self_bitlist.is_subset(&other)
+        self.aggregation_bits.is_subset(other)
     }
 
     fn get_item(&self) -> Self::Item {
@@ -108,8 +107,7 @@ impl<T: EthSpec> SubsetBitVec for Attestation<T> {
 impl<T: EthSpec> SubsetBitVec for SyncCommitteeContribution<T> {
     type Item = BitVector<T::SyncSubcommitteeSize>;
     fn is_subset(&self, other: &Self::Item) -> bool {
-        let self_bitvector = &self.aggregation_bits;
-        self_bitvector.is_subset(&other)
+        self.aggregation_bits.is_subset(other)
     }
 
     fn get_item(&self) -> Self::Item {

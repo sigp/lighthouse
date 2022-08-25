@@ -7,6 +7,7 @@ use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
 use smallvec::{smallvec, SmallVec, ToSmallVec};
 use ssz::{Decode, Encode};
+use std::cmp::Ordering;
 use tree_hash::Hash256;
 use typenum::Unsigned;
 
@@ -238,23 +239,29 @@ impl<N: Unsigned + Clone> Bitfield<Variable<N>> {
 
     /// Returns `true` if `self` is a subset of `other` and `false` otherwise.
     pub fn is_subset(&self, other: &Self) -> bool {
-        if self.len() == other.len() {
-            let intersection = self.intersection(other);
-            intersection == *self
-        } else if self.len() > other.len() {
-            let mut result = Self::with_capacity(self.len()).expect("max len always less than N");
-            for i in 0..other.bytes.len() {
-                result.bytes[i] = other.bytes.get(i).copied().unwrap_or(0);
+        match self.len().cmp(&other.len()) {
+            Ordering::Equal => {
+                let intersection = self.intersection(other);
+                intersection == *self
             }
-            let intersection = self.intersection(&result);
-            intersection == *self
-        } else {
-            let mut result = Self::with_capacity(other.len()).expect("max len always less than N");
-            for i in 0..self.bytes.len() {
-                result.bytes[i] = self.bytes.get(i).copied().unwrap_or(0);
+            Ordering::Greater => {
+                let mut result =
+                    Self::with_capacity(self.len()).expect("max len always less than N");
+                for i in 0..other.bytes.len() {
+                    result.bytes[i] = other.bytes.get(i).copied().unwrap_or(0);
+                }
+                let intersection = self.intersection(&result);
+                intersection == *self
             }
-            let intersection = result.intersection(&other);
-            intersection == result
+            Ordering::Less => {
+                let mut result =
+                    Self::with_capacity(other.len()).expect("max len always less than N");
+                for i in 0..self.bytes.len() {
+                    result.bytes[i] = self.bytes.get(i).copied().unwrap_or(0);
+                }
+                let intersection = result.intersection(other);
+                intersection == result
+            }
         }
     }
 }
