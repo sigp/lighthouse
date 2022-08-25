@@ -16,7 +16,7 @@ operating system.
 Install the following packages:
 
 ```bash
-sudo apt install -y git gcc g++ make cmake pkg-config llvm-dev libclang-dev clang protobuf3-compiler
+sudo apt install -y git gcc g++ make cmake pkg-config llvm-dev libclang-dev clang protobuf-compiler
 ```
 
 > Note: Lighthouse requires CMake v3.12 or newer, which isn't available in the package repositories
