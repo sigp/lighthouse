@@ -163,17 +163,11 @@ pub fn get_attestation_performance<T: BeaconChainTypes>(
 
                 let is_active = summary.is_active_unslashed_in_previous_epoch(index);
 
-                let received_source_reward = summary
-                    .is_previous_epoch_source_attester(index)
-                    .unwrap_or(false);
+                let received_source_reward = summary.is_previous_epoch_source_attester(index)?;
 
-                let received_head_reward = summary
-                    .is_previous_epoch_head_attester(index)
-                    .unwrap_or(false);
+                let received_head_reward = summary.is_previous_epoch_head_attester(index)?;
 
-                let received_target_reward = summary
-                    .is_previous_epoch_target_attester(index)
-                    .unwrap_or(false);
+                let received_target_reward = summary.is_previous_epoch_target_attester(index)?;
 
                 let inclusion_delay = summary
                     .previous_epoch_inclusion_info(index)
