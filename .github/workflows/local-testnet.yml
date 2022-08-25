@@ -1,0 +1,68 @@
+# Test that local testnet starts successfully.
+name: local testnet
+
+on:
+  push:
+    branches:
+      - unstable
+  pull_request:
+
+jobs:
+  run-local-testnet:
+    strategy:
+      matrix:
+        os:
+          - ubuntu-18.04
+          - macos-latest
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v1
+
+      - name: Get latest version of stable Rust
+        run: rustup update stable
+
+      - name: Install ganache
+        run: npm install ganache@latest --global
+
+      # https://github.com/actions/cache/blob/main/examples.md#rust---cargo
+      - uses: actions/cache@v2
+        id: cache-cargo
+        with:
+          path: |
+              ~/.cargo/bin/
+              ~/.cargo/registry/index/
+              ~/.cargo/registry/cache/
+              ~/.cargo/git/db/
+              target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Install lighthouse
+        run: make && make install-lcli
+
+      - name: Start local testnet
+        run: ./start_local_testnet.sh && sleep 60
+        working-directory: scripts/local_testnet
+
+      - name: Print logs
+        run: ./dump_logs.sh
+        working-directory: scripts/local_testnet
+
+      - name: Stop local testnet
+        run: ./stop_local_testnet.sh
+        working-directory: scripts/local_testnet
+
+      - name: Clean-up testnet
+        run: ./clean.sh
+        working-directory: scripts/local_testnet
+
+      - name: Start local testnet with blinded block production
+        run: ./start_local_testnet.sh -p && sleep 60
+        working-directory: scripts/local_testnet
+
+      - name: Print logs for blinded block testnet
+        run: ./dump_logs.sh
+        working-directory: scripts/local_testnet
+
+      - name: Stop local testnet with blinded block production
+        run: ./stop_local_testnet.sh
+        working-directory: scripts/local_testnet
