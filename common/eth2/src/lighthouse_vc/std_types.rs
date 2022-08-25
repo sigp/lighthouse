@@ -28,7 +28,7 @@ pub struct ListKeystoresResponse {
     pub data: Vec<SingleKeystoreResponse>,
 }
 
-#[derive(Debug, Deserialize, Serialize, PartialEq)]
+#[derive(Debug, Deserialize, Serialize, PartialEq, Eq, Hash)]
 pub struct SingleKeystoreResponse {
     pub validating_pubkey: PublicKeyBytes,
     pub derivation_path: Option<String>,

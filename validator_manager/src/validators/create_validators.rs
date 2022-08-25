@@ -560,7 +560,7 @@ pub mod tests {
                 disable_deposits: false,
                 specify_voting_keystore_password: false,
                 eth1_withdrawal_address: None,
-                builder_proposals: false,
+                builder_proposals: None,
                 fee_recipient: None,
                 gas_limit: None,
                 bn_url: None,
@@ -610,8 +610,8 @@ pub mod tests {
                     assert!(validator.slashing_protection.is_none());
                     assert_eq!(validator.fee_recipient, config.fee_recipient);
                     assert_eq!(validator.gas_limit, config.gas_limit);
-                    assert_eq!(validator.builder_proposals, Some(config.builder_proposals));
-                    assert_eq!(validator.enabled, Some(true));
+                    assert_eq!(validator.builder_proposals, config.builder_proposals);
+                    assert_eq!(validator.enabled, None);
                 }
 
                 let deposits_path = output_dir.path().join(DEPOSITS_FILENAME);
@@ -759,7 +759,7 @@ pub mod tests {
         TestBuilder::default()
             .mutate_config(|config| {
                 config.deposit_gwei = 42;
-                config.builder_proposals = true;
+                config.builder_proposals = Some(true);
                 config.gas_limit = Some(1337);
             })
             .run_test()

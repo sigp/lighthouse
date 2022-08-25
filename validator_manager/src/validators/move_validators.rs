@@ -133,7 +133,8 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 pub enum Validators {
     All,
-    Some(Vec<PublicKeyBytes>),
+    Count(usize),
+    Specific(Vec<PublicKeyBytes>),
 }
 
 impl FromStr for Validators {
@@ -142,11 +143,16 @@ impl FromStr for Validators {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "all" => Ok(Validators::All),
-            other => other
+            pubkeys if pubkeys.starts_with("0x") => pubkeys
                 .split(',')
                 .map(PublicKeyBytes::from_str)
                 .collect::<Result<_, _>>()
-                .map(Validators::Some),
+                .map(Validators::Specific),
+            other => usize::from_str(other)
+                .map_err(|_| {
+                    format!("Expected \"all\", a list of 0x-prefixed pubkeys or an integer")
+                })
+                .map(Validators::Count),
         }
     }
 }
@@ -228,7 +234,26 @@ async fn run<'a>(config: MoveConfig) -> Result<(), String> {
 
     let pubkeys_to_move = match validators {
         Validators::All => src_keystores.iter().map(|v| v.validating_pubkey).collect(),
-        Validators::Some(request_pubkeys) => {
+        Validators::Count(count) => {
+            let mut viable_pubkeys: Vec<_> = src_keystores
+                .iter()
+                .filter(|v| !v.readonly.unwrap_or(true))
+                .map(|v| v.validating_pubkey)
+                .collect();
+            viable_pubkeys.sort_unstable_by_key(|pubkey| pubkey.serialize());
+            viable_pubkeys
+                .get(0..count)
+                .ok_or_else(|| {
+                    format!(
+                        "Cannot move {} keystores since source validator client only has {} \
+                        keystores which are able to be moved (not read-only).",
+                        count,
+                        viable_pubkeys.len()
+                    )
+                })?
+                .to_vec()
+        }
+        Validators::Specific(request_pubkeys) => {
             let request_pubkeys_set: HashSet<_> = request_pubkeys.iter().collect();
             let src_pubkeys_set: HashSet<_> =
                 src_keystores.iter().map(|v| &v.validating_pubkey).collect();
@@ -623,62 +648,88 @@ mod test {
                 dest_vc_url: dest_vc.url.clone(),
                 dest_vc_token_path: dest_vc_token_path.clone(),
                 validators: validators.clone(),
-                builder_proposals: false,
+                builder_proposals: None,
                 fee_recipient: None,
                 gas_limit: None,
             };
 
             let result = run(move_config).await;
 
-            let src_vc_final_keystores = src_vc_client.get_keystores().await.unwrap().data;
-            let dest_vc_final_keystores = dest_vc_client.get_keystores().await.unwrap().data;
+            if result.is_ok() {
+                let src_vc_final_keystores = src_vc_client.get_keystores().await.unwrap().data;
+                let dest_vc_final_keystores = dest_vc_client.get_keystores().await.unwrap().data;
 
-            match validators {
-                Validators::All => {
-                    assert!(
-                        src_vc_final_keystores.is_empty(),
-                        "all keystores should be removed from source vc"
-                    );
-                    assert_eq!(
-                        dest_vc_final_keystores.len(),
-                        dest_vc_initial_keystores.len() + src_vc_initial_keystores.len()
-                            - self.duplicates,
-                        "the correct count of keystores should have been moved to the dest"
-                    );
-                    for initial_keystore in &src_vc_initial_keystores {
+                match validators {
+                    Validators::All => {
                         assert!(
-                            dest_vc_final_keystores.contains(initial_keystore),
-                            "the source keystore should be present at the dest"
-                        )
+                            src_vc_final_keystores.is_empty(),
+                            "all keystores should be removed from source vc"
+                        );
+                        assert_eq!(
+                            dest_vc_final_keystores.len(),
+                            dest_vc_initial_keystores.len() + src_vc_initial_keystores.len()
+                                - self.duplicates,
+                            "the correct count of keystores should have been moved to the dest"
+                        );
+                        for initial_keystore in &src_vc_initial_keystores {
+                            assert!(
+                                dest_vc_final_keystores.contains(initial_keystore),
+                                "the source keystore should be present at the dest"
+                            )
+                        }
                     }
-                }
-                Validators::Some(pubkeys) => {
-                    assert_eq!(
-                        src_vc_final_keystores.len(),
-                        src_vc_initial_keystores
-                            .len()
-                            .checked_sub(pubkeys.len())
-                            .unwrap(),
-                        "the correct count of validators should have been removed from the src"
-                    );
-                    assert_eq!(
-                        dest_vc_final_keystores.len(),
-                        dest_vc_initial_keystores.len() + pubkeys.len() - self.duplicates,
-                        "the correct count of keystores should have been moved to the dest"
-                    );
-                    for pubkey in pubkeys {
-                        let initial_keystore = src_vc_initial_keystores
-                            .iter()
-                            .find(|k| k.validating_pubkey == pubkey)
-                            .unwrap();
-                        assert!(
-                            !src_vc_final_keystores.contains(initial_keystore),
-                            "the keystore should not be present at the source"
+                    Validators::Count(count) => {
+                        assert_eq!(
+                            src_vc_final_keystores.len(),
+                            src_vc_initial_keystores.len() - count,
+                            "keystores should be removed from source vc"
                         );
-                        assert!(
-                            dest_vc_final_keystores.contains(initial_keystore),
-                            "the keystore should be present at the dest"
+                        assert_eq!(
+                            dest_vc_final_keystores.len(),
+                            dest_vc_initial_keystores.len() + count - self.duplicates,
+                            "the correct count of keystores should have been moved to the dest"
                         );
+                        let moved_keystores: Vec<_> = {
+                            let initial_set: HashSet<_> = src_vc_initial_keystores.iter().collect();
+                            let final_set: HashSet<_> = src_vc_final_keystores.iter().collect();
+                            initial_set.difference(&final_set).cloned().collect()
+                        };
+                        assert_eq!(moved_keystores.len(), count);
+                        for moved_keystore in &moved_keystores {
+                            assert!(
+                                dest_vc_final_keystores.contains(moved_keystore),
+                                "the moved keystore should be present at the dest"
+                            )
+                        }
+                    }
+                    Validators::Specific(pubkeys) => {
+                        assert_eq!(
+                            src_vc_final_keystores.len(),
+                            src_vc_initial_keystores
+                                .len()
+                                .checked_sub(pubkeys.len())
+                                .unwrap(),
+                            "the correct count of validators should have been removed from the src"
+                        );
+                        assert_eq!(
+                            dest_vc_final_keystores.len(),
+                            dest_vc_initial_keystores.len() + pubkeys.len() - self.duplicates,
+                            "the correct count of keystores should have been moved to the dest"
+                        );
+                        for pubkey in pubkeys {
+                            let initial_keystore = src_vc_initial_keystores
+                                .iter()
+                                .find(|k| k.validating_pubkey == pubkey)
+                                .unwrap();
+                            assert!(
+                                !src_vc_final_keystores.contains(initial_keystore),
+                                "the keystore should not be present at the source"
+                            );
+                            assert!(
+                                dest_vc_final_keystores.contains(initial_keystore),
+                                "the keystore should be present at the dest"
+                            );
+                        }
                     }
                 }
             }
@@ -695,6 +746,10 @@ mod test {
     impl TestResult {
         fn assert_ok(self) {
             assert_eq!(self.result, Ok(()))
+        }
+
+        fn assert_err(self) {
+            assert!(self.result.is_err())
         }
 
         fn assert_err_is(self, msg: String) {
@@ -728,7 +783,7 @@ mod test {
             .await
             .with_src_validators(1, 0)
             .await
-            .run_test(|pubkeys| Validators::Some(pubkeys.to_vec()))
+            .run_test(|pubkeys| Validators::Specific(pubkeys.to_vec()))
             .await
             .assert_ok();
     }
@@ -769,7 +824,7 @@ mod test {
             .with_dest_validators(2, 0)
             .await
             .register_duplicates(1)
-            .run_test(|pubkeys| Validators::Some(pubkeys[0..1].to_vec()))
+            .run_test(|pubkeys| Validators::Specific(pubkeys[0..1].to_vec()))
             .await
             .assert_ok();
     }
@@ -791,7 +846,7 @@ mod test {
             .await
             .with_src_validators(3, 0)
             .await
-            .run_test(|pubkeys| Validators::Some(pubkeys[0..1].to_vec()))
+            .run_test(|pubkeys| Validators::Specific(pubkeys[0..1].to_vec()))
             .await
             .assert_ok();
     }
@@ -802,7 +857,7 @@ mod test {
             .await
             .with_src_validators(3, 0)
             .await
-            .run_test(|pubkeys| Validators::Some(pubkeys[0..2].to_vec()))
+            .run_test(|pubkeys| Validators::Specific(pubkeys[0..2].to_vec()))
             .await
             .assert_ok();
     }
@@ -813,8 +868,41 @@ mod test {
             .await
             .with_src_validators(3, 42)
             .await
-            .run_test(|pubkeys| Validators::Some(pubkeys.to_vec()))
+            .run_test(|pubkeys| Validators::Specific(pubkeys.to_vec()))
             .await
             .assert_ok();
+    }
+
+    #[tokio::test]
+    async fn three_validators_move_one_by_count() {
+        TestBuilder::new()
+            .await
+            .with_src_validators(3, 0)
+            .await
+            .run_test(|_| Validators::Count(1))
+            .await
+            .assert_ok();
+    }
+
+    #[tokio::test]
+    async fn three_validators_move_two_by_count() {
+        TestBuilder::new()
+            .await
+            .with_src_validators(3, 0)
+            .await
+            .run_test(|_| Validators::Count(2))
+            .await
+            .assert_ok();
+    }
+
+    #[tokio::test]
+    async fn one_validators_move_two_by_count() {
+        TestBuilder::new()
+            .await
+            .with_src_validators(1, 0)
+            .await
+            .run_test(|_| Validators::Count(2))
+            .await
+            .assert_err();
     }
 }

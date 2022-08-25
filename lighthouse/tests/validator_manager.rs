@@ -272,7 +272,7 @@ pub fn validator_move_misc_flags_0() {
                 src_vc_token_path: PathBuf::from("./1.json"),
                 dest_vc_url: SensitiveUrl::parse("http://localhost:2").unwrap(),
                 dest_vc_token_path: PathBuf::from("./2.json"),
-                validators: Validators::Some(vec![
+                validators: Validators::Specific(vec![
                     PublicKeyBytes::from_str(EXAMPLE_PUBKEY_0).unwrap(),
                     PublicKeyBytes::from_str(EXAMPLE_PUBKEY_1).unwrap(),
                 ]),
@@ -299,10 +299,33 @@ pub fn validator_move_misc_flags_1() {
                 src_vc_token_path: PathBuf::from("./1.json"),
                 dest_vc_url: SensitiveUrl::parse("http://localhost:2").unwrap(),
                 dest_vc_token_path: PathBuf::from("./2.json"),
-                validators: Validators::Some(vec![
+                validators: Validators::Specific(vec![
                     PublicKeyBytes::from_str(EXAMPLE_PUBKEY_0).unwrap()
                 ]),
                 builder_proposals: Some(false),
+                fee_recipient: None,
+                gas_limit: None,
+            };
+            assert_eq!(expected, config);
+        });
+}
+
+#[test]
+pub fn validator_move_count() {
+    CommandLineTest::validators_move()
+        .flag("--src-validator-client-url", Some("http://localhost:1"))
+        .flag("--src-validator-client-token", Some("./1.json"))
+        .flag("--dest-validator-client-url", Some("http://localhost:2"))
+        .flag("--dest-validator-client-token", Some("./2.json"))
+        .flag("--validators", Some("42"))
+        .assert_success(|config| {
+            let expected = MoveConfig {
+                src_vc_url: SensitiveUrl::parse("http://localhost:1").unwrap(),
+                src_vc_token_path: PathBuf::from("./1.json"),
+                dest_vc_url: SensitiveUrl::parse("http://localhost:2").unwrap(),
+                dest_vc_token_path: PathBuf::from("./2.json"),
+                validators: Validators::Count(42),
+                builder_proposals: None,
                 fee_recipient: None,
                 gas_limit: None,
             };
