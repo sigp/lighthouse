@@ -393,7 +393,8 @@ async fn run<'a>(config: MoveConfig) -> Result<(), String> {
         };
 
         // We might as well just ignore validators that already exist on the destination machine,
-        // there doesn't appear to be much harm just adding them again.
+        // there doesn't appear to be much harm just adding them again and removing them from the
+        // source VC is an improvement.
         let ignore_duplicates = true;
 
         loop {
@@ -531,7 +532,9 @@ mod test {
     const DEST_VC_TOKEN_FILE_NAME: &str = "dest_vc_token.json";
 
     struct TestBuilder {
-        import_builder: Option<ImportTestBuilder>,
+        src_import_builder: Option<ImportTestBuilder>,
+        dest_import_builder: Option<ImportTestBuilder>,
+        duplicates: usize,
         dir: TempDir,
     }
 
@@ -539,7 +542,9 @@ mod test {
         async fn new() -> Self {
             let dir = tempdir().unwrap();
             Self {
-                import_builder: None,
+                src_import_builder: None,
+                dest_import_builder: None,
+                duplicates: 0,
                 dir,
             }
         }
@@ -549,7 +554,21 @@ mod test {
                 .await
                 .create_validators(count, first_index)
                 .await;
-            self.import_builder = Some(builder);
+            self.src_import_builder = Some(builder);
+            self
+        }
+
+        async fn with_dest_validators(mut self, count: u32, first_index: u32) -> Self {
+            let builder = ImportTestBuilder::new()
+                .await
+                .create_validators(count, first_index)
+                .await;
+            self.dest_import_builder = Some(builder);
+            self
+        }
+
+        fn register_duplicates(mut self, num_duplicates: usize) -> Self {
+            self.duplicates = num_duplicates;
             self
         }
 
@@ -557,7 +576,7 @@ mod test {
         where
             F: Fn(&[PublicKeyBytes]) -> Validators,
         {
-            let src_vc = if let Some(import_builder) = self.import_builder {
+            let src_vc = if let Some(import_builder) = self.src_import_builder {
                 let import_test_result = import_builder.run_test().await;
                 assert!(import_test_result.result.is_ok());
                 import_test_result.vc
@@ -578,9 +597,20 @@ mod test {
                 .collect();
             let validators = gen_validators_enum(&src_vc_initial_pubkeys);
 
-            let dest_vc = ApiTester::new().await;
+            let dest_vc = if let Some(import_builder) = self.dest_import_builder {
+                let import_test_result = import_builder.run_test().await;
+                assert!(import_test_result.result.is_ok());
+                import_test_result.vc
+            } else {
+                ApiTester::new().await
+            };
             let dest_vc_token_path = self.dir.path().join(DEST_VC_TOKEN_FILE_NAME);
             fs::write(&dest_vc_token_path, &dest_vc.api_token).unwrap();
+
+            let (dest_vc_client, dest_vc_initial_keystores) =
+                vc_http_client(dest_vc.url.clone(), &dest_vc_token_path)
+                    .await
+                    .unwrap();
 
             let move_config = MoveConfig {
                 src_vc_url: src_vc.url.clone(),
@@ -595,17 +625,26 @@ mod test {
 
             let result = run(move_config).await;
 
-            let (_dest_vc_client, dest_vc_keystores) =
-                vc_http_client(dest_vc.url.clone(), &dest_vc_token_path)
-                    .await
-                    .unwrap();
             let src_vc_final_keystores = src_vc_client.get_keystores().await.unwrap().data;
+            let dest_vc_final_keystores = dest_vc_client.get_keystores().await.unwrap().data;
 
             match validators {
                 Validators::All => {
-                    assert!(src_vc_final_keystores.is_empty());
+                    assert!(
+                        src_vc_final_keystores.is_empty(),
+                        "all keystores should be removed from source vc"
+                    );
+                    assert_eq!(
+                        dest_vc_final_keystores.len(),
+                        dest_vc_initial_keystores.len() + src_vc_initial_keystores.len()
+                            - self.duplicates,
+                        "the correct count of keystores should have been moved to the dest"
+                    );
                     for initial_keystore in &src_vc_initial_keystores {
-                        assert!(dest_vc_keystores.contains(initial_keystore))
+                        assert!(
+                            dest_vc_final_keystores.contains(initial_keystore),
+                            "the source keystore should be present at the dest"
+                        )
                     }
                 }
                 Validators::Some(pubkeys) => {
@@ -614,16 +653,27 @@ mod test {
                         src_vc_initial_keystores
                             .len()
                             .checked_sub(pubkeys.len())
-                            .unwrap()
+                            .unwrap(),
+                        "the correct count of validators should have been removed from the src"
                     );
-                    assert_eq!(dest_vc_keystores.len(), pubkeys.len());
+                    assert_eq!(
+                        dest_vc_final_keystores.len(),
+                        dest_vc_initial_keystores.len() + pubkeys.len() - self.duplicates,
+                        "the correct count of keystores should have been moved to the dest"
+                    );
                     for pubkey in pubkeys {
                         let initial_keystore = src_vc_initial_keystores
                             .iter()
                             .find(|k| k.validating_pubkey == pubkey)
                             .unwrap();
-                        assert!(!src_vc_final_keystores.contains(initial_keystore));
-                        assert!(dest_vc_keystores.contains(initial_keystore));
+                        assert!(
+                            !src_vc_final_keystores.contains(initial_keystore),
+                            "the keystore should not be present at the source"
+                        );
+                        assert!(
+                            dest_vc_final_keystores.contains(initial_keystore),
+                            "the keystore should be present at the dest"
+                        );
                     }
                 }
             }
@@ -674,6 +724,47 @@ mod test {
             .with_src_validators(1, 0)
             .await
             .run_test(|pubkeys| Validators::Some(pubkeys.to_vec()))
+            .await
+            .assert_ok();
+    }
+
+    #[tokio::test]
+    async fn one_validator_to_non_empty_dest() {
+        TestBuilder::new()
+            .await
+            .with_src_validators(1, 0)
+            .await
+            .with_dest_validators(1, 10)
+            .await
+            .run_test(|_| Validators::All)
+            .await
+            .assert_ok();
+    }
+
+    #[tokio::test]
+    async fn two_validators_move_all_where_one_is_a_duplicate() {
+        TestBuilder::new()
+            .await
+            .with_src_validators(2, 0)
+            .await
+            .with_dest_validators(1, 1)
+            .await
+            .register_duplicates(1)
+            .run_test(|_| Validators::All)
+            .await
+            .assert_ok();
+    }
+
+    #[tokio::test]
+    async fn two_validators_move_one_where_one_is_a_duplicate() {
+        TestBuilder::new()
+            .await
+            .with_src_validators(2, 0)
+            .await
+            .with_dest_validators(2, 0)
+            .await
+            .register_duplicates(1)
+            .run_test(|pubkeys| Validators::Some(pubkeys[0..1].to_vec()))
             .await
             .assert_ok();
     }
