@@ -14,6 +14,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .about("Provides commands for managing validators in a Lighthouse Validator Client.")
         .subcommand(create_validators::cli_app())
         .subcommand(import_validators::cli_app())
+        .subcommand(move_validators::cli_app())
 }
 
 pub async fn cli_run<'a, T: EthSpec>(
@@ -27,6 +28,9 @@ pub async fn cli_run<'a, T: EthSpec>(
         }
         (import_validators::CMD, Some(matches)) => {
             import_validators::cli_run(matches, dump_config).await
+        }
+        (move_validators::CMD, Some(matches)) => {
+            move_validators::cli_run(matches, dump_config).await
         }
         (unknown, _) => Err(format!(
             "{} does not have a {} command. See --help",

@@ -8,10 +8,15 @@ use std::str::FromStr;
 use tempfile::{tempdir, TempDir};
 use types::*;
 use validator_manager::validators::{
-    create_validators::CreateConfig, import_validators::ImportConfig,
+    create_validators::CreateConfig,
+    import_validators::ImportConfig,
+    move_validators::{MoveConfig, Validators},
 };
 
 const EXAMPLE_ETH1_ADDRESS: &str = "0x00000000219ab540356cBB839Cbe05303d7705Fa";
+
+const EXAMPLE_PUBKEY_0: &str = "0x933ad9491b62059dd065b560d256d8957a8c402cc6e8d8ee7290ae11e8f7329267a8811c397529dac52ae1342ba58c95";
+const EXAMPLE_PUBKEY_1: &str = "0xa1d1ad0714035353258038e964ae9675dc0252ee22cea896825c01458e1807bfad2f9969338798548d9858a571f7425c";
 
 struct CommandLineTest<T> {
     cmd: Command,
@@ -93,6 +98,12 @@ impl CommandLineTest<ImportConfig> {
     }
 }
 
+impl CommandLineTest<MoveConfig> {
+    fn validators_move() -> Self {
+        Self::default().flag("validators", None).flag("move", None)
+    }
+}
+
 #[test]
 pub fn validator_create_without_output_path() {
     CommandLineTest::validators_create().assert_failed();
@@ -114,7 +125,7 @@ pub fn validator_create_defaults() {
                 disable_deposits: false,
                 specify_voting_keystore_password: false,
                 eth1_withdrawal_address: None,
-                builder_proposals: false,
+                builder_proposals: None,
                 fee_recipient: None,
                 gas_limit: None,
                 bn_url: None,
@@ -134,7 +145,7 @@ pub fn validator_create_misc_flags() {
         .flag("--stdin-inputs", None)
         .flag("--specify-voting-keystore-password", None)
         .flag("--eth1-withdrawal-address", Some(EXAMPLE_ETH1_ADDRESS))
-        .flag("--builder-proposals", None)
+        .flag("--builder-proposals", Some("true"))
         .flag("--suggested-fee-recipient", Some(EXAMPLE_ETH1_ADDRESS))
         .flag("--gas-limit", Some("1337"))
         .flag("--beacon-node", Some("http://localhost:1001"))
@@ -149,7 +160,7 @@ pub fn validator_create_misc_flags() {
                 disable_deposits: false,
                 specify_voting_keystore_password: true,
                 eth1_withdrawal_address: Some(Address::from_str(EXAMPLE_ETH1_ADDRESS).unwrap()),
-                builder_proposals: true,
+                builder_proposals: Some(true),
                 fee_recipient: Some(Address::from_str(EXAMPLE_ETH1_ADDRESS).unwrap()),
                 gas_limit: Some(1337),
                 bn_url: Some(SensitiveUrl::parse("http://localhost:1001").unwrap()),
@@ -164,8 +175,10 @@ pub fn validator_create_disable_deposits() {
         .flag("--output-path", Some("./meow"))
         .flag("--count", Some("1"))
         .flag("--disable-deposits", None)
+        .flag("--builder-proposals", Some("false"))
         .assert_success(|config| {
             assert_eq!(config.disable_deposits, true);
+            assert_eq!(config.builder_proposals, Some(false));
         });
 }
 
@@ -214,4 +227,85 @@ pub fn validator_import_missing_validators_file() {
     CommandLineTest::validators_import()
         .flag("--validator-client-token", Some("./token.json"))
         .assert_failed();
+}
+
+#[test]
+pub fn validator_move_defaults() {
+    CommandLineTest::validators_move()
+        .flag("--src-validator-client-url", Some("http://localhost:1"))
+        .flag("--src-validator-client-token", Some("./1.json"))
+        .flag("--dest-validator-client-url", Some("http://localhost:2"))
+        .flag("--dest-validator-client-token", Some("./2.json"))
+        .flag("--validators", Some("all"))
+        .assert_success(|config| {
+            let expected = MoveConfig {
+                src_vc_url: SensitiveUrl::parse("http://localhost:1").unwrap(),
+                src_vc_token_path: PathBuf::from("./1.json"),
+                dest_vc_url: SensitiveUrl::parse("http://localhost:2").unwrap(),
+                dest_vc_token_path: PathBuf::from("./2.json"),
+                validators: Validators::All,
+                builder_proposals: None,
+                fee_recipient: None,
+                gas_limit: None,
+            };
+            assert_eq!(expected, config);
+        });
+}
+
+#[test]
+pub fn validator_move_misc_flags_0() {
+    CommandLineTest::validators_move()
+        .flag("--src-validator-client-url", Some("http://localhost:1"))
+        .flag("--src-validator-client-token", Some("./1.json"))
+        .flag("--dest-validator-client-url", Some("http://localhost:2"))
+        .flag("--dest-validator-client-token", Some("./2.json"))
+        .flag(
+            "--validators",
+            Some(&format!("{},{}", EXAMPLE_PUBKEY_0, EXAMPLE_PUBKEY_1)),
+        )
+        .flag("--builder-proposals", Some("true"))
+        .flag("--suggested-fee-recipient", Some(EXAMPLE_ETH1_ADDRESS))
+        .flag("--gas-limit", Some("1337"))
+        .assert_success(|config| {
+            let expected = MoveConfig {
+                src_vc_url: SensitiveUrl::parse("http://localhost:1").unwrap(),
+                src_vc_token_path: PathBuf::from("./1.json"),
+                dest_vc_url: SensitiveUrl::parse("http://localhost:2").unwrap(),
+                dest_vc_token_path: PathBuf::from("./2.json"),
+                validators: Validators::Some(vec![
+                    PublicKeyBytes::from_str(EXAMPLE_PUBKEY_0).unwrap(),
+                    PublicKeyBytes::from_str(EXAMPLE_PUBKEY_1).unwrap(),
+                ]),
+                builder_proposals: Some(true),
+                fee_recipient: Some(Address::from_str(EXAMPLE_ETH1_ADDRESS).unwrap()),
+                gas_limit: Some(1337),
+            };
+            assert_eq!(expected, config);
+        });
+}
+
+#[test]
+pub fn validator_move_misc_flags_1() {
+    CommandLineTest::validators_move()
+        .flag("--src-validator-client-url", Some("http://localhost:1"))
+        .flag("--src-validator-client-token", Some("./1.json"))
+        .flag("--dest-validator-client-url", Some("http://localhost:2"))
+        .flag("--dest-validator-client-token", Some("./2.json"))
+        .flag("--validators", Some(&format!("{}", EXAMPLE_PUBKEY_0)))
+        .flag("--builder-proposals", Some("false"))
+        .assert_success(|config| {
+            let expected = MoveConfig {
+                src_vc_url: SensitiveUrl::parse("http://localhost:1").unwrap(),
+                src_vc_token_path: PathBuf::from("./1.json"),
+                dest_vc_url: SensitiveUrl::parse("http://localhost:2").unwrap(),
+                dest_vc_token_path: PathBuf::from("./2.json"),
+                validators: Validators::Some(vec![
+                    PublicKeyBytes::from_str(EXAMPLE_PUBKEY_0).unwrap()
+                ]),
+                builder_proposals: Some(false),
+                fee_recipient: None,
+                gas_limit: None,
+            };
+            assert_eq!(expected, config);
+        });
 }

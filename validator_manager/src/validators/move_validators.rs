@@ -124,7 +124,9 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     "When provided, all created validators will attempt to create \
                     blocks via builder rather than the local EL.",
                 )
-                .required(false),
+                .required(false)
+                .possible_values(&["true", "false"])
+                .takes_value(true),
         )
 }
 
@@ -156,7 +158,7 @@ pub struct MoveConfig {
     pub dest_vc_url: SensitiveUrl,
     pub dest_vc_token_path: PathBuf,
     pub validators: Validators,
-    pub builder_proposals: bool,
+    pub builder_proposals: Option<bool>,
     pub fee_recipient: Option<Address>,
     pub gas_limit: Option<u64>,
 }
@@ -175,7 +177,7 @@ impl MoveConfig {
                 DEST_VALIDATOR_CLIENT_TOKEN_FLAG,
             )?,
             validators: clap_utils::parse_required(matches, VALIDATORS_FLAG)?,
-            builder_proposals: matches.is_present(BUILDER_PROPOSALS_FLAG),
+            builder_proposals: clap_utils::parse_optional(matches, BUILDER_PROPOSALS_FLAG)?,
             fee_recipient: clap_utils::parse_optional(matches, FEE_RECIPIENT_FLAG)?,
             gas_limit: clap_utils::parse_optional(matches, GAS_LIMIT_FLAG)?,
         })
@@ -388,8 +390,11 @@ async fn run<'a>(config: MoveConfig) -> Result<(), String> {
             slashing_protection: Some(InterchangeJsonStr(slashing_protection)),
             fee_recipient,
             gas_limit,
-            builder_proposals: Some(builder_proposals),
-            enabled: Some(true),
+            builder_proposals,
+            // Allow the VC to choose a default "enabled" state. Since "enabled" is not part of
+            // the standard API, leaving this as `None` means we are not forced to use the
+            // non-standard API.
+            enabled: None,
         };
 
         // We might as well just ignore validators that already exist on the destination machine,
