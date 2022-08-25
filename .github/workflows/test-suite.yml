@@ -112,18 +112,20 @@ jobs:
   #     run: rustup update stable
   #   - name: Run slasher tests for all supported backends
   #     run: make test-slasher
-  # debug-tests-ubuntu:
-  #   name: debug-tests-ubuntu
-  #   runs-on: ubuntu-22.04
-  #   needs: cargo-fmt
-  #   steps:
-  #   - uses: actions/checkout@v1
-  #   - name: Get latest version of stable Rust
-  #     run: rustup update stable
-  #   - name: Install ganache
-  #     run: sudo npm install -g ganache
-  #   - name: Run tests in debug
-  #     run: make test-debug
+  debug-tests-ubuntu:
+    name: debug-tests-ubuntu
+    runs-on: ubuntu-22.04
+    needs: cargo-fmt
+    steps:
+    - uses: actions/checkout@v1
+    - name: Get latest version of stable Rust
+      run: rustup update stable
+    - name: Install Protoc
+      uses: arduino/setup-protoc@v1
+    - name: Install ganache
+      run: sudo npm install -g ganache
+    - name: Run tests in debug
+      run: make test-debug
   # state-transition-vectors-ubuntu:
   #   name: state-transition-vectors-ubuntu
   #   runs-on: ubuntu-latest
