@@ -311,6 +311,19 @@ fn http_allow_origin_all_flag() {
         .run()
         .with_config(|config| assert_eq!(config.http_api.allow_origin, Some("*".to_string())));
 }
+#[test]
+fn http_allow_keystore_export_default() {
+    CommandLineTest::new()
+        .run()
+        .with_config(|config| assert!(!config.http_api.allow_keystore_export));
+}
+#[test]
+fn http_allow_keystore_export_present() {
+    CommandLineTest::new()
+        .flag("http-allow-keystore-export", None)
+        .run()
+        .with_config(|config| assert!(config.http_api.allow_keystore_export));
+}
 
 // Tests for Metrics flags.
 #[test]

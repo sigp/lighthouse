@@ -255,6 +255,10 @@ impl Config {
             config.http_api.allow_origin = Some(allow_origin.to_string());
         }
 
+        if cli_args.is_present("http-allow-keystore-export") {
+            config.http_api.allow_keystore_export = true;
+        }
+
         /*
          * Prometheus metrics HTTP server
          */
