@@ -108,18 +108,19 @@ impl<'a, T: EthSpec> AttestationRef<'a, T> {
 }
 
 impl CheckpointKey {
-    pub fn from_state<T: EthSpec>(state: &BeaconState<T>, epoch: Epoch) -> Self {
-        if epoch == state.current_epoch() {
-            CheckpointKey {
-                source: state.current_justified_checkpoint(),
-                target_epoch: epoch,
-            }
-        } else {
+    /// Return two checkpoint keys: `(previous, current)` for the previous and current epochs of
+    /// the `state`.
+    pub fn keys_for_state<T: EthSpec>(state: &BeaconState<T>) -> (Self, Self) {
+        (
             CheckpointKey {
                 source: state.previous_justified_checkpoint(),
-                target_epoch: epoch,
-            }
-        }
+                target_epoch: state.previous_epoch(),
+            },
+            CheckpointKey {
+                source: state.current_justified_checkpoint(),
+                target_epoch: state.current_epoch(),
+            },
+        )
     }
 }
 
@@ -194,7 +195,7 @@ impl<T: EthSpec> AttestationMap<T> {
             .flat_map(|(checkpoint_key, attestation_map)| attestation_map.iter(checkpoint_key))
     }
 
-    /// Prune attestation that are from before the previous epoch.
+    /// Prune attestations that are from before the previous epoch.
     pub fn prune(&mut self, current_epoch: Epoch) {
         self.checkpoint_map
             .retain(|checkpoint_key, _| current_epoch <= checkpoint_key.target_epoch + 1);

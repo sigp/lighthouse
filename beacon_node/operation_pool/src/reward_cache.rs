@@ -1,6 +1,6 @@
 use crate::OpPoolError;
 use bitvec::vec::BitVec;
-use types::{BeaconState, BeaconStateError, Epoch, EthSpec, Hash256, ParticipationFlags, Slot};
+use types::{BeaconState, BeaconStateError, Epoch, EthSpec, Hash256, ParticipationFlags};
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 struct Initialization {
@@ -48,31 +48,28 @@ impl RewardCache {
         }
     }
 
-    // Determine the "marker" block root to store in `self.init` for a given `slot`.
-    //
-    // For simplicity at genesis we return the zero hash, which will cause one unnecessary
-    // re-calculation.
-    fn marker_block_root<E: EthSpec>(
-        state: &BeaconState<E>,
-        slot: Slot,
-    ) -> Result<Hash256, OpPoolError> {
-        if slot == 0 {
+    /// Return the root of the latest block applied to `state`.
+    ///
+    /// For simplicity at genesis we return the zero hash, which will cause one unnecessary
+    /// re-calculation in `update`.
+    fn latest_block_root<E: EthSpec>(state: &BeaconState<E>) -> Result<Hash256, OpPoolError> {
+        if state.slot() == 0 {
             Ok(Hash256::zero())
         } else {
             Ok(*state
-                .get_block_root(slot)
+                .get_block_root(state.slot() - 1)
                 .map_err(OpPoolError::RewardCacheGetBlockRoot)?)
         }
     }
 
     /// Update the cache.
     pub fn update<E: EthSpec>(&mut self, state: &BeaconState<E>) -> Result<(), OpPoolError> {
-        if state.previous_epoch_participation().is_err() {
+        if matches!(state, BeaconState::Base(_)) {
             return Ok(());
         }
 
         let current_epoch = state.current_epoch();
-        let latest_block_root = Self::marker_block_root(state, state.slot() - 1)?;
+        let latest_block_root = Self::latest_block_root(state)?;
 
         let new_init = Initialization {
             current_epoch,

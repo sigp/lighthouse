@@ -244,8 +244,7 @@ impl<T: EthSpec> OperationPool<T> {
         spec: &ChainSpec,
     ) -> Result<Vec<Attestation<T>>, OpPoolError> {
         // Attestations for the current fork, which may be from the current or previous epoch.
-        let prev_epoch_key = CheckpointKey::from_state(state, state.previous_epoch());
-        let curr_epoch_key = CheckpointKey::from_state(state, state.current_epoch());
+        let (prev_epoch_key, curr_epoch_key) = CheckpointKey::keys_for_state(state);
         let all_attestations = self.attestations.read();
         let total_active_balance = state
             .get_total_active_balance()

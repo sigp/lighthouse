@@ -50,7 +50,7 @@ pub fn upgrade_to_v12<T: BeaconChainTypes>(
         .get_state(&justified_state_root, Some(justified_block.slot()))?
         .ok_or_else(|| {
             Error::SchemaMigrationError(format!(
-                "justified state missing for migraiont: {justified_state_root:?}"
+                "justified state missing for migration: {justified_state_root:?}"
             ))
         })?;
     state.build_all_committee_caches(spec).map_err(|e| {
