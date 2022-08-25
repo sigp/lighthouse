@@ -25,6 +25,6 @@ tokio = { version = "1.14.0", features = ["time", "rt-multi-thread", "macros"] }
 
 [dev-dependencies]
 tempfile = "3.1.0"
-regex = "1.6.0"
+regex = "1.5.4"
 eth2_network_config = { path = "../common/eth2_network_config" }
 validator_client = { path = "../validator_client" }
