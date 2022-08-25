@@ -26,6 +26,7 @@ use lighthouse_network::{
 use slog::{crit, debug, error, info, o, trace, warn};
 use std::{net::SocketAddr, pin::Pin, sync::Arc, time::Duration};
 use store::HotColdDB;
+use strum::IntoStaticStr;
 use task_executor::ShutdownReason;
 use tokio::sync::mpsc;
 use tokio::time::Sleep;
@@ -51,7 +52,8 @@ pub enum RequestId {
 }
 
 /// Types of messages that the network service can receive.
-#[derive(Debug)]
+#[derive(Debug, IntoStaticStr)]
+#[strum(serialize_all = "snake_case")]
 pub enum NetworkMessage<T: EthSpec> {
     /// Subscribes a list of validators to specific slots for attestation duties.
     AttestationSubscribe {
@@ -505,6 +507,9 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         msg: NetworkMessage<T::EthSpec>,
         shutdown_sender: &mut Sender<ShutdownReason>,
     ) {
+        metrics::inc_counter_vec(&metrics::NETWORK_RECEIVE_EVENTS, &[(&msg).into()]);
+        let _timer = metrics::start_timer_vec(&metrics::NETWORK_RECEIVE_TIMES, &[(&msg).into()]);
+
         match msg {
             NetworkMessage::SendRequest {
                 peer_id,
