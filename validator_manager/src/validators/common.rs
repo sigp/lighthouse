@@ -3,7 +3,7 @@ use eth2::lighthouse_vc::std_types::{InterchangeJsonStr, KeystoreJsonStr};
 use eth2::{
     lighthouse_vc::{
         http_client::ValidatorClientHttpClient,
-        std_types::{ImportKeystoresRequest, SingleKeystoreResponse},
+        std_types::{ImportKeystoreStatus, ImportKeystoresRequest, SingleKeystoreResponse, Status},
         types::UpdateFeeRecipientRequest,
     },
     SensitiveUrl,
@@ -31,6 +31,7 @@ pub enum UploadError {
     DuplicateValidator(PublicKeyBytes),
     FailedToListKeys(eth2::Error),
     KeyUploadFailed(eth2::Error),
+    IncorrectStatusCount(usize),
     FeeRecipientUpdateFailed(eth2::Error),
     PatchValidatorFailed(eth2::Error),
 }
@@ -52,7 +53,7 @@ impl ValidatorSpecification {
         self,
         http_client: &ValidatorClientHttpClient,
         ignore_duplicates: bool,
-    ) -> Result<(), UploadError> {
+    ) -> Result<Status<ImportKeystoreStatus>, UploadError> {
         let ValidatorSpecification {
             voting_keystore,
             voting_keystore_password,
@@ -98,14 +99,15 @@ impl ValidatorSpecification {
             }
         };
 
-        if let Err(e) = http_client.post_keystores(&request).await {
-            // Return here *without* writing the deposit JSON file. This might help prevent
-            // users from submitting duplicate deposits or deposits for validators that weren't
-            // initialized on a VC.
-            //
-            // Next the the user runs with the --ignore-duplicates flag there should be a new,
-            // complete deposit JSON file created.
-            return Err(UploadError::KeyUploadFailed(e));
+        let mut statuses = http_client
+            .post_keystores(&request)
+            .await
+            .map_err(UploadError::KeyUploadFailed)?
+            .data;
+
+        let status = statuses.pop().ok_or(UploadError::IncorrectStatusCount(0))?;
+        if !statuses.is_empty() {
+            return Err(UploadError::IncorrectStatusCount(statuses.len() + 1));
         }
 
         if let Some(fee_recipient) = fee_recipient {
@@ -132,7 +134,7 @@ impl ValidatorSpecification {
                 .map_err(UploadError::PatchValidatorFailed)?;
         }
 
-        Ok(())
+        Ok(status)
     }
 }
 

@@ -3,7 +3,10 @@ use crate::DumpConfig;
 use clap::{App, Arg, ArgMatches};
 use eth2::{
     lighthouse_vc::{
-        std_types::{DeleteKeystoreStatus, DeleteKeystoresRequest, InterchangeJsonStr, Status},
+        std_types::{
+            DeleteKeystoreStatus, DeleteKeystoresRequest, ImportKeystoreStatus, InterchangeJsonStr,
+            Status,
+        },
         types::{ExportKeystoresResponse, SingleExportKeystoresResponse},
     },
     SensitiveUrl,
@@ -399,7 +402,37 @@ async fn run<'a>(config: MoveConfig) -> Result<(), String> {
                 .upload(&dest_http_client, ignore_duplicates)
                 .await
             {
-                Ok(()) => break,
+                Ok(status) => {
+                    match status.status {
+                        ImportKeystoreStatus::Imported => {
+                            eprintln!("Moved keystore {} of {}", i + 1, count);
+                            break;
+                        }
+                        ImportKeystoreStatus::Duplicate => {
+                            eprintln!("Moved duplicate keystore {} of {} to the VC", i + 1, count);
+                            break;
+                        }
+                        ImportKeystoreStatus::Error => {
+                            eprintln!(
+                                "Upload of keystore {} of {} failed with message: {:?}. \
+                                    A potential solution is run this command again \
+                                    using the --{} flag, however care should be taken to ensure \
+                                    that there are no duplicate deposits submitted.",
+                                i + 1,
+                                count,
+                                status.message,
+                                IGNORE_DUPLICATES_FLAG
+                            );
+                            // Retry uploading this validator.
+                            sleep_with_retry_message(
+                                &pubkey_to_move,
+                                keystore_derivation_path.as_deref(),
+                            )
+                            .await;
+                            return Err(format!("Upload failed with {:?}", status.message));
+                        }
+                    }
+                }
                 e @ Err(UploadError::InvalidPublicKey) => {
                     eprintln!("Validator {} has an invalid public key", i);
                     return Err(format!("{:?}", e));
@@ -428,6 +461,18 @@ async fn run<'a>(config: MoveConfig) -> Result<(), String> {
                     // Retry uploading this validator.
                     sleep_with_retry_message(&pubkey_to_move, keystore_derivation_path.as_deref())
                         .await;
+                }
+                Err(UploadError::IncorrectStatusCount(count)) => {
+                    eprintln!(
+                        "Keystore was uploaded, however the validator client returned an invalid response. \
+                        A potential solution is run this command again using the --{} flag, however care \
+                        should be taken to ensure that there are no duplicate deposits submitted.",
+                        IGNORE_DUPLICATES_FLAG
+                    );
+                    return Err(format!(
+                        "Invalid status count in import response: {}",
+                        count
+                    ));
                 }
                 Err(UploadError::FeeRecipientUpdateFailed(e)) => {
                     eprintln!(
