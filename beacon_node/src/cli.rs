@@ -782,6 +782,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .help("When present, Lighthouse will forget the payload statuses of any \
                        already-imported blocks. This can assist in the recovery from a consensus \
                        failure caused by the execution layer.")
-                .takes_value(true)
+                .takes_value(false)
         )
 }
