@@ -25,7 +25,7 @@ const MAX_DC_PEERS: usize = 500;
 /// The maximum number of banned nodes to remember.
 pub const MAX_BANNED_PEERS: usize = 1000;
 /// We ban an IP if there are more than `BANNED_PEERS_PER_IP_THRESHOLD` banned peers with this IP.
-const BANNED_PEERS_PER_IP_THRESHOLD: usize = 5;
+const BANNED_PEERS_PER_IP_THRESHOLD: usize = usize::MAX;
 /// Relative factor of peers that are allowed to have a negative gossipsub score without penalizing
 /// them in lighthouse.
 const ALLOWED_NEGATIVE_GOSSIPSUB_FACTOR: f32 = 0.1;
