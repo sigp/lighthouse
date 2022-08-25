@@ -10,8 +10,7 @@ use eth2::{
 };
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
-use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::str::FromStr;
 use std::time::Duration;
 use tokio::time::sleep;
@@ -21,7 +20,6 @@ pub const MOVE_DIR_NAME: &str = "lighthouse-validator-move";
 pub const VALIDATOR_SPECIFICATION_FILE: &str = "validator-specification.json";
 
 pub const CMD: &str = "move";
-pub const WORKING_DIRECTORY_FLAG: &str = "working-directory";
 pub const SRC_VALIDATOR_CLIENT_URL_FLAG: &str = "src-validator-client-url";
 pub const SRC_VALIDATOR_CLIENT_TOKEN_FLAG: &str = "src-validator-client-token";
 pub const DEST_VALIDATOR_CLIENT_URL_FLAG: &str = "dest-validator-client-url";
@@ -41,18 +39,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             "Uploads validators to a validator client using the HTTP API. The validators \
                 are defined in a JSON file which can be generated using the \"create-validators\" \
                 command.",
-        )
-        .arg(
-            Arg::with_name(WORKING_DIRECTORY_FLAG)
-                .long(WORKING_DIRECTORY_FLAG)
-                .value_name("PATH_TO_DIRECTORY")
-                .help(
-                    "The path to a directory where the application can write files.\
-                    Under certain failure scenarios this directory may contain files which \
-                    can be used to recover validators.",
-                )
-                .required(true)
-                .takes_value(true),
         )
         .arg(
             Arg::with_name(SRC_VALIDATOR_CLIENT_URL_FLAG)
@@ -162,7 +148,6 @@ impl FromStr for Validators {
 
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 pub struct MoveConfig {
-    pub working_directory_path: PathBuf,
     pub src_vc_url: SensitiveUrl,
     pub src_vc_token_path: PathBuf,
     pub dest_vc_url: SensitiveUrl,
@@ -176,7 +161,6 @@ pub struct MoveConfig {
 impl MoveConfig {
     fn from_cli(matches: &ArgMatches) -> Result<Self, String> {
         Ok(Self {
-            working_directory_path: clap_utils::parse_required(matches, WORKING_DIRECTORY_FLAG)?,
             src_vc_url: clap_utils::parse_required(matches, SRC_VALIDATOR_CLIENT_URL_FLAG)?,
             src_vc_token_path: clap_utils::parse_required(
                 matches,
@@ -209,7 +193,6 @@ pub async fn cli_run<'a>(
 
 async fn run<'a>(config: MoveConfig) -> Result<(), String> {
     let MoveConfig {
-        working_directory_path,
         src_vc_url,
         src_vc_token_path,
         dest_vc_url,
@@ -219,26 +202,6 @@ async fn run<'a>(config: MoveConfig) -> Result<(), String> {
         fee_recipient,
         gas_limit,
     } = config;
-
-    if !working_directory_path.exists() {
-        return Err(format!("{:?} does not exist", working_directory_path));
-    }
-
-    // Append another directory to the "working directory" provided by the user. By creating a new
-    // directory we can prove (to some degree) that we can write in the given directory.
-    //
-    // It also allows us to easily detect when another identical process is running or the previous
-    // run failed by checking to see if the directory already exists.
-    let working_directory_path = working_directory_path.join(MOVE_DIR_NAME);
-    if working_directory_path.exists() {
-        return Err(format!(
-            "{:?} already exists, exiting",
-            working_directory_path
-        ));
-    }
-
-    fs::create_dir(&working_directory_path)
-        .map_err(|e| format!("Failed to create {:?}: {:?}", working_directory_path, e))?;
 
     // Moving validators between the same VC is unlikely to be useful and probably indicates a user
     // error.
@@ -509,47 +472,6 @@ async fn sleep_with_retry_message(pubkey: &PublicKeyBytes, path: Option<&str>) {
     sleep(UPLOAD_RETRY_WAIT).await
 }
 
-pub fn backup_validator<P: AsRef<Path>>(
-    validator_specification: &ValidatorSpecification,
-    working_directory_path: P,
-    dest_vc_url: &SensitiveUrl,
-    dest_vc_token_path: P,
-) {
-    use crate::validators::import_validators::{
-        CMD, VALIDATORS_FILE_FLAG, VALIDATOR_CLIENT_TOKEN_FLAG, VALIDATOR_CLIENT_URL_FLAG,
-    };
-
-    let validator_specification_path = working_directory_path
-        .as_ref()
-        .join(VALIDATOR_SPECIFICATION_FILE);
-    if let Err(e) = write_to_json_file(&validator_specification_path, &validator_specification) {
-        eprintln!(
-            "A validator was removed from the source validator client but it could not be \
-            saved to disk after an upload failure. The validator may need to be recovered \
-            from a backup or mnemonic. Error was {:?}",
-            e
-        );
-    }
-
-    eprintln!(
-        "It may be possible to recover this validator by running the following command: \n\n\
-        lighthouse {} {} {} --{} {:?} --{} {} --{} {:?} \n\n\
-        The {:?} directory contains a backup of the validator that was unable to be uploaded. \
-        That backup contains the unencrypted validator secret key and should not be shared with \
-        anyone. If the recovery command (above) succeeds, it is safe to remove that directory.",
-        crate::CMD,
-        crate::validators::CMD,
-        CMD,
-        VALIDATORS_FILE_FLAG,
-        validator_specification_path.as_os_str(),
-        VALIDATOR_CLIENT_URL_FLAG,
-        dest_vc_url.full,
-        VALIDATOR_CLIENT_TOKEN_FLAG,
-        dest_vc_token_path.as_ref().as_os_str(),
-        working_directory_path.as_ref().as_os_str(),
-    )
-}
-
 // The tests use crypto and are too slow in debug.
 #[cfg(not(debug_assertions))]
 #[cfg(test)]
@@ -616,7 +538,6 @@ mod test {
             fs::write(&dest_vc_token_path, &dest_vc.api_token).unwrap();
 
             let move_config = MoveConfig {
-                working_directory_path: self.dir.path().into(),
                 src_vc_url: src_vc.url.clone(),
                 src_vc_token_path,
                 dest_vc_url: dest_vc.url.clone(),
