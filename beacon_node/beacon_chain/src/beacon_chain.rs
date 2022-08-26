@@ -3598,9 +3598,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ) -> Result<(), Error> {
         debug!(
             self.log,
-            "Invalid execution payload in block";
-            "latest_valid_ancestor" => ?op.latest_valid_ancestor(),
-            "block_root" => ?op.block_root(),
+            "Processing payload invalidation";
+            "op" => ?op,
         );
 
         // Update the execution status in fork choice.
