@@ -2447,7 +2447,7 @@ pub fn serve<T: BeaconChainTypes>(
                                 "Unable to process committee subscriptions";
                                 "error" => ?e
                             );
-                            subscription_cache.unsee(&subscription);
+                            subscription_cache.unsee(subscription);
                             return Err(warp_utils::reject::custom_server_error(
                                 "unable to queue subscription, host may be overloaded or shutting down".to_string(),
                             ));
