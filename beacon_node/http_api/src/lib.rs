@@ -25,17 +25,20 @@ use beacon_chain::{
     BeaconChainTypes, ProduceBlockVerification, WhenSlotSkipped,
 };
 pub use block_id::BlockId;
-use eth2::types::ValidatorStatus;
-use eth2::types::{self as api_types, EndpointVersion, ValidatorId};
+use eth2::types::{
+    self as api_types, BeaconCommitteeSubscription, EndpointVersion, ValidatorId, ValidatorStatus,
+};
 use lighthouse_network::{types::SyncState, EnrExt, NetworkGlobals, PeerId, PubsubMessage};
 use lighthouse_version::version_with_platform;
 use network::{NetworkMessage, NetworkSenders, ValidatorSubscriptionMessage};
+use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use slog::{crit, debug, error, info, warn, Logger};
 use slot_clock::SlotClock;
 use ssz::Encode;
 pub use state_id::StateId;
 use std::borrow::Cow;
+use std::collections::HashSet;
 use std::convert::TryInto;
 use std::future::Future;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
@@ -78,6 +81,19 @@ type HttpServer = (SocketAddr, Pin<Box<dyn Future<Output = ()> + Send>>);
 
 /// Alias for readability.
 pub type ExecutionOptimistic = bool;
+
+#[derive(Clone, Default)]
+pub struct ValidatorSubscriptionSeenCache(Arc<Mutex<HashSet<BeaconCommitteeSubscription>>>);
+
+impl ValidatorSubscriptionSeenCache {
+    fn is_new(&self, subscription: BeaconCommitteeSubscription) -> bool {
+        self.0.lock().insert(subscription)
+    }
+
+    fn unsee(&self, subscription: &BeaconCommitteeSubscription) {
+        self.0.lock().remove(subscription);
+    }
+}
 
 /// Configuration used when serving the HTTP server over TLS.
 #[derive(PartialEq, Debug, Clone, Serialize, Deserialize)]
@@ -2386,6 +2402,8 @@ pub fn serve<T: BeaconChainTypes>(
         );
 
     // POST validator/beacon_committee_subscriptions
+    let subscription_cache = ValidatorSubscriptionSeenCache::default();
+    let subscription_cache_filter = warp::any().map(move || subscription_cache.clone());
     let post_validator_beacon_committee_subscriptions = eth_v1
         .and(warp::path("validator"))
         .and(warp::path("beacon_committee_subscriptions"))
@@ -2393,20 +2411,26 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::body::json())
         .and(validator_subscription_tx_filter.clone())
         .and(chain_filter.clone())
+        .and(subscription_cache_filter)
         .and(log_filter.clone())
         .and_then(
             |subscriptions: Vec<api_types::BeaconCommitteeSubscription>,
              validator_subscription_tx: Sender<ValidatorSubscriptionMessage>,
              chain: Arc<BeaconChain<T>>,
+             subscription_cache: ValidatorSubscriptionSeenCache,
              log: Logger| {
                 blocking_json_task(move || {
                     for subscription in &subscriptions {
+                        if !subscription_cache.is_new(subscription.clone()) {
+                            continue;
+                        }
+
                         chain
                             .validator_monitor
                             .write()
                             .auto_register_local_validator(subscription.validator_index);
 
-                        let subscription = api_types::ValidatorSubscription {
+                        let validator_subscription = api_types::ValidatorSubscription {
                             validator_index: subscription.validator_index,
                             attestation_committee_index: subscription.committee_index,
                             slot: subscription.slot,
@@ -2415,7 +2439,7 @@ pub fn serve<T: BeaconChainTypes>(
                         };
 
                         let message = ValidatorSubscriptionMessage::AttestationSubscribe {
-                            subscriptions: vec![subscription],
+                            subscriptions: vec![validator_subscription],
                         };
                         if let Err(e) = validator_subscription_tx.try_send(message) {
                             error!(
@@ -2423,6 +2447,7 @@ pub fn serve<T: BeaconChainTypes>(
                                 "Unable to process committee subscriptions";
                                 "error" => ?e
                             );
+                            subscription_cache.unsee(&subscription);
                             return Err(warp_utils::reject::custom_server_error(
                                 "unable to queue subscription, host may be overloaded or shutting down".to_string(),
                             ));
