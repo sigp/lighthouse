@@ -20,7 +20,8 @@ jobs:
 
       - name: Get latest version of stable Rust
         run: rustup update stable
-
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v1
       - name: Install ganache
         run: npm install ganache@latest --global
 
