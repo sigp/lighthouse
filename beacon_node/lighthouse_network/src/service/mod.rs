@@ -14,60 +14,46 @@ use crate::types::{
     SubnetDiscovery,
 };
 use crate::Eth2Enr;
-use crate::{
-    build_transport, strip_peer_id, Context as ServiceContext, MAX_CONNECTIONS_PER_PEER,
-    METADATA_FILENAME,
-};
 use crate::{error, metrics, Enr, NetworkGlobals, PubsubMessage, TopicHash};
 use crate::{rpc::*, EnrExt};
+use api_types::{PeerRequestId, Request, RequestId, Response};
 use futures::stream::StreamExt;
 use gossipsub_scoring_parameters::{lighthouse_gossip_thresholds, PeerScoreSettings};
 use libp2p::bandwidth::BandwidthSinks;
 use libp2p::gossipsub::error::PublishError;
-use libp2p::swarm::{ConnectionLimits, SwarmBuilder, SwarmEvent};
-use libp2p::Swarm;
-use libp2p::{
-    core::connection::ConnectionId,
-    gossipsub::{
-        metrics::Config as GossipsubMetricsConfig,
-        subscription_filter::{MaxCountSubscriptionFilter, WhitelistSubscriptionFilter},
-        GossipsubEvent, IdentTopic as Topic, MessageAcceptance, MessageAuthenticity, MessageId,
-    },
-    identify::{Identify, IdentifyConfig, IdentifyEvent},
-    multiaddr::{Multiaddr, Protocol as MProtocol},
-    PeerId,
+use libp2p::gossipsub::metrics::Config as GossipsubMetricsConfig;
+use libp2p::gossipsub::subscription_filter::MaxCountSubscriptionFilter;
+use libp2p::gossipsub::{
+    GossipsubEvent, IdentTopic as Topic, MessageAcceptance, MessageAuthenticity, MessageId,
 };
+use libp2p::identify::{Identify, IdentifyConfig, IdentifyEvent};
+use libp2p::multiaddr::{Multiaddr, Protocol as MProtocol};
+use libp2p::swarm::{ConnectionLimits, Swarm, SwarmBuilder, SwarmEvent};
+use libp2p::PeerId;
 use slog::{crit, debug, info, o, trace, warn};
-use ssz::Encode;
-use std::collections::HashSet;
-use std::fs::File;
-use std::io::Write;
-use std::path::{Path, PathBuf};
-use std::pin::Pin;
-use std::{
-    marker::PhantomData,
-    sync::Arc,
-    task::{Context, Poll},
-};
-use types::{
-    consts::altair::SYNC_COMMITTEE_SUBNET_COUNT, EnrForkId, EthSpec, ForkContext,
-    SignedBeaconBlock, Slot, SubnetId, SyncSubnetId,
-};
 
-use self::behaviour::{Behaviour, RequestId};
+use std::marker::PhantomData;
+use std::path::PathBuf;
+use std::pin::Pin;
+use std::sync::Arc;
+use std::task::{Context, Poll};
+use types::{
+    consts::altair::SYNC_COMMITTEE_SUBNET_COUNT, EnrForkId, EthSpec, ForkContext, Slot, SubnetId,
+};
+use utils::{build_transport, strip_peer_id, Context as ServiceContext, MAX_CONNECTIONS_PER_PEER};
+
+use self::behaviour::Behaviour;
 use self::gossip_cache::GossipCache;
 
+pub mod api_types;
 mod behaviour;
 mod gossip_cache;
 pub mod gossipsub_scoring_parameters;
-
+pub mod utils;
 /// The number of peers we target per subnet for discovery queries.
 pub const TARGET_SUBNET_PEERS: usize = 6;
 
 const MAX_IDENTIFY_ADDRESSES: usize = 10;
-
-/// Identifier of requests sent by a peer.
-pub type PeerRequestId = (ConnectionId, SubstreamId);
 
 /// The types of events than can be obtained from polling the behaviour.
 #[derive(Debug)]
@@ -160,7 +146,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
         let mut config = ctx.config.clone();
         trace!(log, "Libp2p Service starting");
         // initialise the node's ID
-        let local_keypair = crate::load_private_key(&config, &log);
+        let local_keypair = utils::load_private_key(&config, &log);
 
         // set up a collection of variables accessible outside of the network crate
         let network_globals = {
@@ -172,7 +158,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                 &log,
             )?;
             // Construct the metadata
-            let meta_data = crate::load_or_build_metadata(&config.network_dir, &log);
+            let meta_data = utils::load_or_build_metadata(&config.network_dir, &log);
             let globals = NetworkGlobals::new(
                 enr,
                 config.libp2p_port,
@@ -240,7 +226,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
 
             let possible_fork_digests = ctx.fork_context.all_fork_digests();
             let filter = MaxCountSubscriptionFilter {
-                filter: Self::create_whitelist_filter(
+                filter: utils::create_whitelist_filter(
                     possible_fork_digests,
                     ctx.chain_spec.attestation_subnet_count,
                     SYNC_COMMITTEE_SUBNET_COUNT,
@@ -363,7 +349,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
 
         let mut network = Network {
             swarm,
-            network_globals: network_globals.clone(),
+            network_globals,
             enr_fork_id,
             network_dir: config.network_dir.clone(),
             fork_context: ctx.fork_context,
@@ -376,6 +362,8 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
         };
 
         network.start(&config).await?;
+
+        let network_globals = network.network_globals.clone();
 
         Ok((network, network_globals))
     }
@@ -911,7 +899,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
             }
         }
         // Save the updated metadata to disk
-        save_metadata_to_disk(
+        utils::save_metadata_to_disk(
             &self.network_dir,
             self.network_globals.local_metadata.read().clone(),
             &self.log,
@@ -1027,37 +1015,9 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
         }
     }
 
-    /// Creates a whitelist topic filter that covers all possible topics using the given set of
-    /// possible fork digests.
-    fn create_whitelist_filter(
-        possible_fork_digests: Vec<[u8; 4]>,
-        attestation_subnet_count: u64,
-        sync_committee_subnet_count: u64,
-    ) -> WhitelistSubscriptionFilter {
-        let mut possible_hashes = HashSet::new();
-        for fork_digest in possible_fork_digests {
-            let mut add = |kind| {
-                let topic: Topic =
-                    GossipTopic::new(kind, GossipEncoding::SSZSnappy, fork_digest).into();
-                possible_hashes.insert(topic.hash());
-            };
+    /* Sub-behaviour event handling functions */
 
-            use GossipKind::*;
-            add(BeaconBlock);
-            add(BeaconAggregateAndProof);
-            add(VoluntaryExit);
-            add(ProposerSlashing);
-            add(AttesterSlashing);
-            add(SignedContributionAndProof);
-            for id in 0..attestation_subnet_count {
-                add(Attestation(SubnetId::new(id)));
-            }
-            for id in 0..sync_committee_subnet_count {
-                add(SyncCommitteeMessage(SyncSubnetId::new(id)));
-            }
-        }
-        WhitelistSubscriptionFilter(possible_hashes)
-    }
+    /// Handle a gossipsub event.
     fn inject_gs_event(&mut self, event: GossipsubEvent) -> Option<NetworkEvent<AppReqId, TSpec>> {
         match event {
             GossipsubEvent::Message {
@@ -1153,6 +1113,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
         None
     }
 
+    /// Handle an RPC event.
     fn inject_rpc_event(
         &mut self,
         event: RPCMessage<RequestId<AppReqId>, TSpec>,
@@ -1321,6 +1282,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
         }
     }
 
+    /// Handle a discovery event.
     fn inject_discovery_event(
         &mut self,
         event: DiscoveredPeers,
@@ -1336,6 +1298,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
         None
     }
 
+    /// Handle an identify event.
     fn inject_identify_event(
         &mut self,
         event: IdentifyEvent,
@@ -1359,6 +1322,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
         None
     }
 
+    /// Handle a peer manager event.
     fn inject_pm_event(
         &mut self,
         event: PeerManagerEvent,
@@ -1416,10 +1380,16 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
         }
     }
 
+    /* Networking polling */
+
+    /// Poll the p2p networking stack.
+    ///
+    /// This will poll the swarm and do maintenance routines.
     pub fn poll_network(&mut self, cx: &mut Context) -> Poll<NetworkEvent<AppReqId, TSpec>> {
         while let Poll::Ready(Some(swarm_event)) = self.swarm.poll_next_unpin(cx) {
             let maybe_event = match swarm_event {
                 SwarmEvent::Behaviour(behaviour_event) => match behaviour_event {
+                    // Handle sub-behaviour events.
                     BehaviourEvent::Gossipsub(ge) => self.inject_gs_event(ge),
                     BehaviourEvent::Eth2Rpc(re) => self.inject_rpc_event(re),
                     BehaviourEvent::Discovery(de) => self.inject_discovery_event(de),
@@ -1513,106 +1483,5 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
 
     pub async fn next_event(&mut self) -> NetworkEvent<AppReqId, TSpec> {
         futures::future::poll_fn(|cx| self.poll_network(cx)).await
-    }
-}
-
-/* Public API types */
-
-/// The type of RPC requests the Behaviour informs it has received and allows for sending.
-///
-// NOTE: This is an application-level wrapper over the lower network level requests that can be
-//       sent. The main difference is the absence of the Ping, Metadata and Goodbye protocols, which don't
-//       leave the Behaviour. For all protocols managed by RPC see `RPCRequest`.
-#[derive(Debug, Clone, PartialEq)]
-pub enum Request {
-    /// A Status message.
-    Status(StatusMessage),
-    /// A blocks by range request.
-    BlocksByRange(BlocksByRangeRequest),
-    /// A request blocks root request.
-    BlocksByRoot(BlocksByRootRequest),
-}
-
-impl<TSpec: EthSpec> std::convert::From<Request> for OutboundRequest<TSpec> {
-    fn from(req: Request) -> OutboundRequest<TSpec> {
-        match req {
-            Request::BlocksByRoot(r) => OutboundRequest::BlocksByRoot(r),
-            Request::BlocksByRange(BlocksByRangeRequest { start_slot, count }) => {
-                OutboundRequest::BlocksByRange(methods::OldBlocksByRangeRequest {
-                    start_slot,
-                    count,
-                    step: 1,
-                })
-            }
-            Request::Status(s) => OutboundRequest::Status(s),
-        }
-    }
-}
-
-/// The type of RPC responses the Behaviour informs it has received, and allows for sending.
-///
-// NOTE: This is an application-level wrapper over the lower network level responses that can be
-//       sent. The main difference is the absense of Pong and Metadata, which don't leave the
-//       Behaviour. For all protocol reponses managed by RPC see `RPCResponse` and
-//       `RPCCodedResponse`.
-#[derive(Debug, Clone, PartialEq)]
-pub enum Response<TSpec: EthSpec> {
-    /// A Status message.
-    Status(StatusMessage),
-    /// A response to a get BLOCKS_BY_RANGE request. A None response signals the end of the batch.
-    BlocksByRange(Option<Arc<SignedBeaconBlock<TSpec>>>),
-    /// A response to a get BLOCKS_BY_ROOT request.
-    BlocksByRoot(Option<Arc<SignedBeaconBlock<TSpec>>>),
-}
-
-impl<TSpec: EthSpec> std::convert::From<Response<TSpec>> for RPCCodedResponse<TSpec> {
-    fn from(resp: Response<TSpec>) -> RPCCodedResponse<TSpec> {
-        match resp {
-            Response::BlocksByRoot(r) => match r {
-                Some(b) => RPCCodedResponse::Success(RPCResponse::BlocksByRoot(b)),
-                None => RPCCodedResponse::StreamTermination(ResponseTermination::BlocksByRoot),
-            },
-            Response::BlocksByRange(r) => match r {
-                Some(b) => RPCCodedResponse::Success(RPCResponse::BlocksByRange(b)),
-                None => RPCCodedResponse::StreamTermination(ResponseTermination::BlocksByRange),
-            },
-            Response::Status(s) => RPCCodedResponse::Success(RPCResponse::Status(s)),
-        }
-    }
-}
-
-/// Persist metadata to disk
-pub fn save_metadata_to_disk<E: EthSpec>(dir: &Path, metadata: MetaData<E>, log: &slog::Logger) {
-    let _ = std::fs::create_dir_all(&dir);
-    match File::create(dir.join(METADATA_FILENAME))
-        .and_then(|mut f| f.write_all(&metadata.as_ssz_bytes()))
-    {
-        Ok(_) => {
-            debug!(log, "Metadata written to disk");
-        }
-        Err(e) => {
-            warn!(
-                log,
-                "Could not write metadata to disk";
-                "file" => format!("{:?}{:?}", dir, METADATA_FILENAME),
-                "error" => %e
-            );
-        }
-    }
-}
-
-impl<AppReqId: std::fmt::Debug> slog::Value for RequestId<AppReqId> {
-    fn serialize(
-        &self,
-        record: &slog::Record,
-        key: slog::Key,
-        serializer: &mut dyn slog::Serializer,
-    ) -> slog::Result {
-        match self {
-            RequestId::Internal => slog::Value::serialize("Behaviour", record, key, serializer),
-            RequestId::Application(ref id) => {
-                slog::Value::serialize(&format_args!("{:?}", id), record, key, serializer)
-            }
-        }
     }
 }

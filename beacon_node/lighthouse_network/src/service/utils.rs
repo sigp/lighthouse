@@ -1,21 +1,27 @@
 use crate::multiaddr::Protocol;
 use crate::rpc::{MetaData, MetaDataV1, MetaDataV2};
-use crate::service::save_metadata_to_disk;
-use crate::types::{error, EnrAttestationBitfield, EnrSyncCommitteeBitfield};
-use crate::NetworkConfig;
+use crate::types::{
+    error, EnrAttestationBitfield, EnrSyncCommitteeBitfield, GossipEncoding, GossipKind,
+};
+use crate::{GossipTopic, NetworkConfig};
 use libp2p::bandwidth::{BandwidthLogging, BandwidthSinks};
 use libp2p::core::{
     identity::Keypair, multiaddr::Multiaddr, muxing::StreamMuxerBox, transport::Boxed,
 };
+use libp2p::gossipsub::subscription_filter::WhitelistSubscriptionFilter;
+use libp2p::gossipsub::IdentTopic as Topic;
 use libp2p::{core, noise, PeerId, Transport};
 use prometheus_client::registry::Registry;
 use slog::{debug, warn};
 use ssz::Decode;
+use ssz::Encode;
+use std::collections::HashSet;
 use std::fs::File;
 use std::io::prelude::*;
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
-use types::{ChainSpec, EnrForkId, EthSpec, ForkContext};
+use types::{ChainSpec, EnrForkId, EthSpec, ForkContext, SubnetId, SyncSubnetId};
 
 pub const NETWORK_KEY_FILENAME: &str = "key";
 /// The maximum simultaneous libp2p connections per peer.
@@ -223,4 +229,60 @@ pub fn load_or_build_metadata<E: EthSpec>(
     debug!(log, "Metadata sequence number"; "seq_num" => meta_data.seq_number());
     save_metadata_to_disk(network_dir, meta_data.clone(), log);
     meta_data
+}
+
+/// Creates a whitelist topic filter that covers all possible topics using the given set of
+/// possible fork digests.
+pub(crate) fn create_whitelist_filter(
+    possible_fork_digests: Vec<[u8; 4]>,
+    attestation_subnet_count: u64,
+    sync_committee_subnet_count: u64,
+) -> WhitelistSubscriptionFilter {
+    let mut possible_hashes = HashSet::new();
+    for fork_digest in possible_fork_digests {
+        let mut add = |kind| {
+            let topic: Topic =
+                GossipTopic::new(kind, GossipEncoding::SSZSnappy, fork_digest).into();
+            possible_hashes.insert(topic.hash());
+        };
+
+        use GossipKind::*;
+        add(BeaconBlock);
+        add(BeaconAggregateAndProof);
+        add(VoluntaryExit);
+        add(ProposerSlashing);
+        add(AttesterSlashing);
+        add(SignedContributionAndProof);
+        for id in 0..attestation_subnet_count {
+            add(Attestation(SubnetId::new(id)));
+        }
+        for id in 0..sync_committee_subnet_count {
+            add(SyncCommitteeMessage(SyncSubnetId::new(id)));
+        }
+    }
+    WhitelistSubscriptionFilter(possible_hashes)
+}
+
+/// Persist metadata to disk
+pub(crate) fn save_metadata_to_disk<E: EthSpec>(
+    dir: &Path,
+    metadata: MetaData<E>,
+    log: &slog::Logger,
+) {
+    let _ = std::fs::create_dir_all(&dir);
+    match File::create(dir.join(METADATA_FILENAME))
+        .and_then(|mut f| f.write_all(&metadata.as_ssz_bytes()))
+    {
+        Ok(_) => {
+            debug!(log, "Metadata written to disk");
+        }
+        Err(e) => {
+            warn!(
+                log,
+                "Could not write metadata to disk";
+                "file" => format!("{:?}{:?}", dir, METADATA_FILENAME),
+                "error" => %e
+            );
+        }
+    }
 }

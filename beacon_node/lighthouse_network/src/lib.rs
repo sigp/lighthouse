@@ -84,8 +84,6 @@ pub use peer_manager::{
     ConnectionDirection, PeerConnectionStatus, PeerInfo, PeerManager, SyncInfo, SyncStatus,
 };
 // pub use service::{load_private_key, Context, Libp2pEvent, Service, NETWORK_KEY_FILENAME};
-pub use service::{Gossipsub, NetworkEvent, PeerRequestId, Request, Response};
-
-mod old_service;
-
-pub use old_service::*;
+pub use service::api_types::{PeerRequestId, Request, Response};
+pub use service::utils::*;
+pub use service::{Gossipsub, NetworkEvent};
