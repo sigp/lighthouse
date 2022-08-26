@@ -1417,76 +1417,80 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
     }
 
     pub fn poll_network(&mut self, cx: &mut Context) -> Poll<NetworkEvent<AppReqId, TSpec>> {
-        let maybe_event = match self.swarm.poll_next_unpin(cx) {
-            Poll::Ready(Some(swarm_event)) => match swarm_event {
-                SwarmEvent::Behaviour(behaviour_event) => match behaviour_event {
-                    BehaviourEvent::Gossipsub(ge) => self.inject_gs_event(ge),
-                    BehaviourEvent::Eth2Rpc(re) => self.inject_rpc_event(re),
-                    BehaviourEvent::Discovery(de) => self.inject_discovery_event(de),
-                    BehaviourEvent::Identify(ie) => self.inject_identify_event(ie),
-                    BehaviourEvent::PeerManager(pe) => self.inject_pm_event(pe),
+        loop {
+            let maybe_event = match self.swarm.poll_next_unpin(cx) {
+                Poll::Ready(Some(swarm_event)) => match swarm_event {
+                    SwarmEvent::Behaviour(behaviour_event) => match behaviour_event {
+                        BehaviourEvent::Gossipsub(ge) => self.inject_gs_event(ge),
+                        BehaviourEvent::Eth2Rpc(re) => self.inject_rpc_event(re),
+                        BehaviourEvent::Discovery(de) => self.inject_discovery_event(de),
+                        BehaviourEvent::Identify(ie) => self.inject_identify_event(ie),
+                        BehaviourEvent::PeerManager(pe) => self.inject_pm_event(pe),
+                    },
+                    SwarmEvent::ConnectionEstablished { .. } => None,
+                    SwarmEvent::ConnectionClosed { .. } => None,
+                    SwarmEvent::IncomingConnection {
+                        local_addr,
+                        send_back_addr,
+                    } => {
+                        trace!(self.log, "Incoming connection"; "our_addr" => %local_addr, "from" => %send_back_addr);
+                        None
+                    }
+                    SwarmEvent::IncomingConnectionError {
+                        local_addr,
+                        send_back_addr,
+                        error,
+                    } => {
+                        debug!(self.log, "Failed incoming connection"; "our_addr" => %local_addr, "from" => %send_back_addr, "error" => %error);
+                        None
+                    }
+                    SwarmEvent::OutgoingConnectionError { peer_id, error } => {
+                        debug!(self.log, "Failed to dial address"; "peer_id" => ?peer_id,  "error" => %error);
+                        None
+                    }
+                    SwarmEvent::BannedPeer {
+                        peer_id,
+                        endpoint: _,
+                    } => {
+                        debug!(self.log, "Banned peer connection rejected"; "peer_id" => %peer_id);
+                        None
+                    }
+                    SwarmEvent::NewListenAddr { address, .. } => {
+                        Some(NetworkEvent::NewListenAddr(address))
+                    }
+                    SwarmEvent::ExpiredListenAddr { address, .. } => {
+                        debug!(self.log, "Listen address expired"; "address" => %address);
+                        None
+                    }
+                    SwarmEvent::ListenerClosed {
+                        addresses, reason, ..
+                    } => {
+                        crit!(self.log, "Listener closed"; "addresses" => ?addresses, "reason" => ?reason);
+                        if Swarm::listeners(&self.swarm).count() == 0 {
+                            Some(NetworkEvent::ZeroListeners)
+                        } else {
+                            None
+                        }
+                    }
+                    SwarmEvent::ListenerError { error, .. } => {
+                        // this is non fatal, but we still check
+                        warn!(self.log, "Listener error"; "error" => ?error);
+                        if Swarm::listeners(&self.swarm).count() == 0 {
+                            Some(NetworkEvent::ZeroListeners)
+                        } else {
+                            None
+                        }
+                    }
+                    SwarmEvent::Dialing(_) => None,
                 },
-                SwarmEvent::ConnectionEstablished { .. } => None,
-                SwarmEvent::ConnectionClosed { .. } => None,
-                SwarmEvent::IncomingConnection {
-                    local_addr,
-                    send_back_addr,
-                } => {
-                    trace!(self.log, "Incoming connection"; "our_addr" => %local_addr, "from" => %send_back_addr);
-                    None
+                Poll::Pending | Poll::Ready(None) => {
+                    break;
                 }
-                SwarmEvent::IncomingConnectionError {
-                    local_addr,
-                    send_back_addr,
-                    error,
-                } => {
-                    debug!(self.log, "Failed incoming connection"; "our_addr" => %local_addr, "from" => %send_back_addr, "error" => %error);
-                    None
-                }
-                SwarmEvent::OutgoingConnectionError { peer_id, error } => {
-                    debug!(self.log, "Failed to dial address"; "peer_id" => ?peer_id,  "error" => %error);
-                    None
-                }
-                SwarmEvent::BannedPeer {
-                    peer_id,
-                    endpoint: _,
-                } => {
-                    debug!(self.log, "Banned peer connection rejected"; "peer_id" => %peer_id);
-                    None
-                }
-                SwarmEvent::NewListenAddr { address, .. } => {
-                    Some(NetworkEvent::NewListenAddr(address))
-                }
-                SwarmEvent::ExpiredListenAddr { address, .. } => {
-                    debug!(self.log, "Listen address expired"; "address" => %address);
-                    None
-                }
-                SwarmEvent::ListenerClosed {
-                    addresses, reason, ..
-                } => {
-                    crit!(self.log, "Listener closed"; "addresses" => ?addresses, "reason" => ?reason);
-                    if Swarm::listeners(&self.swarm).count() == 0 {
-                        Some(NetworkEvent::ZeroListeners)
-                    } else {
-                        None
-                    }
-                }
-                SwarmEvent::ListenerError { error, .. } => {
-                    // this is non fatal, but we still check
-                    warn!(self.log, "Listener error"; "error" => ?error);
-                    if Swarm::listeners(&self.swarm).count() == 0 {
-                        Some(NetworkEvent::ZeroListeners)
-                    } else {
-                        None
-                    }
-                }
-                SwarmEvent::Dialing(_) => None,
-            },
-            Poll::Pending | Poll::Ready(None) => None,
-        };
+            };
 
-        if let Some(ev) = maybe_event {
-            return Poll::Ready(ev);
+            if let Some(ev) = maybe_event {
+                return Poll::Ready(ev);
+            }
         }
 
         // perform gossipsub score updates when necessary
