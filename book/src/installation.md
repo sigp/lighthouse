@@ -8,7 +8,7 @@ There are three core methods to obtain the Lighthouse application:
 - [Docker images](./docker.md).
 - [Building from source](./installation-source.md).
 
-The community maintain additional installation methods:
+Community-maintained additional installation methods:
 
 - [Homebrew package](./homebrew.md).
 - Arch Linux AUR packages: [source](https://aur.archlinux.org/packages/lighthouse-ethereum),
