@@ -76,7 +76,7 @@ lighthouse \
     --network mainnet \
     beacon_node \
     --http \
-    --eth1-endpoints http://localhost:8545,https://TOKEN@eth2-beacon-mainnet.infura.io
+    --eth1-endpoints http://localhost:8545,https://mainnet.infura.io/v3/TOKEN
 ```
 
 Converting the above to a post-merge configuration would render:

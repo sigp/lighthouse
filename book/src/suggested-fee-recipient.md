@@ -65,10 +65,21 @@ Below is an example of the validator_definitions.yml with `suggested_fee_recipie
 The `--suggested-fee-recipient` can be provided to the VC to act as a default value for all
 validators where a `suggested_fee_recipient` is not loaded from another method.
 
+Provide a 0x-prefixed address, e.g.
+
+```
+lighthouse vc --suggested-fee-recipient 0x25c4a76E7d118705e7Ea2e9b7d8C59930d8aCD3b ...
+```
+
+
 ### 3. Using the "--suggested-fee-recipient" flag on the beacon node
 
 The `--suggested-fee-recipient` can be provided to the BN to act as a default value when the
 validator client does not transmit a `suggested_fee_recipient` to the BN.
+
+```
+lighthouse bn --suggested-fee-recipient 0x25c4a76E7d118705e7Ea2e9b7d8C59930d8aCD3b ...
+```
 
 **This value should be considered an emergency fallback**. You should set the fee recipient in the
 validator client in order for the execution node to be given adequate notice of block proposal.
