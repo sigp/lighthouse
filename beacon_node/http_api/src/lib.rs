@@ -2421,7 +2421,10 @@ pub fn serve<T: BeaconChainTypes>(
              log: Logger| {
                 blocking_json_task(move || {
                     for subscription in &subscriptions {
-                        if !subscription_cache.is_new(subscription.clone()) {
+                        if subscription_cache.is_new(subscription.clone()) {
+                            metrics::inc_counter_vec(&metrics::HTTP_API_SUBSCRIPTION_SEEN_CACHE, &["new"]);
+                        } else {
+                            metrics::inc_counter_vec(&metrics::HTTP_API_SUBSCRIPTION_SEEN_CACHE, &["duplicate"]);
                             continue;
                         }
 
