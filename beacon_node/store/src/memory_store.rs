@@ -1,5 +1,4 @@
-use super::{Error, ItemStore, KeyValueStore, KeyValueStoreOp};
-use crate::{ColumnIter, DBColumn};
+use crate::{ColumnIter, DBColumn, Error, ItemStore, Key, KeyValueStore, KeyValueStoreOp};
 use parking_lot::{Mutex, MutexGuard, RwLock};
 use std::collections::{HashMap, HashSet};
 use std::marker::PhantomData;
@@ -94,8 +93,7 @@ impl<E: EthSpec> KeyValueStore<E> for MemoryStore<E> {
         Ok(())
     }
 
-    // pub type ColumnIter<'a> = Box<dyn Iterator<Item = Result<(Hash256, Vec<u8>), Error>> + 'a>;
-    fn iter_column(&self, column: DBColumn) -> ColumnIter {
+    fn iter_column<K: Key>(&self, column: DBColumn) -> ColumnIter<K> {
         let col = column.as_str();
         if let Some(keys) = self
             .col_keys
@@ -104,10 +102,11 @@ impl<E: EthSpec> KeyValueStore<E> for MemoryStore<E> {
             .map(|set| set.iter().cloned().collect::<Vec<_>>())
         {
             Box::new(keys.into_iter().filter_map(move |key| {
-                let hash = Hash256::from_slice(&key);
-                self.get_bytes(col, &key)
-                    .transpose()
-                    .map(|res| res.map(|bytes| (hash, bytes)))
+                self.get_bytes(col, &key).transpose().map(|res| {
+                    let k = K::from_bytes(&key)?;
+                    let v = res?;
+                    Ok((k, v))
+                })
             }))
         } else {
             Box::new(std::iter::empty())

@@ -45,6 +45,7 @@ pub enum Error {
     ResyncRequiredForExecutionPayloadSeparation,
     SlotClockUnavailableForMigration,
     V9MigrationFailure(Hash256),
+    InvalidKey,
 }
 
 pub trait HandleUnavailable<T> {
