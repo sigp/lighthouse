@@ -38,7 +38,7 @@ use slot_clock::SlotClock;
 use ssz::Encode;
 pub use state_id::StateId;
 use std::borrow::Cow;
-use std::collections::HashSet;
+use std::collections::HashMap;
 use std::convert::TryInto;
 use std::future::Future;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
@@ -83,15 +83,18 @@ type HttpServer = (SocketAddr, Pin<Box<dyn Future<Output = ()> + Send>>);
 pub type ExecutionOptimistic = bool;
 
 #[derive(Clone, Default)]
-pub struct ValidatorSubscriptionSeenCache(Arc<Mutex<HashSet<BeaconCommitteeSubscription>>>);
+pub struct ValidatorSubscriptionSeenCache(Arc<Mutex<HashMap<u64, BeaconCommitteeSubscription>>>);
 
 impl ValidatorSubscriptionSeenCache {
     fn is_new(&self, subscription: BeaconCommitteeSubscription) -> bool {
-        self.0.lock().insert(subscription)
+        self.0
+            .lock()
+            .insert(subscription.validator_index, subscription.clone())
+            .map_or(true, |existing| existing != subscription)
     }
 
     fn unsee(&self, subscription: &BeaconCommitteeSubscription) {
-        self.0.lock().remove(subscription);
+        self.0.lock().remove(&subscription.validator_index);
     }
 }
 
