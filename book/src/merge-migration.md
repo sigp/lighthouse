@@ -11,11 +11,12 @@ There are two configuration changes required for a Lighthouse node to operate co
 the merge:
 
 1. You *must* run your own execution engine such as Geth or Nethermind alongside Lighthouse.
-   You *must* update your Lighthouse configuration to connect to the execution engine using new
+   You *must* update your `lighthouse bn` configuration to connect to the execution engine using new
    flags which are documented on this page in the
    [Connecting to an execution engine](#connecting-to-an-execution-engine) section.
 2. If your Lighthouse node has validators attached you *must* nominate an Ethereum address to
-   receive transactions tips from blocks proposed by your validators. This is covered on the
+   receive transactions tips from blocks proposed by your validators. These changes should
+   be made to your `lighthouse vc` configuration, and are covered on the
    [Suggested fee recipient](./suggested-fee-recipient.md) page.
 
 Additionally, you _must_ update Lighthouse to v3.0.0 (or later), and must update your execution
