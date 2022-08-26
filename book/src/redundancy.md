@@ -4,8 +4,8 @@
 
 There are three places in Lighthouse where redundancy is notable:
 
-1. ✅ GOOD: Using a redundant Beacon node in `lighthouse vc --beacon-nodes`
-1. ✅ GOOD: Using a redundant execution node in `lighthouse bn --eth1-endpoints`
+1. ✅ GOOD: Using a redundant beacon node in `lighthouse vc --beacon-nodes`
+1. ❌ NOT SUPPORTED: Using a redundant execution node in `lighthouse bn --execution-endpoint`
 1. ☠️ BAD: Running redundant `lighthouse vc` instances with overlapping keypairs.
 
 I mention (3) since it is unsafe and should not be confused with the other two
@@ -94,23 +94,10 @@ resource consumption akin to running 64+ validators.
 
 ## Redundant execution nodes
 
-Compared to redundancy in beacon nodes (see above), using redundant execution nodes
-is very straight-forward:
+Lighthouse previously supported redundant execution nodes for fetching data from the deposit
+contract. On merged networks _this is no longer supported_. Each Lighthouse beacon node must be
+configured in a 1:1 relationship with an execution node. For more information on the rationale
+behind this decision please see the [Merge Migration](./merge-migration.md) documentation.
 
-1. `lighthouse bn --eth1-endpoints http://localhost:8545`
-1. `lighthouse bn --eth1-endpoints http://localhost:8545,http://192.168.0.1:8545`
-
-In the case of (1), any failure on `http://localhost:8545` will result in a
-failure to update the execution client cache in the beacon node. Consistent failure over a
-period of hours may result in a failure in block production.
-
-However, in the case of (2), the `http://192.168.0.1:8545` execution client endpoint will
-be tried each time the first fails. Execution client endpoints will be tried from first to
-last in the list, until a successful response is obtained.
-
-There is no need for special configuration on the execution client endpoint, all endpoints can (probably should)
-be configured identically.
-
-> Note: When supplying multiple endpoints the `http://localhost:8545` address must be explicitly
-> provided (if it is desired). It will only be used as default if no `--eth1-endpoints` flag is
-> provided at all.
+To achieve redundancy we recommend configuring [Redundant beacon nodes](#redundant-beacon-nodes)
+where each has its own execution engine.
