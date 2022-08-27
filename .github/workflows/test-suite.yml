@@ -337,8 +337,10 @@ jobs:
     - uses: actions/checkout@v1
     - name: Install Rust (${{ env.PINNED_NIGHTLY }})
       run: rustup toolchain install $PINNED_NIGHTLY
+    # NOTE: cargo-udeps version is pinned until this issue is resolved:
+    # https://github.com/est31/cargo-udeps/issues/135
     - name: Install cargo-udeps
-      run: cargo install cargo-udeps --locked
+      run: cargo install cargo-udeps --locked --force --version 0.1.30
     - name: Create Cargo config dir
       run: mkdir -p .cargo
     - name: Install custom Cargo config

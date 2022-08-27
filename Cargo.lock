@@ -436,7 +436,7 @@ dependencies = [
 
 [[package]]
 name = "beacon_node"
-version = "2.5.1"
+version = "3.0.0"
 dependencies = [
  "beacon_chain",
  "clap",
@@ -594,7 +594,7 @@ dependencies = [
 
 [[package]]
 name = "boot_node"
-version = "2.5.1"
+version = "3.0.0"
 dependencies = [
  "beacon_node",
  "clap",
@@ -2083,9 +2083,11 @@ dependencies = [
  "slot_clock",
  "ssz-rs",
  "state_processing",
+ "strum",
  "task_executor",
  "tempfile",
  "tokio",
+ "tokio-stream",
  "tree_hash",
  "tree_hash_derive",
  "types",
@@ -3103,7 +3105,7 @@ checksum = "830d08ce1d1d941e6b30645f1a0eb5643013d835ce3779a5fc208261dbe10f55"
 
 [[package]]
 name = "lcli"
-version = "2.5.1"
+version = "3.0.0"
 dependencies = [
  "account_utils",
  "beacon_chain",
@@ -3603,7 +3605,7 @@ dependencies = [
 
 [[package]]
 name = "lighthouse"
-version = "2.5.1"
+version = "3.0.0"
 dependencies = [
  "account_manager",
  "account_utils",

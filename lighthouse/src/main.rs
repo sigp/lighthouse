@@ -227,7 +227,7 @@ fn main() {
                        Accepts a 256-bit decimal integer (not a hex value). \
                        This flag should only be used if the user has a clear understanding that \
                        the broad Ethereum community has elected to override the terminal difficulty. \
-                       Incorrect use of this flag will cause your node to experience a consensus
+                       Incorrect use of this flag will cause your node to experience a consensus \
                        failure. Be extremely careful with this flag.")
                 .takes_value(true)
                 .global(true)
@@ -239,7 +239,7 @@ fn main() {
                 .help("Used to coordinate manual overrides to the TERMINAL_BLOCK_HASH parameter. \
                        This flag should only be used if the user has a clear understanding that \
                        the broad Ethereum community has elected to override the terminal PoW block. \
-                       Incorrect use of this flag will cause your node to experience a consensus
+                       Incorrect use of this flag will cause your node to experience a consensus \
                        failure. Be extremely careful with this flag.")
                 .requires("terminal-block-hash-epoch-override")
                 .takes_value(true)
@@ -252,7 +252,7 @@ fn main() {
                 .help("Used to coordinate manual overrides to the TERMINAL_BLOCK_HASH_ACTIVATION_EPOCH \
                        parameter. This flag should only be used if the user has a clear understanding \
                        that the broad Ethereum community has elected to override the terminal PoW block. \
-                       Incorrect use of this flag will cause your node to experience a consensus
+                       Incorrect use of this flag will cause your node to experience a consensus \
                        failure. Be extremely careful with this flag.")
                 .requires("terminal-block-hash-override")
                 .takes_value(true)
