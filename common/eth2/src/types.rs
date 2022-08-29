@@ -1084,12 +1084,12 @@ fn parse_accept(accept: &str) -> Result<Vec<Mime>, String> {
                 };
 
                 let _params_format: String = params
-                    .into_iter()
+                    .iter()
                     .map(|(n, v)| format!("{}={}", n, v))
                     .collect::<Vec<String>>()
                     .join(";");
 
-                let params_format = if _params_format.len() == 0 {
+                let params_format = if _params_format.is_empty() {
                     "".to_string()
                 } else {
                     format!(";{}", _params_format)
