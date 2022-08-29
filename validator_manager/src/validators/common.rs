@@ -110,6 +110,11 @@ impl ValidatorSpecification {
             return Err(UploadError::IncorrectStatusCount(statuses.len() + 1));
         }
 
+        // Exit early if there's an error uploading.
+        if status.status == ImportKeystoreStatus::Error {
+            return Ok(status);
+        }
+
         if let Some(fee_recipient) = fee_recipient {
             http_client
                 .post_fee_recipient(
