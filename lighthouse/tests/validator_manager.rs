@@ -186,7 +186,7 @@ pub fn validator_create_disable_deposits() {
 pub fn validator_import_defaults() {
     CommandLineTest::validators_import()
         .flag("--validators-file", Some("./vals.json"))
-        .flag("--validator-client-token", Some("./token.json"))
+        .flag("--vc-token", Some("./token.json"))
         .assert_success(|config| {
             let expected = ImportConfig {
                 validators_file_path: PathBuf::from("./vals.json"),
@@ -202,7 +202,7 @@ pub fn validator_import_defaults() {
 pub fn validator_import_misc_flags() {
     CommandLineTest::validators_import()
         .flag("--validators-file", Some("./vals.json"))
-        .flag("--validator-client-token", Some("./token.json"))
+        .flag("--vc-token", Some("./token.json"))
         .flag("--ignore-duplicates", None)
         .assert_success(|config| {
             let expected = ImportConfig {
@@ -225,17 +225,17 @@ pub fn validator_import_missing_token() {
 #[test]
 pub fn validator_import_missing_validators_file() {
     CommandLineTest::validators_import()
-        .flag("--validator-client-token", Some("./token.json"))
+        .flag("--vc-token", Some("./token.json"))
         .assert_failed();
 }
 
 #[test]
 pub fn validator_move_defaults() {
     CommandLineTest::validators_move()
-        .flag("--src-validator-client-url", Some("http://localhost:1"))
-        .flag("--src-validator-client-token", Some("./1.json"))
-        .flag("--dest-validator-client-url", Some("http://localhost:2"))
-        .flag("--dest-validator-client-token", Some("./2.json"))
+        .flag("--src-vc-url", Some("http://localhost:1"))
+        .flag("--src-vc-token", Some("./1.json"))
+        .flag("--dest-vc-url", Some("http://localhost:2"))
+        .flag("--dest-vc-token", Some("./2.json"))
         .flag("--validators", Some("all"))
         .assert_success(|config| {
             let expected = MoveConfig {
@@ -255,10 +255,10 @@ pub fn validator_move_defaults() {
 #[test]
 pub fn validator_move_misc_flags_0() {
     CommandLineTest::validators_move()
-        .flag("--src-validator-client-url", Some("http://localhost:1"))
-        .flag("--src-validator-client-token", Some("./1.json"))
-        .flag("--dest-validator-client-url", Some("http://localhost:2"))
-        .flag("--dest-validator-client-token", Some("./2.json"))
+        .flag("--src-vc-url", Some("http://localhost:1"))
+        .flag("--src-vc-token", Some("./1.json"))
+        .flag("--dest-vc-url", Some("http://localhost:2"))
+        .flag("--dest-vc-token", Some("./2.json"))
         .flag(
             "--validators",
             Some(&format!("{},{}", EXAMPLE_PUBKEY_0, EXAMPLE_PUBKEY_1)),
@@ -287,10 +287,10 @@ pub fn validator_move_misc_flags_0() {
 #[test]
 pub fn validator_move_misc_flags_1() {
     CommandLineTest::validators_move()
-        .flag("--src-validator-client-url", Some("http://localhost:1"))
-        .flag("--src-validator-client-token", Some("./1.json"))
-        .flag("--dest-validator-client-url", Some("http://localhost:2"))
-        .flag("--dest-validator-client-token", Some("./2.json"))
+        .flag("--src-vc-url", Some("http://localhost:1"))
+        .flag("--src-vc-token", Some("./1.json"))
+        .flag("--dest-vc-url", Some("http://localhost:2"))
+        .flag("--dest-vc-token", Some("./2.json"))
         .flag("--validators", Some(&format!("{}", EXAMPLE_PUBKEY_0)))
         .flag("--builder-proposals", Some("false"))
         .assert_success(|config| {
@@ -313,10 +313,10 @@ pub fn validator_move_misc_flags_1() {
 #[test]
 pub fn validator_move_count() {
     CommandLineTest::validators_move()
-        .flag("--src-validator-client-url", Some("http://localhost:1"))
-        .flag("--src-validator-client-token", Some("./1.json"))
-        .flag("--dest-validator-client-url", Some("http://localhost:2"))
-        .flag("--dest-validator-client-token", Some("./2.json"))
+        .flag("--src-vc-url", Some("http://localhost:1"))
+        .flag("--src-vc-token", Some("./1.json"))
+        .flag("--dest-vc-url", Some("http://localhost:2"))
+        .flag("--dest-vc-token", Some("./2.json"))
         .flag("--validators", Some("42"))
         .assert_success(|config| {
             let expected = MoveConfig {

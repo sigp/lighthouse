@@ -23,10 +23,10 @@ pub const MOVE_DIR_NAME: &str = "lighthouse-validator-move";
 pub const VALIDATOR_SPECIFICATION_FILE: &str = "validator-specification.json";
 
 pub const CMD: &str = "move";
-pub const SRC_VALIDATOR_CLIENT_URL_FLAG: &str = "src-validator-client-url";
-pub const SRC_VALIDATOR_CLIENT_TOKEN_FLAG: &str = "src-validator-client-token";
-pub const DEST_VALIDATOR_CLIENT_URL_FLAG: &str = "dest-validator-client-url";
-pub const DEST_VALIDATOR_CLIENT_TOKEN_FLAG: &str = "dest-validator-client-token";
+pub const SRC_VC_URL_FLAG: &str = "src-vc-url";
+pub const SRC_VC_TOKEN_FLAG: &str = "src-vc-token";
+pub const DEST_VC_URL_FLAG: &str = "dest-vc-url";
+pub const DEST_VC_TOKEN_FLAG: &str = "dest-vc-token";
 pub const VALIDATORS_FLAG: &str = "validators";
 pub const GAS_LIMIT_FLAG: &str = "gas-limit";
 pub const FEE_RECIPIENT_FLAG: &str = "suggested-fee-recipient";
@@ -44,8 +44,8 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 command.",
         )
         .arg(
-            Arg::with_name(SRC_VALIDATOR_CLIENT_URL_FLAG)
-                .long(SRC_VALIDATOR_CLIENT_URL_FLAG)
+            Arg::with_name(SRC_VC_URL_FLAG)
+                .long(SRC_VC_URL_FLAG)
                 .value_name("HTTP_ADDRESS")
                 .help(
                     "A HTTP(S) address of a validator client using the keymanager-API. \
@@ -53,19 +53,19 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     that are to be moved.",
                 )
                 .required(true)
-                .requires(SRC_VALIDATOR_CLIENT_TOKEN_FLAG)
+                .requires(SRC_VC_TOKEN_FLAG)
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name(SRC_VALIDATOR_CLIENT_TOKEN_FLAG)
-                .long(SRC_VALIDATOR_CLIENT_TOKEN_FLAG)
+            Arg::with_name(SRC_VC_TOKEN_FLAG)
+                .long(SRC_VC_TOKEN_FLAG)
                 .value_name("PATH")
                 .help("The file containing a token required by the source validator client.")
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name(DEST_VALIDATOR_CLIENT_URL_FLAG)
-                .long(DEST_VALIDATOR_CLIENT_URL_FLAG)
+            Arg::with_name(DEST_VC_URL_FLAG)
+                .long(DEST_VC_URL_FLAG)
                 .value_name("HTTP_ADDRESS")
                 .help(
                     "A HTTP(S) address of a validator client using the keymanager-API. \
@@ -73,12 +73,12 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     added as they are removed from the \"source\" validator client.",
                 )
                 .required(true)
-                .requires(DEST_VALIDATOR_CLIENT_TOKEN_FLAG)
+                .requires(DEST_VC_TOKEN_FLAG)
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name(DEST_VALIDATOR_CLIENT_TOKEN_FLAG)
-                .long(DEST_VALIDATOR_CLIENT_TOKEN_FLAG)
+            Arg::with_name(DEST_VC_TOKEN_FLAG)
+                .long(DEST_VC_TOKEN_FLAG)
                 .value_name("PATH")
                 .help("The file containing a token required by the destination validator client.")
                 .takes_value(true),
@@ -172,16 +172,10 @@ pub struct MoveConfig {
 impl MoveConfig {
     fn from_cli(matches: &ArgMatches) -> Result<Self, String> {
         Ok(Self {
-            src_vc_url: clap_utils::parse_required(matches, SRC_VALIDATOR_CLIENT_URL_FLAG)?,
-            src_vc_token_path: clap_utils::parse_required(
-                matches,
-                SRC_VALIDATOR_CLIENT_TOKEN_FLAG,
-            )?,
-            dest_vc_url: clap_utils::parse_required(matches, DEST_VALIDATOR_CLIENT_URL_FLAG)?,
-            dest_vc_token_path: clap_utils::parse_required(
-                matches,
-                DEST_VALIDATOR_CLIENT_TOKEN_FLAG,
-            )?,
+            src_vc_url: clap_utils::parse_required(matches, SRC_VC_URL_FLAG)?,
+            src_vc_token_path: clap_utils::parse_required(matches, SRC_VC_TOKEN_FLAG)?,
+            dest_vc_url: clap_utils::parse_required(matches, DEST_VC_URL_FLAG)?,
+            dest_vc_token_path: clap_utils::parse_required(matches, DEST_VC_TOKEN_FLAG)?,
             validators: clap_utils::parse_required(matches, VALIDATORS_FLAG)?,
             builder_proposals: clap_utils::parse_optional(matches, BUILDER_PROPOSALS_FLAG)?,
             fee_recipient: clap_utils::parse_optional(matches, FEE_RECIPIENT_FLAG)?,
@@ -219,7 +213,7 @@ async fn run<'a>(config: MoveConfig) -> Result<(), String> {
     if src_vc_url == dest_vc_url {
         return Err(format!(
             "--{} and --{} must be different",
-            SRC_VALIDATOR_CLIENT_URL_FLAG, DEST_VALIDATOR_CLIENT_URL_FLAG
+            SRC_VC_URL_FLAG, DEST_VC_URL_FLAG
         ));
     }
 

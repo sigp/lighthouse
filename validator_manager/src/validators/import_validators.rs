@@ -8,8 +8,8 @@ use std::path::PathBuf;
 
 pub const CMD: &str = "import";
 pub const VALIDATORS_FILE_FLAG: &str = "validators-file";
-pub const VALIDATOR_CLIENT_URL_FLAG: &str = "validator-client-url";
-pub const VALIDATOR_CLIENT_TOKEN_FLAG: &str = "validator-client-token";
+pub const VC_URL_FLAG: &str = "vc-url";
+pub const VC_TOKEN_FLAG: &str = "vc-token";
 
 pub const DETECTED_DUPLICATE_MESSAGE: &str = "Duplicate validator detected!";
 
@@ -33,8 +33,8 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name(VALIDATOR_CLIENT_URL_FLAG)
-                .long(VALIDATOR_CLIENT_URL_FLAG)
+            Arg::with_name(VC_URL_FLAG)
+                .long(VC_URL_FLAG)
                 .value_name("HTTP_ADDRESS")
                 .help(
                     "A HTTP(S) address of a validator client using the keymanager-API. \
@@ -42,12 +42,12 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     no changes are made to the validator client.",
                 )
                 .default_value("http://localhost:5062")
-                .requires(VALIDATOR_CLIENT_TOKEN_FLAG)
+                .requires(VC_TOKEN_FLAG)
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name(VALIDATOR_CLIENT_TOKEN_FLAG)
-                .long(VALIDATOR_CLIENT_TOKEN_FLAG)
+            Arg::with_name(VC_TOKEN_FLAG)
+                .long(VC_TOKEN_FLAG)
                 .value_name("PATH")
                 .help("The file containing a token required by the validator client.")
                 .takes_value(true),
@@ -79,8 +79,8 @@ impl ImportConfig {
     fn from_cli(matches: &ArgMatches) -> Result<Self, String> {
         Ok(Self {
             validators_file_path: clap_utils::parse_required(matches, VALIDATORS_FILE_FLAG)?,
-            vc_url: clap_utils::parse_required(matches, VALIDATOR_CLIENT_URL_FLAG)?,
-            vc_token_path: clap_utils::parse_required(matches, VALIDATOR_CLIENT_TOKEN_FLAG)?,
+            vc_url: clap_utils::parse_required(matches, VC_URL_FLAG)?,
+            vc_token_path: clap_utils::parse_required(matches, VC_TOKEN_FLAG)?,
             ignore_duplicates: matches.is_present(IGNORE_DUPLICATES_FLAG),
         })
     }
