@@ -64,6 +64,8 @@ pub struct Config {
     /// Enabling this will make sure the validator client never signs a block whose `fee_recipient`
     /// does not match the `suggested_fee_recipient`.
     pub strict_fee_recipient: bool,
+    /// Disable logging of fee recipient info for every validator if enabled.
+    pub disable_fee_recipient_logging: bool,
 }
 
 impl Default for Config {
@@ -100,6 +102,7 @@ impl Default for Config {
             builder_registration_timestamp_override: None,
             gas_limit: None,
             strict_fee_recipient: false,
+            disable_fee_recipient_logging: false,
         }
     }
 }
@@ -219,6 +222,7 @@ impl Config {
             config.fee_recipient = Some(input_fee_recipient);
         }
 
+        config.disable_fee_recipient_logging = cli_args.is_present("disable-fee-recipient-logging");
         if let Some(tls_certs) = parse_optional::<String>(cli_args, "beacon-nodes-tls-certs")? {
             config.beacon_nodes_tls_certs = Some(tls_certs.split(',').map(PathBuf::from).collect());
         }

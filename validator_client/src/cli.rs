@@ -137,6 +137,12 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .value_name("FEE-RECIPIENT")
                 .takes_value(true)
         )
+        .arg(
+            Arg::with_name("disable-fee-recipient-logging")
+                .long("disable-fee-recipient-logging")
+                .help("Disables logging fee recipient for every validator managed by the validator client")
+                .value_name("DISABLE-FEE-RECIPIENT-LOGGING")
+        )
         /* REST API related arguments */
         .arg(
             Arg::with_name("http")

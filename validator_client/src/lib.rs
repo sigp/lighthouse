@@ -182,14 +182,16 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
         .await
         .map_err(|e| format!("Unable to initialize validators: {:?}", e))?;
 
-        for (pubkey, suggested_fee_recipient) in validators.suggested_fee_recipients() {
-            let suggested_fee_recipient = suggested_fee_recipient.or(config.fee_recipient).map(|fr| fr.to_string()).unwrap_or("Fee recipient for validator not set in validator_definitions.yml or provided with the `--suggested-fee-recipient flag`".to_string());
-            info!(
-                log,
-                "Loaded validator";
-                "pubkey" => %pubkey,
-                "suggested_fee_recipient" => suggested_fee_recipient
-            );
+        if !config.disable_fee_recipient_logging {
+            for (pubkey, suggested_fee_recipient) in validators.suggested_fee_recipients() {
+                let suggested_fee_recipient = suggested_fee_recipient.or(config.fee_recipient).map(|fr| fr.to_string()).unwrap_or("Fee recipient for validator not set in validator_definitions.yml or provided with the `--suggested-fee-recipient flag`".to_string());
+                info!(
+                    log,
+                    "Loaded validator";
+                    "pubkey" => %pubkey,
+                    "suggested_fee_recipient" => suggested_fee_recipient
+                );
+            }
         }
 
         let voting_pubkeys: Vec<_> = validators.iter_voting_pubkeys().collect();
