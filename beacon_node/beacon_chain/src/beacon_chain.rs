@@ -3678,9 +3678,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ) -> Result<(), Error> {
         debug!(
             self.log,
-            "Invalid execution payload in block";
-            "latest_valid_ancestor" => ?op.latest_valid_ancestor(),
-            "block_root" => ?op.block_root(),
+            "Processing payload invalidation";
+            "op" => ?op,
         );
 
         // Update the execution status in fork choice.
@@ -4160,8 +4159,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     Ok(())
                 }
                 PayloadStatus::Invalid {
-                    latest_valid_hash, ..
+                    latest_valid_hash,
+                    ref validation_error,
                 } => {
+                    debug!(
+                        self.log,
+                        "Invalid execution payload";
+                        "validation_error" => ?validation_error,
+                        "latest_valid_hash" => ?latest_valid_hash,
+                        "head_hash" => ?head_hash,
+                        "head_block_root" => ?head_block_root,
+                        "method" => "fcU",
+                    );
                     warn!(
                         self.log,
                         "Fork choice update invalidated payload";
@@ -4192,7 +4201,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
                     Err(BeaconChainError::ExecutionForkChoiceUpdateInvalid { status })
                 }
-                PayloadStatus::InvalidBlockHash { .. } => {
+                PayloadStatus::InvalidBlockHash {
+                    ref validation_error,
+                } => {
+                    debug!(
+                        self.log,
+                        "Invalid execution payload block hash";
+                        "validation_error" => ?validation_error,
+                        "head_hash" => ?head_hash,
+                        "head_block_root" => ?head_block_root,
+                        "method" => "fcU",
+                    );
                     warn!(
                         self.log,
                         "Fork choice update invalidated payload";
