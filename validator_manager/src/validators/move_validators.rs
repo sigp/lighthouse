@@ -454,7 +454,6 @@ async fn run<'a>(config: MoveConfig) -> Result<(), String> {
                                 keystore_derivation_path.as_deref(),
                             )
                             .await;
-                            return Err(format!("Upload failed with {:?}", status.message));
                         }
                     }
                 }
