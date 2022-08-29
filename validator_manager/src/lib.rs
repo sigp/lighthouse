@@ -64,6 +64,7 @@ pub fn run<'a, T: EthSpec>(
                     (validators::CMD, Some(matches)) => {
                         validators::cli_run::<T>(matches, &spec, dump_config).await
                     }
+                    ("", _) => Err("No command supplied. See --help.".to_string()),
                     (unknown, _) => Err(format!(
                         "{} is not a valid {} command. See --help.",
                         unknown, CMD
