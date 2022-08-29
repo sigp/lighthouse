@@ -566,9 +566,9 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
             );
         }
 
-        if let Err(e) = self
+        let results = self
             .beacon_nodes
-            .first_success(
+            .run_on_all(
                 RequireSynced::No,
                 OfflineOnFailure::Yes,
                 |beacon_node| async move {
@@ -577,15 +577,18 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
                         .await
                 },
             )
-            .await
-        {
+            .await;
+
+        if results.0.iter().all(|res| res.is_err()) {
+            all_succeeded = false;
+        }
+        if results.0.iter().any(|res| res.is_err()) {
             error!(
                 log,
                 "Unable to post sync committee subscriptions";
                 "slot" => slot,
-                "error" => %e,
+                "error" => %results,
             );
-            all_succeeded = false;
         }
 
         // Disable first-subscription latch once all duties have succeeded once.
