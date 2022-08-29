@@ -179,6 +179,21 @@ fn count_unrealized_true() {
 }
 
 #[test]
+fn reset_payload_statuses_default() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| assert!(!config.chain.always_reset_payload_statuses));
+}
+
+#[test]
+fn reset_payload_statuses_present() {
+    CommandLineTest::new()
+        .flag("reset-payload-statuses", None)
+        .run_with_zero_port()
+        .with_config(|config| assert!(config.chain.always_reset_payload_statuses));
+}
+
+#[test]
 fn freezer_dir_flag() {
     let dir = TempDir::new().expect("Unable to create temporary directory");
     CommandLineTest::new()

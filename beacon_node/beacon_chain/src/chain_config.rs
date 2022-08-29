@@ -34,7 +34,12 @@ pub struct ChainConfig {
     pub builder_fallback_epochs_since_finalization: usize,
     /// Whether any chain health checks should be considered when deciding whether to use the builder API.
     pub builder_fallback_disable_checks: bool,
+    /// When set to `true`, weigh the "unrealized" FFG progression when choosing a head in fork
+    /// choice.
     pub count_unrealized: bool,
+    /// When set to `true`, forget any valid/invalid/optimistic statuses in fork choice during start
+    /// up.
+    pub always_reset_payload_statuses: bool,
     /// Whether to apply paranoid checks to blocks proposed by this beacon node.
     pub paranoid_block_proposal: bool,
 }
@@ -54,6 +59,7 @@ impl Default for ChainConfig {
             builder_fallback_epochs_since_finalization: 3,
             builder_fallback_disable_checks: false,
             count_unrealized: true,
+            always_reset_payload_statuses: false,
             paranoid_block_proposal: false,
         }
     }

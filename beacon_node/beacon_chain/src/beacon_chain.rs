@@ -58,7 +58,7 @@ use execution_layer::{
 };
 use fork_choice::{
     AttestationFromBlock, ExecutionStatus, ForkChoice, ForkchoiceUpdateParameters,
-    InvalidationOperation, PayloadVerificationStatus,
+    InvalidationOperation, PayloadVerificationStatus, ResetPayloadStatuses,
 };
 use futures::channel::mpsc::Sender;
 use itertools::process_results;
@@ -432,7 +432,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Load fork choice from disk, returning `None` if it isn't found.
     pub fn load_fork_choice(
         store: BeaconStore<T>,
+        reset_payload_statuses: ResetPayloadStatuses,
         spec: &ChainSpec,
+        log: &Logger,
     ) -> Result<Option<BeaconForkChoice<T>>, Error> {
         let persisted_fork_choice =
             match store.get_item::<PersistedForkChoice>(&FORK_CHOICE_DB_KEY)? {
@@ -445,8 +447,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         Ok(Some(ForkChoice::from_persisted(
             persisted_fork_choice.fork_choice,
+            reset_payload_statuses,
             fc_store,
             spec,
+            log,
         )?))
     }
 
@@ -2925,10 +2929,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             // Since the write failed, try to revert the canonical head back to what was stored
             // in the database. This attempts to prevent inconsistency between the database and
             // fork choice.
-            if let Err(e) =
-                self.canonical_head
-                    .restore_from_store(fork_choice, &self.store, &self.spec)
-            {
+            if let Err(e) = self.canonical_head.restore_from_store(
+                fork_choice,
+                ResetPayloadStatuses::always_reset_conditionally(
+                    self.config.always_reset_payload_statuses,
+                ),
+                &self.store,
+                &self.spec,
+                &self.log,
+            ) {
                 crit!(
                     self.log,
                     "No stored fork choice found to restore from";
