@@ -235,6 +235,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .arg(
             Arg::with_name("http-spec-fork")
                 .long("http-spec-fork")
+                .value_name("FORK")
                 .help("Serve the spec for a specific hard fork on /eth/v1/config/spec. It should \
                        not be necessary to set this flag.")
                 .takes_value(true)
@@ -327,9 +328,9 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .arg(
             Arg::with_name("staking")
                 .long("staking")
-                .help("Standard option for a staking beacon node. Equivalent to \
-                `lighthouse bn --http --eth1 `. This will enable the http server on localhost:5052 \
-                and try connecting to an eth1 node on localhost:8545")
+                .help("Standard option for a staking beacon node. This will enable the HTTP server \
+                       on localhost:5052 and import deposit logs from the execution node. This is \
+                       equivalent to `--http` on merge-ready networks, or `--http --eth1` pre-merge")
                 .takes_value(false)
         )
 
@@ -419,16 +420,16 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .help("Deprecated. The feature activates automatically when --execution-endpoint \
                     is supplied.")
                 .takes_value(false)
+                .hidden(true)
         )
         .arg(
             Arg::with_name("execution-endpoint")
                 .long("execution-endpoint")
                 .value_name("EXECUTION-ENDPOINT")
                 .alias("execution-endpoints")
-                .help("Server endpoint for an execution layer jwt authenticated HTTP \
+                .help("Server endpoint for an execution layer JWT-authenticated HTTP \
                        JSON-RPC connection. Uses the same endpoint to populate the \
-                       deposit cache. Also enables the --merge flag.\
-                       If not provided, uses the default value of http://127.0.0.1:8551")
+                       deposit cache.")
                 .takes_value(true)
                 .requires("execution-jwt")
         )
@@ -439,6 +440,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .alias("jwt-secrets")
                 .help("File path which contains the hex-encoded JWT secret for the \
                        execution endpoint provided in the --execution-endpoint flag.")
+                .requires("execution-endpoint")
                 .takes_value(true)
         )
         .arg(
@@ -449,6 +451,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .help("Used by the beacon node to communicate a unique identifier to execution nodes \
                        during JWT authentication. It corresponds to the 'id' field in the JWT claims object.\
                        Set to empty by default")
+                .requires("execution-jwt")
                 .takes_value(true)
         )
         .arg(
@@ -459,16 +462,16 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .help("Used by the beacon node to communicate a client version to execution nodes \
                        during JWT authentication. It corresponds to the 'clv' field in the JWT claims object.\
                        Set to empty by default")
+                .requires("execution-jwt")
                 .takes_value(true)
         )
         .arg(
             Arg::with_name("suggested-fee-recipient")
                 .long("suggested-fee-recipient")
                 .value_name("SUGGESTED-FEE-RECIPIENT")
-                .help("Once the merge has happened, this address will receive transaction fees \
-                       collected from any blocks produced by this node. Defaults to a junk \
-                       address whilst the merge is in development stages. THE DEFAULT VALUE \
-                       WILL BE REMOVED BEFORE THE MERGE ENTERS PRODUCTION")
+                .help("Emergency fallback fee recipient for use in case the validator client does \
+                       not have one configured. You should set this flag on the validator \
+                       client instead of (or in addition to) setting it here.")
                 .requires("execution-endpoint")
                 .takes_value(true)
         )
@@ -632,6 +635,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .arg(
             Arg::with_name("slasher-backend")
                 .long("slasher-backend")
+                .value_name("DATABASE")
                 .help("Set the database backend to be used by the slasher.")
                 .takes_value(true)
                 .possible_values(slasher::DatabaseBackend::VARIANTS)
