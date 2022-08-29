@@ -526,6 +526,8 @@ async fn run<'a>(config: MoveConfig) -> Result<(), String> {
         }
     }
 
+    eprintln!("Done.");
+
     Ok(())
 }
 
