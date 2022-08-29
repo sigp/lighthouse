@@ -100,6 +100,7 @@ pub fn reset_fork_choice_to_finalization<E: EthSpec, Hot: ItemStore<E>, Cold: It
     current_slot: Option<Slot>,
     spec: &ChainSpec,
     count_unrealized_config: CountUnrealized,
+    count_unrealized_full_config: bool,
 ) -> Result<ForkChoice<BeaconForkChoiceStore<E, Hot, Cold>, E>, String> {
     // Fetch finalized block.
     let finalized_checkpoint = head_state.finalized_checkpoint();
@@ -152,6 +153,7 @@ pub fn reset_fork_choice_to_finalization<E: EthSpec, Hot: ItemStore<E>, Cold: It
         &finalized_snapshot.beacon_block,
         &finalized_snapshot.beacon_state,
         current_slot,
+        count_unrealized_full_config,
         spec,
     )
     .map_err(|e| format!("Unable to reset fork choice for revert: {:?}", e))?;

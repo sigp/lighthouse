@@ -164,6 +164,30 @@ fn count_unrealized_true() {
 }
 
 #[test]
+fn count_unrealized_full_no_arg() {
+    CommandLineTest::new()
+        .flag("count-unrealized-full", None)
+        .run_with_zero_port()
+        .with_config(|config| assert!(!config.chain.count_unrealized_full));
+}
+
+#[test]
+fn count_unrealized_full_false() {
+    CommandLineTest::new()
+        .flag("count-unrealized-full", Some("false"))
+        .run_with_zero_port()
+        .with_config(|config| assert!(!config.chain.count_unrealized_full));
+}
+
+#[test]
+fn count_unrealized_full_true() {
+    CommandLineTest::new()
+        .flag("count-unrealized-full", Some("true"))
+        .run_with_zero_port()
+        .with_config(|config| assert!(config.chain.count_unrealized_full));
+}
+
+#[test]
 fn freezer_dir_flag() {
     let dir = TempDir::new().expect("Unable to create temporary directory");
     CommandLineTest::new()

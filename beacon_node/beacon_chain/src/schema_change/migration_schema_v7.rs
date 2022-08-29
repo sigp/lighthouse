@@ -52,6 +52,8 @@ pub(crate) fn update_with_reinitialized_fork_choice<T: BeaconChainTypes>(
         // Don't provide the current slot here, just use what's in the store. We don't need to know
         // the head here, plus it's nice to avoid mutating fork choice during this process.
         None,
+        // This config will get overwrittern on startup.
+        false,
         spec,
     )
     .map_err(|e| format!("{:?}", e))?;
@@ -88,7 +90,8 @@ pub(crate) fn update_fork_choice<T: BeaconChainTypes>(
         ssz_container_v6.into_ssz_container_v7(justified_checkpoint, finalized_checkpoint);
     let ssz_container_v10: SszContainerV10 = ssz_container_v7.into();
     let ssz_container: SszContainer = ssz_container_v10.into();
-    let mut fork_choice: ProtoArrayForkChoice = ssz_container.into();
+    // `false` represents the count-unrealized-full config which will be overwritten on startup.
+    let mut fork_choice: ProtoArrayForkChoice = (ssz_container, false).into();
 
     update_checkpoints::<T>(finalized_checkpoint.root, &nodes_v6, &mut fork_choice, db)
         .map_err(StoreError::SchemaMigrationError)?;

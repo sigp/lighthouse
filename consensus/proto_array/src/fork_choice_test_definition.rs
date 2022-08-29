@@ -87,6 +87,7 @@ impl ForkChoiceTestDefinition {
             junk_shuffling_id.clone(),
             junk_shuffling_id,
             ExecutionStatus::Optimistic(ExecutionBlockHash::zero()),
+            false,
         )
         .expect("should create fork choice struct");
         let equivocating_indices = BTreeSet::new();
@@ -296,8 +297,8 @@ fn get_checkpoint(i: u64) -> Checkpoint {
 
 fn check_bytes_round_trip(original: &ProtoArrayForkChoice) {
     let bytes = original.as_bytes();
-    let decoded =
-        ProtoArrayForkChoice::from_bytes(&bytes).expect("fork choice should decode from bytes");
+    let decoded = ProtoArrayForkChoice::from_bytes(&bytes, false)
+        .expect("fork choice should decode from bytes");
     assert!(
         *original == decoded,
         "fork choice should encode and decode without change"

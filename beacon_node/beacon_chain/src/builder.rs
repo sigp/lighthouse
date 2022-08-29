@@ -245,6 +245,7 @@ where
         let fork_choice =
             BeaconChain::<Witness<TSlotClock, TEth1Backend, _, _, _>>::load_fork_choice(
                 store.clone(),
+                self.chain_config.count_unrealized_full,
                 &self.spec,
             )
             .map_err(|e| format!("Unable to load fork choice from disk: {:?}", e))?
@@ -361,6 +362,7 @@ where
             &genesis.beacon_block,
             &genesis.beacon_state,
             current_slot,
+            self.chain_config.count_unrealized_full,
             &self.spec,
         )
         .map_err(|e| format!("Unable to initialize ForkChoice: {:?}", e))?;
@@ -478,6 +480,7 @@ where
             &snapshot.beacon_block,
             &snapshot.beacon_state,
             current_slot,
+            self.chain_config.count_unrealized_full,
             &self.spec,
         )
         .map_err(|e| format!("Unable to initialize ForkChoice: {:?}", e))?;
@@ -654,6 +657,7 @@ where
                 Some(current_slot),
                 &self.spec,
                 self.chain_config.count_unrealized.into(),
+                self.chain_config.count_unrealized_full,
             )?;
         }
 

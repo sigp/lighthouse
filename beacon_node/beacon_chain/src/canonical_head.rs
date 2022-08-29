@@ -250,10 +250,12 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
         // defensive programming.
         mut fork_choice_write_lock: RwLockWriteGuard<BeaconForkChoice<T>>,
         store: &BeaconStore<T>,
+        count_unrealized_full: bool,
         spec: &ChainSpec,
     ) -> Result<(), Error> {
-        let fork_choice = <BeaconChain<T>>::load_fork_choice(store.clone(), spec)?
-            .ok_or(Error::MissingPersistedForkChoice)?;
+        let fork_choice =
+            <BeaconChain<T>>::load_fork_choice(store.clone(), count_unrealized_full, spec)?
+                .ok_or(Error::MissingPersistedForkChoice)?;
         let fork_choice_view = fork_choice.cached_fork_choice_view();
         let beacon_block_root = fork_choice_view.head_block_root;
         let beacon_block = store

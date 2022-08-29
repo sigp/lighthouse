@@ -772,4 +772,12 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true)
                 .default_value("true")
         )
+        .arg(
+            Arg::with_name("count-unrealized-full")
+                .long("count-unrealized-full")
+                .hidden(true)
+                .help("Stricter version of `count-unrealized`.")
+                .takes_value(true)
+                .default_value("false")
+        )
 }

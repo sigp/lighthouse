@@ -41,8 +41,8 @@ impl From<&ProtoArrayForkChoice> for SszContainer {
     }
 }
 
-impl From<SszContainer> for ProtoArrayForkChoice {
-    fn from(from: SszContainer) -> Self {
+impl From<(SszContainer, bool)> for ProtoArrayForkChoice {
+    fn from((from, count_unrealized_full): (SszContainer, bool)) -> Self {
         let proto_array = ProtoArray {
             prune_threshold: from.prune_threshold,
             justified_checkpoint: from.justified_checkpoint,
@@ -50,6 +50,7 @@ impl From<SszContainer> for ProtoArrayForkChoice {
             nodes: from.nodes,
             indices: from.indices.into_iter().collect::<HashMap<_, _>>(),
             previous_proposer_boost: from.previous_proposer_boost,
+            count_unrealized_full,
         };
 
         Self {
