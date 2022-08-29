@@ -78,6 +78,13 @@ impl<'a> Builder<'a> {
         self
     }
 
+    /// Optionally supply a directory in which to store the passwords for the validator keystores.
+    /// If `None` is provided, do not store the password.
+    pub fn password_dir_opt(mut self, password_dir_opt: Option<PathBuf>) -> Self {
+        self.password_dir = password_dir_opt;
+        self
+    }
+
     /// Build the `ValidatorDir` use the given `keystore` which can be unlocked with `password`.
     ///
     /// The builder will not necessarily check that `password` can unlock `keystore`.
@@ -234,7 +241,7 @@ impl<'a> Builder<'a> {
                 if self.store_withdrawal_keystore {
                     // Write the withdrawal password to file.
                     write_password_to_file(
-                        password_dir.join(withdrawal_keypair.pk.as_hex_string()),
+                        keystore_password_path(&password_dir, &withdrawal_keystore),
                         withdrawal_password.as_bytes(),
                     )?;
 
@@ -250,7 +257,7 @@ impl<'a> Builder<'a> {
         if let Some(password_dir) = self.password_dir.as_ref() {
             // Write the voting password to file.
             write_password_to_file(
-                password_dir.join(format!("0x{}", voting_keystore.pubkey())),
+                keystore_password_path(&password_dir, &voting_keystore),
                 voting_password.as_bytes(),
             )?;
         }
@@ -260,6 +267,12 @@ impl<'a> Builder<'a> {
 
         ValidatorDir::open(dir).map_err(Error::UnableToOpenDir)
     }
+}
+
+pub fn keystore_password_path<P: AsRef<Path>>(password_dir: P, keystore: &Keystore) -> PathBuf {
+    password_dir
+        .as_ref()
+        .join(format!("0x{}", keystore.pubkey()))
 }
 
 /// Writes a JSON keystore to file.

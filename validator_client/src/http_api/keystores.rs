@@ -3,7 +3,7 @@ use crate::{
     initialized_validators::Error, signing_method::SigningMethod, InitializedValidators,
     ValidatorStore,
 };
-use account_utils::ZeroizeString;
+use account_utils::{validator_definitions::PasswordStorage, ZeroizeString};
 use eth2::lighthouse_vc::{
     std_types::{
         DeleteKeystoreStatus, DeleteKeystoresRequest, DeleteKeystoresResponse,
@@ -20,7 +20,7 @@ use std::sync::Arc;
 use task_executor::TaskExecutor;
 use tokio::runtime::Handle;
 use types::{EthSpec, PublicKeyBytes};
-use validator_dir::Builder as ValidatorDirBuilder;
+use validator_dir::{keystore_password_path, Builder as ValidatorDirBuilder};
 use warp::Rejection;
 use warp_utils::reject::{custom_bad_request, custom_server_error};
 
@@ -61,6 +61,7 @@ pub fn list<T: SlotClock + 'static, E: EthSpec>(
 pub fn import<T: SlotClock + 'static, E: EthSpec>(
     request: ImportKeystoresRequest,
     validator_dir: PathBuf,
+    secrets_dir: Option<PathBuf>,
     validator_store: Arc<ValidatorStore<T, E>>,
     task_executor: TaskExecutor,
     log: Logger,
@@ -131,6 +132,7 @@ pub fn import<T: SlotClock + 'static, E: EthSpec>(
                 keystore,
                 password,
                 validator_dir.clone(),
+                secrets_dir.clone(),
                 &validator_store,
                 handle,
             ) {
@@ -161,6 +163,7 @@ fn import_single_keystore<T: SlotClock + 'static, E: EthSpec>(
     keystore: Keystore,
     password: ZeroizeString,
     validator_dir_path: PathBuf,
+    secrets_dir: Option<PathBuf>,
     validator_store: &ValidatorStore<T, E>,
     handle: Handle,
 ) -> Result<ImportKeystoreStatus, String> {
@@ -182,6 +185,16 @@ fn import_single_keystore<T: SlotClock + 'static, E: EthSpec>(
         }
     }
 
+    let password_storage = if let Some(secrets_dir) = &secrets_dir {
+        let password_path = keystore_password_path(secrets_dir, &keystore);
+        if password_path.exists() {
+            return Ok(ImportKeystoreStatus::Duplicate);
+        }
+        PasswordStorage::File(password_path)
+    } else {
+        PasswordStorage::ValidatorDefinitions(password.clone())
+    };
+
     // Check that the password is correct.
     // In future we should re-structure to avoid the double decryption here. It's not as simple
     // as removing this check because `add_validator_keystore` will break if provided with an
@@ -192,6 +205,7 @@ fn import_single_keystore<T: SlotClock + 'static, E: EthSpec>(
         .map_err(|e| format!("incorrect password: {:?}", e))?;
 
     let validator_dir = ValidatorDirBuilder::new(validator_dir_path)
+        .password_dir_opt(secrets_dir)
         .voting_keystore(keystore, password.as_ref())
         .store_withdrawal_keystore(false)
         .build()
@@ -204,7 +218,7 @@ fn import_single_keystore<T: SlotClock + 'static, E: EthSpec>(
     handle
         .block_on(validator_store.add_validator_keystore(
             voting_keystore_path,
-            password,
+            password_storage,
             true,
             None,
             None,

@@ -121,6 +121,7 @@ impl ApiTester {
             task_executor: test_runtime.task_executor.clone(),
             api_secret,
             validator_dir: Some(validator_dir.path().into()),
+            secrets_dir: Some(secrets_dir.path().into()),
             validator_store: Some(validator_store.clone()),
             spec: E::default_spec(),
             config: HttpConfig {
@@ -129,6 +130,7 @@ impl ApiTester {
                 listen_port: 0,
                 allow_origin: None,
                 allow_keystore_export: true,
+                store_passwords_in_secrets_dir: false,
             },
             log,
             _phantom: PhantomData,

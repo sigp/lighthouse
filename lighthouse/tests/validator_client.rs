@@ -324,6 +324,19 @@ fn http_allow_keystore_export_present() {
         .run()
         .with_config(|config| assert!(config.http_api.allow_keystore_export));
 }
+#[test]
+fn http_store_keystore_passwords_in_secrets_dir_default() {
+    CommandLineTest::new()
+        .run()
+        .with_config(|config| assert!(!config.http_api.store_passwords_in_secrets_dir));
+}
+#[test]
+fn http_store_keystore_passwords_in_secrets_dir_present() {
+    CommandLineTest::new()
+        .flag("http-store-passwords-in-secrets-dir", None)
+        .run()
+        .with_config(|config| assert!(config.http_api.store_passwords_in_secrets_dir));
+}
 
 // Tests for Metrics flags.
 #[test]

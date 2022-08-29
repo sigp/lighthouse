@@ -49,6 +49,16 @@ pub enum Error {
     KeystoreWithoutPassword,
 }
 
+/// Defines how a password for a validator keystore will be persisted.
+pub enum PasswordStorage {
+    /// Store the password in the `validator_definitions.yml` file.
+    ValidatorDefinitions(ZeroizeString),
+    /// Store the password in a separate, dedicated file (likely in the "secrets" directory).
+    File(PathBuf),
+    /// Don't store the password at all.
+    None,
+}
+
 #[derive(Clone, PartialEq, Serialize, Deserialize, Hash, Eq)]
 pub struct Web3SignerDefinition {
     pub url: String,
@@ -151,7 +161,7 @@ impl ValidatorDefinition {
     /// This function does not check the password against the keystore.
     pub fn new_keystore_with_password<P: AsRef<Path>>(
         voting_keystore_path: P,
-        voting_keystore_password: Option<ZeroizeString>,
+        voting_keystore_password_storage: PasswordStorage,
         graffiti: Option<GraffitiString>,
         suggested_fee_recipient: Option<Address>,
         gas_limit: Option<u64>,
@@ -161,6 +171,12 @@ impl ValidatorDefinition {
         let keystore =
             Keystore::from_json_file(&voting_keystore_path).map_err(Error::UnableToOpenKeystore)?;
         let voting_public_key = keystore.public_key().ok_or(Error::InvalidKeystorePubkey)?;
+        let (voting_keystore_password_path, voting_keystore_password) =
+            match voting_keystore_password_storage {
+                PasswordStorage::ValidatorDefinitions(password) => (None, Some(password)),
+                PasswordStorage::File(path) => (Some(path), None),
+                PasswordStorage::None => (None, None),
+            };
 
         Ok(ValidatorDefinition {
             enabled: true,
@@ -172,7 +188,7 @@ impl ValidatorDefinition {
             builder_proposals,
             signing_definition: SigningDefinition::LocalKeystore {
                 voting_keystore_path,
-                voting_keystore_password_path: None,
+                voting_keystore_password_path,
                 voting_keystore_password,
             },
         })

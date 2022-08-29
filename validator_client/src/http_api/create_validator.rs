@@ -1,15 +1,15 @@
 use crate::ValidatorStore;
-use account_utils::validator_definitions::ValidatorDefinition;
+use account_utils::validator_definitions::{PasswordStorage, ValidatorDefinition};
 use account_utils::{
     eth2_wallet::{bip39::Mnemonic, WalletBuilder},
     random_mnemonic, random_password, ZeroizeString,
 };
 use eth2::lighthouse_vc::types::{self as api_types};
 use slot_clock::SlotClock;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use types::ChainSpec;
 use types::EthSpec;
-use validator_dir::Builder as ValidatorDirBuilder;
+use validator_dir::{keystore_password_path, Builder as ValidatorDirBuilder};
 
 /// Create some validator EIP-2335 keystores and store them on disk. Then, enroll the validators in
 /// this validator client.
@@ -27,6 +27,7 @@ pub async fn create_validators_mnemonic<P: AsRef<Path>, T: 'static + SlotClock, 
     key_derivation_path_offset: Option<u32>,
     validator_requests: &[api_types::ValidatorRequest],
     validator_dir: P,
+    secrets_dir: Option<PathBuf>,
     validator_store: &ValidatorStore<T, E>,
     spec: &ChainSpec,
 ) -> Result<(Vec<api_types::CreatedValidator>, Mnemonic), warp::Rejection> {
@@ -95,7 +96,20 @@ pub async fn create_validators_mnemonic<P: AsRef<Path>, T: 'static + SlotClock, 
                 ))
             })?;
 
+        let voting_password_storage = if let Some(secrets_dir) = &secrets_dir {
+            let password_path = keystore_password_path(secrets_dir, &keystores.voting);
+            if password_path.exists() {
+                return Err(warp_utils::reject::custom_server_error(
+                    "Duplicate keystore password path".to_string(),
+                ));
+            }
+            PasswordStorage::File(password_path)
+        } else {
+            PasswordStorage::ValidatorDefinitions(voting_password_string.clone())
+        };
+
         let validator_dir = ValidatorDirBuilder::new(validator_dir.as_ref().into())
+            .password_dir_opt(secrets_dir.clone())
             .voting_keystore(keystores.voting, voting_password.as_bytes())
             .withdrawal_keystore(keystores.withdrawal, withdrawal_password.as_bytes())
             .create_eth1_tx_data(request.deposit_gwei, spec)
@@ -136,7 +150,7 @@ pub async fn create_validators_mnemonic<P: AsRef<Path>, T: 'static + SlotClock, 
         validator_store
             .add_validator_keystore(
                 voting_keystore_path,
-                voting_password_string,
+                voting_password_storage,
                 request.enable,
                 request.graffiti.clone(),
                 request.suggested_fee_recipient,

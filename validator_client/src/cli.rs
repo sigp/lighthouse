@@ -200,6 +200,16 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .required(false)
                 .takes_value(false),
         )
+        .arg(
+            Arg::with_name("http-store-passwords-in-secrets-dir")
+                .long("http-store-passwords-in-secrets-dir")
+                .value_name("ORIGIN")
+                .help("If present, any validators created via the HTTP will have keystore \
+                    passwords stored in the secrets-dir rather than the validator \
+                    definitions file.")
+                .required(false)
+                .takes_value(false),
+        )
         /* Prometheus metrics HTTP server related arguments */
         .arg(
             Arg::with_name("metrics")

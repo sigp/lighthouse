@@ -259,6 +259,10 @@ impl Config {
             config.http_api.allow_keystore_export = true;
         }
 
+        if cli_args.is_present("http-store-passwords-in-secrets-dir") {
+            config.http_api.store_passwords_in_secrets_dir = true;
+        }
+
         /*
          * Prometheus metrics HTTP server
          */

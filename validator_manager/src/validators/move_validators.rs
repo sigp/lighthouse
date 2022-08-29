@@ -150,7 +150,7 @@ impl FromStr for Validators {
                 .map(Validators::Specific),
             other => usize::from_str(other)
                 .map_err(|_| {
-                    format!("Expected \"all\", a list of 0x-prefixed pubkeys or an integer")
+                    "Expected \"all\", a list of 0x-prefixed pubkeys or an integer".to_string()
                 })
                 .map(Validators::Count),
         }

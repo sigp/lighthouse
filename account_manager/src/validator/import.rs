@@ -4,8 +4,8 @@ use account_utils::{
     eth2_keystore::Keystore,
     read_password_from_user,
     validator_definitions::{
-        recursively_find_voting_keystores, ValidatorDefinition, ValidatorDefinitions,
-        CONFIG_FILENAME,
+        recursively_find_voting_keystores, PasswordStorage, ValidatorDefinition,
+        ValidatorDefinitions, CONFIG_FILENAME,
     },
     ZeroizeString,
 };
@@ -277,7 +277,9 @@ pub fn cli_run(matches: &ArgMatches, validator_dir: PathBuf) -> Result<(), Strin
         let suggested_fee_recipient = None;
         let validator_def = ValidatorDefinition::new_keystore_with_password(
             &dest_keystore,
-            password_opt,
+            password_opt
+                .map(PasswordStorage::ValidatorDefinitions)
+                .unwrap_or(PasswordStorage::None),
             graffiti,
             suggested_fee_recipient,
             None,

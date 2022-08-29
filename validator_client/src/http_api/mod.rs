@@ -9,7 +9,9 @@ pub mod test_utils;
 use crate::ValidatorStore;
 use account_utils::{
     mnemonic_from_phrase,
-    validator_definitions::{SigningDefinition, ValidatorDefinition, Web3SignerDefinition},
+    validator_definitions::{
+        PasswordStorage, SigningDefinition, ValidatorDefinition, Web3SignerDefinition,
+    },
 };
 pub use api_secret::ApiSecret;
 use create_validator::{create_validators_mnemonic, create_validators_web3signer};
@@ -28,7 +30,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use task_executor::TaskExecutor;
 use types::{ChainSpec, ConfigAndPreset, EthSpec};
-use validator_dir::Builder as ValidatorDirBuilder;
+use validator_dir::{keystore_password_path, Builder as ValidatorDirBuilder};
 use warp::{
     http::{
         header::{HeaderValue, CONTENT_TYPE},
@@ -64,6 +66,7 @@ pub struct Context<T: SlotClock, E: EthSpec> {
     pub api_secret: ApiSecret,
     pub validator_store: Option<Arc<ValidatorStore<T, E>>>,
     pub validator_dir: Option<PathBuf>,
+    pub secrets_dir: Option<PathBuf>,
     pub spec: ChainSpec,
     pub config: Config,
     pub log: Logger,
@@ -78,6 +81,7 @@ pub struct Config {
     pub listen_port: u16,
     pub allow_origin: Option<String>,
     pub allow_keystore_export: bool,
+    pub store_passwords_in_secrets_dir: bool,
 }
 
 impl Default for Config {
@@ -88,6 +92,7 @@ impl Default for Config {
             listen_port: 5062,
             allow_origin: None,
             allow_keystore_export: false,
+            store_passwords_in_secrets_dir: false,
         }
     }
 }
@@ -113,6 +118,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
 ) -> Result<(SocketAddr, impl Future<Output = ()>), Error> {
     let config = &ctx.config;
     let allow_keystore_export = config.allow_keystore_export;
+    let store_passwords_in_secrets_dir = config.store_passwords_in_secrets_dir;
     let log = ctx.log.clone();
 
     // Configure CORS.
@@ -178,6 +184,17 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                 )
             })
         });
+
+    let inner_secrets_dir = ctx.secrets_dir.clone();
+    let secrets_dir_filter = warp::any().map(move || inner_secrets_dir.clone()).and_then(
+        |secrets_dir: Option<_>| async move {
+            secrets_dir.ok_or_else(|| {
+                warp_utils::reject::custom_not_found(
+                    "secrets_dir directory is not initialized.".to_string(),
+                )
+            })
+        },
+    );
 
     let inner_ctx = ctx.clone();
     let log_filter = warp::any().map(move || inner_ctx.log.clone());
@@ -290,18 +307,21 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(warp::path::end())
         .and(warp::body::json())
         .and(validator_dir_filter.clone())
+        .and(secrets_dir_filter.clone())
         .and(validator_store_filter.clone())
         .and(spec_filter.clone())
         .and(signer.clone())
         .and(task_executor_filter.clone())
         .and_then(
-            |body: Vec<api_types::ValidatorRequest>,
-             validator_dir: PathBuf,
-             validator_store: Arc<ValidatorStore<T, E>>,
-             spec: Arc<ChainSpec>,
-             signer,
-             task_executor: TaskExecutor| {
+            move |body: Vec<api_types::ValidatorRequest>,
+                  validator_dir: PathBuf,
+                  secrets_dir: PathBuf,
+                  validator_store: Arc<ValidatorStore<T, E>>,
+                  spec: Arc<ChainSpec>,
+                  signer,
+                  task_executor: TaskExecutor| {
                 blocking_signed_json_task(signer, move || {
+                    let secrets_dir = store_passwords_in_secrets_dir.then_some(secrets_dir);
                     if let Some(handle) = task_executor.handle() {
                         let (validators, mnemonic) =
                             handle.block_on(create_validators_mnemonic(
@@ -309,6 +329,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                                 None,
                                 &body,
                                 &validator_dir,
+                                secrets_dir,
                                 &validator_store,
                                 &spec,
                             ))?;
@@ -333,18 +354,21 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(warp::path::end())
         .and(warp::body::json())
         .and(validator_dir_filter.clone())
+        .and(secrets_dir_filter.clone())
         .and(validator_store_filter.clone())
         .and(spec_filter)
         .and(signer.clone())
         .and(task_executor_filter.clone())
         .and_then(
-            |body: api_types::CreateValidatorsMnemonicRequest,
-             validator_dir: PathBuf,
-             validator_store: Arc<ValidatorStore<T, E>>,
-             spec: Arc<ChainSpec>,
-             signer,
-             task_executor: TaskExecutor| {
+            move |body: api_types::CreateValidatorsMnemonicRequest,
+                  validator_dir: PathBuf,
+                  secrets_dir: PathBuf,
+                  validator_store: Arc<ValidatorStore<T, E>>,
+                  spec: Arc<ChainSpec>,
+                  signer,
+                  task_executor: TaskExecutor| {
                 blocking_signed_json_task(signer, move || {
+                    let secrets_dir = store_passwords_in_secrets_dir.then_some(secrets_dir);
                     if let Some(handle) = task_executor.handle() {
                         let mnemonic =
                             mnemonic_from_phrase(body.mnemonic.as_str()).map_err(|e| {
@@ -359,6 +383,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                                 Some(body.key_derivation_path_offset),
                                 &body.validators,
                                 &validator_dir,
+                                secrets_dir,
                                 &validator_store,
                                 &spec,
                             ))?;
@@ -379,15 +404,17 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(warp::path::end())
         .and(warp::body::json())
         .and(validator_dir_filter.clone())
+        .and(secrets_dir_filter.clone())
         .and(validator_store_filter.clone())
         .and(signer.clone())
         .and(task_executor_filter.clone())
         .and_then(
-            |body: api_types::KeystoreValidatorsPostRequest,
-             validator_dir: PathBuf,
-             validator_store: Arc<ValidatorStore<T, E>>,
-             signer,
-             task_executor: TaskExecutor| {
+            move |body: api_types::KeystoreValidatorsPostRequest,
+                  validator_dir: PathBuf,
+                  secrets_dir: PathBuf,
+                  validator_store: Arc<ValidatorStore<T, E>>,
+                  signer,
+                  task_executor: TaskExecutor| {
                 blocking_signed_json_task(signer, move || {
                     // Check to ensure the password is correct.
                     let keypair = body
@@ -400,7 +427,21 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                             ))
                         })?;
 
+                    let secrets_dir = store_passwords_in_secrets_dir.then(|| secrets_dir);
+                    let password_storage = if let Some(secrets_dir) = &secrets_dir {
+                        let password_path = keystore_password_path(secrets_dir, &body.keystore);
+                        if password_path.exists() {
+                            return Err(warp_utils::reject::custom_server_error(
+                                "Duplicate keystore password path".to_string(),
+                            ));
+                        }
+                        PasswordStorage::File(password_path)
+                    } else {
+                        PasswordStorage::ValidatorDefinitions(body.password.clone())
+                    };
+
                     let validator_dir = ValidatorDirBuilder::new(validator_dir.clone())
+                        .password_dir_opt(secrets_dir)
                         .voting_keystore(body.keystore.clone(), body.password.as_ref())
                         .store_withdrawal_keystore(false)
                         .build()
@@ -414,7 +455,6 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                     // Drop validator dir so that `add_validator_keystore` can re-lock the keystore.
                     let voting_keystore_path = validator_dir.voting_keystore_path();
                     drop(validator_dir);
-                    let voting_password = body.password.clone();
                     let graffiti = body.graffiti.clone();
                     let suggested_fee_recipient = body.suggested_fee_recipient;
                     let gas_limit = body.gas_limit;
@@ -425,7 +465,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                             handle
                                 .block_on(validator_store.add_validator_keystore(
                                     voting_keystore_path,
-                                    voting_password,
+                                    password_storage,
                                     body.enable,
                                     graffiti,
                                     suggested_fee_recipient,
@@ -850,13 +890,28 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(warp::body::json())
         .and(signer.clone())
         .and(validator_dir_filter)
+        .and(secrets_dir_filter)
         .and(validator_store_filter.clone())
         .and(task_executor_filter.clone())
         .and(log_filter.clone())
         .and_then(
-            |request, signer, validator_dir, validator_store, task_executor, log| {
+            move |request,
+                  signer,
+                  validator_dir,
+                  secrets_dir,
+                  validator_store,
+                  task_executor,
+                  log| {
+                let secrets_dir = store_passwords_in_secrets_dir.then_some(secrets_dir);
                 blocking_signed_json_task(signer, move || {
-                    keystores::import(request, validator_dir, validator_store, task_executor, log)
+                    keystores::import(
+                        request,
+                        validator_dir,
+                        secrets_dir,
+                        validator_store,
+                        task_executor,
+                        log,
+                    )
                 })
             },
         );
