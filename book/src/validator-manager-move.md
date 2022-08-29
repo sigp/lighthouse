@@ -77,6 +77,20 @@ ssh -L 6062:localhost:5062 src-host
 It's important that you leave this session open throughout the rest of this tutorial. If you close
 this terminal window then the connection between the destination and source host will be lost.
 
+### 5. Move
+
+```
+lighthouse \
+	validator-manager \
+	validators \
+	move \
+	--src-vc-url http://localhost:6062 \
+	--src-vc-token ~/src-token.txt \
+	--dest-vc-url http://localhost:5062 \
+	--dest-vc-token ~/dest-token.txt \
+	--validators all \
+```
+
 ----
 
 ### N. Setup a `screen` Session
