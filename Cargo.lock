@@ -7345,6 +7345,7 @@ dependencies = [
  "bls",
  "deposit_contract",
  "derivative",
+ "directory",
  "eth2_keystore",
  "filesystem",
  "hex",
