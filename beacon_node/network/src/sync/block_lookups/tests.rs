@@ -12,6 +12,7 @@ use lighthouse_network::{NetworkGlobals, Request};
 use slog::{Drain, Level};
 use slot_clock::SystemTimeSlotClock;
 use store::MemoryStore;
+use tokio::sync::mpsc;
 use types::test_utils::{SeedableRng, TestRandom, XorShiftRng};
 use types::MinimalEthSpec as E;
 
@@ -26,7 +27,7 @@ struct TestRig {
 const D: Duration = Duration::new(0, 0);
 
 impl TestRig {
-    fn test_setup(log_level: Option<Level>) -> (BlockLookups<T>, SyncNetworkContext<E>, Self) {
+    fn test_setup(log_level: Option<Level>) -> (BlockLookups<T>, SyncNetworkContext<T>, Self) {
         let log = {
             let decorator = slog_term::TermDecorator::new().build();
             let drain = slog_term::FullFormat::new(decorator).build().fuse();
@@ -47,15 +48,13 @@ impl TestRig {
             network_rx,
             rng,
         };
-        let bl = BlockLookups::new(
-            beacon_processor_tx,
-            log.new(slog::o!("component" => "block_lookups")),
-        );
+        let bl = BlockLookups::new(log.new(slog::o!("component" => "block_lookups")));
         let cx = {
             let globals = Arc::new(NetworkGlobals::new_test_globals(&log));
             SyncNetworkContext::new(
                 network_tx,
                 globals,
+                beacon_processor_tx,
                 log.new(slog::o!("component" => "network_context")),
             )
         };

@@ -131,8 +131,9 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .arg(
             Arg::with_name("suggested-fee-recipient")
                 .long("suggested-fee-recipient")
-                .help("The fallback address provided to the BN if nothing suitable is found \
-                           in the validator definitions or fee recipient file.")
+                .help("Once the merge has happened, this address will receive transaction fees \
+                       from blocks proposed by this validator client. If a fee recipient is \
+                       configured in the validator definitions it takes priority over this value.")
                 .value_name("FEE-RECIPIENT")
                 .takes_value(true)
         )

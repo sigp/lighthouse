@@ -399,7 +399,7 @@ fn get_web3_signer_keystores() {
             .map(|local_keystore| SingleKeystoreResponse {
                 validating_pubkey: keystore_pubkey(local_keystore),
                 derivation_path: local_keystore.path(),
-                readonly: None,
+                readonly: Some(false),
             })
             .chain(remote_vals.iter().map(|remote_val| SingleKeystoreResponse {
                 validating_pubkey: remote_val.voting_public_key.compress(),
@@ -1775,7 +1775,7 @@ fn import_same_local_and_remote_keys() {
             .map(|local_keystore| SingleKeystoreResponse {
                 validating_pubkey: keystore_pubkey(local_keystore),
                 derivation_path: local_keystore.path(),
-                readonly: None,
+                readonly: Some(false),
             })
             .collect::<Vec<_>>();
         for response in expected_responses {

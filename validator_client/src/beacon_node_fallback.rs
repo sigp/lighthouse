@@ -70,6 +70,13 @@ pub enum RequireSynced {
     No,
 }
 
+/// Indicates if a beacon node should be set to `Offline` if a request fails.
+#[derive(PartialEq, Clone, Copy)]
+pub enum OfflineOnFailure {
+    Yes,
+    No,
+}
+
 impl PartialEq<bool> for RequireSynced {
     fn eq(&self, other: &bool) -> bool {
         if *other {
@@ -387,6 +394,7 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
     pub async fn first_success<'a, F, O, Err, R>(
         &'a self,
         require_synced: RequireSynced,
+        offline_on_failure: OfflineOnFailure,
         func: F,
     ) -> Result<O, AllErrored<Err>>
     where
@@ -415,7 +423,9 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
                         // There exists a race condition where the candidate may have been marked
                         // as ready between the `func` call and now. We deem this an acceptable
                         // inefficiency.
-                        $candidate.set_offline().await;
+                        if matches!(offline_on_failure, OfflineOnFailure::Yes) {
+                            $candidate.set_offline().await;
+                        }
                         errors.push(($candidate.beacon_node.to_string(), Error::RequestFailed(e)));
                         inc_counter_vec(&ENDPOINT_ERRORS, &[$candidate.beacon_node.as_ref()]);
                     }

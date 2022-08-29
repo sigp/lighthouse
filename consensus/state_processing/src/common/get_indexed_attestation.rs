@@ -14,9 +14,7 @@ pub fn get_indexed_attestation<T: EthSpec>(
     let attesting_indices = get_attesting_indices::<T>(committee, &attestation.aggregation_bits)?;
 
     Ok(IndexedAttestation {
-        attesting_indices: VariableList::new(
-            attesting_indices.into_iter().map(|x| x as u64).collect(),
-        )?,
+        attesting_indices: VariableList::new(attesting_indices)?,
         data: attestation.data.clone(),
         signature: attestation.signature.clone(),
     })
