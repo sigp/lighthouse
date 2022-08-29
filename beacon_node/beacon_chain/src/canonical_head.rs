@@ -1177,6 +1177,8 @@ fn detect_reorg<E: EthSpec>(
 
         metrics::inc_counter(&metrics::FORK_CHOICE_REORG_COUNT);
         metrics::inc_counter(&metrics::FORK_CHOICE_REORG_COUNT_INTEROP);
+        // NOTE: this log is used by the Hydra fuzzer, if you want to change this log message please
+        // ask @michaelsproul or update Hydra to parse the new log.
         warn!(
             log,
             "Beacon chain re-org";
@@ -1184,7 +1186,7 @@ fn detect_reorg<E: EthSpec>(
             "previous_slot" => old_state.slot(),
             "new_head" => ?new_block_root,
             "new_slot" => new_state.slot(),
-            "reorg_distance" => reorg_distance,
+            "reorg_distance" => reorg_distance.as_usize(),
         );
 
         Some(reorg_distance)

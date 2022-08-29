@@ -1,0 +1,64 @@
+[package]
+name = "beacon_chain_fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[features]
+default = ["minimal"]
+minimal = []
+mainnet = []
+afl = ["dep:afl"]
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+arbitrary = { version = "1.1.3", features = ["derive"] }
+store = { path = "../../store" }
+lazy_static = "1.4.0"
+slog = { version = "2.5.2", features = ["max_level_trace"] }
+sloggers = { version = "2.1.1", features = ["json"] }
+state_processing = { path = "../../../consensus/state_processing" }
+tree_hash = "0.4.1"
+types = { path = "../../../consensus/types" }
+rand = "0.8.5"
+tempfile = "3.1.0"
+fork_choice = { path = "../../../consensus/fork_choice" }
+logging = { path = "../../../common/logging" }
+tokio = { version = "1", features = ["rt-multi-thread"] }
+bls = { path = "../../../crypto/bls" }
+strum = "0.24.1"
+
+afl = { version = "*", optional = true }
+
+[dependencies.beacon_chain]
+path = ".."
+
+# Prevent this from interfering with workspaces
+[workspace]
+members = ["."]
+
+[[bin]]
+name = "fuzzer"
+path = "fuzz_targets/fuzzer.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "repro"
+path = "fuzz_targets/fuzzer.rs"
+test = false
+doc = false
+
+[patch]
+[patch.crates-io]
+fixed-hash = { git = "https://github.com/paritytech/parity-common", rev="df638ab0885293d21d656dc300d39236b69ce57d" }
+warp = { git = "https://github.com/macladson/warp", rev="7e75acc368229a46a236a8c991bf251fe7fe50ef" }
+eth2_ssz = { path = "../../../consensus/ssz" }
+eth2_ssz_derive = { path = "../../../consensus/ssz_derive" }
+eth2_ssz_types = { path = "../../../consensus/ssz_types" }
+eth2_hashing = { path = "../../../crypto/eth2_hashing" }
+tree_hash = { path = "../../../consensus/tree_hash" }
+tree_hash_derive = { path = "../../../consensus/tree_hash_derive" }
+eth2_serde_utils = { path = "../../../consensus/serde_utils" }

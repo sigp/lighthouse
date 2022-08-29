@@ -1,5 +1,6 @@
 pub use crate::persisted_beacon_chain::PersistedBeaconChain;
 pub use crate::{
+    attestation_verification::Error as AttestationError,
     beacon_chain::{BEACON_CHAIN_DB_KEY, ETH1_CACHE_DB_KEY, FORK_CHOICE_DB_KEY, OP_POOL_DB_KEY},
     migrate::MigratorConfig,
     BeaconChainError, ProduceBlockVerification,
@@ -316,6 +317,12 @@ where
 
     pub fn spec_or_default(mut self, spec: Option<ChainSpec>) -> Self {
         self.spec = Some(spec.unwrap_or_else(test_spec::<E>));
+        self
+    }
+
+    pub fn logger(mut self, log: Logger) -> Self {
+        self.log = log.clone();
+        self.runtime.set_logger(log);
         self
     }
 
@@ -1490,6 +1497,18 @@ where
                 .unwrap();
             self.chain.add_to_block_inclusion_pool(&verified).unwrap();
         }
+    }
+
+    pub fn process_unaggregated_attestation(
+        &self,
+        attestation: Attestation<E>,
+    ) -> Result<(), AttestationError> {
+        let verified = self
+            .chain
+            .verify_unaggregated_attestation_for_gossip(&attestation, None)?;
+        self.chain.add_to_naive_aggregation_pool(&verified)?;
+        self.chain.apply_attestation_to_fork_choice(&verified)?;
+        self.chain.add_to_block_inclusion_pool(&verified)
     }
 
     pub fn set_current_slot(&self, slot: Slot) {

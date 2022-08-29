@@ -3396,7 +3396,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             self.filter_op_pool_attestation(&mut curr_filter_cache, *att, &state)
         };
 
-        let attestations = self
+        let mut attestations = self
             .op_pool
             .get_attestations(
                 &state,
@@ -3406,6 +3406,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             )
             .map_err(BlockProductionError::OpPoolError)?;
         drop(attestation_packing_timer);
+
+        let simple_attestation_ordering = true;
+        if simple_attestation_ordering {
+            attestations.sort_unstable_by_key(|att| {
+                // This 4-tuple should be unique per attestation.
+                (
+                    att.data.slot,
+                    att.data.index,
+                    att.data.beacon_block_root,
+                    att.aggregation_bits.tree_hash_root(),
+                )
+            });
+        }
 
         let slot = state.slot();
         let proposer_index = state.get_beacon_proposer_index(state.slot(), &self.spec)? as u64;
