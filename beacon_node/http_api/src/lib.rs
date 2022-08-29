@@ -25,6 +25,7 @@ use beacon_chain::{
     BeaconChainTypes, ProduceBlockVerification, WhenSlotSkipped,
 };
 pub use block_id::BlockId;
+use eth2::types::ValidatorStatus;
 use eth2::types::{self as api_types, EndpointVersion, ValidatorId};
 use lighthouse_network::{types::SyncState, EnrExt, NetworkGlobals, PeerId, PubsubMessage};
 use lighthouse_version::version_with_platform;
@@ -44,11 +45,12 @@ use std::sync::Arc;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio_stream::{wrappers::BroadcastStream, StreamExt};
 use types::{
-    Attestation, AttesterSlashing, BeaconStateError, BlindedPayload, CommitteeCache,
-    ConfigAndPreset, Epoch, EthSpec, ForkName, FullPayload, ProposerPreparationData,
-    ProposerSlashing, RelativeEpoch, Signature, SignedAggregateAndProof, SignedBeaconBlock,
-    SignedBlindedBeaconBlock, SignedContributionAndProof, SignedValidatorRegistrationData,
-    SignedVoluntaryExit, Slot, SyncCommitteeMessage, SyncContributionData,
+    Attestation, AttestationData, AttesterSlashing, BeaconStateError, BlindedPayload,
+    CommitteeCache, ConfigAndPreset, Epoch, EthSpec, ForkName, FullPayload,
+    ProposerPreparationData, ProposerSlashing, RelativeEpoch, Signature, SignedAggregateAndProof,
+    SignedBeaconBlock, SignedBlindedBeaconBlock, SignedContributionAndProof,
+    SignedValidatorRegistrationData, SignedVoluntaryExit, Slot, SyncCommitteeMessage,
+    SyncContributionData,
 };
 use version::{
     add_consensus_version_header, execution_optimistic_fork_versioned_response,
@@ -1304,13 +1306,11 @@ pub fn serve<T: BeaconChainTypes>(
         .and_then(
             |chain: Arc<BeaconChain<T>>, query: api_types::AttestationPoolQuery| {
                 blocking_json_task(move || {
-                    let query_filter = |attestation: &Attestation<T::EthSpec>| {
-                        query
-                            .slot
-                            .map_or(true, |slot| slot == attestation.data.slot)
+                    let query_filter = |data: &AttestationData| {
+                        query.slot.map_or(true, |slot| slot == data.slot)
                             && query
                                 .committee_index
-                                .map_or(true, |index| index == attestation.data.index)
+                                .map_or(true, |index| index == data.index)
                     };
 
                     let mut attestations = chain.op_pool.get_filtered_attestations(query_filter);
@@ -1320,7 +1320,7 @@ pub fn serve<T: BeaconChainTypes>(
                             .read()
                             .iter()
                             .cloned()
-                            .filter(query_filter),
+                            .filter(|att| query_filter(&att.data)),
                     );
                     Ok(api_types::GenericResponse::from(attestations))
                 })
@@ -2316,12 +2316,13 @@ pub fn serve<T: BeaconChainTypes>(
                                 );
                             failures.push(api_types::Failure::new(index, format!("Fork choice: {:?}", e)));
                         }
-                        if let Err(e) = chain.add_to_block_inclusion_pool(&verified_aggregate) {
-                            warn!(log,
-                                    "Could not add verified aggregate attestation to the inclusion pool";
-                                    "error" => format!("{:?}", e),
-                                    "request_index" => index,
-                                );
+                        if let Err(e) = chain.add_to_block_inclusion_pool(verified_aggregate) {
+                            warn!(
+                                log,
+                                "Could not add verified aggregate attestation to the inclusion pool";
+                                "error" => ?e,
+                                "request_index" => index,
+                            );
                             failures.push(api_types::Failure::new(index, format!("Op pool: {:?}", e)));
                         }
                     }
@@ -2481,19 +2482,47 @@ pub fn serve<T: BeaconChainTypes>(
                     "count" => register_val_data.len(),
                 );
 
-                let preparation_data = register_val_data
-                    .iter()
+                let head_snapshot = chain.head_snapshot();
+                let spec = &chain.spec;
+
+                let (preparation_data, filtered_registration_data): (
+                    Vec<ProposerPreparationData>,
+                    Vec<SignedValidatorRegistrationData>,
+                ) = register_val_data
+                    .into_iter()
                     .filter_map(|register_data| {
                         chain
                             .validator_index(&register_data.message.pubkey)
                             .ok()
                             .flatten()
-                            .map(|validator_index| ProposerPreparationData {
-                                validator_index: validator_index as u64,
-                                fee_recipient: register_data.message.fee_recipient,
+                            .and_then(|validator_index| {
+                                let validator = head_snapshot
+                                    .beacon_state
+                                    .get_validator(validator_index)
+                                    .ok()?;
+                                let validator_status = ValidatorStatus::from_validator(
+                                    validator,
+                                    current_epoch,
+                                    spec.far_future_epoch,
+                                )
+                                .superstatus();
+                                let is_active_or_pending =
+                                    matches!(validator_status, ValidatorStatus::Pending)
+                                        || matches!(validator_status, ValidatorStatus::Active);
+
+                                // Filter out validators who are not 'active' or 'pending'.
+                                is_active_or_pending.then(|| {
+                                    (
+                                        ProposerPreparationData {
+                                            validator_index: validator_index as u64,
+                                            fee_recipient: register_data.message.fee_recipient,
+                                        },
+                                        register_data,
+                                    )
+                                })
                             })
                     })
-                    .collect::<Vec<_>>();
+                    .unzip();
 
                 // Update the prepare beacon proposer cache based on this request.
                 execution_layer
@@ -2522,11 +2551,11 @@ pub fn serve<T: BeaconChainTypes>(
                 info!(
                     log,
                     "Forwarding register validator request to connected builder";
-                    "count" => register_val_data.len(),
+                    "count" => filtered_registration_data.len(),
                 );
 
                 builder
-                    .post_builder_validators(&register_val_data)
+                    .post_builder_validators(&filtered_registration_data)
                     .await
                     .map(|resp| warp::reply::json(&resp))
                     .map_err(|e| {

@@ -1,34 +1,38 @@
 mod attestation;
 mod attestation_id;
+mod attestation_storage;
 mod attester_slashing;
 mod max_cover;
 mod metrics;
 mod persistence;
+mod reward_cache;
 mod sync_aggregate_id;
 
 pub use attestation::AttMaxCover;
+pub use attestation_storage::{AttestationRef, SplitAttestation};
 pub use max_cover::MaxCover;
-pub use persistence::{PersistedOperationPool, PersistedOperationPoolAltair};
+pub use persistence::{
+    PersistedOperationPool, PersistedOperationPoolV12, PersistedOperationPoolV5,
+};
+pub use reward_cache::RewardCache;
 
+use crate::attestation_storage::{AttestationMap, CheckpointKey};
 use crate::sync_aggregate_id::SyncAggregateId;
-use attestation_id::AttestationId;
 use attester_slashing::AttesterSlashingMaxCover;
 use max_cover::maximum_cover;
-use parking_lot::RwLock;
+use parking_lot::{RwLock, RwLockWriteGuard};
 use state_processing::per_block_processing::errors::AttestationValidationError;
 use state_processing::per_block_processing::{
-    get_slashable_indices_modular, verify_attestation_for_block_inclusion, verify_exit,
-    VerifySignatures,
+    get_slashable_indices_modular, verify_exit, VerifySignatures,
 };
-use state_processing::SigVerifiedOp;
+use state_processing::{SigVerifiedOp, VerifyOperation};
 use std::collections::{hash_map::Entry, HashMap, HashSet};
 use std::marker::PhantomData;
 use std::ptr;
 use types::{
-    sync_aggregate::Error as SyncAggregateError, typenum::Unsigned, Attestation, AttesterSlashing,
-    BeaconState, BeaconStateError, ChainSpec, Epoch, EthSpec, Fork, ForkVersion, Hash256,
-    ProposerSlashing, SignedVoluntaryExit, Slot, SyncAggregate, SyncCommitteeContribution,
-    Validator,
+    sync_aggregate::Error as SyncAggregateError, typenum::Unsigned, Attestation, AttestationData,
+    AttesterSlashing, BeaconState, BeaconStateError, ChainSpec, Epoch, EthSpec, ProposerSlashing,
+    SignedVoluntaryExit, Slot, SyncAggregate, SyncCommitteeContribution, Validator,
 };
 
 type SyncContributions<T> = RwLock<HashMap<SyncAggregateId, Vec<SyncCommitteeContribution<T>>>>;
@@ -36,15 +40,17 @@ type SyncContributions<T> = RwLock<HashMap<SyncAggregateId, Vec<SyncCommitteeCon
 #[derive(Default, Debug)]
 pub struct OperationPool<T: EthSpec + Default> {
     /// Map from attestation ID (see below) to vectors of attestations.
-    attestations: RwLock<HashMap<AttestationId, Vec<Attestation<T>>>>,
+    attestations: RwLock<AttestationMap<T>>,
     /// Map from sync aggregate ID to the best `SyncCommitteeContribution`s seen for that ID.
     sync_contributions: SyncContributions<T>,
     /// Set of attester slashings, and the fork version they were verified against.
-    attester_slashings: RwLock<HashSet<(AttesterSlashing<T>, ForkVersion)>>,
+    attester_slashings: RwLock<HashSet<SigVerifiedOp<AttesterSlashing<T>, T>>>,
     /// Map from proposer index to slashing.
-    proposer_slashings: RwLock<HashMap<u64, ProposerSlashing>>,
+    proposer_slashings: RwLock<HashMap<u64, SigVerifiedOp<ProposerSlashing, T>>>,
     /// Map from exiting validator to their exit data.
-    voluntary_exits: RwLock<HashMap<u64, SignedVoluntaryExit>>,
+    voluntary_exits: RwLock<HashMap<u64, SigVerifiedOp<SignedVoluntaryExit, T>>>,
+    /// Reward cache for accelerating attestation packing.
+    reward_cache: RwLock<RewardCache>,
     _phantom: PhantomData<T>,
 }
 
@@ -53,9 +59,16 @@ pub enum OpPoolError {
     GetAttestationsTotalBalanceError(BeaconStateError),
     GetBlockRootError(BeaconStateError),
     SyncAggregateError(SyncAggregateError),
+    RewardCacheUpdatePrevEpoch(BeaconStateError),
+    RewardCacheUpdateCurrEpoch(BeaconStateError),
+    RewardCacheGetBlockRoot(BeaconStateError),
+    RewardCacheWrongEpoch,
+    RewardCacheValidatorUnknown(BeaconStateError),
+    RewardCacheOutOfBounds,
     IncorrectOpPoolVariant,
 }
 
+#[derive(Default)]
 pub struct AttestationStats {
     /// Total number of attestations for all committeees/indices/votes.
     pub num_attestations: usize,
@@ -176,95 +189,45 @@ impl<T: EthSpec> OperationPool<T> {
     pub fn insert_attestation(
         &self,
         attestation: Attestation<T>,
-        fork: &Fork,
-        genesis_validators_root: Hash256,
-        spec: &ChainSpec,
+        attesting_indices: Vec<u64>,
     ) -> Result<(), AttestationValidationError> {
-        let id = AttestationId::from_data(&attestation.data, fork, genesis_validators_root, spec);
-
-        // Take a write lock on the attestations map.
-        let mut attestations = self.attestations.write();
-
-        let existing_attestations = match attestations.entry(id) {
-            Entry::Vacant(entry) => {
-                entry.insert(vec![attestation]);
-                return Ok(());
-            }
-            Entry::Occupied(entry) => entry.into_mut(),
-        };
-
-        let mut aggregated = false;
-        for existing_attestation in existing_attestations.iter_mut() {
-            if existing_attestation.signers_disjoint_from(&attestation) {
-                existing_attestation.aggregate(&attestation);
-                aggregated = true;
-            } else if *existing_attestation == attestation {
-                aggregated = true;
-            }
-        }
-
-        if !aggregated {
-            existing_attestations.push(attestation);
-        }
-
+        self.attestations
+            .write()
+            .insert(attestation, attesting_indices);
         Ok(())
     }
 
     /// Total number of attestations in the pool, including attestations for the same data.
     pub fn num_attestations(&self) -> usize {
-        self.attestations.read().values().map(Vec::len).sum()
+        self.attestation_stats().num_attestations
     }
 
     pub fn attestation_stats(&self) -> AttestationStats {
-        let mut num_attestations = 0;
-        let mut num_attestation_data = 0;
-        let mut max_aggregates_per_data = 0;
-
-        for aggregates in self.attestations.read().values() {
-            num_attestations += aggregates.len();
-            num_attestation_data += 1;
-            max_aggregates_per_data = std::cmp::max(max_aggregates_per_data, aggregates.len());
-        }
-        AttestationStats {
-            num_attestations,
-            num_attestation_data,
-            max_aggregates_per_data,
-        }
+        self.attestations.read().stats()
     }
 
     /// Return all valid attestations for the given epoch, for use in max cover.
+    #[allow(clippy::too_many_arguments)]
     fn get_valid_attestations_for_epoch<'a>(
         &'a self,
-        epoch: Epoch,
-        all_attestations: &'a HashMap<AttestationId, Vec<Attestation<T>>>,
+        checkpoint_key: &'a CheckpointKey,
+        all_attestations: &'a AttestationMap<T>,
         state: &'a BeaconState<T>,
+        reward_cache: &'a RewardCache,
         total_active_balance: u64,
-        validity_filter: impl FnMut(&&Attestation<T>) -> bool + Send,
+        validity_filter: impl FnMut(&AttestationRef<'a, T>) -> bool + Send,
         spec: &'a ChainSpec,
     ) -> impl Iterator<Item = AttMaxCover<'a, T>> + Send {
-        let domain_bytes = AttestationId::compute_domain_bytes(
-            epoch,
-            &state.fork(),
-            state.genesis_validators_root(),
-            spec,
-        );
         all_attestations
-            .iter()
-            .filter(move |(key, _)| key.domain_bytes_match(&domain_bytes))
-            .flat_map(|(_, attestations)| attestations)
-            .filter(move |attestation| attestation.data.target.epoch == epoch)
-            .filter(move |attestation| {
-                // Ensure attestations are valid for block inclusion
-                verify_attestation_for_block_inclusion(
-                    state,
-                    attestation,
-                    VerifySignatures::False,
-                    spec,
-                )
-                .is_ok()
+            .get_attestations(checkpoint_key)
+            .filter(|att| {
+                att.data.slot + spec.min_attestation_inclusion_delay <= state.slot()
+                    && state.slot() <= att.data.slot + T::slots_per_epoch()
             })
             .filter(validity_filter)
-            .filter_map(move |att| AttMaxCover::new(att, state, total_active_balance, spec))
+            .filter_map(move |att| {
+                AttMaxCover::new(att, state, reward_cache, total_active_balance, spec)
+            })
     }
 
     /// Get a list of attestations for inclusion in a block.
@@ -276,17 +239,23 @@ impl<T: EthSpec> OperationPool<T> {
     pub fn get_attestations(
         &self,
         state: &BeaconState<T>,
-        prev_epoch_validity_filter: impl FnMut(&&Attestation<T>) -> bool + Send,
-        curr_epoch_validity_filter: impl FnMut(&&Attestation<T>) -> bool + Send,
+        prev_epoch_validity_filter: impl for<'a> FnMut(&AttestationRef<'a, T>) -> bool + Send,
+        curr_epoch_validity_filter: impl for<'a> FnMut(&AttestationRef<'a, T>) -> bool + Send,
         spec: &ChainSpec,
     ) -> Result<Vec<Attestation<T>>, OpPoolError> {
         // Attestations for the current fork, which may be from the current or previous epoch.
-        let prev_epoch = state.previous_epoch();
-        let current_epoch = state.current_epoch();
+        let (prev_epoch_key, curr_epoch_key) = CheckpointKey::keys_for_state(state);
         let all_attestations = self.attestations.read();
         let total_active_balance = state
             .get_total_active_balance()
             .map_err(OpPoolError::GetAttestationsTotalBalanceError)?;
+
+        // Update the reward cache.
+        let reward_timer = metrics::start_timer(&metrics::BUILD_REWARD_CACHE_TIME);
+        let mut reward_cache = self.reward_cache.write();
+        reward_cache.update(state)?;
+        let reward_cache = RwLockWriteGuard::downgrade(reward_cache);
+        drop(reward_timer);
 
         // Split attestations for the previous & current epochs, so that we
         // can optimise them individually in parallel.
@@ -295,9 +264,10 @@ impl<T: EthSpec> OperationPool<T> {
 
         let prev_epoch_att = self
             .get_valid_attestations_for_epoch(
-                prev_epoch,
+                &prev_epoch_key,
                 &*all_attestations,
                 state,
+                &*reward_cache,
                 total_active_balance,
                 prev_epoch_validity_filter,
                 spec,
@@ -305,9 +275,10 @@ impl<T: EthSpec> OperationPool<T> {
             .inspect(|_| num_prev_valid += 1);
         let curr_epoch_att = self
             .get_valid_attestations_for_epoch(
-                current_epoch,
+                &curr_epoch_key,
                 &*all_attestations,
                 state,
+                &*reward_cache,
                 total_active_balance,
                 curr_epoch_validity_filter,
                 spec,
@@ -328,7 +299,7 @@ impl<T: EthSpec> OperationPool<T> {
             move || {
                 let _timer = metrics::start_timer(&metrics::ATTESTATION_PREV_EPOCH_PACKING_TIME);
                 // If we're in the genesis epoch, just use the current epoch attestations.
-                if prev_epoch == current_epoch {
+                if prev_epoch_key == curr_epoch_key {
                     vec![]
                 } else {
                     maximum_cover(prev_epoch_att, prev_epoch_limit, "prev_epoch_attestations")
@@ -356,36 +327,26 @@ impl<T: EthSpec> OperationPool<T> {
 
     /// Remove attestations which are too old to be included in a block.
     pub fn prune_attestations(&self, current_epoch: Epoch) {
-        // Prune attestations that are from before the previous epoch.
-        self.attestations.write().retain(|_, attestations| {
-            // All the attestations in this bucket have the same data, so we only need to
-            // check the first one.
-            attestations
-                .first()
-                .map_or(false, |att| current_epoch <= att.data.target.epoch + 1)
-        });
+        self.attestations.write().prune(current_epoch);
     }
 
     /// Insert a proposer slashing into the pool.
     pub fn insert_proposer_slashing(
         &self,
-        verified_proposer_slashing: SigVerifiedOp<ProposerSlashing>,
+        verified_proposer_slashing: SigVerifiedOp<ProposerSlashing, T>,
     ) {
-        let slashing = verified_proposer_slashing.into_inner();
-        self.proposer_slashings
-            .write()
-            .insert(slashing.signed_header_1.message.proposer_index, slashing);
+        self.proposer_slashings.write().insert(
+            verified_proposer_slashing.as_inner().proposer_index(),
+            verified_proposer_slashing,
+        );
     }
 
     /// Insert an attester slashing into the pool.
     pub fn insert_attester_slashing(
         &self,
-        verified_slashing: SigVerifiedOp<AttesterSlashing<T>>,
-        fork: Fork,
+        verified_slashing: SigVerifiedOp<AttesterSlashing<T>, T>,
     ) {
-        self.attester_slashings
-            .write()
-            .insert((verified_slashing.into_inner(), fork.current_version));
+        self.attester_slashings.write().insert(verified_slashing);
     }
 
     /// Get proposer and attester slashings for inclusion in a block.
@@ -405,11 +366,13 @@ impl<T: EthSpec> OperationPool<T> {
         let proposer_slashings = filter_limit_operations(
             self.proposer_slashings.read().values(),
             |slashing| {
-                state
-                    .validators()
-                    .get(slashing.signed_header_1.message.proposer_index as usize)
-                    .map_or(false, |validator| !validator.slashed)
+                slashing.signature_is_still_valid(&state.fork())
+                    && state
+                        .validators()
+                        .get(slashing.as_inner().signed_header_1.message.proposer_index as usize)
+                        .map_or(false, |validator| !validator.slashed)
             },
+            |slashing| slashing.as_inner().clone(),
             T::MaxProposerSlashings::to_usize(),
         );
 
@@ -417,30 +380,10 @@ impl<T: EthSpec> OperationPool<T> {
         // slashings.
         let mut to_be_slashed = proposer_slashings
             .iter()
-            .map(|s| s.signed_header_1.message.proposer_index)
-            .collect::<HashSet<_>>();
+            .map(|s| s.proposer_index())
+            .collect();
 
-        let reader = self.attester_slashings.read();
-
-        let relevant_attester_slashings = reader.iter().flat_map(|(slashing, fork)| {
-            if *fork == state.fork().previous_version || *fork == state.fork().current_version {
-                AttesterSlashingMaxCover::new(slashing, &to_be_slashed, state)
-            } else {
-                None
-            }
-        });
-
-        let attester_slashings = maximum_cover(
-            relevant_attester_slashings,
-            T::MaxAttesterSlashings::to_usize(),
-            "attester_slashings",
-        )
-        .into_iter()
-        .map(|cover| {
-            to_be_slashed.extend(cover.covering_set().keys());
-            cover.object().clone()
-        })
-        .collect();
+        let attester_slashings = self.get_attester_slashings(state, &mut to_be_slashed);
 
         let voluntary_exits = self.get_voluntary_exits(
             state,
@@ -449,6 +392,37 @@ impl<T: EthSpec> OperationPool<T> {
         );
 
         (proposer_slashings, attester_slashings, voluntary_exits)
+    }
+
+    /// Get attester slashings taking into account already slashed validators.
+    ///
+    /// This function *must* remain private.
+    fn get_attester_slashings(
+        &self,
+        state: &BeaconState<T>,
+        to_be_slashed: &mut HashSet<u64>,
+    ) -> Vec<AttesterSlashing<T>> {
+        let reader = self.attester_slashings.read();
+
+        let relevant_attester_slashings = reader.iter().flat_map(|slashing| {
+            if slashing.signature_is_still_valid(&state.fork()) {
+                AttesterSlashingMaxCover::new(slashing.as_inner(), to_be_slashed, state)
+            } else {
+                None
+            }
+        });
+
+        maximum_cover(
+            relevant_attester_slashings,
+            T::MaxAttesterSlashings::to_usize(),
+            "attester_slashings",
+        )
+        .into_iter()
+        .map(|cover| {
+            to_be_slashed.extend(cover.covering_set().keys());
+            cover.intermediate().clone()
+        })
+        .collect()
     }
 
     /// Prune proposer slashings for validators which are exited in the finalized epoch.
@@ -463,30 +437,23 @@ impl<T: EthSpec> OperationPool<T> {
     /// Prune attester slashings for all slashed or withdrawn validators, or attestations on another
     /// fork.
     pub fn prune_attester_slashings(&self, head_state: &BeaconState<T>) {
-        self.attester_slashings
-            .write()
-            .retain(|(slashing, fork_version)| {
-                let previous_fork_is_finalized =
-                    head_state.finalized_checkpoint().epoch >= head_state.fork().epoch;
-                // Prune any slashings which don't match the current fork version, or the previous
-                // fork version if it is not finalized yet.
-                let fork_ok = (*fork_version == head_state.fork().current_version)
-                    || (*fork_version == head_state.fork().previous_version
-                        && !previous_fork_is_finalized);
-                // Slashings that don't slash any validators can also be dropped.
-                let slashing_ok =
-                    get_slashable_indices_modular(head_state, slashing, |_, validator| {
-                        // Declare that a validator is still slashable if they have not exited prior
-                        // to the finalized epoch.
-                        //
-                        // We cannot check the `slashed` field since the `head` is not finalized and
-                        // a fork could un-slash someone.
-                        validator.exit_epoch > head_state.finalized_checkpoint().epoch
-                    })
-                    .map_or(false, |indices| !indices.is_empty());
+        self.attester_slashings.write().retain(|slashing| {
+            // Check that the attestation's signature is still valid wrt the fork version.
+            let signature_ok = slashing.signature_is_still_valid(&head_state.fork());
+            // Slashings that don't slash any validators can also be dropped.
+            let slashing_ok =
+                get_slashable_indices_modular(head_state, slashing.as_inner(), |_, validator| {
+                    // Declare that a validator is still slashable if they have not exited prior
+                    // to the finalized epoch.
+                    //
+                    // We cannot check the `slashed` field since the `head` is not finalized and
+                    // a fork could un-slash someone.
+                    validator.exit_epoch > head_state.finalized_checkpoint().epoch
+                })
+                .map_or(false, |indices| !indices.is_empty());
 
-                fork_ok && slashing_ok
-            });
+            signature_ok && slashing_ok
+        });
     }
 
     /// Total number of attester slashings in the pool.
@@ -500,11 +467,10 @@ impl<T: EthSpec> OperationPool<T> {
     }
 
     /// Insert a voluntary exit that has previously been checked elsewhere.
-    pub fn insert_voluntary_exit(&self, verified_exit: SigVerifiedOp<SignedVoluntaryExit>) {
-        let exit = verified_exit.into_inner();
+    pub fn insert_voluntary_exit(&self, exit: SigVerifiedOp<SignedVoluntaryExit, T>) {
         self.voluntary_exits
             .write()
-            .insert(exit.message.validator_index, exit);
+            .insert(exit.as_inner().message.validator_index, exit);
     }
 
     /// Get a list of voluntary exits for inclusion in a block.
@@ -519,7 +485,12 @@ impl<T: EthSpec> OperationPool<T> {
     {
         filter_limit_operations(
             self.voluntary_exits.read().values(),
-            |exit| filter(exit) && verify_exit(state, exit, VerifySignatures::False, spec).is_ok(),
+            |exit| {
+                filter(exit.as_inner())
+                    && exit.signature_is_still_valid(&state.fork())
+                    && verify_exit(state, exit.as_inner(), VerifySignatures::False, spec).is_ok()
+            },
+            |exit| exit.as_inner().clone(),
             T::MaxVoluntaryExits::to_usize(),
         )
     }
@@ -558,8 +529,8 @@ impl<T: EthSpec> OperationPool<T> {
     pub fn get_all_attestations(&self) -> Vec<Attestation<T>> {
         self.attestations
             .read()
-            .values()
-            .flat_map(|attns| attns.iter().cloned())
+            .iter()
+            .map(|att| att.clone_as_attestation())
             .collect()
     }
 
@@ -568,14 +539,13 @@ impl<T: EthSpec> OperationPool<T> {
     /// This method may return objects that are invalid for block inclusion.
     pub fn get_filtered_attestations<F>(&self, filter: F) -> Vec<Attestation<T>>
     where
-        F: Fn(&Attestation<T>) -> bool,
+        F: Fn(&AttestationData) -> bool,
     {
         self.attestations
             .read()
-            .values()
-            .flat_map(|attns| attns.iter())
-            .filter(|attn| filter(*attn))
-            .cloned()
+            .iter()
+            .filter(|att| filter(&att.attestation_data()))
+            .map(|att| att.clone_as_attestation())
             .collect()
     }
 
@@ -586,7 +556,7 @@ impl<T: EthSpec> OperationPool<T> {
         self.attester_slashings
             .read()
             .iter()
-            .map(|(slashing, _)| slashing.clone())
+            .map(|slashing| slashing.as_inner().clone())
             .collect()
     }
 
@@ -597,7 +567,7 @@ impl<T: EthSpec> OperationPool<T> {
         self.proposer_slashings
             .read()
             .iter()
-            .map(|(_, slashing)| slashing.clone())
+            .map(|(_, slashing)| slashing.as_inner().clone())
             .collect()
     }
 
@@ -608,23 +578,29 @@ impl<T: EthSpec> OperationPool<T> {
         self.voluntary_exits
             .read()
             .iter()
-            .map(|(_, exit)| exit.clone())
+            .map(|(_, exit)| exit.as_inner().clone())
             .collect()
     }
 }
 
 /// Filter up to a maximum number of operations out of an iterator.
-fn filter_limit_operations<'a, T: 'a, I, F>(operations: I, filter: F, limit: usize) -> Vec<T>
+fn filter_limit_operations<'a, T: 'a, V: 'a, I, F, G>(
+    operations: I,
+    filter: F,
+    mapping: G,
+    limit: usize,
+) -> Vec<V>
 where
     I: IntoIterator<Item = &'a T>,
     F: Fn(&T) -> bool,
+    G: Fn(&T) -> V,
     T: Clone,
 {
     operations
         .into_iter()
         .filter(|x| filter(*x))
         .take(limit)
-        .cloned()
+        .map(mapping)
         .collect()
 }
 
@@ -634,17 +610,19 @@ where
 /// in the state's validator registry and then passed to `prune_if`.
 /// Entries for unknown validators will be kept.
 fn prune_validator_hash_map<T, F, E: EthSpec>(
-    map: &mut HashMap<u64, T>,
+    map: &mut HashMap<u64, SigVerifiedOp<T, E>>,
     prune_if: F,
     head_state: &BeaconState<E>,
 ) where
     F: Fn(&Validator) -> bool,
+    T: VerifyOperation<E>,
 {
-    map.retain(|&validator_index, _| {
-        head_state
-            .validators()
-            .get(validator_index as usize)
-            .map_or(true, |validator| !prune_if(validator))
+    map.retain(|&validator_index, op| {
+        op.signature_is_still_valid(&head_state.fork())
+            && head_state
+                .validators()
+                .get(validator_index as usize)
+                .map_or(true, |validator| !prune_if(validator))
     });
 }
 
@@ -655,6 +633,7 @@ impl<T: EthSpec + Default> PartialEq for OperationPool<T> {
             return true;
         }
         *self.attestations.read() == *other.attestations.read()
+            && *self.sync_contributions.read() == *other.sync_contributions.read()
             && *self.attester_slashings.read() == *other.attester_slashings.read()
             && *self.proposer_slashings.read() == *other.proposer_slashings.read()
             && *self.voluntary_exits.read() == *other.voluntary_exits.read()
@@ -669,7 +648,8 @@ mod release_tests {
         test_spec, BeaconChainHarness, EphemeralHarnessType, RelativeSyncCommittee,
     };
     use lazy_static::lazy_static;
-    use state_processing::VerifyOperation;
+    use maplit::hashset;
+    use state_processing::{common::get_attesting_indices_from_state, VerifyOperation};
     use std::collections::BTreeSet;
     use types::consts::altair::SYNC_COMMITTEE_SUBNET_COUNT;
     use types::*;
@@ -689,6 +669,7 @@ mod release_tests {
             .spec_or_default(spec)
             .keypairs(KEYPAIRS[0..validator_count].to_vec())
             .fresh_ephemeral_store()
+            .mock_execution_layer()
             .build();
 
         harness.advance_slot();
@@ -714,7 +695,6 @@ mod release_tests {
         num_committees: usize,
     ) -> (BeaconChainHarness<EphemeralHarnessType<E>>, ChainSpec) {
         let mut spec = E::default_spec();
-
         spec.altair_fork_epoch = Some(Epoch::new(0));
 
         let num_validators =
@@ -780,10 +760,19 @@ mod release_tests {
                 })
                 .unwrap();
 
+            let att1_indices = get_attesting_indices_from_state(&state, &att1).unwrap();
+            let att2_indices = get_attesting_indices_from_state(&state, &att2).unwrap();
+            let att1_split = SplitAttestation::new(att1.clone(), att1_indices);
+            let att2_split = SplitAttestation::new(att2.clone(), att2_indices);
+
             assert_eq!(
                 att1.aggregation_bits.num_set_bits(),
-                earliest_attestation_validators(&att1, &state, state.as_base().unwrap())
-                    .num_set_bits()
+                earliest_attestation_validators(
+                    &att1_split.as_ref(),
+                    &state,
+                    state.as_base().unwrap()
+                )
+                .num_set_bits()
             );
 
             state
@@ -800,8 +789,12 @@ mod release_tests {
 
             assert_eq!(
                 committees.get(0).unwrap().committee.len() - 2,
-                earliest_attestation_validators(&att2, &state, state.as_base().unwrap())
-                    .num_set_bits()
+                earliest_attestation_validators(
+                    &att2_split.as_ref(),
+                    &state,
+                    state.as_base().unwrap()
+                )
+                .num_set_bits()
             );
         }
     }
@@ -840,14 +833,12 @@ mod release_tests {
         );
 
         for (atts, _) in attestations {
-            for att in atts.into_iter() {
-                op_pool
-                    .insert_attestation(att.0, &state.fork(), state.genesis_validators_root(), spec)
-                    .unwrap();
+            for (att, _) in atts {
+                let attesting_indices = get_attesting_indices_from_state(&state, &att).unwrap();
+                op_pool.insert_attestation(att, attesting_indices).unwrap();
             }
         }
 
-        assert_eq!(op_pool.attestations.read().len(), committees.len());
         assert_eq!(op_pool.num_attestations(), committees.len());
 
         // Before the min attestation inclusion delay, get_attestations shouldn't return anything.
@@ -913,17 +904,11 @@ mod release_tests {
 
         for (_, aggregate) in attestations {
             let att = aggregate.unwrap().message.aggregate;
+            let attesting_indices = get_attesting_indices_from_state(&state, &att).unwrap();
             op_pool
-                .insert_attestation(
-                    att.clone(),
-                    &state.fork(),
-                    state.genesis_validators_root(),
-                    spec,
-                )
+                .insert_attestation(att.clone(), attesting_indices.clone())
                 .unwrap();
-            op_pool
-                .insert_attestation(att, &state.fork(), state.genesis_validators_root(), spec)
-                .unwrap();
+            op_pool.insert_attestation(att, attesting_indices).unwrap();
         }
 
         assert_eq!(op_pool.num_attestations(), committees.len());
@@ -1007,16 +992,17 @@ mod release_tests {
                 .collect::<Vec<_>>();
 
             for att in aggs1.into_iter().chain(aggs2.into_iter()) {
-                op_pool
-                    .insert_attestation(att, &state.fork(), state.genesis_validators_root(), spec)
-                    .unwrap();
+                let attesting_indices = get_attesting_indices_from_state(&state, &att).unwrap();
+                op_pool.insert_attestation(att, attesting_indices).unwrap();
             }
         }
 
         // The attestations should get aggregated into two attestations that comprise all
         // validators.
-        assert_eq!(op_pool.attestations.read().len(), committees.len());
-        assert_eq!(op_pool.num_attestations(), 2 * committees.len());
+        let stats = op_pool.attestation_stats();
+        assert_eq!(stats.num_attestation_data, committees.len());
+        assert_eq!(stats.num_attestations, 2 * committees.len());
+        assert_eq!(stats.max_aggregates_per_data, 2);
     }
 
     /// Create a bunch of attestations signed by a small number of validators, and another
@@ -1078,9 +1064,8 @@ mod release_tests {
                 .collect::<Vec<_>>();
 
             for att in aggs {
-                op_pool
-                    .insert_attestation(att, &state.fork(), state.genesis_validators_root(), spec)
-                    .unwrap();
+                let attesting_indices = get_attesting_indices_from_state(&state, &att).unwrap();
+                op_pool.insert_attestation(att, attesting_indices).unwrap();
             }
         };
 
@@ -1095,12 +1080,13 @@ mod release_tests {
         let num_small = target_committee_size / small_step_size;
         let num_big = target_committee_size / big_step_size;
 
-        assert_eq!(op_pool.attestations.read().len(), committees.len());
+        let stats = op_pool.attestation_stats();
+        assert_eq!(stats.num_attestation_data, committees.len());
         assert_eq!(
-            op_pool.num_attestations(),
+            stats.num_attestations,
             (num_small + num_big) * committees.len()
         );
-        assert!(op_pool.num_attestations() > max_attestations);
+        assert!(stats.num_attestations > max_attestations);
 
         *state.slot_mut() += spec.min_attestation_inclusion_delay;
         let best_attestations = op_pool
@@ -1173,9 +1159,8 @@ mod release_tests {
                 .collect::<Vec<_>>();
 
             for att in aggs {
-                op_pool
-                    .insert_attestation(att, &state.fork(), state.genesis_validators_root(), spec)
-                    .unwrap();
+                let attesting_indices = get_attesting_indices_from_state(&state, &att).unwrap();
+                op_pool.insert_attestation(att, attesting_indices).unwrap();
             }
         };
 
@@ -1190,7 +1175,10 @@ mod release_tests {
         let num_small = target_committee_size / small_step_size;
         let num_big = target_committee_size / big_step_size;
 
-        assert_eq!(op_pool.attestations.read().len(), committees.len());
+        assert_eq!(
+            op_pool.attestation_stats().num_attestation_data,
+            committees.len()
+        );
         assert_eq!(
             op_pool.num_attestations(),
             (num_small + num_big) * committees.len()
@@ -1210,11 +1198,21 @@ mod release_tests {
         // Used for asserting that rewards are in decreasing order.
         let mut prev_reward = u64::max_value();
 
-        for att in &best_attestations {
-            let mut fresh_validators_rewards =
-                AttMaxCover::new(att, &state, total_active_balance, spec)
-                    .unwrap()
-                    .fresh_validators_rewards;
+        let mut reward_cache = RewardCache::default();
+        reward_cache.update(&state).unwrap();
+
+        for att in best_attestations {
+            let attesting_indices = get_attesting_indices_from_state(&state, &att).unwrap();
+            let split_attestation = SplitAttestation::new(att, attesting_indices);
+            let mut fresh_validators_rewards = AttMaxCover::new(
+                split_attestation.as_ref(),
+                &state,
+                &reward_cache,
+                total_active_balance,
+                spec,
+            )
+            .unwrap()
+            .fresh_validators_rewards;
 
             // Remove validators covered by previous attestations.
             fresh_validators_rewards
@@ -1281,10 +1279,7 @@ mod release_tests {
         let op_pool = OperationPool::<MainnetEthSpec>::new();
 
         let slashing = harness.make_attester_slashing(vec![1, 3, 5, 7, 9]);
-        op_pool.insert_attester_slashing(
-            slashing.clone().validate(&state, spec).unwrap(),
-            state.fork(),
-        );
+        op_pool.insert_attester_slashing(slashing.clone().validate(&state, spec).unwrap());
         op_pool.prune_attester_slashings(&state);
         assert_eq!(
             op_pool.get_slashings_and_exits(&state, &harness.spec).1,
@@ -1305,22 +1300,10 @@ mod release_tests {
         let slashing_3 = harness.make_attester_slashing(vec![4, 5, 6]);
         let slashing_4 = harness.make_attester_slashing(vec![7, 8, 9, 10]);
 
-        op_pool.insert_attester_slashing(
-            slashing_1.clone().validate(&state, spec).unwrap(),
-            state.fork(),
-        );
-        op_pool.insert_attester_slashing(
-            slashing_2.clone().validate(&state, spec).unwrap(),
-            state.fork(),
-        );
-        op_pool.insert_attester_slashing(
-            slashing_3.clone().validate(&state, spec).unwrap(),
-            state.fork(),
-        );
-        op_pool.insert_attester_slashing(
-            slashing_4.clone().validate(&state, spec).unwrap(),
-            state.fork(),
-        );
+        op_pool.insert_attester_slashing(slashing_1.clone().validate(&state, spec).unwrap());
+        op_pool.insert_attester_slashing(slashing_2.clone().validate(&state, spec).unwrap());
+        op_pool.insert_attester_slashing(slashing_3.clone().validate(&state, spec).unwrap());
+        op_pool.insert_attester_slashing(slashing_4.clone().validate(&state, spec).unwrap());
 
         let best_slashings = op_pool.get_slashings_and_exits(&state, &harness.spec);
         assert_eq!(best_slashings.1, vec![slashing_4, slashing_3]);
@@ -1339,22 +1322,10 @@ mod release_tests {
         let slashing_3 = harness.make_attester_slashing(vec![5, 6]);
         let slashing_4 = harness.make_attester_slashing(vec![6]);
 
-        op_pool.insert_attester_slashing(
-            slashing_1.clone().validate(&state, spec).unwrap(),
-            state.fork(),
-        );
-        op_pool.insert_attester_slashing(
-            slashing_2.clone().validate(&state, spec).unwrap(),
-            state.fork(),
-        );
-        op_pool.insert_attester_slashing(
-            slashing_3.clone().validate(&state, spec).unwrap(),
-            state.fork(),
-        );
-        op_pool.insert_attester_slashing(
-            slashing_4.clone().validate(&state, spec).unwrap(),
-            state.fork(),
-        );
+        op_pool.insert_attester_slashing(slashing_1.clone().validate(&state, spec).unwrap());
+        op_pool.insert_attester_slashing(slashing_2.clone().validate(&state, spec).unwrap());
+        op_pool.insert_attester_slashing(slashing_3.clone().validate(&state, spec).unwrap());
+        op_pool.insert_attester_slashing(slashing_4.clone().validate(&state, spec).unwrap());
 
         let best_slashings = op_pool.get_slashings_and_exits(&state, &harness.spec);
         assert_eq!(best_slashings.1, vec![slashing_1, slashing_3]);
@@ -1374,18 +1345,9 @@ mod release_tests {
         let a_slashing_3 = harness.make_attester_slashing(vec![5, 6]);
 
         op_pool.insert_proposer_slashing(p_slashing.clone().validate(&state, spec).unwrap());
-        op_pool.insert_attester_slashing(
-            a_slashing_1.clone().validate(&state, spec).unwrap(),
-            state.fork(),
-        );
-        op_pool.insert_attester_slashing(
-            a_slashing_2.clone().validate(&state, spec).unwrap(),
-            state.fork(),
-        );
-        op_pool.insert_attester_slashing(
-            a_slashing_3.clone().validate(&state, spec).unwrap(),
-            state.fork(),
-        );
+        op_pool.insert_attester_slashing(a_slashing_1.clone().validate(&state, spec).unwrap());
+        op_pool.insert_attester_slashing(a_slashing_2.clone().validate(&state, spec).unwrap());
+        op_pool.insert_attester_slashing(a_slashing_3.clone().validate(&state, spec).unwrap());
 
         let best_slashings = op_pool.get_slashings_and_exits(&state, &harness.spec);
         assert_eq!(best_slashings.1, vec![a_slashing_1, a_slashing_3]);
@@ -1406,18 +1368,9 @@ mod release_tests {
         let slashing_2 = harness.make_attester_slashing(vec![5, 6]);
         let slashing_3 = harness.make_attester_slashing(vec![1, 2, 3]);
 
-        op_pool.insert_attester_slashing(
-            slashing_1.clone().validate(&state, spec).unwrap(),
-            state.fork(),
-        );
-        op_pool.insert_attester_slashing(
-            slashing_2.clone().validate(&state, spec).unwrap(),
-            state.fork(),
-        );
-        op_pool.insert_attester_slashing(
-            slashing_3.clone().validate(&state, spec).unwrap(),
-            state.fork(),
-        );
+        op_pool.insert_attester_slashing(slashing_1.clone().validate(&state, spec).unwrap());
+        op_pool.insert_attester_slashing(slashing_2.clone().validate(&state, spec).unwrap());
+        op_pool.insert_attester_slashing(slashing_3.clone().validate(&state, spec).unwrap());
 
         let best_slashings = op_pool.get_slashings_and_exits(&state, &harness.spec);
         assert_eq!(best_slashings.1, vec![slashing_1, slashing_3]);
@@ -1438,18 +1391,9 @@ mod release_tests {
         let slashing_2 = harness.make_attester_slashing(vec![4, 5, 6]);
         let slashing_3 = harness.make_attester_slashing(vec![7, 8]);
 
-        op_pool.insert_attester_slashing(
-            slashing_1.clone().validate(&state, spec).unwrap(),
-            state.fork(),
-        );
-        op_pool.insert_attester_slashing(
-            slashing_2.clone().validate(&state, spec).unwrap(),
-            state.fork(),
-        );
-        op_pool.insert_attester_slashing(
-            slashing_3.clone().validate(&state, spec).unwrap(),
-            state.fork(),
-        );
+        op_pool.insert_attester_slashing(slashing_1.clone().validate(&state, spec).unwrap());
+        op_pool.insert_attester_slashing(slashing_2.clone().validate(&state, spec).unwrap());
+        op_pool.insert_attester_slashing(slashing_3.clone().validate(&state, spec).unwrap());
 
         let best_slashings = op_pool.get_slashings_and_exits(&state, &harness.spec);
         assert_eq!(best_slashings.1, vec![slashing_2, slashing_3]);
@@ -1717,5 +1661,290 @@ mod release_tests {
             sync_aggregate.sync_committee_bits.num_set_bits(),
             expected_bits
         );
+    }
+
+    fn cross_fork_harness<E: EthSpec>() -> (BeaconChainHarness<EphemeralHarnessType<E>>, ChainSpec)
+    {
+        let mut spec = test_spec::<E>();
+
+        // Give some room to sign surround slashings.
+        spec.altair_fork_epoch = Some(Epoch::new(3));
+        spec.bellatrix_fork_epoch = Some(Epoch::new(6));
+
+        // To make exits immediately valid.
+        spec.shard_committee_period = 0;
+
+        let num_validators = 32;
+
+        let harness = get_harness::<E>(num_validators, Some(spec.clone()));
+        (harness, spec)
+    }
+
+    /// Test several cross-fork voluntary exits:
+    ///
+    /// - phase0 exit (not valid after Bellatrix)
+    /// - phase0 exit signed with Altair fork version (only valid after Bellatrix)
+    #[tokio::test]
+    async fn cross_fork_exits() {
+        let (harness, spec) = cross_fork_harness::<MainnetEthSpec>();
+        let altair_fork_epoch = spec.altair_fork_epoch.unwrap();
+        let bellatrix_fork_epoch = spec.bellatrix_fork_epoch.unwrap();
+        let slots_per_epoch = MainnetEthSpec::slots_per_epoch();
+
+        let op_pool = OperationPool::<MainnetEthSpec>::new();
+
+        // Sign an exit in phase0 with a phase0 epoch.
+        let exit1 = harness.make_voluntary_exit(0, Epoch::new(0));
+
+        // Advance to Altair.
+        harness
+            .extend_to_slot(altair_fork_epoch.start_slot(slots_per_epoch))
+            .await;
+        let altair_head = harness.chain.canonical_head.cached_head().snapshot;
+        assert_eq!(altair_head.beacon_state.current_epoch(), altair_fork_epoch);
+
+        // Add exit 1 to the op pool during Altair. It's still valid at this point and should be
+        // returned.
+        let verified_exit1 = exit1
+            .clone()
+            .validate(&altair_head.beacon_state, &harness.chain.spec)
+            .unwrap();
+        op_pool.insert_voluntary_exit(verified_exit1);
+        let exits =
+            op_pool.get_voluntary_exits(&altair_head.beacon_state, |_| true, &harness.chain.spec);
+        assert!(exits.contains(&exit1));
+        assert_eq!(exits.len(), 1);
+
+        // Advance to Bellatrix.
+        harness
+            .extend_to_slot(bellatrix_fork_epoch.start_slot(slots_per_epoch))
+            .await;
+        let bellatrix_head = harness.chain.canonical_head.cached_head().snapshot;
+        assert_eq!(
+            bellatrix_head.beacon_state.current_epoch(),
+            bellatrix_fork_epoch
+        );
+
+        // Sign an exit with the Altair domain and a phase0 epoch. This is a weird type of exit
+        // that is valid because after the Bellatrix fork we'll use the Altair fork domain to verify
+        // all prior epochs.
+        let exit2 = harness.make_voluntary_exit(2, Epoch::new(0));
+        let verified_exit2 = exit2
+            .clone()
+            .validate(&bellatrix_head.beacon_state, &harness.chain.spec)
+            .unwrap();
+        op_pool.insert_voluntary_exit(verified_exit2);
+
+        // Attempting to fetch exit1 now should fail, despite it still being in the pool.
+        // exit2 should still be valid, because it was signed with the Altair fork domain.
+        assert_eq!(op_pool.voluntary_exits.read().len(), 2);
+        let exits =
+            op_pool.get_voluntary_exits(&bellatrix_head.beacon_state, |_| true, &harness.spec);
+        assert_eq!(&exits, &[exit2]);
+    }
+
+    /// Test several cross-fork proposer slashings:
+    ///
+    /// - phase0 slashing (not valid after Bellatrix)
+    /// - Bellatrix signed with Altair fork version (not valid after Bellatrix)
+    /// - phase0 exit signed with Altair fork version (only valid after Bellatrix)
+    #[tokio::test]
+    async fn cross_fork_proposer_slashings() {
+        let (harness, spec) = cross_fork_harness::<MainnetEthSpec>();
+        let slots_per_epoch = MainnetEthSpec::slots_per_epoch();
+        let altair_fork_epoch = spec.altair_fork_epoch.unwrap();
+        let bellatrix_fork_epoch = spec.bellatrix_fork_epoch.unwrap();
+        let bellatrix_fork_slot = bellatrix_fork_epoch.start_slot(slots_per_epoch);
+
+        let op_pool = OperationPool::<MainnetEthSpec>::new();
+
+        // Sign a proposer slashing in phase0 with a phase0 epoch.
+        let slashing1 = harness.make_proposer_slashing_at_slot(0, Some(Slot::new(1)));
+
+        // Advance to Altair.
+        harness
+            .extend_to_slot(altair_fork_epoch.start_slot(slots_per_epoch))
+            .await;
+        let altair_head = harness.chain.canonical_head.cached_head().snapshot;
+        assert_eq!(altair_head.beacon_state.current_epoch(), altair_fork_epoch);
+
+        // Add slashing1 to the op pool during Altair. It's still valid at this point and should be
+        // returned.
+        let verified_slashing1 = slashing1
+            .clone()
+            .validate(&altair_head.beacon_state, &harness.chain.spec)
+            .unwrap();
+        op_pool.insert_proposer_slashing(verified_slashing1);
+        let (proposer_slashings, _, _) =
+            op_pool.get_slashings_and_exits(&altair_head.beacon_state, &harness.chain.spec);
+        assert!(proposer_slashings.contains(&slashing1));
+        assert_eq!(proposer_slashings.len(), 1);
+
+        // Sign a proposer slashing with a Bellatrix slot using the Altair fork domain.
+        //
+        // This slashing is valid only before the Bellatrix fork epoch.
+        let slashing2 = harness.make_proposer_slashing_at_slot(1, Some(bellatrix_fork_slot));
+        let verified_slashing2 = slashing2
+            .clone()
+            .validate(&altair_head.beacon_state, &harness.chain.spec)
+            .unwrap();
+        op_pool.insert_proposer_slashing(verified_slashing2);
+        let (proposer_slashings, _, _) =
+            op_pool.get_slashings_and_exits(&altair_head.beacon_state, &harness.chain.spec);
+        assert!(proposer_slashings.contains(&slashing1));
+        assert!(proposer_slashings.contains(&slashing2));
+        assert_eq!(proposer_slashings.len(), 2);
+
+        // Advance to Bellatrix.
+        harness.extend_to_slot(bellatrix_fork_slot).await;
+        let bellatrix_head = harness.chain.canonical_head.cached_head().snapshot;
+        assert_eq!(
+            bellatrix_head.beacon_state.current_epoch(),
+            bellatrix_fork_epoch
+        );
+
+        // Sign a proposer slashing with the Altair domain and a phase0 slot. This is a weird type
+        // of slashing that is only valid after the Bellatrix fork because we'll use the Altair fork
+        // domain to verify all prior epochs.
+        let slashing3 = harness.make_proposer_slashing_at_slot(2, Some(Slot::new(1)));
+        let verified_slashing3 = slashing3
+            .clone()
+            .validate(&bellatrix_head.beacon_state, &harness.chain.spec)
+            .unwrap();
+        op_pool.insert_proposer_slashing(verified_slashing3);
+
+        // Attempting to fetch slashing1 now should fail, despite it still being in the pool.
+        // Likewise slashing2 is also invalid now because it should be signed with the
+        // Bellatrix fork version.
+        // slashing3 should still be valid, because it was signed with the Altair fork domain.
+        assert_eq!(op_pool.proposer_slashings.read().len(), 3);
+        let (proposer_slashings, _, _) =
+            op_pool.get_slashings_and_exits(&bellatrix_head.beacon_state, &harness.spec);
+        assert!(proposer_slashings.contains(&slashing3));
+        assert_eq!(proposer_slashings.len(), 1);
+    }
+
+    /// Test several cross-fork attester slashings:
+    ///
+    /// - both target epochs in phase0 (not valid after Bellatrix)
+    /// - both target epochs in Bellatrix but signed with Altair domain (not valid after Bellatrix)
+    /// - Altair attestation that surrounds a phase0 attestation (not valid after Bellatrix)
+    /// - both target epochs in phase0 but signed with Altair domain (only valid after Bellatrix)
+    #[tokio::test]
+    async fn cross_fork_attester_slashings() {
+        let (harness, spec) = cross_fork_harness::<MainnetEthSpec>();
+        let slots_per_epoch = MainnetEthSpec::slots_per_epoch();
+        let zero_epoch = Epoch::new(0);
+        let altair_fork_epoch = spec.altair_fork_epoch.unwrap();
+        let bellatrix_fork_epoch = spec.bellatrix_fork_epoch.unwrap();
+        let bellatrix_fork_slot = bellatrix_fork_epoch.start_slot(slots_per_epoch);
+
+        let op_pool = OperationPool::<MainnetEthSpec>::new();
+
+        // Sign an attester slashing with the phase0 fork version, with both target epochs in phase0.
+        let slashing1 = harness.make_attester_slashing_with_epochs(
+            vec![0],
+            None,
+            Some(zero_epoch),
+            None,
+            Some(zero_epoch),
+        );
+
+        // Advance to Altair.
+        harness
+            .extend_to_slot(altair_fork_epoch.start_slot(slots_per_epoch))
+            .await;
+        let altair_head = harness.chain.canonical_head.cached_head().snapshot;
+        assert_eq!(altair_head.beacon_state.current_epoch(), altair_fork_epoch);
+
+        // Add slashing1 to the op pool during Altair. It's still valid at this point and should be
+        // returned.
+        let verified_slashing1 = slashing1
+            .clone()
+            .validate(&altair_head.beacon_state, &harness.chain.spec)
+            .unwrap();
+        op_pool.insert_attester_slashing(verified_slashing1);
+
+        // Sign an attester slashing with two Bellatrix epochs using the Altair fork domain.
+        //
+        // This slashing is valid only before the Bellatrix fork epoch.
+        let slashing2 = harness.make_attester_slashing_with_epochs(
+            vec![1],
+            None,
+            Some(bellatrix_fork_epoch),
+            None,
+            Some(bellatrix_fork_epoch),
+        );
+        let verified_slashing2 = slashing2
+            .clone()
+            .validate(&altair_head.beacon_state, &harness.chain.spec)
+            .unwrap();
+        op_pool.insert_attester_slashing(verified_slashing2);
+        let (_, attester_slashings, _) =
+            op_pool.get_slashings_and_exits(&altair_head.beacon_state, &harness.chain.spec);
+        assert!(attester_slashings.contains(&slashing1));
+        assert!(attester_slashings.contains(&slashing2));
+        assert_eq!(attester_slashings.len(), 2);
+
+        // Sign an attester slashing where an Altair attestation surrounds a phase0 one.
+        //
+        // This slashing is valid only before the Bellatrix fork epoch.
+        let slashing3 = harness.make_attester_slashing_with_epochs(
+            vec![2],
+            Some(Epoch::new(0)),
+            Some(altair_fork_epoch),
+            Some(Epoch::new(1)),
+            Some(altair_fork_epoch - 1),
+        );
+        let verified_slashing3 = slashing3
+            .clone()
+            .validate(&altair_head.beacon_state, &harness.chain.spec)
+            .unwrap();
+        op_pool.insert_attester_slashing(verified_slashing3);
+
+        // All three slashings should be valid and returned from the pool at this point.
+        // Seeing as we can only extract 2 at time we'll just pretend that validator 0 is already
+        // slashed.
+        let mut to_be_slashed = hashset! {0};
+        let attester_slashings =
+            op_pool.get_attester_slashings(&altair_head.beacon_state, &mut to_be_slashed);
+        assert!(attester_slashings.contains(&slashing2));
+        assert!(attester_slashings.contains(&slashing3));
+        assert_eq!(attester_slashings.len(), 2);
+
+        // Advance to Bellatrix.
+        harness.extend_to_slot(bellatrix_fork_slot).await;
+        let bellatrix_head = harness.chain.canonical_head.cached_head().snapshot;
+        assert_eq!(
+            bellatrix_head.beacon_state.current_epoch(),
+            bellatrix_fork_epoch
+        );
+
+        // Sign an attester slashing with the Altair domain and phase0 epochs. This is a weird type
+        // of slashing that is only valid after the Bellatrix fork because we'll use the Altair fork
+        // domain to verify all prior epochs.
+        let slashing4 = harness.make_attester_slashing_with_epochs(
+            vec![3],
+            Some(Epoch::new(0)),
+            Some(altair_fork_epoch - 1),
+            Some(Epoch::new(0)),
+            Some(altair_fork_epoch - 1),
+        );
+        let verified_slashing4 = slashing4
+            .clone()
+            .validate(&bellatrix_head.beacon_state, &harness.chain.spec)
+            .unwrap();
+        op_pool.insert_attester_slashing(verified_slashing4);
+
+        // All slashings except slashing4 are now invalid (despite being present in the pool).
+        assert_eq!(op_pool.attester_slashings.read().len(), 4);
+        let (_, attester_slashings, _) =
+            op_pool.get_slashings_and_exits(&bellatrix_head.beacon_state, &harness.spec);
+        assert!(attester_slashings.contains(&slashing4));
+        assert_eq!(attester_slashings.len(), 1);
+
+        // Pruning the attester slashings should remove all but slashing4.
+        op_pool.prune_attester_slashings(&bellatrix_head.beacon_state);
+        assert_eq!(op_pool.attester_slashings.read().len(), 1);
     }
 }

@@ -647,6 +647,8 @@ pub fn get_config<E: EthSpec>(
     client_config.chain.always_reset_payload_statuses =
         cli_args.is_present("reset-payload-statuses");
 
+    client_config.chain.paranoid_block_proposal = cli_args.is_present("paranoid-block-proposal");
+
     /*
      * Builder fallback configs.
      */

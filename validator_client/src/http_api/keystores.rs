@@ -40,7 +40,7 @@ pub fn list<T: SlotClock + 'static, E: EthSpec>(
                     SigningMethod::LocalKeystore {
                         ref voting_keystore,
                         ..
-                    } => (voting_keystore.path(), None),
+                    } => (voting_keystore.path(), Some(false)),
                     SigningMethod::Web3Signer { .. } => (None, Some(true)),
                 });
 

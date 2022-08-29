@@ -728,6 +728,16 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true)
         )
         .arg(
+            Arg::with_name("paranoid-block-proposal")
+                .long("paranoid-block-proposal")
+                .help("Paranoid enough to be reading the source? Nice. This flag reverts some \
+                       block proposal optimisations and forces the node to check every attestation \
+                       it includes super thoroughly. This may be useful in an emergency, but not \
+                       otherwise.")
+                .hidden(true)
+                .takes_value(false)
+        )
+        .arg(
             Arg::with_name("builder-fallback-skips")
                 .long("builder-fallback-skips")
                 .help("If this node is proposing a block and has seen this number of skip slots \
