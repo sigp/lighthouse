@@ -3,6 +3,7 @@
 
 use crate::Error as ServerError;
 use lighthouse_network::{ConnectionDirection, Enr, Multiaddr, PeerConnectionStatus};
+use mediatype::{MediaType, MediaTypeList};
 use mime::{Mime, APPLICATION, JSON, OCTET_STREAM, STAR};
 use serde::{Deserialize, Serialize};
 use std::cmp::Reverse;
@@ -1068,8 +1069,35 @@ impl FromStr for Accept {
 }
 
 fn parse_accept(accept: &str) -> Result<Vec<Mime>, String> {
-    accept
-        .split(',')
+    MediaTypeList::new(accept)
+        .into_iter()
+        .map(|item| match item {
+            Ok(MediaType {
+                ty,
+                subty,
+                suffix,
+                params,
+            }) => {
+                let suffix_format = match suffix {
+                    Some(name) => format!("+{}", name),
+                    None => String::from(""),
+                };
+
+                let _params_format: String = params
+                    .into_iter()
+                    .map(|(n, v)| format!("{}={}", n, v))
+                    .collect::<Vec<String>>()
+                    .join(";");
+
+                let params_format = if _params_format.len() == 0 {
+                    "".to_string()
+                } else {
+                    format!(";{}", _params_format)
+                };
+                format!("{}/{}{}{}", ty, subty, suffix_format, params_format)
+            }
+            _ => "".to_string(),
+        })
         .map(|part| {
             part.parse()
                 .map_err(|e| format!("error parsing Accept header: {}", e))
@@ -1122,6 +1150,11 @@ mod tests {
         assert_eq!(
             Accept::from_str("text/plain"),
             Err("accept header is not supported".to_string())
-        )
+        );
+
+        assert_eq!(
+            Accept::from_str("application/json;message=\"Hello, world!\"").unwrap(),
+            Accept::Json
+        );
     }
 }
