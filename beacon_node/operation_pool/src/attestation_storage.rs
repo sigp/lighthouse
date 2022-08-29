@@ -136,6 +136,7 @@ impl<T: EthSpec> CompactIndexedAttestation<T> {
             .attesting_indices
             .drain(..)
             .merge(other.attesting_indices.iter().copied())
+            .dedup()
             .collect();
         self.aggregation_bits = self.aggregation_bits.union(&other.aggregation_bits);
         self.signature.add_assign_aggregate(&other.signature);
