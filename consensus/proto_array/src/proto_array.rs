@@ -912,8 +912,7 @@ impl ProtoArray {
             // If previous epoch is not justified, pull up only tips from past epochs up to the current epoch
             } else {
                 // If block is from a previous epoch, filter using unrealized justification & finalization information
-                if node.slot.epoch(E::slots_per_epoch()) < current_epoch
-                {
+                if node.slot.epoch(E::slots_per_epoch()) < current_epoch {
                     checkpoint_match_predicate(
                         unrealized_justified_checkpoint,
                         unrealized_finalized_checkpoint,
