@@ -45,11 +45,12 @@ use std::sync::Arc;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio_stream::{wrappers::BroadcastStream, StreamExt};
 use types::{
-    Attestation, AttesterSlashing, BeaconStateError, BlindedPayload, CommitteeCache,
-    ConfigAndPreset, Epoch, EthSpec, ForkName, FullPayload, ProposerPreparationData,
-    ProposerSlashing, RelativeEpoch, Signature, SignedAggregateAndProof, SignedBeaconBlock,
-    SignedBlindedBeaconBlock, SignedContributionAndProof, SignedValidatorRegistrationData,
-    SignedVoluntaryExit, Slot, SyncCommitteeMessage, SyncContributionData,
+    Attestation, AttestationData, AttesterSlashing, BeaconStateError, BlindedPayload,
+    CommitteeCache, ConfigAndPreset, Epoch, EthSpec, ForkName, FullPayload,
+    ProposerPreparationData, ProposerSlashing, RelativeEpoch, Signature, SignedAggregateAndProof,
+    SignedBeaconBlock, SignedBlindedBeaconBlock, SignedContributionAndProof,
+    SignedValidatorRegistrationData, SignedVoluntaryExit, Slot, SyncCommitteeMessage,
+    SyncContributionData,
 };
 use version::{
     add_consensus_version_header, execution_optimistic_fork_versioned_response,
@@ -1305,13 +1306,11 @@ pub fn serve<T: BeaconChainTypes>(
         .and_then(
             |chain: Arc<BeaconChain<T>>, query: api_types::AttestationPoolQuery| {
                 blocking_json_task(move || {
-                    let query_filter = |attestation: &Attestation<T::EthSpec>| {
-                        query
-                            .slot
-                            .map_or(true, |slot| slot == attestation.data.slot)
+                    let query_filter = |data: &AttestationData| {
+                        query.slot.map_or(true, |slot| slot == data.slot)
                             && query
                                 .committee_index
-                                .map_or(true, |index| index == attestation.data.index)
+                                .map_or(true, |index| index == data.index)
                     };
 
                     let mut attestations = chain.op_pool.get_filtered_attestations(query_filter);
@@ -1321,7 +1320,7 @@ pub fn serve<T: BeaconChainTypes>(
                             .read()
                             .iter()
                             .cloned()
-                            .filter(query_filter),
+                            .filter(|att| query_filter(&att.data)),
                     );
                     Ok(api_types::GenericResponse::from(attestations))
                 })
@@ -2317,12 +2316,13 @@ pub fn serve<T: BeaconChainTypes>(
                                 );
                             failures.push(api_types::Failure::new(index, format!("Fork choice: {:?}", e)));
                         }
-                        if let Err(e) = chain.add_to_block_inclusion_pool(&verified_aggregate) {
-                            warn!(log,
-                                    "Could not add verified aggregate attestation to the inclusion pool";
-                                    "error" => format!("{:?}", e),
-                                    "request_index" => index,
-                                );
+                        if let Err(e) = chain.add_to_block_inclusion_pool(verified_aggregate) {
+                            warn!(
+                                log,
+                                "Could not add verified aggregate attestation to the inclusion pool";
+                                "error" => ?e,
+                                "request_index" => index,
+                            );
                             failures.push(api_types::Failure::new(index, format!("Op pool: {:?}", e)));
                         }
                     }

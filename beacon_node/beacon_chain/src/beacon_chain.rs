@@ -63,7 +63,7 @@ use fork_choice::{
 use futures::channel::mpsc::Sender;
 use itertools::process_results;
 use itertools::Itertools;
-use operation_pool::{OperationPool, PersistedOperationPool};
+use operation_pool::{AttestationRef, OperationPool, PersistedOperationPool};
 use parking_lot::{Mutex, RwLock};
 use safe_arith::SafeArith;
 use slasher::Slasher;
@@ -71,12 +71,15 @@ use slog::{crit, debug, error, info, trace, warn, Logger};
 use slot_clock::SlotClock;
 use ssz::Encode;
 use state_processing::{
-    common::get_indexed_attestation,
+    common::{get_attesting_indices_from_state, get_indexed_attestation},
     per_block_processing,
-    per_block_processing::errors::AttestationValidationError,
+    per_block_processing::{
+        errors::AttestationValidationError, verify_attestation_for_block_inclusion,
+        VerifySignatures,
+    },
     per_slot_processing,
     state_advance::{complete_state_advance, partial_state_advance},
-    BlockSignatureStrategy, SigVerifiedOp, VerifyBlockRoot,
+    BlockSignatureStrategy, SigVerifiedOp, VerifyBlockRoot, VerifyOperation,
 };
 use std::cmp::Ordering;
 use std::collections::HashMap;
@@ -1904,25 +1907,22 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Accepts a `VerifiedAttestation` and attempts to apply it to `self.op_pool`.
     ///
     /// The op pool is used by local block producers to pack blocks with operations.
-    pub fn add_to_block_inclusion_pool(
+    pub fn add_to_block_inclusion_pool<A>(
         &self,
-        verified_attestation: &impl VerifiedAttestation<T>,
-    ) -> Result<(), AttestationError> {
+        verified_attestation: A,
+    ) -> Result<(), AttestationError>
+    where
+        A: VerifiedAttestation<T>,
+    {
         let _timer = metrics::start_timer(&metrics::ATTESTATION_PROCESSING_APPLY_TO_OP_POOL);
 
         // If there's no eth1 chain then it's impossible to produce blocks and therefore
         // useless to put things in the op pool.
         if self.eth1_chain.is_some() {
-            let fork = self.canonical_head.cached_head().head_fork();
-
+            let (attestation, attesting_indices) =
+                verified_attestation.into_attestation_and_indices();
             self.op_pool
-                .insert_attestation(
-                    // TODO: address this clone.
-                    verified_attestation.attestation().clone(),
-                    &fork,
-                    self.genesis_validators_root,
-                    &self.spec,
-                )
+                .insert_attestation(attestation, attesting_indices)
                 .map_err(Error::from)?;
         }
 
@@ -1955,15 +1955,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn filter_op_pool_attestation(
         &self,
         filter_cache: &mut HashMap<(Hash256, Epoch), bool>,
-        att: &Attestation<T::EthSpec>,
+        att: &AttestationRef<T::EthSpec>,
         state: &BeaconState<T::EthSpec>,
     ) -> bool {
         *filter_cache
-            .entry((att.data.beacon_block_root, att.data.target.epoch))
+            .entry((att.data.beacon_block_root, att.checkpoint.target_epoch))
             .or_insert_with(|| {
                 self.shuffling_is_compatible(
                     &att.data.beacon_block_root,
-                    att.data.target.epoch,
+                    att.checkpoint.target_epoch,
                     state,
                 )
             })
@@ -2045,7 +2045,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn verify_voluntary_exit_for_gossip(
         &self,
         exit: SignedVoluntaryExit,
-    ) -> Result<ObservationOutcome<SignedVoluntaryExit>, Error> {
+    ) -> Result<ObservationOutcome<SignedVoluntaryExit, T::EthSpec>, Error> {
         // NOTE: this could be more efficient if it avoided cloning the head state
         let wall_clock_state = self.wall_clock_state()?;
         Ok(self
@@ -2066,7 +2066,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 
     /// Accept a pre-verified exit and queue it for inclusion in an appropriate block.
-    pub fn import_voluntary_exit(&self, exit: SigVerifiedOp<SignedVoluntaryExit>) {
+    pub fn import_voluntary_exit(&self, exit: SigVerifiedOp<SignedVoluntaryExit, T::EthSpec>) {
         if self.eth1_chain.is_some() {
             self.op_pool.insert_voluntary_exit(exit)
         }
@@ -2076,7 +2076,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn verify_proposer_slashing_for_gossip(
         &self,
         proposer_slashing: ProposerSlashing,
-    ) -> Result<ObservationOutcome<ProposerSlashing>, Error> {
+    ) -> Result<ObservationOutcome<ProposerSlashing, T::EthSpec>, Error> {
         let wall_clock_state = self.wall_clock_state()?;
         Ok(self.observed_proposer_slashings.lock().verify_and_observe(
             proposer_slashing,
@@ -2086,7 +2086,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 
     /// Accept some proposer slashing and queue it for inclusion in an appropriate block.
-    pub fn import_proposer_slashing(&self, proposer_slashing: SigVerifiedOp<ProposerSlashing>) {
+    pub fn import_proposer_slashing(
+        &self,
+        proposer_slashing: SigVerifiedOp<ProposerSlashing, T::EthSpec>,
+    ) {
         if self.eth1_chain.is_some() {
             self.op_pool.insert_proposer_slashing(proposer_slashing)
         }
@@ -2096,7 +2099,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn verify_attester_slashing_for_gossip(
         &self,
         attester_slashing: AttesterSlashing<T::EthSpec>,
-    ) -> Result<ObservationOutcome<AttesterSlashing<T::EthSpec>>, Error> {
+    ) -> Result<ObservationOutcome<AttesterSlashing<T::EthSpec>, T::EthSpec>, Error> {
         let wall_clock_state = self.wall_clock_state()?;
         Ok(self.observed_attester_slashings.lock().verify_and_observe(
             attester_slashing,
@@ -2111,7 +2114,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// 2. Add it to the op pool.
     pub fn import_attester_slashing(
         &self,
-        attester_slashing: SigVerifiedOp<AttesterSlashing<T::EthSpec>>,
+        attester_slashing: SigVerifiedOp<AttesterSlashing<T::EthSpec>, T::EthSpec>,
     ) {
         // Add to fork choice.
         self.canonical_head
@@ -2120,10 +2123,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Add to the op pool (if we have the ability to propose blocks).
         if self.eth1_chain.is_some() {
-            self.op_pool.insert_attester_slashing(
-                attester_slashing,
-                self.canonical_head.cached_head().head_fork(),
-            )
+            self.op_pool.insert_attester_slashing(attester_slashing)
         }
     }
 
@@ -3351,7 +3351,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
         };
 
-        let (proposer_slashings, attester_slashings, voluntary_exits) =
+        let (mut proposer_slashings, mut attester_slashings, mut voluntary_exits) =
             self.op_pool.get_slashings_and_exits(&state, &self.spec);
 
         let eth1_data = eth1_chain.eth1_data_for_block_production(&state, &self.spec)?;
@@ -3362,12 +3362,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let unagg_import_timer =
             metrics::start_timer(&metrics::BLOCK_PRODUCTION_UNAGGREGATED_TIMES);
         for attestation in self.naive_aggregation_pool.read().iter() {
-            if let Err(e) = self.op_pool.insert_attestation(
-                attestation.clone(),
-                &state.fork(),
-                state.genesis_validators_root(),
-                &self.spec,
-            ) {
+            let import = |attestation: &Attestation<T::EthSpec>| {
+                let attesting_indices = get_attesting_indices_from_state(&state, attestation)?;
+                self.op_pool
+                    .insert_attestation(attestation.clone(), attesting_indices)
+            };
+            if let Err(e) = import(attestation) {
                 // Don't stop block production if there's an error, just create a log.
                 error!(
                     self.log,
@@ -3388,15 +3388,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             metrics::start_timer(&metrics::BLOCK_PRODUCTION_ATTESTATION_TIMES);
 
         let mut prev_filter_cache = HashMap::new();
-        let prev_attestation_filter = |att: &&Attestation<T::EthSpec>| {
-            self.filter_op_pool_attestation(&mut prev_filter_cache, *att, &state)
+        let prev_attestation_filter = |att: &AttestationRef<T::EthSpec>| {
+            self.filter_op_pool_attestation(&mut prev_filter_cache, att, &state)
         };
         let mut curr_filter_cache = HashMap::new();
-        let curr_attestation_filter = |att: &&Attestation<T::EthSpec>| {
-            self.filter_op_pool_attestation(&mut curr_filter_cache, *att, &state)
+        let curr_attestation_filter = |att: &AttestationRef<T::EthSpec>| {
+            self.filter_op_pool_attestation(&mut curr_filter_cache, att, &state)
         };
 
-        let attestations = self
+        let mut attestations = self
             .op_pool
             .get_attestations(
                 &state,
@@ -3406,6 +3406,77 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             )
             .map_err(BlockProductionError::OpPoolError)?;
         drop(attestation_packing_timer);
+
+        // If paranoid mode is enabled re-check the signatures of every included message.
+        // This will be a lot slower but guards against bugs in block production and can be
+        // quickly rolled out without a release.
+        if self.config.paranoid_block_proposal {
+            attestations.retain(|att| {
+                verify_attestation_for_block_inclusion(
+                    &state,
+                    att,
+                    VerifySignatures::True,
+                    &self.spec,
+                )
+                .map_err(|e| {
+                    warn!(
+                        self.log,
+                        "Attempted to include an invalid attestation";
+                        "err" => ?e,
+                        "block_slot" => state.slot(),
+                        "attestation" => ?att
+                    );
+                })
+                .is_ok()
+            });
+
+            proposer_slashings.retain(|slashing| {
+                slashing
+                    .clone()
+                    .validate(&state, &self.spec)
+                    .map_err(|e| {
+                        warn!(
+                            self.log,
+                            "Attempted to include an invalid proposer slashing";
+                            "err" => ?e,
+                            "block_slot" => state.slot(),
+                            "slashing" => ?slashing
+                        );
+                    })
+                    .is_ok()
+            });
+
+            attester_slashings.retain(|slashing| {
+                slashing
+                    .clone()
+                    .validate(&state, &self.spec)
+                    .map_err(|e| {
+                        warn!(
+                            self.log,
+                            "Attempted to include an invalid attester slashing";
+                            "err" => ?e,
+                            "block_slot" => state.slot(),
+                            "slashing" => ?slashing
+                        );
+                    })
+                    .is_ok()
+            });
+
+            voluntary_exits.retain(|exit| {
+                exit.clone()
+                    .validate(&state, &self.spec)
+                    .map_err(|e| {
+                        warn!(
+                            self.log,
+                            "Attempted to include an invalid proposer slashing";
+                            "err" => ?e,
+                            "block_slot" => state.slot(),
+                            "exit" => ?exit
+                        );
+                    })
+                    .is_ok()
+            });
+        }
 
         let slot = state.slot();
         let proposer_index = state.get_beacon_proposer_index(state.slot(), &self.spec)? as u64;

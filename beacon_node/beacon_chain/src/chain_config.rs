@@ -35,6 +35,8 @@ pub struct ChainConfig {
     /// Whether any chain health checks should be considered when deciding whether to use the builder API.
     pub builder_fallback_disable_checks: bool,
     pub count_unrealized: bool,
+    /// Whether to apply paranoid checks to blocks proposed by this beacon node.
+    pub paranoid_block_proposal: bool,
 }
 
 impl Default for ChainConfig {
@@ -52,6 +54,7 @@ impl Default for ChainConfig {
             builder_fallback_epochs_since_finalization: 3,
             builder_fallback_disable_checks: false,
             count_unrealized: true,
+            paranoid_block_proposal: false,
         }
     }
 }
