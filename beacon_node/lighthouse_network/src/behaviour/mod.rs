@@ -31,7 +31,6 @@ use libp2p::{
     },
     identify::{Identify, IdentifyConfig, IdentifyEvent},
     swarm::{
-        dial_opts::{DialOpts, PeerCondition},
         AddressScore, NetworkBehaviour, NetworkBehaviourAction as NBAction,
         NetworkBehaviourEventProcess, PollParameters,
     },
@@ -130,8 +129,6 @@ pub enum BehaviourEvent<AppReqId: ReqId, TSpec: EthSpec> {
 /// Internal type to pass messages from sub-behaviours to the poll of the global behaviour to be
 /// specified as an NBAction.
 enum InternalBehaviourMessage {
-    /// Dial a Peer.
-    DialPeer(PeerId),
     /// The socket has been updated.
     SocketUpdated(Multiaddr),
 }
@@ -836,9 +833,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Behaviour<AppReqId, TSpec> {
             self.discovery.remove_cached_enr(&peer_id);
             // For any dial event, inform the peer manager
             let enr = self.discovery_mut().enr_of_peer(&peer_id);
-            self.peer_manager.inject_dialing(&peer_id, enr);
-            self.internal_events
-                .push_back(InternalBehaviourMessage::DialPeer(peer_id));
+            self.peer_manager.dial_peer(&peer_id, enr);
         }
     }
 
@@ -1154,9 +1149,7 @@ where
                     debug!(self.log, "Dialing discovered peer"; "peer_id" => %peer_id);
                     // For any dial event, inform the peer manager
                     let enr = self.discovery_mut().enr_of_peer(&peer_id);
-                    self.peer_manager.inject_dialing(&peer_id, enr);
-                    self.internal_events
-                        .push_back(InternalBehaviourMessage::DialPeer(peer_id));
+                    self.peer_manager.dial_peer(&peer_id, enr);
                 }
             }
         }
@@ -1214,16 +1207,6 @@ where
         // Handle internal events first
         if let Some(event) = self.internal_events.pop_front() {
             match event {
-                InternalBehaviourMessage::DialPeer(peer_id) => {
-                    // Submit the event
-                    let handler = self.new_handler();
-                    return Poll::Ready(NBAction::Dial {
-                        opts: DialOpts::peer_id(peer_id)
-                            .condition(PeerCondition::Disconnected)
-                            .build(),
-                        handler,
-                    });
-                }
                 InternalBehaviourMessage::SocketUpdated(address) => {
                     return Poll::Ready(NBAction::ReportObservedAddr {
                         address,
