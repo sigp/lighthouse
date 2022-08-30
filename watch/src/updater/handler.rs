@@ -1,3 +1,4 @@
+use crate::blockprint::WatchBlockprintClient;
 use crate::config::Config as FullConfig;
 use crate::database::{self, Error as DbError, PgPool, WatchCanonicalSlot, WatchHash, WatchSlot};
 use crate::updater::{Config, Error};
@@ -7,7 +8,9 @@ use eth2::{
     BeaconNodeHttpClient, SensitiveUrl, Timeouts,
 };
 use log::{debug, error, info, warn};
-use std::time::Duration;
+use std::collections::HashSet;
+use std::iter::FromIterator;
+use std::time::{Duration, Instant};
 use types::{BeaconBlockHeader, Epoch, Hash256, Slot};
 
 use crate::updater::{
@@ -22,8 +25,9 @@ const MAX_SIZE_SINGLE_REQUEST_BLOCK_REWARDS: u64 = 1600;
 const MAX_SIZE_SINGLE_REQUEST_BLOCK_PACKING: u64 = 50;
 
 pub struct UpdateHandler {
-    bn: BeaconNodeHttpClient,
     pool: PgPool,
+    bn: BeaconNodeHttpClient,
+    blockprint: Option<WatchBlockprintClient>,
     config: Config,
     slots_per_epoch: u64,
 }
@@ -31,12 +35,32 @@ pub struct UpdateHandler {
 impl UpdateHandler {
     pub fn new(config: FullConfig) -> Result<UpdateHandler, Error> {
         let beacon_node_url =
-            SensitiveUrl::parse(&config.updater.beacon_node_url).map_err(DbError::SensitiveUrl)?;
+            SensitiveUrl::parse(&config.updater.beacon_node_url).map_err(Error::SensitiveUrl)?;
         let bn = BeaconNodeHttpClient::new(beacon_node_url, Timeouts::set_all(DEFAULT_TIMEOUT));
+
+        let blockprint = if config.blockprint.enabled {
+            if let Some(server) = config.blockprint.url {
+                let blockprint_url = SensitiveUrl::parse(&server).map_err(Error::SensitiveUrl)?;
+                Some(WatchBlockprintClient {
+                    client: reqwest::Client::new(),
+                    server: blockprint_url,
+                    username: config.blockprint.username,
+                    password: config.blockprint.password,
+                })
+            } else {
+                return Err(Error::NotEnabled(
+                    "blockprint was enabled but url was not set".to_string(),
+                ));
+            }
+        } else {
+            None
+        };
+
         let pool = database::build_connection_pool(&config.database)?;
         Ok(Self {
-            bn,
             pool,
+            bn,
+            blockprint,
             config: config.updater,
             slots_per_epoch: config.slots_per_epoch,
         })
@@ -110,11 +134,15 @@ impl UpdateHandler {
                 )?;
             }
 
+            // Since we are syncing backwards, `start_slot > `end_slot`.
             let start_slot = bn_header.slot;
             let end_slot = latest_db_slot + 1;
             self.reverse_fill_canonical_slots(bn_header, header_root, false, start_slot, end_slot)
                 .await?;
             info!("Reverse sync begun at slot {start_slot} and stopped at slot {end_slot}");
+
+            // Attempt to sync new blocks with blockprint.
+            self.sync_blockprint_between(end_slot, start_slot).await?;
         } else {
             // There are no matching parent blocks. Sync from the head block back until the first
             // block of the epoch.
@@ -370,11 +398,65 @@ impl UpdateHandler {
         Ok(())
     }
 
+    // Attempt to update the validator set.
+    // This downloads the latest validator set from the beacon node, and pulls the known validator
+    // set from the database.
+    // We then take any new or updated validators and insert them into the database (overwriting
+    // exiting validators).
+    //
+    // In the event there are no validators in the database, it will initialize the validator set.
     pub async fn update_validator_set(&mut self) -> Result<(), Error> {
         let mut conn = database::get_connection(&self.pool)?;
 
+        let current_validators = database::get_all_validators(&mut conn)?;
+
+        if !current_validators.is_empty() {
+            let old_validators = HashSet::from_iter(current_validators);
+
+            // Pull the new validator set from the beacon node.
+            let new_validators = get_validators(&self.bn).await?;
+
+            // The difference should only contain validators that contain either a new `exit_epoch` (implying an
+            // exit) or a new `index` (implying a validator activation).
+            let val_diff = new_validators.difference(&old_validators);
+
+            for diff in val_diff {
+                database::insert_validator(&mut conn, diff.clone())?;
+            }
+        } else {
+            info!("No validators present in database. Initializing the validator set");
+            self.initialize_validator_set().await?;
+        }
+
+        Ok(())
+    }
+
+    // Initialize the validator set by downloading it from the beacon node, inserting blockprint
+    // data (if required) and writing it to the database.
+    pub async fn initialize_validator_set(&mut self) -> Result<(), Error> {
+        let mut conn = database::get_connection(&self.pool)?;
+
         // Pull all validators from the beacon node.
-        let validators = get_validators(&self.bn).await?;
+        let mut validators = Vec::from_iter(get_validators(&self.bn).await?);
+
+        let highest_validator = validators.len() as i32 + 1;
+
+        if let Some(blockprint) = &self.blockprint {
+            debug!("Syncing from blockprint");
+            // Ensure blockprint is synced.
+            let _ = blockprint.ensure_synced().await?;
+
+            let timer = Instant::now();
+            let blockprint_data = blockprint
+                .blockprint_all_validators(highest_validator)
+                .await?;
+
+            for val in &mut validators {
+                val.client = blockprint_data.get(&val.index).cloned();
+            }
+            let elapsed = timer.elapsed();
+            debug!("Syncing from blockprint complete, time taken: {elapsed:?}");
+        }
 
         database::insert_batch_validators(&mut conn, validators)?;
 
@@ -486,7 +568,7 @@ impl UpdateHandler {
             // `suboptimal_attestations` table. This is a critical failure. It usually means
             // someone has manually tampered with the database tables and should not occur during
             // normal operation.
-            error!("Database is corrupted. Please re-sync the database.");
+            error!("Database is corrupted. Please re-sync the database");
             return Err(Error::Database(DbError::DatabaseCorrupted));
         }
 
@@ -534,7 +616,11 @@ impl UpdateHandler {
             if let Some(highest_canonical_slot) =
                 database::get_highest_canonical_slot(&mut conn)?.map(|slot| slot.slot.as_slot())
             {
-                highest_canonical_slot.epoch(self.slots_per_epoch)
+                // Subtract 2 since `end_epoch` must be less than the current epoch - 1.
+                // We assume that `highest_canonical_slot` is near the head of the chain.
+                highest_canonical_slot
+                    .epoch(self.slots_per_epoch)
+                    .saturating_sub(2_u64)
             } else {
                 // There are no slots in the database, do not backfill the
                 // `suboptimal_attestations` table.
@@ -553,7 +639,7 @@ impl UpdateHandler {
         {
             let mut start_epoch = lowest_canonical_slot.epoch(self.slots_per_epoch);
 
-            if start_epoch >= end_epoch {
+            if start_epoch > end_epoch {
                 debug!("Attestations are up to date with the base of the database");
                 return Ok(());
             }
@@ -566,10 +652,6 @@ impl UpdateHandler {
             if start_epoch < end_epoch.saturating_sub(MAX_SIZE_SINGLE_REQUEST_ATTESTATIONS) {
                 start_epoch = end_epoch.saturating_sub(MAX_SIZE_SINGLE_REQUEST_ATTESTATIONS)
             }
-
-            // Start epoch cannot be within 2 epochs of the current head. This should never occur
-            // during backfill, but if this edge case is ever hit, this is likely the time we need
-            // to check for it.
 
             if let Some(highest_canonical_slot) =
                 database::get_highest_canonical_slot(&mut conn)?.map(|slot| slot.slot.as_slot())
@@ -909,13 +991,13 @@ impl UpdateHandler {
                 highest_beacon_block.as_slot().epoch(self.slots_per_epoch)
             } else {
                 // There are no blocks in the database, do not backfill the `block_packing` table.
-                warn!("Refusing to backfill block packing as there are no blocks in the database.");
+                warn!("Refusing to backfill block packing as there are no blocks in the database");
                 return Ok(());
             }
         };
 
         if end_epoch <= 1 {
-            debug!("Block packing backfill is complete.");
+            debug!("Block packing backfill is complete");
             return Ok(());
         }
 
@@ -925,7 +1007,7 @@ impl UpdateHandler {
             let mut start_epoch = lowest_block_slot.epoch(self.slots_per_epoch);
 
             if start_epoch >= end_epoch {
-                debug!("Block packing is up to date with the base of the database.");
+                debug!("Block packing is up to date with the base of the database");
                 return Ok(());
             }
 
@@ -957,7 +1039,7 @@ impl UpdateHandler {
                 database::insert_batch_block_packing(&mut conn, packing)?;
             } else {
                 return Err(Error::Database(DbError::Other(
-                    "Database did not return a lowest block when one exists.".to_string(),
+                    "Database did not return a lowest block when one exists".to_string(),
                 )));
             }
         } else {
@@ -965,10 +1047,53 @@ impl UpdateHandler {
             // `block_packing` table. This is a critical failure. It usually means someone has
             // manually tampered with the database tables and should not occur during normal
             // operation.
-            error!("Database is corrupted. Please re-sync the database.");
+            error!("Database is corrupted. Please re-sync the database");
             return Err(Error::Database(DbError::DatabaseCorrupted));
         }
 
+        Ok(())
+    }
+
+    // Syncs blockprint data from the blockprint server between `start_slot` and `end_slot`.
+    // This function should be used when beacon watch is syncing to the head.
+    //
+    // TODO(mac):
+    // BUG: If blockprint falls behind the head, we will not sync beyond `blockprint_head` and thus
+    // we will have "gaps" in the beacon watch database.
+    // SOLUTION: We could store a value in the database like `most_recently_synced_blockprint_slot`
+    // and set that value to `start_slot`.
+    pub async fn sync_blockprint_between(
+        &self,
+        start_slot: Slot,
+        end_slot: Slot,
+    ) -> Result<(), Error> {
+        // Check if blockprint is enabled, otherwise do nothing.
+        if let Some(blockprint) = &self.blockprint {
+            info!("Syncing new blocks with blockprint");
+            let blockprint_head = blockprint.ensure_synced().await?;
+
+            // Don't sync beyond the head according to blockprint.
+            let highest_allowed_slot = if blockprint_head < start_slot {
+                warn!("Blockprint server behind beacon node");
+                blockprint_head
+            } else {
+                start_slot
+            };
+
+            if highest_allowed_slot < end_slot {
+                debug!("Blockprint data is up to date");
+                return Ok(());
+            }
+
+            let blockprints = blockprint
+                .blockprint_proposers_between(end_slot, highest_allowed_slot)
+                .await?;
+            let mut conn = database::get_connection(&self.pool)?;
+            for (index, client) in blockprints {
+                database::update_validator_client(&mut conn, index, client.clone())?;
+                debug!("Updating blockprint for validator, index: {index}, client: {client}");
+            }
+        }
         Ok(())
     }
 }

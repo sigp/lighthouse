@@ -162,6 +162,28 @@ pub fn start_server(
             respond_opt(response)
         });
 
+    let lowest_attestation = warp::path("v1")
+        .and(warp::path("attestations"))
+        .and(warp::path("lowest"))
+        .and(warp::path::end())
+        .and(handler::with_db(pool.clone()))
+        .and_then(|pool| async move {
+            let mut conn = get_connection(&pool).map_err(Error::Database)?;
+            let response = database::get_lowest_attestation(&mut conn).map_err(Error::Database);
+            respond_opt(response)
+        });
+
+    let highest_attestation = warp::path("v1")
+        .and(warp::path("attestations"))
+        .and(warp::path("highest"))
+        .and(warp::path::end())
+        .and(handler::with_db(pool.clone()))
+        .and_then(|pool| async move {
+            let mut conn = get_connection(&pool).map_err(Error::Database)?;
+            let response = database::get_highest_attestation(&mut conn).map_err(Error::Database);
+            respond_opt(response)
+        });
+
     let proposer_info = warp::path("v1")
         .and(warp::path("proposer_info"))
         .and(warp::path::param::<BlockId>())
@@ -205,6 +227,8 @@ pub fn start_server(
                 .or(beacon_blocks)
                 .or(lowest_block)
                 .or(highest_block)
+                .or(lowest_attestation)
+                .or(highest_attestation)
                 .or(validator)
                 .or(validator_attestations)
                 .or(proposer_info)

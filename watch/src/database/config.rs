@@ -9,8 +9,8 @@ pub const fn port() -> u16 {
     5432
 }
 pub const fn connect_timeout_millis() -> u64 {
-    2_000
-} // 2s
+    2_000 // 2s
+}
 
 fn user() -> String {
     USER.to_string()
@@ -59,7 +59,7 @@ impl Default for Config {
             default_dbname: default_dbname(),
             host: host(),
             port: port(),
-            connect_timeout_millis: connect_timeout_millis(), // 2s
+            connect_timeout_millis: connect_timeout_millis(),
         }
     }
 }

@@ -47,12 +47,12 @@ will be able to sync to the beacon node.
 
 1. Run the updater daemon:
 ```
-cargo run -- start-daemon
+cargo run --release -- start-daemon
 ```
 
 1. Start the HTTP API server:
 ```
-cargo run -- serve
+cargo run --release -- serve
 ```
 
 1. Ensure connectivity:
@@ -115,12 +115,6 @@ As beacon.watch continues to develop, more endpoints will be added.
 - More API endpoints
   - E.g. `/v1/proposer_info?start_epoch={}&end_epoch={}`
   - Use new API design.
-  - Finish API for validators/attestations
-
-
-- Fix validator updating.
-  - Only update new validators rather than reloading the whole validator set every update. 
-  - Implement exit epochs (and check for updates)
 
 
 - Store the config in the database on first run so that we can warn against unexpected config changes.

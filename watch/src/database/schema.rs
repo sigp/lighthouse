@@ -58,8 +58,8 @@ diesel::table! {
         index -> Int4,
         public_key -> Bytea,
         status -> Text,
-        balance -> Int8,
-        activation_epoch -> Int4,
+        client -> Nullable<Text>,
+        activation_epoch -> Nullable<Int4>,
         exit_epoch -> Nullable<Int4>,
     }
 }

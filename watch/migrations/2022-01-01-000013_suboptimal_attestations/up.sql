@@ -1,5 +1,5 @@
 CREATE TABLE suboptimal_attestations (
-    epoch_start_slot integer REFERENCES canonical_slots(slot) ON DELETE CASCADE,
+    epoch_start_slot integer CHECK (epoch_start_slot % 32 = 0) REFERENCES canonical_slots(slot) ON DELETE CASCADE,
     index integer NOT NULL REFERENCES validators(index) ON DELETE CASCADE,
     source boolean NOT NULL,
     head boolean NOT NULL,

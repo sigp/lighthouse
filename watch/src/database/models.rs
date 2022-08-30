@@ -7,6 +7,7 @@ use crate::database::{
 };
 use diesel::{Insertable, Queryable};
 use serde::{Deserialize, Serialize};
+use std::hash::{Hash, Hasher};
 
 #[derive(Debug, Queryable, Insertable, Serialize, Deserialize)]
 #[diesel(table_name = canonical_slots)]
@@ -25,16 +26,36 @@ pub struct WatchBeaconBlock {
     pub parent_root: WatchHash,
 }
 
-#[derive(Debug, Queryable, Insertable, Serialize, Deserialize)]
+#[derive(Clone, Debug, Queryable, Insertable, Serialize, Deserialize)]
 #[diesel(table_name = validators)]
 pub struct WatchValidator {
     pub index: i32,
     pub public_key: WatchPK,
     pub status: String,
-    pub balance: i64,
-    pub activation_epoch: i32,
+    pub client: Option<String>,
+    pub activation_epoch: Option<i32>,
     pub exit_epoch: Option<i32>,
 }
+
+// Implement a minimal version of `Hash` and `Eq` so that we know if a validator status has changed.
+impl Hash for WatchValidator {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.index.hash(state);
+        self.status.hash(state);
+        self.activation_epoch.hash(state);
+        self.exit_epoch.hash(state);
+    }
+}
+
+impl PartialEq for WatchValidator {
+    fn eq(&self, other: &Self) -> bool {
+        self.index == other.index
+            && self.status == other.status
+            && self.activation_epoch == other.activation_epoch
+            && self.exit_epoch == other.exit_epoch
+    }
+}
+impl Eq for WatchValidator {}
 
 #[derive(Debug, Queryable, Insertable, Serialize, Deserialize)]
 #[diesel(table_name = proposer_info)]

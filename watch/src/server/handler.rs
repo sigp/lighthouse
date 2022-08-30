@@ -105,21 +105,26 @@ pub fn get_validator_attestation(
     {
         Some(suboptimal_attestation.to_attestation(slots_per_epoch))
     } else {
-        // Attestation was not in database. Check if the validator was active:
+        // Attestation was not in database. Check if the validator was active.
         match database::get_validator_by_index(conn, index)? {
             Some(validator) => {
-                if validator.activation_epoch <= epoch.as_u64() as i32 {
-                    if let Some(exit_epoch) = validator.exit_epoch {
-                        if exit_epoch > epoch.as_u64() as i32 {
+                if let Some(activation_epoch) = validator.activation_epoch {
+                    if activation_epoch <= epoch.as_u64() as i32 {
+                        if let Some(exit_epoch) = validator.exit_epoch {
+                            if exit_epoch > epoch.as_u64() as i32 {
+                                // Validator is active and has not yet exited.
+                                Some(WatchAttestation::optimal(index, epoch))
+                            } else {
+                                // Validator has exited.
+                                None
+                            }
+                        } else {
                             // Validator is active and has not yet exited.
                             Some(WatchAttestation::optimal(index, epoch))
-                        } else {
-                            // Validator has exited.
-                            None
                         }
                     } else {
-                        // Validator is active and has not yet exited.
-                        Some(WatchAttestation::optimal(index, epoch))
+                        // Validator is not yet active.
+                        None
                     }
                 } else {
                     // Validator is not yet active.

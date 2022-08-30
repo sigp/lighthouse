@@ -1,3 +1,4 @@
+use crate::blockprint::Config as BlockprintConfig;
 use crate::database::Config as DatabaseConfig;
 use crate::server::Config as ServerConfig;
 use crate::updater::Config as UpdaterConfig;
@@ -17,6 +18,8 @@ fn log_level() -> String {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
     #[serde(default)]
+    pub blockprint: BlockprintConfig,
+    #[serde(default)]
     pub database: DatabaseConfig,
     #[serde(default)]
     pub server: ServerConfig,
@@ -33,6 +36,7 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
+            blockprint: BlockprintConfig::default(),
             database: DatabaseConfig::default(),
             server: ServerConfig::default(),
             updater: UpdaterConfig::default(),

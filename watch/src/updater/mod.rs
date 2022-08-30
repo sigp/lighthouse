@@ -10,6 +10,7 @@ use eth2::{
 };
 use handler::UpdateHandler;
 use log::{debug, error, info};
+use std::collections::HashSet;
 use std::time::Instant;
 use types::{BeaconBlockHeader, Epoch, Slot};
 
@@ -18,6 +19,8 @@ pub use config::Config;
 mod config;
 mod error;
 pub mod handler;
+
+const FAR_FUTURE_EPOCH: u64 = u64::MAX;
 
 pub async fn run_once(config: FullConfig) -> Result<(), Error> {
     let mut watch = UpdateHandler::new(config.clone())?;
@@ -49,7 +52,7 @@ pub async fn run_once(config: FullConfig) -> Result<(), Error> {
     let unknown_block_timer_elapsed = unknown_block_timer.elapsed();
     debug!("Unknown block update complete, time taken: {unknown_block_timer_elapsed:?}");
 
-    info!("Downloading validator set");
+    info!("Updating validator set");
     let validator_timer = Instant::now();
     watch.update_validator_set().await?;
     let validator_timer_elapsed = validator_timer.elapsed();
@@ -110,30 +113,44 @@ pub async fn get_header(
 }
 
 /// Queries the beacon node for the current validator set.
-pub async fn get_validators(bn: &BeaconNodeHttpClient) -> Result<Vec<WatchValidator>, Error> {
-    Ok(bn
+pub async fn get_validators(bn: &BeaconNodeHttpClient) -> Result<HashSet<WatchValidator>, Error> {
+    let mut validator_map = HashSet::new();
+
+    let validators = bn
         .get_beacon_states_validators(StateId::Head, None, None)
         .await?
         .ok_or(Error::NoValidatorsFound)?
-        .data
-        .into_iter()
-        .map(|data| {
-            WatchValidator {
-                index: data.index as i32,
-                public_key: WatchPK::from_pubkey(data.validator.pubkey),
-                status: data.status.to_string(),
-                balance: data.balance as i64,
-                activation_epoch: data.validator.activation_epoch.as_u64() as i32,
-                exit_epoch: None, // Todo(mac)
-            }
-        })
-        .collect())
+        .data;
+
+    for val in validators {
+        // Only store `activation_epoch` if it not the `FAR_FUTURE_EPOCH`.
+        let activation_epoch = if val.validator.activation_epoch.as_u64() == FAR_FUTURE_EPOCH {
+            None
+        } else {
+            Some(val.validator.activation_epoch.as_u64() as i32)
+        };
+        // Only store `exit_epoch` if it is not the `FAR_FUTURE_EPOCH`.
+        let exit_epoch = if val.validator.exit_epoch.as_u64() == FAR_FUTURE_EPOCH {
+            None
+        } else {
+            Some(val.validator.exit_epoch.as_u64() as i32)
+        };
+        validator_map.insert(WatchValidator {
+            index: val.index as i32,
+            public_key: WatchPK::from_pubkey(val.validator.pubkey),
+            status: val.status.to_string(),
+            client: None,
+            activation_epoch,
+            exit_epoch,
+        });
+    }
+    Ok(validator_map)
 }
 
 /// Sends a request to `lighthouse/analysis/attestation_performance`.
 /// Formats the response into a vector of `WatchSuboptimalAttestation`.
 ///
-/// Any attestations that has `source == true && head == true && target == true` is ignored.
+/// Any attestations with `source == true && head == true && target == true` are ignored.
 pub async fn get_attestation_performances(
     bn: &BeaconNodeHttpClient,
     start_epoch: Epoch,

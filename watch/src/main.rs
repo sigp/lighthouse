@@ -1,5 +1,6 @@
 use std::process;
 
+mod blockprint;
 mod cli;
 mod config;
 mod database;

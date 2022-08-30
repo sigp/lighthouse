@@ -82,7 +82,7 @@ impl WatchHash {
     }
 }
 
-#[derive(Clone, Copy, Debug, AsExpression, FromSqlRow, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, AsExpression, FromSqlRow, Serialize, Deserialize)]
 #[diesel(sql_type = Binary)]
 pub struct WatchPK(PublicKeyBytes);
 

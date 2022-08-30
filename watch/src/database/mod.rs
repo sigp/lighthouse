@@ -7,6 +7,7 @@ use self::schema::{
 use diesel::pg::PgConnection;
 use diesel::prelude::*;
 use diesel::r2d2::{Builder, ConnectionManager, Pool, PooledConnection};
+use diesel::upsert::excluded;
 use log::{debug, info};
 use std::time::Instant;
 
@@ -107,6 +108,29 @@ pub fn insert_beacon_block_from_header(
     Ok(())
 }
 
+/// Insert a validator into the `validators` table
+///
+/// On a conflict, it will only overwrite `status`, `activation_epoch` and `exit_epoch`.
+pub fn insert_validator(conn: &mut PgConn, validator: WatchValidator) -> Result<(), Error> {
+    use self::validators::dsl::*;
+    let new_index = validator.index;
+    let new_public_key = validator.public_key;
+
+    diesel::insert_into(validators)
+        .values(validator)
+        .on_conflict(index)
+        .do_update()
+        .set((
+            status.eq(excluded(status)),
+            activation_epoch.eq(excluded(activation_epoch)),
+            exit_epoch.eq(excluded(exit_epoch)),
+        ))
+        .execute(conn)?;
+
+    debug!("Validator inserted, index: {new_index}, public_key: {new_public_key}");
+    Ok(())
+}
+
 /// Insert a batch of values into the `validators` table.
 ///
 /// On a conflict, it will do nothing.
@@ -121,7 +145,7 @@ pub fn insert_batch_validators(
 
     let mut count = 0;
 
-    for chunk in all_validators.chunks(MAX_SIZE_BATCH_INSERT) {
+    for chunk in all_validators.chunks(1000) {
         count += diesel::insert_into(validators)
             .values(chunk)
             .on_conflict_do_nothing()
@@ -232,6 +256,31 @@ pub fn insert_batch_block_packing(
 
     let time_taken = timer.elapsed();
     debug!("Block packing inserted, count: {count}, time taken: {time_taken:?}");
+    Ok(())
+}
+
+///
+/// UPDATE statements
+///
+
+/// Updates the `client` column for a single row of the `validators` table corresponding to a given `index_query`.
+/// Updates the value of `client` to the value of `updated_client`.
+pub fn update_validator_client(
+    conn: &mut PgConn,
+    index_query: i32,
+    updated_client: String,
+) -> Result<(), Error> {
+    use self::validators::dsl::*;
+
+    let timer = Instant::now();
+
+    diesel::update(validators)
+        .set(client.eq(updated_client))
+        .filter(index.eq(index_query))
+        .execute(conn)?;
+
+    let time_taken = timer.elapsed();
+    debug!("Validator updated, time taken: {time_taken:?}");
     Ok(())
 }
 
@@ -473,10 +522,6 @@ pub fn get_beacon_block_with_parent(
     Ok(result)
 }
 
-///
-/// Validator
-///
-
 /// Selects a single row from the `validators` table corresponding to a given
 /// `validator_index_query`.
 pub fn get_validator_by_index(
@@ -512,6 +557,18 @@ pub fn get_validator_by_public_key(
 
     let time_taken = timer.elapsed();
     debug!("Validator requested: {public_key_query}, time taken: {time_taken:?}");
+    Ok(result)
+}
+
+// Selects all rows from the `validators` table.
+pub fn get_all_validators(conn: &mut PgConn) -> Result<Vec<WatchValidator>, Error> {
+    use self::validators::dsl::*;
+    let timer = Instant::now();
+
+    let result = validators.load::<WatchValidator>(conn)?;
+
+    let time_taken = timer.elapsed();
+    debug!("All validators requested, time taken: {time_taken:?}");
     Ok(result)
 }
 
