@@ -400,7 +400,15 @@ async fn poll_validator_indices<T: SlotClock + 'static, E: EthSpec>(
                 )
                 .await;
 
-            let fee_recipient = duties_service.validator_store.get_fee_recipient(&pubkey).map(|fr| fr.to_string()).unwrap_or("Fee recipient for validator not set in validator_definitions.yml or provided with the `--suggested-fee-recipient flag`".to_string());
+            let fee_recipient = duties_service
+                .validator_store
+                .get_fee_recipient(&pubkey)
+                .map(|fr| fr.to_string())
+                .unwrap_or(
+                    "Fee recipient for validator not set in validator_definitions.yml \
+                    or provided with the `--suggested-fee-recipient flag`"
+                        .to_string(),
+                );
             match download_result {
                 Ok(Some(response)) => {
                     info!(
@@ -408,7 +416,7 @@ async fn poll_validator_indices<T: SlotClock + 'static, E: EthSpec>(
                         "Validator exists in beacon chain";
                         "pubkey" => ?pubkey,
                         "validator_index" => response.data.index,
-                        "fee_recipient" => ?fee_recipient
+                        "fee_recipient" => fee_recipient
                     );
                     duties_service
                         .validator_store
