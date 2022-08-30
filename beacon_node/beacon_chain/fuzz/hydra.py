@@ -36,6 +36,8 @@ def build_repro_target(args):
             REPRO_TARGET,
             "--features",
             f"{spec}",
+            "--features",
+            "logging/test_logger",
         ],
         stdout=sys.stdout,
         stderr=sys.stderr,
