@@ -1888,6 +1888,7 @@ dependencies = [
  "eth2_ssz",
  "eth2_ssz_derive",
  "proto_array",
+ "slog",
  "state_processing",
  "types",
 ]
@@ -3704,6 +3705,7 @@ dependencies = [
 name = "operation_pool"
 version = "0.2.0"
 dependencies = [
+ "bitvec 1.0.1",
  "derivative",
  "eth2_ssz",
  "eth2_ssz_derive",
@@ -5397,8 +5399,10 @@ name = "state_processing"
 version = "0.2.0"
 dependencies = [
  "bls",
+ "derivative",
  "eth2_hashing",
  "eth2_ssz",
+ "eth2_ssz_derive",
  "eth2_ssz_types",
  "int_to_bytes",
  "integer-sqrt",

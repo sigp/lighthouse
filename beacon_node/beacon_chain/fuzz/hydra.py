@@ -82,31 +82,32 @@ def run_multi(args):
     build_fuzz_target(args)
 
     # Start a screen session.
-    print("starting `screen` session")
+    session = args.session
+    print(f"starting new screen session named {session}")
     subprocess.check_call(
         [
             "screen",
             "-d",
             "-m",
             "-S",
-            "hydra",
+            session
         ],
         stdout=sys.stdout,
         stderr=sys.stderr,
     )
     subprocess.check_call(
-        ["screen", "-S", "hydra", "-X", "zombie", "qr"],
+        ["screen", "-S", session, "-X", "zombie", "qr"],
         stdout=sys.stdout,
         stderr=sys.stderr,
     )
 
-    for i in range(0, args.num_workers):
+    for i in range(args.worker_offset, args.worker_offset + args.num_workers):
         print(f"starting worker{i}")
         subprocess.check_call(
             [
                 "screen",
                 "-S",
-                "hydra",
+                session,
                 "-X",
                 "screen",
                 *fuzz_command(i)
@@ -139,6 +140,8 @@ def parse_args():
     run_parser.add_argument("--spec", default="mainnet")
     run_parser.add_argument("--num-workers", metavar="N", type=int, default=1)
     run_parser.add_argument("--reorg-limit", metavar="N", type=int, default=5)
+    run_parser.add_argument("--session", metavar="NAME", type=str, default="hydra")
+    run_parser.add_argument("--worker-offset", metavar="N", type=int, default=0)
     run_parser.set_defaults(func=run)
 
     repro_parser = subparsers.add_parser("repro", help="Reproduce a crash with debugging output")
