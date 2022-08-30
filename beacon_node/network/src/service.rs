@@ -45,7 +45,7 @@ const SUBSCRIBE_DELAY_SLOTS: u64 = 2;
 const UNSUBSCRIBE_DELAY_EPOCHS: u64 = 2;
 /// Size of the queue for validator subnet subscriptions. The number is chosen so that we may be
 /// able to run tens of thousands of validators on one BN.
-const VALIDATOR_SUBSCRIPTION_MESSAGE_QUEUE_SIZE: usize = 32_768;
+const VALIDATOR_SUBSCRIPTION_MESSAGE_QUEUE_SIZE: usize = 65_536;
 
 /// Application level requests sent to the network.
 #[derive(Debug, Clone, Copy)]
