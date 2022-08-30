@@ -404,11 +404,11 @@ async fn poll_validator_indices<T: SlotClock + 'static, E: EthSpec>(
                 .validator_store
                 .get_fee_recipient(&pubkey)
                 .map(|fr| fr.to_string())
-                .unwrap_or(
+                .unwrap_or_else(|| {
                     "Fee recipient for validator not set in validator_definitions.yml \
                     or provided with the `--suggested-fee-recipient flag`"
-                        .to_string(),
-                );
+                        .to_string()
+                });
             match download_result {
                 Ok(Some(response)) => {
                     info!(
@@ -431,7 +431,7 @@ async fn poll_validator_indices<T: SlotClock + 'static, E: EthSpec>(
                         log,
                         "Validator without index";
                         "pubkey" => ?pubkey,
-                        "fee_recipient" => ?fee_recipient
+                        "fee_recipient" => fee_recipient
                     )
                 }
                 // Don't exit early on an error, keep attempting to resolve other indices.
@@ -441,7 +441,7 @@ async fn poll_validator_indices<T: SlotClock + 'static, E: EthSpec>(
                         "Failed to resolve pubkey to index";
                         "error" => %e,
                         "pubkey" => ?pubkey,
-                        "fee_recipient" => ?fee_recipient
+                        "fee_recipient" => fee_recipient
                     )
                 }
             }
