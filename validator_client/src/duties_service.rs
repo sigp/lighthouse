@@ -400,13 +400,23 @@ async fn poll_validator_indices<T: SlotClock + 'static, E: EthSpec>(
                 )
                 .await;
 
+            let fee_recipient = duties_service
+                .validator_store
+                .get_fee_recipient(&pubkey)
+                .map(|fr| fr.to_string())
+                .unwrap_or_else(|| {
+                    "Fee recipient for validator not set in validator_definitions.yml \
+                    or provided with the `--suggested-fee-recipient` flag"
+                        .to_string()
+                });
             match download_result {
                 Ok(Some(response)) => {
                     info!(
                         log,
                         "Validator exists in beacon chain";
                         "pubkey" => ?pubkey,
-                        "validator_index" => response.data.index
+                        "validator_index" => response.data.index,
+                        "fee_recipient" => fee_recipient
                     );
                     duties_service
                         .validator_store
@@ -420,7 +430,8 @@ async fn poll_validator_indices<T: SlotClock + 'static, E: EthSpec>(
                     debug!(
                         log,
                         "Validator without index";
-                        "pubkey" => ?pubkey
+                        "pubkey" => ?pubkey,
+                        "fee_recipient" => fee_recipient
                     )
                 }
                 // Don't exit early on an error, keep attempting to resolve other indices.
@@ -430,6 +441,7 @@ async fn poll_validator_indices<T: SlotClock + 'static, E: EthSpec>(
                         "Failed to resolve pubkey to index";
                         "error" => %e,
                         "pubkey" => ?pubkey,
+                        "fee_recipient" => fee_recipient
                     )
                 }
             }
