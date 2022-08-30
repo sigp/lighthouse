@@ -2385,7 +2385,11 @@ impl ApiTester {
             .await
             .unwrap();
 
-        self.network_rx.network_recv.recv().now_or_never().unwrap();
+        self.network_rx
+            .validator_subscription_recv
+            .recv()
+            .now_or_never()
+            .unwrap();
 
         self
     }
