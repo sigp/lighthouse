@@ -1,9 +1,7 @@
-use crate::{Message, TestHarness};
+use crate::{config::DebugConfig, Message, TestHarness};
 use beacon_chain::{AttestationError, BlockError};
 use std::collections::VecDeque;
 use types::{EthSpec, Hash256};
-
-const LOG_BLOCK_DELIVERY: bool = false;
 
 pub struct Node<E: EthSpec> {
     pub id: String,
@@ -14,6 +12,7 @@ pub struct Node<E: EthSpec> {
     pub message_queue: VecDeque<(usize, Message<E>)>,
     /// Validator indices assigned to this node.
     pub validators: Vec<usize>,
+    pub debug_config: DebugConfig,
 }
 
 impl<E: EthSpec> Node<E> {
@@ -78,7 +77,7 @@ impl<E: EthSpec> Node<E> {
 
                     let block_root = message.block_root();
 
-                    if message.is_block() && LOG_BLOCK_DELIVERY {
+                    if message.is_block() && self.debug_config.block_delivery {
                         println!(
                             "{}: attempting to process block {:?} at tick {}/{}",
                             self.id, block_root, message_tick, tick
@@ -87,6 +86,9 @@ impl<E: EthSpec> Node<E> {
 
                     if let Some(undelivered) = self.deliver_message(message).await {
                         if block_is_viable(block_root) {
+                            if undelivered.is_block() && self.debug_config.block_delivery {
+                                println!("{}: requeueing block {:?}", self.id, block_root);
+                            }
                             let requeue_tick = self.last_message_tick(tick);
                             self.queue_message(undelivered, requeue_tick);
                         }

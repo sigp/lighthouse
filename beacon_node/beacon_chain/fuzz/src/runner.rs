@@ -59,6 +59,7 @@ impl<'a, E: EthSpec> Runner<'a, E> {
                     harness,
                     message_queue: VecDeque::new(),
                     validators,
+                    debug_config: conf.debug.clone(),
                 }
             })
             .collect::<Vec<_>>();
@@ -70,6 +71,7 @@ impl<'a, E: EthSpec> Runner<'a, E> {
             harness: get_harness(attacker_id, conf.attacker_log_config(), &keypairs),
             message_queue: VecDeque::new(),
             validators: (conf.honest_validators()..conf.total_validators).collect(),
+            debug_config: conf.debug.clone(),
         };
         let hydra = Hydra::default();
 
@@ -145,13 +147,25 @@ impl<'a, E: EthSpec> Runner<'a, E> {
         Ok(())
     }
 
-    async fn deliver_all_honest(&self, message: &Message<E>) {
-        for node in &self.honest_nodes {
-            node.deliver_message(message.clone()).await;
+    async fn deliver_all_honest(&mut self, message: &Message<E>) {
+        for node in &mut self.honest_nodes {
+            if let Some(undelivered) = node.deliver_message(message.clone()).await {
+                // If a message that should have been delivered immediately could not be delivered
+                // then we requeue it. This will happen if an honest node's block proposal builds
+                // upon an attacker block which hasn't arrived at all nodes yet.
+                if undelivered.is_block() && self.conf.debug.block_delivery {
+                    println!(
+                        "{}: requeuing honest block {:?}",
+                        node.id,
+                        undelivered.block_root()
+                    );
+                }
+                node.queue_message(undelivered, self.time.tick + 1);
+            }
         }
     }
 
-    async fn deliver_all(&self, message: Message<E>) {
+    async fn deliver_all(&mut self, message: Message<E>) {
         self.deliver_all_honest(&message).await;
         self.attacker.deliver_message(message).await;
     }

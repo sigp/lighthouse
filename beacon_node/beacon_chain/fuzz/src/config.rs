@@ -30,11 +30,14 @@ pub struct Config {
     pub debug: DebugConfig,
 }
 
+#[derive(Clone)]
 pub struct DebugConfig {
     /// Log the number of hydra heads.
     pub num_hydra_heads: bool,
     /// Log each block proposal as it occurs.
     pub block_proposals: bool,
+    /// Log the attempted delivery of each block at each honest node.
+    pub block_delivery: bool,
     /// Log each proposal by the attacker.
     pub attacker_proposals: bool,
     /// Print debug logs to stderr from the perspective of this honest node.
@@ -52,6 +55,7 @@ impl Default for DebugConfig {
         DebugConfig {
             num_hydra_heads: false,
             block_proposals: false,
+            block_delivery: false,
             attacker_proposals: false,
             log_perspective: None,
         }

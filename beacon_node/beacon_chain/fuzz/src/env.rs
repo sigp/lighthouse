@@ -56,6 +56,7 @@ impl Config {
         if let Some(debug) = env(DEBUG_LOGS) {
             config.debug.num_hydra_heads = debug;
             config.debug.block_proposals = debug;
+            config.debug.block_delivery = debug;
             config.debug.attacker_proposals = debug;
         }
 
