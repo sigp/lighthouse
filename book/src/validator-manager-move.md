@@ -36,7 +36,16 @@ lighthouse \
 
 ### 2. Configure the Destination VC
 
-The destination VC needs to have the same flags as the source VC.
+The destination VC needs to have the following flags:
+
+```bash
+lighthouse \
+    vc \
+    --http \
+    --unencrypted-http-transport \
+    --http-address 127.0.0.1 \
+    --http-port 5062 \
+```
 
 Optionally, users can add the `--http-store-passwords-in-secrets-dir` flag if they'd like to have
 the import validator keystore passwords stored in separate files rather than in the
@@ -95,21 +104,4 @@ lighthouse \
 	--validators all \
 ```
 
-
-
-----
-
-### N. Setup a `screen` Session
-
-We will use the GNU `screen` application to run multiple, persistent sessions on the destination
-host. If you don't like screen feel free to use an equivalent (e.g., `tmux`).
-
-On the **destination host** run:
-
-```
-screen
-# press "enter" when prompted
-```
-
-Create a new screen by pressing `Ctrl+A` then `c`. Switch back to the previous screen (`0`) by
-pressing `Ctrl+A` and then `"` (use the up/down arrows and enter to select a screen).
+TODO
