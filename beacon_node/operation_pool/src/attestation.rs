@@ -1,4 +1,6 @@
+use crate::attestation_storage::AttestationRef;
 use crate::max_cover::MaxCover;
+use crate::reward_cache::RewardCache;
 use state_processing::common::{
     altair, base, get_attestation_participation_flag_indices, get_attesting_indices,
 };
@@ -12,34 +14,35 @@ use types::{
 #[derive(Debug, Clone)]
 pub struct AttMaxCover<'a, T: EthSpec> {
     /// Underlying attestation.
-    pub att: &'a Attestation<T>,
+    pub att: AttestationRef<'a, T>,
     /// Mapping of validator indices and their rewards.
     pub fresh_validators_rewards: HashMap<u64, u64>,
 }
 
 impl<'a, T: EthSpec> AttMaxCover<'a, T> {
     pub fn new(
-        att: &'a Attestation<T>,
+        att: AttestationRef<'a, T>,
         state: &BeaconState<T>,
+        reward_cache: &'a RewardCache,
         total_active_balance: u64,
         spec: &ChainSpec,
     ) -> Option<Self> {
         if let BeaconState::Base(ref base_state) = state {
             Self::new_for_base(att, state, base_state, total_active_balance, spec)
         } else {
-            Self::new_for_altair(att, state, total_active_balance, spec)
+            Self::new_for_altair(att, state, reward_cache, total_active_balance, spec)
         }
     }
 
     /// Initialise an attestation cover object for base/phase0 hard fork.
     pub fn new_for_base(
-        att: &'a Attestation<T>,
+        att: AttestationRef<'a, T>,
         state: &BeaconState<T>,
         base_state: &BeaconStateBase<T>,
         total_active_balance: u64,
         spec: &ChainSpec,
     ) -> Option<Self> {
-        let fresh_validators = earliest_attestation_validators(att, state, base_state);
+        let fresh_validators = earliest_attestation_validators(&att, state, base_state);
         let committee = state
             .get_beacon_committee(att.data.slot, att.data.index)
             .ok()?;
@@ -67,45 +70,41 @@ impl<'a, T: EthSpec> AttMaxCover<'a, T> {
 
     /// Initialise an attestation cover object for Altair or later.
     pub fn new_for_altair(
-        att: &'a Attestation<T>,
+        att: AttestationRef<'a, T>,
         state: &BeaconState<T>,
+        reward_cache: &'a RewardCache,
         total_active_balance: u64,
         spec: &ChainSpec,
     ) -> Option<Self> {
-        let committee = state
-            .get_beacon_committee(att.data.slot, att.data.index)
-            .ok()?;
-        let attesting_indices =
-            get_attesting_indices::<T>(committee.committee, &att.aggregation_bits).ok()?;
+        let att_data = att.attestation_data();
 
-        let participation_list = if att.data.target.epoch == state.current_epoch() {
-            state.current_epoch_participation().ok()?
-        } else if att.data.target.epoch == state.previous_epoch() {
-            state.previous_epoch_participation().ok()?
-        } else {
-            return None;
-        };
-
-        let inclusion_delay = state.slot().as_u64().checked_sub(att.data.slot.as_u64())?;
+        let inclusion_delay = state.slot().as_u64().checked_sub(att_data.slot.as_u64())?;
         let att_participation_flags =
-            get_attestation_participation_flag_indices(state, &att.data, inclusion_delay, spec)
+            get_attestation_participation_flag_indices(state, &att_data, inclusion_delay, spec)
                 .ok()?;
         let base_reward_per_increment =
             altair::BaseRewardPerIncrement::new(total_active_balance, spec).ok()?;
 
-        let fresh_validators_rewards = attesting_indices
+        let fresh_validators_rewards = att
+            .indexed
+            .attesting_indices
             .iter()
             .filter_map(|&index| {
+                if reward_cache
+                    .has_attested_in_epoch(index, att_data.target.epoch)
+                    .ok()?
+                {
+                    return None;
+                }
+
                 let mut proposer_reward_numerator = 0;
-                let participation = participation_list.get(index)?;
 
                 let base_reward =
-                    altair::get_base_reward(state, index, base_reward_per_increment, spec).ok()?;
+                    altair::get_base_reward(state, index as usize, base_reward_per_increment, spec)
+                        .ok()?;
 
                 for (flag_index, weight) in PARTICIPATION_FLAG_WEIGHTS.iter().enumerate() {
-                    if att_participation_flags.contains(&flag_index)
-                        && !participation.has_flag(flag_index).ok()?
-                    {
+                    if att_participation_flags.contains(&flag_index) {
                         proposer_reward_numerator += base_reward.checked_mul(*weight)?;
                     }
                 }
@@ -113,7 +112,7 @@ impl<'a, T: EthSpec> AttMaxCover<'a, T> {
                 let proposer_reward = proposer_reward_numerator
                     .checked_div(WEIGHT_DENOMINATOR.checked_mul(spec.proposer_reward_quotient)?)?;
 
-                Some((index as u64, proposer_reward)).filter(|_| proposer_reward != 0)
+                Some((index, proposer_reward)).filter(|_| proposer_reward != 0)
             })
             .collect();
 
@@ -126,10 +125,15 @@ impl<'a, T: EthSpec> AttMaxCover<'a, T> {
 
 impl<'a, T: EthSpec> MaxCover for AttMaxCover<'a, T> {
     type Object = Attestation<T>;
+    type Intermediate = AttestationRef<'a, T>;
     type Set = HashMap<u64, u64>;
 
-    fn object(&self) -> &Attestation<T> {
-        self.att
+    fn intermediate(&self) -> &AttestationRef<'a, T> {
+        &self.att
+    }
+
+    fn convert_to_object(att_ref: &AttestationRef<'a, T>) -> Attestation<T> {
+        att_ref.clone_as_attestation()
     }
 
     fn covering_set(&self) -> &HashMap<u64, u64> {
@@ -148,7 +152,7 @@ impl<'a, T: EthSpec> MaxCover for AttMaxCover<'a, T> {
     /// of slashable voting, which is rare.
     fn update_covering_set(
         &mut self,
-        best_att: &Attestation<T>,
+        best_att: &AttestationRef<'a, T>,
         covered_validators: &HashMap<u64, u64>,
     ) {
         if self.att.data.slot == best_att.data.slot && self.att.data.index == best_att.data.index {
@@ -172,16 +176,16 @@ impl<'a, T: EthSpec> MaxCover for AttMaxCover<'a, T> {
 ///
 /// This isn't optimal, but with the Altair fork this code is obsolete and not worth upgrading.
 pub fn earliest_attestation_validators<T: EthSpec>(
-    attestation: &Attestation<T>,
+    attestation: &AttestationRef<T>,
     state: &BeaconState<T>,
     base_state: &BeaconStateBase<T>,
 ) -> BitList<T::MaxValidatorsPerCommittee> {
     // Bitfield of validators whose attestations are new/fresh.
-    let mut new_validators = attestation.aggregation_bits.clone();
+    let mut new_validators = attestation.indexed.aggregation_bits.clone();
 
-    let state_attestations = if attestation.data.target.epoch == state.current_epoch() {
+    let state_attestations = if attestation.checkpoint.target_epoch == state.current_epoch() {
         &base_state.current_epoch_attestations
-    } else if attestation.data.target.epoch == state.previous_epoch() {
+    } else if attestation.checkpoint.target_epoch == state.previous_epoch() {
         &base_state.previous_epoch_attestations
     } else {
         return BitList::with_capacity(0).unwrap();

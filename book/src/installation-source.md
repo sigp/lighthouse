@@ -52,10 +52,9 @@ choco install cmake --installargs 'ADD_CMAKE_TO_PATH=System'
 choco install llvm
 ```
 
-These dependencies are for compiling Lighthouse natively on Windows, which is currently in beta
-testing. Lighthouse can also run successfully under the [Windows Subsystem for Linux (WSL)][WSL].
-If using Ubuntu under WSL, you should follow the instructions for Ubuntu listed in the [Dependencies
-(Ubuntu)](#ubuntu) section.
+These dependencies are for compiling Lighthouse natively on Windows. Lighthouse can also run
+successfully under the [Windows Subsystem for Linux (WSL)][WSL]. If using Ubuntu under WSL, you
+should follow the instructions for Ubuntu listed in the [Dependencies (Ubuntu)](#ubuntu) section.
 
 [WSL]: https://docs.microsoft.com/en-us/windows/wsl/about
 
@@ -137,6 +136,10 @@ See ["Configuring the `PATH` environment variable"
 ### Compilation error
 
 Make sure you are running the latest version of Rust. If you have installed Rust using rustup, simply type `rustup update`.
+
+If you can't install the latest version of Rust you can instead compile using the Minimum Supported
+Rust Version (MSRV) which is listed under the `rust-version` key in Lighthouse's
+[Cargo.toml](https://github.com/sigp/lighthouse/blob/stable/lighthouse/Cargo.toml).
 
 If compilation fails with `(signal: 9, SIGKILL: kill)`, this could mean your machine ran out of
 memory during compilation. If you are on a resource-constrained device you can

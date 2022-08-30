@@ -43,4 +43,5 @@ fork_choice = { path = "../../consensus/fork_choice" }
 mev-build-rs = {git = "https://github.com/ralexstokes/mev-rs", tag = "v0.2.0"}
 ethereum-consensus = {git = "https://github.com/ralexstokes/ethereum-consensus"}
 ssz-rs = {git = "https://github.com/ralexstokes/ssz-rs"}
+tokio-stream = { version = "0.1.9", features = [ "sync" ] }
 strum = "0.24.0"

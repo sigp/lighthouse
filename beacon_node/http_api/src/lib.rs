@@ -25,10 +25,10 @@ use beacon_chain::{
     BeaconChainTypes, ProduceBlockVerification, WhenSlotSkipped,
 };
 pub use block_id::BlockId;
-use eth2::types::{self as api_types, EndpointVersion, ValidatorId};
+use eth2::types::{self as api_types, EndpointVersion, ValidatorId, ValidatorStatus};
 use lighthouse_network::{types::SyncState, EnrExt, NetworkGlobals, PeerId, PubsubMessage};
 use lighthouse_version::version_with_platform;
-use network::NetworkMessage;
+use network::{NetworkMessage, NetworkSenders, ValidatorSubscriptionMessage};
 use serde::{Deserialize, Serialize};
 use slog::{crit, debug, error, info, warn, Logger};
 use slot_clock::SlotClock;
@@ -41,14 +41,15 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::Arc;
-use tokio::sync::mpsc::UnboundedSender;
+use tokio::sync::mpsc::{Sender, UnboundedSender};
 use tokio_stream::{wrappers::BroadcastStream, StreamExt};
 use types::{
-    Attestation, AttesterSlashing, BeaconStateError, BlindedPayload, CommitteeCache,
-    ConfigAndPreset, Epoch, EthSpec, ForkName, FullPayload, ProposerPreparationData,
-    ProposerSlashing, RelativeEpoch, Signature, SignedAggregateAndProof, SignedBeaconBlock,
-    SignedBlindedBeaconBlock, SignedContributionAndProof, SignedValidatorRegistrationData,
-    SignedVoluntaryExit, Slot, SyncCommitteeMessage, SyncContributionData,
+    Attestation, AttestationData, AttesterSlashing, BeaconStateError, BlindedPayload,
+    CommitteeCache, ConfigAndPreset, Epoch, EthSpec, ForkName, FullPayload,
+    ProposerPreparationData, ProposerSlashing, RelativeEpoch, Signature, SignedAggregateAndProof,
+    SignedBeaconBlock, SignedBlindedBeaconBlock, SignedContributionAndProof,
+    SignedValidatorRegistrationData, SignedVoluntaryExit, Slot, SyncCommitteeMessage,
+    SyncContributionData,
 };
 use version::{
     add_consensus_version_header, execution_optimistic_fork_versioned_response,
@@ -91,7 +92,7 @@ pub struct TlsConfig {
 pub struct Context<T: BeaconChainTypes> {
     pub config: Config,
     pub chain: Option<Arc<BeaconChain<T>>>,
-    pub network_tx: Option<UnboundedSender<NetworkMessage<T::EthSpec>>>,
+    pub network_senders: Option<NetworkSenders<T::EthSpec>>,
     pub network_globals: Option<Arc<NetworkGlobals<T::EthSpec>>>,
     pub eth1_service: Option<eth1::Service>,
     pub log: Logger,
@@ -335,14 +336,35 @@ pub fn serve<T: BeaconChainTypes>(
             });
 
     // Create a `warp` filter that provides access to the network sender channel.
-    let inner_ctx = ctx.clone();
-    let network_tx_filter = warp::any()
-        .map(move || inner_ctx.network_tx.clone())
-        .and_then(|network_tx| async move {
-            match network_tx {
-                Some(network_tx) => Ok(network_tx),
+    let network_tx = ctx
+        .network_senders
+        .as_ref()
+        .map(|senders| senders.network_send());
+    let network_tx_filter =
+        warp::any()
+            .map(move || network_tx.clone())
+            .and_then(|network_tx| async move {
+                match network_tx {
+                    Some(network_tx) => Ok(network_tx),
+                    None => Err(warp_utils::reject::custom_not_found(
+                        "The networking stack has not yet started (network_tx).".to_string(),
+                    )),
+                }
+            });
+
+    // Create a `warp` filter that provides access to the network attestation subscription channel.
+    let validator_subscriptions_tx = ctx
+        .network_senders
+        .as_ref()
+        .map(|senders| senders.validator_subscription_send());
+    let validator_subscription_tx_filter = warp::any()
+        .map(move || validator_subscriptions_tx.clone())
+        .and_then(|validator_subscriptions_tx| async move {
+            match validator_subscriptions_tx {
+                Some(validator_subscriptions_tx) => Ok(validator_subscriptions_tx),
                 None => Err(warp_utils::reject::custom_not_found(
-                    "The networking stack has not yet started.".to_string(),
+                    "The networking stack has not yet started (validator_subscription_tx)."
+                        .to_string(),
                 )),
             }
         });
@@ -1304,13 +1326,11 @@ pub fn serve<T: BeaconChainTypes>(
         .and_then(
             |chain: Arc<BeaconChain<T>>, query: api_types::AttestationPoolQuery| {
                 blocking_json_task(move || {
-                    let query_filter = |attestation: &Attestation<T::EthSpec>| {
-                        query
-                            .slot
-                            .map_or(true, |slot| slot == attestation.data.slot)
+                    let query_filter = |data: &AttestationData| {
+                        query.slot.map_or(true, |slot| slot == data.slot)
                             && query
                                 .committee_index
-                                .map_or(true, |index| index == attestation.data.index)
+                                .map_or(true, |index| index == data.index)
                     };
 
                     let mut attestations = chain.op_pool.get_filtered_attestations(query_filter);
@@ -1320,7 +1340,7 @@ pub fn serve<T: BeaconChainTypes>(
                             .read()
                             .iter()
                             .cloned()
-                            .filter(query_filter),
+                            .filter(|att| query_filter(&att.data)),
                     );
                     Ok(api_types::GenericResponse::from(attestations))
                 })
@@ -2083,7 +2103,7 @@ pub fn serve<T: BeaconChainTypes>(
                     .to_ref()
                     .fork_name(&chain.spec)
                     .map_err(inconsistent_fork_rejection)?;
-                // Pose as a V2 endpoint so we return the fork `version`. 
+                // Pose as a V2 endpoint so we return the fork `version`.
                 fork_versioned_response(V2, fork_name, block)
                     .map(|response| warp::reply::json(&response))
             },
@@ -2316,12 +2336,13 @@ pub fn serve<T: BeaconChainTypes>(
                                 );
                             failures.push(api_types::Failure::new(index, format!("Fork choice: {:?}", e)));
                         }
-                        if let Err(e) = chain.add_to_block_inclusion_pool(&verified_aggregate) {
-                            warn!(log,
-                                    "Could not add verified aggregate attestation to the inclusion pool";
-                                    "error" => format!("{:?}", e),
-                                    "request_index" => index,
-                                );
+                        if let Err(e) = chain.add_to_block_inclusion_pool(verified_aggregate) {
+                            warn!(
+                                log,
+                                "Could not add verified aggregate attestation to the inclusion pool";
+                                "error" => ?e,
+                                "request_index" => index,
+                            );
                             failures.push(api_types::Failure::new(index, format!("Op pool: {:?}", e)));
                         }
                     }
@@ -2344,7 +2365,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(not_while_syncing_filter.clone())
         .and(chain_filter.clone())
         .and(warp::body::json())
-        .and(network_tx_filter.clone())
+        .and(network_tx_filter)
         .and(log_filter.clone())
         .and_then(
             |chain: Arc<BeaconChain<T>>,
@@ -2369,12 +2390,14 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path("beacon_committee_subscriptions"))
         .and(warp::path::end())
         .and(warp::body::json())
-        .and(network_tx_filter.clone())
+        .and(validator_subscription_tx_filter.clone())
         .and(chain_filter.clone())
+        .and(log_filter.clone())
         .and_then(
             |subscriptions: Vec<api_types::BeaconCommitteeSubscription>,
-             network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
-             chain: Arc<BeaconChain<T>>| {
+             validator_subscription_tx: Sender<ValidatorSubscriptionMessage>,
+             chain: Arc<BeaconChain<T>>,
+             log: Logger| {
                 blocking_json_task(move || {
                     for subscription in &subscriptions {
                         chain
@@ -2382,7 +2405,7 @@ pub fn serve<T: BeaconChainTypes>(
                             .write()
                             .auto_register_local_validator(subscription.validator_index);
 
-                        let subscription = api_types::ValidatorSubscription {
+                        let validator_subscription = api_types::ValidatorSubscription {
                             validator_index: subscription.validator_index,
                             attestation_committee_index: subscription.committee_index,
                             slot: subscription.slot,
@@ -2390,12 +2413,20 @@ pub fn serve<T: BeaconChainTypes>(
                             is_aggregator: subscription.is_aggregator,
                         };
 
-                        publish_network_message(
-                            &network_tx,
-                            NetworkMessage::AttestationSubscribe {
-                                subscriptions: vec![subscription],
-                            },
-                        )?;
+                        let message = ValidatorSubscriptionMessage::AttestationSubscribe {
+                            subscriptions: vec![validator_subscription],
+                        };
+                        if let Err(e) = validator_subscription_tx.try_send(message) {
+                            warn!(
+                                log,
+                                "Unable to process committee subscriptions";
+                                "info" => "the host may be overloaded or resource-constrained",
+                                "error" => ?e,
+                            );
+                            return Err(warp_utils::reject::custom_server_error(
+                                "unable to queue subscription, host may be overloaded or shutting down".to_string(),
+                            ));
+                        }
                     }
 
                     Ok(())
@@ -2481,19 +2512,47 @@ pub fn serve<T: BeaconChainTypes>(
                     "count" => register_val_data.len(),
                 );
 
-                let preparation_data = register_val_data
-                    .iter()
+                let head_snapshot = chain.head_snapshot();
+                let spec = &chain.spec;
+
+                let (preparation_data, filtered_registration_data): (
+                    Vec<ProposerPreparationData>,
+                    Vec<SignedValidatorRegistrationData>,
+                ) = register_val_data
+                    .into_iter()
                     .filter_map(|register_data| {
                         chain
                             .validator_index(&register_data.message.pubkey)
                             .ok()
                             .flatten()
-                            .map(|validator_index| ProposerPreparationData {
-                                validator_index: validator_index as u64,
-                                fee_recipient: register_data.message.fee_recipient,
+                            .and_then(|validator_index| {
+                                let validator = head_snapshot
+                                    .beacon_state
+                                    .get_validator(validator_index)
+                                    .ok()?;
+                                let validator_status = ValidatorStatus::from_validator(
+                                    validator,
+                                    current_epoch,
+                                    spec.far_future_epoch,
+                                )
+                                .superstatus();
+                                let is_active_or_pending =
+                                    matches!(validator_status, ValidatorStatus::Pending)
+                                        || matches!(validator_status, ValidatorStatus::Active);
+
+                                // Filter out validators who are not 'active' or 'pending'.
+                                is_active_or_pending.then(|| {
+                                    (
+                                        ProposerPreparationData {
+                                            validator_index: validator_index as u64,
+                                            fee_recipient: register_data.message.fee_recipient,
+                                        },
+                                        register_data,
+                                    )
+                                })
                             })
                     })
-                    .collect::<Vec<_>>();
+                    .unzip();
 
                 // Update the prepare beacon proposer cache based on this request.
                 execution_layer
@@ -2522,11 +2581,11 @@ pub fn serve<T: BeaconChainTypes>(
                 info!(
                     log,
                     "Forwarding register validator request to connected builder";
-                    "count" => register_val_data.len(),
+                    "count" => filtered_registration_data.len(),
                 );
 
                 builder
-                    .post_builder_validators(&register_val_data)
+                    .post_builder_validators(&filtered_registration_data)
                     .await
                     .map(|resp| warp::reply::json(&resp))
                     .map_err(|e| {
@@ -2552,12 +2611,15 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path("sync_committee_subscriptions"))
         .and(warp::path::end())
         .and(warp::body::json())
-        .and(network_tx_filter)
+        .and(validator_subscription_tx_filter)
         .and(chain_filter.clone())
+        .and(log_filter.clone())
         .and_then(
             |subscriptions: Vec<types::SyncCommitteeSubscription>,
-             network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
-             chain: Arc<BeaconChain<T>>| {
+             validator_subscription_tx: Sender<ValidatorSubscriptionMessage>,
+             chain: Arc<BeaconChain<T>>,
+             log: Logger
+             | {
                 blocking_json_task(move || {
                     for subscription in subscriptions {
                         chain
@@ -2565,12 +2627,20 @@ pub fn serve<T: BeaconChainTypes>(
                             .write()
                             .auto_register_local_validator(subscription.validator_index);
 
-                        publish_network_message(
-                            &network_tx,
-                            NetworkMessage::SyncCommitteeSubscribe {
+                        let message = ValidatorSubscriptionMessage::SyncCommitteeSubscribe {
                                 subscriptions: vec![subscription],
-                            },
-                        )?;
+                            };
+                        if let Err(e) = validator_subscription_tx.try_send(message) {
+                            warn!(
+                                log,
+                                "Unable to process sync subscriptions";
+                                "info" => "the host may be overloaded or resource-constrained",
+                                "error" => ?e
+                            );
+                            return Err(warp_utils::reject::custom_server_error(
+                                "unable to queue subscription, host may be overloaded or shutting down".to_string(),
+                            ));
+                        }
                     }
 
                     Ok(())

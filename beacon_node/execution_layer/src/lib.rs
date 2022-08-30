@@ -10,8 +10,8 @@ use builder_client::BuilderHttpClient;
 use engine_api::Error as ApiError;
 pub use engine_api::*;
 pub use engine_api::{http, http::deposit_methods, http::HttpJsonRpc};
-pub use engines::ForkChoiceState;
 use engines::{Engine, EngineError};
+pub use engines::{EngineState, ForkChoiceState};
 use fork_choice::ForkchoiceUpdateParameters;
 use lru::LruCache;
 use payload_status::process_payload_status;
@@ -31,6 +31,7 @@ use tokio::{
     sync::{Mutex, MutexGuard, RwLock},
     time::sleep,
 };
+use tokio_stream::wrappers::WatchStream;
 use types::{
     BlindedPayload, BlockType, ChainSpec, Epoch, ExecPayload, ExecutionBlockHash, ForkName,
     ProposerPreparationData, PublicKeyBytes, SignedBeaconBlock, Slot,
@@ -284,6 +285,13 @@ impl<T: EthSpec> ExecutionLayer<T> {
         &self,
     ) -> MutexGuard<'_, LruCache<ExecutionBlockHash, ExecutionBlock>> {
         self.inner.execution_blocks.lock().await
+    }
+
+    /// Gives access to a channel containing if the last engine state is online or not.
+    ///
+    /// This can be called several times.
+    pub async fn get_responsiveness_watch(&self) -> WatchStream<EngineState> {
+        self.engine().watch_state().await
     }
 
     /// Note: this function returns a mutex guard, be careful to avoid deadlocks.

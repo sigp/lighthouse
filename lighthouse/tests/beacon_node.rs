@@ -133,6 +133,21 @@ fn fork_choice_before_proposal_timeout_zero() {
 }
 
 #[test]
+fn paranoid_block_proposal_default() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| assert!(!config.chain.paranoid_block_proposal));
+}
+
+#[test]
+fn paranoid_block_proposal_on() {
+    CommandLineTest::new()
+        .flag("paranoid-block-proposal", None)
+        .run_with_zero_port()
+        .with_config(|config| assert!(config.chain.paranoid_block_proposal));
+}
+
+#[test]
 fn count_unrealized_default() {
     CommandLineTest::new()
         .run_with_zero_port()
@@ -161,6 +176,21 @@ fn count_unrealized_true() {
         .flag("count-unrealized", Some("true"))
         .run_with_zero_port()
         .with_config(|config| assert!(config.chain.count_unrealized));
+}
+
+#[test]
+fn reset_payload_statuses_default() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| assert!(!config.chain.always_reset_payload_statuses));
+}
+
+#[test]
+fn reset_payload_statuses_present() {
+    CommandLineTest::new()
+        .flag("reset-payload-statuses", None)
+        .run_with_zero_port()
+        .with_config(|config| assert!(config.chain.always_reset_payload_statuses));
 }
 
 #[test]
