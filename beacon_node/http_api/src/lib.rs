@@ -2417,10 +2417,11 @@ pub fn serve<T: BeaconChainTypes>(
                             subscriptions: vec![validator_subscription],
                         };
                         if let Err(e) = validator_subscription_tx.try_send(message) {
-                            error!(
+                            warn!(
                                 log,
                                 "Unable to process committee subscriptions";
-                                "error" => ?e
+                                "info" => "the host may be overloaded or resource-constrained",
+                                "error" => ?e,
                             );
                             return Err(warp_utils::reject::custom_server_error(
                                 "unable to queue subscription, host may be overloaded or shutting down".to_string(),
@@ -2630,9 +2631,10 @@ pub fn serve<T: BeaconChainTypes>(
                                 subscriptions: vec![subscription],
                             };
                         if let Err(e) = validator_subscription_tx.try_send(message) {
-                            error!(
+                            warn!(
                                 log,
                                 "Unable to process sync subscriptions";
+                                "info" => "the host may be overloaded or resource-constrained",
                                 "error" => ?e
                             );
                             return Err(warp_utils::reject::custom_server_error(
