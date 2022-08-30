@@ -406,7 +406,7 @@ async fn poll_validator_indices<T: SlotClock + 'static, E: EthSpec>(
                 .map(|fr| fr.to_string())
                 .unwrap_or_else(|| {
                     "Fee recipient for validator not set in validator_definitions.yml \
-                    or provided with the `--suggested-fee-recipient flag`"
+                    or provided with the `--suggested-fee-recipient` flag"
                         .to_string()
                 });
             match download_result {
