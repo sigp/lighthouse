@@ -22,6 +22,7 @@ def build_fuzz_target(args):
         ],
         stdout=sys.stdout,
         stderr=sys.stderr,
+        check=True,
     )
 
 def build_repro_target(args):
@@ -41,6 +42,7 @@ def build_repro_target(args):
         ],
         stdout=sys.stdout,
         stderr=sys.stderr,
+        check=True,
     )
 
 def fuzz_command(i):
@@ -139,7 +141,8 @@ def parse_args():
     run_parser = subparsers.add_parser("run", help="Start a fuzzing session with AFL")
     run_parser.add_argument("--spec", default="mainnet")
     run_parser.add_argument("--num-workers", metavar="N", type=int, default=1)
-    run_parser.add_argument("--reorg-limit", metavar="N", type=int, default=5)
+    # FIXME(hydra): plumb through re-org limit
+    # run_parser.add_argument("--reorg-limit", metavar="N", type=int, default=5)
     run_parser.add_argument("--session", metavar="NAME", type=str, default="hydra")
     run_parser.add_argument("--worker-offset", metavar="N", type=int, default=0)
     run_parser.set_defaults(func=run)
