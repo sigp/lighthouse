@@ -1,7 +1,8 @@
 # Moving Validators
 
 This document describes the steps to move validators between two validator clients (VCs) which are
-able to SSH between each other. This guides assumes some experience with the Linux command line.
+able to SSH between each other. This guides assumes experience with the Linux command line and SSH
+connections.
 
 There will be two VCs in this example:
 
@@ -79,6 +80,9 @@ this terminal window then the connection between the destination and source host
 
 ### 5. Move
 
+With the SSH tunnel established between the `dest-host` and `src-host`, from the **destination
+host** run the command to move the validators:
+
 ```
 lighthouse \
 	validator-manager \
@@ -87,9 +91,11 @@ lighthouse \
 	--src-vc-url http://localhost:6062 \
 	--src-vc-token ~/src-token.txt \
 	--dest-vc-url http://localhost:5062 \
-	--dest-vc-token ~/dest-token.txt \
+	--dest-vc-token ~/.lighthouse/mainnet/validators/api-token.txt \
 	--validators all \
 ```
+
+
 
 ----
 
