@@ -3,6 +3,7 @@ use crate::{
     duties_service::{DutiesService, DutyAndProof},
     http_metrics::metrics,
     validator_store::ValidatorStore,
+    OfflineOnFailure,
 };
 use environment::RuntimeContext;
 use futures::future::join_all;
@@ -337,17 +338,21 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
 
         let attestation_data = self
             .beacon_nodes
-            .first_success(RequireSynced::No, |beacon_node| async move {
-                let _timer = metrics::start_timer_vec(
-                    &metrics::ATTESTATION_SERVICE_TIMES,
-                    &[metrics::ATTESTATIONS_HTTP_GET],
-                );
-                beacon_node
-                    .get_validator_attestation_data(slot, committee_index)
-                    .await
-                    .map_err(|e| format!("Failed to produce attestation data: {:?}", e))
-                    .map(|result| result.data)
-            })
+            .first_success(
+                RequireSynced::No,
+                OfflineOnFailure::Yes,
+                |beacon_node| async move {
+                    let _timer = metrics::start_timer_vec(
+                        &metrics::ATTESTATION_SERVICE_TIMES,
+                        &[metrics::ATTESTATIONS_HTTP_GET],
+                    );
+                    beacon_node
+                        .get_validator_attestation_data(slot, committee_index)
+                        .await
+                        .map_err(|e| format!("Failed to produce attestation data: {:?}", e))
+                        .map(|result| result.data)
+                },
+            )
             .await
             .map_err(|e| e.to_string())?;
 
@@ -414,15 +419,19 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
         // Post the attestations to the BN.
         match self
             .beacon_nodes
-            .first_success(RequireSynced::No, |beacon_node| async move {
-                let _timer = metrics::start_timer_vec(
-                    &metrics::ATTESTATION_SERVICE_TIMES,
-                    &[metrics::ATTESTATIONS_HTTP_POST],
-                );
-                beacon_node
-                    .post_beacon_pool_attestations(attestations)
-                    .await
-            })
+            .first_success(
+                RequireSynced::No,
+                OfflineOnFailure::Yes,
+                |beacon_node| async move {
+                    let _timer = metrics::start_timer_vec(
+                        &metrics::ATTESTATION_SERVICE_TIMES,
+                        &[metrics::ATTESTATIONS_HTTP_POST],
+                    );
+                    beacon_node
+                        .post_beacon_pool_attestations(attestations)
+                        .await
+                },
+            )
             .await
         {
             Ok(()) => info!(
@@ -470,21 +479,27 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
 
         let aggregated_attestation = &self
             .beacon_nodes
-            .first_success(RequireSynced::No, |beacon_node| async move {
-                let _timer = metrics::start_timer_vec(
-                    &metrics::ATTESTATION_SERVICE_TIMES,
-                    &[metrics::AGGREGATES_HTTP_GET],
-                );
-                beacon_node
-                    .get_validator_aggregate_attestation(
-                        attestation_data.slot,
-                        attestation_data.tree_hash_root(),
-                    )
-                    .await
-                    .map_err(|e| format!("Failed to produce an aggregate attestation: {:?}", e))?
-                    .ok_or_else(|| format!("No aggregate available for {:?}", attestation_data))
-                    .map(|result| result.data)
-            })
+            .first_success(
+                RequireSynced::No,
+                OfflineOnFailure::Yes,
+                |beacon_node| async move {
+                    let _timer = metrics::start_timer_vec(
+                        &metrics::ATTESTATION_SERVICE_TIMES,
+                        &[metrics::AGGREGATES_HTTP_GET],
+                    );
+                    beacon_node
+                        .get_validator_aggregate_attestation(
+                            attestation_data.slot,
+                            attestation_data.tree_hash_root(),
+                        )
+                        .await
+                        .map_err(|e| {
+                            format!("Failed to produce an aggregate attestation: {:?}", e)
+                        })?
+                        .ok_or_else(|| format!("No aggregate available for {:?}", attestation_data))
+                        .map(|result| result.data)
+                },
+            )
             .await
             .map_err(|e| e.to_string())?;
 
@@ -535,15 +550,19 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
             let signed_aggregate_and_proofs_slice = signed_aggregate_and_proofs.as_slice();
             match self
                 .beacon_nodes
-                .first_success(RequireSynced::No, |beacon_node| async move {
-                    let _timer = metrics::start_timer_vec(
-                        &metrics::ATTESTATION_SERVICE_TIMES,
-                        &[metrics::AGGREGATES_HTTP_POST],
-                    );
-                    beacon_node
-                        .post_validator_aggregate_and_proof(signed_aggregate_and_proofs_slice)
-                        .await
-                })
+                .first_success(
+                    RequireSynced::No,
+                    OfflineOnFailure::Yes,
+                    |beacon_node| async move {
+                        let _timer = metrics::start_timer_vec(
+                            &metrics::ATTESTATION_SERVICE_TIMES,
+                            &[metrics::AGGREGATES_HTTP_POST],
+                        );
+                        beacon_node
+                            .post_validator_aggregate_and_proof(signed_aggregate_and_proofs_slice)
+                            .await
+                    },
+                )
                 .await
             {
                 Ok(()) => {

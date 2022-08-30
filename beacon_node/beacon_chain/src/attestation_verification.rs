@@ -318,10 +318,17 @@ impl<'a, T: BeaconChainTypes> Clone for IndexedUnaggregatedAttestation<'a, T> {
 
 /// A helper trait implemented on wrapper types that can be progressed to a state where they can be
 /// verified for application to fork choice.
-pub trait VerifiedAttestation<T: BeaconChainTypes> {
+pub trait VerifiedAttestation<T: BeaconChainTypes>: Sized {
     fn attestation(&self) -> &Attestation<T::EthSpec>;
 
     fn indexed_attestation(&self) -> &IndexedAttestation<T::EthSpec>;
+
+    // Inefficient default implementation. This is overridden for gossip verified attestations.
+    fn into_attestation_and_indices(self) -> (Attestation<T::EthSpec>, Vec<u64>) {
+        let attestation = self.attestation().clone();
+        let attesting_indices = self.indexed_attestation().attesting_indices.clone().into();
+        (attestation, attesting_indices)
+    }
 }
 
 impl<'a, T: BeaconChainTypes> VerifiedAttestation<T> for VerifiedAggregatedAttestation<'a, T> {

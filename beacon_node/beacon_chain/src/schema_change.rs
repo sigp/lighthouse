@@ -1,6 +1,7 @@
 //! Utilities for managing database schema changes.
 mod migration_schema_v10;
 mod migration_schema_v11;
+mod migration_schema_v12;
 mod migration_schema_v6;
 mod migration_schema_v7;
 mod migration_schema_v8;
@@ -195,6 +196,16 @@ pub fn migrate_schema<T: BeaconChainTypes>(
             db.store_schema_version_atomically(to, ops)?;
 
             Ok(())
+        }
+        // Upgrade from v11 to v12 to store richer metadata in the attestation op pool.
+        (SchemaVersion(11), SchemaVersion(12)) => {
+            let ops = migration_schema_v12::upgrade_to_v12::<T>(db.clone(), log)?;
+            db.store_schema_version_atomically(to, ops)
+        }
+        // Downgrade from v12 to v11 to drop richer metadata from the attestation op pool.
+        (SchemaVersion(12), SchemaVersion(11)) => {
+            let ops = migration_schema_v12::downgrade_from_v12::<T>(db.clone(), log)?;
+            db.store_schema_version_atomically(to, ops)
         }
         // Anything else is an error.
         (_, _) => Err(HotColdDBError::UnsupportedSchemaVersion {

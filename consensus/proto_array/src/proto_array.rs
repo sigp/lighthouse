@@ -16,7 +16,7 @@ four_byte_option_impl!(four_byte_option_usize, usize);
 four_byte_option_impl!(four_byte_option_checkpoint, Checkpoint);
 
 /// Defines an operation which may invalidate the `execution_status` of some nodes.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum InvalidationOperation {
     /// Invalidate only `block_root` and it's descendants. Don't invalidate any ancestors.
     InvalidateOne { block_root: Hash256 },
