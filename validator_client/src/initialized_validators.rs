@@ -642,16 +642,6 @@ impl InitializedValidators {
             .and_then(|v| v.suggested_fee_recipient)
     }
 
-    /// Returns an iterator over all validator public keys with their associated suggested
-    /// fee recipient set in the validator definitions file.
-    pub fn suggested_fee_recipients(
-        &self,
-    ) -> impl Iterator<Item = (&PublicKeyBytes, Option<Address>)> {
-        self.validators
-            .iter()
-            .map(|(pk, val)| (pk, val.get_suggested_fee_recipient()))
-    }
-
     /// Returns the `gas_limit` for a given public key specified in the
     /// `ValidatorDefinitions`.
     pub fn gas_limit(&self, public_key: &PublicKeyBytes) -> Option<u64> {
