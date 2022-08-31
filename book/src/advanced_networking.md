@@ -63,7 +63,7 @@ settings allow you construct your initial ENR. Their primary intention is for
 setting up boot-like nodes and having a contactable ENR on boot. On normal
 operation of a Lighthouse node, none of these flags need to be set. Setting
 these flags incorrectly can lead to your node being incorrectly added to the
-global DHT which will degrades the discovery process for all Ethereum consensus peers.
+global DHT which will degrade the discovery process for all Ethereum consensus peers.
 
 The ENR of a Lighthouse node is initially set to be non-contactable. The
 in-built discovery mechanism can determine if your node is publicly accessible,
