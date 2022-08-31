@@ -496,6 +496,11 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
     ///
     /// First this function will try all nodes with a suitable status. If no candidates are suitable
     /// it will try updating the status of all unsuitable nodes and re-running `func` again.
+    ///
+    /// Note: This function returns `Ok(())` if `func` returned successfully on all beacon nodes.
+    /// It returns a list of errors along with the beacon node id that failed for `func`.
+    /// Since this ignores the actual result of `func`, this function should only be used for beacon
+    /// node calls whose results we do not care about, only that they completed successfully.
     pub async fn run_on_all<'a, F, O, Err, R>(
         &'a self,
         require_synced: RequireSynced,
@@ -546,23 +551,15 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
         // This ensures that we always choose a synced node if it is available.
         for candidate in &self.candidates {
             match candidate.status(RequireSynced::Yes).await {
-                Err(e @ CandidateError::NotSynced) if require_synced == false => {
+                Err(CandidateError::NotSynced) if require_synced == false => {
                     // This client is unsynced we will try it after trying all synced clients
                     retry_unsynced.push(candidate);
-                    results.push(Err((
-                        candidate.beacon_node.to_string(),
-                        Error::Unavailable(e),
-                    )));
                 }
-                Err(e) => {
+                Err(_) => {
                     // This client was not ready on the first pass, we might try it again later.
                     to_retry.push(candidate);
-                    results.push(Err((
-                        candidate.beacon_node.to_string(),
-                        Error::Unavailable(e),
-                    )));
                 }
-                _ => try_func!(candidate),
+                Ok(_) => try_func!(candidate),
             }
         }
 
