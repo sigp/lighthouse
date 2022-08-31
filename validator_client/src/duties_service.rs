@@ -574,8 +574,8 @@ async fn poll_beacon_attesters<T: SlotClock + 'static, E: EthSpec>(
     // If there are any subscriptions, push them out to beacon nodes
     if !subscriptions.is_empty() {
         let subscriptions_ref = &subscriptions;
-        if duties_service.disable_publish_subscriptions_all {
-            if let Err(e) = duties_service
+        if let Err(e) = if duties_service.disable_publish_subscriptions_all {
+            duties_service
                 .beacon_nodes
                 .first_success(
                     duties_service.require_synced,
@@ -591,15 +591,8 @@ async fn poll_beacon_attesters<T: SlotClock + 'static, E: EthSpec>(
                     },
                 )
                 .await
-            {
-                error!(
-                    log,
-                    "Failed to subscribe validators";
-                    "error" => %e
-                )
-            }
         } else {
-            let results = duties_service
+            duties_service
                 .beacon_nodes
                 .run_on_all(
                     duties_service.require_synced,
@@ -614,15 +607,14 @@ async fn poll_beacon_attesters<T: SlotClock + 'static, E: EthSpec>(
                             .await
                     },
                 )
-                .await;
-            if results.0.iter().any(|res| res.is_err()) {
-                error!(
-                    log,
-                    "Failed to subscribe validators";
-                    "error" => %results
-                )
-            }
-        };
+                .await
+        } {
+            error!(
+                log,
+                "Failed to subscribe validators";
+                "error" => %e
+            )
+        }
     }
 
     drop(subscriptions_timer);

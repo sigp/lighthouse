@@ -566,9 +566,8 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
             );
         }
 
-        if self.duties_service.disable_publish_subscriptions_all {
-            if let Err(e) = self
-                .beacon_nodes
+        if let Err(e) = if self.duties_service.disable_publish_subscriptions_all {
+            self.beacon_nodes
                 .first_success(
                     RequireSynced::No,
                     OfflineOnFailure::Yes,
@@ -579,18 +578,8 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
                     },
                 )
                 .await
-            {
-                error!(
-                    log,
-                    "Unable to post sync committee subscriptions";
-                    "slot" => slot,
-                    "error" => %e,
-                );
-                all_succeeded = false;
-            }
         } else {
-            let results = self
-                .beacon_nodes
+            self.beacon_nodes
                 .run_on_all(
                     RequireSynced::No,
                     OfflineOnFailure::Yes,
@@ -600,19 +589,15 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
                             .await
                     },
                 )
-                .await;
-
-            if results.0.iter().all(|res| res.is_err()) {
-                all_succeeded = false;
-            }
-            if results.0.iter().any(|res| res.is_err()) {
-                error!(
-                    log,
-                    "Unable to post sync committee subscriptions";
-                    "slot" => slot,
-                    "error" => %results,
-                );
-            }
+                .await
+        } {
+            error!(
+                log,
+                "Unable to post sync committee subscriptions";
+                "slot" => slot,
+                "error" => %e,
+            );
+            all_succeeded = false;
         }
 
         // Disable first-subscription latch once all duties have succeeded once.

@@ -105,31 +105,17 @@ impl<E> Error<E> {
 }
 
 /// The list of errors encountered whilst attempting to perform a query.
-pub struct AllErrored<E>(pub Vec<(String, Error<E>)>);
+pub struct Errors<E>(pub Vec<(String, Error<E>)>);
 
-impl<E: Debug> fmt::Display for AllErrored<E> {
+impl<E: Debug> fmt::Display for Errors<E> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "All endpoints failed")?;
+        if self.0.len() > 1 {
+            write!(f, "Some endpoints failed")?;
+        }
         for (i, (id, error)) in self.0.iter().enumerate() {
             let comma = if i + 1 < self.0.len() { "," } else { "" };
 
             write!(f, " {} => {:?}{}", id, error, comma)?;
-        }
-        Ok(())
-    }
-}
-
-/// The list of errors encountered whilst attempting to perform a query.
-pub struct Results<R, E>(pub Vec<Result<R, (String, Error<E>)>>);
-
-impl<E: Debug, R> fmt::Display for Results<R, E> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Some endpoints failed")?;
-        for (i, res) in self.0.iter().enumerate() {
-            let comma = if i + 1 < self.0.len() { "," } else { "" };
-            if let Err((id, error)) = res {
-                write!(f, " {} => {:?}{}", id, error, comma)?;
-            }
         }
         Ok(())
     }
@@ -412,7 +398,7 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
         require_synced: RequireSynced,
         offline_on_failure: OfflineOnFailure,
         func: F,
-    ) -> Result<O, AllErrored<Err>>
+    ) -> Result<O, Errors<Err>>
     where
         F: Fn(&'a BeaconNodeHttpClient) -> R,
         R: Future<Output = Result<O, Err>>,
@@ -502,7 +488,7 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
         }
 
         // There were no candidates already ready and we were unable to make any of them ready.
-        Err(AllErrored(errors))
+        Err(Errors(errors))
     }
 
     /// Run `func` against all candidates in `self`, collecting the result of func against each
@@ -515,7 +501,7 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
         require_synced: RequireSynced,
         offline_on_failure: OfflineOnFailure,
         func: F,
-    ) -> Results<O, Err>
+    ) -> Result<(), Errors<Err>>
     where
         F: Fn(&'a BeaconNodeHttpClient) -> R,
         R: Future<Output = Result<O, Err>>,
@@ -616,6 +602,12 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
             }
         }
 
-        Results(results)
+        let errors: Vec<_> = results.into_iter().filter_map(|res| res.err()).collect();
+
+        if errors.len() > 0 {
+            Err(Errors(errors))
+        } else {
+            Ok(())
+        }
     }
 }
