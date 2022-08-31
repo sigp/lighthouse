@@ -16,7 +16,7 @@ use types::*;
 pub use types::ProcessType;
 
 /// Duration after which we collect and send metrics to remote endpoint.
-pub const DEFAULT_UPDATE_DURATION: u64 = 120;
+pub const DEFAULT_UPDATE_DURATION: u64 = 60;
 /// Timeout for HTTP requests.
 pub const TIMEOUT_DURATION: u64 = 5;
 
