@@ -17,7 +17,7 @@ use crate::{
 };
 use eth1::Config as Eth1Config;
 use execution_layer::ExecutionLayer;
-use fork_choice::ForkChoice;
+use fork_choice::{ForkChoice, ResetPayloadStatuses};
 use futures::channel::mpsc::Sender;
 use operation_pool::{OperationPool, PersistedOperationPool};
 use parking_lot::RwLock;
@@ -245,7 +245,11 @@ where
         let fork_choice =
             BeaconChain::<Witness<TSlotClock, TEth1Backend, _, _, _>>::load_fork_choice(
                 store.clone(),
+                ResetPayloadStatuses::always_reset_conditionally(
+                    self.chain_config.always_reset_payload_statuses,
+                ),
                 &self.spec,
+                log,
             )
             .map_err(|e| format!("Unable to load fork choice from disk: {:?}", e))?
             .ok_or("Fork choice not found in store")?;

@@ -54,6 +54,12 @@ impl<T: BeaconChainTypes> VerifiedAttestation<T> for VerifiedUnaggregate<T> {
     fn indexed_attestation(&self) -> &IndexedAttestation<T::EthSpec> {
         &self.indexed_attestation
     }
+
+    fn into_attestation_and_indices(self) -> (Attestation<T::EthSpec>, Vec<u64>) {
+        let attestation = *self.attestation;
+        let attesting_indices = self.indexed_attestation.attesting_indices.into();
+        (attestation, attesting_indices)
+    }
 }
 
 /// An attestation that failed validation by the `BeaconChain`.
@@ -80,6 +86,13 @@ impl<T: BeaconChainTypes> VerifiedAttestation<T> for VerifiedAggregate<T> {
 
     fn indexed_attestation(&self) -> &IndexedAttestation<T::EthSpec> {
         &self.indexed_attestation
+    }
+
+    /// Efficient clone-free implementation that moves out of the `Box`.
+    fn into_attestation_and_indices(self) -> (Attestation<T::EthSpec>, Vec<u64>) {
+        let attestation = self.signed_aggregate.message.aggregate;
+        let attesting_indices = self.indexed_attestation.attesting_indices.into();
+        (attestation, attesting_indices)
     }
 }
 
@@ -595,7 +608,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     }
                 }
 
-                if let Err(e) = self.chain.add_to_block_inclusion_pool(&verified_aggregate) {
+                if let Err(e) = self.chain.add_to_block_inclusion_pool(verified_aggregate) {
                     debug!(
                         self.log,
                         "Attestation invalid for op pool";

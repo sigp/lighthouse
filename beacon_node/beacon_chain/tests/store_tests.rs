@@ -795,9 +795,7 @@ async fn multiple_attestations_per_block() {
             snapshot
                 .beacon_block
                 .as_ref()
-                .clone()
-                .deconstruct()
-                .0
+                .message()
                 .body()
                 .attestations()
                 .len() as u64,

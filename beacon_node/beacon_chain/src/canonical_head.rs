@@ -43,7 +43,9 @@ use crate::{
     BeaconChain, BeaconChainError as Error, BeaconChainTypes, BeaconSnapshot,
 };
 use eth2::types::{EventKind, SseChainReorg, SseFinalizedCheckpoint, SseHead, SseLateHead};
-use fork_choice::{ExecutionStatus, ForkChoiceView, ForkchoiceUpdateParameters, ProtoBlock};
+use fork_choice::{
+    ExecutionStatus, ForkChoiceView, ForkchoiceUpdateParameters, ProtoBlock, ResetPayloadStatuses,
+};
 use itertools::process_results;
 use parking_lot::{Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use slog::{crit, debug, error, warn, Logger};
@@ -249,11 +251,14 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
         // and it needs to be dropped to prevent a dead-lock. Requiring it to be passed here is
         // defensive programming.
         mut fork_choice_write_lock: RwLockWriteGuard<BeaconForkChoice<T>>,
+        reset_payload_statuses: ResetPayloadStatuses,
         store: &BeaconStore<T>,
         spec: &ChainSpec,
+        log: &Logger,
     ) -> Result<(), Error> {
-        let fork_choice = <BeaconChain<T>>::load_fork_choice(store.clone(), spec)?
-            .ok_or(Error::MissingPersistedForkChoice)?;
+        let fork_choice =
+            <BeaconChain<T>>::load_fork_choice(store.clone(), reset_payload_statuses, spec, log)?
+                .ok_or(Error::MissingPersistedForkChoice)?;
         let fork_choice_view = fork_choice.cached_fork_choice_view();
         let beacon_block_root = fork_choice_view.head_block_root;
         let beacon_block = store

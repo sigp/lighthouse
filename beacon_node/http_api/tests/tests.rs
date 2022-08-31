@@ -17,14 +17,14 @@ use futures::stream::{Stream, StreamExt};
 use futures::FutureExt;
 use http_api::{BlockId, StateId};
 use lighthouse_network::{Enr, EnrExt, PeerId};
-use network::NetworkMessage;
+use network::NetworkReceivers;
 use proto_array::ExecutionStatus;
 use sensitive_url::SensitiveUrl;
 use slot_clock::SlotClock;
 use state_processing::per_slot_processing;
 use std::convert::TryInto;
 use std::sync::Arc;
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::oneshot;
 use tokio::time::Duration;
 use tree_hash::TreeHash;
 use types::application_domain::ApplicationDomain;
@@ -65,7 +65,7 @@ struct ApiTester {
     proposer_slashing: ProposerSlashing,
     voluntary_exit: SignedVoluntaryExit,
     _server_shutdown: oneshot::Sender<()>,
-    network_rx: mpsc::UnboundedReceiver<NetworkMessage<E>>,
+    network_rx: NetworkReceivers<E>,
     local_enr: Enr,
     external_peer_id: PeerId,
     mock_builder: Option<Arc<TestingBuilder<E>>>,
@@ -899,7 +899,7 @@ impl ApiTester {
         self.client.post_beacon_blocks(next_block).await.unwrap();
 
         assert!(
-            self.network_rx.recv().await.is_some(),
+            self.network_rx.network_recv.recv().await.is_some(),
             "valid blocks should be sent to network"
         );
 
@@ -913,7 +913,7 @@ impl ApiTester {
         assert!(self.client.post_beacon_blocks(&next_block).await.is_err());
 
         assert!(
-            self.network_rx.recv().await.is_some(),
+            self.network_rx.network_recv.recv().await.is_some(),
             "invalid blocks should be sent to network"
         );
 
@@ -1041,7 +1041,7 @@ impl ApiTester {
             .unwrap();
 
         assert!(
-            self.network_rx.recv().await.is_some(),
+            self.network_rx.network_recv.recv().await.is_some(),
             "valid attestation should be sent to network"
         );
 
@@ -1078,7 +1078,7 @@ impl ApiTester {
         }
 
         assert!(
-            self.network_rx.recv().await.is_some(),
+            self.network_rx.network_recv.recv().await.is_some(),
             "if some attestations are valid, we should send them to the network"
         );
 
@@ -1108,7 +1108,7 @@ impl ApiTester {
             .unwrap();
 
         assert!(
-            self.network_rx.recv().await.is_some(),
+            self.network_rx.network_recv.recv().await.is_some(),
             "valid attester slashing should be sent to network"
         );
 
@@ -1125,7 +1125,7 @@ impl ApiTester {
             .unwrap_err();
 
         assert!(
-            self.network_rx.recv().now_or_never().is_none(),
+            self.network_rx.network_recv.recv().now_or_never().is_none(),
             "invalid attester slashing should not be sent to network"
         );
 
@@ -1154,7 +1154,7 @@ impl ApiTester {
             .unwrap();
 
         assert!(
-            self.network_rx.recv().await.is_some(),
+            self.network_rx.network_recv.recv().await.is_some(),
             "valid proposer slashing should be sent to network"
         );
 
@@ -1171,7 +1171,7 @@ impl ApiTester {
             .unwrap_err();
 
         assert!(
-            self.network_rx.recv().now_or_never().is_none(),
+            self.network_rx.network_recv.recv().now_or_never().is_none(),
             "invalid proposer slashing should not be sent to network"
         );
 
@@ -1200,7 +1200,7 @@ impl ApiTester {
             .unwrap();
 
         assert!(
-            self.network_rx.recv().await.is_some(),
+            self.network_rx.network_recv.recv().await.is_some(),
             "valid exit should be sent to network"
         );
 
@@ -1217,7 +1217,7 @@ impl ApiTester {
             .unwrap_err();
 
         assert!(
-            self.network_rx.recv().now_or_never().is_none(),
+            self.network_rx.network_recv.recv().now_or_never().is_none(),
             "invalid exit should not be sent to network"
         );
 
@@ -2351,7 +2351,7 @@ impl ApiTester {
             .await
             .unwrap();
 
-        assert!(self.network_rx.recv().await.is_some());
+        assert!(self.network_rx.network_recv.recv().await.is_some());
 
         self
     }
@@ -2366,7 +2366,7 @@ impl ApiTester {
             .await
             .unwrap_err();
 
-        assert!(self.network_rx.recv().now_or_never().is_none());
+        assert!(self.network_rx.network_recv.recv().now_or_never().is_none());
 
         self
     }
@@ -2385,7 +2385,11 @@ impl ApiTester {
             .await
             .unwrap();
 
-        self.network_rx.recv().now_or_never().unwrap();
+        self.network_rx
+            .validator_subscription_recv
+            .recv()
+            .now_or_never()
+            .unwrap();
 
         self
     }
@@ -2454,6 +2458,93 @@ impl ApiTester {
                 .get_suggested_fee_recipient(val_index as u64)
                 .await;
             assert_eq!(actual, fee_recipient);
+        }
+
+        self
+    }
+
+    pub async fn test_post_validator_register_validator_slashed(self) -> Self {
+        // slash a validator
+        self.client
+            .post_beacon_pool_attester_slashings(&self.attester_slashing)
+            .await
+            .unwrap();
+
+        self.harness
+            .extend_chain(
+                1,
+                BlockStrategy::OnCanonicalHead,
+                AttestationStrategy::AllValidators,
+            )
+            .await;
+
+        let mut registrations = vec![];
+        let mut fee_recipients = vec![];
+
+        let genesis_epoch = self.chain.spec.genesis_slot.epoch(E::slots_per_epoch());
+        let fork = Fork {
+            current_version: self.chain.spec.genesis_fork_version,
+            previous_version: self.chain.spec.genesis_fork_version,
+            epoch: genesis_epoch,
+        };
+
+        let expected_gas_limit = 11_111_111;
+
+        for (val_index, keypair) in self.validator_keypairs().iter().enumerate() {
+            let pubkey = keypair.pk.compress();
+            let fee_recipient = Address::from_low_u64_be(val_index as u64);
+
+            let data = ValidatorRegistrationData {
+                fee_recipient,
+                gas_limit: expected_gas_limit,
+                timestamp: 0,
+                pubkey,
+            };
+
+            let domain = self.chain.spec.get_domain(
+                genesis_epoch,
+                Domain::ApplicationMask(ApplicationDomain::Builder),
+                &fork,
+                Hash256::zero(),
+            );
+            let message = data.signing_root(domain);
+            let signature = keypair.sk.sign(message);
+
+            let signed = SignedValidatorRegistrationData {
+                message: data,
+                signature,
+            };
+
+            fee_recipients.push(fee_recipient);
+            registrations.push(signed);
+        }
+
+        self.client
+            .post_validator_register_validator(&registrations)
+            .await
+            .unwrap();
+
+        for (val_index, (_, fee_recipient)) in self
+            .chain
+            .head_snapshot()
+            .beacon_state
+            .validators()
+            .into_iter()
+            .zip(fee_recipients.into_iter())
+            .enumerate()
+        {
+            let actual = self
+                .chain
+                .execution_layer
+                .as_ref()
+                .unwrap()
+                .get_suggested_fee_recipient(val_index as u64)
+                .await;
+            if val_index == 0 || val_index == 1 {
+                assert_eq!(actual, Address::from_low_u64_be(val_index as u64));
+            } else {
+                assert_eq!(actual, fee_recipient);
+            }
         }
 
         self
@@ -3961,6 +4052,14 @@ async fn post_validator_register_validator() {
     ApiTester::new()
         .await
         .test_post_validator_register_validator()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn post_validator_register_validator_slashed() {
+    ApiTester::new()
+        .await
+        .test_post_validator_register_validator_slashed()
         .await;
 }
 

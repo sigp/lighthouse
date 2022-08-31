@@ -1175,6 +1175,19 @@ where
     }
 
     pub fn make_attester_slashing(&self, validator_indices: Vec<u64>) -> AttesterSlashing<E> {
+        self.make_attester_slashing_with_epochs(validator_indices, None, None, None, None)
+    }
+
+    pub fn make_attester_slashing_with_epochs(
+        &self,
+        validator_indices: Vec<u64>,
+        source1: Option<Epoch>,
+        target1: Option<Epoch>,
+        source2: Option<Epoch>,
+        target2: Option<Epoch>,
+    ) -> AttesterSlashing<E> {
+        let fork = self.chain.canonical_head.cached_head().head_fork();
+
         let mut attestation_1 = IndexedAttestation {
             attesting_indices: VariableList::new(validator_indices).unwrap(),
             data: AttestationData {
@@ -1183,11 +1196,11 @@ where
                 beacon_block_root: Hash256::zero(),
                 target: Checkpoint {
                     root: Hash256::zero(),
-                    epoch: Epoch::new(0),
+                    epoch: target1.unwrap_or(fork.epoch),
                 },
                 source: Checkpoint {
                     root: Hash256::zero(),
-                    epoch: Epoch::new(0),
+                    epoch: source1.unwrap_or(Epoch::new(0)),
                 },
             },
             signature: AggregateSignature::infinity(),
@@ -1195,8 +1208,9 @@ where
 
         let mut attestation_2 = attestation_1.clone();
         attestation_2.data.index += 1;
+        attestation_2.data.source.epoch = source2.unwrap_or(Epoch::new(0));
+        attestation_2.data.target.epoch = target2.unwrap_or(fork.epoch);
 
-        let fork = self.chain.canonical_head.cached_head().head_fork();
         for attestation in &mut [&mut attestation_1, &mut attestation_2] {
             for &i in &attestation.attesting_indices {
                 let sk = &self.validator_keypairs[i as usize].sk;
@@ -1280,8 +1294,19 @@ where
     }
 
     pub fn make_proposer_slashing(&self, validator_index: u64) -> ProposerSlashing {
+        self.make_proposer_slashing_at_slot(validator_index, None)
+    }
+
+    pub fn make_proposer_slashing_at_slot(
+        &self,
+        validator_index: u64,
+        slot_override: Option<Slot>,
+    ) -> ProposerSlashing {
         let mut block_header_1 = self.chain.head_beacon_block().message().block_header();
         block_header_1.proposer_index = validator_index;
+        if let Some(slot) = slot_override {
+            block_header_1.slot = slot;
+        }
 
         let mut block_header_2 = block_header_1.clone();
         block_header_2.state_root = Hash256::zero();
@@ -1488,7 +1513,7 @@ where
             self.chain
                 .apply_attestation_to_fork_choice(&verified)
                 .unwrap();
-            self.chain.add_to_block_inclusion_pool(&verified).unwrap();
+            self.chain.add_to_block_inclusion_pool(verified).unwrap();
         }
     }
 

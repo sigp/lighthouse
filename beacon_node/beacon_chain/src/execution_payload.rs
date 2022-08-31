@@ -23,6 +23,7 @@ use state_processing::per_block_processing::{
 };
 use std::sync::Arc;
 use tokio::task::JoinHandle;
+use tree_hash::TreeHash;
 use types::*;
 
 pub type PreparePayloadResult<Payload> = Result<Payload, BlockProductionError>;
@@ -112,8 +113,22 @@ async fn notify_new_payload<'a, T: BeaconChainTypes>(
                 Ok(PayloadVerificationStatus::Optimistic)
             }
             PayloadStatus::Invalid {
-                latest_valid_hash, ..
+                latest_valid_hash,
+                ref validation_error,
             } => {
+                debug!(
+                    chain.log,
+                    "Invalid execution payload";
+                    "validation_error" => ?validation_error,
+                    "latest_valid_hash" => ?latest_valid_hash,
+                    "execution_block_hash" => ?execution_payload.execution_payload.block_hash,
+                    "root" => ?block.tree_hash_root(),
+                    "graffiti" => block.body().graffiti().as_utf8_lossy(),
+                    "proposer_index" => block.proposer_index(),
+                    "slot" => block.slot(),
+                    "method" => "new_payload",
+                );
+
                 // latest_valid_hash == 0 implies that this was the terminal block
                 // Hence, we don't need to run `BeaconChain::process_invalid_execution_payload`.
                 if latest_valid_hash == ExecutionBlockHash::zero() {
@@ -132,7 +147,21 @@ async fn notify_new_payload<'a, T: BeaconChainTypes>(
 
                 Err(ExecutionPayloadError::RejectedByExecutionEngine { status }.into())
             }
-            PayloadStatus::InvalidBlockHash { .. } => {
+            PayloadStatus::InvalidBlockHash {
+                ref validation_error,
+            } => {
+                debug!(
+                    chain.log,
+                    "Invalid execution payload block hash";
+                    "validation_error" => ?validation_error,
+                    "execution_block_hash" => ?execution_payload.execution_payload.block_hash,
+                    "root" => ?block.tree_hash_root(),
+                    "graffiti" => block.body().graffiti().as_utf8_lossy(),
+                    "proposer_index" => block.proposer_index(),
+                    "slot" => block.slot(),
+                    "method" => "new_payload",
+                );
+
                 // Returning an error here should be sufficient to invalidate the block. We have no
                 // information to indicate its parent is invalid, so no need to run
                 // `BeaconChain::process_invalid_execution_payload`.
