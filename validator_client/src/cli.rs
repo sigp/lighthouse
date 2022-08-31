@@ -237,6 +237,16 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true),
         )
         .arg(
+            Arg::with_name("monitoring-endpoint-frequency")
+                .long("monitoring-endpoint-frequency")
+                .value_name("SECONDS")
+                .help("Defines how many seconds to wait between each message sent to \
+                       the monitoring-endpoint.")
+                .default_value(Box::leak(monitoring_api::DEFAULT_UPDATE_DURATION.to_string().into_boxed_str()))
+                .requires("monitoring-endpoint")
+                .takes_value(true),
+        )
+        .arg(
             Arg::with_name("enable-doppelganger-protection")
                 .long("enable-doppelganger-protection")
                 .value_name("ENABLE_DOPPELGANGER_PROTECTION")

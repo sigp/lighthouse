@@ -1345,7 +1345,7 @@ fn slasher_backend_override_to_default() {
 }
 
 #[test]
-pub fn malloc_tuning_flag() {
+fn malloc_tuning_flag() {
     CommandLineTest::new()
         .flag("disable-malloc-tuning", None)
         .run_with_zero_port()
@@ -1366,5 +1366,18 @@ fn ensure_panic_on_failed_launch() {
                 .as_ref()
                 .expect("Unable to parse Slasher config");
             assert_eq!(slasher_config.chunk_size, 10);
+        });
+}
+
+#[test]
+fn monitoring_endpoint() {
+    CommandLineTest::new()
+        .flag("monitoring-endpoint", Some("http://example:8000"))
+        .flag("monitoring-endpoint-frequency", Some("30"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            let api_conf = config.monitoring_api.as_ref().unwrap();
+            assert_eq!(api_conf.monitoring_endpoint.as_str(), "http://example:8000");
+            assert_eq!(api_conf.update_frequency_secs, Some(30));
         });
 }
