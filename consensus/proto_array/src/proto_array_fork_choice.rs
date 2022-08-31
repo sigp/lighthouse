@@ -1,4 +1,5 @@
 use crate::error::Error;
+use crate::proto_array::CountUnrealizedFull;
 use crate::proto_array::{
     calculate_proposer_boost, InvalidationOperation, Iter, ProposerBoost, ProtoArray, ProtoNode,
 };
@@ -186,7 +187,7 @@ impl ProtoArrayForkChoice {
         current_epoch_shuffling_id: AttestationShufflingId,
         next_epoch_shuffling_id: AttestationShufflingId,
         execution_status: ExecutionStatus,
-        count_unrealized_full: bool,
+        count_unrealized_full: CountUnrealizedFull,
     ) -> Result<Self, String> {
         let mut proto_array = ProtoArray {
             prune_threshold: DEFAULT_PRUNE_THRESHOLD,
@@ -533,7 +534,10 @@ impl ProtoArrayForkChoice {
         SszContainer::from(self).as_ssz_bytes()
     }
 
-    pub fn from_bytes(bytes: &[u8], count_unrealized_full: bool) -> Result<Self, String> {
+    pub fn from_bytes(
+        bytes: &[u8],
+        count_unrealized_full: CountUnrealizedFull,
+    ) -> Result<Self, String> {
         SszContainer::from_ssz_bytes(bytes)
             .map(|container| (container, count_unrealized_full))
             .map(Into::into)
@@ -695,7 +699,7 @@ mod test_compute_deltas {
             junk_shuffling_id.clone(),
             junk_shuffling_id.clone(),
             execution_status,
-            false,
+            CountUnrealizedFull::default(),
         )
         .unwrap();
 

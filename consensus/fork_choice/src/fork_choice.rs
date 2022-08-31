@@ -1,5 +1,7 @@
 use crate::{ForkChoiceStore, InvalidationOperation};
-use proto_array::{Block as ProtoBlock, ExecutionStatus, ProtoArrayForkChoice};
+use proto_array::{
+    Block as ProtoBlock, CountUnrealizedFull, ExecutionStatus, ProtoArrayForkChoice,
+};
 use slog::{crit, debug, warn, Logger};
 use ssz_derive::{Decode, Encode};
 use state_processing::{
@@ -374,7 +376,7 @@ where
         anchor_block: &SignedBeaconBlock<E>,
         anchor_state: &BeaconState<E>,
         current_slot: Option<Slot>,
-        count_unrealized_full_config: bool,
+        count_unrealized_full_config: CountUnrealizedFull,
         spec: &ChainSpec,
     ) -> Result<Self, Error<T::Error>> {
         // Sanity check: the anchor must lie on an epoch boundary.
@@ -1453,7 +1455,7 @@ where
     pub fn proto_array_from_persisted(
         persisted: &PersistedForkChoice,
         reset_payload_statuses: ResetPayloadStatuses,
-        count_unrealized_full: bool,
+        count_unrealized_full: CountUnrealizedFull,
         spec: &ChainSpec,
         log: &Logger,
     ) -> Result<ProtoArrayForkChoice, Error<T::Error>> {
@@ -1507,7 +1509,7 @@ where
         persisted: PersistedForkChoice,
         reset_payload_statuses: ResetPayloadStatuses,
         fc_store: T,
-        count_unrealized_full: bool,
+        count_unrealized_full: CountUnrealizedFull,
         spec: &ChainSpec,
         log: &Logger,
     ) -> Result<Self, Error<T::Error>> {

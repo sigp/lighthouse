@@ -3,6 +3,7 @@ mod ffg_updates;
 mod no_votes;
 mod votes;
 
+use crate::proto_array::CountUnrealizedFull;
 use crate::proto_array_fork_choice::{Block, ExecutionStatus, ProtoArrayForkChoice};
 use crate::InvalidationOperation;
 use serde_derive::{Deserialize, Serialize};
@@ -87,7 +88,7 @@ impl ForkChoiceTestDefinition {
             junk_shuffling_id.clone(),
             junk_shuffling_id,
             ExecutionStatus::Optimistic(ExecutionBlockHash::zero()),
-            false,
+            CountUnrealizedFull::default(),
         )
         .expect("should create fork choice struct");
         let equivocating_indices = BTreeSet::new();
@@ -297,7 +298,7 @@ fn get_checkpoint(i: u64) -> Checkpoint {
 
 fn check_bytes_round_trip(original: &ProtoArrayForkChoice) {
     let bytes = original.as_bytes();
-    let decoded = ProtoArrayForkChoice::from_bytes(&bytes, false)
+    let decoded = ProtoArrayForkChoice::from_bytes(&bytes, CountUnrealizedFull::default())
         .expect("fork choice should decode from bytes");
     assert!(
         *original == decoded,

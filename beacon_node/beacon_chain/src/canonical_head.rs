@@ -44,7 +44,8 @@ use crate::{
 };
 use eth2::types::{EventKind, SseChainReorg, SseFinalizedCheckpoint, SseHead, SseLateHead};
 use fork_choice::{
-    ExecutionStatus, ForkChoiceView, ForkchoiceUpdateParameters, ProtoBlock, ResetPayloadStatuses,
+    CountUnrealizedFull, ExecutionStatus, ForkChoiceView, ForkchoiceUpdateParameters, ProtoBlock,
+    ResetPayloadStatuses,
 };
 use itertools::process_results;
 use parking_lot::{Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard};
@@ -252,7 +253,7 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
         // defensive programming.
         mut fork_choice_write_lock: RwLockWriteGuard<BeaconForkChoice<T>>,
         reset_payload_statuses: ResetPayloadStatuses,
-        count_unrealized_full: bool,
+        count_unrealized_full: CountUnrealizedFull,
         store: &BeaconStore<T>,
         spec: &ChainSpec,
         log: &Logger,

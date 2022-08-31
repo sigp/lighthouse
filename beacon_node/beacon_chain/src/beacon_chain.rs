@@ -65,6 +65,7 @@ use itertools::process_results;
 use itertools::Itertools;
 use operation_pool::{AttestationRef, OperationPool, PersistedOperationPool};
 use parking_lot::{Mutex, RwLock};
+use proto_array::CountUnrealizedFull;
 use safe_arith::SafeArith;
 use slasher::Slasher;
 use slog::{crit, debug, error, info, trace, warn, Logger};
@@ -433,7 +434,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn load_fork_choice(
         store: BeaconStore<T>,
         reset_payload_statuses: ResetPayloadStatuses,
-        count_unrealized_full: bool,
+        count_unrealized_full: CountUnrealizedFull,
         spec: &ChainSpec,
         log: &Logger,
     ) -> Result<Option<BeaconForkChoice<T>>, Error> {
