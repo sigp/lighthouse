@@ -52,7 +52,7 @@ pub(crate) fn update_with_reinitialized_fork_choice<T: BeaconChainTypes>(
         // Don't provide the current slot here, just use what's in the store. We don't need to know
         // the head here, plus it's nice to avoid mutating fork choice during this process.
         None,
-        // This config will get overwrittern on startup.
+        // This config will get overwritten on startup.
         false,
         spec,
     )
