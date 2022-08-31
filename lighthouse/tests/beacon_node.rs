@@ -532,6 +532,51 @@ fn builder_fallback_flags() {
             assert_eq!(config.chain.builder_fallback_disable_checks, true);
         },
     );
+    run_payload_builder_flag_test_with_config(
+        "builder",
+        "http://meow.cats",
+        Some("builder-profit-threshold"),
+        Some("1000000000000000000000000"),
+        |config| {
+            assert_eq!(
+                config.chain.builder_profit_threshold,
+                1000000000000000000000000
+            );
+        },
+    );
+    run_payload_builder_flag_test_with_config(
+        "builder",
+        "http://meow.cats",
+        Some("builder-profit-threshold"),
+        Some("1_000_000_000_000_000_000_000_000"),
+        |config| {
+            assert_eq!(
+                config.chain.builder_profit_threshold,
+                1000000000000000000000000
+            );
+        },
+    );
+    run_payload_builder_flag_test_with_config(
+        "builder",
+        "http://meow.cats",
+        Some("builder-profit-threshold"),
+        Some("1,000,000,000,000,000,000,000,000"),
+        |config| {
+            assert_eq!(
+                config.chain.builder_profit_threshold,
+                1000000000000000000000000
+            );
+        },
+    );
+    run_payload_builder_flag_test_with_config(
+        "builder",
+        "http://meow.cats",
+        None,
+        None,
+        |config| {
+            assert_eq!(config.chain.builder_profit_threshold, 0);
+        },
+    );
 }
 
 fn run_jwt_optional_flags_test(jwt_flag: &str, jwt_id_flag: &str, jwt_version_flag: &str) {
