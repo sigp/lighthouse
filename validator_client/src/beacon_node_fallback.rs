@@ -601,7 +601,7 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
 
         let errors: Vec<_> = results.into_iter().filter_map(|res| res.err()).collect();
 
-        if errors.len() > 0 {
+        if !errors.is_empty() {
             Err(Errors(errors))
         } else {
             Ok(())
