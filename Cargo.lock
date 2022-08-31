@@ -436,7 +436,7 @@ dependencies = [
 
 [[package]]
 name = "beacon_node"
-version = "3.0.0"
+version = "3.1.0"
 dependencies = [
  "beacon_chain",
  "clap",
@@ -594,7 +594,7 @@ dependencies = [
 
 [[package]]
 name = "boot_node"
-version = "3.0.0"
+version = "3.1.0"
 dependencies = [
  "beacon_node",
  "clap",
@@ -3106,7 +3106,7 @@ checksum = "830d08ce1d1d941e6b30645f1a0eb5643013d835ce3779a5fc208261dbe10f55"
 
 [[package]]
 name = "lcli"
-version = "3.0.0"
+version = "3.1.0"
 dependencies = [
  "account_utils",
  "beacon_chain",
@@ -3606,7 +3606,7 @@ dependencies = [
 
 [[package]]
 name = "lighthouse"
-version = "3.0.0"
+version = "3.1.0"
 dependencies = [
  "account_manager",
  "account_utils",
@@ -4585,9 +4585,9 @@ checksum = "d4fd5641d01c8f18a23da7b6fe29298ff4b55afcccdf78973b24cf3175fee32e"
 
 [[package]]
 name = "pest"
-version = "2.2.1"
+version = "2.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "69486e2b8c2d2aeb9762db7b4e00b0331156393555cff467f4163ff06821eef8"
+checksum = "4b0560d531d1febc25a3c9398a62a71256c0178f2e3443baedd9ad4bb8c9deb4"
 dependencies = [
  "thiserror",
  "ucd-trie",
@@ -4706,9 +4706,9 @@ checksum = "e8d0eef3571242013a0d5dc84861c3ae4a652e56e12adf8bdc26ff5f8cb34c94"
 
 [[package]]
 name = "plotters"
-version = "0.3.2"
+version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9428003b84df1496fb9d6eeee9c5f8145cb41ca375eb0dad204328888832811f"
+checksum = "716b4eeb6c4a1d3ecc956f75b43ec2e8e8ba80026413e70a3f41fd3313d3492b"
 dependencies = [
  "num-traits",
  "plotters-backend",
