@@ -51,7 +51,7 @@ There are a few interesting properties about the list of `--beacon-nodes`:
 
 ### Configuring a redundant Beacon Node
 
-In our previous example we listed `http://192.168.1.1:5052` as a redundant
+In our previous example, we listed `http://192.168.1.1:5052` as a redundant
 node. Apart from having sufficient resources, the backup node should have the
 following flags:
 
