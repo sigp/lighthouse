@@ -539,31 +539,11 @@ fn builder_fallback_flags() {
         Some("1000000000000000000000000"),
         |config| {
             assert_eq!(
-                config.chain.builder_profit_threshold,
-                1000000000000000000000000
-            );
-        },
-    );
-    run_payload_builder_flag_test_with_config(
-        "builder",
-        "http://meow.cats",
-        Some("builder-profit-threshold"),
-        Some("1_000_000_000_000_000_000_000_000"),
-        |config| {
-            assert_eq!(
-                config.chain.builder_profit_threshold,
-                1000000000000000000000000
-            );
-        },
-    );
-    run_payload_builder_flag_test_with_config(
-        "builder",
-        "http://meow.cats",
-        Some("builder-profit-threshold"),
-        Some("1,000,000,000,000,000,000,000,000"),
-        |config| {
-            assert_eq!(
-                config.chain.builder_profit_threshold,
+                config
+                    .execution_layer
+                    .as_ref()
+                    .unwrap()
+                    .builder_profit_threshold,
                 1000000000000000000000000
             );
         },
@@ -574,7 +554,14 @@ fn builder_fallback_flags() {
         None,
         None,
         |config| {
-            assert_eq!(config.chain.builder_profit_threshold, 0);
+            assert_eq!(
+                config
+                    .execution_layer
+                    .as_ref()
+                    .unwrap()
+                    .builder_profit_threshold,
+                0
+            );
         },
     );
 }
