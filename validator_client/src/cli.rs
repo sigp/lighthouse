@@ -26,6 +26,16 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 )
                 .takes_value(true),
         )
+        .arg(
+            Arg::with_name("disable-publish-subsriptions-all")
+                .long("disable-publish-subsriptions-all")
+                .value_name("DISABLE_PUBLISH_ALL")
+                .help("By default, Lighthouse publishes attestation and sync committee subscriptions \
+                       to all beacon nodes provided in the `--beacon-nodes flag`. This option changes \
+                       that behaviour such that the subscriptions only go out to the first available \
+                       and synced beacon node")
+                .takes_value(false)
+        )
         // This argument is deprecated, use `--beacon-nodes` instead.
         .arg(
             Arg::with_name("server")

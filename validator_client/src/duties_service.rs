@@ -122,6 +122,7 @@ pub struct DutiesService<T, E: EthSpec> {
     /// aren't synced, but we keep it around for an emergency.
     pub require_synced: RequireSynced,
     pub context: RuntimeContext<E>,
+    pub disable_publish_subscriptions_all: bool,
     pub spec: ChainSpec,
 }
 
@@ -570,32 +571,58 @@ async fn poll_beacon_attesters<T: SlotClock + 'static, E: EthSpec>(
             });
     }
 
-    // If there are any subscriptions, push them out to all beacon nodes.
+    // If there are any subscriptions, push them out to beacon nodes
     if !subscriptions.is_empty() {
         let subscriptions_ref = &subscriptions;
-        let results = duties_service
-            .beacon_nodes
-            .run_on_all(
-                duties_service.require_synced,
-                OfflineOnFailure::Yes,
-                |beacon_node| async move {
-                    let _timer = metrics::start_timer_vec(
-                        &metrics::DUTIES_SERVICE_TIMES,
-                        &[metrics::SUBSCRIPTIONS_HTTP_POST],
-                    );
-                    beacon_node
-                        .post_validator_beacon_committee_subscriptions(subscriptions_ref)
-                        .await
-                },
-            )
-            .await;
-        if results.0.iter().any(|res| res.is_err()) {
-            error!(
-                log,
-                "Failed to subscribe validators";
-                "error" => %results
-            )
-        }
+        if duties_service.disable_publish_subscriptions_all {
+            if let Err(e) = duties_service
+                .beacon_nodes
+                .first_success(
+                    duties_service.require_synced,
+                    OfflineOnFailure::Yes,
+                    |beacon_node| async move {
+                        let _timer = metrics::start_timer_vec(
+                            &metrics::DUTIES_SERVICE_TIMES,
+                            &[metrics::SUBSCRIPTIONS_HTTP_POST],
+                        );
+                        beacon_node
+                            .post_validator_beacon_committee_subscriptions(subscriptions_ref)
+                            .await
+                    },
+                )
+                .await
+            {
+                error!(
+                    log,
+                    "Failed to subscribe validators";
+                    "error" => %e
+                )
+            }
+        } else {
+            let results = duties_service
+                .beacon_nodes
+                .run_on_all(
+                    duties_service.require_synced,
+                    OfflineOnFailure::Yes,
+                    |beacon_node| async move {
+                        let _timer = metrics::start_timer_vec(
+                            &metrics::DUTIES_SERVICE_TIMES,
+                            &[metrics::SUBSCRIPTIONS_HTTP_POST],
+                        );
+                        beacon_node
+                            .post_validator_beacon_committee_subscriptions(subscriptions_ref)
+                            .await
+                    },
+                )
+                .await;
+            if results.0.iter().any(|res| res.is_err()) {
+                error!(
+                    log,
+                    "Failed to subscribe validators";
+                    "error" => %results
+                )
+            }
+        };
     }
 
     drop(subscriptions_timer);

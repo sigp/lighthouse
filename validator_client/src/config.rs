@@ -61,6 +61,8 @@ pub struct Config {
     /// A list of custom certificates that the validator client will additionally use when
     /// connecting to a beacon node over SSL/TLS.
     pub beacon_nodes_tls_certs: Option<Vec<PathBuf>>,
+    /// Disables publishing beacon and sync committee subscriptions to all beacon nodes.
+    pub disable_publish_subscriptions_all: bool,
 }
 
 impl Default for Config {
@@ -96,6 +98,7 @@ impl Default for Config {
             builder_proposals: false,
             builder_registration_timestamp_override: None,
             gas_limit: None,
+            disable_publish_subscriptions_all: false,
         }
     }
 }
@@ -177,6 +180,8 @@ impl Config {
         }
 
         config.allow_unsynced_beacon_node = cli_args.is_present("allow-unsynced");
+        config.disable_publish_subscriptions_all =
+            cli_args.is_present("disable-publish-subsriptions-all");
         config.disable_auto_discover = cli_args.is_present("disable-auto-discover");
         config.init_slashing_protection = cli_args.is_present("init-slashing-protection");
         config.use_long_timeouts = cli_args.is_present("use-long-timeouts");

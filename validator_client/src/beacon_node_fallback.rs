@@ -616,7 +616,6 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
             }
         }
 
-        // There were no candidates already ready and we were unable to make any of them ready.
         Results(results)
     }
 }

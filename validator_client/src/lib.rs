@@ -404,6 +404,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
                 RequireSynced::No
             },
             spec: context.eth2_config.spec.clone(),
+            disable_publish_subscriptions_all: config.disable_publish_subscriptions_all,
             context: duties_context,
         });
 

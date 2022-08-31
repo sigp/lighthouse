@@ -566,29 +566,53 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
             );
         }
 
-        let results = self
-            .beacon_nodes
-            .run_on_all(
-                RequireSynced::No,
-                OfflineOnFailure::Yes,
-                |beacon_node| async move {
-                    beacon_node
-                        .post_validator_sync_committee_subscriptions(subscriptions_slice)
-                        .await
-                },
-            )
-            .await;
+        if self.duties_service.disable_publish_subscriptions_all {
+            if let Err(e) = self
+                .beacon_nodes
+                .first_success(
+                    RequireSynced::No,
+                    OfflineOnFailure::Yes,
+                    |beacon_node| async move {
+                        beacon_node
+                            .post_validator_sync_committee_subscriptions(subscriptions_slice)
+                            .await
+                    },
+                )
+                .await
+            {
+                error!(
+                    log,
+                    "Unable to post sync committee subscriptions";
+                    "slot" => slot,
+                    "error" => %e,
+                );
+                all_succeeded = false;
+            }
+        } else {
+            let results = self
+                .beacon_nodes
+                .run_on_all(
+                    RequireSynced::No,
+                    OfflineOnFailure::Yes,
+                    |beacon_node| async move {
+                        beacon_node
+                            .post_validator_sync_committee_subscriptions(subscriptions_slice)
+                            .await
+                    },
+                )
+                .await;
 
-        if results.0.iter().all(|res| res.is_err()) {
-            all_succeeded = false;
-        }
-        if results.0.iter().any(|res| res.is_err()) {
-            error!(
-                log,
-                "Unable to post sync committee subscriptions";
-                "slot" => slot,
-                "error" => %results,
-            );
+            if results.0.iter().all(|res| res.is_err()) {
+                all_succeeded = false;
+            }
+            if results.0.iter().any(|res| res.is_err()) {
+                error!(
+                    log,
+                    "Unable to post sync committee subscriptions";
+                    "slot" => slot,
+                    "error" => %results,
+                );
+            }
         }
 
         // Disable first-subscription latch once all duties have succeeded once.
