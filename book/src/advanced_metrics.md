@@ -69,6 +69,9 @@ The specification for the monitoring endpoint can be found here:
 
 - <https://github.com/gobitfly/eth2-client-metrics>
 
+_Note: the similarly named [Validator Monitor](./validator-monitoring.md) feature is entirely
+independent of remote metric monitoring_.
+
 ### Update Period
 
 You can adjust the frequency at which Lighthouse sends metrics to the remote server using the
