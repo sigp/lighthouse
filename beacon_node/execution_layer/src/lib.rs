@@ -229,7 +229,14 @@ impl<T: EthSpec> ExecutionLayer<T> {
         };
 
         let builder = builder_url
-            .map(|url| BuilderHttpClient::new(url).map_err(Error::Builder))
+            .map(|url| {
+                let builder_client = BuilderHttpClient::new(url.clone()).map_err(Error::Builder);
+                info!(log,
+                    "Connected to external block builder";
+                    "builder_url" => ?url,
+                    "builder_profit_threshold" => builder_profit_threshold);
+                builder_client
+            })
             .transpose()?;
 
         let inner = Inner {
