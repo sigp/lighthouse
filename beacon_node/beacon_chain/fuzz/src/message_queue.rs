@@ -15,6 +15,14 @@ impl<E: EthSpec> Message<E> {
         }
     }
 
+    /// The root of a block which must be processed before this message can be processed.
+    pub fn dependent_block_root(&self) -> Hash256 {
+        match self {
+            Self::Attestation(att) => att.data.beacon_block_root,
+            Self::Block(block) => block.parent_root(),
+        }
+    }
+
     pub fn is_block(&self) -> bool {
         matches!(self, Message::Block(_))
     }

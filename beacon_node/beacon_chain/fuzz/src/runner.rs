@@ -3,6 +3,7 @@ use arbitrary::Unstructured;
 use beacon_chain::beacon_proposer_cache::compute_proposer_duties_from_head;
 use beacon_chain::slot_clock::SlotClock;
 use beacon_chain::test_utils::test_spec;
+use std::collections::HashMap;
 use std::collections::VecDeque;
 use std::ops::ControlFlow;
 use std::time::Duration;
@@ -58,6 +59,7 @@ impl<'a, E: EthSpec> Runner<'a, E> {
                     id,
                     harness,
                     message_queue: VecDeque::new(),
+                    dependent_messages: HashMap::default(),
                     validators,
                     debug_config: conf.debug.clone(),
                 }
@@ -70,6 +72,7 @@ impl<'a, E: EthSpec> Runner<'a, E> {
             id: attacker_id.clone(),
             harness: get_harness(attacker_id, conf.attacker_log_config(), &keypairs),
             message_queue: VecDeque::new(),
+            dependent_messages: HashMap::default(),
             validators: (conf.honest_validators()..conf.total_validators).collect(),
             debug_config: conf.debug.clone(),
         };
@@ -149,19 +152,7 @@ impl<'a, E: EthSpec> Runner<'a, E> {
 
     async fn deliver_all_honest(&mut self, message: &Message<E>) {
         for node in &mut self.honest_nodes {
-            if let Some(undelivered) = node.deliver_message(message.clone()).await {
-                // If a message that should have been delivered immediately could not be delivered
-                // then we requeue it. This will happen if an honest node's block proposal builds
-                // upon an attacker block which hasn't arrived at all nodes yet.
-                if undelivered.is_block() && self.conf.debug.block_delivery {
-                    println!(
-                        "{}: requeuing honest block {:?}",
-                        node.id,
-                        undelivered.block_root()
-                    );
-                }
-                node.queue_message(undelivered, self.time.tick + 1);
-            }
+            node.deliver_message(message.clone()).await;
         }
     }
 
@@ -188,10 +179,8 @@ impl<'a, E: EthSpec> Runner<'a, E> {
                 node.harness.chain.per_slot_task().await;
             }
 
-            node.deliver_queued_at(self.time.tick, |block_root| {
-                self.hydra.block_is_viable(&block_root)
-            })
-            .await;
+            node.deliver_queued_at(self.time.tick).await;
+            node.prune_dependent_messages(|block_root| self.hydra.block_is_viable(&block_root));
         }
 
         self.attacker

@@ -1,5 +1,7 @@
 use crate::{config::DebugConfig, Message, TestHarness};
+use async_recursion::async_recursion;
 use beacon_chain::{AttestationError, BlockError};
+use std::collections::HashMap;
 use std::collections::VecDeque;
 use types::{EthSpec, Hash256};
 
@@ -10,6 +12,9 @@ pub struct Node<E: EthSpec> {
     ///
     /// Each `message` will be delivered to the node at `tick`.
     pub message_queue: VecDeque<(usize, Message<E>)>,
+    /// Messages that are dependent on others, to be processed immediately once their dependent
+    /// block is processed.
+    pub dependent_messages: HashMap<Hash256, Vec<Message<E>>>,
     /// Validator indices assigned to this node.
     pub validators: Vec<usize>,
     pub debug_config: DebugConfig,
@@ -27,17 +32,42 @@ impl<E: EthSpec> Node<E> {
         !self.message_queue.is_empty()
     }
 
-    pub fn last_message_tick(&self, current_tick: usize) -> usize {
-        self.message_queue
-            .back()
-            .map_or(current_tick, |(tick, _)| *tick)
+    /// Deliver the message, or cache it in the dependent messages for later processing.
+    #[async_recursion]
+    pub async fn deliver_message(&mut self, message: Message<E>) {
+        let unblocking_block_root = message.is_block().then(|| message.block_root());
+
+        if let Some(undelivered) = self.try_deliver_message(message).await {
+            if undelivered.is_block() && self.debug_config.block_delivery {
+                println!(
+                    "{}: queueing block {:?} in dependent messages",
+                    self.id,
+                    undelivered.block_root()
+                );
+            }
+            self.dependent_messages
+                .entry(undelivered.dependent_block_root())
+                .or_insert_with(Vec::new)
+                .push(undelivered);
+        } else if let Some(unblocking_root) = unblocking_block_root {
+            if self.debug_config.block_delivery {
+                println!("{}: processed block {:?}", self.id, unblocking_root);
+            }
+
+            // Block was delivered successfully: process all messages dependent on this block.
+            if let Some(messages) = self.dependent_messages.remove(&unblocking_root) {
+                for message in messages {
+                    self.deliver_message(message).await;
+                }
+            }
+        }
     }
 
     /// Attempt to deliver the message, returning it if is unable to be processed right now.
     ///
     /// Undelivered messages should be requeued to simulate the node queueing them outside the
     /// `BeaconChain` module, or fetching them via network RPC.
-    pub async fn deliver_message(&self, message: Message<E>) -> Option<Message<E>> {
+    async fn try_deliver_message(&self, message: Message<E>) -> Option<Message<E>> {
         match message {
             Message::Attestation(att) => match self
                 .harness
@@ -65,37 +95,20 @@ impl<E: EthSpec> Node<E> {
         }
     }
 
-    pub async fn deliver_queued_at(
-        &mut self,
-        tick: usize,
-        block_is_viable: impl Fn(Hash256) -> bool + Copy,
-    ) {
+    pub async fn deliver_queued_at(&mut self, tick: usize) {
         loop {
             match self.message_queue.front() {
                 Some((message_tick, _)) if *message_tick <= tick => {
-                    let (message_tick, message) = self.message_queue.pop_front().unwrap();
-
-                    let block_root = message.block_root();
-
-                    if message.is_block() && self.debug_config.block_delivery {
-                        println!(
-                            "{}: attempting to process block {:?} at tick {}/{}",
-                            self.id, block_root, message_tick, tick
-                        );
-                    }
-
-                    if let Some(undelivered) = self.deliver_message(message).await {
-                        if block_is_viable(block_root) {
-                            if undelivered.is_block() && self.debug_config.block_delivery {
-                                println!("{}: requeueing block {:?}", self.id, block_root);
-                            }
-                            let requeue_tick = self.last_message_tick(tick);
-                            self.queue_message(undelivered, requeue_tick);
-                        }
-                    }
+                    let (_, message) = self.message_queue.pop_front().unwrap();
+                    self.deliver_message(message).await;
                 }
                 _ => break,
             }
         }
+    }
+
+    pub fn prune_dependent_messages(&mut self, block_is_viable: impl Fn(Hash256) -> bool) {
+        self.dependent_messages
+            .retain(|block_root, _| block_is_viable(*block_root));
     }
 }

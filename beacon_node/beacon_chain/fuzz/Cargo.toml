@@ -29,6 +29,7 @@ logging = { path = "../../../common/logging" }
 tokio = { version = "1", features = ["rt-multi-thread"] }
 bls = { path = "../../../crypto/bls" }
 strum = "0.24.1"
+async-recursion = "1.0.0"
 
 afl = { version = "*", optional = true }
 
