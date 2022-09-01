@@ -55,8 +55,8 @@ pub struct Config {
     /// Path for the cold database required for fetching beacon db size metrics.
     /// Note: not relevant for validator and system metrics.
     pub freezer_db_path: Option<PathBuf>,
-    /// User-defined update frequency in seconds.
-    pub update_frequency_secs: Option<u64>,
+    /// User-defined update period in seconds.
+    pub update_period_secs: Option<u64>,
 }
 
 #[derive(Clone)]
@@ -66,7 +66,7 @@ pub struct MonitoringHttpClient {
     db_path: Option<PathBuf>,
     /// Path to the freezer database.
     freezer_db_path: Option<PathBuf>,
-    update_frequency: Duration,
+    update_period: Duration,
     monitoring_endpoint: SensitiveUrl,
     log: slog::Logger,
 }
@@ -77,10 +77,8 @@ impl MonitoringHttpClient {
             client: reqwest::Client::new(),
             db_path: config.db_path.clone(),
             freezer_db_path: config.freezer_db_path.clone(),
-            update_frequency: Duration::from_secs(
-                config
-                    .update_frequency_secs
-                    .unwrap_or(DEFAULT_UPDATE_DURATION),
+            update_period: Duration::from_secs(
+                config.update_period_secs.unwrap_or(DEFAULT_UPDATE_DURATION),
             ),
             monitoring_endpoint: SensitiveUrl::parse(&config.monitoring_endpoint)
                 .map_err(|e| format!("Invalid monitoring endpoint: {:?}", e))?,
@@ -108,14 +106,14 @@ impl MonitoringHttpClient {
         let mut interval = interval_at(
             // Have some initial delay for the metrics to get initialized
             Instant::now() + Duration::from_secs(25),
-            self.update_frequency,
+            self.update_period,
         );
 
         info!(
             self.log,
             "Starting monitoring API";
             "endpoint" => %self.monitoring_endpoint,
-            "update_frequency" => format!("{}s", self.update_frequency.as_secs()),
+            "update_period" => format!("{}s", self.update_period.as_secs()),
         );
 
         let update_future = async move {
