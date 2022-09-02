@@ -1,7 +1,10 @@
 use crate::{BeaconChain, BeaconChainError, BeaconChainTypes};
 use eth2::lighthouse::{AttestationRewards, BlockReward, BlockRewardMeta};
-use operation_pool::{AttMaxCover, MaxCover};
-use state_processing::per_block_processing::altair::sync_committee::compute_sync_aggregate_rewards;
+use operation_pool::{AttMaxCover, MaxCover, RewardCache, SplitAttestation};
+use state_processing::{
+    common::get_attesting_indices_from_state,
+    per_block_processing::altair::sync_committee::compute_sync_aggregate_rewards,
+};
 use types::{BeaconBlockRef, BeaconState, EthSpec, ExecPayload, Hash256};
 
 impl<T: BeaconChainTypes> BeaconChain<T> {
@@ -10,20 +13,38 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         block: BeaconBlockRef<'_, T::EthSpec, Payload>,
         block_root: Hash256,
         state: &BeaconState<T::EthSpec>,
+        reward_cache: &mut RewardCache,
         include_attestations: bool,
     ) -> Result<BlockReward, BeaconChainError> {
         if block.slot() != state.slot() {
             return Err(BeaconChainError::BlockRewardSlotError);
         }
 
+        reward_cache.update(state)?;
+
         let total_active_balance = state.get_total_active_balance()?;
-        let mut per_attestation_rewards = block
+
+        let split_attestations = block
             .body()
             .attestations()
             .iter()
             .map(|att| {
-                AttMaxCover::new(att, state, total_active_balance, &self.spec)
-                    .ok_or(BeaconChainError::BlockRewardAttestationError)
+                let attesting_indices = get_attesting_indices_from_state(state, att)?;
+                Ok(SplitAttestation::new(att.clone(), attesting_indices))
+            })
+            .collect::<Result<Vec<_>, BeaconChainError>>()?;
+
+        let mut per_attestation_rewards = split_attestations
+            .iter()
+            .map(|att| {
+                AttMaxCover::new(
+                    att.as_ref(),
+                    state,
+                    reward_cache,
+                    total_active_balance,
+                    &self.spec,
+                )
+                .ok_or(BeaconChainError::BlockRewardAttestationError)
             })
             .collect::<Result<Vec<_>, _>>()?;
 
@@ -34,7 +55,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             let latest_att = &updated[i];
 
             for att in to_update {
-                att.update_covering_set(latest_att.object(), latest_att.covering_set());
+                att.update_covering_set(latest_att.intermediate(), latest_att.covering_set());
             }
         }
 

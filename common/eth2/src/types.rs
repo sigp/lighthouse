@@ -682,7 +682,7 @@ pub struct ValidatorAggregateAttestationQuery {
     pub slot: Slot,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
 pub struct BeaconCommitteeSubscription {
     #[serde(with = "eth2_serde_utils::quoted_u64")]
     pub validator_index: u64,

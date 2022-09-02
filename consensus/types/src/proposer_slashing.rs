@@ -18,6 +18,13 @@ pub struct ProposerSlashing {
     pub signed_header_2: SignedBeaconBlockHeader,
 }
 
+impl ProposerSlashing {
+    /// Get proposer index, assuming slashing validity has already been checked.
+    pub fn proposer_index(&self) -> u64 {
+        self.signed_header_1.message.proposer_index
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
