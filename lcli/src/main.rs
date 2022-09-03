@@ -747,6 +747,7 @@ fn run<T: EthSpec>(
             debug_level: "trace",
             logfile_debug_level: "trace",
             log_format: None,
+            log_color: false,
             max_log_size: 0,
             max_log_number: 0,
             compression: false,
