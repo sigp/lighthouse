@@ -106,6 +106,10 @@ lazy_static! {
         "beacon_block_production_unaggregated_seconds",
         "Time taken to import the naive aggregation pool for block production"
     );
+    pub static ref BLOCK_PRODUCTION_UNAGGREGATED_SYNC_TIMES: Result<Histogram> = try_create_histogram(
+        "beacon_block_production_unaggregated_sync_seconds",
+        "Time taken to import the naive sync aggregation pool for block production"
+    );
     pub static ref BLOCK_PRODUCTION_ATTESTATION_TIMES: Result<Histogram> = try_create_histogram(
         "beacon_block_production_attestation_seconds",
         "Time taken to pack attestations into a block"

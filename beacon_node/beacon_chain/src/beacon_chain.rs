@@ -3378,6 +3378,22 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
         drop(unagg_import_timer);
 
+        // Iterate through the naive sync aggregation pool and ensure all the sync contributions
+        //from there are included in the operation pool.
+        let unagg_sync_import_timer =
+            metrics::start_timer(&metrics::BLOCK_PRODUCTION_UNAGGREGATED_SYNC_TIMES);
+        for contribution in self.naive_sync_aggregation_pool.read().iter() {
+            if let Err(e) = self.op_pool.insert_sync_contribution(contribution.clone()) {
+                // Don't stop block production if there's an error, just create a log.
+                error!(
+                    self.log,
+                    "Sync contribution did not transfer to op pool";
+                    "reason" => ?e
+                );
+            }
+        }
+        drop(unagg_sync_import_timer);
+
         // Override the beacon node's graffiti with graffiti from the validator, if present.
         let graffiti = match validator_graffiti {
             Some(graffiti) => graffiti,
