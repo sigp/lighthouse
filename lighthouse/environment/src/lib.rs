@@ -141,11 +141,12 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
             }
         } else {
             let stdout_decorator_builder = slog_term::TermDecorator::new();
-            let stdout_decorator = if config.log_color { 
+            let stdout_decorator = if config.log_color {
                 stdout_decorator_builder.force_color()
-            } else { 
-                stdout_decorator_builder 
-            }.build();
+            } else {
+                stdout_decorator_builder
+            }
+            .build();
             let stdout_decorator =
                 logging::AlignedTermDecorator::new(stdout_decorator, logging::MAX_MESSAGE_WIDTH);
             let stdout_drain = slog_term::FullFormat::new(stdout_decorator).build().fuse();
