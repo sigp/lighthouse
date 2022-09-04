@@ -141,6 +141,7 @@ fn main() {
         .arg(
             Arg::with_name("log-color")
                 .long("log-color")
+                .alias("log-colour")
                 .help("Force outputting colors when emitting logs to the terminal.")
                 .global(true),
         )
