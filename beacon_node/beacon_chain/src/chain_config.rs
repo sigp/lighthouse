@@ -1,3 +1,4 @@
+pub use proto_array::CountUnrealizedFull;
 use serde_derive::{Deserialize, Serialize};
 use types::Checkpoint;
 
@@ -42,6 +43,8 @@ pub struct ChainConfig {
     pub always_reset_payload_statuses: bool,
     /// Whether to apply paranoid checks to blocks proposed by this beacon node.
     pub paranoid_block_proposal: bool,
+    /// Whether to strictly count unrealized justified votes.
+    pub count_unrealized_full: CountUnrealizedFull,
 }
 
 impl Default for ChainConfig {
@@ -61,6 +64,7 @@ impl Default for ChainConfig {
             count_unrealized: true,
             always_reset_payload_statuses: false,
             paranoid_block_proposal: false,
+            count_unrealized_full: CountUnrealizedFull::default(),
         }
     }
 }

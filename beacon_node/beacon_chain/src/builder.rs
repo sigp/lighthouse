@@ -248,6 +248,7 @@ where
                 ResetPayloadStatuses::always_reset_conditionally(
                     self.chain_config.always_reset_payload_statuses,
                 ),
+                self.chain_config.count_unrealized_full,
                 &self.spec,
                 log,
             )
@@ -365,6 +366,7 @@ where
             &genesis.beacon_block,
             &genesis.beacon_state,
             current_slot,
+            self.chain_config.count_unrealized_full,
             &self.spec,
         )
         .map_err(|e| format!("Unable to initialize ForkChoice: {:?}", e))?;
@@ -482,6 +484,7 @@ where
             &snapshot.beacon_block,
             &snapshot.beacon_state,
             current_slot,
+            self.chain_config.count_unrealized_full,
             &self.spec,
         )
         .map_err(|e| format!("Unable to initialize ForkChoice: {:?}", e))?;
@@ -658,6 +661,7 @@ where
                 Some(current_slot),
                 &self.spec,
                 self.chain_config.count_unrealized.into(),
+                self.chain_config.count_unrealized_full,
             )?;
         }
 

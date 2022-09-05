@@ -1,4 +1,4 @@
-use beacon_node::ClientConfig as Config;
+use beacon_node::{beacon_chain::CountUnrealizedFull, ClientConfig as Config};
 
 use crate::exec::{CommandLineTestExec, CompletedTest};
 use eth1::Eth1Endpoint;
@@ -176,6 +176,45 @@ fn count_unrealized_true() {
         .flag("count-unrealized", Some("true"))
         .run_with_zero_port()
         .with_config(|config| assert!(config.chain.count_unrealized));
+}
+
+#[test]
+fn count_unrealized_full_no_arg() {
+    CommandLineTest::new()
+        .flag("count-unrealized-full", None)
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config.chain.count_unrealized_full,
+                CountUnrealizedFull::False
+            )
+        });
+}
+
+#[test]
+fn count_unrealized_full_false() {
+    CommandLineTest::new()
+        .flag("count-unrealized-full", Some("false"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config.chain.count_unrealized_full,
+                CountUnrealizedFull::False
+            )
+        });
+}
+
+#[test]
+fn count_unrealized_full_true() {
+    CommandLineTest::new()
+        .flag("count-unrealized-full", Some("true"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config.chain.count_unrealized_full,
+                CountUnrealizedFull::True
+            )
+        });
 }
 
 #[test]
