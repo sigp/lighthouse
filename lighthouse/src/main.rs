@@ -433,7 +433,7 @@ fn run<E: EthSpec>(
         debug_level,
         logfile_debug_level,
         log_format,
-        log_color: log_color,
+        log_color,
         max_log_size: logfile_max_size * 1_024 * 1_024,
         max_log_number: logfile_max_number,
         compression: logfile_compress,
