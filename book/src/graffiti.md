@@ -49,10 +49,12 @@ Below is an example of the validator_definitions.yml with validator specific gra
 ### 3. Using the "--graffiti" flag on the validator client
 Users can specify a common graffiti for all their validators using the `--graffiti` flag on the validator client.
 
+Usage: `lighthouse vc --graffiti example`
+
 ### 4. Using the "--graffiti" flag on the beacon node
 Users can also specify a common graffiti using the `--graffiti` flag on the beacon node as a common  graffiti for all validators.
 
-Usage: `lighthouse vc --graffiti fortytwo`
+Usage: `lighthouse bn --graffiti fortytwo`
 
 > Note: The order of preference for loading the graffiti is as follows:
 > 1. Read from `--graffiti-file` if provided.

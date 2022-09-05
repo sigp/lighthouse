@@ -22,7 +22,7 @@ use execution_layer::ExecutionLayer;
 use genesis::{interop_genesis_state, Eth1GenesisService, DEFAULT_ETH1_BLOCK_HASH};
 use lighthouse_network::{prometheus_client::registry::Registry, NetworkGlobals};
 use monitoring_api::{MonitoringHttpClient, ProcessType};
-use network::{NetworkConfig, NetworkMessage, NetworkService};
+use network::{NetworkConfig, NetworkSenders, NetworkService};
 use slasher::Slasher;
 use slasher_service::SlasherService;
 use slog::{debug, info, warn, Logger};
@@ -31,7 +31,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 use timer::spawn_timer;
-use tokio::sync::{mpsc::UnboundedSender, oneshot};
+use tokio::sync::oneshot;
 use types::{
     test_utils::generate_deterministic_keypairs, BeaconState, ChainSpec, EthSpec,
     ExecutionBlockHash, Hash256, SignedBeaconBlock,
@@ -66,7 +66,7 @@ pub struct ClientBuilder<T: BeaconChainTypes> {
     beacon_chain: Option<Arc<BeaconChain<T>>>,
     eth1_service: Option<Eth1Service>,
     network_globals: Option<Arc<NetworkGlobals<T::EthSpec>>>,
-    network_send: Option<UnboundedSender<NetworkMessage<T::EthSpec>>>,
+    network_senders: Option<NetworkSenders<T::EthSpec>>,
     gossipsub_registry: Option<Registry>,
     db_path: Option<PathBuf>,
     freezer_db_path: Option<PathBuf>,
@@ -98,7 +98,7 @@ where
             beacon_chain: None,
             eth1_service: None,
             network_globals: None,
-            network_send: None,
+            network_senders: None,
             gossipsub_registry: None,
             db_path: None,
             freezer_db_path: None,
@@ -397,7 +397,7 @@ where
                     > = Arc::new(http_api::Context {
                         config: self.http_api_config.clone(),
                         chain: None,
-                        network_tx: None,
+                        network_senders: None,
                         network_globals: None,
                         eth1_service: Some(genesis_service.eth1_service.clone()),
                         log: context.log().clone(),
@@ -481,7 +481,7 @@ where
             None
         };
 
-        let (network_globals, network_send) = NetworkService::start(
+        let (network_globals, network_senders) = NetworkService::start(
             beacon_chain,
             config,
             context.executor,
@@ -493,7 +493,7 @@ where
         .map_err(|e| format!("Failed to start network: {:?}", e))?;
 
         self.network_globals = Some(network_globals);
-        self.network_send = Some(network_send);
+        self.network_senders = Some(network_senders);
         self.gossipsub_registry = gossipsub_registry;
 
         Ok(self)
@@ -537,16 +537,16 @@ where
             .beacon_chain
             .clone()
             .ok_or("slasher service requires a beacon chain")?;
-        let network_send = self
-            .network_send
+        let network_senders = self
+            .network_senders
             .clone()
-            .ok_or("slasher service requires a network sender")?;
+            .ok_or("slasher service requires network senders")?;
         let context = self
             .runtime_context
             .as_ref()
             .ok_or("slasher requires a runtime_context")?
             .service_context("slasher_service_ctxt".into());
-        SlasherService::new(beacon_chain, network_send).run(&context.executor)
+        SlasherService::new(beacon_chain, network_senders.network_send()).run(&context.executor)
     }
 
     /// Start the explorer client which periodically sends beacon
@@ -616,7 +616,7 @@ where
             let ctx = Arc::new(http_api::Context {
                 config: self.http_api_config.clone(),
                 chain: self.beacon_chain.clone(),
-                network_tx: self.network_send.clone(),
+                network_senders: self.network_senders.clone(),
                 network_globals: self.network_globals.clone(),
                 eth1_service: self.eth1_service.clone(),
                 log: log.clone(),
