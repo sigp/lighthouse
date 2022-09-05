@@ -42,7 +42,7 @@ There are a few interesting properties about the list of `--beacon-nodes`:
 - *Synced is preferred*: the validator client prefers a synced beacon node over
 	one that is still syncing.
 - *Failure is sticky*: if a beacon node fails, it will be flagged as offline
-    and wont be retried again for the rest of the slot (12 seconds). This helps prevent the impact
+    and won't be retried again for the rest of the slot (12 seconds). This helps prevent the impact
     of time-outs and other lengthy errors.
 
 > Note: When supplying multiple beacon nodes the `http://localhost:5052` address must be explicitly
@@ -51,7 +51,7 @@ There are a few interesting properties about the list of `--beacon-nodes`:
 
 ### Configuring a redundant Beacon Node
 
-In our previous example we listed `http://192.168.1.1:5052` as a redundant
+In our previous example, we listed `http://192.168.1.1:5052` as a redundant
 node. Apart from having sufficient resources, the backup node should have the
 following flags:
 
