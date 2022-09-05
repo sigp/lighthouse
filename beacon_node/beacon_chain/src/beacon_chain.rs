@@ -3379,7 +3379,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         drop(unagg_import_timer);
 
         // Iterate through the naive sync aggregation pool and ensure all the sync contributions
-        //from there are included in the operation pool.
+        // from there are included in the operation pool.
         let unagg_sync_import_timer =
             metrics::start_timer(&metrics::BLOCK_PRODUCTION_UNAGGREGATED_SYNC_TIMES);
         for contribution in self.naive_sync_aggregation_pool.read().iter() {
