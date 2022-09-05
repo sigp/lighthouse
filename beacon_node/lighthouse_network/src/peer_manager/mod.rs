@@ -5,8 +5,8 @@ use crate::rpc::{GoodbyeReason, MetaData, Protocol, RPCError, RPCResponseErrorCo
 use crate::{error, metrics, Gossipsub};
 use crate::{NetworkGlobals, PeerId};
 use crate::{Subnet, SubnetDiscovery};
+use delay_map::HashSetDelay;
 use discv5::Enr;
-use hashset_delay::HashSetDelay;
 use libp2p::identify::IdentifyInfo;
 use peerdb::{client::ClientKind, BanOperation, BanResult, ScoreUpdateResult};
 use rand::seq::SliceRandom;

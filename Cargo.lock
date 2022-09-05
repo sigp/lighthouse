@@ -1251,6 +1251,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b72465f46d518f6015d9cf07f7f3013a95dd6b9c2747c3d65ae0cce43929d14f"
 
 [[package]]
+name = "delay_map"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6716ce9729be9628979ae1ff63e8bc8b7ad53b5472a2633bf079607a55328d36"
+dependencies = [
+ "futures",
+ "tokio-util 0.6.10",
+]
+
+[[package]]
 name = "deposit_contract"
 version = "0.2.0"
 dependencies = [
@@ -2555,15 +2565,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "hashset_delay"
-version = "0.2.0"
-dependencies = [
- "futures",
- "tokio",
- "tokio-util 0.6.10",
-]
-
-[[package]]
 name = "headers"
 version = "0.3.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3656,6 +3657,7 @@ dependencies = [
 name = "lighthouse_network"
 version = "0.2.0"
 dependencies = [
+ "delay_map",
  "directory",
  "dirs",
  "discv5",
@@ -3666,7 +3668,6 @@ dependencies = [
  "exit-future",
  "fnv",
  "futures",
- "hashset_delay",
  "hex",
  "lazy_static",
  "libp2p",
@@ -4146,6 +4147,7 @@ name = "network"
 version = "0.2.0"
 dependencies = [
  "beacon_chain",
+ "delay_map",
  "derivative",
  "environment",
  "error-chain",
@@ -4155,7 +4157,6 @@ dependencies = [
  "fnv",
  "futures",
  "genesis",
- "hashset_delay",
  "hex",
  "if-addrs 0.6.7",
  "igd",
