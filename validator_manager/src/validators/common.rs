@@ -165,7 +165,6 @@ pub struct StandardDepositDataJson {
     pub pubkey: PublicKeyBytes,
     #[serde(with = "hash256_without_0x_prefix")]
     pub withdrawal_credentials: Hash256,
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
     pub amount: u64,
     #[serde(with = "signature_bytes_without_0x_prefix")]
     pub signature: SignatureBytes,
