@@ -309,6 +309,8 @@ pub fn get_config<E: EthSpec>(
         el_config.jwt_id = clap_utils::parse_optional(cli_args, "execution-jwt-id")?;
         el_config.jwt_version = clap_utils::parse_optional(cli_args, "execution-jwt-version")?;
         el_config.default_datadir = client_config.data_dir.clone();
+        el_config.builder_profit_threshold =
+            clap_utils::parse_required(cli_args, "builder-profit-threshold")?;
 
         // If `--execution-endpoint` is provided, we should ignore any `--eth1-endpoints` values and
         // use `--execution-endpoint` instead. Also, log a deprecation warning.

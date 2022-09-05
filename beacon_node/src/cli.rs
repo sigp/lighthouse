@@ -778,6 +778,21 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(false)
         )
         .arg(
+            Arg::with_name("builder-profit-threshold")
+                .long("builder-profit-threshold")
+                .value_name("WEI_VALUE")
+                .help("The minimum reward in wei provided to the proposer by a block builder for \
+                    an external payload to be considered for inclusion in a proposal. If this \
+                    threshold is not met, the local EE's payload will be used. This is currently \
+                    *NOT* in comparison to the value of the local EE's payload. It simply checks \
+                    whether the total proposer reward from an external payload is equal to or \
+                    greater than this value. In the future, a comparison to a local payload is \
+                    likely to be added. Example: Use 250000000000000000 to set the threshold to \
+                     0.25 ETH.")
+                .default_value("0")
+                .takes_value(true)
+        )
+        .arg(
             Arg::with_name("count-unrealized")
                 .long("count-unrealized")
                 .hidden(true)

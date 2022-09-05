@@ -33,7 +33,7 @@ use types::{
 pub enum Operation {
     FeeRecipient(Address),
     GasLimit(usize),
-    Value(usize),
+    Value(Uint256),
     ParentHash(Hash256),
     PrevRandao(Hash256),
     BlockNumber(usize),
@@ -47,7 +47,7 @@ impl Operation {
                 bid.header.fee_recipient = to_ssz_rs(&fee_recipient)?
             }
             Operation::GasLimit(gas_limit) => bid.header.gas_limit = gas_limit as u64,
-            Operation::Value(value) => bid.value = to_ssz_rs(&Uint256::from(value))?,
+            Operation::Value(value) => bid.value = to_ssz_rs(&value)?,
             Operation::ParentHash(parent_hash) => bid.header.parent_hash = to_ssz_rs(&parent_hash)?,
             Operation::PrevRandao(prev_randao) => bid.header.prev_randao = to_ssz_rs(&prev_randao)?,
             Operation::BlockNumber(block_number) => bid.header.block_number = block_number as u64,
@@ -149,7 +149,9 @@ impl<E: EthSpec> MockBuilder<E> {
     }
 
     pub fn add_operation(&self, op: Operation) {
-        self.operations.write().push(op);
+        // Insert operations at the front of the vec to make sure `apply_operations` applies them
+        // in the order they are added.
+        self.operations.write().insert(0, op);
     }
 
     pub fn invalid_signatures(&self) {
