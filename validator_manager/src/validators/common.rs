@@ -165,6 +165,8 @@ pub struct StandardDepositDataJson {
     pub pubkey: PublicKeyBytes,
     #[serde(with = "hash256_without_0x_prefix")]
     pub withdrawal_credentials: Hash256,
+    /// The `amount` field is *not* quoted (i.e., a string) like most other `u64` fields in the
+    /// consensus specs, it's a simple integer.
     pub amount: u64,
     #[serde(with = "signature_bytes_without_0x_prefix")]
     pub signature: SignatureBytes,
