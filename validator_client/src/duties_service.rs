@@ -8,7 +8,7 @@
 
 mod sync;
 
-use crate::beacon_node_fallback::{BeaconNodeFallback, RequireSynced};
+use crate::beacon_node_fallback::{BeaconNodeFallback, OfflineOnFailure, RequireSynced};
 use crate::{
     block_service::BlockServiceNotification,
     http_metrics::metrics,
@@ -382,27 +382,41 @@ async fn poll_validator_indices<T: SlotClock + 'static, E: EthSpec>(
             // Query the remote BN to resolve a pubkey to a validator index.
             let download_result = duties_service
                 .beacon_nodes
-                .first_success(duties_service.require_synced, |beacon_node| async move {
-                    let _timer = metrics::start_timer_vec(
-                        &metrics::DUTIES_SERVICE_TIMES,
-                        &[metrics::VALIDATOR_ID_HTTP_GET],
-                    );
-                    beacon_node
-                        .get_beacon_states_validator_id(
-                            StateId::Head,
-                            &ValidatorId::PublicKey(pubkey),
-                        )
-                        .await
-                })
+                .first_success(
+                    duties_service.require_synced,
+                    OfflineOnFailure::Yes,
+                    |beacon_node| async move {
+                        let _timer = metrics::start_timer_vec(
+                            &metrics::DUTIES_SERVICE_TIMES,
+                            &[metrics::VALIDATOR_ID_HTTP_GET],
+                        );
+                        beacon_node
+                            .get_beacon_states_validator_id(
+                                StateId::Head,
+                                &ValidatorId::PublicKey(pubkey),
+                            )
+                            .await
+                    },
+                )
                 .await;
 
+            let fee_recipient = duties_service
+                .validator_store
+                .get_fee_recipient(&pubkey)
+                .map(|fr| fr.to_string())
+                .unwrap_or_else(|| {
+                    "Fee recipient for validator not set in validator_definitions.yml \
+                    or provided with the `--suggested-fee-recipient` flag"
+                        .to_string()
+                });
             match download_result {
                 Ok(Some(response)) => {
                     info!(
                         log,
                         "Validator exists in beacon chain";
                         "pubkey" => ?pubkey,
-                        "validator_index" => response.data.index
+                        "validator_index" => response.data.index,
+                        "fee_recipient" => fee_recipient
                     );
                     duties_service
                         .validator_store
@@ -416,7 +430,8 @@ async fn poll_validator_indices<T: SlotClock + 'static, E: EthSpec>(
                     debug!(
                         log,
                         "Validator without index";
-                        "pubkey" => ?pubkey
+                        "pubkey" => ?pubkey,
+                        "fee_recipient" => fee_recipient
                     )
                 }
                 // Don't exit early on an error, keep attempting to resolve other indices.
@@ -426,6 +441,7 @@ async fn poll_validator_indices<T: SlotClock + 'static, E: EthSpec>(
                         "Failed to resolve pubkey to index";
                         "error" => %e,
                         "pubkey" => ?pubkey,
+                        "fee_recipient" => fee_recipient
                     )
                 }
             }
@@ -559,15 +575,19 @@ async fn poll_beacon_attesters<T: SlotClock + 'static, E: EthSpec>(
         let subscriptions_ref = &subscriptions;
         if let Err(e) = duties_service
             .beacon_nodes
-            .first_success(duties_service.require_synced, |beacon_node| async move {
-                let _timer = metrics::start_timer_vec(
-                    &metrics::DUTIES_SERVICE_TIMES,
-                    &[metrics::SUBSCRIPTIONS_HTTP_POST],
-                );
-                beacon_node
-                    .post_validator_beacon_committee_subscriptions(subscriptions_ref)
-                    .await
-            })
+            .first_success(
+                duties_service.require_synced,
+                OfflineOnFailure::Yes,
+                |beacon_node| async move {
+                    let _timer = metrics::start_timer_vec(
+                        &metrics::DUTIES_SERVICE_TIMES,
+                        &[metrics::SUBSCRIPTIONS_HTTP_POST],
+                    );
+                    beacon_node
+                        .post_validator_beacon_committee_subscriptions(subscriptions_ref)
+                        .await
+                },
+            )
             .await
         {
             error!(
@@ -619,15 +639,19 @@ async fn poll_beacon_attesters_for_epoch<T: SlotClock + 'static, E: EthSpec>(
 
     let response = duties_service
         .beacon_nodes
-        .first_success(duties_service.require_synced, |beacon_node| async move {
-            let _timer = metrics::start_timer_vec(
-                &metrics::DUTIES_SERVICE_TIMES,
-                &[metrics::ATTESTER_DUTIES_HTTP_POST],
-            );
-            beacon_node
-                .post_validator_duties_attester(epoch, local_indices)
-                .await
-        })
+        .first_success(
+            duties_service.require_synced,
+            OfflineOnFailure::Yes,
+            |beacon_node| async move {
+                let _timer = metrics::start_timer_vec(
+                    &metrics::DUTIES_SERVICE_TIMES,
+                    &[metrics::ATTESTER_DUTIES_HTTP_POST],
+                );
+                beacon_node
+                    .post_validator_duties_attester(epoch, local_indices)
+                    .await
+            },
+        )
         .await
         .map_err(|e| Error::FailedToDownloadAttesters(e.to_string()))?;
 
@@ -779,15 +803,19 @@ async fn poll_beacon_proposers<T: SlotClock + 'static, E: EthSpec>(
     if !local_pubkeys.is_empty() {
         let download_result = duties_service
             .beacon_nodes
-            .first_success(duties_service.require_synced, |beacon_node| async move {
-                let _timer = metrics::start_timer_vec(
-                    &metrics::DUTIES_SERVICE_TIMES,
-                    &[metrics::PROPOSER_DUTIES_HTTP_GET],
-                );
-                beacon_node
-                    .get_validator_duties_proposer(current_epoch)
-                    .await
-            })
+            .first_success(
+                duties_service.require_synced,
+                OfflineOnFailure::Yes,
+                |beacon_node| async move {
+                    let _timer = metrics::start_timer_vec(
+                        &metrics::DUTIES_SERVICE_TIMES,
+                        &[metrics::PROPOSER_DUTIES_HTTP_GET],
+                    );
+                    beacon_node
+                        .get_validator_duties_proposer(current_epoch)
+                        .await
+                },
+            )
             .await;
 
         match download_result {

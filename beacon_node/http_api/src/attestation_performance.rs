@@ -83,6 +83,10 @@ pub fn get_attestation_performance<T: BeaconChainTypes>(
     }
 
     // Either use the global validator set, or the specified index.
+    //
+    // Does no further validation of the indices, so in the event an index has not yet been
+    // activated or does not yet exist (according to the head state), it will return all fields as
+    // `false`.
     let index_range = if target.to_lowercase() == "global" {
         chain
             .with_head(|head| Ok((0..head.beacon_state.validators().len() as u64).collect()))

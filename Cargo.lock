@@ -436,7 +436,7 @@ dependencies = [
 
 [[package]]
 name = "beacon_node"
-version = "3.0.0"
+version = "3.1.0"
 dependencies = [
  "beacon_chain",
  "clap",
@@ -594,7 +594,7 @@ dependencies = [
 
 [[package]]
 name = "boot_node"
-version = "3.0.0"
+version = "3.1.0"
 dependencies = [
  "beacon_node",
  "clap",
@@ -1249,6 +1249,16 @@ name = "db-key"
 version = "0.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b72465f46d518f6015d9cf07f7f3013a95dd6b9c2747c3d65ae0cce43929d14f"
+
+[[package]]
+name = "delay_map"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6716ce9729be9628979ae1ff63e8bc8b7ad53b5472a2633bf079607a55328d36"
+dependencies = [
+ "futures",
+ "tokio-util 0.6.10",
+]
 
 [[package]]
 name = "deposit_contract"
@@ -2235,6 +2245,7 @@ dependencies = [
  "eth2_ssz",
  "eth2_ssz_derive",
  "proto_array",
+ "slog",
  "state_processing",
  "store",
  "tokio",
@@ -2551,15 +2562,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7249a3129cbc1ffccd74857f81464a323a152173cdb134e0fd81bc803b29facf"
 dependencies = [
  "hashbrown 0.11.2",
-]
-
-[[package]]
-name = "hashset_delay"
-version = "0.2.0"
-dependencies = [
- "futures",
- "tokio",
- "tokio-util 0.6.10",
 ]
 
 [[package]]
@@ -3105,7 +3107,7 @@ checksum = "830d08ce1d1d941e6b30645f1a0eb5643013d835ce3779a5fc208261dbe10f55"
 
 [[package]]
 name = "lcli"
-version = "3.0.0"
+version = "3.1.0"
 dependencies = [
  "account_utils",
  "beacon_chain",
@@ -3605,7 +3607,7 @@ dependencies = [
 
 [[package]]
 name = "lighthouse"
-version = "3.0.0"
+version = "3.1.0"
 dependencies = [
  "account_manager",
  "account_utils",
@@ -3655,6 +3657,7 @@ dependencies = [
 name = "lighthouse_network"
 version = "0.2.0"
 dependencies = [
+ "delay_map",
  "directory",
  "dirs",
  "discv5",
@@ -3665,7 +3668,6 @@ dependencies = [
  "exit-future",
  "fnv",
  "futures",
- "hashset_delay",
  "hex",
  "lazy_static",
  "libp2p",
@@ -4145,6 +4147,7 @@ name = "network"
 version = "0.2.0"
 dependencies = [
  "beacon_chain",
+ "delay_map",
  "derivative",
  "environment",
  "error-chain",
@@ -4154,7 +4157,6 @@ dependencies = [
  "fnv",
  "futures",
  "genesis",
- "hashset_delay",
  "hex",
  "if-addrs 0.6.7",
  "igd",
@@ -4410,12 +4412,14 @@ name = "operation_pool"
 version = "0.2.0"
 dependencies = [
  "beacon_chain",
+ "bitvec 1.0.1",
  "derivative",
  "eth2_ssz",
  "eth2_ssz_derive",
  "itertools",
  "lazy_static",
  "lighthouse_metrics",
+ "maplit",
  "parking_lot 0.12.1",
  "rayon",
  "serde",
@@ -4582,9 +4586,9 @@ checksum = "d4fd5641d01c8f18a23da7b6fe29298ff4b55afcccdf78973b24cf3175fee32e"
 
 [[package]]
 name = "pest"
-version = "2.2.1"
+version = "2.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "69486e2b8c2d2aeb9762db7b4e00b0331156393555cff467f4163ff06821eef8"
+checksum = "4b0560d531d1febc25a3c9398a62a71256c0178f2e3443baedd9ad4bb8c9deb4"
 dependencies = [
  "thiserror",
  "ucd-trie",
@@ -4703,9 +4707,9 @@ checksum = "e8d0eef3571242013a0d5dc84861c3ae4a652e56e12adf8bdc26ff5f8cb34c94"
 
 [[package]]
 name = "plotters"
-version = "0.3.2"
+version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9428003b84df1496fb9d6eeee9c5f8145cb41ca375eb0dad204328888832811f"
+checksum = "716b4eeb6c4a1d3ecc956f75b43ec2e8e8ba80026413e70a3f41fd3313d3492b"
 dependencies = [
  "num-traits",
  "plotters-backend",
@@ -6271,9 +6275,11 @@ dependencies = [
  "arbitrary",
  "beacon_chain",
  "bls",
+ "derivative",
  "env_logger 0.9.0",
  "eth2_hashing",
  "eth2_ssz",
+ "eth2_ssz_derive",
  "eth2_ssz_types",
  "int_to_bytes",
  "integer-sqrt",
