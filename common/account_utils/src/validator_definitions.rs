@@ -16,7 +16,7 @@ use std::fs::{self, File};
 use std::io;
 use std::path::{Path, PathBuf};
 use types::{graffiti::GraffitiString, Address, PublicKey};
-use validator_dir::VOTING_KEYSTORE_FILE;
+use validator_dir::{write_password_to_file, VOTING_KEYSTORE_FILE};
 
 /// The file name for the serialized `ValidatorDefinitions` struct.
 pub const CONFIG_FILENAME: &str = "validator_definitions.yml";
@@ -47,6 +47,7 @@ pub enum Error {
     UnableToCreateValidatorDir(PathBuf),
     UnableToReadKeystorePassword(String),
     KeystoreWithoutPassword,
+    UnableToCreatePassword(validator_dir::BuilderError),
 }
 
 /// Defines how a password for a validator keystore will be persisted.
@@ -348,6 +349,42 @@ impl ValidatorDefinitions {
         self.0.append(&mut new_defs);
 
         Ok(new_defs_count)
+    }
+
+    // TODO(paul): remove this
+    pub fn migrate_passwords_to_secrets_dir<P: AsRef<Path>>(
+        &mut self,
+        validators_dir: P,
+        secrets_dir: P,
+    ) -> Result<(), Error> {
+        for def in &mut self.0 {
+            match &mut def.signing_definition {
+                SigningDefinition::LocalKeystore {
+                    voting_keystore_path,
+                    voting_keystore_password_path,
+                    voting_keystore_password,
+                } => {
+                    if voting_keystore_password_path.is_some() {
+                        continue;
+                    }
+
+                    let keystore = Keystore::from_json_file(&voting_keystore_path)
+                        .map_err(Error::UnableToOpenKeystore)?;
+
+                    if let Some(password) = voting_keystore_password {
+                        let password_path = default_keystore_password_path(&keystore, &secrets_dir);
+                        if !password_path.exists() {
+                            write_password_to_file(&password_path, password.as_ref())
+                                .map_err(Error::UnableToCreatePassword)?;
+                            *voting_keystore_password_path = Some(password_path);
+                            *voting_keystore_password = None;
+                        }
+                    }
+                }
+                SigningDefinition::Web3Signer { .. } => (),
+            }
+        }
+        self.save(validators_dir)
     }
 
     /// Encodes `self` as a YAML string and atomically writes it to the `CONFIG_FILENAME` file in

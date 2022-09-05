@@ -162,6 +162,11 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
         let mut validator_defs = ValidatorDefinitions::open_or_create(&config.validator_dir)
             .map_err(|e| format!("Unable to open or create validator definitions: {:?}", e))?;
 
+        // TODO(paul): remove this
+        validator_defs
+            .migrate_passwords_to_secrets_dir(&config.validator_dir, &config.secrets_dir)
+            .map_err(|e| format!("Unable to migrate passwords: {:?}", e))?;
+
         if !config.disable_auto_discover {
             let new_validators = validator_defs
                 .discover_local_keystores(&config.validator_dir, &config.secrets_dir, &log)
