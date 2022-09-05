@@ -178,9 +178,13 @@ pub fn get_config<E: EthSpec>(
      * Explorer metrics
      */
     if let Some(monitoring_endpoint) = cli_args.value_of("monitoring-endpoint") {
+        let update_period_secs =
+            clap_utils::parse_optional(cli_args, "monitoring-endpoint-period")?;
+
         client_config.monitoring_api = Some(monitoring_api::Config {
             db_path: None,
             freezer_db_path: None,
+            update_period_secs,
             monitoring_endpoint: monitoring_endpoint.to_string(),
         });
     }

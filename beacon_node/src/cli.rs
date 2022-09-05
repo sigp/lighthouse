@@ -320,6 +320,15 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 and never provide an untrusted URL.")
                 .takes_value(true),
         )
+        .arg(
+            Arg::with_name("monitoring-endpoint-period")
+                .long("monitoring-endpoint-period")
+                .value_name("SECONDS")
+                .help("Defines how many seconds to wait between each message sent to \
+                       the monitoring-endpoint. Default: 60s")
+                .requires("monitoring-endpoint")
+                .takes_value(true),
+        )
 
         /*
          * Standard staking flags
