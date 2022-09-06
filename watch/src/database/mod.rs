@@ -420,6 +420,32 @@ pub fn get_highest_non_skipped_canonical_slot(
     Ok(result)
 }
 
+/// Select all rows of the `canonical_slots` table where `slot >= `start_slot && slot <=
+/// `end_slot`.
+pub fn get_canonical_slots_by_range(
+    conn: &mut PgConn,
+    start_slot: WatchSlot,
+    end_slot: WatchSlot,
+) -> Result<Option<Vec<WatchCanonicalSlot>>, Error> {
+    use self::canonical_slots::dsl::*;
+    let timer = Instant::now();
+
+    let result = canonical_slots
+        .filter(slot.ge(start_slot))
+        .filter(slot.le(end_slot))
+        .load::<WatchCanonicalSlot>(conn)
+        .optional()?;
+
+    let time_taken = timer.elapsed();
+    debug!(
+        "Canonical slots by range requested, start_slot: {}, end_slot: {}, time_taken: {:?}",
+        start_slot.as_u64(),
+        end_slot.as_u64(),
+        time_taken
+    );
+    Ok(result)
+}
+
 /// Selects `root` from all rows of the `canonical_slots` table which have `beacon_block == null`
 /// and `skipped == false`
 pub fn get_unknown_canonical_blocks(conn: &mut PgConn) -> Result<Vec<WatchHash>, Error> {
@@ -522,6 +548,27 @@ pub fn get_beacon_block_with_parent(
     Ok(result)
 }
 
+/// Select all rows of the `beacon_blocks` table where `slot >= `start_slot && slot <=
+/// `end_slot`.
+pub fn get_beacon_blocks_by_range(
+    conn: &mut PgConn,
+    start_slot: WatchSlot,
+    end_slot: WatchSlot,
+) -> Result<Option<Vec<WatchBeaconBlock>>, Error> {
+    use self::beacon_blocks::dsl::*;
+    let timer = Instant::now();
+
+    let result = beacon_blocks
+        .filter(slot.ge(start_slot))
+        .filter(slot.le(end_slot))
+        .load::<WatchBeaconBlock>(conn)
+        .optional()?;
+
+    let time_taken = timer.elapsed();
+    debug!("Beacon blocks by range requested, start_slot: {start_slot}, end_slot: {end_slot}, time_taken: {time_taken:?}");
+    Ok(result)
+}
+
 /// Selects a single row from the `validators` table corresponding to a given
 /// `validator_index_query`.
 pub fn get_validator_by_index(
@@ -599,9 +646,8 @@ pub fn get_highest_attestation(
 }
 
 /// Selects a single row from the `suboptimal_attestations` table corresponding to a given
-/// `index_query` and `slot_query`.
-/// `slot_query` must be a multiple of `slots_per_epoch`.
-pub fn get_attestation(
+/// `index_query` and `epoch_query`.
+pub fn get_attestation_by_index(
     conn: &mut PgConn,
     index_query: i32,
     epoch_query: Epoch,
@@ -620,6 +666,34 @@ pub fn get_attestation(
 
     let time_taken = timer.elapsed();
     debug!("Attestation requested for validator: {index_query}, epoch: {epoch_query}, time taken: {time_taken:?}");
+    Ok(result)
+}
+
+/// Selects a single row from the `suboptimal_attestations` table corresponding to a given
+/// `pubkey_query` and `epoch_query`.
+pub fn get_attestation_by_pubkey(
+    conn: &mut PgConn,
+    pubkey_query: WatchPK,
+    epoch_query: Epoch,
+    slots_per_epoch: u64,
+) -> Result<Option<WatchSuboptimalAttestation>, Error> {
+    use self::suboptimal_attestations::dsl::*;
+    use self::validators::dsl::{public_key, validators};
+    let timer = Instant::now();
+
+    let join = validators.inner_join(suboptimal_attestations);
+
+    let result = join
+        .select((epoch_start_slot, index, source, head, target))
+        .filter(epoch_start_slot.eq(WatchSlot::from_slot(
+            epoch_query.start_slot(slots_per_epoch),
+        )))
+        .filter(public_key.eq(pubkey_query))
+        .first::<WatchSuboptimalAttestation>(conn)
+        .optional()?;
+
+    let time_taken = timer.elapsed();
+    debug!("Attestation requested for validator: {pubkey_query}, epoch: {epoch_query}, time taken: {time_taken:?}");
     Ok(result)
 }
 

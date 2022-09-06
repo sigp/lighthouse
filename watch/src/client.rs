@@ -1,10 +1,11 @@
 use crate::database::models::{
-    WatchBeaconBlock, WatchBlockPacking, WatchBlockRewards, WatchProposerInfo, WatchValidator,
+    WatchBeaconBlock, WatchBlockPacking, WatchBlockRewards, WatchCanonicalSlot, WatchProposerInfo,
+    WatchValidator,
 };
 use eth2::types::BlockId;
 use reqwest::Client;
 use serde::de::DeserializeOwned;
-use types::{Hash256, Slot};
+use types::Hash256;
 use url::Url;
 
 #[derive(Debug)]
@@ -52,48 +53,32 @@ impl WatchHttpClient {
         let url = self
             .server
             .join("v1/")?
-            .join("beacon_blocks/")?
+            .join("blocks/")?
             .join(&block_id.to_string())?;
 
         self.get_opt(url).await
     }
 
-    pub async fn get_lowest_canonical_slot(&self) -> Result<Option<Slot>, Error> {
-        let url = self
-            .server
-            .join("v1/")?
-            .join("canonical_slots/")?
-            .join("lowest")?;
+    pub async fn get_lowest_canonical_slot(&self) -> Result<Option<WatchCanonicalSlot>, Error> {
+        let url = self.server.join("v1/")?.join("slots/")?.join("lowest")?;
 
         self.get_opt(url).await
     }
 
-    pub async fn get_highest_canonical_slot(&self) -> Result<Option<Slot>, Error> {
-        let url = self
-            .server
-            .join("v1/")?
-            .join("canonical_slots/")?
-            .join("highest")?;
+    pub async fn get_highest_canonical_slot(&self) -> Result<Option<WatchCanonicalSlot>, Error> {
+        let url = self.server.join("v1/")?.join("slots/")?.join("highest")?;
 
         self.get_opt(url).await
     }
 
     pub async fn get_lowest_beacon_block(&self) -> Result<Option<WatchBeaconBlock>, Error> {
-        let url = self
-            .server
-            .join("v1/")?
-            .join("beacon_blocks/")?
-            .join("lowest")?;
+        let url = self.server.join("v1/")?.join("blocks/")?.join("lowest")?;
 
         self.get_opt(url).await
     }
 
     pub async fn get_highest_beacon_block(&self) -> Result<Option<WatchBeaconBlock>, Error> {
-        let url = self
-            .server
-            .join("v1/")?
-            .join("beacon_blocks/")?
-            .join("highest")?;
+        let url = self.server.join("v1/")?.join("blocks/")?.join("highest")?;
 
         self.get_opt(url).await
     }
@@ -105,7 +90,7 @@ impl WatchHttpClient {
         let url = self
             .server
             .join("v1/")?
-            .join("beacon_blocks/")?
+            .join("blocks/")?
             .join(&format!("{parent:?}/"))?
             .join("next")?;
 
@@ -119,8 +104,8 @@ impl WatchHttpClient {
         let url = self
             .server
             .join("v1/")?
-            .join("validator/")?
-            .join(&format!("{index:?}/"))?;
+            .join("validators/")?
+            .join(&format!("{index}"))?;
 
         self.get_opt(url).await
     }
@@ -132,8 +117,9 @@ impl WatchHttpClient {
         let url = self
             .server
             .join("v1/")?
-            .join("proposer_info/")?
-            .join(&block_id.to_string())?;
+            .join("blocks/")?
+            .join(&format!("{block_id}/"))?
+            .join("proposer")?;
 
         self.get_opt(url).await
     }
@@ -145,8 +131,9 @@ impl WatchHttpClient {
         let url = self
             .server
             .join("v1/")?
-            .join("block_rewards/")?
-            .join(&block_id.to_string())?;
+            .join("blocks/")?
+            .join(&format!("{block_id}/"))?
+            .join("reward")?;
 
         self.get_opt(url).await
     }
@@ -158,8 +145,9 @@ impl WatchHttpClient {
         let url = self
             .server
             .join("v1/")?
-            .join("block_packing/")?
-            .join(&block_id.to_string())?;
+            .join("blocks/")?
+            .join(&format!("{block_id}/"))?
+            .join("packing")?;
 
         self.get_opt(url).await
     }

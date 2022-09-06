@@ -1,112 +1,271 @@
 use crate::database::{
     self, PgConn, PgPool, WatchAttestation, WatchBeaconBlock, WatchBlockPacking, WatchBlockRewards,
-    WatchCanonicalSlot, WatchHash, WatchProposerInfo, WatchSlot, WatchValidator,
+    WatchCanonicalSlot, WatchHash, WatchPK, WatchProposerInfo, WatchSlot, WatchValidator,
 };
 use crate::server::Error;
+use axum::{
+    extract::{Path, Query},
+    Extension, Json,
+};
 use eth2::types::BlockId;
-use std::convert::Infallible;
-use types::{Epoch, Slot};
-use warp::Filter;
+use std::collections::HashMap;
+use std::str::FromStr;
+use types::Epoch;
 
-pub fn with_db(db_pool: PgPool) -> impl Filter<Extract = (PgPool,), Error = Infallible> + Clone {
-    warp::any().map(move || db_pool.clone())
+pub async fn get_slot(
+    Path(slot): Path<u64>,
+    Extension(pool): Extension<PgPool>,
+) -> Result<Json<Option<WatchCanonicalSlot>>, Error> {
+    let mut conn = database::get_connection(&pool).map_err(Error::Database)?;
+    Ok(Json(database::get_canonical_slot(
+        &mut conn,
+        WatchSlot::new(slot),
+    )?))
 }
 
-pub fn with_slots_per_epoch(
-    slots_per_epoch: u64,
-) -> impl Filter<Extract = (u64,), Error = Infallible> + Clone {
-    warp::any().map(move || slots_per_epoch)
+pub async fn get_slot_lowest(
+    Extension(pool): Extension<PgPool>,
+) -> Result<Json<Option<WatchCanonicalSlot>>, Error> {
+    let mut conn = database::get_connection(&pool).map_err(Error::Database)?;
+    Ok(Json(database::get_lowest_canonical_slot(&mut conn)?))
 }
 
-pub fn get_slot(conn: &mut PgConn, block_id: BlockId) -> Result<Option<WatchCanonicalSlot>, Error> {
-    let slot_opt = match block_id {
+pub async fn get_slot_highest(
+    Extension(pool): Extension<PgPool>,
+) -> Result<Json<Option<WatchCanonicalSlot>>, Error> {
+    let mut conn = database::get_connection(&pool).map_err(Error::Database)?;
+    Ok(Json(database::get_highest_canonical_slot(&mut conn)?))
+}
+
+pub async fn get_slots_by_range(
+    Query(query): Query<HashMap<String, u64>>,
+    Extension(pool): Extension<PgPool>,
+) -> Result<Json<Option<Vec<WatchCanonicalSlot>>>, Error> {
+    let mut conn = database::get_connection(&pool).map_err(Error::Database)?;
+    if let Some(start_slot) = query.get("start_slot") {
+        if let Some(end_slot) = query.get("end_slot") {
+            if start_slot > end_slot {
+                Err(Error::BadRequest)
+            } else {
+                Ok(Json(database::get_canonical_slots_by_range(
+                    &mut conn,
+                    WatchSlot::new(*start_slot),
+                    WatchSlot::new(*end_slot),
+                )?))
+            }
+        } else {
+            Err(Error::BadRequest)
+        }
+    } else {
+        Err(Error::BadRequest)
+    }
+}
+
+pub async fn get_block(
+    Path(block_query): Path<String>,
+    Extension(pool): Extension<PgPool>,
+) -> Result<Json<Option<WatchBeaconBlock>>, Error> {
+    let mut conn = database::get_connection(&pool).map_err(Error::Database)?;
+    let block_id: BlockId = BlockId::from_str(&block_query).map_err(|_| Error::BadRequest)?;
+    match block_id {
+        BlockId::Slot(slot) => Ok(Json(database::get_beacon_block_by_slot(
+            &mut conn,
+            WatchSlot::from_slot(slot),
+        )?)),
+        BlockId::Root(root) => Ok(Json(database::get_beacon_block_by_root(
+            &mut conn,
+            WatchHash::from_hash(root),
+        )?)),
+        _ => Err(Error::BadRequest),
+    }
+}
+
+pub async fn get_block_lowest(
+    Extension(pool): Extension<PgPool>,
+) -> Result<Json<Option<WatchBeaconBlock>>, Error> {
+    let mut conn = database::get_connection(&pool).map_err(Error::Database)?;
+    Ok(Json(database::get_lowest_beacon_block(&mut conn)?))
+}
+
+pub async fn get_block_highest(
+    Extension(pool): Extension<PgPool>,
+) -> Result<Json<Option<WatchBeaconBlock>>, Error> {
+    let mut conn = database::get_connection(&pool).map_err(Error::Database)?;
+    Ok(Json(database::get_highest_beacon_block(&mut conn)?))
+}
+
+pub async fn get_block_previous(
+    Path(block_query): Path<String>,
+    Extension(pool): Extension<PgPool>,
+) -> Result<Json<Option<WatchBeaconBlock>>, Error> {
+    let mut conn = database::get_connection(&pool).map_err(Error::Database)?;
+    match BlockId::from_str(&block_query).map_err(|_| Error::BadRequest)? {
         BlockId::Root(root) => {
-            database::get_canonical_slot_by_root(conn, WatchHash::from_hash(root))?
+            if let Some(block) =
+                database::get_beacon_block_by_root(&mut conn, WatchHash::from_hash(root))?
+                    .map(|block| block.parent_root)
+            {
+                Ok(Json(database::get_beacon_block_by_root(&mut conn, block)?))
+            } else {
+                Err(Error::NotFound)
+            }
         }
-        BlockId::Slot(slot) => database::get_canonical_slot(conn, WatchSlot::from_slot(slot))?,
-        _ => unimplemented!(),
-    };
-
-    Ok(slot_opt)
+        BlockId::Slot(slot) => Ok(Json(database::get_beacon_block_by_slot(
+            &mut conn,
+            WatchSlot::new(slot.as_u64().checked_sub(1_u64).ok_or(Error::NotFound)?),
+        )?)),
+        _ => Err(Error::BadRequest),
+    }
 }
 
-pub fn get_lowest_slot(conn: &mut PgConn) -> Result<Option<Slot>, Error> {
-    Ok(database::get_lowest_canonical_slot(conn)?.map(|s| s.slot.as_slot()))
+pub async fn get_block_next(
+    Path(block_query): Path<String>,
+    Extension(pool): Extension<PgPool>,
+) -> Result<Json<Option<WatchBeaconBlock>>, Error> {
+    let mut conn = database::get_connection(&pool).map_err(Error::Database)?;
+    match BlockId::from_str(&block_query).map_err(|_| Error::BadRequest)? {
+        BlockId::Root(root) => Ok(Json(database::get_beacon_block_with_parent(
+            &mut conn,
+            WatchHash::from_hash(root),
+        )?)),
+        BlockId::Slot(slot) => Ok(Json(database::get_beacon_block_by_slot(
+            &mut conn,
+            WatchSlot::from_slot(slot + 1_u64),
+        )?)),
+        _ => Err(Error::BadRequest),
+    }
 }
 
-pub fn get_highest_slot(conn: &mut PgConn) -> Result<Option<Slot>, Error> {
-    Ok(database::get_highest_canonical_slot(conn)?.map(|s| s.slot.as_slot()))
-}
-
-pub fn get_block(conn: &mut PgConn, block_id: BlockId) -> Result<Option<WatchBeaconBlock>, Error> {
-    let block_opt = match block_id {
-        BlockId::Root(root) => {
-            database::get_beacon_block_by_root(conn, WatchHash::from_hash(root))?
+pub async fn get_blocks_by_range(
+    Query(query): Query<HashMap<String, u64>>,
+    Extension(pool): Extension<PgPool>,
+) -> Result<Json<Option<Vec<WatchBeaconBlock>>>, Error> {
+    let mut conn = database::get_connection(&pool).map_err(Error::Database)?;
+    if let Some(start_slot) = query.get("start_slot") {
+        if let Some(end_slot) = query.get("end_slot") {
+            if start_slot > end_slot {
+                Err(Error::BadRequest)
+            } else {
+                Ok(Json(database::get_beacon_blocks_by_range(
+                    &mut conn,
+                    WatchSlot::new(*start_slot),
+                    WatchSlot::new(*end_slot),
+                )?))
+            }
+        } else {
+            Err(Error::BadRequest)
         }
-        BlockId::Slot(slot) => {
-            database::get_beacon_block_by_slot(conn, WatchSlot::from_slot(slot))?
-        }
-        _ => unimplemented!(),
-    };
-
-    Ok(block_opt)
+    } else {
+        Err(Error::BadRequest)
+    }
 }
 
-pub fn get_lowest_beacon_block(conn: &mut PgConn) -> Result<Option<WatchBeaconBlock>, Error> {
-    Ok(database::get_lowest_beacon_block(conn)?)
+pub async fn get_block_proposer(
+    Path(block_query): Path<String>,
+    Extension(pool): Extension<PgPool>,
+) -> Result<Json<Option<WatchProposerInfo>>, Error> {
+    let mut conn = database::get_connection(&pool).map_err(Error::Database)?;
+    match BlockId::from_str(&block_query).map_err(|_| Error::BadRequest)? {
+        BlockId::Root(root) => Ok(Json(database::get_proposer_info_by_root(
+            &mut conn,
+            WatchHash::from_hash(root),
+        )?)),
+        BlockId::Slot(slot) => Ok(Json(database::get_proposer_info_by_slot(
+            &mut conn,
+            WatchSlot::from_slot(slot),
+        )?)),
+        _ => Err(Error::BadRequest),
+    }
 }
 
-pub fn get_highest_beacon_block(conn: &mut PgConn) -> Result<Option<WatchBeaconBlock>, Error> {
-    Ok(database::get_highest_beacon_block(conn)?)
+pub async fn get_block_reward(
+    Path(block_query): Path<String>,
+    Extension(pool): Extension<PgPool>,
+) -> Result<Json<Option<WatchBlockRewards>>, Error> {
+    let mut conn = database::get_connection(&pool).map_err(Error::Database)?;
+    match BlockId::from_str(&block_query).map_err(|_| Error::BadRequest)? {
+        BlockId::Root(root) => Ok(Json(database::get_block_reward_by_root(
+            &mut conn,
+            WatchHash::from_hash(root),
+        )?)),
+        BlockId::Slot(slot) => Ok(Json(database::get_block_reward_by_slot(
+            &mut conn,
+            WatchSlot::from_slot(slot),
+        )?)),
+        _ => Err(Error::BadRequest),
+    }
 }
 
-pub fn get_next_beacon_block(
-    conn: &mut PgConn,
-    parent: BlockId,
-) -> Result<Option<WatchBeaconBlock>, Error> {
-    let block = match parent {
-        BlockId::Root(root) => {
-            database::get_beacon_block_with_parent(conn, WatchHash::from_hash(root))?
-        }
-        BlockId::Slot(slot) => {
-            database::get_beacon_block_by_slot(conn, WatchSlot::from_slot(slot + 1_u64))?
-        }
-        _ => unimplemented!(),
-    };
-
-    Ok(block)
+pub async fn get_block_packing(
+    Path(block_query): Path<String>,
+    Extension(pool): Extension<PgPool>,
+) -> Result<Json<Option<WatchBlockPacking>>, Error> {
+    let mut conn = database::get_connection(&pool).map_err(Error::Database)?;
+    match BlockId::from_str(&block_query).map_err(|_| Error::BadRequest)? {
+        BlockId::Root(root) => Ok(Json(database::get_block_packing_by_root(
+            &mut conn,
+            WatchHash::from_hash(root),
+        )?)),
+        BlockId::Slot(slot) => Ok(Json(database::get_block_packing_by_slot(
+            &mut conn,
+            WatchSlot::from_slot(slot),
+        )?)),
+        _ => Err(Error::BadRequest),
+    }
 }
 
-pub fn get_validator_by_index(
-    conn: &mut PgConn,
-    index: i32,
-) -> Result<Option<WatchValidator>, Error> {
-    Ok(database::get_validator_by_index(conn, index)?)
+pub async fn get_validator(
+    Path(validator_query): Path<String>,
+    Extension(pool): Extension<PgPool>,
+) -> Result<Json<Option<WatchValidator>>, Error> {
+    let mut conn = database::get_connection(&pool).map_err(Error::Database)?;
+    if validator_query.starts_with("0x") {
+        let pubkey = WatchPK::from_str(&validator_query).map_err(|_| Error::BadRequest)?;
+        Ok(Json(database::get_validator_by_public_key(
+            &mut conn, pubkey,
+        )?))
+    } else {
+        let index = i32::from_str(&validator_query).map_err(|_| Error::BadRequest)?;
+        Ok(Json(database::get_validator_by_index(&mut conn, index)?))
+    }
 }
 
 // Will return Ok(None) if the epoch is not synced or if the validator does not exist.
 // In the future it might be worth differentiating these events.
-pub fn get_validator_attestation(
-    conn: &mut PgConn,
-    index: i32,
-    epoch: Epoch,
-    slots_per_epoch: u64,
-) -> Result<Option<WatchAttestation>, Error> {
+pub async fn get_validator_attestation(
+    Path((validator_query, epoch_query)): Path<(String, u64)>,
+    Extension(pool): Extension<PgPool>,
+    Extension(slots_per_epoch): Extension<u64>,
+) -> Result<Json<Option<WatchAttestation>>, Error> {
+    let mut conn = database::get_connection(&pool).map_err(Error::Database)?;
+    let epoch = Epoch::new(epoch_query);
+
     // Ensure the database has synced the target epoch.
-    if database::get_canonical_slot(conn, WatchSlot::from_slot(epoch.end_slot(slots_per_epoch)))?
-        .is_none()
+    if database::get_canonical_slot(
+        &mut conn,
+        WatchSlot::from_slot(epoch.end_slot(slots_per_epoch)),
+    )?
+    .is_none()
     {
         // Epoch is not fully synced.
-        return Ok(None);
+        return Ok(Json(None));
     }
 
+    let index = if validator_query.starts_with("0x") {
+        let pubkey = WatchPK::from_str(&validator_query).map_err(|_| Error::BadRequest)?;
+        database::get_validator_by_public_key(&mut conn, pubkey)?
+            .ok_or(Error::NotFound)?
+            .index
+    } else {
+        i32::from_str(&validator_query).map_err(|_| Error::BadRequest)?
+    };
     let attestation = if let Some(suboptimal_attestation) =
-        database::get_attestation(conn, index, epoch, slots_per_epoch)?
+        database::get_attestation_by_index(&mut conn, index, epoch, slots_per_epoch)?
     {
         Some(suboptimal_attestation.to_attestation(slots_per_epoch))
     } else {
         // Attestation was not in database. Check if the validator was active.
-        match database::get_validator_by_index(conn, index)? {
+        match database::get_validator_by_index(&mut conn, index)? {
             Some(validator) => {
                 if let Some(activation_epoch) = validator.activation_epoch {
                     if activation_epoch <= epoch.as_u64() as i32 {
@@ -134,24 +293,7 @@ pub fn get_validator_attestation(
             None => return Err(Error::Other("Validator index does not exist".to_string())),
         }
     };
-    Ok(attestation)
-}
-
-pub fn get_proposer_info(
-    conn: &mut PgConn,
-    block_id: BlockId,
-) -> Result<Option<WatchProposerInfo>, Error> {
-    let info = match block_id {
-        BlockId::Root(root) => {
-            database::get_proposer_info_by_root(conn, WatchHash::from_hash(root))?
-        }
-        BlockId::Slot(slot) => {
-            database::get_proposer_info_by_slot(conn, WatchSlot::from_slot(slot))?
-        }
-        _ => unimplemented!(),
-    };
-
-    Ok(info)
+    Ok(Json(attestation))
 }
 
 #[allow(dead_code)]
@@ -167,38 +309,4 @@ pub fn get_proposer_info_by_range(
     let result = database::get_proposer_info_by_range(conn, start_slot, end_slot)?;
 
     Ok(result)
-}
-
-pub fn get_block_reward(
-    conn: &mut PgConn,
-    block_id: BlockId,
-) -> Result<Option<WatchBlockRewards>, Error> {
-    let reward = match block_id {
-        BlockId::Root(root) => {
-            database::get_block_reward_by_root(conn, WatchHash::from_hash(root))?
-        }
-        BlockId::Slot(slot) => {
-            database::get_block_reward_by_slot(conn, WatchSlot::from_slot(slot))?
-        }
-        _ => unimplemented!(),
-    };
-
-    Ok(reward)
-}
-
-pub fn get_block_packing(
-    conn: &mut PgConn,
-    block_id: BlockId,
-) -> Result<Option<WatchBlockPacking>, Error> {
-    let packing = match block_id {
-        BlockId::Root(root) => {
-            database::get_block_packing_by_root(conn, WatchHash::from_hash(root))?
-        }
-        BlockId::Slot(slot) => {
-            database::get_block_packing_by_slot(conn, WatchSlot::from_slot(slot))?
-        }
-        _ => unimplemented!(),
-    };
-
-    Ok(packing)
 }

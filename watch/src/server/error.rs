@@ -1,31 +1,46 @@
 use crate::database::Error as DbError;
-use warp::{http::Error as HttpError, Error as WarpError};
+//use warp::{http::Error as HttpError, Error as WarpError};
+use axum::Error as AxumError;
+use axum::{http::StatusCode, response::IntoResponse, Json};
+use hyper::Error as HyperError;
+use serde_json::json;
 
 #[derive(Debug)]
 pub enum Error {
-    Warp(WarpError),
+    Axum(AxumError),
+    Hyper(HyperError),
     Database(DbError),
-    Http(HttpError),
+    BadRequest,
+    NotFound,
     Other(String),
 }
 
-impl warp::reject::Reject for Error {}
+impl IntoResponse for Error {
+    fn into_response(self) -> axum::response::Response {
+        let (status, error_message) = match self {
+            Self::BadRequest => (StatusCode::BAD_REQUEST, "Bad Request"),
+            Self::NotFound => (StatusCode::NOT_FOUND, "Not Found"),
+            _ => (StatusCode::INTERNAL_SERVER_ERROR, "Internal Server Error"),
+        };
+        (status, Json(json!({ "error": error_message }))).into_response()
+    }
+}
 
-impl From<WarpError> for Error {
-    fn from(e: WarpError) -> Self {
-        Error::Warp(e)
+impl From<HyperError> for Error {
+    fn from(e: HyperError) -> Self {
+        Error::Hyper(e)
+    }
+}
+
+impl From<AxumError> for Error {
+    fn from(e: AxumError) -> Self {
+        Error::Axum(e)
     }
 }
 
 impl From<DbError> for Error {
     fn from(e: DbError) -> Self {
         Error::Database(e)
-    }
-}
-
-impl From<HttpError> for Error {
-    fn from(e: HttpError) -> Self {
-        Error::Http(e)
     }
 }
 

@@ -21,8 +21,8 @@ types = { path = "../consensus/types" }
 eth2 = { path = "../common/eth2" }
 beacon_node = { path = "../beacon_node"}
 tokio = { version = "1.14.0", features = ["time"] }
-warp_utils = { path = "../common/warp_utils" }
-warp = "0.3.2"
+axum = "0.5.15"
+hyper = "0.14.20"
 serde = "1.0.116"
 serde_json = "1.0.58"
 reqwest = { version = "0.11.0", features = ["json","stream"] }

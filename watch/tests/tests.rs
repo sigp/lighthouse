@@ -21,6 +21,7 @@ use watch::{
 };
 
 use log::error;
+use std::net::SocketAddr;
 use std::time::Duration;
 use tokio::{runtime, task::JoinHandle};
 use tokio_postgres::{config::Config as PostgresConfig, Client, NoTls};
@@ -99,6 +100,7 @@ impl TesterBuilder {
          * Create a watch configuration
          */
         let database_port = unused_tcp_port().expect("Unable to find unused port.");
+        let server_port = unused_tcp_port().expect("Unable to find unused port.");
         let config = Config {
             database: DatabaseConfig {
                 dbname: random_dbname(),
@@ -106,7 +108,7 @@ impl TesterBuilder {
                 ..Default::default()
             },
             server: ServerConfig {
-                listen_port: 0,
+                listen_port: server_port,
                 ..Default::default()
             },
             updater: UpdaterConfig {
@@ -132,24 +134,23 @@ impl TesterBuilder {
          * Spawn a Watch HTTP API.
          */
         let (_watch_shutdown_tx, watch_shutdown_rx) = oneshot::channel();
-        let (watch_listening_socket, watch_server) =
-            start_server(&self.config.server, SLOTS_PER_EPOCH, pool, async {
-                let _ = watch_shutdown_rx.await;
-            })
-            .unwrap();
+        let watch_server = start_server(&self.config.server, SLOTS_PER_EPOCH, pool, async {
+            let _ = watch_shutdown_rx.await;
+        })
+        .unwrap();
         tokio::spawn(watch_server);
+
+        let addr = SocketAddr::new(
+            self.config.server.listen_addr,
+            self.config.server.listen_port,
+        );
 
         /*
          * Create a HTTP client to talk to the watch HTTP API.
          */
         let client = WatchHttpClient {
             client: reqwest::Client::new(),
-            server: Url::parse(&format!(
-                "http://{}:{}",
-                watch_listening_socket.ip(),
-                watch_listening_socket.port()
-            ))
-            .unwrap(),
+            server: Url::parse(&format!("http://{}:{}", addr.ip(), addr.port())).unwrap(),
         };
 
         /*
@@ -282,7 +283,12 @@ impl Tester {
     }
 
     pub async fn assert_canonical_slots_empty(&mut self) -> &mut Self {
-        let lowest_slot = self.client.get_lowest_canonical_slot().await.unwrap();
+        let lowest_slot = self
+            .client
+            .get_lowest_canonical_slot()
+            .await
+            .unwrap()
+            .map(|slot| slot.slot.as_slot());
 
         assert_eq!(lowest_slot, None);
 
@@ -295,7 +301,9 @@ impl Tester {
             .get_lowest_canonical_slot()
             .await
             .unwrap()
-            .unwrap();
+            .unwrap()
+            .slot
+            .as_slot();
 
         assert_eq!(slot, Slot::new(expected));
 
@@ -308,7 +316,9 @@ impl Tester {
             .get_highest_canonical_slot()
             .await
             .unwrap()
-            .unwrap();
+            .unwrap()
+            .slot
+            .as_slot();
 
         assert_eq!(slot, Slot::new(expected));
 

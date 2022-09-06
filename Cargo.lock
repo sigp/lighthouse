@@ -9116,6 +9116,7 @@ dependencies = [
 name = "watch"
 version = "0.1.0"
 dependencies = [
+ "axum",
  "beacon_chain",
  "beacon_node",
  "bls",
@@ -9127,6 +9128,7 @@ dependencies = [
  "eth2",
  "hex",
  "http_api",
+ "hyper",
  "log",
  "network",
  "r2d2",
@@ -9141,8 +9143,6 @@ dependencies = [
  "types",
  "unused_port",
  "url",
- "warp",
- "warp_utils",
 ]
 
 [[package]]

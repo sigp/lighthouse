@@ -5,6 +5,7 @@ use diesel::{
 };
 use serde::{Deserialize, Serialize};
 use std::fmt;
+use std::str::FromStr;
 use types::{Epoch, Hash256, PublicKeyBytes, Slot};
 #[derive(
     Clone,
@@ -103,6 +104,16 @@ impl WatchPK {
 
     pub fn from_pubkey(key: PublicKeyBytes) -> Self {
         WatchPK(key)
+    }
+}
+
+impl FromStr for WatchPK {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(WatchPK(
+            PublicKeyBytes::from_str(s).map_err(|e| format!("Cannot be parsed: {}", e))?,
+        ))
     }
 }
 
