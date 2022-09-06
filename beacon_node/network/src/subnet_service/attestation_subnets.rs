@@ -32,7 +32,7 @@ pub(crate) const MIN_PEER_DISCOVERY_SLOT_LOOK_AHEAD: u64 = 2;
 #[cfg(not(feature = "deterministic_long_lived_attnets"))]
 const LAST_SEEN_VALIDATOR_TIMEOUT_SLOTS: u32 = 150;
 /// The fraction of a slot that we subscribe to a subnet before the required slot.
-const ADVANCE_SUBSCRIBE_SLOT_FRACTION: u32 = 4;
+const ADVANCE_SUBSCRIBE_SLOT_FRACTION: u32 = 1;
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub(crate) enum SubscriptionKind {

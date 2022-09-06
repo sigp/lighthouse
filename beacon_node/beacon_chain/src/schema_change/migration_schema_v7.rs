@@ -6,7 +6,7 @@ use crate::schema_change::types::{ProtoNodeV6, SszContainerV10, SszContainerV6, 
 use crate::types::{ChainSpec, Checkpoint, Epoch, EthSpec, Hash256, Slot};
 use crate::{BeaconForkChoiceStore, BeaconSnapshot};
 use fork_choice::ForkChoice;
-use proto_array::{core::ProtoNode, core::SszContainer, ProtoArrayForkChoice};
+use proto_array::{core::ProtoNode, core::SszContainer, CountUnrealizedFull, ProtoArrayForkChoice};
 use ssz::four_byte_option_impl;
 use ssz::{Decode, Encode};
 use std::collections::{HashMap, HashSet};
@@ -52,6 +52,8 @@ pub(crate) fn update_with_reinitialized_fork_choice<T: BeaconChainTypes>(
         // Don't provide the current slot here, just use what's in the store. We don't need to know
         // the head here, plus it's nice to avoid mutating fork choice during this process.
         None,
+        // This config will get overwritten on startup.
+        CountUnrealizedFull::default(),
         spec,
     )
     .map_err(|e| format!("{:?}", e))?;
@@ -88,7 +90,9 @@ pub(crate) fn update_fork_choice<T: BeaconChainTypes>(
         ssz_container_v6.into_ssz_container_v7(justified_checkpoint, finalized_checkpoint);
     let ssz_container_v10: SszContainerV10 = ssz_container_v7.into();
     let ssz_container: SszContainer = ssz_container_v10.into();
-    let mut fork_choice: ProtoArrayForkChoice = ssz_container.into();
+    // `CountUnrealizedFull::default()` represents the count-unrealized-full config which will be overwritten on startup.
+    let mut fork_choice: ProtoArrayForkChoice =
+        (ssz_container, CountUnrealizedFull::default()).into();
 
     update_checkpoints::<T>(finalized_checkpoint.root, &nodes_v6, &mut fork_choice, db)
         .map_err(StoreError::SchemaMigrationError)?;

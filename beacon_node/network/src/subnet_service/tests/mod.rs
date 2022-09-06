@@ -203,6 +203,7 @@ mod attestation_service {
         }
     }
 
+    #[cfg(not(feature = "deterministic_long_lived_attnets"))]
     fn get_subscriptions(
         validator_count: u64,
         slot: Slot,
@@ -398,6 +399,7 @@ mod attestation_service {
         assert_eq!(attestation_service.subscription_count(), 1);
     }
 
+    #[cfg(not(feature = "deterministic_long_lived_attnets"))]
     #[tokio::test]
     async fn subscribe_all_random_subnets() {
         let attestation_subnet_count = MainnetEthSpec::default_spec().attestation_subnet_count;
@@ -455,6 +457,7 @@ mod attestation_service {
         // test completed successfully
     }
 
+    #[cfg(not(feature = "deterministic_long_lived_attnets"))]
     #[tokio::test]
     async fn subscribe_all_random_subnets_plus_one() {
         let attestation_subnet_count = MainnetEthSpec::default_spec().attestation_subnet_count;

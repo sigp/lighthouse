@@ -136,6 +136,7 @@ struct Inner<E: EthSpec> {
     proposers: RwLock<HashMap<ProposerKey, Proposer>>,
     executor: TaskExecutor,
     payload_cache: PayloadCache<E>,
+    builder_profit_threshold: Uint256,
     log: Logger,
 }
 
@@ -156,6 +157,8 @@ pub struct Config {
     pub jwt_version: Option<String>,
     /// Default directory for the jwt secret if not provided through cli.
     pub default_datadir: PathBuf,
+    /// The minimum value of an external payload for it to be considered in a proposal.
+    pub builder_profit_threshold: u128,
 }
 
 /// Provides access to one execution engine and provides a neat interface for consumption by the
@@ -176,6 +179,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
             jwt_id,
             jwt_version,
             default_datadir,
+            builder_profit_threshold,
         } = config;
 
         if urls.len() > 1 {
@@ -225,7 +229,14 @@ impl<T: EthSpec> ExecutionLayer<T> {
         };
 
         let builder = builder_url
-            .map(|url| BuilderHttpClient::new(url).map_err(Error::Builder))
+            .map(|url| {
+                let builder_client = BuilderHttpClient::new(url.clone()).map_err(Error::Builder);
+                info!(log,
+                    "Connected to external block builder";
+                    "builder_url" => ?url,
+                    "builder_profit_threshold" => builder_profit_threshold);
+                builder_client
+            })
             .transpose()?;
 
         let inner = Inner {
@@ -238,6 +249,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
             execution_blocks: Mutex::new(LruCache::new(EXECUTION_BLOCKS_LRU_CACHE_SIZE)),
             executor,
             payload_cache: PayloadCache::default(),
+            builder_profit_threshold: Uint256::from(builder_profit_threshold),
             log,
         };
 
@@ -631,7 +643,17 @@ impl<T: EthSpec> ExecutionLayer<T> {
                                 "block_hash" => ?header.block_hash(),
                             );
 
-                            if header.parent_hash() != parent_hash {
+                            let relay_value = relay.data.message.value;
+                            let configured_value = self.inner.builder_profit_threshold;
+                            if relay_value < configured_value {
+                                info!(
+                                        self.log(),
+                                        "The value offered by the connected builder does not meet \
+                                        the configured profit threshold. Using local payload.";
+                                        "configured_value" => ?configured_value, "relay_value" => ?relay_value
+                                    );
+                                Ok(local)
+                            } else if header.parent_hash() != parent_hash {
                                 warn!(
                                     self.log(),
                                     "Invalid parent hash from connected builder, \

@@ -75,6 +75,8 @@ const HTTP_PROPOSAL_TIMEOUT_QUOTIENT: u32 = 2;
 const HTTP_PROPOSER_DUTIES_TIMEOUT_QUOTIENT: u32 = 4;
 const HTTP_SYNC_COMMITTEE_CONTRIBUTION_TIMEOUT_QUOTIENT: u32 = 4;
 const HTTP_SYNC_DUTIES_TIMEOUT_QUOTIENT: u32 = 4;
+const HTTP_GET_BEACON_BLOCK_SSZ_TIMEOUT_QUOTIENT: u32 = 4;
+const HTTP_GET_DEBUG_BEACON_STATE_QUOTIENT: u32 = 4;
 
 const DOPPELGANGER_SERVICE_NAME: &str = "doppelganger";
 
@@ -285,6 +287,10 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
                         sync_committee_contribution: slot_duration
                             / HTTP_SYNC_COMMITTEE_CONTRIBUTION_TIMEOUT_QUOTIENT,
                         sync_duties: slot_duration / HTTP_SYNC_DUTIES_TIMEOUT_QUOTIENT,
+                        get_beacon_blocks_ssz: slot_duration
+                            / HTTP_GET_BEACON_BLOCK_SSZ_TIMEOUT_QUOTIENT,
+                        get_debug_beacon_states: slot_duration
+                            / HTTP_GET_DEBUG_BEACON_STATE_QUOTIENT,
                     }
                 } else {
                     Timeouts::set_all(slot_duration)

@@ -10,8 +10,8 @@ before the validator has committed to (i.e. signed) the block. A primer on MEV c
 
 Using the builder API is not known to introduce additional slashing risks, however a live-ness risk
 (i.e. the ability for the chain to produce valid blocks) is introduced because your node will be
-signing blocks without executing the transactions within the block. Therefore it won't know whether
-the transactions are valid and it may sign a block that the network will reject. This would lead to
+signing blocks without executing the transactions within the block. Therefore, it won't know whether
+the transactions are valid, and it may sign a block that the network will reject. This would lead to
 a missed proposal and the opportunity cost of lost block rewards.
 
 ## How to connect to a builder
@@ -150,6 +150,20 @@ By default, Lighthouse is strict with these conditions, but we encourage users t
   is set to propose.
 - `--builder-fallback-disable-checks` - This flag disables all checks related to chain health. This means the builder
   API will always be used for payload construction, regardless of recent chain conditions.
+
+## Builder Profit Threshold 
+
+If you are generally uneasy with the risks associated with outsourced payload production (liveness/censorship) but would
+consider using it for the chance of out-sized rewards, this flag may be useful:
+
+`--builder-profit-threshold <WEI_VALUE>`
+
+The number provided indicates the minimum reward that an external payload must provide the proposer for it to be considered 
+for inclusion in a proposal. For example, if you'd only like to use an external payload for a reward of >= 0.25 ETH, you
+would provide your beacon node with `--builder-profit-threshold 250000000000000000`. If it's your turn to propose and the 
+most valuable payload offered by builders is only 0.1 ETH, the local execution engine's payload will be used. Currently,
+this threshold just looks at the value of the external payload. No comparison to the local payload is made, although 
+this feature will likely be added in the future.
 
 [mev-rs]: https://github.com/ralexstokes/mev-rs
 [mev-boost]: https://github.com/flashbots/mev-boost
