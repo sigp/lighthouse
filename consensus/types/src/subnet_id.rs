@@ -74,7 +74,6 @@ impl SubnetId {
     }
 
     #[allow(clippy::integer_arithmetic)]
-    // TODO: get someone to review this
     /// Computes the set of subnets the node should be subscribed to during the current epoch,
     /// along with the first epoch in which these subscriptions are no longer valid.
     pub fn compute_subnets_for_epoch<T: EthSpec>(

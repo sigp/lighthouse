@@ -32,6 +32,8 @@ pub(crate) const MIN_PEER_DISCOVERY_SLOT_LOOK_AHEAD: u64 = 2;
 #[cfg(not(feature = "deterministic_long_lived_attnets"))]
 const LAST_SEEN_VALIDATOR_TIMEOUT_SLOTS: u32 = 150;
 /// The fraction of a slot that we subscribe to a subnet before the required slot.
+///
+/// Currently a whole slot ahead.
 const ADVANCE_SUBSCRIBE_SLOT_FRACTION: u32 = 1;
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
@@ -67,7 +69,9 @@ pub struct AttestationService<T: BeaconChainTypes> {
     /// Once they expire, we unsubscribe from these.
     short_lived_subscriptions: HashMapDelay<SubnetId, Slot>,
 
-    /// Long lived subnets for which we are currently subscribed.
+    /// Subnets we are currently subscribed to as long lived subscriptions.
+    ///
+    /// We advertise these in our ENR. When these expire, the subnet is removed from our ENR.
     #[cfg(feature = "deterministic_long_lived_attnets")]
     long_lived_subscriptions: HashSet<SubnetId>,
     #[cfg(not(feature = "deterministic_long_lived_attnets"))]

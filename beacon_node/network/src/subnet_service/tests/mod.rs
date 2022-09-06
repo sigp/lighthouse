@@ -22,7 +22,6 @@ use types::{
 };
 
 const SLOT_DURATION_MILLIS: u64 = 400;
-const EPOCHS_PER_RANDOM_SUBNET_SUBSCRIPTION: u64 = 10;
 
 type TestBeaconChainType = Witness<
     SystemTimeSlotClock,
@@ -39,8 +38,7 @@ pub struct TestBeaconChain {
 
 impl TestBeaconChain {
     pub fn new_with_system_clock() -> Self {
-        let mut spec = MainnetEthSpec::default_spec();
-        spec.epochs_per_random_subnet_subscription = EPOCHS_PER_RANDOM_SUBNET_SUBSCRIPTION;
+        let spec = MainnetEthSpec::default_spec();
 
         let keypairs = generate_deterministic_keypairs(1);
 
@@ -351,9 +349,8 @@ mod attestation_service {
             .validator_subscriptions(vec![sub1, sub2])
             .unwrap();
 
-        // Unsubscription event should happen at slot 2 (since subnet id's are the same,
-        // unsubscription event should be at higher slot + 1) Get all events for 1 slot duration
-        // (unsubscription event should happen after 2 slot durations).
+        // Unsubscription event should happen at slot 2 (since subnet id's are the same, unsubscription event should be at higher slot + 1)
+        // Get all events for 1 slot duration (unsubscription event should happen after 2 slot durations).
         let events = get_events(&mut attestation_service, None, 1).await;
         matches::assert_matches!(
             events[..3],
