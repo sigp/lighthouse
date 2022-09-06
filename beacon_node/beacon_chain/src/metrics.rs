@@ -325,7 +325,7 @@ lazy_static! {
     pub static ref BALANCES_CACHE_HITS: Result<IntCounter> =
         try_create_int_counter("beacon_balances_cache_hits_total", "Count of times balances cache fulfils request");
     pub static ref BALANCES_CACHE_MISSES: Result<IntCounter> =
-        try_create_int_counter("beacon_balances_cache_misses_total", "Count of times balances cache fulfils request");
+        try_create_int_counter("beacon_balances_cache_misses_total", "Count of times balances cache misses request");
 
     /*
      * Persisting BeaconChain components to disk
