@@ -47,6 +47,7 @@ pub struct LoggerConfig<'a> {
     pub debug_level: &'a str,
     pub logfile_debug_level: &'a str,
     pub log_format: Option<&'a str>,
+    pub log_color: bool,
     pub max_log_size: u64,
     pub max_log_number: usize,
     pub compression: bool,
@@ -139,7 +140,13 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
                 _ => return Err("Logging format provided is not supported".to_string()),
             }
         } else {
-            let stdout_decorator = slog_term::TermDecorator::new().build();
+            let stdout_decorator_builder = slog_term::TermDecorator::new();
+            let stdout_decorator = if config.log_color {
+                stdout_decorator_builder.force_color()
+            } else {
+                stdout_decorator_builder
+            }
+            .build();
             let stdout_decorator =
                 logging::AlignedTermDecorator::new(stdout_decorator, logging::MAX_MESSAGE_WIDTH);
             let stdout_drain = slog_term::FullFormat::new(stdout_decorator).build().fuse();
