@@ -368,7 +368,11 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
         Ok((network, network_globals))
     }
 
-    // TODO: docs
+    /// Starts the network:
+    ///
+    /// - Starts listening in the given ports.
+    /// - Dials boot-nodes and libp2p peers.
+    /// - Subscribes to starting gossipsub topics.
     async fn start(&mut self, config: &crate::NetworkConfig) -> error::Result<()> {
         let enr = self.network_globals.local_enr();
         info!(self.log, "Libp2p Starting"; "peer_id" => %enr.peer_id(), "bandwidth_config" => format!("{}-{}", config.network_load, NetworkLoad::from(config.network_load).name));
