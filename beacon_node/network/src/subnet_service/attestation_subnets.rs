@@ -173,6 +173,8 @@ impl<T: BeaconChainTypes> AttestationService<T> {
         // Calculate the random subnet duration from the spec constants.
         let slot_duration = beacon_chain.slot_clock.slot_duration();
 
+        slog::info!(log, "Deterministic long lived subnets enabled"; "subnets_per_node" => beacon_chain.spec.subnets_per_node);
+
         let track_validators = !config.import_all_attestations;
         let aggregate_validators_on_subnet =
             track_validators.then(|| HashSetDelay::new(slot_duration));
