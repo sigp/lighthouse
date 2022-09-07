@@ -14,6 +14,8 @@ The additional requirements for developers are:
   don't have `ganache` available on your `PATH` or if ganache is older than v7.
 - [`cmake`](https://cmake.org/cmake/help/latest/command/install.html). Used by
   some dependencies. See [`Installation Guide`](./installation.md) for more info.
+- [`protoc`](https://github.com/protocolbuffers/protobuf/releases) required for
+  the networking stack.
 - [`java 11 runtime`](https://openjdk.java.net/projects/jdk/). 11 is the minimum,
   used by web3signer_tests.
 

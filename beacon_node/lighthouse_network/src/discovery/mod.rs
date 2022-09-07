@@ -7,8 +7,8 @@ pub(crate) mod enr;
 pub mod enr_ext;
 
 // Allow external use of the lighthouse ENR builder
-use crate::behaviour::TARGET_SUBNET_PEERS;
 use crate::metrics;
+use crate::service::TARGET_SUBNET_PEERS;
 use crate::{error, Enr, NetworkConfig, NetworkGlobals, Subnet, SubnetDiscovery};
 use discv5::{enr::NodeId, Discv5, Discv5Event};
 pub use enr::{
@@ -71,6 +71,7 @@ const DURATION_DIFFERENCE: Duration = Duration::from_millis(1);
 
 /// A query has completed. This result contains a mapping of discovered peer IDs to the `min_ttl`
 /// of the peer if it is specified.
+#[derive(Debug)]
 pub struct DiscoveredPeers {
     pub peers: HashMap<PeerId, Option<Instant>>,
 }
@@ -361,7 +362,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
     }
 
     /// Returns an iterator over all enr entries in the DHT.
-    pub fn table_entries_enr(&mut self) -> Vec<Enr> {
+    pub fn table_entries_enr(&self) -> Vec<Enr> {
         self.discv5.table_entries_enr()
     }
 
