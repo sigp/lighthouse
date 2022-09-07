@@ -624,7 +624,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                 let message_data = message.encode(GossipEncoding::default());
                 if let Err(e) = self
                     .gossipsub_mut()
-                    .publish(topic.clone().into(), message_data.clone())
+                    .publish(Topic::from(topic.clone()), message_data.clone())
                 {
                     slog::warn!(self.log, "Could not publish message"; "error" => ?e);
 
@@ -1070,7 +1070,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                                 .swarm
                                 .behaviour_mut()
                                 .gossipsub
-                                .publish(topic.clone().into(), data)
+                                .publish(Topic::from(topic.clone()), data)
                             {
                                 Ok(_) => {
                                     warn!(self.log, "Gossip message published on retry"; "topic" => topic_str);
