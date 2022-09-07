@@ -373,28 +373,35 @@ where
                 );
 
                 let service = match deposit_snapshot_result {
-                    Ok(Some(deposit_snapshot)) => match Eth1Service::from_deposit_snapshot(
-                        config.eth1,
-                        context.log().clone(),
-                        spec,
-                        &deposit_snapshot,
-                    ) {
-                        Ok(service) => {
-                            info!(
-                                context.log(),
-                                "Loaded deposit tree snapshot";
-                                "deposits loaded" => deposit_snapshot.deposit_count,
-                            );
-                            Some(service)
-                        }
-                        Err(e) => {
-                            warn!(context.log(),
-                                "Unable to load deposit snapshot";
-                                "error" => ?e
-                            );
+                    Ok(Some(deposit_snapshot)) => {
+                        if deposit_snapshot.is_valid() {
+                            match Eth1Service::from_deposit_snapshot(
+                                config.eth1,
+                                context.log().clone(),
+                                spec,
+                                &deposit_snapshot,
+                            ) {
+                                Ok(service) => {
+                                    info!(
+                                        context.log(),
+                                        "Loaded deposit tree snapshot";
+                                        "deposits loaded" => deposit_snapshot.deposit_count,
+                                    );
+                                    Some(service)
+                                }
+                                Err(e) => {
+                                    warn!(context.log(),
+                                        "Unable to load deposit snapshot";
+                                        "error" => ?e
+                                    );
+                                    None
+                                }
+                            }
+                        } else {
+                            warn!(context.log(), "Remote BN sent invalid deposit snapshot!");
                             None
                         }
-                    },
+                    }
                     Ok(None) => {
                         warn!(
                             context.log(),

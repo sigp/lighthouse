@@ -6283,6 +6283,7 @@ dependencies = [
  "env_logger 0.9.0",
  "eth2_hashing",
  "eth2_ssz",
+ "eth2_ssz_derive",
  "eth2_ssz_types",
  "int_to_bytes",
  "integer-sqrt",

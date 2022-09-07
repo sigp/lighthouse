@@ -114,6 +114,7 @@ pub struct Timeouts {
     pub sync_duties: Duration,
     pub get_beacon_blocks_ssz: Duration,
     pub get_debug_beacon_states: Duration,
+    pub get_deposit_snapshot: Duration,
 }
 
 impl Timeouts {
@@ -128,6 +129,7 @@ impl Timeouts {
             sync_duties: timeout,
             get_beacon_blocks_ssz: timeout,
             get_debug_beacon_states: timeout,
+            get_deposit_snapshot: timeout,
         }
     }
 }
@@ -921,7 +923,7 @@ impl BeaconNodeHttpClient {
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
             .push("beacon")
             .push("deposit_snapshot");
-        self.get_bytes_opt_accept_header(path, Accept::Ssz)
+        self.get_bytes_opt_accept_header(path, Accept::Ssz, self.timeouts.get_deposit_snapshot)
             .await?
             .map(|bytes| DepositTreeSnapshot::from_ssz_bytes(&bytes).map_err(Error::InvalidSsz))
             .transpose()

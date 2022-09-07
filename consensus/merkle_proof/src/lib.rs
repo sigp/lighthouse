@@ -122,9 +122,7 @@ impl MerkleTree {
                     }
                     // There is a right node so insert in right node
                     (Node(_, _, _), Node(_, _, _)) | (Finalized(_), Node(_, _, _)) => {
-                        if let Err(e) = right.push_leaf(elem, depth - 1) {
-                            return Err(e);
-                        }
+                        right.push_leaf(elem, depth - 1)?;
                     }
                     // Both branches are zero, insert in left one
                     (Zero(_), Zero(_)) => {
