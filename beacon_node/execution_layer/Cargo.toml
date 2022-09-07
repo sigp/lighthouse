@@ -37,7 +37,7 @@ rand = "0.8.5"
 zeroize = { version = "1.4.2", features = ["zeroize_derive"] }
 lighthouse_metrics = { path = "../../common/lighthouse_metrics" }
 lazy_static = "1.4.0"
-ethers-core = { git = "https://github.com/gakonst/ethers-rs", rev = "02ad93a1cfb7b62eb051c77c61dc4c0218428e4a" }
+ethers-core = { git = "https://github.com/gakonst/ethers-rs", rev = "89bc6420bbfdeb6ec891b0f701dd4768505f31c7" }
 builder_client = { path = "../builder_client" }
 fork_choice = { path = "../../consensus/fork_choice" }
 mev-build-rs = {git = "https://github.com/ralexstokes/mev-rs", rev = "a088806575805c00d63fa59c002abc5eb1dc7709"}
