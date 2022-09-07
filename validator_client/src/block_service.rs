@@ -315,7 +315,6 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
         let self_ref = &self;
         let proposer_index = self.validator_store.validator_index(&validator_pubkey);
         let validator_pubkey_ref = &validator_pubkey;
-        let fee_recipient = self.validator_store.get_fee_recipient(&validator_pubkey);
 
         // Request block from first responsive beacon node.
         let block = self
