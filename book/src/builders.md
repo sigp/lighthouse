@@ -55,9 +55,7 @@ Both the gas limit and fee recipient will be passed along as suggestions to conn
 in either, it will *not* keep you from proposing a block with the builder. This is because the bounds on gas limit are calculated based
 on prior execution blocks, so it should be managed by an execution engine, even if it is external. Depending on the
 connected relay, payment to the proposer might be in the form of a transaction within the block to the fee recipient,
-so a discrepancy in fee recipient might not indicate that there is something afoot. If you know the relay you are connected to *should*
-only create blocks with a `fee_recipient` field matching the one suggested, you can use
-the [strict fee recipient](suggested-fee-recipient.md#strict-fee-recipient) flag.
+so a discrepancy in fee recipient might not indicate that there is something afoot. 
 
 ### Set Gas Limit via HTTP
 
