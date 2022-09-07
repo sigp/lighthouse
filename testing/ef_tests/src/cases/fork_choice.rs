@@ -1,7 +1,6 @@
 use super::*;
 use crate::decode::{ssz_decode_file, ssz_decode_file_with, ssz_decode_state, yaml_decode_file};
 use ::fork_choice::PayloadVerificationStatus;
-use beacon_chain::slot_clock::SlotClock;
 use beacon_chain::{
     attestation_verification::{
         obtain_indexed_attestation_and_committees_per_slot, VerifiedAttestation,
@@ -9,7 +8,8 @@ use beacon_chain::{
     test_utils::{BeaconChainHarness, EphemeralHarnessType},
     BeaconChainTypes, CachedHead, CountUnrealized,
 };
-use execution_layer::json_structures::JsonPayloadStatusV1Status;
+use beacon_chain::{slot_clock::SlotClock, BlockError};
+use execution_layer::{json_structures::JsonPayloadStatusV1Status, PayloadStatusV1};
 use serde::Deserialize;
 use ssz_derive::Decode;
 use state_processing::state_advance::complete_state_advance;
@@ -51,28 +51,22 @@ pub struct Checks {
     proposer_boost_root: Option<Hash256>,
 }
 
-fn parse_payload_status<'de, D>(d: D) -> Result<JsonPayloadStatusV1Status, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let string = String::deserialize(d)?;
-    println!("parsed this: {string}");
-    string
-        .strip_prefix("PayloadStatusV1Status.")
-        .ok_or_else(|| {
-            serde::de::Error::custom(format!("type prefix expected but not found: {string}"))
-        })
-        .and_then(|stripped| stripped.parse().map_err(|e| serde::de::Error::custom(e)))
-}
-
 #[derive(Debug, Clone, Deserialize)]
-// #[serde(deny_unknown_fields)]
+#[serde(deny_unknown_fields)]
 pub struct PayloadStatus {
-    #[serde(deserialize_with = "parse_payload_status")]
     status: JsonPayloadStatusV1Status,
-    // FIXME(sproul): handle null strings
     latest_valid_hash: Option<ExecutionBlockHash>,
     validation_error: Option<String>,
+}
+
+impl From<PayloadStatus> for PayloadStatusV1 {
+    fn from(status: PayloadStatus) -> Self {
+        PayloadStatusV1 {
+            status: status.status.into(),
+            latest_valid_hash: status.latest_valid_hash,
+            validation_error: status.validation_error,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -98,8 +92,6 @@ pub enum Step<B, A, AS, P> {
         pow_block: P,
     },
     OnPayloadInfo {
-        // FIXME(sproul): remove
-        #[serde(default)]
         block_hash: ExecutionBlockHash,
         payload_status: PayloadStatus,
     },
@@ -225,7 +217,9 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
                     block_hash,
                     payload_status,
                 } => {
-                    todo!("implement this")
+                    let el = tester.harness.mock_execution_layer.as_ref().unwrap();
+                    el.server
+                        .set_payload_statuses(*block_hash, payload_status.clone().into());
                 }
                 Step::Checks { checks } => {
                     let Checks {
@@ -395,14 +389,20 @@ impl<E: EthSpec> Tester<E> {
                 .chain
                 .process_block(block.clone(), CountUnrealized::False),
         )?;
-        if result.is_ok() != valid {
-            return Err(Error::DidntFail(format!(
-                "block with root {} was valid={} whilst test expects valid={}. result: {:?}",
-                block_root,
-                result.is_ok(),
-                valid,
-                result
-            )));
+        match (&result, valid) {
+            (Err(BlockError::ExecutionPayloadError(_)), true) => {
+                // Allow execution errors for otherwise valid blocks.
+            }
+            (Ok(_), false) | (Err(_), true) => {
+                return Err(Error::DidntFail(format!(
+                    "block with root {} was valid={} whilst test expects valid={}. result: {:?}",
+                    block_root,
+                    result.is_ok(),
+                    valid,
+                    result
+                )));
+            }
+            _ => (),
         }
 
         // Apply invalid blocks directly against the fork choice `on_block` function. This ensures
