@@ -359,9 +359,9 @@ checksum = "904dfeac50f3cdaba28fc6f57fdcddb75f49ed61346676a78c4ffe55877802fd"
 
 [[package]]
 name = "base64ct"
-version = "1.5.1"
+version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3bdca834647821e0b13d9539a8634eb62d3501b6b6c2cec1722786ee6671b851"
+checksum = "8a32fd6af2b5827bce66c29053ba0e7c42b9dcab01835835058558c10851a46b"
 
 [[package]]
 name = "beacon-api-client"
@@ -1680,7 +1680,6 @@ dependencies = [
  "tokio",
  "tree_hash",
  "types",
- "web3",
 ]
 
 [[package]]
@@ -1688,11 +1687,13 @@ name = "eth1_test_rig"
 version = "0.2.0"
 dependencies = [
  "deposit_contract",
+ "ethers-contract",
+ "ethers-core",
+ "ethers-providers",
  "serde_json",
  "tokio",
  "types",
  "unused_port",
- "web3",
 ]
 
 [[package]]
@@ -1983,6 +1984,22 @@ dependencies = [
  "impl-serde",
  "primitive-types 0.11.1",
  "uint",
+]
+
+[[package]]
+name = "ethers-contract"
+version = "0.6.2"
+source = "git+https://github.com/gakonst/ethers-rs?rev=89bc6420bbfdeb6ec891b0f701dd4768505f31c7#89bc6420bbfdeb6ec891b0f701dd4768505f31c7"
+dependencies = [
+ "ethers-core",
+ "ethers-providers",
+ "futures-util",
+ "hex",
+ "once_cell",
+ "pin-project 1.0.11",
+ "serde",
+ "serde_json",
+ "thiserror",
 ]
 
 [[package]]
@@ -3057,21 +3074,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "jsonrpc-core"
-version = "18.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "14f7f76aef2d054868398427f6c54943cf3d1caa9a7ec7d0c38d69df97a965eb"
-dependencies = [
- "futures",
- "futures-executor",
- "futures-util",
- "log",
- "serde",
- "serde_derive",
- "serde_json",
-]
-
-[[package]]
 name = "jsonwebtoken"
 version = "8.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3149,6 +3151,7 @@ dependencies = [
  "eth2_network_config",
  "eth2_ssz",
  "eth2_wallet",
+ "ethers-providers",
  "genesis",
  "int_to_bytes",
  "lighthouse_network",
@@ -3164,7 +3167,6 @@ dependencies = [
  "tree_hash",
  "types",
  "validator_dir",
- "web3",
 ]
 
 [[package]]
@@ -5672,24 +5674,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "secp256k1"
-version = "0.21.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9c42e6f1735c5f00f51e43e28d6634141f2bcad10931b2609ddd74a86d751260"
-dependencies = [
- "secp256k1-sys",
-]
-
-[[package]]
-name = "secp256k1-sys"
-version = "0.4.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "957da2573cde917463ece3570eab4a0b3f19de6f1646cde62e6fd3868f566036"
-dependencies = [
- "cc",
-]
-
-[[package]]
 name = "security-framework"
 version = "2.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7608,53 +7592,6 @@ checksum = "ed055ab27f941423197eb86b2035720b1a3ce40504df082cac2ecc6ed73335a1"
 dependencies = [
  "js-sys",
  "wasm-bindgen",
-]
-
-[[package]]
-name = "web3"
-version = "0.18.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "44f258e254752d210b84fe117b31f1e3cc9cbf04c0d747eb7f8cf7cf5e370f6d"
-dependencies = [
- "arrayvec",
- "base64",
- "bytes",
- "derive_more",
- "ethabi 16.0.0",
- "ethereum-types 0.12.1",
- "futures",
- "futures-timer",
- "headers",
- "hex",
- "idna",
- "jsonrpc-core",
- "log",
- "once_cell",
- "parking_lot 0.12.1",
- "pin-project 1.0.11",
- "reqwest",
- "rlp",
- "secp256k1",
- "serde",
- "serde_json",
- "soketto",
- "tiny-keccak",
- "tokio",
- "tokio-util 0.6.10",
- "url",
- "web3-async-native-tls",
-]
-
-[[package]]
-name = "web3-async-native-tls"
-version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1f6d8d1636b2627fe63518d5a9b38a569405d9c9bc665c43c9c341de57227ebb"
-dependencies = [
- "native-tls",
- "thiserror",
- "tokio",
- "url",
 ]
 
 [[package]]

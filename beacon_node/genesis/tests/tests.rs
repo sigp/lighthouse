@@ -5,7 +5,7 @@
 #![cfg(test)]
 use environment::{Environment, EnvironmentBuilder};
 use eth1::{Eth1Endpoint, DEFAULT_CHAIN_ID};
-use eth1_test_rig::{DelayThenDeposit, GanacheEth1Instance};
+use eth1_test_rig::{AnvilEth1Instance, DelayThenDeposit};
 use genesis::{Eth1Config, Eth1GenesisService};
 use sensitive_url::SensitiveUrl;
 use state_processing::is_valid_genesis_state;
@@ -29,11 +29,11 @@ fn basic() {
     let mut spec = env.eth2_config().spec.clone();
 
     env.runtime().block_on(async {
-        let eth1 = GanacheEth1Instance::new(DEFAULT_CHAIN_ID.into())
+        let eth1 = AnvilEth1Instance::new(DEFAULT_CHAIN_ID.into())
             .await
             .expect("should start eth1 environment");
         let deposit_contract = &eth1.deposit_contract;
-        let web3 = eth1.web3();
+        let web3 = eth1.json_rpc_client();
 
         let now = web3
             .eth()

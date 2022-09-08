@@ -5,73 +5,75 @@
 //!
 //! Not tested to work with actual clients (e.g., geth). It should work fine, however there may be
 //! some initial issues.
-mod ganache;
+mod anvil;
 
+use anvil::AnvilCliInstance;
 use deposit_contract::{
     encode_eth1_tx_data, testnet, ABI, BYTECODE, CONTRACT_DEPLOY_GAS, DEPOSIT_GAS,
 };
-use ganache::GanacheInstance;
-use std::time::Duration;
+use ethers_contract::{Contract, ContractFactory};
+use ethers_core::{
+    abi::Abi,
+    types::{Bytes, TransactionRequest, U256},
+};
+use ethers_providers::{Http, Middleware, Provider};
+use std::{sync::Arc, time::Duration};
 use tokio::time::sleep;
 use types::DepositData;
 use types::{test_utils::generate_deterministic_keypair, EthSpec, Hash256, Keypair, Signature};
-use web3::contract::{Contract, Options};
-use web3::transports::Http;
-use web3::types::{Address, TransactionRequest, U256};
-use web3::Web3;
 
 pub const DEPLOYER_ACCOUNTS_INDEX: usize = 0;
 pub const DEPOSIT_ACCOUNTS_INDEX: usize = 0;
 
 /// Provides a dedicated ganache instance with the deposit contract already deployed.
-pub struct GanacheEth1Instance {
-    pub ganache: GanacheInstance,
+pub struct AnvilEth1Instance {
+    pub anvil: AnvilCliInstance,
     pub deposit_contract: DepositContract,
 }
 
-impl GanacheEth1Instance {
+impl AnvilEth1Instance {
     pub async fn new(chain_id: u64) -> Result<Self, String> {
-        let ganache = GanacheInstance::new(chain_id)?;
-        DepositContract::deploy(ganache.web3.clone(), 0, None)
+        let anvil = AnvilCliInstance::new(chain_id)?;
+        DepositContract::deploy(anvil.client.clone(), 0, None)
             .await
             .map(|deposit_contract| Self {
-                ganache,
+                anvil,
                 deposit_contract,
             })
     }
 
     pub fn endpoint(&self) -> String {
-        self.ganache.endpoint()
+        self.anvil.endpoint()
     }
 
-    pub fn web3(&self) -> Web3<Http> {
-        self.ganache.web3.clone()
+    pub fn json_rpc_client(&self) -> Provider<Http> {
+        self.anvil.client.clone()
     }
 }
 
 /// Deploys and provides functions for the eth2 deposit contract, deployed on the eth1 chain.
 #[derive(Clone, Debug)]
 pub struct DepositContract {
-    web3: Web3<Http>,
-    contract: Contract<Http>,
+    client: Provider<Http>,
+    contract: Contract<Provider<Http>>,
 }
 
 impl DepositContract {
     pub async fn deploy(
-        web3: Web3<Http>,
+        client: Provider<Http>,
         confirmations: usize,
         password: Option<String>,
     ) -> Result<Self, String> {
-        Self::deploy_bytecode(web3, confirmations, BYTECODE, ABI, password).await
+        Self::deploy_bytecode(client, confirmations, BYTECODE, ABI, password).await
     }
 
     pub async fn deploy_testnet(
-        web3: Web3<Http>,
+        client: Provider<Http>,
         confirmations: usize,
         password: Option<String>,
     ) -> Result<Self, String> {
         Self::deploy_bytecode(
-            web3,
+            client,
             confirmations,
             testnet::BYTECODE,
             testnet::ABI,
@@ -81,17 +83,19 @@ impl DepositContract {
     }
 
     async fn deploy_bytecode(
-        web3: Web3<Http>,
+        client: Provider<Http>,
         confirmations: usize,
         bytecode: &[u8],
         abi: &[u8],
         password: Option<String>,
     ) -> Result<Self, String> {
-        let address = deploy_deposit_contract(
-            web3.clone(),
+        let abi = Abi::load(abi).map_err(|e| format!("Invalid deposit contract abi: {:?}", e))?;
+        let bytecode = Bytes::from(bytecode.to_vec());
+        let contract = deploy_deposit_contract(
+            client.clone(),
             confirmations,
-            bytecode.to_vec(),
-            abi.to_vec(),
+            bytecode,
+            abi.clone(),
             password,
         )
         .await
@@ -101,9 +105,7 @@ impl DepositContract {
                 e
             )
         })?;
-        Contract::from_json(web3.clone().eth(), address, ABI)
-            .map_err(|e| format!("Failed to init contract: {:?}", e))
-            .map(move |contract| Self { web3, contract })
+        Ok(Self { client, contract })
     }
 
     /// The deposit contract's address in `0x00ab...` format.
@@ -178,9 +180,8 @@ impl DepositContract {
     /// Performs a non-blocking deposit.
     pub async fn deposit_async(&self, deposit_data: DepositData) -> Result<(), String> {
         let from = self
-            .web3
-            .eth()
-            .accounts()
+            .client
+            .get_accounts()
             .await
             .map_err(|e| format!("Failed to get accounts: {:?}", e))
             .and_then(|accounts| {
@@ -189,30 +190,23 @@ impl DepositContract {
                     .cloned()
                     .ok_or_else(|| "Insufficient accounts for deposit".to_string())
             })?;
-        let tx_request = TransactionRequest {
-            from,
-            to: Some(self.contract.address()),
-            gas: Some(U256::from(DEPOSIT_GAS)),
-            gas_price: None,
-            max_fee_per_gas: None,
-            max_priority_fee_per_gas: None,
-            value: Some(from_gwei(deposit_data.amount)),
-            // Note: the reason we use this `TransactionRequest` instead of just using the
-            // function in `self.contract` is so that the `eth1_tx_data` function gets used
-            // during testing.
-            //
-            // It's important that `eth1_tx_data` stays correct and does not suffer from
-            // code-rot.
-            data: encode_eth1_tx_data(&deposit_data).map(Into::into).ok(),
-            nonce: None,
-            condition: None,
-            transaction_type: None,
-            access_list: None,
-        };
+        // Note: the reason we use this `TransactionRequest` instead of just using the
+        // function in `self.contract` is so that the `eth1_tx_data` function gets used
+        // during testing.
+        //
+        // It's important that `eth1_tx_data` stays correct and does not suffer from
+        // code-rot.
+        let tx_request = TransactionRequest::new()
+            .from(from)
+            .to(self.contract.address())
+            .gas(DEPOSIT_GAS)
+            .value(from_gwei(deposit_data.amount))
+            .data(Bytes::from(encode_eth1_tx_data(&deposit_data).map_err(
+                |e| format!("Failed to encode deposit data: {:?}", e),
+            )?));
 
-        self.web3
-            .eth()
-            .send_transaction(tx_request)
+        self.client
+            .send_transaction(tx_request, None)
             .await
             .map_err(|e| format!("Failed to call deposit fn: {:?}", e))?;
         Ok(())
@@ -245,17 +239,14 @@ fn from_gwei(gwei: u64) -> U256 {
 /// Deploys the deposit contract to the given web3 instance using the account with index
 /// `DEPLOYER_ACCOUNTS_INDEX`.
 async fn deploy_deposit_contract(
-    web3: Web3<Http>,
+    client: Provider<Http>,
     confirmations: usize,
-    bytecode: Vec<u8>,
-    abi: Vec<u8>,
+    bytecode: Bytes,
+    abi: Abi,
     password_opt: Option<String>,
-) -> Result<Address, String> {
-    let bytecode = String::from_utf8(bytecode).expect("bytecode must be valid utf8");
-
-    let from_address = web3
-        .eth()
-        .accounts()
+) -> Result<Contract<Provider<Http>>, String> {
+    let from_address = client
+        .get_accounts()
         .await
         .map_err(|e| format!("Failed to get accounts: {:?}", e))
         .and_then(|accounts| {
@@ -266,30 +257,31 @@ async fn deploy_deposit_contract(
         })?;
 
     let deploy_address = if let Some(password) = password_opt {
-        let result = web3
-            .personal()
-            .unlock_account(from_address, &password, None)
+        let result = client
+            .request(
+                "personal_unlockAccount",
+                vec![from_address.to_string(), password],
+            )
             .await;
+
         match result {
-            Ok(true) => return Ok(from_address),
+            Ok(true) => from_address,
             Ok(false) => return Err("Eth1 node refused to unlock account".to_string()),
             Err(e) => return Err(format!("Eth1 unlock request failed: {:?}", e)),
-        };
+        }
     } else {
         from_address
     };
 
-    let pending_contract = Contract::deploy(web3.eth(), &abi)
-        .map_err(|e| format!("Unable to build contract deployer: {:?}", e))?
+    let contract_factory = ContractFactory::new(abi, bytecode, Arc::new(client));
+    let mut deployer = contract_factory
+        .deploy(())
+        .map_err(|e| format!("Contract deploy error: {:?}", e))?;
+    deployer.tx.set_gas(CONTRACT_DEPLOY_GAS);
+    deployer.tx.set_from(deploy_address);
+    deployer
         .confirmations(confirmations)
-        .options(Options {
-            gas: Some(U256::from(CONTRACT_DEPLOY_GAS)),
-            ..Options::default()
-        })
-        .execute(bytecode, (), deploy_address);
-
-    pending_contract
+        .send()
         .await
-        .map(|contract| contract.address())
-        .map_err(|e| format!("Unable to resolve pending contract: {:?}", e))
+        .map_err(|e| format!("Unable to deploy contract: {:?}", e))
 }

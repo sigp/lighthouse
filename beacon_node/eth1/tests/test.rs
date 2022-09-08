@@ -2,7 +2,7 @@
 use environment::{Environment, EnvironmentBuilder};
 use eth1::{Config, Eth1Endpoint, Service};
 use eth1::{DepositCache, DEFAULT_CHAIN_ID};
-use eth1_test_rig::GanacheEth1Instance;
+use eth1_test_rig::AnvilEth1Instance;
 use execution_layer::http::{deposit_methods::*, HttpJsonRpc, Log};
 use merkle_proof::verify_merkle_proof;
 use sensitive_url::SensitiveUrl;
@@ -53,7 +53,7 @@ fn random_deposit_data() -> DepositData {
 /// Blocking operation to get the deposit logs from the `deposit_contract`.
 async fn blocking_deposit_logs(
     client: &HttpJsonRpc,
-    eth1: &GanacheEth1Instance,
+    eth1: &AnvilEth1Instance,
     range: Range<u64>,
 ) -> Vec<Log> {
     client
@@ -65,7 +65,7 @@ async fn blocking_deposit_logs(
 /// Blocking operation to get the deposit root from the `deposit_contract`.
 async fn blocking_deposit_root(
     client: &HttpJsonRpc,
-    eth1: &GanacheEth1Instance,
+    eth1: &AnvilEth1Instance,
     block_number: u64,
 ) -> Option<Hash256> {
     client
@@ -77,7 +77,7 @@ async fn blocking_deposit_root(
 /// Blocking operation to get the deposit count from the `deposit_contract`.
 async fn blocking_deposit_count(
     client: &HttpJsonRpc,
-    eth1: &GanacheEth1Instance,
+    eth1: &AnvilEth1Instance,
     block_number: u64,
 ) -> Option<u64> {
     client
@@ -94,8 +94,8 @@ async fn get_block_number(web3: &Web3<Http>) -> u64 {
         .expect("should get block number")
 }
 
-async fn new_ganache_instance() -> Result<GanacheEth1Instance, String> {
-    GanacheEth1Instance::new(DEFAULT_CHAIN_ID.into()).await
+async fn new_ganache_instance() -> Result<AnvilEth1Instance, String> {
+    AnvilEth1Instance::new(DEFAULT_CHAIN_ID.into()).await
 }
 
 mod eth1_cache {
@@ -112,7 +112,7 @@ mod eth1_cache {
                     .await
                     .expect("should start eth1 environment");
                 let deposit_contract = &eth1.deposit_contract;
-                let web3 = eth1.web3();
+                let web3 = eth1.json_rpc_client();
 
                 let initial_block_number = get_block_number(&web3).await;
 
@@ -195,7 +195,7 @@ mod eth1_cache {
                 .await
                 .expect("should start eth1 environment");
             let deposit_contract = &eth1.deposit_contract;
-            let web3 = eth1.web3();
+            let web3 = eth1.json_rpc_client();
 
             let cache_len = 4;
 
@@ -252,7 +252,7 @@ mod eth1_cache {
                 .await
                 .expect("should start eth1 environment");
             let deposit_contract = &eth1.deposit_contract;
-            let web3 = eth1.web3();
+            let web3 = eth1.json_rpc_client();
 
             let cache_len = 4;
 
@@ -307,7 +307,7 @@ mod eth1_cache {
                 .await
                 .expect("should start eth1 environment");
             let deposit_contract = &eth1.deposit_contract;
-            let web3 = eth1.web3();
+            let web3 = eth1.json_rpc_client();
 
             let service = Service::new(
                 Config {
@@ -360,7 +360,7 @@ mod deposit_tree {
                 .await
                 .expect("should start eth1 environment");
             let deposit_contract = &eth1.deposit_contract;
-            let web3 = eth1.web3();
+            let web3 = eth1.json_rpc_client();
 
             let start_block = get_block_number(&web3).await;
 
@@ -443,7 +443,7 @@ mod deposit_tree {
                 .await
                 .expect("should start eth1 environment");
             let deposit_contract = &eth1.deposit_contract;
-            let web3 = eth1.web3();
+            let web3 = eth1.json_rpc_client();
 
             let start_block = get_block_number(&web3).await;
 
@@ -497,7 +497,7 @@ mod deposit_tree {
                 .await
                 .expect("should start eth1 environment");
             let deposit_contract = &eth1.deposit_contract;
-            let web3 = eth1.web3();
+            let web3 = eth1.json_rpc_client();
 
             let mut deposit_roots = vec![];
             let mut deposit_counts = vec![];
@@ -605,7 +605,7 @@ mod http {
                 .await
                 .expect("should start eth1 environment");
             let deposit_contract = &eth1.deposit_contract;
-            let web3 = eth1.web3();
+            let web3 = eth1.json_rpc_client();
             let client = HttpJsonRpc::new(SensitiveUrl::parse(&eth1.endpoint()).unwrap()).unwrap();
 
             let block_number = get_block_number(&web3).await;
@@ -701,7 +701,7 @@ mod fast {
                 .await
                 .expect("should start eth1 environment");
             let deposit_contract = &eth1.deposit_contract;
-            let web3 = eth1.web3();
+            let web3 = eth1.json_rpc_client();
 
             let now = get_block_number(&web3).await;
             let service = Service::new(
@@ -783,7 +783,7 @@ mod persist {
                 .await
                 .expect("should start eth1 environment");
             let deposit_contract = &eth1.deposit_contract;
-            let web3 = eth1.web3();
+            let web3 = eth1.json_rpc_client();
 
             let now = get_block_number(&web3).await;
             let config = Config {
@@ -870,7 +870,7 @@ mod fallbacks {
                 .expect("should start eth1 environment");
             let deposit_contract = &endpoint2.deposit_contract;
 
-            let initial_block_number = get_block_number(&endpoint2.web3()).await;
+            let initial_block_number = get_block_number(&endpoint2.json_rpc_client()).await;
 
             // Create some blocks and then consume them, performing the test `rounds` times.
             let new_blocks = 4;
@@ -922,7 +922,7 @@ mod fallbacks {
 
             drop(endpoint1);
 
-            let endpoint2_block_number = get_block_number(&endpoint2.web3()).await;
+            let endpoint2_block_number = get_block_number(&endpoint2.json_rpc_client()).await;
             assert!(endpoint1_block_number < endpoint2_block_number);
             //endpoint1 is offline => query will import blocks from endpoint2
             service.update().await.expect("should update deposit cache");
@@ -940,7 +940,7 @@ mod fallbacks {
             let log = null_logger();
             let correct_chain_id: u64 = DEFAULT_CHAIN_ID.into();
             let wrong_chain_id = correct_chain_id + 1;
-            let endpoint1 = GanacheEth1Instance::new(wrong_chain_id)
+            let endpoint1 = AnvilEth1Instance::new(wrong_chain_id)
                 .await
                 .expect("should start eth1 environment");
             let endpoint2 = new_ganache_instance()
@@ -948,7 +948,7 @@ mod fallbacks {
                 .expect("should start eth1 environment");
             let deposit_contract = &endpoint2.deposit_contract;
 
-            let initial_block_number = get_block_number(&endpoint2.web3()).await;
+            let initial_block_number = get_block_number(&endpoint2.json_rpc_client()).await;
 
             // Create some blocks and then consume them, performing the test `rounds` times.
             let new_blocks = 4;
@@ -990,8 +990,8 @@ mod fallbacks {
                 MainnetEthSpec::default_spec(),
             );
 
-            let endpoint1_block_number = get_block_number(&endpoint1.web3()).await;
-            let endpoint2_block_number = get_block_number(&endpoint2.web3()).await;
+            let endpoint1_block_number = get_block_number(&endpoint1.json_rpc_client()).await;
+            let endpoint2_block_number = get_block_number(&endpoint2.json_rpc_client()).await;
             assert!(endpoint2_block_number < endpoint1_block_number);
             //the call will fallback to endpoint2
             service.update().await.expect("should update deposit cache");
@@ -1012,7 +1012,7 @@ mod fallbacks {
                 .expect("should start eth1 environment");
             let deposit_contract = &endpoint2.deposit_contract;
 
-            let initial_block_number = get_block_number(&endpoint2.web3()).await;
+            let initial_block_number = get_block_number(&endpoint2.json_rpc_client()).await;
 
             // Create some blocks and then consume them, performing the test `rounds` times.
             let new_blocks = 4;
@@ -1068,7 +1068,7 @@ mod fallbacks {
                     .expect("should mine block");
             }
 
-            let endpoint2_block_number = get_block_number(&endpoint2.web3()).await;
+            let endpoint2_block_number = get_block_number(&endpoint2.json_rpc_client()).await;
 
             //endpoint1 is far behind + endpoint2 not => update will import blocks from endpoint2
             service.update().await.expect("should update deposit cache");

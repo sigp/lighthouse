@@ -6,7 +6,9 @@ edition = "2021"
 
 [dependencies]
 tokio = { version = "1.14.0", features = ["time"] }
-web3 = { version = "0.18.0", default-features = false, features = ["http-tls", "signing", "ws-tls-tokio"] }
+ethers-core = { git = "https://github.com/gakonst/ethers-rs", rev = "89bc6420bbfdeb6ec891b0f701dd4768505f31c7" }
+ethers-providers = { git = "https://github.com/gakonst/ethers-rs", rev = "89bc6420bbfdeb6ec891b0f701dd4768505f31c7" }
+ethers-contract = { git = "https://github.com/gakonst/ethers-rs", rev = "89bc6420bbfdeb6ec891b0f701dd4768505f31c7" }
 types = { path = "../../consensus/types"}
 serde_json = "1.0.58"
 deposit_contract = { path = "../../common/deposit_contract"}
