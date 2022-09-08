@@ -7,7 +7,7 @@ use crate::config::{
 };
 use crate::forwards_iter::{HybridForwardsBlockRootsIterator, HybridForwardsStateRootsIterator};
 use crate::impls::beacon_state::{get_full_state, store_full_state};
-use crate::iter::{ParentRootBlockIterator, StateRootsIterator};
+use crate::iter::{ParentRootBlockIterator, RootsIterator};
 use crate::leveldb_store::BytesKey;
 use crate::leveldb_store::LevelDB;
 use crate::memory_store::MemoryStore;
@@ -1457,16 +1457,16 @@ pub fn migrate_database<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
     let mut hot_db_ops: Vec<StoreOp<E>> = Vec::new();
 
     // 1. Copy all of the states between the head and the split slot, from the hot DB
-    // to the cold DB.
-    let state_root_iter = StateRootsIterator::new(&store, frozen_head);
-    for maybe_pair in state_root_iter.take_while(|result| match result {
-        Ok((_, slot)) => {
+    // to the cold DB. Delete the execution payloads of these now-finalized blocks.
+    let state_root_iter = RootsIterator::new(&store, frozen_head);
+    for maybe_tuple in state_root_iter.take_while(|result| match result {
+        Ok((_, _, slot)) => {
             slot >= &current_split_slot
                 && anchor_slot.map_or(true, |anchor_slot| slot >= &anchor_slot)
         }
         Err(_) => true,
     }) {
-        let (state_root, slot) = maybe_pair?;
+        let (block_root, state_root, slot) = maybe_tuple?;
 
         let mut cold_db_ops: Vec<KeyValueStoreOp> = Vec::new();
 
@@ -1489,6 +1489,11 @@ pub fn migrate_database<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
 
         // Delete the old summary, and the full state if we lie on an epoch boundary.
         hot_db_ops.push(StoreOp::DeleteState(state_root, Some(slot)));
+
+        // Delete the execution payload. Even if this execution payload is the payload of the
+        // new finalized block it is OK to delete it, as `try_get_full_block` looks at the split
+        // slot when determining whether to reconstruct payloads.
+        hot_db_ops.push(StoreOp::DeleteExecutionPayload(block_root));
     }
 
     // Warning: Critical section.  We have to take care not to put any of the two databases in an
