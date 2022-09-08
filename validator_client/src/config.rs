@@ -329,6 +329,14 @@ impl Config {
             );
         }
 
+        if cli_args.is_present("strict-fee-recipient") {
+            warn!(
+                log,
+                "The flag `--strict-fee-recipient` has been deprecated due to a bug causing \
+                missed proposals. The flag will be ignored."
+            );
+        }
+
         Ok(config)
     }
 }
