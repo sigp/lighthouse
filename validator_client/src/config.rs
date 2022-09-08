@@ -61,9 +61,6 @@ pub struct Config {
     /// A list of custom certificates that the validator client will additionally use when
     /// connecting to a beacon node over SSL/TLS.
     pub beacon_nodes_tls_certs: Option<Vec<PathBuf>>,
-    /// Enabling this will make sure the validator client never signs a block whose `fee_recipient`
-    /// does not match the `suggested_fee_recipient`.
-    pub strict_fee_recipient: bool,
 }
 
 impl Default for Config {
@@ -99,7 +96,6 @@ impl Default for Config {
             builder_proposals: false,
             builder_registration_timestamp_override: None,
             gas_limit: None,
-            strict_fee_recipient: false,
         }
     }
 }
@@ -334,7 +330,11 @@ impl Config {
         }
 
         if cli_args.is_present("strict-fee-recipient") {
-            config.strict_fee_recipient = true;
+            warn!(
+                log,
+                "The flag `--strict-fee-recipient` has been deprecated due to a bug causing \
+                missed proposals. The flag will be ignored."
+            );
         }
 
         Ok(config)

@@ -431,20 +431,6 @@ fn builder_registration_timestamp_override_flag() {
         });
 }
 #[test]
-fn strict_fee_recipient_flag() {
-    CommandLineTest::new()
-        .flag("strict-fee-recipient", None)
-        .run()
-        .with_config(|config| assert!(config.strict_fee_recipient));
-}
-#[test]
-fn no_strict_fee_recipient_flag() {
-    CommandLineTest::new()
-        .run()
-        .with_config(|config| assert!(!config.strict_fee_recipient));
-}
-
-#[test]
 fn monitoring_endpoint() {
     CommandLineTest::new()
         .flag("monitoring-endpoint", Some("http://example:8000"))
