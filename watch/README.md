@@ -171,7 +171,7 @@ curl "http://localhost:5059/v1/blocks/0xf7063a9d6c663682e59bd0b41d29ce80c3ff0b08
 }
 ```
 
-### `/v1/blocks?start_slot={}&end_slot={}`
+#### `/v1/blocks?start_slot={}&end_slot={}`
 ```bash
 curl "http://localhost:5059/v1/blocks?start_slot=4635296&end_slot=4635297"
 ```
@@ -330,9 +330,6 @@ curl "http://localhost:5059/v1/validators/0xa1d1ad0714035353258038e964ae9675dc02
 
 - More API endpoints
   - E.g. `/v1/proposers?start_epoch={}&end_epoch={}`
-
-
-- Store the config in the database on first run so that we can warn against unexpected config changes.
 
 
 - Concurrently backfill and forwards fill, so forwards fill is not bottlenecked by large backfills.

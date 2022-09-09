@@ -1,6 +1,15 @@
 // @generated automatically by Diesel CLI.
 
 diesel::table! {
+    active_config (id) {
+        id -> Int4,
+        config_name -> Text,
+        slots_per_epoch -> Int4,
+        current_blockprint_checkpoint -> Nullable<Int4>,
+    }
+}
+
+diesel::table! {
     beacon_blocks (slot) {
         slot -> Int4,
         root -> Bytea,
@@ -72,6 +81,7 @@ diesel::joinable!(suboptimal_attestations -> canonical_slots (epoch_start_slot))
 diesel::joinable!(suboptimal_attestations -> validators (index));
 
 diesel::allow_tables_to_appear_in_same_query!(
+    active_config,
     beacon_blocks,
     block_packing,
     block_rewards,

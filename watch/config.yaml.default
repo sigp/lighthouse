@@ -33,14 +33,12 @@ blockprint:
   # Whether to sync client information from blockprint.
   enabled: false
   # The URL of the blockprint server.
-  url: "https://api.blockprint.sigp.io"
+  url: ""
   # The username used to authenticate to the blockprint server.
   username: ""
   # The password used to authenticate to the blockprint server.
   password: ""
 
-# Slots per Epoch of the target network.
-slots_per_epoch: 32
 # Log level.
 # Valid options are:
 # - "trace"

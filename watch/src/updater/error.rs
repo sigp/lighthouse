@@ -15,6 +15,9 @@ pub enum Error {
     BeaconNodeSyncing,
     NotEnabled(String),
     NoValidatorsFound,
+    BeaconNodeNotCompatible(String),
+    InvalidConfig(String),
+    NoBlockprintCheckpointFound,
 }
 
 impl fmt::Display for Error {

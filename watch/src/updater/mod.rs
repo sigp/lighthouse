@@ -23,10 +23,10 @@ pub mod handler;
 const FAR_FUTURE_EPOCH: u64 = u64::MAX;
 
 pub async fn run_once(config: FullConfig) -> Result<(), Error> {
-    let mut watch = UpdateHandler::new(config.clone())?;
+    let mut watch = UpdateHandler::new(config.clone()).await?;
 
-    let sync_data = watch.ensure_bn_synced().await?;
-    if watch.ensure_bn_synced().await?.is_syncing {
+    let sync_data = watch.get_bn_syncing_status().await?;
+    if sync_data.is_syncing {
         error!(
             "Connected beacon node is still syncing: head_slot => {:?}, distance => {}",
             sync_data.head_slot, sync_data.sync_distance

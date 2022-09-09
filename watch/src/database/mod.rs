@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
 use self::schema::{
-    beacon_blocks, block_packing, block_rewards, canonical_slots, proposer_info,
+    active_config, beacon_blocks, block_packing, block_rewards, canonical_slots, proposer_info,
     suboptimal_attestations, validators,
 };
 use diesel::pg::PgConnection;
@@ -48,6 +48,64 @@ pub fn build_connection_pool(config: &Config) -> Result<PgPool, Error> {
 /// Retrieve an idle connection from the pool.
 pub fn get_connection(pool: &PgPool) -> Result<PgConn, Error> {
     pool.get().map_err(Error::Pool)
+}
+
+/// Insert the active config into the database. This is used to check if the connected beacon node
+/// is compatible with the database. These values will not change (except
+/// `current_blockprint_checkpoint`).
+pub fn insert_active_config(
+    conn: &mut PgConn,
+    new_config_name: String,
+    new_slots_per_epoch: i32,
+) -> Result<(), Error> {
+    use self::active_config::dsl::*;
+
+    diesel::insert_into(active_config)
+        .values(&vec![(
+            id.eq(1),
+            config_name.eq(new_config_name),
+            slots_per_epoch.eq(new_slots_per_epoch),
+        )])
+        .on_conflict_do_nothing()
+        .execute(conn)?;
+
+    Ok(())
+}
+
+/// Get the active config from the database.
+pub fn get_active_config(conn: &mut PgConn) -> Result<Option<(String, i32)>, Error> {
+    use self::active_config::dsl::*;
+    Ok(active_config
+        .select((config_name, slots_per_epoch))
+        .filter(id.eq(1))
+        .first::<(String, i32)>(conn)
+        .optional()?)
+}
+
+/// Update the current blockprint checkpoint. This is used so we know the last slot which was
+/// synced with blockprint. We cannot just check the validator table since (almost) every validator will already
+/// have a `client` and they can change at any time.
+pub fn update_blockprint_checkpoint(
+    conn: &mut PgConn,
+    new_blockprint_checkpoint: WatchSlot,
+) -> Result<(), Error> {
+    use self::active_config::dsl::*;
+
+    diesel::update(active_config)
+        .filter(id.eq(1))
+        .set(current_blockprint_checkpoint.eq(new_blockprint_checkpoint))
+        .execute(conn)?;
+
+    Ok(())
+}
+
+/// Get the current blockprint checkpoint from the database.
+pub fn get_current_blockprint_checkpoint(conn: &mut PgConn) -> Result<Option<WatchSlot>, Error> {
+    use self::active_config::dsl::*;
+    Ok(active_config
+        .select(current_blockprint_checkpoint)
+        .filter(id.eq(1))
+        .first::<Option<WatchSlot>>(conn)?)
 }
 
 ///

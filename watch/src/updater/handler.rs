@@ -8,7 +8,7 @@ use eth2::{
     BeaconNodeHttpClient, SensitiveUrl, Timeouts,
 };
 use log::{debug, error, info, warn};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::iter::FromIterator;
 use std::time::{Duration, Instant};
 use types::{BeaconBlockHeader, Epoch, Hash256, Slot};
@@ -24,6 +24,51 @@ const MAX_SIZE_SINGLE_REQUEST_ATTESTATIONS: u64 = 50;
 const MAX_SIZE_SINGLE_REQUEST_BLOCK_REWARDS: u64 = 1600;
 const MAX_SIZE_SINGLE_REQUEST_BLOCK_PACKING: u64 = 50;
 
+/// Ensure the existing database is valid for this run and returns the slots_per_epoch value
+/// to use.
+pub async fn ensure_valid_database(
+    bn: BeaconNodeHttpClient,
+    pool: &mut PgPool,
+) -> Result<u64, Error> {
+    let mut conn = database::get_connection(pool)?;
+
+    let spec = bn.get_config_spec::<HashMap<String, String>>().await?.data;
+
+    let bn_config_name = spec
+        .get("CONFIG_NAME")
+        .ok_or_else(|| {
+            Error::BeaconNodeNotCompatible("No field CONFIG_NAME on beacon node spec".to_string())
+        })?
+        .clone();
+
+    let bn_slots_per_epoch: u64 = spec
+        .get("SLOTS_PER_EPOCH")
+        .ok_or_else(|| {
+            Error::BeaconNodeNotCompatible(
+                "No field SLOTS_PER_EPOCH on beacon node spec".to_string(),
+            )
+        })?
+        .parse()
+        .map_err(|e| {
+            Error::BeaconNodeNotCompatible(format!("Unable to parse field SLOTS_PER_EPOCH: {e}"))
+        })?;
+
+    if let Some((db_config_name, db_slots_per_epoch)) = database::get_active_config(&mut conn)? {
+        if db_config_name != bn_config_name || db_slots_per_epoch != bn_slots_per_epoch as i32 {
+            Err(Error::InvalidConfig(
+                "The config stored in the database does not match the beacon node.".to_string(),
+            ))
+        } else {
+            // Configs match.
+            Ok(bn_slots_per_epoch)
+        }
+    } else {
+        // No config exists in the DB.
+        database::insert_active_config(&mut conn, bn_config_name, bn_slots_per_epoch as i32)?;
+        Ok(bn_slots_per_epoch)
+    }
+}
+
 pub struct UpdateHandler {
     pool: PgPool,
     bn: BeaconNodeHttpClient,
@@ -33,7 +78,7 @@ pub struct UpdateHandler {
 }
 
 impl UpdateHandler {
-    pub fn new(config: FullConfig) -> Result<UpdateHandler, Error> {
+    pub async fn new(config: FullConfig) -> Result<UpdateHandler, Error> {
         let beacon_node_url =
             SensitiveUrl::parse(&config.updater.beacon_node_url).map_err(Error::SensitiveUrl)?;
         let bn = BeaconNodeHttpClient::new(beacon_node_url, Timeouts::set_all(DEFAULT_TIMEOUT));
@@ -56,18 +101,21 @@ impl UpdateHandler {
             None
         };
 
-        let pool = database::build_connection_pool(&config.database)?;
+        let mut pool = database::build_connection_pool(&config.database)?;
+
+        let slots_per_epoch = ensure_valid_database(bn.clone(), &mut pool).await?;
+
         Ok(Self {
             pool,
             bn,
             blockprint,
             config: config.updater,
-            slots_per_epoch: config.slots_per_epoch,
+            slots_per_epoch,
         })
     }
 
     /// Gets the syncing status of the connected beacon node.
-    pub async fn ensure_bn_synced(&mut self) -> Result<SyncingData, Error> {
+    pub async fn get_bn_syncing_status(&mut self) -> Result<SyncingData, Error> {
         Ok(self.bn.get_node_syncing().await?.data)
     }
 
@@ -142,7 +190,7 @@ impl UpdateHandler {
             info!("Reverse sync begun at slot {start_slot} and stopped at slot {end_slot}");
 
             // Attempt to sync new blocks with blockprint.
-            self.sync_blockprint_between(end_slot, start_slot).await?;
+            self.sync_blockprint_until(start_slot).await?;
         } else {
             // There are no matching parent blocks. Sync from the head block back until the first
             // block of the epoch.
@@ -454,6 +502,17 @@ impl UpdateHandler {
             for val in &mut validators {
                 val.client = blockprint_data.get(&val.index).cloned();
             }
+
+            // Store the highest slot as the current blockprint checkpoint.
+            if let Some(highest_slot) = database::get_highest_canonical_slot(&mut conn)? {
+                database::update_blockprint_checkpoint(&mut conn, highest_slot.slot)?;
+            } else {
+                return Err(Error::Database(DbError::Other(
+                    "Updater should always update blocks before initializing the validator set"
+                        .to_string(),
+                )));
+            }
+
             let elapsed = timer.elapsed();
             debug!("Syncing from blockprint complete, time taken: {elapsed:?}");
         }
@@ -1054,33 +1113,29 @@ impl UpdateHandler {
         Ok(())
     }
 
-    // Syncs blockprint data from the blockprint server between `start_slot` and `end_slot`.
-    // This function should be used when beacon watch is syncing to the head.
-    //
-    // TODO(mac):
-    // BUG: If blockprint falls behind the head, we will not sync beyond `blockprint_head` and thus
-    // we will have "gaps" in the beacon watch database.
-    // SOLUTION: We could store a value in the database like `most_recently_synced_blockprint_slot`
-    // and set that value to `start_slot`.
-    pub async fn sync_blockprint_between(
-        &self,
-        start_slot: Slot,
-        end_slot: Slot,
-    ) -> Result<(), Error> {
+    // Syncs blockprint data from the blockprint server starting from `current_blockprint_checkpoint`
+    // until `end_slot` where `end_slot` is the head of the beacon chain.
+    pub async fn sync_blockprint_until(&self, end_slot: Slot) -> Result<(), Error> {
         // Check if blockprint is enabled, otherwise do nothing.
         if let Some(blockprint) = &self.blockprint {
             info!("Syncing new blocks with blockprint");
+
+            let mut conn = database::get_connection(&self.pool)?;
+            let start_slot = database::get_current_blockprint_checkpoint(&mut conn)?
+                .ok_or(Error::NoBlockprintCheckpointFound)?
+                .as_slot();
+
             let blockprint_head = blockprint.ensure_synced().await?;
 
             // Don't sync beyond the head according to blockprint.
-            let highest_allowed_slot = if blockprint_head < start_slot {
+            let highest_allowed_slot = if blockprint_head < end_slot {
                 warn!("Blockprint server behind beacon node");
                 blockprint_head
             } else {
-                start_slot
+                end_slot
             };
 
-            if highest_allowed_slot < end_slot {
+            if highest_allowed_slot < start_slot {
                 debug!("Blockprint data is up to date");
                 return Ok(());
             }
@@ -1088,11 +1143,15 @@ impl UpdateHandler {
             let blockprints = blockprint
                 .blockprint_proposers_between(end_slot, highest_allowed_slot)
                 .await?;
-            let mut conn = database::get_connection(&self.pool)?;
             for (index, client) in blockprints {
                 database::update_validator_client(&mut conn, index, client.clone())?;
                 debug!("Updating blockprint for validator, index: {index}, client: {client}");
             }
+
+            database::update_blockprint_checkpoint(
+                &mut conn,
+                WatchSlot::from_slot(highest_allowed_slot),
+            )?;
         }
         Ok(())
     }

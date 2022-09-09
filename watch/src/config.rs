@@ -6,9 +6,6 @@ use crate::updater::Config as UpdaterConfig;
 use serde::{Deserialize, Serialize};
 use std::fs::File;
 
-pub const fn slots_per_epoch() -> u64 {
-    32
-}
 pub const LOG_LEVEL: &str = "debug";
 
 fn log_level() -> String {
@@ -25,9 +22,6 @@ pub struct Config {
     pub server: ServerConfig,
     #[serde(default)]
     pub updater: UpdaterConfig,
-    /// The slots per epoch of the network you are syncing.
-    #[serde(default = "slots_per_epoch")]
-    pub slots_per_epoch: u64,
     /// The minimum severity for log messages.
     #[serde(default = "log_level")]
     pub log_level: String,
@@ -40,7 +34,6 @@ impl Default for Config {
             database: DatabaseConfig::default(),
             server: ServerConfig::default(),
             updater: UpdaterConfig::default(),
-            slots_per_epoch: slots_per_epoch(),
             log_level: log_level(),
         }
     }

@@ -156,7 +156,7 @@ impl TesterBuilder {
         /*
          * Build update service
          */
-        let updater = UpdateHandler::new(self.config.clone()).unwrap();
+        let updater = UpdateHandler::new(self.config.clone()).await.unwrap();
 
         Tester {
             harness: self.harness,
@@ -439,7 +439,7 @@ impl Tester {
             .unwrap()
             .unwrap();
 
-        while block.slot.as_slot() <= self.config.slots_per_epoch {
+        while block.slot.as_slot() <= SLOTS_PER_EPOCH {
             block = self
                 .client
                 .get_next_beacon_block(block.root.as_hash())

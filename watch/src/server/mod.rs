@@ -22,8 +22,15 @@ mod handler;
 
 pub async fn serve(config: FullConfig, shutdown: oneshot::Receiver<()>) -> Result<(), Error> {
     let db = database::build_connection_pool(&config.database)?;
+    let (_, slots_per_epoch) = database::get_active_config(&mut database::get_connection(&db)?)?
+        .ok_or_else(|| {
+            Error::Other(
+                "Database not found. Please run the updater prior to starting the server"
+                    .to_string(),
+            )
+        })?;
 
-    let server = start_server(&config.server, config.slots_per_epoch, db, async {
+    let server = start_server(&config.server, slots_per_epoch as u64, db, async {
         let _ = shutdown.await;
     })?;
 
