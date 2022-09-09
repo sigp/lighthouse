@@ -41,6 +41,13 @@ Once the checkpoint is loaded Lighthouse will sync forwards to the head of the c
 If a validator client is connected to the node then it will be able to start completing its duties
 as soon as forwards sync completes.
 
+### Use a community checkpoint sync endpoint
+
+The Ethereum community provides various [public endpoints](https://eth-clients.github.io/checkpoint-sync-endpoints/) for you to choose from for your initial checkpoint state. Select one for your network and use it as the url for the `--checkpoint-sync-url` flag.  e.g.
+```
+lighthouse bn --checkpoint-sync-url https://beaconstate.info/ ...
+```
+
 ### Use Infura as a remote beacon node provider
 
 You can use Infura as the remote beacon node provider to load the initial checkpoint state.
