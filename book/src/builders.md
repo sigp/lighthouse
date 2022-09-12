@@ -54,9 +54,11 @@ described below.
 
 Both the gas limit and fee recipient will be passed along as suggestions to connected builders. If there is a discrepancy
 in either, it will *not* keep you from proposing a block with the builder. This is because the bounds on gas limit are
-calculated based on prior execution blocks, so it should be managed by an execution engine. Depending on the
-connected relay, payment to the proposer might be in the form of a transaction within the block to the fee recipient,
-so a discrepancy in fee recipient might not indicate that there is something afoot. 
+calculated based on prior execution blocks, so an honest external builder will make sure that even if your 
+requested gas limit value is out of the specified range, a valid gas limit in the direction of your request will be 
+used in constructing the block. Depending on the connected relay, payment to the proposer might be in the form of a
+transaction within the block to the fee recipient, so a discrepancy in fee recipient might not indicate that there 
+is something afoot. 
 
 > Note: The gas limit configured here is effectively a vote on block size, so the configuration should not be taken lightly. 
 > 30,000,000 is currently seen as a value balancing block size with how expensive it is for
