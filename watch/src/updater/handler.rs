@@ -1121,37 +1121,69 @@ impl UpdateHandler {
             info!("Syncing new blocks with blockprint");
 
             let mut conn = database::get_connection(&self.pool)?;
-            let start_slot = database::get_current_blockprint_checkpoint(&mut conn)?
-                .ok_or(Error::NoBlockprintCheckpointFound)?
-                .as_slot();
+            if let Some(start_slot) = database::get_current_blockprint_checkpoint(&mut conn)? {
+                let blockprint_head = blockprint.ensure_synced().await?;
 
-            let blockprint_head = blockprint.ensure_synced().await?;
+                // Don't sync beyond the head according to blockprint.
+                let highest_allowed_slot = if blockprint_head < end_slot {
+                    warn!("Blockprint server behind beacon node");
+                    blockprint_head
+                } else {
+                    end_slot
+                };
 
-            // Don't sync beyond the head according to blockprint.
-            let highest_allowed_slot = if blockprint_head < end_slot {
-                warn!("Blockprint server behind beacon node");
-                blockprint_head
+                if highest_allowed_slot < start_slot.as_slot() {
+                    debug!("Blockprint data is up to date");
+                    return Ok(());
+                }
+
+                let blockprints = blockprint
+                    .blockprint_proposers_between(end_slot, highest_allowed_slot)
+                    .await?;
+                for (index, client) in blockprints {
+                    database::update_validator_client(&mut conn, index, client.clone())?;
+                    debug!("Updating blockprint for validator, index: {index}, client: {client}");
+                }
+
+                database::update_blockprint_checkpoint(
+                    &mut conn,
+                    WatchSlot::from_slot(highest_allowed_slot),
+                )?;
             } else {
-                end_slot
-            };
+                // No blockprint checkpoint found. Blockprint may have just been activated.
+                info!("Blockprint was just activated. Updating all validators with latest blockprint data.");
 
-            if highest_allowed_slot < start_slot {
-                debug!("Blockprint data is up to date");
-                return Ok(());
+                let timer = Instant::now();
+                let _ = blockprint.ensure_synced().await?;
+
+                let current_validators = database::get_all_validators(&mut conn)?;
+                let highest_validator: i32 = current_validators.len() as i32 + 1;
+                let blockprint_data = blockprint
+                    .blockprint_all_validators(highest_validator)
+                    .await?;
+
+                let mut new_validators = Vec::with_capacity(current_validators.len());
+
+                for mut val in current_validators {
+                    val.client = blockprint_data.get(&val.index).cloned();
+                    new_validators.push(val);
+                }
+
+                database::insert_batch_validators_blockprint(&mut conn, new_validators)?;
+
+                // Store the highest slot as the current blockprint checkpoint.
+                if let Some(highest_slot) = database::get_highest_canonical_slot(&mut conn)? {
+                    database::update_blockprint_checkpoint(&mut conn, highest_slot.slot)?;
+                } else {
+                    return Err(Error::Database(DbError::Other(
+                        "Updater should always update blocks before initializing the validator set"
+                            .to_string(),
+                    )));
+                }
+
+                let elapsed = timer.elapsed();
+                debug!("Syncing from blockprint complete, time taken: {elapsed:?}");
             }
-
-            let blockprints = blockprint
-                .blockprint_proposers_between(end_slot, highest_allowed_slot)
-                .await?;
-            for (index, client) in blockprints {
-                database::update_validator_client(&mut conn, index, client.clone())?;
-                debug!("Updating blockprint for validator, index: {index}, client: {client}");
-            }
-
-            database::update_blockprint_checkpoint(
-                &mut conn,
-                WatchSlot::from_slot(highest_allowed_slot),
-            )?;
         }
         Ok(())
     }

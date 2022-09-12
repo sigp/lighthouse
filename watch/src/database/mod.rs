@@ -193,8 +193,9 @@ pub fn insert_validator(conn: &mut PgConn, validator: WatchValidator) -> Result<
 ///
 /// On a conflict, it will do nothing.
 ///
-/// TODO(mac): If a validator exits, there will be a conflict on
-/// `exit_epoch`. Need to catch this conflict and update it.
+/// Should not be used when updating validators.
+/// Validators should be updated through the `insert_validator` function which contains the correct
+/// `on_conflict` clauses.
 pub fn insert_batch_validators(
     conn: &mut PgConn,
     all_validators: Vec<WatchValidator>,
@@ -211,6 +212,32 @@ pub fn insert_batch_validators(
     }
 
     debug!("Validators inserted, count: {count}");
+    Ok(())
+}
+
+/// Insert a batch of values into the `validators` table.
+///
+/// If `client` conflicts, update the value.
+///
+/// Used when updating blockprint data for all validators at once.
+pub fn insert_batch_validators_blockprint(
+    conn: &mut PgConn,
+    all_validators: Vec<WatchValidator>,
+) -> Result<(), Error> {
+    use self::validators::dsl::*;
+
+    let mut count = 0;
+
+    for chunk in all_validators.chunks(1000) {
+        count += diesel::insert_into(validators)
+            .values(chunk)
+            .on_conflict(index)
+            .do_update()
+            .set(client.eq(excluded(client)))
+            .execute(conn)?;
+    }
+
+    debug!("Validators updated, count: {count}");
     Ok(())
 }
 
@@ -338,7 +365,7 @@ pub fn update_validator_client(
         .execute(conn)?;
 
     let time_taken = timer.elapsed();
-    debug!("Validator updated, time taken: {time_taken:?}");
+    debug!("Validator updated, index: {index_query:?}, time taken: {time_taken:?}");
     Ok(())
 }
 

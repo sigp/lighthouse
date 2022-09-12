@@ -17,7 +17,6 @@ pub enum Error {
     NoValidatorsFound,
     BeaconNodeNotCompatible(String),
     InvalidConfig(String),
-    NoBlockprintCheckpointFound,
 }
 
 impl fmt::Display for Error {
