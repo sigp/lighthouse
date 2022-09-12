@@ -43,10 +43,20 @@ present in post-merge blocks. Two new flags are used to configure this connectio
   `http://localhost:8551`.
 - `--execution-jwt <FILE>`: the path to the file containing the JWT secret shared by Lighthouse and the
   execution engine.
+- `--execution-jwt-secret-key <STRING>`: the hex-encoded JWT secret shared by Lighthouse and the
+  execution engine.
 
-If you set up an execution engine with `--execution-endpoint` then you *must* provide a JWT secret
-using `--execution-jwt`. This is a mandatory form of authentication that ensures that Lighthouse
+If you set up an execution engine with `--execution-endpoint` then you *must* provide a JWT secret.
+This is a mandatory form of authentication that ensures that Lighthouse
 has authority to control the execution engine.
+
+The first option is to specify the file path with the JWT secret using `--execution-jwt`.
+
+The second option is to pass the JWT secret directly with the cli flag `--execution-jwt-secret-key`.
+This option can also be used in combination with docker and environment variables by injecting the key
+as an env variable to the cli flags:
+
+`--execution-jwt-secret-key=$EXECUTION_JWT_SECRET_KEY`
 
 The execution engine connection must be **exclusive**, i.e. you must have one execution node
 per beacon node. The reason for this is that the beacon node _controls_ the execution node. Please
