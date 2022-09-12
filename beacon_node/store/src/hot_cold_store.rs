@@ -1448,7 +1448,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         // whether it was at a skipped slot. However for a fully pruned database its parent
         // should *always* have been pruned.
         let split_parent_block_root = split_state.get_block_root(split.slot - 1)?;
-        if !self.execution_payload_exists(&split_parent_block_root)? && !force {
+        if !self.execution_payload_exists(split_parent_block_root)? && !force {
             info!(self.log, "Execution payloads are pruned");
             return Ok(());
         }
