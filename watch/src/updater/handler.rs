@@ -596,7 +596,7 @@ impl UpdateHandler {
             }
 
             // Ensure the size of the request does not exceed the maximum allowed value.
-            if start_epoch > end_epoch + MAX_SIZE_SINGLE_REQUEST_ATTESTATIONS {
+            if start_epoch < end_epoch.saturating_sub(MAX_SIZE_SINGLE_REQUEST_ATTESTATIONS) {
                 end_epoch = start_epoch + MAX_SIZE_SINGLE_REQUEST_ATTESTATIONS
             }
 
@@ -800,7 +800,7 @@ impl UpdateHandler {
             }
 
             // Ensure the size of the request does not exceed the maximum allowed value.
-            if start_slot > end_slot + MAX_SIZE_SINGLE_REQUEST_BLOCK_REWARDS {
+            if start_slot < end_slot.saturating_sub(MAX_SIZE_SINGLE_REQUEST_BLOCK_REWARDS) {
                 end_slot = start_slot + MAX_SIZE_SINGLE_REQUEST_BLOCK_REWARDS
             }
 
@@ -977,7 +977,7 @@ impl UpdateHandler {
             }
 
             // Ensure the size of the request does not exceed the maximum allowed value.
-            if start_epoch > end_epoch + MAX_SIZE_SINGLE_REQUEST_BLOCK_PACKING {
+            if start_epoch < end_epoch.saturating_sub(MAX_SIZE_SINGLE_REQUEST_BLOCK_PACKING) {
                 end_epoch = start_epoch + MAX_SIZE_SINGLE_REQUEST_BLOCK_PACKING
             }
 
