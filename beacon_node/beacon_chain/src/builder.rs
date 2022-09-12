@@ -267,9 +267,11 @@ where
         self.genesis_time = Some(genesis_state.genesis_time());
 
         // Prune finalized execution payloads.
-        store
-            .try_prune_execution_payloads(false)
-            .map_err(|e| format!("Error pruning execution payloads: {e:?}"))?;
+        if store.get_config().prune_payloads_on_init {
+            store
+                .try_prune_execution_payloads(false)
+                .map_err(|e| format!("Error pruning execution payloads: {e:?}"))?;
+        }
 
         self.op_pool = Some(
             store
