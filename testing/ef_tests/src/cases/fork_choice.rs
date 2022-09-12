@@ -1,6 +1,7 @@
 use super::*;
 use crate::decode::{ssz_decode_file, ssz_decode_file_with, ssz_decode_state, yaml_decode_file};
 use ::fork_choice::PayloadVerificationStatus;
+use beacon_chain::slot_clock::SlotClock;
 use beacon_chain::{
     attestation_verification::{
         obtain_indexed_attestation_and_committees_per_slot, VerifiedAttestation,
@@ -8,7 +9,6 @@ use beacon_chain::{
     test_utils::{BeaconChainHarness, EphemeralHarnessType},
     BeaconChainTypes, CachedHead, CountUnrealized,
 };
-use beacon_chain::{slot_clock::SlotClock, BlockError};
 use execution_layer::{json_structures::JsonPayloadStatusV1Status, PayloadStatusV1};
 use serde::Deserialize;
 use ssz_derive::Decode;
@@ -389,20 +389,14 @@ impl<E: EthSpec> Tester<E> {
                 .chain
                 .process_block(block.clone(), CountUnrealized::False),
         )?;
-        match (&result, valid) {
-            (Err(BlockError::ExecutionPayloadError(_)), true) => {
-                // Allow execution errors for otherwise valid blocks.
-            }
-            (Ok(_), false) | (Err(_), true) => {
-                return Err(Error::DidntFail(format!(
-                    "block with root {} was valid={} whilst test expects valid={}. result: {:?}",
-                    block_root,
-                    result.is_ok(),
-                    valid,
-                    result
-                )));
-            }
-            _ => (),
+        if result.is_ok() != valid {
+            return Err(Error::DidntFail(format!(
+                "block with root {} was valid={} whilst test expects valid={}. result: {:?}",
+                block_root,
+                result.is_ok(),
+                valid,
+                result
+            )));
         }
 
         // Apply invalid blocks directly against the fork choice `on_block` function. This ensures
