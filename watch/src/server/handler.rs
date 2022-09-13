@@ -346,6 +346,38 @@ pub async fn get_validators_missed_vote(
     }
 }
 
+pub async fn get_validators_missed_vote_graffiti(
+    Path((vote, epoch)): Path<(String, u64)>,
+    Extension(pool): Extension<PgPool>,
+    Extension(slots_per_epoch): Extension<u64>,
+) -> Result<Json<HashMap<String, u64>>, Error> {
+    let mut conn = database::get_connection(&pool).map_err(Error::Database)?;
+
+    let Json(indices) = get_validators_missed_vote(
+        Path((vote, epoch)),
+        Extension(pool),
+        Extension(slots_per_epoch),
+    )
+    .await?;
+
+    let graffitis = database::get_validators_latest_proposer_info(&mut conn, indices)?
+        .iter()
+        .map(|(_, info)| info.graffiti.clone())
+        .collect::<Vec<String>>();
+
+    let mut result = HashMap::new();
+    for graffiti in graffitis {
+        if !result.contains_key(&graffiti) {
+            result.insert(graffiti.clone(), 0);
+        }
+        *result
+            .get_mut(&graffiti)
+            .ok_or_else(|| Error::Other("An unexpected error occurred".to_string()))? += 1;
+    }
+
+    Ok(Json(result))
+}
+
 pub async fn get_clients_missed_vote(
     Path((vote, epoch)): Path<(String, u64)>,
     Extension(pool): Extension<PgPool>,
@@ -384,13 +416,41 @@ pub async fn get_clients_missed_vote_percentages(
 ) -> Result<Json<HashMap<String, f64>>, Error> {
     let Json(clients_counts) = get_clients_missed_vote(
         Path((vote, epoch)),
+        Extension(pool.clone()),
+        Extension(slots_per_epoch),
+    )
+    .await?;
+
+    let mut conn = database::get_connection(&pool)?;
+    let totals = database::get_validators_clients(&mut conn)?;
+
+    let mut result = HashMap::new();
+    for (client, count) in clients_counts.iter() {
+        let percentage: f64 = *count as f64
+            / *totals
+                .get(client)
+                .ok_or_else(|| Error::Other("An unexpected error occurred".to_string()))?
+                as f64
+            * 100.0;
+        result.insert(client.to_string(), percentage);
+    }
+
+    Ok(Json(result))
+}
+
+pub async fn get_clients_missed_vote_percentages_relative(
+    Path((vote, epoch)): Path<(String, u64)>,
+    Extension(pool): Extension<PgPool>,
+    Extension(slots_per_epoch): Extension<u64>,
+) -> Result<Json<HashMap<String, f64>>, Error> {
+    let Json(clients_counts) = get_clients_missed_vote(
+        Path((vote, epoch)),
         Extension(pool),
         Extension(slots_per_epoch),
     )
     .await?;
 
     let mut total: u64 = 0;
-
     for (_, count) in clients_counts.iter() {
         total += *count as u64
     }

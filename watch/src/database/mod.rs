@@ -757,6 +757,32 @@ pub fn get_validators_clients(conn: &mut PgConn) -> Result<HashMap<String, i64>,
     Ok(result)
 }
 
+pub fn get_validators_latest_proposer_info(
+    conn: &mut PgConn,
+    indices_query: Vec<i32>,
+) -> Result<HashMap<i32, WatchProposerInfo>, Error> {
+    use self::proposer_info::dsl::*;
+
+    let proposers = proposer_info
+        .filter(proposer_index.eq_any(indices_query))
+        .load::<WatchProposerInfo>(conn)?;
+
+    let mut result = HashMap::new();
+    for proposer in proposers {
+        result
+            .entry(proposer.proposer_index)
+            .or_insert_with(|| proposer.clone());
+        let entry = result
+            .get_mut(&proposer.proposer_index)
+            .ok_or_else(|| Error::Other("An internal error occured".to_string()))?;
+        if proposer.slot > entry.slot {
+            entry.slot = proposer.slot
+        }
+    }
+
+    Ok(result)
+}
+
 /// Counts the number of row in the `validators` table.
 pub fn count_validators(conn: &mut PgConn) -> Result<i64, Error> {
     use self::validators::dsl::*;

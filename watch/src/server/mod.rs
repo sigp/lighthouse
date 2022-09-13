@@ -92,12 +92,20 @@ pub fn start_server(
             get(handler::get_validators_missed_vote),
         )
         .route(
+            "/v1/validators/missed/:vote/:epoch/graffiti",
+            get(handler::get_validators_missed_vote_graffiti),
+        )
+        .route(
             "/v1/clients/missed/:vote/:epoch",
             get(handler::get_clients_missed_vote),
         )
         .route(
             "/v1/clients/missed/:vote/:epoch/percentages",
             get(handler::get_clients_missed_vote_percentages),
+        )
+        .route(
+            "/v1/clients/missed/:vote/:epoch/percentages/relative",
+            get(handler::get_clients_missed_vote_percentages_relative),
         )
         .route("/v1/clients", get(handler::get_client_breakdown))
         .route(

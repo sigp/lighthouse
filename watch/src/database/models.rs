@@ -57,7 +57,7 @@ impl PartialEq for WatchValidator {
 }
 impl Eq for WatchValidator {}
 
-#[derive(Debug, Queryable, Insertable, Serialize, Deserialize)]
+#[derive(Clone, Debug, Queryable, Insertable, Serialize, Deserialize)]
 #[diesel(table_name = proposer_info)]
 pub struct WatchProposerInfo {
     pub slot: WatchSlot,

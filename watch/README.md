@@ -337,6 +337,18 @@ curl "http://localhost:5059/v1/validators/missed/head/144853"
 ]
 ```
 
+#### `/v1/validators/missed/{vote}/{epoch}/graffiti`
+```bash
+curl "http://localhost:5059/v1/validators/missed/head/144853/graffiti"
+```
+```json
+{
+  "Mr F was here": 3,
+  "Lighthouse/v3.1.0-aa022f4": 5,
+  ...
+}
+```
+
 #### `/v1/clients/missed/{vote}/{epoch}`
 ```bash
 curl "http://localhost:5059/v1/clients/missed/source/144853"
@@ -354,15 +366,33 @@ curl "http://localhost:5059/v1/clients/missed/source/144853"
 
 #### `/v1/clients/missed/{vote}/{epoch}/percentages`
 Note that this endpoint expresses the following:
+```
+What percentage of each client implementation missed this vote?
+```
 
+```bash
+curl "http://localhost:5059/v1/clients/missed/target/144853/percentages"
+```
+```json
+{
+  "Lighthouse": 0.51234567890,
+  "Lodestar": 0.51234567890,
+  "Nimbus": 0.51234567890,
+  "Prysm": 0.09876543210,
+  "Teku": 0.09876543210,
+  "Unknown": 0.05647382910
+}
+```
+
+#### `/v1/clients/missed/{vote}/{epoch}/percentages/relative`
+Note that this endpoint expresses the following:
 ```
 For the validators which did miss this vote, what percentage of them were from each client implementation?
 ```
-
 You can check these values against the output of `/v1/clients/percentages` to see any discrepancies.
 
 ```bash
-curl "http://localhost:5059/v1/clients/missed/target/144853"
+curl "http://localhost:5059/v1/clients/missed/target/144853/percentages/relative"
 ```
 ```json
 {
@@ -393,7 +423,7 @@ curl "http://localhost:5059/v1/clients"
 
 #### `/v1/clients/percentages`
 ```bash
-curl "http://localhost:5059/v1/clients/percentages
+curl "http://localhost:5059/v1/clients/percentages"
 ```
 ```json
 {
