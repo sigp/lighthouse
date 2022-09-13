@@ -9,6 +9,7 @@ use diesel::prelude::*;
 use diesel::r2d2::{Builder, ConnectionManager, Pool, PooledConnection};
 use diesel::upsert::excluded;
 use log::{debug, info};
+use std::collections::HashMap;
 use std::time::Instant;
 
 pub use self::error::Error;
@@ -36,6 +37,16 @@ pub const MAX_SIZE_BATCH_INSERT: usize = 13107;
 
 pub type PgPool = Pool<ConnectionManager<PgConnection>>;
 pub type PgConn = PooledConnection<ConnectionManager<PgConnection>>;
+
+fn unique_consensus_clients() -> Vec<String> {
+    vec![
+        "Lighthouse".to_string(),
+        "Lodestar".to_string(),
+        "Nimbus".to_string(),
+        "Prysm".to_string(),
+        "Teku".to_string(),
+    ]
+}
 
 /// Connect to a Postgresql database and build a connection pool.
 pub fn build_connection_pool(config: &Config) -> Result<PgPool, Error> {
@@ -692,6 +703,25 @@ pub fn get_validator_by_public_key(
     Ok(result)
 }
 
+/// Selects all rows from the `validators` table which have an `index` contained in
+/// the `indices_query`.
+pub fn get_validators_by_indices(
+    conn: &mut PgConn,
+    indices_query: Vec<i32>,
+) -> Result<Vec<WatchValidator>, Error> {
+    use self::validators::dsl::*;
+    let timer = Instant::now();
+
+    let query_len = indices_query.len();
+    let result = validators
+        .filter(index.eq_any(indices_query))
+        .load::<WatchValidator>(conn)?;
+
+    let time_taken = timer.elapsed();
+    debug!("{query_len} validators requested, time taken: {time_taken:?}");
+    Ok(result)
+}
+
 // Selects all rows from the `validators` table.
 pub fn get_all_validators(conn: &mut PgConn) -> Result<Vec<WatchValidator>, Error> {
     use self::validators::dsl::*;
@@ -702,6 +732,36 @@ pub fn get_all_validators(conn: &mut PgConn) -> Result<Vec<WatchValidator>, Erro
     let time_taken = timer.elapsed();
     debug!("All validators requested, time taken: {time_taken:?}");
     Ok(result)
+}
+
+/// Counts the number of occurances of each `client` present in the `validators` table.
+pub fn get_validators_clients(conn: &mut PgConn) -> Result<HashMap<String, i64>, Error> {
+    use self::validators::dsl::*;
+
+    let mut result = HashMap::new();
+
+    for identity in unique_consensus_clients() {
+        let res = validators
+            .filter(client.eq(identity.clone()))
+            .count()
+            .get_result(conn)?;
+        result.insert(identity, res);
+    }
+
+    let unknown = validators
+        .filter(client.is_null())
+        .count()
+        .get_result(conn)?;
+    result.insert("Unknown".to_string(), unknown);
+
+    Ok(result)
+}
+
+/// Counts the number of row in the `validators` table.
+pub fn count_validators(conn: &mut PgConn) -> Result<i64, Error> {
+    use self::validators::dsl::*;
+
+    validators.count().get_result(conn).map_err(Error::Database)
 }
 
 /// Selects the row from the `suboptimal_attestations` table where `epoch_start_slot` is minimum.
@@ -780,6 +840,51 @@ pub fn get_attestation_by_pubkey(
     let time_taken = timer.elapsed();
     debug!("Attestation requested for validator: {pubkey_query}, epoch: {epoch_query}, time taken: {time_taken:?}");
     Ok(result)
+}
+
+/// Selects `index` for all validators in the suboptimal_attestations table that have `source == false` for the corresponding
+/// `epoch_start_slot_query`.
+pub fn get_validators_missed_source(
+    conn: &mut PgConn,
+    epoch_start_slot_query: WatchSlot,
+) -> Result<Vec<i32>, Error> {
+    use self::suboptimal_attestations::dsl::*;
+
+    Ok(suboptimal_attestations
+        .select(index)
+        .filter(epoch_start_slot.eq(epoch_start_slot_query))
+        .filter(source.eq(false))
+        .load::<i32>(conn)?)
+}
+
+/// Selects `index` for all validators in the suboptimal_attestations table that have `head == false` for the corresponding
+/// `epoch_start_slot_query`.
+pub fn get_validators_missed_head(
+    conn: &mut PgConn,
+    epoch_start_slot_query: WatchSlot,
+) -> Result<Vec<i32>, Error> {
+    use self::suboptimal_attestations::dsl::*;
+
+    Ok(suboptimal_attestations
+        .select(index)
+        .filter(epoch_start_slot.eq(epoch_start_slot_query))
+        .filter(head.eq(false))
+        .load::<i32>(conn)?)
+}
+
+/// Selects `index` for all validators in the suboptimal_attestations table that have `target == false` for the corresponding
+/// `epoch_start_slot_query`.
+pub fn get_validators_missed_target(
+    conn: &mut PgConn,
+    epoch_start_slot_query: WatchSlot,
+) -> Result<Vec<i32>, Error> {
+    use self::suboptimal_attestations::dsl::*;
+
+    Ok(suboptimal_attestations
+        .select(index)
+        .filter(epoch_start_slot.eq(epoch_start_slot_query))
+        .filter(target.eq(false))
+        .load::<i32>(conn)?)
 }
 
 /// Selects the row from the `proposer_info` table where `slot` is minimum.

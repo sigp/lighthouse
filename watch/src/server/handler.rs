@@ -296,6 +296,114 @@ pub async fn get_validator_attestation(
     Ok(Json(attestation))
 }
 
+pub async fn get_client_breakdown(
+    Extension(pool): Extension<PgPool>,
+) -> Result<Json<HashMap<String, i64>>, Error> {
+    let mut conn = database::get_connection(&pool).map_err(Error::Database)?;
+
+    Ok(Json(database::get_validators_clients(&mut conn)?))
+}
+
+pub async fn get_client_breakdown_percentages(
+    Extension(pool): Extension<PgPool>,
+) -> Result<Json<HashMap<String, f64>>, Error> {
+    let mut conn = database::get_connection(&pool).map_err(Error::Database)?;
+
+    let total = database::count_validators(&mut conn)?;
+    let clients = database::get_validators_clients(&mut conn)?;
+    let mut result = HashMap::new();
+
+    for (client, number) in clients.iter() {
+        let percentage: f64 = *number as f64 / total as f64 * 100.0;
+        result.insert(client.to_string(), percentage);
+    }
+
+    Ok(Json(result))
+}
+
+pub async fn get_validators_missed_vote(
+    Path((vote, epoch)): Path<(String, u64)>,
+    Extension(pool): Extension<PgPool>,
+    Extension(slots_per_epoch): Extension<u64>,
+) -> Result<Json<Vec<i32>>, Error> {
+    let mut conn = database::get_connection(&pool).map_err(Error::Database)?;
+
+    let epoch_start_slot = WatchSlot::from_slot(Epoch::new(epoch).start_slot(slots_per_epoch));
+    match vote.to_lowercase().as_str() {
+        "source" => Ok(Json(database::get_validators_missed_source(
+            &mut conn,
+            epoch_start_slot,
+        )?)),
+        "head" => Ok(Json(database::get_validators_missed_head(
+            &mut conn,
+            epoch_start_slot,
+        )?)),
+        "target" => Ok(Json(database::get_validators_missed_target(
+            &mut conn,
+            epoch_start_slot,
+        )?)),
+        _ => Err(Error::BadRequest),
+    }
+}
+
+pub async fn get_clients_missed_vote(
+    Path((vote, epoch)): Path<(String, u64)>,
+    Extension(pool): Extension<PgPool>,
+    Extension(slots_per_epoch): Extension<u64>,
+) -> Result<Json<HashMap<String, u64>>, Error> {
+    let mut conn = database::get_connection(&pool).map_err(Error::Database)?;
+
+    let Json(indices) = get_validators_missed_vote(
+        Path((vote, epoch)),
+        Extension(pool),
+        Extension(slots_per_epoch),
+    )
+    .await?;
+
+    let clients = database::get_validators_by_indices(&mut conn, indices)?
+        .into_iter()
+        .map(|val| val.client.unwrap_or_else(|| "Unknown".to_string()));
+    let mut result = HashMap::new();
+
+    for client in clients {
+        if !result.contains_key(&client) {
+            result.insert(client.clone(), 0);
+        }
+        *result
+            .get_mut(&client)
+            .ok_or_else(|| Error::Other("An unexpected error occurred".to_string()))? += 1;
+    }
+
+    Ok(Json(result))
+}
+
+pub async fn get_clients_missed_vote_percentages(
+    Path((vote, epoch)): Path<(String, u64)>,
+    Extension(pool): Extension<PgPool>,
+    Extension(slots_per_epoch): Extension<u64>,
+) -> Result<Json<HashMap<String, f64>>, Error> {
+    let Json(clients_counts) = get_clients_missed_vote(
+        Path((vote, epoch)),
+        Extension(pool),
+        Extension(slots_per_epoch),
+    )
+    .await?;
+
+    let mut total: u64 = 0;
+
+    for (_, count) in clients_counts.iter() {
+        total += *count as u64
+    }
+
+    let mut result = HashMap::new();
+    for (client, count) in clients_counts.iter() {
+        let percentage: f64 = *count as f64 / total as f64 * 100.0;
+        result.insert(client.to_string(), percentage);
+    }
+
+    Ok(Json(result))
+}
+
 #[allow(dead_code)]
 pub fn get_proposer_info_by_range(
     conn: &mut PgConn,

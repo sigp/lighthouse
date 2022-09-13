@@ -1118,10 +1118,9 @@ impl UpdateHandler {
     pub async fn sync_blockprint_until(&self, end_slot: Slot) -> Result<(), Error> {
         // Check if blockprint is enabled, otherwise do nothing.
         if let Some(blockprint) = &self.blockprint {
-            info!("Syncing new blocks with blockprint");
-
             let mut conn = database::get_connection(&self.pool)?;
             if let Some(start_slot) = database::get_current_blockprint_checkpoint(&mut conn)? {
+                info!("Syncing new blocks with blockprint");
                 let blockprint_head = blockprint.ensure_synced().await?;
 
                 // Don't sync beyond the head according to blockprint.

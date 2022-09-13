@@ -87,6 +87,23 @@ pub fn start_server(
             "/v1/validators/:validator/attestation/:epoch",
             get(handler::get_validator_attestation),
         )
+        .route(
+            "/v1/validators/missed/:vote/:epoch",
+            get(handler::get_validators_missed_vote),
+        )
+        .route(
+            "/v1/clients/missed/:vote/:epoch",
+            get(handler::get_clients_missed_vote),
+        )
+        .route(
+            "/v1/clients/missed/:vote/:epoch/percentages",
+            get(handler::get_clients_missed_vote_percentages),
+        )
+        .route("/v1/clients", get(handler::get_client_breakdown))
+        .route(
+            "/v1/clients/percentages",
+            get(handler::get_client_breakdown_percentages),
+        )
         .fallback(route_not_found.into_service())
         .layer(Extension(pool))
         .layer(Extension(slots_per_epoch));
