@@ -401,10 +401,7 @@ fn run_execution_jwt_secret_key_is_persisted() {
     let jwt_secret_key = "0x3cbc11b0d8fa16f3344eacfd6ff6430b9d30734450e8adcf5400f88d327dcb33";
     CommandLineTest::new()
         .flag("execution-endpoint", Some("http://localhost:8551/"))
-        .flag(
-            "execution-jwt-secret-key",
-            Some(jwt_secret_key),
-        )
+        .flag("execution-jwt-secret-key", Some(jwt_secret_key))
         .run_with_zero_port()
         .with_config(|config| {
             let config = config.execution_layer.as_ref().unwrap();

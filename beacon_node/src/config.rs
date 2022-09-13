@@ -3,6 +3,7 @@ use clap_utils::flags::DISABLE_MALLOC_TUNING_FLAG;
 use client::{ClientConfig, ClientGenesis};
 use directory::{DEFAULT_BEACON_NODE_DIR, DEFAULT_NETWORK_DIR, DEFAULT_ROOT_DIR};
 use environment::RuntimeContext;
+use execution_layer::DEFAULT_JWT_FILE;
 use genesis::Eth1Endpoint;
 use http_api::TlsConfig;
 use lighthouse_network::{multiaddr::Protocol, Enr, Multiaddr, NetworkConfig, PeerIdSerialized};
@@ -18,7 +19,6 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use types::{Checkpoint, Epoch, EthSpec, Hash256, PublicKeyBytes, GRAFFITI_BYTES_LEN};
 use unused_port::{unused_tcp_port, unused_udp_port};
-use execution_layer::DEFAULT_JWT_FILE;
 
 /// Gets the fully-initialized global client.
 ///
@@ -298,7 +298,8 @@ pub fn get_config<E: EthSpec>(
         let secret_file: PathBuf;
         // Parse a single JWT secret from a given file_path, logging warnings if multiple are supplied.
         if let Some(secret_files) = cli_args.value_of("execution-jwt") {
-            secret_file = parse_only_one_value(secret_files, PathBuf::from_str, "--execution-jwt", log)?;
+            secret_file =
+                parse_only_one_value(secret_files, PathBuf::from_str, "--execution-jwt", log)?;
 
         // Check if the JWT secret key is passed directly via cli flag and persist it to the default
         // file location.
@@ -308,7 +309,8 @@ pub fn get_config<E: EthSpec>(
             secret_file = client_config.data_dir.join(DEFAULT_JWT_FILE);
             let mut jwt_secret_key_file = File::create(secret_file.clone())
                 .expect("Error while creating jwt_secret_key file!");
-            jwt_secret_key_file.write_all(jwt_secret_key.as_bytes())
+            jwt_secret_key_file
+                .write_all(jwt_secret_key.as_bytes())
                 .expect("Error occured while writing to jwt_secret_key file!");
         } else {
             panic!("Error! Please set either --execution-jwt file_path or --execution-jwt-secret-key directly via cli when using --execution-endpoint")
