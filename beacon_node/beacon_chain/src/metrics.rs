@@ -132,7 +132,7 @@ lazy_static! {
     pub static ref BLOCK_SIZE: Result<Histogram> = try_create_histogram_with_buckets(
         "beacon_block_total_size",
         "Size of a signed beacon block",
-        linear_buckets(5120_f64,5120_f64*1024_f64,10)
+        linear_buckets(5120_f64,5120_f64,10)
     );
 
     /*
