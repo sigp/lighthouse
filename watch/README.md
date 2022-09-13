@@ -85,6 +85,8 @@ log_level = "info"
 ### Available Endpoints
 As beacon.watch continues to develop, more endpoints will be added.
 
+> In these examples any data containing information from blockprint has either been redacted or fabricated.
+
 #### `/v1/slots/{slot}`
 ```bash
 curl "http://localhost:5059/v1/slots/4635296"
@@ -322,6 +324,87 @@ curl "http://localhost:5059/v1/validators/0xa1d1ad0714035353258038e964ae9675dc02
 }
 ```
 
+#### `/v1/validators/missed/{vote}/{epoch}`
+```bash
+curl "http://localhost:5059/v1/validators/missed/head/144853"
+```
+```json
+[
+  63,
+  67,
+  98,
+  ...
+]
+```
+
+#### `/v1/clients/missed/{vote}/{epoch}`
+```bash
+curl "http://localhost:5059/v1/clients/missed/source/144853"
+```
+```json
+{
+  "Lighthouse": 100,
+  "Lodestar": 100,
+  "Nimbus": 100,
+  "Prysm": 100,
+  "Teku": 100,
+  "Unknown": 100
+}
+```
+
+#### `/v1/clients/missed/{vote}/{epoch}/percentages`
+Note that this endpoint expresses the following:
+
+```
+For the validators which did miss this vote, what percentage of them were from each client implementation?
+```
+
+You can check these values against the output of `/v1/clients/percentages` to see any discrepancies.
+
+```bash
+curl "http://localhost:5059/v1/clients/missed/target/144853"
+```
+```json
+{
+  "Lighthouse": 11.11111111111111,
+  "Lodestar": 11.11111111111111,
+  "Nimbus": 11.11111111111111,
+  "Prysm": 16.66666666666667,
+  "Teku": 16.66666666666667,
+  "Unknown": 33.33333333333333
+}
+
+```
+
+#### `/v1/clients`
+```bash
+curl "http://localhost:5059/v1/clients"
+```
+```json
+{
+  "Lighthouse": 5000,
+  "Lodestar": 5000,
+  "Nimbus": 5000,
+  "Prysm": 5000,
+  "Teku": 5000,
+  "Unknown": 5000
+}
+```
+
+#### `/v1/clients/percentages`
+```bash
+curl "http://localhost:5059/v1/clients/percentages
+```
+```json
+{
+  "Lighthouse": 16.66666666666667,
+  "Lodestar": 16.66666666666667,
+  "Nimbus": 16.66666666666667,
+  "Prysm": 16.66666666666667,
+  "Teku": 16.66666666666667,
+  "Unknown": 16.66666666666667
+}
+```
 
 ### Future work
 - New tables
