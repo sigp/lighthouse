@@ -14,7 +14,13 @@ const CACHE_SIZE: usize = 16;
 /// The maximum number of concurrent committee cache "promises" that can be issued. In effect, this
 /// limits the number of concurrent states that can be loaded into memory for the committee cache.
 /// This prevents excessive memory usage at the cost of rejecting some attestations.
-const MAX_CONCURRENT_PROMISES: usize = 4;
+///
+/// We set this value to 2 since states can be quite large and have a significant impact on memory
+/// usage. A healthy network cannot have more than a few committee caches and those caches should
+/// always be inserted during block import. Unstable networks with a high degree of forking might
+/// see some attestations dropped due to this concurrency limit, however I propose that this is
+/// better than low-resource nodes going OOM.
+const MAX_CONCURRENT_PROMISES: usize = 2;
 
 #[derive(Clone)]
 pub enum CacheItem {
