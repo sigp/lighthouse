@@ -4500,7 +4500,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             //
             // Creating the promise whilst we hold the `shuffling_cache` lock will prevent the same
             // promise from being created twice.
-            let sender = shuffling_cache.create_promise(shuffling_id.clone());
+            let sender = shuffling_cache.create_promise(shuffling_id.clone())?;
 
             // Drop the shuffling cache to avoid holding the lock for any longer than
             // required.

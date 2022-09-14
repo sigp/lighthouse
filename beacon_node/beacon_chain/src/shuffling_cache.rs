@@ -11,6 +11,11 @@ use types::{beacon_state::CommitteeCache, AttestationShufflingId, Epoch, Hash256
 /// ignores a few extra bytes in the caches that should be insignificant compared to the indices).
 const CACHE_SIZE: usize = 16;
 
+/// The maximum number of concurrent committee cache "promises" that can be issued. In effect, this
+/// limits the number of concurrent states that can be loaded into memory for the committee cache.
+/// This prevents excessive memory usage at the cost of rejecting some attestations.
+const MAX_CONCURRENT_PROMISES: usize = 4;
+
 #[derive(Clone)]
 pub enum CacheItem {
     Ready(Arc<CommitteeCache>),
@@ -18,6 +23,10 @@ pub enum CacheItem {
 }
 
 impl CacheItem {
+    pub fn is_promise(&self) -> bool {
+        matches!(self, CacheItem::Promise(_))
+    }
+
     pub fn wait(self) -> Result<Arc<CommitteeCache>, BeaconChainError> {
         match self {
             CacheItem::Ready(cache) => Ok(cache),
@@ -98,18 +107,29 @@ impl ShufflingCache {
             .get(&key)
             // Replace the committee if it's not present, or if it's a promise. An actual value is
             // always better than a promise!
-            .map_or(true, |item| matches!(item, CacheItem::Promise(_)))
+            .map_or(true, CacheItem::is_promise)
         {
             self.cache
                 .put(key, CacheItem::Ready(Arc::new(committee_cache.clone())));
         }
     }
 
-    #[must_use]
-    pub fn create_promise(&mut self, key: AttestationShufflingId) -> Sender<Arc<CommitteeCache>> {
+    pub fn create_promise(
+        &mut self,
+        key: AttestationShufflingId,
+    ) -> Result<Sender<Arc<CommitteeCache>>, BeaconChainError> {
+        let num_active_promises = self
+            .cache
+            .iter()
+            .filter(|(_, item)| item.is_promise())
+            .count();
+        if num_active_promises >= MAX_CONCURRENT_PROMISES {
+            return Err(BeaconChainError::MaxCommitteePromises(num_active_promises));
+        }
+
         let (sender, receiver) = bounded(1);
         self.cache.put(key, CacheItem::Promise(receiver));
-        sender
+        Ok(sender)
     }
 }
 
