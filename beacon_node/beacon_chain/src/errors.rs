@@ -202,6 +202,7 @@ pub enum BeaconChainError {
     },
     AttestationHeadNotInForkChoice(Hash256),
     MissingPersistedForkChoice,
+    CommitteeCacheWait(crossbeam_channel::RecvError),
 }
 
 easy_from_to!(SlotProcessingError, BeaconChainError);
