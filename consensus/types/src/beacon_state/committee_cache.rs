@@ -3,6 +3,7 @@
 use super::BeaconState;
 use crate::*;
 use core::num::NonZeroUsize;
+use derivative::Derivative;
 use safe_arith::SafeArith;
 use serde_derive::{Deserialize, Serialize};
 use ssz::{four_byte_option_impl, Decode, DecodeError, Encode};
@@ -20,14 +21,41 @@ four_byte_option_impl!(four_byte_option_non_zero_usize, NonZeroUsize);
 
 /// Computes and stores the shuffling for an epoch. Provides various getters to allow callers to
 /// read the committees for the given epoch.
-#[derive(Debug, Default, PartialEq, Clone, Serialize, Deserialize, Encode, Decode)]
+#[derive(Derivative, Debug, Default, Clone, Serialize, Deserialize, Encode, Decode)]
+#[derivative(PartialEq)]
 pub struct CommitteeCache {
     #[ssz(with = "four_byte_option_epoch")]
     initialized_epoch: Option<Epoch>,
     shuffling: Vec<usize>,
+    #[derivative(PartialEq(compare_with = "compare_shuffling_positions"))]
     shuffling_positions: Vec<NonZeroUsizeOption>,
     committees_per_slot: u64,
     slots_per_epoch: u64,
+}
+
+/// Equivalence function for `shuffling_positions` that ignores trailing `None` entries.
+///
+/// It can happen that states from different epochs computing the same cache have different
+/// numbers of validators in `state.validators()` due to recent deposits. These new validators
+/// cannot be active however and will always be ommitted from the shuffling. This function checks
+/// that two lists of shuffling positions are equivalent by ensuring that they are identical on all
+/// common entries, and that new entries at the end are all `None`.
+///
+/// In practice this is only used in tests.
+fn compare_shuffling_positions(xs: &Vec<NonZeroUsizeOption>, ys: &Vec<NonZeroUsizeOption>) -> bool {
+    use std::cmp::Ordering;
+
+    let (shorter, longer) = match xs.len().cmp(&ys.len()) {
+        Ordering::Equal => {
+            return xs == ys;
+        }
+        Ordering::Less => (xs, ys),
+        Ordering::Greater => (ys, xs),
+    };
+    shorter == &longer[..shorter.len()]
+        && longer[shorter.len()..]
+            .iter()
+            .all(|new| *new == NonZeroUsizeOption(None))
 }
 
 impl CommitteeCache {

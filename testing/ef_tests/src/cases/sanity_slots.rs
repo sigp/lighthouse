@@ -68,6 +68,14 @@ impl<E: EthSpec> Case for SanitySlots<E> {
             .map(|_| state);
 
         compare_beacon_state_results_without_caches(&mut result, &mut expected)?;
-        check_state_diff(&self.pre, &self.post)
+
+        // Check state diff (requires fully built committee caches).
+        let mut pre = self.pre.clone();
+        pre.build_all_committee_caches(spec).unwrap();
+        let post = self.post.clone().map(|mut post| {
+            post.build_all_committee_caches(spec).unwrap();
+            post
+        });
+        check_state_diff(&pre, &post)
     }
 }
