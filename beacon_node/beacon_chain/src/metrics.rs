@@ -305,6 +305,10 @@ lazy_static! {
         "beacon_fork_choice_reorg_total",
         "Count of occasions fork choice has switched to a different chain"
     );
+    pub static ref FORK_CHOICE_REORG_DISTANCE: Result<IntGauge> = try_create_int_gauge(
+        "beacon_fork_choice_reorg_distance",
+        "The distance of each re-org of the fork choice algorithm"
+    );
     pub static ref FORK_CHOICE_REORG_COUNT_INTEROP: Result<IntCounter> = try_create_int_counter(
         "beacon_reorgs_total",
         "Count of occasions fork choice has switched to a different chain"
