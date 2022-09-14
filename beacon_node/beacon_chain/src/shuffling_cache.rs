@@ -63,9 +63,9 @@ impl ShufflingCache {
     pub fn get(&mut self, key: &AttestationShufflingId) -> Option<CacheItem> {
         match self.cache.get(key) {
             // The cache contained the committee cache, return it.
-            Some(CacheItem::Committee(committee)) => {
+            item @ Some(CacheItem::Committee(_)) => {
                 metrics::inc_counter(&metrics::SHUFFLING_CACHE_HITS);
-                Some(committee.clone())
+                item.cloned()
             }
             // The cache contains a promise for the committee cache. Check to see if the promise has
             // already been resolved, without waiting for it.
