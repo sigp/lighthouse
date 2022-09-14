@@ -1,5 +1,8 @@
+use super::super::super::validator_store::DEFAULT_GAS_LIMIT;
 use super::*;
 use account_utils::random_password_string;
+use bls::PublicKeyBytes;
+use eth2::lighthouse_vc::types::UpdateFeeRecipientRequest;
 use eth2::lighthouse_vc::{
     http_client::ValidatorClientHttpClient as HttpClient,
     std_types::{KeystoreJsonStr as Keystore, *},
@@ -9,6 +12,7 @@ use itertools::Itertools;
 use rand::{rngs::SmallRng, Rng, SeedableRng};
 use slashing_protection::interchange::{Interchange, InterchangeMetadata};
 use std::{collections::HashMap, path::Path};
+use types::Address;
 
 fn new_keystore(password: ZeroizeString) -> Keystore {
     let keypair = Keypair::random();
@@ -36,6 +40,8 @@ fn web3signer_validator_with_pubkey(pubkey: PublicKey) -> Web3SignerValidatorReq
         description: "".into(),
         graffiti: None,
         suggested_fee_recipient: None,
+        gas_limit: None,
+        builder_proposals: None,
         voting_public_key: pubkey,
         url: web3_signer_url(),
         root_certificate_path: None,
@@ -393,7 +399,7 @@ fn get_web3_signer_keystores() {
             .map(|local_keystore| SingleKeystoreResponse {
                 validating_pubkey: keystore_pubkey(local_keystore),
                 derivation_path: local_keystore.path(),
-                readonly: None,
+                readonly: Some(false),
             })
             .chain(remote_vals.iter().map(|remote_val| SingleKeystoreResponse {
                 validating_pubkey: remote_val.voting_public_key.compress(),
@@ -462,7 +468,7 @@ fn import_and_delete_conflicting_web3_signer_keystores() {
         for pubkey in &pubkeys {
             tester
                 .client
-                .patch_lighthouse_validators(pubkey, false)
+                .patch_lighthouse_validators(pubkey, Some(false), None, None)
                 .await
                 .unwrap();
         }
@@ -582,6 +588,360 @@ fn import_invalid_slashing_protection() {
         // Check that GET lists none of the failed keystores.
         let get_res = tester.client.get_keystores().await.unwrap();
         check_keystore_get_response(&get_res, &[]);
+    })
+}
+
+#[test]
+fn check_get_set_fee_recipient() {
+    run_test(|tester: ApiTester| async move {
+        let _ = &tester;
+        let password = random_password_string();
+        let keystores = (0..3)
+            .map(|_| new_keystore(password.clone()))
+            .collect::<Vec<_>>();
+        let all_pubkeys = keystores.iter().map(keystore_pubkey).collect::<Vec<_>>();
+
+        let import_res = tester
+            .client
+            .post_keystores(&ImportKeystoresRequest {
+                keystores: keystores.clone(),
+                passwords: vec![password.clone(); keystores.len()],
+                slashing_protection: None,
+            })
+            .await
+            .unwrap();
+
+        // All keystores should be imported.
+        check_keystore_import_response(&import_res, all_imported(keystores.len()));
+
+        // Check that GET lists all the imported keystores.
+        let get_res = tester.client.get_keystores().await.unwrap();
+        check_keystore_get_response(&get_res, &keystores);
+
+        // Before setting anything, every fee recipient should be set to TEST_DEFAULT_FEE_RECIPIENT
+        for pubkey in &all_pubkeys {
+            let get_res = tester
+                .client
+                .get_fee_recipient(pubkey)
+                .await
+                .expect("should get fee recipient");
+            assert_eq!(
+                get_res,
+                GetFeeRecipientResponse {
+                    pubkey: pubkey.clone(),
+                    ethaddress: TEST_DEFAULT_FEE_RECIPIENT,
+                }
+            );
+        }
+
+        use std::str::FromStr;
+        let fee_recipient_public_key_1 =
+            Address::from_str("0x25c4a76E7d118705e7Ea2e9b7d8C59930d8aCD3b").unwrap();
+        let fee_recipient_public_key_2 =
+            Address::from_str("0x0000000000000000000000000000000000000001").unwrap();
+        let fee_recipient_override =
+            Address::from_str("0x0123456789abcdef0123456789abcdef01234567").unwrap();
+
+        // set the fee recipient for pubkey[1] using the API
+        tester
+            .client
+            .post_fee_recipient(
+                &all_pubkeys[1],
+                &UpdateFeeRecipientRequest {
+                    ethaddress: fee_recipient_public_key_1.clone(),
+                },
+            )
+            .await
+            .expect("should update fee recipient");
+        // now everything but pubkey[1] should be TEST_DEFAULT_FEE_RECIPIENT
+        for (i, pubkey) in all_pubkeys.iter().enumerate() {
+            let get_res = tester
+                .client
+                .get_fee_recipient(pubkey)
+                .await
+                .expect("should get fee recipient");
+            let expected = if i == 1 {
+                fee_recipient_public_key_1.clone()
+            } else {
+                TEST_DEFAULT_FEE_RECIPIENT
+            };
+            assert_eq!(
+                get_res,
+                GetFeeRecipientResponse {
+                    pubkey: pubkey.clone(),
+                    ethaddress: expected,
+                }
+            );
+        }
+
+        // set the fee recipient for pubkey[2] using the API
+        tester
+            .client
+            .post_fee_recipient(
+                &all_pubkeys[2],
+                &UpdateFeeRecipientRequest {
+                    ethaddress: fee_recipient_public_key_2.clone(),
+                },
+            )
+            .await
+            .expect("should update fee recipient");
+        // now everything but pubkey[1] & pubkey[2] should be fee_recipient_file_default
+        for (i, pubkey) in all_pubkeys.iter().enumerate() {
+            let get_res = tester
+                .client
+                .get_fee_recipient(pubkey)
+                .await
+                .expect("should get fee recipient");
+            let expected = if i == 1 {
+                fee_recipient_public_key_1.clone()
+            } else if i == 2 {
+                fee_recipient_public_key_2.clone()
+            } else {
+                TEST_DEFAULT_FEE_RECIPIENT
+            };
+            assert_eq!(
+                get_res,
+                GetFeeRecipientResponse {
+                    pubkey: pubkey.clone(),
+                    ethaddress: expected,
+                }
+            );
+        }
+
+        // should be able to override previous fee_recipient
+        tester
+            .client
+            .post_fee_recipient(
+                &all_pubkeys[1],
+                &UpdateFeeRecipientRequest {
+                    ethaddress: fee_recipient_override.clone(),
+                },
+            )
+            .await
+            .expect("should update fee recipient");
+        for (i, pubkey) in all_pubkeys.iter().enumerate() {
+            let get_res = tester
+                .client
+                .get_fee_recipient(pubkey)
+                .await
+                .expect("should get fee recipient");
+            let expected = if i == 1 {
+                fee_recipient_override.clone()
+            } else if i == 2 {
+                fee_recipient_public_key_2.clone()
+            } else {
+                TEST_DEFAULT_FEE_RECIPIENT
+            };
+            assert_eq!(
+                get_res,
+                GetFeeRecipientResponse {
+                    pubkey: pubkey.clone(),
+                    ethaddress: expected,
+                }
+            );
+        }
+
+        // delete fee recipient for pubkey[1] using the API
+        tester
+            .client
+            .delete_fee_recipient(&all_pubkeys[1])
+            .await
+            .expect("should delete fee recipient");
+        // now everything but pubkey[2] should be TEST_DEFAULT_FEE_RECIPIENT
+        for (i, pubkey) in all_pubkeys.iter().enumerate() {
+            let get_res = tester
+                .client
+                .get_fee_recipient(pubkey)
+                .await
+                .expect("should get fee recipient");
+            let expected = if i == 2 {
+                fee_recipient_public_key_2.clone()
+            } else {
+                TEST_DEFAULT_FEE_RECIPIENT
+            };
+            assert_eq!(
+                get_res,
+                GetFeeRecipientResponse {
+                    pubkey: pubkey.clone(),
+                    ethaddress: expected,
+                }
+            );
+        }
+    })
+}
+
+#[test]
+fn check_get_set_gas_limit() {
+    run_test(|tester: ApiTester| async move {
+        let _ = &tester;
+        let password = random_password_string();
+        let keystores = (0..3)
+            .map(|_| new_keystore(password.clone()))
+            .collect::<Vec<_>>();
+        let all_pubkeys = keystores.iter().map(keystore_pubkey).collect::<Vec<_>>();
+
+        let import_res = tester
+            .client
+            .post_keystores(&ImportKeystoresRequest {
+                keystores: keystores.clone(),
+                passwords: vec![password.clone(); keystores.len()],
+                slashing_protection: None,
+            })
+            .await
+            .unwrap();
+
+        // All keystores should be imported.
+        check_keystore_import_response(&import_res, all_imported(keystores.len()));
+
+        // Check that GET lists all the imported keystores.
+        let get_res = tester.client.get_keystores().await.unwrap();
+        check_keystore_get_response(&get_res, &keystores);
+
+        // Before setting anything, every gas limit should be set to DEFAULT_GAS_LIMIT
+        for pubkey in &all_pubkeys {
+            let get_res = tester
+                .client
+                .get_gas_limit(pubkey)
+                .await
+                .expect("should get gas limit");
+            assert_eq!(
+                get_res,
+                GetGasLimitResponse {
+                    pubkey: pubkey.clone(),
+                    gas_limit: DEFAULT_GAS_LIMIT,
+                }
+            );
+        }
+
+        let gas_limit_public_key_1 = 40_000_000;
+        let gas_limit_public_key_2 = 42;
+        let gas_limit_override = 100;
+
+        // set the gas limit for pubkey[1] using the API
+        tester
+            .client
+            .post_gas_limit(
+                &all_pubkeys[1],
+                &UpdateGasLimitRequest {
+                    gas_limit: gas_limit_public_key_1,
+                },
+            )
+            .await
+            .expect("should update gas limit");
+        // now everything but pubkey[1] should be DEFAULT_GAS_LIMIT
+        for (i, pubkey) in all_pubkeys.iter().enumerate() {
+            let get_res = tester
+                .client
+                .get_gas_limit(pubkey)
+                .await
+                .expect("should get gas limit");
+            let expected = if i == 1 {
+                gas_limit_public_key_1.clone()
+            } else {
+                DEFAULT_GAS_LIMIT
+            };
+            assert_eq!(
+                get_res,
+                GetGasLimitResponse {
+                    pubkey: pubkey.clone(),
+                    gas_limit: expected,
+                }
+            );
+        }
+
+        // set the gas limit for pubkey[2] using the API
+        tester
+            .client
+            .post_gas_limit(
+                &all_pubkeys[2],
+                &UpdateGasLimitRequest {
+                    gas_limit: gas_limit_public_key_2,
+                },
+            )
+            .await
+            .expect("should update gas limit");
+        // now everything but pubkey[1] & pubkey[2] should be DEFAULT_GAS_LIMIT
+        for (i, pubkey) in all_pubkeys.iter().enumerate() {
+            let get_res = tester
+                .client
+                .get_gas_limit(pubkey)
+                .await
+                .expect("should get gas limit");
+            let expected = if i == 1 {
+                gas_limit_public_key_1
+            } else if i == 2 {
+                gas_limit_public_key_2
+            } else {
+                DEFAULT_GAS_LIMIT
+            };
+            assert_eq!(
+                get_res,
+                GetGasLimitResponse {
+                    pubkey: pubkey.clone(),
+                    gas_limit: expected,
+                }
+            );
+        }
+
+        // should be able to override previous gas_limit
+        tester
+            .client
+            .post_gas_limit(
+                &all_pubkeys[1],
+                &UpdateGasLimitRequest {
+                    gas_limit: gas_limit_override,
+                },
+            )
+            .await
+            .expect("should update gas limit");
+        for (i, pubkey) in all_pubkeys.iter().enumerate() {
+            let get_res = tester
+                .client
+                .get_gas_limit(pubkey)
+                .await
+                .expect("should get gas limit");
+            let expected = if i == 1 {
+                gas_limit_override
+            } else if i == 2 {
+                gas_limit_public_key_2
+            } else {
+                DEFAULT_GAS_LIMIT
+            };
+            assert_eq!(
+                get_res,
+                GetGasLimitResponse {
+                    pubkey: pubkey.clone(),
+                    gas_limit: expected,
+                }
+            );
+        }
+
+        // delete gas limit for pubkey[1] using the API
+        tester
+            .client
+            .delete_gas_limit(&all_pubkeys[1])
+            .await
+            .expect("should delete gas limit");
+        // now everything but pubkey[2] should be DEFAULT_GAS_LIMIT
+        for (i, pubkey) in all_pubkeys.iter().enumerate() {
+            let get_res = tester
+                .client
+                .get_gas_limit(pubkey)
+                .await
+                .expect("should get gas limit");
+            let expected = if i == 2 {
+                gas_limit_public_key_2
+            } else {
+                DEFAULT_GAS_LIMIT
+            };
+            assert_eq!(
+                get_res,
+                GetGasLimitResponse {
+                    pubkey: pubkey.clone(),
+                    gas_limit: expected,
+                }
+            );
+        }
     })
 }
 
@@ -1415,7 +1775,7 @@ fn import_same_local_and_remote_keys() {
             .map(|local_keystore| SingleKeystoreResponse {
                 validating_pubkey: keystore_pubkey(local_keystore),
                 derivation_path: local_keystore.path(),
-                readonly: None,
+                readonly: Some(false),
             })
             .collect::<Vec<_>>();
         for response in expected_responses {

@@ -1,3 +1,5 @@
+#![cfg(any(feature = "mdbx", feature = "lmdb"))]
+
 use logging::test_logger;
 use maplit::hashset;
 use rayon::prelude::*;

@@ -48,12 +48,15 @@ serde_json = "1.0.74"
 smallvec = "1.8.0"
 milhouse = { git = "https://github.com/sigp/milhouse", branch = "main" }
 rpds = "0.11.0"
+serde_with = "1.13.0"
+maplit = "1.0.2"
 
 [dev-dependencies]
 criterion = "0.3.3"
 beacon_chain = { path = "../../beacon_node/beacon_chain" }
 eth2_interop_keypairs = { path = "../../common/eth2_interop_keypairs" }
 state_processing = { path = "../state_processing" }
+tokio = "1.14.0"
 
 [features]
 default = ["sqlite", "legacy-arith"]

@@ -12,15 +12,31 @@ command for applying database downgrades.
 **Everything on this page applies to the Lighthouse _beacon node_, not to the
 validator client or the slasher**.
 
+## List of schema versions
+
+| Lighthouse version | Release date | Schema version | Downgrade available? |
+|--------------------|--------------|----------------|----------------------|
+| v2.0.0             | Oct 2021     | v5             | no                   |
+| v2.1.0             | Jan 2022     | v8             | no                   |
+| v2.2.0             | Apr 2022     | v8             | no                   |
+| v2.3.0             | May 2022     | v9             | yes (pre Bellatrix)  |
+| v2.4.0             | Jul 2022     | v9             | yes (pre Bellatrix)  |
+| v2.5.0             | Aug 2022     | v11            | yes                  |
+| v3.0.0             | Aug 2022     | v11            | yes                  |
+| v3.1.0             | Sep 2022     | v12            | yes                  |
+
+> **Note**: All point releases (e.g. v2.3.1) are schema-compatible with the prior minor release
+> (e.g. v2.3.0).
+
 ## How to apply a database downgrade
 
 To apply a downgrade you need to use the `lighthouse db migrate` command with the correct parameters.
 
 1. Make sure you have a copy of the latest version of Lighthouse. This will be the version that
    knows about the latest schema change, and has the ability to revert it.
-2. Work out the schema version you would like to downgrade to by checking the Lighthouse release
-   notes. E.g. if you want to downgrade from v2.3.0, which upgraded the version from v8 to v9, then
-   you'll want to _downgrade_ to v8 in order to run v2.2.x or earlier.
+2. Work out the schema version you would like to downgrade to by checking the table above, or the
+   Lighthouse release notes. E.g. if you want to downgrade from v2.3.0, which upgraded the version
+   from v8 to v9, then you'll want to _downgrade_ to v8 in order to run v2.2.x or earlier.
 3. **Ensure that downgrading is feasible**. Not all schema upgrades can be reverted, and some of
    them are time-sensitive. The release notes will state whether a downgrade is available and
    whether any caveats apply to it.

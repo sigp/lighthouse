@@ -1,6 +1,7 @@
-use beacon_node::ClientConfig as Config;
+use beacon_node::{beacon_chain::CountUnrealizedFull, ClientConfig as Config};
 
 use crate::exec::{CommandLineTestExec, CompletedTest};
+use eth1::Eth1Endpoint;
 use lighthouse_network::PeerId;
 use std::fs::File;
 use std::io::Write;
@@ -10,7 +11,7 @@ use std::process::Command;
 use std::str::FromStr;
 use std::string::ToString;
 use tempfile::TempDir;
-use types::{Address, Checkpoint, Epoch, ExecutionBlockHash, Hash256, MainnetEthSpec};
+use types::{Address, Checkpoint, Epoch, ExecutionBlockHash, ForkName, Hash256, MainnetEthSpec};
 use unused_port::{unused_tcp_port, unused_udp_port};
 
 const DEFAULT_ETH1_ENDPOINT: &str = "http://localhost:8545/";
@@ -66,7 +67,10 @@ fn staking_flag() {
         .with_config(|config| {
             assert!(config.http_api.enabled);
             assert!(config.sync_eth1_chain);
-            assert_eq!(config.eth1.endpoints[0].to_string(), DEFAULT_ETH1_ENDPOINT);
+            assert_eq!(
+                config.eth1.endpoints.get_endpoints()[0].to_string(),
+                DEFAULT_ETH1_ENDPOINT
+            );
         });
 }
 
@@ -126,6 +130,106 @@ fn fork_choice_before_proposal_timeout_zero() {
         .flag("fork-choice-before-proposal-timeout", Some("0"))
         .run_with_zero_port()
         .with_config(|config| assert_eq!(config.chain.fork_choice_before_proposal_timeout_ms, 0));
+}
+
+#[test]
+fn paranoid_block_proposal_default() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| assert!(!config.chain.paranoid_block_proposal));
+}
+
+#[test]
+fn paranoid_block_proposal_on() {
+    CommandLineTest::new()
+        .flag("paranoid-block-proposal", None)
+        .run_with_zero_port()
+        .with_config(|config| assert!(config.chain.paranoid_block_proposal));
+}
+
+#[test]
+fn count_unrealized_default() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| assert!(config.chain.count_unrealized));
+}
+
+#[test]
+fn count_unrealized_no_arg() {
+    CommandLineTest::new()
+        .flag("count-unrealized", None)
+        .run_with_zero_port()
+        .with_config(|config| assert!(config.chain.count_unrealized));
+}
+
+#[test]
+fn count_unrealized_false() {
+    CommandLineTest::new()
+        .flag("count-unrealized", Some("false"))
+        .run_with_zero_port()
+        .with_config(|config| assert!(!config.chain.count_unrealized));
+}
+
+#[test]
+fn count_unrealized_true() {
+    CommandLineTest::new()
+        .flag("count-unrealized", Some("true"))
+        .run_with_zero_port()
+        .with_config(|config| assert!(config.chain.count_unrealized));
+}
+
+#[test]
+fn count_unrealized_full_no_arg() {
+    CommandLineTest::new()
+        .flag("count-unrealized-full", None)
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config.chain.count_unrealized_full,
+                CountUnrealizedFull::False
+            )
+        });
+}
+
+#[test]
+fn count_unrealized_full_false() {
+    CommandLineTest::new()
+        .flag("count-unrealized-full", Some("false"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config.chain.count_unrealized_full,
+                CountUnrealizedFull::False
+            )
+        });
+}
+
+#[test]
+fn count_unrealized_full_true() {
+    CommandLineTest::new()
+        .flag("count-unrealized-full", Some("true"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config.chain.count_unrealized_full,
+                CountUnrealizedFull::True
+            )
+        });
+}
+
+#[test]
+fn reset_payload_statuses_default() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| assert!(!config.chain.always_reset_payload_statuses));
+}
+
+#[test]
+fn reset_payload_statuses_present() {
+    CommandLineTest::new()
+        .flag("reset-payload-statuses", None)
+        .run_with_zero_port()
+        .with_config(|config| assert!(config.chain.always_reset_payload_statuses));
 }
 
 #[test]
@@ -196,18 +300,21 @@ fn eth1_endpoints_flag() {
         .run_with_zero_port()
         .with_config(|config| {
             assert_eq!(
-                config.eth1.endpoints[0].full.to_string(),
+                config.eth1.endpoints.get_endpoints()[0].full.to_string(),
                 "http://localhost:9545/"
             );
             assert_eq!(
-                config.eth1.endpoints[0].to_string(),
+                config.eth1.endpoints.get_endpoints()[0].to_string(),
                 "http://localhost:9545/"
             );
             assert_eq!(
-                config.eth1.endpoints[1].full.to_string(),
+                config.eth1.endpoints.get_endpoints()[1].full.to_string(),
                 "https://infura.io/secret"
             );
-            assert_eq!(config.eth1.endpoints[1].to_string(), "https://infura.io/");
+            assert_eq!(
+                config.eth1.endpoints.get_endpoints()[1].to_string(),
+                "https://infura.io/"
+            );
             assert!(config.sync_eth1_chain);
         });
 }
@@ -225,38 +332,120 @@ fn eth1_purge_cache_flag() {
         .run_with_zero_port()
         .with_config(|config| assert!(config.eth1.purge_cache));
 }
-
-// Tests for Bellatrix flags.
 #[test]
-fn merge_flag() {
+fn eth1_cache_follow_distance_default() {
     CommandLineTest::new()
-        .flag("merge", None)
         .run_with_zero_port()
-        .with_config(|config| assert!(config.execution_layer.is_some()));
+        .with_config(|config| {
+            assert_eq!(config.eth1.cache_follow_distance, None);
+            assert_eq!(config.eth1.cache_follow_distance(), 3 * 2048 / 4);
+        });
 }
 #[test]
-fn merge_execution_endpoints_flag() {
+fn eth1_cache_follow_distance_manual() {
+    CommandLineTest::new()
+        .flag("eth1-cache-follow-distance", Some("128"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(config.eth1.cache_follow_distance, Some(128));
+            assert_eq!(config.eth1.cache_follow_distance(), 128);
+        });
+}
+
+// Tests for Bellatrix flags.
+fn run_merge_execution_endpoints_flag_test(flag: &str) {
     use sensitive_url::SensitiveUrl;
     let urls = vec!["http://sigp.io/no-way:1337", "http://infura.not_real:4242"];
-    let endpoints = urls
-        .iter()
-        .map(|s| SensitiveUrl::parse(s).unwrap())
-        .collect::<Vec<_>>();
+    // we don't support redundancy for execution-endpoints
+    // only the first provided endpoint is parsed.
+
     let mut endpoint_arg = urls[0].to_string();
-    for url in urls.into_iter().skip(1) {
+    for url in urls.iter().skip(1) {
         endpoint_arg.push(',');
         endpoint_arg.push_str(url);
     }
+
+    let (_dirs, jwts): (Vec<_>, Vec<_>) = (0..2)
+        .map(|i| {
+            let dir = TempDir::new().expect("Unable to create temporary directory");
+            let path = dir.path().join(format!("jwt-{}", i));
+            (dir, path)
+        })
+        .unzip();
+
+    let mut jwts_arg = jwts[0].as_os_str().to_str().unwrap().to_string();
+    for jwt in jwts.iter().skip(1) {
+        jwts_arg.push(',');
+        jwts_arg.push_str(jwt.as_os_str().to_str().unwrap());
+    }
+
     // this is way better but intersperse is still a nightly feature :/
     // let endpoint_arg: String = urls.into_iter().intersperse(",").collect();
     CommandLineTest::new()
-        .flag("merge", None)
-        .flag("execution-endpoints", Some(&endpoint_arg))
+        .flag(flag, Some(&endpoint_arg))
+        .flag("execution-jwt", Some(&jwts_arg))
         .run_with_zero_port()
         .with_config(|config| {
             let config = config.execution_layer.as_ref().unwrap();
-            assert_eq!(config.execution_endpoints, endpoints)
+            assert_eq!(config.execution_endpoints.len(), 1);
+            assert_eq!(
+                config.execution_endpoints[0],
+                SensitiveUrl::parse(&urls[0]).unwrap()
+            );
+            // Only the first secret file should be used.
+            assert_eq!(config.secret_files, vec![jwts[0].clone()]);
         });
+}
+#[test]
+fn merge_execution_endpoints_flag() {
+    run_merge_execution_endpoints_flag_test("execution-endpoints")
+}
+#[test]
+fn merge_execution_endpoint_flag() {
+    run_merge_execution_endpoints_flag_test("execution-endpoint")
+}
+fn run_execution_endpoints_overrides_eth1_endpoints_test(eth1_flag: &str, execution_flag: &str) {
+    use sensitive_url::SensitiveUrl;
+
+    let eth1_endpoint = "http://bad.bad";
+    let execution_endpoint = "http://good.good";
+
+    assert!(eth1_endpoint != execution_endpoint);
+
+    let dir = TempDir::new().expect("Unable to create temporary directory");
+    let jwt_path = dir.path().join("jwt-file");
+
+    CommandLineTest::new()
+        .flag(eth1_flag, Some(&eth1_endpoint))
+        .flag(execution_flag, Some(&execution_endpoint))
+        .flag("execution-jwt", jwt_path.as_os_str().to_str())
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config.execution_layer.as_ref().unwrap().execution_endpoints,
+                vec![SensitiveUrl::parse(execution_endpoint).unwrap()]
+            );
+
+            // The eth1 endpoint should have been set to the --execution-endpoint value in defiance
+            // of --eth1-endpoints.
+            assert_eq!(
+                config.eth1.endpoints,
+                Eth1Endpoint::Auth {
+                    endpoint: SensitiveUrl::parse(execution_endpoint).unwrap(),
+                    jwt_path: jwt_path.clone(),
+                    jwt_id: None,
+                    jwt_version: None,
+                }
+            );
+        });
+}
+#[test]
+fn execution_endpoints_overrides_eth1_endpoints() {
+    run_execution_endpoints_overrides_eth1_endpoints_test("eth1-endpoints", "execution-endpoints");
+}
+#[test]
+fn execution_endpoint_overrides_eth1_endpoint() {
+    run_execution_endpoints_overrides_eth1_endpoints_test("eth1-endpoint", "execution-endpoint");
 }
 #[test]
 fn merge_jwt_secrets_flag() {
@@ -265,7 +454,6 @@ fn merge_jwt_secrets_flag() {
     file.write_all(b"0x3cbc11b0d8fa16f3344eacfd6ff6430b9d30734450e8adcf5400f88d327dcb33")
         .expect("Unable to write to file");
     CommandLineTest::new()
-        .flag("merge", None)
         .flag("execution-endpoints", Some("http://localhost:8551/"))
         .flag(
             "jwt-secrets",
@@ -283,8 +471,13 @@ fn merge_jwt_secrets_flag() {
 }
 #[test]
 fn merge_fee_recipient_flag() {
+    let dir = TempDir::new().expect("Unable to create temporary directory");
     CommandLineTest::new()
-        .flag("merge", None)
+        .flag("execution-endpoint", Some("http://meow.cats"))
+        .flag(
+            "execution-jwt",
+            dir.path().join("jwt-file").as_os_str().to_str(),
+        )
         .flag(
             "suggested-fee-recipient",
             Some("0x00000000219ab540356cbb839cbe05303d7705fa"),
@@ -298,18 +491,156 @@ fn merge_fee_recipient_flag() {
             );
         });
 }
+fn run_payload_builder_flag_test(flag: &str, builders: &str) {
+    use sensitive_url::SensitiveUrl;
+
+    let all_builders: Vec<_> = builders
+        .split(",")
+        .map(|builder| SensitiveUrl::parse(builder).expect("valid builder url"))
+        .collect();
+    run_payload_builder_flag_test_with_config(flag, builders, None, None, |config| {
+        let config = config.execution_layer.as_ref().unwrap();
+        // Only first provided endpoint is parsed as we don't support
+        // redundancy.
+        assert_eq!(config.builder_url, all_builders.get(0).cloned());
+    })
+}
+fn run_payload_builder_flag_test_with_config<F: Fn(&Config)>(
+    flag: &str,
+    builders: &str,
+    additional_flag: Option<&str>,
+    additional_flag_value: Option<&str>,
+    f: F,
+) {
+    let dir = TempDir::new().expect("Unable to create temporary directory");
+    let mut test = CommandLineTest::new();
+    test.flag("execution-endpoint", Some("http://meow.cats"))
+        .flag(
+            "execution-jwt",
+            dir.path().join("jwt-file").as_os_str().to_str(),
+        )
+        .flag(flag, Some(builders));
+    if let Some(additional_flag_name) = additional_flag {
+        test.flag(additional_flag_name, additional_flag_value);
+    }
+    test.run_with_zero_port().with_config(f);
+}
+
 #[test]
-fn jwt_optional_flags() {
+fn payload_builder_flags() {
+    run_payload_builder_flag_test("builder", "http://meow.cats");
+    run_payload_builder_flag_test("payload-builder", "http://meow.cats");
+    run_payload_builder_flag_test("payload-builders", "http://meow.cats,http://woof.dogs");
+}
+
+#[test]
+fn builder_fallback_flags() {
+    run_payload_builder_flag_test_with_config(
+        "builder",
+        "http://meow.cats",
+        Some("builder-fallback-skips"),
+        Some("7"),
+        |config| {
+            assert_eq!(config.chain.builder_fallback_skips, 7);
+        },
+    );
+    run_payload_builder_flag_test_with_config(
+        "builder",
+        "http://meow.cats",
+        Some("builder-fallback-skips-per-epoch"),
+        Some("11"),
+        |config| {
+            assert_eq!(config.chain.builder_fallback_skips_per_epoch, 11);
+        },
+    );
+    run_payload_builder_flag_test_with_config(
+        "builder",
+        "http://meow.cats",
+        Some("builder-fallback-epochs-since-finalization"),
+        Some("4"),
+        |config| {
+            assert_eq!(config.chain.builder_fallback_epochs_since_finalization, 4);
+        },
+    );
+    run_payload_builder_flag_test_with_config(
+        "builder",
+        "http://meow.cats",
+        Some("builder-fallback-disable-checks"),
+        None,
+        |config| {
+            assert_eq!(config.chain.builder_fallback_disable_checks, true);
+        },
+    );
+    run_payload_builder_flag_test_with_config(
+        "builder",
+        "http://meow.cats",
+        Some("builder-profit-threshold"),
+        Some("1000000000000000000000000"),
+        |config| {
+            assert_eq!(
+                config
+                    .execution_layer
+                    .as_ref()
+                    .unwrap()
+                    .builder_profit_threshold,
+                1000000000000000000000000
+            );
+        },
+    );
+    run_payload_builder_flag_test_with_config(
+        "builder",
+        "http://meow.cats",
+        None,
+        None,
+        |config| {
+            assert_eq!(
+                config
+                    .execution_layer
+                    .as_ref()
+                    .unwrap()
+                    .builder_profit_threshold,
+                0
+            );
+        },
+    );
+}
+
+fn run_jwt_optional_flags_test(jwt_flag: &str, jwt_id_flag: &str, jwt_version_flag: &str) {
+    use sensitive_url::SensitiveUrl;
+
+    let dir = TempDir::new().expect("Unable to create temporary directory");
+    let execution_endpoint = "http://meow.cats";
+    let jwt_file = "jwt-file";
+    let id = "bn-1";
+    let version = "Lighthouse-v2.1.3";
     CommandLineTest::new()
-        .flag("merge", None)
-        .flag("jwt-id", Some("bn-1"))
-        .flag("jwt-version", Some("Lighthouse-v2.1.3"))
+        .flag("execution-endpoint", Some(execution_endpoint.clone()))
+        .flag(jwt_flag, dir.path().join(jwt_file).as_os_str().to_str())
+        .flag(jwt_id_flag, Some(id))
+        .flag(jwt_version_flag, Some(version))
         .run_with_zero_port()
         .with_config(|config| {
-            let config = config.execution_layer.as_ref().unwrap();
-            assert_eq!(config.jwt_id, Some("bn-1".to_string()));
-            assert_eq!(config.jwt_version, Some("Lighthouse-v2.1.3".to_string()));
+            let el_config = config.execution_layer.as_ref().unwrap();
+            assert_eq!(el_config.jwt_id, Some(id.to_string()));
+            assert_eq!(el_config.jwt_version, Some(version.to_string()));
+            assert_eq!(
+                config.eth1.endpoints,
+                Eth1Endpoint::Auth {
+                    endpoint: SensitiveUrl::parse(execution_endpoint).unwrap(),
+                    jwt_path: dir.path().join(jwt_file),
+                    jwt_id: Some(id.to_string()),
+                    jwt_version: Some(version.to_string()),
+                }
+            );
         });
+}
+#[test]
+fn jwt_optional_flags() {
+    run_jwt_optional_flags_test("execution-jwt", "execution-jwt-id", "execution-jwt-version");
+}
+#[test]
+fn jwt_optional_alias_flags() {
+    run_jwt_optional_flags_test("jwt-secrets", "jwt-id", "jwt-version");
 }
 #[test]
 fn terminal_total_difficulty_override_flag() {
@@ -719,6 +1050,21 @@ fn http_tls_flags() {
         });
 }
 
+#[test]
+fn http_spec_fork_default() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| assert_eq!(config.http_api.spec_fork_name, None));
+}
+
+#[test]
+fn http_spec_fork_override() {
+    CommandLineTest::new()
+        .flag("http-spec-fork", Some("altair"))
+        .run_with_zero_port()
+        .with_config(|config| assert_eq!(config.http_api.spec_fork_name, Some(ForkName::Altair)));
+}
+
 // Tests for Metrics flags.
 #[test]
 fn metrics_flag() {
@@ -1043,8 +1389,34 @@ fn slasher_broadcast_flag() {
             assert!(slasher_config.broadcast);
         });
 }
+
 #[test]
-pub fn malloc_tuning_flag() {
+fn slasher_backend_default() {
+    CommandLineTest::new()
+        .flag("slasher", None)
+        .run_with_zero_port()
+        .with_config(|config| {
+            let slasher_config = config.slasher.as_ref().unwrap();
+            assert_eq!(slasher_config.backend, slasher::DatabaseBackend::Mdbx);
+        });
+}
+
+#[test]
+fn slasher_backend_override_to_default() {
+    // Hard to test this flag because all but one backend is disabled by default and the backend
+    // called "disabled" results in a panic.
+    CommandLineTest::new()
+        .flag("slasher", None)
+        .flag("slasher-backend", Some("mdbx"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            let slasher_config = config.slasher.as_ref().unwrap();
+            assert_eq!(slasher_config.backend, slasher::DatabaseBackend::Mdbx);
+        });
+}
+
+#[test]
+fn malloc_tuning_flag() {
     CommandLineTest::new()
         .flag("disable-malloc-tuning", None)
         .run_with_zero_port()
@@ -1065,5 +1437,18 @@ fn ensure_panic_on_failed_launch() {
                 .as_ref()
                 .expect("Unable to parse Slasher config");
             assert_eq!(slasher_config.chunk_size, 10);
+        });
+}
+
+#[test]
+fn monitoring_endpoint() {
+    CommandLineTest::new()
+        .flag("monitoring-endpoint", Some("http://example:8000"))
+        .flag("monitoring-endpoint-period", Some("30"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            let api_conf = config.monitoring_api.as_ref().unwrap();
+            assert_eq!(api_conf.monitoring_endpoint.as_str(), "http://example:8000");
+            assert_eq!(api_conf.update_period_secs, Some(30));
         });
 }

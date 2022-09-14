@@ -39,12 +39,16 @@ impl<'a, T: EthSpec> AttesterSlashingMaxCover<'a, T> {
 impl<'a, T: EthSpec> MaxCover for AttesterSlashingMaxCover<'a, T> {
     /// The result type, of which we would eventually like a collection of maximal quality.
     type Object = AttesterSlashing<T>;
+    type Intermediate = AttesterSlashing<T>;
     /// The type used to represent sets.
     type Set = HashMap<u64, u64>;
 
-    /// Extract an object for inclusion in a solution.
-    fn object(&self) -> &AttesterSlashing<T> {
+    fn intermediate(&self) -> &AttesterSlashing<T> {
         self.slashing
+    }
+
+    fn convert_to_object(slashing: &AttesterSlashing<T>) -> AttesterSlashing<T> {
+        slashing.clone()
     }
 
     /// Get the set of elements covered.

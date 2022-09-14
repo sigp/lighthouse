@@ -10,7 +10,7 @@ use types::{Graffiti, PublicKeyBytes};
 const DEFAULT_FREEZER_DB_DIR: &str = "freezer_db";
 
 /// Defines how the client should initialize the `BeaconChain` and other components.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub enum ClientGenesis {
     /// Creates a genesis state as per the 2019 Canada interop specifications.
     Interop {
@@ -21,6 +21,7 @@ pub enum ClientGenesis {
     FromStore,
     /// Connects to an eth1 node and waits until it can create the genesis state from the deposit
     /// contract.
+    #[default]
     DepositContract,
     /// Loads the genesis state from SSZ-encoded `BeaconState` bytes.
     ///
@@ -36,12 +37,6 @@ pub enum ClientGenesis {
         genesis_state_bytes: Vec<u8>,
         url: SensitiveUrl,
     },
-}
-
-impl Default for ClientGenesis {
-    fn default() -> Self {
-        Self::DepositContract
-    }
 }
 
 /// The core configuration of a Lighthouse beacon node.
@@ -198,7 +193,8 @@ mod tests {
     #[test]
     fn serde() {
         let config = Config::default();
-        let serialized = toml::to_string(&config).expect("should serde encode default config");
-        toml::from_str::<Config>(&serialized).expect("should serde decode default config");
+        let serialized =
+            serde_yaml::to_string(&config).expect("should serde encode default config");
+        serde_yaml::from_str::<Config>(&serialized).expect("should serde decode default config");
     }
 }

@@ -2,12 +2,11 @@
 use crate::beacon_chain::BeaconChainTypes;
 use crate::beacon_fork_choice_store::{PersistedForkChoiceStoreV1, PersistedForkChoiceStoreV7};
 use crate::persisted_fork_choice::{PersistedForkChoiceV1, PersistedForkChoiceV7};
-use crate::schema_change::types::{ProtoNodeV6, SszContainerV6, SszContainerV7};
-use crate::types::{Checkpoint, Epoch, Hash256};
-use crate::types::{EthSpec, Slot};
+use crate::schema_change::types::{ProtoNodeV6, SszContainerV10, SszContainerV6, SszContainerV7};
+use crate::types::{ChainSpec, Checkpoint, Epoch, EthSpec, Hash256, Slot};
 use crate::{BeaconForkChoiceStore, BeaconSnapshot};
 use fork_choice::ForkChoice;
-use proto_array::{core::ProtoNode, core::SszContainer, ProtoArrayForkChoice};
+use proto_array::{core::ProtoNode, core::SszContainer, CountUnrealizedFull, ProtoArrayForkChoice};
 use ssz::four_byte_option_impl;
 use ssz::{Decode, Encode};
 use std::collections::{HashMap, HashSet};
@@ -25,6 +24,7 @@ four_byte_option_impl!(four_byte_option_usize, usize);
 pub(crate) fn update_with_reinitialized_fork_choice<T: BeaconChainTypes>(
     persisted_fork_choice: &mut PersistedForkChoiceV7,
     db: Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>,
+    spec: &ChainSpec,
 ) -> Result<(), String> {
     let anchor_block_root = persisted_fork_choice
         .fork_choice_store
@@ -39,7 +39,7 @@ pub(crate) fn update_with_reinitialized_fork_choice<T: BeaconChainTypes>(
         .map_err(|e| format!("{:?}", e))?
         .ok_or_else(|| "Missing anchor beacon state".to_string())?;
     let snapshot = BeaconSnapshot {
-        beacon_block: anchor_block,
+        beacon_block: Arc::new(anchor_block),
         beacon_block_root: anchor_block_root,
         beacon_state: anchor_state,
     };
@@ -49,6 +49,12 @@ pub(crate) fn update_with_reinitialized_fork_choice<T: BeaconChainTypes>(
         anchor_block_root,
         &snapshot.beacon_block,
         &snapshot.beacon_state,
+        // Don't provide the current slot here, just use what's in the store. We don't need to know
+        // the head here, plus it's nice to avoid mutating fork choice during this process.
+        None,
+        // This config will get overwritten on startup.
+        CountUnrealizedFull::default(),
+        spec,
     )
     .map_err(|e| format!("{:?}", e))?;
     persisted_fork_choice.fork_choice = fork_choice.to_persisted();
@@ -82,8 +88,11 @@ pub(crate) fn update_fork_choice<T: BeaconChainTypes>(
     // to `None`.
     let ssz_container_v7: SszContainerV7 =
         ssz_container_v6.into_ssz_container_v7(justified_checkpoint, finalized_checkpoint);
-    let ssz_container: SszContainer = ssz_container_v7.into();
-    let mut fork_choice: ProtoArrayForkChoice = ssz_container.into();
+    let ssz_container_v10: SszContainerV10 = ssz_container_v7.into();
+    let ssz_container: SszContainer = ssz_container_v10.into();
+    // `CountUnrealizedFull::default()` represents the count-unrealized-full config which will be overwritten on startup.
+    let mut fork_choice: ProtoArrayForkChoice =
+        (ssz_container, CountUnrealizedFull::default()).into();
 
     update_checkpoints::<T>(finalized_checkpoint.root, &nodes_v6, &mut fork_choice, db)
         .map_err(StoreError::SchemaMigrationError)?;
@@ -92,6 +101,13 @@ pub(crate) fn update_fork_choice<T: BeaconChainTypes>(
     // between the store and the proto array nodes.
     update_store_justified_checkpoint(persisted_fork_choice, &mut fork_choice)
         .map_err(StoreError::SchemaMigrationError)?;
+
+    // Need to downgrade the SSZ container to V7 so that all migrations can be applied in sequence.
+    let ssz_container = SszContainer::from(&fork_choice);
+    let ssz_container_v7 = SszContainerV7::from(ssz_container);
+
+    persisted_fork_choice.fork_choice.proto_array_bytes = ssz_container_v7.as_ssz_bytes();
+    persisted_fork_choice.fork_choice_store.justified_checkpoint = justified_checkpoint;
 
     Ok(())
 }
@@ -297,8 +313,6 @@ fn update_store_justified_checkpoint(
         .ok_or("Proto node with current finalized checkpoint not found")?;
 
     fork_choice.core_proto_array_mut().justified_checkpoint = justified_checkpoint;
-    persisted_fork_choice.fork_choice.proto_array_bytes = fork_choice.as_bytes();
-    persisted_fork_choice.fork_choice_store.justified_checkpoint = justified_checkpoint;
     Ok(())
 }
 

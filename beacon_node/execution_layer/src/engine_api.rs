@@ -1,12 +1,11 @@
 use crate::engines::ForkChoiceState;
-use async_trait::async_trait;
-use eth1::http::RpcError;
 pub use ethers_core::types::Transaction;
+use http::deposit_methods::RpcError;
 pub use json_structures::TransitionConfigurationV1;
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
-use slog::Logger;
 use ssz_types::FixedVector;
+use strum::IntoStaticStr;
 pub use types::{
     Address, EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadHeader, Hash256,
     Uint256, VariableList,
@@ -29,10 +28,7 @@ pub enum Error {
     InvalidExecutePayloadResponse(&'static str),
     JsonRpc(RpcError),
     Json(serde_json::Error),
-    ServerMessage {
-        code: i64,
-        message: String,
-    },
+    ServerMessage { code: i64, message: String },
     Eip155Failure,
     IsSyncing,
     ExecutionBlockNotFound(ExecutionBlockHash),
@@ -41,15 +37,9 @@ pub enum Error {
     PayloadIdUnavailable,
     TransitionConfigurationMismatch,
     PayloadConversionLogicFlaw,
-    InvalidBuilderQuery,
-    MissingPayloadId {
-        parent_hash: ExecutionBlockHash,
-        timestamp: u64,
-        prev_randao: Hash256,
-        suggested_fee_recipient: Address,
-    },
     DeserializeTransaction(ssz_types::Error),
     DeserializeTransactions(ssz_types::Error),
+    BuilderApi(builder_client::Error),
 }
 
 impl From<reqwest::Error> for Error {
@@ -77,27 +67,20 @@ impl From<auth::Error> for Error {
     }
 }
 
-pub struct EngineApi;
-pub struct BuilderApi;
-
-#[async_trait]
-pub trait Builder {
-    async fn notify_forkchoice_updated(
-        &self,
-        forkchoice_state: ForkChoiceState,
-        payload_attributes: Option<PayloadAttributes>,
-        log: &Logger,
-    ) -> Result<ForkchoiceUpdatedResponse, Error>;
+impl From<builder_client::Error> for Error {
+    fn from(e: builder_client::Error) -> Self {
+        Error::BuilderApi(e)
+    }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, IntoStaticStr)]
+#[strum(serialize_all = "snake_case")]
 pub enum PayloadStatusV1Status {
     Valid,
     Invalid,
     Syncing,
     Accepted,
     InvalidBlockHash,
-    InvalidTerminalBlock,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -125,6 +108,8 @@ pub struct ExecutionBlock {
     pub block_number: u64,
     pub parent_hash: ExecutionBlockHash,
     pub total_difficulty: Uint256,
+    #[serde(with = "eth2_serde_utils::u64_hex_be")]
+    pub timestamp: u64,
 }
 
 /// Representation of an exection block with enough detail to reconstruct a payload.

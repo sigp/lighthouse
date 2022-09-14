@@ -143,10 +143,6 @@ lazy_static! {
         "beacon_processor_attester_slashing_imported_total",
         "Total number of attester slashings imported to the op pool."
     );
-    pub static ref BEACON_PROCESSOR_ATTESTER_SLASHING_ERROR_TOTAL: Result<IntCounter> = try_create_int_counter(
-        "beacon_processor_attester_slashing_error_total",
-        "Total number of attester slashings that raised an error during processing."
-    );
     // Rpc blocks.
     pub static ref BEACON_PROCESSOR_RPC_BLOCK_QUEUE_TOTAL: Result<IntGauge> = try_create_int_gauge(
         "beacon_processor_rpc_block_queue_total",
@@ -160,6 +156,10 @@ lazy_static! {
     pub static ref BEACON_PROCESSOR_CHAIN_SEGMENT_QUEUE_TOTAL: Result<IntGauge> = try_create_int_gauge(
         "beacon_processor_chain_segment_queue_total",
         "Count of chain segments from the rpc waiting to be verified."
+    );
+    pub static ref BEACON_PROCESSOR_BACKFILL_CHAIN_SEGMENT_QUEUE_TOTAL: Result<IntGauge> = try_create_int_gauge(
+        "beacon_processor_backfill_chain_segment_queue_total",
+        "Count of backfill chain segments from the rpc waiting to be verified."
     );
     pub static ref BEACON_PROCESSOR_CHAIN_SEGMENT_SUCCESS_TOTAL: Result<IntCounter> = try_create_int_counter(
         "beacon_processor_chain_segment_success_total",
@@ -252,6 +252,20 @@ lazy_static! {
             "Gossipsub sync_committee errors per error type",
             &["type"]
         );
+
+    /*
+     * Network queue metrics
+     */
+    pub static ref NETWORK_RECEIVE_EVENTS: Result<IntCounterVec> = try_create_int_counter_vec(
+        "network_receive_events",
+        "Count of events received by the channel to the network service",
+        &["type"]
+    );
+    pub static ref NETWORK_RECEIVE_TIMES: Result<HistogramVec> = try_create_histogram_vec(
+        "network_receive_times",
+        "Time taken for network to handle an event sent to the network service.",
+        &["type"]
+    );
 }
 
 lazy_static! {
@@ -297,13 +311,18 @@ lazy_static! {
     /*
      * Block Delay Metrics
      */
-    pub static ref BEACON_BLOCK_GOSSIP_PROPAGATION_VERIFICATION_DELAY_TIME: Result<Histogram> = try_create_histogram(
+    pub static ref BEACON_BLOCK_GOSSIP_PROPAGATION_VERIFICATION_DELAY_TIME: Result<Histogram> = try_create_histogram_with_buckets(
         "beacon_block_gossip_propagation_verification_delay_time",
         "Duration between when the block is received and when it is verified for propagation.",
+        // [0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5]
+        decimal_buckets(-3,-1)
     );
-    pub static ref BEACON_BLOCK_GOSSIP_SLOT_START_DELAY_TIME: Result<Histogram> = try_create_histogram(
+    pub static ref BEACON_BLOCK_GOSSIP_SLOT_START_DELAY_TIME: Result<Histogram> = try_create_histogram_with_buckets(
         "beacon_block_gossip_slot_start_delay_time",
         "Duration between when the block is received and the start of the slot it belongs to.",
+        // [0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 50]
+        decimal_buckets(-1,2)
+
     );
     pub static ref BEACON_BLOCK_GOSSIP_ARRIVED_LATE_TOTAL: Result<IntCounter> = try_create_int_counter(
         "beacon_block_gossip_arrived_late_total",

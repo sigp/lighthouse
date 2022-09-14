@@ -985,6 +985,13 @@ impl<T: EthSpec> BeaconState<T> {
         }
     }
 
+    /// Return the minimum epoch for which `get_randao_mix` will return a non-error value.
+    pub fn min_randao_epoch(&self) -> Epoch {
+        self.current_epoch()
+            .saturating_add(1u64)
+            .saturating_sub(T::EpochsPerHistoricalVector::to_u64())
+    }
+
     /// XOR-assigns the existing `epoch` randao mix with the hash of the `signature`.
     ///
     /// # Errors:
@@ -1625,15 +1632,17 @@ impl<T: EthSpec> BeaconState<T> {
         Ok(self.validators().tree_hash_root())
     }
 
-    pub fn is_eligible_validator(&self, val: &Validator) -> bool {
-        let previous_epoch = self.previous_epoch();
+    /// Passing `previous_epoch` to this function rather than computing it internally provides
+    /// a tangible speed improvement in state processing.
+    pub fn is_eligible_validator(&self, previous_epoch: Epoch, val: &Validator) -> bool {
         val.is_active_at(previous_epoch)
             || (val.slashed && previous_epoch + Epoch::new(1) < val.withdrawable_epoch)
     }
 
-    pub fn is_in_inactivity_leak(&self, spec: &ChainSpec) -> bool {
-        (self.previous_epoch() - self.finalized_checkpoint().epoch)
-            > spec.min_epochs_to_inactivity_penalty
+    /// Passing `previous_epoch` to this function rather than computing it internally provides
+    /// a tangible speed improvement in state processing.
+    pub fn is_in_inactivity_leak(&self, previous_epoch: Epoch, spec: &ChainSpec) -> bool {
+        (previous_epoch - self.finalized_checkpoint().epoch) > spec.min_epochs_to_inactivity_penalty
     }
 
     /// Get the `SyncCommittee` associated with the next slot. Useful because sync committees

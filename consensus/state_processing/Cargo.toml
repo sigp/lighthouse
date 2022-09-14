@@ -7,12 +7,14 @@ edition = "2021"
 [dev-dependencies]
 env_logger = "0.9.0"
 beacon_chain = { path = "../../beacon_node/beacon_chain" }
+tokio = { version = "1.14.0", features = ["rt-multi-thread"] }
 
 [dependencies]
 bls = { path = "../../crypto/bls" }
 integer-sqrt = "0.1.5"
 itertools = "0.10.0"
 eth2_ssz = "0.4.1"
+eth2_ssz_derive = "0.3.0"
 eth2_ssz_types = "0.2.2"
 merkle_proof = { path = "../merkle_proof" }
 safe_arith = { path = "../safe_arith" }
@@ -27,6 +29,7 @@ lighthouse_metrics = { path = "../../common/lighthouse_metrics", optional = true
 lazy_static = { version = "1.4.0", optional = true }
 rustc-hash = "1.1.0"
 vec_map = "0.8.2"
+derivative = "2.1.1"
 
 [features]
 default = ["legacy-arith", "metrics"]

@@ -78,6 +78,7 @@ pub fn get_attestation_deltas<T: EthSpec>(
     validator_statuses: &ValidatorStatuses,
     spec: &ChainSpec,
 ) -> Result<Vec<AttestationDelta>, Error> {
+    let previous_epoch = state.previous_epoch();
     let finality_delay = state
         .previous_epoch()
         .safe_sub(state.finalized_checkpoint().epoch)?
@@ -94,7 +95,7 @@ pub fn get_attestation_deltas<T: EthSpec>(
         // eligible.
         // FIXME(sproul): this is inefficient
         let full_validator = state.get_validator(index)?;
-        if !state.is_eligible_validator(full_validator) {
+        if !state.is_eligible_validator(previous_epoch, full_validator) {
             continue;
         }
 

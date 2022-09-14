@@ -1,5 +1,5 @@
 use smallvec::SmallVec;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::convert::Infallible;
 use std::fmt::Debug;
 
@@ -57,6 +57,20 @@ where
     fn try_from_iter<I>(iter: I) -> Result<Self, Self::Error>
     where
         I: IntoIterator<Item = (K, V)>,
+    {
+        Ok(Self::from_iter(iter))
+    }
+}
+
+impl<T> TryFromIter<T> for BTreeSet<T>
+where
+    T: Ord,
+{
+    type Error = Infallible;
+
+    fn try_from_iter<I>(iter: I) -> Result<Self, Self::Error>
+    where
+        I: IntoIterator<Item = T>,
     {
         Ok(Self::from_iter(iter))
     }

@@ -42,6 +42,7 @@ pub use impls::beacon_state::StorageContainer as BeaconStateStorageContainer;
 pub use metadata::AnchorInfo;
 pub use metrics::scrape_for_metrics;
 use parking_lot::MutexGuard;
+use std::sync::Arc;
 use strum::{EnumString, IntoStaticStr};
 pub use types::*;
 
@@ -155,7 +156,7 @@ pub trait ItemStore<E: EthSpec>: KeyValueStore<E> + Sync + Send + Sized + 'stati
 /// Reified key-value storage operation.  Helps in modifying the storage atomically.
 /// See also https://github.com/sigp/lighthouse/issues/692
 pub enum StoreOp<'a, E: EthSpec> {
-    PutBlock(Hash256, Box<SignedBeaconBlock<E>>),
+    PutBlock(Hash256, Arc<SignedBeaconBlock<E>>),
     PutState(Hash256, &'a BeaconState<E>),
     PutStateTemporaryFlag(Hash256),
     DeleteStateTemporaryFlag(Hash256),
@@ -213,6 +214,9 @@ pub enum DBColumn {
     BeaconRandaoMixes,
     #[strum(serialize = "dht")]
     DhtEnrs,
+    /// For Optimistically Imported Merge Transition Blocks
+    #[strum(serialize = "otb")]
+    OptimisticTransitionBlock,
 }
 
 /// A block from the database, which might have an execution payload or not.

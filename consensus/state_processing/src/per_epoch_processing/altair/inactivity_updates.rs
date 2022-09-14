@@ -12,6 +12,7 @@ pub fn process_inactivity_updates<T: EthSpec>(
     participation_cache: &mut ParticipationCache,
     spec: &ChainSpec,
 ) -> Result<(), EpochProcessingError> {
+    let previous_epoch = state.previous_epoch();
     // Score updates based on previous epoch participation, skip genesis epoch
     if state.current_epoch() == T::genesis_epoch() {
         return Ok(());
@@ -25,7 +26,7 @@ pub fn process_inactivity_updates<T: EthSpec>(
         return Ok(());
     }
 
-    let is_in_inactivity_leak = state.is_in_inactivity_leak(spec);
+    let is_in_inactivity_leak = state.is_in_inactivity_leak(previous_epoch, spec);
 
     let mut inactivity_scores = state.inactivity_scores_mut()?.iter_cow();
 

@@ -1,6 +1,6 @@
 # Importing from the Ethereum Staking Launch pad
 
-The [Staking Lauchpad](https://github.com/ethereum/eth2.0-deposit) is a website
+The [Staking Launchpad](https://github.com/ethereum/eth2.0-deposit) is a website
 from the Ethereum Foundation which guides users how to use the
 [`eth2.0-deposit-cli`](https://github.com/ethereum/eth2.0-deposit-cli)
 command-line program to generate consensus validator keys.

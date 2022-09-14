@@ -1,13 +1,13 @@
 [package]
 name = "lighthouse"
-version = "2.2.1"
+version = "3.1.0"
 authors = ["Sigma Prime <contact@sigmaprime.io>"]
 edition = "2021"
 autotests = false
-rust-version = "1.58"
+rust-version = "1.62"
 
 [features]
-default = ["malloc_utils/jemalloc"]
+default = ["slasher-mdbx", "malloc_utils/jemalloc"]
 # Writes debugging .ssz files to /tmp during block processing.
 write_ssz_files = ["beacon_node/write_ssz_files"]
 # Compiles the BLS crypto code so that the binary is portable across machines.
@@ -20,6 +20,10 @@ milagro = ["bls/milagro"]
 spec-minimal = []
 # Support Gnosis spec and Gnosis Beacon Chain.
 gnosis = []
+# Support slasher MDBX backend.
+slasher-mdbx = ["slasher/mdbx"]
+# Support slasher LMDB backend.
+slasher-lmdb = ["slasher/lmdb"]
 
 [dependencies]
 beacon_node = { "path" = "../beacon_node" }
@@ -50,6 +54,7 @@ directory = { path = "../common/directory" }
 unused_port = { path = "../common/unused_port" }
 store = { path = "../beacon_node/store" }
 database_manager = { path = "../database_manager" }
+slasher = { path = "../slasher" }
 
 [dev-dependencies]
 tempfile = "3.1.0"
@@ -57,6 +62,7 @@ validator_dir = { path = "../common/validator_dir" }
 slashing_protection = { path = "../validator_client/slashing_protection" }
 lighthouse_network = { path = "../beacon_node/lighthouse_network" }
 sensitive_url = { path = "../common/sensitive_url" }
+eth1 = { path = "../beacon_node/eth1" }
 
 [[test]]
 name = "lighthouse_tests"

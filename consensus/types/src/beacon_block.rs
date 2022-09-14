@@ -38,7 +38,7 @@ use tree_hash_derive::TreeHash;
         derive(Debug, PartialEq, TreeHash),
         tree_hash(enum_behaviour = "transparent")
     ),
-    map_ref_into(BeaconBlockBodyRef),
+    map_ref_into(BeaconBlockBodyRef, BeaconBlock),
     map_ref_mut_into(BeaconBlockBodyRefMut)
 )]
 #[derive(Debug, Clone, Serialize, Deserialize, Encode, TreeHash, Derivative)]
@@ -541,6 +541,50 @@ impl_from!(BeaconBlockBase, <E, FullPayload<E>>, <E, BlindedPayload<E>>, |body: 
 impl_from!(BeaconBlockAltair, <E, FullPayload<E>>, <E, BlindedPayload<E>>, |body: BeaconBlockBodyAltair<_, _>| body.into());
 impl_from!(BeaconBlockMerge, <E, FullPayload<E>>, <E, BlindedPayload<E>>, |body: BeaconBlockBodyMerge<_, _>| body.into());
 
+// We can clone blocks with payloads to blocks without payloads, without cloning the payload.
+macro_rules! impl_clone_as_blinded {
+    ($ty_name:ident, <$($from_params:ty),*>, <$($to_params:ty),*>) => {
+        impl<E: EthSpec> $ty_name<$($from_params),*>
+        {
+            pub fn clone_as_blinded(&self) -> $ty_name<$($to_params),*> {
+                let $ty_name {
+                    slot,
+                    proposer_index,
+                    parent_root,
+                    state_root,
+                    body,
+                } = self;
+
+                $ty_name {
+                    slot: *slot,
+                    proposer_index: *proposer_index,
+                    parent_root: *parent_root,
+                    state_root: *state_root,
+                    body: body.clone_as_blinded(),
+                }
+            }
+        }
+    }
+}
+
+impl_clone_as_blinded!(BeaconBlockBase, <E, FullPayload<E>>, <E, BlindedPayload<E>>);
+impl_clone_as_blinded!(BeaconBlockAltair, <E, FullPayload<E>>, <E, BlindedPayload<E>>);
+impl_clone_as_blinded!(BeaconBlockMerge, <E, FullPayload<E>>, <E, BlindedPayload<E>>);
+
+// A reference to a full beacon block can be cloned into a blinded beacon block, without cloning the
+// execution payload.
+impl<'a, E: EthSpec> From<BeaconBlockRef<'a, E, FullPayload<E>>>
+    for BeaconBlock<E, BlindedPayload<E>>
+{
+    fn from(
+        full_block: BeaconBlockRef<'a, E, FullPayload<E>>,
+    ) -> BeaconBlock<E, BlindedPayload<E>> {
+        map_beacon_block_ref_into_beacon_block!(&'a _, full_block, |inner, cons| {
+            cons(inner.clone_as_blinded())
+        })
+    }
+}
+
 impl<E: EthSpec> From<BeaconBlock<E, FullPayload<E>>>
     for (
         BeaconBlock<E, BlindedPayload<E>>,
@@ -607,18 +651,16 @@ mod tests {
     #[test]
     fn decode_base_and_altair() {
         type E = MainnetEthSpec;
+        let spec = E::default_spec();
 
         let rng = &mut XorShiftRng::from_seed([42; 16]);
 
-        let fork_epoch = Epoch::from_ssz_bytes(&[7, 6, 5, 4, 3, 2, 1, 0]).unwrap();
+        let fork_epoch = spec.altair_fork_epoch.unwrap();
 
         let base_epoch = fork_epoch.saturating_sub(1_u64);
         let base_slot = base_epoch.end_slot(E::slots_per_epoch());
         let altair_epoch = fork_epoch;
         let altair_slot = altair_epoch.start_slot(E::slots_per_epoch());
-
-        let mut spec = E::default_spec();
-        spec.altair_fork_epoch = Some(fork_epoch);
 
         // BeaconBlockBase
         {

@@ -31,7 +31,9 @@ pub fn process_epoch<T: EthSpec>(
     validator_statuses.process_attestations(state)?;
 
     // Justification and finalization.
-    process_justification_and_finalization(state, &validator_statuses.total_balances, spec)?;
+    let justification_and_finalization_state =
+        process_justification_and_finalization(state, &validator_statuses.total_balances, spec)?;
+    justification_and_finalization_state.apply_changes_to_state(state);
 
     // Rewards and Penalties.
     process_rewards_and_penalties(state, &mut validator_statuses, spec)?;

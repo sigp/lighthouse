@@ -40,6 +40,9 @@ const IO_ERROR_RETRIES: u8 = 3;
 /// Maximum time given to the handler to perform shutdown operations.
 const SHUTDOWN_TIMEOUT_SECS: u8 = 15;
 
+/// Maximum number of simultaneous inbound substreams we keep for this peer.
+const MAX_INBOUND_SUBSTREAMS: usize = 32;
+
 /// Identifier of inbound and outbound substreams from the handler's perspective.
 #[derive(Debug, Clone, Copy, Hash, Eq, PartialEq)]
 pub struct SubstreamId(usize);
@@ -241,7 +244,7 @@ where
             // We now drive to completion communications already dialed/established
             while let Some((id, req)) = self.dial_queue.pop() {
                 self.events_out.push(Err(HandlerErr::Outbound {
-                    error: RPCError::HandlerRejected,
+                    error: RPCError::Disconnected,
                     proto: req.protocol(),
                     id,
                 }));
@@ -265,7 +268,7 @@ where
                 self.dial_queue.push((id, req));
             }
             _ => self.events_out.push(Err(HandlerErr::Outbound {
-                error: RPCError::HandlerRejected,
+                error: RPCError::Disconnected,
                 proto: req.protocol(),
                 id,
             })),
@@ -339,23 +342,32 @@ where
 
         // store requests that expect responses
         if expected_responses > 0 {
-            // Store the stream and tag the output.
-            let delay_key = self.inbound_substreams_delay.insert(
-                self.current_inbound_substream_id,
-                Duration::from_secs(RESPONSE_TIMEOUT),
-            );
-            let awaiting_stream = InboundState::Idle(substream);
-            self.inbound_substreams.insert(
-                self.current_inbound_substream_id,
-                InboundInfo {
-                    state: awaiting_stream,
-                    pending_items: VecDeque::with_capacity(expected_responses as usize),
-                    delay_key: Some(delay_key),
-                    protocol: req.protocol(),
-                    request_start_time: Instant::now(),
-                    remaining_chunks: expected_responses,
-                },
-            );
+            if self.inbound_substreams.len() < MAX_INBOUND_SUBSTREAMS {
+                // Store the stream and tag the output.
+                let delay_key = self.inbound_substreams_delay.insert(
+                    self.current_inbound_substream_id,
+                    Duration::from_secs(RESPONSE_TIMEOUT),
+                );
+                let awaiting_stream = InboundState::Idle(substream);
+                self.inbound_substreams.insert(
+                    self.current_inbound_substream_id,
+                    InboundInfo {
+                        state: awaiting_stream,
+                        pending_items: VecDeque::with_capacity(expected_responses as usize),
+                        delay_key: Some(delay_key),
+                        protocol: req.protocol(),
+                        request_start_time: Instant::now(),
+                        remaining_chunks: expected_responses,
+                    },
+                );
+            } else {
+                self.events_out.push(Err(HandlerErr::Inbound {
+                    id: self.current_inbound_substream_id,
+                    proto: req.protocol(),
+                    error: RPCError::HandlerRejected,
+                }));
+                return self.shutdown(None);
+            }
         }
 
         // If we received a goodbye, shutdown the connection.
@@ -382,7 +394,7 @@ where
         // accept outbound connections only if the handler is not deactivated
         if matches!(self.state, HandlerState::Deactivated) {
             self.events_out.push(Err(HandlerErr::Outbound {
-                error: RPCError::HandlerRejected,
+                error: RPCError::Disconnected,
                 proto,
                 id,
             }));
@@ -671,7 +683,7 @@ where
                                 {
                                     // if the request was still active, report back to cancel it
                                     self.events_out.push(Err(HandlerErr::Inbound {
-                                        error: RPCError::HandlerRejected,
+                                        error: RPCError::Disconnected,
                                         proto: info.protocol,
                                         id: *id,
                                     }));
@@ -803,7 +815,7 @@ where
                     // the handler is deactivated. Close the stream
                     entry.get_mut().state = OutboundSubstreamState::Closing(substream);
                     self.events_out.push(Err(HandlerErr::Outbound {
-                        error: RPCError::HandlerRejected,
+                        error: RPCError::Disconnected,
                         proto: entry.get().proto,
                         id: entry.get().req_id,
                     }))

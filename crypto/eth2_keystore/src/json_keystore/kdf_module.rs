@@ -58,9 +58,10 @@ impl Kdf {
 }
 
 /// PRF for use in `pbkdf2`.
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Default)]
 pub enum Prf {
     #[serde(rename = "hmac-sha256")]
+    #[default]
     HmacSha256,
 }
 
@@ -70,12 +71,6 @@ impl Prf {
             Prf::HmacSha256 => Hmac::<Sha256>::new_from_slice(password)
                 .expect("Could not derive HMAC using SHA256."),
         }
-    }
-}
-
-impl Default for Prf {
-    fn default() -> Self {
-        Prf::HmacSha256
     }
 }
 

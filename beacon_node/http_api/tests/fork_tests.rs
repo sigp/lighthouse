@@ -45,6 +45,7 @@ async fn sync_committee_duties_across_fork() {
             genesis_state_root,
             &all_validators,
         )
+        .await
         .unwrap();
 
     harness.advance_slot();
@@ -61,6 +62,7 @@ async fn sync_committee_duties_across_fork() {
     let state_root = state.canonical_root();
     harness
         .add_attested_block_at_slot(fork_slot, state, state_root, &all_validators)
+        .await
         .unwrap();
 
     assert_eq!(
@@ -244,6 +246,7 @@ async fn sync_committee_indices_across_fork() {
             genesis_state_root,
             &all_validators,
         )
+        .await
         .unwrap();
 
     harness.advance_slot();
@@ -277,6 +280,7 @@ async fn sync_committee_indices_across_fork() {
     let state_root = state.canonical_root();
     harness
         .add_attested_block_at_slot(fork_slot + 1, state, state_root, &all_validators)
+        .await
         .unwrap();
 
     let current_period = fork_epoch.sync_committee_period(&spec).unwrap();

@@ -7,8 +7,9 @@ use itertools::process_results;
 use lighthouse_network::rpc::StatusMessage;
 use lighthouse_network::rpc::*;
 use lighthouse_network::{PeerId, PeerRequestId, ReportSource, Response, SyncInfo};
-use slog::{debug, error, warn};
+use slog::{debug, error};
 use slot_clock::SlotClock;
+use std::sync::Arc;
 use task_executor::TaskExecutor;
 use types::{Epoch, EthSpec, Hash256, Slot};
 
@@ -62,7 +63,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         &self,
         remote: &StatusMessage,
     ) -> Result<Option<String>, BeaconChainError> {
-        let local = self.chain.status_message()?;
+        let local = self.chain.status_message();
         let start_slot = |epoch: Epoch| epoch.start_slot(T::EthSpec::slots_per_epoch());
 
         let irrelevant_reason = if local.fork_digest != remote.fork_digest {
@@ -134,6 +135,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         executor.spawn(
             async move {
                 let mut send_block_count = 0;
+                let mut send_response = true;
                 for root in request.block_roots.iter() {
                     match self
                         .chain
@@ -143,7 +145,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                         Ok(Some(block)) => {
                             self.send_response(
                                 peer_id,
-                                Response::BlocksByRoot(Some(Box::new(block))),
+                                Response::BlocksByRoot(Some(block)),
                                 request_id,
                             );
                             send_block_count += 1;
@@ -155,6 +157,23 @@ impl<T: BeaconChainTypes> Worker<T> {
                                 "peer" => %peer_id,
                                 "request_root" => ?root
                             );
+                        }
+                        Err(BeaconChainError::BlockHashMissingFromExecutionLayer(_)) => {
+                            debug!(
+                                self.log,
+                                "Failed to fetch execution payload for blocks by root request";
+                                "block_root" => ?root,
+                                "reason" => "execution layer not synced",
+                            );
+                            // send the stream terminator
+                            self.send_error_response(
+                                peer_id,
+                                RPCResponseErrorCode::ResourceUnavailable,
+                                "Execution layer not synced".into(),
+                                request_id,
+                            );
+                            send_response = false;
+                            break;
                         }
                         Err(e) => {
                             debug!(
@@ -172,11 +191,13 @@ impl<T: BeaconChainTypes> Worker<T> {
                     "Received BlocksByRoot Request";
                     "peer" => %peer_id,
                     "requested" => request.block_roots.len(),
-                    "returned" => send_block_count
+                    "returned" => %send_block_count
                 );
 
                 // send stream termination
-                self.send_response(peer_id, Response::BlocksByRoot(None), request_id);
+                if send_response {
+                    self.send_response(peer_id, Response::BlocksByRoot(None), request_id);
+                }
                 drop(send_on_drop);
             },
             "load_blocks_by_root_blocks",
@@ -196,15 +217,11 @@ impl<T: BeaconChainTypes> Worker<T> {
             "peer_id" => %peer_id,
             "count" => req.count,
             "start_slot" => req.start_slot,
-            "step" => req.step);
+        );
 
         // Should not send more than max request blocks
         if req.count > MAX_REQUEST_BLOCKS {
             req.count = MAX_REQUEST_BLOCKS;
-        }
-        if req.step == 0 {
-            self.goodbye_peer(peer_id, GoodbyeReason::Fault);
-            return warn!(self.log, "Peer sent invalid range request"; "error" => "Step sent was 0");
         }
 
         let forwards_block_root_iter = match self
@@ -229,29 +246,21 @@ impl<T: BeaconChainTypes> Worker<T> {
             Err(e) => return error!(self.log, "Unable to obtain root iter"; "error" => ?e),
         };
 
-        // Pick out the required blocks, ignoring skip-slots and stepping by the step parameter.
-        //
-        // NOTE: We don't mind if req.count * req.step overflows as it just ends the iterator early and
-        // the peer will get less blocks.
-        // The step parameter is quadratically weighted in the filter, so large values should be
-        // prevented before reaching this point.
+        // Pick out the required blocks, ignoring skip-slots.
         let mut last_block_root = None;
         let maybe_block_roots = process_results(forwards_block_root_iter, |iter| {
-            iter.take_while(|(_, slot)| {
-                slot.as_u64() < req.start_slot.saturating_add(req.count * req.step)
-            })
-            // map skip slots to None
-            .map(|(root, _)| {
-                let result = if Some(root) == last_block_root {
-                    None
-                } else {
-                    Some(root)
-                };
-                last_block_root = Some(root);
-                result
-            })
-            .step_by(req.step as usize)
-            .collect::<Vec<Option<Hash256>>>()
+            iter.take_while(|(_, slot)| slot.as_u64() < req.start_slot.saturating_add(req.count))
+                // map skip slots to None
+                .map(|(root, _)| {
+                    let result = if Some(root) == last_block_root {
+                        None
+                    } else {
+                        Some(root)
+                    };
+                    last_block_root = Some(root);
+                    result
+                })
+                .collect::<Vec<Option<Hash256>>>()
         });
 
         let block_roots = match maybe_block_roots {
@@ -266,6 +275,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         executor.spawn(
             async move {
                 let mut blocks_sent = 0;
+                let mut send_response = true;
 
                 for root in block_roots {
                     match self.chain.get_block(&root).await {
@@ -273,12 +283,12 @@ impl<T: BeaconChainTypes> Worker<T> {
                             // Due to skip slots, blocks could be out of the range, we ensure they
                             // are in the range before sending
                             if block.slot() >= req.start_slot
-                                && block.slot() < req.start_slot + req.count * req.step
+                                && block.slot() < req.start_slot + req.count
                             {
                                 blocks_sent += 1;
                                 self.send_network_message(NetworkMessage::SendResponse {
                                     peer_id,
-                                    response: Response::BlocksByRange(Some(Box::new(block))),
+                                    response: Response::BlocksByRange(Some(Arc::new(block))),
                                     id: request_id,
                                 });
                             }
@@ -289,6 +299,23 @@ impl<T: BeaconChainTypes> Worker<T> {
                                 "Block in the chain is not in the store";
                                 "request_root" => ?root
                             );
+                            break;
+                        }
+                        Err(BeaconChainError::BlockHashMissingFromExecutionLayer(_)) => {
+                            debug!(
+                                self.log,
+                                "Failed to fetch execution payload for blocks by range request";
+                                "block_root" => ?root,
+                                "reason" => "execution layer not synced",
+                            );
+                            // send the stream terminator
+                            self.send_error_response(
+                                peer_id,
+                                RPCResponseErrorCode::ResourceUnavailable,
+                                "Execution layer not synced".into(),
+                                request_id,
+                            );
+                            send_response = false;
                             break;
                         }
                         Err(e) => {
@@ -331,12 +358,15 @@ impl<T: BeaconChainTypes> Worker<T> {
                     );
                 }
 
-                // send the stream terminator
-                self.send_network_message(NetworkMessage::SendResponse {
-                    peer_id,
-                    response: Response::BlocksByRange(None),
-                    id: request_id,
-                });
+                if send_response {
+                    // send the stream terminator
+                    self.send_network_message(NetworkMessage::SendResponse {
+                        peer_id,
+                        response: Response::BlocksByRange(None),
+                        id: request_id,
+                    });
+                }
+
                 drop(send_on_drop);
             },
             "load_blocks_by_range_blocks",

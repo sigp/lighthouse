@@ -24,12 +24,12 @@ Returns the software version and `git` commit hash for the Lighthouse binary.
 
 ### HTTP Specification
 
-| Property | Specification |
-| --- |--- |
-Path | `/lighthouse/version`
-Method | GET
-Required Headers | [`Authorization`](./api-vc-auth-header.md)
-Typical Responses | 200
+| Property          | Specification                              |
+|-------------------|--------------------------------------------|
+| Path              | `/lighthouse/version`                      |
+| Method            | GET                                        |
+| Required Headers  | [`Authorization`](./api-vc-auth-header.md) |
+| Typical Responses | 200                                        |
 
 ### Example Response Body
 
@@ -47,12 +47,12 @@ Returns information regarding the health of the host machine.
 
 ### HTTP Specification
 
-| Property | Specification |
-| --- |--- |
-Path | `/lighthouse/health`
-Method | GET
-Required Headers | [`Authorization`](./api-vc-auth-header.md)
-Typical Responses | 200
+| Property          | Specification                              |
+|-------------------|--------------------------------------------|
+| Path              | `/lighthouse/health`                       |
+| Method            | GET                                        |
+| Required Headers  | [`Authorization`](./api-vc-auth-header.md) |
+| Typical Responses | 200                                        |
 
 *Note: this endpoint is presently only available on Linux.*
 
@@ -83,12 +83,12 @@ Returns the Ethereum proof-of-stake consensus specification loaded for this vali
 
 ### HTTP Specification
 
-| Property | Specification |
-| --- |--- |
-Path | `/lighthouse/spec`
-Method | GET
-Required Headers | [`Authorization`](./api-vc-auth-header.md)
-Typical Responses | 200
+| Property          | Specification                              |
+|-------------------|--------------------------------------------|
+| Path              | `/lighthouse/spec`                         |
+| Method            | GET                                        |
+| Required Headers  | [`Authorization`](./api-vc-auth-header.md) |
+| Typical Responses | 200                                        |
 
 ### Example Response Body
 
@@ -134,6 +134,7 @@ Typical Responses | 200
         "DOMAIN_VOLUNTARY_EXIT": "0x04000000",
         "DOMAIN_SELECTION_PROOF": "0x05000000",
         "DOMAIN_AGGREGATE_AND_PROOF": "0x06000000",
+        "DOMAIN_APPLICATION_MASK": "0x00000001",
         "MAX_VALIDATORS_PER_COMMITTEE": "2048",
         "SLOTS_PER_EPOCH": "32",
         "EPOCHS_PER_ETH1_VOTING_PERIOD": "32",
@@ -167,12 +168,12 @@ file may be read by a local user with access rights.
 
 ### HTTP Specification
 
-| Property | Specification |
-| --- |--- |
-Path | `/lighthouse/auth`
-Method | GET
-Required Headers | -
-Typical Responses | 200
+| Property          | Specification      |
+|-------------------|--------------------|
+| Path              | `/lighthouse/auth` |
+| Method            | GET                |
+| Required Headers  | -                  |
+| Typical Responses | 200                |
 
 ### Example Path
 
@@ -194,12 +195,12 @@ Lists all validators managed by this validator client.
 
 ### HTTP Specification
 
-| Property | Specification |
-| --- |--- |
-Path | `/lighthouse/validators`
-Method | GET
-Required Headers | [`Authorization`](./api-vc-auth-header.md)
-Typical Responses | 200
+| Property          | Specification                              |
+|-------------------|--------------------------------------------|
+| Path              | `/lighthouse/validators`                   |
+| Method            | GET                                        |
+| Required Headers  | [`Authorization`](./api-vc-auth-header.md) |
+| Typical Responses | 200                                        |
 
 ### Example Response Body
 
@@ -231,12 +232,12 @@ Get a validator by their `voting_pubkey`.
 
 ### HTTP Specification
 
-| Property | Specification |
-| --- |--- |
-Path | `/lighthouse/validators/:voting_pubkey`
-Method | GET
-Required Headers | [`Authorization`](./api-vc-auth-header.md)
-Typical Responses | 200, 400
+| Property          | Specification                              |
+|-------------------|--------------------------------------------|
+| Path              | `/lighthouse/validators/:voting_pubkey`    |
+| Method            | GET                                        |
+| Required Headers  | [`Authorization`](./api-vc-auth-header.md) |
+| Typical Responses | 200, 400                                   |
 
 ### Example Path
 
@@ -261,12 +262,12 @@ Update some values for the validator with `voting_pubkey`.
 
 ### HTTP Specification
 
-| Property | Specification |
-| --- |--- |
-Path | `/lighthouse/validators/:voting_pubkey`
-Method | PATCH
-Required Headers | [`Authorization`](./api-vc-auth-header.md)
-Typical Responses | 200, 400
+| Property          | Specification                              |
+|-------------------|--------------------------------------------|
+| Path              | `/lighthouse/validators/:voting_pubkey`    |
+| Method            | PATCH                                      |
+| Required Headers  | [`Authorization`](./api-vc-auth-header.md) |
+| Typical Responses | 200, 400                                   |
 
 ### Example Path
 
@@ -300,12 +301,12 @@ Validators are generated from the mnemonic according to
 
 ### HTTP Specification
 
-| Property | Specification |
-| --- |--- |
-Path | `/lighthouse/validators`
-Method | POST
-Required Headers | [`Authorization`](./api-vc-auth-header.md)
-Typical Responses | 200
+| Property          | Specification                              |
+|-------------------|--------------------------------------------|
+| Path              | `/lighthouse/validators`                   |
+| Method            | POST                                       |
+| Required Headers  | [`Authorization`](./api-vc-auth-header.md) |
+| Typical Responses | 200                                        |
 
 ### Example Request Body
 
@@ -358,12 +359,12 @@ Import a keystore into the validator client.
 
 ### HTTP Specification
 
-| Property | Specification |
-| --- |--- |
-Path | `/lighthouse/validators/keystore`
-Method | POST
-Required Headers | [`Authorization`](./api-vc-auth-header.md)
-Typical Responses | 200
+| Property          | Specification                              |
+|-------------------|--------------------------------------------|
+| Path              | `/lighthouse/validators/keystore`          |
+| Method            | POST                                       |
+| Required Headers  | [`Authorization`](./api-vc-auth-header.md) |
+| Typical Responses | 200                                        |
 
 ### Example Request Body
 
@@ -432,12 +433,12 @@ generated with the path `m/12381/3600/i/42`.
 
 ### HTTP Specification
 
-| Property | Specification |
-| --- |--- |
-Path | `/lighthouse/validators/mnemonic`
-Method | POST
-Required Headers | [`Authorization`](./api-vc-auth-header.md)
-Typical Responses | 200
+| Property          | Specification                              |
+|-------------------|--------------------------------------------|
+| Path              | `/lighthouse/validators/mnemonic`          |
+| Method            | POST                                       |
+| Required Headers  | [`Authorization`](./api-vc-auth-header.md) |
+| Typical Responses | 200                                        |
 
 ### Example Request Body
 
@@ -478,12 +479,12 @@ Create any number of new validators, all of which will refer to a
 
 ### HTTP Specification
 
-| Property | Specification |
-| --- |--- |
-Path | `/lighthouse/validators/web3signer`
-Method | POST
-Required Headers | [`Authorization`](./api-vc-auth-header.md)
-Typical Responses | 200, 400
+| Property          | Specification                              |
+|-------------------|--------------------------------------------|
+| Path              | `/lighthouse/validators/web3signer`        |
+| Method            | POST                                       |
+| Required Headers  | [`Authorization`](./api-vc-auth-header.md) |
+| Typical Responses | 200, 400                                   |
 
 ### Example Request Body
 

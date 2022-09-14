@@ -7,7 +7,7 @@ use crate::http_metrics::metrics::{inc_counter_vec, ENDPOINT_ERRORS, ENDPOINT_RE
 use environment::RuntimeContext;
 use eth2::BeaconNodeHttpClient;
 use futures::future;
-use slog::{debug, error, info, warn, Logger};
+use slog::{error, info, warn, Logger};
 use slot_clock::SlotClock;
 use std::fmt;
 use std::fmt::Debug;
@@ -16,7 +16,7 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::{sync::RwLock, time::sleep};
-use types::{ChainSpec, EthSpec};
+use types::{ChainSpec, Config, EthSpec};
 
 /// The number of seconds *prior* to slot start that we will try and update the state of fallback
 /// nodes.
@@ -66,6 +66,13 @@ pub fn start_fallback_updater_service<T: SlotClock + 'static, E: EthSpec>(
 /// Indicates if a beacon node must be synced before some action is performed on it.
 #[derive(PartialEq, Clone, Copy)]
 pub enum RequireSynced {
+    Yes,
+    No,
+}
+
+/// Indicates if a beacon node should be set to `Offline` if a request fails.
+#[derive(PartialEq, Clone, Copy)]
+pub enum OfflineOnFailure {
     Yes,
     No,
 }
@@ -213,9 +220,9 @@ impl<E: EthSpec> CandidateBeaconNode<E> {
 
     /// Checks if the node has the correct specification.
     async fn is_compatible(&self, spec: &ChainSpec, log: &Logger) -> Result<(), CandidateError> {
-        let config_and_preset = self
+        let config = self
             .beacon_node
-            .get_config_spec()
+            .get_config_spec::<Config>()
             .await
             .map_err(|e| {
                 error!(
@@ -228,25 +235,15 @@ impl<E: EthSpec> CandidateBeaconNode<E> {
             })?
             .data;
 
-        let beacon_node_spec =
-            ChainSpec::from_config::<E>(&config_and_preset.config).ok_or_else(|| {
-                error!(
-                    log,
-                    "The minimal/mainnet spec type of the beacon node does not match the validator \
-                    client. See the --network command.";
-                    "endpoint" => %self.beacon_node,
-                );
-                CandidateError::Incompatible
-            })?;
-
-        if !config_and_preset.extra_fields.is_empty() {
-            debug!(
+        let beacon_node_spec = ChainSpec::from_config::<E>(&config).ok_or_else(|| {
+            error!(
                 log,
-                "Beacon spec includes unknown fields";
+                "The minimal/mainnet spec type of the beacon node does not match the validator \
+                client. See the --network command.";
                 "endpoint" => %self.beacon_node,
-                "fields" => ?config_and_preset.extra_fields,
             );
-        }
+            CandidateError::Incompatible
+        })?;
 
         if beacon_node_spec.genesis_fork_version != spec.genesis_fork_version {
             error!(
@@ -397,6 +394,7 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
     pub async fn first_success<'a, F, O, Err, R>(
         &'a self,
         require_synced: RequireSynced,
+        offline_on_failure: OfflineOnFailure,
         func: F,
     ) -> Result<O, AllErrored<Err>>
     where
@@ -425,7 +423,9 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
                         // There exists a race condition where the candidate may have been marked
                         // as ready between the `func` call and now. We deem this an acceptable
                         // inefficiency.
-                        $candidate.set_offline().await;
+                        if matches!(offline_on_failure, OfflineOnFailure::Yes) {
+                            $candidate.set_offline().await;
+                        }
                         errors.push(($candidate.beacon_node.to_string(), Error::RequestFailed(e)));
                         inc_counter_vec(&ENDPOINT_ERRORS, &[$candidate.beacon_node.as_ref()]);
                     }

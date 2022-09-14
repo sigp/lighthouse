@@ -7,6 +7,8 @@ use slog::{crit, debug, o, trace};
 use std::sync::Weak;
 use tokio::runtime::{Handle, Runtime};
 
+pub use tokio::task::JoinHandle;
+
 /// Provides a reason when Lighthouse is shut down.
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum ShutdownReason {
@@ -310,6 +312,61 @@ impl TaskExecutor {
         };
 
         Some(future)
+    }
+
+    /// Block the current (non-async) thread on the completion of some future.
+    ///
+    /// ## Warning
+    ///
+    /// This method is "dangerous" since calling it from an async thread will result in a panic! Any
+    /// use of this outside of testing should be very deeply considered as Lighthouse has been
+    /// burned by this function in the past.
+    ///
+    /// Determining what is an "async thread" is rather challenging; just because a function isn't
+    /// marked as `async` doesn't mean it's not being called from an `async` function or there isn't
+    /// a `tokio` context present in the thread-local storage due to some `rayon` funkiness. Talk to
+    /// @paulhauner if you plan to use this function in production. He has put metrics in here to
+    /// track any use of it, so don't think you can pull a sneaky one on him.
+    pub fn block_on_dangerous<F: Future>(
+        &self,
+        future: F,
+        name: &'static str,
+    ) -> Option<F::Output> {
+        let timer = metrics::start_timer_vec(&metrics::BLOCK_ON_TASKS_HISTOGRAM, &[name]);
+        metrics::inc_gauge_vec(&metrics::BLOCK_ON_TASKS_COUNT, &[name]);
+        let log = self.log.clone();
+        let handle = self.handle()?;
+        let exit = self.exit.clone();
+
+        debug!(
+            log,
+            "Starting block_on task";
+            "name" => name
+        );
+
+        handle.block_on(async {
+            let output = tokio::select! {
+                output = future => {
+                    debug!(
+                        log,
+                        "Completed block_on task";
+                        "name" => name
+                    );
+                    Some(output)
+                },
+                _ = exit => {
+                    debug!(
+                        log,
+                        "Cancelled block_on task";
+                        "name" => name,
+                    );
+                    None
+                }
+            };
+            metrics::dec_gauge_vec(&metrics::BLOCK_ON_TASKS_COUNT, &[name]);
+            drop(timer);
+            output
+        })
     }
 
     /// Returns a `Handle` to the current runtime.

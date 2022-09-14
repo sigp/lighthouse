@@ -6,13 +6,14 @@ edition = "2021"
 
 [dev-dependencies]
 eth1_test_rig = { path = "../../testing/eth1_test_rig" }
-toml = "0.5.6"
+serde_yaml = "0.8.13"
 web3 = { version = "0.18.0", default-features = false, features = ["http-tls", "signing", "ws-tls-tokio"] }
 sloggers = { version = "2.1.1", features = ["json"] }
 environment = { path = "../../lighthouse/environment" }
 
 [dependencies]
 reqwest = { version = "0.11.0", features = ["native-tls-vendored"] }
+execution_layer = { path = "../execution_layer" }
 futures = "0.3.7"
 serde_json = "1.0.58"
 serde = { version = "1.0.116", features = ["derive"] }

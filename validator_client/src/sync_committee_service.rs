@@ -1,10 +1,10 @@
 use crate::beacon_node_fallback::{BeaconNodeFallback, RequireSynced};
-use crate::{duties_service::DutiesService, validator_store::ValidatorStore};
+use crate::{duties_service::DutiesService, validator_store::ValidatorStore, OfflineOnFailure};
 use environment::RuntimeContext;
 use eth2::types::BlockId;
 use futures::future::join_all;
 use futures::future::FutureExt;
-use slog::{crit, debug, error, info, trace};
+use slog::{crit, debug, error, info, trace, warn};
 use slot_clock::SlotClock;
 use std::collections::HashMap;
 use std::ops::Deref;
@@ -174,17 +174,39 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
             return Ok(());
         }
 
-        // Fetch block root for `SyncCommitteeContribution`.
-        let block_root = self
+        // Fetch `block_root` and `execution_optimistic` for `SyncCommitteeContribution`.
+        let response = self
             .beacon_nodes
-            .first_success(RequireSynced::Yes, |beacon_node| async move {
+            .first_success(RequireSynced::Yes, OfflineOnFailure::Yes,|beacon_node| async move {
                 beacon_node.get_beacon_blocks_root(BlockId::Head).await
             })
             .await
             .map_err(|e| e.to_string())?
-            .ok_or_else(|| format!("No block root found for slot {}", slot))?
-            .data
-            .root;
+            .ok_or_else(|| format!("No block root found for slot {}", slot))?;
+
+        let block_root = response.data.root;
+        if let Some(execution_optimistic) = response.execution_optimistic {
+            if execution_optimistic {
+                warn!(
+                    log,
+                    "Refusing to sign sync committee messages for optimistic head block";
+                    "slot" => slot,
+                );
+                return Ok(());
+            }
+        } else if let Some(bellatrix_fork_epoch) = self.duties_service.spec.bellatrix_fork_epoch {
+            // If the slot is post Bellatrix, do not sign messages when we cannot verify the
+            // optimistic status of the head block.
+            if slot.epoch(E::slots_per_epoch()) > bellatrix_fork_epoch {
+                warn!(
+                    log,
+                    "Refusing to sign sync committee messages for a head block with an unknown \
+                    optimistic status";
+                    "slot" => slot,
+                );
+                return Ok(());
+            }
+        }
 
         // Spawn one task to publish all of the sync committee signatures.
         let validator_duties = slot_duties.duties;
@@ -262,11 +284,15 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
             .collect::<Vec<_>>();
 
         self.beacon_nodes
-            .first_success(RequireSynced::No, |beacon_node| async move {
-                beacon_node
-                    .post_beacon_pool_sync_committee_signatures(committee_signatures)
-                    .await
-            })
+            .first_success(
+                RequireSynced::No,
+                OfflineOnFailure::Yes,
+                |beacon_node| async move {
+                    beacon_node
+                        .post_beacon_pool_sync_committee_signatures(committee_signatures)
+                        .await
+                },
+            )
             .await
             .map_err(|e| {
                 error!(
@@ -329,17 +355,21 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
 
         let contribution = &self
             .beacon_nodes
-            .first_success(RequireSynced::No, |beacon_node| async move {
-                let sync_contribution_data = SyncContributionData {
-                    slot,
-                    beacon_block_root,
-                    subcommittee_index: subnet_id.into(),
-                };
+            .first_success(
+                RequireSynced::No,
+                OfflineOnFailure::Yes,
+                |beacon_node| async move {
+                    let sync_contribution_data = SyncContributionData {
+                        slot,
+                        beacon_block_root,
+                        subcommittee_index: subnet_id.into(),
+                    };
 
-                beacon_node
-                    .get_validator_sync_committee_contribution::<E>(&sync_contribution_data)
-                    .await
-            })
+                    beacon_node
+                        .get_validator_sync_committee_contribution::<E>(&sync_contribution_data)
+                        .await
+                },
+            )
             .await
             .map_err(|e| {
                 crit!(
@@ -396,11 +426,15 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
 
         // Publish to the beacon node.
         self.beacon_nodes
-            .first_success(RequireSynced::No, |beacon_node| async move {
-                beacon_node
-                    .post_validator_contribution_and_proofs(signed_contributions)
-                    .await
-            })
+            .first_success(
+                RequireSynced::No,
+                OfflineOnFailure::Yes,
+                |beacon_node| async move {
+                    beacon_node
+                        .post_validator_contribution_and_proofs(signed_contributions)
+                        .await
+                },
+            )
             .await
             .map_err(|e| {
                 error!(
@@ -534,11 +568,15 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
 
         if let Err(e) = self
             .beacon_nodes
-            .first_success(RequireSynced::No, |beacon_node| async move {
-                beacon_node
-                    .post_validator_sync_committee_subscriptions(subscriptions_slice)
-                    .await
-            })
+            .first_success(
+                RequireSynced::No,
+                OfflineOnFailure::Yes,
+                |beacon_node| async move {
+                    beacon_node
+                        .post_validator_sync_committee_subscriptions(subscriptions_slice)
+                        .await
+                },
+            )
             .await
         {
             error!(

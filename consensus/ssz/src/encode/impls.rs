@@ -2,7 +2,7 @@ use super::*;
 use core::num::NonZeroUsize;
 use ethereum_types::{H160, H256, U128, U256};
 use smallvec::SmallVec;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 macro_rules! impl_encodable_for_uint {
@@ -312,6 +312,23 @@ impl<K, V> Encode for BTreeMap<K, V>
 where
     K: Encode + Ord,
     V: Encode,
+{
+    fn is_ssz_fixed_len() -> bool {
+        false
+    }
+
+    fn ssz_bytes_len(&self) -> usize {
+        sequence_ssz_bytes_len(self.iter())
+    }
+
+    fn ssz_append(&self, buf: &mut Vec<u8>) {
+        sequence_ssz_append(self.iter(), buf)
+    }
+}
+
+impl<T> Encode for BTreeSet<T>
+where
+    T: Encode + Ord,
 {
     fn is_ssz_fixed_len() -> bool {
         false

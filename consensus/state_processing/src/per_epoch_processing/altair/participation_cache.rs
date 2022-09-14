@@ -11,7 +11,7 @@
 //! Additionally, this cache is returned from the `altair::process_epoch` function and can be used
 //! to get useful summaries about the validator participation in an epoch.
 
-use crate::common::altair::get_base_reward;
+use crate::common::altair::{get_base_reward, BaseRewardPerIncrement};
 use safe_arith::{ArithError, SafeArith};
 use types::milhouse::update_map::{MaxMap, UpdateMap};
 use types::{
@@ -31,6 +31,7 @@ pub enum Error {
     MissingValidator(usize),
     BeaconState(BeaconStateError),
     Arith(ArithError),
+    InvalidValidatorIndex(usize),
 }
 
 impl From<BeaconStateError> for Error {
@@ -115,11 +116,13 @@ impl SingleEpochParticipationCache {
         val_index: usize,
         validator: &Validator,
         epoch_participation: &ParticipationFlags,
-        state: &BeaconState<T>,
+        // FIXME(sproul): remove state argument
+        _state: &BeaconState<T>,
+        current_epoch: Epoch,
         relative_epoch: RelativeEpoch,
     ) -> Result<(), BeaconStateError> {
         // Sanity check to ensure the validator is active.
-        let epoch = relative_epoch.into_epoch(state.current_epoch());
+        let epoch = relative_epoch.into_epoch(current_epoch);
         if !validator.is_active_at(epoch) {
             return Err(BeaconStateError::ValidatorIsInactive { val_index });
         }
@@ -220,6 +223,8 @@ impl ParticipationCache {
         let mut validators = ValidatorInfoCache::new(state.validators().len());
 
         let current_epoch_total_active_balance = state.get_total_active_balance()?;
+        let base_reward_per_increment =
+            BaseRewardPerIncrement::new(current_epoch_total_active_balance, spec)?;
 
         // Contains the set of validators which are either:
         //
@@ -257,7 +262,7 @@ impl ParticipationCache {
         for (val_index, (((val, curr_epoch_flags), prev_epoch_flags), inactivity_score)) in iter {
             let is_active_current_epoch = val.is_active_at(current_epoch);
             let is_active_previous_epoch = val.is_active_at(previous_epoch);
-            let is_eligible = state.is_eligible_validator(val);
+            let is_eligible = state.is_eligible_validator(previous_epoch, val);
 
             if is_active_current_epoch {
                 current_epoch_participation.process_active_validator(
@@ -265,6 +270,7 @@ impl ParticipationCache {
                     val,
                     curr_epoch_flags,
                     state,
+                    current_epoch,
                     RelativeEpoch::Current,
                 )?;
             }
@@ -277,6 +283,7 @@ impl ParticipationCache {
                     val,
                     prev_epoch_flags,
                     state,
+                    current_epoch,
                     RelativeEpoch::Previous,
                 )?;
             }
@@ -326,7 +333,7 @@ impl ParticipationCache {
             if is_eligible || is_active_current_epoch {
                 let effective_balance = val.effective_balance;
                 let base_reward =
-                    get_base_reward(effective_balance, current_epoch_total_active_balance, spec)?;
+                    get_base_reward(effective_balance, base_reward_per_increment, spec)?;
                 validator_info.base_reward = base_reward;
                 validators.info[val_index] = Some(validator_info);
             }

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Kill processes
 
-set -Eeuo pipefail
+set -Euo pipefail
 
 # First parameter is the file with
 # one pid per line.

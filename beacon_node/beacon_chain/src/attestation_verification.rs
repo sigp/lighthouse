@@ -318,10 +318,17 @@ impl<'a, T: BeaconChainTypes> Clone for IndexedUnaggregatedAttestation<'a, T> {
 
 /// A helper trait implemented on wrapper types that can be progressed to a state where they can be
 /// verified for application to fork choice.
-pub trait VerifiedAttestation<T: BeaconChainTypes> {
+pub trait VerifiedAttestation<T: BeaconChainTypes>: Sized {
     fn attestation(&self) -> &Attestation<T::EthSpec>;
 
     fn indexed_attestation(&self) -> &IndexedAttestation<T::EthSpec>;
+
+    // Inefficient default implementation. This is overridden for gossip verified attestations.
+    fn into_attestation_and_indices(self) -> (Attestation<T::EthSpec>, Vec<u64>) {
+        let attestation = self.attestation().clone();
+        let attesting_indices = self.indexed_attestation().attesting_indices.clone().into();
+        (attestation, attesting_indices)
+    }
 }
 
 impl<'a, T: BeaconChainTypes> VerifiedAttestation<T> for VerifiedAggregatedAttestation<'a, T> {
@@ -976,8 +983,8 @@ fn verify_head_block_is_known<T: BeaconChainTypes>(
     max_skip_slots: Option<u64>,
 ) -> Result<ProtoBlock, Error> {
     let block_opt = chain
-        .fork_choice
-        .read()
+        .canonical_head
+        .fork_choice_read_lock()
         .get_block(&attestation.data.beacon_block_root)
         .or_else(|| {
             chain
@@ -1245,7 +1252,10 @@ where
     // processing an attestation that does not include our latest finalized block in its chain.
     //
     // We do not delay consideration for later, we simply drop the attestation.
-    if !chain.fork_choice.read().contains_block(&target.root)
+    if !chain
+        .canonical_head
+        .fork_choice_read_lock()
+        .contains_block(&target.root)
         && !chain.early_attester_cache.contains_block(target.root)
     {
         return Err(Error::UnknownTargetRoot(target.root));

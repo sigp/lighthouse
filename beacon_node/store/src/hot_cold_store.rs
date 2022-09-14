@@ -636,7 +636,11 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         for op in batch {
             match op {
                 StoreOp::PutBlock(block_root, block) => {
-                    self.block_as_kv_store_ops(&block_root, *block, &mut key_value_batch)?;
+                    self.block_as_kv_store_ops(
+                        &block_root,
+                        block.as_ref().clone(),
+                        &mut key_value_batch,
+                    )?;
                 }
 
                 StoreOp::PutState(state_root, state) => {
@@ -1522,7 +1526,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     }
 
     /// Load a frozen state's slot, given its root.
-    fn load_cold_state_slot(&self, state_root: &Hash256) -> Result<Option<Slot>, Error> {
+    pub fn load_cold_state_slot(&self, state_root: &Hash256) -> Result<Option<Slot>, Error> {
         Ok(self
             .cold_db
             .get(state_root)?
@@ -1808,6 +1812,7 @@ impl StoreItem for Split {
 /// Struct for summarising a state in the hot database.
 ///
 /// Allows full reconstruction by replaying blocks.
+// FIXME(sproul): change to V20
 #[superstruct(
     variants(V1, V10),
     variant_attributes(derive(Debug, Clone, Copy, Default, Encode, Decode)),

@@ -1,13 +1,14 @@
 use crate::build_utils;
 use crate::execution_engine::GenericExecutionEngine;
 use crate::genesis_json::nethermind_genesis_json;
+use std::env;
+use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Output};
-use std::{env, fs::File};
 use tempfile::TempDir;
 use unused_port::unused_tcp_port;
 
-const NETHERMIND_BRANCH: &str = "kiln";
+const NETHERMIND_BRANCH: &str = "master";
 const NETHERMIND_REPO_URL: &str = "https://github.com/NethermindEth/nethermind";
 
 fn build_result(repo_dir: &Path) -> Output {
@@ -26,24 +27,23 @@ pub fn build(execution_clients_dir: &Path) {
 
     if !repo_dir.exists() {
         // Clone the repo
-        assert!(build_utils::clone_repo(
-            execution_clients_dir,
-            NETHERMIND_REPO_URL
-        ));
+        build_utils::clone_repo(execution_clients_dir, NETHERMIND_REPO_URL).unwrap()
     }
 
-    // Checkout the correct branch
-    assert!(build_utils::checkout_branch(&repo_dir, NETHERMIND_BRANCH));
-
-    // Update the branch
-    assert!(build_utils::update_branch(&repo_dir, NETHERMIND_BRANCH));
+    // Get the latest tag
+    let last_release = build_utils::get_latest_release(&repo_dir, NETHERMIND_BRANCH).unwrap();
+    build_utils::checkout(&repo_dir, dbg!(&last_release)).unwrap();
 
     // Build nethermind
-    build_utils::check_command_output(build_result(&repo_dir), "dotnet build failed");
+    build_utils::check_command_output(build_result(&repo_dir), || {
+        format!("nethermind build failed using release {last_release}")
+    });
 
     // Build nethermind a second time to enable Merge-related features.
     // Not sure why this is necessary.
-    build_utils::check_command_output(build_result(&repo_dir), "dotnet build failed");
+    build_utils::check_command_output(build_result(&repo_dir), || {
+        format!("nethermind build failed using release {last_release}")
+    });
 }
 
 /*
@@ -72,12 +72,10 @@ impl NethermindEngine {
 impl GenericExecutionEngine for NethermindEngine {
     fn init_datadir() -> TempDir {
         let datadir = TempDir::new().unwrap();
-
         let genesis_json_path = datadir.path().join("genesis.json");
         let mut file = File::create(&genesis_json_path).unwrap();
         let json = nethermind_genesis_json();
         serde_json::to_writer(&mut file, &json).unwrap();
-
         datadir
     }
 
@@ -94,15 +92,22 @@ impl GenericExecutionEngine for NethermindEngine {
             .arg("--datadir")
             .arg(datadir.path().to_str().unwrap())
             .arg("--config")
-            .arg("themerge_kiln_testvectors")
+            .arg("kiln")
             .arg("--Init.ChainSpecPath")
             .arg(genesis_json_path.to_str().unwrap())
-            .arg("--JsonRpc.AdditionalRpcUrls")
-            .arg(format!("http://localhost:{}|http;ws|net;eth;subscribe;engine;web3;client|no-auth,http://localhost:{}|http;ws|net;eth;subscribe;engine;web3;client", http_port, http_auth_port))
+            .arg("--Merge.TerminalTotalDifficulty")
+            .arg("0")
+            .arg("--JsonRpc.Enabled")
+            .arg("true")
             .arg("--JsonRpc.EnabledModules")
-            .arg("net,eth,subscribe,web3,admin,engine")
+            .arg("net,eth,subscribe,web3,admin,personal")
             .arg("--JsonRpc.Port")
             .arg(http_port.to_string())
+            .arg("--JsonRpc.AdditionalRpcUrls")
+            .arg(format!(
+                "http://localhost:{}|http;ws|net;eth;subscribe;engine;web3;client",
+                http_auth_port
+            ))
             .arg("--Network.DiscoveryPort")
             .arg(network_port.to_string())
             .arg("--Network.P2PPort")

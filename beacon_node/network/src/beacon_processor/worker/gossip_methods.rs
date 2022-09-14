@@ -6,13 +6,14 @@ use beacon_chain::{
     observed_operations::ObservationOutcome,
     sync_committee_verification::{self, Error as SyncCommitteeError},
     validator_monitor::get_block_delay_ms,
-    BeaconChainError, BeaconChainTypes, BlockError, ExecutionPayloadError, ForkChoiceError,
+    BeaconChainError, BeaconChainTypes, BlockError, CountUnrealized, ForkChoiceError,
     GossipVerifiedBlock,
 };
 use lighthouse_network::{Client, MessageAcceptance, MessageId, PeerAction, PeerId, ReportSource};
 use slog::{crit, debug, error, info, trace, warn};
 use slot_clock::SlotClock;
 use ssz::Encode;
+use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use store::hot_cold_store::HotColdDBError;
 use tokio::sync::mpsc;
@@ -24,7 +25,7 @@ use types::{
 
 use super::{
     super::work_reprocessing_queue::{
-        QueuedAggregate, QueuedBlock, QueuedUnaggregate, ReprocessQueueMessage,
+        QueuedAggregate, QueuedGossipBlock, QueuedUnaggregate, ReprocessQueueMessage,
     },
     Worker,
 };
@@ -45,13 +46,19 @@ struct VerifiedUnaggregate<T: BeaconChainTypes> {
 
 /// This implementation allows `Self` to be imported to fork choice and other functions on the
 /// `BeaconChain`.
-impl<'a, T: BeaconChainTypes> VerifiedAttestation<T> for VerifiedUnaggregate<T> {
+impl<T: BeaconChainTypes> VerifiedAttestation<T> for VerifiedUnaggregate<T> {
     fn attestation(&self) -> &Attestation<T::EthSpec> {
         &self.attestation
     }
 
     fn indexed_attestation(&self) -> &IndexedAttestation<T::EthSpec> {
         &self.indexed_attestation
+    }
+
+    fn into_attestation_and_indices(self) -> (Attestation<T::EthSpec>, Vec<u64>) {
+        let attestation = *self.attestation;
+        let attesting_indices = self.indexed_attestation.attesting_indices.into();
+        (attestation, attesting_indices)
     }
 }
 
@@ -72,13 +79,20 @@ struct VerifiedAggregate<T: BeaconChainTypes> {
 
 /// This implementation allows `Self` to be imported to fork choice and other functions on the
 /// `BeaconChain`.
-impl<'a, T: BeaconChainTypes> VerifiedAttestation<T> for VerifiedAggregate<T> {
+impl<T: BeaconChainTypes> VerifiedAttestation<T> for VerifiedAggregate<T> {
     fn attestation(&self) -> &Attestation<T::EthSpec> {
         &self.signed_aggregate.message.aggregate
     }
 
     fn indexed_attestation(&self) -> &IndexedAttestation<T::EthSpec> {
         &self.indexed_attestation
+    }
+
+    /// Efficient clone-free implementation that moves out of the `Box`.
+    fn into_attestation_and_indices(self) -> (Attestation<T::EthSpec>, Vec<u64>) {
+        let attestation = self.signed_aggregate.message.aggregate;
+        let attesting_indices = self.indexed_attestation.attesting_indices.into();
+        (attestation, attesting_indices)
     }
 }
 
@@ -594,7 +608,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     }
                 }
 
-                if let Err(e) = self.chain.add_to_block_inclusion_pool(&verified_aggregate) {
+                if let Err(e) = self.chain.add_to_block_inclusion_pool(verified_aggregate) {
                     debug!(
                         self.log,
                         "Attestation invalid for op pool";
@@ -636,24 +650,27 @@ impl<T: BeaconChainTypes> Worker<T> {
     ///
     /// Raises a log if there are errors.
     #[allow(clippy::too_many_arguments)]
-    pub fn process_gossip_block(
+    pub async fn process_gossip_block(
         self,
         message_id: MessageId,
         peer_id: PeerId,
         peer_client: Client,
-        block: SignedBeaconBlock<T::EthSpec>,
+        block: Arc<SignedBeaconBlock<T::EthSpec>>,
         reprocess_tx: mpsc::Sender<ReprocessQueueMessage<T>>,
         duplicate_cache: DuplicateCache,
         seen_duration: Duration,
     ) {
-        if let Some(gossip_verified_block) = self.process_gossip_unverified_block(
-            message_id,
-            peer_id,
-            peer_client,
-            block,
-            reprocess_tx.clone(),
-            seen_duration,
-        ) {
+        if let Some(gossip_verified_block) = self
+            .process_gossip_unverified_block(
+                message_id,
+                peer_id,
+                peer_client,
+                block,
+                reprocess_tx.clone(),
+                seen_duration,
+            )
+            .await
+        {
             let block_root = gossip_verified_block.block_root;
             if let Some(handle) = duplicate_cache.check_and_insert(block_root) {
                 self.process_gossip_verified_block(
@@ -661,7 +678,8 @@ impl<T: BeaconChainTypes> Worker<T> {
                     gossip_verified_block,
                     reprocess_tx,
                     seen_duration,
-                );
+                )
+                .await;
                 // Drop the handle to remove the entry from the cache
                 drop(handle);
             } else {
@@ -678,12 +696,12 @@ impl<T: BeaconChainTypes> Worker<T> {
     /// if it passes gossip propagation criteria, tell the network thread to forward it.
     ///
     /// Returns the `GossipVerifiedBlock` if verification passes and raises a log if there are errors.
-    pub fn process_gossip_unverified_block(
+    pub async fn process_gossip_unverified_block(
         &self,
         message_id: MessageId,
         peer_id: PeerId,
         peer_client: Client,
-        block: SignedBeaconBlock<T::EthSpec>,
+        block: Arc<SignedBeaconBlock<T::EthSpec>>,
         reprocess_tx: mpsc::Sender<ReprocessQueueMessage<T>>,
         seen_duration: Duration,
     ) -> Option<GossipVerifiedBlock<T>> {
@@ -704,7 +722,7 @@ impl<T: BeaconChainTypes> Worker<T> {
             Some(peer_client.to_string()),
         );
 
-        let verified_block = match self.chain.verify_block_for_gossip(block) {
+        let verified_block = match self.chain.clone().verify_block_for_gossip(block).await {
             Ok(verified_block) => {
                 if block_delay >= self.chain.slot_clock.unagg_attestation_production_delay() {
                     metrics::inc_counter(&metrics::BEACON_BLOCK_GOSSIP_ARRIVED_LATE_TOTAL);
@@ -766,14 +784,15 @@ impl<T: BeaconChainTypes> Worker<T> {
                 debug!(self.log, "Could not verify block for gossip, ignoring the block";
                             "error" => %e);
                 // Prevent recurring behaviour by penalizing the peer slightly.
-                self.gossip_penalize_peer(peer_id, PeerAction::HighToleranceError, "gossip_block_high");
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::HighToleranceError,
+                    "gossip_block_high",
+                );
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
                 return None;
             }
-            // TODO(merge): reconsider peer scoring for this event.
-            Err(e @BlockError::ExecutionPayloadError(ExecutionPayloadError::RequestFailed(_)))
-            | Err(e @ BlockError::ExecutionPayloadError(ExecutionPayloadError::UnverifiedNonOptimisticCandidate))
-            | Err(e @BlockError::ExecutionPayloadError(ExecutionPayloadError::NoExecutionConnection)) => {
+            Err(ref e @ BlockError::ExecutionPayloadError(ref epe)) if !epe.penalize_peer() => {
                 debug!(self.log, "Could not verify block for gossip, ignoring the block";
                             "error" => %e);
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
@@ -792,7 +811,6 @@ impl<T: BeaconChainTypes> Worker<T> {
             | Err(e @ BlockError::TooManySkippedSlots { .. })
             | Err(e @ BlockError::WeakSubjectivityConflict)
             | Err(e @ BlockError::InconsistentFork(_))
-            // TODO(merge): reconsider peer scoring for this event.
             | Err(e @ BlockError::ExecutionPayloadError(_))
             // TODO(merge): reconsider peer scoring for this event.
             | Err(e @ BlockError::ParentExecutionPayloadInvalid { .. })
@@ -800,7 +818,11 @@ impl<T: BeaconChainTypes> Worker<T> {
                 warn!(self.log, "Could not verify block for gossip, rejecting the block";
                             "error" => %e);
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
-                self.gossip_penalize_peer(peer_id, PeerAction::LowToleranceError, "gossip_block_low");
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::LowToleranceError,
+                    "gossip_block_low",
+                );
                 return None;
             }
         };
@@ -852,7 +874,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                 metrics::inc_counter(&metrics::BEACON_PROCESSOR_GOSSIP_BLOCK_REQUEUED_TOTAL);
 
                 if reprocess_tx
-                    .try_send(ReprocessQueueMessage::EarlyBlock(QueuedBlock {
+                    .try_send(ReprocessQueueMessage::EarlyBlock(QueuedGossipBlock {
                         peer_id,
                         block: Box::new(verified_block),
                         seen_timestamp: seen_duration,
@@ -887,7 +909,7 @@ impl<T: BeaconChainTypes> Worker<T> {
     /// Process the beacon block that has already passed gossip verification.
     ///
     /// Raises a log if there are errors.
-    pub fn process_gossip_verified_block(
+    pub async fn process_gossip_verified_block(
         self,
         peer_id: PeerId,
         verified_block: GossipVerifiedBlock<T>,
@@ -895,9 +917,13 @@ impl<T: BeaconChainTypes> Worker<T> {
         // This value is not used presently, but it might come in handy for debugging.
         _seen_duration: Duration,
     ) {
-        let block = Box::new(verified_block.block.clone());
+        let block: Arc<_> = verified_block.block.clone();
 
-        match self.chain.process_block(verified_block) {
+        match self
+            .chain
+            .process_block(verified_block, CountUnrealized::True)
+            .await
+        {
             Ok(block_root) => {
                 metrics::inc_counter(&metrics::BEACON_PROCESSOR_GOSSIP_BLOCK_IMPORTED_TOTAL);
 
@@ -913,25 +939,14 @@ impl<T: BeaconChainTypes> Worker<T> {
                     )
                 };
 
-                trace!(
+                debug!(
                     self.log,
                     "Gossipsub block processed";
+                    "block" => ?block_root,
                     "peer_id" => %peer_id
                 );
 
-                match self.chain.fork_choice() {
-                    Ok(()) => trace!(
-                        self.log,
-                        "Fork choice success";
-                        "location" => "block gossip"
-                    ),
-                    Err(e) => error!(
-                        self.log,
-                        "Fork choice failed";
-                        "error" => ?e,
-                        "location" => "block gossip"
-                    ),
-                }
+                self.chain.recompute_head_at_current_slot().await;
             }
             Err(BlockError::ParentUnknown { .. }) => {
                 // Inform the sync manager to find parents for this block
@@ -942,6 +957,13 @@ impl<T: BeaconChainTypes> Worker<T> {
                     "peer_id" => %peer_id
                 );
                 self.send_sync_message(SyncMessage::UnknownBlock(peer_id, block));
+            }
+            Err(ref e @ BlockError::ExecutionPayloadError(ref epe)) if !epe.penalize_peer() => {
+                debug!(
+                    self.log,
+                    "Failed to verify execution payload";
+                    "error" => %e
+                );
             }
             other => {
                 debug!(
@@ -1134,13 +1156,9 @@ impl<T: BeaconChainTypes> Worker<T> {
             .read()
             .register_gossip_attester_slashing(slashing.as_inner());
 
-        if let Err(e) = self.chain.import_attester_slashing(slashing) {
-            debug!(self.log, "Error importing attester slashing"; "error" => ?e);
-            metrics::inc_counter(&metrics::BEACON_PROCESSOR_ATTESTER_SLASHING_ERROR_TOTAL);
-        } else {
-            debug!(self.log, "Successfully imported attester slashing");
-            metrics::inc_counter(&metrics::BEACON_PROCESSOR_ATTESTER_SLASHING_IMPORTED_TOTAL);
-        }
+        self.chain.import_attester_slashing(slashing);
+        debug!(self.log, "Successfully imported attester slashing");
+        metrics::inc_counter(&metrics::BEACON_PROCESSOR_ATTESTER_SLASHING_IMPORTED_TOTAL);
     }
 
     /// Process the sync committee signature received from the gossip network and:

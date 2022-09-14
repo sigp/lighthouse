@@ -2,7 +2,20 @@ use account_utils::ZeroizeString;
 use eth2_keystore::Keystore;
 use serde::{Deserialize, Serialize};
 use slashing_protection::interchange::Interchange;
-use types::PublicKeyBytes;
+use types::{Address, PublicKeyBytes};
+
+#[derive(Debug, Deserialize, Serialize, PartialEq)]
+pub struct GetFeeRecipientResponse {
+    pub pubkey: PublicKeyBytes,
+    pub ethaddress: Address,
+}
+
+#[derive(Debug, Deserialize, Serialize, PartialEq)]
+pub struct GetGasLimitResponse {
+    pub pubkey: PublicKeyBytes,
+    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    pub gas_limit: u64,
+}
 
 #[derive(Debug, Deserialize, Serialize, PartialEq)]
 pub struct AuthResponse {

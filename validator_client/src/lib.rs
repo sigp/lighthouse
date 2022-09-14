@@ -5,7 +5,6 @@ mod check_synced;
 mod cli;
 mod config;
 mod duties_service;
-mod fee_recipient_file;
 mod graffiti_file;
 mod http_metrics;
 mod key_cache;
@@ -27,7 +26,8 @@ use monitoring_api::{MonitoringHttpClient, ProcessType};
 pub use slashing_protection::{SlashingDatabase, SLASHING_PROTECTION_FILENAME};
 
 use crate::beacon_node_fallback::{
-    start_fallback_updater_service, BeaconNodeFallback, CandidateBeaconNode, RequireSynced,
+    start_fallback_updater_service, BeaconNodeFallback, CandidateBeaconNode, OfflineOnFailure,
+    RequireSynced,
 };
 use crate::doppelganger_service::DoppelgangerService;
 use account_utils::validator_definitions::ValidatorDefinitions;
@@ -73,7 +73,10 @@ const HTTP_ATTESTER_DUTIES_TIMEOUT_QUOTIENT: u32 = 4;
 const HTTP_LIVENESS_TIMEOUT_QUOTIENT: u32 = 4;
 const HTTP_PROPOSAL_TIMEOUT_QUOTIENT: u32 = 2;
 const HTTP_PROPOSER_DUTIES_TIMEOUT_QUOTIENT: u32 = 4;
+const HTTP_SYNC_COMMITTEE_CONTRIBUTION_TIMEOUT_QUOTIENT: u32 = 4;
 const HTTP_SYNC_DUTIES_TIMEOUT_QUOTIENT: u32 = 4;
+const HTTP_GET_BEACON_BLOCK_SSZ_TIMEOUT_QUOTIENT: u32 = 4;
+const HTTP_GET_DEBUG_BEACON_STATE_QUOTIENT: u32 = 4;
 
 const DOPPELGANGER_SERVICE_NAME: &str = "doppelganger";
 
@@ -281,7 +284,13 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
                         liveness: slot_duration / HTTP_LIVENESS_TIMEOUT_QUOTIENT,
                         proposal: slot_duration / HTTP_PROPOSAL_TIMEOUT_QUOTIENT,
                         proposer_duties: slot_duration / HTTP_PROPOSER_DUTIES_TIMEOUT_QUOTIENT,
+                        sync_committee_contribution: slot_duration
+                            / HTTP_SYNC_COMMITTEE_CONTRIBUTION_TIMEOUT_QUOTIENT,
                         sync_duties: slot_duration / HTTP_SYNC_DUTIES_TIMEOUT_QUOTIENT,
+                        get_beacon_blocks_ssz: slot_duration
+                            / HTTP_GET_BEACON_BLOCK_SSZ_TIMEOUT_QUOTIENT,
+                        get_debug_beacon_states: slot_duration
+                            / HTTP_GET_DEBUG_BEACON_STATE_QUOTIENT,
                     }
                 } else {
                     Timeouts::set_all(slot_duration)
@@ -306,8 +315,18 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             &http_metrics::metrics::ETH2_FALLBACK_CONFIGURED,
             num_nodes.saturating_sub(1) as i64,
         );
-        // Initialize the number of connected, synced fallbacks to 0.
+        // Set the total beacon node count.
+        set_gauge(
+            &http_metrics::metrics::TOTAL_BEACON_NODES_COUNT,
+            num_nodes as i64,
+        );
+
+        // Initialize the number of connected, synced beacon nodes to 0.
         set_gauge(&http_metrics::metrics::ETH2_FALLBACK_CONNECTED, 0);
+        set_gauge(&http_metrics::metrics::SYNCED_BEACON_NODES_COUNT, 0);
+        // Initialize the number of connected, avaliable beacon nodes to 0.
+        set_gauge(&http_metrics::metrics::AVAILABLE_BEACON_NODES_COUNT, 0);
+
         let mut beacon_nodes: BeaconNodeFallback<_, T> =
             BeaconNodeFallback::new(candidates, context.eth2_config.spec.clone(), log.clone());
 
@@ -350,6 +369,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             context.eth2_config.spec.clone(),
             doppelganger_service.clone(),
             slot_clock.clone(),
+            &config,
             context.executor.clone(),
             log.clone(),
         ));
@@ -400,7 +420,6 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             .runtime_context(context.service_context("block".into()))
             .graffiti(config.graffiti)
             .graffiti_file(config.graffiti_file.clone())
-            .private_tx_proposals(config.private_tx_proposals)
             .build()?;
 
         let attestation_service = AttestationServiceBuilder::new()
@@ -416,8 +435,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             .validator_store(validator_store.clone())
             .beacon_nodes(beacon_nodes.clone())
             .runtime_context(context.service_context("preparation".into()))
-            .fee_recipient(config.fee_recipient)
-            .fee_recipient_file(config.fee_recipient_file.clone())
+            .builder_registration_timestamp_override(config.builder_registration_timestamp_override)
             .build()?;
 
         let sync_committee_service = SyncCommitteeService::new(
@@ -428,7 +446,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             context.service_context("sync_committee".into()),
         );
 
-        // Wait until genesis has occured.
+        // Wait until genesis has occurred.
         //
         // It seems most sensible to move this into the `start_service` function, but I'm caution
         // of making too many changes this close to genesis (<1 week).
@@ -558,9 +576,11 @@ async fn init_from_beacon_node<E: EthSpec>(
 
     let genesis = loop {
         match beacon_nodes
-            .first_success(RequireSynced::No, |node| async move {
-                node.get_beacon_genesis().await
-            })
+            .first_success(
+                RequireSynced::No,
+                OfflineOnFailure::Yes,
+                |node| async move { node.get_beacon_genesis().await },
+            )
             .await
         {
             Ok(genesis) => break genesis.data,
@@ -647,9 +667,11 @@ async fn poll_whilst_waiting_for_genesis<E: EthSpec>(
 ) -> Result<(), String> {
     loop {
         match beacon_nodes
-            .first_success(RequireSynced::No, |beacon_node| async move {
-                beacon_node.get_lighthouse_staking().await
-            })
+            .first_success(
+                RequireSynced::No,
+                OfflineOnFailure::Yes,
+                |beacon_node| async move { beacon_node.get_lighthouse_staking().await },
+            )
             .await
         {
             Ok(is_staking) => {

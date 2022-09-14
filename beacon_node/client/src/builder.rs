@@ -1,6 +1,7 @@
 use crate::config::{ClientGenesis, Config as ClientConfig};
 use crate::notifier::spawn_notifier;
 use crate::Client;
+use beacon_chain::otb_verification_service::start_otb_verification_service;
 use beacon_chain::proposer_prep_service::start_proposer_prep_service;
 use beacon_chain::schema_change::migrate_schema;
 use beacon_chain::{
@@ -21,7 +22,7 @@ use execution_layer::ExecutionLayer;
 use genesis::{interop_genesis_state, Eth1GenesisService, DEFAULT_ETH1_BLOCK_HASH};
 use lighthouse_network::{prometheus_client::registry::Registry, NetworkGlobals};
 use monitoring_api::{MonitoringHttpClient, ProcessType};
-use network::{NetworkConfig, NetworkMessage, NetworkService};
+use network::{NetworkConfig, NetworkSenders, NetworkService};
 use slasher::Slasher;
 use slasher_service::SlasherService;
 use slog::{debug, info, warn, Logger};
@@ -30,7 +31,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 use timer::spawn_timer;
-use tokio::sync::{mpsc::UnboundedSender, oneshot};
+use tokio::sync::oneshot;
 use types::{
     test_utils::generate_deterministic_keypairs, BeaconState, ChainSpec, EthSpec,
     ExecutionBlockHash, Hash256, SignedBeaconBlock,
@@ -65,7 +66,7 @@ pub struct ClientBuilder<T: BeaconChainTypes> {
     beacon_chain: Option<Arc<BeaconChain<T>>>,
     eth1_service: Option<Eth1Service>,
     network_globals: Option<Arc<NetworkGlobals<T::EthSpec>>>,
-    network_send: Option<UnboundedSender<NetworkMessage<T::EthSpec>>>,
+    network_senders: Option<NetworkSenders<T::EthSpec>>,
     gossipsub_registry: Option<Registry>,
     db_path: Option<PathBuf>,
     freezer_db_path: Option<PathBuf>,
@@ -97,7 +98,7 @@ where
             beacon_chain: None,
             eth1_service: None,
             network_globals: None,
-            network_send: None,
+            network_senders: None,
             gossipsub_registry: None,
             db_path: None,
             freezer_db_path: None,
@@ -276,6 +277,8 @@ where
                     BeaconNodeHttpClient::new(url, Timeouts::set_all(CHECKPOINT_SYNC_HTTP_TIMEOUT));
                 let slots_per_epoch = TEthSpec::slots_per_epoch();
 
+                debug!(context.log(), "Downloading finalized block");
+
                 // Find a suitable finalized block on an epoch boundary.
                 let mut block = remote
                     .get_beacon_blocks_ssz::<TEthSpec>(BlockId::Finalized, &spec)
@@ -290,6 +293,8 @@ where
                     })?
                     .ok_or("Finalized block missing from remote, it returned 404")?;
 
+                debug!(context.log(), "Downloaded finalized block");
+
                 let mut block_slot = block.slot();
 
                 while block.slot() % slots_per_epoch != 0 {
@@ -299,6 +304,12 @@ where
                         context.log(),
                         "Searching for aligned checkpoint block";
                         "block_slot" => block_slot,
+                    );
+
+                    debug!(
+                        context.log(),
+                        "Searching for aligned checkpoint block";
+                        "block_slot" => block_slot
                     );
 
                     if let Some(found_block) = remote
@@ -312,7 +323,19 @@ where
                     }
                 }
 
+                debug!(
+                    context.log(),
+                    "Downloaded aligned finalized block";
+                    "block_root" => ?block.canonical_root(),
+                    "block_slot" => block.slot(),
+                );
+
                 let state_root = block.state_root();
+                debug!(
+                    context.log(),
+                    "Downloading finalized state";
+                    "state_root" => ?state_root
+                );
                 let state = remote
                     .get_debug_beacon_states_ssz::<TEthSpec>(StateId::Root(state_root), &spec)
                     .await
@@ -325,6 +348,8 @@ where
                     .ok_or_else(|| {
                         format!("Checkpoint state missing from remote: {:?}", state_root)
                     })?;
+
+                debug!(context.log(), "Downloaded finalized state");
 
                 let genesis_state = BeaconState::from_ssz_bytes(&genesis_state_bytes, &spec)
                     .map_err(|e| format!("Unable to parse genesis state SSZ: {:?}", e))?;
@@ -372,7 +397,7 @@ where
                     > = Arc::new(http_api::Context {
                         config: self.http_api_config.clone(),
                         chain: None,
-                        network_tx: None,
+                        network_senders: None,
                         network_globals: None,
                         eth1_service: Some(genesis_service.eth1_service.clone()),
                         log: context.log().clone(),
@@ -456,7 +481,7 @@ where
             None
         };
 
-        let (network_globals, network_send) = NetworkService::start(
+        let (network_globals, network_senders) = NetworkService::start(
             beacon_chain,
             config,
             context.executor,
@@ -468,7 +493,7 @@ where
         .map_err(|e| format!("Failed to start network: {:?}", e))?;
 
         self.network_globals = Some(network_globals);
-        self.network_send = Some(network_send);
+        self.network_senders = Some(network_senders);
         self.gossipsub_registry = gossipsub_registry;
 
         Ok(self)
@@ -485,13 +510,8 @@ where
             .beacon_chain
             .clone()
             .ok_or("node timer requires a beacon chain")?;
-        let seconds_per_slot = self
-            .chain_spec
-            .as_ref()
-            .ok_or("node timer requires a chain spec")?
-            .seconds_per_slot;
 
-        spawn_timer(context.executor, beacon_chain, seconds_per_slot)
+        spawn_timer(context.executor, beacon_chain)
             .map_err(|e| format!("Unable to start node timer: {}", e))?;
 
         Ok(self)
@@ -517,16 +537,16 @@ where
             .beacon_chain
             .clone()
             .ok_or("slasher service requires a beacon chain")?;
-        let network_send = self
-            .network_send
+        let network_senders = self
+            .network_senders
             .clone()
-            .ok_or("slasher service requires a network sender")?;
+            .ok_or("slasher service requires network senders")?;
         let context = self
             .runtime_context
             .as_ref()
             .ok_or("slasher requires a runtime_context")?
             .service_context("slasher_service_ctxt".into());
-        SlasherService::new(beacon_chain, network_send).run(&context.executor)
+        SlasherService::new(beacon_chain, network_senders.network_send()).run(&context.executor)
     }
 
     /// Start the explorer client which periodically sends beacon
@@ -596,7 +616,7 @@ where
             let ctx = Arc::new(http_api::Context {
                 config: self.http_api_config.clone(),
                 chain: self.beacon_chain.clone(),
-                network_tx: self.network_send.clone(),
+                network_senders: self.network_senders.clone(),
                 network_globals: self.network_globals.clone(),
                 eth1_service: self.eth1_service.clone(),
                 log: log.clone(),
@@ -665,26 +685,20 @@ where
             if let Some(execution_layer) = beacon_chain.execution_layer.as_ref() {
                 // Only send a head update *after* genesis.
                 if let Ok(current_slot) = beacon_chain.slot() {
-                    let head = beacon_chain
-                        .head_info()
-                        .map_err(|e| format!("Unable to read beacon chain head: {:?}", e))?;
-
-                    // Issue the head to the execution engine on startup. This ensures it can start
-                    // syncing.
-                    if head
-                        .execution_payload_block_hash
-                        .map_or(false, |h| h != ExecutionBlockHash::zero())
+                    let params = beacon_chain
+                        .canonical_head
+                        .cached_head()
+                        .forkchoice_update_parameters();
+                    if params
+                        .head_hash
+                        .map_or(false, |hash| hash != ExecutionBlockHash::zero())
                     {
-                        // Spawn a new task using the "async" fork choice update method, rather than
-                        // using the "blocking" method.
-                        //
-                        // Using the blocking method may cause a panic if this code is run inside an
-                        // async context.
+                        // Spawn a new task to update the EE without waiting for it to complete.
                         let inner_chain = beacon_chain.clone();
                         runtime_context.executor.spawn(
                             async move {
                                 let result = inner_chain
-                                    .update_execution_engine_forkchoice_async(current_slot)
+                                    .update_execution_engine_forkchoice(current_slot, params)
                                     .await;
 
                                 // No need to exit early if setting the head fails. It will be set again if/when the
@@ -705,7 +719,7 @@ where
                     execution_layer.spawn_watchdog_routine(beacon_chain.slot_clock.clone());
 
                     // Spawn a routine that removes expired proposer preparations.
-                    execution_layer.spawn_clean_proposer_caches_routine::<TSlotClock, TEthSpec>(
+                    execution_layer.spawn_clean_proposer_caches_routine::<TSlotClock>(
                         beacon_chain.slot_clock.clone(),
                     );
 
@@ -715,6 +729,7 @@ where
             }
 
             start_proposer_prep_service(runtime_context.executor.clone(), beacon_chain.clone());
+            start_otb_verification_service(runtime_context.executor.clone(), beacon_chain.clone());
         }
 
         Ok(Client {
@@ -792,8 +807,16 @@ where
         self.db_path = Some(hot_path.into());
         self.freezer_db_path = Some(cold_path.into());
 
+        let inner_spec = spec.clone();
         let schema_upgrade = |db, from, to| {
-            migrate_schema::<Witness<TSlotClock, TEth1Backend, _, _, _>>(db, datadir, from, to, log)
+            migrate_schema::<Witness<TSlotClock, TEth1Backend, _, _, _>>(
+                db,
+                datadir,
+                from,
+                to,
+                log,
+                &inner_spec,
+            )
         };
 
         let store = HotColdDB::open(
@@ -828,7 +851,7 @@ where
             .runtime_context
             .as_ref()
             .ok_or("caching_eth1_backend requires a runtime_context")?
-            .service_context("eth1_rpc".into());
+            .service_context("deposit_contract_rpc".into());
         let beacon_chain_builder = self
             .beacon_chain_builder
             .ok_or("caching_eth1_backend requires a beacon_chain_builder")?;

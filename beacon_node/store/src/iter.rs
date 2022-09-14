@@ -212,7 +212,7 @@ impl<'a, T: EthSpec, Hot: ItemStore<T>, Cold: ItemStore<T>> RootsIterator<'a, T,
             (Err(BeaconStateError::SlotOutOfBounds), Err(BeaconStateError::SlotOutOfBounds)) => {
                 // Read a `BeaconState` from the store that has access to prior historical roots.
                 if let Some(beacon_state) =
-                    next_historical_root_backtrack_state(&*self.store, &self.beacon_state)
+                    next_historical_root_backtrack_state(self.store, &self.beacon_state)
                         .handle_unavailable()?
                 {
                     self.beacon_state = Cow::Owned(beacon_state);

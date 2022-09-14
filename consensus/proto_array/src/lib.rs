@@ -4,7 +4,7 @@ mod proto_array;
 mod proto_array_fork_choice;
 mod ssz_container;
 
-pub use crate::proto_array::InvalidationOperation;
+pub use crate::proto_array::{CountUnrealizedFull, InvalidationOperation};
 pub use crate::proto_array_fork_choice::{Block, ExecutionStatus, ProtoArrayForkChoice};
 pub use error::Error;
 

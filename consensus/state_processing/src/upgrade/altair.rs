@@ -32,8 +32,8 @@ pub fn translate_participation<E: EthSpec>(
         for index in attesting_indices {
             for flag_index in &participation_flag_indices {
                 epoch_participation
-                    .get_mut(index)
-                    .ok_or(Error::UnknownValidator(index))?
+                    .get_mut(index as usize)
+                    .ok_or(Error::UnknownValidator(index as usize))?
                     .add_flag(*flag_index)?;
             }
         }

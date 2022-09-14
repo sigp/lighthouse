@@ -4,7 +4,7 @@ use core::num::NonZeroUsize;
 use ethereum_types::{H160, H256, U128, U256};
 use itertools::process_results;
 use smallvec::SmallVec;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::iter::{self, FromIterator};
 use std::sync::Arc;
 
@@ -424,6 +424,28 @@ where
             bytes
                 .chunks(<(K, V)>::ssz_fixed_len())
                 .map(<(K, V)>::from_ssz_bytes)
+                .collect()
+        } else {
+            decode_list_of_variable_length_items(bytes, None)
+        }
+    }
+}
+
+impl<T> Decode for BTreeSet<T>
+where
+    T: Decode + Ord,
+{
+    fn is_ssz_fixed_len() -> bool {
+        false
+    }
+
+    fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
+        if bytes.is_empty() {
+            Ok(Self::from_iter(iter::empty()))
+        } else if T::is_ssz_fixed_len() {
+            bytes
+                .chunks(T::ssz_fixed_len())
+                .map(T::from_ssz_bytes)
                 .collect()
         } else {
             decode_list_of_variable_length_items(bytes, None)
