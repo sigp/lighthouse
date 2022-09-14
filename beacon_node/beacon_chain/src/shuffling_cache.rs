@@ -63,9 +63,9 @@ impl ShufflingCache {
     pub fn get(&mut self, key: &AttestationShufflingId) -> Option<CacheItem> {
         match self.cache.get(key) {
             // The cache contained the committee cache, return it.
-            item @ Some(CacheItem::Committee(_)) => {
+            Some(CacheItem::Committee(committee)) => {
                 metrics::inc_counter(&metrics::SHUFFLING_CACHE_HITS);
-                item.cloned()
+                Some(committee.clone())
             }
             // The cache contains a promise for the committee cache. Check to see if the promise has
             // already been resolved, without waiting for it.
@@ -86,9 +86,9 @@ impl ShufflingCache {
                     metrics::inc_counter(&metrics::SHUFFLING_CACHE_HITS);
                     item.cloned()
                 }
-                // The sender has been dropped without sending a committee. There was most likely
-                // and error computing the committee cache. Drop the key from the cache and return
-                // `None` so the caller can recompute the cache.
+                // The sender has been dropped without sending a committee. There was most likely an
+                // error computing the committee cache. Drop the key from the cache and return
+                // `None` so the caller can recompute the committee.
                 //
                 // It's worth noting that this is the only place where we removed unresolved
                 // promises from the cache. This means unresolved promises will only be removed if
@@ -123,8 +123,8 @@ impl ShufflingCache {
         if self
             .cache
             .get(&key)
-            // Replace the committee if it's not present, or if it's a promise. An actual value is
-            // always better than a promise!
+            // Replace the committee if it's not present or if it's a promise. A bird in the hand is
+            // worth two in the promise-bush!
             .map_or(true, CacheItem::is_promise)
         {
             self.cache
@@ -218,7 +218,7 @@ mod test {
         (Arc::new(committee_a), Arc::new(committee_b))
     }
 
-    /// Builds a deterministic but non-valid shuffling ID from a `u64`.
+    /// Builds a deterministic but incoherent shuffling ID from a `u64`.
     fn shuffling_id(id: u64) -> AttestationShufflingId {
         AttestationShufflingId {
             shuffling_epoch: id.into(),
