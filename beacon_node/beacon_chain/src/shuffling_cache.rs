@@ -79,6 +79,13 @@ impl ShufflingCache {
                 // The sender has been dropped without sending a committee. There was most likely
                 // and error computing the committee cache. Drop the key from the cache and return
                 // `None` so the caller can recompute the cache.
+                //
+                // It's worth noting that this is the only place where we removed unresolved
+                // promises from the cache. This means unresolved promises will only be removed if
+                // we try to access them again. This is OK, since the promises don't consume much
+                // memory and the nature of the LRU cache means that future, relevant entries will
+                // still be added to the cache. We expect that *all* promises should be resolved,
+                // unless there is a programming or database error.
                 Err(TryRecvError::Disconnected) => {
                     metrics::inc_counter(&metrics::SHUFFLING_CACHE_MISSES);
                     self.cache.pop(key);
@@ -163,5 +170,177 @@ impl BlockShufflingIds {
         } else {
             None
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::test_utils::EphemeralHarnessType;
+    use types::*;
+
+    type BeaconChainHarness =
+        crate::test_utils::BeaconChainHarness<EphemeralHarnessType<MinimalEthSpec>>;
+
+    /// Returns two different committee caches for testing.
+    fn committee_caches() -> (Arc<CommitteeCache>, Arc<CommitteeCache>) {
+        let harness = BeaconChainHarness::builder(MinimalEthSpec)
+            .default_spec()
+            .deterministic_keypairs(8)
+            .fresh_ephemeral_store()
+            .build();
+        let (mut state, _) = harness.get_current_state_and_root();
+        state
+            .build_committee_cache(RelativeEpoch::Current, &harness.chain.spec)
+            .unwrap();
+        state
+            .build_committee_cache(RelativeEpoch::Next, &harness.chain.spec)
+            .unwrap();
+        let committee_a = state
+            .committee_cache(RelativeEpoch::Current)
+            .unwrap()
+            .clone();
+        let committee_b = state.committee_cache(RelativeEpoch::Next).unwrap().clone();
+        assert!(committee_a != committee_b);
+        (Arc::new(committee_a), Arc::new(committee_b))
+    }
+
+    /// Builds a deterministic but non-valid shuffling ID from a `u64`.
+    fn shuffling_id(id: u64) -> AttestationShufflingId {
+        AttestationShufflingId {
+            shuffling_epoch: id.into(),
+            shuffling_decision_block: Hash256::from_low_u64_be(id),
+        }
+    }
+
+    #[test]
+    fn resolved_promise() {
+        let (committee_a, _) = committee_caches();
+        let id_a = shuffling_id(1);
+        let mut cache = ShufflingCache::new();
+
+        // Create a promise.
+        let sender = cache.create_promise(id_a.clone()).unwrap();
+
+        // Retrieve the newly created promise.
+        let item = cache.get(&id_a).unwrap();
+        assert!(
+            matches!(item, CacheItem::Promise(_)),
+            "the item should be a promise"
+        );
+
+        // Resolve the promise.
+        sender.send(committee_a.clone()).unwrap();
+
+        // Ensure the promise has been resolved.
+        let item = cache.get(&id_a).unwrap();
+        assert!(
+            matches!(item, CacheItem::Ready(committee) if committee == committee_a),
+            "the promise should be resolved"
+        );
+        assert_eq!(cache.cache.len(), 1, "the cache should have one entry");
+    }
+
+    #[test]
+    fn unresolved_promise() {
+        let id_a = shuffling_id(1);
+        let mut cache = ShufflingCache::new();
+
+        // Create a promise.
+        let sender = cache.create_promise(id_a.clone()).unwrap();
+
+        // Retrieve the newly created promise.
+        let item = cache.get(&id_a).unwrap();
+        assert!(
+            matches!(item, CacheItem::Promise(_)),
+            "the item should be a promise"
+        );
+
+        // Drop the sender without resolving the promise, simulating an error computing the
+        // committee.
+        drop(sender);
+
+        // Ensure the key now indicates an empty slot.
+        assert!(cache.get(&id_a).is_none(), "the slot should be empty");
+        assert!(cache.cache.is_empty(), "the cache should be empty");
+    }
+
+    #[test]
+    fn two_promises() {
+        let (committee_a, committee_b) = committee_caches();
+        let (id_a, id_b) = (shuffling_id(1), shuffling_id(2));
+        let mut cache = ShufflingCache::new();
+
+        // Create promise A.
+        let sender_a = cache.create_promise(id_a.clone()).unwrap();
+
+        // Retrieve promise A.
+        let item = cache.get(&id_a).unwrap();
+        assert!(
+            matches!(item, CacheItem::Promise(_)),
+            "item a should be a promise"
+        );
+
+        // Create promise B.
+        let sender_b = cache.create_promise(id_b.clone()).unwrap();
+
+        // Retrieve promise B.
+        let item = cache.get(&id_b).unwrap();
+        assert!(
+            matches!(item, CacheItem::Promise(_)),
+            "item b should be a promise"
+        );
+
+        // Resolve promise A.
+        sender_a.send(committee_a.clone()).unwrap();
+        // Ensure promise A has been resolved.
+        let item = cache.get(&id_a).unwrap();
+        assert!(
+            matches!(item, CacheItem::Ready(committee) if committee == committee_a),
+            "promise A should be resolved"
+        );
+
+        // Resolve promise B.
+        sender_b.send(committee_b.clone()).unwrap();
+        // Ensure promise B has been resolved.
+        let item = cache.get(&id_b).unwrap();
+        assert!(
+            matches!(item, CacheItem::Ready(committee) if committee == committee_b),
+            "promise B should be resolved"
+        );
+
+        // Check both entries again.
+        assert!(
+            matches!(cache.get(&id_a).unwrap(), CacheItem::Ready(committee) if committee == committee_a),
+            "promise A should remain resolved"
+        );
+        assert!(
+            matches!(cache.get(&id_b).unwrap(), CacheItem::Ready(committee) if committee == committee_b),
+            "promise B should remain resolved"
+        );
+        assert_eq!(cache.cache.len(), 2, "the cache should have two entries");
+    }
+
+    #[test]
+    fn too_many_promises() {
+        let mut cache = ShufflingCache::new();
+
+        for i in 0..MAX_CONCURRENT_PROMISES {
+            cache.create_promise(shuffling_id(i as u64)).unwrap();
+        }
+
+        // Ensure that the next promise returns an error. It is important for the application to
+        // dump his ass when he can't keep his promises, you're a queen and you deserve better.
+        assert!(matches!(
+            cache.create_promise(shuffling_id(MAX_CONCURRENT_PROMISES as u64)),
+            Err(BeaconChainError::MaxCommitteePromises(
+                MAX_CONCURRENT_PROMISES
+            ))
+        ));
+        assert_eq!(
+            cache.cache.len(),
+            MAX_CONCURRENT_PROMISES,
+            "the cache should have two entries"
+        );
     }
 }
