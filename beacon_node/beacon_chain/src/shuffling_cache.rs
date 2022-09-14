@@ -18,7 +18,7 @@ const MAX_CONCURRENT_PROMISES: usize = 4;
 
 #[derive(Clone)]
 pub enum CacheItem {
-    Ready(Arc<CommitteeCache>),
+    Committee(Arc<CommitteeCache>),
     Promise(Receiver<Arc<CommitteeCache>>),
 }
 
@@ -29,7 +29,7 @@ impl CacheItem {
 
     pub fn wait(self) -> Result<Arc<CommitteeCache>, BeaconChainError> {
         match self {
-            CacheItem::Ready(cache) => Ok(cache),
+            CacheItem::Committee(cache) => Ok(cache),
             CacheItem::Promise(receiver) => receiver
                 .recv()
                 .map_err(BeaconChainError::CommitteeCacheWait),
@@ -55,7 +55,7 @@ impl ShufflingCache {
     pub fn get(&mut self, key: &AttestationShufflingId) -> Option<CacheItem> {
         match self.cache.get(key) {
             // The cache contained the committee cache, return it.
-            item @ Some(CacheItem::Ready(_)) => {
+            item @ Some(CacheItem::Committee(_)) => {
                 metrics::inc_counter(&metrics::SHUFFLING_CACHE_HITS);
                 item.cloned()
             }
@@ -63,10 +63,10 @@ impl ShufflingCache {
             // already been resolved, without waiting for it.
             item @ Some(CacheItem::Promise(receiver)) => match receiver.try_recv() {
                 // The promise has already been resolved. Replace the entry in the cache with a
-                // `Ready` entry and then return the committee.
+                // `Committee` entry and then return the committee.
                 Ok(committee) => {
                     metrics::inc_counter(&metrics::SHUFFLING_CACHE_HITS);
-                    let ready = CacheItem::Ready(committee);
+                    let ready = CacheItem::Committee(committee);
                     self.cache.put(key.clone(), ready.clone());
                     Some(ready)
                 }
@@ -117,7 +117,7 @@ impl ShufflingCache {
             .map_or(true, CacheItem::is_promise)
         {
             self.cache
-                .put(key, CacheItem::Ready(Arc::new(committee_cache.clone())));
+                .put(key, CacheItem::Committee(Arc::new(committee_cache.clone())));
         }
     }
 
@@ -235,7 +235,7 @@ mod test {
         // Ensure the promise has been resolved.
         let item = cache.get(&id_a).unwrap();
         assert!(
-            matches!(item, CacheItem::Ready(committee) if committee == committee_a),
+            matches!(item, CacheItem::Committee(committee) if committee == committee_a),
             "the promise should be resolved"
         );
         assert_eq!(cache.cache.len(), 1, "the cache should have one entry");
@@ -296,7 +296,7 @@ mod test {
         // Ensure promise A has been resolved.
         let item = cache.get(&id_a).unwrap();
         assert!(
-            matches!(item, CacheItem::Ready(committee) if committee == committee_a),
+            matches!(item, CacheItem::Committee(committee) if committee == committee_a),
             "promise A should be resolved"
         );
 
@@ -305,17 +305,17 @@ mod test {
         // Ensure promise B has been resolved.
         let item = cache.get(&id_b).unwrap();
         assert!(
-            matches!(item, CacheItem::Ready(committee) if committee == committee_b),
+            matches!(item, CacheItem::Committee(committee) if committee == committee_b),
             "promise B should be resolved"
         );
 
         // Check both entries again.
         assert!(
-            matches!(cache.get(&id_a).unwrap(), CacheItem::Ready(committee) if committee == committee_a),
+            matches!(cache.get(&id_a).unwrap(), CacheItem::Committee(committee) if committee == committee_a),
             "promise A should remain resolved"
         );
         assert!(
-            matches!(cache.get(&id_b).unwrap(), CacheItem::Ready(committee) if committee == committee_b),
+            matches!(cache.get(&id_b).unwrap(), CacheItem::Committee(committee) if committee == committee_b),
             "promise B should remain resolved"
         );
         assert_eq!(cache.cache.len(), 2, "the cache should have two entries");
