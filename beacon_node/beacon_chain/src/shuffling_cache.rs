@@ -24,7 +24,9 @@ const MAX_CONCURRENT_PROMISES: usize = 2;
 
 #[derive(Clone)]
 pub enum CacheItem {
+    /// A committee.
     Committee(Arc<CommitteeCache>),
+    /// A promise for a future committee.
     Promise(Receiver<Arc<CommitteeCache>>),
 }
 
@@ -71,6 +73,7 @@ impl ShufflingCache {
                 // The promise has already been resolved. Replace the entry in the cache with a
                 // `Committee` entry and then return the committee.
                 Ok(committee) => {
+                    metrics::inc_counter(&metrics::SHUFFLING_CACHE_PROMISE_HITS);
                     metrics::inc_counter(&metrics::SHUFFLING_CACHE_HITS);
                     let ready = CacheItem::Committee(committee);
                     self.cache.put(key.clone(), ready.clone());
@@ -79,6 +82,7 @@ impl ShufflingCache {
                 // The promise has not yet been resolved. Return the promise so the caller can await
                 // it.
                 Err(TryRecvError::Empty) => {
+                    metrics::inc_counter(&metrics::SHUFFLING_CACHE_PROMISE_HITS);
                     metrics::inc_counter(&metrics::SHUFFLING_CACHE_HITS);
                     item.cloned()
                 }
@@ -93,6 +97,7 @@ impl ShufflingCache {
                 // still be added to the cache. We expect that *all* promises should be resolved,
                 // unless there is a programming or database error.
                 Err(TryRecvError::Disconnected) => {
+                    metrics::inc_counter(&metrics::SHUFFLING_CACHE_PROMISE_FAILS);
                     metrics::inc_counter(&metrics::SHUFFLING_CACHE_MISSES);
                     self.cache.pop(key);
                     None
