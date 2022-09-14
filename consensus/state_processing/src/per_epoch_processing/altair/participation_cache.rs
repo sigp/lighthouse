@@ -13,7 +13,7 @@
 
 use crate::common::altair::get_base_reward;
 use safe_arith::{ArithError, SafeArith};
-use std::collections::BTreeMap;
+use types::milhouse::update_map::{MaxMap, UpdateMap};
 use types::{
     consts::altair::{
         NUM_FLAG_INDICES, TIMELY_HEAD_FLAG_INDEX, TIMELY_SOURCE_FLAG_INDEX,
@@ -22,6 +22,7 @@ use types::{
     BeaconState, BeaconStateError, ChainSpec, Epoch, EthSpec, ParticipationFlags, RelativeEpoch,
     Unsigned, Validator,
 };
+use vec_map::VecMap;
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
@@ -198,7 +199,7 @@ pub struct ParticipationCache {
     /// `process_slashings`.
     process_slashings_indices: Vec<(usize, u64)>,
     /// Updates to the inactivity scores if we are definitely not in an inactivity leak.
-    pub inactivity_score_updates: Option<BTreeMap<usize, u64>>,
+    pub inactivity_score_updates: Option<MaxMap<VecMap<u64>>>,
 }
 
 impl ParticipationCache {
@@ -237,7 +238,7 @@ impl ParticipationCache {
         let definitely_not_in_inactivity_leak =
             state.finalized_checkpoint().epoch + spec.min_epochs_to_inactivity_penalty + 1
                 >= state.current_epoch();
-        let mut inactivity_score_updates = BTreeMap::new();
+        let mut inactivity_score_updates = MaxMap::default();
 
         // Iterate through all validators, updating:
         //

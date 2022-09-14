@@ -3728,7 +3728,6 @@ dependencies = [
 [[package]]
 name = "milhouse"
 version = "0.1.0"
-source = "git+https://github.com/sigp/milhouse?branch=main#30c87f256deacc381fb15e39ccc4a281445f98da"
 dependencies = [
  "derivative",
  "eth2_hashing 0.2.0",
@@ -3741,6 +3740,7 @@ dependencies = [
  "tree_hash",
  "triomphe",
  "typenum",
+ "vec_map",
 ]
 
 [[package]]
@@ -5964,6 +5964,7 @@ dependencies = [
  "smallvec",
  "tree_hash",
  "types",
+ "vec_map",
 ]
 
 [[package]]

@@ -323,13 +323,19 @@ impl<E: EthSpec, O: Operation<E>> Case for Operations<E, O> {
 
     fn result(&self, _case_index: usize, fork_name: ForkName) -> Result<(), Error> {
         let spec = &testing_spec::<E>(fork_name);
-        let mut state = self.pre.clone();
-        let mut expected = self.post.clone();
 
+        let mut pre_state = self.pre.clone();
         // Processing requires the committee caches.
-        state
+        pre_state
             .build_all_committee_caches(spec)
             .expect("committee caches OK");
+
+        let mut state = pre_state.clone();
+        let mut expected = self.post.clone();
+
+        expected
+            .as_mut()
+            .map(|post_state| post_state.build_all_committee_caches(spec).unwrap());
 
         let mut result = self
             .operation
@@ -338,7 +344,7 @@ impl<E: EthSpec, O: Operation<E>> Case for Operations<E, O> {
             .apply_to(&mut state, spec, self)
             .map(|()| state);
 
-        compare_beacon_state_results_without_caches(&mut result, &mut expected)?;
-        check_state_diff(&self.pre, &self.post)
+        check_state_diff(&pre_state, &expected)?;
+        compare_beacon_state_results_without_caches(&mut result, &mut expected)
     }
 }

@@ -213,7 +213,7 @@ impl<E: EthSpec> EpochTransition<E> for InactivityUpdates {
             BeaconState::Base(_) => Ok(()),
             BeaconState::Altair(_) | BeaconState::Merge(_) => altair::process_inactivity_updates(
                 state,
-                &altair::ParticipationCache::new(state, spec).unwrap(),
+                &mut altair::ParticipationCache::new(state, spec).unwrap(),
                 spec,
             ),
         }
@@ -278,19 +278,22 @@ impl<E: EthSpec, T: EpochTransition<E>> Case for EpochProcessing<E, T> {
     fn result(&self, _case_index: usize, fork_name: ForkName) -> Result<(), Error> {
         self.metadata.bls_setting.unwrap_or_default().check()?;
 
-        let mut state = self.pre.clone();
+        let spec = &testing_spec::<E>(fork_name);
+        let mut pre_state = self.pre.clone();
+
+        // Processing requires the committee caches.
+        pre_state.build_all_committee_caches(spec).unwrap();
+
+        let mut state = pre_state.clone();
         let mut expected = self.post.clone();
 
-        let spec = &testing_spec::<E>(fork_name);
+        expected.as_mut().map(|post_state| {
+            post_state.build_all_committee_caches(spec).unwrap();
+        });
 
-        let mut result = (|| {
-            // Processing requires the committee caches.
-            state.build_all_committee_caches(spec)?;
+        let mut result = T::run(&mut state, spec).map(|_| state);
 
-            T::run(&mut state, spec).map(|_| state)
-        })();
-
-        compare_beacon_state_results_without_caches(&mut result, &mut expected)?;
-        check_state_diff(&self.pre, &self.post)
+        check_state_diff(&pre_state, &expected)?;
+        compare_beacon_state_results_without_caches(&mut result, &mut expected)
     }
 }
