@@ -401,7 +401,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
             // Add the events for those subnets that are new as long lived subscriptions.
             if !self.long_lived_subscriptions.contains(subnet) {
                 // Check if this subnet is new and send the subscription event if needed.
-                if !self.short_lived_subscriptions.contains_key(&subnet) {
+                if !self.short_lived_subscriptions.contains_key(subnet) {
                     self.queue_event(SubnetServiceMessage::Subscribe(Subnet::Attestation(
                         *subnet,
                     )));
