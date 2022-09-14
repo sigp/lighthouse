@@ -123,10 +123,11 @@ where
         decompressor: D,
         block: &'a SignedBeaconBlock<T, Payload>,
         block_root: Option<Hash256>,
+        check_proposer_index: bool,
         spec: &'a ChainSpec,
     ) -> Result<()> {
         let mut verifier = Self::new(state, get_pubkey, decompressor, spec);
-        verifier.include_all_signatures(block, block_root)?;
+        verifier.include_all_signatures(block, block_root, check_proposer_index)?;
         verifier.verify()
     }
 
@@ -135,8 +136,9 @@ where
         &mut self,
         block: &'a SignedBeaconBlock<T, Payload>,
         block_root: Option<Hash256>,
+        check_proposer_index: bool,
     ) -> Result<()> {
-        self.include_block_proposal(block, block_root)?;
+        self.include_block_proposal(block, block_root, check_proposer_index)?;
         self.include_all_signatures_except_proposal(block)?;
 
         Ok(())
@@ -164,12 +166,14 @@ where
         &mut self,
         block: &'a SignedBeaconBlock<T, Payload>,
         block_root: Option<Hash256>,
+        check_proposer_index: bool,
     ) -> Result<()> {
         let set = block_proposal_signature_set(
             self.state,
             self.get_pubkey.clone(),
             block,
             block_root,
+            check_proposer_index,
             self.spec,
         )?;
         self.sets.push(set);

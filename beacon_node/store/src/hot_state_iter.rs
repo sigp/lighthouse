@@ -28,7 +28,7 @@ impl<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotStateRootIter<'a,
         let summary = self
             .store
             .load_hot_state_summary(&self.next_state_root)?
-            .ok_or_else(|| HotColdDBError::MissingHotStateSummary(self.next_state_root))?;
+            .ok_or(HotColdDBError::MissingHotStateSummary(self.next_state_root))?;
 
         let slot = self.next_slot;
         let state_root = self.next_state_root;

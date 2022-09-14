@@ -42,6 +42,7 @@ pub struct CommitteeCache {
 /// common entries, and that new entries at the end are all `None`.
 ///
 /// In practice this is only used in tests.
+#[allow(clippy::indexing_slicing)]
 fn compare_shuffling_positions(xs: &Vec<NonZeroUsizeOption>, ys: &Vec<NonZeroUsizeOption>) -> bool {
     use std::cmp::Ordering;
 

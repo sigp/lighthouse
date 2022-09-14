@@ -119,6 +119,7 @@ pub fn per_block_processing<T: EthSpec, Payload: ExecPayload<T>>(
                     |pk_bytes| pk_bytes.decompress().ok().map(Cow::Owned),
                     signed_block,
                     block_root,
+                    false,
                     spec
                 )
                 .is_ok(),
@@ -249,6 +250,7 @@ pub fn verify_block_signature<T: EthSpec, Payload: ExecPayload<T>>(
             |i| get_pubkey_from_state(state, i),
             block,
             block_root,
+            false,
             spec
         )?
         .verify(),

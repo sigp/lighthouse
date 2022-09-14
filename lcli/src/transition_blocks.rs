@@ -80,7 +80,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use store::HotColdDB;
-use types::{BeaconState, ChainSpec, CloneConfig, EthSpec, Hash256, SignedBeaconBlock};
+use types::{BeaconState, ChainSpec, EthSpec, Hash256, SignedBeaconBlock};
 
 const HTTP_TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -224,7 +224,7 @@ pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<
 
     let mut output_post_state = None;
     for i in 0..runs {
-        let pre_state = pre_state.clone_with(CloneConfig::all());
+        let pre_state = pre_state.clone();
         let block = block.clone();
 
         let start = Instant::now();
@@ -286,7 +286,6 @@ pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<
     }
 
     drop(pre_state);
-    drop(post_state);
 
     Ok(())
 }
@@ -322,7 +321,6 @@ fn do_transition<T: EthSpec>(
         }
         state_root_opt = Some(state_root);
     }
-    println!("Slot processing: {}ms", t.elapsed().as_millis());
 
     let state_root = state_root_opt.ok_or("Failed to compute state root, internal error")?;
 
@@ -361,6 +359,7 @@ fn do_transition<T: EthSpec>(
             decompressor,
             &block,
             Some(block_root),
+            false,
             spec,
         )
         .map_err(|e| format!("Invalid block signature: {:?}", e))?;
@@ -368,10 +367,12 @@ fn do_transition<T: EthSpec>(
     }
 
     let t = Instant::now();
+    let mut ctxt = ConsensusContext::new(pre_state.slot())
+        .set_current_block_root(block_root)
+        .set_proposer_index(block.message().proposer_index());
     per_block_processing(
         &mut pre_state,
         &block,
-        None,
         BlockSignatureStrategy::NoVerification,
         VerifyBlockRoot::True,
         &mut ctxt,

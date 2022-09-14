@@ -892,11 +892,11 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
             // Backtrack until we reach a state that is in the cache, or in the worst case
             // the finalized state (this should only be reachable on first start-up).
-            let mut state_root_iter = HotStateRootIter::new(self, slot, *state_root);
+            let state_root_iter = HotStateRootIter::new(self, slot, *state_root);
             let mut state_roots = Vec::with_capacity(32);
             let mut state = None;
 
-            while let Some(res) = state_root_iter.next() {
+            for res in state_root_iter {
                 let (prior_state_root, prior_slot) = res?;
 
                 state_roots.push(Ok((prior_state_root, prior_slot)));

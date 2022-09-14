@@ -330,6 +330,7 @@ impl ParticipationCache {
                 }
             }
 
+            #[allow(clippy::indexing_slicing)]
             if is_eligible || is_active_current_epoch {
                 let effective_balance = val.effective_balance;
                 let base_reward =

@@ -76,6 +76,7 @@ pub fn block_proposal_signature_set<'a, T, F, Payload: ExecPayload<T>>(
     get_pubkey: F,
     signed_block: &'a SignedBeaconBlock<T, Payload>,
     block_root: Option<Hash256>,
+    check_proposer_index: bool,
     spec: &'a ChainSpec,
 ) -> Result<SignatureSet<'a>>
 where
@@ -83,14 +84,20 @@ where
     F: Fn(usize) -> Option<Cow<'a, PublicKey>>,
 {
     let block = signed_block.message();
-    let proposer_index = state.get_beacon_proposer_index(block.slot(), spec)? as u64;
 
-    if proposer_index != block.proposer_index() {
-        return Err(Error::IncorrectBlockProposer {
-            block: block.proposer_index(),
-            local_shuffling: proposer_index,
-        });
-    }
+    let proposer_index = if check_proposer_index {
+        let proposer_index = state.get_beacon_proposer_index(block.slot(), spec)? as u64;
+
+        if proposer_index != block.proposer_index() {
+            return Err(Error::IncorrectBlockProposer {
+                block: block.proposer_index(),
+                local_shuffling: proposer_index,
+            });
+        }
+        proposer_index
+    } else {
+        block.proposer_index()
+    };
 
     block_proposal_signature_set_from_parts(
         signed_block,
@@ -162,7 +169,9 @@ where
     T: EthSpec,
     F: Fn(usize) -> Option<Cow<'a, PublicKey>>,
 {
-    let proposer_index = state.get_beacon_proposer_index(block.slot(), spec)?;
+    // FIXME(sproul): ensure this is checked elsewhere
+    let proposer_index = block.proposer_index() as usize;
+    // let proposer_index = state.get_beacon_proposer_index(block.slot(), spec)?;
 
     let domain = spec.get_domain(
         block.slot().epoch(T::slots_per_epoch()),
