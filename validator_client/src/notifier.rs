@@ -85,6 +85,8 @@ async fn notify<T: SlotClock + 'static, E: EthSpec>(
         let proposing_validators = duties_service.proposer_count(epoch);
         let attesting_validators = duties_service.attester_count(epoch);
         let doppelganger_detecting_validators = duties_service.doppelganger_detecting_count();
+        let doppelganger_service_enabled = duties_service.validator_store.doppelganger_protection_enabled();
+        let reactivation_epoch = epoch.saturating_add(3_u64);
 
         if doppelganger_detecting_validators > 0 {
             info!(log, "Listening for doppelgangers"; "doppelganger_detecting_validators" => doppelganger_detecting_validators)
@@ -117,6 +119,13 @@ async fn notify<T: SlotClock + 'static, E: EthSpec>(
                 "epoch" => format!("{}", epoch),
                 "slot" => format!("{}", slot),
             );
+        } else if doppelganger_service_enabled {
+            info!(
+                log,
+                "Validators paused while waiting for doppelganger detection";
+                "reactivation_epoch" => format!("{}", reactivation_epoch),
+                "slot" => format!("{}", slot),
+            )
         } else {
             info!(
                 log,
