@@ -33,9 +33,9 @@ impl<T> TryFromIter<T> for Vec<T> {
     where
         I: IntoIterator<Item = T>,
     {
-        // Pre-allocate the max size of the Vec. We expect to receive vastly more valid
-        // messages to decode, and the max length has already been vetted by
-        // `decode_list_of_variable_length_items`.
+        // Pre-allocate the expected size of the Vec, which is parsed from the SSZ input bytes as
+        // `num_items`. This length has already been checked to be less than or equal to the type's
+        // maximum length in `decode_list_of_variable_length_items`.
         let iter = values.into_iter();
         let (_, opt_max_len) = iter.size_hint();
         let mut vec = Vec::with_capacity(opt_max_len.unwrap_or(0));
