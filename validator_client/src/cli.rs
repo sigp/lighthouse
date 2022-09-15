@@ -27,7 +27,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true),
         )
         .arg(
-            Arg::with_name("disable-publish-subsriptions-all")
+            Arg::with_name("disable-publish-subscriptions-all")
                 .long("disable-publish-subsriptions-all")
                 .value_name("DISABLE_PUBLISH_ALL")
                 .help("By default, Lighthouse publishes attestation and sync committee subscriptions \

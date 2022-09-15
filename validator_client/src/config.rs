@@ -181,7 +181,7 @@ impl Config {
 
         config.allow_unsynced_beacon_node = cli_args.is_present("allow-unsynced");
         config.disable_publish_subscriptions_all =
-            cli_args.is_present("disable-publish-subsriptions-all");
+            cli_args.is_present("disable-publish-subscriptions-all");
         config.disable_auto_discover = cli_args.is_present("disable-auto-discover");
         config.init_slashing_protection = cli_args.is_present("init-slashing-protection");
         config.use_long_timeouts = cli_args.is_present("use-long-timeouts");
