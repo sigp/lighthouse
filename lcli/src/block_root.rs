@@ -1,3 +1,31 @@
+//! # Block Root
+//!
+//! Use this tool to compute the canonical root of a `SignedBeaconBlock`. This is most likely only
+//! useful for benchmarking with tools like `flamegraph`.
+//!
+//! It can load a block from a SSZ file or download it from a beaconAPI.
+//!
+//! Logging output is controlled via the `RUST_LOG` environment variable. For example, `export
+//! RUST_LOG=debug`.
+//!
+//! ## Examples
+//!
+//! Download a block and re-compute the canonical root 5,000 times.
+//!
+//! ```ignore
+//! lcli block-root \
+//!     --beacon-url http://localhost:5052 \
+//!     --block-id 0x3d887d30ee25c9c1ce7621ec30a7b49b07d6a03200df9c7206faca52a533f432 \
+//!     --runs 5000
+//! ```
+//!
+//! Load a block from SSZ and compute the canonical root once.
+//!
+//! ```ignore
+//! lcli block-root \
+//!     --block-path /tmp/block.ssz \
+//!     --runs 1
+//! ```
 use crate::transition_blocks::load_from_ssz_with;
 use clap::ArgMatches;
 use clap_utils::{parse_optional, parse_required};

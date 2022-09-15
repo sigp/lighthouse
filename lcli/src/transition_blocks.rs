@@ -6,6 +6,9 @@
 //! It can load states and blocks from file or pull them from a beaconAPI. Objects pulled from a
 //! beaconAPI can be saved to disk to reduce future calls to that server.
 //!
+//! Logging output is controlled via the `RUST_LOG` environment variable. For example, `export
+//! RUST_LOG=debug`.
+//!
 //! ## Examples
 //!
 //! ### Run using a block from a beaconAPI
