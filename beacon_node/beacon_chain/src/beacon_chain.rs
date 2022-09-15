@@ -4594,8 +4594,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             state.build_committee_cache(relative_epoch, &self.spec)?;
 
-            let committee_cache = state.committee_cache(relative_epoch)?;
-            let committee_cache = Arc::new(committee_cache.clone());
+            let committee_cache = state.take_committee_cache(relative_epoch)?;
+            let committee_cache = Arc::new(committee_cache);
             let shuffling_decision_block = shuffling_id.shuffling_decision_block;
 
             self.shuffling_cache
