@@ -4595,16 +4595,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             state.build_committee_cache(relative_epoch, &self.spec)?;
 
             let committee_cache = state.committee_cache(relative_epoch)?;
+            let committee_cache = Arc::new(committee_cache.clone());
             let shuffling_decision_block = shuffling_id.shuffling_decision_block;
 
             self.shuffling_cache
                 .try_write_for(ATTESTATION_CACHE_LOCK_TIMEOUT)
                 .ok_or(Error::AttestationCacheLockTimeout)?
-                .insert_committee_cache(shuffling_id, committee_cache);
+                .insert_committee_cache(shuffling_id, &committee_cache);
 
             metrics::stop_timer(committee_building_timer);
 
-            if let Err(e) = sender.send(Arc::new(committee_cache.clone())) {
+            if let Err(e) = sender.send(committee_cache.clone()) {
                 debug!(
                     self.log,
                     "Did not fulfil committee promise";
@@ -4612,7 +4613,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 )
             }
 
-            map_fn(committee_cache, shuffling_decision_block)
+            map_fn(&committee_cache, shuffling_decision_block)
         }
     }
 

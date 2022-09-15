@@ -115,10 +115,10 @@ impl ShufflingCache {
         self.cache.contains(key)
     }
 
-    pub fn insert_committee_cache(
+    pub fn insert_committee_cache<T: ToArcCommitteeCache>(
         &mut self,
         key: AttestationShufflingId,
-        committee_cache: &CommitteeCache,
+        committee_cache: &T,
     ) {
         if self
             .cache
@@ -127,8 +127,10 @@ impl ShufflingCache {
             // worth two in the promise-bush!
             .map_or(true, CacheItem::is_promise)
         {
-            self.cache
-                .put(key, CacheItem::Committee(Arc::new(committee_cache.clone())));
+            self.cache.put(
+                key,
+                CacheItem::Committee(committee_cache.to_arc_committee_cache()),
+            );
         }
     }
 
@@ -148,6 +150,23 @@ impl ShufflingCache {
         let (sender, receiver) = bounded(1);
         self.cache.put(key, CacheItem::Promise(receiver));
         Ok(sender)
+    }
+}
+
+/// A helper trait to allow lazy-cloning of the committee cache when inserting into the cache.
+pub trait ToArcCommitteeCache {
+    fn to_arc_committee_cache(&self) -> Arc<CommitteeCache>;
+}
+
+impl ToArcCommitteeCache for CommitteeCache {
+    fn to_arc_committee_cache(&self) -> Arc<CommitteeCache> {
+        Arc::new(self.clone())
+    }
+}
+
+impl ToArcCommitteeCache for Arc<CommitteeCache> {
+    fn to_arc_committee_cache(&self) -> Arc<CommitteeCache> {
+        self.clone()
     }
 }
 
