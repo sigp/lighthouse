@@ -122,7 +122,7 @@ pub struct DutiesService<T, E: EthSpec> {
     /// aren't synced, but we keep it around for an emergency.
     pub require_synced: RequireSynced,
     pub context: RuntimeContext<E>,
-    pub disable_publish_subscriptions_all: bool,
+    pub disable_run_on_all: bool,
     pub spec: ChainSpec,
 }
 
@@ -574,7 +574,7 @@ async fn poll_beacon_attesters<T: SlotClock + 'static, E: EthSpec>(
     // If there are any subscriptions, push them out to beacon nodes
     if !subscriptions.is_empty() {
         let subscriptions_ref = &subscriptions;
-        if let Err(e) = if duties_service.disable_publish_subscriptions_all {
+        if let Err(e) = if duties_service.disable_run_on_all {
             duties_service
                 .beacon_nodes
                 .first_success(

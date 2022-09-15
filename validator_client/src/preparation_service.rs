@@ -33,6 +33,7 @@ pub struct PreparationServiceBuilder<T: SlotClock + 'static, E: EthSpec> {
     beacon_nodes: Option<Arc<BeaconNodeFallback<T, E>>>,
     context: Option<RuntimeContext<E>>,
     builder_registration_timestamp_override: Option<u64>,
+    disable_run_on_all: Option<bool>,
 }
 
 impl<T: SlotClock + 'static, E: EthSpec> PreparationServiceBuilder<T, E> {
@@ -43,6 +44,7 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationServiceBuilder<T, E> {
             beacon_nodes: None,
             context: None,
             builder_registration_timestamp_override: None,
+            disable_run_on_all: None,
         }
     }
 
@@ -63,6 +65,11 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationServiceBuilder<T, E> {
 
     pub fn runtime_context(mut self, context: RuntimeContext<E>) -> Self {
         self.context = Some(context);
+        self
+    }
+
+    pub fn disable_run_on_all(mut self, disable_run_on_all: bool) -> Self {
+        self.disable_run_on_all = Some(disable_run_on_all);
         self
     }
 
@@ -89,6 +96,7 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationServiceBuilder<T, E> {
                 context: self
                     .context
                     .ok_or("Cannot build PreparationService without runtime_context")?,
+                disable_run_on_all: self.disable_run_on_all.unwrap_or(false),
                 builder_registration_timestamp_override: self
                     .builder_registration_timestamp_override,
                 validator_registration_cache: RwLock::new(HashMap::new()),
@@ -107,6 +115,7 @@ pub struct Inner<T, E: EthSpec> {
     // Used to track unpublished validator registration changes.
     validator_registration_cache:
         RwLock<HashMap<ValidatorRegistrationKey, SignedValidatorRegistrationData>>,
+    disable_run_on_all: bool,
 }
 
 #[derive(Hash, Eq, PartialEq, Debug, Clone)]
@@ -329,19 +338,32 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
         // Post the proposer preparations to the BN.
         let preparation_data_len = preparation_data.len();
         let preparation_entries = preparation_data.as_slice();
-        match self
-            .beacon_nodes
-            .first_success(
-                RequireSynced::Yes,
-                OfflineOnFailure::Yes,
-                |beacon_node| async move {
-                    beacon_node
-                        .post_validator_prepare_beacon_proposer(preparation_entries)
-                        .await
-                },
-            )
-            .await
-        {
+        let res = if self.inner.disable_run_on_all {
+            self.beacon_nodes
+                .first_success(
+                    RequireSynced::Yes,
+                    OfflineOnFailure::Yes,
+                    |beacon_node| async move {
+                        beacon_node
+                            .post_validator_prepare_beacon_proposer(preparation_entries)
+                            .await
+                    },
+                )
+                .await
+        } else {
+            self.beacon_nodes
+                .run_on_all(
+                    RequireSynced::Yes,
+                    OfflineOnFailure::Yes,
+                    |beacon_node| async move {
+                        beacon_node
+                            .post_validator_prepare_beacon_proposer(preparation_entries)
+                            .await
+                    },
+                )
+                .await
+        };
+        match res {
             Ok(()) => debug!(
                 log,
                 "Published proposer preparation";
@@ -349,7 +371,7 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
             ),
             Err(e) => error!(
                 log,
-                "Unable to publish proposer preparation";
+                "Unable to publish proposer preparation to all beacon nodes";
                 "error" => %e,
             ),
         }

@@ -566,7 +566,7 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
             );
         }
 
-        if let Err(e) = if self.duties_service.disable_publish_subscriptions_all {
+        if let Err(e) = if self.duties_service.disable_run_on_all {
             self.beacon_nodes
                 .first_success(
                     RequireSynced::No,

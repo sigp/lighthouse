@@ -404,7 +404,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
                 RequireSynced::No
             },
             spec: context.eth2_config.spec.clone(),
-            disable_publish_subscriptions_all: config.disable_publish_subscriptions_all,
+            disable_run_on_all: config.disable_run_on_all,
             context: duties_context,
         });
 
@@ -437,6 +437,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             .beacon_nodes(beacon_nodes.clone())
             .runtime_context(context.service_context("preparation".into()))
             .builder_registration_timestamp_override(config.builder_registration_timestamp_override)
+            .disable_run_on_all(config.disable_run_on_all)
             .build()?;
 
         let sync_committee_service = SyncCommitteeService::new(
