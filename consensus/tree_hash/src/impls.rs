@@ -154,7 +154,7 @@ impl TreeHash for H256 {
     }
 
     fn tree_hash_packed_encoding(&self) -> PackedEncoding {
-        PackedEncoding::from_slice(&self.as_bytes())
+        PackedEncoding::from_slice(self.as_bytes())
     }
 
     fn tree_hash_packing_factor() -> usize {

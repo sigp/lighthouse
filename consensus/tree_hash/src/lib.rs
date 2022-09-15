@@ -149,7 +149,7 @@ macro_rules! tree_hash_ssz_encoding_as_vector {
                 tree_hash::TreeHashType::Vector
             }
 
-            fn tree_hash_packed_encoding(&self) -> Vec<u8> {
+            fn tree_hash_packed_encoding(&self) -> PackedEncoding {
                 unreachable!("Vector should never be packed.")
             }
 
@@ -172,7 +172,7 @@ macro_rules! tree_hash_ssz_encoding_as_list {
                 tree_hash::TreeHashType::List
             }
 
-            fn tree_hash_packed_encoding(&self) -> Vec<u8> {
+            fn tree_hash_packed_encoding(&self) -> PackedEncoding {
                 unreachable!("List should never be packed.")
             }
 
