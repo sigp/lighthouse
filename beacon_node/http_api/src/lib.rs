@@ -2014,7 +2014,7 @@ pub fn serve<T: BeaconChainTypes>(
                     if query.skip_randao_verification == SkipRandaoVerification::Yes {
                         if !randao_reveal.is_infinity() {
                             return Err(warp_utils::reject::custom_bad_request(
-                                "randao_reveal must be point-at-infinity if verification skipped"
+                                "randao_reveal must be point-at-infinity if verification is skipped"
                                     .into(),
                             ));
                         }
@@ -2070,7 +2070,7 @@ pub fn serve<T: BeaconChainTypes>(
                     if query.skip_randao_verification == SkipRandaoVerification::Yes {
                         if !randao_reveal.is_infinity() {
                             return Err(warp_utils::reject::custom_bad_request(
-                                "randao_reveal must be point-at-infinity if verification skipped"
+                                "randao_reveal must be point-at-infinity if verification is skipped"
                                     .into()
                             ));
                         }

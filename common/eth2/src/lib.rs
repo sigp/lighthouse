@@ -1306,7 +1306,7 @@ impl BeaconNodeHttpClient {
 
         if skip_randao_verification == SkipRandaoVerification::Yes {
             path.query_pairs_mut()
-                .append_pair("skip_randao_verification", "");
+                .append_key_only("skip_randao_verification");
         }
 
         self.get(path).await
