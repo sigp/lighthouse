@@ -290,8 +290,8 @@ macro_rules! impl_ssz {
                 tree_hash::TreeHashType::Basic
             }
 
-            fn tree_hash_packed_encoding(&self) -> Vec<u8> {
-                ssz_encode(self)
+            fn tree_hash_packed_encoding(&self) -> tree_hash::PackedEncoding {
+                tree_hash::PackedEncoding::from_slice(&self.0.to_le_bytes())
             }
 
             fn tree_hash_packing_factor() -> usize {
