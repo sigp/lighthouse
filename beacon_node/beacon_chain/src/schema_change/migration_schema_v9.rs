@@ -91,7 +91,7 @@ pub fn upgrade_to_v9<T: BeaconChainTypes>(
                 Ok(None) => return Err(Error::BlockNotFound(block_root)),
                 // There was an error reading a pre-v9 block. Try reading it as a post-v9 block.
                 Err(_) => {
-                    if db.try_get_full_block(&block_root)?.is_some() {
+                    if db.try_get_full_block(&block_root, None)?.is_some() {
                         // The block is present as a post-v9 block, assume that it was already
                         // correctly migrated.
                         continue;

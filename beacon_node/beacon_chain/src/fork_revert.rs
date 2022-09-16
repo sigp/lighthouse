@@ -107,7 +107,7 @@ pub fn reset_fork_choice_to_finalization<E: EthSpec, Hot: ItemStore<E>, Cold: It
     let finalized_checkpoint = head_state.finalized_checkpoint();
     let finalized_block_root = finalized_checkpoint.root;
     let finalized_block = store
-        .get_full_block(&finalized_block_root)
+        .get_full_block(&finalized_block_root, None)
         .map_err(|e| format!("Error loading finalized block: {:?}", e))?
         .ok_or_else(|| {
             format!(

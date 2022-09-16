@@ -424,7 +424,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
             // so delete it from the head tracker but leave it and its states in the database
             // This is suboptimal as it wastes disk space, but it's difficult to fix. A re-sync
             // can be used to reclaim the space.
-            let head_state_root = match store.get_blinded_block(&head_hash) {
+            let head_state_root = match store.get_blinded_block(&head_hash, Some(head_slot)) {
                 Ok(Some(block)) => block.state_root(),
                 Ok(None) => {
                     return Err(BeaconStateError::MissingBeaconBlock(head_hash.into()).into())

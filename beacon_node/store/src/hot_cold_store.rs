@@ -6,7 +6,10 @@ use crate::config::{
     PREV_DEFAULT_SLOTS_PER_RESTORE_POINT,
 };
 use crate::forwards_iter::{HybridForwardsBlockRootsIterator, HybridForwardsStateRootsIterator};
-use crate::impls::beacon_state::{get_full_state, store_full_state};
+use crate::impls::{
+    beacon_state::{get_full_state, store_full_state},
+    frozen_block_slot::FrozenBlockSlot,
+};
 use crate::iter::{ParentRootBlockIterator, StateRootsIterator};
 use crate::leveldb_store::BytesKey;
 use crate::leveldb_store::LevelDB;
@@ -33,11 +36,13 @@ use state_processing::{
 };
 use std::cmp::min;
 use std::convert::TryInto;
+use std::io::{Read, Write};
 use std::marker::PhantomData;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 use types::*;
+use zstd::{Decoder, Encoder};
 
 /// On-disk database that stores finalized states efficiently.
 ///
@@ -92,6 +97,7 @@ pub enum HotColdDBError {
     MissingExecutionPayload(Hash256),
     MissingFullBlockExecutionPayloadPruned(Hash256, Slot),
     MissingAnchorInfo,
+    MissingFrozenBlockSlot(Hash256),
     HotStateSummaryError(BeaconStateError),
     RestorePointDecodeError(ssz::DecodeError),
     BlockReplayBeaconError(BeaconStateError),
@@ -318,6 +324,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     pub fn try_get_full_block(
         &self,
         block_root: &Hash256,
+        slot: Option<Slot>,
     ) -> Result<Option<DatabaseBlock<E>>, Error> {
         metrics::inc_counter(&metrics::BEACON_BLOCK_GET_COUNT);
 
@@ -328,7 +335,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         }
 
         // Load the blinded block.
-        let blinded_block = match self.get_blinded_block(block_root)? {
+        let blinded_block = match self.get_blinded_block(block_root, slot)? {
             Some(block) => block,
             None => return Ok(None),
         };
@@ -360,8 +367,9 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     pub fn get_full_block(
         &self,
         block_root: &Hash256,
+        slot: Option<Slot>,
     ) -> Result<Option<SignedBeaconBlock<E>>, Error> {
-        match self.try_get_full_block(block_root)? {
+        match self.try_get_full_block(block_root, slot)? {
             Some(DatabaseBlock::Full(block)) => Ok(Some(block)),
             Some(DatabaseBlock::Blinded(block)) => Err(
                 HotColdDBError::MissingFullBlockExecutionPayloadPruned(*block_root, block.slot())
@@ -399,10 +407,96 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     pub fn get_blinded_block(
         &self,
         block_root: &Hash256,
-    ) -> Result<Option<SignedBeaconBlock<E, BlindedPayload<E>>>, Error> {
+        slot: Option<Slot>,
+    ) -> Result<Option<SignedBlindedBeaconBlock<E>>, Error> {
+        if let Some(slot) = slot {
+            if slot < self.get_split_slot() {
+                // To the freezer DB.
+                self.get_cold_blinded_block_by_slot(slot)
+            } else {
+                self.get_hot_blinded_block(block_root)
+            }
+        } else {
+            match self.get_hot_blinded_block(block_root)? {
+                Some(block) => Ok(Some(block)),
+                None => self.get_cold_blinded_block_by_root(block_root),
+            }
+        }
+    }
+
+    pub fn get_hot_blinded_block(
+        &self,
+        block_root: &Hash256,
+    ) -> Result<Option<SignedBlindedBeaconBlock<E>>, Error> {
         self.get_block_with(block_root, |bytes| {
             SignedBeaconBlock::from_ssz_bytes(bytes, &self.spec)
         })
+    }
+
+    pub fn get_cold_blinded_block_by_root(
+        &self,
+        block_root: &Hash256,
+    ) -> Result<Option<SignedBlindedBeaconBlock<E>>, Error> {
+        // Load slot.
+        if let Some(FrozenBlockSlot(block_slot)) = self.cold_db.get(block_root)? {
+            self.get_cold_blinded_block_by_slot(block_slot)
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub fn get_cold_blinded_block_by_slot(
+        &self,
+        slot: Slot,
+    ) -> Result<Option<SignedBlindedBeaconBlock<E>>, Error> {
+        let bytes = if let Some(bytes) = self.cold_db.get_bytes(
+            DBColumn::BeaconBlockFrozen.into(),
+            &slot.as_u64().to_be_bytes(),
+        )? {
+            bytes
+        } else {
+            return Ok(None);
+        };
+
+        // FIXME(sproul): dodgy compression factor estimation
+        let mut ssz_bytes = Vec::with_capacity(2 * bytes.len());
+        let mut decoder = Decoder::new(&*bytes).map_err(Error::Compression)?;
+        decoder
+            .read_to_end(&mut ssz_bytes)
+            .map_err(Error::Compression)?;
+        Ok(Some(SignedBeaconBlock::from_ssz_bytes(
+            &ssz_bytes, &self.spec,
+        )?))
+    }
+
+    pub fn blinded_block_as_cold_kv_store_ops(
+        &self,
+        block_root: &Hash256,
+        block: &SignedBlindedBeaconBlock<E>,
+        kv_store_ops: &mut Vec<KeyValueStoreOp>,
+    ) -> Result<(), Error> {
+        // Write the block root to slot mapping.
+        let slot = block.slot();
+        kv_store_ops.push(FrozenBlockSlot(slot).as_kv_store_op(*block_root));
+
+        // Write the block keyed by slot.
+        let db_key = get_key_for_col(
+            DBColumn::BeaconBlockFrozen.into(),
+            &slot.as_u64().to_be_bytes(),
+        );
+
+        // FIXME(sproul): fix compression estimate and level
+        let compression_level = 3;
+        let ssz_bytes = block.as_ssz_bytes();
+        let mut compressed_value = Vec::with_capacity(ssz_bytes.len() / 2);
+        let mut encoder =
+            Encoder::new(&mut compressed_value, compression_level).map_err(Error::Compression)?;
+        encoder.write_all(&ssz_bytes).map_err(Error::Compression)?;
+        encoder.finish().map_err(Error::Compression)?;
+
+        kv_store_ops.push(KeyValueStoreOp::PutKeyValue(db_key, compressed_value));
+
+        Ok(())
     }
 
     /// Fetch a block from the store, ignoring which fork variant it *should* be for.
@@ -1455,6 +1549,7 @@ pub fn migrate_database<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
     }
 
     let mut hot_db_ops: Vec<StoreOp<E>> = Vec::new();
+    let mut cold_db_block_ops: Vec<KeyValueStoreOps> = vec![];
 
     // 1. Copy all of the states between the head and the split slot, from the hot DB
     // to the cold DB.

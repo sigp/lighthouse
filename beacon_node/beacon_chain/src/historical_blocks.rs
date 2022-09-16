@@ -93,7 +93,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             ChunkWriter::<BlockRoots, _, _>::new(&self.store.cold_db, prev_block_slot.as_usize())?;
 
         let mut cold_batch = Vec::with_capacity(blocks.len());
-        let mut hot_batch = Vec::with_capacity(blocks.len());
 
         for block in blocks_to_import.iter().rev() {
             // Check chain integrity.
@@ -109,7 +108,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             // Store block in the hot database without payload.
             self.store
-                .blinded_block_as_kv_store_ops(&block_root, block, &mut hot_batch);
+                .blinded_block_as_cold_kv_store_ops(&block_root, block, &mut cold_batch);
 
             // Store block roots, including at all skip slots in the freezer DB.
             for slot in (block.slot().as_usize()..prev_block_slot.as_usize()).rev() {
@@ -177,10 +176,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         drop(verify_timer);
         drop(sig_timer);
 
-        // Write the I/O batches to disk, writing the blocks themselves first, as it's better
-        // for the hot DB to contain extra blocks than for the cold DB to point to blocks that
-        // do not exist.
-        self.store.hot_db.do_atomically(hot_batch)?;
+        // Write the I/O batch to disk.
         self.store.cold_db.do_atomically(cold_batch)?;
 
         // Update the anchor.

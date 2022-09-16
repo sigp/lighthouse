@@ -322,7 +322,7 @@ where
             metrics::inc_counter(&metrics::BALANCES_CACHE_MISSES);
             let justified_block = self
                 .store
-                .get_blinded_block(&self.justified_checkpoint.root)
+                .get_blinded_block(&self.justified_checkpoint.root, None)
                 .map_err(Error::FailedToReadBlock)?
                 .ok_or(Error::MissingBlock(self.justified_checkpoint.root))?
                 .deconstruct()
