@@ -108,7 +108,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             // Store block in the hot database without payload.
             self.store
-                .blinded_block_as_cold_kv_store_ops(&block_root, block, &mut cold_batch);
+                .blinded_block_as_cold_kv_store_ops(&block_root, block, &mut cold_batch)?;
 
             // Store block roots, including at all skip slots in the freezer DB.
             for slot in (block.slot().as_usize()..prev_block_slot.as_usize()).rev() {

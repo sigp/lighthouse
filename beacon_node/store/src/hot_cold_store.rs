@@ -1642,7 +1642,7 @@ pub fn migrate_database<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
     }
 
     let mut hot_db_ops: Vec<StoreOp<E>> = Vec::new();
-    let mut cold_db_block_ops: Vec<KeyValueStoreOps> = vec![];
+    let mut cold_db_block_ops: Vec<KeyValueStoreOp> = vec![];
 
     // 1. Copy all of the states between the head and the split slot, from the hot DB
     // to the cold DB. Delete the execution payloads of these now-finalized blocks.
@@ -1682,6 +1682,16 @@ pub fn migrate_database<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
         // new finalized block it is OK to delete it, as `try_get_full_block` looks at the split
         // slot when determining whether to reconstruct payloads.
         hot_db_ops.push(StoreOp::DeleteExecutionPayload(block_root));
+
+        // Copy the blinded block from the hot database to the freezer.
+        let blinded_block = store
+            .get_hot_blinded_block(&block_root)?
+            .ok_or(Error::BlockNotFound(block_root))?;
+        store.blinded_block_as_cold_kv_store_ops(
+            &block_root,
+            &blinded_block,
+            &mut cold_db_block_ops,
+        )?;
     }
 
     // Warning: Critical section.  We have to take care not to put any of the two databases in an
@@ -1695,6 +1705,7 @@ pub fn migrate_database<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
     // exceedingly rare event, this should be an acceptable tradeoff.
 
     // Flush to disk all the states that have just been migrated to the cold store.
+    store.cold_db.do_atomically(cold_db_block_ops)?;
     store.cold_db.sync()?;
 
     {
