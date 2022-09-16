@@ -345,6 +345,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
             .recompute_long_lived_subnets_inner()
             .unwrap_or_else(|_| self.beacon_chain.slot_clock.slot_duration());
 
+        debug!(self.log, "Recomputing deterministic long lived attnets");
         self.next_long_lived_subscription_event =
             Box::pin(tokio::time::sleep(next_subscription_event));
 
