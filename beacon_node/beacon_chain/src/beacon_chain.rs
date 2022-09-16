@@ -2646,7 +2646,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 self.shuffling_cache
                     .try_write_for(ATTESTATION_CACHE_LOCK_TIMEOUT)
                     .ok_or(Error::AttestationCacheLockTimeout)?
-                    .insert(shuffling_id, committee_cache);
+                    .insert_committee_cache(shuffling_id, committee_cache);
             }
         }
 
@@ -4490,9 +4490,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         metrics::stop_timer(cache_wait_timer);
 
-        if let Some(committee_cache) = shuffling_cache.get(&shuffling_id) {
-            map_fn(committee_cache, shuffling_id.shuffling_decision_block)
+        if let Some(cache_item) = shuffling_cache.get(&shuffling_id) {
+            let committee_cache = cache_item.wait()?;
+            map_fn(&committee_cache, shuffling_id.shuffling_decision_block)
         } else {
+            // Create an entry in the cache that "promises" this value will eventually be computed.
+            // This avoids the case where multiple threads attempt to produce the same value at the
+            // same time.
+            //
+            // Creating the promise whilst we hold the `shuffling_cache` lock will prevent the same
+            // promise from being created twice.
+            let sender = shuffling_cache.create_promise(shuffling_id.clone())?;
+
             // Drop the shuffling cache to avoid holding the lock for any longer than
             // required.
             drop(shuffling_cache);
@@ -4585,17 +4594,26 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             state.build_committee_cache(relative_epoch, &self.spec)?;
 
-            let committee_cache = state.committee_cache(relative_epoch)?;
+            let committee_cache = state.take_committee_cache(relative_epoch)?;
+            let committee_cache = Arc::new(committee_cache);
             let shuffling_decision_block = shuffling_id.shuffling_decision_block;
 
             self.shuffling_cache
                 .try_write_for(ATTESTATION_CACHE_LOCK_TIMEOUT)
                 .ok_or(Error::AttestationCacheLockTimeout)?
-                .insert(shuffling_id, committee_cache);
+                .insert_committee_cache(shuffling_id, &committee_cache);
 
             metrics::stop_timer(committee_building_timer);
 
-            map_fn(committee_cache, shuffling_decision_block)
+            if let Err(e) = sender.send(committee_cache.clone()) {
+                debug!(
+                    self.log,
+                    "Did not fulfil committee promise";
+                    "error" => %e
+                )
+            }
+
+            map_fn(&committee_cache, shuffling_decision_block)
         }
     }
 
