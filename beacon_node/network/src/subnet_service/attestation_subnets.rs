@@ -885,6 +885,12 @@ impl<T: BeaconChainTypes> Stream for AttestationService<T> {
             Poll::Ready(None) | Poll::Pending => {}
         }
 
+        #[cfg(feature = "deterministic_long_lived_attnets")]
+        match self.next_long_lived_subscription_event.as_mut().poll(cx) {
+            Poll::Ready(_) => self.recompute_long_lived_subnets(),
+            Poll::Pending => {}
+        }
+
         // Process scheduled subscriptions that might be ready, since those can extend a soon to
         // expire subscription.
         match self.scheduled_short_lived_subscriptions.poll_next_unpin(cx) {
