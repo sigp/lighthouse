@@ -59,8 +59,7 @@ pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<
     let block: SignedBeaconBlock<T, FullPayload<T>> = match (block_path, beacon_url) {
         (Some(block_path), None) => {
             info!("Block path: {:?}", block_path);
-            let block = load_from_ssz_with(&block_path, spec, SignedBeaconBlock::from_ssz_bytes)?;
-            block
+            load_from_ssz_with(&block_path, spec, SignedBeaconBlock::from_ssz_bytes)?
         }
         (None, Some(beacon_url)) => {
             let block_id: BlockId = parse_required(matches, "block-id")?;
