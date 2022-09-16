@@ -515,6 +515,13 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true)
                 .default_value("true")
         )
+        .arg(
+            Arg::with_name("prune-payloads-on-startup")
+                .long("prune-payloads-on-startup")
+                .help("Check for execution payloads to prune on start-up.")
+                .takes_value(true)
+                .default_value("true")
+        )
 
         /*
          * Misc.

@@ -23,6 +23,8 @@ pub struct StoreConfig {
     pub compact_on_prune: bool,
     /// Whether to store finalized blocks in the freezer database.
     pub separate_blocks: bool,
+    /// Whether to try pruning execution payloads on initialization.
+    pub prune_payloads_on_init: bool,
 }
 
 /// Variant of `StoreConfig` that gets written to disk. Contains immutable configuration params.
@@ -48,6 +50,7 @@ impl Default for StoreConfig {
             compact_on_init: false,
             compact_on_prune: true,
             separate_blocks: true,
+            prune_payloads_on_init: true,
         }
     }
 }
