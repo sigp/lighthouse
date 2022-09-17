@@ -1,4 +1,4 @@
-use crate::{test_utils::TestRandom, *};
+use crate::{test_utils::TestRandom, test_utils::RngCore, *};
 use derivative::Derivative;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -8,6 +8,8 @@ use std::fmt::Debug;
 use std::hash::Hash;
 use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
+use execution_payload::BlobsBundle;
+use core::hash::Hasher;
 
 #[derive(Debug)]
 pub enum BlockType {
@@ -218,16 +220,37 @@ impl<T: EthSpec> Encode for BlindedPayload<T> {
     }
 }
 
-#[derive(Default, Debug, Clone, Serialize, Deserialize, TestRandom, Derivative)]
-#[derivative(PartialEq, Hash(bound = "T: EthSpec"))]
+#[derive(Default, Debug, Clone, Serialize, Deserialize)]
 #[serde(bound = "T: EthSpec")]
 pub struct FullPayload<T: EthSpec> {
     pub execution_payload: ExecutionPayload<T>,
+    pub blobs_bundle: Option<BlobsBundle<T>>,
+}
+
+impl <T: EthSpec> TestRandom for FullPayload<T> {
+    fn random_for_test(rng: &mut impl RngCore) -> Self {
+        todo!()
+    }
+}
+
+impl <T: EthSpec> PartialEq for FullPayload<T> {
+    fn eq(&self, other: &FullPayload<T>) -> bool {
+        todo!()
+    }
+}
+
+impl <T: EthSpec> Hash for FullPayload<T> {
+    fn hash<H: Hasher>(&self, into: &mut H) {
+        todo!()
+    }
 }
 
 impl<T: EthSpec> From<ExecutionPayload<T>> for FullPayload<T> {
     fn from(execution_payload: ExecutionPayload<T>) -> Self {
-        Self { execution_payload }
+        Self { 
+            execution_payload,
+            blobs_bundle: None,
+        }
     }
 }
 
@@ -265,6 +288,7 @@ impl<T: EthSpec> Decode for FullPayload<T> {
     fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
         Ok(FullPayload {
             execution_payload: Decode::from_ssz_bytes(bytes)?,
+            blobs_bundle: None,
         })
     }
 }

@@ -7,8 +7,9 @@ use serde::{Deserialize, Serialize};
 use strum::IntoStaticStr;
 pub use types::{
     Address, EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadHeader, FixedVector,
-    Hash256, Uint256, VariableList,
+    Hash256, Uint256, VariableList, kzg_proof::KzgProof, kzg_commitment::KzgCommitment, blob::Blob,
 };
+
 
 pub mod auth;
 pub mod http;

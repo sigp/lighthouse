@@ -835,10 +835,10 @@ impl<T: EthSpec> ExecutionLayer<T> {
 
                 engine
                     .api
-                    .get_payload_v1::<T>(payload_id)
+                    .get_full_payload::<T>(payload_id)
                     .await
                     .map(|full_payload| {
-                        if full_payload.fee_recipient != suggested_fee_recipient {
+                        if full_payload.execution_payload.fee_recipient != suggested_fee_recipient {
                             error!(
                                 self.log(),
                                 "Inconsistent fee recipient";
@@ -847,11 +847,11 @@ impl<T: EthSpec> ExecutionLayer<T> {
                                 indicate that fees are being diverted to another address. Please \
                                 ensure that the value of suggested_fee_recipient is set correctly and \
                                 that the Execution Engine is trusted.",
-                                "fee_recipient" => ?full_payload.fee_recipient,
+                                "fee_recipient" => ?full_payload.execution_payload.fee_recipient,
                                 "suggested_fee_recipient" => ?suggested_fee_recipient,
                             );
                         }
-                        if f(self, &full_payload).is_some() {
+                        if f(self, &full_payload.execution_payload).is_some() {
                             warn!(
                                 self.log(),
                                 "Duplicate payload cached, this might indicate redundant proposal \

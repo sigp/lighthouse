@@ -1,4 +1,4 @@
-use crate::{test_utils::TestRandom, *};
+use crate::{test_utils::TestRandom, test_utils::RngCore, *, kzg_commitment::KzgCommitment, kzg_proof::KzgProof, blob::Blob};
 use derivative::Derivative;
 use serde_derive::{Deserialize, Serialize};
 use ssz::Encode;
@@ -41,6 +41,24 @@ pub struct ExecutionPayload<T: EthSpec> {
     pub block_hash: ExecutionBlockHash,
     #[serde(with = "ssz_types::serde_utils::list_of_hex_var_list")]
     pub transactions: Transactions<T>,
+}
+
+#[derive(
+    Default, Debug, Clone, Serialize, Deserialize, Derivative,
+)]
+#[serde(bound = "T: EthSpec")]
+pub struct BlobsBundle<T: EthSpec> {
+    pub block_hash: Hash256,
+    pub kzgs: Vec<KzgCommitment>,
+    pub blobs: Vec<Blob<T>>,
+    pub aggregated_proof: KzgProof,
+}
+
+
+impl <T: EthSpec> TestRandom for BlobsBundle<T> {
+    fn random_for_test(rng: &mut impl RngCore) -> Self {
+        todo!()
+    }
 }
 
 impl<T: EthSpec> ExecutionPayload<T> {
