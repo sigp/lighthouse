@@ -125,6 +125,7 @@ impl<Id: ReqId, TSpec: EthSpec> RPC<Id, TSpec> {
                 Duration::from_secs(10),
             )
             .n_every(Protocol::BlocksByRoot, 128, Duration::from_secs(10))
+            .n_every(Protocol::BlobsByRange, 128, Duration::from_secs(10))
             .build()
             .expect("Configuration parameters are valid");
         RPC {
