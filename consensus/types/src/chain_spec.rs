@@ -151,6 +151,12 @@ pub struct ChainSpec {
     pub safe_slots_to_import_optimistically: u64,
 
     /*
+     * Eip4844 hard fork params
+     */
+    pub eip4844_fork_epoch: Option<Epoch>,
+    pub eip4844_fork_version: [u8; 4],
+
+    /*
      * Networking
      */
     pub boot_nodes: Vec<String>,
@@ -245,6 +251,7 @@ impl ChainSpec {
             ForkName::Base => self.genesis_fork_version,
             ForkName::Altair => self.altair_fork_version,
             ForkName::Merge => self.bellatrix_fork_version,
+            ForkName::Eip4844 => self.eip4844_fork_version,
         }
     }
 
@@ -254,6 +261,7 @@ impl ChainSpec {
             ForkName::Base => Some(Epoch::new(0)),
             ForkName::Altair => self.altair_fork_epoch,
             ForkName::Merge => self.bellatrix_fork_epoch,
+            ForkName::Eip4844 => self.eip4844_fork_epoch,
         }
     }
 
@@ -263,6 +271,7 @@ impl ChainSpec {
             BeaconState::Base(_) => self.inactivity_penalty_quotient,
             BeaconState::Altair(_) => self.inactivity_penalty_quotient_altair,
             BeaconState::Merge(_) => self.inactivity_penalty_quotient_bellatrix,
+            BeaconState::Eip4844(_) => self.inactivity_penalty_quotient_bellatrix,
         }
     }
 
@@ -275,6 +284,7 @@ impl ChainSpec {
             BeaconState::Base(_) => self.proportional_slashing_multiplier,
             BeaconState::Altair(_) => self.proportional_slashing_multiplier_altair,
             BeaconState::Merge(_) => self.proportional_slashing_multiplier_bellatrix,
+            BeaconState::Eip4844(_) => self.proportional_slashing_multiplier_bellatrix,
         }
     }
 
@@ -287,6 +297,7 @@ impl ChainSpec {
             BeaconState::Base(_) => self.min_slashing_penalty_quotient,
             BeaconState::Altair(_) => self.min_slashing_penalty_quotient_altair,
             BeaconState::Merge(_) => self.min_slashing_penalty_quotient_bellatrix,
+            BeaconState::Eip4844(_) => self.min_slashing_penalty_quotient_bellatrix,
         }
     }
 
@@ -569,6 +580,12 @@ impl ChainSpec {
             safe_slots_to_import_optimistically: 128u64,
 
             /*
+             * Eip4844 hard fork params
+             */
+            eip4844_fork_epoch: None,
+            eip4844_fork_version: [0x03, 0x00, 0x00, 0x00],
+
+            /*
              * Network specific
              */
             boot_nodes: vec![],
@@ -777,6 +794,9 @@ impl ChainSpec {
             terminal_block_hash: ExecutionBlockHash::zero(),
             terminal_block_hash_activation_epoch: Epoch::new(u64::MAX),
             safe_slots_to_import_optimistically: 128u64,
+
+            eip4844_fork_epoch: None,
+            eip4844_fork_version: [0x03, 0x00, 0x00, 0x64],
 
             /*
              * Network specific

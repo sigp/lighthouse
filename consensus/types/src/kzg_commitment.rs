@@ -1,13 +1,20 @@
 use std::fmt;
-use serde::{Deserialize, Deserializer, Serializer};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use ssz::{Decode, DecodeError, Encode};
 use tree_hash::TreeHash;
+use crate::test_utils::{RngCore, TestRandom};
 
 const KZG_COMMITMENT_BYTES_LEN: usize = 48;
 
-#[derive(Default, Debug, PartialEq, Hash, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Hash, Clone, Copy, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct KzgCommitment(#[serde(with = "serde_kzg_commitment")] pub [u8; KZG_COMMITMENT_BYTES_LEN]);
+
+impl Default for KzgCommitment {
+    fn default() -> Self {
+        KzgCommitment([0; 48])
+    }
+}
 
 impl fmt::Display for KzgCommitment {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -108,5 +115,13 @@ impl TreeHash for KzgCommitment {
 
     fn tree_hash_root(&self) -> tree_hash::Hash256 {
         self.0.tree_hash_root()
+    }
+}
+
+impl TestRandom for KzgCommitment {
+    fn random_for_test(rng: &mut impl RngCore) -> Self {
+        let mut bytes = [0; KZG_COMMITMENT_BYTES_LEN];
+        rng.fill_bytes(&mut bytes);
+        Self(bytes)
     }
 }

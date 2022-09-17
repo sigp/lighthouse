@@ -11,11 +11,12 @@ pub enum ForkName {
     Base,
     Altair,
     Merge,
+    Eip4844
 }
 
 impl ForkName {
     pub fn list_all() -> Vec<ForkName> {
-        vec![ForkName::Base, ForkName::Altair, ForkName::Merge]
+        vec![ForkName::Base, ForkName::Altair, ForkName::Merge, ForkName::Eip4844]
     }
 
     /// Set the activation slots in the given `ChainSpec` so that the fork named by `self`
@@ -38,6 +39,12 @@ impl ForkName {
                 spec.bellatrix_fork_epoch = Some(Epoch::new(0));
                 spec
             }
+            ForkName::Eip4844 => {
+                spec.altair_fork_epoch = Some(Epoch::new(0));
+                spec.bellatrix_fork_epoch = Some(Epoch::new(0));
+                spec.eip4844_fork_epoch = Some(Epoch::new(0));
+                spec
+            }
         }
     }
 
@@ -49,6 +56,7 @@ impl ForkName {
             ForkName::Base => None,
             ForkName::Altair => Some(ForkName::Base),
             ForkName::Merge => Some(ForkName::Altair),
+            ForkName::Eip4844 => Some(ForkName::Merge),
         }
     }
 
@@ -59,7 +67,8 @@ impl ForkName {
         match self {
             ForkName::Base => Some(ForkName::Altair),
             ForkName::Altair => Some(ForkName::Merge),
-            ForkName::Merge => None,
+            ForkName::Merge => Some(ForkName::Eip4844),
+            ForkName::Eip4844 => None,
         }
     }
 }
@@ -101,6 +110,10 @@ macro_rules! map_fork_name_with {
                 let (value, extra_data) = $body;
                 ($t::Merge(value), extra_data)
             }
+            ForkName::Eip4844 => {
+                let (value, extra_data) = $body;
+                ($t::Eip4844(value), extra_data)
+            }
         }
     };
 }
@@ -124,6 +137,7 @@ impl Display for ForkName {
             ForkName::Base => "phase0".fmt(f),
             ForkName::Altair => "altair".fmt(f),
             ForkName::Merge => "bellatrix".fmt(f),
+            ForkName::Eip4844 => "eip4844".fmt(f),
         }
     }
 }

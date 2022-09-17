@@ -94,6 +94,8 @@ pub mod sqlite;
 
 pub mod kzg_commitment;
 pub mod kzg_proof;
+pub mod bls_field_element;
+pub mod blob;
 
 use ethereum_types::{H160, H256};
 
@@ -104,11 +106,11 @@ pub use crate::attestation_duty::AttestationDuty;
 pub use crate::attester_slashing::AttesterSlashing;
 pub use crate::beacon_block::{
     BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockMerge, BeaconBlockRef,
-    BeaconBlockRefMut,
+    BeaconBlockRefMut, BeaconBlockEip4844
 };
 pub use crate::beacon_block_body::{
     BeaconBlockBody, BeaconBlockBodyAltair, BeaconBlockBodyBase, BeaconBlockBodyMerge,
-    BeaconBlockBodyRef, BeaconBlockBodyRefMut,
+    BeaconBlockBodyRef, BeaconBlockBodyRefMut, BeaconBlockBodyEip4844
 };
 pub use crate::beacon_block_header::BeaconBlockHeader;
 pub use crate::beacon_committee::{BeaconCommittee, OwnedBeaconCommittee};

@@ -8,6 +8,7 @@ use std::marker::PhantomData;
 use superstruct::superstruct;
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
+use crate::kzg_commitment::KzgCommitment;
 
 /// The body of a `BeaconChain` block, containing operations.
 ///
@@ -56,7 +57,7 @@ pub struct BeaconBlockBody<T: EthSpec, Payload: ExecPayload<T> = FullPayload<T>>
     #[serde(flatten)]
     pub execution_payload: Payload,
     #[superstruct(only(Eip4844))]
-    pub blob_kzg_commitments: VariableList<TODO, T::MaxBlobsPerBlock>,
+    pub blob_kzg_commitments: VariableList<KzgCommitment, T::MaxBlobsPerBlock>,
     #[superstruct(only(Base, Altair))]
     #[ssz(skip_serializing, skip_deserializing)]
     #[tree_hash(skip_hashing)]
@@ -71,6 +72,7 @@ impl<'a, T: EthSpec> BeaconBlockBodyRef<'a, T> {
             BeaconBlockBodyRef::Base { .. } => ForkName::Base,
             BeaconBlockBodyRef::Altair { .. } => ForkName::Altair,
             BeaconBlockBodyRef::Merge { .. } => ForkName::Merge,
+            BeaconBlockBodyRef::Eip4844 { .. } => ForkName::Eip4844,
         }
     }
 }
@@ -253,6 +255,48 @@ impl<E: EthSpec> From<BeaconBlockBodyMerge<E, FullPayload<E>>>
     }
 }
 
+impl<E: EthSpec> From<BeaconBlockBodyEip4844<E, FullPayload<E>>>
+for (
+    BeaconBlockBodyEip4844<E, BlindedPayload<E>>,
+    Option<ExecutionPayload<E>>,
+)
+{
+    fn from(body: BeaconBlockBodyEip4844<E, FullPayload<E>>) -> Self {
+        let BeaconBlockBodyEip4844 {
+            randao_reveal,
+            eth1_data,
+            graffiti,
+            proposer_slashings,
+            attester_slashings,
+            attestations,
+            deposits,
+            voluntary_exits,
+            sync_aggregate,
+            execution_payload: FullPayload { execution_payload },
+            blob_kzg_commitments,
+        } = body;
+
+        (
+            BeaconBlockBodyEip4844 {
+                randao_reveal,
+                eth1_data,
+                graffiti,
+                proposer_slashings,
+                attester_slashings,
+                attestations,
+                deposits,
+                voluntary_exits,
+                sync_aggregate,
+                execution_payload: BlindedPayload {
+                    execution_payload_header: From::from(&execution_payload),
+                },
+                blob_kzg_commitments,
+            },
+            None,
+        )
+    }
+}
+
 // We can clone a full block into a blinded block, without cloning the payload.
 impl<E: EthSpec> BeaconBlockBodyBase<E, FullPayload<E>> {
     pub fn clone_as_blinded(&self) -> BeaconBlockBodyBase<E, BlindedPayload<E>> {
@@ -296,6 +340,40 @@ impl<E: EthSpec> BeaconBlockBodyMerge<E, FullPayload<E>> {
             execution_payload: BlindedPayload {
                 execution_payload_header: From::from(execution_payload),
             },
+        }
+    }
+}
+
+impl<E: EthSpec> BeaconBlockBodyEip4844<E, FullPayload<E>> {
+    pub fn clone_as_blinded(&self) -> BeaconBlockBodyEip4844<E, BlindedPayload<E>> {
+        let BeaconBlockBodyEip4844 {
+            randao_reveal,
+            eth1_data,
+            graffiti,
+            proposer_slashings,
+            attester_slashings,
+            attestations,
+            deposits,
+            voluntary_exits,
+            sync_aggregate,
+            execution_payload: FullPayload { execution_payload },
+            blob_kzg_commitments,
+        } = self;
+
+        BeaconBlockBodyEip4844 {
+            randao_reveal: randao_reveal.clone(),
+            eth1_data: eth1_data.clone(),
+            graffiti: *graffiti,
+            proposer_slashings: proposer_slashings.clone(),
+            attester_slashings: attester_slashings.clone(),
+            attestations: attestations.clone(),
+            deposits: deposits.clone(),
+            voluntary_exits: voluntary_exits.clone(),
+            sync_aggregate: sync_aggregate.clone(),
+            execution_payload: BlindedPayload {
+                execution_payload_header: From::from(execution_payload),
+            },
+            blob_kzg_commitments: blob_kzg_commitments.clone(),
         }
     }
 }

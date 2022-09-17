@@ -81,6 +81,7 @@ macro_rules! impl_for_lt_32byte_u8_array {
 
 impl_for_lt_32byte_u8_array!(4);
 impl_for_lt_32byte_u8_array!(32);
+impl_for_lt_32byte_u8_array!(48);
 
 impl TreeHash for U128 {
     fn tree_hash_type() -> TreeHashType {

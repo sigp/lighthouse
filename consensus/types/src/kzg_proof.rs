@@ -1,17 +1,24 @@
 use std::fmt;
-use serde::{Deserialize, Deserializer, Serializer};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use ssz::{Decode, DecodeError, Encode};
 use tree_hash::TreeHash;
+use crate::test_utils::{RngCore, TestRandom};
 
 const KZG_PROOF_BYTES_LEN: usize = 48;
 
-#[derive(Default, Debug, PartialEq, Hash, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Hash, Clone, Copy, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct KzgProof(#[serde(with = "serde_kzg_proof")] pub [u8; KZG_PROOF_BYTES_LEN]);
 
 impl fmt::Display for KzgProof {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", eth2_serde_utils::hex::encode(&self.0))
+    }
+}
+
+impl Default for KzgProof {
+    fn default() -> Self {
+        KzgProof([0; 48])
     }
 }
 
@@ -108,5 +115,13 @@ impl TreeHash for KzgProof {
 
     fn tree_hash_root(&self) -> tree_hash::Hash256 {
         self.0.tree_hash_root()
+    }
+}
+
+impl TestRandom for KzgProof {
+    fn random_for_test(rng: &mut impl RngCore) -> Self {
+        let mut bytes = [0; KZG_PROOF_BYTES_LEN];
+        rng.fill_bytes(&mut bytes);
+        Self(bytes)
     }
 }

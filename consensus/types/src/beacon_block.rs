@@ -1,6 +1,6 @@
 use crate::beacon_block_body::{
     BeaconBlockBodyAltair, BeaconBlockBodyBase, BeaconBlockBodyMerge, BeaconBlockBodyRef,
-    BeaconBlockBodyRefMut, BeaconBlockBobyEip4844
+    BeaconBlockBodyRefMut, BeaconBlockBodyEip4844
 };
 use crate::test_utils::TestRandom;
 use crate::*;
@@ -189,6 +189,7 @@ impl<'a, T: EthSpec, Payload: ExecPayload<T>> BeaconBlockRef<'a, T, Payload> {
             BeaconBlockRef::Base { .. } => ForkName::Base,
             BeaconBlockRef::Altair { .. } => ForkName::Altair,
             BeaconBlockRef::Merge { .. } => ForkName::Merge,
+            BeaconBlockRef::Eip4844 { .. } => ForkName::Eip4844,
         };
 
         if fork_at_slot == object_fork {
@@ -573,6 +574,7 @@ macro_rules! impl_clone_as_blinded {
 impl_clone_as_blinded!(BeaconBlockBase, <E, FullPayload<E>>, <E, BlindedPayload<E>>);
 impl_clone_as_blinded!(BeaconBlockAltair, <E, FullPayload<E>>, <E, BlindedPayload<E>>);
 impl_clone_as_blinded!(BeaconBlockMerge, <E, FullPayload<E>>, <E, BlindedPayload<E>>);
+impl_clone_as_blinded!(BeaconBlockEip4844, <E, FullPayload<E>>, <E, BlindedPayload<E>>);
 
 // A reference to a full beacon block can be cloned into a blinded beacon block, without cloning the
 // execution payload.
