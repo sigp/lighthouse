@@ -189,6 +189,7 @@ impl std::fmt::Display for Protocol {
             Protocol::Goodbye => "goodbye",
             Protocol::BlocksByRange => "beacon_blocks_by_range",
             Protocol::BlocksByRoot => "beacon_blocks_by_root",
+            Protocol::BlobsByRange => "blobs_sidecars_by_range",
             Protocol::Ping => "ping",
             Protocol::MetaData => "metadata",
         };
@@ -297,6 +298,9 @@ impl ProtocolId {
             Protocol::BlocksByRoot => {
                 RpcLimits::new(*BLOCKS_BY_ROOT_REQUEST_MIN, *BLOCKS_BY_ROOT_REQUEST_MAX)
             }
+            Protocol::BlobsByRange => {
+                RpcLimits::new(*BLOCKS_BY_ROOT_REQUEST_MIN, *BLOCKS_BY_ROOT_REQUEST_MAX)
+            }
             Protocol::Ping => RpcLimits::new(
                 <Ping as Encode>::ssz_fixed_len(),
                 <Ping as Encode>::ssz_fixed_len(),
@@ -315,6 +319,7 @@ impl ProtocolId {
             Protocol::Goodbye => RpcLimits::new(0, 0), // Goodbye request has no response
             Protocol::BlocksByRange => rpc_block_limits_by_fork(fork_context.current_fork()),
             Protocol::BlocksByRoot => rpc_block_limits_by_fork(fork_context.current_fork()),
+            Protocol::BlobsByRange => rpc_block_limits_by_fork(fork_context.current_fork()),
 
             Protocol::Ping => RpcLimits::new(
                 <Ping as Encode>::ssz_fixed_len(),
@@ -467,6 +472,9 @@ impl<TSpec: EthSpec> InboundRequest<TSpec> {
             InboundRequest::BlocksByRoot(_) => vec![
                 // V2 has higher preference when negotiating a stream
                 ProtocolId::new(Protocol::BlocksByRoot, Version::V2, Encoding::SSZSnappy),
+                ProtocolId::new(Protocol::BlocksByRoot, Version::V1, Encoding::SSZSnappy),
+            ],
+            InboundRequest::BlobsByRange(_) => vec![
                 ProtocolId::new(Protocol::BlocksByRoot, Version::V1, Encoding::SSZSnappy),
             ],
             InboundRequest::Ping(_) => vec![ProtocolId::new(

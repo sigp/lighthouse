@@ -7,6 +7,7 @@ use crate::sync::manager::RequestId as SyncId;
 use crate::sync::SyncMessage;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use lighthouse_network::rpc::*;
+use lighthouse_network::rpc::methods::BlobsByRangeRequest;
 use lighthouse_network::{
     Client, MessageId, NetworkGlobals, PeerId, PeerRequestId, Request, Response,
 };
@@ -18,7 +19,7 @@ use store::SyncCommitteeMessage;
 use tokio::sync::mpsc;
 use types::{
     Attestation, AttesterSlashing, EthSpec, ProposerSlashing, SignedAggregateAndProof,
-    SignedBeaconBlock, SignedContributionAndProof, SignedVoluntaryExit, SubnetId, SyncSubnetId,
+    SignedBeaconBlock, SignedContributionAndProof, SignedVoluntaryExit, SubnetId, SyncSubnetId, VariableList, blobs_sidecar::BlobsSidecar,
 };
 use types::signed_blobs_sidecar::SignedBlobsSidecar;
 
@@ -161,6 +162,18 @@ impl<T: BeaconChainTypes> Processor<T> {
         ))
     }
 
+    pub fn on_blobs_by_range_request( 
+        &mut self,
+        peer_id: PeerId,
+        request_id: PeerRequestId,
+        request: BlobsByRangeRequest,
+    ) {
+        /* 
+        self.send_beacon_processor_work(BeaconWorkEvent::blocks_by_roots_request(
+            peer_id, request_id, request,
+        ))
+        */
+    }
     /// Handle a `BlocksByRange` request from the peer.
     pub fn on_blocks_by_range_request(
         &mut self,
@@ -233,6 +246,15 @@ impl<T: BeaconChainTypes> Processor<T> {
             beacon_block,
             seen_timestamp: timestamp_now(),
         });
+    }
+
+    pub fn on_blobs_by_range_response(
+        &mut self,
+        peer_id: PeerId,
+        request_id: RequestId,
+        beacon_blob: Option<Arc<VariableList<BlobsSidecar<T::EthSpec>, <<T as BeaconChainTypes>::EthSpec as EthSpec>::MaxRequestBlobsSidecars>>>,
+    ) {
+
     }
 
     /// Process a gossip message declaring a new block.
