@@ -59,6 +59,12 @@ pub fn inspect_cli_app<'a, 'b>() -> App<'a, 'b> {
         )
 }
 
+pub fn prune_payloads_app<'a, 'b>() -> App<'a, 'b> {
+    App::new("prune_payloads")
+        .setting(clap::AppSettings::ColoredHelp)
+        .about("Prune finalized execution payloads")
+}
+
 pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
     App::new(CMD)
         .visible_aliases(&["db"])
@@ -85,6 +91,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .subcommand(migrate_cli_app())
         .subcommand(version_cli_app())
         .subcommand(inspect_cli_app())
+        .subcommand(prune_payloads_app())
 }
 
 fn parse_client_config<E: EthSpec>(
@@ -257,6 +264,30 @@ pub fn migrate_db<E: EthSpec>(
     )
 }
 
+pub fn prune_payloads<E: EthSpec>(
+    client_config: ClientConfig,
+    runtime_context: &RuntimeContext<E>,
+    log: Logger,
+) -> Result<(), Error> {
+    let spec = &runtime_context.eth2_config.spec;
+    let hot_path = client_config.get_db_path();
+    let cold_path = client_config.get_freezer_db_path();
+
+    let db = HotColdDB::<E, LevelDB<E>, LevelDB<E>>::open(
+        &hot_path,
+        &cold_path,
+        |_, _, _| Ok(()),
+        client_config.store,
+        spec.clone(),
+        log,
+    )?;
+
+    // If we're trigging a prune manually then ignore the check on the split's parent that bails
+    // out early.
+    let force = true;
+    db.try_prune_execution_payloads(force)
+}
+
 /// Run the database manager, returning an error string if the operation did not succeed.
 pub fn run<T: EthSpec>(cli_args: &ArgMatches<'_>, mut env: Environment<T>) -> Result<(), String> {
     let client_config = parse_client_config(cli_args, &env)?;
@@ -273,6 +304,7 @@ pub fn run<T: EthSpec>(cli_args: &ArgMatches<'_>, mut env: Environment<T>) -> Re
             let inspect_config = parse_inspect_config(cli_args)?;
             inspect_db(inspect_config, client_config, &context, log)
         }
+        ("prune_payloads", Some(_)) => prune_payloads(client_config, &context, log),
         _ => {
             return Err("Unknown subcommand, for help `lighthouse database_manager --help`".into())
         }
