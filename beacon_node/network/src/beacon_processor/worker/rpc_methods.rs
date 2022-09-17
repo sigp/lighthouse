@@ -6,6 +6,7 @@ use beacon_chain::{BeaconChainError, BeaconChainTypes, HistoricalBlockError, Whe
 use itertools::process_results;
 use lighthouse_network::rpc::StatusMessage;
 use lighthouse_network::rpc::*;
+use lighthouse_network::rpc::methods::BlobsByRangeRequest;
 use lighthouse_network::{PeerId, PeerRequestId, ReportSource, Response, SyncInfo};
 use slog::{debug, error};
 use slot_clock::SlotClock;
@@ -371,5 +372,17 @@ impl<T: BeaconChainTypes> Worker<T> {
             },
             "load_blocks_by_range_blocks",
         );
+    }
+
+    /// Handle a `BlobsByRange` request from the peer.
+    pub fn handle_blobs_by_range_request(
+        self,
+        executor: TaskExecutor,
+        send_on_drop: SendOnDrop,
+        peer_id: PeerId,
+        request_id: PeerRequestId,
+        request: BlobsByRangeRequest,
+    ) {
+        // TODO impl
     }
 }

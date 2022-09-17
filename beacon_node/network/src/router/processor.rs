@@ -168,11 +168,9 @@ impl<T: BeaconChainTypes> Processor<T> {
         request_id: PeerRequestId,
         request: BlobsByRangeRequest,
     ) {
-        /* 
-        self.send_beacon_processor_work(BeaconWorkEvent::blocks_by_roots_request(
+        self.send_beacon_processor_work(BeaconWorkEvent::blobs_by_range_request(
             peer_id, request_id, request,
         ))
-        */
     }
     /// Handle a `BlocksByRange` request from the peer.
     pub fn on_blocks_by_range_request(
