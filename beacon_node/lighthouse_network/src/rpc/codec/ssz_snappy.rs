@@ -228,6 +228,7 @@ impl<TSpec: EthSpec> Encoder<OutboundRequest<TSpec>> for SSZSnappyOutboundCodec<
             OutboundRequest::Goodbye(req) => req.as_ssz_bytes(),
             OutboundRequest::BlocksByRange(req) => req.as_ssz_bytes(),
             OutboundRequest::BlocksByRoot(req) => req.block_roots.as_ssz_bytes(),
+            OutboundRequest::BlobsByRange(req) => req.as_ssz_bytes(),
             OutboundRequest::Ping(req) => req.as_ssz_bytes(),
             OutboundRequest::MetaData(_) => return Ok(()), // no metadata to encode
         };
@@ -473,6 +474,9 @@ fn handle_v1_request<T: EthSpec>(
         Protocol::BlocksByRoot => Ok(Some(InboundRequest::BlocksByRoot(BlocksByRootRequest {
             block_roots: VariableList::from_ssz_bytes(decoded_buffer)?,
         }))),
+        Protocol::BlobsByRange => Ok(Some(InboundRequest::BlobsByRange(
+            BlobsByRangeRequest::from_ssz_bytes(decoded_buffer)?,        
+        ))),
         Protocol::Ping => Ok(Some(InboundRequest::Ping(Ping {
             data: u64::from_ssz_bytes(decoded_buffer)?,
         }))),
@@ -505,6 +509,9 @@ fn handle_v2_request<T: EthSpec>(
         Protocol::BlocksByRoot => Ok(Some(InboundRequest::BlocksByRoot(BlocksByRootRequest {
             block_roots: VariableList::from_ssz_bytes(decoded_buffer)?,
         }))),
+        Protocol::BlobsByRange => Ok(Some(InboundRequest::BlobsByRange(
+            BlobsByRangeRequest::from_ssz_bytes(decoded_buffer)?,        
+        ))),
         // MetaData requests return early from InboundUpgrade and do not reach the decoder.
         // Handle this case just for completeness.
         Protocol::MetaData => {
@@ -542,6 +549,9 @@ fn handle_v1_response<T: EthSpec>(
         Protocol::BlocksByRoot => Ok(Some(RPCResponse::BlocksByRoot(Arc::new(
             SignedBeaconBlock::Base(SignedBeaconBlockBase::from_ssz_bytes(decoded_buffer)?),
         )))),
+        Protocol::BlobsByRange => Err(RPCError::InvalidData(
+            "blobs by range via v1".to_string(),
+        )),
         Protocol::Ping => Ok(Some(RPCResponse::Pong(Ping {
             data: u64::from_ssz_bytes(decoded_buffer)?,
         }))),
@@ -616,6 +626,15 @@ fn handle_v2_response<T: EthSpec>(
                     )?),
                 )))),
             },
+            Protocol::BlobsByRange => match  fork_name {
+                ForkName::Eip4844 => Ok(Some(RPCResponse::BlobsByRange(Arc::new(
+                    VariableList::from_ssz_bytes(decoded_buffer)?,
+                )))),
+                _ => Err(RPCError::ErrorResponse(
+                    RPCResponseErrorCode::InvalidRequest,
+                    "Invalid forkname for blobsbyrange".to_string(),
+                )),
+            }
             _ => Err(RPCError::ErrorResponse(
                 RPCResponseErrorCode::InvalidRequest,
                 "Invalid v2 request".to_string(),
@@ -672,6 +691,7 @@ mod tests {
             ForkName::Base => Slot::new(0),
             ForkName::Altair => altair_fork_epoch.start_slot(Spec::slots_per_epoch()),
             ForkName::Merge => merge_fork_epoch.start_slot(Spec::slots_per_epoch()),
+            ForkName::Eip4844 => merge_fork_epoch.start_slot(Spec::slots_per_epoch()),
         };
         ForkContext::new::<Spec>(current_slot, Hash256::zero(), &chain_spec)
     }
@@ -874,6 +894,9 @@ mod tests {
                 }
                 OutboundRequest::BlocksByRoot(bbroot) => {
                     assert_eq!(decoded, InboundRequest::BlocksByRoot(bbroot))
+                }
+                OutboundRequest::BlobsByRange(blbrange) => {
+                    assert_eq!(decoded, InboundRequest::BlobsByRange(blbrange))
                 }
                 OutboundRequest::Ping(ping) => {
                     assert_eq!(decoded, InboundRequest::Ping(ping))

@@ -159,6 +159,8 @@ pub enum Protocol {
     BlocksByRange,
     /// The `BlocksByRoot` protocol name.
     BlocksByRoot,
+    /// The `BlobsByRange` protocol name.
+    BlobsByRange,
     /// The `Ping` protocol name.
     Ping,
     /// The `MetaData` protocol name.
@@ -488,6 +490,7 @@ impl<TSpec: EthSpec> InboundRequest<TSpec> {
             InboundRequest::Goodbye(_) => 0,
             InboundRequest::BlocksByRange(req) => req.count,
             InboundRequest::BlocksByRoot(req) => req.block_roots.len() as u64,
+            InboundRequest::BlobsByRange(req) => req.count,
             InboundRequest::Ping(_) => 1,
             InboundRequest::MetaData(_) => 1,
         }
@@ -500,6 +503,7 @@ impl<TSpec: EthSpec> InboundRequest<TSpec> {
             InboundRequest::Goodbye(_) => Protocol::Goodbye,
             InboundRequest::BlocksByRange(_) => Protocol::BlocksByRange,
             InboundRequest::BlocksByRoot(_) => Protocol::BlocksByRoot,
+            InboundRequest::BlobsByRange(_) => Protocol::BlobsByRange,
             InboundRequest::Ping(_) => Protocol::Ping,
             InboundRequest::MetaData(_) => Protocol::MetaData,
         }
@@ -513,6 +517,7 @@ impl<TSpec: EthSpec> InboundRequest<TSpec> {
             // variants that have `multiple_responses()` can have values.
             InboundRequest::BlocksByRange(_) => ResponseTermination::BlocksByRange,
             InboundRequest::BlocksByRoot(_) => ResponseTermination::BlocksByRoot,
+            InboundRequest::BlobsByRange(_) => ResponseTermination::BlobsByRange,
             InboundRequest::Status(_) => unreachable!(),
             InboundRequest::Goodbye(_) => unreachable!(),
             InboundRequest::Ping(_) => unreachable!(),
@@ -618,6 +623,7 @@ impl<TSpec: EthSpec> std::fmt::Display for InboundRequest<TSpec> {
             InboundRequest::Goodbye(reason) => write!(f, "Goodbye: {}", reason),
             InboundRequest::BlocksByRange(req) => write!(f, "Blocks by range: {}", req),
             InboundRequest::BlocksByRoot(req) => write!(f, "Blocks by root: {:?}", req),
+            InboundRequest::BlobsByRange(req) => write!(f, "Blobs by range: {:?}", req),
             InboundRequest::Ping(ping) => write!(f, "Ping: {}", ping.data),
             InboundRequest::MetaData(_) => write!(f, "MetaData request"),
         }
