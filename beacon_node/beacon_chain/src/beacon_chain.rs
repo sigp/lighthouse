@@ -99,6 +99,7 @@ use types::*;
 
 pub use crate::canonical_head::{CanonicalHead, CanonicalHeadRwLock};
 pub use fork_choice::CountUnrealized;
+use types::kzg_commitment::KzgCommitment;
 
 pub type ForkChoiceError = fork_choice::Error<crate::ForkChoiceStoreError>;
 
@@ -3627,7 +3628,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         .ok_or(BlockProductionError::MissingSyncAggregate)?,
                     execution_payload: execution_payload
                         .ok_or(BlockProductionError::MissingExecutionPayload)?,
-                    blob_kzg_commitments: todo!(), // part of partial block or??
+                    blob_kzg_commitments: blob_kzg_commitments.into(),
                 },
             }),
         };

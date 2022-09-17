@@ -32,6 +32,7 @@ pub trait ExecPayload<T: EthSpec>:
     + Hash
     + TryFrom<ExecutionPayloadHeader<T>>
     + From<ExecutionPayload<T>>
+    + From<FullPayload<T>>
     + Send
     + 'static
 {
@@ -169,6 +170,12 @@ impl<T: EthSpec> From<ExecutionPayload<T>> for BlindedPayload<T> {
         Self {
             execution_payload_header: ExecutionPayloadHeader::from(&execution_payload),
         }
+    }
+}
+
+impl<T: EthSpec> From<FullPayload<T>> for BlindedPayload<T> {
+    fn from(full_payload: FullPayload<T>) -> Self {
+        full_payload.execution_payload.into()
     }
 }
 
