@@ -9,8 +9,8 @@ use derivative::Derivative;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TreeHash, Derivative)]
 pub struct BlobsSidecar<T: EthSpec> {
-    beacon_block_root: Hash256,
-    beacon_block_slot: Slot,
-    blobs: VariableList<Blob<T>, T::MaxBlobsPerBlock>,
-    kzg_aggregate_proof: KzgProof,
+    pub beacon_block_root: Hash256,
+    pub beacon_block_slot: Slot,
+    pub blobs: VariableList<Blob<T>, T::MaxBlobsPerBlock>,
+    pub kzg_aggregate_proof: KzgProof,
 }

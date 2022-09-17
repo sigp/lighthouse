@@ -20,6 +20,7 @@ use types::{
     Attestation, AttesterSlashing, EthSpec, ProposerSlashing, SignedAggregateAndProof,
     SignedBeaconBlock, SignedContributionAndProof, SignedVoluntaryExit, SubnetId, SyncSubnetId,
 };
+use types::signed_blobs_sidecar::SignedBlobsSidecar;
 
 /// Processes validated messages from the network. It relays necessary data to the syncing thread
 /// and processes blocks from the pubsub network.
@@ -251,6 +252,22 @@ impl<T: BeaconChainTypes> Processor<T> {
             peer_id,
             peer_client,
             block,
+            timestamp_now(),
+        ))
+    }
+
+    pub fn on_blobs_gossip(
+        &mut self,
+        message_id: MessageId,
+        peer_id: PeerId,
+        peer_client: Client,
+        blobs: Arc<SignedBlobsSidecar<T::EthSpec>>,
+    ) {
+        self.send_beacon_processor_work(BeaconWorkEvent::gossip_blobs_sidecar(
+            message_id,
+            peer_id,
+            peer_client,
+            blobs,
             timestamp_now(),
         ))
     }

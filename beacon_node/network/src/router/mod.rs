@@ -229,6 +229,14 @@ impl<T: BeaconChainTypes> Router<T> {
                     block,
                 );
             }
+            PubsubMessage::BlobsSidecars(blobs) => {
+                self.processor.on_blobs_gossip(
+                    id,
+                    peer_id,
+                    self.network_globals.client(&peer_id),
+                    blobs,
+                );
+            }
             PubsubMessage::VoluntaryExit(exit) => {
                 debug!(self.log, "Received a voluntary exit"; "peer_id" => %peer_id);
                 self.processor.on_voluntary_exit_gossip(id, peer_id, exit);

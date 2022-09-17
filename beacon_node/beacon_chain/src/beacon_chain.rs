@@ -3628,7 +3628,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         .ok_or(BlockProductionError::MissingSyncAggregate)?,
                     execution_payload: execution_payload
                         .ok_or(BlockProductionError::MissingExecutionPayload)?,
-                    blob_kzg_commitments: blob_kzg_commitments.into(),
+                    blob_kzg_commitments: todo!(),
                 },
             }),
         };

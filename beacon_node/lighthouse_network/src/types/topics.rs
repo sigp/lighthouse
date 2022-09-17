@@ -182,6 +182,7 @@ impl From<GossipTopic> for String {
 
         let kind = match topic.kind {
             GossipKind::BeaconBlock => BEACON_BLOCK_TOPIC.into(),
+            GossipKind::BlobsSidecar => BLOBS_SIDECAR_TOPIC.into(),
             GossipKind::BeaconAggregateAndProof => BEACON_AGGREGATE_AND_PROOF_TOPIC.into(),
             GossipKind::VoluntaryExit => VOLUNTARY_EXIT_TOPIC.into(),
             GossipKind::ProposerSlashing => PROPOSER_SLASHING_TOPIC.into(),
@@ -210,6 +211,7 @@ impl std::fmt::Display for GossipTopic {
 
         let kind = match self.kind {
             GossipKind::BeaconBlock => BEACON_BLOCK_TOPIC.into(),
+            GossipKind::BlobsSidecar => BLOBS_SIDECAR_TOPIC.into(),
             GossipKind::BeaconAggregateAndProof => BEACON_AGGREGATE_AND_PROOF_TOPIC.into(),
             GossipKind::VoluntaryExit => VOLUNTARY_EXIT_TOPIC.into(),
             GossipKind::ProposerSlashing => PROPOSER_SLASHING_TOPIC.into(),

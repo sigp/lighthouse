@@ -14,6 +14,7 @@ use types::{
     SignedBeaconBlockMerge, SignedBeaconBlockEip4844, SignedContributionAndProof, SignedVoluntaryExit, SubnetId,
     SyncCommitteeMessage, SyncSubnetId,
 };
+use types::blobs_sidecar::BlobsSidecar;
 use types::signed_blobs_sidecar::SignedBlobsSidecar;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -184,6 +185,11 @@ impl<T: EthSpec> PubsubMessage<T> {
                             };
                         Ok(PubsubMessage::BeaconBlock(Arc::new(beacon_block)))
                     }
+                    GossipKind::BlobsSidecar => {
+                        let blobs_sidecar = SignedBlobsSidecar::from_ssz_bytes(data)
+                            .map_err(|e| format!("{:?}", e))?;
+                        Ok(PubsubMessage::BlobsSidecars(Arc::new(blobs_sidecar)))
+                    }
                     GossipKind::VoluntaryExit => {
                         let voluntary_exit = SignedVoluntaryExit::from_ssz_bytes(data)
                             .map_err(|e| format!("{:?}", e))?;
@@ -228,6 +234,7 @@ impl<T: EthSpec> PubsubMessage<T> {
         // messages for us.
         match &self {
             PubsubMessage::BeaconBlock(data) => data.as_ssz_bytes(),
+            PubsubMessage::BlobsSidecars(data) => data.as_ssz_bytes(),
             PubsubMessage::AggregateAndProofAttestation(data) => data.as_ssz_bytes(),
             PubsubMessage::VoluntaryExit(data) => data.as_ssz_bytes(),
             PubsubMessage::ProposerSlashing(data) => data.as_ssz_bytes(),
@@ -247,6 +254,12 @@ impl<T: EthSpec> std::fmt::Display for PubsubMessage<T> {
                 "Beacon Block: slot: {}, proposer_index: {}",
                 block.slot(),
                 block.message().proposer_index()
+            ),
+            PubsubMessage::BlobsSidecars(blobs) => write!(
+                f,
+                "Blobs Sidecar: slot: {}, blobs: {}",
+                blobs.message.beacon_block_slot,
+                blobs.message.blobs.len(),
             ),
             PubsubMessage::AggregateAndProofAttestation(att) => write!(
                 f,
