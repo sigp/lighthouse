@@ -13,7 +13,7 @@ use tree_hash_derive::TreeHash;
 ///
 /// This *superstruct* abstracts over the hard-fork.
 #[superstruct(
-    variants(Base, Altair, Merge),
+    variants(Base, Altair, Merge, Eip4844),
     variant_attributes(
         derive(
             Debug,
@@ -47,14 +47,16 @@ pub struct BeaconBlockBody<T: EthSpec, Payload: ExecPayload<T> = FullPayload<T>>
     pub attestations: VariableList<Attestation<T>, T::MaxAttestations>,
     pub deposits: VariableList<Deposit, T::MaxDeposits>,
     pub voluntary_exits: VariableList<SignedVoluntaryExit, T::MaxVoluntaryExits>,
-    #[superstruct(only(Altair, Merge))]
+    #[superstruct(only(Altair, Merge, Eip4844))]
     pub sync_aggregate: SyncAggregate<T>,
     // We flatten the execution payload so that serde can use the name of the inner type,
     // either `execution_payload` for full payloads, or `execution_payload_header` for blinded
     // payloads.
-    #[superstruct(only(Merge))]
+    #[superstruct(only(Merge, Eip4844))]
     #[serde(flatten)]
     pub execution_payload: Payload,
+    #[superstruct(only(Eip4844))]
+    pub blob_kzg_commitments: VariableList<TODO, T::MaxBlobsPerBlock>,
     #[superstruct(only(Base, Altair))]
     #[ssz(skip_serializing, skip_deserializing)]
     #[tree_hash(skip_hashing)]

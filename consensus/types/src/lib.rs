@@ -14,6 +14,8 @@
 
 #[macro_use]
 extern crate lazy_static;
+extern crate core;
+
 #[macro_use]
 pub mod test_utils;
 
@@ -89,6 +91,9 @@ pub mod validator_registration_data;
 pub mod slot_data;
 #[cfg(feature = "sqlite")]
 pub mod sqlite;
+
+pub mod kzg_commitment;
+pub mod kzg_proof;
 
 use ethereum_types::{H160, H256};
 

@@ -1,6 +1,6 @@
 use crate::beacon_block_body::{
     BeaconBlockBodyAltair, BeaconBlockBodyBase, BeaconBlockBodyMerge, BeaconBlockBodyRef,
-    BeaconBlockBodyRefMut,
+    BeaconBlockBodyRefMut, BeaconBlockBobyEip4844
 };
 use crate::test_utils::TestRandom;
 use crate::*;
@@ -17,7 +17,7 @@ use tree_hash_derive::TreeHash;
 
 /// A block of the `BeaconChain`.
 #[superstruct(
-    variants(Base, Altair, Merge),
+    variants(Base, Altair, Merge, Eip4844),
     variant_attributes(
         derive(
             Debug,
@@ -64,6 +64,8 @@ pub struct BeaconBlock<T: EthSpec, Payload: ExecPayload<T> = FullPayload<T>> {
     pub body: BeaconBlockBodyAltair<T, Payload>,
     #[superstruct(only(Merge), partial_getter(rename = "body_merge"))]
     pub body: BeaconBlockBodyMerge<T, Payload>,
+    #[superstruct(only(Eip4844), partial_getter(rename = "body_eip4844"))]
+    pub body: BeaconBlockBodyEip4844<T, Payload>,
 }
 
 impl<T: EthSpec, Payload: ExecPayload<T>> SignedRoot for BeaconBlock<T, Payload> {}
@@ -540,6 +542,7 @@ macro_rules! impl_from {
 impl_from!(BeaconBlockBase, <E, FullPayload<E>>, <E, BlindedPayload<E>>, |body: BeaconBlockBodyBase<_, _>| body.into());
 impl_from!(BeaconBlockAltair, <E, FullPayload<E>>, <E, BlindedPayload<E>>, |body: BeaconBlockBodyAltair<_, _>| body.into());
 impl_from!(BeaconBlockMerge, <E, FullPayload<E>>, <E, BlindedPayload<E>>, |body: BeaconBlockBodyMerge<_, _>| body.into());
+impl_from!(BeaconBlockEip4844, <E, FullPayload<E>>, <E, BlindedPayload<E>>, |body: BeaconBlockBodyEip4844<_, _>| body.into());
 
 // We can clone blocks with payloads to blocks without payloads, without cloning the payload.
 macro_rules! impl_clone_as_blinded {
