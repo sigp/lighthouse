@@ -18,75 +18,45 @@ pub struct AnvilCliInstance {
 }
 
 impl AnvilCliInstance {
+    fn new_from_child(anvil_instance: Anvil, chain_id: u64, port: u16) -> Result<Self, String> {
+        let client = Provider::<Http>::try_from(&endpoint(port))
+            .map_err(|e| format!("Failed to start HTTP transport connected to anvil: {:?}", e))?;
+        Ok(Self {
+            port,
+            anvil: anvil_instance.spawn(),
+            client,
+            chain_id,
+        })
+    }
     pub fn new(chain_id: u64) -> Result<Self, String> {
         let port = unused_tcp_port()?;
 
         let anvil = Anvil::new()
             .port(port)
             .mnemonic("vast thought differ pull jewel broom cook wrist tribe word before omit")
-            .arg("--defaultBalanceEther")
+            .arg("--balance")
             .arg("1000000000")
-            .arg("--gasLimit")
+            .arg("--gas-limit")
             .arg("1000000000")
             .arg("--accounts")
             .arg("10")
-            .arg("--chain.chainId")
-            .arg(format!("{}", chain_id))
-            .spawn();
+            .arg("--chain-id")
+            .arg(format!("{}", chain_id));
 
-        // let start = Instant::now();
-        // let mut reader = BufReader::new(stdout);
-        // loop {
-        //     if start + Duration::from_millis(GANACHE_STARTUP_TIMEOUT_MILLIS) <= Instant::now() {
-        //         break Err(
-        //             "Timed out waiting for ganache to start. Is ganache installed?".to_string(),
-        //         );
-        //     }
-
-        //     let mut line = String::new();
-        //     if let Err(e) = reader.read_line(&mut line) {
-        //         break Err(format!("Failed to read line from ganache process: {:?}", e));
-        //     } else if line.starts_with("RPC Listening on") {
-        //         break Ok(());
-        //     } else {
-        //         continue;
-        //     }
-        // }?;
-        let client = Provider::<Http>::try_from(&endpoint(port))
-            .map_err(|e| format!("Failed to start HTTP transport connected to anvil: {:?}", e))?;
-        Ok(Self {
-            port,
-            anvil,
-            client,
-            chain_id,
-        })
+        Self::new_from_child(anvil, chain_id, port)
     }
 
-    // pub fn fork(&self) -> Result<Self, String> {
-    //     let port = unused_tcp_port()?;
-    //     let binary = match cfg!(windows) {
-    //         true => "ganache.cmd",
-    //         false => "ganache",
-    //     };
-    //     let child = Command::new(binary)
-    //         .stdout(Stdio::piped())
-    //         .arg("--fork")
-    //         .arg(self.endpoint())
-    //         .arg("--port")
-    //         .arg(format!("{}", port))
-    //         .arg("--chain.chainId")
-    //         .arg(format!("{}", self.chain_id))
-    //         .spawn()
-    //         .map_err(|e| {
-    //             format!(
-    //                 "Failed to start {}. \
-    //                 Is it installed and available on $PATH? Error: {:?}",
-    //                 binary, e
-    //             )
-    //         })?;
+    pub fn fork(&self) -> Result<Self, String> {
+        let port = unused_tcp_port()?;
 
-    //     Self::new_from_child(child, port, self.chain_id)
-    // }
+        let anvil = Anvil::new()
+            .port(port)
+            .arg("--chain-id")
+            .arg(format!("{}", self.chain_id()))
+            .fork(self.endpoint());
+
+        Self::new_from_child(anvil, self.chain_id, port)
+    }
 
     /// Returns the endpoint that this instance is listening on.
     pub fn endpoint(&self) -> String {
@@ -103,6 +73,7 @@ impl AnvilCliInstance {
         self.client
             .request("evm_increaseTime", vec![json!(increase_by)])
             .await
+            .map(|_json_value: u64| ())
             .map_err(|e| format!("Failed to increase time on EVM (is this anvil?): {:?}", e))
     }
 
@@ -118,7 +89,7 @@ impl AnvilCliInstance {
     /// Mines a single block.
     pub async fn evm_mine(&self) -> Result<(), String> {
         self.client
-            .request("evm_mine", Vec::<String>::new())
+            .request("evm_mine", ())
             .await
             .map(|_: String| ())
             .map_err(|_| {

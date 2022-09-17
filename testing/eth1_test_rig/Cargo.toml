@@ -13,3 +13,4 @@ types = { path = "../../consensus/types"}
 serde_json = "1.0.58"
 deposit_contract = { path = "../../common/deposit_contract"}
 unused_port = { path = "../../common/unused_port" }
+hex = "0.4.2"

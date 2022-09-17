@@ -3,6 +3,7 @@ use environment::{Environment, EnvironmentBuilder};
 use eth1::{Config, Eth1Endpoint, Service};
 use eth1::{DepositCache, DEFAULT_CHAIN_ID};
 use eth1_test_rig::AnvilEth1Instance;
+use ethers_providers::{Http, Middleware, Provider};
 use execution_layer::http::{deposit_methods::*, HttpJsonRpc, Log};
 use merkle_proof::verify_merkle_proof;
 use sensitive_url::SensitiveUrl;
@@ -12,7 +13,6 @@ use std::ops::Range;
 use std::time::Duration;
 use tree_hash::TreeHash;
 use types::{DepositData, EthSpec, Hash256, Keypair, MainnetEthSpec, MinimalEthSpec, Signature};
-use web3::{transports::Http, Web3};
 
 const DEPOSIT_CONTRACT_TREE_DEPTH: usize = 32;
 
@@ -86,15 +86,15 @@ async fn blocking_deposit_count(
         .expect("should get deposit count")
 }
 
-async fn get_block_number(web3: &Web3<Http>) -> u64 {
-    web3.eth()
-        .block_number()
+async fn get_block_number(client: &Provider<Http>) -> u64 {
+    client
+        .get_block_number()
         .await
         .map(|v| v.as_u64())
         .expect("should get block number")
 }
 
-async fn new_ganache_instance() -> Result<AnvilEth1Instance, String> {
+async fn new_anvil_instance() -> Result<AnvilEth1Instance, String> {
     AnvilEth1Instance::new(DEFAULT_CHAIN_ID.into()).await
 }
 
@@ -108,13 +108,13 @@ mod eth1_cache {
             let log = null_logger();
 
             for follow_distance in 0..3 {
-                let eth1 = new_ganache_instance()
+                let eth1 = new_anvil_instance()
                     .await
                     .expect("should start eth1 environment");
                 let deposit_contract = &eth1.deposit_contract;
-                let web3 = eth1.json_rpc_client();
+                let anvil_client = eth1.json_rpc_client();
 
-                let initial_block_number = get_block_number(&web3).await;
+                let initial_block_number = get_block_number(&anvil_client).await;
 
                 let config = Config {
                     endpoints: Eth1Endpoint::NoAuth(vec![SensitiveUrl::parse(
@@ -146,7 +146,7 @@ mod eth1_cache {
                     };
 
                     for _ in 0..blocks {
-                        eth1.ganache.evm_mine().await.expect("should mine block");
+                        eth1.anvil.evm_mine().await.expect("should mine block");
                     }
 
                     let endpoints = service.init_endpoints().unwrap();
@@ -191,11 +191,11 @@ mod eth1_cache {
         async {
             let log = null_logger();
 
-            let eth1 = new_ganache_instance()
+            let eth1 = new_anvil_instance()
                 .await
                 .expect("should start eth1 environment");
             let deposit_contract = &eth1.deposit_contract;
-            let web3 = eth1.json_rpc_client();
+            let anvil_client = eth1.json_rpc_client();
 
             let cache_len = 4;
 
@@ -206,7 +206,7 @@ mod eth1_cache {
                     )
                     .unwrap()]),
                     deposit_contract_address: deposit_contract.address(),
-                    lowest_cached_block_number: get_block_number(&web3).await,
+                    lowest_cached_block_number: get_block_number(&anvil_client).await,
                     follow_distance: 0,
                     block_cache_truncation: Some(cache_len),
                     ..Config::default()
@@ -218,7 +218,7 @@ mod eth1_cache {
             let blocks = cache_len * 2;
 
             for _ in 0..blocks {
-                eth1.ganache.evm_mine().await.expect("should mine block")
+                eth1.anvil.evm_mine().await.expect("should mine block")
             }
 
             let endpoints = service.init_endpoints().unwrap();
@@ -248,11 +248,11 @@ mod eth1_cache {
         async {
             let log = null_logger();
 
-            let eth1 = new_ganache_instance()
+            let eth1 = new_anvil_instance()
                 .await
                 .expect("should start eth1 environment");
             let deposit_contract = &eth1.deposit_contract;
-            let web3 = eth1.json_rpc_client();
+            let anvil_client = eth1.json_rpc_client();
 
             let cache_len = 4;
 
@@ -263,7 +263,7 @@ mod eth1_cache {
                     )
                     .unwrap()]),
                     deposit_contract_address: deposit_contract.address(),
-                    lowest_cached_block_number: get_block_number(&web3).await,
+                    lowest_cached_block_number: get_block_number(&anvil_client).await,
                     follow_distance: 0,
                     block_cache_truncation: Some(cache_len),
                     ..Config::default()
@@ -274,7 +274,7 @@ mod eth1_cache {
 
             for _ in 0..4u8 {
                 for _ in 0..cache_len / 2 {
-                    eth1.ganache.evm_mine().await.expect("should mine block")
+                    eth1.anvil.evm_mine().await.expect("should mine block")
                 }
                 let endpoints = service.init_endpoints().unwrap();
                 service
@@ -303,11 +303,11 @@ mod eth1_cache {
 
             let n = 16;
 
-            let eth1 = new_ganache_instance()
+            let eth1 = new_anvil_instance()
                 .await
                 .expect("should start eth1 environment");
             let deposit_contract = &eth1.deposit_contract;
-            let web3 = eth1.json_rpc_client();
+            let anvil_client = eth1.json_rpc_client();
 
             let service = Service::new(
                 Config {
@@ -316,7 +316,7 @@ mod eth1_cache {
                     )
                     .unwrap()]),
                     deposit_contract_address: deposit_contract.address(),
-                    lowest_cached_block_number: get_block_number(&web3).await,
+                    lowest_cached_block_number: get_block_number(&anvil_client).await,
                     follow_distance: 0,
                     ..Config::default()
                 },
@@ -325,7 +325,7 @@ mod eth1_cache {
             );
 
             for _ in 0..n {
-                eth1.ganache.evm_mine().await.expect("should mine block")
+                eth1.anvil.evm_mine().await.expect("should mine block")
             }
 
             let endpoints = service.init_endpoints().unwrap();
@@ -347,6 +347,7 @@ mod eth1_cache {
 }
 
 mod deposit_tree {
+
     use super::*;
 
     #[tokio::test]
@@ -356,13 +357,13 @@ mod deposit_tree {
 
             let n = 4;
 
-            let eth1 = new_ganache_instance()
+            let eth1 = new_anvil_instance()
                 .await
                 .expect("should start eth1 environment");
             let deposit_contract = &eth1.deposit_contract;
-            let web3 = eth1.json_rpc_client();
+            let anvil_client = eth1.json_rpc_client();
 
-            let start_block = get_block_number(&web3).await;
+            let start_block = get_block_number(&anvil_client).await;
 
             let service = Service::new(
                 Config {
@@ -439,13 +440,13 @@ mod deposit_tree {
 
             let n = 8;
 
-            let eth1 = new_ganache_instance()
+            let eth1 = new_anvil_instance()
                 .await
                 .expect("should start eth1 environment");
             let deposit_contract = &eth1.deposit_contract;
-            let web3 = eth1.json_rpc_client();
+            let anvil_client = eth1.json_rpc_client();
 
-            let start_block = get_block_number(&web3).await;
+            let start_block = get_block_number(&anvil_client).await;
 
             let service = Service::new(
                 Config {
@@ -493,16 +494,18 @@ mod deposit_tree {
 
             let deposits: Vec<_> = (0..n).map(|_| random_deposit_data()).collect();
 
-            let eth1 = new_ganache_instance()
+            let eth1 = new_anvil_instance()
                 .await
                 .expect("should start eth1 environment");
+
             let deposit_contract = &eth1.deposit_contract;
-            let web3 = eth1.json_rpc_client();
+            let anvil_client = eth1.json_rpc_client();
 
             let mut deposit_roots = vec![];
             let mut deposit_counts = vec![];
 
             let client = HttpJsonRpc::new(SensitiveUrl::parse(&eth1.endpoint()).unwrap()).unwrap();
+            dbg!(eth1.endpoint());
 
             // Perform deposits to the smart contract, recording it's state along the way.
             for deposit in &deposits {
@@ -510,7 +513,7 @@ mod deposit_tree {
                     .deposit(deposit.clone())
                     .await
                     .expect("should perform a deposit");
-                let block_number = get_block_number(&web3).await;
+                let block_number = get_block_number(&anvil_client).await;
                 deposit_roots.push(
                     blocking_deposit_root(&client, &eth1, block_number)
                         .await
@@ -526,7 +529,7 @@ mod deposit_tree {
             let mut tree = DepositCache::default();
 
             // Pull all the deposit logs from the contract.
-            let block_number = get_block_number(&web3).await;
+            let block_number = get_block_number(&anvil_client).await;
             let logs: Vec<_> = blocking_deposit_logs(&client, &eth1, 0..block_number)
                 .await
                 .iter()
@@ -601,14 +604,14 @@ mod http {
     #[tokio::test]
     async fn incrementing_deposits() {
         async {
-            let eth1 = new_ganache_instance()
+            let eth1 = new_anvil_instance()
                 .await
                 .expect("should start eth1 environment");
             let deposit_contract = &eth1.deposit_contract;
-            let web3 = eth1.json_rpc_client();
+            let anvil_client = eth1.json_rpc_client();
             let client = HttpJsonRpc::new(SensitiveUrl::parse(&eth1.endpoint()).unwrap()).unwrap();
 
-            let block_number = get_block_number(&web3).await;
+            let block_number = get_block_number(&anvil_client).await;
             let logs = blocking_deposit_logs(&client, &eth1, 0..block_number).await;
             assert_eq!(logs.len(), 0);
 
@@ -623,10 +626,10 @@ mod http {
             );
 
             for i in 1..=8 {
-                eth1.ganache
+                eth1.anvil
                     .increase_time(1)
                     .await
-                    .expect("should be able to increase time on ganache");
+                    .expect("should be able to increase time on anvil");
 
                 deposit_contract
                     .deposit(random_deposit_data())
@@ -634,7 +637,7 @@ mod http {
                     .expect("should perform a deposit");
 
                 // Check the logs.
-                let block_number = get_block_number(&web3).await;
+                let block_number = get_block_number(&anvil_client).await;
                 let logs = blocking_deposit_logs(&client, &eth1, 0..block_number).await;
                 assert_eq!(logs.len(), i, "the number of logs should be as expected");
 
@@ -697,13 +700,13 @@ mod fast {
         async {
             let log = null_logger();
 
-            let eth1 = new_ganache_instance()
+            let eth1 = new_anvil_instance()
                 .await
                 .expect("should start eth1 environment");
             let deposit_contract = &eth1.deposit_contract;
-            let web3 = eth1.json_rpc_client();
+            let anvil_client = eth1.json_rpc_client();
 
-            let now = get_block_number(&web3).await;
+            let now = get_block_number(&anvil_client).await;
             let service = Service::new(
                 Config {
                     endpoints: Eth1Endpoint::NoAuth(vec![SensitiveUrl::parse(
@@ -729,7 +732,7 @@ mod fast {
                     .await
                     .expect("should perform a deposit");
                 // Mine an extra block between deposits to test for corner cases
-                eth1.ganache.evm_mine().await.expect("should mine block");
+                eth1.anvil.evm_mine().await.expect("should mine block");
             }
 
             let endpoints = service.init_endpoints().unwrap();
@@ -743,7 +746,7 @@ mod fast {
                 "should have imported n deposits"
             );
 
-            for block_num in 0..=get_block_number(&web3).await {
+            for block_num in 0..=get_block_number(&anvil_client).await {
                 let expected_deposit_count =
                     blocking_deposit_count(&client, &eth1, block_num).await;
                 let expected_deposit_root = blocking_deposit_root(&client, &eth1, block_num).await;
@@ -779,13 +782,13 @@ mod persist {
         async {
             let log = null_logger();
 
-            let eth1 = new_ganache_instance()
+            let eth1 = new_anvil_instance()
                 .await
                 .expect("should start eth1 environment");
             let deposit_contract = &eth1.deposit_contract;
-            let web3 = eth1.json_rpc_client();
+            let anvil_client = eth1.json_rpc_client();
 
-            let now = get_block_number(&web3).await;
+            let now = get_block_number(&anvil_client).await;
             let config = Config {
                 endpoints: Eth1Endpoint::NoAuth(vec![SensitiveUrl::parse(
                     eth1.endpoint().as_str(),
@@ -865,7 +868,7 @@ mod fallbacks {
     async fn test_fallback_when_offline() {
         async {
             let log = null_logger();
-            let endpoint2 = new_ganache_instance()
+            let endpoint2 = new_anvil_instance()
                 .await
                 .expect("should start eth1 environment");
             let deposit_contract = &endpoint2.deposit_contract;
@@ -876,25 +879,17 @@ mod fallbacks {
             let new_blocks = 4;
 
             for _ in 0..new_blocks {
-                endpoint2
-                    .ganache
-                    .evm_mine()
-                    .await
-                    .expect("should mine block");
+                endpoint2.anvil.evm_mine().await.expect("should mine block");
             }
 
             let endpoint1 = endpoint2
-                .ganache
+                .anvil
                 .fork()
                 .expect("should start eth1 environment");
 
             //mine additional blocks on top of the original endpoint
             for _ in 0..new_blocks {
-                endpoint2
-                    .ganache
-                    .evm_mine()
-                    .await
-                    .expect("should mine block");
+                endpoint2.anvil.evm_mine().await.expect("should mine block");
             }
 
             let service = Service::new(
@@ -912,7 +907,7 @@ mod fallbacks {
                 MainnetEthSpec::default_spec(),
             );
 
-            let endpoint1_block_number = get_block_number(&endpoint1.web3).await;
+            let endpoint1_block_number = get_block_number(&endpoint1.client).await;
             //the first call will only query endpoint1
             service.update().await.expect("should update deposit cache");
             assert_eq!(
@@ -943,7 +938,7 @@ mod fallbacks {
             let endpoint1 = AnvilEth1Instance::new(wrong_chain_id)
                 .await
                 .expect("should start eth1 environment");
-            let endpoint2 = new_ganache_instance()
+            let endpoint2 = new_anvil_instance()
                 .await
                 .expect("should start eth1 environment");
             let deposit_contract = &endpoint2.deposit_contract;
@@ -954,25 +949,13 @@ mod fallbacks {
             let new_blocks = 4;
 
             for _ in 0..new_blocks {
-                endpoint1
-                    .ganache
-                    .evm_mine()
-                    .await
-                    .expect("should mine block");
-                endpoint2
-                    .ganache
-                    .evm_mine()
-                    .await
-                    .expect("should mine block");
+                endpoint1.anvil.evm_mine().await.expect("should mine block");
+                endpoint2.anvil.evm_mine().await.expect("should mine block");
             }
 
             //additional blocks for endpoint1 to be able to distinguish
             for _ in 0..new_blocks {
-                endpoint1
-                    .ganache
-                    .evm_mine()
-                    .await
-                    .expect("should mine block");
+                endpoint1.anvil.evm_mine().await.expect("should mine block");
             }
 
             let service = Service::new(
@@ -1007,7 +990,7 @@ mod fallbacks {
     async fn test_fallback_when_node_far_behind() {
         async {
             let log = null_logger();
-            let endpoint2 = new_ganache_instance()
+            let endpoint2 = new_anvil_instance()
                 .await
                 .expect("should start eth1 environment");
             let deposit_contract = &endpoint2.deposit_contract;
@@ -1026,7 +1009,7 @@ mod fallbacks {
             }
 
             let endpoint1 = endpoint2
-                .ganache
+                .anvil
                 .fork()
                 .expect("should start eth1 environment");
 
@@ -1046,7 +1029,7 @@ mod fallbacks {
                 MainnetEthSpec::default_spec(),
             );
 
-            let endpoint1_block_number = get_block_number(&endpoint1.web3).await;
+            let endpoint1_block_number = get_block_number(&endpoint1.client).await;
             //the first call will only query endpoint1
             service.update().await.expect("should update deposit cache");
             assert_eq!(
@@ -1061,11 +1044,7 @@ mod fallbacks {
 
             //produce some new blocks on endpoint2
             for _ in 0..new_blocks {
-                endpoint2
-                    .ganache
-                    .evm_mine()
-                    .await
-                    .expect("should mine block");
+                endpoint2.anvil.evm_mine().await.expect("should mine block");
             }
 
             let endpoint2_block_number = get_block_number(&endpoint2.json_rpc_client()).await;

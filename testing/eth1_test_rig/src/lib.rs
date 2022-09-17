@@ -11,13 +11,13 @@ use anvil::AnvilCliInstance;
 use deposit_contract::{
     encode_eth1_tx_data, testnet, ABI, BYTECODE, CONTRACT_DEPLOY_GAS, DEPOSIT_GAS,
 };
-use ethers_contract::{Contract, ContractFactory};
+use ethers_contract::Contract;
 use ethers_core::{
     abi::Abi,
-    types::{Bytes, TransactionRequest, U256},
+    types::{transaction::eip2718::TypedTransaction, Address, Bytes, TransactionRequest, U256},
 };
 use ethers_providers::{Http, Middleware, Provider};
-use std::{sync::Arc, time::Duration};
+use std::time::Duration;
 use tokio::time::sleep;
 use types::DepositData;
 use types::{test_utils::generate_deterministic_keypair, EthSpec, Hash256, Keypair, Signature};
@@ -90,21 +90,17 @@ impl DepositContract {
         password: Option<String>,
     ) -> Result<Self, String> {
         let abi = Abi::load(abi).map_err(|e| format!("Invalid deposit contract abi: {:?}", e))?;
-        let bytecode = Bytes::from(bytecode.to_vec());
-        let contract = deploy_deposit_contract(
-            client.clone(),
-            confirmations,
-            bytecode,
-            abi.clone(),
-            password,
-        )
-        .await
-        .map_err(|e| {
-            format!(
-                "Failed to deploy contract: {}. Is scripts/ganache_tests_node.sh running?.",
-                e
-            )
-        })?;
+        let address =
+            deploy_deposit_contract(client.clone(), confirmations, bytecode.to_vec(), password)
+                .await
+                .map_err(|e| {
+                    format!(
+                        "Failed to deploy contract: {}. Is scripts/ganache_tests_node.sh running?.",
+                        e
+                    )
+                })?;
+
+        let contract = Contract::new(address, abi, client.clone());
         Ok(Self { client, contract })
     }
 
@@ -205,10 +201,18 @@ impl DepositContract {
                 |e| format!("Failed to encode deposit data: {:?}", e),
             )?));
 
-        self.client
+        let pending_tx = self
+            .client
             .send_transaction(tx_request, None)
             .await
             .map_err(|e| format!("Failed to call deposit fn: {:?}", e))?;
+
+        pending_tx
+            .interval(Duration::from_millis(10))
+            .confirmations(0)
+            .await
+            .unwrap()
+            .unwrap();
         Ok(())
     }
 
@@ -241,10 +245,9 @@ fn from_gwei(gwei: u64) -> U256 {
 async fn deploy_deposit_contract(
     client: Provider<Http>,
     confirmations: usize,
-    bytecode: Bytes,
-    abi: Abi,
+    bytecode: Vec<u8>,
     password_opt: Option<String>,
-) -> Result<Contract<Provider<Http>>, String> {
+) -> Result<Address, String> {
     let from_address = client
         .get_accounts()
         .await
@@ -273,15 +276,27 @@ async fn deploy_deposit_contract(
         from_address
     };
 
-    let contract_factory = ContractFactory::new(abi, bytecode, Arc::new(client));
-    let mut deployer = contract_factory
-        .deploy(())
-        .map_err(|e| format!("Contract deploy error: {:?}", e))?;
-    deployer.tx.set_gas(CONTRACT_DEPLOY_GAS);
-    deployer.tx.set_from(deploy_address);
-    deployer
-        .confirmations(confirmations)
-        .send()
+    let mut bytecode = String::from_utf8(bytecode).unwrap();
+    bytecode.retain(|c| c.is_ascii_hexdigit());
+    let bytecode = hex::decode(&bytecode[1..]).unwrap();
+
+    let deploy_tx: TypedTransaction = TransactionRequest::new()
+        .from(deploy_address)
+        .data(Bytes::from(bytecode))
+        .gas(CONTRACT_DEPLOY_GAS)
+        .into();
+
+    let pending_tx = client
+        .send_transaction(deploy_tx, None)
         .await
-        .map_err(|e| format!("Unable to deploy contract: {:?}", e))
+        .map_err(|e| format!("Failed to send tx: {:?}", e))?;
+
+    let tx = pending_tx
+        .interval(Duration::from_millis(500))
+        .confirmations(confirmations)
+        .await
+        .map_err(|e| format!("Failed to fetch tx receipt: {:?}", e))?;
+    tx.map(|tx| tx.contract_address)
+        .flatten()
+        .ok_or(format!("Deposit contract not deployed successfully"))
 }

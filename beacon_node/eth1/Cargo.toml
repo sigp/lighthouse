@@ -8,6 +8,8 @@ edition = "2021"
 eth1_test_rig = { path = "../../testing/eth1_test_rig" }
 serde_yaml = "0.8.13"
 sloggers = { version = "2.1.1", features = ["json"] }
+ethers-providers = { git = "https://github.com/gakonst/ethers-rs", rev = "89bc6420bbfdeb6ec891b0f701dd4768505f31c7" }
+ethers-core = { git = "https://github.com/gakonst/ethers-rs", rev = "89bc6420bbfdeb6ec891b0f701dd4768505f31c7" }
 environment = { path = "../../lighthouse/environment" }
 
 [dependencies]
