@@ -427,6 +427,7 @@ pub enum InboundRequest<TSpec: EthSpec> {
     Goodbye(GoodbyeReason),
     BlocksByRange(OldBlocksByRangeRequest),
     BlocksByRoot(BlocksByRootRequest),
+    BlobsByRange(BlobsByRangeRequest),
     Ping(Ping),
     MetaData(PhantomData<TSpec>),
 }
