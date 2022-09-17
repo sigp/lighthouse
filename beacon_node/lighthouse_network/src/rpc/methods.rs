@@ -13,6 +13,7 @@ use std::sync::Arc;
 use strum::IntoStaticStr;
 use superstruct::superstruct;
 use types::{Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot};
+use types::blobs_sidecar::BlobsSidecar;
 
 /// Maximum number of blocks in a single request.
 pub type MaxRequestBlocks = U1024;
@@ -204,6 +205,16 @@ pub struct BlocksByRangeRequest {
     pub count: u64,
 }
 
+/// Request a number of beacon blobs from a peer.
+#[derive(Encode, Decode, Clone, Debug, PartialEq)]
+pub struct BlobsByRangeRequest {
+    /// The starting slot to request blobs.
+    pub start_slot: u64,
+
+    /// The number of blobs from the start slot.
+    pub count: u64,
+}
+
 /// Request a number of beacon block roots from a peer.
 #[derive(Encode, Decode, Clone, Debug, PartialEq)]
 pub struct OldBlocksByRangeRequest {
@@ -243,6 +254,9 @@ pub enum RPCResponse<T: EthSpec> {
     /// A response to a get BLOCKS_BY_ROOT request.
     BlocksByRoot(Arc<SignedBeaconBlock<T>>),
 
+    /// A response to a get BLOBS_BY_RANGE request
+    BlobsByRange(Arc<VariableList<BlobsSidecar<T>, T::MaxRequestBlobsSidecars>>),
+
     /// A PONG response to a PING request.
     Pong(Ping),
 
@@ -258,6 +272,9 @@ pub enum ResponseTermination {
 
     /// Blocks by root stream termination.
     BlocksByRoot,
+
+    // Blobs by range stream termination.
+    BlobsByRange
 }
 
 /// The structured response containing a result/code indicating success or failure

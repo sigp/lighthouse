@@ -100,6 +100,7 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq +
      */
     type MaxBlobsPerBlock: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type FieldElementsPerBlob: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+    type MaxRequestBlobsSidecars: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     /*
      * Derived values (set these CAREFULLY)
      */
@@ -277,6 +278,7 @@ impl EthSpec for MainnetEthSpec {
     type SlotsPerEth1VotingPeriod = U2048; // 64 epochs * 32 slots per epoch
     type MaxBlobsPerBlock = U16;
     type FieldElementsPerBlob = U4096;
+    type MaxRequestBlobsSidecars = U128;
 
     fn default_spec() -> ChainSpec {
         ChainSpec::mainnet()
@@ -323,7 +325,8 @@ impl EthSpec for MinimalEthSpec {
         MinGasLimit,
         MaxExtraDataBytes,
         MaxBlobsPerBlock,
-        FieldElementsPerBlob
+        FieldElementsPerBlob,
+        MaxRequestBlobsSidecars
     });
 
     fn default_spec() -> ChainSpec {
@@ -370,6 +373,7 @@ impl EthSpec for GnosisEthSpec {
     type SlotsPerEth1VotingPeriod = U1024; // 64 epochs * 16 slots per epoch
     type MaxBlobsPerBlock = U16;
     type FieldElementsPerBlob = U4096;
+    type MaxRequestBlobsSidecars = U128;
 
     fn default_spec() -> ChainSpec {
         ChainSpec::gnosis()
