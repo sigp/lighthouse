@@ -24,7 +24,7 @@ use state_processing::per_block_processing::{
 use std::sync::Arc;
 use tokio::task::JoinHandle;
 use tree_hash::TreeHash;
-use types::*;
+use types::{*, execution_payload::BlobsBundle};
 
 pub type PreparePayloadResult<Payload> = Result<Payload, BlockProductionError>;
 pub type PreparePayloadHandle<Payload> = JoinHandle<Option<PreparePayloadResult<Payload>>>;
@@ -482,6 +482,14 @@ where
         )
         .await
         .map_err(BlockProductionError::GetPayloadFailed)?;
+
+    /* 
+    TODO: fetch blob bundles from el engine for block building
+    let suggested_fee_recipient = execution_layer.get_suggested_fee_recipient(proposer_index).await;
+    let blobs = execution_layer.get_blob_bundles(parent_hash, timestamp, random, suggested_fee_recipient)
+    .await
+    .map_err(BlockProductionError::GetPayloadFailed)?;
+    */
 
     Ok(execution_payload)
 }

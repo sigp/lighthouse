@@ -20,6 +20,7 @@ use sensitive_url::SensitiveUrl;
 use serde::{Deserialize, Serialize};
 use slog::{crit, debug, error, info, trace, warn, Logger};
 use slot_clock::SlotClock;
+use types::execution_payload::BlobsBundle;
 use std::collections::HashMap;
 use std::future::Future;
 use std::io::Write;
@@ -759,6 +760,55 @@ impl<T: EthSpec> ExecutionLayer<T> {
         .await
     }
 
+    pub async fn get_blob_bundles(
+        &self,
+        parent_hash: ExecutionBlockHash,
+        timestamp: u64,
+        prev_randao: Hash256,
+        suggested_fee_recipient: Address,
+    ) -> Result<BlobsBundle<T>, Error> {
+        debug!(
+            self.log(),
+            "Issuing engine_getPayload";
+            "suggested_fee_recipient" => ?suggested_fee_recipient,
+            "prev_randao" => ?prev_randao,
+            "timestamp" => timestamp,
+            "parent_hash" => ?parent_hash,
+        );
+        self.engine()
+            .request(|engine| async move {
+                let payload_id = if let Some(id) = engine
+                    .get_payload_id(parent_hash, timestamp, prev_randao, suggested_fee_recipient)
+                    .await
+                {
+                    // The payload id has been cached for this engine.
+                    metrics::inc_counter_vec(
+                        &metrics::EXECUTION_LAYER_PRE_PREPARED_PAYLOAD_ID,
+                        &[metrics::HIT],
+                    );
+                    id
+                } else {             
+                    error!(
+                        self.log(),
+                        "Exec engine unable to produce blobs, did you call get_payload before?",
+                    );
+                    return Err(ApiError::PayloadIdUnavailable);                       
+                };
+
+                engine
+                    .api
+                    .get_blobs_bundle_v1::<T>(payload_id)
+                    .await
+                    .map(|bundle| {
+                        // TODO verify the blob bundle here?
+                        bundle.into()
+                    })
+            })
+            .await
+            .map_err(Box::new)
+            .map_err(Error::EngineError)
+    }
+
     async fn get_full_payload_with<Payload: ExecPayload<T>>(
         &self,
         parent_hash: ExecutionBlockHash,
@@ -835,10 +885,10 @@ impl<T: EthSpec> ExecutionLayer<T> {
 
                 engine
                     .api
-                    .get_full_payload::<T>(payload_id)
+                    .get_payload_v1::<T>(payload_id)
                     .await
                     .map(|full_payload| {
-                        if full_payload.execution_payload.fee_recipient != suggested_fee_recipient {
+                        if full_payload.fee_recipient != suggested_fee_recipient {
                             error!(
                                 self.log(),
                                 "Inconsistent fee recipient";
@@ -847,11 +897,11 @@ impl<T: EthSpec> ExecutionLayer<T> {
                                 indicate that fees are being diverted to another address. Please \
                                 ensure that the value of suggested_fee_recipient is set correctly and \
                                 that the Execution Engine is trusted.",
-                                "fee_recipient" => ?full_payload.execution_payload.fee_recipient,
+                                "fee_recipient" => ?full_payload.fee_recipient,
                                 "suggested_fee_recipient" => ?suggested_fee_recipient,
                             );
                         }
-                        if f(self, &full_payload.execution_payload).is_some() {
+                        if f(self, &full_payload).is_some() {
                             warn!(
                                 self.log(),
                                 "Duplicate payload cached, this might indicate redundant proposal \

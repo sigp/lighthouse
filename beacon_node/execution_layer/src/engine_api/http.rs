@@ -681,19 +681,6 @@ impl HttpJsonRpc {
         Ok(response.into())
     }
 
-    pub async fn get_full_payload<T: EthSpec>(
-        &self,
-        payload_id: PayloadId,
-    ) -> Result<FullPayload<T>, Error> {
-        let payload = self.get_payload_v1(payload_id).await;
-        let blobs = self.get_blobs_bundle_v1(payload_id).await;
-
-        Ok(FullPayload{
-            execution_payload: payload?,
-            blobs_bundle: blobs?.into(),
-        })
-    }
-
     pub async fn forkchoice_updated_v1(
         &self,
         forkchoice_state: ForkChoiceState,

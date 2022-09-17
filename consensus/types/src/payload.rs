@@ -230,8 +230,7 @@ impl<T: EthSpec> Encode for BlindedPayload<T> {
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
 #[serde(bound = "T: EthSpec")]
 pub struct FullPayload<T: EthSpec> {
-    pub execution_payload: ExecutionPayload<T>,
-    pub blobs_bundle: Option<BlobsBundle<T>>,
+    pub execution_payload: ExecutionPayload<T>
 }
 
 impl <T: EthSpec> TestRandom for FullPayload<T> {
@@ -255,8 +254,7 @@ impl <T: EthSpec> Hash for FullPayload<T> {
 impl<T: EthSpec> From<ExecutionPayload<T>> for FullPayload<T> {
     fn from(execution_payload: ExecutionPayload<T>) -> Self {
         Self { 
-            execution_payload,
-            blobs_bundle: None,
+            execution_payload
         }
     }
 }
@@ -294,8 +292,7 @@ impl<T: EthSpec> Decode for FullPayload<T> {
 
     fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
         Ok(FullPayload {
-            execution_payload: Decode::from_ssz_bytes(bytes)?,
-            blobs_bundle: None,
+            execution_payload: Decode::from_ssz_bytes(bytes)?
         })
     }
 }

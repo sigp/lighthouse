@@ -232,7 +232,7 @@ impl<E: EthSpec> From<BeaconBlockBodyMerge<E, FullPayload<E>>>
             deposits,
             voluntary_exits,
             sync_aggregate,
-            execution_payload: FullPayload { execution_payload, blobs_bundle },
+            execution_payload: FullPayload { execution_payload },
         } = body;
 
         (
@@ -272,7 +272,7 @@ for (
             deposits,
             voluntary_exits,
             sync_aggregate,
-            execution_payload: FullPayload { execution_payload, blobs_bundle },
+            execution_payload: FullPayload { execution_payload},
             blob_kzg_commitments,
         } = body;
 
@@ -324,7 +324,7 @@ impl<E: EthSpec> BeaconBlockBodyMerge<E, FullPayload<E>> {
             deposits,
             voluntary_exits,
             sync_aggregate,
-            execution_payload: FullPayload { execution_payload, blobs_bundle },
+            execution_payload: FullPayload { execution_payload },
         } = self;
 
         BeaconBlockBodyMerge {
@@ -356,7 +356,7 @@ impl<E: EthSpec> BeaconBlockBodyEip4844<E, FullPayload<E>> {
             deposits,
             voluntary_exits,
             sync_aggregate,
-            execution_payload: FullPayload { execution_payload, blobs_bundle },
+            execution_payload: FullPayload { execution_payload },
             blob_kzg_commitments,
         } = self;
 
