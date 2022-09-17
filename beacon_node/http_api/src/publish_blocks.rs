@@ -32,7 +32,7 @@ pub async fn publish_block<T: BeaconChainTypes>(
     metrics::observe_duration(&metrics::HTTP_API_BLOCK_BROADCAST_DELAY_TIMES, delay);
 
     match chain
-        .process_block(block.clone(), CountUnrealized::True)
+        .process_block(block.clone(), None, CountUnrealized::True)
         .await
     {
         Ok(root) => {

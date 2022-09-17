@@ -673,6 +673,7 @@ impl<T: BeaconChainTypes> Worker<T> {
             .await
         {
             let block_root = gossip_verified_block.block_root;
+
             if let Some(handle) = duplicate_cache.check_and_insert(block_root) {
                 self.process_gossip_verified_block(
                     peer_id,
@@ -758,6 +759,9 @@ impl<T: BeaconChainTypes> Worker<T> {
                 }
 
                 verified_block
+            }
+            Err(BlockError::MissingSidecar) => {
+               todo!(); //is relevant?
             }
             Err(BlockError::ParentUnknown(block)) => {
                 debug!(
@@ -920,9 +924,24 @@ impl<T: BeaconChainTypes> Worker<T> {
     ) {
         let block: Arc<_> = verified_block.block.clone();
 
+        let sidecar = if verified_block.block.message()
+            .body().blob_kzg_commitments().map(|committments| committments.is_empty()).unwrap_or(true) {
+            None
+        } else if let Some(sidecar) = self.chain.sidecar_waiting_for_block.lock().as_ref() {
+            if sidecar.message.beacon_block_root == verified_block.block_root() {
+                Some(sidecar.clone())
+            } else {
+                *self.chain.block_waiting_for_sidecar.lock() = Some(verified_block);
+                return
+            }
+        } else {
+            // we need the sidecar but dont have it yet
+            return
+        };
+
         match self
             .chain
-            .process_block(verified_block, CountUnrealized::True)
+            .process_block(verified_block, sidecar, CountUnrealized::True)
             .await
         {
             Ok(block_root) => {

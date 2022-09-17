@@ -483,6 +483,19 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         }
     }
 
+    pub fn blobs_as_kv_store_ops(
+        &self,
+        key: &Hash256,
+        blobs: &SignedBlobsSidecar<E>,
+        ops: &mut Vec<KeyValueStoreOp>,
+    ) {
+        let db_key = get_key_for_col(DBColumn::BeaconBlob.into(), key.as_bytes());
+        ops.push(KeyValueStoreOp::PutKeyValue(
+            db_key,
+            blobs.as_ssz_bytes(),
+        ));
+    }
+
     pub fn put_state_summary(
         &self,
         state_root: &Hash256,
@@ -710,6 +723,14 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                     self.store_hot_state(&state_root, state, &mut key_value_batch)?;
                 }
 
+                StoreOp::PutBlobs(block_root, blobs) => {
+                    self.blobs_as_kv_store_ops(
+                        &block_root,
+                        &blobs,
+                        &mut key_value_batch,
+                    );
+                }
+
                 StoreOp::PutStateSummary(state_root, summary) => {
                     key_value_batch.push(summary.as_kv_store_op(state_root));
                 }
@@ -754,11 +775,16 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         // Update the block cache whilst holding a lock, to ensure that the cache updates atomically
         // with the database.
         let mut guard = self.block_cache.lock();
+        let mut guard_blob = self.blob_cache.lock();
 
         for op in &batch {
             match op {
                 StoreOp::PutBlock(block_root, block) => {
                     guard.put(*block_root, (**block).clone());
+                }
+
+                StoreOp::PutBlobs(block_root, blobs) => {
+                    guard_blob.put(*block_root, blobs.clone());
                 }
 
                 StoreOp::PutState(_, _) => (),

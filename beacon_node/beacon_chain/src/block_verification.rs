@@ -144,6 +144,7 @@ pub enum BlockError<T: EthSpec> {
         present_slot: Slot,
         block_slot: Slot,
     },
+    MissingSidecar,
     /// The block state_root does not match the generated state.
     ///
     /// ## Peer scoring
@@ -277,6 +278,7 @@ pub enum BlockError<T: EthSpec> {
     /// The peer sent us an invalid block, but I'm not really sure how to score this in an
     /// "optimistic" sync world.
     ParentExecutionPayloadInvalid { parent_root: Hash256 },
+
 }
 
 /// Returned when block validation failed due to some issue verifying
