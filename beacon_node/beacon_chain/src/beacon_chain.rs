@@ -376,7 +376,7 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     /// continue they can request that everything shuts down.
     pub shutdown_sender: Sender<ShutdownReason>,
     pub block_waiting_for_sidecar: Mutex<Option<GossipVerifiedBlock<T>>>,
-    pub sidecar_waiting_for_block: Mutex<Option<SignedBlobsSidecar<T::EthSpec>>>,
+    pub sidecar_waiting_for_block: Mutex<Option<Arc<SignedBlobsSidecar<T::EthSpec>>>>,
     /// Logging to CLI, etc.
     pub(crate) log: Logger,
     /// Arbitrary bytes included in the blocks.
@@ -2431,7 +2431,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub async fn process_block<B: IntoExecutionPendingBlock<T>>(
         self: &Arc<Self>,
         unverified_block: B,
-        sidecar: Option<SignedBlobsSidecar<T::EthSpec>>,
+        sidecar: Option<Arc<SignedBlobsSidecar<T::EthSpec>>>,
         count_unrealized: CountUnrealized,
     ) -> Result<Hash256, BlockError<T::EthSpec>> {
         // Start the Prometheus timer.
@@ -2506,7 +2506,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     async fn import_execution_pending_block(
         self: Arc<Self>,
         execution_pending_block: ExecutionPendingBlock<T>,
-        sidecar: Option<SignedBlobsSidecar<T::EthSpec>>,
+        sidecar: Option<Arc<SignedBlobsSidecar<T::EthSpec>>>,
         count_unrealized: CountUnrealized,
     ) -> Result<Hash256, BlockError<T::EthSpec>> {
         let ExecutionPendingBlock {
@@ -2585,7 +2585,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     fn import_block(
         &self,
         signed_block: Arc<SignedBeaconBlock<T::EthSpec>>,
-        sidecar: Option<SignedBlobsSidecar<T::EthSpec>>,
+        sidecar: Option<Arc<SignedBlobsSidecar<T::EthSpec>>>,
         block_root: Hash256,
         mut state: BeaconState<T::EthSpec>,
         confirmed_state_roots: Vec<Hash256>,

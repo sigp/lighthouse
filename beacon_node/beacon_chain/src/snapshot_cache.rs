@@ -16,7 +16,7 @@ pub const DEFAULT_SNAPSHOT_CACHE_SIZE: usize = 4;
 const MINIMUM_BLOCK_DELAY_FOR_CLONE: Duration = Duration::from_secs(6);
 
 /// This snapshot is to be used for verifying a child of `self.beacon_block`.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct PreProcessingSnapshot<T: EthSpec> {
     /// This state is equivalent to the `self.beacon_block.state_root()` state that has been
     /// advanced forward one slot using `per_slot_processing`. This state is "primed and ready" for

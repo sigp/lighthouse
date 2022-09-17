@@ -784,7 +784,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 }
 
                 StoreOp::PutBlobs(block_root, blobs) => {
-                    guard_blob.put(*block_root, blobs.clone());
+                    guard_blob.put(*block_root, (**blobs).clone());
                 }
 
                 StoreOp::PutState(_, _) => (),

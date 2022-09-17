@@ -935,6 +935,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                 return
             }
         } else {
+            *self.chain.block_waiting_for_sidecar.lock() = Some(verified_block);
             // we need the sidecar but dont have it yet
             return
         };
@@ -1017,7 +1018,80 @@ impl<T: BeaconChainTypes> Worker<T> {
         duplicate_cache: DuplicateCache,
         seen_duration: Duration,
     ) {
+        let verified_block = self.chain.block_waiting_for_sidecar.lock().take();
+        if let Some(verified_block) = verified_block {
+            let block = verified_block.block.clone();
+            if verified_block.block_root() == blobs.message.beacon_block_root {
+                match self
+                    .chain
+                    .process_block(verified_block, Some(blobs), CountUnrealized::True)
+                    .await
+                {
+                    Ok(block_root) => {
+                        metrics::inc_counter(&metrics::BEACON_PROCESSOR_GOSSIP_BLOCK_IMPORTED_TOTAL);
 
+                        if reprocess_tx
+                            .try_send(ReprocessQueueMessage::BlockImported(block_root))
+                            .is_err()
+                        {
+                            error!(
+                        self.log,
+                        "Failed to inform block import";
+                        "source" => "gossip",
+                        "block_root" => ?block_root,
+                    )
+                        };
+
+                        debug!(
+                    self.log,
+                    "Gossipsub block processed";
+                    "block" => ?block_root,
+                    "peer_id" => %peer_id
+                );
+
+                        self.chain.recompute_head_at_current_slot().await;
+                    }
+                    Err(BlockError::ParentUnknown { .. }) => {
+                        // Inform the sync manager to find parents for this block
+                        // This should not occur. It should be checked by `should_forward_block`
+                        error!(
+                    self.log,
+                    "Block with unknown parent attempted to be processed";
+                    "peer_id" => %peer_id
+                );
+                        self.send_sync_message(SyncMessage::UnknownBlock(peer_id, block));
+                    }
+                    Err(ref e @ BlockError::ExecutionPayloadError(ref epe)) if !epe.penalize_peer() => {
+                        debug!(
+                    self.log,
+                    "Failed to verify execution payload";
+                    "error" => %e
+                );
+                    }
+                    other => {
+                        debug!(
+                    self.log,
+                    "Invalid gossip beacon block";
+                    "outcome" => ?other,
+                    "block root" => ?block.canonical_root(),
+                    "block slot" => block.slot()
+                );
+                        self.gossip_penalize_peer(
+                            peer_id,
+                            PeerAction::MidToleranceError,
+                            "bad_gossip_block_ssz",
+                        );
+                        trace!(
+                    self.log,
+                    "Invalid gossip beacon block ssz";
+                    "ssz" => format_args!("0x{}", hex::encode(block.as_ssz_bytes())),
+                );
+                    }
+                };
+            }
+        } else {
+            *self.chain.sidecar_waiting_for_block.lock() = Some(blobs);
+        }
     }
 
     pub fn process_gossip_voluntary_exit(
