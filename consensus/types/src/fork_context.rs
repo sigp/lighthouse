@@ -47,6 +47,16 @@ impl ForkContext {
             ));
         }
 
+        if spec.bellatrix_fork_epoch.is_some() {
+            fork_to_digest.push((
+                ForkName::Merge,
+                ChainSpec::compute_fork_digest(
+                    spec.bellatrix_fork_version,
+                    genesis_validators_root,
+                ),
+            ));
+        }
+
         let fork_to_digest: HashMap<ForkName, [u8; 4]> = fork_to_digest.into_iter().collect();
 
         let digest_to_fork = fork_to_digest

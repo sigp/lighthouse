@@ -26,6 +26,7 @@ pub enum ForkName {
     Phase0,
     Altair,
     Bellatrix,
+    Eip4844,
 }
 
 #[derive(Debug, PartialEq, Serialize)]
@@ -87,6 +88,11 @@ impl<'a, T: EthSpec, Payload: ExecPayload<T>> Web3SignerObject<'a, T, Payload> {
             }),
             BeaconBlock::Merge(_) => Ok(Web3SignerObject::BeaconBlock {
                 version: ForkName::Bellatrix,
+                block: None,
+                block_header: Some(block.block_header()),
+            }),
+            BeaconBlock::Eip4844(_) => Ok(Web3SignerObject::BeaconBlock {
+                version: ForkName::Eip4844,
                 block: None,
                 block_header: Some(block.block_header()),
             }),

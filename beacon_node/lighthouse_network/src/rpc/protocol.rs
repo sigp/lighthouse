@@ -71,6 +71,10 @@ lazy_static! {
     + types::ExecutionPayload::<MainnetEthSpec>::max_execution_payload_size() // adding max size of execution payload (~16gb)
     + ssz::BYTES_PER_LENGTH_OFFSET; // Adding the additional ssz offset for the `ExecutionPayload` field
 
+    pub static ref SIGNED_BEACON_BLOCK_EIP4844_MAX: usize =
+    // Size of a full altair block
+    *SIGNED_BEACON_BLOCK_MERGE_MAX + 999999999; //TODO
+
     pub static ref BLOCKS_BY_ROOT_REQUEST_MIN: usize =
         VariableList::<Hash256, MaxRequestBlocks>::from(Vec::<Hash256>::new())
     .as_ssz_bytes()
@@ -102,6 +106,7 @@ lazy_static! {
 pub(crate) const MAX_RPC_SIZE: usize = 1_048_576; // 1M
 /// The maximum bytes that can be sent across the RPC post-merge.
 pub(crate) const MAX_RPC_SIZE_POST_MERGE: usize = 10 * 1_048_576; // 10M
+pub(crate) const MAX_RPC_SIZE_POST_EIP4844: usize = 20 * 1_048_576; // 10M
 /// The protocol prefix the RPC protocol id.
 const PROTOCOL_PREFIX: &str = "/eth2/beacon_chain/req";
 /// Time allowed for the first byte of a request to arrive before we time out (Time To First Byte).
@@ -113,6 +118,7 @@ const REQUEST_TIMEOUT: u64 = 15;
 /// Returns the maximum bytes that can be sent across the RPC.
 pub fn max_rpc_size(fork_context: &ForkContext) -> usize {
     match fork_context.current_fork() {
+        ForkName::Eip4844 => MAX_RPC_SIZE_POST_EIP4844,
         ForkName::Merge => MAX_RPC_SIZE_POST_MERGE,
         ForkName::Altair | ForkName::Base => MAX_RPC_SIZE,
     }
@@ -134,6 +140,10 @@ pub fn rpc_block_limits_by_fork(current_fork: ForkName) -> RpcLimits {
         ForkName::Merge => RpcLimits::new(
             *SIGNED_BEACON_BLOCK_BASE_MIN, // Base block is smaller than altair and merge blocks
             *SIGNED_BEACON_BLOCK_MERGE_MAX, // Merge block is larger than base and altair blocks
+        ),
+        ForkName::Eip4844 => RpcLimits::new(
+            *SIGNED_BEACON_BLOCK_BASE_MIN, // Base block is smaller than altair and merge blocks
+            *SIGNED_BEACON_BLOCK_EIP4844_MAX, // Merge block is larger than base and altair blocks
         ),
     }
 }

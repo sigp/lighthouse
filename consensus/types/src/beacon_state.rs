@@ -267,17 +267,17 @@ where
 
     // Inactivity
     #[serde(with = "ssz_types::serde_utils::quoted_u64_var_list")]
-    #[superstruct(only(Altair, Merge))]
+    #[superstruct(only(Altair, Merge, Eip4844))]
     pub inactivity_scores: VariableList<u64, T::ValidatorRegistryLimit>,
 
     // Light-client sync committees
-    #[superstruct(only(Altair, Merge))]
+    #[superstruct(only(Altair, Merge, Eip4844))]
     pub current_sync_committee: Arc<SyncCommittee<T>>,
-    #[superstruct(only(Altair, Merge))]
+    #[superstruct(only(Altair, Merge, Eip4844))]
     pub next_sync_committee: Arc<SyncCommittee<T>>,
 
     // Execution
-    #[superstruct(only(Merge))]
+    #[superstruct(only(Merge, Eip4844))]
     pub latest_execution_payload_header: ExecutionPayloadHeader<T>,
 
     // Caching (not in the spec)

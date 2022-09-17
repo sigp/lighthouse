@@ -11,7 +11,7 @@ use std::sync::Arc;
 use types::{
     Attestation, AttesterSlashing, EthSpec, ForkContext, ForkName, ProposerSlashing,
     SignedAggregateAndProof, SignedBeaconBlock, SignedBeaconBlockAltair, SignedBeaconBlockBase,
-    SignedBeaconBlockMerge, SignedContributionAndProof, SignedVoluntaryExit, SubnetId,
+    SignedBeaconBlockMerge, SignedBeaconBlockEip4844, SignedContributionAndProof, SignedVoluntaryExit, SubnetId,
     SyncCommitteeMessage, SyncSubnetId,
 };
 
@@ -165,6 +165,10 @@ impl<T: EthSpec> PubsubMessage<T> {
                                 ),
                                 Some(ForkName::Merge) => SignedBeaconBlock::<T>::Merge(
                                     SignedBeaconBlockMerge::from_ssz_bytes(data)
+                                        .map_err(|e| format!("{:?}", e))?,
+                                ),
+                                Some(ForkName::Eip4844) => SignedBeaconBlock::<T>::Eip4844(
+                                    SignedBeaconBlockEip4844::from_ssz_bytes(data)
                                         .map_err(|e| format!("{:?}", e))?,
                                 ),
                                 None => {

@@ -66,9 +66,9 @@ where
     pub current_epoch_attestations: VariableList<PendingAttestation<T>, T::MaxPendingAttestations>,
 
     // Participation (Altair and later)
-    #[superstruct(only(Altair, Merge))]
+    #[superstruct(only(Altair, Merge, Eip4844))]
     pub previous_epoch_participation: VariableList<ParticipationFlags, T::ValidatorRegistryLimit>,
-    #[superstruct(only(Altair, Merge))]
+    #[superstruct(only(Altair, Merge, Eip4844))]
     pub current_epoch_participation: VariableList<ParticipationFlags, T::ValidatorRegistryLimit>,
 
     // Finality
@@ -78,17 +78,17 @@ where
     pub finalized_checkpoint: Checkpoint,
 
     // Inactivity
-    #[superstruct(only(Altair, Merge))]
+    #[superstruct(only(Altair, Merge, Eip4844))]
     pub inactivity_scores: VariableList<u64, T::ValidatorRegistryLimit>,
 
     // Light-client sync committees
-    #[superstruct(only(Altair, Merge))]
+    #[superstruct(only(Altair, Merge, Eip4844))]
     pub current_sync_committee: Arc<SyncCommittee<T>>,
-    #[superstruct(only(Altair, Merge))]
+    #[superstruct(only(Altair, Merge, Eip4844))]
     pub next_sync_committee: Arc<SyncCommittee<T>>,
 
     // Execution
-    #[superstruct(only(Merge))]
+    #[superstruct(only(Merge, Eip4844))]
     pub latest_execution_payload_header: ExecutionPayloadHeader<T>,
 }
 
@@ -169,6 +169,20 @@ impl<T: EthSpec> PartialBeaconState<T> {
                 outer,
                 Merge,
                 PartialBeaconStateMerge,
+                [
+                    previous_epoch_participation,
+                    current_epoch_participation,
+                    current_sync_committee,
+                    next_sync_committee,
+                    inactivity_scores,
+                    latest_execution_payload_header
+                ]
+            ),
+            BeaconState::Eip4844(s) => impl_from_state_forgetful!(
+                s,
+                outer,
+                Eip4844,
+                PartialBeaconStateEip4844,
                 [
                     previous_epoch_participation,
                     current_epoch_participation,
@@ -356,6 +370,19 @@ impl<E: EthSpec> TryInto<BeaconState<E>> for PartialBeaconState<E> {
                 inner,
                 Merge,
                 BeaconStateMerge,
+                [
+                    previous_epoch_participation,
+                    current_epoch_participation,
+                    current_sync_committee,
+                    next_sync_committee,
+                    inactivity_scores,
+                    latest_execution_payload_header
+                ]
+            ),
+            PartialBeaconState::Eip4844(inner) => impl_try_into_beacon_state!(
+                inner,
+                Eip4844,
+                BeaconStateEip4844,
                 [
                     previous_epoch_participation,
                     current_epoch_participation,

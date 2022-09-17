@@ -3353,7 +3353,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // allows it to run concurrently with things like attestation packing.
         let prepare_payload_handle = match &state {
             BeaconState::Base(_) | BeaconState::Altair(_) => None,
-            BeaconState::Merge(_) => {
+            BeaconState::Merge(_) | BeaconState::Eip4844(_) => {
                 let prepare_payload_handle =
                     get_execution_payload(self.clone(), &state, proposer_index, builder_params)?;
                 Some(prepare_payload_handle)
@@ -3607,6 +3607,27 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         .ok_or(BlockProductionError::MissingSyncAggregate)?,
                     execution_payload: execution_payload
                         .ok_or(BlockProductionError::MissingExecutionPayload)?,
+                },
+            }),
+            BeaconState::Eip4844(_) => BeaconBlock::Eip4844(BeaconBlockEip4844 {
+                slot,
+                proposer_index,
+                parent_root,
+                state_root: Hash256::zero(),
+                body: BeaconBlockBodyEip4844 {
+                    randao_reveal,
+                    eth1_data,
+                    graffiti,
+                    proposer_slashings: proposer_slashings.into(),
+                    attester_slashings: attester_slashings.into(),
+                    attestations: attestations.into(),
+                    deposits: deposits.into(),
+                    voluntary_exits: voluntary_exits.into(),
+                    sync_aggregate: sync_aggregate
+                        .ok_or(BlockProductionError::MissingSyncAggregate)?,
+                    execution_payload: execution_payload
+                        .ok_or(BlockProductionError::MissingExecutionPayload)?,
+                    blob_kzg_commitments: todo!(), // part of partial block or??
                 },
             }),
         };
