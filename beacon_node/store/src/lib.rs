@@ -171,6 +171,8 @@ pub enum DBColumn {
     BeaconMeta,
     #[strum(serialize = "blk")]
     BeaconBlock,
+    #[strum(serialize = "blo")]
+    BeaconBlob,
     /// For full `BeaconState`s in the hot database (finalized or fork-boundary states).
     #[strum(serialize = "ste")]
     BeaconState,

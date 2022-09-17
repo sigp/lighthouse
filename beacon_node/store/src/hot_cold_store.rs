@@ -38,6 +38,7 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 use types::*;
+use types::signed_blobs_sidecar::SignedBlobsSidecar;
 
 /// On-disk database that stores finalized states efficiently.
 ///
@@ -59,6 +60,8 @@ pub struct HotColdDB<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> {
     ///
     /// The hot database also contains all blocks.
     pub hot_db: Hot,
+    /// LRU cache of deserialized blobs. Updated whenever a blob is loaded.
+    blob_cache: Mutex<LruCache<Hash256, SignedBlobsSidecar<E>>>,
     /// LRU cache of deserialized blocks. Updated whenever a block is loaded.
     block_cache: Mutex<LruCache<Hash256, SignedBeaconBlock<E>>>,
     /// Chain spec.
@@ -128,6 +131,7 @@ impl<E: EthSpec> HotColdDB<E, MemoryStore<E>, MemoryStore<E>> {
             cold_db: MemoryStore::open(),
             hot_db: MemoryStore::open(),
             block_cache: Mutex::new(LruCache::new(config.block_cache_size)),
+            blob_cache: Mutex::new(LruCache::new(config.blob_cache_size)),
             config,
             spec,
             log,
@@ -161,6 +165,7 @@ impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
             cold_db: LevelDB::open(cold_path)?,
             hot_db: LevelDB::open(hot_path)?,
             block_cache: Mutex::new(LruCache::new(config.block_cache_size)),
+            blob_cache: Mutex::new(LruCache::new(config.blob_cache_size)),
             config,
             spec,
             log,
@@ -451,6 +456,31 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             .key_delete(DBColumn::BeaconBlock.into(), block_root.as_bytes())?;
         self.hot_db
             .key_delete(DBColumn::ExecPayload.into(), block_root.as_bytes())
+    }
+
+    pub fn put_blobs(&self,
+                    block_root: &Hash256,
+                    blobs: SignedBlobsSidecar<E>,
+    ) -> Result<(), Error> {
+        self.hot_db.put_bytes(DBColumn::BeaconBlob.into(), block_root.as_bytes(), &blobs.as_ssz_bytes())?;
+        self.blob_cache.lock().push(*block_root, blobs);
+        Ok(())
+    }
+
+    pub fn get_blobs(&self,
+                    block_root: &Hash256,
+    ) -> Result<Option<SignedBlobsSidecar<E>>, Error> {
+        if let Some(blobs) = self.blob_cache.lock().get(block_root) {
+            Ok(Some(blobs.clone()))
+        } else {
+            if let Some(bytes) = self.hot_db.get_bytes(DBColumn::BeaconBlob.into(), block_root.as_bytes())? {
+                let ret = SignedBlobsSidecar::from_ssz_bytes(&bytes)?;
+                self.blob_cache.lock().put(*block_root, ret.clone());
+                Ok(Some(ret))
+            } else {
+                Ok(None)
+            }
+        }
     }
 
     pub fn put_state_summary(
