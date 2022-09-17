@@ -11,6 +11,7 @@ use crate::Subnet;
 pub const TOPIC_PREFIX: &str = "eth2";
 pub const SSZ_SNAPPY_ENCODING_POSTFIX: &str = "ssz_snappy";
 pub const BEACON_BLOCK_TOPIC: &str = "beacon_block";
+pub const BLOBS_SIDECAR_TOPIC: &str = "blobs_sidecar";
 pub const BEACON_AGGREGATE_AND_PROOF_TOPIC: &str = "beacon_aggregate_and_proof";
 pub const BEACON_ATTESTATION_PREFIX: &str = "beacon_attestation_";
 pub const VOLUNTARY_EXIT_TOPIC: &str = "voluntary_exit";
@@ -19,8 +20,9 @@ pub const ATTESTER_SLASHING_TOPIC: &str = "attester_slashing";
 pub const SIGNED_CONTRIBUTION_AND_PROOF_TOPIC: &str = "sync_committee_contribution_and_proof";
 pub const SYNC_COMMITTEE_PREFIX_TOPIC: &str = "sync_committee_";
 
-pub const CORE_TOPICS: [GossipKind; 6] = [
+pub const CORE_TOPICS: [GossipKind; 7] = [
     GossipKind::BeaconBlock,
+    GossipKind::BlobsSidecar,
     GossipKind::BeaconAggregateAndProof,
     GossipKind::VoluntaryExit,
     GossipKind::ProposerSlashing,
@@ -47,6 +49,8 @@ pub struct GossipTopic {
 pub enum GossipKind {
     /// Topic for publishing beacon blocks.
     BeaconBlock,
+    /// Topic for publishing blob sidecars.
+    BlobsSidecar,
     /// Topic for publishing aggregate attestations and proofs.
     BeaconAggregateAndProof,
     /// Topic for publishing raw attestations on a particular subnet.

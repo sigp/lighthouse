@@ -96,6 +96,8 @@ pub mod kzg_commitment;
 pub mod kzg_proof;
 pub mod bls_field_element;
 pub mod blob;
+pub mod signed_blobs_sidecar;
+pub mod blobs_sidecar;
 
 use ethereum_types::{H160, H256};
 

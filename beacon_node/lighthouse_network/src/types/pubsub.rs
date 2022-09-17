@@ -14,11 +14,14 @@ use types::{
     SignedBeaconBlockMerge, SignedBeaconBlockEip4844, SignedContributionAndProof, SignedVoluntaryExit, SubnetId,
     SyncCommitteeMessage, SyncSubnetId,
 };
+use types::signed_blobs_sidecar::SignedBlobsSidecar;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum PubsubMessage<T: EthSpec> {
     /// Gossipsub message providing notification of a new block.
     BeaconBlock(Arc<SignedBeaconBlock<T>>),
+    /// Gossipsub message providing notification of a new blobs sidecar.
+    BlobsSidecars(Arc<SignedBlobsSidecar<T>>),
     /// Gossipsub message providing notification of a Aggregate attestation and associated proof.
     AggregateAndProofAttestation(Box<SignedAggregateAndProof<T>>),
     /// Gossipsub message providing notification of a raw un-aggregated attestation with its shard id.
@@ -106,6 +109,7 @@ impl<T: EthSpec> PubsubMessage<T> {
     pub fn kind(&self) -> GossipKind {
         match self {
             PubsubMessage::BeaconBlock(_) => GossipKind::BeaconBlock,
+            PubsubMessage::BlobsSidecars(_) => GossipKind::BlobsSidecar,
             PubsubMessage::AggregateAndProofAttestation(_) => GossipKind::BeaconAggregateAndProof,
             PubsubMessage::Attestation(attestation_data) => {
                 GossipKind::Attestation(attestation_data.0)
