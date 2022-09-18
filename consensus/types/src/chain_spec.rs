@@ -560,7 +560,7 @@ impl ChainSpec {
             domain_sync_committee: 7,
             domain_sync_committee_selection_proof: 8,
             domain_contribution_and_proof: 9,
-            altair_fork_version: [0x01, 0x00, 0x00, 0x00],
+            altair_fork_version: [0x01, 0x00, 0x0f, 0xfd],
             altair_fork_epoch: Some(Epoch::new(74240)),
 
             /*
@@ -571,7 +571,7 @@ impl ChainSpec {
             min_slashing_penalty_quotient_bellatrix: u64::checked_pow(2, 5)
                 .expect("pow does not overflow"),
             proportional_slashing_multiplier_bellatrix: 3,
-            bellatrix_fork_version: [0x02, 0x00, 0x00, 0x00],
+            bellatrix_fork_version: [0x02, 0x00, 0x0f, 0xfd],
             bellatrix_fork_epoch: Some(Epoch::new(144896)),
             terminal_total_difficulty: Uint256::from_dec_str("58750000000000000000000")
                 .expect("terminal_total_difficulty is a valid integer"),
@@ -583,7 +583,7 @@ impl ChainSpec {
              * Eip4844 hard fork params
              */
             eip4844_fork_epoch: None,
-            eip4844_fork_version: [0x03, 0x00, 0x00, 0x00],
+            eip4844_fork_version: [0x83, 0x00, 0x0f, 0xfd],
 
             /*
              * Network specific

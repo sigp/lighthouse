@@ -227,7 +227,8 @@ impl<T: EthSpec> Encode for BlindedPayload<T> {
     }
 }
 
-#[derive(Default, Debug, Clone, Serialize, Deserialize)]
+#[derive(Default, Debug, Clone, Serialize, Deserialize, Derivative)]
+#[derivative(PartialEq, Hash(bound = "T: EthSpec"))]
 #[serde(bound = "T: EthSpec")]
 pub struct FullPayload<T: EthSpec> {
     pub execution_payload: ExecutionPayload<T>
@@ -235,18 +236,6 @@ pub struct FullPayload<T: EthSpec> {
 
 impl <T: EthSpec> TestRandom for FullPayload<T> {
     fn random_for_test(rng: &mut impl RngCore) -> Self {
-        todo!()
-    }
-}
-
-impl <T: EthSpec> PartialEq for FullPayload<T> {
-    fn eq(&self, other: &FullPayload<T>) -> bool {
-        todo!()
-    }
-}
-
-impl <T: EthSpec> Hash for FullPayload<T> {
-    fn hash<H: Hasher>(&self, into: &mut H) {
         todo!()
     }
 }
