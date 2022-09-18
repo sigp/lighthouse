@@ -236,13 +236,17 @@ impl ChainSpec {
 
     /// Returns the name of the fork which is active at `epoch`.
     pub fn fork_name_at_epoch(&self, epoch: Epoch) -> ForkName {
-        match self.bellatrix_fork_epoch {
-            Some(fork_epoch) if epoch >= fork_epoch => ForkName::Merge,
-            _ => match self.altair_fork_epoch {
-                Some(fork_epoch) if epoch >= fork_epoch => ForkName::Altair,
-                _ => ForkName::Base,
-            },
+        match self.eip4844_fork_epoch {
+            Some(fork_epoch) if epoch >= fork_epoch => ForkName::Eip4844,
+            _ => match self.bellatrix_fork_epoch {
+                Some(fork_epoch) if epoch >= fork_epoch => ForkName::Merge,
+                _ => match self.altair_fork_epoch {
+                    Some(fork_epoch) if epoch >= fork_epoch => ForkName::Altair,
+                    _ => ForkName::Base,
+                },
+            }
         }
+        
     }
 
     /// Returns the fork version for a named fork.
@@ -582,7 +586,7 @@ impl ChainSpec {
             /*
              * Eip4844 hard fork params
              */
-            eip4844_fork_epoch: None,
+            eip4844_fork_epoch: Some(Epoch::new(3)),
             eip4844_fork_version: [0x83, 0x00, 0x0f, 0xfd],
 
             /*

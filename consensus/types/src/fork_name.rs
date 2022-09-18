@@ -42,7 +42,7 @@ impl ForkName {
             ForkName::Eip4844 => {
                 spec.altair_fork_epoch = Some(Epoch::new(0));
                 spec.bellatrix_fork_epoch = Some(Epoch::new(0));
-                spec.eip4844_fork_epoch = Some(Epoch::new(0));
+                spec.eip4844_fork_epoch = Some(Epoch::new(3));
                 spec
             }
         }
@@ -126,6 +126,7 @@ impl FromStr for ForkName {
             "phase0" | "base" => ForkName::Base,
             "altair" => ForkName::Altair,
             "bellatrix" | "merge" => ForkName::Merge,
+            "eip4844" => ForkName::Eip4844,
             _ => return Err(format!("unknown fork name: {}", fork_name)),
         })
     }
