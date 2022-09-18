@@ -47,11 +47,11 @@ impl ForkContext {
             ));
         }
 
-        if spec.bellatrix_fork_epoch.is_some() {
+        if spec.eip4844_fork_epoch.is_some() {
             fork_to_digest.push((
-                ForkName::Merge,
+                ForkName::Eip4844,
                 ChainSpec::compute_fork_digest(
-                    spec.bellatrix_fork_version,
+                    spec.eip4844_fork_version,
                     genesis_validators_root,
                 ),
             ));
