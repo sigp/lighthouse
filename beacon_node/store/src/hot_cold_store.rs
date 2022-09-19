@@ -1501,7 +1501,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 Err(e) => {
                     warn!(
                         self.log,
-                        "Stopping backtrack early";
+                        "Stopping payload pruning early";
                         "error" => ?e,
                     );
                     break;
@@ -1511,7 +1511,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             if slot < bellatrix_fork_slot {
                 info!(
                     self.log,
-                    "Finished backtrack to Bellatrix fork";
+                    "Payload pruning reached Bellatrix boundary";
                 );
                 break;
             }
@@ -1532,7 +1532,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             if Some(slot) == anchor_slot {
                 info!(
                     self.log,
-                    "Finished backtrack to anchor state";
+                    "Payload pruning reached anchor state";
                     "slot" => slot
                 );
                 break;
