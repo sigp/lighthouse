@@ -1939,11 +1939,11 @@ impl ApiTester {
 
             let block = self
                 .client
-                .get_validator_blocks_with_verify_randao::<E, FullPayload<E>>(
+                .get_validator_blocks_modular::<E, FullPayload<E>>(
                     slot,
+                    &Signature::infinity().unwrap().into(),
                     None,
-                    None,
-                    Some(false),
+                    SkipRandaoVerification::Yes,
                 )
                 .await
                 .unwrap()
@@ -1993,45 +1993,23 @@ impl ApiTester {
                 sk.sign(message).into()
             };
 
-            // Check failure with no `verify_randao` passed.
+            // Check failure with no `skip_randao_verification` passed.
             self.client
                 .get_validator_blocks::<E, FullPayload<E>>(slot, &bad_randao_reveal, None)
                 .await
                 .unwrap_err();
 
-            // Check failure with `verify_randao=true`.
+            // Check failure with `skip_randao_verification` (requires infinity sig).
             self.client
-                .get_validator_blocks_with_verify_randao::<E, FullPayload<E>>(
+                .get_validator_blocks_modular::<E, FullPayload<E>>(
                     slot,
-                    Some(&bad_randao_reveal),
+                    &bad_randao_reveal,
                     None,
-                    Some(true),
+                    SkipRandaoVerification::Yes,
                 )
                 .await
                 .unwrap_err();
 
-            // Check failure with no randao reveal provided.
-            self.client
-                .get_validator_blocks_with_verify_randao::<E, FullPayload<E>>(
-                    slot, None, None, None,
-                )
-                .await
-                .unwrap_err();
-
-            // Check success with `verify_randao=false`.
-            let block = self
-                .client
-                .get_validator_blocks_with_verify_randao::<E, FullPayload<E>>(
-                    slot,
-                    Some(&bad_randao_reveal),
-                    None,
-                    Some(false),
-                )
-                .await
-                .unwrap()
-                .data;
-
-            assert_eq!(block.slot(), slot);
             self.chain.slot_clock.set_slot(slot.as_u64() + 1);
         }
 
@@ -2106,11 +2084,11 @@ impl ApiTester {
 
             let block = self
                 .client
-                .get_validator_blinded_blocks_with_verify_randao::<E, Payload>(
+                .get_validator_blinded_blocks_modular::<E, Payload>(
                     slot,
+                    &Signature::infinity().unwrap().into(),
                     None,
-                    None,
-                    Some(false),
+                    SkipRandaoVerification::Yes,
                 )
                 .await
                 .unwrap()
@@ -2162,45 +2140,23 @@ impl ApiTester {
                 sk.sign(message).into()
             };
 
-            // Check failure with no `verify_randao` passed.
+            // Check failure with full randao verification enabled.
             self.client
                 .get_validator_blinded_blocks::<E, Payload>(slot, &bad_randao_reveal, None)
                 .await
                 .unwrap_err();
 
-            // Check failure with `verify_randao=true`.
+            // Check failure with `skip_randao_verification` (requires infinity sig).
             self.client
-                .get_validator_blinded_blocks_with_verify_randao::<E, Payload>(
+                .get_validator_blinded_blocks_modular::<E, Payload>(
                     slot,
-                    Some(&bad_randao_reveal),
+                    &bad_randao_reveal,
                     None,
-                    Some(true),
+                    SkipRandaoVerification::Yes,
                 )
                 .await
                 .unwrap_err();
 
-            // Check failure with no randao reveal provided.
-            self.client
-                .get_validator_blinded_blocks_with_verify_randao::<E, Payload>(
-                    slot, None, None, None,
-                )
-                .await
-                .unwrap_err();
-
-            // Check success with `verify_randao=false`.
-            let block = self
-                .client
-                .get_validator_blinded_blocks_with_verify_randao::<E, Payload>(
-                    slot,
-                    Some(&bad_randao_reveal),
-                    None,
-                    Some(false),
-                )
-                .await
-                .unwrap()
-                .data;
-
-            assert_eq!(block.slot(), slot);
             self.chain.slot_clock.set_slot(slot.as_u64() + 1);
         }
 
