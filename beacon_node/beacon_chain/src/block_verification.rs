@@ -349,13 +349,27 @@ impl ExecutionPayloadError {
         // always forced to consider here whether or not to penalize a peer when
         // we add a new error condition.
         match self {
+            // The peer has nothing to do with this error, do not penalize them.
             ExecutionPayloadError::NoExecutionConnection => false,
+            // The peer has nothing to do with this error, do not penalize them.
             ExecutionPayloadError::RequestFailed(_) => false,
-            ExecutionPayloadError::RejectedByExecutionEngine { .. } => true,
+            // An honest optimistic node may propagate blocks which are rejected by an EE, do not
+            // penalize them.
+            ExecutionPayloadError::RejectedByExecutionEngine { .. } => false,
+            // This is a trivial gossip validation condition, there is no reason for an honest peer
+            // to propagate a block with an invalid payload time stamp.
             ExecutionPayloadError::InvalidPayloadTimestamp { .. } => true,
-            ExecutionPayloadError::InvalidTerminalPoWBlock { .. } => true,
-            ExecutionPayloadError::InvalidActivationEpoch { .. } => true,
-            ExecutionPayloadError::InvalidTerminalBlockHash { .. } => true,
+            // An honest optimistic node may propagate blocks with an invalid terminal PoW block, we
+            // should not penalized them.
+            ExecutionPayloadError::InvalidTerminalPoWBlock { .. } => false,
+            // This condition is checked *after* gossip propagation, therefore penalizing gossip
+            // peers for this block would be unfair. There may be an argument to penalize RPC
+            // blocks, since even an optimistic node shouldn't verify this block. We will remove the
+            // penalties for all block imports to keep things simple.
+            ExecutionPayloadError::InvalidActivationEpoch { .. } => false,
+            // As per `Self::InvalidActivationEpoch`.
+            ExecutionPayloadError::InvalidTerminalBlockHash { .. } => false,
+            // Do not penalize the peer since it's not their fault that *we're* optimistic.
             ExecutionPayloadError::UnverifiedNonOptimisticCandidate => false,
         }
     }
@@ -504,8 +518,8 @@ fn process_block_slash_info<T: BeaconChainTypes>(
 ///
 /// ## Errors
 ///
-/// The given `chain_segment` must span no more than two epochs, otherwise an error will be
-/// returned.
+/// The given `chain_segment` must contain only blocks from the same epoch, otherwise an error
+/// will be returned.
 pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
     mut chain_segment: Vec<(Hash256, Arc<SignedBeaconBlock<T::EthSpec>>)>,
     chain: &BeaconChain<T>,
@@ -1293,8 +1307,14 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
          */
         if let Some(ref event_handler) = chain.event_handler {
             if event_handler.has_block_reward_subscribers() {
-                let block_reward =
-                    chain.compute_block_reward(block.message(), block_root, &state, true)?;
+                let mut reward_cache = Default::default();
+                let block_reward = chain.compute_block_reward(
+                    block.message(),
+                    block_root,
+                    &state,
+                    &mut reward_cache,
+                    true,
+                )?;
                 event_handler.register(EventKind::BlockReward(block_reward));
             }
         }
@@ -1702,6 +1722,9 @@ fn cheap_state_advance_to_obtain_committees<'a, E: EthSpec>(
     let block_epoch = block_slot.epoch(E::slots_per_epoch());
 
     if state.current_epoch() == block_epoch {
+        // Build both the current and previous epoch caches, as the previous epoch caches are
+        // useful for verifying attestations in blocks from the current epoch.
+        state.build_committee_cache(RelativeEpoch::Previous, spec)?;
         state.build_committee_cache(RelativeEpoch::Current, spec)?;
 
         Ok(Cow::Borrowed(state))
@@ -1719,6 +1742,7 @@ fn cheap_state_advance_to_obtain_committees<'a, E: EthSpec>(
         partial_state_advance(&mut state, state_root_opt, target_slot, spec)
             .map_err(|e| BlockError::BeaconChainError(BeaconChainError::from(e)))?;
 
+        state.build_committee_cache(RelativeEpoch::Previous, spec)?;
         state.build_committee_cache(RelativeEpoch::Current, spec)?;
 
         Ok(Cow::Owned(state))

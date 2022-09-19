@@ -26,7 +26,8 @@ use monitoring_api::{MonitoringHttpClient, ProcessType};
 pub use slashing_protection::{SlashingDatabase, SLASHING_PROTECTION_FILENAME};
 
 use crate::beacon_node_fallback::{
-    start_fallback_updater_service, BeaconNodeFallback, CandidateBeaconNode, RequireSynced,
+    start_fallback_updater_service, BeaconNodeFallback, CandidateBeaconNode, OfflineOnFailure,
+    RequireSynced,
 };
 use crate::doppelganger_service::DoppelgangerService;
 use account_utils::validator_definitions::ValidatorDefinitions;
@@ -74,6 +75,8 @@ const HTTP_PROPOSAL_TIMEOUT_QUOTIENT: u32 = 2;
 const HTTP_PROPOSER_DUTIES_TIMEOUT_QUOTIENT: u32 = 4;
 const HTTP_SYNC_COMMITTEE_CONTRIBUTION_TIMEOUT_QUOTIENT: u32 = 4;
 const HTTP_SYNC_DUTIES_TIMEOUT_QUOTIENT: u32 = 4;
+const HTTP_GET_BEACON_BLOCK_SSZ_TIMEOUT_QUOTIENT: u32 = 4;
+const HTTP_GET_DEBUG_BEACON_STATE_QUOTIENT: u32 = 4;
 
 const DOPPELGANGER_SERVICE_NAME: &str = "doppelganger";
 
@@ -284,6 +287,10 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
                         sync_committee_contribution: slot_duration
                             / HTTP_SYNC_COMMITTEE_CONTRIBUTION_TIMEOUT_QUOTIENT,
                         sync_duties: slot_duration / HTTP_SYNC_DUTIES_TIMEOUT_QUOTIENT,
+                        get_beacon_blocks_ssz: slot_duration
+                            / HTTP_GET_BEACON_BLOCK_SSZ_TIMEOUT_QUOTIENT,
+                        get_debug_beacon_states: slot_duration
+                            / HTTP_GET_DEBUG_BEACON_STATE_QUOTIENT,
                     }
                 } else {
                     Timeouts::set_all(slot_duration)
@@ -414,7 +421,6 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             .graffiti(config.graffiti)
             .graffiti_file(config.graffiti_file.clone())
             .block_delay(config.block_delay)
-            .strict_fee_recipient(config.strict_fee_recipient)
             .build()?;
 
         let attestation_service = AttestationServiceBuilder::new()
@@ -571,9 +577,11 @@ async fn init_from_beacon_node<E: EthSpec>(
 
     let genesis = loop {
         match beacon_nodes
-            .first_success(RequireSynced::No, |node| async move {
-                node.get_beacon_genesis().await
-            })
+            .first_success(
+                RequireSynced::No,
+                OfflineOnFailure::Yes,
+                |node| async move { node.get_beacon_genesis().await },
+            )
             .await
         {
             Ok(genesis) => break genesis.data,
@@ -660,9 +668,11 @@ async fn poll_whilst_waiting_for_genesis<E: EthSpec>(
 ) -> Result<(), String> {
     loop {
         match beacon_nodes
-            .first_success(RequireSynced::No, |beacon_node| async move {
-                beacon_node.get_lighthouse_staking().await
-            })
+            .first_success(
+                RequireSynced::No,
+                OfflineOnFailure::Yes,
+                |beacon_node| async move { beacon_node.get_lighthouse_staking().await },
+            )
             .await
         {
             Ok(is_staking) => {

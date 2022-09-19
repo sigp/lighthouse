@@ -561,14 +561,9 @@ impl ChainSpec {
                 .expect("pow does not overflow"),
             proportional_slashing_multiplier_bellatrix: 3,
             bellatrix_fork_version: [0x02, 0x00, 0x00, 0x00],
-            bellatrix_fork_epoch: None,
-            terminal_total_difficulty: Uint256::MAX
-                .checked_sub(Uint256::from(2u64.pow(10)))
-                .expect("subtraction does not overflow")
-                // Add 1 since the spec declares `2**256 - 2**10` and we use
-                // `Uint256::MAX` which is `2*256- 1`.
-                .checked_add(Uint256::one())
-                .expect("addition does not overflow"),
+            bellatrix_fork_epoch: Some(Epoch::new(144896)),
+            terminal_total_difficulty: Uint256::from_dec_str("58750000000000000000000")
+                .expect("terminal_total_difficulty is a valid integer"),
             terminal_block_hash: ExecutionBlockHash::zero(),
             terminal_block_hash_activation_epoch: Epoch::new(u64::MAX),
             safe_slots_to_import_optimistically: 128u64,
@@ -621,6 +616,13 @@ impl ChainSpec {
             // Merge
             bellatrix_fork_version: [0x02, 0x00, 0x00, 0x01],
             bellatrix_fork_epoch: None,
+            terminal_total_difficulty: Uint256::MAX
+                .checked_sub(Uint256::from(2u64.pow(10)))
+                .expect("subtraction does not overflow")
+                // Add 1 since the spec declares `2**256 - 2**10` and we use
+                // `Uint256::MAX` which is `2*256- 1`.
+                .checked_add(Uint256::one())
+                .expect("addition does not overflow"),
             // Other
             network_id: 2, // lighthouse testnet network id
             deposit_chain_id: 5,

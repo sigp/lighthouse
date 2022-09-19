@@ -112,6 +112,8 @@ pub struct Timeouts {
     pub proposer_duties: Duration,
     pub sync_committee_contribution: Duration,
     pub sync_duties: Duration,
+    pub get_beacon_blocks_ssz: Duration,
+    pub get_debug_beacon_states: Duration,
 }
 
 impl Timeouts {
@@ -124,6 +126,8 @@ impl Timeouts {
             proposer_duties: timeout,
             sync_committee_contribution: timeout,
             sync_duties: timeout,
+            get_beacon_blocks_ssz: timeout,
+            get_debug_beacon_states: timeout,
         }
     }
 }
@@ -239,9 +243,10 @@ impl BeaconNodeHttpClient {
         &self,
         url: U,
         accept_header: Accept,
+        timeout: Duration,
     ) -> Result<Option<Vec<u8>>, Error> {
         let opt_response = self
-            .get_response(url, |b| b.accept(accept_header))
+            .get_response(url, |b| b.accept(accept_header).timeout(timeout))
             .await
             .optional()?;
         match opt_response {
@@ -701,7 +706,7 @@ impl BeaconNodeHttpClient {
     ) -> Result<Option<SignedBeaconBlock<T>>, Error> {
         let path = self.get_beacon_blocks_path(block_id)?;
 
-        self.get_bytes_opt_accept_header(path, Accept::Ssz)
+        self.get_bytes_opt_accept_header(path, Accept::Ssz, self.timeouts.get_beacon_blocks_ssz)
             .await?
             .map(|bytes| SignedBeaconBlock::from_ssz_bytes(&bytes, spec).map_err(Error::InvalidSsz))
             .transpose()
@@ -1167,7 +1172,7 @@ impl BeaconNodeHttpClient {
     ) -> Result<Option<BeaconState<T>>, Error> {
         let path = self.get_debug_beacon_states_path(state_id)?;
 
-        self.get_bytes_opt_accept_header(path, Accept::Ssz)
+        self.get_bytes_opt_accept_header(path, Accept::Ssz, self.timeouts.get_debug_beacon_states)
             .await?
             .map(|bytes| BeaconState::from_ssz_bytes(&bytes, spec).map_err(Error::InvalidSsz))
             .transpose()

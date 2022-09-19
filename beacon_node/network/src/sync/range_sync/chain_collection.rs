@@ -6,7 +6,6 @@
 use super::block_storage::BlockStorage;
 use super::chain::{ChainId, ProcessingResult, RemoveChain, SyncingChain};
 use super::sync_type::RangeSyncType;
-use crate::beacon_processor::WorkEvent as BeaconWorkEvent;
 use crate::metrics;
 use crate::sync::network_context::SyncNetworkContext;
 use beacon_chain::BeaconChainTypes;
@@ -18,7 +17,6 @@ use smallvec::SmallVec;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::mpsc;
 use types::EthSpec;
 use types::{Epoch, Hash256, Slot};
 
@@ -193,10 +191,9 @@ impl<T: BeaconChainTypes, C: BlockStorage> ChainCollection<T, C> {
     /// do so.
     pub fn update(
         &mut self,
-        network: &mut SyncNetworkContext<T::EthSpec>,
+        network: &mut SyncNetworkContext<T>,
         local: &SyncInfo,
         awaiting_head_peers: &mut HashMap<PeerId, SyncInfo>,
-        beacon_processor_send: &mpsc::Sender<BeaconWorkEvent<T>>,
     ) {
         // Remove any outdated finalized/head chains
         self.purge_outdated_chains(local, awaiting_head_peers);
@@ -212,7 +209,6 @@ impl<T: BeaconChainTypes, C: BlockStorage> ChainCollection<T, C> {
                 local.finalized_epoch,
                 local_head_epoch,
                 awaiting_head_peers,
-                beacon_processor_send,
             );
         }
     }
@@ -257,7 +253,7 @@ impl<T: BeaconChainTypes, C: BlockStorage> ChainCollection<T, C> {
     /// or not.
     fn update_finalized_chains(
         &mut self,
-        network: &mut SyncNetworkContext<T::EthSpec>,
+        network: &mut SyncNetworkContext<T>,
         local_epoch: Epoch,
         local_head_epoch: Epoch,
     ) {
@@ -326,11 +322,10 @@ impl<T: BeaconChainTypes, C: BlockStorage> ChainCollection<T, C> {
     /// Start syncing any head chains if required.
     fn update_head_chains(
         &mut self,
-        network: &mut SyncNetworkContext<T::EthSpec>,
+        network: &mut SyncNetworkContext<T>,
         local_epoch: Epoch,
         local_head_epoch: Epoch,
         awaiting_head_peers: &mut HashMap<PeerId, SyncInfo>,
-        beacon_processor_send: &mpsc::Sender<BeaconWorkEvent<T>>,
     ) {
         // Include the awaiting head peers
         for (peer_id, peer_sync_info) in awaiting_head_peers.drain() {
@@ -341,7 +336,6 @@ impl<T: BeaconChainTypes, C: BlockStorage> ChainCollection<T, C> {
                 peer_sync_info.head_slot,
                 peer_id,
                 RangeSyncType::Head,
-                beacon_processor_send,
                 network,
             );
         }
@@ -468,8 +462,7 @@ impl<T: BeaconChainTypes, C: BlockStorage> ChainCollection<T, C> {
         target_head_slot: Slot,
         peer: PeerId,
         sync_type: RangeSyncType,
-        beacon_processor_send: &mpsc::Sender<BeaconWorkEvent<T>>,
-        network: &mut SyncNetworkContext<T::EthSpec>,
+        network: &mut SyncNetworkContext<T>,
     ) {
         let id = SyncingChain::<T>::id(&target_head_root, &target_head_slot);
         let (collection, is_finalized) = if let RangeSyncType::Finalized = sync_type {
@@ -500,7 +493,6 @@ impl<T: BeaconChainTypes, C: BlockStorage> ChainCollection<T, C> {
                     target_head_slot,
                     target_head_root,
                     peer,
-                    beacon_processor_send.clone(),
                     is_finalized,
                     &self.log,
                 );

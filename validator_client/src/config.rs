@@ -66,9 +66,6 @@ pub struct Config {
     ///
     /// This is *not* recommended in prod and should only be used for testing.
     pub block_delay: Option<Duration>,
-    /// Enabling this will make sure the validator client never signs a block whose `fee_recipient`
-    /// does not match the `suggested_fee_recipient`.
-    pub strict_fee_recipient: bool,
 }
 
 impl Default for Config {
@@ -105,7 +102,6 @@ impl Default for Config {
             builder_proposals: false,
             builder_registration_timestamp_override: None,
             gas_limit: None,
-            strict_fee_recipient: false,
         }
     }
 }
@@ -302,9 +298,12 @@ impl Config {
          * Explorer metrics
          */
         if let Some(monitoring_endpoint) = cli_args.value_of("monitoring-endpoint") {
+            let update_period_secs =
+                clap_utils::parse_optional(cli_args, "monitoring-endpoint-period")?;
             config.monitoring_api = Some(monitoring_api::Config {
                 db_path: None,
                 freezer_db_path: None,
+                update_period_secs,
                 monitoring_endpoint: monitoring_endpoint.to_string(),
             });
         }
@@ -337,7 +336,11 @@ impl Config {
         }
 
         if cli_args.is_present("strict-fee-recipient") {
-            config.strict_fee_recipient = true;
+            warn!(
+                log,
+                "The flag `--strict-fee-recipient` has been deprecated due to a bug causing \
+                missed proposals. The flag will be ignored."
+            );
         }
 
         /*

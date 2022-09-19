@@ -10,8 +10,8 @@ use builder_client::BuilderHttpClient;
 use engine_api::Error as ApiError;
 pub use engine_api::*;
 pub use engine_api::{http, http::deposit_methods, http::HttpJsonRpc};
-pub use engines::ForkChoiceState;
 use engines::{Engine, EngineError};
+pub use engines::{EngineState, ForkChoiceState};
 use fork_choice::ForkchoiceUpdateParameters;
 use lru::LruCache;
 use payload_status::process_payload_status;
@@ -31,6 +31,7 @@ use tokio::{
     sync::{Mutex, MutexGuard, RwLock},
     time::sleep,
 };
+use tokio_stream::wrappers::WatchStream;
 use types::{
     BlindedPayload, BlockType, ChainSpec, Epoch, ExecPayload, ExecutionBlockHash, ForkName,
     ProposerPreparationData, PublicKeyBytes, SignedBeaconBlock, Slot,
@@ -135,6 +136,7 @@ struct Inner<E: EthSpec> {
     proposers: RwLock<HashMap<ProposerKey, Proposer>>,
     executor: TaskExecutor,
     payload_cache: PayloadCache<E>,
+    builder_profit_threshold: Uint256,
     log: Logger,
 }
 
@@ -155,6 +157,8 @@ pub struct Config {
     pub jwt_version: Option<String>,
     /// Default directory for the jwt secret if not provided through cli.
     pub default_datadir: PathBuf,
+    /// The minimum value of an external payload for it to be considered in a proposal.
+    pub builder_profit_threshold: u128,
 }
 
 /// Provides access to one execution engine and provides a neat interface for consumption by the
@@ -175,6 +179,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
             jwt_id,
             jwt_version,
             default_datadir,
+            builder_profit_threshold,
         } = config;
 
         if urls.len() > 1 {
@@ -224,7 +229,14 @@ impl<T: EthSpec> ExecutionLayer<T> {
         };
 
         let builder = builder_url
-            .map(|url| BuilderHttpClient::new(url).map_err(Error::Builder))
+            .map(|url| {
+                let builder_client = BuilderHttpClient::new(url.clone()).map_err(Error::Builder);
+                info!(log,
+                    "Connected to external block builder";
+                    "builder_url" => ?url,
+                    "builder_profit_threshold" => builder_profit_threshold);
+                builder_client
+            })
             .transpose()?;
 
         let inner = Inner {
@@ -237,6 +249,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
             execution_blocks: Mutex::new(LruCache::new(EXECUTION_BLOCKS_LRU_CACHE_SIZE)),
             executor,
             payload_cache: PayloadCache::default(),
+            builder_profit_threshold: Uint256::from(builder_profit_threshold),
             log,
         };
 
@@ -284,6 +297,13 @@ impl<T: EthSpec> ExecutionLayer<T> {
         &self,
     ) -> MutexGuard<'_, LruCache<ExecutionBlockHash, ExecutionBlock>> {
         self.inner.execution_blocks.lock().await
+    }
+
+    /// Gives access to a channel containing if the last engine state is online or not.
+    ///
+    /// This can be called several times.
+    pub async fn get_responsiveness_watch(&self) -> WatchStream<EngineState> {
+        self.engine().watch_state().await
     }
 
     /// Note: this function returns a mutex guard, be careful to avoid deadlocks.
@@ -623,7 +643,17 @@ impl<T: EthSpec> ExecutionLayer<T> {
                                 "block_hash" => ?header.block_hash(),
                             );
 
-                            if header.parent_hash() != parent_hash {
+                            let relay_value = relay.data.message.value;
+                            let configured_value = self.inner.builder_profit_threshold;
+                            if relay_value < configured_value {
+                                info!(
+                                        self.log(),
+                                        "The value offered by the connected builder does not meet \
+                                        the configured profit threshold. Using local payload.";
+                                        "configured_value" => ?configured_value, "relay_value" => ?relay_value
+                                    );
+                                Ok(local)
+                            } else if header.parent_hash() != parent_hash {
                                 warn!(
                                     self.log(),
                                     "Invalid parent hash from connected builder, \
@@ -893,6 +923,13 @@ impl<T: EthSpec> ExecutionLayer<T> {
             .request(|engine| engine.api.new_payload_v1(execution_payload.clone()))
             .await;
 
+        if let Ok(status) = &result {
+            metrics::inc_counter_vec(
+                &metrics::EXECUTION_LAYER_PAYLOAD_STATUS,
+                &["new_payload", status.status.into()],
+            );
+        }
+
         process_payload_status(execution_payload.block_hash, result, self.log())
             .map_err(Box::new)
             .map_err(Error::EngineError)
@@ -1032,6 +1069,13 @@ impl<T: EthSpec> ExecutionLayer<T> {
                     .await
             })
             .await;
+
+        if let Ok(status) = &result {
+            metrics::inc_counter_vec(
+                &metrics::EXECUTION_LAYER_PAYLOAD_STATUS,
+                &["forkchoice_updated", status.payload_status.status.into()],
+            );
+        }
 
         process_payload_status(
             head_block_hash,

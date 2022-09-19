@@ -54,6 +54,12 @@ impl<T: BeaconChainTypes> VerifiedAttestation<T> for VerifiedUnaggregate<T> {
     fn indexed_attestation(&self) -> &IndexedAttestation<T::EthSpec> {
         &self.indexed_attestation
     }
+
+    fn into_attestation_and_indices(self) -> (Attestation<T::EthSpec>, Vec<u64>) {
+        let attestation = *self.attestation;
+        let attesting_indices = self.indexed_attestation.attesting_indices.into();
+        (attestation, attesting_indices)
+    }
 }
 
 /// An attestation that failed validation by the `BeaconChain`.
@@ -80,6 +86,13 @@ impl<T: BeaconChainTypes> VerifiedAttestation<T> for VerifiedAggregate<T> {
 
     fn indexed_attestation(&self) -> &IndexedAttestation<T::EthSpec> {
         &self.indexed_attestation
+    }
+
+    /// Efficient clone-free implementation that moves out of the `Box`.
+    fn into_attestation_and_indices(self) -> (Attestation<T::EthSpec>, Vec<u64>) {
+        let attestation = self.signed_aggregate.message.aggregate;
+        let attesting_indices = self.indexed_attestation.attesting_indices.into();
+        (attestation, attesting_indices)
     }
 }
 
@@ -595,7 +608,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     }
                 }
 
-                if let Err(e) = self.chain.add_to_block_inclusion_pool(&verified_aggregate) {
+                if let Err(e) = self.chain.add_to_block_inclusion_pool(verified_aggregate) {
                     debug!(
                         self.log,
                         "Attestation invalid for op pool";
@@ -1739,6 +1752,19 @@ impl<T: BeaconChainTypes> Worker<T> {
                 debug!(self.log, "Attestation for finalized state"; "peer_id" => % peer_id);
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
             }
+            e @ AttnError::BeaconChainError(BeaconChainError::MaxCommitteePromises(_)) => {
+                debug!(
+                    self.log,
+                    "Dropping attestation";
+                    "target_root" => ?failed_att.attestation().data.target.root,
+                    "beacon_block_root" => ?beacon_block_root,
+                    "slot" => ?failed_att.attestation().data.slot,
+                    "type" => ?attestation_type,
+                    "error" => ?e,
+                    "peer_id" => % peer_id
+                );
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+            }
             AttnError::BeaconChainError(e) => {
                 /*
                  * Lighthouse hit an unexpected error whilst processing the attestation. It
@@ -1749,7 +1775,10 @@ impl<T: BeaconChainTypes> Worker<T> {
                  */
                 error!(
                     self.log,
-                    "Unable to validate aggregate";
+                    "Unable to validate attestation";
+                    "beacon_block_root" => ?beacon_block_root,
+                    "slot" => ?failed_att.attestation().data.slot,
+                    "type" => ?attestation_type,
                     "peer_id" => %peer_id,
                     "error" => ?e,
                 );

@@ -7,7 +7,7 @@ use crate::config::{
 };
 use crate::forwards_iter::{HybridForwardsBlockRootsIterator, HybridForwardsStateRootsIterator};
 use crate::impls::beacon_state::{get_full_state, store_full_state};
-use crate::iter::{ParentRootBlockIterator, StateRootsIterator};
+use crate::iter::{BlockRootsIterator, ParentRootBlockIterator, RootsIterator};
 use crate::leveldb_store::BytesKey;
 use crate::leveldb_store::LevelDB;
 use crate::memory_store::MemoryStore;
@@ -436,6 +436,12 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     ) -> Result<ExecutionPayload<E>, Error> {
         self.get_item(block_root)?
             .ok_or_else(|| HotColdDBError::MissingExecutionPayload(*block_root).into())
+    }
+
+    /// Check if the execution payload for a block exists on disk.
+    pub fn execution_payload_exists(&self, block_root: &Hash256) -> Result<bool, Error> {
+        self.get_item::<ExecutionPayload<E>>(block_root)
+            .map(|payload| payload.is_some())
     }
 
     /// Determine whether a block exists in the database.
@@ -1418,6 +1424,93 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             &CompactionTimestamp(compaction_timestamp.as_secs()),
         )
     }
+
+    /// Try to prune all execution payloads, returning early if there is no need to prune.
+    pub fn try_prune_execution_payloads(&self, force: bool) -> Result<(), Error> {
+        let split = self.get_split_info();
+
+        if split.slot == 0 {
+            return Ok(());
+        }
+
+        let bellatrix_fork_slot = if let Some(epoch) = self.spec.bellatrix_fork_epoch {
+            epoch.start_slot(E::slots_per_epoch())
+        } else {
+            return Ok(());
+        };
+
+        // Load the split state so we can backtrack to find execution payloads.
+        let split_state = self.get_state(&split.state_root, Some(split.slot))?.ok_or(
+            HotColdDBError::MissingSplitState(split.state_root, split.slot),
+        )?;
+
+        // The finalized block may or may not have its execution payload stored, depending on
+        // whether it was at a skipped slot. However for a fully pruned database its parent
+        // should *always* have been pruned.
+        let split_parent_block_root = split_state.get_block_root(split.slot - 1)?;
+        if !self.execution_payload_exists(split_parent_block_root)? && !force {
+            info!(self.log, "Execution payloads are pruned");
+            return Ok(());
+        }
+
+        // Iterate block roots backwards to the Bellatrix fork or the anchor slot, whichever comes
+        // first.
+        let split_block_root = split_state.get_latest_block_root(split.state_root);
+        let anchor_slot = self.get_anchor_info().map(|info| info.anchor_slot);
+
+        let mut ops = vec![];
+
+        for res in std::iter::once(Ok((split_block_root, split.slot)))
+            .chain(BlockRootsIterator::new(self, &split_state))
+        {
+            let (block_root, slot) = match res {
+                Ok(tuple) => tuple,
+                Err(e) => {
+                    warn!(
+                        self.log,
+                        "Stopping backtrack early";
+                        "error" => ?e,
+                    );
+                    break;
+                }
+            };
+
+            if slot < bellatrix_fork_slot {
+                info!(
+                    self.log,
+                    "Finished backtrack to Bellatrix fork";
+                );
+                break;
+            }
+
+            if self.execution_payload_exists(&block_root)? {
+                debug!(
+                    self.log,
+                    "Pruning execution payload";
+                    "slot" => slot,
+                    "block_root" => ?block_root,
+                );
+                ops.push(StoreOp::DeleteExecutionPayload(block_root));
+            }
+
+            if Some(slot) == anchor_slot {
+                info!(
+                    self.log,
+                    "Finished backtrack to anchor state";
+                    "slot" => slot
+                );
+                break;
+            }
+        }
+        let payloads_pruned = ops.len();
+        self.do_atomically(ops)?;
+        info!(
+            self.log,
+            "Execution payload pruning complete";
+            "payloads_pruned" => payloads_pruned,
+        );
+        Ok(())
+    }
 }
 
 /// Advance the split point of the store, moving new finalized states to the freezer.
@@ -1457,16 +1550,16 @@ pub fn migrate_database<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
     let mut hot_db_ops: Vec<StoreOp<E>> = Vec::new();
 
     // 1. Copy all of the states between the head and the split slot, from the hot DB
-    // to the cold DB.
-    let state_root_iter = StateRootsIterator::new(&store, frozen_head);
-    for maybe_pair in state_root_iter.take_while(|result| match result {
-        Ok((_, slot)) => {
+    // to the cold DB. Delete the execution payloads of these now-finalized blocks.
+    let state_root_iter = RootsIterator::new(&store, frozen_head);
+    for maybe_tuple in state_root_iter.take_while(|result| match result {
+        Ok((_, _, slot)) => {
             slot >= &current_split_slot
                 && anchor_slot.map_or(true, |anchor_slot| slot >= &anchor_slot)
         }
         Err(_) => true,
     }) {
-        let (state_root, slot) = maybe_pair?;
+        let (block_root, state_root, slot) = maybe_tuple?;
 
         let mut cold_db_ops: Vec<KeyValueStoreOp> = Vec::new();
 
@@ -1489,6 +1582,11 @@ pub fn migrate_database<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
 
         // Delete the old summary, and the full state if we lie on an epoch boundary.
         hot_db_ops.push(StoreOp::DeleteState(state_root, Some(slot)));
+
+        // Delete the execution payload. Even if this execution payload is the payload of the
+        // new finalized block it is OK to delete it, as `try_get_full_block` looks at the split
+        // slot when determining whether to reconstruct payloads.
+        hot_db_ops.push(StoreOp::DeleteExecutionPayload(block_root));
     }
 
     // Warning: Critical section.  We have to take care not to put any of the two databases in an

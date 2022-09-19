@@ -1,4 +1,5 @@
 use clap::{App, Arg};
+use strum::VariantNames;
 
 pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
     App::new("beacon_node")
@@ -234,6 +235,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .arg(
             Arg::with_name("http-spec-fork")
                 .long("http-spec-fork")
+                .value_name("FORK")
                 .help("Serve the spec for a specific hard fork on /eth/v1/config/spec. It should \
                        not be necessary to set this flag.")
                 .takes_value(true)
@@ -318,6 +320,15 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 and never provide an untrusted URL.")
                 .takes_value(true),
         )
+        .arg(
+            Arg::with_name("monitoring-endpoint-period")
+                .long("monitoring-endpoint-period")
+                .value_name("SECONDS")
+                .help("Defines how many seconds to wait between each message sent to \
+                       the monitoring-endpoint. Default: 60s")
+                .requires("monitoring-endpoint")
+                .takes_value(true),
+        )
 
         /*
          * Standard staking flags
@@ -326,9 +337,9 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .arg(
             Arg::with_name("staking")
                 .long("staking")
-                .help("Standard option for a staking beacon node. Equivalent to \
-                `lighthouse bn --http --eth1 `. This will enable the http server on localhost:5052 \
-                and try connecting to an eth1 node on localhost:8545")
+                .help("Standard option for a staking beacon node. This will enable the HTTP server \
+                       on localhost:5052 and import deposit logs from the execution node. This is \
+                       equivalent to `--http` on merge-ready networks, or `--http --eth1` pre-merge")
                 .takes_value(false)
         )
 
@@ -418,16 +429,16 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .help("Deprecated. The feature activates automatically when --execution-endpoint \
                     is supplied.")
                 .takes_value(false)
+                .hidden(true)
         )
         .arg(
             Arg::with_name("execution-endpoint")
                 .long("execution-endpoint")
                 .value_name("EXECUTION-ENDPOINT")
                 .alias("execution-endpoints")
-                .help("Server endpoint for an execution layer jwt authenticated HTTP \
+                .help("Server endpoint for an execution layer JWT-authenticated HTTP \
                        JSON-RPC connection. Uses the same endpoint to populate the \
-                       deposit cache. Also enables the --merge flag.\
-                       If not provided, uses the default value of http://127.0.0.1:8551")
+                       deposit cache.")
                 .takes_value(true)
                 .requires("execution-jwt")
         )
@@ -438,6 +449,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .alias("jwt-secrets")
                 .help("File path which contains the hex-encoded JWT secret for the \
                        execution endpoint provided in the --execution-endpoint flag.")
+                .requires("execution-endpoint")
                 .takes_value(true)
         )
         .arg(
@@ -448,6 +460,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .help("Used by the beacon node to communicate a unique identifier to execution nodes \
                        during JWT authentication. It corresponds to the 'id' field in the JWT claims object.\
                        Set to empty by default")
+                .requires("execution-jwt")
                 .takes_value(true)
         )
         .arg(
@@ -458,16 +471,16 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .help("Used by the beacon node to communicate a client version to execution nodes \
                        during JWT authentication. It corresponds to the 'clv' field in the JWT claims object.\
                        Set to empty by default")
+                .requires("execution-jwt")
                 .takes_value(true)
         )
         .arg(
             Arg::with_name("suggested-fee-recipient")
                 .long("suggested-fee-recipient")
                 .value_name("SUGGESTED-FEE-RECIPIENT")
-                .help("Once the merge has happened, this address will receive transaction fees \
-                       collected from any blocks produced by this node. Defaults to a junk \
-                       address whilst the merge is in development stages. THE DEFAULT VALUE \
-                       WILL BE REMOVED BEFORE THE MERGE ENTERS PRODUCTION")
+                .help("Emergency fallback fee recipient for use in case the validator client does \
+                       not have one configured. You should set this flag on the validator \
+                       client instead of (or in addition to) setting it here.")
                 .requires("execution-endpoint")
                 .takes_value(true)
         )
@@ -499,6 +512,13 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("auto-compact-db")
                 .long("auto-compact-db")
                 .help("Enable or disable automatic compaction of the database on finalization.")
+                .takes_value(true)
+                .default_value("true")
+        )
+        .arg(
+            Arg::with_name("prune-payloads-on-startup")
+                .long("prune-payloads-on-startup")
+                .help("Check for execution payloads to prune on start-up.")
                 .takes_value(true)
                 .default_value("true")
         )
@@ -629,6 +649,15 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .requires("slasher")
         )
         .arg(
+            Arg::with_name("slasher-backend")
+                .long("slasher-backend")
+                .value_name("DATABASE")
+                .help("Set the database backend to be used by the slasher.")
+                .takes_value(true)
+                .possible_values(slasher::DatabaseBackend::VARIANTS)
+                .requires("slasher")
+        )
+        .arg(
             Arg::with_name("wss-checkpoint")
                 .long("wss-checkpoint")
                 .help(
@@ -729,6 +758,16 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true)
         )
         .arg(
+            Arg::with_name("paranoid-block-proposal")
+                .long("paranoid-block-proposal")
+                .help("Paranoid enough to be reading the source? Nice. This flag reverts some \
+                       block proposal optimisations and forces the node to check every attestation \
+                       it includes super thoroughly. This may be useful in an emergency, but not \
+                       otherwise.")
+                .hidden(true)
+                .takes_value(false)
+        )
+        .arg(
             Arg::with_name("builder-fallback-skips")
                 .long("builder-fallback-skips")
                 .help("If this node is proposing a block and has seen this number of skip slots \
@@ -769,6 +808,21 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(false)
         )
         .arg(
+            Arg::with_name("builder-profit-threshold")
+                .long("builder-profit-threshold")
+                .value_name("WEI_VALUE")
+                .help("The minimum reward in wei provided to the proposer by a block builder for \
+                    an external payload to be considered for inclusion in a proposal. If this \
+                    threshold is not met, the local EE's payload will be used. This is currently \
+                    *NOT* in comparison to the value of the local EE's payload. It simply checks \
+                    whether the total proposer reward from an external payload is equal to or \
+                    greater than this value. In the future, a comparison to a local payload is \
+                    likely to be added. Example: Use 250000000000000000 to set the threshold to \
+                     0.25 ETH.")
+                .default_value("0")
+                .takes_value(true)
+        )
+        .arg(
             Arg::with_name("count-unrealized")
                 .long("count-unrealized")
                 .hidden(true)
@@ -776,5 +830,21 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                        vote tracking method.")
                 .takes_value(true)
                 .default_value("true")
+        )
+        .arg(
+            Arg::with_name("count-unrealized-full")
+                .long("count-unrealized-full")
+                .hidden(true)
+                .help("Stricter version of `count-unrealized`.")
+                .takes_value(true)
+                .default_value("false")
+        )
+        .arg(
+            Arg::with_name("reset-payload-statuses")
+                .long("reset-payload-statuses")
+                .help("When present, Lighthouse will forget the payload statuses of any \
+                       already-imported blocks. This can assist in the recovery from a consensus \
+                       failure caused by the execution layer.")
+                .takes_value(false)
         )
 }

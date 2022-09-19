@@ -67,7 +67,7 @@ impl tree_hash::TreeHash for ExecutionBlockHash {
         Hash256::tree_hash_type()
     }
 
-    fn tree_hash_packed_encoding(&self) -> Vec<u8> {
+    fn tree_hash_packed_encoding(&self) -> tree_hash::PackedEncoding {
         self.0.tree_hash_packed_encoding()
     }
 

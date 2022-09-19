@@ -33,20 +33,9 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
     seconds_per_slot: u64,
 ) -> Result<(), String> {
     let slot_duration = Duration::from_secs(seconds_per_slot);
-    let duration_to_next_slot = beacon_chain
-        .slot_clock
-        .duration_to_next_slot()
-        .ok_or("slot_notifier unable to determine time to next slot")?;
-
-    // Run this half way through each slot.
-    let start_instant = tokio::time::Instant::now() + duration_to_next_slot + (slot_duration / 2);
-
-    // Run this each slot.
-    let interval_duration = slot_duration;
 
     let speedo = Mutex::new(Speedo::default());
     let log = executor.log().clone();
-    let mut interval = tokio::time::interval_at(start_instant, interval_duration);
 
     // Keep track of sync state and reset the speedo on specific sync state changes.
     // Specifically, if we switch between a sync and a backfill sync, reset the speedo.
@@ -82,7 +71,20 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
         let mut last_backfill_log_slot = None;
 
         loop {
-            interval.tick().await;
+            // Run the notifier half way through each slot.
+            //
+            // Keep remeasuring the offset rather than using an interval, so that we can correct
+            // for system time clock adjustments.
+            let wait = match beacon_chain.slot_clock.duration_to_next_slot() {
+                Some(duration) => duration + slot_duration / 2,
+                None => {
+                    warn!(log, "Unable to read current slot");
+                    sleep(slot_duration).await;
+                    continue;
+                }
+            };
+            sleep(wait).await;
+
             let connected_peer_count = network.connected_peers();
             let sync_state = network.sync_state();
 
@@ -339,7 +341,21 @@ async fn merge_readiness_logging<T: BeaconChainTypes>(
             payload.parent_hash() != ExecutionBlockHash::zero()
         });
 
-    if merge_completed || !beacon_chain.is_time_to_prepare_for_bellatrix(current_slot) {
+    let has_execution_layer = beacon_chain.execution_layer.is_some();
+
+    if merge_completed && has_execution_layer
+        || !beacon_chain.is_time_to_prepare_for_bellatrix(current_slot)
+    {
+        return;
+    }
+
+    if merge_completed && !has_execution_layer {
+        error!(
+            log,
+            "Execution endpoint required";
+            "info" => "you need an execution engine to validate blocks, see: \
+                       https://lighthouse-book.sigmaprime.io/merge-migration.html"
+        );
         return;
     }
 
@@ -387,6 +403,7 @@ async fn merge_readiness_logging<T: BeaconChainTypes>(
                 log,
                 "Not ready for merge";
                 "info" => %readiness,
+                "hint" => "try updating Lighthouse and/or the execution layer",
             )
         }
         readiness @ MergeReadiness::NotSynced => warn!(

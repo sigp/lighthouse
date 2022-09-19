@@ -122,14 +122,17 @@ lazy_static! {
     /*
      * Block Statistics
      */
-    pub static ref OPERATIONS_PER_BLOCK_ATTESTATION: Result<Histogram> = try_create_histogram(
+    pub static ref OPERATIONS_PER_BLOCK_ATTESTATION: Result<Histogram> = try_create_histogram_with_buckets(
         "beacon_operations_per_block_attestation_total",
-        "Number of attestations in a block"
+        "Number of attestations in a block",
+        // Full block is 128.
+        Ok(vec![0_f64, 1_f64, 3_f64, 15_f64, 31_f64, 63_f64, 127_f64, 255_f64])
     );
 
-    pub static ref BLOCK_SIZE: Result<Histogram> = try_create_histogram(
+    pub static ref BLOCK_SIZE: Result<Histogram> = try_create_histogram_with_buckets(
         "beacon_block_total_size",
-        "Size of a signed beacon block"
+        "Size of a signed beacon block",
+        linear_buckets(5120_f64,5120_f64,10)
     );
 
     /*
@@ -251,6 +254,10 @@ lazy_static! {
         try_create_int_counter("beacon_shuffling_cache_hits_total", "Count of times shuffling cache fulfils request");
     pub static ref SHUFFLING_CACHE_MISSES: Result<IntCounter> =
         try_create_int_counter("beacon_shuffling_cache_misses_total", "Count of times shuffling cache fulfils request");
+    pub static ref SHUFFLING_CACHE_PROMISE_HITS: Result<IntCounter> =
+        try_create_int_counter("beacon_shuffling_cache_promise_hits_total", "Count of times shuffling cache returns a promise to future shuffling");
+    pub static ref SHUFFLING_CACHE_PROMISE_FAILS: Result<IntCounter> =
+        try_create_int_counter("beacon_shuffling_cache_promise_fails_total", "Count of times shuffling cache detects a failed promise");
 
     /*
      * Early attester cache
@@ -302,6 +309,10 @@ lazy_static! {
         "beacon_fork_choice_reorg_total",
         "Count of occasions fork choice has switched to a different chain"
     );
+    pub static ref FORK_CHOICE_REORG_DISTANCE: Result<IntGauge> = try_create_int_gauge(
+        "beacon_fork_choice_reorg_distance",
+        "The distance of each re-org of the fork choice algorithm"
+    );
     pub static ref FORK_CHOICE_REORG_COUNT_INTEROP: Result<IntCounter> = try_create_int_counter(
         "beacon_reorgs_total",
         "Count of occasions fork choice has switched to a different chain"
@@ -325,7 +336,7 @@ lazy_static! {
     pub static ref BALANCES_CACHE_HITS: Result<IntCounter> =
         try_create_int_counter("beacon_balances_cache_hits_total", "Count of times balances cache fulfils request");
     pub static ref BALANCES_CACHE_MISSES: Result<IntCounter> =
-        try_create_int_counter("beacon_balances_cache_misses_total", "Count of times balances cache fulfils request");
+        try_create_int_counter("beacon_balances_cache_misses_total", "Count of times balances cache misses request");
 
     /*
      * Persisting BeaconChain components to disk
@@ -775,21 +786,29 @@ lazy_static! {
     /*
      * Block Delay Metrics
      */
-    pub static ref BEACON_BLOCK_OBSERVED_SLOT_START_DELAY_TIME: Result<Histogram> = try_create_histogram(
+    pub static ref BEACON_BLOCK_OBSERVED_SLOT_START_DELAY_TIME: Result<Histogram> = try_create_histogram_with_buckets(
         "beacon_block_observed_slot_start_delay_time",
         "Duration between the start of the block's slot and the time the block was observed.",
+        // [0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 50]
+        decimal_buckets(-1,2)
     );
-    pub static ref BEACON_BLOCK_IMPORTED_OBSERVED_DELAY_TIME: Result<Histogram> = try_create_histogram(
+    pub static ref BEACON_BLOCK_IMPORTED_OBSERVED_DELAY_TIME: Result<Histogram> = try_create_histogram_with_buckets(
         "beacon_block_imported_observed_delay_time",
         "Duration between the time the block was observed and the time when it was imported.",
+        // [0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, 2, 5]
+        decimal_buckets(-2,0)
     );
-    pub static ref BEACON_BLOCK_HEAD_IMPORTED_DELAY_TIME: Result<Histogram> = try_create_histogram(
+    pub static ref BEACON_BLOCK_HEAD_IMPORTED_DELAY_TIME: Result<Histogram> = try_create_histogram_with_buckets(
         "beacon_block_head_imported_delay_time",
         "Duration between the time the block was imported and the time when it was set as head.",
-    );
-    pub static ref BEACON_BLOCK_HEAD_SLOT_START_DELAY_TIME: Result<Histogram> = try_create_histogram(
+        // [0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, 2, 5]
+        decimal_buckets(-2,-1)
+        );
+    pub static ref BEACON_BLOCK_HEAD_SLOT_START_DELAY_TIME: Result<Histogram> = try_create_histogram_with_buckets(
         "beacon_block_head_slot_start_delay_time",
         "Duration between the start of the block's slot and the time when it was set as head.",
+        // [0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 50]
+        decimal_buckets(-1,2)
     );
     pub static ref BEACON_BLOCK_HEAD_SLOT_START_DELAY_EXCEEDED_TOTAL: Result<IntCounter> = try_create_int_counter(
         "beacon_block_head_slot_start_delay_exceeded_total",

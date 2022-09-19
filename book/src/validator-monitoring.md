@@ -4,6 +4,9 @@ Lighthouse allows for fine-grained monitoring of specific validators using the "
 Generally users will want to use this function to track their own validators, however, it can be
 used for any validator, regardless of who controls it.
 
+_Note: If you are looking for remote metric monitoring, please see the docs on
+[Prometheus Metrics](./advanced_metrics.md)_.
+
 ## Monitoring is in the Beacon Node
 
 Lighthouse performs validator monitoring in the Beacon Node (BN) instead of the Validator Client

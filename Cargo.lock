@@ -285,9 +285,9 @@ checksum = "d468802bab17cbc0cc575e9b053f41e72aa36bfa6b7f55e3529ffa43161b97fa"
 
 [[package]]
 name = "axum"
-version = "0.5.13"
+version = "0.5.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6b9496f0c1d1afb7a2af4338bbe1d969cddfead41d87a9fb3aaa6d0bbc7af648"
+checksum = "c9e3356844c4d6a6d6467b8da2cffb4a2820be256f50a3a386c9d152bab31043"
 dependencies = [
  "async-trait",
  "axum-core",
@@ -316,9 +316,9 @@ dependencies = [
 
 [[package]]
 name = "axum-core"
-version = "0.2.7"
+version = "0.2.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e4f44a0e6200e9d11a1cdc989e4b358f6e3d354fbf48478f345a17f4e43f8635"
+checksum = "d9f0c0a60006f2a293d82d571f635042a72edf927539b7685bd62d361963839b"
 dependencies = [
  "async-trait",
  "bytes",
@@ -326,6 +326,8 @@ dependencies = [
  "http",
  "http-body",
  "mime",
+ "tower-layer",
+ "tower-service",
 ]
 
 [[package]]
@@ -364,7 +366,7 @@ checksum = "3bdca834647821e0b13d9539a8634eb62d3501b6b6c2cec1722786ee6671b851"
 [[package]]
 name = "beacon-api-client"
 version = "0.1.0"
-source = "git+https://github.com/ralexstokes/beacon-api-client#061c1b1bb1f18bcd7cf23d4cd375f99c78d5a2a5"
+source = "git+https://github.com/ralexstokes/beacon-api-client?rev=de34eeb#de34eeb92e4fdee5709d142910abf42cf857609b"
 dependencies = [
  "ethereum-consensus",
  "http",
@@ -385,6 +387,7 @@ version = "0.2.0"
 dependencies = [
  "bitvec 0.20.4",
  "bls",
+ "crossbeam-channel",
  "derivative",
  "environment",
  "eth1",
@@ -436,7 +439,7 @@ dependencies = [
 
 [[package]]
 name = "beacon_node"
-version = "2.5.1"
+version = "3.1.0"
 dependencies = [
  "beacon_chain",
  "clap",
@@ -462,6 +465,7 @@ dependencies = [
  "slasher",
  "slog",
  "store",
+ "strum",
  "task_executor",
  "types",
  "unused_port",
@@ -593,7 +597,7 @@ dependencies = [
 
 [[package]]
 name = "boot_node"
-version = "2.5.1"
+version = "3.1.0"
 dependencies = [
  "beacon_node",
  "clap",
@@ -1248,6 +1252,16 @@ name = "db-key"
 version = "0.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b72465f46d518f6015d9cf07f7f3013a95dd6b9c2747c3d65ae0cce43929d14f"
+
+[[package]]
+name = "delay_map"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6716ce9729be9628979ae1ff63e8bc8b7ad53b5472a2633bf079607a55328d36"
+dependencies = [
+ "futures",
+ "tokio-util 0.6.10",
+]
 
 [[package]]
 name = "deposit_contract"
@@ -1924,8 +1938,8 @@ dependencies = [
 
 [[package]]
 name = "ethereum-consensus"
-version = "0.1.0"
-source = "git+https://github.com/ralexstokes/ethereum-consensus#592eb44dc24403cc9d152f4b96683ab551533201"
+version = "0.1.1"
+source = "git+https://github.com/ralexstokes/ethereum-consensus?rev=e1188b1#e1188b14f320f225f2e53aa10336614565f04129"
 dependencies = [
  "async-stream",
  "blst",
@@ -2082,9 +2096,11 @@ dependencies = [
  "slot_clock",
  "ssz-rs",
  "state_processing",
+ "strum",
  "task_executor",
  "tempfile",
  "tokio",
+ "tokio-stream",
  "tree_hash",
  "tree_hash_derive",
  "types",
@@ -2232,6 +2248,7 @@ dependencies = [
  "eth2_ssz",
  "eth2_ssz_derive",
  "proto_array",
+ "slog",
  "state_processing",
  "store",
  "tokio",
@@ -2548,15 +2565,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7249a3129cbc1ffccd74857f81464a323a152173cdb134e0fd81bc803b29facf"
 dependencies = [
  "hashbrown 0.11.2",
-]
-
-[[package]]
-name = "hashset_delay"
-version = "0.2.0"
-dependencies = [
- "futures",
- "tokio",
- "tokio-util 0.6.10",
 ]
 
 [[package]]
@@ -3102,7 +3110,7 @@ checksum = "830d08ce1d1d941e6b30645f1a0eb5643013d835ce3779a5fc208261dbe10f55"
 
 [[package]]
 name = "lcli"
-version = "2.5.1"
+version = "3.1.0"
 dependencies = [
  "account_utils",
  "beacon_chain",
@@ -3204,8 +3212,7 @@ checksum = "33a33a362ce288760ec6a508b94caaec573ae7d3bbbd91b87aa0bad4456839db"
 [[package]]
 name = "libmdbx"
 version = "0.1.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "002d7890ec770d222903165b6ba279b0fa3dba8e82610820833184066b006ce0"
+source = "git+https://github.com/sigp/libmdbx-rs?tag=v0.1.4#096da80a83d14343f8df833006483f48075cd135"
 dependencies = [
  "bitflags",
  "byteorder",
@@ -3603,7 +3610,7 @@ dependencies = [
 
 [[package]]
 name = "lighthouse"
-version = "2.5.1"
+version = "3.1.0"
 dependencies = [
  "account_manager",
  "account_utils",
@@ -3629,6 +3636,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml",
+ "slasher",
  "slashing_protection",
  "slog",
  "sloggers",
@@ -3652,6 +3660,7 @@ dependencies = [
 name = "lighthouse_network"
 version = "0.2.0"
 dependencies = [
+ "delay_map",
  "directory",
  "dirs",
  "discv5",
@@ -3662,7 +3671,6 @@ dependencies = [
  "exit-future",
  "fnv",
  "futures",
- "hashset_delay",
  "hex",
  "lazy_static",
  "libp2p",
@@ -3711,6 +3719,27 @@ name = "linked-hash-map"
 version = "0.5.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0717cef1bc8b636c6e1c1bbdefc09e6322da8a9321966e8928ef80d20f7f770f"
+
+[[package]]
+name = "lmdb-rkv"
+version = "0.14.0"
+source = "git+https://github.com/sigp/lmdb-rs?rev=f33845c6469b94265319aac0ed5085597862c27e#f33845c6469b94265319aac0ed5085597862c27e"
+dependencies = [
+ "bitflags",
+ "byteorder",
+ "libc",
+ "lmdb-rkv-sys",
+]
+
+[[package]]
+name = "lmdb-rkv-sys"
+version = "0.11.2"
+source = "git+https://github.com/sigp/lmdb-rs?rev=f33845c6469b94265319aac0ed5085597862c27e#f33845c6469b94265319aac0ed5085597862c27e"
+dependencies = [
+ "cc",
+ "libc",
+ "pkg-config",
+]
 
 [[package]]
 name = "lock_api"
@@ -3830,8 +3859,7 @@ checksum = "73cbba799671b762df5a175adf59ce145165747bb891505c43d09aefbbf38beb"
 [[package]]
 name = "mdbx-sys"
 version = "0.11.6-4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9dde320ea35df4678486346065386943ed6c5920f2ab445dff8dd5d9c8cd04ad"
+source = "git+https://github.com/sigp/libmdbx-rs?tag=v0.1.4#096da80a83d14343f8df833006483f48075cd135"
 dependencies = [
  "bindgen",
  "cc",
@@ -3868,8 +3896,8 @@ dependencies = [
 
 [[package]]
 name = "mev-build-rs"
-version = "0.2.0"
-source = "git+https://github.com/ralexstokes/mev-rs?tag=v0.2.0#921fa3f7c3497839461964a5297dfe4f2cef3136"
+version = "0.2.1"
+source = "git+https://github.com/ralexstokes/mev-rs?rev=a088806575805c00d63fa59c002abc5eb1dc7709#a088806575805c00d63fa59c002abc5eb1dc7709"
 dependencies = [
  "async-trait",
  "axum",
@@ -4122,6 +4150,7 @@ name = "network"
 version = "0.2.0"
 dependencies = [
  "beacon_chain",
+ "delay_map",
  "derivative",
  "environment",
  "error-chain",
@@ -4131,7 +4160,6 @@ dependencies = [
  "fnv",
  "futures",
  "genesis",
- "hashset_delay",
  "hex",
  "if-addrs 0.6.7",
  "igd",
@@ -4387,12 +4415,14 @@ name = "operation_pool"
 version = "0.2.0"
 dependencies = [
  "beacon_chain",
+ "bitvec 1.0.1",
  "derivative",
  "eth2_ssz",
  "eth2_ssz_derive",
  "itertools",
  "lazy_static",
  "lighthouse_metrics",
+ "maplit",
  "parking_lot 0.12.1",
  "rayon",
  "serde",
@@ -4559,9 +4589,9 @@ checksum = "d4fd5641d01c8f18a23da7b6fe29298ff4b55afcccdf78973b24cf3175fee32e"
 
 [[package]]
 name = "pest"
-version = "2.2.1"
+version = "2.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "69486e2b8c2d2aeb9762db7b4e00b0331156393555cff467f4163ff06821eef8"
+checksum = "4b0560d531d1febc25a3c9398a62a71256c0178f2e3443baedd9ad4bb8c9deb4"
 dependencies = [
  "thiserror",
  "ucd-trie",
@@ -4680,9 +4710,9 @@ checksum = "e8d0eef3571242013a0d5dc84861c3ae4a652e56e12adf8bdc26ff5f8cb34c94"
 
 [[package]]
 name = "plotters"
-version = "0.3.2"
+version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9428003b84df1496fb9d6eeee9c5f8145cb41ca375eb0dad204328888832811f"
+checksum = "716b4eeb6c4a1d3ecc956f75b43ec2e8e8ba80026413e70a3f41fd3313d3492b"
 dependencies = [
  "num-traits",
  "plotters-backend",
@@ -5965,6 +5995,8 @@ dependencies = [
  "lazy_static",
  "libmdbx",
  "lighthouse_metrics",
+ "lmdb-rkv",
+ "lmdb-rkv-sys",
  "logging",
  "lru",
  "maplit",
@@ -5976,6 +6008,7 @@ dependencies = [
  "serde_derive",
  "slog",
  "sloggers",
+ "strum",
  "tempfile",
  "tree_hash",
  "tree_hash_derive",
@@ -6210,7 +6243,7 @@ dependencies = [
 [[package]]
 name = "ssz-rs"
 version = "0.8.0"
-source = "git+https://github.com/ralexstokes/ssz-rs#bd7cfb5a836e28747e6ce5e570234d14df0b24f7"
+source = "git+https://github.com/ralexstokes/ssz-rs?rev=cb08f1#cb08f18ca919cc1b685b861d0fa9e2daabe89737"
 dependencies = [
  "bitvec 1.0.1",
  "hex",
@@ -6225,7 +6258,7 @@ dependencies = [
 [[package]]
 name = "ssz-rs-derive"
 version = "0.8.0"
-source = "git+https://github.com/ralexstokes/ssz-rs#bd7cfb5a836e28747e6ce5e570234d14df0b24f7"
+source = "git+https://github.com/ralexstokes/ssz-rs?rev=cb08f1#cb08f18ca919cc1b685b861d0fa9e2daabe89737"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -6245,9 +6278,11 @@ dependencies = [
  "arbitrary",
  "beacon_chain",
  "bls",
+ "derivative",
  "env_logger 0.9.0",
  "eth2_hashing",
  "eth2_ssz",
+ "eth2_ssz_derive",
  "eth2_ssz_types",
  "int_to_bytes",
  "integer-sqrt",

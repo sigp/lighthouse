@@ -179,9 +179,13 @@ pub fn get_config<E: EthSpec>(
      * Explorer metrics
      */
     if let Some(monitoring_endpoint) = cli_args.value_of("monitoring-endpoint") {
+        let update_period_secs =
+            clap_utils::parse_optional(cli_args, "monitoring-endpoint-period")?;
+
         client_config.monitoring_api = Some(monitoring_api::Config {
             db_path: None,
             freezer_db_path: None,
+            update_period_secs,
             monitoring_endpoint: monitoring_endpoint.to_string(),
         });
     }
@@ -310,6 +314,8 @@ pub fn get_config<E: EthSpec>(
         el_config.jwt_id = clap_utils::parse_optional(cli_args, "execution-jwt-id")?;
         el_config.jwt_version = clap_utils::parse_optional(cli_args, "execution-jwt-version")?;
         el_config.default_datadir = client_config.data_dir.clone();
+        el_config.builder_profit_threshold =
+            clap_utils::parse_required(cli_args, "builder-profit-threshold")?;
 
         // If `--execution-endpoint` is provided, we should ignore any `--eth1-endpoints` values and
         // use `--execution-endpoint` instead. Also, log a deprecation warning.
@@ -351,6 +357,12 @@ pub fn get_config<E: EthSpec>(
         client_config.store.compact_on_prune = compact_on_prune
             .parse()
             .map_err(|_| "auto-compact-db takes a boolean".to_string())?;
+    }
+
+    if let Some(prune_payloads_on_init) =
+        clap_utils::parse_optional(cli_args, "prune-payloads-on-startup")?
+    {
+        client_config.store.prune_payloads_on_init = prune_payloads_on_init;
     }
 
     /*
@@ -592,6 +604,10 @@ pub fn get_config<E: EthSpec>(
 
         slasher_config.broadcast = cli_args.is_present("slasher-broadcast");
 
+        if let Some(backend) = clap_utils::parse_optional(cli_args, "slasher-backend")? {
+            slasher_config.backend = backend;
+        }
+
         client_config.slasher = Some(slasher_config);
     }
 
@@ -651,6 +667,13 @@ pub fn get_config<E: EthSpec>(
 
     client_config.chain.count_unrealized =
         clap_utils::parse_required(cli_args, "count-unrealized")?;
+    client_config.chain.count_unrealized_full =
+        clap_utils::parse_required::<bool>(cli_args, "count-unrealized-full")?.into();
+
+    client_config.chain.always_reset_payload_statuses =
+        cli_args.is_present("reset-payload-statuses");
+
+    client_config.chain.paranoid_block_proposal = cli_args.is_present("paranoid-block-proposal");
 
     /*
      * Builder fallback configs.

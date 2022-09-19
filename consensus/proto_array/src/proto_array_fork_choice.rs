@@ -1,4 +1,5 @@
 use crate::error::Error;
+use crate::proto_array::CountUnrealizedFull;
 use crate::proto_array::{
     calculate_proposer_boost, InvalidationOperation, Iter, ProposerBoost, ProtoArray, ProtoNode,
 };
@@ -201,6 +202,7 @@ impl ProtoArrayForkChoice {
         current_epoch_shuffling_id: AttestationShufflingId,
         next_epoch_shuffling_id: AttestationShufflingId,
         execution_status: ExecutionStatus,
+        count_unrealized_full: CountUnrealizedFull,
     ) -> Result<Self, String> {
         let mut proto_array = ProtoArray {
             prune_threshold: DEFAULT_PRUNE_THRESHOLD,
@@ -209,6 +211,7 @@ impl ProtoArrayForkChoice {
             nodes: Vec::with_capacity(1),
             indices: HashMap::with_capacity(1),
             previous_proposer_boost: ProposerBoost::default(),
+            count_unrealized_full,
         };
 
         let block = Block {
@@ -397,6 +400,17 @@ impl ProtoArrayForkChoice {
             }
         }
         Ok(unique_weight)
+    }
+
+    /// Returns `true` if there are any blocks in `self` with an `INVALID` execution payload status.
+    ///
+    /// This will operate on *all* blocks, even those that do not descend from the finalized
+    /// ancestor.
+    pub fn contains_invalid_payloads(&mut self) -> bool {
+        self.proto_array
+            .nodes
+            .iter()
+            .any(|node| node.execution_status.is_invalid())
     }
 
     /// For all nodes, regardless of their relationship to the finalized block, set their execution
@@ -602,8 +616,12 @@ impl ProtoArrayForkChoice {
         SszContainer::from(self).as_ssz_bytes()
     }
 
-    pub fn from_bytes(bytes: &[u8]) -> Result<Self, String> {
+    pub fn from_bytes(
+        bytes: &[u8],
+        count_unrealized_full: CountUnrealizedFull,
+    ) -> Result<Self, String> {
         SszContainer::from_ssz_bytes(bytes)
+            .map(|container| (container, count_unrealized_full))
             .map(Into::into)
             .map_err(|e| format!("Failed to decode ProtoArrayForkChoice: {:?}", e))
     }
@@ -763,6 +781,7 @@ mod test_compute_deltas {
             junk_shuffling_id.clone(),
             junk_shuffling_id.clone(),
             execution_status,
+            CountUnrealizedFull::default(),
         )
         .unwrap();
 

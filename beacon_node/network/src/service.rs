@@ -26,6 +26,7 @@ use lighthouse_network::{
 use slog::{crit, debug, error, info, o, trace, warn};
 use std::{net::SocketAddr, pin::Pin, sync::Arc, time::Duration};
 use store::HotColdDB;
+use strum::IntoStaticStr;
 use task_executor::ShutdownReason;
 use tokio::sync::mpsc;
 use tokio::time::Sleep;
@@ -42,6 +43,9 @@ const METRIC_UPDATE_INTERVAL: u64 = 5;
 const SUBSCRIBE_DELAY_SLOTS: u64 = 2;
 /// Delay after a fork where we unsubscribe from pre-fork topics.
 const UNSUBSCRIBE_DELAY_EPOCHS: u64 = 2;
+/// Size of the queue for validator subnet subscriptions. The number is chosen so that we may be
+/// able to run tens of thousands of validators on one BN.
+const VALIDATOR_SUBSCRIPTION_MESSAGE_QUEUE_SIZE: usize = 65_536;
 
 /// Application level requests sent to the network.
 #[derive(Debug, Clone, Copy)]
@@ -51,15 +55,9 @@ pub enum RequestId {
 }
 
 /// Types of messages that the network service can receive.
-#[derive(Debug)]
+#[derive(Debug, IntoStaticStr)]
+#[strum(serialize_all = "snake_case")]
 pub enum NetworkMessage<T: EthSpec> {
-    /// Subscribes a list of validators to specific slots for attestation duties.
-    AttestationSubscribe {
-        subscriptions: Vec<ValidatorSubscription>,
-    },
-    SyncCommitteeSubscribe {
-        subscriptions: Vec<SyncCommitteeSubscription>,
-    },
     /// Subscribes the beacon node to the core gossipsub topics. We do this when we are either
     /// synced or close to the head slot.
     SubscribeCoreTopics,
@@ -115,6 +113,59 @@ pub enum NetworkMessage<T: EthSpec> {
     },
 }
 
+/// Messages triggered by validators that may trigger a subscription to a subnet.
+///
+/// These messages can be very numerous with large validator counts (hundreds of thousands per
+/// minute). Therefore we separate them from the separated from the `NetworkMessage` to provide
+/// fairness regarding message processing.
+#[derive(Debug, IntoStaticStr)]
+#[strum(serialize_all = "snake_case")]
+pub enum ValidatorSubscriptionMessage {
+    /// Subscribes a list of validators to specific slots for attestation duties.
+    AttestationSubscribe {
+        subscriptions: Vec<ValidatorSubscription>,
+    },
+    SyncCommitteeSubscribe {
+        subscriptions: Vec<SyncCommitteeSubscription>,
+    },
+}
+
+#[derive(Clone)]
+pub struct NetworkSenders<E: EthSpec> {
+    network_send: mpsc::UnboundedSender<NetworkMessage<E>>,
+    validator_subscription_send: mpsc::Sender<ValidatorSubscriptionMessage>,
+}
+
+pub struct NetworkReceivers<E: EthSpec> {
+    pub network_recv: mpsc::UnboundedReceiver<NetworkMessage<E>>,
+    pub validator_subscription_recv: mpsc::Receiver<ValidatorSubscriptionMessage>,
+}
+
+impl<E: EthSpec> NetworkSenders<E> {
+    pub fn new() -> (Self, NetworkReceivers<E>) {
+        let (network_send, network_recv) = mpsc::unbounded_channel::<NetworkMessage<E>>();
+        let (validator_subscription_send, validator_subscription_recv) =
+            mpsc::channel(VALIDATOR_SUBSCRIPTION_MESSAGE_QUEUE_SIZE);
+        let senders = Self {
+            network_send,
+            validator_subscription_send,
+        };
+        let receivers = NetworkReceivers {
+            network_recv,
+            validator_subscription_recv,
+        };
+        (senders, receivers)
+    }
+
+    pub fn network_send(&self) -> mpsc::UnboundedSender<NetworkMessage<E>> {
+        self.network_send.clone()
+    }
+
+    pub fn validator_subscription_send(&self) -> mpsc::Sender<ValidatorSubscriptionMessage> {
+        self.validator_subscription_send.clone()
+    }
+}
+
 /// Service that handles communication between internal services and the `lighthouse_network` network service.
 pub struct NetworkService<T: BeaconChainTypes> {
     /// A reference to the underlying beacon chain.
@@ -127,6 +178,8 @@ pub struct NetworkService<T: BeaconChainTypes> {
     sync_committee_service: SyncCommitteeService<T>,
     /// The receiver channel for lighthouse to communicate with the network service.
     network_recv: mpsc::UnboundedReceiver<NetworkMessage<T::EthSpec>>,
+    /// The receiver channel for lighthouse to send validator subscription requests.
+    validator_subscription_recv: mpsc::Receiver<ValidatorSubscriptionMessage>,
     /// The sending channel for the network service to send messages to be routed throughout
     /// lighthouse.
     router_send: mpsc::UnboundedSender<RouterMessage<T::EthSpec>>,
@@ -168,18 +221,15 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         config: &NetworkConfig,
         executor: task_executor::TaskExecutor,
         gossipsub_registry: Option<&'_ mut Registry>,
-    ) -> error::Result<(
-        Arc<NetworkGlobals<T::EthSpec>>,
-        mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
-    )> {
+    ) -> error::Result<(Arc<NetworkGlobals<T::EthSpec>>, NetworkSenders<T::EthSpec>)> {
         let network_log = executor.log().clone();
-        // build the network channel
-        let (network_send, network_recv) = mpsc::unbounded_channel::<NetworkMessage<T::EthSpec>>();
+        // build the channels for external comms
+        let (network_senders, network_recievers) = NetworkSenders::new();
 
         // try and construct UPnP port mappings if required.
         let upnp_config = crate::nat::UPnPConfig::from(config);
         let upnp_log = network_log.new(o!("service" => "UPnP"));
-        let upnp_network_send = network_send.clone();
+        let upnp_network_send = network_senders.network_send();
         if config.upnp_enabled {
             executor.spawn_blocking(
                 move || {
@@ -244,7 +294,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         let router_send = Router::spawn(
             beacon_chain.clone(),
             network_globals.clone(),
-            network_send.clone(),
+            network_senders.network_send(),
             executor.clone(),
             network_log.clone(),
         )?;
@@ -263,6 +313,11 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         // create a timer for updating gossipsub parameters
         let gossipsub_parameter_update = tokio::time::interval(Duration::from_secs(60));
 
+        let NetworkReceivers {
+            network_recv,
+            validator_subscription_recv,
+        } = network_recievers;
+
         // create the network service and spawn the task
         let network_log = network_log.new(o!("service" => "network"));
         let network_service = NetworkService {
@@ -271,6 +326,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             attestation_service,
             sync_committee_service,
             network_recv,
+            validator_subscription_recv,
             router_send,
             store,
             network_globals: network_globals.clone(),
@@ -290,7 +346,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
 
         network_service.spawn_service(executor);
 
-        Ok((network_globals, network_send))
+        Ok((network_globals, network_senders))
     }
 
     /// Returns the required fork digests that gossipsub needs to subscribe to based on the current slot.
@@ -357,6 +413,9 @@ impl<T: BeaconChainTypes> NetworkService<T> {
 
                     // handle a message sent to the network
                     Some(msg) = self.network_recv.recv() => self.on_network_msg(msg, &mut shutdown_sender).await,
+
+                    // handle a message from a validator requesting a subscription to a subnet
+                    Some(msg) = self.validator_subscription_recv.recv() => self.on_validator_subscription_msg(msg).await,
 
                     // process any attestation service events
                     Some(msg) = self.attestation_service.next() => self.on_attestation_service_msg(msg),
@@ -505,6 +564,9 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         msg: NetworkMessage<T::EthSpec>,
         shutdown_sender: &mut Sender<ShutdownReason>,
     ) {
+        metrics::inc_counter_vec(&metrics::NETWORK_RECEIVE_EVENTS, &[(&msg).into()]);
+        let _timer = metrics::start_timer_vec(&metrics::NETWORK_RECEIVE_TIMES, &[(&msg).into()]);
+
         match msg {
             NetworkMessage::SendRequest {
                 peer_id,
@@ -606,22 +668,6 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                 reason,
                 source,
             } => self.libp2p.goodbye_peer(&peer_id, reason, source),
-            NetworkMessage::AttestationSubscribe { subscriptions } => {
-                if let Err(e) = self
-                    .attestation_service
-                    .validator_subscriptions(subscriptions)
-                {
-                    warn!(self.log, "Attestation validator subscription failed"; "error" => e);
-                }
-            }
-            NetworkMessage::SyncCommitteeSubscribe { subscriptions } => {
-                if let Err(e) = self
-                    .sync_committee_service
-                    .validator_subscriptions(subscriptions)
-                {
-                    warn!(self.log, "Sync committee calidator subscription failed"; "error" => e);
-                }
-            }
             NetworkMessage::SubscribeCoreTopics => {
                 if self.shutdown_after_sync {
                     if let Err(e) = shutdown_sender
@@ -699,6 +745,28 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                         "Subscribed to topics";
                         "topics" => ?subscribed_topics.into_iter().map(|topic| format!("{}", topic)).collect::<Vec<_>>()
                     );
+                }
+            }
+        }
+    }
+
+    /// Handle a message sent to the network service.
+    async fn on_validator_subscription_msg(&mut self, msg: ValidatorSubscriptionMessage) {
+        match msg {
+            ValidatorSubscriptionMessage::AttestationSubscribe { subscriptions } => {
+                if let Err(e) = self
+                    .attestation_service
+                    .validator_subscriptions(subscriptions)
+                {
+                    warn!(self.log, "Attestation validator subscription failed"; "error" => e);
+                }
+            }
+            ValidatorSubscriptionMessage::SyncCommitteeSubscribe { subscriptions } => {
+                if let Err(e) = self
+                    .sync_committee_service
+                    .validator_subscriptions(subscriptions)
+                {
+                    warn!(self.log, "Sync committee calidator subscription failed"; "error" => e);
                 }
             }
         }

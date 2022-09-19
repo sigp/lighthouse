@@ -139,6 +139,13 @@ fn main() {
                 .global(true),
         )
         .arg(
+            Arg::with_name("log-color")
+                .long("log-color")
+                .alias("log-colour")
+                .help("Force outputting colors when emitting logs to the terminal.")
+                .global(true),
+        )
+        .arg(
             Arg::with_name("debug-level")
                 .long("debug-level")
                 .value_name("LEVEL")
@@ -227,7 +234,7 @@ fn main() {
                        Accepts a 256-bit decimal integer (not a hex value). \
                        This flag should only be used if the user has a clear understanding that \
                        the broad Ethereum community has elected to override the terminal difficulty. \
-                       Incorrect use of this flag will cause your node to experience a consensus
+                       Incorrect use of this flag will cause your node to experience a consensus \
                        failure. Be extremely careful with this flag.")
                 .takes_value(true)
                 .global(true)
@@ -239,7 +246,7 @@ fn main() {
                 .help("Used to coordinate manual overrides to the TERMINAL_BLOCK_HASH parameter. \
                        This flag should only be used if the user has a clear understanding that \
                        the broad Ethereum community has elected to override the terminal PoW block. \
-                       Incorrect use of this flag will cause your node to experience a consensus
+                       Incorrect use of this flag will cause your node to experience a consensus \
                        failure. Be extremely careful with this flag.")
                 .requires("terminal-block-hash-epoch-override")
                 .takes_value(true)
@@ -252,7 +259,7 @@ fn main() {
                 .help("Used to coordinate manual overrides to the TERMINAL_BLOCK_HASH_ACTIVATION_EPOCH \
                        parameter. This flag should only be used if the user has a clear understanding \
                        that the broad Ethereum community has elected to override the terminal PoW block. \
-                       Incorrect use of this flag will cause your node to experience a consensus
+                       Incorrect use of this flag will cause your node to experience a consensus \
                        failure. Be extremely careful with this flag.")
                 .requires("terminal-block-hash-override")
                 .takes_value(true)
@@ -372,6 +379,8 @@ fn run<E: EthSpec>(
 
     let log_format = matches.value_of("log-format");
 
+    let log_color = matches.is_present("log-color");
+
     let logfile_debug_level = matches
         .value_of("logfile-debug-level")
         .ok_or("Expected --logfile-debug-level flag")?;
@@ -424,6 +433,7 @@ fn run<E: EthSpec>(
         debug_level,
         logfile_debug_level,
         log_format,
+        log_color,
         max_log_size: logfile_max_size * 1_024 * 1_024,
         max_log_number: logfile_max_number,
         compression: logfile_compress,

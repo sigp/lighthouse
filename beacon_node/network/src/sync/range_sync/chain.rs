@@ -11,7 +11,6 @@ use slog::{crit, debug, o, warn};
 use std::collections::{btree_map::Entry, BTreeMap, HashSet};
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
-use tokio::sync::mpsc::Sender;
 use types::{Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot};
 
 /// Blocks are downloaded in batches from peers. This constant specifies how many epochs worth of
@@ -102,9 +101,6 @@ pub struct SyncingChain<T: BeaconChainTypes> {
     /// Batches validated by this chain.
     validated_batches: u64,
 
-    /// A multi-threaded, non-blocking processor for applying messages to the beacon chain.
-    beacon_processor_send: Sender<BeaconWorkEvent<T>>,
-
     is_finalized_segment: bool,
 
     /// The chain's log.
@@ -132,7 +128,6 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         target_head_slot: Slot,
         target_head_root: Hash256,
         peer_id: PeerId,
-        beacon_processor_send: Sender<BeaconWorkEvent<T>>,
         is_finalized_segment: bool,
         log: &slog::Logger,
     ) -> Self {
@@ -155,7 +150,6 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             state: ChainSyncingState::Stopped,
             current_processing_batch: None,
             validated_batches: 0,
-            beacon_processor_send,
             is_finalized_segment,
             log: log.new(o!("chain" => id)),
         }
@@ -186,7 +180,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     pub fn remove_peer(
         &mut self,
         peer_id: &PeerId,
-        network: &mut SyncNetworkContext<T::EthSpec>,
+        network: &mut SyncNetworkContext<T>,
     ) -> ProcessingResult {
         if let Some(batch_ids) = self.peers.remove(peer_id) {
             // fail the batches
@@ -227,7 +221,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     /// If the block correctly completes the batch it will be processed if possible.
     pub fn on_block_response(
         &mut self,
-        network: &mut SyncNetworkContext<T::EthSpec>,
+        network: &mut SyncNetworkContext<T>,
         batch_id: BatchId,
         peer_id: &PeerId,
         request_id: Id,
@@ -296,13 +290,18 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     /// The batch must exist and be ready for processing
     fn process_batch(
         &mut self,
-        network: &mut SyncNetworkContext<T::EthSpec>,
+        network: &mut SyncNetworkContext<T>,
         batch_id: BatchId,
     ) -> ProcessingResult {
         // Only process batches if this chain is Syncing, and only one at a time
         if self.state != ChainSyncingState::Syncing || self.current_processing_batch.is_some() {
             return Ok(KeepChain);
         }
+
+        let beacon_processor_send = match network.processor_channel_if_enabled() {
+            Some(channel) => channel,
+            None => return Ok(KeepChain),
+        };
 
         let batch = match self.batches.get_mut(&batch_id) {
             Some(batch) => batch,
@@ -327,9 +326,8 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         let process_id = ChainSegmentProcessId::RangeBatchId(self.id, batch_id, count_unrealized);
         self.current_processing_batch = Some(batch_id);
 
-        if let Err(e) = self
-            .beacon_processor_send
-            .try_send(BeaconWorkEvent::chain_segment(process_id, blocks))
+        if let Err(e) =
+            beacon_processor_send.try_send(BeaconWorkEvent::chain_segment(process_id, blocks))
         {
             crit!(self.log, "Failed to send chain segment to processor."; "msg" => "process_batch",
                 "error" => %e, "batch" => self.processing_target);
@@ -346,7 +344,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     /// Processes the next ready batch, prioritizing optimistic batches over the processing target.
     fn process_completed_batches(
         &mut self,
-        network: &mut SyncNetworkContext<T::EthSpec>,
+        network: &mut SyncNetworkContext<T>,
     ) -> ProcessingResult {
         // Only process batches if this chain is Syncing and only process one batch at a time
         if self.state != ChainSyncingState::Syncing || self.current_processing_batch.is_some() {
@@ -447,7 +445,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     /// of the batch processor.
     pub fn on_batch_process_result(
         &mut self,
-        network: &mut SyncNetworkContext<T::EthSpec>,
+        network: &mut SyncNetworkContext<T>,
         batch_id: BatchId,
         result: &BatchProcessResult,
     ) -> ProcessingResult {
@@ -580,7 +578,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
 
     fn reject_optimistic_batch(
         &mut self,
-        network: &mut SyncNetworkContext<T::EthSpec>,
+        network: &mut SyncNetworkContext<T>,
         redownload: bool,
         reason: &str,
     ) -> ProcessingResult {
@@ -611,11 +609,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     ///
     /// If a previous batch has been validated and it had been re-processed, penalize the original
     /// peer.
-    fn advance_chain(
-        &mut self,
-        network: &mut SyncNetworkContext<T::EthSpec>,
-        validating_epoch: Epoch,
-    ) {
+    fn advance_chain(&mut self, network: &mut SyncNetworkContext<T>, validating_epoch: Epoch) {
         // make sure this epoch produces an advancement
         if validating_epoch <= self.start_epoch {
             return;
@@ -719,7 +713,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     /// intended and can result in downvoting a peer.
     fn handle_invalid_batch(
         &mut self,
-        network: &mut SyncNetworkContext<T::EthSpec>,
+        network: &mut SyncNetworkContext<T>,
         batch_id: BatchId,
     ) -> ProcessingResult {
         // The current batch could not be processed, indicating either the current or previous
@@ -778,7 +772,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     /// This could be new chain, or an old chain that is being resumed.
     pub fn start_syncing(
         &mut self,
-        network: &mut SyncNetworkContext<T::EthSpec>,
+        network: &mut SyncNetworkContext<T>,
         local_finalized_epoch: Epoch,
         optimistic_start_epoch: Epoch,
     ) -> ProcessingResult {
@@ -816,7 +810,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     /// If the chain is active, this starts requesting batches from this peer.
     pub fn add_peer(
         &mut self,
-        network: &mut SyncNetworkContext<T::EthSpec>,
+        network: &mut SyncNetworkContext<T>,
         peer_id: PeerId,
     ) -> ProcessingResult {
         // add the peer without overwriting its active requests
@@ -833,7 +827,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     /// If the batch exists it is re-requested.
     pub fn inject_error(
         &mut self,
-        network: &mut SyncNetworkContext<T::EthSpec>,
+        network: &mut SyncNetworkContext<T>,
         batch_id: BatchId,
         peer_id: &PeerId,
         request_id: Id,
@@ -865,7 +859,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     /// Sends and registers the request of a batch awaiting download.
     pub fn retry_batch_download(
         &mut self,
-        network: &mut SyncNetworkContext<T::EthSpec>,
+        network: &mut SyncNetworkContext<T>,
         batch_id: BatchId,
     ) -> ProcessingResult {
         let batch = match self.batches.get_mut(&batch_id) {
@@ -898,7 +892,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     /// Requests the batch assigned to the given id from a given peer.
     pub fn send_batch(
         &mut self,
-        network: &mut SyncNetworkContext<T::EthSpec>,
+        network: &mut SyncNetworkContext<T>,
         batch_id: BatchId,
         peer: PeerId,
     ) -> ProcessingResult {
@@ -967,12 +961,21 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         }
     }
 
+    /// Kickstarts the chain by sending for processing batches that are ready and requesting more
+    /// batches if needed.
+    pub fn resume(
+        &mut self,
+        network: &mut SyncNetworkContext<T>,
+    ) -> Result<KeepChain, RemoveChain> {
+        // Request more batches if needed.
+        self.request_batches(network)?;
+        // If there is any batch ready for processing, send it.
+        self.process_completed_batches(network)
+    }
+
     /// Attempts to request the next required batches from the peer pool if the chain is syncing. It will exhaust the peer
     /// pool and left over batches until the batch buffer is reached or all peers are exhausted.
-    fn request_batches(
-        &mut self,
-        network: &mut SyncNetworkContext<T::EthSpec>,
-    ) -> ProcessingResult {
+    fn request_batches(&mut self, network: &mut SyncNetworkContext<T>) -> ProcessingResult {
         if !matches!(self.state, ChainSyncingState::Syncing) {
             return Ok(KeepChain);
         }
