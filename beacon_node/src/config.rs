@@ -358,10 +358,8 @@ pub fn get_config<E: EthSpec>(
             .map_err(|_| "auto-compact-db takes a boolean".to_string())?;
     }
 
-    if let Some(prune_payloads_on_init) =
-        clap_utils::parse_optional(cli_args, "prune-payloads-on-startup")?
-    {
-        client_config.store.prune_payloads_on_init = prune_payloads_on_init;
+    if let Some(prune_payloads) = clap_utils::parse_optional(cli_args, "prune-payloads")? {
+        client_config.store.prune_payloads = prune_payloads;
     }
 
     /*
