@@ -4491,6 +4491,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         metrics::stop_timer(cache_wait_timer);
 
         if let Some(cache_item) = shuffling_cache.get(&shuffling_id) {
+            // The shuffling cache is no longer required, drop the write-lock to allow concurrent
+            // access.
+            drop(shuffling_cache);
+
             let committee_cache = cache_item.wait()?;
             map_fn(&committee_cache, shuffling_id.shuffling_decision_block)
         } else {
