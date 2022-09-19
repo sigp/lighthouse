@@ -118,8 +118,8 @@ pub const ATTESTATION_CACHE_LOCK_TIMEOUT: Duration = Duration::from_secs(1);
 /// validator pubkey cache.
 pub const VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT: Duration = Duration::from_secs(1);
 
-/// The timeout for the eth1_cache
-pub const ETH1_CACHE_LOCK_TIMEOUT: Duration = Duration::from_millis(200);
+/// The timeout for the eth1 finalization cache
+pub const ETH1_FINALIZATION_CACHE_LOCK_TIMEOUT: Duration = Duration::from_millis(200);
 
 // These keys are all zero because they get stored in different columns, see `DBColumn` type.
 pub const BEACON_CHAIN_DB_KEY: Hash256 = Hash256::zero();
@@ -3061,7 +3061,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         if block_delay_total < self.slot_clock.slot_duration() * 160 {
             let parent_block_epoch = parent_block.slot().epoch(T::EthSpec::slots_per_epoch());
             if parent_block_epoch < current_epoch {
-                // we've crossed epoch boundary, store Eth1CacheData
+                // we've crossed epoch boundary, store Eth1FinalizationData
                 let (checkpoint, eth1_finalization_data) =
                     if current_slot % T::EthSpec::slots_per_epoch() == 0 {
                         // current block is the checkpoint
@@ -3085,7 +3085,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
                 if let Some(finalized_eth1_data) = self
                     .eth1_finalization_cache
-                    .try_write_for(ETH1_CACHE_LOCK_TIMEOUT)
+                    .try_write_for(ETH1_FINALIZATION_CACHE_LOCK_TIMEOUT)
                     .and_then(|mut cache| {
                         cache.insert(checkpoint, eth1_finalization_data);
                         cache.finalize(&current_finalized_checkpoint)

@@ -48,6 +48,7 @@ pub struct Inner {
     pub block_cache: RwLock<BlockCache>,
     pub deposit_cache: RwLock<DepositUpdater>,
     pub endpoints_cache: RwLock<Option<Arc<EndpointsCache>>>,
+    // this gets set to Some(Eth1Data) when the deposit finalization conditions are met
     pub to_finalize: RwLock<Option<Eth1Data>>,
     pub config: RwLock<Config>,
     pub remote_head_block: RwLock<Option<Eth1Block>>,

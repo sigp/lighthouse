@@ -17,6 +17,8 @@ pub struct Eth1FinalizationData {
 }
 
 impl Eth1FinalizationData {
+    /// Ensures the deposit finalization conditions have been met. See:
+    /// https://eips.ethereum.org/EIPS/eip-4881#deposit-finalization-conditions
     fn fully_imported(&self) -> bool {
         self.eth1_deposit_index >= self.eth1_data.deposit_count
     }
@@ -26,7 +28,7 @@ impl Eth1FinalizationData {
 pub struct CheckpointMap {
     capacity: usize,
     // There shouldn't be more than a couple of potential checkpoints at the same
-    // epoch, so searching through a vector for the matching Root should be faster
+    // epoch. Searching through a vector for the matching Root should be faster
     // than using another map from Root->Eth1CacheData
     store: BTreeMap<Epoch, Vec<(Root, Eth1FinalizationData)>>,
 }
@@ -201,7 +203,7 @@ pub mod tests {
 
     fn eth1cache() -> Eth1FinalizationCache {
         let log_builder = NullLoggerBuilder;
-        Eth1FinalizationCache::new(log_builder.build().unwrap())
+        Eth1FinalizationCache::new(log_builder.build().expect("should build log"))
     }
 
     fn random_eth1_data(deposit_count: u64) -> Eth1Data {
@@ -243,7 +245,9 @@ pub mod tests {
                 "Unexpected cache size"
             );
 
-            let checkpoint = checkpoints.get(epoch as usize).unwrap();
+            let checkpoint = checkpoints
+                .get(epoch as usize)
+                .expect("should get checkpoint");
             eth1cache.insert(
                 *checkpoint,
                 Eth1FinalizationData {
@@ -252,7 +256,9 @@ pub mod tests {
                 },
             );
 
-            let finalized_checkpoint = checkpoints.get((epoch - 4) as usize).unwrap();
+            let finalized_checkpoint = checkpoints
+                .get((epoch - 4) as usize)
+                .expect("should get finalized checkpoint");
             assert!(
                 eth1cache.pending_eth1().is_empty(),
                 "Deposits are fully imported so pending cache should be empty"
@@ -293,7 +299,9 @@ pub mod tests {
                 "Unexpected cache size"
             );
 
-            let checkpoint = checkpoints.get(epoch as usize).unwrap();
+            let checkpoint = checkpoints
+                .get(epoch as usize)
+                .expect("should get checkpoint");
             let deposits_imported = cmp::min(
                 total_deposits,
                 initial_deposits_imported + deposits_imported_per_epoch * epoch,
@@ -308,7 +316,9 @@ pub mod tests {
 
             if epoch >= 4 {
                 let finalized_epoch = epoch - 4;
-                let finalized_checkpoint = checkpoints.get(finalized_epoch as usize).unwrap();
+                let finalized_checkpoint = checkpoints
+                    .get(finalized_epoch as usize)
+                    .expect("should get finalized checkpoint");
                 if finalized_epoch < full_import_epoch {
                     assert_eq!(
                         eth1cache.finalize(finalized_checkpoint),
@@ -353,7 +363,9 @@ pub mod tests {
                 "Unexpected cache size"
             );
 
-            let checkpoint = checkpoints.get(epoch as usize).unwrap();
+            let checkpoint = checkpoints
+                .get(epoch as usize)
+                .expect("should get checkpoint");
             eth1cache.insert(
                 *checkpoint,
                 Eth1FinalizationData {
@@ -381,9 +393,11 @@ pub mod tests {
             if epoch >= 4 {
                 let finalized_epoch = (epoch - 4) as usize;
                 let finalized_checkpoint = if finalized_epoch % 3 == 0 {
-                    forks.get(&finalized_epoch).unwrap()
+                    forks.get(&finalized_epoch).expect("should get fork")
                 } else {
-                    checkpoints.get(finalized_epoch).unwrap()
+                    checkpoints
+                        .get(finalized_epoch)
+                        .expect("should get checkpoint")
                 };
                 assert_eq!(
                     eth1cache.finalize(finalized_checkpoint),
@@ -446,8 +460,9 @@ pub mod tests {
 
                 if epoch >= 4 {
                     let finalized_epoch = epoch - 4;
-                    let (finalized_checkpoint, finalized_deposits) =
-                        epoch_data.get(&finalized_epoch).unwrap();
+                    let (finalized_checkpoint, finalized_deposits) = epoch_data
+                        .get(&finalized_epoch)
+                        .expect("should get epoch data");
 
                     let pending_eth1s = eth1s_by_count.range((finalized_deposits + 1)..).count();
                     let last_finalized_eth1 = eth1s_by_count
@@ -470,7 +485,11 @@ pub mod tests {
 
             // remove unneeded stuff from old epochs
             while epoch_data.len() > DEFAULT_ETH1_CACHE_SIZE {
-                let oldest_stored_epoch = epoch_data.keys().next().cloned().unwrap();
+                let oldest_stored_epoch = epoch_data
+                    .keys()
+                    .next()
+                    .cloned()
+                    .expect("should get oldest epoch");
                 epoch_data.remove(&oldest_stored_epoch);
             }
             last_period_deposits = period_deposits;

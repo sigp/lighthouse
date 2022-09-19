@@ -948,17 +948,17 @@ impl Service {
                 "deposits" => format!("{:?}", deposit),
             ),
         };
-        let to_finalize = self.inner.to_finalize.write().take();
-        if let Some(eth1_data) = to_finalize {
-            let tree_finalized = self
+        let optional_eth1data = self.inner.to_finalize.write().take();
+        if let Some(eth1data_to_finalize) = optional_eth1data {
+            let already_finalized = self
                 .inner
                 .deposit_cache
                 .read()
                 .cache
                 .finalized_deposit_count();
-            let finalize_deposit_count = eth1_data.deposit_count;
-            if finalize_deposit_count > tree_finalized {
-                match self.finalize_deposits(eth1_data) {
+            let deposit_count_to_finalize = eth1data_to_finalize.deposit_count;
+            if deposit_count_to_finalize > already_finalized {
+                match self.finalize_deposits(eth1data_to_finalize) {
                     Err(e) => error!(
                         self.log,
                         "Failed to finalize deposit cache";
@@ -967,15 +967,15 @@ impl Service {
                     Ok(()) => info!(
                         self.log,
                         "Successfully finalized deposit tree";
-                        "finalized deposit count" => finalize_deposit_count,
+                        "finalized deposit count" => deposit_count_to_finalize,
                     ),
                 }
             } else {
                 debug!(
                     self.log,
                     "Deposits tree already finalized";
-                    "tree finalized" => tree_finalized,
-                    "deposit_count" => finalize_deposit_count,
+                    "already_finalized" => already_finalized,
+                    "deposit_count_to_finalize" => deposit_count_to_finalize,
                 );
             }
         }
@@ -1015,24 +1015,21 @@ impl Service {
     }
 
     pub fn finalize_deposits(&self, eth1_data: Eth1Data) -> Result<(), Error> {
-        let opt_eth1_block = self
+        let eth1_block = self
             .inner
             .block_cache
             .read()
             .block_by_hash(&eth1_data.block_hash)
-            .cloned();
-        if let Some(eth1_block) = opt_eth1_block {
-            self.inner
-                .deposit_cache
-                .write()
-                .cache
-                .finalize(eth1_block)
-                .map_err(|e| Error::FailedToFinalizeDeposit(format!("{:?}", e)))
-        } else {
-            Err(Error::FailedToFinalizeDeposit(
+            .cloned()
+            .ok_or(Error::FailedToFinalizeDeposit(
                 "Finalized block not found in block cache".to_string(),
-            ))
-        }
+            ))?;
+        self.inner
+            .deposit_cache
+            .write()
+            .cache
+            .finalize(eth1_block)
+            .map_err(|e| Error::FailedToFinalizeDeposit(format!("{:?}", e)))
     }
 
     pub fn get_deposit_snapshot(&self) -> Option<DepositTreeSnapshot> {

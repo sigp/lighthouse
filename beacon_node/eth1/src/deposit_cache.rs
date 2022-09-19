@@ -97,6 +97,8 @@ impl SszDepositCache {
                 Ok::<_, String>(tree)
             })
             .unwrap_or_else(|| {
+                // deposit_tree_snapshot = None (tree was never finalized)
+                // Create DepositDataTree from leaves
                 Ok(DepositDataTree::create(
                     &self.leaves,
                     self.leaves.len(),
@@ -228,7 +230,7 @@ impl DepositCache {
         }
     }
 
-    /// Returns the deposit root with DEPOSIT COUNT i
+    /// Returns the deposit root with DEPOSIT COUNT (not index) i
     pub fn get_root(&self, i: usize) -> Option<&Hash256> {
         let finalized_deposit_count = self.finalized_deposit_count as usize;
         if i < finalized_deposit_count {
@@ -374,6 +376,8 @@ impl DepositCache {
                 .deposit_tree
                 .get_snapshot()
                 .map(|snapshot| {
+                    // The tree has already been finalized. So we can just start from the snapshot
+                    // and replay the deposits up to `deposit_count`
                     let mut tree = DepositDataTree::from_snapshot(&snapshot, DEPOSIT_TREE_DEPTH)
                         .map_err(Error::DepositTree)?;
                     for leaf in leaves {
@@ -382,6 +386,7 @@ impl DepositCache {
                     Ok(tree)
                 })
                 .unwrap_or_else(|| {
+                    // Deposit tree hasn't been finalized yet, will have to re-create the whole tree
                     Ok(DepositDataTree::create(
                         leaves,
                         leaves.len(),

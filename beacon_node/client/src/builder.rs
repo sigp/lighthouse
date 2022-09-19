@@ -277,8 +277,10 @@ where
                     BeaconNodeHttpClient::new(url, Timeouts::set_all(CHECKPOINT_SYNC_HTTP_TIMEOUT));
                 let slots_per_epoch = TEthSpec::slots_per_epoch();
 
-                debug!(context.log(), "Downloading finalized block");
-                // want to get deposit snapshot first
+                // We want to fetch deposit snapshot before fetching the finalized beacon state to
+                // ensure that the snapshot is not newer than the beacon state that satisfies the
+                // deposit finalization conditions
+                debug!(context.log(), "Downloading deposit snapshot");
                 let deposit_snapshot_result =
                     remote.get_deposit_snapshot().await.map_err(|e| match e {
                         ApiError::InvalidSsz(e) => format!(
@@ -289,6 +291,7 @@ where
                         e => format!("Error fetching deposit snapshot from remote: {:?}", e),
                     });
 
+                debug!(context.log(), "Downloading finalized block");
                 // Find a suitable finalized block on an epoch boundary.
                 let mut block = remote
                     .get_beacon_blocks_ssz::<TEthSpec>(BlockId::Finalized, &spec)

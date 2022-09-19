@@ -1552,7 +1552,6 @@ pub fn serve<T: BeaconChainTypes>(
                     _ => eth1_service
                         .get_deposit_snapshot()
                         .map(|snapshot| {
-                            println!("sending existing snapshot!");
                             Response::builder()
                                 .status(200)
                                 .header("Content-Type", "application/octet-stream")
@@ -1565,7 +1564,6 @@ pub fn serve<T: BeaconChainTypes>(
                                 })
                         })
                         .unwrap_or_else(|| {
-                            println!("sending empty snapshot!");
                             Response::builder()
                                 .status(503)
                                 .header("Content-Type", "application/octet-stream")
