@@ -410,7 +410,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         slot: Option<Slot>,
     ) -> Result<Option<SignedBlindedBeaconBlock<E>>, Error> {
         if let Some(slot) = slot {
-            if slot < self.get_split_slot() {
+            if slot < self.get_split_slot() || slot == 0 {
                 // To the freezer DB.
                 self.get_cold_blinded_block_by_slot(slot)
             } else {
@@ -467,6 +467,16 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         Ok(Some(SignedBeaconBlock::from_ssz_bytes(
             &ssz_bytes, &self.spec,
         )?))
+    }
+
+    pub fn put_cold_blinded_block(
+        &self,
+        block_root: &Hash256,
+        block: &SignedBlindedBeaconBlock<E>,
+    ) -> Result<(), Error> {
+        let mut ops = Vec::with_capacity(2);
+        self.blinded_block_as_cold_kv_store_ops(block_root, block, &mut ops)?;
+        self.cold_db.do_atomically(ops)
     }
 
     pub fn blinded_block_as_cold_kv_store_ops(

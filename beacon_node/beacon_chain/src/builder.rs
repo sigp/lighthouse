@@ -318,6 +318,7 @@ where
             .ok_or("set_genesis_state requires a store")?;
 
         let beacon_block = genesis_block(&mut beacon_state, &self.spec)?;
+        let blinded_block = beacon_block.clone_as_blinded();
 
         beacon_state
             .build_all_caches(&self.spec)
@@ -330,12 +331,12 @@ where
             .put_state(&beacon_state_root, &beacon_state)
             .map_err(|e| format!("Failed to store genesis state: {:?}", e))?;
         store
-            .put_block(&beacon_block_root, beacon_block.clone())
+            .put_cold_blinded_block(&beacon_block_root, &blinded_block)
             .map_err(|e| format!("Failed to store genesis block: {:?}", e))?;
 
         // Store the genesis block under the `ZERO_HASH` key.
         store
-            .put_block(&Hash256::zero(), beacon_block.clone())
+            .put_cold_blinded_block(&Hash256::zero(), &blinded_block)
             .map_err(|e| {
                 format!(
                     "Failed to store genesis block under 0x00..00 alias: {:?}",
