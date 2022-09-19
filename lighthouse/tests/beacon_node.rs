@@ -1227,17 +1227,17 @@ fn compact_db_flag() {
         .with_config(|config| assert!(config.store.compact_on_init));
 }
 #[test]
-fn prune_payloads_on_startup_default() {
+fn prune_payloads_default() {
     CommandLineTest::new()
         .run_with_zero_port()
-        .with_config(|config| assert!(config.store.prune_payloads_on_init));
+        .with_config(|config| assert!(config.store.prune_payloads));
 }
 #[test]
 fn prune_payloads_on_startup_false() {
     CommandLineTest::new()
-        .flag("prune-payloads-on-startup", Some("false"))
+        .flag("prune-payloads", Some("false"))
         .run_with_zero_port()
-        .with_config(|config| assert!(!config.store.prune_payloads_on_init));
+        .with_config(|config| assert!(!config.store.prune_payloads));
 }
 #[test]
 fn reconstruct_historic_states_flag() {
