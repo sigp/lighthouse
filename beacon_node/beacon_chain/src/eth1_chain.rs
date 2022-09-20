@@ -731,11 +731,9 @@ mod test {
             };
 
             let log = null_logger().unwrap();
-            Eth1Chain::new(CachingEth1Backend::new(
-                eth1_config,
-                log,
-                MainnetEthSpec::default_spec(),
-            ))
+            Eth1Chain::new(
+                CachingEth1Backend::new(eth1_config, log, MainnetEthSpec::default_spec()).unwrap(),
+            )
         }
 
         fn get_deposit_log(i: u64, spec: &ChainSpec) -> DepositLog {

@@ -602,7 +602,7 @@ impl Service {
             .await
             .map_err(|e| format!("Invalid endpoint state: {:?}", e))?;
         let (remote_head_block, new_block_numbers_deposit, new_block_numbers_block_cache) =
-            get_remote_head_and_new_block_ranges(&client, self, node_far_behind_seconds)
+            get_remote_head_and_new_block_ranges(client, self, node_far_behind_seconds)
                 .await
                 .map_err(|e| format!("Failed to get remote head and new block ranges: {:?}", e))?;
 
