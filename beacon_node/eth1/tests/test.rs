@@ -1001,11 +1001,15 @@ mod fallbacks {
             let new_blocks = 4;
 
             for _ in 0..new_blocks {
-                endpoint2
-                    .ganache
-                    .evm_mine()
-                    .await
-                    .expect("should mine block");
+                endpoint2.anvil.evm_mine().await.expect("should mine block");
+                // In anvil, each `evm_mine` increments the block timestamp by 1 second
+                // irrespective of whether the wall clock time has moved ahead.
+                // So this leaves us in a situation where `block.timestamp > now`
+                // Here, we increase the wall clock by 1 second for each `evm_mine`
+                // to make sure now >= block.timestamp.
+                // Note: ganache-cli had the `--miner.timestampIncrement` flag set to 0
+                // by default which is why we did not have the same problem.
+                sleep(Duration::from_secs(1)).await;
             }
 
             let endpoint1 = endpoint2
