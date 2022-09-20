@@ -117,7 +117,7 @@ mod eth1_cache {
                 let initial_block_number = get_block_number(&web3).await;
 
                 let config = Config {
-                    endpoints: Eth1Endpoint::NoAuth(vec![SensitiveUrl::parse(
+                    endpoint: Eth1Endpoint::NoAuth(vec![SensitiveUrl::parse(
                         eth1.endpoint().as_str(),
                     )
                     .unwrap()]),
@@ -201,7 +201,7 @@ mod eth1_cache {
 
             let service = Service::new(
                 Config {
-                    endpoints: Eth1Endpoint::NoAuth(vec![SensitiveUrl::parse(
+                    endpoint: Eth1Endpoint::NoAuth(vec![SensitiveUrl::parse(
                         eth1.endpoint().as_str(),
                     )
                     .unwrap()]),
@@ -258,7 +258,7 @@ mod eth1_cache {
 
             let service = Service::new(
                 Config {
-                    endpoints: Eth1Endpoint::NoAuth(vec![SensitiveUrl::parse(
+                    endpoint: Eth1Endpoint::NoAuth(vec![SensitiveUrl::parse(
                         eth1.endpoint().as_str(),
                     )
                     .unwrap()]),
@@ -311,7 +311,7 @@ mod eth1_cache {
 
             let service = Service::new(
                 Config {
-                    endpoints: Eth1Endpoint::NoAuth(vec![SensitiveUrl::parse(
+                    endpoint: Eth1Endpoint::NoAuth(vec![SensitiveUrl::parse(
                         eth1.endpoint().as_str(),
                     )
                     .unwrap()]),
@@ -366,7 +366,7 @@ mod deposit_tree {
 
             let service = Service::new(
                 Config {
-                    endpoints: Eth1Endpoint::NoAuth(vec![SensitiveUrl::parse(
+                    endpoint: Eth1Endpoint::NoAuth(vec![SensitiveUrl::parse(
                         eth1.endpoint().as_str(),
                     )
                     .unwrap()]),
@@ -449,7 +449,7 @@ mod deposit_tree {
 
             let service = Service::new(
                 Config {
-                    endpoints: Eth1Endpoint::NoAuth(vec![SensitiveUrl::parse(
+                    endpoint: Eth1Endpoint::NoAuth(vec![SensitiveUrl::parse(
                         eth1.endpoint().as_str(),
                     )
                     .unwrap()]),
@@ -706,7 +706,7 @@ mod fast {
             let now = get_block_number(&web3).await;
             let service = Service::new(
                 Config {
-                    endpoints: Eth1Endpoint::NoAuth(vec![SensitiveUrl::parse(
+                    endpoint: Eth1Endpoint::NoAuth(vec![SensitiveUrl::parse(
                         eth1.endpoint().as_str(),
                     )
                     .unwrap()]),
@@ -787,10 +787,9 @@ mod persist {
 
             let now = get_block_number(&web3).await;
             let config = Config {
-                endpoints: Eth1Endpoint::NoAuth(vec![SensitiveUrl::parse(
-                    eth1.endpoint().as_str(),
-                )
-                .unwrap()]),
+                endpoint: Eth1Endpoint::NoAuth(vec![
+                    SensitiveUrl::parse(eth1.endpoint().as_str()).unwrap()
+                ]),
                 deposit_contract_address: deposit_contract.address(),
                 deposit_contract_deploy_block: now,
                 lowest_cached_block_number: now,
@@ -899,7 +898,7 @@ mod fallbacks {
 
             let service = Service::new(
                 Config {
-                    endpoints: Eth1Endpoint::NoAuth(vec![
+                    endpoint: Eth1Endpoint::NoAuth(vec![
                         SensitiveUrl::parse(endpoint1.endpoint().as_str()).unwrap(),
                         SensitiveUrl::parse(endpoint2.endpoint().as_str()).unwrap(),
                     ]),
@@ -977,7 +976,7 @@ mod fallbacks {
 
             let service = Service::new(
                 Config {
-                    endpoints: Eth1Endpoint::NoAuth(vec![
+                    endpoint: Eth1Endpoint::NoAuth(vec![
                         SensitiveUrl::parse(endpoint2.endpoint().as_str()).unwrap(),
                         SensitiveUrl::parse(endpoint1.endpoint().as_str()).unwrap(),
                     ]),
@@ -1032,7 +1031,7 @@ mod fallbacks {
 
             let service = Service::new(
                 Config {
-                    endpoints: Eth1Endpoint::NoAuth(vec![
+                    endpoint: Eth1Endpoint::NoAuth(vec![
                         SensitiveUrl::parse(endpoint1.endpoint().as_str()).unwrap(),
                         SensitiveUrl::parse(endpoint2.endpoint().as_str()).unwrap(),
                     ]),

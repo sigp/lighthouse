@@ -44,10 +44,9 @@ fn basic() {
 
         let service = Eth1GenesisService::new(
             Eth1Config {
-                endpoints: Eth1Endpoint::NoAuth(vec![SensitiveUrl::parse(
-                    eth1.endpoint().as_str(),
-                )
-                .unwrap()]),
+                endpoint: Eth1Endpoint::NoAuth(vec![
+                    SensitiveUrl::parse(eth1.endpoint().as_str()).unwrap()
+                ]),
                 deposit_contract_address: deposit_contract.address(),
                 deposit_contract_deploy_block: now,
                 lowest_cached_block_number: now,

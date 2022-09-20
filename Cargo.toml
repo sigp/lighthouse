@@ -43,7 +43,6 @@ members = [
     "common/unused_port",
     "common/validator_dir",
     "common/warp_utils",
-    "common/fallback",
     "common/monitoring_api",
 
     "database_manager",
