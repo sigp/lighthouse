@@ -234,6 +234,7 @@ pub fn get_config<E: EthSpec>(
             .map_err(|e| format!("eth1-endpoint was an invalid URL: {:?}", e))?;
         client_config.eth1.endpoint = Eth1Endpoint::NoAuth(endpoint);
     } else if let Some(endpoint) = cli_args.value_of("eth1-endpoints") {
+        client_config.sync_eth1_chain = true;
         let endpoint = SensitiveUrl::parse(endpoint)
             .map_err(|e| format!("eth1-endpoints contains an invalid URL {:?}", e))?;
         client_config.eth1.endpoint = Eth1Endpoint::NoAuth(endpoint);
