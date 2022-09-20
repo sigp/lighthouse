@@ -22,7 +22,7 @@ jobs:
         run: rustup update stable
 
       - name: Install anvil
-        run: cargo install --git https://github.com/foundry-rs/foundry.git --profile local --locked anvil
+        run: cargo install --git https://github.com/foundry-rs/foundry.git --locked anvil
 
       # https://github.com/actions/cache/blob/main/examples.md#rust---cargo
       - uses: actions/cache@v2

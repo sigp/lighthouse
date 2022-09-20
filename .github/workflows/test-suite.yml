@@ -51,7 +51,7 @@ jobs:
     - name: Get latest version of stable Rust
       run: rustup update stable
     - name: Install anvil
-      run: cargo install --git https://github.com/foundry-rs/foundry.git --profile local --locked anvil
+      run: cargo install --git https://github.com/foundry-rs/foundry.git --locked anvil
     - name: Run tests in release
       run: make test-release
   release-tests-windows:
@@ -71,7 +71,7 @@ jobs:
         choco install python visualstudio2019-workload-vctools -y
         npm config set msvs_version 2019
     - name: Install anvil
-      run: cargo install --git https://github.com/foundry-rs/foundry.git --profile local --locked anvil
+      run: cargo install --git https://github.com/foundry-rs/foundry --locked anvil
     - name: Install make
       run: choco install -y make
     - uses: KyleMayes/install-llvm-action@v1
@@ -121,7 +121,7 @@ jobs:
     - name: Get latest version of stable Rust
       run: rustup update stable
     - name: Install anvil
-      run: cargo install --git https://github.com/foundry-rs/foundry.git --profile local --locked anvil
+      run: cargo install --git https://github.com/foundry-rs/foundry.git --locked anvil
     - name: Run tests in debug
       run: make test-debug
   state-transition-vectors-ubuntu:
@@ -165,7 +165,7 @@ jobs:
     - name: Get latest version of stable Rust
       run: rustup update stable
     - name: Install anvil
-      run: cargo install --git https://github.com/foundry-rs/foundry.git --profile local --locked anvil
+      run: cargo install --git https://github.com/foundry-rs/foundry.git --locked anvil
     - name: Run the beacon chain sim that starts from an eth1 contract
       run: cargo run --release --bin simulator eth1-sim
   merge-transition-ubuntu:
@@ -177,7 +177,7 @@ jobs:
     - name: Get latest version of stable Rust
       run: rustup update stable
     - name: Install anvil
-      run: cargo install --git https://github.com/foundry-rs/foundry.git --profile local --locked anvil
+      run: cargo install --git https://github.com/foundry-rs/foundry.git --locked anvil
     - name: Run the beacon chain sim and go through the merge transition
       run: cargo run --release --bin simulator eth1-sim --post-merge
   no-eth1-simulator-ubuntu:
@@ -189,7 +189,7 @@ jobs:
     - name: Get latest version of stable Rust
       run: rustup update stable
     - name: Install anvil
-      run: cargo install --git https://github.com/foundry-rs/foundry.git --profile local --locked anvil
+      run: cargo install --git https://github.com/foundry-rs/foundry.git --locked anvil
     - name: Run the beacon chain sim without an eth1 connection
       run: cargo run --release --bin simulator no-eth1-sim
   syncing-simulator-ubuntu:
@@ -201,7 +201,7 @@ jobs:
       - name: Get latest version of stable Rust
         run: rustup update stable
       - name: Install anvil
-        run: cargo install --git https://github.com/foundry-rs/foundry.git --profile local --locked anvil
+        run: cargo install --git https://github.com/foundry-rs/foundry.git --locked anvil
       - name: Run the syncing simulator
         run: cargo run --release --bin simulator syncing-sim
   doppelganger-protection-test:
@@ -213,7 +213,7 @@ jobs:
           - name: Get latest version of stable Rust
             run: rustup update stable
           - name: Install anvil
-            run: cargo install --git https://github.com/foundry-rs/foundry.git --profile local --locked anvil
+            run: cargo install --git https://github.com/foundry-rs/foundry.git --locked anvil
           - name: Install lighthouse and lcli
             run: |
                 make
