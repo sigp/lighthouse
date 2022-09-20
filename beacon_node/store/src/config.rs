@@ -21,8 +21,8 @@ pub struct StoreConfig {
     pub compact_on_init: bool,
     /// Whether to compact the database during database pruning.
     pub compact_on_prune: bool,
-    /// Whether to try pruning execution payloads on initialization.
-    pub prune_payloads_on_init: bool,
+    /// Whether to prune payloads on initialization and finalization.
+    pub prune_payloads: bool,
 }
 
 /// Variant of `StoreConfig` that gets written to disk. Contains immutable configuration params.
@@ -45,7 +45,7 @@ impl Default for StoreConfig {
             block_cache_size: DEFAULT_BLOCK_CACHE_SIZE,
             compact_on_init: false,
             compact_on_prune: true,
-            prune_payloads_on_init: true,
+            prune_payloads: true,
         }
     }
 }

@@ -516,9 +516,11 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .default_value("true")
         )
         .arg(
-            Arg::with_name("prune-payloads-on-startup")
-                .long("prune-payloads-on-startup")
-                .help("Check for execution payloads to prune on start-up.")
+            Arg::with_name("prune-payloads")
+                .long("prune-payloads")
+                .help("Prune execution payloads from Lighthouse's database. This saves space but \
+                       imposes load on the execution client, as payloads need to be \
+                       reconstructed and sent to syncing peers.")
                 .takes_value(true)
                 .default_value("true")
         )
