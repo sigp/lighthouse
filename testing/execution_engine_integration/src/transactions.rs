@@ -56,11 +56,16 @@ impl Transaction {
                 .value(1)
                 .with_access_list(AccessList::default())
                 .into(),
-            Self::DeployDepositContract(addr) => TransactionRequest::new()
-                .from(*addr)
-                .data(Bytes::from(BYTECODE.to_vec()))
-                .gas(CONTRACT_DEPLOY_GAS)
-                .into(),
+            Self::DeployDepositContract(addr) => {
+                let mut bytecode = String::from_utf8(BYTECODE.to_vec()).unwrap();
+                bytecode.retain(|c| c.is_ascii_hexdigit());
+                let bytecode = hex::decode(&bytecode[1..]).unwrap();
+                TransactionRequest::new()
+                    .from(*addr)
+                    .data(Bytes::from(bytecode))
+                    .gas(CONTRACT_DEPLOY_GAS)
+                    .into()
+            }
             Self::DepositDepositContract {
                 sender,
                 deposit_contract_address,
