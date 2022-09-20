@@ -1468,12 +1468,15 @@ where
 
     pub async fn process_block_result(
         &self,
-        block_root: Hash256,
         block: SignedBeaconBlock<E>,
     ) -> Result<SignedBeaconBlockHash, BlockError<E>> {
         let block_hash: SignedBeaconBlockHash = self
             .chain
-            .process_block(block_root, Arc::new(block), CountUnrealized::True)
+            .process_block(
+                block.canonical_root(),
+                Arc::new(block),
+                CountUnrealized::True,
+            )
             .await?
             .into();
         self.chain.recompute_head_at_current_slot().await;

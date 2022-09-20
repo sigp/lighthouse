@@ -2125,7 +2125,11 @@ async fn weak_subjectivity_sync() {
 
         beacon_chain.slot_clock.set_slot(slot.as_u64());
         beacon_chain
-            .process_block(Arc::new(full_block), CountUnrealized::True)
+            .process_block(
+                full_block.canonical_root(),
+                Arc::new(full_block),
+                CountUnrealized::True,
+            )
             .await
             .unwrap();
         beacon_chain.recompute_head_at_current_slot().await;
@@ -2382,8 +2386,14 @@ async fn revert_minority_fork_on_resume() {
 
         let (block, new_state) = harness1.make_block(state, slot).await;
 
-        harness1.process_block(slot, block.clone()).await.unwrap();
-        harness2.process_block(slot, block.clone()).await.unwrap();
+        harness1
+            .process_block(slot, block.canonical_root(), block.clone())
+            .await
+            .unwrap();
+        harness2
+            .process_block(slot, block.canonical_root(), block.clone())
+            .await
+            .unwrap();
 
         state = new_state;
         block_root = block.canonical_root();
@@ -2416,12 +2426,18 @@ async fn revert_minority_fork_on_resume() {
 
         // Minority chain block (no attesters).
         let (block1, new_state1) = harness1.make_block(state1, slot).await;
-        harness1.process_block(slot, block1).await.unwrap();
+        harness1
+            .process_block(slot, block1.canonical_root(), block1)
+            .await
+            .unwrap();
         state1 = new_state1;
 
         // Majority chain block (all attesters).
         let (block2, new_state2) = harness2.make_block(state2, slot).await;
-        harness2.process_block(slot, block2.clone()).await.unwrap();
+        harness2
+            .process_block(slot, block2.canonical_root(), block2.clone())
+            .await
+            .unwrap();
 
         state2 = new_state2;
         block_root = block2.canonical_root();
