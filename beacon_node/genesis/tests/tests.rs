@@ -1,6 +1,6 @@
-//! NOTE: These tests will not pass unless ganache is running on `ENDPOINT` (see below).
+//! NOTE: These tests will not pass unless an anvil is running on `ENDPOINT` (see below).
 //!
-//! You can start a suitable instance using the `ganache_test_node.sh` script in the `scripts`
+//! You can start a suitable instance using the `anvil_test_node.sh` script in the `scripts`
 //! dir in the root of the `lighthouse` repo.
 #![cfg(test)]
 use environment::{Environment, EnvironmentBuilder};
@@ -88,7 +88,7 @@ fn basic() {
             .map(|(_, state)| state)
             .expect("should finish waiting for genesis");
 
-        // Note: using ganache these deposits are 1-per-block, therefore we know there should only be
+        // Note: using anvil these deposits are 1-per-block, therefore we know there should only be
         // the minimum number of validators.
         assert_eq!(
             state.validators().len(),

@@ -60,7 +60,7 @@ impl AnvilCliInstance {
         endpoint(self.port)
     }
 
-    /// Returns the chain id of the ganache instance
+    /// Returns the chain id of the anvil instance
     pub fn chain_id(&self) -> u64 {
         self.chain_id
     }
@@ -90,7 +90,8 @@ impl AnvilCliInstance {
             .await
             .map(|_: String| ())
             .map_err(|_| {
-                "utils should mine new block with evm_mine (only works with ganache!)".to_string()
+                "utils should mine new block with evm_mine (only works with anvil/ganache!)"
+                    .to_string()
             })
     }
 }

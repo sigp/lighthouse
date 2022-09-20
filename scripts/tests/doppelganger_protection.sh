@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# Requires `lighthouse`, ``lcli`, `ganache`, `curl`, `jq`
+# Requires `lighthouse`, ``lcli`, `anvil`, `curl`, `jq`
 
 BEHAVIOR=$1
 
@@ -13,12 +13,12 @@ source ./vars.env
 
 ../local_testnet/clean.sh
 
-echo "Starting ganache"
+echo "Starting anvil"
 
-../local_testnet/ganache_test_node.sh &> /dev/null &
-GANACHE_PID=$!
+../local_testnet/anvil_test_node.sh &> /dev/null &
+ANVIL_PID=$!
 
-# Wait for ganache to start
+# Wait for anvil to start
 sleep 5
 
 echo "Setting up local testnet"
@@ -69,7 +69,7 @@ if [[ "$BEHAVIOR" == "failure" ]]; then
     echo "Shutting down"
 
     # Cleanup
-    kill $BOOT_PID $BEACON_PID $BEACON_PID2 $BEACON_PID3 $GANACHE_PID $VALIDATOR_1_PID $VALIDATOR_2_PID $VALIDATOR_3_PID
+    kill $BOOT_PID $BEACON_PID $BEACON_PID2 $BEACON_PID3 $ANVIL_PID $VALIDATOR_1_PID $VALIDATOR_2_PID $VALIDATOR_3_PID
 
     echo "Done"
 
@@ -129,7 +129,7 @@ if [[ "$BEHAVIOR" == "success" ]]; then
 
     # Cleanup
     cd $PREVIOUS_DIR
-    kill $BOOT_PID $BEACON_PID $BEACON_PID2 $BEACON_PID3 $GANACHE_PID $VALIDATOR_1_PID $VALIDATOR_2_PID $VALIDATOR_3_PID $VALIDATOR_4_PID
+    kill $BOOT_PID $BEACON_PID $BEACON_PID2 $BEACON_PID3 $ANVIL_PID $VALIDATOR_1_PID $VALIDATOR_2_PID $VALIDATOR_3_PID $VALIDATOR_4_PID
 
     echo "Done"
 

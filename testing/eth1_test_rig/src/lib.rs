@@ -1,6 +1,6 @@
 //! Provides utilities for deploying and manipulating the eth2 deposit contract on the eth1 chain.
 //!
-//! Presently used with [`ganache`](https://github.com/trufflesuite/ganache) to simulate
+//! Presently used with [`anvil`](https://github.com/foundry-rs/foundry/tree/master/anvil) to simulate
 //! the deposit contract for testing beacon node eth1 integration.
 //!
 //! Not tested to work with actual clients (e.g., geth). It should work fine, however there may be
@@ -25,7 +25,7 @@ use types::{test_utils::generate_deterministic_keypair, EthSpec, Hash256, Keypai
 pub const DEPLOYER_ACCOUNTS_INDEX: usize = 0;
 pub const DEPOSIT_ACCOUNTS_INDEX: usize = 0;
 
-/// Provides a dedicated ganache instance with the deposit contract already deployed.
+/// Provides a dedicated anvil instance with the deposit contract already deployed.
 pub struct AnvilEth1Instance {
     pub anvil: AnvilCliInstance,
     pub deposit_contract: DepositContract,
@@ -95,7 +95,7 @@ impl DepositContract {
                 .await
                 .map_err(|e| {
                     format!(
-                        "Failed to deploy contract: {}. Is scripts/ganache_tests_node.sh running?.",
+                        "Failed to deploy contract: {}. Is scripts/anvil_tests_node.sh running?.",
                         e
                     )
                 })?;

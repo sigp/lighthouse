@@ -110,9 +110,9 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
         let anvil_eth1_instance = AnvilEth1Instance::new(DEFAULT_CHAIN_ID.into()).await?;
         let deposit_contract = anvil_eth1_instance.deposit_contract;
         let chain_id = anvil_eth1_instance.anvil.chain_id();
-        let ganache = anvil_eth1_instance.anvil;
-        let eth1_endpoint = SensitiveUrl::parse(ganache.endpoint().as_str())
-            .expect("Unable to parse ganache endpoint.");
+        let anvil = anvil_eth1_instance.anvil;
+        let eth1_endpoint = SensitiveUrl::parse(anvil.endpoint().as_str())
+            .expect("Unable to parse anvil endpoint.");
         let deposit_contract_address = deposit_contract.address();
 
         // Start a timer that produces eth1 blocks on an interval.
@@ -120,7 +120,7 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
             let mut interval = tokio::time::interval(eth1_block_time);
             loop {
                 interval.tick().await;
-                let _ = ganache.evm_mine().await;
+                let _ = anvil.evm_mine().await;
             }
         });
 
