@@ -567,6 +567,7 @@ where
 
         self.proto_array
             .get_proposer_head::<E>(
+                current_slot,
                 self.fc_store.justified_balances(),
                 canonical_head,
                 re_org_threshold,

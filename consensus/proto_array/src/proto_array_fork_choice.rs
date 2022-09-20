@@ -183,6 +183,12 @@ pub struct ProposerHead {
     pub canonical_head_weight: Option<u64>,
     /// The computed fraction of the active committee balance below which we can re-org.
     pub re_org_weight_threshold: Option<u64>,
+    /// Is this is a single slot re-org?
+    pub is_single_slot_re_org: bool,
+    /// Is the proposer head's FFG information competitive with the head to be re-orged?
+    pub ffg_competitive: bool,
+    /// Is the re-org block off an epoch boundary where the proposer shuffling could change?
+    pub shuffling_stable: bool,
 }
 
 #[derive(PartialEq)]
@@ -337,6 +343,7 @@ impl ProtoArrayForkChoice {
 
     pub fn get_proposer_head<E: EthSpec>(
         &self,
+        current_slot: Slot,
         justified_state_balances: &[u64],
         canonical_head: Hash256,
         re_org_vote_fraction: u64,
@@ -352,8 +359,25 @@ impl ProtoArrayForkChoice {
         let head_node = nodes[0];
         let parent_node = nodes[1];
 
-        // Re-org conditions.
-        let is_single_slot_re_org = parent_node.slot + 1 == head_node.slot;
+        // Only re-org a single slot. This prevents cascading failures during asynchrony.
+        let is_single_slot_re_org =
+            parent_node.slot + 1 == head_node.slot && head_node.slot + 1 == current_slot;
+
+        // Do not re-org one the first slot of an epoch because this is liable to change the
+        // shuffling and rob us of a proposal entirely. A more sophisticated check could be
+        // done here, but we're prioristing speed and simplicity over precision.
+        let shuffling_stable = current_slot % E::slots_per_epoch() != 0;
+
+        // Only re-org if the new head will be competitive with the current head's justification and
+        // finalization. In lieu of computing new justification and finalization for our re-org
+        // block that hasn't been created yet, just check if the parent we would build on is
+        // competitive with the head.
+        let ffg_competitive = parent_node.unrealized_justified_checkpoint
+            == head_node.unrealized_justified_checkpoint
+            && parent_node.unrealized_finalized_checkpoint
+                == head_node.unrealized_finalized_checkpoint;
+
+        // Only re-org if the head's weight is less than the configured committee fraction.
         let re_org_weight_threshold =
             calculate_proposer_boost::<E>(justified_state_balances, re_org_vote_fraction)
                 .ok_or_else(|| {
@@ -364,12 +388,17 @@ impl ProtoArrayForkChoice {
             .map_err(|e| format!("overflow calculating head weight: {:?}", e))?;
         let is_weak_head = canonical_head_weight < re_org_weight_threshold;
 
-        let re_org_head = (is_single_slot_re_org && is_weak_head).then(|| parent_node.root);
+        let re_org_head =
+            (is_single_slot_re_org && shuffling_stable && ffg_competitive && is_weak_head)
+                .then(|| parent_node.root);
 
         Ok(ProposerHead {
             re_org_head,
             canonical_head_weight: Some(canonical_head_weight),
             re_org_weight_threshold: Some(re_org_weight_threshold),
+            is_single_slot_re_org,
+            ffg_competitive,
+            shuffling_stable,
         })
     }
 

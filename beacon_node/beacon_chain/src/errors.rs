@@ -204,6 +204,7 @@ pub enum BeaconChainError {
     MissingPersistedForkChoice,
     CommitteeCacheWait(crossbeam_channel::RecvError),
     MaxCommitteePromises(usize),
+    SuppressForkChoiceError,
 }
 
 easy_from_to!(SlotProcessingError, BeaconChainError);

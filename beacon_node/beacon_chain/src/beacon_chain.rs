@@ -3263,25 +3263,24 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .seconds_from_current_slot_start(self.spec.seconds_per_slot)
                 .ok_or(BlockProductionError::UnableToReadSlot)?;
 
-            // Check that we're producing a block one slot after the current head, and early enough
-            // in the slot to be able to propagate widely. For simplicity of analysis, also avoid
-            // proposing a re-org block in the first slot of the epoch, as re-orging the last block
-            // of the previous epoch could change the proposer shuffling.
+            // Attempt a proposer re-org if:
             //
-            // Additionally, do a quick check that the current canonical head block was observed
-            // late. This aligns with `should_suppress_fork_choice_update` and prevents
-            // unnecessarily taking the fork choice write lock.
-            let single_slot_re_org =
-                head_slot + 1 == slot && slot % T::EthSpec::slots_per_epoch() != 0;
+            // 1. It seems we have time to propagate and still receive the proposer boost.
+            // 2. The current head block was seen late.
+            // 3. The `get_proposer_head` conditions from fork choice pass.
             let proposing_on_time = slot_delay < max_re_org_slot_delay(self.spec.seconds_per_slot);
             let head_late =
                 self.block_observed_after_attestation_deadline(canonical_head, head_slot);
-            if single_slot_re_org && proposing_on_time && head_late {
+            let mut proposer_head = Default::default();
+            let mut cache_hit = true;
+
+            if proposing_on_time && head_late {
                 // Is the current head weak and appropriate for re-orging?
-                let proposer_head = self
+                proposer_head = self
                     .canonical_head
                     .fork_choice_write_lock()
                     .get_proposer_head(slot, canonical_head, re_org_threshold, &self.spec)?;
+
                 if let Some(re_org_head) = proposer_head.re_org_head {
                     // Only attempt a re-org if we hit the snapshot cache.
                     if let Some(pre_state) = self
@@ -3300,44 +3299,23 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             "re_org_weight" => ?proposer_head.re_org_weight_threshold,
                         );
                         return Ok(Some(pre_state));
-                    } else {
-                        debug!(
-                            self.log,
-                            "Not attempting re-org due to cache miss";
-                            "head" => ?canonical_head,
-                            "re_org_head" => ?re_org_head,
-                            "head_weight" => ?proposer_head.canonical_head_weight,
-                            "re_org_weight" => ?proposer_head.re_org_weight_threshold,
-                        );
                     }
-                } else {
-                    debug!(
-                        self.log,
-                        "Not attempting re-org due to strong head";
-                        "head" => ?canonical_head,
-                        "head_weight" => ?proposer_head.canonical_head_weight,
-                        "re_org_weight" => ?proposer_head.re_org_weight_threshold,
-                    );
+                    cache_hit = false;
                 }
-            } else if !head_late {
-                debug!(
-                    self.log,
-                    "Not attempting re-org of timely block";
-                    "head" => ?canonical_head,
-                );
-            } else if !proposing_on_time {
-                debug!(
-                    self.log,
-                    "Not attempting re-org due to insufficient time";
-                    "head" => ?canonical_head,
-                )
-            } else {
-                debug!(
-                    self.log,
-                    "Not attempting re-org due to slot distance";
-                    "head" => ?canonical_head,
-                );
             }
+            debug!(
+                self.log,
+                "Not attempting re-org";
+                "head" => ?canonical_head,
+                "head_weight" => ?proposer_head.canonical_head_weight,
+                "re_org_weight" => ?proposer_head.re_org_weight_threshold,
+                "head_late" => head_late,
+                "proposing_on_time" => proposing_on_time,
+                "single_slot" => proposer_head.is_single_slot_re_org,
+                "ffg_competitive" => proposer_head.ffg_competitive,
+                "cache_hit" => cache_hit,
+                "shuffling_stable" => proposer_head.shuffling_stable,
+            );
         }
 
         Ok(None)
@@ -3362,8 +3340,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         // Load details of the head block and its parent from fork choice.
-        let (head_slot, parent_root, parent_slot) = {
-            let nodes = self
+        let (head_node, parent_node) = {
+            let mut nodes = self
                 .canonical_head
                 .fork_choice_read_lock()
                 .proto_array()
@@ -3377,29 +3355,37 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 return Ok(false);
             }
 
-            (nodes[0].slot, nodes[1].root, nodes[1].slot)
+            let parent = nodes.pop().ok_or(Error::SuppressForkChoiceError)?;
+            let head = nodes.pop().ok_or(Error::SuppressForkChoiceError)?;
+            (head, parent)
         };
 
         // The slot of our potential re-org block is always 1 greater than the head block because we
         // only attempt single-slot re-orgs.
-        let re_org_block_slot = head_slot + 1;
+        let re_org_block_slot = head_node.slot + 1;
 
         // Suppress only during the head block's slot, or at most until the end of the next slot.
         // If our proposal fails entirely we will attest to the wrong head during
         // `re_org_block_slot` and only re-align with the canonical chain 500ms before the start of
         // the next slot (i.e. `head_slot + 2`).
-        let current_slot_ok = head_slot == current_slot || re_org_block_slot == current_slot;
+        let current_slot_ok = head_node.slot == current_slot || re_org_block_slot == current_slot;
 
         // Only attempt single slot re-orgs, and not at epoch boundaries.
-        let block_slot_ok =
-            parent_slot + 1 == head_slot && re_org_block_slot % T::EthSpec::slots_per_epoch() != 0;
+        let block_slot_ok = parent_node.slot + 1 == head_node.slot
+            && re_org_block_slot % T::EthSpec::slots_per_epoch() != 0;
+
+        // Only attempt re-orgs with competitive FFG information.
+        let ffg_competitive = parent_node.unrealized_justified_checkpoint
+            == head_node.unrealized_justified_checkpoint
+            && parent_node.unrealized_finalized_checkpoint
+                == head_node.unrealized_finalized_checkpoint;
 
         // Check that this node has a proposer prepared to execute a re-org.
         let prepared_for_re_org = self
             .execution_layer
             .as_ref()
             .ok_or(Error::ExecutionLayerMissing)?
-            .payload_attributes(re_org_block_slot, parent_root)
+            .payload_attributes(re_org_block_slot, parent_node.root)
             .await
             .is_some();
 
@@ -3409,10 +3395,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // attestations for it. We also can't dequeue attestations for the block during the
         // current slot, which would be necessary for determining its weight.
         let head_block_late =
-            self.block_observed_after_attestation_deadline(head_block_root, head_slot);
+            self.block_observed_after_attestation_deadline(head_block_root, head_node.slot);
 
-        let might_re_org =
-            current_slot_ok && block_slot_ok && prepared_for_re_org && head_block_late;
+        let might_re_org = current_slot_ok
+            && block_slot_ok
+            && ffg_competitive
+            && prepared_for_re_org
+            && head_block_late;
 
         Ok(might_re_org)
     }

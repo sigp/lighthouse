@@ -3,6 +3,7 @@ use crate::common::*;
 use beacon_chain::test_utils::{AttestationStrategy, BlockStrategy};
 use eth2::types::DepositContractData;
 use slot_clock::SlotClock;
+use state_processing::state_advance::complete_state_advance;
 use tree_hash::TreeHash;
 use types::{EthSpec, FullPayload, MainnetEthSpec, Slot};
 
@@ -37,17 +38,38 @@ async fn deposit_contract_custom_network() {
 // Test that the beacon node will try to perform proposer boost re-orgs on late blocks when
 // configured.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-pub async fn proposer_boost_re_org_success() {
+pub async fn proposer_boost_re_org_zero_weight() {
+    proposer_boost_re_org_test(Slot::new(30), None, Some(10), true).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+pub async fn proposer_boost_re_org_epoch_boundary() {
+    proposer_boost_re_org_test(Slot::new(31), None, Some(10), false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+pub async fn proposer_boost_re_org_bad_ffg() {
+    proposer_boost_re_org_test(Slot::new(64 + 22), None, Some(10), false).await
+}
+
+pub async fn proposer_boost_re_org_test(
+    head_slot: Slot,
+    num_head_votes: Option<u64>,
+    re_org_threshold: Option<u64>,
+    should_re_org: bool,
+) {
+    assert!(head_slot > 0);
+
     // Validator count needs to be at least 32 or proposer boost gets set to 0 when computing
     // `validator_count // 32`.
     let validator_count = 32;
-    let num_initial: u64 = 31;
+    let num_initial = head_slot.as_u64() - 1;
 
     let tester = InteractiveTester::<E>::new_with_mutator(
         None,
         validator_count,
-        Some(Box::new(|builder| {
-            builder.proposer_re_org_threshold(Some(10))
+        Some(Box::new(move |builder| {
+            builder.proposer_re_org_threshold(re_org_threshold)
         })),
     )
     .await;
@@ -77,12 +99,13 @@ pub async fn proposer_boost_re_org_success() {
     let state_a = harness.get_current_state();
 
     // Produce block B and process it halfway through the slot.
-    let (block_b, state_b) = harness.make_block(state_a.clone(), slot_b).await;
+    let (block_b, mut state_b) = harness.make_block(state_a.clone(), slot_b).await;
+    let block_b_root = block_b.canonical_root();
 
     let obs_time = slot_clock.start_of(slot_b).unwrap() + slot_clock.slot_duration() / 2;
     slot_clock.set_current_time(obs_time);
     harness.chain.block_times_cache.write().set_time_observed(
-        block_b.canonical_root(),
+        block_b_root,
         slot_b,
         obs_time,
         None,
@@ -90,9 +113,27 @@ pub async fn proposer_boost_re_org_success() {
     );
     harness.process_block_result(block_b).await.unwrap();
 
+    // Add attestations to block B.
+    /* FIXME(sproul): implement attestations
+    if let Some(num_head_votes) = num_head_votes {
+        harness.attest_block(
+            &state_b,
+            state_b.canonical_root(),
+            block_b_root,
+            &block_b,
+            &[]
+        )
+    }
+    */
+
     // Produce block C.
-    harness.advance_slot();
-    harness.chain.per_slot_task().await;
+    while harness.get_current_slot() != slot_c {
+        harness.advance_slot();
+        harness.chain.per_slot_task().await;
+    }
+
+    // Advance state_b so we can get the proposer.
+    complete_state_advance(&mut state_b, None, slot_c, &harness.chain.spec).unwrap();
 
     let proposer_index = state_b
         .get_beacon_proposer_index(slot_c, &harness.chain.spec)
@@ -108,10 +149,15 @@ pub async fn proposer_boost_re_org_success() {
         .data;
     let block_c = harness.sign_beacon_block(unsigned_block_c, &state_b);
 
-    // Block C should build on A.
-    assert_eq!(block_c.parent_root(), block_a_root);
+    if should_re_org {
+        // Block C should build on A.
+        assert_eq!(block_c.parent_root(), block_a_root);
+    } else {
+        // Block C should build on B.
+        assert_eq!(block_c.parent_root(), block_b_root);
+    }
 
-    // Applying block C should cause a re-org from B to C.
+    // Applying block C should cause it to become head regardless (re-org or continuation).
     let block_root_c = harness.process_block_result(block_c).await.unwrap().into();
     assert_eq!(harness.head_block_root(), block_root_c);
 }
