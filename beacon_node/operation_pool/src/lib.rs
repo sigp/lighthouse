@@ -90,8 +90,8 @@ impl<T: EthSpec> OperationPool<T> {
         Self::default()
     }
 
-    /// Insert a sync contribution into the pool. We don't aggregate these contributions until they
-    /// are retrieved from the pool.
+    /// Insert a sync contribution into the pool. Aggregate the contribution if possible
+    /// or store the one with the most aggregations.
     ///
     /// ## Note
     ///
@@ -102,30 +102,33 @@ impl<T: EthSpec> OperationPool<T> {
     ) -> Result<(), OpPoolError> {
         let aggregate_id = SyncAggregateId::new(contribution.slot, contribution.beacon_block_root);
         let mut contributions = self.sync_contributions.write();
-
-        let existing_contributions = match contributions.entry(aggregate_id) {
+        match contributions.entry(aggregate_id) {
             Entry::Vacant(entry) => {
                 entry.insert(vec![contribution]);
                 return Ok(());
             }
-            Entry::Occupied(entry) => entry.into_mut(),
-        };
-
-        let mut aggregated = false;
-        for existing_contribution in existing_contributions.iter_mut() {
-            if existing_contribution.subcommittee_index == contribution.subcommittee_index
-                && existing_contribution.signers_disjoint_from(&contribution)
-            {
-                existing_contribution.aggregate(&contribution);
-                aggregated = true;
-            } else if *existing_contribution == contribution {
-                aggregated = true;
+            Entry::Occupied(mut entry) => {
+                let existing_contributions = entry.get_mut();
+                match existing_contributions
+                    .iter_mut()
+                    .find(|existing_contribution| {
+                        existing_contribution.subcommittee_index == contribution.subcommittee_index
+                    }) {
+                    None => {
+                        existing_contributions.push(contribution);
+                    }
+                    Some(existing_contribution) => {
+                        if existing_contribution.signers_disjoint_from(&contribution) {
+                            existing_contribution.aggregate(&contribution);
+                        } else if existing_contribution.aggregation_bits.num_set_bits()
+                            < contribution.aggregation_bits.num_set_bits()
+                        {
+                            *existing_contribution = contribution;
+                        }
+                    }
+                };
             }
-        }
-
-        if !aggregated {
-            existing_contributions.push(contribution);
-        }
+        };
         Ok(())
     }
 
