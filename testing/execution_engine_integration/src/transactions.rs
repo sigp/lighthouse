@@ -1,7 +1,7 @@
 use deposit_contract::{encode_eth1_tx_data, BYTECODE, CONTRACT_DEPLOY_GAS, DEPOSIT_GAS};
 use ethers_core::types::{
     transaction::{eip2718::TypedTransaction, eip2930::AccessList},
-    Address, Bytes, Eip1559TransactionRequest, TransactionRequest,
+    Address, Bytes, Eip1559TransactionRequest, TransactionRequest, U256,
 };
 use types::{DepositData, EthSpec, Hash256, Keypair, Signature};
 
@@ -72,19 +72,20 @@ impl Transaction {
             } => {
                 let keypair = Keypair::random();
 
+                let amount: u64 = 32_000_000_000;
                 let mut deposit = DepositData {
                     pubkey: keypair.pk.into(),
                     withdrawal_credentials: Hash256::zero(),
-                    amount: 32_000_000_000,
+                    amount,
                     signature: Signature::empty().into(),
                 };
-
                 deposit.signature = deposit.create_signature(&keypair.sk, &E::default_spec());
                 TransactionRequest::new()
                     .from(*sender)
                     .to(*deposit_contract_address)
                     .data(Bytes::from(encode_eth1_tx_data(&deposit).unwrap()))
                     .gas(DEPOSIT_GAS)
+                    .value(U256::from(amount) * U256::exp10(9))
                     .into()
             }
         }
