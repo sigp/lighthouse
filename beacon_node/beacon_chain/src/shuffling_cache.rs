@@ -1,7 +1,8 @@
 use crate::{metrics, BeaconChainError};
-use crossbeam_channel::{bounded, Receiver, Sender, TryRecvError};
+use derivative::Derivative;
 use lru::LruCache;
-use std::sync::Arc;
+use parking_lot::{Condvar, Mutex};
+use std::sync::{Arc, Weak};
 use types::{beacon_state::CommitteeCache, AttestationShufflingId, Epoch, Hash256};
 
 /// The size of the LRU cache that stores committee caches for quicker verification.
@@ -22,6 +23,63 @@ const CACHE_SIZE: usize = 16;
 /// better than low-resource nodes going OOM.
 const MAX_CONCURRENT_PROMISES: usize = 2;
 
+enum Promise<T> {
+    Ready(T),
+    NotReady(Weak<()>),
+}
+
+struct MutexCondvar<T> {
+    mutex: Mutex<Promise<T>>,
+    condvar: Condvar,
+}
+
+pub struct Sender<T>(Arc<MutexCondvar<T>>, Arc<()>);
+
+impl<T> Sender<T> {
+    pub fn send(self, item: T) {
+        *self.0.mutex.lock() = Promise::Ready(item);
+        self.0.condvar.notify_all();
+    }
+}
+
+#[derive(Derivative)]
+#[derivative(Clone(bound = "T: Clone"))]
+pub struct Receiver<T>(Arc<MutexCondvar<T>>);
+
+impl<T: Clone> Receiver<T> {
+    fn try_recv(&self) -> Result<Option<T>, BeaconChainError> {
+        match &*self.0.mutex.lock() {
+            Promise::Ready(item) => Ok(Some(item.clone())),
+            Promise::NotReady(weak) if weak.upgrade().is_some() => Ok(None),
+            Promise::NotReady(_) => Err(BeaconChainError::CommitteePromiseFailed),
+        }
+    }
+
+    fn recv(&self) -> Result<T, BeaconChainError> {
+        let mut lock = self.0.mutex.lock();
+        loop {
+            match &*lock {
+                Promise::Ready(item) => return Ok(item.clone()),
+                Promise::NotReady(weak) if weak.upgrade().is_some() => {
+                    self.0.condvar.wait(&mut lock)
+                }
+                Promise::NotReady(_) => return Err(BeaconChainError::CommitteePromiseFailed),
+            }
+        }
+    }
+}
+
+fn oneshot<T>() -> (Sender<T>, Receiver<T>) {
+    let sender_ref = Arc::new(());
+    let mutex_condvar = Arc::new(MutexCondvar {
+        mutex: Mutex::new(Promise::NotReady(Arc::downgrade(&sender_ref))),
+        condvar: Condvar::new(),
+    });
+    let receiver = Receiver(mutex_condvar.clone());
+    let sender = Sender(mutex_condvar, sender_ref);
+    (sender, receiver)
+}
+
 #[derive(Clone)]
 pub enum CacheItem {
     /// A committee.
@@ -38,9 +96,7 @@ impl CacheItem {
     pub fn wait(self) -> Result<Arc<CommitteeCache>, BeaconChainError> {
         match self {
             CacheItem::Committee(cache) => Ok(cache),
-            CacheItem::Promise(receiver) => receiver
-                .recv()
-                .map_err(BeaconChainError::CommitteeCacheWait),
+            CacheItem::Promise(promise) => promise.recv(),
         }
     }
 }
@@ -72,7 +128,7 @@ impl ShufflingCache {
             item @ Some(CacheItem::Promise(receiver)) => match receiver.try_recv() {
                 // The promise has already been resolved. Replace the entry in the cache with a
                 // `Committee` entry and then return the committee.
-                Ok(committee) => {
+                Ok(Some(committee)) => {
                     metrics::inc_counter(&metrics::SHUFFLING_CACHE_PROMISE_HITS);
                     metrics::inc_counter(&metrics::SHUFFLING_CACHE_HITS);
                     let ready = CacheItem::Committee(committee);
@@ -81,7 +137,7 @@ impl ShufflingCache {
                 }
                 // The promise has not yet been resolved. Return the promise so the caller can await
                 // it.
-                Err(TryRecvError::Empty) => {
+                Ok(None) => {
                     metrics::inc_counter(&metrics::SHUFFLING_CACHE_PROMISE_HITS);
                     metrics::inc_counter(&metrics::SHUFFLING_CACHE_HITS);
                     item.cloned()
@@ -96,7 +152,7 @@ impl ShufflingCache {
                 // memory and the nature of the LRU cache means that future, relevant entries will
                 // still be added to the cache. We expect that *all* promises should be resolved,
                 // unless there is a programming or database error.
-                Err(TryRecvError::Disconnected) => {
+                Err(_) => {
                     metrics::inc_counter(&metrics::SHUFFLING_CACHE_PROMISE_FAILS);
                     metrics::inc_counter(&metrics::SHUFFLING_CACHE_MISSES);
                     self.cache.pop(key);
@@ -147,7 +203,7 @@ impl ShufflingCache {
             return Err(BeaconChainError::MaxCommitteePromises(num_active_promises));
         }
 
-        let (sender, receiver) = bounded(1);
+        let (sender, receiver) = oneshot();
         self.cache.put(key, CacheItem::Promise(receiver));
         Ok(sender)
     }
@@ -204,7 +260,7 @@ impl BlockShufflingIds {
 }
 
 // Disable tests in debug since the beacon chain harness is slow unless in release.
-#[cfg(not(debug_assertions))]
+// #[cfg(not(debug_assertions))]
 #[cfg(test)]
 mod test {
     use super::*;
@@ -262,7 +318,7 @@ mod test {
         );
 
         // Resolve the promise.
-        sender.send(committee_a.clone()).unwrap();
+        sender.send(committee_a.clone());
 
         // Ensure the promise has been resolved.
         let item = cache.get(&id_a).unwrap();
@@ -324,7 +380,7 @@ mod test {
         );
 
         // Resolve promise A.
-        sender_a.send(committee_a.clone()).unwrap();
+        sender_a.send(committee_a.clone());
         // Ensure promise A has been resolved.
         let item = cache.get(&id_a).unwrap();
         assert!(
@@ -333,7 +389,7 @@ mod test {
         );
 
         // Resolve promise B.
-        sender_b.send(committee_b.clone()).unwrap();
+        sender_b.send(committee_b.clone());
         // Ensure promise B has been resolved.
         let item = cache.get(&id_b).unwrap();
         assert!(

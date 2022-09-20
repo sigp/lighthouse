@@ -4609,13 +4609,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             metrics::stop_timer(committee_building_timer);
 
-            if let Err(e) = sender.send(committee_cache.clone()) {
-                debug!(
-                    self.log,
-                    "Did not fulfil committee promise";
-                    "error" => %e
-                )
-            }
+            sender.send(committee_cache.clone());
 
             map_fn(&committee_cache, shuffling_decision_block)
         }
