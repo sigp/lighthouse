@@ -1021,9 +1021,11 @@ impl Service {
             .read()
             .block_by_hash(&eth1_data.block_hash)
             .cloned()
-            .ok_or(Error::FailedToFinalizeDeposit(
-                "Finalized block not found in block cache".to_string(),
-            ))?;
+            .ok_or_else(|| {
+                Error::FailedToFinalizeDeposit(
+                    "Finalized block not found in block cache".to_string(),
+                )
+            })?;
         self.inner
             .deposit_cache
             .write()
