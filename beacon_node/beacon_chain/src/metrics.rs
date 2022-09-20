@@ -804,6 +804,12 @@ lazy_static! {
         // [0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, 2, 5]
         decimal_buckets(-2,-1)
         );
+    pub static ref BEACON_BLOCK_EARLY_ATTESTER_OBSERVED_DELAY_TIME: Result<Histogram> = try_create_histogram_with_buckets(
+        "beacon_block_early_attester_observed_delay_time",
+        "Duration between the time the block was observed and the time when it was applied to the early attester cache.",
+        // [0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, 2, 5]
+        decimal_buckets(-2,0)
+    );
     pub static ref BEACON_BLOCK_HEAD_SLOT_START_DELAY_TIME: Result<Histogram> = try_create_histogram_with_buckets(
         "beacon_block_head_slot_start_delay_time",
         "Duration between the start of the block's slot and the time when it was set as head.",

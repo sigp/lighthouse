@@ -20,6 +20,7 @@ pub struct Timestamps {
     pub observed: Option<Duration>,
     pub imported: Option<Duration>,
     pub set_as_head: Option<Duration>,
+    pub applied_to_early_attester_cache: Option<Duration>,
 }
 
 // Helps arrange delay data so it is more relevant to metrics.
@@ -28,6 +29,7 @@ pub struct BlockDelays {
     pub observed: Option<Duration>,
     pub imported: Option<Duration>,
     pub set_as_head: Option<Duration>,
+    pub applied_to_early_attester_cache: Option<Duration>,
 }
 
 impl BlockDelays {
@@ -41,10 +43,17 @@ impl BlockDelays {
         let set_as_head = times
             .set_as_head
             .and_then(|set_as_head_time| set_as_head_time.checked_sub(times.imported?));
+        let applied_to_early_attester_cache =
+            times
+                .applied_to_early_attester_cache
+                .and_then(|applied_to_early_attester_cache| {
+                    applied_to_early_attester_cache.checked_sub(times.observed?)
+                });
         BlockDelays {
             observed,
             imported,
             set_as_head,
+            applied_to_early_attester_cache,
         }
     }
 }
@@ -113,6 +122,19 @@ impl BlockTimesCache {
             .entry(block_root)
             .or_insert_with(|| BlockTimesCacheValue::new(slot));
         block_times.timestamps.set_as_head = Some(timestamp);
+    }
+
+    pub fn set_time_applied_to_early_attester_cache(
+        &mut self,
+        block_root: BlockRoot,
+        slot: Slot,
+        timestamp: Duration,
+    ) {
+        let block_times = self
+            .cache
+            .entry(block_root)
+            .or_insert_with(|| BlockTimesCacheValue::new(slot));
+        block_times.timestamps.applied_to_early_attester_cache = Some(timestamp);
     }
 
     pub fn get_block_delays(

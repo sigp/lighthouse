@@ -2818,6 +2818,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Optimistically imported blocks are not added to the cache since the cache is only useful
         // for a small window of time and the complexity of keeping track of the optimistic status
         // is not worth it.
+        let mut block_time_applied_to_early_attester_cache = None;
         if !payload_verification_status.is_optimistic()
             && block.slot() + EARLY_ATTESTER_CACHE_HISTORIC_SLOTS >= current_slot
         {
@@ -2838,6 +2839,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                                 "error" => ?e
                             );
                         }
+                        block_time_applied_to_early_attester_cache = Some(timestamp_now());
                     } else {
                         warn!(
                             self.log,
@@ -3013,11 +3015,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // the cache during sync.
         if block_delay_total < self.slot_clock.slot_duration() * 64 {
             // Store the timestamp of the block being imported into the cache.
-            self.block_times_cache.write().set_time_imported(
-                block_root,
-                current_slot,
-                block_time_imported,
-            );
+            let mut block_times_cache = self.block_times_cache.write();
+            block_times_cache.set_time_imported(block_root, current_slot, block_time_imported);
+            if let Some(time) = block_time_applied_to_early_attester_cache {
+                block_times_cache.set_time_applied_to_early_attester_cache(
+                    block_root,
+                    current_slot,
+                    time,
+                );
+            }
         }
 
         // Do not store metrics if the block was > 4 slots old, this helps prevent noise during
@@ -3037,6 +3043,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     .imported
                     .unwrap_or_else(|| Duration::from_secs(0)),
             );
+            if let Some(delay) = block_delays.applied_to_early_attester_cache {
+                metrics::observe_duration(
+                    &metrics::BEACON_BLOCK_EARLY_ATTESTER_OBSERVED_DELAY_TIME,
+                    delay,
+                );
+            }
         }
 
         // Inform the unknown block cache, in case it was waiting on this block.
