@@ -1752,6 +1752,15 @@ impl<T: BeaconChainTypes> Worker<T> {
                 debug!(self.log, "Attestation for finalized state"; "peer_id" => % peer_id);
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
             }
+            e @ AttnError::BeaconChainError(BeaconChainError::CommitteeCacheWait(_)) => {
+                debug!(
+                    self.log,
+                    "Rejected attestation";
+                    "error" => ?e,
+                    "peer_id" => %peer_id
+                );
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+            }
             e @ AttnError::BeaconChainError(BeaconChainError::MaxCommitteePromises(_)) => {
                 debug!(
                     self.log,
