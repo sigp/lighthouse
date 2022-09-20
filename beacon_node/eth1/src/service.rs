@@ -50,7 +50,6 @@ const CACHE_FACTOR: u64 = 2;
 #[derive(Debug, PartialEq, Clone)]
 pub enum EndpointError {
     RequestFailed(String),
-    WrongNetworkId,
     WrongChainId,
     FarBehind,
 }
@@ -138,11 +137,11 @@ async fn get_remote_head_and_new_block_ranges(
             "last_seen_block_unix_timestamp" => remote_head_block.timestamp,
             "action" => "trying fallback"
         );
-        return Err(SingleEndpointError::EndpointError(EndpointError::FarBehind).into());
+        return Err(Error::EndpointError(EndpointError::FarBehind));
     }
 
     let handle_remote_not_synced = |e| {
-        if let SingleEndpointError::RemoteNotSynced { .. } = e {
+        if let Error::RemoteNotSynced { .. } = e {
             warn!(
                 service.log,
                 "Execution endpoint is not synced";
@@ -179,16 +178,25 @@ async fn relevant_new_block_numbers_from_endpoint(
     endpoint: &HttpJsonRpc,
     service: &Service,
     head_type: HeadType,
-) -> Result<Option<RangeInclusive<u64>>, SingleEndpointError> {
+) -> Result<Option<RangeInclusive<u64>>, Error> {
     let remote_highest_block = endpoint
         .get_block_number(Duration::from_millis(BLOCK_NUMBER_TIMEOUT_MILLIS))
-        .map_err(SingleEndpointError::GetBlockNumberFailed)
+        .map_err(Error::GetBlockNumberFailed)
         .await?;
     service.relevant_new_block_numbers(remote_highest_block, None, head_type)
 }
 
 #[derive(Debug, PartialEq)]
-pub enum SingleEndpointError {
+pub enum Error {
+    /// There was an inconsistency when adding a block to the cache.
+    FailedToInsertEth1Block(BlockCacheError),
+    /// There was an inconsistency when adding a deposit to the cache.
+    FailedToInsertDeposit(DepositCacheError),
+    /// A log downloaded from the eth1 contract was not well formed.
+    FailedToParseDepositLog {
+        block_range: Range<u64>,
+        error: String,
+    },
     /// Endpoint is currently not functional.
     EndpointError(EndpointError),
     /// The remote node is less synced that we expect, it is not useful until has done more
@@ -208,29 +216,8 @@ pub enum SingleEndpointError {
     GetDepositCountFailed(String),
     /// Failed to read the deposit contract root from the eth1 node.
     GetDepositLogsFailed(String),
-}
-
-#[derive(Debug, PartialEq)]
-pub enum Error {
-    /// There was an inconsistency when adding a block to the cache.
-    FailedToInsertEth1Block(BlockCacheError),
-    /// There was an inconsistency when adding a deposit to the cache.
-    FailedToInsertDeposit(DepositCacheError),
-    /// A log downloaded from the eth1 contract was not well formed.
-    FailedToParseDepositLog {
-        block_range: Range<u64>,
-        error: String,
-    },
-    /// All possible endpoints returned a `SingleEndpointError`.
-    EndpointError(SingleEndpointError),
     /// There was an unexpected internal error.
     Internal(String),
-}
-
-impl From<SingleEndpointError> for Error {
-    fn from(e: SingleEndpointError) -> Self {
-        Error::EndpointError(e)
-    }
 }
 
 /// The success message for an Eth1Data cache update.
@@ -717,7 +704,7 @@ impl Service {
         remote_highest_block_number: u64,
         remote_highest_block_timestamp: Option<u64>,
         head_type: HeadType,
-    ) -> Result<Option<RangeInclusive<u64>>, SingleEndpointError> {
+    ) -> Result<Option<RangeInclusive<u64>>, Error> {
         let follow_distance = self.cache_follow_distance();
         let latest_cached_block = self.latest_cached_block();
         let next_required_block = match head_type {
@@ -818,7 +805,7 @@ impl Service {
                     Duration::from_millis(GET_DEPOSIT_LOG_TIMEOUT_MILLIS),
                 )
                 .await
-                .map_err(SingleEndpointError::GetDepositLogsFailed)?;
+                .map_err(Error::GetDepositLogsFailed)?;
 
             /*
              * Step 2. Import logs to cache.
@@ -1064,7 +1051,7 @@ fn relevant_block_range(
     cache_follow_distance: u64,
     latest_cached_block: Option<&Eth1Block>,
     spec: &ChainSpec,
-) -> Result<Option<RangeInclusive<u64>>, SingleEndpointError> {
+) -> Result<Option<RangeInclusive<u64>>, Error> {
     // If the latest cached block is lagging the head block by more than `cache_follow_distance`
     // times the expected block time then the eth1 block time is likely quite different from what we
     // assumed.
@@ -1099,7 +1086,7 @@ fn relevant_block_range(
         //
         // We assume that the `cache_follow_distance` should be sufficient to ensure this never
         // happens, otherwise it is an error.
-        Err(SingleEndpointError::RemoteNotSynced {
+        Err(Error::RemoteNotSynced {
             next_required_block,
             remote_highest_block: remote_highest_block_number,
             cache_follow_distance,
@@ -1120,7 +1107,7 @@ async fn download_eth1_block(
     endpoint: &HttpJsonRpc,
     cache: Arc<Inner>,
     block_number_opt: Option<u64>,
-) -> Result<Eth1Block, SingleEndpointError> {
+) -> Result<Eth1Block, Error> {
     let deposit_root = block_number_opt.and_then(|block_number| {
         cache
             .deposit_cache
@@ -1145,7 +1132,7 @@ async fn download_eth1_block(
                 .unwrap_or_else(|| BlockQuery::Latest),
             Duration::from_millis(GET_BLOCK_TIMEOUT_MILLIS),
         )
-        .map_err(SingleEndpointError::BlockDownloadFailed)
+        .map_err(Error::BlockDownloadFailed)
         .await?;
 
     Ok(Eth1Block {
