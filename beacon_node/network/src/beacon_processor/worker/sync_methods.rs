@@ -56,14 +56,15 @@ impl<T: BeaconChainTypes> Worker<T> {
             return;
         }
         // Check if the block is already being imported through another source
-        let handle = match duplicate_cache.check_and_insert(block.canonical_root()) {
+        let block_root = block.canonical_root();
+        let handle = match duplicate_cache.check_and_insert(block_root) {
             Some(handle) => handle,
             None => {
                 debug!(
                     self.log,
                     "Gossip block is being processed";
                     "action" => "sending rpc block to reprocessing queue",
-                    "block_root" => %block.canonical_root(),
+                    "block_root" => %block_root,
                 );
                 // Send message to work reprocess queue to retry the block
                 let reprocess_msg = ReprocessQueueMessage::RpcBlock(QueuedRpcBlock {
@@ -74,7 +75,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                 });
 
                 if reprocess_tx.try_send(reprocess_msg).is_err() {
-                    error!(self.log, "Failed to inform block import"; "source" => "rpc", "block_root" => %block.canonical_root())
+                    error!(self.log, "Failed to inform block import"; "source" => "rpc", "block_root" => %block_root)
                 };
                 return;
             }
