@@ -21,8 +21,8 @@ jobs:
       - name: Get latest version of stable Rust
         run: rustup update stable
 
-      - name: Install ganache
-        run: npm install ganache@latest --global
+      - name: Install anvil
+        run: cargo install --git https://github.com/foundry-rs/foundry.git --profile local --locked anvil
 
       # https://github.com/actions/cache/blob/main/examples.md#rust---cargo
       - uses: actions/cache@v2
