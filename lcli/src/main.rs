@@ -10,6 +10,7 @@ mod generate_bootnode_enr;
 mod indexed_attestations;
 mod insecure_validators;
 mod interop_genesis;
+mod mock_el;
 mod new_testnet;
 mod parse_ssz;
 mod replace_state_pubkeys;
@@ -751,6 +752,43 @@ fn main() {
                         .help("Number of repeat runs, useful for benchmarking."),
                 )
         )
+        .subcommand(
+            SubCommand::with_name("mock-el")
+                .about("Creates a mock execution layer server. This is NOT SAFE and should only \
+                be used for testing and development on testnets. Do not use in production. Do not \
+                use on mainnet.")
+                .arg(
+                    Arg::with_name("jwt-output-path")
+                        .long("jwt-output-path")
+                        .value_name("PATH")
+                        .takes_value(true)
+                        .help("Path to write the JWT secret."),
+                )
+                .arg(
+                    Arg::with_name("listen-address")
+                        .long("listen-address")
+                        .value_name("IP_ADDRESS")
+                        .takes_value(true)
+                        .help("The server will listen on this address.")
+                        .default_value("127.0.0.1")
+                )
+                .arg(
+                    Arg::with_name("listen-port")
+                        .long("listen-port")
+                        .value_name("PORT")
+                        .takes_value(true)
+                        .help("The server will listen on this port.")
+                        .default_value("8551")
+                )
+                .arg(
+                    Arg::with_name("all-payloads-valid")
+                        .long("all-payloads-valid")
+                        .takes_value(true)
+                        .help("When set to true, the server will indicate that all payloads are \
+                            valid.")
+                        .default_value("true")
+                )
+        )
         .get_matches();
 
     let result = matches
@@ -838,6 +876,8 @@ fn run<T: EthSpec>(
             .map_err(|e| format!("Failed to run indexed-attestations command: {}", e)),
         ("block-root", Some(matches)) => block_root::run::<T>(env, matches)
             .map_err(|e| format!("Failed to run block-root command: {}", e)),
+        ("mock-el", Some(matches)) => mock_el::run::<T>(env, matches)
+            .map_err(|e| format!("Failed to run mock-el command: {}", e)),
         (other, _) => Err(format!("Unknown subcommand {}. See --help.", other)),
     }
 }
