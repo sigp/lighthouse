@@ -101,11 +101,11 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     /// called in order to find the block's parent.
     pub fn search_parent(
         &mut self,
+        block_root: Hash256,
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
         peer_id: PeerId,
         cx: &mut SyncNetworkContext<T>,
     ) {
-        let block_root = block.canonical_root();
         let parent_root = block.parent_root();
         // If this block or it's parent is part of a known failed chain, ignore it.
         if self.failed_chains.contains(&parent_root) || self.failed_chains.contains(&block_root) {
@@ -125,7 +125,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             return;
         }
 
-        let parent_lookup = ParentLookup::new(block, peer_id);
+        let parent_lookup = ParentLookup::new(block_root, block, peer_id);
         self.request_parent(parent_lookup, cx);
     }
 
@@ -420,7 +420,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                         error!(self.log, "Beacon chain error processing single block"; "block_root" => %root, "error" => ?e);
                     }
                     BlockError::ParentUnknown(block) => {
-                        self.search_parent(block, peer_id, cx);
+                        self.search_parent(root, block, peer_id, cx);
                     }
                     ref e @ BlockError::ExecutionPayloadError(ref epe) if !epe.penalize_peer() => {
                         // These errors indicate that the execution layer is offline

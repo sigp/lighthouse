@@ -68,6 +68,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                 );
                 // Send message to work reprocess queue to retry the block
                 let reprocess_msg = ReprocessQueueMessage::RpcBlock(QueuedRpcBlock {
+                    block_root,
                     block: block.clone(),
                     process_type,
                     seen_timestamp,

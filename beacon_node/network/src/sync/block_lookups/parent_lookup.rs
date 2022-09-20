@@ -58,11 +58,15 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
             .any(|d_block| d_block.as_ref() == block)
     }
 
-    pub fn new(block: Arc<SignedBeaconBlock<T::EthSpec>>, peer_id: PeerId) -> Self {
+    pub fn new(
+        block_root: Hash256,
+        block: Arc<SignedBeaconBlock<T::EthSpec>>,
+        peer_id: PeerId,
+    ) -> Self {
         let current_parent_request = SingleBlockRequest::new(block.parent_root(), peer_id);
 
         Self {
-            chain_hash: block.canonical_root(),
+            chain_hash: block_root,
             downloaded_blocks: vec![block],
             current_parent_request,
             current_parent_request_id: None,

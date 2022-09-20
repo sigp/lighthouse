@@ -776,7 +776,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     "Unknown parent for gossip block";
                     "root" => ?block_root
                 );
-                self.send_sync_message(SyncMessage::UnknownBlock(peer_id, block));
+                self.send_sync_message(SyncMessage::UnknownBlock(peer_id, block, block_root));
                 return None;
             }
             Err(e @ BlockError::BeaconChainError(_)) => {
@@ -969,7 +969,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     "Block with unknown parent attempted to be processed";
                     "peer_id" => %peer_id
                 );
-                self.send_sync_message(SyncMessage::UnknownBlock(peer_id, block));
+                self.send_sync_message(SyncMessage::UnknownBlock(peer_id, block, block_root));
             }
             Err(ref e @ BlockError::ExecutionPayloadError(ref epe)) if !epe.penalize_peer() => {
                 debug!(

@@ -577,6 +577,7 @@ impl<T: BeaconChainTypes> std::convert::From<ReadyWork<T>> for WorkEvent<T> {
                 },
             },
             ReadyWork::RpcBlock(QueuedRpcBlock {
+                block_root: _,
                 block,
                 seen_timestamp,
                 process_type,
