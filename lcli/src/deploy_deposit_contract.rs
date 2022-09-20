@@ -2,7 +2,7 @@ use clap::ArgMatches;
 use environment::Environment;
 use types::EthSpec;
 
-use ethers_providers::{Http, Provider};
+use eth1_test_rig::{Http, Provider};
 
 pub fn run<T: EthSpec>(env: Environment<T>, matches: &ArgMatches<'_>) -> Result<(), String> {
     let eth1_http: String = clap_utils::parse_required(matches, "eth1-http")?;
