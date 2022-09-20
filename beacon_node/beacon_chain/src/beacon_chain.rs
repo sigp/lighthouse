@@ -2839,6 +2839,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                                 "error" => ?e
                             );
                         }
+                        debug!(
+                            self.log,
+                            "Inserted block into early attester cache";
+                            "root" => ?block_root
+                        );
                         block_time_applied_to_early_attester_cache = Some(timestamp_now());
                     } else {
                         warn!(
