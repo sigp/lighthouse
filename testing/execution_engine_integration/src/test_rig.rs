@@ -593,9 +593,6 @@ impl<E: GenericExecutionEngine> TestRig<E> {
             .await
             .unwrap();
         assert_eq!(status, PayloadStatus::Valid);
-
-        let a = futures::future::pending();
-        let _: () = a.await;
     }
 }
 
