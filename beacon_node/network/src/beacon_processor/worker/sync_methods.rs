@@ -38,8 +38,10 @@ struct ChainSegmentFailed {
 
 impl<T: BeaconChainTypes> Worker<T> {
     /// Attempt to process a block received from a direct RPC request.
+    #[allow(clippy::too_many_arguments)]
     pub async fn process_rpc_block(
         self,
+        block_root: Hash256,
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
         seen_timestamp: Duration,
         process_type: BlockProcessType,
@@ -56,7 +58,6 @@ impl<T: BeaconChainTypes> Worker<T> {
             return;
         }
         // Check if the block is already being imported through another source
-        let block_root = block.canonical_root();
         let handle = match duplicate_cache.check_and_insert(block_root) {
             Some(handle) => handle,
             None => {

@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 use std::sync::Arc;
 
+use super::RootBlockTuple;
 use lighthouse_network::{rpc::BlocksByRootRequest, PeerId};
 use rand::seq::IteratorRandom;
 use ssz_types::VariableList;
@@ -104,7 +105,7 @@ impl<const MAX_ATTEMPTS: u8> SingleBlockRequest<MAX_ATTEMPTS> {
     pub fn verify_block<T: EthSpec>(
         &mut self,
         block: Option<Arc<SignedBeaconBlock<T>>>,
-    ) -> Result<Option<Arc<SignedBeaconBlock<T>>>, VerifyError> {
+    ) -> Result<Option<RootBlockTuple<T>>, VerifyError> {
         match self.state {
             State::AwaitingDownload => {
                 self.register_failure_downloading();
@@ -112,7 +113,8 @@ impl<const MAX_ATTEMPTS: u8> SingleBlockRequest<MAX_ATTEMPTS> {
             }
             State::Downloading { peer_id } => match block {
                 Some(block) => {
-                    if block.canonical_root() != self.hash {
+                    let block_root = block.canonical_root();
+                    if block_root != self.hash {
                         // return an error and drop the block
                         // NOTE: we take this is as a download failure to prevent counting the
                         // attempt as a chain failure, but simply a peer failure.
@@ -121,7 +123,7 @@ impl<const MAX_ATTEMPTS: u8> SingleBlockRequest<MAX_ATTEMPTS> {
                     } else {
                         // Return the block for processing.
                         self.state = State::Processing { peer_id };
-                        Ok(Some(block))
+                        Ok(Some((block_root, block)))
                     }
                 }
                 None => {

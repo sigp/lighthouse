@@ -489,6 +489,7 @@ impl<T: BeaconChainTypes> WorkEvent<T> {
     /// Create a new `Work` event for some block, where the result from computation (if any) is
     /// sent to the other side of `result_tx`.
     pub fn rpc_beacon_block(
+        block_root: Hash256,
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
         seen_timestamp: Duration,
         process_type: BlockProcessType,
@@ -496,6 +497,7 @@ impl<T: BeaconChainTypes> WorkEvent<T> {
         Self {
             drop_during_sync: false,
             work: Work::RpcBlock {
+                block_root,
                 block,
                 seen_timestamp,
                 process_type,
@@ -577,7 +579,7 @@ impl<T: BeaconChainTypes> std::convert::From<ReadyWork<T>> for WorkEvent<T> {
                 },
             },
             ReadyWork::RpcBlock(QueuedRpcBlock {
-                block_root: _,
+                block_root,
                 block,
                 seen_timestamp,
                 process_type,
@@ -585,6 +587,7 @@ impl<T: BeaconChainTypes> std::convert::From<ReadyWork<T>> for WorkEvent<T> {
             }) => Self {
                 drop_during_sync: false,
                 work: Work::RpcBlock {
+                    block_root,
                     block,
                     seen_timestamp,
                     process_type,
@@ -706,6 +709,7 @@ pub enum Work<T: BeaconChainTypes> {
         seen_timestamp: Duration,
     },
     RpcBlock {
+        block_root: Hash256,
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
         seen_timestamp: Duration,
         process_type: BlockProcessType,
@@ -1533,11 +1537,13 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
              * Verification for beacon blocks received during syncing via RPC.
              */
             Work::RpcBlock {
+                block_root,
                 block,
                 seen_timestamp,
                 process_type,
                 should_process,
             } => task_spawner.spawn_async(worker.process_rpc_block(
+                block_root,
                 block,
                 seen_timestamp,
                 process_type,
