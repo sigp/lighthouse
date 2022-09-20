@@ -5,7 +5,7 @@
 #![cfg(test)]
 use environment::{Environment, EnvironmentBuilder};
 use eth1::{Eth1Endpoint, DEFAULT_CHAIN_ID};
-use eth1_test_rig::{AnvilEth1Instance, DelayThenDeposit};
+use eth1_test_rig::{AnvilEth1Instance, DelayThenDeposit, Middleware};
 use genesis::{Eth1Config, Eth1GenesisService};
 use sensitive_url::SensitiveUrl;
 use state_processing::is_valid_genesis_state;
@@ -33,11 +33,10 @@ fn basic() {
             .await
             .expect("should start eth1 environment");
         let deposit_contract = &eth1.deposit_contract;
-        let web3 = eth1.json_rpc_client();
+        let client = eth1.json_rpc_client();
 
-        let now = web3
-            .eth()
-            .block_number()
+        let now = client
+            .get_block_number()
             .await
             .map(|v| v.as_u64())
             .expect("should get block number");

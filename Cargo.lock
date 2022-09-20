@@ -1660,8 +1660,6 @@ dependencies = [
  "eth2",
  "eth2_ssz",
  "eth2_ssz_derive",
- "ethers-core",
- "ethers-providers",
  "execution_layer",
  "fallback",
  "futures",

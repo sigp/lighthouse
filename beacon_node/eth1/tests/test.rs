@@ -2,8 +2,7 @@
 use environment::{Environment, EnvironmentBuilder};
 use eth1::{Config, Eth1Endpoint, Service};
 use eth1::{DepositCache, DEFAULT_CHAIN_ID};
-use eth1_test_rig::AnvilEth1Instance;
-use ethers_providers::{Http, Middleware, Provider};
+use eth1_test_rig::{AnvilEth1Instance, Http, Middleware, Provider};
 use execution_layer::http::{deposit_methods::*, HttpJsonRpc, Log};
 use merkle_proof::verify_merkle_proof;
 use sensitive_url::SensitiveUrl;

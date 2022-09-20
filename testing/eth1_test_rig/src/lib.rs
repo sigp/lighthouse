@@ -16,7 +16,7 @@ use ethers_core::{
     abi::Abi,
     types::{transaction::eip2718::TypedTransaction, Address, Bytes, TransactionRequest, U256},
 };
-use ethers_providers::{Http, Middleware, Provider};
+pub use ethers_providers::{Http, Middleware, Provider};
 use std::time::Duration;
 use tokio::time::sleep;
 use types::DepositData;
@@ -296,7 +296,6 @@ async fn deploy_deposit_contract(
         .confirmations(confirmations)
         .await
         .map_err(|e| format!("Failed to fetch tx receipt: {:?}", e))?;
-    tx.map(|tx| tx.contract_address)
-        .flatten()
-        .ok_or(format!("Deposit contract not deployed successfully"))
+    tx.and_then(|tx| tx.contract_address)
+        .ok_or_else(|| "Deposit contract not deployed successfully".to_string())
 }

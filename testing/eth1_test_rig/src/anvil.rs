@@ -4,9 +4,6 @@ use serde_json::json;
 use std::convert::TryFrom;
 use unused_port::unused_tcp_port;
 
-/// How long we will wait for ganache to indicate that it is ready.
-// const GANACHE_STARTUP_TIMEOUT_MILLIS: u64 = 10_000;
-
 /// Provides a dedicated `anvil` instance.
 ///
 /// Requires that `anvil` is installed and available on `PATH`.
@@ -99,28 +96,5 @@ impl AnvilCliInstance {
 }
 
 fn endpoint(port: u16) -> String {
-    format!("http://localhost:{}", port)
+    format!("http://127.0.0.1:{}", port)
 }
-
-// impl Drop for Anvil {
-//     fn drop(&mut self) {
-//         if cfg!(windows) {
-//             // Calling child.kill() in Windows will only kill the process
-//             // that spawned ganache, leaving the actual ganache process
-//             // intact. You have to kill the whole process tree. What's more,
-//             // if you don't spawn ganache with --keepAliveTimeout=0, Windows
-//             // will STILL keep the server running even after you've ended
-//             // the process tree and it's disappeared from the task manager.
-//             // Unbelievable...
-//             Command::new("taskkill")
-//                 .arg("/pid")
-//                 .arg(self.child.id().to_string())
-//                 .arg("/T")
-//                 .arg("/F")
-//                 .output()
-//                 .expect("failed to execute taskkill");
-//         } else {
-//             let _ = self.child.kill();
-//         }
-//     }
-// }
