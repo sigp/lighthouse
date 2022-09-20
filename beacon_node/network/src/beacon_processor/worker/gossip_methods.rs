@@ -934,7 +934,7 @@ impl<T: BeaconChainTypes> Worker<T> {
 
         match self
             .chain
-            .process_block(verified_block, CountUnrealized::True)
+            .process_block(block_root, verified_block, CountUnrealized::True)
             .await
         {
             Ok(block_root) => {

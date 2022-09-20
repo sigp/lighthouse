@@ -83,7 +83,10 @@ impl<T: BeaconChainTypes> Worker<T> {
             }
         };
         let slot = block.slot();
-        let result = self.chain.process_block(block, CountUnrealized::True).await;
+        let result = self
+            .chain
+            .process_block(block_root, block, CountUnrealized::True)
+            .await;
 
         metrics::inc_counter(&metrics::BEACON_PROCESSOR_RPC_BLOCK_IMPORTED_TOTAL);
 

@@ -1393,12 +1393,13 @@ impl<T: EthSpec> ExecutionLayer<T> {
 
     pub async fn propose_blinded_beacon_block(
         &self,
+        block_root: Hash256,
         block: &SignedBeaconBlock<T, BlindedPayload<T>>,
     ) -> Result<ExecutionPayload<T>, Error> {
         debug!(
             self.log(),
             "Sending block to builder";
-            "root" => ?block.canonical_root(),
+            "root" => ?block_root,
         );
         if let Some(builder) = self.builder() {
             builder
