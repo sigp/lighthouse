@@ -155,10 +155,12 @@ impl StateId {
         Ok((state, execution_optimistic))
     }
 
-    /// Functions the same as `map_state` but additionally computes the value of
-    /// `execution_optimistic` of the state identified by `self`.
+    /// Map a function across the `BeaconState` identified by `self`.
     ///
-    /// This is to avoid re-instantiating `state` unnecessarily.
+    /// The optimistic status of the requested state is also provided to the `func` closure.
+    ///
+    /// This function will avoid instantiating/copying a new state when `self` points to the head
+    /// of the chain.
     pub fn map_state_and_execution_optimistic<T: BeaconChainTypes, F, U>(
         &self,
         chain: &BeaconChain<T>,
