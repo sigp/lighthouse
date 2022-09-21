@@ -30,7 +30,7 @@ impl<T> Sender<T> {
     /// Send a message, consuming `self` and delivering the message to *all* receivers.
     pub fn send(self, item: T) {
         *self.0.mutex.lock() = Future::Ready(item);
-        // Thread notification will be handled by the `Drop` implementation.
+        // Condvar notification will be handled by the `Drop` implementation.
     }
 }
 
