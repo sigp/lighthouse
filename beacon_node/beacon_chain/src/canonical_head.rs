@@ -1189,6 +1189,10 @@ fn detect_reorg<E: EthSpec>(
 
         metrics::inc_counter(&metrics::FORK_CHOICE_REORG_COUNT);
         metrics::inc_counter(&metrics::FORK_CHOICE_REORG_COUNT_INTEROP);
+        metrics::set_gauge(
+            &metrics::FORK_CHOICE_REORG_DISTANCE,
+            reorg_distance.as_u64() as i64,
+        );
         warn!(
             log,
             "Beacon chain re-org";

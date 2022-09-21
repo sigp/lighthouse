@@ -6,6 +6,9 @@
 //! It can load states and blocks from file or pull them from a beaconAPI. Objects pulled from a
 //! beaconAPI can be saved to disk to reduce future calls to that server.
 //!
+//! Logging output is controlled via the `RUST_LOG` environment variable. For example, `export
+//! RUST_LOG=debug`.
+//!
 //! ## Examples
 //!
 //! ### Run using a block from a beaconAPI
@@ -124,8 +127,8 @@ pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<
     let (mut pre_state, mut state_root_opt, block) = match (pre_state_path, block_path, beacon_url)
     {
         (Some(pre_state_path), Some(block_path), None) => {
-            info!("Block path: {:?}", pre_state_path);
-            info!("Pre-state path: {:?}", block_path);
+            info!("Block path: {:?}", block_path);
+            info!("Pre-state path: {:?}", pre_state_path);
             let pre_state = load_from_ssz_with(&pre_state_path, spec, BeaconState::from_ssz_bytes)?;
             let block = load_from_ssz_with(&block_path, spec, SignedBeaconBlock::from_ssz_bytes)?;
             (pre_state, None, block)

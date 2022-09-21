@@ -7,7 +7,7 @@ use serde::{de::Error, Deserialize, Deserializer, Serialize, Serializer};
 use ssz::{Decode, DecodeError, Encode};
 use std::fmt;
 use std::str::FromStr;
-use tree_hash::TreeHash;
+use tree_hash::{PackedEncoding, TreeHash};
 
 pub const GRAFFITI_BYTES_LEN: usize = 32;
 
@@ -159,7 +159,7 @@ impl TreeHash for Graffiti {
         <[u8; GRAFFITI_BYTES_LEN]>::tree_hash_type()
     }
 
-    fn tree_hash_packed_encoding(&self) -> Vec<u8> {
+    fn tree_hash_packed_encoding(&self) -> PackedEncoding {
         self.0.tree_hash_packed_encoding()
     }
 

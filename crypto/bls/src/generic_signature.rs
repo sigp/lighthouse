@@ -80,6 +80,18 @@ where
         self.point.is_none()
     }
 
+    /// Initialize self to the point-at-infinity.
+    ///
+    /// In general `AggregateSignature::infinity` should be used in favour of this function.
+    pub fn infinity() -> Result<Self, Error> {
+        Self::deserialize(&INFINITY_SIGNATURE)
+    }
+
+    /// Returns `true` if `self` is equal to the point at infinity.
+    pub fn is_infinity(&self) -> bool {
+        self.is_infinity
+    }
+
     /// Returns a reference to the underlying BLS point.
     pub(crate) fn point(&self) -> Option<&Sig> {
         self.point.as_ref()

@@ -2114,14 +2114,16 @@ async fn weak_subjectivity_sync() {
     assert_eq!(new_blocks[0].beacon_block.slot(), wss_slot + 1);
 
     for snapshot in new_blocks {
-        let block = &snapshot.beacon_block;
         let full_block = harness
             .chain
-            .store
-            .make_full_block(&snapshot.beacon_block_root, block.as_ref().clone())
+            .get_block(&snapshot.beacon_block_root)
+            .await
+            .unwrap()
             .unwrap();
+        let slot = full_block.slot();
+        let state_root = full_block.state_root();
 
-        beacon_chain.slot_clock.set_slot(block.slot().as_u64());
+        beacon_chain.slot_clock.set_slot(slot.as_u64());
         beacon_chain
             .process_block(Arc::new(full_block), CountUnrealized::True)
             .await
@@ -2129,10 +2131,9 @@ async fn weak_subjectivity_sync() {
         beacon_chain.recompute_head_at_current_slot().await;
 
         // Check that the new block's state can be loaded correctly.
-        let state_root = block.state_root();
         let mut state = beacon_chain
             .store
-            .get_state(&state_root, Some(block.slot()))
+            .get_state(&state_root, Some(slot))
             .unwrap()
             .unwrap();
         assert_eq!(state.update_tree_hash_cache().unwrap(), state_root);
@@ -2583,6 +2584,7 @@ fn check_split_slot(harness: &TestHarness, store: Arc<HotColdDB<E, LevelDB<E>, L
 /// Check that all the states in a chain dump have the correct tree hash.
 fn check_chain_dump(harness: &TestHarness, expected_len: u64) {
     let chain_dump = harness.chain.chain_dump().unwrap();
+    let split_slot = harness.chain.store.get_split_slot();
 
     assert_eq!(chain_dump.len() as u64, expected_len);
 
@@ -2606,6 +2608,21 @@ fn check_chain_dump(harness: &TestHarness, expected_len: u64) {
                 .slot(),
             checkpoint.beacon_state.slot()
         );
+
+        // Check presence of execution payload on disk.
+        if harness.chain.spec.bellatrix_fork_epoch.is_some() {
+            assert_eq!(
+                harness
+                    .chain
+                    .store
+                    .execution_payload_exists(&checkpoint.beacon_block_root)
+                    .unwrap(),
+                checkpoint.beacon_block.slot() >= split_slot,
+                "incorrect payload storage for block at slot {}: {:?}",
+                checkpoint.beacon_block.slot(),
+                checkpoint.beacon_block_root,
+            );
+        }
     }
 
     // Check the forwards block roots iterator against the chain dump
