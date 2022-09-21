@@ -50,6 +50,12 @@ pub struct Receiver<T: Clone>(Arc<MutexCondvar<T>>);
 
 impl<T: Clone> Receiver<T> {
     /// Check to see if there is a message to be read *without* blocking/waiting.
+    ///
+    /// ## Note
+    ///
+    /// This method will technically perform *some* blocking to access a `Mutex`. It is non-blocking
+    /// in the sense that it won't block until a message is received (i.e., it may return `Ok(None)`
+    /// if no message has been sent yet).
     pub fn try_recv(&self) -> Result<Option<T>, Error> {
         match &*self.0.mutex.lock() {
             Future::Ready(item) => Ok(Some(item.clone())),
