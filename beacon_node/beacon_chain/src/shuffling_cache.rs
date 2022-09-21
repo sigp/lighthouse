@@ -96,7 +96,7 @@ impl ShufflingCache {
                 // memory and the nature of the LRU cache means that future, relevant entries will
                 // still be added to the cache. We expect that *all* promises should be resolved,
                 // unless there is a programming or database error.
-                Err(_) => {
+                Err(oneshot_broadcast::Error::SenderDropped) => {
                     metrics::inc_counter(&metrics::SHUFFLING_CACHE_PROMISE_FAILS);
                     metrics::inc_counter(&metrics::SHUFFLING_CACHE_MISSES);
                     self.cache.pop(key);
