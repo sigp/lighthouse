@@ -24,12 +24,21 @@ struct MutexCondvar<T> {
 }
 
 /// The sending pair of the `oneshot` channel.
-pub struct Sender<T>(Arc<MutexCondvar<T>>, Arc<()>);
+pub struct Sender<T>(Arc<MutexCondvar<T>>, Option<Arc<()>>);
 
 impl<T> Sender<T> {
     /// Send a message, consuming `self` and delivering the message to *all* receivers.
     pub fn send(self, item: T) {
         *self.0.mutex.lock() = Future::Ready(item);
+        self.0.condvar.notify_all();
+    }
+}
+
+impl<T> Drop for Sender<T> {
+    /// Drop the `Arc` and notify all receivers so they can't upgrade their `Weak`s and know that
+    /// the sender has been dropped.
+    fn drop(&mut self) {
+        self.1 = None;
         self.0.condvar.notify_all();
     }
 }
@@ -75,7 +84,7 @@ pub fn oneshot<T: Clone>() -> (Sender<T>, Receiver<T>) {
         condvar: Condvar::new(),
     });
     let receiver = Receiver(mutex_condvar.clone());
-    let sender = Sender(mutex_condvar, sender_ref);
+    let sender = Sender(mutex_condvar, Some(sender_ref));
     (sender, receiver)
 }
 
@@ -83,6 +92,7 @@ pub fn oneshot<T: Clone>() -> (Sender<T>, Receiver<T>) {
 mod tests {
     use super::*;
     use std::thread;
+    use std::time::Duration;
 
     #[test]
     fn single_thread_try_recv() {
@@ -150,5 +160,23 @@ mod tests {
         drop(sender);
         assert_eq!(handle_a.join().unwrap(), Err(Error::SenderDropped));
         assert_eq!(handle_b.join().unwrap(), Err(Error::SenderDropped));
+    }
+
+    #[test]
+    fn sender_dropped_after_recv() {
+        let (sender_a, receiver_a) = oneshot();
+        let (sender_b, receiver_b) = oneshot::<u8>();
+
+        let handle_0 = thread::spawn(|| {
+            sender_a.send(1);
+            receiver_b.recv()
+        });
+
+        assert_eq!(receiver_a.recv(), Ok(1));
+        // This is a slightly hacky sleep that assumes that the thread has had enough time after
+        // sending down `sender_a` to start listening to `receiver_b`.
+        thread::sleep(Duration::from_secs(1));
+        drop(sender_b);
+        assert_eq!(handle_0.join().unwrap(), Err(Error::SenderDropped))
     }
 }

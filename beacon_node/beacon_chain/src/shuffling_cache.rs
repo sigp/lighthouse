@@ -38,7 +38,7 @@ impl CacheItem {
     pub fn wait(self) -> Result<Arc<CommitteeCache>, BeaconChainError> {
         match self {
             CacheItem::Committee(cache) => Ok(cache),
-            CacheItem::Promise(promise) => promise
+            CacheItem::Promise(receiver) => receiver
                 .recv()
                 .map_err(BeaconChainError::CommitteePromiseFailed),
         }
