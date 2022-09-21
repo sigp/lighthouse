@@ -1,4 +1,5 @@
 mod api_secret;
+mod ui;
 mod create_validator;
 mod keystores;
 mod remotekeys;
@@ -278,6 +279,22 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                 })
             },
         );
+
+    // GET lighthouse/ui/health
+    let get_lighthouse_ui_health = warp::path("lighthouse")
+        .and(warp::path("ui"))
+        .and(warp::path("health"))
+        .and(warp::path::end())
+        .and(signer.clone())
+        .and_then(|signer| {
+            blocking_signed_json_task(signer, move || {
+                ui::SystemHealth::observe()
+                    .map(api_types::GenericResponse::from)
+                    .map_err(warp_utils::reject::custom_bad_request)
+            })
+        });
+
+
 
     // POST lighthouse/validators/
     let post_validators = warp::path("lighthouse")
@@ -894,6 +911,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                         .or(get_lighthouse_spec)
                         .or(get_lighthouse_validators)
                         .or(get_lighthouse_validators_pubkey)
+                        .or(get_lighthouse_ui_health)
                         .or(get_fee_recipient)
                         .or(get_gas_limit)
                         .or(get_std_keystores)
