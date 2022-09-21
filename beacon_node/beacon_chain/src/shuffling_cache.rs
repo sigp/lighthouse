@@ -1,8 +1,7 @@
 use crate::{metrics, BeaconChainError};
-use derivative::Derivative;
 use lru::LruCache;
-use parking_lot::{Condvar, Mutex};
-use std::sync::{Arc, Weak};
+use oneshot_broadcast::{oneshot, Receiver, Sender};
+use std::sync::Arc;
 use types::{beacon_state::CommitteeCache, AttestationShufflingId, Epoch, Hash256};
 
 /// The size of the LRU cache that stores committee caches for quicker verification.
@@ -23,63 +22,6 @@ const CACHE_SIZE: usize = 16;
 /// better than low-resource nodes going OOM.
 const MAX_CONCURRENT_PROMISES: usize = 2;
 
-enum Promise<T> {
-    Ready(T),
-    NotReady(Weak<()>),
-}
-
-struct MutexCondvar<T> {
-    mutex: Mutex<Promise<T>>,
-    condvar: Condvar,
-}
-
-pub struct Sender<T>(Arc<MutexCondvar<T>>, Arc<()>);
-
-impl<T> Sender<T> {
-    pub fn send(self, item: T) {
-        *self.0.mutex.lock() = Promise::Ready(item);
-        self.0.condvar.notify_all();
-    }
-}
-
-#[derive(Derivative)]
-#[derivative(Clone(bound = "T: Clone"))]
-pub struct Receiver<T>(Arc<MutexCondvar<T>>);
-
-impl<T: Clone> Receiver<T> {
-    fn try_recv(&self) -> Result<Option<T>, BeaconChainError> {
-        match &*self.0.mutex.lock() {
-            Promise::Ready(item) => Ok(Some(item.clone())),
-            Promise::NotReady(weak) if weak.upgrade().is_some() => Ok(None),
-            Promise::NotReady(_) => Err(BeaconChainError::CommitteePromiseFailed),
-        }
-    }
-
-    fn recv(&self) -> Result<T, BeaconChainError> {
-        let mut lock = self.0.mutex.lock();
-        loop {
-            match &*lock {
-                Promise::Ready(item) => return Ok(item.clone()),
-                Promise::NotReady(weak) if weak.upgrade().is_some() => {
-                    self.0.condvar.wait(&mut lock)
-                }
-                Promise::NotReady(_) => return Err(BeaconChainError::CommitteePromiseFailed),
-            }
-        }
-    }
-}
-
-fn oneshot<T>() -> (Sender<T>, Receiver<T>) {
-    let sender_ref = Arc::new(());
-    let mutex_condvar = Arc::new(MutexCondvar {
-        mutex: Mutex::new(Promise::NotReady(Arc::downgrade(&sender_ref))),
-        condvar: Condvar::new(),
-    });
-    let receiver = Receiver(mutex_condvar.clone());
-    let sender = Sender(mutex_condvar, sender_ref);
-    (sender, receiver)
-}
-
 #[derive(Clone)]
 pub enum CacheItem {
     /// A committee.
@@ -96,7 +38,9 @@ impl CacheItem {
     pub fn wait(self) -> Result<Arc<CommitteeCache>, BeaconChainError> {
         match self {
             CacheItem::Committee(cache) => Ok(cache),
-            CacheItem::Promise(promise) => promise.recv(),
+            CacheItem::Promise(promise) => promise
+                .recv()
+                .map_err(BeaconChainError::CommitteePromiseFailed),
         }
     }
 }
