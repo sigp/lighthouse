@@ -3,10 +3,7 @@
 //!
 //! This implementation may not be blazingly fast but it should be simple enough to be reliable.
 use parking_lot::{Condvar, Mutex};
-use std::sync::{
-    atomic::{AtomicBool, Ordering},
-    Arc,
-};
+use std::sync::Arc;
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum Error {
@@ -16,9 +13,10 @@ pub enum Error {
 enum Future<T> {
     /// The future is ready and the item may be consumed.
     Ready(T),
-    /// Future is not ready. The contained `AtomicBool` will be set to `false` when the sender has
-    /// disconnected.
-    NotReady(Arc<AtomicBool>),
+    /// Future is not ready.
+    NotReady,
+    /// The sender has been dropped without sending a message.
+    SenderDropped,
 }
 
 struct MutexCondvar<T> {
@@ -27,7 +25,7 @@ struct MutexCondvar<T> {
 }
 
 /// The sending pair of the `oneshot` channel.
-pub struct Sender<T>(Arc<MutexCondvar<T>>, Arc<AtomicBool>);
+pub struct Sender<T>(Arc<MutexCondvar<T>>);
 
 impl<T> Sender<T> {
     /// Send a message, consuming `self` and delivering the message to *all* receivers.
@@ -40,8 +38,13 @@ impl<T> Sender<T> {
 impl<T> Drop for Sender<T> {
     /// Flag the sender as dropped and notify all receivers.
     fn drop(&mut self) {
-        self.1.store(false, Ordering::SeqCst);
+        let mut lock = self.0.mutex.lock();
+        if !matches!(*lock, Future::Ready(_)) {
+            *lock = Future::SenderDropped
+        }
         self.0.condvar.notify_all();
+        // The lock must be held whilst the condvar is notified.
+        drop(lock);
     }
 }
 
@@ -61,8 +64,8 @@ impl<T: Clone> Receiver<T> {
     pub fn try_recv(&self) -> Result<Option<T>, Error> {
         match &*self.0.mutex.lock() {
             Future::Ready(item) => Ok(Some(item.clone())),
-            Future::NotReady(sender_alive) if sender_alive.load(Ordering::SeqCst) => Ok(None),
-            Future::NotReady(_) => Err(Error::SenderDropped),
+            Future::NotReady => Ok(None),
+            Future::SenderDropped => Err(Error::SenderDropped),
         }
     }
 
@@ -73,10 +76,8 @@ impl<T: Clone> Receiver<T> {
         loop {
             match &*lock {
                 Future::Ready(item) => return Ok(item.clone()),
-                Future::NotReady(sender_alive) if sender_alive.load(Ordering::SeqCst) => {
-                    self.0.condvar.wait(&mut lock)
-                }
-                Future::NotReady(_) => return Err(Error::SenderDropped),
+                Future::NotReady => self.0.condvar.wait(&mut lock),
+                Future::SenderDropped => return Err(Error::SenderDropped),
             }
         }
     }
@@ -86,13 +87,12 @@ impl<T: Clone> Receiver<T> {
 ///
 /// The sender may send *only one* message which will be received by *all* receivers.
 pub fn oneshot<T: Clone>() -> (Sender<T>, Receiver<T>) {
-    let sender_alive = Arc::new(AtomicBool::new(true));
     let mutex_condvar = Arc::new(MutexCondvar {
-        mutex: Mutex::new(Future::NotReady(sender_alive.clone())),
+        mutex: Mutex::new(Future::NotReady),
         condvar: Condvar::new(),
     });
     let receiver = Receiver(mutex_condvar.clone());
-    let sender = Sender(mutex_condvar, sender_alive);
+    let sender = Sender(mutex_condvar);
     (sender, receiver)
 }
 
