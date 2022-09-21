@@ -204,7 +204,7 @@ impl BlockShufflingIds {
 }
 
 // Disable tests in debug since the beacon chain harness is slow unless in release.
-// #[cfg(not(debug_assertions))]
+#[cfg(not(debug_assertions))]
 #[cfg(test)]
 mod test {
     use super::*;
