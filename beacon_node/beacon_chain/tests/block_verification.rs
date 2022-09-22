@@ -41,28 +41,27 @@ async fn get_chain_segment() -> Vec<BeaconSnapshot<E>> {
         )
         .await;
 
-    harness
+    let mut segment = Vec::with_capacity(CHAIN_SEGMENT_LENGTH);
+    for snapshot in harness
         .chain
         .chain_dump()
         .expect("should dump chain")
         .into_iter()
-        .map(|snapshot| {
-            let full_block = harness
-                .chain
-                .store
-                .make_full_block(
-                    &snapshot.beacon_block_root,
-                    snapshot.beacon_block.as_ref().clone(),
-                )
-                .unwrap();
-            BeaconSnapshot {
-                beacon_block_root: snapshot.beacon_block_root,
-                beacon_block: Arc::new(full_block),
-                beacon_state: snapshot.beacon_state,
-            }
-        })
         .skip(1)
-        .collect()
+    {
+        let full_block = harness
+            .chain
+            .get_block(&snapshot.beacon_block_root)
+            .await
+            .unwrap()
+            .unwrap();
+        segment.push(BeaconSnapshot {
+            beacon_block_root: snapshot.beacon_block_root,
+            beacon_block: Arc::new(full_block),
+            beacon_state: snapshot.beacon_state,
+        });
+    }
+    segment
 }
 
 fn get_harness(validator_count: usize) -> BeaconChainHarness<EphemeralHarnessType<E>> {

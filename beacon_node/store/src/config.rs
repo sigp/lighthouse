@@ -28,6 +28,8 @@ pub struct StoreConfig {
     pub compact_on_init: bool,
     /// Whether to compact the database during database pruning.
     pub compact_on_prune: bool,
+    /// Whether to prune payloads on initialization and finalization.
+    pub prune_payloads: bool,
 }
 
 /// Variant of `StoreConfig` that gets written to disk. Contains immutable configuration params.
@@ -53,6 +55,7 @@ impl Default for StoreConfig {
             compression_level: DEFAULT_COMPRESSION_LEVEL,
             compact_on_init: false,
             compact_on_prune: true,
+            prune_payloads: true,
         }
     }
 }

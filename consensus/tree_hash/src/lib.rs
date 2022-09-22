@@ -14,9 +14,10 @@ pub const BYTES_PER_CHUNK: usize = 32;
 pub const HASHSIZE: usize = 32;
 pub const MERKLE_HASH_CHUNK: usize = 2 * BYTES_PER_CHUNK;
 pub const MAX_UNION_SELECTOR: u8 = 127;
+pub const SMALLVEC_SIZE: usize = 32;
 
 pub type Hash256 = ethereum_types::H256;
-pub type PackedEncoding = SmallVec<[u8; BYTES_PER_CHUNK]>;
+pub type PackedEncoding = SmallVec<[u8; SMALLVEC_SIZE]>;
 
 /// Convenience method for `MerkleHasher` which also provides some fast-paths for small trees.
 ///

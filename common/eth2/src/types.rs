@@ -658,16 +658,34 @@ pub struct ProposerData {
     pub slot: Slot,
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Deserialize)]
 pub struct ValidatorBlocksQuery {
-    pub randao_reveal: Option<SignatureBytes>,
+    pub randao_reveal: SignatureBytes,
     pub graffiti: Option<Graffiti>,
-    #[serde(default = "default_verify_randao")]
-    pub verify_randao: bool,
+    pub skip_randao_verification: SkipRandaoVerification,
 }
 
-fn default_verify_randao() -> bool {
-    true
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(try_from = "Option<String>")]
+pub enum SkipRandaoVerification {
+    Yes,
+    #[default]
+    No,
+}
+
+/// Parse a `skip_randao_verification` query parameter.
+impl TryFrom<Option<String>> for SkipRandaoVerification {
+    type Error = String;
+
+    fn try_from(opt: Option<String>) -> Result<Self, String> {
+        match opt.as_deref() {
+            None => Ok(SkipRandaoVerification::No),
+            Some("") => Ok(SkipRandaoVerification::Yes),
+            Some(s) => Err(format!(
+                "skip_randao_verification does not take a value, got: {s}"
+            )),
+        }
+    }
 }
 
 #[derive(Clone, Serialize, Deserialize)]

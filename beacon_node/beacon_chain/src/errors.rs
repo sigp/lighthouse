@@ -202,6 +202,8 @@ pub enum BeaconChainError {
     },
     AttestationHeadNotInForkChoice(Hash256),
     MissingPersistedForkChoice,
+    CommitteePromiseFailed(oneshot_broadcast::Error),
+    MaxCommitteePromises(usize),
 }
 
 easy_from_to!(SlotProcessingError, BeaconChainError);

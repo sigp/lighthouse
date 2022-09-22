@@ -7,7 +7,7 @@ use std::convert::TryFrom;
 use std::fmt::Debug;
 use std::hash::Hash;
 use test_random_derive::TestRandom;
-use tree_hash::TreeHash;
+use tree_hash::{PackedEncoding, TreeHash};
 
 #[derive(Debug)]
 pub enum BlockType {
@@ -175,7 +175,7 @@ impl<T: EthSpec> TreeHash for BlindedPayload<T> {
         <ExecutionPayloadHeader<T>>::tree_hash_type()
     }
 
-    fn tree_hash_packed_encoding(&self) -> tree_hash::PackedEncoding {
+    fn tree_hash_packed_encoding(&self) -> PackedEncoding {
         self.execution_payload_header.tree_hash_packed_encoding()
     }
 

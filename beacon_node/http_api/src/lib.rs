@@ -25,7 +25,9 @@ use beacon_chain::{
     BeaconChainTypes, ProduceBlockVerification, WhenSlotSkipped,
 };
 pub use block_id::BlockId;
-use eth2::types::{self as api_types, EndpointVersion, ValidatorId, ValidatorStatus};
+use eth2::types::{
+    self as api_types, EndpointVersion, SkipRandaoVerification, ValidatorId, ValidatorStatus,
+};
 use lighthouse_network::{types::SyncState, EnrExt, NetworkGlobals, PeerId, PubsubMessage};
 use lighthouse_version::version_with_platform;
 use network::{NetworkMessage, NetworkSenders, ValidatorSubscriptionMessage};
@@ -35,7 +37,6 @@ use slot_clock::SlotClock;
 use ssz::Encode;
 pub use state_id::StateId;
 use std::borrow::Cow;
-use std::convert::TryInto;
 use std::future::Future;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
@@ -46,7 +47,7 @@ use tokio_stream::{wrappers::BroadcastStream, StreamExt};
 use types::{
     Attestation, AttestationData, AttesterSlashing, BeaconStateError, BlindedPayload,
     CommitteeCache, ConfigAndPreset, Epoch, EthSpec, ForkName, FullPayload,
-    ProposerPreparationData, ProposerSlashing, RelativeEpoch, Signature, SignedAggregateAndProof,
+    ProposerPreparationData, ProposerSlashing, RelativeEpoch, SignedAggregateAndProof,
     SignedBeaconBlock, SignedBlindedBeaconBlock, SignedContributionAndProof,
     SignedValidatorRegistrationData, SignedVoluntaryExit, Slot, SyncCommitteeMessage,
     SyncContributionData,
@@ -2002,31 +2003,25 @@ pub fn serve<T: BeaconChainTypes>(
              slot: Slot,
              query: api_types::ValidatorBlocksQuery,
              chain: Arc<BeaconChain<T>>| async move {
-                let randao_reveal = query.randao_reveal.as_ref().map_or_else(
-                    || {
-                        if query.verify_randao {
-                            Err(warp_utils::reject::custom_bad_request(
-                                "randao_reveal is mandatory unless verify_randao=false".into(),
-                            ))
-                        } else {
-                            Ok(Signature::empty())
-                        }
-                    },
-                    |sig_bytes| {
-                        sig_bytes.try_into().map_err(|e| {
-                            warp_utils::reject::custom_bad_request(format!(
-                                "randao reveal is not a valid BLS signature: {:?}",
-                                e
-                            ))
-                        })
-                    },
-                )?;
+                let randao_reveal = query.randao_reveal.decompress().map_err(|e| {
+                    warp_utils::reject::custom_bad_request(format!(
+                        "randao reveal is not a valid BLS signature: {:?}",
+                        e
+                    ))
+                })?;
 
-                let randao_verification = if query.verify_randao {
-                    ProduceBlockVerification::VerifyRandao
-                } else {
-                    ProduceBlockVerification::NoVerification
-                };
+                let randao_verification =
+                    if query.skip_randao_verification == SkipRandaoVerification::Yes {
+                        if !randao_reveal.is_infinity() {
+                            return Err(warp_utils::reject::custom_bad_request(
+                                "randao_reveal must be point-at-infinity if verification is skipped"
+                                    .into(),
+                            ));
+                        }
+                        ProduceBlockVerification::NoVerification
+                    } else {
+                        ProduceBlockVerification::VerifyRandao
+                    };
 
                 let (block, _) = chain
                     .produce_block_with_verification::<FullPayload<T::EthSpec>>(
@@ -2064,31 +2059,25 @@ pub fn serve<T: BeaconChainTypes>(
             |slot: Slot,
              query: api_types::ValidatorBlocksQuery,
              chain: Arc<BeaconChain<T>>| async move {
-                let randao_reveal = query.randao_reveal.as_ref().map_or_else(
-                    || {
-                        if query.verify_randao {
-                            Err(warp_utils::reject::custom_bad_request(
-                                "randao_reveal is mandatory unless verify_randao=false".into(),
-                            ))
-                        } else {
-                            Ok(Signature::empty())
-                        }
-                    },
-                    |sig_bytes| {
-                        sig_bytes.try_into().map_err(|e| {
-                            warp_utils::reject::custom_bad_request(format!(
-                                "randao reveal is not a valid BLS signature: {:?}",
-                                e
-                            ))
-                        })
-                    },
-                )?;
+                let randao_reveal = query.randao_reveal.decompress().map_err(|e| {
+                    warp_utils::reject::custom_bad_request(format!(
+                        "randao reveal is not a valid BLS signature: {:?}",
+                        e
+                    ))
+                })?;
 
-                let randao_verification = if query.verify_randao {
-                    ProduceBlockVerification::VerifyRandao
-                } else {
-                    ProduceBlockVerification::NoVerification
-                };
+                let randao_verification =
+                    if query.skip_randao_verification == SkipRandaoVerification::Yes {
+                        if !randao_reveal.is_infinity() {
+                            return Err(warp_utils::reject::custom_bad_request(
+                                "randao_reveal must be point-at-infinity if verification is skipped"
+                                    .into()
+                            ));
+                        }
+                        ProduceBlockVerification::NoVerification
+                    } else {
+                        ProduceBlockVerification::VerifyRandao
+                    };
 
                 let (block, _) = chain
                     .produce_block_with_verification::<BlindedPayload<T::EthSpec>>(
@@ -2103,6 +2092,7 @@ pub fn serve<T: BeaconChainTypes>(
                     .to_ref()
                     .fork_name(&chain.spec)
                     .map_err(inconsistent_fork_rejection)?;
+
                 // Pose as a V2 endpoint so we return the fork `version`.
                 fork_versioned_response(V2, fork_name, block)
                     .map(|response| warp::reply::json(&response))

@@ -66,6 +66,8 @@ pub struct BeaconBlock<T: EthSpec, Payload: ExecPayload<T> = FullPayload<T>> {
     pub body: BeaconBlockBodyMerge<T, Payload>,
 }
 
+pub type BlindedBeaconBlock<E> = BeaconBlock<E, BlindedPayload<E>>;
+
 impl<T: EthSpec, Payload: ExecPayload<T>> SignedRoot for BeaconBlock<T, Payload> {}
 impl<'a, T: EthSpec, Payload: ExecPayload<T>> SignedRoot for BeaconBlockRef<'a, T, Payload> {}
 
