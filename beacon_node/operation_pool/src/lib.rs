@@ -110,7 +110,7 @@ impl<T: EthSpec> OperationPool<T> {
             Entry::Occupied(mut entry) => {
                 // If contributions exists for this key, check whether there exists a contribution
                 // with a matching `subcommittee_index`. If one exists, check if we can aggrgate the
-                // signature. If the signature is not aggragatble we should keep the one with the 
+                // signature. If the signature is not aggragatble we should keep the one with the
                 // most signature.
                 let existing_contributions = entry.get_mut();
                 match existing_contributions
