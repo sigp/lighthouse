@@ -439,7 +439,7 @@ dependencies = [
 
 [[package]]
 name = "beacon_node"
-version = "3.1.0"
+version = "3.1.1"
 dependencies = [
  "beacon_chain",
  "clap",
@@ -597,7 +597,7 @@ dependencies = [
 
 [[package]]
 name = "boot_node"
-version = "3.1.0"
+version = "3.1.1"
 dependencies = [
  "beacon_node",
  "clap",
@@ -956,9 +956,9 @@ dependencies = [
 
 [[package]]
 name = "cpufeatures"
-version = "0.2.2"
+version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "59a6001667ab124aebae2a495118e11d30984c3a653e99d86d58971708cf5e4b"
+checksum = "28d997bd5e24a5928dd43e46dc529867e207907fe0b239c3477d924f7f2ca320"
 dependencies = [
  "libc",
 ]
@@ -3110,7 +3110,7 @@ checksum = "830d08ce1d1d941e6b30645f1a0eb5643013d835ce3779a5fc208261dbe10f55"
 
 [[package]]
 name = "lcli"
-version = "3.1.0"
+version = "3.1.1"
 dependencies = [
  "account_utils",
  "beacon_chain",
@@ -3610,7 +3610,7 @@ dependencies = [
 
 [[package]]
 name = "lighthouse"
-version = "3.1.0"
+version = "3.1.1"
 dependencies = [
  "account_manager",
  "account_utils",

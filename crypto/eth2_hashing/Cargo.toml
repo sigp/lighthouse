@@ -8,7 +8,7 @@ description = "Hashing primitives used in Ethereum 2.0"
 
 [dependencies]
 lazy_static = { version = "1.4.0", optional = true }
-cpufeatures = { version = "0.2.2", optional = true }
+cpufeatures = { version = "0.2.5", optional = true }
 ring = "0.16.19"
 sha2 = "0.10.2"
 
