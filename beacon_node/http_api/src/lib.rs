@@ -2531,7 +2531,7 @@ pub fn serve<T: BeaconChainTypes>(
                                         || matches!(validator_status, ValidatorStatus::Active);
 
                                 // Filter out validators who are not 'active' or 'pending'.
-                                is_active_or_pending.then(|| {
+                                is_active_or_pending.then_some({
                                     (
                                         ProposerPreparationData {
                                             validator_index: validator_index as u64,

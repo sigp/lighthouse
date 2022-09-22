@@ -1130,7 +1130,7 @@ where
                             selection_proof
                                 .is_aggregator::<E>()
                                 .expect("should determine aggregator")
-                                .then(|| validator_index)
+                                .then_some(validator_index)
                         })?;
 
                     let default = SyncCommitteeContribution::from_message(

@@ -294,7 +294,7 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
             proposal_data.fee_recipient.and_then(|fee_recipient| {
                 proposal_data
                     .builder_proposals
-                    .then(|| ValidatorRegistrationKey {
+                    .then_some(ValidatorRegistrationKey {
                         fee_recipient,
                         gas_limit: proposal_data.gas_limit,
                         pubkey,

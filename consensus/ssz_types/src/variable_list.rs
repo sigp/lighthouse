@@ -308,7 +308,7 @@ mod test {
 
         assert_eq!(fixed[0], 1);
         assert_eq!(&fixed[0..1], &vec[0..1]);
-        assert_eq!((&fixed[..]).len(), 2);
+        assert_eq!((fixed[..]).len(), 2);
 
         fixed[1] = 3;
         assert_eq!(fixed[1], 3);
