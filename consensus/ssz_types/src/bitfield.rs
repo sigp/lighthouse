@@ -620,7 +620,7 @@ impl<N: Unsigned + Clone> tree_hash::TreeHash for Bitfield<Variable<N>> {
         tree_hash::TreeHashType::List
     }
 
-    fn tree_hash_packed_encoding(&self) -> Vec<u8> {
+    fn tree_hash_packed_encoding(&self) -> tree_hash::PackedEncoding {
         unreachable!("List should never be packed.")
     }
 
@@ -641,7 +641,7 @@ impl<N: Unsigned + Clone> tree_hash::TreeHash for Bitfield<Fixed<N>> {
         tree_hash::TreeHashType::Vector
     }
 
-    fn tree_hash_packed_encoding(&self) -> Vec<u8> {
+    fn tree_hash_packed_encoding(&self) -> tree_hash::PackedEncoding {
         unreachable!("Vector should never be packed.")
     }
 

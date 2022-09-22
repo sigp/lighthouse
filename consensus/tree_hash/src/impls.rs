@@ -14,8 +14,8 @@ macro_rules! impl_for_bitsize {
                 TreeHashType::Basic
             }
 
-            fn tree_hash_packed_encoding(&self) -> Vec<u8> {
-                self.to_le_bytes().to_vec()
+            fn tree_hash_packed_encoding(&self) -> PackedEncoding {
+                PackedEncoding::from_slice(&self.to_le_bytes())
             }
 
             fn tree_hash_packing_factor() -> usize {
@@ -41,7 +41,7 @@ impl TreeHash for bool {
         TreeHashType::Basic
     }
 
-    fn tree_hash_packed_encoding(&self) -> Vec<u8> {
+    fn tree_hash_packed_encoding(&self) -> PackedEncoding {
         (*self as u8).tree_hash_packed_encoding()
     }
 
@@ -62,7 +62,7 @@ macro_rules! impl_for_lt_32byte_u8_array {
                 TreeHashType::Vector
             }
 
-            fn tree_hash_packed_encoding(&self) -> Vec<u8> {
+            fn tree_hash_packed_encoding(&self) -> PackedEncoding {
                 unreachable!("bytesN should never be packed.")
             }
 
@@ -87,10 +87,10 @@ impl TreeHash for U128 {
         TreeHashType::Basic
     }
 
-    fn tree_hash_packed_encoding(&self) -> Vec<u8> {
-        let mut result = vec![0; 16];
+    fn tree_hash_packed_encoding(&self) -> PackedEncoding {
+        let mut result = [0; 16];
         self.to_little_endian(&mut result);
-        result
+        PackedEncoding::from_slice(&result)
     }
 
     fn tree_hash_packing_factor() -> usize {
@@ -109,10 +109,10 @@ impl TreeHash for U256 {
         TreeHashType::Basic
     }
 
-    fn tree_hash_packed_encoding(&self) -> Vec<u8> {
-        let mut result = vec![0; 32];
+    fn tree_hash_packed_encoding(&self) -> PackedEncoding {
+        let mut result = [0; 32];
         self.to_little_endian(&mut result);
-        result
+        PackedEncoding::from_slice(&result)
     }
 
     fn tree_hash_packing_factor() -> usize {
@@ -131,10 +131,10 @@ impl TreeHash for H160 {
         TreeHashType::Vector
     }
 
-    fn tree_hash_packed_encoding(&self) -> Vec<u8> {
-        let mut result = vec![0; 32];
+    fn tree_hash_packed_encoding(&self) -> PackedEncoding {
+        let mut result = [0; 32];
         result[0..20].copy_from_slice(self.as_bytes());
-        result
+        PackedEncoding::from_slice(&result)
     }
 
     fn tree_hash_packing_factor() -> usize {
@@ -153,8 +153,8 @@ impl TreeHash for H256 {
         TreeHashType::Vector
     }
 
-    fn tree_hash_packed_encoding(&self) -> Vec<u8> {
-        self.as_bytes().to_vec()
+    fn tree_hash_packed_encoding(&self) -> PackedEncoding {
+        PackedEncoding::from_slice(self.as_bytes())
     }
 
     fn tree_hash_packing_factor() -> usize {

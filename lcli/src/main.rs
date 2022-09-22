@@ -1,5 +1,6 @@
 #[macro_use]
 extern crate log;
+mod block_root;
 mod change_genesis_time;
 mod check_deposit_data;
 mod create_payload_header;
@@ -714,6 +715,42 @@ fn main() {
                         .help("List of Attestations to convert to indexed form (JSON)"),
                 )
         )
+        .subcommand(
+            SubCommand::with_name("block-root")
+                .about("Computes the block root of some block")
+                .arg(
+                    Arg::with_name("block-path")
+                        .long("block-path")
+                        .value_name("PATH")
+                        .takes_value(true)
+                        .conflicts_with("beacon-url")
+                        .requires("pre-state-path")
+                        .help("Path to load a SignedBeaconBlock from file as SSZ."),
+                )
+                .arg(
+                    Arg::with_name("beacon-url")
+                        .long("beacon-url")
+                        .value_name("URL")
+                        .takes_value(true)
+                        .help("URL to a beacon-API provider."),
+                )
+                .arg(
+                    Arg::with_name("block-id")
+                        .long("block-id")
+                        .value_name("BLOCK_ID")
+                        .takes_value(true)
+                        .requires("beacon-url")
+                        .help("Identifier for a block as per beacon-API standards (slot, root, etc.)"),
+                )
+                .arg(
+                    Arg::with_name("runs")
+                        .long("runs")
+                        .value_name("INTEGER")
+                        .takes_value(true)
+                        .default_value("1")
+                        .help("Number of repeat runs, useful for benchmarking."),
+                )
+        )
         .get_matches();
 
     let result = matches
@@ -799,6 +836,8 @@ fn run<T: EthSpec>(
             .map_err(|e| format!("Failed to run insecure-validators command: {}", e)),
         ("indexed-attestations", Some(matches)) => indexed_attestations::run::<T>(matches)
             .map_err(|e| format!("Failed to run indexed-attestations command: {}", e)),
+        ("block-root", Some(matches)) => block_root::run::<T>(env, matches)
+            .map_err(|e| format!("Failed to run block-root command: {}", e)),
         (other, _) => Err(format!("Unknown subcommand {}. See --help.", other)),
     }
 }
