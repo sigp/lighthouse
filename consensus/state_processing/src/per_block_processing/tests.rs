@@ -8,7 +8,7 @@ use crate::per_block_processing::errors::{
 };
 use crate::{
     per_block_processing::{process_operations, verify_exit::verify_exit},
-    BlockSignatureStrategy, VerifyBlockRoot, VerifySignatures,
+    BlockSignatureStrategy, ConsensusContext, VerifyBlockRoot, VerifySignatures,
 };
 use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
 use lazy_static::lazy_static;
@@ -67,12 +67,13 @@ async fn valid_block_ok() {
         .make_block_return_pre_state(state, slot + Slot::new(1))
         .await;
 
+    let mut ctxt = ConsensusContext::new(block.slot());
     let result = per_block_processing(
         &mut state,
         &block,
-        None,
         BlockSignatureStrategy::VerifyIndividual,
         VerifyBlockRoot::True,
+        &mut ctxt,
         &spec,
     );
 
@@ -91,12 +92,13 @@ async fn invalid_block_header_state_slot() {
     let (mut block, signature) = signed_block.deconstruct();
     *block.slot_mut() = slot + Slot::new(1);
 
+    let mut ctxt = ConsensusContext::new(block.slot());
     let result = per_block_processing(
         &mut state,
         &SignedBeaconBlock::from_block(block, signature),
-        None,
         BlockSignatureStrategy::VerifyIndividual,
         VerifyBlockRoot::True,
+        &mut ctxt,
         &spec,
     );
 
@@ -122,12 +124,13 @@ async fn invalid_parent_block_root() {
     let (mut block, signature) = signed_block.deconstruct();
     *block.parent_root_mut() = Hash256::from([0xAA; 32]);
 
+    let mut ctxt = ConsensusContext::new(block.slot());
     let result = per_block_processing(
         &mut state,
         &SignedBeaconBlock::from_block(block, signature),
-        None,
         BlockSignatureStrategy::VerifyIndividual,
         VerifyBlockRoot::True,
+        &mut ctxt,
         &spec,
     );
 
@@ -154,12 +157,13 @@ async fn invalid_block_signature() {
         .await;
     let (block, _) = signed_block.deconstruct();
 
+    let mut ctxt = ConsensusContext::new(block.slot());
     let result = per_block_processing(
         &mut state,
         &SignedBeaconBlock::from_block(block, Signature::empty()),
-        None,
         BlockSignatureStrategy::VerifyIndividual,
         VerifyBlockRoot::True,
+        &mut ctxt,
         &spec,
     );
 
@@ -186,12 +190,13 @@ async fn invalid_randao_reveal_signature() {
         })
         .await;
 
+    let mut ctxt = ConsensusContext::new(signed_block.slot());
     let result = per_block_processing(
         &mut state,
         &signed_block,
-        None,
         BlockSignatureStrategy::VerifyIndividual,
         VerifyBlockRoot::True,
+        &mut ctxt,
         &spec,
     );
 
