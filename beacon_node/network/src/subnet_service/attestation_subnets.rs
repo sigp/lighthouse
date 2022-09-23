@@ -564,26 +564,8 @@ impl<T: BeaconChainTypes> AttestationService<T> {
     ///
     /// This function selects a new subnet to join, or extends the expiry if there are no more
     /// available subnets to choose from.
-    fn handle_random_subnet_expiry(&mut self, subnet_id: SubnetId, end_slot: Slot) {
-        let subnet_count = self.beacon_chain.spec.attestation_subnet_count;
-        if self.long_lived_subscriptions.len() == (subnet_count - 1) as usize {
-            let end_slot = end_slot + self.long_lived_subnet_subscription_slots;
-            // This is just an extra accuracy precaution, we could use the default timeout if
-            // needed.
-            if let Some(time_to_subscription_end) =
-                self.beacon_chain.slot_clock.duration_to_slot(end_slot)
-            {
-                // We are at capacity, simply increase the timeout of the current subnet.
-                self.long_lived_subscriptions.insert_at(
-                    subnet_id,
-                    end_slot + 1,
-                    time_to_subscription_end,
-                );
-            } else {
-                self.long_lived_subscriptions.insert(subnet_id, end_slot);
-            }
-            return;
-        }
+    fn handle_random_subnet_expiry(&mut self, subnet_id: SubnetId) {
+        self.handle_removed_subnet(subnet_id, SubscriptionKind::LongLived);
 
         // Remove the ENR bitfield bit and choose a new random on from the available subnets
         // Subscribe to a new random subnet.
@@ -718,8 +700,8 @@ impl<T: BeaconChainTypes> Stream for AttestationService<T> {
 
         // Process any random subnet expiries.
         match self.long_lived_subscriptions.poll_next_unpin(cx) {
-            Poll::Ready(Some(Ok((subnet_id, end_slot)))) => {
-                self.handle_random_subnet_expiry(subnet_id, end_slot)
+            Poll::Ready(Some(Ok((subnet_id, _end_slot)))) => {
+                self.handle_random_subnet_expiry(subnet_id)
             }
             Poll::Ready(Some(Err(e))) => {
                 error!(self.log, "Failed to check for random subnet cycles"; "error"=> e);
