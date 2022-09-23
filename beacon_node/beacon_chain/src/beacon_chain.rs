@@ -809,7 +809,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             if let Some(request_root) = request_root_opt {
                 if let Ok(prev_root) = state.get_block_root(prev_slot) {
-                    return Ok(Some((*prev_root != request_root).then(|| request_root)));
+                    return Ok(Some((*prev_root != request_root).then_some(request_root)));
                 }
             }
 
@@ -831,7 +831,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     slot: curr_slot,
                 });
             }
-            Ok((curr_root != prev_root).then(|| curr_root))
+            Ok((curr_root != prev_root).then_some(curr_root))
         } else {
             Ok(None)
         }
@@ -2871,7 +2871,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .pubkeys
                 .iter()
                 .zip(sync_aggregate.sync_committee_bits.iter())
-                .filter_map(|(pubkey, bit)| bit.then(|| pubkey))
+                .filter_map(|(pubkey, bit)| bit.then_some(pubkey))
                 .collect::<Vec<_>>();
 
             validator_monitor.register_sync_aggregate_in_block(

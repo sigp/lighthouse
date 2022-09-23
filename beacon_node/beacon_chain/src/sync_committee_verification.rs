@@ -343,7 +343,7 @@ impl<T: BeaconChainTypes> VerifiedSyncContribution<T> {
         let participant_pubkeys = sync_subcommittee_pubkeys
             .into_iter()
             .zip(contribution.aggregation_bits.iter())
-            .filter_map(|(pubkey, bit)| bit.then(|| pubkey))
+            .filter_map(|(pubkey, bit)| bit.then_some(pubkey))
             .collect::<Vec<_>>();
 
         // Ensure that all signatures are valid.
