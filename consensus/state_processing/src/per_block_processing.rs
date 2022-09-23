@@ -112,6 +112,7 @@ pub fn per_block_processing<T: EthSpec, Payload: ExecPayload<T>>(
         BlockSignatureStrategy::VerifyBulk => {
             // Verify all signatures in the block at once.
             let block_root = Some(ctxt.get_current_block_root(signed_block)?);
+            let proposer_index = Some(ctxt.get_proposer_index(state, spec)?);
             block_verify!(
                 BlockSignatureVerifier::verify_entire_block(
                     state,
@@ -119,6 +120,7 @@ pub fn per_block_processing<T: EthSpec, Payload: ExecPayload<T>>(
                     |pk_bytes| pk_bytes.decompress().ok().map(Cow::Owned),
                     signed_block,
                     block_root,
+                    proposer_index,
                     spec
                 )
                 .is_ok(),
@@ -160,7 +162,7 @@ pub fn per_block_processing<T: EthSpec, Payload: ExecPayload<T>>(
         process_execution_payload(state, payload, spec)?;
     }
 
-    process_randao(state, block, verify_randao, spec)?;
+    process_randao(state, block, verify_randao, ctxt, spec)?;
     process_eth1_data(state, block.body().eth1_data())?;
     process_operations(state, block.body(), proposer_index, verify_signatures, spec)?;
 
@@ -243,12 +245,14 @@ pub fn verify_block_signature<T: EthSpec, Payload: ExecPayload<T>>(
     spec: &ChainSpec,
 ) -> Result<(), BlockOperationError<HeaderInvalid>> {
     let block_root = Some(ctxt.get_current_block_root(block)?);
+    let proposer_index = Some(ctxt.get_proposer_index(state, spec)?);
     verify!(
         block_proposal_signature_set(
             state,
             |i| get_pubkey_from_state(state, i),
             block,
             block_root,
+            proposer_index,
             spec
         )?
         .verify(),
@@ -264,12 +268,21 @@ pub fn process_randao<T: EthSpec, Payload: ExecPayload<T>>(
     state: &mut BeaconState<T>,
     block: BeaconBlockRef<'_, T, Payload>,
     verify_signatures: VerifySignatures,
+    ctxt: &mut ConsensusContext<T>,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
     if verify_signatures.is_true() {
         // Verify RANDAO reveal signature.
+        let proposer_index = ctxt.get_proposer_index(state, spec)?;
         block_verify!(
-            randao_signature_set(state, |i| get_pubkey_from_state(state, i), block, spec)?.verify(),
+            randao_signature_set(
+                state,
+                |i| get_pubkey_from_state(state, i),
+                block,
+                Some(proposer_index),
+                spec
+            )?
+            .verify(),
             BlockProcessingError::RandaoSignatureInvalid
         );
     }

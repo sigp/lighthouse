@@ -83,7 +83,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use store::HotColdDB;
-use types::{BeaconState, ChainSpec, CloneConfig, EthSpec, Hash256, SignedBeaconBlock};
+use types::{BeaconState, ChainSpec, EthSpec, Hash256, SignedBeaconBlock};
 
 const HTTP_TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -360,6 +360,7 @@ fn do_transition<T: EthSpec>(
             decompressor,
             &block,
             Some(block_root),
+            None,
             spec,
         )
         .map_err(|e| format!("Invalid block signature: {:?}", e))?;

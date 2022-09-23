@@ -550,7 +550,7 @@ pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
     let mut signature_verifier = get_signature_verifier(&state, &pubkey_cache, &chain.spec);
 
     for (block_root, block) in &chain_segment {
-        signature_verifier.include_all_signatures(block, Some(*block_root))?;
+        signature_verifier.include_all_signatures(block, Some(*block_root), None)?;
     }
 
     if signature_verifier.verify().is_err() {
@@ -562,9 +562,10 @@ pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
     let mut signature_verified_blocks = chain_segment
         .into_iter()
         .map(|(block_root, block)| {
-            // FIXME(sproul): safe to include proposer index here?
-            let consensus_context =
-                ConsensusContext::new(block.slot()).set_current_block_root(block_root);
+            // Proposer index has already been verified above during signature verification.
+            let consensus_context = ConsensusContext::new(block.slot())
+                .set_current_block_root(block_root)
+                .set_proposer_index(block.message().proposer_index());
             SignatureVerifiedBlock {
                 block,
                 block_root,
@@ -941,12 +942,13 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
 
         let mut signature_verifier = get_signature_verifier(&state, &pubkey_cache, &chain.spec);
 
-        signature_verifier.include_all_signatures(&block, Some(block_root))?;
+        signature_verifier.include_all_signatures(&block, Some(block_root), None)?;
 
         if signature_verifier.verify().is_ok() {
             Ok(Self {
                 consensus_context: ConsensusContext::new(block.slot())
-                    .set_current_block_root(block_root),
+                    .set_current_block_root(block_root)
+                    .set_proposer_index(block.message().proposer_index()),
                 block,
                 block_root,
                 parent: Some(parent),
@@ -989,7 +991,11 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
 
         let mut signature_verifier = get_signature_verifier(&state, &pubkey_cache, &chain.spec);
 
-        signature_verifier.include_all_signatures_except_proposal(&block)?;
+        // Gossip verification has already checked the proposer index. Use it to check the RANDAO
+        // signature.
+        let verified_proposer_index = Some(block.message().proposer_index());
+        signature_verifier
+            .include_all_signatures_except_proposal(&block, verified_proposer_index)?;
 
         if signature_verifier.verify().is_ok() {
             Ok(Self {
