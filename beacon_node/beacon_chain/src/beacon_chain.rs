@@ -3645,7 +3645,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             ProduceBlockVerification::VerifyRandao => BlockSignatureStrategy::VerifyRandao,
             ProduceBlockVerification::NoVerification => BlockSignatureStrategy::NoVerification,
         };
-        let mut ctxt = ConsensusContext::new(block.slot()).set_proposer_index(proposer_index);
+        // Use a context without block root or proposer index so that both are checked.
+        let mut ctxt = ConsensusContext::new(block.slot());
         per_block_processing(
             &mut state,
             &block,

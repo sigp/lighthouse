@@ -55,7 +55,7 @@ use std::fs::File;
 use std::io::prelude::*;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
-use types::{BeaconState, EthSpec, Hash256};
+use types::{BeaconState, CloneConfig, EthSpec, Hash256};
 
 const HTTP_TIMEOUT: Duration = Duration::from_secs(10);
 
