@@ -104,6 +104,5 @@ eth2_serde_utils = { path = "consensus/serde_utils" }
 [profile.maxperf]
 inherits = "release"
 lto = "fat"
-strip = true
 codegen-units = 1
 incremental = false
