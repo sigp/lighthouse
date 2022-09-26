@@ -796,6 +796,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 );
                 self.store_full_state_in_batch(state_root, state, ops)?;
             } else {
+                /* FIXME(sproul): disabling this biz
                 debug!(
                     self.log,
                     "Storing state diff on epoch boundary";
@@ -812,6 +813,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 let diff = BeaconStateDiff::compute_diff(&prev_boundary_state, state)?;
                 drop(compute_diff_timer);
                 ops.push(self.state_diff_as_kv_store_op(state_root, &diff)?);
+                */
             }
         }
 
@@ -906,11 +908,13 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             }
 
             // On any other epoch boundary load and apply a diff.
+            /* FIXME(sproul): disabled temporarily
             if slot % E::slots_per_epoch() == 0 {
                 return self
                     .load_state_from_diff(*state_root, epoch_boundary_state_root)
                     .map(Some);
             }
+            */
 
             // Backtrack until we reach a state that is in the cache, or in the worst case
             // the finalized state (this should only be reachable on first start-up).
