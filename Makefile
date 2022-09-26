@@ -17,6 +17,8 @@ CLIPPY_PINNED_NIGHTLY=nightly-2022-05-19
 # List of features to use when cross-compiling. Can be overridden via the environment.
 CROSS_FEATURES ?= gnosis,slasher-lmdb,slasher-mdbx
 
+PROFILE ?= release
+
 # List of all hard forks. This list is used to set env variables for several tests so that
 # they run for different forks.
 FORKS=phase0 altair merge
@@ -25,11 +27,11 @@ FORKS=phase0 altair merge
 #
 # Binaries will most likely be found in `./target/release`
 install:
-	cargo install --path lighthouse --force --locked --features "$(FEATURES)"
+	cargo install --path lighthouse --force --locked --features "$(FEATURES)" --profile "$(PROFILE)"
 
 # Builds the lcli binary in release (optimized).
 install-lcli:
-	cargo install --path lcli --force --locked --features "$(FEATURES)"
+	cargo install --path lcli --force --locked --features "$(FEATURES)" --profile "$(PROFILE)"
 
 # The following commands use `cross` to build a cross-compile.
 #
