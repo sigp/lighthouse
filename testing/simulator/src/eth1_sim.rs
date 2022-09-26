@@ -56,15 +56,12 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
         })
         .collect::<Vec<_>>();
 
-    let log_level = "debug";
-    let log_format = None;
-
     let mut env = EnvironmentBuilder::minimal()
         .initialize_logger(LoggerConfig {
             path: None,
-            debug_level: log_level,
-            logfile_debug_level: "debug",
-            log_format,
+            debug_level: String::from("debug"),
+            logfile_debug_level: String::from("debug"),
+            log_format: None,
             log_color: false,
             disable_log_timestamp: false,
             max_log_size: 0,
