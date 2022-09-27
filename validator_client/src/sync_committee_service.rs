@@ -566,31 +566,20 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
             );
         }
 
-        if let Err(e) = if self.duties_service.disable_run_on_all {
-            self.beacon_nodes
-                .first_success(
-                    RequireSynced::No,
-                    OfflineOnFailure::Yes,
-                    |beacon_node| async move {
-                        beacon_node
-                            .post_validator_sync_committee_subscriptions(subscriptions_slice)
-                            .await
-                    },
-                )
-                .await
-        } else {
-            self.beacon_nodes
-                .run_on_all(
-                    RequireSynced::No,
-                    OfflineOnFailure::Yes,
-                    |beacon_node| async move {
-                        beacon_node
-                            .post_validator_sync_committee_subscriptions(subscriptions_slice)
-                            .await
-                    },
-                )
-                .await
-        } {
+        if let Err(e) = self
+            .beacon_nodes
+            .run(
+                RequireSynced::No,
+                OfflineOnFailure::Yes,
+                |beacon_node| async move {
+                    beacon_node
+                        .post_validator_sync_committee_subscriptions(subscriptions_slice)
+                        .await
+                },
+                self.duties_service.disable_run_on_all,
+            )
+            .await
+        {
             error!(
                 log,
                 "Unable to post sync committee subscriptions";

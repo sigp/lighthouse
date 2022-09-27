@@ -607,4 +607,27 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
             Ok(())
         }
     }
+
+    /// Call `func` on first beacon node that returns success or on all beacon nodes
+    /// depending on the value of `disable_run_on_all`.
+    pub async fn run<'a, F, Err, R>(
+        &'a self,
+        require_synced: RequireSynced,
+        offline_on_failure: OfflineOnFailure,
+        func: F,
+        disable_run_on_all: bool,
+    ) -> Result<(), Errors<Err>>
+    where
+        F: Fn(&'a BeaconNodeHttpClient) -> R,
+        R: Future<Output = Result<(), Err>>,
+    {
+        if disable_run_on_all {
+            self.first_success(require_synced, offline_on_failure, func)
+                .await?;
+            Ok(())
+        } else {
+            self.run_on_all(require_synced, offline_on_failure, func)
+                .await
+        }
+    }
 }

@@ -338,32 +338,20 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
         // Post the proposer preparations to the BN.
         let preparation_data_len = preparation_data.len();
         let preparation_entries = preparation_data.as_slice();
-        let res = if self.inner.disable_run_on_all {
-            self.beacon_nodes
-                .first_success(
-                    RequireSynced::Yes,
-                    OfflineOnFailure::Yes,
-                    |beacon_node| async move {
-                        beacon_node
-                            .post_validator_prepare_beacon_proposer(preparation_entries)
-                            .await
-                    },
-                )
-                .await
-        } else {
-            self.beacon_nodes
-                .run_on_all(
-                    RequireSynced::Yes,
-                    OfflineOnFailure::Yes,
-                    |beacon_node| async move {
-                        beacon_node
-                            .post_validator_prepare_beacon_proposer(preparation_entries)
-                            .await
-                    },
-                )
-                .await
-        };
-        match res {
+        match self
+            .beacon_nodes
+            .run(
+                RequireSynced::Yes,
+                OfflineOnFailure::Yes,
+                |beacon_node| async move {
+                    beacon_node
+                        .post_validator_prepare_beacon_proposer(preparation_entries)
+                        .await
+                },
+                self.inner.disable_run_on_all,
+            )
+            .await
+        {
             Ok(()) => debug!(
                 log,
                 "Published proposer preparation";
