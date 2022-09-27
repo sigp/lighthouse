@@ -254,6 +254,10 @@ lazy_static! {
         try_create_int_counter("beacon_shuffling_cache_hits_total", "Count of times shuffling cache fulfils request");
     pub static ref SHUFFLING_CACHE_MISSES: Result<IntCounter> =
         try_create_int_counter("beacon_shuffling_cache_misses_total", "Count of times shuffling cache fulfils request");
+    pub static ref SHUFFLING_CACHE_PROMISE_HITS: Result<IntCounter> =
+        try_create_int_counter("beacon_shuffling_cache_promise_hits_total", "Count of times shuffling cache returns a promise to future shuffling");
+    pub static ref SHUFFLING_CACHE_PROMISE_FAILS: Result<IntCounter> =
+        try_create_int_counter("beacon_shuffling_cache_promise_fails_total", "Count of times shuffling cache detects a failed promise");
 
     /*
      * Early attester cache

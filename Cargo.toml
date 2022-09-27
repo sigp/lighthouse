@@ -34,6 +34,7 @@ members = [
     "common/logging",
     "common/lru_cache",
     "common/malloc_utils",
+    "common/oneshot_broadcast",
     "common/sensitive_url",
     "common/slot_clock",
     "common/task_executor",

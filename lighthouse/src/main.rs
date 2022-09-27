@@ -146,6 +146,12 @@ fn main() {
                 .global(true),
         )
         .arg(
+            Arg::with_name("disable-log-timestamp")
+            .long("disable-log-timestamp")
+            .help("If present, do not include timestamps in logging output.")
+            .global(true),
+        )
+        .arg(
             Arg::with_name("debug-level")
                 .long("debug-level")
                 .value_name("LEVEL")
@@ -381,6 +387,8 @@ fn run<E: EthSpec>(
 
     let log_color = matches.is_present("log-color");
 
+    let disable_log_timestamp = matches.is_present("disable-log-timestamp");
+
     let logfile_debug_level = matches
         .value_of("logfile-debug-level")
         .ok_or("Expected --logfile-debug-level flag")?;
@@ -434,6 +442,7 @@ fn run<E: EthSpec>(
         logfile_debug_level,
         log_format,
         log_color,
+        disable_log_timestamp,
         max_log_size: logfile_max_size * 1_024 * 1_024,
         max_log_number: logfile_max_number,
         compression: logfile_compress,
