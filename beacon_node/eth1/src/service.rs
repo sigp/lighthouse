@@ -68,7 +68,6 @@ async fn endpoint_state(
             log,
             "Error connecting to eth1 node endpoint";
             "endpoint" => %endpoint,
-            "action" => "trying fallbacks"
         );
         EndpointError::RequestFailed(e)
     };
@@ -84,7 +83,6 @@ async fn endpoint_state(
             log,
             "Remote execution node is not synced";
             "endpoint" => %endpoint,
-            "action" => "trying fallbacks"
         );
         return Err(EndpointError::FarBehind);
     }
@@ -93,7 +91,6 @@ async fn endpoint_state(
             log,
             "Invalid execution chain ID. Please switch to correct chain ID on endpoint";
             "endpoint" => %endpoint,
-            "action" => "trying fallbacks",
             "expected" => ?config_chain_id,
             "received" => ?chain_id,
         );
@@ -135,7 +132,6 @@ async fn get_remote_head_and_new_block_ranges(
             "Execution endpoint is not synced";
             "endpoint" => %endpoint,
             "last_seen_block_unix_timestamp" => remote_head_block.timestamp,
-            "action" => "trying fallback"
         );
         return Err(Error::EndpointError(EndpointError::FarBehind));
     }
@@ -146,7 +142,6 @@ async fn get_remote_head_and_new_block_ranges(
                 service.log,
                 "Execution endpoint is not synced";
                 "endpoint" => %endpoint,
-                "action" => "trying fallbacks"
             );
         }
         e
