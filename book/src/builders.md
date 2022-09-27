@@ -197,7 +197,7 @@ INFO Successfully published a block to the builder network
 If you don't see that message around the time of your proposals, check your beacon node logs
 for `INFO` and `WARN` messages indicating why the builder was not used.
 
-Examples of messages indicating failure are:
+Examples of messages indicating fallback to a locally produced block are:
 
 ```
 INFO No payload provided by connected builder.
@@ -213,6 +213,13 @@ INFO The value offered by the connected builder does not meet the configured pro
 
 ```
 INFO Due to poor chain health the local execution engine will be used for payload construction.
+```
+
+In case of fallback you should see a log indicating that the locally produced payload was
+used in place of one from the builder:
+
+```
+INFO Reconstructing a full block using a local payload
 ```
 
 [mev-rs]: https://github.com/ralexstokes/mev-rs
