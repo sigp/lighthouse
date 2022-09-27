@@ -17,4 +17,12 @@ lazy_static! {
     pub static ref HIGHEST_PROCESSED_DEPOSIT_BLOCK: Result<IntGauge> =
         try_create_int_gauge("eth1_highest_processed_deposit_block", "Number of the last block checked for deposits");
 
+    /*
+     * Eth1 rpc connection
+     */
+
+    pub static ref ETH1_CONNECTED: Result<IntGauge> = try_create_int_gauge(
+        "sync_eth1_connected", "Set to 1 if connected to an eth1 node, otherwise set to 0"
+    );
+
 }

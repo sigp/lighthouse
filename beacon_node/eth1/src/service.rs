@@ -580,9 +580,13 @@ impl Service {
         let chain_id = self.config().chain_id.clone();
         let node_far_behind_seconds = self.inner.config.read().node_far_behind_seconds;
 
-        endpoint_state(client, &chain_id, &log)
-            .await
-            .map_err(|e| format!("Invalid endpoint state: {:?}", e))?;
+        match endpoint_state(client, &chain_id, &log).await {
+            Ok(()) => crate::metrics::set_gauge(&metrics::ETH1_CONNECTED, 1),
+            Err(e) => {
+                crate::metrics::set_gauge(&metrics::ETH1_CONNECTED, 0);
+                return Err(format!("Invalid endpoint state: {:?}", e));
+            }
+        }
         let (remote_head_block, new_block_numbers_deposit, new_block_numbers_block_cache) =
             get_remote_head_and_new_block_ranges(client, self, node_far_behind_seconds)
                 .await
