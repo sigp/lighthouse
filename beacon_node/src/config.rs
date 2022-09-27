@@ -668,6 +668,10 @@ pub fn get_config<E: EthSpec>(
         client_config.chain.enable_lock_timeouts = false;
     }
 
+    if cli_args.is_present("disable-eth1-sync") {
+        client_config.sync_eth1_chain = false;
+    }
+
     if let Some(timeout) =
         clap_utils::parse_optional(cli_args, "fork-choice-before-proposal-timeout")?
     {

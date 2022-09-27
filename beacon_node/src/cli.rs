@@ -852,4 +852,11 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                        failure caused by the execution layer.")
                 .takes_value(false)
         )
+        .arg(
+            Arg::with_name("disable-eth1-sync")
+                .long("disable-eth1-sync")
+                .help("Explictly disables the eth1 service. \
+                      Useful if you intend to run a non-validating beacon node.")
+                .takes_value(false)
+        )
 }
