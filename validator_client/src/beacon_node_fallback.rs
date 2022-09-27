@@ -109,8 +109,8 @@ pub struct Errors<E>(pub Vec<(String, Error<E>)>);
 
 impl<E: Debug> fmt::Display for Errors<E> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if self.0.len() > 1 {
-            write!(f, "Some endpoints failed")?;
+        if !self.0.is_empty() {
+            write!(f, "Some endpoints failed, num_failed: {}", self.0.len())?;
         }
         for (i, (id, error)) in self.0.iter().enumerate() {
             let comma = if i + 1 < self.0.len() { "," } else { "" };
