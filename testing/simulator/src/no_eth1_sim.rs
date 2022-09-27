@@ -45,7 +45,7 @@ pub fn run_no_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
         .initialize_logger(LoggerConfig {
             path: None,
             debug_level: String::from("debug"),
-            logfile_debug_level:String::from("debug"),
+            logfile_debug_level: String::from("debug"),
             log_format: None,
             log_color: false,
             disable_log_timestamp: false,

@@ -1,11 +1,11 @@
 use directory::DEFAULT_ROOT_DIR;
+use environment::LoggerConfig;
 use network::NetworkConfig;
 use sensitive_url::SensitiveUrl;
 use serde_derive::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 use types::{Graffiti, PublicKeyBytes};
-use environment::LoggerConfig;
 /// Default directory name for the freezer database under the top-level data dir.
 const DEFAULT_FREEZER_DB_DIR: &str = "freezer_db";
 
