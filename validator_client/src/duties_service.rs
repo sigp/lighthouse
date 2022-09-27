@@ -122,7 +122,6 @@ pub struct DutiesService<T, E: EthSpec> {
     /// aren't synced, but we keep it around for an emergency.
     pub require_synced: RequireSynced,
     pub context: RuntimeContext<E>,
-    pub disable_run_on_all: bool,
     pub spec: ChainSpec,
 }
 
@@ -588,7 +587,6 @@ async fn poll_beacon_attesters<T: SlotClock + 'static, E: EthSpec>(
                         .post_validator_beacon_committee_subscriptions(subscriptions_ref)
                         .await
                 },
-                duties_service.disable_run_on_all,
             )
             .await
         {

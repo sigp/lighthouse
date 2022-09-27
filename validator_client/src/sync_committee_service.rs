@@ -576,7 +576,6 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
                         .post_validator_sync_committee_subscriptions(subscriptions_slice)
                         .await
                 },
-                self.duties_service.disable_run_on_all,
             )
             .await
         {

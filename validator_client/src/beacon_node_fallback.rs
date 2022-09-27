@@ -296,15 +296,22 @@ impl<E: EthSpec> CandidateBeaconNode<E> {
 pub struct BeaconNodeFallback<T, E> {
     candidates: Vec<CandidateBeaconNode<E>>,
     slot_clock: Option<T>,
+    disable_run_on_all: bool,
     spec: ChainSpec,
     log: Logger,
 }
 
 impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
-    pub fn new(candidates: Vec<CandidateBeaconNode<E>>, spec: ChainSpec, log: Logger) -> Self {
+    pub fn new(
+        candidates: Vec<CandidateBeaconNode<E>>,
+        disable_run_on_all: bool,
+        spec: ChainSpec,
+        log: Logger,
+    ) -> Self {
         Self {
             candidates,
             slot_clock: None,
+            disable_run_on_all,
             spec,
             log,
         }
@@ -615,13 +622,12 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
         require_synced: RequireSynced,
         offline_on_failure: OfflineOnFailure,
         func: F,
-        disable_run_on_all: bool,
     ) -> Result<(), Errors<Err>>
     where
         F: Fn(&'a BeaconNodeHttpClient) -> R,
         R: Future<Output = Result<(), Err>>,
     {
-        if disable_run_on_all {
+        if self.disable_run_on_all {
             self.first_success(require_synced, offline_on_failure, func)
                 .await?;
             Ok(())

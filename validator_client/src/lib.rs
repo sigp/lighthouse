@@ -327,8 +327,12 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
         // Initialize the number of connected, avaliable beacon nodes to 0.
         set_gauge(&http_metrics::metrics::AVAILABLE_BEACON_NODES_COUNT, 0);
 
-        let mut beacon_nodes: BeaconNodeFallback<_, T> =
-            BeaconNodeFallback::new(candidates, context.eth2_config.spec.clone(), log.clone());
+        let mut beacon_nodes: BeaconNodeFallback<_, T> = BeaconNodeFallback::new(
+            candidates,
+            config.disable_run_on_all,
+            context.eth2_config.spec.clone(),
+            log.clone(),
+        );
 
         // Perform some potentially long-running initialization tasks.
         let (genesis_time, genesis_validators_root) = tokio::select! {
@@ -404,7 +408,6 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
                 RequireSynced::No
             },
             spec: context.eth2_config.spec.clone(),
-            disable_run_on_all: config.disable_run_on_all,
             context: duties_context,
         });
 
@@ -437,7 +440,6 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             .beacon_nodes(beacon_nodes.clone())
             .runtime_context(context.service_context("preparation".into()))
             .builder_registration_timestamp_override(config.builder_registration_timestamp_override)
-            .disable_run_on_all(config.disable_run_on_all)
             .build()?;
 
         let sync_committee_service = SyncCommitteeService::new(
