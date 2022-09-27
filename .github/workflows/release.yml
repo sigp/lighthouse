@@ -35,20 +35,28 @@ jobs:
                 include:
                     -   arch: aarch64-unknown-linux-gnu
                         platform: ubuntu-latest
+                        profile: maxperf
                     -   arch: aarch64-unknown-linux-gnu-portable
                         platform: ubuntu-latest
+                        profile: maxperf
                     -   arch: x86_64-unknown-linux-gnu
                         platform: ubuntu-latest
+                        profile: maxperf
                     -   arch: x86_64-unknown-linux-gnu-portable
                         platform: ubuntu-latest
+                        profile: maxperf
                     -   arch: x86_64-apple-darwin
                         platform: macos-latest
+                        profile: maxperf
                     -   arch: x86_64-apple-darwin-portable
                         platform: macos-latest
+                        profile: maxperf
                     -   arch: x86_64-windows
                         platform: windows-2019
+                        profile: maxperf
                     -   arch: x86_64-windows-portable
                         platform: windows-2019
+                        profile: maxperf
 
         runs-on:    ${{ matrix.platform }}
         needs: extract-version
@@ -105,11 +113,11 @@ jobs:
 
             - name: Move cross-compiled binary
               if:  startsWith(matrix.arch, 'aarch64')
-              run: mv target/aarch64-unknown-linux-gnu/release/lighthouse ~/.cargo/bin/lighthouse
+              run: mv target/aarch64-unknown-linux-gnu/${{ matrix.profile }}/lighthouse ~/.cargo/bin/lighthouse
 
             - name: Move cross-compiled binary
               if:  startsWith(matrix.arch, 'x86_64-unknown-linux-gnu')
-              run: mv target/x86_64-unknown-linux-gnu/release/lighthouse ~/.cargo/bin/lighthouse
+              run: mv target/x86_64-unknown-linux-gnu/${{ matrix.profile }}/lighthouse ~/.cargo/bin/lighthouse
 
             - name: Build Lighthouse for x86_64-apple-darwin portable
               if:   matrix.arch == 'x86_64-apple-darwin-portable'
@@ -212,7 +220,7 @@ jobs:
                   <Rick and Morty character>
 
                   ## Testing Checklist (DELETE ME)
-                  
+
                   - [ ] Run on synced Prater Sigma Prime nodes.
                   - [ ] Run on synced Canary (mainnet) Sigma Prime nodes.
                   - [ ] Resync a Prater node.
