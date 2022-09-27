@@ -491,7 +491,7 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
         Err(Errors(errors))
     }
 
-    /// Run `func` against all candidates in `self`, collecting the result of func against each
+    /// Run `func` against all candidates in `self`, collecting the result of `func` against each
     /// candidate.
     ///
     /// First this function will try all nodes with a suitable status. If no candidates are suitable
