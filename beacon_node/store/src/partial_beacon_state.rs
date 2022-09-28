@@ -2,13 +2,15 @@ use crate::chunked_vector::{
     load_variable_list_from_db, load_vector_from_db, BlockRoots, HistoricalRoots, RandaoMixes,
     StateRoots,
 };
-use crate::{get_key_for_col, DBColumn, Error, KeyValueStore, KeyValueStoreOp};
+use crate::{get_key_for_col, DBColumn, Error, KeyValueStore, KeyValueStoreOp, StoreConfig};
+use itertools::process_results;
 use ssz::{Decode, DecodeError, Encode};
 use ssz_derive::{Decode, Encode};
-use std::convert::TryInto;
+use std::io::Write;
 use std::sync::Arc;
 use types::superstruct;
 use types::*;
+use zstd::Encoder;
 
 /// Lightweight variant of the `BeaconState` that is stored in the database.
 ///
@@ -47,7 +49,7 @@ where
     pub eth1_deposit_index: u64,
 
     // Registry
-    pub validators: VList<Validator, T::ValidatorRegistryLimit>,
+    pub validators: Vec<ValidatorMutable>,
     pub balances: VList<u64, T::ValidatorRegistryLimit>,
 
     // Shuffling
@@ -114,7 +116,10 @@ macro_rules! impl_from_state_forgetful {
             eth1_deposit_index: $s.eth1_deposit_index,
 
             // Validator registry
-            validators: $s.validators.clone(),
+            validators: $s.validators.into_iter().map(|validator| {
+                    validator.mutable.clone()
+                })
+                .collect(),
             balances: $s.balances.clone(),
 
             // Shuffling
@@ -204,9 +209,23 @@ impl<T: EthSpec> PartialBeaconState<T> {
     }
 
     /// Prepare the partial state for storage in the KV database.
-    pub fn as_kv_store_op(&self, state_root: Hash256) -> KeyValueStoreOp {
+    pub fn as_kv_store_op(
+        &self,
+        state_root: Hash256,
+        config: &StoreConfig,
+    ) -> Result<KeyValueStoreOp, Error> {
         let db_key = get_key_for_col(DBColumn::BeaconState.into(), state_root.as_bytes());
-        KeyValueStoreOp::PutKeyValue(db_key, self.as_ssz_bytes())
+
+        let ssz_bytes = self.as_ssz_bytes();
+
+        let mut compressed_value =
+            Vec::with_capacity(config.estimate_compressed_size(ssz_bytes.len()));
+        let mut encoder = Encoder::new(&mut compressed_value, config.compression_level)
+            .map_err(Error::Compression)?;
+        encoder.write_all(&ssz_bytes).map_err(Error::Compression)?;
+        encoder.finish().map_err(Error::Compression)?;
+
+        Ok(KeyValueStoreOp::PutKeyValue(db_key, compressed_value))
     }
 
     pub fn load_block_roots<S: KeyValueStore<T>>(
@@ -278,7 +297,7 @@ impl<T: EthSpec> PartialBeaconState<T> {
 
 /// Implement the conversion from PartialBeaconState -> BeaconState.
 macro_rules! impl_try_into_beacon_state {
-    ($inner:ident, $variant_name:ident, $struct_name:ident, [$($extra_fields:ident),*]) => {
+    ($inner:ident, $variant_name:ident, $struct_name:ident, $immutable_validators:ident, [$($extra_fields:ident),*]) => {
         BeaconState::$variant_name($struct_name {
             // Versioning
             genesis_time: $inner.genesis_time,
@@ -298,7 +317,16 @@ macro_rules! impl_try_into_beacon_state {
             eth1_deposit_index: $inner.eth1_deposit_index,
 
             // Validator registry
-            validators: $inner.validators,
+            validators: process_results($inner.validators.into_iter().enumerate().map(|(i, mutable)| {
+                $immutable_validators(i)
+                    .ok_or(Error::MissingImmutableValidator(i))
+                    .map(move |immutable| {
+                        Validator {
+                            immutable,
+                            mutable
+                        }
+                    })
+            }), |iter| VList::try_from_iter(iter))??,
             balances: $inner.balances,
 
             // Shuffling
@@ -331,21 +359,24 @@ fn unpack_field<T>(x: Option<T>) -> Result<T, Error> {
     x.ok_or(Error::PartialBeaconStateError)
 }
 
-impl<E: EthSpec> TryInto<BeaconState<E>> for PartialBeaconState<E> {
-    type Error = Error;
-
-    fn try_into(self) -> Result<BeaconState<E>, Error> {
+impl<E: EthSpec> PartialBeaconState<E> {
+    pub fn try_into_full_state<F>(self, immutable_validators: F) -> Result<BeaconState<E>, Error>
+    where
+        F: Fn(usize) -> Option<Arc<ValidatorImmutable>>,
+    {
         let state = match self {
             PartialBeaconState::Base(inner) => impl_try_into_beacon_state!(
                 inner,
                 Base,
                 BeaconStateBase,
+                immutable_validators,
                 [previous_epoch_attestations, current_epoch_attestations]
             ),
             PartialBeaconState::Altair(inner) => impl_try_into_beacon_state!(
                 inner,
                 Altair,
                 BeaconStateAltair,
+                immutable_validators,
                 [
                     previous_epoch_participation,
                     current_epoch_participation,
@@ -358,6 +389,7 @@ impl<E: EthSpec> TryInto<BeaconState<E>> for PartialBeaconState<E> {
                 inner,
                 Merge,
                 BeaconStateMerge,
+                immutable_validators,
                 [
                     previous_epoch_participation,
                     current_epoch_participation,

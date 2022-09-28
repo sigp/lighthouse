@@ -545,7 +545,7 @@ pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
     )?;
 
     let pubkey_cache = get_validator_pubkey_cache(chain)?;
-    let mut signature_verifier = get_signature_verifier(&state, &pubkey_cache, &chain.spec);
+    let mut signature_verifier = get_signature_verifier::<T>(&state, &pubkey_cache, &chain.spec);
 
     for (block_root, block) in &chain_segment {
         signature_verifier.include_all_signatures(block, Some(*block_root), true)?;
@@ -936,7 +936,8 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
 
         let pubkey_cache = get_validator_pubkey_cache(chain)?;
 
-        let mut signature_verifier = get_signature_verifier(&state, &pubkey_cache, &chain.spec);
+        let mut signature_verifier =
+            get_signature_verifier::<T>(&state, &pubkey_cache, &chain.spec);
 
         signature_verifier.include_all_signatures(&block, Some(block_root), true)?;
 
@@ -985,7 +986,8 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
 
         let pubkey_cache = get_validator_pubkey_cache(chain)?;
 
-        let mut signature_verifier = get_signature_verifier(&state, &pubkey_cache, &chain.spec);
+        let mut signature_verifier =
+            get_signature_verifier::<T>(&state, &pubkey_cache, &chain.spec);
 
         signature_verifier.include_all_signatures_except_proposal(&block)?;
 

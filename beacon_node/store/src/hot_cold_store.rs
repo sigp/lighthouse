@@ -20,7 +20,7 @@ use crate::metrics;
 use crate::state_cache::{PutStateOutcome, StateCache};
 use crate::{
     get_key_for_col, DBColumn, DatabaseBlock, Error, ItemStore, KeyValueStoreOp,
-    PartialBeaconState, StoreItem, StoreOp,
+    PartialBeaconState, StoreItem, StoreOp, ValidatorPubkeyCache,
 };
 use itertools::process_results;
 use leveldb::iterator::LevelDBIterator;
@@ -36,13 +36,14 @@ use state_processing::{
     block_replayer::PreSlotHook, BlockProcessingError, BlockReplayer, SlotProcessingError,
 };
 use std::cmp::min;
-use std::convert::TryInto;
+use std::io::Read;
 use std::marker::PhantomData;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 use types::*;
 use types::{beacon_state::BeaconStateDiff, EthSpec};
+use zstd::Decoder;
 
 pub const MAX_PARENT_STATES_TO_CACHE: u64 = 32;
 
@@ -70,6 +71,8 @@ pub struct HotColdDB<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> {
     block_cache: Mutex<LruCache<Hash256, SignedBeaconBlock<E>>>,
     /// Cache of beacon states.
     state_cache: Mutex<StateCache<E>>,
+    /// Immutable validator cache.
+    pub immutable_validators: Arc<RwLock<ValidatorPubkeyCache<E, Hot, Cold>>>,
     /// Chain spec.
     pub(crate) spec: ChainSpec,
     /// Logger.
@@ -141,6 +144,7 @@ impl<E: EthSpec> HotColdDB<E, MemoryStore<E>, MemoryStore<E>> {
             hot_db: MemoryStore::open(),
             block_cache: Mutex::new(LruCache::new(config.block_cache_size)),
             state_cache: Mutex::new(StateCache::new(config.state_cache_size)),
+            immutable_validators: Arc::new(RwLock::new(Default::default())),
             config,
             spec,
             log,
@@ -176,6 +180,7 @@ impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
             hot_db: LevelDB::open(hot_path)?,
             block_cache: Mutex::new(LruCache::new(config.block_cache_size)),
             state_cache: Mutex::new(StateCache::new(config.state_cache_size)),
+            immutable_validators: Arc::new(RwLock::new(Default::default())),
             config,
             spec,
             log,
@@ -216,6 +221,11 @@ impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
                 "split_state" => ?split.state_root
             );
         }
+
+        // Load validator pubkey cache.
+        // FIXME(sproul): probably breaks migrations, etc
+        let pubkey_cache = ValidatorPubkeyCache::load_from_store(&db)?;
+        *db.immutable_validators.write() = pubkey_cache;
 
         // Ensure that the schema version of the on-disk database matches the software.
         // If the version is mismatched, an automatic migration will be attempted.
@@ -1100,7 +1110,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
         // 1. Convert to PartialBeaconState and store that in the DB.
         let partial_state = PartialBeaconState::from_state_forgetful(state);
-        let op = partial_state.as_kv_store_op(*state_root);
+        let op = partial_state.as_kv_store_op(*state_root, &self.config)?;
         ops.push(op);
 
         // 2. Store updated vector entries.
@@ -1151,12 +1161,19 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
     /// Load a restore point state by its `state_root`.
     fn load_restore_point(&self, state_root: &Hash256) -> Result<BeaconState<E>, Error> {
-        let partial_state_bytes = self
+        let bytes = self
             .cold_db
             .get_bytes(DBColumn::BeaconState.into(), state_root.as_bytes())?
             .ok_or(HotColdDBError::MissingRestorePoint(*state_root))?;
+
+        let mut ssz_bytes = Vec::with_capacity(self.config.estimate_decompressed_size(bytes.len()));
+        let mut decoder = Decoder::new(&*bytes).map_err(Error::Compression)?;
+        decoder
+            .read_to_end(&mut ssz_bytes)
+            .map_err(Error::Compression)?;
+
         let mut partial_state: PartialBeaconState<E> =
-            PartialBeaconState::from_ssz_bytes(&partial_state_bytes, &self.spec)?;
+            PartialBeaconState::from_ssz_bytes(&ssz_bytes, &self.spec)?;
 
         // Fill in the fields of the partial state.
         partial_state.load_block_roots(&self.cold_db, &self.spec)?;
@@ -1164,7 +1181,10 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         partial_state.load_historical_roots(&self.cold_db, &self.spec)?;
         partial_state.load_randao_mixes(&self.cold_db, &self.spec)?;
 
-        partial_state.try_into()
+        let pubkey_cache = self.immutable_validators.read();
+        let immutable_validators = |i: usize| pubkey_cache.get_validator(i);
+
+        partial_state.try_into_full_state(immutable_validators)
     }
 
     /// Load a restore point state by its `restore_point_index`.

@@ -8,7 +8,6 @@ use crate::persisted_beacon_chain::PersistedBeaconChain;
 use crate::shuffling_cache::ShufflingCache;
 use crate::timeout_rw_lock::TimeoutRwLock;
 use crate::validator_monitor::ValidatorMonitor;
-use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use crate::ChainConfig;
 use crate::{
     BeaconChain, BeaconChainTypes, BeaconForkChoiceStore, BeaconSnapshot, Eth1Chain,
@@ -81,7 +80,6 @@ pub struct BeaconChainBuilder<T: BeaconChainTypes> {
     slot_clock: Option<T::SlotClock>,
     shutdown_sender: Option<Sender<ShutdownReason>>,
     head_tracker: Option<HeadTracker>,
-    validator_pubkey_cache: Option<ValidatorPubkeyCache<T>>,
     spec: ChainSpec,
     chain_config: ChainConfig,
     log: Option<Logger>,
@@ -122,7 +120,6 @@ where
             slot_clock: None,
             shutdown_sender: None,
             head_tracker: None,
-            validator_pubkey_cache: None,
             spec: TEthSpec::default_spec(),
             chain_config: ChainConfig::default(),
             log: None,
@@ -280,16 +277,12 @@ where
                 .unwrap_or_else(OperationPool::new),
         );
 
-        let pubkey_cache = ValidatorPubkeyCache::load_from_store(store)
-            .map_err(|e| format!("Unable to open persisted pubkey cache: {:?}", e))?;
-
         self.genesis_block_root = Some(chain.genesis_block_root);
         self.genesis_state_root = Some(genesis_block.state_root());
         self.head_tracker = Some(
             HeadTracker::from_ssz_container(&chain.ssz_head_tracker)
                 .map_err(|e| format!("Failed to decode head tracker for database: {:?}", e))?,
         );
-        self.validator_pubkey_cache = Some(pubkey_cache);
         self.fork_choice = Some(fork_choice);
 
         Ok(self)
@@ -713,10 +706,13 @@ where
             ));
         }
 
-        let validator_pubkey_cache = self.validator_pubkey_cache.map(Ok).unwrap_or_else(|| {
-            ValidatorPubkeyCache::new(&head_snapshot.beacon_state, store.clone())
-                .map_err(|e| format!("Unable to init validator pubkey cache: {:?}", e))
-        })?;
+        let validator_pubkey_cache = store.immutable_validators.clone();
+
+        // Update pubkey cache on first start in case we have started from genesis.
+        validator_pubkey_cache
+            .write()
+            .import_new_pubkeys(&head_snapshot.beacon_state, &store)
+            .map_err(|e| format!("error initializing pubkey cache: {e:?}"))?;
 
         let migrator_config = self.store_migrator_config.unwrap_or_default();
         let store_migrator = BackgroundMigrator::new(
@@ -816,7 +812,7 @@ where
             beacon_proposer_cache: <_>::default(),
             block_times_cache: <_>::default(),
             pre_finalization_block_cache: <_>::default(),
-            validator_pubkey_cache: TimeoutRwLock::new(validator_pubkey_cache),
+            validator_pubkey_cache,
             attester_cache: <_>::default(),
             early_attester_cache: <_>::default(),
             shutdown_sender: self

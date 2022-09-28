@@ -6,6 +6,7 @@ use ssz_derive::{Decode, Encode};
 use std::sync::Arc;
 use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
+use tree_hash_derive::TreeHash;
 
 const NUM_FIELDS: usize = 8;
 
@@ -20,7 +21,7 @@ pub struct Validator {
 
 /// The mutable fields of a validator.
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TestRandom)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom)]
 pub struct ValidatorMutable {
     #[serde(with = "eth2_serde_utils::quoted_u64")]
     pub effective_balance: u64,

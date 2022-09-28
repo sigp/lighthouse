@@ -30,3 +30,4 @@ tree_hash = "0.4.0"
 take-until = "0.1.0"
 zstd = "0.10.0"
 strum = { version = "0.24.0", features = ["derive"] }
+bls = { path = "../../crypto/bls" }

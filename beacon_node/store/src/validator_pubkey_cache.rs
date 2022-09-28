@@ -1,10 +1,10 @@
-use crate::errors::BeaconChainError;
-use crate::{BeaconChainTypes, BeaconStore};
+use crate::{DBColumn, Error, HotColdDB, ItemStore, StoreItem};
 use ssz::{Decode, Encode};
 use std::collections::HashMap;
 use std::convert::TryInto;
-use store::{DBColumn, Error as StoreError, StoreItem};
-use types::{BeaconState, Hash256, PublicKey, PublicKeyBytes};
+use std::marker::PhantomData;
+use std::sync::Arc;
+use types::{BeaconState, EthSpec, Hash256, PublicKey, PublicKeyBytes, ValidatorImmutable};
 
 /// Provides a mapping of `validator_index -> validator_publickey`.
 ///
@@ -17,49 +17,63 @@ use types::{BeaconState, Hash256, PublicKey, PublicKeyBytes};
 ///
 /// The cache has a `backing` that it uses to maintain a persistent, on-disk
 /// copy of itself. This allows it to be restored between process invocations.
-pub struct ValidatorPubkeyCache<T: BeaconChainTypes> {
+#[derive(Debug)]
+pub struct ValidatorPubkeyCache<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> {
     pubkeys: Vec<PublicKey>,
     indices: HashMap<PublicKeyBytes, usize>,
-    pubkey_bytes: Vec<PublicKeyBytes>,
-    store: BeaconStore<T>,
+    validators: Vec<Arc<ValidatorImmutable>>,
+    _phantom: PhantomData<(E, Hot, Cold)>,
 }
 
-impl<T: BeaconChainTypes> ValidatorPubkeyCache<T> {
+// Temp value.
+impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> Default
+    for ValidatorPubkeyCache<E, Hot, Cold>
+{
+    fn default() -> Self {
+        ValidatorPubkeyCache {
+            pubkeys: vec![],
+            indices: HashMap::new(),
+            validators: vec![],
+            _phantom: PhantomData,
+        }
+    }
+}
+
+impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> ValidatorPubkeyCache<E, Hot, Cold> {
     /// Create a new public key cache using the keys in `state.validators`.
     ///
     /// Also creates a new persistence file, returning an error if there is already a file at
     /// `persistence_path`.
-    pub fn new(
-        state: &BeaconState<T::EthSpec>,
-        store: BeaconStore<T>,
-    ) -> Result<Self, BeaconChainError> {
+    pub fn new(state: &BeaconState<E>, store: &HotColdDB<E, Hot, Cold>) -> Result<Self, Error> {
         let mut cache = Self {
             pubkeys: vec![],
             indices: HashMap::new(),
-            pubkey_bytes: vec![],
-            store,
+            validators: vec![],
+            _phantom: PhantomData,
         };
 
-        cache.import_new_pubkeys(state)?;
+        cache.import_new_pubkeys(state, store)?;
 
         Ok(cache)
     }
 
     /// Load the pubkey cache from the given on-disk database.
-    pub fn load_from_store(store: BeaconStore<T>) -> Result<Self, BeaconChainError> {
+    pub fn load_from_store(store: &HotColdDB<E, Hot, Cold>) -> Result<Self, Error> {
         let mut pubkeys = vec![];
         let mut indices = HashMap::new();
-        let mut pubkey_bytes = vec![];
+        let mut validators = vec![];
 
         for validator_index in 0.. {
-            if let Some(DatabasePubkey(pubkey)) =
-                store.get_item(&DatabasePubkey::key_for_index(validator_index))?
+            if let Some(DatabaseValidator(validator)) =
+                store.get_item(&DatabaseValidator::key_for_index(validator_index))?
             {
-                pubkeys.push((&pubkey).try_into().map_err(|e| {
-                    BeaconChainError::ValidatorPubkeyCacheError(format!("{:?}", e))
-                })?);
-                pubkey_bytes.push(pubkey);
-                indices.insert(pubkey, validator_index);
+                pubkeys.push(
+                    (&validator.pubkey)
+                        .try_into()
+                        .map_err(|e| Error::ValidatorPubkeyCacheError(format!("{:?}", e)))?,
+                );
+                indices.insert(validator.pubkey, validator_index);
+                validators.push(validator);
             } else {
                 break;
             }
@@ -68,8 +82,8 @@ impl<T: BeaconChainTypes> ValidatorPubkeyCache<T> {
         Ok(ValidatorPubkeyCache {
             pubkeys,
             indices,
-            pubkey_bytes,
-            store,
+            validators,
+            _phantom: PhantomData,
         })
     }
 
@@ -78,15 +92,17 @@ impl<T: BeaconChainTypes> ValidatorPubkeyCache<T> {
     /// Does not delete any keys from `self` if they don't appear in `state`.
     pub fn import_new_pubkeys(
         &mut self,
-        state: &BeaconState<T::EthSpec>,
-    ) -> Result<(), BeaconChainError> {
-        if state.validators().len() > self.pubkeys.len() {
+        state: &BeaconState<E>,
+        store: &HotColdDB<E, Hot, Cold>,
+    ) -> Result<(), Error> {
+        if state.validators().len() > self.validators.len() {
             self.import(
                 state
                     .validators()
                     .iter_from(self.pubkeys.len())
                     .unwrap() // FIXME(sproul)
-                    .map(|v| *v.pubkey()),
+                    .map(|v| v.immutable.clone()),
+                store,
             )
         } else {
             Ok(())
@@ -94,19 +110,19 @@ impl<T: BeaconChainTypes> ValidatorPubkeyCache<T> {
     }
 
     /// Adds zero or more validators to `self`.
-    fn import<I>(&mut self, validator_keys: I) -> Result<(), BeaconChainError>
+    fn import<I>(&mut self, validator_keys: I, store: &HotColdDB<E, Hot, Cold>) -> Result<(), Error>
     where
-        I: Iterator<Item = PublicKeyBytes> + ExactSizeIterator,
+        I: Iterator<Item = Arc<ValidatorImmutable>> + ExactSizeIterator,
     {
-        self.pubkey_bytes.reserve(validator_keys.len());
+        self.validators.reserve(validator_keys.len());
         self.pubkeys.reserve(validator_keys.len());
         self.indices.reserve(validator_keys.len());
 
-        for pubkey in validator_keys {
+        for validator in validator_keys {
             let i = self.pubkeys.len();
 
-            if self.indices.contains_key(&pubkey) {
-                return Err(BeaconChainError::DuplicateValidatorPublicKey);
+            if self.indices.contains_key(&validator.pubkey) {
+                return Err(Error::DuplicateValidatorPublicKey);
             }
 
             // The item is written to disk _before_ it is written into
@@ -118,17 +134,18 @@ impl<T: BeaconChainTypes> ValidatorPubkeyCache<T> {
             // The motivation behind this ordering is that we do not want to have states that
             // reference a pubkey that is not in our cache. However, it's fine to have pubkeys
             // that are never referenced in a state.
-            self.store
-                .put_item(&DatabasePubkey::key_for_index(i), &DatabasePubkey(pubkey))?;
+            store.put_item(
+                &DatabaseValidator::key_for_index(i),
+                &DatabaseValidator(validator.clone()),
+            )?;
 
             self.pubkeys.push(
-                (&pubkey)
+                (&validator.pubkey)
                     .try_into()
-                    .map_err(BeaconChainError::InvalidValidatorPubkeyBytes)?,
+                    .map_err(Error::InvalidValidatorPubkeyBytes)?,
             );
-            self.pubkey_bytes.push(pubkey);
-
-            self.indices.insert(pubkey, i);
+            self.indices.insert(validator.pubkey, i);
+            self.validators.push(validator);
         }
 
         Ok(())
@@ -139,6 +156,11 @@ impl<T: BeaconChainTypes> ValidatorPubkeyCache<T> {
         self.pubkeys.get(i)
     }
 
+    /// Get the immutable validator with index `i`.
+    pub fn get_validator(&self, i: usize) -> Option<Arc<ValidatorImmutable>> {
+        self.validators.get(i).cloned()
+    }
+
     /// Get the `PublicKey` for a validator with `PublicKeyBytes`.
     pub fn get_pubkey_from_pubkey_bytes(&self, pubkey: &PublicKeyBytes) -> Option<&PublicKey> {
         self.get_index(pubkey).and_then(|index| self.get(index))
@@ -146,7 +168,7 @@ impl<T: BeaconChainTypes> ValidatorPubkeyCache<T> {
 
     /// Get the public key (in bytes form) for a validator with index `i`.
     pub fn get_pubkey_bytes(&self, i: usize) -> Option<&PublicKeyBytes> {
-        self.pubkey_bytes.get(i)
+        self.validators.get(i).map(|validator| &validator.pubkey)
     }
 
     /// Get the index of a validator with `pubkey`.
@@ -168,23 +190,23 @@ impl<T: BeaconChainTypes> ValidatorPubkeyCache<T> {
 /// Wrapper for a public key stored in the database.
 ///
 /// Keyed by the validator index as `Hash256::from_low_u64_be(index)`.
-struct DatabasePubkey(PublicKeyBytes);
+struct DatabaseValidator(Arc<ValidatorImmutable>);
 
-impl StoreItem for DatabasePubkey {
+impl StoreItem for DatabaseValidator {
     fn db_column() -> DBColumn {
         DBColumn::PubkeyCache
     }
 
-    fn as_store_bytes(&self) -> Result<Vec<u8>, StoreError> {
+    fn as_store_bytes(&self) -> Result<Vec<u8>, Error> {
         Ok(self.0.as_ssz_bytes())
     }
 
-    fn from_store_bytes(bytes: &[u8]) -> Result<Self, StoreError> {
-        Ok(Self(PublicKeyBytes::from_ssz_bytes(bytes)?))
+    fn from_store_bytes(bytes: &[u8]) -> Result<Self, Error> {
+        Ok(Self(Arc::new(ValidatorImmutable::from_ssz_bytes(bytes)?)))
     }
 }
 
-impl DatabasePubkey {
+impl DatabaseValidator {
     fn key_for_index(index: usize) -> Hash256 {
         Hash256::from_low_u64_be(index as u64)
     }

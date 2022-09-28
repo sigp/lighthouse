@@ -28,6 +28,7 @@ mod partial_beacon_state;
 pub mod reconstruct;
 mod state_cache;
 mod state_diff;
+pub mod validator_pubkey_cache;
 
 pub mod iter;
 
@@ -45,6 +46,7 @@ use parking_lot::MutexGuard;
 use std::sync::Arc;
 use strum::{EnumString, IntoStaticStr};
 pub use types::*;
+pub use validator_pubkey_cache::ValidatorPubkeyCache;
 
 pub type ColumnIter<'a> = Box<dyn Iterator<Item = Result<(Hash256, Vec<u8>), Error>> + 'a>;
 pub type ColumnKeyIter<'a> = Box<dyn Iterator<Item = Result<Hash256, Error>> + 'a>;

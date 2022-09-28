@@ -40,7 +40,6 @@ pub mod sync_committee_verification;
 pub mod test_utils;
 mod timeout_rw_lock;
 pub mod validator_monitor;
-pub mod validator_pubkey_cache;
 
 pub use self::beacon_chain::{
     AttestationProcessingOutcome, BeaconChain, BeaconChainTypes, BeaconStore, ChainSegmentResult,
@@ -70,3 +69,14 @@ pub use state_processing::per_block_processing::errors::{
 pub use store;
 pub use timeout_rw_lock::TimeoutRwLock;
 pub use types;
+
+// FIXME(sproul): compatibility shim
+pub mod validator_pubkey_cache {
+    use crate::BeaconChainTypes;
+
+    pub type ValidatorPubkeyCache<T> = store::ValidatorPubkeyCache<
+        <T as BeaconChainTypes>::EthSpec,
+        <T as BeaconChainTypes>::HotStore,
+        <T as BeaconChainTypes>::ColdStore,
+    >;
+}

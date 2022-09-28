@@ -59,7 +59,12 @@ pub enum Error {
     AddPayloadLogicError,
     ResyncRequiredForExecutionPayloadSeparation,
     SlotClockUnavailableForMigration,
+    MissingImmutableValidator(usize),
     V9MigrationFailure(Hash256),
+    ValidatorPubkeyCacheError(String),
+    DuplicateValidatorPublicKey,
+    InvalidValidatorPubkeyBytes(bls::Error),
+    ValidatorPubkeyCacheUninitialized,
 }
 
 pub trait HandleUnavailable<T> {

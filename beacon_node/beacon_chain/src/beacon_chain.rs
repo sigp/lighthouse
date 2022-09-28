@@ -359,7 +359,7 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     /// Caches the beacon block proposer shuffling for a given epoch and shuffling key root.
     pub beacon_proposer_cache: Mutex<BeaconProposerCache>,
     /// Caches a map of `validator_index -> validator_pubkey`.
-    pub(crate) validator_pubkey_cache: TimeoutRwLock<ValidatorPubkeyCache<T>>,
+    pub(crate) validator_pubkey_cache: Arc<RwLock<ValidatorPubkeyCache<T>>>,
     /// A cache used when producing attestations.
     pub(crate) attester_cache: Arc<AttesterCache>,
     /// A cache used when producing attestations whilst the head block is still being imported.
@@ -1170,10 +1170,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// May return an error if acquiring a read-lock on the `validator_pubkey_cache` times out.
     pub fn validator_index(&self, pubkey: &PublicKeyBytes) -> Result<Option<usize>, Error> {
-        let pubkey_cache = self
-            .validator_pubkey_cache
-            .try_read_for(VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT)
-            .ok_or(Error::ValidatorPubkeyCacheLockTimeout)?;
+        let pubkey_cache = self.validator_pubkey_cache.read();
 
         Ok(pubkey_cache.get_index(pubkey))
     }
@@ -1186,10 +1183,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         validator_pubkeys: impl Iterator<Item = &'a PublicKeyBytes>,
     ) -> Result<Vec<u64>, Error> {
-        let pubkey_cache = self
-            .validator_pubkey_cache
-            .try_read_for(VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT)
-            .ok_or(Error::ValidatorPubkeyCacheLockTimeout)?;
+        let pubkey_cache = self.validator_pubkey_cache.read();
 
         validator_pubkeys
             .map(|pubkey| {
@@ -1214,10 +1208,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// May return an error if acquiring a read-lock on the `validator_pubkey_cache` times out.
     pub fn validator_pubkey(&self, validator_index: usize) -> Result<Option<PublicKey>, Error> {
-        let pubkey_cache = self
-            .validator_pubkey_cache
-            .try_read_for(VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT)
-            .ok_or(Error::ValidatorPubkeyCacheLockTimeout)?;
+        let pubkey_cache = self.validator_pubkey_cache.read();
 
         Ok(pubkey_cache.get(validator_index).cloned())
     }
@@ -1227,11 +1218,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         validator_index: usize,
     ) -> Result<Option<PublicKeyBytes>, Error> {
-        let pubkey_cache = self
-            .validator_pubkey_cache
-            .try_read_for(VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT)
-            .ok_or(Error::ValidatorPubkeyCacheLockTimeout)?;
-
+        let pubkey_cache = self.validator_pubkey_cache.read();
         Ok(pubkey_cache.get_pubkey_bytes(validator_index).copied())
     }
 
@@ -1244,10 +1231,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         validator_indices: &[usize],
     ) -> Result<HashMap<usize, PublicKeyBytes>, Error> {
-        let pubkey_cache = self
-            .validator_pubkey_cache
-            .try_read_for(VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT)
-            .ok_or(Error::ValidatorPubkeyCacheLockTimeout)?;
+        let pubkey_cache = self.validator_pubkey_cache.read();
 
         let mut map = HashMap::with_capacity(validator_indices.len());
         for &validator_index in validator_indices {
@@ -2612,9 +2596,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // used by attestation processing which will only process an attestation if the block is
         // known to fork choice. This ordering ensure that the pubkey cache is always up-to-date.
         self.validator_pubkey_cache
-            .try_write_for(VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT)
-            .ok_or(Error::ValidatorPubkeyCacheLockTimeout)?
-            .import_new_pubkeys(&state)?;
+            .write()
+            .import_new_pubkeys(&state, &self.store)?;
 
         // For the current and next epoch of this state, ensure we have the shuffling from this
         // block in our cache.
