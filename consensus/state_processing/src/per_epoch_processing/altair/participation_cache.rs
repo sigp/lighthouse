@@ -129,10 +129,10 @@ impl SingleEpochParticipationCache {
 
         // All active validators increase the total active balance.
         self.total_active_balance
-            .safe_add_assign(validator.effective_balance)?;
+            .safe_add_assign(validator.effective_balance())?;
 
         // Only unslashed validators may proceed.
-        if validator.slashed {
+        if validator.slashed() {
             return Ok(());
         }
 
@@ -140,7 +140,7 @@ impl SingleEpochParticipationCache {
         // are set for `val_index`.
         for (flag, balance) in self.total_flag_balances.iter_mut().enumerate() {
             if epoch_participation.has_flag(flag)? {
-                balance.safe_add_assign(validator.effective_balance)?;
+                balance.safe_add_assign(validator.effective_balance())?;
             }
         }
 
@@ -288,11 +288,11 @@ impl ParticipationCache {
                 )?;
             }
 
-            if val.slashed
+            if val.slashed()
                 && current_epoch.safe_add(T::EpochsPerSlashingsVector::to_u64().safe_div(2)?)?
-                    == val.withdrawable_epoch
+                    == val.withdrawable_epoch()
             {
-                process_slashings_indices.push((val_index, val.effective_balance));
+                process_slashings_indices.push((val_index, val.effective_balance()));
             }
 
             // Note: a validator might still be "eligible" whilst returning `false` to
@@ -303,10 +303,10 @@ impl ParticipationCache {
             }
 
             let mut validator_info = ValidatorInfo {
-                effective_balance: val.effective_balance,
+                effective_balance: val.effective_balance(),
                 base_reward: 0, // not read
                 is_eligible,
-                is_slashed: val.slashed,
+                is_slashed: val.slashed(),
                 is_active_current_epoch,
                 is_active_previous_epoch,
                 previous_epoch_participation: *prev_epoch_flags,
@@ -332,7 +332,7 @@ impl ParticipationCache {
 
             #[allow(clippy::indexing_slicing)]
             if is_eligible || is_active_current_epoch {
-                let effective_balance = val.effective_balance;
+                let effective_balance = val.effective_balance();
                 let base_reward =
                     get_base_reward(effective_balance, base_reward_per_increment, spec)?;
                 validator_info.base_reward = base_reward;

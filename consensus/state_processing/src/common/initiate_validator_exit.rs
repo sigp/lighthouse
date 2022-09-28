@@ -9,7 +9,7 @@ pub fn initiate_validator_exit<T: EthSpec>(
     spec: &ChainSpec,
 ) -> Result<(), Error> {
     // Return if the validator already initiated exit
-    if state.get_validator(index)?.exit_epoch != spec.far_future_epoch {
+    if state.get_validator(index)?.exit_epoch() != spec.far_future_epoch {
         return Ok(());
     }
 
@@ -34,8 +34,8 @@ pub fn initiate_validator_exit<T: EthSpec>(
 
     // FIXME(sproul): could avoid this second lookup with some clever borrowing
     let mut validator = state.get_validator_mut(index)?;
-    validator.exit_epoch = exit_queue_epoch;
-    validator.withdrawable_epoch =
+    validator.mutable.exit_epoch = exit_queue_epoch;
+    validator.mutable.withdrawable_epoch =
         exit_queue_epoch.safe_add(spec.min_validator_withdrawability_delay)?;
 
     Ok(())

@@ -28,23 +28,23 @@ pub fn process_effective_balance_updates<T: EthSpec>(
             .ok_or(BeaconStateError::BalancesOutOfBounds(index))?;
 
         let new_effective_balance = if balance.safe_add(downward_threshold)?
-            < validator.effective_balance
-            || validator.effective_balance.safe_add(upward_threshold)? < balance
+            < validator.effective_balance()
+            || validator.effective_balance().safe_add(upward_threshold)? < balance
         {
             std::cmp::min(
                 balance.safe_sub(balance.safe_rem(spec.effective_balance_increment)?)?,
                 spec.max_effective_balance,
             )
         } else {
-            validator.effective_balance
+            validator.effective_balance()
         };
 
         if validator.is_active_at(next_epoch) {
             new_total_active_balance.safe_add_assign(new_effective_balance)?;
         }
 
-        if new_effective_balance != validator.effective_balance {
-            validator.to_mut().effective_balance = new_effective_balance;
+        if new_effective_balance != validator.effective_balance() {
+            validator.to_mut().mutable.effective_balance = new_effective_balance;
         }
     }
 

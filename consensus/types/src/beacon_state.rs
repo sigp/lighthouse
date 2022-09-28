@@ -833,7 +833,7 @@ impl<T: EthSpec> BeaconState<T> {
                 .get(shuffled_index)
                 .ok_or(Error::ShuffleIndexOutOfBounds(shuffled_index))?;
             let random_byte = Self::shuffling_random_byte(i, seed.as_bytes())?;
-            let effective_balance = self.get_validator(candidate_index)?.effective_balance;
+            let effective_balance = self.get_validator(candidate_index)?.effective_balance();
             if effective_balance.safe_mul(MAX_RANDOM_BYTE)?
                 >= spec
                     .max_effective_balance
@@ -1196,7 +1196,7 @@ impl<T: EthSpec> BeaconState<T> {
     /// Return the effective balance for a validator with the given `validator_index`.
     pub fn get_effective_balance(&self, validator_index: usize) -> Result<u64, Error> {
         self.get_validator(validator_index)
-            .map(|v| v.effective_balance)
+            .map(|v| v.effective_balance())
     }
 
     /// Get the inactivity score for a single validator.
@@ -1291,7 +1291,7 @@ impl<T: EthSpec> BeaconState<T> {
 
         for validator in self.validators() {
             if validator.is_active_at(epoch) {
-                total_active_balance.safe_add_assign(validator.effective_balance)?;
+                total_active_balance.safe_add_assign(validator.effective_balance())?;
             }
         }
         Ok(std::cmp::max(
@@ -1636,7 +1636,7 @@ impl<T: EthSpec> BeaconState<T> {
     /// a tangible speed improvement in state processing.
     pub fn is_eligible_validator(&self, previous_epoch: Epoch, val: &Validator) -> bool {
         val.is_active_at(previous_epoch)
-            || (val.slashed && previous_epoch + Epoch::new(1) < val.withdrawable_epoch)
+            || (val.slashed() && previous_epoch + Epoch::new(1) < val.withdrawable_epoch())
     }
 
     /// Passing `previous_epoch` to this function rather than computing it internally provides

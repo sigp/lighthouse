@@ -212,8 +212,8 @@ async fn publish_voluntary_exit<E: EthSpec>(
         let validator_data = get_validator_data(client, &keypair.pk).await?;
         match validator_data.status {
             ValidatorStatus::ActiveExiting => {
-                let exit_epoch = validator_data.validator.exit_epoch;
-                let withdrawal_epoch = validator_data.validator.withdrawable_epoch;
+                let exit_epoch = validator_data.validator.exit_epoch();
+                let withdrawal_epoch = validator_data.validator.withdrawable_epoch();
                 let current_epoch = get_current_epoch::<E>(genesis_data.genesis_time, spec)
                     .ok_or("Failed to get current epoch. Please check your system time")?;
                 eprintln!("Voluntary exit has been accepted into the beacon chain, but not yet finalized. \
@@ -233,7 +233,7 @@ async fn publish_voluntary_exit<E: EthSpec>(
             ValidatorStatus::ExitedSlashed | ValidatorStatus::ExitedUnslashed => {
                 eprintln!(
                     "Validator has exited on epoch: {}",
-                    validator_data.validator.exit_epoch
+                    validator_data.validator.exit_epoch()
                 );
                 break;
             }
@@ -259,7 +259,7 @@ async fn get_validator_index_for_exit(
         ValidatorStatus::ActiveOngoing => {
             let eligible_epoch = validator_data
                 .validator
-                .activation_epoch
+                .activation_epoch()
                 .safe_add(spec.shard_committee_period)
                 .map_err(|e| format!("Failed to calculate eligible epoch, validator activation epoch too high: {:?}", e))?;
 

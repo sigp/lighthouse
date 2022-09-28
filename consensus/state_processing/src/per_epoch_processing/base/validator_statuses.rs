@@ -198,7 +198,7 @@ impl ValidatorStatuses {
         for (i, validator) in state.validators().iter().enumerate() {
             let effective_balance = state.get_effective_balance(i)?;
             let mut status = ValidatorStatus {
-                is_slashed: validator.slashed,
+                is_slashed: validator.slashed(),
                 is_withdrawable_in_current_epoch: validator
                     .is_withdrawable_at(state.current_epoch()),
                 current_epoch_effective_balance: effective_balance,

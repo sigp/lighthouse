@@ -52,7 +52,7 @@ pub fn get_effective_balances<T: EthSpec>(state: &BeaconState<T>) -> Vec<u64> {
         .iter()
         .map(|validator| {
             if validator.is_active_at(state.current_epoch()) {
-                validator.effective_balance
+                validator.effective_balance()
             } else {
                 0
             }

@@ -327,12 +327,12 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                     metrics::set_int_gauge(
                         &metrics::VALIDATOR_MONITOR_EFFECTIVE_BALANCE_GWEI,
                         &[id],
-                        u64_to_i64(validator.effective_balance),
+                        u64_to_i64(validator.effective_balance()),
                     );
                     metrics::set_int_gauge(
                         &metrics::VALIDATOR_MONITOR_SLASHED,
                         &[id],
-                        if validator.slashed { 1 } else { 0 },
+                        if validator.slashed() { 1 } else { 0 },
                     );
                     metrics::set_int_gauge(
                         &metrics::VALIDATOR_MONITOR_ACTIVE,
@@ -364,22 +364,22 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                     metrics::set_int_gauge(
                         &metrics::VALIDATOR_ACTIVATION_ELIGIBILITY_EPOCH,
                         &[id],
-                        u64_to_i64(validator.activation_eligibility_epoch),
+                        u64_to_i64(validator.activation_eligibility_epoch()),
                     );
                     metrics::set_int_gauge(
                         &metrics::VALIDATOR_ACTIVATION_EPOCH,
                         &[id],
-                        u64_to_i64(validator.activation_epoch),
+                        u64_to_i64(validator.activation_epoch()),
                     );
                     metrics::set_int_gauge(
                         &metrics::VALIDATOR_EXIT_EPOCH,
                         &[id],
-                        u64_to_i64(validator.exit_epoch),
+                        u64_to_i64(validator.exit_epoch()),
                     );
                     metrics::set_int_gauge(
                         &metrics::VALIDATOR_WITHDRAWABLE_EPOCH,
                         &[id],
-                        u64_to_i64(validator.withdrawable_epoch),
+                        u64_to_i64(validator.withdrawable_epoch()),
                     );
                 }
             }

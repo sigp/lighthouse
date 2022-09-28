@@ -39,7 +39,7 @@ pub fn verify_exit<T: EthSpec>(
 
     // Verify that the validator has not yet exited.
     verify!(
-        validator.exit_epoch == spec.far_future_epoch,
+        validator.exit_epoch() == spec.far_future_epoch,
         ExitInvalid::AlreadyExited(exit.validator_index)
     );
 
@@ -54,7 +54,7 @@ pub fn verify_exit<T: EthSpec>(
 
     // Verify the validator has been active long enough.
     let earliest_exit_epoch = validator
-        .activation_epoch
+        .activation_epoch()
         .safe_add(spec.shard_committee_period)?;
     verify!(
         state.current_epoch() >= earliest_exit_epoch,

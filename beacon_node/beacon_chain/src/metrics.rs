@@ -1084,7 +1084,7 @@ fn scrape_head_state<T: EthSpec>(state: &BeaconState<T>, state_root: Hash256) {
             num_active += 1;
         }
 
-        if v.slashed {
+        if v.slashed() {
             num_slashed += 1;
         }
 

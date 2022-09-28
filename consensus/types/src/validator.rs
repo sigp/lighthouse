@@ -12,8 +12,16 @@ const NUM_FIELDS: usize = 8;
 /// Information about a `BeaconChain` validator.
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TestRandom)]
+// FIXME(sproul): fix serialize/deserialize impl
 pub struct Validator {
     pub immutable: Arc<ValidatorImmutable>,
+    pub mutable: ValidatorMutable,
+}
+
+/// The mutable fields of a validator.
+#[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TestRandom)]
+pub struct ValidatorMutable {
     #[serde(with = "eth2_serde_utils::quoted_u64")]
     pub effective_balance: u64,
     pub slashed: bool,
@@ -48,32 +56,56 @@ impl Validator {
         self.immutable.withdrawal_credentials
     }
 
+    pub fn effective_balance(&self) -> u64 {
+        self.mutable.effective_balance
+    }
+
+    pub fn slashed(&self) -> bool {
+        self.mutable.slashed
+    }
+
+    pub fn activation_eligibility_epoch(&self) -> Epoch {
+        self.mutable.activation_eligibility_epoch
+    }
+
+    pub fn activation_epoch(&self) -> Epoch {
+        self.mutable.activation_epoch
+    }
+
+    pub fn exit_epoch(&self) -> Epoch {
+        self.mutable.exit_epoch
+    }
+
+    pub fn withdrawable_epoch(&self) -> Epoch {
+        self.mutable.withdrawable_epoch
+    }
+
     /// Returns `true` if the validator is considered active at some epoch.
     pub fn is_active_at(&self, epoch: Epoch) -> bool {
-        self.activation_epoch <= epoch && epoch < self.exit_epoch
+        self.activation_epoch() <= epoch && epoch < self.exit_epoch()
     }
 
     /// Returns `true` if the validator is slashable at some epoch.
     pub fn is_slashable_at(&self, epoch: Epoch) -> bool {
-        !self.slashed && self.activation_epoch <= epoch && epoch < self.withdrawable_epoch
+        !self.slashed() && self.activation_epoch() <= epoch && epoch < self.withdrawable_epoch()
     }
 
     /// Returns `true` if the validator is considered exited at some epoch.
     pub fn is_exited_at(&self, epoch: Epoch) -> bool {
-        self.exit_epoch <= epoch
+        self.exit_epoch() <= epoch
     }
 
     /// Returns `true` if the validator is able to withdraw at some epoch.
     pub fn is_withdrawable_at(&self, epoch: Epoch) -> bool {
-        epoch >= self.withdrawable_epoch
+        epoch >= self.withdrawable_epoch()
     }
 
     /// Returns `true` if the validator is eligible to join the activation queue.
     ///
     /// Spec v0.12.1
     pub fn is_eligible_for_activation_queue(&self, spec: &ChainSpec) -> bool {
-        self.activation_eligibility_epoch == spec.far_future_epoch
-            && self.effective_balance == spec.max_effective_balance
+        self.activation_eligibility_epoch() == spec.far_future_epoch
+            && self.effective_balance() == spec.max_effective_balance
     }
 
     /// Returns `true` if the validator is eligible to be activated.
@@ -85,9 +117,9 @@ impl Validator {
         spec: &ChainSpec,
     ) -> bool {
         // Placement in queue is finalized
-        self.activation_eligibility_epoch <= state.finalized_checkpoint().epoch
+        self.activation_eligibility_epoch() <= state.finalized_checkpoint().epoch
         // Has not yet been activated
-        && self.activation_epoch == spec.far_future_epoch
+        && self.activation_epoch() == spec.far_future_epoch
     }
 
     fn tree_hash_root_internal(&self) -> Result<Hash256, tree_hash::Error> {
@@ -95,16 +127,16 @@ impl Validator {
 
         hasher.write(self.pubkey().tree_hash_root().as_bytes())?;
         hasher.write(self.withdrawal_credentials().tree_hash_root().as_bytes())?;
-        hasher.write(self.effective_balance.tree_hash_root().as_bytes())?;
-        hasher.write(self.slashed.tree_hash_root().as_bytes())?;
+        hasher.write(self.effective_balance().tree_hash_root().as_bytes())?;
+        hasher.write(self.slashed().tree_hash_root().as_bytes())?;
         hasher.write(
-            self.activation_eligibility_epoch
+            self.activation_eligibility_epoch()
                 .tree_hash_root()
                 .as_bytes(),
         )?;
-        hasher.write(self.activation_epoch.tree_hash_root().as_bytes())?;
-        hasher.write(self.exit_epoch.tree_hash_root().as_bytes())?;
-        hasher.write(self.withdrawable_epoch.tree_hash_root().as_bytes())?;
+        hasher.write(self.activation_epoch().tree_hash_root().as_bytes())?;
+        hasher.write(self.exit_epoch().tree_hash_root().as_bytes())?;
+        hasher.write(self.withdrawable_epoch().tree_hash_root().as_bytes())?;
 
         hasher.finish()
     }
@@ -118,12 +150,14 @@ impl Default for Validator {
                 pubkey: PublicKeyBytes::empty(),
                 withdrawal_credentials: Hash256::default(),
             }),
-            activation_eligibility_epoch: Epoch::from(std::u64::MAX),
-            activation_epoch: Epoch::from(std::u64::MAX),
-            exit_epoch: Epoch::from(std::u64::MAX),
-            withdrawable_epoch: Epoch::from(std::u64::MAX),
-            slashed: false,
-            effective_balance: std::u64::MAX,
+            mutable: ValidatorMutable {
+                activation_eligibility_epoch: Epoch::from(std::u64::MAX),
+                activation_epoch: Epoch::from(std::u64::MAX),
+                exit_epoch: Epoch::from(std::u64::MAX),
+                withdrawable_epoch: Epoch::from(std::u64::MAX),
+                slashed: false,
+                effective_balance: std::u64::MAX,
+            },
         }
     }
 }
@@ -160,7 +194,7 @@ mod tests {
         assert!(!v.is_active_at(epoch));
         assert!(!v.is_exited_at(epoch));
         assert!(!v.is_withdrawable_at(epoch));
-        assert!(!v.slashed);
+        assert!(!v.slashed());
     }
 
     #[test]

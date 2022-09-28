@@ -347,20 +347,20 @@ pub enum ValidatorStatus {
 impl ValidatorStatus {
     pub fn from_validator(validator: &Validator, epoch: Epoch, far_future_epoch: Epoch) -> Self {
         if validator.is_withdrawable_at(epoch) {
-            if validator.effective_balance == 0 {
+            if validator.effective_balance() == 0 {
                 ValidatorStatus::WithdrawalDone
             } else {
                 ValidatorStatus::WithdrawalPossible
             }
-        } else if validator.is_exited_at(epoch) && epoch < validator.withdrawable_epoch {
-            if validator.slashed {
+        } else if validator.is_exited_at(epoch) && epoch < validator.withdrawable_epoch() {
+            if validator.slashed() {
                 ValidatorStatus::ExitedSlashed
             } else {
                 ValidatorStatus::ExitedUnslashed
             }
         } else if validator.is_active_at(epoch) {
-            if validator.exit_epoch < far_future_epoch {
-                if validator.slashed {
+            if validator.exit_epoch() < far_future_epoch {
+                if validator.slashed() {
                     ValidatorStatus::ActiveSlashed
                 } else {
                     ValidatorStatus::ActiveExiting
@@ -371,7 +371,7 @@ impl ValidatorStatus {
         // `pending` statuses are specified as validators where `validator.activation_epoch > current_epoch`.
         // If this code is reached, this criteria must have been met because `validator.is_active_at(epoch)`,
         // `validator.is_exited_at(epoch)`, and `validator.is_withdrawable_at(epoch)` all returned false.
-        } else if validator.activation_eligibility_epoch == far_future_epoch {
+        } else if validator.activation_eligibility_epoch() == far_future_epoch {
             ValidatorStatus::PendingInitialized
         } else {
             ValidatorStatus::PendingQueued

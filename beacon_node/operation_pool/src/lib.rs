@@ -370,7 +370,7 @@ impl<T: EthSpec> OperationPool<T> {
                     && state
                         .validators()
                         .get(slashing.as_inner().signed_header_1.message.proposer_index as usize)
-                        .map_or(false, |validator| !validator.slashed)
+                        .map_or(false, |validator| !validator.slashed())
             },
             |slashing| slashing.as_inner().clone(),
             T::MaxProposerSlashings::to_usize(),
@@ -429,7 +429,7 @@ impl<T: EthSpec> OperationPool<T> {
     pub fn prune_proposer_slashings(&self, head_state: &BeaconState<T>) {
         prune_validator_hash_map(
             &mut self.proposer_slashings.write(),
-            |validator| validator.exit_epoch <= head_state.finalized_checkpoint().epoch,
+            |validator| validator.exit_epoch() <= head_state.finalized_checkpoint().epoch,
             head_state,
         );
     }
@@ -448,7 +448,7 @@ impl<T: EthSpec> OperationPool<T> {
                     //
                     // We cannot check the `slashed` field since the `head` is not finalized and
                     // a fork could un-slash someone.
-                    validator.exit_epoch > head_state.finalized_checkpoint().epoch
+                    validator.exit_epoch() > head_state.finalized_checkpoint().epoch
                 })
                 .map_or(false, |indices| !indices.is_empty());
 
@@ -504,7 +504,7 @@ impl<T: EthSpec> OperationPool<T> {
             //
             // We choose simplicity over the gain of pruning more exits since they are small and
             // should not be seen frequently.
-            |validator| validator.exit_epoch <= head_state.finalized_checkpoint().epoch,
+            |validator| validator.exit_epoch() <= head_state.finalized_checkpoint().epoch,
             head_state,
         );
     }

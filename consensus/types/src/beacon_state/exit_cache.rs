@@ -23,8 +23,8 @@ impl ExitCache {
         // Add all validators with a non-default exit epoch to the cache.
         validators
             .into_iter()
-            .filter(|validator| validator.exit_epoch != spec.far_future_epoch)
-            .try_for_each(|validator| exit_cache.record_validator_exit(validator.exit_epoch))?;
+            .filter(|validator| validator.exit_epoch() != spec.far_future_epoch)
+            .try_for_each(|validator| exit_cache.record_validator_exit(validator.exit_epoch()))?;
         Ok(exit_cache)
     }
 

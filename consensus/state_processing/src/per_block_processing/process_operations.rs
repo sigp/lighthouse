@@ -146,7 +146,7 @@ pub mod altair {
                 {
                     // FIXME(sproul): add effective balance cache here?
                     validator_participation.add_flag(flag_index)?;
-                    let effective_balance = state.get_validator(index)?.effective_balance;
+                    let effective_balance = state.get_validator(index)?.effective_balance();
                     proposer_reward_numerator.safe_add_assign(
                         get_base_reward(effective_balance, base_reward_per_increment, spec)?
                             .safe_mul(weight)?,
@@ -347,15 +347,17 @@ pub fn process_deposit<T: EthSpec>(
                 pubkey: deposit.data.pubkey,
                 withdrawal_credentials: deposit.data.withdrawal_credentials,
             }),
-            activation_eligibility_epoch: spec.far_future_epoch,
-            activation_epoch: spec.far_future_epoch,
-            exit_epoch: spec.far_future_epoch,
-            withdrawable_epoch: spec.far_future_epoch,
-            effective_balance: std::cmp::min(
-                amount.safe_sub(amount.safe_rem(spec.effective_balance_increment)?)?,
-                spec.max_effective_balance,
-            ),
-            slashed: false,
+            mutable: ValidatorMutable {
+                activation_eligibility_epoch: spec.far_future_epoch,
+                activation_epoch: spec.far_future_epoch,
+                exit_epoch: spec.far_future_epoch,
+                withdrawable_epoch: spec.far_future_epoch,
+                effective_balance: std::cmp::min(
+                    amount.safe_sub(amount.safe_rem(spec.effective_balance_increment)?)?,
+                    spec.max_effective_balance,
+                ),
+                slashed: false,
+            },
         };
         state.validators_mut().push(validator)?;
         state.balances_mut().push(deposit.data.amount)?;
