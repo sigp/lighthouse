@@ -91,25 +91,25 @@ jobs:
               if:   matrix.arch == 'aarch64-unknown-linux-gnu-portable'
               run:  |
                 cargo install cross
-                make build-aarch64-portable
+                env CROSS_PROFILE=${{ matrix.profile }} make build-aarch64-portable
 
             - name: Build Lighthouse for aarch64-unknown-linux-gnu
               if:   matrix.arch == 'aarch64-unknown-linux-gnu'
               run:  |
                 cargo install cross
-                make build-aarch64
+                env CROSS_PROFILE=${{ matrix.profile }} make build-aarch64
 
             - name: Build Lighthouse for x86_64-unknown-linux-gnu-portable
               if:   matrix.arch == 'x86_64-unknown-linux-gnu-portable'
               run:  |
                 cargo install cross
-                make build-x86_64-portable
+                env CROSS_PROFILE=${{ matrix.profile }} make build-x86_64-portable
 
             - name: Build Lighthouse for x86_64-unknown-linux-gnu
               if:   matrix.arch == 'x86_64-unknown-linux-gnu'
               run:  |
                 cargo install cross
-                make build-x86_64
+                env CROSS_PROFILE=${{ matrix.profile }} make build-x86_64
 
             - name: Move cross-compiled binary
               if:  startsWith(matrix.arch, 'aarch64')
@@ -121,19 +121,19 @@ jobs:
 
             - name: Build Lighthouse for x86_64-apple-darwin portable
               if:   matrix.arch == 'x86_64-apple-darwin-portable'
-              run:  cargo install --path lighthouse --force --locked --features portable,gnosis
+              run:  cargo install --path lighthouse --force --locked --features portable,gnosis --profile ${{ matrix.profile }}
 
             - name: Build Lighthouse for x86_64-apple-darwin modern
               if:   matrix.arch == 'x86_64-apple-darwin'
-              run:  cargo install --path lighthouse --force --locked --features modern,gnosis
+              run:  cargo install --path lighthouse --force --locked --features modern,gnosis --profile ${{ matrix.profile }}
 
             - name: Build Lighthouse for Windows portable
               if:   matrix.arch == 'x86_64-windows-portable'
-              run:  cargo install --path lighthouse --force --locked --features portable,gnosis
+              run:  cargo install --path lighthouse --force --locked --features portable,gnosis --profile ${{ matrix.profile }}
 
             - name: Build Lighthouse for Windows modern
               if:   matrix.arch == 'x86_64-windows'
-              run:  cargo install --path lighthouse --force --locked --features modern,gnosis
+              run:  cargo install --path lighthouse --force --locked --features modern,gnosis --profile ${{ matrix.profile }}
 
             - name: Configure GPG and create artifacts
               if: startsWith(matrix.arch, 'x86_64-windows') != true

@@ -16,8 +16,11 @@ CLIPPY_PINNED_NIGHTLY=nightly-2022-05-19
 
 # List of features to use when cross-compiling. Can be overridden via the environment.
 CROSS_FEATURES ?= gnosis,slasher-lmdb,slasher-mdbx
-CROSS_PROFILE ?= maxperf
 
+# Cargo profile for Cross builds. Default is for local builds, CI uses an override.
+CROSS_PROFILE ?= release
+
+# Cargo profile for regular builds.
 PROFILE ?= release
 
 # List of all hard forks. This list is used to set env variables for several tests so that
