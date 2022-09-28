@@ -459,6 +459,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .help("Hex-encoded JWT secret for the \
                        execution endpoint provided in the --execution-endpoint flag.")
                 .requires("execution-endpoint")
+                .conflicts_with("execution-jwt")
                 .takes_value(true)
         )
         .arg(

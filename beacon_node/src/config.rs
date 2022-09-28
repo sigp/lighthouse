@@ -313,7 +313,7 @@ pub fn get_config<E: EthSpec>(
                 .write_all(jwt_secret_key.as_bytes())
                 .expect("Error occured while writing to jwt_secret_key file!");
         } else {
-            panic!("Error! Please set either --execution-jwt file_path or --execution-jwt-secret-key directly via cli when using --execution-endpoint")
+            return Err("Error! Please set either --execution-jwt file_path or --execution-jwt-secret-key directly via cli when using --execution-endpoint".to_string());
         }
 
         // Parse and set the payload builder, if any.
