@@ -331,7 +331,7 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
         let preparation_entries = preparation_data.as_slice();
         match self
             .beacon_nodes
-            .first_success(
+            .run(
                 RequireSynced::Yes,
                 OfflineOnFailure::Yes,
                 |beacon_node| async move {
@@ -349,7 +349,7 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
             ),
             Err(e) => error!(
                 log,
-                "Unable to publish proposer preparation";
+                "Unable to publish proposer preparation to all beacon nodes";
                 "error" => %e,
             ),
         }

@@ -570,12 +570,12 @@ async fn poll_beacon_attesters<T: SlotClock + 'static, E: EthSpec>(
             });
     }
 
-    // If there are any subscriptions, push them out to the beacon node.
+    // If there are any subscriptions, push them out to beacon nodes
     if !subscriptions.is_empty() {
         let subscriptions_ref = &subscriptions;
         if let Err(e) = duties_service
             .beacon_nodes
-            .first_success(
+            .run(
                 duties_service.require_synced,
                 OfflineOnFailure::Yes,
                 |beacon_node| async move {
