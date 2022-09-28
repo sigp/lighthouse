@@ -3498,7 +3498,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         let slot = state.slot();
-        let proposer_index = state.get_beacon_proposer_index(state.slot(), &self.spec)? as u64;
 
         let sync_aggregate = if matches!(&state, BeaconState::Base(_)) {
             None
