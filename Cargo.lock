@@ -6441,6 +6441,7 @@ name = "store"
 version = "0.2.0"
 dependencies = [
  "beacon_chain",
+ "bls",
  "db-key",
  "directory",
  "eth2_ssz",
