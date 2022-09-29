@@ -79,11 +79,16 @@ impl<E: EthSpec> Operation<E> for Attestation<E> {
         spec: &ChainSpec,
         _: &Operations<E, Self>,
     ) -> Result<(), BlockProcessingError> {
-        let proposer_index = state.get_beacon_proposer_index(state.slot(), spec)? as u64;
+        let mut ctxt = ConsensusContext::new(state.slot());
+        let proposer_index = ctxt.get_proposer_index(state, spec)?;
         match state {
-            BeaconState::Base(_) => {
-                base::process_attestations(state, &[self.clone()], VerifySignatures::True, spec)
-            }
+            BeaconState::Base(_) => base::process_attestations(
+                state,
+                &[self.clone()],
+                VerifySignatures::True,
+                &mut ctxt,
+                spec,
+            ),
             BeaconState::Altair(_) | BeaconState::Merge(_) => altair::process_attestation(
                 state,
                 self,
@@ -111,7 +116,14 @@ impl<E: EthSpec> Operation<E> for AttesterSlashing<E> {
         spec: &ChainSpec,
         _: &Operations<E, Self>,
     ) -> Result<(), BlockProcessingError> {
-        process_attester_slashings(state, &[self.clone()], VerifySignatures::True, spec)
+        let mut ctxt = ConsensusContext::new(state.slot());
+        process_attester_slashings(
+            state,
+            &[self.clone()],
+            VerifySignatures::True,
+            &mut ctxt,
+            spec,
+        )
     }
 }
 
@@ -145,7 +157,14 @@ impl<E: EthSpec> Operation<E> for ProposerSlashing {
         spec: &ChainSpec,
         _: &Operations<E, Self>,
     ) -> Result<(), BlockProcessingError> {
-        process_proposer_slashings(state, &[self.clone()], VerifySignatures::True, spec)
+        let mut ctxt = ConsensusContext::new(state.slot());
+        process_proposer_slashings(
+            state,
+            &[self.clone()],
+            VerifySignatures::True,
+            &mut ctxt,
+            spec,
+        )
     }
 }
 

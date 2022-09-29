@@ -164,7 +164,7 @@ pub fn per_block_processing<T: EthSpec, Payload: ExecPayload<T>>(
 
     process_randao(state, block, verify_randao, ctxt, spec)?;
     process_eth1_data(state, block.body().eth1_data())?;
-    process_operations(state, block.body(), proposer_index, verify_signatures, spec)?;
+    process_operations(state, block.body(), verify_signatures, ctxt, spec)?;
 
     if let Ok(sync_aggregate) = block.body().sync_aggregate() {
         process_sync_aggregate(
