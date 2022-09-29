@@ -1,7 +1,7 @@
 //! Implementation of Lighthouse's peer management system.
 
-use crate::behaviour::TARGET_SUBNET_PEERS;
 use crate::rpc::{GoodbyeReason, MetaData, Protocol, RPCError, RPCResponseErrorCode};
+use crate::service::TARGET_SUBNET_PEERS;
 use crate::{error, metrics, Gossipsub};
 use crate::{NetworkGlobals, PeerId};
 use crate::{Subnet, SubnetDiscovery};
@@ -12,6 +12,7 @@ use peerdb::{client::ClientKind, BanOperation, BanResult, ScoreUpdateResult};
 use rand::seq::SliceRandom;
 use slog::{debug, error, trace, warn};
 use smallvec::SmallVec;
+use std::collections::VecDeque;
 use std::{
     sync::Arc,
     time::{Duration, Instant},
@@ -71,6 +72,8 @@ pub struct PeerManager<TSpec: EthSpec> {
     status_peers: HashSetDelay<PeerId>,
     /// The target number of peers we would like to connect to.
     target_peers: usize,
+    /// Peers queued to be dialed.
+    peers_to_dial: VecDeque<(PeerId, Option<Enr>)>,
     /// A collection of sync committee subnets that we need to stay subscribed to.
     /// Sync committee subnets are longer term (256 epochs). Hence, we need to re-run
     /// discovery queries for subnet peers if we disconnect from existing sync
@@ -115,7 +118,7 @@ pub enum PeerManagerEvent {
 
 impl<TSpec: EthSpec> PeerManager<TSpec> {
     // NOTE: Must be run inside a tokio executor.
-    pub async fn new(
+    pub fn new(
         cfg: config::Config,
         network_globals: Arc<NetworkGlobals<TSpec>>,
         log: &slog::Logger,
@@ -135,6 +138,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         Ok(PeerManager {
             network_globals,
             events: SmallVec::new(),
+            peers_to_dial: Default::default(),
             inbound_ping_peers: HashSetDelay::new(Duration::from_secs(ping_interval_inbound)),
             outbound_ping_peers: HashSetDelay::new(Duration::from_secs(ping_interval_outbound)),
             status_peers: HashSetDelay::new(Duration::from_secs(status_interval)),
@@ -360,8 +364,8 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     /* Notifications from the Swarm */
 
     // A peer is being dialed.
-    pub fn inject_dialing(&mut self, peer_id: &PeerId, enr: Option<Enr>) {
-        self.inject_peer_connection(peer_id, ConnectingType::Dialing, enr);
+    pub fn dial_peer(&mut self, peer_id: &PeerId, enr: Option<Enr>) {
+        self.peers_to_dial.push_back((*peer_id, enr));
     }
 
     /// Reports if a peer is banned or not.
@@ -1247,9 +1251,7 @@ mod tests {
         };
         let log = build_log(slog::Level::Debug, false);
         let globals = NetworkGlobals::new_test_globals(&log);
-        PeerManager::new(config, Arc::new(globals), &log)
-            .await
-            .unwrap()
+        PeerManager::new(config, Arc::new(globals), &log).unwrap()
     }
 
     #[tokio::test]
