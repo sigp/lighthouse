@@ -1046,7 +1046,7 @@ pub fn serve<T: BeaconChainTypes>(
              chain: Arc<BeaconChain<T>>,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
              log: Logger| async move {
-                publish_blocks::publish_block(block, chain, &network_tx, log)
+                publish_blocks::publish_block(None, block, chain, &network_tx, log)
                     .await
                     .map(|()| warp::reply())
             },
@@ -2531,7 +2531,7 @@ pub fn serve<T: BeaconChainTypes>(
                                         || matches!(validator_status, ValidatorStatus::Active);
 
                                 // Filter out validators who are not 'active' or 'pending'.
-                                is_active_or_pending.then(|| {
+                                is_active_or_pending.then_some({
                                     (
                                         ProposerPreparationData {
                                             validator_index: validator_index as u64,

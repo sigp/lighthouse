@@ -153,7 +153,8 @@ lint:
 		-A clippy::derive_partial_eq_without_eq \
 		-A clippy::from-over-into \
 		-A clippy::upper-case-acronyms \
-		-A clippy::vec-init-then-push
+		-A clippy::vec-init-then-push \
+	    -A clippy::question-mark
 
 nightly-lint:
 	cp .github/custom/clippy.toml .

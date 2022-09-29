@@ -55,7 +55,9 @@ pub use self::errors::{BeaconChainError, BlockProductionError};
 pub use self::historical_blocks::HistoricalBlockError;
 pub use attestation_verification::Error as AttestationError;
 pub use beacon_fork_choice_store::{BeaconForkChoiceStore, Error as ForkChoiceStoreError};
-pub use block_verification::{BlockError, ExecutionPayloadError, GossipVerifiedBlock};
+pub use block_verification::{
+    get_block_root, BlockError, ExecutionPayloadError, GossipVerifiedBlock,
+};
 pub use canonical_head::{CachedHead, CanonicalHead, CanonicalHeadRwLock};
 pub use eth1_chain::{Eth1Chain, Eth1ChainBackend};
 pub use events::ServerSentEventHandler;

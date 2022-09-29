@@ -1,4 +1,4 @@
-use crate::beacon_node_fallback::{AllErrored, Error as FallbackError};
+use crate::beacon_node_fallback::{Error as FallbackError, Errors};
 use crate::{
     beacon_node_fallback::{BeaconNodeFallback, RequireSynced},
     graffiti_file::GraffitiFile,
@@ -20,8 +20,8 @@ pub enum BlockError {
     Irrecoverable(String),
 }
 
-impl From<AllErrored<BlockError>> for BlockError {
-    fn from(e: AllErrored<BlockError>) -> Self {
+impl From<Errors<BlockError>> for BlockError {
+    fn from(e: Errors<BlockError>) -> Self {
         if e.0.iter().any(|(_, error)| {
             matches!(
                 error,
