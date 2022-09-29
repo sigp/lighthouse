@@ -308,10 +308,15 @@ pub fn get_config<E: EthSpec>(
             use std::io::Write;
             secret_file = client_config.data_dir.join(DEFAULT_JWT_FILE);
             let mut jwt_secret_key_file = File::create(secret_file.clone())
-                .expect("Error while creating jwt_secret_key file!");
+                .map_err(|e| format!("Error while creating jwt_secret_key file: {:?}", e))?;
             jwt_secret_key_file
                 .write_all(jwt_secret_key.as_bytes())
-                .expect("Error occured while writing to jwt_secret_key file!");
+                .map_err(|e| {
+                    format!(
+                        "Error occured while writing to jwt_secret_key file: {:?}",
+                        e
+                    )
+                })?;
         } else {
             return Err("Error! Please set either --execution-jwt file_path or --execution-jwt-secret-key directly via cli when using --execution-endpoint".to_string());
         }
