@@ -338,7 +338,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                 if blocks_sent < (req.count as usize) {
                     debug!(
                         self.log,
-                        "BlocksByRange Response processed";
+                        "BlocksByRange outgoing response processed";
                         "peer" => %peer_id,
                         "msg" => "Failed to return all requested blocks",
                         "start_slot" => req.start_slot,
@@ -349,7 +349,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                 } else {
                     debug!(
                         self.log,
-                        "BlocksByRange Response processed";
+                        "BlocksByRange outgoing response processed";
                         "peer" => %peer_id,
                         "start_slot" => req.start_slot,
                         "current_slot" => current_slot,
