@@ -1252,6 +1252,24 @@ fn no_reconstruct_historic_states_flag() {
         .run_with_zero_port()
         .with_config(|config| assert!(!config.chain.reconstruct_historic_states));
 }
+#[test]
+fn db_migration_period_default() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config.store_migrator.epochs_per_run,
+                beacon_node::beacon_chain::migrate::DEFAULT_EPOCHS_PER_RUN
+            )
+        });
+}
+#[test]
+fn db_migration_period_override() {
+    CommandLineTest::new()
+        .flag("db-migration-period", Some("128"))
+        .run_with_zero_port()
+        .with_config(|config| assert_eq!(config.store_migrator.epochs_per_run, 128));
+}
 
 // Tests for Slasher flags.
 #[test]

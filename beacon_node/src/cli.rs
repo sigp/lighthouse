@@ -539,6 +539,16 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true)
                 .default_value("true")
         )
+        .arg(
+            Arg::with_name("db-migration-period")
+                .long("db-migration-period")
+                .value_name("EPOCHS")
+                .help("Specifies the number of epochs to wait between applying each finalization \
+                       migration to the database. Applying migrations less frequently can lead to \
+                       less total disk writes.")
+                .default_value("4")
+                .takes_value(true)
+        )
 
         /*
          * Misc.

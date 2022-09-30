@@ -3,6 +3,7 @@ use crate::errors::BeaconChainError;
 use crate::head_tracker::{HeadTracker, SszHeadTracker};
 use crate::persisted_beacon_chain::{PersistedBeaconChain, DUMMY_CANONICAL_HEAD_BLOCK_ROOT};
 use parking_lot::Mutex;
+use serde::{Deserialize, Serialize};
 use slog::{debug, error, info, trace, warn, Logger};
 use std::collections::{HashMap, HashSet};
 use std::mem;
@@ -25,20 +26,43 @@ const MIN_COMPACTION_PERIOD_SECONDS: u64 = 7200;
 /// Compact after a large finality gap, if we respect `MIN_COMPACTION_PERIOD_SECONDS`.
 const COMPACTION_FINALITY_DISTANCE: u64 = 1024;
 
+/// Default number of epochs to wait between finalization migrations.
+pub const DEFAULT_EPOCHS_PER_RUN: u64 = 4;
+
 /// The background migrator runs a thread to perform pruning and migrate state from the hot
 /// to the cold database.
 pub struct BackgroundMigrator<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> {
     db: Arc<HotColdDB<E, Hot, Cold>>,
     #[allow(clippy::type_complexity)]
     tx_thread: Option<Mutex<(mpsc::Sender<Notification>, thread::JoinHandle<()>)>>,
+    /// Record of when the last migration ran, for enforcing `epochs_per_run`.
+    prev_migration: Arc<Mutex<PrevMigration>>,
     /// Genesis block root, for persisting the `PersistedBeaconChain`.
     genesis_block_root: Hash256,
     log: Logger,
 }
 
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MigratorConfig {
     pub blocking: bool,
+    /// Run migrations at most once per `epochs_per_run`.
+    ///
+    /// If set to 0, then run every finalization.
+    pub epochs_per_run: u64,
+}
+
+impl Default for MigratorConfig {
+    fn default() -> Self {
+        Self {
+            blocking: false,
+            epochs_per_run: DEFAULT_EPOCHS_PER_RUN,
+        }
+    }
+}
+
+pub struct PrevMigration {
+    epoch: Option<Epoch>,
+    epochs_per_run: u64,
 }
 
 impl MigratorConfig {
@@ -95,6 +119,18 @@ pub struct FinalizationNotification {
     genesis_block_root: Hash256,
 }
 
+impl Notification {
+    pub fn epoch(&self) -> Option<Epoch> {
+        match self {
+            Notification::Finalization(FinalizationNotification {
+                finalized_checkpoint,
+                ..
+            }) => Some(finalized_checkpoint.epoch),
+            Notification::Reconstruction => None,
+        }
+    }
+}
+
 impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Hot, Cold> {
     /// Create a new `BackgroundMigrator` and spawn its thread if necessary.
     pub fn new(
@@ -103,14 +139,23 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
         genesis_block_root: Hash256,
         log: Logger,
     ) -> Self {
+        let prev_migration = Arc::new(Mutex::new(PrevMigration {
+            epoch: None,
+            epochs_per_run: config.epochs_per_run,
+        }));
         let tx_thread = if config.blocking {
             None
         } else {
-            Some(Mutex::new(Self::spawn_thread(db.clone(), log.clone())))
+            Some(Mutex::new(Self::spawn_thread(
+                db.clone(),
+                prev_migration.clone(),
+                log.clone(),
+            )))
         };
         Self {
             db,
             tx_thread,
+            prev_migration,
             genesis_block_root,
             log,
         }
@@ -173,7 +218,11 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
 
             // Restart the background thread if it has crashed.
             if let Err(tx_err) = tx.send(notif) {
-                let (new_tx, new_thread) = Self::spawn_thread(self.db.clone(), self.log.clone());
+                let (new_tx, new_thread) = Self::spawn_thread(
+                    self.db.clone(),
+                    self.prev_migration.clone(),
+                    self.log.clone(),
+                );
 
                 *tx = new_tx;
                 let old_thread = mem::replace(thread, new_thread);
@@ -303,6 +352,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
     /// Return a channel handle for sending requests to the thread.
     fn spawn_thread(
         db: Arc<HotColdDB<E, Hot, Cold>>,
+        prev_migration: Arc<Mutex<PrevMigration>>,
         log: Logger,
     ) -> (mpsc::Sender<Notification>, thread::JoinHandle<()>) {
         let (tx, rx) = mpsc::channel();
@@ -327,6 +377,29 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
                                 }
                             }
                         });
+
+                // Do not run too frequently.
+                if let Some(epoch) = notif.epoch() {
+                    let mut prev_migration = prev_migration.lock();
+
+                    if let Some(prev_epoch) = prev_migration.epoch {
+                        if epoch < prev_epoch + prev_migration.epochs_per_run {
+                            debug!(
+                                log,
+                                "Database consolidation deferred";
+                                "last_finalized_epoch" => prev_epoch,
+                                "new_finalized_epoch" => epoch,
+                                "epochs_per_run" => prev_migration.epochs_per_run,
+                            );
+                            continue;
+                        }
+                    }
+
+                    // We intend to run at this epoch, update the in-memory record of the last epoch
+                    // at which we ran. This value isn't tracked on disk so we will always migrate
+                    // on the first finalization after startup.
+                    prev_migration.epoch = Some(epoch);
+                }
 
                 match notif {
                     Notification::Reconstruction => Self::run_reconstruction(db.clone(), &log),
