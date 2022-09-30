@@ -29,11 +29,18 @@ pub trait TryFromIter<T>: Sized {
 impl<T> TryFromIter<T> for Vec<T> {
     type Error = Infallible;
 
-    fn try_from_iter<I>(iter: I) -> Result<Self, Self::Error>
+    fn try_from_iter<I>(values: I) -> Result<Self, Self::Error>
     where
         I: IntoIterator<Item = T>,
     {
-        Ok(Self::from_iter(iter))
+        // Pre-allocate the expected size of the Vec, which is parsed from the SSZ input bytes as
+        // `num_items`. This length has already been checked to be less than or equal to the type's
+        // maximum length in `decode_list_of_variable_length_items`.
+        let iter = values.into_iter();
+        let (_, opt_max_len) = iter.size_hint();
+        let mut vec = Vec::with_capacity(opt_max_len.unwrap_or(0));
+        vec.extend(iter);
+        Ok(vec)
     }
 }
 

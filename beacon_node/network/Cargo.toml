@@ -17,7 +17,6 @@ environment = { path = "../../lighthouse/environment" }
 beacon_chain =  { path = "../beacon_chain" }
 store =  { path = "../store" }
 lighthouse_network =  { path = "../lighthouse_network" }
-hashset_delay = { path = "../../common/hashset_delay" }
 types = { path = "../../consensus/types" }
 slot_clock = { path = "../../common/slot_clock" }
 slog = { version = "2.5.2", features = ["max_level_trace"] }
@@ -44,3 +43,4 @@ if-addrs = "0.6.4"
 strum = "0.24.0"
 tokio-util = { version = "0.6.3", features = ["time"] }
 derivative = "2.2.0"
+delay_map = "0.1.1"

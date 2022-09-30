@@ -248,6 +248,7 @@ where
                 ResetPayloadStatuses::always_reset_conditionally(
                     self.chain_config.always_reset_payload_statuses,
                 ),
+                self.chain_config.count_unrealized_full,
                 &self.spec,
                 log,
             )
@@ -365,6 +366,7 @@ where
             &genesis.beacon_block,
             &genesis.beacon_state,
             current_slot,
+            self.chain_config.count_unrealized_full,
             &self.spec,
         )
         .map_err(|e| format!("Unable to initialize ForkChoice: {:?}", e))?;
@@ -482,6 +484,7 @@ where
             &snapshot.beacon_block,
             &snapshot.beacon_state,
             current_slot,
+            self.chain_config.count_unrealized_full,
             &self.spec,
         )
         .map_err(|e| format!("Unable to initialize ForkChoice: {:?}", e))?;
@@ -658,6 +661,7 @@ where
                 Some(current_slot),
                 &self.spec,
                 self.chain_config.count_unrealized.into(),
+                self.chain_config.count_unrealized_full,
             )?;
         }
 
@@ -850,6 +854,20 @@ where
         // Check for states to reconstruct (in the background).
         if beacon_chain.config.reconstruct_historic_states {
             beacon_chain.store_migrator.process_reconstruction();
+        }
+
+        // Prune finalized execution payloads in the background.
+        if beacon_chain.store.get_config().prune_payloads {
+            let store = beacon_chain.store.clone();
+            let log = log.clone();
+            beacon_chain.task_executor.spawn_blocking(
+                move || {
+                    if let Err(e) = store.try_prune_execution_payloads(false) {
+                        error!(log, "Error pruning payloads in background"; "error" => ?e);
+                    }
+                },
+                "prune_payloads_background",
+            );
         }
 
         Ok(beacon_chain)

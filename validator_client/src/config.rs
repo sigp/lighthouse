@@ -61,9 +61,8 @@ pub struct Config {
     /// A list of custom certificates that the validator client will additionally use when
     /// connecting to a beacon node over SSL/TLS.
     pub beacon_nodes_tls_certs: Option<Vec<PathBuf>>,
-    /// Enabling this will make sure the validator client never signs a block whose `fee_recipient`
-    /// does not match the `suggested_fee_recipient`.
-    pub strict_fee_recipient: bool,
+    /// Disables publishing http api requests to all beacon nodes for select api calls.
+    pub disable_run_on_all: bool,
 }
 
 impl Default for Config {
@@ -99,7 +98,7 @@ impl Default for Config {
             builder_proposals: false,
             builder_registration_timestamp_override: None,
             gas_limit: None,
-            strict_fee_recipient: false,
+            disable_run_on_all: false,
         }
     }
 }
@@ -181,6 +180,7 @@ impl Config {
         }
 
         config.allow_unsynced_beacon_node = cli_args.is_present("allow-unsynced");
+        config.disable_run_on_all = cli_args.is_present("disable-run-on-all");
         config.disable_auto_discover = cli_args.is_present("disable-auto-discover");
         config.init_slashing_protection = cli_args.is_present("init-slashing-protection");
         config.use_long_timeouts = cli_args.is_present("use-long-timeouts");
@@ -296,9 +296,12 @@ impl Config {
          * Explorer metrics
          */
         if let Some(monitoring_endpoint) = cli_args.value_of("monitoring-endpoint") {
+            let update_period_secs =
+                clap_utils::parse_optional(cli_args, "monitoring-endpoint-period")?;
             config.monitoring_api = Some(monitoring_api::Config {
                 db_path: None,
                 freezer_db_path: None,
+                update_period_secs,
                 monitoring_endpoint: monitoring_endpoint.to_string(),
             });
         }
@@ -331,7 +334,11 @@ impl Config {
         }
 
         if cli_args.is_present("strict-fee-recipient") {
-            config.strict_fee_recipient = true;
+            warn!(
+                log,
+                "The flag `--strict-fee-recipient` has been deprecated due to a bug causing \
+                missed proposals. The flag will be ignored."
+            );
         }
 
         Ok(config)

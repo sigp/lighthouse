@@ -272,7 +272,7 @@ fn test_parent_lookup_happy_path() {
     let peer_id = PeerId::random();
 
     // Trigger the request
-    bl.search_parent(Arc::new(block), peer_id, &mut cx);
+    bl.search_parent(chain_hash, Arc::new(block), peer_id, &mut cx);
     let id = rig.expect_parent_request();
 
     // Peer sends the right block, it should be sent for processing. Peer should not be penalized.
@@ -300,7 +300,7 @@ fn test_parent_lookup_wrong_response() {
     let peer_id = PeerId::random();
 
     // Trigger the request
-    bl.search_parent(Arc::new(block), peer_id, &mut cx);
+    bl.search_parent(chain_hash, Arc::new(block), peer_id, &mut cx);
     let id1 = rig.expect_parent_request();
 
     // Peer sends the wrong block, peer should be penalized and the block re-requested.
@@ -337,7 +337,7 @@ fn test_parent_lookup_empty_response() {
     let peer_id = PeerId::random();
 
     // Trigger the request
-    bl.search_parent(Arc::new(block), peer_id, &mut cx);
+    bl.search_parent(chain_hash, Arc::new(block), peer_id, &mut cx);
     let id1 = rig.expect_parent_request();
 
     // Peer sends an empty response, peer should be penalized and the block re-requested.
@@ -369,7 +369,7 @@ fn test_parent_lookup_rpc_failure() {
     let peer_id = PeerId::random();
 
     // Trigger the request
-    bl.search_parent(Arc::new(block), peer_id, &mut cx);
+    bl.search_parent(chain_hash, Arc::new(block), peer_id, &mut cx);
     let id1 = rig.expect_parent_request();
 
     // The request fails. It should be tried again.
@@ -396,10 +396,11 @@ fn test_parent_lookup_too_many_attempts() {
 
     let parent = rig.rand_block();
     let block = rig.block_with_parent(parent.canonical_root());
+    let chain_hash = block.canonical_root();
     let peer_id = PeerId::random();
 
     // Trigger the request
-    bl.search_parent(Arc::new(block), peer_id, &mut cx);
+    bl.search_parent(chain_hash, Arc::new(block), peer_id, &mut cx);
     for i in 1..=parent_lookup::PARENT_FAIL_TOLERANCE {
         let id = rig.expect_parent_request();
         match i % 2 {
@@ -435,7 +436,7 @@ fn test_parent_lookup_too_many_download_attempts_no_blacklist() {
     let peer_id = PeerId::random();
 
     // Trigger the request
-    bl.search_parent(Arc::new(block), peer_id, &mut cx);
+    bl.search_parent(block_hash, Arc::new(block), peer_id, &mut cx);
     for i in 1..=parent_lookup::PARENT_FAIL_TOLERANCE {
         assert!(!bl.failed_chains.contains(&block_hash));
         let id = rig.expect_parent_request();
@@ -469,7 +470,7 @@ fn test_parent_lookup_too_many_processing_attempts_must_blacklist() {
     let peer_id = PeerId::random();
 
     // Trigger the request
-    bl.search_parent(Arc::new(block), peer_id, &mut cx);
+    bl.search_parent(block_hash, Arc::new(block), peer_id, &mut cx);
 
     // Fail downloading the block
     for _ in 0..(parent_lookup::PARENT_FAIL_TOLERANCE - PROCESSING_FAILURES) {
@@ -510,7 +511,7 @@ fn test_parent_lookup_too_deep() {
     let peer_id = PeerId::random();
     let trigger_block = blocks.pop().unwrap();
     let chain_hash = trigger_block.canonical_root();
-    bl.search_parent(Arc::new(trigger_block), peer_id, &mut cx);
+    bl.search_parent(chain_hash, Arc::new(trigger_block), peer_id, &mut cx);
 
     for block in blocks.into_iter().rev() {
         let id = rig.expect_parent_request();
@@ -537,7 +538,12 @@ fn test_parent_lookup_disconnection() {
     let (mut bl, mut cx, mut rig) = TestRig::test_setup(None);
     let peer_id = PeerId::random();
     let trigger_block = rig.rand_block();
-    bl.search_parent(Arc::new(trigger_block), peer_id, &mut cx);
+    bl.search_parent(
+        trigger_block.canonical_root(),
+        Arc::new(trigger_block),
+        peer_id,
+        &mut cx,
+    );
     bl.peer_disconnected(&peer_id, &mut cx);
     assert!(bl.parent_queue.is_empty());
 }
@@ -581,7 +587,7 @@ fn test_parent_lookup_ignored_response() {
     let peer_id = PeerId::random();
 
     // Trigger the request
-    bl.search_parent(Arc::new(block), peer_id, &mut cx);
+    bl.search_parent(chain_hash, Arc::new(block), peer_id, &mut cx);
     let id = rig.expect_parent_request();
 
     // Peer sends the right block, it should be sent for processing. Peer should not be penalized.

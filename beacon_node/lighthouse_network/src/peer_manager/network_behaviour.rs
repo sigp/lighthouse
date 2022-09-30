@@ -3,6 +3,7 @@ use std::task::{Context, Poll};
 use futures::StreamExt;
 use libp2p::core::connection::ConnectionId;
 use libp2p::core::ConnectedPoint;
+use libp2p::swarm::dial_opts::{DialOpts, PeerCondition};
 use libp2p::swarm::handler::DummyConnectionHandler;
 use libp2p::swarm::{
     ConnectionHandler, DialError, NetworkBehaviour, NetworkBehaviourAction, PollParameters,
@@ -16,7 +17,7 @@ use crate::rpc::GoodbyeReason;
 use crate::types::SyncState;
 
 use super::peerdb::BanResult;
-use super::{PeerManager, PeerManagerEvent, ReportSource};
+use super::{ConnectingType, PeerManager, PeerManagerEvent, ReportSource};
 
 impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
     type ConnectionHandler = DummyConnectionHandler;
@@ -97,6 +98,17 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
             return Poll::Ready(NetworkBehaviourAction::GenerateEvent(self.events.remove(0)));
         } else {
             self.events.shrink_to_fit();
+        }
+
+        if let Some((peer_id, maybe_enr)) = self.peers_to_dial.pop_front() {
+            self.inject_peer_connection(&peer_id, ConnectingType::Dialing, maybe_enr);
+            let handler = self.new_handler();
+            return Poll::Ready(NetworkBehaviourAction::Dial {
+                opts: DialOpts::peer_id(peer_id)
+                    .condition(PeerCondition::Disconnected)
+                    .build(),
+                handler,
+            });
         }
 
         Poll::Pending

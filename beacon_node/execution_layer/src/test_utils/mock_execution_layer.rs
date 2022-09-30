@@ -1,6 +1,7 @@
 use crate::{
     test_utils::{
-        MockServer, DEFAULT_JWT_SECRET, DEFAULT_TERMINAL_BLOCK, DEFAULT_TERMINAL_DIFFICULTY,
+        MockServer, DEFAULT_BUILDER_THRESHOLD_WEI, DEFAULT_JWT_SECRET, DEFAULT_TERMINAL_BLOCK,
+        DEFAULT_TERMINAL_DIFFICULTY,
     },
     Config, *,
 };
@@ -66,6 +67,7 @@ impl<T: EthSpec> MockExecutionLayer<T> {
             builder_url,
             secret_files: vec![path],
             suggested_fee_recipient: Some(Address::repeat_byte(42)),
+            builder_profit_threshold: DEFAULT_BUILDER_THRESHOLD_WEI,
             ..Default::default()
         };
         let el =

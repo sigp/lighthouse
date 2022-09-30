@@ -54,14 +54,15 @@
 //! }
 //! ```
 
-use prometheus::{HistogramOpts, Opts};
+use prometheus::{Error, HistogramOpts, Opts};
 use std::time::Duration;
 
 use prometheus::core::{Atomic, GenericGauge, GenericGaugeVec};
 pub use prometheus::{
+    exponential_buckets, linear_buckets,
     proto::{Metric, MetricFamily, MetricType},
     Encoder, Gauge, GaugeVec, Histogram, HistogramTimer, HistogramVec, IntCounter, IntCounterVec,
-    IntGauge, IntGaugeVec, Result, TextEncoder,
+    IntGauge, IntGaugeVec, Result, TextEncoder, DEFAULT_BUCKETS,
 };
 
 /// Collect all the metrics for reporting.
@@ -99,7 +100,17 @@ pub fn try_create_float_gauge(name: &str, help: &str) -> Result<Gauge> {
 /// Attempts to create a `Histogram`, returning `Err` if the registry does not accept the counter
 /// (potentially due to naming conflict).
 pub fn try_create_histogram(name: &str, help: &str) -> Result<Histogram> {
-    let opts = HistogramOpts::new(name, help);
+    try_create_histogram_with_buckets(name, help, Ok(DEFAULT_BUCKETS.to_vec()))
+}
+
+/// Attempts to create a `Histogram` with specified buckets, returning `Err` if the registry does not accept the counter
+/// (potentially due to naming conflict) or no valid buckets are provided.
+pub fn try_create_histogram_with_buckets(
+    name: &str,
+    help: &str,
+    buckets: Result<Vec<f64>>,
+) -> Result<Histogram> {
+    let opts = HistogramOpts::new(name, help).buckets(buckets?);
     let histogram = Histogram::with_opts(opts)?;
     prometheus::register(Box::new(histogram.clone()))?;
     Ok(histogram)
@@ -112,7 +123,18 @@ pub fn try_create_histogram_vec(
     help: &str,
     label_names: &[&str],
 ) -> Result<HistogramVec> {
-    let opts = HistogramOpts::new(name, help);
+    try_create_histogram_vec_with_buckets(name, help, Ok(DEFAULT_BUCKETS.to_vec()), label_names)
+}
+
+/// Attempts to create a `HistogramVec` with specified buckets, returning `Err` if the registry does not accept the counter
+/// (potentially due to naming conflict) or no valid buckets are provided.
+pub fn try_create_histogram_vec_with_buckets(
+    name: &str,
+    help: &str,
+    buckets: Result<Vec<f64>>,
+    label_names: &[&str],
+) -> Result<HistogramVec> {
+    let opts = HistogramOpts::new(name, help).buckets(buckets?);
     let histogram_vec = HistogramVec::new(opts, label_names)?;
     prometheus::register(Box::new(histogram_vec.clone()))?;
     Ok(histogram_vec)
@@ -356,4 +378,29 @@ fn duration_to_f64(duration: Duration) -> f64 {
     // https://docs.rs/prometheus/0.5.0/src/prometheus/histogram.rs.html#550-555
     let nanos = f64::from(duration.subsec_nanos()) / 1e9;
     duration.as_secs() as f64 + nanos
+}
+
+/// Create buckets using divisors of 10 multiplied by powers of 10, e.g.,
+/// […, 0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 50, …]
+///
+/// The buckets go from `10^min_power` to `5 × 10^max_power`, inclusively.
+/// The total number of buckets is `3 * (max_power - min_power + 1)`.
+///
+/// assert_eq!(vec![0.1, 0.2, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 50.0], decimal_buckets(-1, 1));
+/// assert_eq!(vec![1.0, 2.0, 5.0, 10.0, 20.0, 50.0, 100.0, 200.0, 500.0], decimal_buckets(0, 2));
+pub fn decimal_buckets(min_power: i32, max_power: i32) -> Result<Vec<f64>> {
+    if max_power < min_power {
+        return Err(Error::Msg(format!(
+            "decimal_buckets min_power needs to be <= max_power, given {} and {}",
+            min_power, max_power
+        )));
+    }
+
+    let mut buckets = Vec::with_capacity(3 * (max_power - min_power + 1) as usize);
+    for n in min_power..=max_power {
+        for m in &[1f64, 2f64, 5f64] {
+            buckets.push(m * 10f64.powi(n))
+        }
+    }
+    Ok(buckets)
 }

@@ -13,6 +13,7 @@ use eth2::{
 };
 use execution_layer::test_utils::Operation;
 use execution_layer::test_utils::TestingBuilder;
+use execution_layer::test_utils::DEFAULT_BUILDER_THRESHOLD_WEI;
 use futures::stream::{Stream, StreamExt};
 use futures::FutureExt;
 use http_api::{BlockId, StateId};
@@ -341,10 +342,20 @@ impl ApiTester {
     }
 
     pub async fn new_mev_tester() -> Self {
-        Self::new_with_hard_forks(true, true)
+        let tester = Self::new_with_hard_forks(true, true)
             .await
             .test_post_validator_register_validator()
-            .await
+            .await;
+        // Make sure bids always meet the minimum threshold.
+        tester
+            .mock_builder
+            .as_ref()
+            .unwrap()
+            .builder
+            .add_operation(Operation::Value(Uint256::from(
+                DEFAULT_BUILDER_THRESHOLD_WEI,
+            )));
+        tester
     }
 
     fn skip_slots(self, count: u64) -> Self {
@@ -1928,11 +1939,11 @@ impl ApiTester {
 
             let block = self
                 .client
-                .get_validator_blocks_with_verify_randao::<E, FullPayload<E>>(
+                .get_validator_blocks_modular::<E, FullPayload<E>>(
                     slot,
+                    &Signature::infinity().unwrap().into(),
                     None,
-                    None,
-                    Some(false),
+                    SkipRandaoVerification::Yes,
                 )
                 .await
                 .unwrap()
@@ -1982,45 +1993,23 @@ impl ApiTester {
                 sk.sign(message).into()
             };
 
-            // Check failure with no `verify_randao` passed.
+            // Check failure with no `skip_randao_verification` passed.
             self.client
                 .get_validator_blocks::<E, FullPayload<E>>(slot, &bad_randao_reveal, None)
                 .await
                 .unwrap_err();
 
-            // Check failure with `verify_randao=true`.
+            // Check failure with `skip_randao_verification` (requires infinity sig).
             self.client
-                .get_validator_blocks_with_verify_randao::<E, FullPayload<E>>(
+                .get_validator_blocks_modular::<E, FullPayload<E>>(
                     slot,
-                    Some(&bad_randao_reveal),
+                    &bad_randao_reveal,
                     None,
-                    Some(true),
+                    SkipRandaoVerification::Yes,
                 )
                 .await
                 .unwrap_err();
 
-            // Check failure with no randao reveal provided.
-            self.client
-                .get_validator_blocks_with_verify_randao::<E, FullPayload<E>>(
-                    slot, None, None, None,
-                )
-                .await
-                .unwrap_err();
-
-            // Check success with `verify_randao=false`.
-            let block = self
-                .client
-                .get_validator_blocks_with_verify_randao::<E, FullPayload<E>>(
-                    slot,
-                    Some(&bad_randao_reveal),
-                    None,
-                    Some(false),
-                )
-                .await
-                .unwrap()
-                .data;
-
-            assert_eq!(block.slot(), slot);
             self.chain.slot_clock.set_slot(slot.as_u64() + 1);
         }
 
@@ -2095,11 +2084,11 @@ impl ApiTester {
 
             let block = self
                 .client
-                .get_validator_blinded_blocks_with_verify_randao::<E, Payload>(
+                .get_validator_blinded_blocks_modular::<E, Payload>(
                     slot,
+                    &Signature::infinity().unwrap().into(),
                     None,
-                    None,
-                    Some(false),
+                    SkipRandaoVerification::Yes,
                 )
                 .await
                 .unwrap()
@@ -2151,45 +2140,23 @@ impl ApiTester {
                 sk.sign(message).into()
             };
 
-            // Check failure with no `verify_randao` passed.
+            // Check failure with full randao verification enabled.
             self.client
                 .get_validator_blinded_blocks::<E, Payload>(slot, &bad_randao_reveal, None)
                 .await
                 .unwrap_err();
 
-            // Check failure with `verify_randao=true`.
+            // Check failure with `skip_randao_verification` (requires infinity sig).
             self.client
-                .get_validator_blinded_blocks_with_verify_randao::<E, Payload>(
+                .get_validator_blinded_blocks_modular::<E, Payload>(
                     slot,
-                    Some(&bad_randao_reveal),
+                    &bad_randao_reveal,
                     None,
-                    Some(true),
+                    SkipRandaoVerification::Yes,
                 )
                 .await
                 .unwrap_err();
 
-            // Check failure with no randao reveal provided.
-            self.client
-                .get_validator_blinded_blocks_with_verify_randao::<E, Payload>(
-                    slot, None, None, None,
-                )
-                .await
-                .unwrap_err();
-
-            // Check success with `verify_randao=false`.
-            let block = self
-                .client
-                .get_validator_blinded_blocks_with_verify_randao::<E, Payload>(
-                    slot,
-                    Some(&bad_randao_reveal),
-                    None,
-                    Some(false),
-                )
-                .await
-                .unwrap()
-                .data;
-
-            assert_eq!(block.slot(), slot);
             self.chain.slot_clock.set_slot(slot.as_u64() + 1);
         }
 
@@ -3187,6 +3154,43 @@ impl ApiTester {
         self
     }
 
+    pub async fn test_payload_rejects_inadequate_builder_threshold(self) -> Self {
+        // Mutate value.
+        self.mock_builder
+            .as_ref()
+            .unwrap()
+            .builder
+            .add_operation(Operation::Value(Uint256::from(
+                DEFAULT_BUILDER_THRESHOLD_WEI - 1,
+            )));
+
+        let slot = self.chain.slot().unwrap();
+        let epoch = self.chain.epoch().unwrap();
+
+        let (_, randao_reveal) = self.get_test_randao(slot, epoch).await;
+
+        let payload = self
+            .client
+            .get_validator_blinded_blocks::<E, BlindedPayload<E>>(slot, &randao_reveal, None)
+            .await
+            .unwrap()
+            .data
+            .body()
+            .execution_payload()
+            .unwrap()
+            .clone();
+
+        // If this cache is populated, it indicates fallback to the local EE was correctly used.
+        assert!(self
+            .chain
+            .execution_layer
+            .as_ref()
+            .unwrap()
+            .get_payload_by_root(&payload.tree_hash_root())
+            .is_some());
+        self
+    }
+
     #[cfg(target_os = "linux")]
     pub async fn test_get_lighthouse_health(self) -> Self {
         self.client.get_lighthouse_health().await.unwrap();
@@ -4156,6 +4160,14 @@ async fn builder_chain_health_optimistic_head() {
     ApiTester::new_mev_tester()
         .await
         .test_builder_chain_health_optimistic_head()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn builder_inadequate_builder_threshold() {
+    ApiTester::new_mev_tester()
+        .await
+        .test_payload_rejects_inadequate_builder_threshold()
         .await;
 }
 

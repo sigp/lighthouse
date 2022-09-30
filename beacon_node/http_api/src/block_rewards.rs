@@ -4,7 +4,7 @@ use lru::LruCache;
 use slog::{debug, warn, Logger};
 use state_processing::BlockReplayer;
 use std::sync::Arc;
-use types::BeaconBlock;
+use types::BlindedBeaconBlock;
 use warp_utils::reject::{
     beacon_chain_error, beacon_state_error, custom_bad_request, custom_server_error,
 };
@@ -96,7 +96,7 @@ pub fn get_block_rewards<T: BeaconChainTypes>(
 
 /// Compute block rewards for blocks passed in as input.
 pub fn compute_block_rewards<T: BeaconChainTypes>(
-    blocks: Vec<BeaconBlock<T::EthSpec>>,
+    blocks: Vec<BlindedBeaconBlock<T::EthSpec>>,
     chain: Arc<BeaconChain<T>>,
     log: Logger,
 ) -> Result<Vec<BlockReward>, warp::Rejection> {

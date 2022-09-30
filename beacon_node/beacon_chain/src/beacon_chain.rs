@@ -65,6 +65,7 @@ use itertools::process_results;
 use itertools::Itertools;
 use operation_pool::{AttestationRef, OperationPool, PersistedOperationPool};
 use parking_lot::{Mutex, RwLock};
+use proto_array::CountUnrealizedFull;
 use safe_arith::SafeArith;
 use slasher::Slasher;
 use slog::{crit, debug, error, info, trace, warn, Logger};
@@ -433,6 +434,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn load_fork_choice(
         store: BeaconStore<T>,
         reset_payload_statuses: ResetPayloadStatuses,
+        count_unrealized_full: CountUnrealizedFull,
         spec: &ChainSpec,
         log: &Logger,
     ) -> Result<Option<BeaconForkChoice<T>>, Error> {
@@ -449,6 +451,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             persisted_fork_choice.fork_choice,
             reset_payload_statuses,
             fc_store,
+            count_unrealized_full,
             spec,
             log,
         )?))
@@ -806,7 +809,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             if let Some(request_root) = request_root_opt {
                 if let Ok(prev_root) = state.get_block_root(prev_slot) {
-                    return Ok(Some((*prev_root != request_root).then(|| request_root)));
+                    return Ok(Some((*prev_root != request_root).then_some(request_root)));
                 }
             }
 
@@ -828,7 +831,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     slot: curr_slot,
                 });
             }
-            Ok((curr_root != prev_root).then(|| curr_root))
+            Ok((curr_root != prev_root).then_some(curr_root))
         } else {
             Ok(None)
         }
@@ -2217,7 +2220,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 }
             }
 
-            match check_block_relevancy(&block, Some(block_root), self) {
+            match check_block_relevancy(&block, block_root, self) {
                 // If the block is relevant, add it to the filtered chain segment.
                 Ok(_) => filtered_chain_segment.push((block_root, block)),
                 // If the block is already known, simply ignore this block.
@@ -2341,7 +2344,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             // Import the blocks into the chain.
             for signature_verified_block in signature_verified_blocks {
                 match self
-                    .process_block(signature_verified_block, count_unrealized)
+                    .process_block(
+                        signature_verified_block.block_root(),
+                        signature_verified_block,
+                        count_unrealized,
+                    )
                     .await
                 {
                     Ok(_) => imported_blocks += 1,
@@ -2384,7 +2391,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         Ok(verified) => {
                             debug!(
                                 chain.log,
-                                "Successfully processed gossip block";
+                                "Successfully verified gossip block";
                                 "graffiti" => graffiti_string,
                                 "slot" => slot,
                                 "root" => ?verified.block_root(),
@@ -2426,6 +2433,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// verification.
     pub async fn process_block<B: IntoExecutionPendingBlock<T>>(
         self: &Arc<Self>,
+        block_root: Hash256,
         unverified_block: B,
         count_unrealized: CountUnrealized,
     ) -> Result<Hash256, BlockError<T::EthSpec>> {
@@ -2441,7 +2449,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // A small closure to group the verification and import errors.
         let chain = self.clone();
         let import_block = async move {
-            let execution_pending = unverified_block.into_execution_pending_block(&chain)?;
+            let execution_pending =
+                unverified_block.into_execution_pending_block(block_root, &chain)?;
             chain
                 .import_execution_pending_block(execution_pending, count_unrealized)
                 .await
@@ -2643,7 +2652,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 self.shuffling_cache
                     .try_write_for(ATTESTATION_CACHE_LOCK_TIMEOUT)
                     .ok_or(Error::AttestationCacheLockTimeout)?
-                    .insert(shuffling_id, committee_cache);
+                    .insert_committee_cache(shuffling_id, committee_cache);
             }
         }
 
@@ -2862,7 +2871,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .pubkeys
                 .iter()
                 .zip(sync_aggregate.sync_committee_bits.iter())
-                .filter_map(|(pubkey, bit)| bit.then(|| pubkey))
+                .filter_map(|(pubkey, bit)| bit.then_some(pubkey))
                 .collect::<Vec<_>>();
 
             validator_monitor.register_sync_aggregate_in_block(
@@ -2934,6 +2943,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 ResetPayloadStatuses::always_reset_conditionally(
                     self.config.always_reset_payload_statuses,
                 ),
+                self.config.count_unrealized_full,
                 &self.store,
                 &self.spec,
                 &self.log,
@@ -4486,9 +4496,22 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         metrics::stop_timer(cache_wait_timer);
 
-        if let Some(committee_cache) = shuffling_cache.get(&shuffling_id) {
-            map_fn(committee_cache, shuffling_id.shuffling_decision_block)
+        if let Some(cache_item) = shuffling_cache.get(&shuffling_id) {
+            // The shuffling cache is no longer required, drop the write-lock to allow concurrent
+            // access.
+            drop(shuffling_cache);
+
+            let committee_cache = cache_item.wait()?;
+            map_fn(&committee_cache, shuffling_id.shuffling_decision_block)
         } else {
+            // Create an entry in the cache that "promises" this value will eventually be computed.
+            // This avoids the case where multiple threads attempt to produce the same value at the
+            // same time.
+            //
+            // Creating the promise whilst we hold the `shuffling_cache` lock will prevent the same
+            // promise from being created twice.
+            let sender = shuffling_cache.create_promise(shuffling_id.clone())?;
+
             // Drop the shuffling cache to avoid holding the lock for any longer than
             // required.
             drop(shuffling_cache);
@@ -4581,17 +4604,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             state.build_committee_cache(relative_epoch, &self.spec)?;
 
-            let committee_cache = state.committee_cache(relative_epoch)?;
+            let committee_cache = state.take_committee_cache(relative_epoch)?;
+            let committee_cache = Arc::new(committee_cache);
             let shuffling_decision_block = shuffling_id.shuffling_decision_block;
 
             self.shuffling_cache
                 .try_write_for(ATTESTATION_CACHE_LOCK_TIMEOUT)
                 .ok_or(Error::AttestationCacheLockTimeout)?
-                .insert(shuffling_id, committee_cache);
+                .insert_committee_cache(shuffling_id, &committee_cache);
 
             metrics::stop_timer(committee_building_timer);
 
-            map_fn(committee_cache, shuffling_decision_block)
+            sender.send(committee_cache.clone());
+
+            map_fn(&committee_cache, shuffling_decision_block)
         }
     }
 

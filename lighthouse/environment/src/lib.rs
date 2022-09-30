@@ -15,6 +15,7 @@ use futures::{future, StreamExt};
 use slog::{error, info, o, warn, Drain, Duplicate, Level, Logger};
 use sloggers::{file::FileLoggerBuilder, types::Format, types::Severity, Build};
 use std::fs::create_dir_all;
+use std::io::{Result as IOResult, Write};
 use std::path::PathBuf;
 use std::sync::Arc;
 use task_executor::{ShutdownReason, TaskExecutor};
@@ -47,6 +48,8 @@ pub struct LoggerConfig<'a> {
     pub debug_level: &'a str,
     pub logfile_debug_level: &'a str,
     pub log_format: Option<&'a str>,
+    pub log_color: bool,
+    pub disable_log_timestamp: bool,
     pub max_log_size: u64,
     pub max_log_number: usize,
     pub compression: bool,
@@ -120,6 +123,10 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
         Ok(self)
     }
 
+    fn log_nothing(_: &mut dyn Write) -> IOResult<()> {
+        Ok(())
+    }
+
     /// Initializes the logger using the specified configuration.
     /// The logger is "async" because it has a dedicated thread that accepts logs and then
     /// asynchronously flushes them to stdout/files/etc. This means the thread that raised the log
@@ -139,10 +146,23 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
                 _ => return Err("Logging format provided is not supported".to_string()),
             }
         } else {
-            let stdout_decorator = slog_term::TermDecorator::new().build();
+            let stdout_decorator_builder = slog_term::TermDecorator::new();
+            let stdout_decorator = if config.log_color {
+                stdout_decorator_builder.force_color()
+            } else {
+                stdout_decorator_builder
+            }
+            .build();
             let stdout_decorator =
                 logging::AlignedTermDecorator::new(stdout_decorator, logging::MAX_MESSAGE_WIDTH);
-            let stdout_drain = slog_term::FullFormat::new(stdout_decorator).build().fuse();
+            let stdout_drain = slog_term::FullFormat::new(stdout_decorator);
+            let stdout_drain = if config.disable_log_timestamp {
+                stdout_drain.use_custom_timestamp(Self::log_nothing)
+            } else {
+                stdout_drain
+            }
+            .build()
+            .fuse();
             slog_async::Async::new(stdout_drain)
                 .chan_size(LOG_CHANNEL_SIZE)
                 .build()

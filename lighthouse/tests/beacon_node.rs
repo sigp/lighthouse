@@ -1,4 +1,4 @@
-use beacon_node::ClientConfig as Config;
+use beacon_node::{beacon_chain::CountUnrealizedFull, ClientConfig as Config};
 
 use crate::exec::{CommandLineTestExec, CompletedTest};
 use eth1::Eth1Endpoint;
@@ -176,6 +176,45 @@ fn count_unrealized_true() {
         .flag("count-unrealized", Some("true"))
         .run_with_zero_port()
         .with_config(|config| assert!(config.chain.count_unrealized));
+}
+
+#[test]
+fn count_unrealized_full_no_arg() {
+    CommandLineTest::new()
+        .flag("count-unrealized-full", None)
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config.chain.count_unrealized_full,
+                CountUnrealizedFull::False
+            )
+        });
+}
+
+#[test]
+fn count_unrealized_full_false() {
+    CommandLineTest::new()
+        .flag("count-unrealized-full", Some("false"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config.chain.count_unrealized_full,
+                CountUnrealizedFull::False
+            )
+        });
+}
+
+#[test]
+fn count_unrealized_full_true() {
+    CommandLineTest::new()
+        .flag("count-unrealized-full", Some("true"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config.chain.count_unrealized_full,
+                CountUnrealizedFull::True
+            )
+        });
 }
 
 #[test]
@@ -530,6 +569,38 @@ fn builder_fallback_flags() {
         None,
         |config| {
             assert_eq!(config.chain.builder_fallback_disable_checks, true);
+        },
+    );
+    run_payload_builder_flag_test_with_config(
+        "builder",
+        "http://meow.cats",
+        Some("builder-profit-threshold"),
+        Some("1000000000000000000000000"),
+        |config| {
+            assert_eq!(
+                config
+                    .execution_layer
+                    .as_ref()
+                    .unwrap()
+                    .builder_profit_threshold,
+                1000000000000000000000000
+            );
+        },
+    );
+    run_payload_builder_flag_test_with_config(
+        "builder",
+        "http://meow.cats",
+        None,
+        None,
+        |config| {
+            assert_eq!(
+                config
+                    .execution_layer
+                    .as_ref()
+                    .unwrap()
+                    .builder_profit_threshold,
+                0
+            );
         },
     );
 }
@@ -1156,6 +1227,19 @@ fn compact_db_flag() {
         .with_config(|config| assert!(config.store.compact_on_init));
 }
 #[test]
+fn prune_payloads_default() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| assert!(config.store.prune_payloads));
+}
+#[test]
+fn prune_payloads_on_startup_false() {
+    CommandLineTest::new()
+        .flag("prune-payloads", Some("false"))
+        .run_with_zero_port()
+        .with_config(|config| assert!(!config.store.prune_payloads));
+}
+#[test]
 fn reconstruct_historic_states_flag() {
     CommandLineTest::new()
         .flag("reconstruct-historic-states", None)
@@ -1345,7 +1429,7 @@ fn slasher_backend_override_to_default() {
 }
 
 #[test]
-pub fn malloc_tuning_flag() {
+fn malloc_tuning_flag() {
     CommandLineTest::new()
         .flag("disable-malloc-tuning", None)
         .run_with_zero_port()
@@ -1366,5 +1450,18 @@ fn ensure_panic_on_failed_launch() {
                 .as_ref()
                 .expect("Unable to parse Slasher config");
             assert_eq!(slasher_config.chunk_size, 10);
+        });
+}
+
+#[test]
+fn monitoring_endpoint() {
+    CommandLineTest::new()
+        .flag("monitoring-endpoint", Some("http://example:8000"))
+        .flag("monitoring-endpoint-period", Some("30"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            let api_conf = config.monitoring_api.as_ref().unwrap();
+            assert_eq!(api_conf.monitoring_endpoint.as_str(), "http://example:8000");
+            assert_eq!(api_conf.update_period_secs, Some(30));
         });
 }

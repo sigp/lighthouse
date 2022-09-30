@@ -1,5 +1,7 @@
 use crate::{ForkChoiceStore, InvalidationOperation};
-use proto_array::{Block as ProtoBlock, ExecutionStatus, ProtoArrayForkChoice};
+use proto_array::{
+    Block as ProtoBlock, CountUnrealizedFull, ExecutionStatus, ProtoArrayForkChoice,
+};
 use slog::{crit, debug, warn, Logger};
 use ssz_derive::{Decode, Encode};
 use state_processing::{
@@ -374,6 +376,7 @@ where
         anchor_block: &SignedBeaconBlock<E>,
         anchor_state: &BeaconState<E>,
         current_slot: Option<Slot>,
+        count_unrealized_full_config: CountUnrealizedFull,
         spec: &ChainSpec,
     ) -> Result<Self, Error<T::Error>> {
         // Sanity check: the anchor must lie on an epoch boundary.
@@ -420,6 +423,7 @@ where
             current_epoch_shuffling_id,
             next_epoch_shuffling_id,
             execution_status,
+            count_unrealized_full_config,
         )?;
 
         let mut fork_choice = Self {
@@ -1451,11 +1455,13 @@ where
     pub fn proto_array_from_persisted(
         persisted: &PersistedForkChoice,
         reset_payload_statuses: ResetPayloadStatuses,
+        count_unrealized_full: CountUnrealizedFull,
         spec: &ChainSpec,
         log: &Logger,
     ) -> Result<ProtoArrayForkChoice, Error<T::Error>> {
-        let mut proto_array = ProtoArrayForkChoice::from_bytes(&persisted.proto_array_bytes)
-            .map_err(Error::InvalidProtoArrayBytes)?;
+        let mut proto_array =
+            ProtoArrayForkChoice::from_bytes(&persisted.proto_array_bytes, count_unrealized_full)
+                .map_err(Error::InvalidProtoArrayBytes)?;
         let contains_invalid_payloads = proto_array.contains_invalid_payloads();
 
         debug!(
@@ -1486,7 +1492,7 @@ where
                 "error" => e,
                 "info" => "please report this error",
             );
-            ProtoArrayForkChoice::from_bytes(&persisted.proto_array_bytes)
+            ProtoArrayForkChoice::from_bytes(&persisted.proto_array_bytes, count_unrealized_full)
                 .map_err(Error::InvalidProtoArrayBytes)
         } else {
             debug!(
@@ -1503,11 +1509,17 @@ where
         persisted: PersistedForkChoice,
         reset_payload_statuses: ResetPayloadStatuses,
         fc_store: T,
+        count_unrealized_full: CountUnrealizedFull,
         spec: &ChainSpec,
         log: &Logger,
     ) -> Result<Self, Error<T::Error>> {
-        let proto_array =
-            Self::proto_array_from_persisted(&persisted, reset_payload_statuses, spec, log)?;
+        let proto_array = Self::proto_array_from_persisted(
+            &persisted,
+            reset_payload_statuses,
+            count_unrealized_full,
+            spec,
+            log,
+        )?;
 
         let current_slot = fc_store.get_current_slot();
 
