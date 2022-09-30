@@ -6,7 +6,7 @@ use directory::{
 use discv5::{Discv5Config, Discv5ConfigBuilder};
 use libp2p::gossipsub::{
     FastMessageId, GossipsubConfig, GossipsubConfigBuilder, GossipsubMessage, MessageId,
-    RawGossipsubMessage, ValidationMode,
+    RawGossipsubMessage,
 };
 use libp2p::Multiaddr;
 use serde_derive::{Deserialize, Serialize};
@@ -340,7 +340,6 @@ pub fn gossipsub_config(network_load: u8, fork_context: Arc<ForkContext>) -> Gos
         .max_messages_per_rpc(Some(500)) // Responses to IWANT can be quite large
         .history_gossip(load.history_gossip)
         .validate_messages() // require validation before propagation
-        .validation_mode(ValidationMode::Anonymous)
         .duplicate_cache_time(DUPLICATE_CACHE_TIME)
         .message_id_fn(gossip_message_id)
         .fast_message_id_fn(fast_gossip_message_id)

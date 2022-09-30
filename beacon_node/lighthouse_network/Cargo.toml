@@ -42,7 +42,9 @@ unused_port = { path = "../../common/unused_port" }
 delay_map = "0.1.1"
 
 [dependencies.libp2p]
-version = "0.48.0"
+# version = "0.48.0"
+git = "https://github.com/sigp/rust-libp2p"
+branch = "episub"
 default-features = false
 features = ["websocket", "identify", "mplex", "yamux", "noise", "gossipsub", "dns-tokio", "tcp-tokio", "plaintext", "secp256k1"]
 

@@ -3,19 +3,16 @@ use crate::peer_manager::PeerManager;
 use crate::rpc::{ReqId, RPC};
 use crate::types::SnappyTransform;
 
-use libp2p::gossipsub::subscription_filter::{
-    MaxCountSubscriptionFilter, WhitelistSubscriptionFilter,
-};
 use libp2p::gossipsub::Gossipsub as BaseGossipsub;
+use libp2p::gossipsub::{DefaultStrat, MaxCountSubscriptionFilter, WhitelistSubscriptionFilter};
 use libp2p::identify::Identify;
-use libp2p::swarm::NetworkBehaviour;
 use libp2p::NetworkBehaviour;
 use types::EthSpec;
 
 use super::api_types::RequestId;
 
 pub type SubscriptionFilter = MaxCountSubscriptionFilter<WhitelistSubscriptionFilter>;
-pub type Gossipsub = BaseGossipsub<SnappyTransform, SubscriptionFilter>;
+pub type Gossipsub = BaseGossipsub<DefaultStrat, SnappyTransform, SubscriptionFilter>;
 
 #[derive(NetworkBehaviour)]
 pub(crate) struct Behaviour<AppReqId: ReqId, TSpec: EthSpec> {

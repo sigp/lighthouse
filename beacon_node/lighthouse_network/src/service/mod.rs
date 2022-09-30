@@ -22,9 +22,9 @@ use gossipsub_scoring_parameters::{lighthouse_gossip_thresholds, PeerScoreSettin
 use libp2p::bandwidth::BandwidthSinks;
 use libp2p::gossipsub::error::PublishError;
 use libp2p::gossipsub::metrics::Config as GossipsubMetricsConfig;
-use libp2p::gossipsub::subscription_filter::MaxCountSubscriptionFilter;
-use libp2p::gossipsub::{
-    GossipsubEvent, IdentTopic as Topic, MessageAcceptance, MessageAuthenticity, MessageId,
+use libp2p::gossipsub::MaxCountSubscriptionFilter;
+use libp2p::gossipsub::{GossipsubBuilder,
+    GossipsubEvent, IdentTopic as Topic, MessageAcceptance, MessageAuthenticity, MessageId,ValidationMode,
 };
 use libp2p::identify::{Identify, IdentifyConfig, IdentifyEvent};
 use libp2p::multiaddr::{Multiaddr, Protocol as MProtocol};
@@ -237,20 +237,26 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
 
             config.gs_config = gossipsub_config(config.network_load, ctx.fork_context.clone());
 
-            // If metrics are enabled for gossipsub build the configuration
-            let gossipsub_metrics = ctx
-                .gossipsub_registry
-                .map(|registry| (registry, GossipsubMetricsConfig::default()));
-
             let snappy_transform = SnappyTransform::new(config.gs_config.max_transmit_size());
-            let mut gossipsub = Gossipsub::new_with_subscription_filter_and_transform(
-                MessageAuthenticity::Anonymous,
-                config.gs_config.clone(),
-                gossipsub_metrics,
-                filter,
-                snappy_transform,
-            )
-            .map_err(|e| format!("Could not construct gossipsub: {:?}", e))?;
+            let mut gossipsub = {
+                let gossipsub_builder = GossipsubBuilder::new(MessageAuthenticity::Anonymous)
+                    .config(config.gs_config.clone())
+                    .validation_mode(ValidationMode::Anonymous)
+                    .topic_subscription_filter(filter)
+                    .data_transform(snappy_transform);
+
+                // Enable metrics 
+                let gossipsub_builder = {
+                    if let Some(registry) = ctx.gossipsub_registry {
+                    gossipsub_builder.metrics(registry, GossipsubMetricsConfig::default())
+                    } else {
+                        gossipsub_builder
+                    }
+                };
+
+                gossipsub_builder.build()
+                .map_err(|e| format!("Could not construct gossipsub: {:?}", e))?
+            };
 
             gossipsub
                 .with_peer_score(params, thresholds)

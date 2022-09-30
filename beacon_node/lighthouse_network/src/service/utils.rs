@@ -8,8 +8,8 @@ use libp2p::bandwidth::{BandwidthLogging, BandwidthSinks};
 use libp2p::core::{
     identity::Keypair, multiaddr::Multiaddr, muxing::StreamMuxerBox, transport::Boxed,
 };
-use libp2p::gossipsub::subscription_filter::WhitelistSubscriptionFilter;
 use libp2p::gossipsub::IdentTopic as Topic;
+use libp2p::gossipsub::WhitelistSubscriptionFilter;
 use libp2p::{core, noise, PeerId, Transport};
 use prometheus_client::registry::Registry;
 use slog::{debug, warn};
