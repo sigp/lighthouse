@@ -117,6 +117,11 @@ impl<E: EthSpec> Operation<E> for Deposit {
         ssz_decode_file(path)
     }
 
+    fn is_enabled_for_fork(_: ForkName) -> bool {
+        // Some deposit tests require signature verification but are not marked as such.
+        cfg!(not(feature = "fake_crypto"))
+    }
+
     fn apply_to(
         &self,
         state: &mut BeaconState<E>,
