@@ -846,7 +846,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         state: &BeaconState<E>,
         ops: &mut Vec<KeyValueStoreOp>,
     ) -> Result<(), Error> {
-        store_full_state(state_root, state, ops)
+        store_full_state(state_root, state, ops, &self.config)
     }
 
     /// Get a post-finalization state from the database or store.
@@ -1056,8 +1056,16 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         &self,
         state_root: &Hash256,
     ) -> Result<(BeaconState<E>, Hash256), Error> {
-        let mut state = get_full_state(&self.hot_db, state_root, &self.spec)?
-            .ok_or(HotColdDBError::MissingEpochBoundaryState(*state_root))?;
+        let pubkey_cache = self.immutable_validators.read();
+        let immutable_validators = |i: usize| pubkey_cache.get_validator(i);
+        let mut state = get_full_state(
+            &self.hot_db,
+            state_root,
+            immutable_validators,
+            &self.config,
+            &self.spec,
+        )?
+        .ok_or(HotColdDBError::MissingEpochBoundaryState(*state_root))?;
 
         // Do a tree hash here so that the cache is fully built.
         state.update_tree_hash_cache()?;

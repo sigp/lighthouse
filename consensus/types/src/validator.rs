@@ -40,6 +40,24 @@ pub struct ValidatorImmutable {
     pub withdrawal_credentials: Hash256,
 }
 
+pub trait ValidatorTrait:
+    std::fmt::Debug
+    + PartialEq
+    + Clone
+    + serde::Serialize
+    + Send
+    + Sync
+    + serde::de::DeserializeOwned
+    + ssz::Encode
+    + ssz::Decode
+    + TreeHash
+    + TestRandom
+{
+}
+
+impl ValidatorTrait for Validator {}
+impl ValidatorTrait for ValidatorMutable {}
+
 impl Validator {
     pub fn pubkey(&self) -> &PublicKeyBytes {
         &self.immutable.pubkey

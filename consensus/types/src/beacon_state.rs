@@ -1,6 +1,7 @@
 use self::committee_cache::get_active_validator_indices;
 use self::exit_cache::ExitCache;
 use crate::test_utils::TestRandom;
+use crate::validator::ValidatorTrait;
 use crate::*;
 use compare_fields::CompareFields;
 use compare_fields_derive::CompareFields;
@@ -31,6 +32,7 @@ pub use milhouse::{interface::Interface, List as VList, List, Vector as FixedVec
 
 #[macro_use]
 mod committee_cache;
+pub mod compact_state;
 mod diff;
 mod exit_cache;
 mod iter;
@@ -138,6 +140,7 @@ pub enum Error {
         current_fork: ForkName,
     },
     TotalActiveBalanceDiffUninitialized,
+    MissingImmutableValidator(usize),
 }
 
 /// Control whether an epoch-indexed field can be indexed at the next epoch or not.
@@ -212,7 +215,7 @@ impl From<BeaconStateHash> for Hash256 {
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 #[tree_hash(enum_behaviour = "transparent")]
 #[ssz(enum_behaviour = "transparent")]
-pub struct BeaconState<T>
+pub struct BeaconState<T, GenericValidator: ValidatorTrait = Validator>
 where
     T: EthSpec,
 {
@@ -246,7 +249,7 @@ where
 
     // Registry
     #[test_random(default)]
-    pub validators: VList<Validator, T::ValidatorRegistryLimit>,
+    pub validators: VList<GenericValidator, T::ValidatorRegistryLimit>,
     // FIXME(sproul): serde quoting
     // #[serde(with = "ssz_types::serde_utils::quoted_u64_var_list")]
     #[test_random(default)]
@@ -416,30 +419,6 @@ impl<T: EthSpec> BeaconState<T> {
             BeaconState::Altair { .. } => ForkName::Altair,
             BeaconState::Merge { .. } => ForkName::Merge,
         }
-    }
-
-    /// Specialised deserialisation method that uses the `ChainSpec` as context.
-    #[allow(clippy::integer_arithmetic)]
-    pub fn from_ssz_bytes(bytes: &[u8], spec: &ChainSpec) -> Result<Self, ssz::DecodeError> {
-        // Slot is after genesis_time (u64) and genesis_validators_root (Hash256).
-        let slot_start = <u64 as Decode>::ssz_fixed_len() + <Hash256 as Decode>::ssz_fixed_len();
-        let slot_end = slot_start + <Slot as Decode>::ssz_fixed_len();
-
-        let slot_bytes = bytes
-            .get(slot_start..slot_end)
-            .ok_or(DecodeError::InvalidByteLength {
-                len: bytes.len(),
-                expected: slot_end,
-            })?;
-
-        let slot = Slot::from_ssz_bytes(slot_bytes)?;
-        let fork_at_slot = spec.fork_name_at_slot::<T>(slot);
-
-        Ok(map_fork_name!(
-            fork_at_slot,
-            Self,
-            <_>::from_ssz_bytes(bytes)?
-        ))
     }
 
     /// Returns the `tree_hash_root` of the state.
@@ -1665,6 +1644,32 @@ impl<T: EthSpec> BeaconState<T> {
             self.next_sync_committee()?.clone()
         };
         Ok(sync_committee)
+    }
+}
+
+impl<T: EthSpec, V: ValidatorTrait> BeaconState<T, V> {
+    /// Specialised deserialisation method that uses the `ChainSpec` as context.
+    #[allow(clippy::integer_arithmetic)]
+    pub fn from_ssz_bytes(bytes: &[u8], spec: &ChainSpec) -> Result<Self, ssz::DecodeError> {
+        // Slot is after genesis_time (u64) and genesis_validators_root (Hash256).
+        let slot_start = <u64 as Decode>::ssz_fixed_len() + <Hash256 as Decode>::ssz_fixed_len();
+        let slot_end = slot_start + <Slot as Decode>::ssz_fixed_len();
+
+        let slot_bytes = bytes
+            .get(slot_start..slot_end)
+            .ok_or(DecodeError::InvalidByteLength {
+                len: bytes.len(),
+                expected: slot_end,
+            })?;
+
+        let slot = Slot::from_ssz_bytes(slot_bytes)?;
+        let fork_at_slot = spec.fork_name_at_slot::<T>(slot);
+
+        Ok(map_fork_name!(
+            fork_at_slot,
+            Self,
+            <_>::from_ssz_bytes(bytes)?
+        ))
     }
 }
 
