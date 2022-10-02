@@ -186,7 +186,7 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
                             Ok(block.data.root)
                         }
                         Ok(Some(_)) => {
-                            Err("To sign sync commitee messages a non-optimistic head block is required".to_string())
+                            Err(format!("To sign sync commitee messages for slot {} a non-optimistic head block is required",slot).to_string())
                         }
                         Ok(None) => Err(format!("No block root found for slot {}", slot).to_string()),
                         Err(e) => Err(e.to_string()),
