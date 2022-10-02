@@ -175,26 +175,28 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
         }
 
         // Fetch `block_root` and `execution_optimistic` for `SyncCommitteeContribution`.
-        let response = self
+        let block_root = self
             .beacon_nodes
-            .first_success(RequireSynced::Yes, OfflineOnFailure::Yes,|beacon_node| async move {
-                beacon_node.get_beacon_blocks_root(BlockId::Head).await
-            })
+            .first_success(
+                RequireSynced::Yes,
+                OfflineOnFailure::Yes,
+                |beacon_node| async move {
+                    match beacon_node.get_beacon_blocks_root(BlockId::Head).await {
+                        Ok(Some(block)) if block.execution_optimistic == Some(false) => {
+                            Ok(block.data.root)
+                        }
+                        Ok(Some(_)) => {
+                            Err("To sign sync commitee messages a non-optimistic head block is required".to_string())
+                        }
+                        Ok(None) => Err(format!("No block root found for slot {}", slot).to_string()),
+                        Err(e) => Err(e.to_string()),
+                    }
+                },
+            )
             .await
-            .map_err(|e| e.to_string())?
-            .ok_or_else(|| format!("No block root found for slot {}", slot))?;
+            .map_err(|e| e.to_string())?;
 
-        let block_root = response.data.root;
-        if let Some(execution_optimistic) = response.execution_optimistic {
-            if execution_optimistic {
-                warn!(
-                    log,
-                    "Refusing to sign sync committee messages for optimistic head block";
-                    "slot" => slot,
-                );
-                return Ok(());
-            }
-        } else if let Some(bellatrix_fork_epoch) = self.duties_service.spec.bellatrix_fork_epoch {
+        if let Some(bellatrix_fork_epoch) = self.duties_service.spec.bellatrix_fork_epoch {
             // If the slot is post Bellatrix, do not sign messages when we cannot verify the
             // optimistic status of the head block.
             if slot.epoch(E::slots_per_epoch()) > bellatrix_fork_epoch {
