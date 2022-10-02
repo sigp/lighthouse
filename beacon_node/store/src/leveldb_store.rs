@@ -27,6 +27,7 @@ impl<E: EthSpec> LevelDB<E> {
         let mut options = Options::new();
 
         options.create_if_missing = true;
+        options.write_buffer_size = Some(512 * 1024 * 1024);
 
         let db = Database::open(path, options)?;
         let transaction_mutex = Mutex::new(());
