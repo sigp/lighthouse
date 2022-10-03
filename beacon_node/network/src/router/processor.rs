@@ -8,6 +8,7 @@ use crate::sync::SyncMessage;
 use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes};
 use lighthouse_network::rpc::methods::TxBlobsByRangeRequest;
 use lighthouse_network::rpc::*;
+use lighthouse_network::rpc::methods::BlobsByRangeRequest;
 use lighthouse_network::{
     Client, MessageId, NetworkGlobals, PeerId, PeerRequestId, Request, Response,
 };
@@ -22,6 +23,7 @@ use types::{
     SignedAggregateAndProof, SignedBeaconBlock, SignedContributionAndProof, SignedVoluntaryExit,
     SubnetId, SyncSubnetId,
 };
+use types::signed_blobs_sidecar::SignedBlobsSidecar;
 
 /// Processes validated messages from the network. It relays necessary data to the syncing thread
 /// and processes blocks from the pubsub network.
@@ -162,6 +164,16 @@ impl<T: BeaconChainTypes> Processor<T> {
         ))
     }
 
+    pub fn on_blobs_by_range_request(
+        &mut self,
+        peer_id: PeerId,
+        request_id: PeerRequestId,
+        request: BlobsByRangeRequest,
+    ) {
+        self.send_beacon_processor_work(BeaconWorkEvent::blobs_by_range_request(
+            peer_id, request_id, request,
+        ))
+    }
     /// Handle a `BlocksByRange` request from the peer.
     pub fn on_blocks_by_range_request(
         &mut self,
@@ -274,6 +286,15 @@ impl<T: BeaconChainTypes> Processor<T> {
         });
     }
 
+    pub fn on_blobs_by_range_response(
+        &mut self,
+        peer_id: PeerId,
+        request_id: RequestId,
+        beacon_blob: Option<Arc<VariableList<BlobsSidecar<T::EthSpec>, <<T as BeaconChainTypes>::EthSpec as EthSpec>::MaxRequestBlobsSidecars>>>,
+    ) {
+
+    }
+
     /// Process a gossip message declaring a new block.
     ///
     /// Attempts to apply to block to the beacon chain. May queue the block for later processing.
@@ -295,18 +316,18 @@ impl<T: BeaconChainTypes> Processor<T> {
         ))
     }
 
-    pub fn on_tx_blob_gossip(
+    pub fn on_blobs_gossip(
         &mut self,
         message_id: MessageId,
         peer_id: PeerId,
         peer_client: Client,
-        blob: Box<BlobsSidecar<T::EthSpec>>,
+        blobs: Arc<SignedBlobsSidecar<T::EthSpec>>,
     ) {
-        self.send_beacon_processor_work(BeaconWorkEvent::gossip_tx_blob_block(
+        self.send_beacon_processor_work(BeaconWorkEvent::gossip_blobs_sidecar(
             message_id,
             peer_id,
             peer_client,
-            blob,
+            blobs,
             timestamp_now(),
         ))
     }

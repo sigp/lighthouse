@@ -5,6 +5,7 @@ use ssz_derive::{Decode, Encode};
 use ssz_types::VariableList;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
+use crate::kzg_proof::KzgProof;
 
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 #[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, PartialEq, Default)]
@@ -12,6 +13,7 @@ pub struct BlobsSidecar<E: EthSpec> {
     pub beacon_block_root: Hash256,
     pub beacon_block_slot: Slot,
     pub blobs: VariableList<Blob<E::FieldElementsPerBlob>, E::MaxBlobsPerBlock>,
+    pub kzg_aggregate_proof: KzgProof,
 }
 
 impl<E: EthSpec> BlobsSidecar<E> {

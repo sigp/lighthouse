@@ -96,7 +96,7 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq +
     type MinGasLimit: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type MaxExtraDataBytes: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     /*
-     * New in Capella
+     * New in Eip4844
      */
     type MaxBlobsPerBlock: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type FieldElementsPerBlob: Unsigned + Clone + Sync + Send + Debug + PartialEq;

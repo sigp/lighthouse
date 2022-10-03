@@ -777,7 +777,7 @@ where
                     (parent_justified, parent_finalized)
                 } else {
                     let justification_and_finalization_state = match block {
-                        BeaconBlockRef::Merge(_) | BeaconBlockRef::Altair(_) => {
+                        BeaconBlockRef::Eip4844(_) | BeaconBlockRef::Merge(_) | BeaconBlockRef::Altair(_) => {
                             let participation_cache =
                                 per_epoch_processing::altair::ParticipationCache::new(state, spec)
                                     .map_err(Error::ParticipationCacheBuild)?;

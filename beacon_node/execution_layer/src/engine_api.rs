@@ -7,9 +7,10 @@ use serde::{Deserialize, Serialize};
 use strum::IntoStaticStr;
 pub use types::{
     Address, EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadHeader, FixedVector,
-    Hash256, Uint256, VariableList,
+    Hash256, Uint256, VariableList, kzg_proof::KzgProof, kzg_commitment::KzgCommitment, blob::Blob,
 };
-use types::{KZGCommitment};
+use types::{KzgCommitment};
+
 
 pub mod auth;
 pub mod http;
@@ -170,6 +171,6 @@ pub struct ProposeBlindedBlockResponse {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct BlobDetailsV1 {
-    kzg: KZGCommitment,
+    kzg: KzgCommitment,
     blob: Vec<Hash256>,
 }

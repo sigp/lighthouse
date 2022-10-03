@@ -781,6 +781,55 @@ impl<T: EthSpec> ExecutionLayer<T> {
         .await
     }
 
+    pub async fn get_blob_bundles(
+        &self,
+        parent_hash: ExecutionBlockHash,
+        timestamp: u64,
+        prev_randao: Hash256,
+        suggested_fee_recipient: Address,
+    ) -> Result<BlobsBundle<T>, Error> {
+        debug!(
+            self.log(),
+            "Issuing engine_getPayload";
+            "suggested_fee_recipient" => ?suggested_fee_recipient,
+            "prev_randao" => ?prev_randao,
+            "timestamp" => timestamp,
+            "parent_hash" => ?parent_hash,
+        );
+        self.engine()
+            .request(|engine| async move {
+                let payload_id = if let Some(id) = engine
+                    .get_payload_id(parent_hash, timestamp, prev_randao, suggested_fee_recipient)
+                    .await
+                {
+                    // The payload id has been cached for this engine.
+                    metrics::inc_counter_vec(
+                        &metrics::EXECUTION_LAYER_PRE_PREPARED_PAYLOAD_ID,
+                        &[metrics::HIT],
+                    );
+                    id
+                } else {             
+                    error!(
+                        self.log(),
+                        "Exec engine unable to produce blobs, did you call get_payload before?",
+                    );
+                    return Err(ApiError::PayloadIdUnavailable);                       
+                };
+
+                engine
+                    .api
+                    .get_blobs_bundle_v1::<T>(payload_id)
+                    .await
+                    .map(|bundle| {
+                        // TODO verify the blob bundle here?
+                        bundle.into()
+                    })
+            })
+            .await
+            .map_err(Box::new)
+            .map_err(Error::EngineError)
+    }
+
     async fn get_full_payload_with<Payload: ExecPayload<T>>(
         &self,
         parent_hash: ExecutionBlockHash,

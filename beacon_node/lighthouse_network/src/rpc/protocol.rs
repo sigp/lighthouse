@@ -108,6 +108,8 @@ lazy_static! {
 pub(crate) const MAX_RPC_SIZE: usize = 1_048_576; // 1M
 /// The maximum bytes that can be sent across the RPC post-merge.
 pub(crate) const MAX_RPC_SIZE_POST_MERGE: usize = 10 * 1_048_576; // 10M
+//TODO(sean) check
+pub(crate) const MAX_RPC_SIZE_POST_EIP4844: usize = 20 * 1_048_576; // 10M
 /// The protocol prefix the RPC protocol id.
 const PROTOCOL_PREFIX: &str = "/eth2/beacon_chain/req";
 /// Time allowed for the first byte of a request to arrive before we time out (Time To First Byte).
@@ -119,9 +121,9 @@ const REQUEST_TIMEOUT: u64 = 15;
 /// Returns the maximum bytes that can be sent across the RPC.
 pub fn max_rpc_size(fork_context: &ForkContext) -> usize {
     match fork_context.current_fork() {
+        ForkName::Eip4844 => MAX_RPC_SIZE_POST_EIP4844,
         ForkName::Merge => MAX_RPC_SIZE_POST_MERGE,
-        //FIXME(sean) check this
-        ForkName::Altair | ForkName::Base | ForkName::Capella => MAX_RPC_SIZE,
+        ForkName::Altair | ForkName::Base => MAX_RPC_SIZE,
     }
 }
 
@@ -142,6 +144,10 @@ pub fn rpc_block_limits_by_fork(current_fork: ForkName) -> RpcLimits {
             *SIGNED_BEACON_BLOCK_BASE_MIN, // Base block is smaller than altair and merge blocks
             *SIGNED_BEACON_BLOCK_MERGE_MAX, // Merge block is larger than base and altair blocks
         ),
+        ForkName::Eip4844 => RpcLimits::new(
+            *SIGNED_BEACON_BLOCK_BASE_MIN, // Base block is smaller than altair and merge blocks
+            *SIGNED_BEACON_BLOCK_EIP4844_MAX, // Merge block is larger than base and altair blocks
+        ),
     }
 }
 
@@ -157,6 +163,8 @@ pub enum Protocol {
     TxBlobsByRange,
     /// The `BlocksByRoot` protocol name.
     BlocksByRoot,
+    /// The `BlobsByRange` protocol name.
+    BlobsByRange,
     /// The `Ping` protocol name.
     Ping,
     /// The `MetaData` protocol name.
@@ -184,9 +192,8 @@ impl std::fmt::Display for Protocol {
             Protocol::Status => "status",
             Protocol::Goodbye => "goodbye",
             Protocol::BlocksByRange => "beacon_blocks_by_range",
-            //FIXME(sean) verify
-            Protocol::TxBlobsByRange => "tx_blobs_by_range",
             Protocol::BlocksByRoot => "beacon_blocks_by_root",
+            Protocol::BlobsByRange => "blobs_sidecars_by_range",
             Protocol::Ping => "ping",
             Protocol::MetaData => "metadata",
         };
@@ -292,11 +299,10 @@ impl ProtocolId {
                 <OldBlocksByRangeRequest as Encode>::ssz_fixed_len(),
                 <OldBlocksByRangeRequest as Encode>::ssz_fixed_len(),
             ),
-            Protocol::TxBlobsByRange => RpcLimits::new(
-                <TxBlobsByRangeRequest as Encode>::ssz_fixed_len(),
-                <TxBlobsByRangeRequest as Encode>::ssz_fixed_len(),
-            ),
             Protocol::BlocksByRoot => {
+                RpcLimits::new(*BLOCKS_BY_ROOT_REQUEST_MIN, *BLOCKS_BY_ROOT_REQUEST_MAX)
+            }
+            Protocol::BlobsByRange => {
                 RpcLimits::new(*BLOCKS_BY_ROOT_REQUEST_MIN, *BLOCKS_BY_ROOT_REQUEST_MAX)
             }
             Protocol::Ping => RpcLimits::new(
@@ -317,6 +323,7 @@ impl ProtocolId {
             Protocol::Goodbye => RpcLimits::new(0, 0), // Goodbye request has no response
             Protocol::BlocksByRange => rpc_block_limits_by_fork(fork_context.current_fork()),
             Protocol::BlocksByRoot => rpc_block_limits_by_fork(fork_context.current_fork()),
+            Protocol::BlobsByRange => rpc_block_limits_by_fork(fork_context.current_fork()),
 
             Protocol::Ping => RpcLimits::new(
                 <Ping as Encode>::ssz_fixed_len(),
@@ -431,6 +438,7 @@ pub enum InboundRequest<TSpec: EthSpec> {
     Goodbye(GoodbyeReason),
     BlocksByRange(OldBlocksByRangeRequest),
     BlocksByRoot(BlocksByRootRequest),
+    BlobsByRange(BlobsByRangeRequest),
     Ping(Ping),
     MetaData(PhantomData<TSpec>),
 }
@@ -465,14 +473,12 @@ impl<TSpec: EthSpec> InboundRequest<TSpec> {
                 ProtocolId::new(Protocol::BlocksByRange, Version::V2, Encoding::SSZSnappy),
                 ProtocolId::new(Protocol::BlocksByRange, Version::V1, Encoding::SSZSnappy),
             ],
-            //FIXME(sean) do I need v1
-            InboundRequest::TxBlobsByRange(_) => vec![
-                // V2 has higher preference when negotiating a stream
-                ProtocolId::new(Protocol::TxBlobsByRange, Version::V2, Encoding::SSZSnappy),
-            ],
             InboundRequest::BlocksByRoot(_) => vec![
                 // V2 has higher preference when negotiating a stream
                 ProtocolId::new(Protocol::BlocksByRoot, Version::V2, Encoding::SSZSnappy),
+                ProtocolId::new(Protocol::BlocksByRoot, Version::V1, Encoding::SSZSnappy),
+            ],
+            InboundRequest::BlobsByRange(_) => vec![
                 ProtocolId::new(Protocol::BlocksByRoot, Version::V1, Encoding::SSZSnappy),
             ],
             InboundRequest::Ping(_) => vec![ProtocolId::new(
@@ -497,6 +503,7 @@ impl<TSpec: EthSpec> InboundRequest<TSpec> {
             InboundRequest::BlocksByRange(req) => req.count,
             InboundRequest::TxBlobsByRange(req) => req.count,
             InboundRequest::BlocksByRoot(req) => req.block_roots.len() as u64,
+            InboundRequest::BlobsByRange(req) => req.count,
             InboundRequest::Ping(_) => 1,
             InboundRequest::MetaData(_) => 1,
         }
@@ -510,6 +517,7 @@ impl<TSpec: EthSpec> InboundRequest<TSpec> {
             InboundRequest::BlocksByRange(_) => Protocol::BlocksByRange,
             InboundRequest::TxBlobsByRange(_) => Protocol::TxBlobsByRange,
             InboundRequest::BlocksByRoot(_) => Protocol::BlocksByRoot,
+            InboundRequest::BlobsByRange(_) => Protocol::BlobsByRange,
             InboundRequest::Ping(_) => Protocol::Ping,
             InboundRequest::MetaData(_) => Protocol::MetaData,
         }
@@ -524,6 +532,7 @@ impl<TSpec: EthSpec> InboundRequest<TSpec> {
             InboundRequest::BlocksByRange(_) => ResponseTermination::BlocksByRange,
             InboundRequest::TxBlobsByRange(_) => ResponseTermination::TxBlobsByRange,
             InboundRequest::BlocksByRoot(_) => ResponseTermination::BlocksByRoot,
+            InboundRequest::BlobsByRange(_) => ResponseTermination::BlobsByRange,
             InboundRequest::Status(_) => unreachable!(),
             InboundRequest::Goodbye(_) => unreachable!(),
             InboundRequest::Ping(_) => unreachable!(),
@@ -628,8 +637,8 @@ impl<TSpec: EthSpec> std::fmt::Display for InboundRequest<TSpec> {
             InboundRequest::Status(status) => write!(f, "Status Message: {}", status),
             InboundRequest::Goodbye(reason) => write!(f, "Goodbye: {}", reason),
             InboundRequest::BlocksByRange(req) => write!(f, "Blocks by range: {}", req),
-            InboundRequest::TxBlobsByRange(req) => write!(f, "Blobs by range: {}", req),
             InboundRequest::BlocksByRoot(req) => write!(f, "Blocks by root: {:?}", req),
+            InboundRequest::BlobsByRange(req) => write!(f, "Blobs by range: {:?}", req),
             InboundRequest::Ping(ping) => write!(f, "Ping: {}", ping.data),
             InboundRequest::MetaData(_) => write!(f, "MetaData request"),
         }

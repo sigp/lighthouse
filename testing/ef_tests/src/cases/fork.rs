@@ -61,7 +61,7 @@ impl<E: EthSpec> Case for ForkTest<E> {
             ForkName::Base => panic!("phase0 not supported"),
             ForkName::Altair => upgrade_to_altair(&mut result_state, spec).map(|_| result_state),
             ForkName::Merge => upgrade_to_bellatrix(&mut result_state, spec).map(|_| result_state),
-            ForkName::Capella => panic!("capella not supported"),
+            ForkName::Eip4844 => panic!("eip4844 not supported"),
         };
 
         compare_beacon_state_results_without_caches(&mut result, &mut expected)

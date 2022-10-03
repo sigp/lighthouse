@@ -101,6 +101,8 @@ use types::*;
 
 pub use crate::canonical_head::{CanonicalHead, CanonicalHeadRwLock};
 pub use fork_choice::CountUnrealized;
+use types::kzg_commitment::KzgCommitment;
+use types::signed_blobs_sidecar::SignedBlobsSidecar;
 
 pub type ForkChoiceError = fork_choice::Error<crate::ForkChoiceStoreError>;
 
@@ -375,6 +377,8 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     /// Sender given to tasks, so that if they encounter a state in which execution cannot
     /// continue they can request that everything shuts down.
     pub shutdown_sender: Sender<ShutdownReason>,
+    pub block_waiting_for_sidecar: Mutex<Option<GossipVerifiedBlock<T>>>,
+    pub sidecar_waiting_for_block: Mutex<Option<Arc<SignedBlobsSidecar<T::EthSpec>>>>,
     /// Logging to CLI, etc.
     pub(crate) log: Logger,
     /// Arbitrary bytes included in the blocks.
@@ -2436,6 +2440,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self: &Arc<Self>,
         block_root: Hash256,
         unverified_block: B,
+        sidecar: Option<Arc<SignedBlobsSidecar<T::EthSpec>>>,
         count_unrealized: CountUnrealized,
     ) -> Result<Hash256, BlockError<T::EthSpec>> {
         // Start the Prometheus timer.
@@ -2453,7 +2458,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             let execution_pending =
                 unverified_block.into_execution_pending_block(block_root, &chain)?;
             chain
-                .import_execution_pending_block(execution_pending, count_unrealized)
+                .import_execution_pending_block(execution_pending, sidecar, count_unrealized)
                 .await
         };
 
@@ -2511,6 +2516,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     async fn import_execution_pending_block(
         self: Arc<Self>,
         execution_pending_block: ExecutionPendingBlock<T>,
+        sidecar: Option<Arc<SignedBlobsSidecar<T::EthSpec>>>,
         count_unrealized: CountUnrealized,
     ) -> Result<Hash256, BlockError<T::EthSpec>> {
         let ExecutionPendingBlock {
@@ -2566,6 +2572,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 move || {
                     chain.import_block(
                         block,
+                        sidecar,
                         block_root,
                         state,
                         confirmed_state_roots,
@@ -2588,6 +2595,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     fn import_block(
         &self,
         signed_block: Arc<SignedBeaconBlock<T::EthSpec>>,
+        sidecar: Option<Arc<SignedBlobsSidecar<T::EthSpec>>>,
         block_root: Hash256,
         mut state: BeaconState<T::EthSpec>,
         confirmed_state_roots: Vec<Hash256>,
@@ -2926,6 +2934,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .collect();
         ops.push(StoreOp::PutBlock(block_root, signed_block.clone()));
         ops.push(StoreOp::PutState(block.state_root(), &state));
+        if let Some(sidecar) = sidecar {
+            ops.push(StoreOp::PutBlobs(block_root, sidecar));
+        }
         let txn_lock = self.store.hot_db.begin_rw_transaction();
 
         if let Err(e) = self.store.do_atomically(ops) {
@@ -3364,7 +3375,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // allows it to run concurrently with things like attestation packing.
         let prepare_payload_handle = match &state {
             BeaconState::Base(_) | BeaconState::Altair(_) => None,
-            BeaconState::Merge(_) => {
+            BeaconState::Merge(_) | BeaconState::Eip4844(_) => {
                 let prepare_payload_handle =
                     get_execution_payload(self.clone(), &state, proposer_index, builder_params)?;
                 Some(prepare_payload_handle)
@@ -3620,31 +3631,28 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         .ok_or(BlockProductionError::MissingExecutionPayload)?,
                 },
             }),
-            BeaconState::Capella(_) => {
-                let sync_aggregate = get_sync_aggregate()?;
-                let (execution_payload, _blobs) =
-                    get_execution_payload_and_blobs(self, &state, proposer_index)?;
-                //FIXME(sean) get blobs
-                BeaconBlock::Capella(BeaconBlockCapella {
-                    slot,
-                    proposer_index,
-                    parent_root,
-                    state_root: Hash256::zero(),
-                    body: BeaconBlockBodyCapella {
-                        randao_reveal,
-                        eth1_data,
-                        graffiti,
-                        proposer_slashings: proposer_slashings.into(),
-                        attester_slashings: attester_slashings.into(),
-                        attestations,
-                        deposits,
-                        voluntary_exits: voluntary_exits.into(),
-                        sync_aggregate,
-                        execution_payload,
-                        blob_kzgs: VariableList::empty(),
-                    },
-                })
-            }
+            BeaconState::Eip4844(_) => BeaconBlock::Eip4844(BeaconBlockEip4844 {
+                slot,
+                proposer_index,
+                parent_root,
+                state_root: Hash256::zero(),
+                body: BeaconBlockBodyEip4844 {
+                    randao_reveal,
+                    eth1_data,
+                    graffiti,
+                    proposer_slashings: proposer_slashings.into(),
+                    attester_slashings: attester_slashings.into(),
+                    attestations: attestations.into(),
+                    deposits: deposits.into(),
+                    voluntary_exits: voluntary_exits.into(),
+                    sync_aggregate: sync_aggregate
+                        .ok_or(BlockProductionError::MissingSyncAggregate)?,
+                    execution_payload: execution_payload
+                        .ok_or(BlockProductionError::MissingExecutionPayload)?,
+                    //FIXME(sean) get blobs
+                    blob_kzg_commitments: VariableList::empty(),
+                },
+            }),
         };
 
         let block = SignedBeaconBlock::from_block(

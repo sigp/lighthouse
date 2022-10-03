@@ -165,12 +165,12 @@ impl<T: BeaconChainTypes> Router<T> {
             Request::BlocksByRange(request) => self
                 .processor
                 .on_blocks_by_range_request(peer_id, id, request),
-            Request::TxBlobsByRange(request) => self
-                .processor
-                .on_tx_blobs_by_range_request(peer_id, id, request),
             Request::BlocksByRoot(request) => self
                 .processor
                 .on_blocks_by_root_request(peer_id, id, request),
+            Request::BlobsByRange(request) => self
+                .processor
+                .on_blobs_by_range_request(peer_id, id, request),
         }
     }
 
@@ -191,13 +191,13 @@ impl<T: BeaconChainTypes> Router<T> {
                 self.processor
                     .on_blocks_by_range_response(peer_id, request_id, beacon_block);
             }
-            Response::TxBlobsByRange(blob_wrapper) => {
-                self.processor
-                    .on_tx_blobs_by_range_response(peer_id, request_id, blob_wrapper);
-            }
             Response::BlocksByRoot(beacon_block) => {
                 self.processor
                     .on_blocks_by_root_response(peer_id, request_id, beacon_block);
+            }
+            Response::BlobsByRange(beacon_blob) => {
+                self.processor
+                    .on_blobs_by_range_response(peer_id, request_id, beacon_blob);
             }
         }
     }
@@ -236,12 +236,12 @@ impl<T: BeaconChainTypes> Router<T> {
                     block,
                 );
             }
-            PubsubMessage::Blob(blob) => {
-                self.processor.on_tx_blob_gossip(
+            PubsubMessage::BlobsSidecars(blobs) => {
+                self.processor.on_blobs_gossip(
                     id,
                     peer_id,
                     self.network_globals.client(&peer_id),
-                    blob,
+                    blobs,
                 );
             }
             PubsubMessage::VoluntaryExit(exit) => {

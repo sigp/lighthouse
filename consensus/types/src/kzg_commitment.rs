@@ -3,18 +3,18 @@ use crate::*;
 use derivative::Derivative;
 use serde_derive::{Deserialize, Serialize};
 use ssz::{Decode, DecodeError, Encode};
-use tree_hash::TreeHash;
+use tree_hash::{PackedEncoding, TreeHash};
 
 //TODO: is there a way around this newtype
 #[derive(Derivative, Debug, Clone, Serialize, Deserialize)]
 #[derivative(PartialEq, Eq, Hash)]
-pub struct KZGCommitment(#[serde(with = "BigArray")] [u8; 48]);
-impl TreeHash for KZGCommitment {
+pub struct KzgCommitment(#[serde(with = "BigArray")] [u8; 48]);
+impl TreeHash for KzgCommitment {
     fn tree_hash_type() -> tree_hash::TreeHashType {
         <[u8; 48] as TreeHash>::tree_hash_type()
     }
 
-    fn tree_hash_packed_encoding(&self) -> Vec<u8> {
+    fn tree_hash_packed_encoding(&self) -> PackedEncoding{
         self.0.tree_hash_packed_encoding()
     }
 
@@ -27,23 +27,23 @@ impl TreeHash for KZGCommitment {
     }
 }
 
-impl TestRandom for KZGCommitment {
+impl TestRandom for KzgCommitment {
     fn random_for_test(rng: &mut impl rand::RngCore) -> Self {
-        KZGCommitment(<[u8; 48] as TestRandom>::random_for_test(rng))
+        KzgCommitment(<[u8; 48] as TestRandom>::random_for_test(rng))
     }
 }
 
-impl Decode for KZGCommitment {
+impl Decode for KzgCommitment {
     fn is_ssz_fixed_len() -> bool {
         <[u8; 48] as Decode>::is_ssz_fixed_len()
     }
 
     fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
-        <[u8; 48] as Decode>::from_ssz_bytes(bytes).map(KZGCommitment)
+        <[u8; 48] as Decode>::from_ssz_bytes(bytes).map(KzgCommitment)
     }
 }
 
-impl Encode for KZGCommitment {
+impl Encode for KzgCommitment {
     fn is_ssz_fixed_len() -> bool {
         <[u8; 48] as Encode>::is_ssz_fixed_len()
     }

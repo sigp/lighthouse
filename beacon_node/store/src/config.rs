@@ -7,6 +7,7 @@ use types::{EthSpec, MinimalEthSpec};
 pub const PREV_DEFAULT_SLOTS_PER_RESTORE_POINT: u64 = 2048;
 pub const DEFAULT_SLOTS_PER_RESTORE_POINT: u64 = 8192;
 pub const DEFAULT_BLOCK_CACHE_SIZE: usize = 5;
+pub const DEFAULT_BLOB_CACHE_SIZE: usize = 5;
 
 /// Database configuration parameters.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -17,6 +18,8 @@ pub struct StoreConfig {
     pub slots_per_restore_point_set_explicitly: bool,
     /// Maximum number of blocks to store in the in-memory block cache.
     pub block_cache_size: usize,
+    /// Maximum number of blobs to store in the in-memory block cache.
+    pub blob_cache_size: usize,
     /// Whether to compact the database on initialization.
     pub compact_on_init: bool,
     /// Whether to compact the database during database pruning.
@@ -43,6 +46,7 @@ impl Default for StoreConfig {
             slots_per_restore_point: MinimalEthSpec::slots_per_historical_root() as u64,
             slots_per_restore_point_set_explicitly: false,
             block_cache_size: DEFAULT_BLOCK_CACHE_SIZE,
+            blob_cache_size: DEFAULT_BLOB_CACHE_SIZE,
             compact_on_init: false,
             compact_on_prune: true,
             prune_payloads: true,

@@ -45,7 +45,7 @@ use beacon_chain::{BeaconChain, BeaconChainTypes, GossipVerifiedBlock};
 use derivative::Derivative;
 use futures::stream::{Stream, StreamExt};
 use futures::task::Poll;
-use lighthouse_network::rpc::methods::TxBlobsByRangeRequest;
+use lighthouse_network::rpc::methods::BlobsByRangeRequest;
 use lighthouse_network::{
     rpc::{BlocksByRangeRequest, BlocksByRootRequest, StatusMessage},
     Client, MessageId, NetworkGlobals, PeerId, PeerRequestId,
@@ -66,6 +66,7 @@ use types::{
     SignedAggregateAndProof, SignedBeaconBlock, SignedContributionAndProof, SignedVoluntaryExit,
     SubnetId, SyncCommitteeMessage, SyncSubnetId,
 };
+use types::signed_blobs_sidecar::SignedBlobsSidecar;
 use work_reprocessing_queue::{
     spawn_reprocess_scheduler, QueuedAggregate, QueuedRpcBlock, QueuedUnaggregate, ReadyWork,
 };
@@ -190,7 +191,7 @@ pub const GOSSIP_ATTESTATION_BATCH: &str = "gossip_attestation_batch";
 pub const GOSSIP_AGGREGATE: &str = "gossip_aggregate";
 pub const GOSSIP_AGGREGATE_BATCH: &str = "gossip_aggregate_batch";
 pub const GOSSIP_BLOCK: &str = "gossip_block";
-pub const GOSSIP_BLOB: &str = "gossip_blob";
+pub const GOSSIP_BLOBS_SIDECAR: &str = "gossip_blobs_sidecar";
 pub const DELAYED_IMPORT_BLOCK: &str = "delayed_import_block";
 pub const GOSSIP_VOLUNTARY_EXIT: &str = "gossip_voluntary_exit";
 pub const GOSSIP_PROPOSER_SLASHING: &str = "gossip_proposer_slashing";
@@ -201,8 +202,8 @@ pub const RPC_BLOCK: &str = "rpc_block";
 pub const CHAIN_SEGMENT: &str = "chain_segment";
 pub const STATUS_PROCESSING: &str = "status_processing";
 pub const BLOCKS_BY_RANGE_REQUEST: &str = "blocks_by_range_request";
-pub const TX_BLOBS_BY_RANGE_REQUEST: &str = "tx_blobs_by_range_request";
 pub const BLOCKS_BY_ROOTS_REQUEST: &str = "blocks_by_roots_request";
+pub const BLOBS_BY_RANGE_REQUEST: &str = "blobs_by_range_request";
 pub const UNKNOWN_BLOCK_ATTESTATION: &str = "unknown_block_attestation";
 pub const UNKNOWN_BLOCK_AGGREGATE: &str = "unknown_block_aggregate";
 
@@ -408,20 +409,21 @@ impl<T: BeaconChainTypes> WorkEvent<T> {
         }
     }
 
-    pub fn gossip_tx_blob_block(
+    /// Create a new `Work` event for some blobs sidecar.
+    pub fn gossip_blobs_sidecar(
         message_id: MessageId,
         peer_id: PeerId,
         peer_client: Client,
-        blob: Box<BlobsSidecar<T::EthSpec>>,
+        blobs: Arc<SignedBlobsSidecar<T::EthSpec>>,
         seen_timestamp: Duration,
     ) -> Self {
         Self {
             drop_during_sync: false,
-            work: Work::GossipBlob {
+            work: Work::GossipBlobsSidecar {
                 message_id,
                 peer_id,
                 peer_client,
-                blob,
+                blobs,
                 seen_timestamp,
             },
         }
@@ -599,6 +601,21 @@ impl<T: BeaconChainTypes> WorkEvent<T> {
         }
     }
 
+    pub fn blobs_by_range_request(
+        peer_id: PeerId,
+        request_id: PeerRequestId,
+        request: BlobsByRangeRequest,
+    ) -> Self {
+        Self {
+            drop_during_sync: false,
+            work: Work::BlobsByRangeRequest {
+                peer_id,
+                request_id,
+                request,
+            },
+        }
+    }
+
     /// Get a `str` representation of the type of work this `WorkEvent` contains.
     pub fn work_type(&self) -> &'static str {
         self.work.str_id()
@@ -717,6 +734,13 @@ pub enum Work<T: BeaconChainTypes> {
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
         seen_timestamp: Duration,
     },
+    GossipBlobsSidecar {
+        message_id: MessageId,
+        peer_id: PeerId,
+        peer_client: Client,
+        blobs: Arc<SignedBlobsSidecar<T::EthSpec>>,
+        seen_timestamp: Duration,
+    },
     GossipBlob {
         message_id: MessageId,
         peer_id: PeerId,
@@ -787,6 +811,11 @@ pub enum Work<T: BeaconChainTypes> {
         request_id: PeerRequestId,
         request: BlocksByRootRequest,
     },
+    BlobsByRangeRequest {
+        peer_id: PeerId,
+        request_id: PeerRequestId,
+        request: BlobsByRangeRequest,
+    }
 }
 
 impl<T: BeaconChainTypes> Work<T> {
@@ -798,7 +827,7 @@ impl<T: BeaconChainTypes> Work<T> {
             Work::GossipAggregate { .. } => GOSSIP_AGGREGATE,
             Work::GossipAggregateBatch { .. } => GOSSIP_AGGREGATE_BATCH,
             Work::GossipBlock { .. } => GOSSIP_BLOCK,
-            Work::GossipBlob { .. } => GOSSIP_BLOB,
+            Work::GossipBlobsSidecar { .. } => GOSSIP_BLOBS_SIDECAR,
             Work::DelayedImportBlock { .. } => DELAYED_IMPORT_BLOCK,
             Work::GossipVoluntaryExit { .. } => GOSSIP_VOLUNTARY_EXIT,
             Work::GossipProposerSlashing { .. } => GOSSIP_PROPOSER_SLASHING,
@@ -811,6 +840,7 @@ impl<T: BeaconChainTypes> Work<T> {
             Work::BlocksByRangeRequest { .. } => BLOCKS_BY_RANGE_REQUEST,
             Work::TxBlobsByRangeRequest { .. } => TX_BLOBS_BY_RANGE_REQUEST,
             Work::BlocksByRootsRequest { .. } => BLOCKS_BY_ROOTS_REQUEST,
+            Work::BlobsByRangeRequest {..} => BLOBS_BY_RANGE_REQUEST,
             Work::UnknownBlockAttestation { .. } => UNKNOWN_BLOCK_ATTESTATION,
             Work::UnknownBlockAggregate { .. } => UNKNOWN_BLOCK_AGGREGATE,
         }
@@ -949,13 +979,14 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
         let mut chain_segment_queue = FifoQueue::new(MAX_CHAIN_SEGMENT_QUEUE_LEN);
         let mut backfill_chain_segment = FifoQueue::new(MAX_CHAIN_SEGMENT_QUEUE_LEN);
         let mut gossip_block_queue = FifoQueue::new(MAX_GOSSIP_BLOCK_QUEUE_LEN);
-        let mut gossip_blob_queue = FifoQueue::new(MAX_GOSSIP_BLOB_QUEUE_LEN);
+        let mut gossip_blobs_sidecar_queue = FifoQueue::new(MAX_GOSSIP_BLOCK_QUEUE_LEN);
         let mut delayed_block_queue = FifoQueue::new(MAX_DELAYED_BLOCK_QUEUE_LEN);
 
         let mut status_queue = FifoQueue::new(MAX_STATUS_QUEUE_LEN);
         let mut bbrange_queue = FifoQueue::new(MAX_BLOCKS_BY_RANGE_QUEUE_LEN);
         let mut txbbrange_queue = FifoQueue::new(MAX_TX_BLOBS_BY_RANGE_QUEUE_LEN);
         let mut bbroots_queue = FifoQueue::new(MAX_BLOCKS_BY_ROOTS_QUEUE_LEN);
+        let mut blbrange_queue = FifoQueue::new(MAX_BLOCKS_BY_ROOTS_QUEUE_LEN);
 
         // Channels for sending work to the re-process scheduler (`work_reprocessing_tx`) and to
         // receive them back once they are ready (`ready_work_rx`).
@@ -1267,8 +1298,8 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                             Work::GossipBlock { .. } => {
                                 gossip_block_queue.push(work, work_id, &self.log)
                             }
-                            Work::GossipBlob { .. } => {
-                                gossip_blob_queue.push(work, work_id, &self.log)
+                            Work::GossipBlobsSidecar { .. } => {
+                                gossip_blobs_sidecar_queue.push(work, work_id, &self.log)
                             }
                             Work::DelayedImportBlock { .. } => {
                                 delayed_block_queue.push(work, work_id, &self.log)
@@ -1305,6 +1336,9 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                             }
                             Work::BlocksByRootsRequest { .. } => {
                                 bbroots_queue.push(work, work_id, &self.log)
+                            }
+                            Work::BlobsByRangeRequest { .. } => {
+                                blbrange_queue.push(work, work_id, &self.log)
                             }
                             Work::UnknownBlockAttestation { .. } => {
                                 unknown_block_attestation_queue.push(work)
@@ -1527,6 +1561,28 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                     .await
             }),
             /*
+             * Verification for blobs sidecars received on gossip.
+             */
+            Work::GossipBlobsSidecar {
+                message_id,
+                peer_id,
+                peer_client,
+                blobs,
+                seen_timestamp,
+            } => task_spawner.spawn_async(async move {
+                worker
+                    .process_gossip_blobs_sidecar(
+                        message_id,
+                        peer_id,
+                        peer_client,
+                        blobs,
+                        work_reprocessing_tx,
+                        duplicate_cache,
+                        seen_timestamp,
+                    )
+                    .await
+            }),
+            /*
              * Import for blocks that we received earlier than their intended slot.
              */
             Work::DelayedImportBlock {
@@ -1664,6 +1720,21 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                     request,
                 )
             }),
+
+            Work::BlobsByRangeRequest {
+                peer_id,
+                request_id,
+                request
+            } => task_spawner.spawn_blocking_with_manual_send_idle(move |send_idle_on_drop| {
+                worker.handle_blobs_by_range_request(
+                    sub_executor,
+                    send_idle_on_drop,
+                    peer_id,
+                    request_id,
+                    request,
+                )
+            }),
+
             Work::UnknownBlockAttestation {
                 message_id,
                 peer_id,

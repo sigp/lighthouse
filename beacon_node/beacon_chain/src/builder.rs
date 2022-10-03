@@ -801,6 +801,8 @@ where
             validator_pubkey_cache: TimeoutRwLock::new(validator_pubkey_cache),
             attester_cache: <_>::default(),
             early_attester_cache: <_>::default(),
+            block_waiting_for_sidecar: <_>::default(),
+            sidecar_waiting_for_block: <_>::default(),
             shutdown_sender: self
                 .shutdown_sender
                 .ok_or("Cannot build without a shutdown sender.")?,

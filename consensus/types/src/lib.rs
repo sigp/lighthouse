@@ -86,14 +86,16 @@ pub mod sync_subnet_id;
 mod tree_hash_impls;
 pub mod validator_registration_data;
 
-mod blobs_sidecar;
-mod kzg_commitment;
-mod signed_blobs_sidecar;
 pub mod slot_data;
 #[cfg(feature = "sqlite")]
 pub mod sqlite;
 
-pub use kzg_commitment::KZGCommitment;
+pub mod kzg_commitment;
+pub mod kzg_proof;
+pub mod bls_field_element;
+pub mod blob;
+pub mod signed_blobs_sidecar;
+pub mod blobs_sidecar;
 
 use ethereum_types::{H160, H256};
 
@@ -103,12 +105,12 @@ pub use crate::attestation_data::AttestationData;
 pub use crate::attestation_duty::AttestationDuty;
 pub use crate::attester_slashing::AttesterSlashing;
 pub use crate::beacon_block::{
-    BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockCapella, BeaconBlockMerge, BeaconBlockRef,
-    BeaconBlockRefMut, BlindedBeaconBlock,
+    BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockMerge, BeaconBlockRef,
+    BeaconBlockRefMut, BeaconBlockEip4844
 };
 pub use crate::beacon_block_body::{
-    BeaconBlockBody, BeaconBlockBodyAltair, BeaconBlockBodyBase, BeaconBlockBodyCapella,
-    BeaconBlockBodyMerge, BeaconBlockBodyRef, BeaconBlockBodyRefMut,
+    BeaconBlockBody, BeaconBlockBodyAltair, BeaconBlockBodyBase, BeaconBlockBodyMerge,
+    BeaconBlockBodyRef, BeaconBlockBodyRefMut, BeaconBlockBodyEip4844
 };
 pub use crate::beacon_block_header::BeaconBlockHeader;
 pub use crate::beacon_committee::{BeaconCommittee, OwnedBeaconCommittee};
@@ -150,7 +152,7 @@ pub use crate::shuffling_id::AttestationShufflingId;
 pub use crate::signed_aggregate_and_proof::SignedAggregateAndProof;
 pub use crate::signed_beacon_block::{
     SignedBeaconBlock, SignedBeaconBlockAltair, SignedBeaconBlockBase, SignedBeaconBlockHash,
-    SignedBeaconBlockMerge, SignedBlindedBeaconBlock,SignedBeaconBlockCapella
+    SignedBeaconBlockMerge, SignedBlindedBeaconBlock, SignedBeaconBlockEip4844,
 };
 pub use crate::signed_beacon_block_header::SignedBeaconBlockHeader;
 pub use crate::signed_contribution_and_proof::SignedContributionAndProof;

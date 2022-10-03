@@ -3,13 +3,14 @@
 use super::*;
 use crate::auth::Auth;
 use crate::json_structures::*;
+use eth2::lighthouse::Eth1Block;
 use reqwest::header::CONTENT_TYPE;
 use sensitive_url::SensitiveUrl;
 use serde::de::DeserializeOwned;
 use serde_json::json;
 
 use std::time::Duration;
-use types::EthSpec;
+use types::{EthSpec, FullPayload, execution_payload::BlobsBundle};
 
 pub use deposit_log::{DepositLog, Log};
 pub use reqwest::Client;
@@ -34,8 +35,8 @@ pub const ENGINE_NEW_PAYLOAD_TIMEOUT: Duration = Duration::from_secs(8);
 pub const ENGINE_GET_PAYLOAD_V1: &str = "engine_getPayloadV1";
 pub const ENGINE_GET_PAYLOAD_TIMEOUT: Duration = Duration::from_secs(2);
 
-pub const ENGINE_GET_BLOB_V1: &str = "engine_getBlobV1";
-pub const ENGINE_GET_BLOB_TIMEOUT: Duration = Duration::from_secs(2);
+pub const ENGINE_GET_BLOBS_BUNDLE_V1: &str = "engine_getBlobsBundleV1";
+pub const ENGINE_GET_BLOBS_BUNDLE_TIMEOUT: Duration = Duration::from_secs(2);
 
 pub const ENGINE_FORKCHOICE_UPDATED_V1: &str = "engine_forkchoiceUpdatedV1";
 pub const ENGINE_FORKCHOICE_UPDATED_TIMEOUT: Duration = Duration::from_secs(8);
@@ -667,15 +668,14 @@ impl HttpJsonRpc {
         Ok(response.into())
     }
 
-    pub async fn get_blob_v1<T: EthSpec>(
+    pub async fn get_blobs_bundle_v1<T: EthSpec>(
         &self,
         payload_id: PayloadId,
-        versioned_hash: ExecutionBlockHash,
-    ) -> Result<BlobDetailsV1, Error> {
-        let params = json!([JsonPayloadIdRequest::from(payload_id), versioned_hash]);
+    ) -> Result<BlobsBundle<T>, Error> {
+        let params = json!([JsonPayloadIdRequest::from(payload_id)]);
 
-        let response: BlobDetailsV1 = self
-            .rpc_request(ENGINE_GET_BLOB_V1, params, ENGINE_GET_BLOB_TIMEOUT)
+        let response: JsonBlobBundlesV1<T> = self
+            .rpc_request(ENGINE_GET_BLOBS_BUNDLE_V1, params, ENGINE_GET_BLOBS_BUNDLE_TIMEOUT)
             .await?;
 
         Ok(response.into())

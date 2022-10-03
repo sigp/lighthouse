@@ -153,10 +153,10 @@ pub struct ChainSpec {
     pub safe_slots_to_import_optimistically: u64,
 
     /*
-     * Capella hard fork params
+     * Eip4844 hard fork params
      */
-    pub capella_fork_version: [u8; 4],
-    pub capella_fork_epoch: Option<Epoch>,
+    pub eip4844_fork_version: [u8; 4],
+    pub eip4844_fork_epoch: Option<Epoch>,
 
     /*
      * Networking
@@ -238,16 +238,17 @@ impl ChainSpec {
 
     /// Returns the name of the fork which is active at `epoch`.
     pub fn fork_name_at_epoch(&self, epoch: Epoch) -> ForkName {
-        match self.capella_fork_epoch {
-            Some(fork_epoch) if epoch >= fork_epoch => ForkName::Capella,
+        match self.eip4844_fork_epoch {
+            Some(fork_epoch) if epoch >= fork_epoch => ForkName::Eip4844,
             _ => match self.bellatrix_fork_epoch {
                 Some(fork_epoch) if epoch >= fork_epoch => ForkName::Merge,
                 _ => match self.altair_fork_epoch {
                     Some(fork_epoch) if epoch >= fork_epoch => ForkName::Altair,
                     _ => ForkName::Base,
                 },
-            },
+            }
         }
+
     }
 
     /// Returns the fork version for a named fork.
@@ -256,7 +257,7 @@ impl ChainSpec {
             ForkName::Base => self.genesis_fork_version,
             ForkName::Altair => self.altair_fork_version,
             ForkName::Merge => self.bellatrix_fork_version,
-            ForkName::Capella => self.capella_fork_version,
+            ForkName::Eip4844 => self.eip4844_fork_version,
         }
     }
 
@@ -266,7 +267,7 @@ impl ChainSpec {
             ForkName::Base => Some(Epoch::new(0)),
             ForkName::Altair => self.altair_fork_epoch,
             ForkName::Merge => self.bellatrix_fork_epoch,
-            ForkName::Capella => self.capella_fork_epoch,
+            ForkName::Eip4844 => self.eip4844_fork_epoch,
         }
     }
 
@@ -276,7 +277,7 @@ impl ChainSpec {
             BeaconState::Base(_) => self.inactivity_penalty_quotient,
             BeaconState::Altair(_) => self.inactivity_penalty_quotient_altair,
             BeaconState::Merge(_) => self.inactivity_penalty_quotient_bellatrix,
-            BeaconState::Capella(_) => self.inactivity_penalty_quotient_bellatrix,
+            BeaconState::Eip4844(_) => self.inactivity_penalty_quotient_bellatrix,
         }
     }
 
@@ -289,7 +290,7 @@ impl ChainSpec {
             BeaconState::Base(_) => self.proportional_slashing_multiplier,
             BeaconState::Altair(_) => self.proportional_slashing_multiplier_altair,
             BeaconState::Merge(_) => self.proportional_slashing_multiplier_bellatrix,
-            BeaconState::Capella(_) => self.proportional_slashing_multiplier_bellatrix,
+            BeaconState::Eip4844(_) => self.proportional_slashing_multiplier_bellatrix,
         }
     }
 
@@ -302,7 +303,7 @@ impl ChainSpec {
             BeaconState::Base(_) => self.min_slashing_penalty_quotient,
             BeaconState::Altair(_) => self.min_slashing_penalty_quotient_altair,
             BeaconState::Merge(_) => self.min_slashing_penalty_quotient_bellatrix,
-            BeaconState::Capella(_) => self.min_slashing_penalty_quotient_bellatrix,
+            BeaconState::Eip4844(_) => self.min_slashing_penalty_quotient_bellatrix,
         }
     }
 
@@ -565,7 +566,7 @@ impl ChainSpec {
             domain_sync_committee: 7,
             domain_sync_committee_selection_proof: 8,
             domain_contribution_and_proof: 9,
-            altair_fork_version: [0x01, 0x00, 0x00, 0x00],
+            altair_fork_version: [0x01, 0x00, 0x0f, 0xfd],
             altair_fork_epoch: Some(Epoch::new(74240)),
 
             /*
@@ -576,7 +577,7 @@ impl ChainSpec {
             min_slashing_penalty_quotient_bellatrix: u64::checked_pow(2, 5)
                 .expect("pow does not overflow"),
             proportional_slashing_multiplier_bellatrix: 3,
-            bellatrix_fork_version: [0x02, 0x00, 0x00, 0x00],
+            bellatrix_fork_version: [0x02, 0x00, 0x0f, 0xfd],
             bellatrix_fork_epoch: Some(Epoch::new(144896)),
             terminal_total_difficulty: Uint256::from_dec_str("58750000000000000000000")
                 .expect("terminal_total_difficulty is a valid integer"),
@@ -585,11 +586,11 @@ impl ChainSpec {
             safe_slots_to_import_optimistically: 128u64,
 
             /*
-             * Capella hardfork params
+             * Eip4844 hard fork params
              */
-            //FIXME(sean)
-            capella_fork_version: [0x03, 0x00, 0x00, 0x00],
-            capella_fork_epoch: None,
+            eip4844_fork_version: [0x04, 0x00, 0x00, 0xfd],
+            eip4844_fork_epoch: Some(Epoch::new(u64::MAX)),
+
             /*
              * Network specific
              */
@@ -645,10 +646,10 @@ impl ChainSpec {
                 // `Uint256::MAX` which is `2*256- 1`.
                 .checked_add(Uint256::one())
                 .expect("addition does not overflow"),
-            // Capella
+            // Eip4844
             //FIXME(sean)
-            capella_fork_version: [0x03, 0x00, 0x00, 0x01],
-            capella_fork_epoch: None,
+            eip4844_fork_version: [0x03, 0x00, 0x00, 0x01],
+            eip4844_fork_epoch: None,
             // Other
             network_id: 2, // lighthouse testnet network id
             deposit_chain_id: 5,
@@ -804,9 +805,8 @@ impl ChainSpec {
             terminal_block_hash_activation_epoch: Epoch::new(u64::MAX),
             safe_slots_to_import_optimistically: 128u64,
 
-            //FIXME(sean)
-            capella_fork_version: [0x03, 0x00, 0x00, 0x64],
-            capella_fork_epoch: None,
+            eip4844_fork_version: [0x04, 0x00, 0x00, 0x64],
+            eip4844_fork_epoch: Some(Epoch::new(u64::MAX)),
 
             /*
              * Network specific
@@ -883,15 +883,12 @@ pub struct Config {
     #[serde(deserialize_with = "deserialize_fork_epoch")]
     pub bellatrix_fork_epoch: Option<MaybeQuoted<Epoch>>,
 
-    // FIXME(sean): remove this default
-    #[serde(default = "default_capella_fork_version")]
+    #[serde(default = "default_eip4844_fork_version")]
     #[serde(with = "eth2_serde_utils::bytes_4_hex")]
-    capella_fork_version: [u8; 4],
-    // FIXME(sean): remove this default
-    #[serde(default = "default_capella_fork_epoch")]
+    eip4844_fork_version: [u8; 4],
     #[serde(serialize_with = "serialize_fork_epoch")]
     #[serde(deserialize_with = "deserialize_fork_epoch")]
-    pub capella_fork_epoch: Option<MaybeQuoted<Epoch>>,
+    pub eip4844_fork_epoch: Option<MaybeQuoted<Epoch>>,
 
     #[serde(with = "eth2_serde_utils::quoted_u64")]
     seconds_per_slot: u64,
@@ -930,7 +927,7 @@ fn default_bellatrix_fork_version() -> [u8; 4] {
     [0xff, 0xff, 0xff, 0xff]
 }
 
-fn default_capella_fork_version() -> [u8; 4] {
+fn default_eip4844_fork_version() -> [u8; 4] {
     // This value shouldn't be used.
     [0xff, 0xff, 0xff, 0xff]
 }
@@ -1031,9 +1028,9 @@ impl Config {
             bellatrix_fork_epoch: spec
                 .bellatrix_fork_epoch
                 .map(|epoch| MaybeQuoted { value: epoch }),
-            capella_fork_version: spec.capella_fork_version,
-            capella_fork_epoch: spec
-                .capella_fork_epoch
+            eip4844_fork_version: spec.eip4844_fork_version,
+            eip4844_fork_epoch: spec
+                .eip4844_fork_epoch
                 .map(|epoch| MaybeQuoted { value: epoch }),
 
             seconds_per_slot: spec.seconds_per_slot,
@@ -1080,8 +1077,8 @@ impl Config {
             altair_fork_epoch,
             bellatrix_fork_epoch,
             bellatrix_fork_version,
-            capella_fork_epoch,
-            capella_fork_version,
+            eip4844_fork_epoch,
+            eip4844_fork_version,
             seconds_per_slot,
             seconds_per_eth1_block,
             min_validator_withdrawability_delay,
@@ -1112,8 +1109,8 @@ impl Config {
             altair_fork_epoch: altair_fork_epoch.map(|q| q.value),
             bellatrix_fork_epoch: bellatrix_fork_epoch.map(|q| q.value),
             bellatrix_fork_version,
-            capella_fork_epoch: capella_fork_epoch.map(|q| q.value),
-            capella_fork_version,
+            eip4844_fork_epoch: eip4844_fork_epoch.map(|q| q.value),
+            eip4844_fork_version,
             seconds_per_slot,
             seconds_per_eth1_block,
             min_validator_withdrawability_delay,

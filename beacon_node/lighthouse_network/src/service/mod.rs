@@ -10,6 +10,7 @@ use crate::peer_manager::{MIN_OUTBOUND_ONLY_FACTOR, PEER_EXCESS_FACTOR, PRIORITY
 use crate::service::behaviour::BehaviourEvent;
 pub use crate::service::behaviour::Gossipsub;
 use crate::rpc::*;
+use crate::rpc::methods::BlobsByRangeRequest;
 use crate::service::{Context as ServiceContext, METADATA_FILENAME};
 use crate::types::{
     subnet_from_topic_hash, GossipEncoding, GossipKind, GossipTopic, SnappyTransform, Subnet,
@@ -28,20 +29,22 @@ use libp2p::gossipsub::subscription_filter::MaxCountSubscriptionFilter;
 use libp2p::gossipsub::{
     GossipsubEvent, IdentTopic as Topic, MessageAcceptance, MessageAuthenticity, MessageId,
 };
-use libp2p::identify::{Identify, IdentifyConfig, IdentifyEvent};
-use libp2p::multiaddr::{Multiaddr, Protocol as MProtocol};
-use libp2p::swarm::{ConnectionLimits, Swarm, SwarmBuilder, SwarmEvent};
-use libp2p::PeerId;
-use slog::{crit, debug, info, o, trace, warn};
-
-use std::marker::PhantomData;
-use std::path::PathBuf;
-use std::pin::Pin;
-use std::sync::Arc;
-use std::task::{Context, Poll};
+use slog::{crit, debug, o, trace, warn};
+use ssz::Encode;
+use types::blobs_sidecar::BlobsSidecar;
+use std::collections::HashSet;
+use std::fs::File;
+use std::io::Write;
+use std::path::{Path, PathBuf};
+use std::{
+    collections::VecDeque,
+    marker::PhantomData,
+    sync::Arc,
+    task::{Context, Poll},
+};
 use types::{
-    consts::altair::SYNC_COMMITTEE_SUBNET_COUNT, EnrForkId, EthSpec, ForkContext, Slot, SubnetId,
-    BlobsSidecar, SignedBeaconBlock, SyncSubnetId
+    consts::altair::SYNC_COMMITTEE_SUBNET_COUNT, EnrForkId, EthSpec, ForkContext,
+    SignedBeaconBlock, Slot, SubnetId, SyncSubnetId, VariableList
 };
 use crate::rpc::methods::TxBlobsByRangeRequest;
 use utils::{build_transport, strip_peer_id, MAX_CONNECTIONS_PER_PEER};
@@ -991,6 +994,9 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
             Request::BlocksByRoot { .. } => {
                 metrics::inc_counter_vec(&metrics::TOTAL_RPC_REQUESTS, &["blocks_by_root"])
             }
+            Request::BlobsByRange { .. } => {
+                metrics::inc_counter_vec(&metrics::TOTAL_RPC_REQUESTS, &["blobs_by_range"])
+            }
         }
         NetworkEvent::RequestReceived {
             peer_id,
@@ -1254,6 +1260,9 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                         );
                         Some(event)
                     }
+                    InboundRequest::BlobsByRange(req) => {
+                        self.propagate_request(peer_request_id, peer_id, Request::BlobsByRange(req))
+                    }
                 }
             }
             Ok(RPCReceived::Response(id, resp)) => {
@@ -1284,6 +1293,9 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                     RPCResponse::BlocksByRoot(resp) => {
                         self.build_response(id, peer_id, Response::BlocksByRoot(Some(resp)))
                     }
+                    RPCResponse::BlobsByRange(resp) => {
+                        self.propagate_response(id, peer_id, Response::BlobsByRange(Some(resp)))
+                    }
                 }
             }
             Ok(RPCReceived::EndOfStream(id, termination)) => {
@@ -1291,6 +1303,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                     ResponseTermination::BlocksByRange => Response::BlocksByRange(None),
                     ResponseTermination::TxBlobsByRange => Response::TxBlobsByRange(None),
                     ResponseTermination::BlocksByRoot => Response::BlocksByRoot(None),
+                    ResponseTermination::BlobsByRange => Response::BlobsByRange(None),
                 };
                 self.build_response(id, peer_id, response)
             }
