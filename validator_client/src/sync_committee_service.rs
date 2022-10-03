@@ -182,13 +182,13 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
                 OfflineOnFailure::Yes,
                 |beacon_node| async move {
                     match beacon_node.get_beacon_blocks_root(BlockId::Head).await {
-                        Ok(Some(block)) if block.execution_optimistic == Some(false) => {
+                        Ok(Some(block)) if block.execution_optimistic == Some(true) => {
                             Ok(block.data.root)
                         }
                         Ok(Some(_)) => {
-                            Err(format!("To sign sync commitee messages for slot {} a non-optimistic head block is required",slot).to_string())
+                            Err(format!("To sign sync commitee messages for slot {} a non-optimistic head block is required",slot))
                         }
-                        Ok(None) => Err(format!("No block root found for slot {}", slot).to_string()),
+                        Ok(None) => Err(format!("No block root found for slot {}", slot)),
                         Err(e) => Err(e.to_string()),
                     }
                 },
