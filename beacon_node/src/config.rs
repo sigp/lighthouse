@@ -230,17 +230,14 @@ pub fn get_config<E: EthSpec>(
         );
         client_config.sync_eth1_chain = true;
 
-        let endpoints = vec![SensitiveUrl::parse(endpoint)
-            .map_err(|e| format!("eth1-endpoint was an invalid URL: {:?}", e))?];
-        client_config.eth1.endpoints = Eth1Endpoint::NoAuth(endpoints);
-    } else if let Some(endpoints) = cli_args.value_of("eth1-endpoints") {
+        let endpoint = SensitiveUrl::parse(endpoint)
+            .map_err(|e| format!("eth1-endpoint was an invalid URL: {:?}", e))?;
+        client_config.eth1.endpoint = Eth1Endpoint::NoAuth(endpoint);
+    } else if let Some(endpoint) = cli_args.value_of("eth1-endpoints") {
         client_config.sync_eth1_chain = true;
-        let endpoints = endpoints
-            .split(',')
-            .map(SensitiveUrl::parse)
-            .collect::<Result<_, _>>()
+        let endpoint = SensitiveUrl::parse(endpoint)
             .map_err(|e| format!("eth1-endpoints contains an invalid URL {:?}", e))?;
-        client_config.eth1.endpoints = Eth1Endpoint::NoAuth(endpoints);
+        client_config.eth1.endpoint = Eth1Endpoint::NoAuth(endpoint);
     }
 
     if let Some(val) = cli_args.value_of("eth1-blocks-per-log-query") {
@@ -326,7 +323,7 @@ pub fn get_config<E: EthSpec>(
                     --eth1-endpoints has been deprecated for post-merge configurations"
             );
         }
-        client_config.eth1.endpoints = Eth1Endpoint::Auth {
+        client_config.eth1.endpoint = Eth1Endpoint::Auth {
             endpoint: execution_endpoint,
             jwt_path: secret_file,
             jwt_id: el_config.jwt_id.clone(),

@@ -68,7 +68,7 @@ fn staking_flag() {
             assert!(config.http_api.enabled);
             assert!(config.sync_eth1_chain);
             assert_eq!(
-                config.eth1.endpoints.get_endpoints()[0].to_string(),
+                config.eth1.endpoint.get_endpoint().to_string(),
                 DEFAULT_ETH1_ENDPOINT
             );
         });
@@ -293,27 +293,16 @@ fn eth1_flag() {
 #[test]
 fn eth1_endpoints_flag() {
     CommandLineTest::new()
-        .flag(
-            "eth1-endpoints",
-            Some("http://localhost:9545,https://infura.io/secret"),
-        )
+        .flag("eth1-endpoints", Some("http://localhost:9545"))
         .run_with_zero_port()
         .with_config(|config| {
             assert_eq!(
-                config.eth1.endpoints.get_endpoints()[0].full.to_string(),
+                config.eth1.endpoint.get_endpoint().full.to_string(),
                 "http://localhost:9545/"
             );
             assert_eq!(
-                config.eth1.endpoints.get_endpoints()[0].to_string(),
+                config.eth1.endpoint.get_endpoint().to_string(),
                 "http://localhost:9545/"
-            );
-            assert_eq!(
-                config.eth1.endpoints.get_endpoints()[1].full.to_string(),
-                "https://infura.io/secret"
-            );
-            assert_eq!(
-                config.eth1.endpoints.get_endpoints()[1].to_string(),
-                "https://infura.io/"
             );
             assert!(config.sync_eth1_chain);
         });
@@ -429,7 +418,7 @@ fn run_execution_endpoints_overrides_eth1_endpoints_test(eth1_flag: &str, execut
             // The eth1 endpoint should have been set to the --execution-endpoint value in defiance
             // of --eth1-endpoints.
             assert_eq!(
-                config.eth1.endpoints,
+                config.eth1.endpoint,
                 Eth1Endpoint::Auth {
                     endpoint: SensitiveUrl::parse(execution_endpoint).unwrap(),
                     jwt_path: jwt_path.clone(),
@@ -624,7 +613,7 @@ fn run_jwt_optional_flags_test(jwt_flag: &str, jwt_id_flag: &str, jwt_version_fl
             assert_eq!(el_config.jwt_id, Some(id.to_string()));
             assert_eq!(el_config.jwt_version, Some(version.to_string()));
             assert_eq!(
-                config.eth1.endpoints,
+                config.eth1.endpoint,
                 Eth1Endpoint::Auth {
                     endpoint: SensitiveUrl::parse(execution_endpoint).unwrap(),
                     jwt_path: dir.path().join(jwt_file),
