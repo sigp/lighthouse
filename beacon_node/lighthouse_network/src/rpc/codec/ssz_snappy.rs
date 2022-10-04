@@ -16,8 +16,8 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 use tokio_util::codec::{Decoder, Encoder};
 use types::{
-    EthSpec, ForkContext, ForkName, SignedBeaconBlock, SignedBeaconBlockAltair,
-    SignedBeaconBlockBase, SignedBeaconBlockMerge, SignedBeaconBlockEip4844
+    BlobsSidecar, EthSpec, ForkContext, ForkName, SignedBeaconBlock, SignedBeaconBlockAltair,
+    SignedBeaconBlockBase, SignedBeaconBlockEip4844, SignedBeaconBlockMerge,
 };
 use unsigned_varint::codec::Uvi;
 
@@ -550,9 +550,7 @@ fn handle_v1_response<T: EthSpec>(
         Protocol::BlocksByRoot => Ok(Some(RPCResponse::BlocksByRoot(Arc::new(
             SignedBeaconBlock::Base(SignedBeaconBlockBase::from_ssz_bytes(decoded_buffer)?),
         )))),
-        Protocol::BlobsByRange => Err(RPCError::InvalidData(
-            "blobs by range via v1".to_string(),
-        )),
+        Protocol::BlobsByRange => Err(RPCError::InvalidData("blobs by range via v1".to_string())),
         Protocol::Ping => Ok(Some(RPCResponse::Pong(Ping {
             data: u64::from_ssz_bytes(decoded_buffer)?,
         }))),
@@ -627,15 +625,15 @@ fn handle_v2_response<T: EthSpec>(
                     )?),
                 )))),
             },
-            Protocol::BlobsByRange => match  fork_name {
+            Protocol::BlobsByRange => match fork_name {
                 ForkName::Eip4844 => Ok(Some(RPCResponse::BlobsByRange(Arc::new(
-                    VariableList::from_ssz_bytes(decoded_buffer)?,
+                    BlobsSidecar::from_ssz_bytes(decoded_buffer)?,
                 )))),
                 _ => Err(RPCError::ErrorResponse(
                     RPCResponseErrorCode::InvalidRequest,
                     "Invalid forkname for blobsbyrange".to_string(),
                 )),
-            }
+            },
             _ => Err(RPCError::ErrorResponse(
                 RPCResponseErrorCode::InvalidRequest,
                 "Invalid v2 request".to_string(),

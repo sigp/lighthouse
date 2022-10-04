@@ -21,9 +21,6 @@ const GOSSIP_MAX_SIZE: usize = 1_048_576; // 1M
 /// The maximum transmit size of gossip messages in bytes post-merge.
 const GOSSIP_MAX_SIZE_POST_MERGE: usize = 10 * 1_048_576; // 10M
 
-const MAX_REQUEST_BLOBS_SIDECARS: usize = 128;
-const MIN_EPOCHS_FOR_BLOBS_SIDECARS_REQUESTS: usize = 128;
-
 /// The cache time is set to accommodate the circulation time of an attestation.
 ///
 /// The p2p spec declares that we accept attestations within the following range:

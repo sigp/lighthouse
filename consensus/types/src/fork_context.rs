@@ -50,10 +50,7 @@ impl ForkContext {
         if spec.eip4844_fork_epoch.is_some() {
             fork_to_digest.push((
                 ForkName::Eip4844,
-                ChainSpec::compute_fork_digest(
-                    spec.eip4844_fork_version,
-                    genesis_validators_root,
-                ),
+                ChainSpec::compute_fork_digest(spec.eip4844_fork_version, genesis_validators_root),
             ));
         }
 

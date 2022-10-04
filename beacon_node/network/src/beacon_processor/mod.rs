@@ -570,21 +570,6 @@ impl<T: BeaconChainTypes> WorkEvent<T> {
         }
     }
 
-    pub fn tx_blob_by_range_request(
-        peer_id: PeerId,
-        request_id: PeerRequestId,
-        request: TxBlobsByRangeRequest,
-    ) -> Self {
-        Self {
-            drop_during_sync: false,
-            work: Work::TxBlobsByRangeRequest {
-                peer_id,
-                request_id,
-                request,
-            },
-        }
-    }
-
     /// Create a new work event to process `BlocksByRootRequest`s from the RPC network.
     pub fn blocks_by_roots_request(
         peer_id: PeerId,
@@ -741,13 +726,6 @@ pub enum Work<T: BeaconChainTypes> {
         blobs: Arc<SignedBlobsSidecar<T::EthSpec>>,
         seen_timestamp: Duration,
     },
-    GossipBlob {
-        message_id: MessageId,
-        peer_id: PeerId,
-        peer_client: Client,
-        blob: Box<BlobsSidecar<T::EthSpec>>,
-        seen_timestamp: Duration,
-    },
     DelayedImportBlock {
         peer_id: PeerId,
         block: Box<GossipVerifiedBlock<T>>,
@@ -801,11 +779,6 @@ pub enum Work<T: BeaconChainTypes> {
         request_id: PeerRequestId,
         request: BlocksByRangeRequest,
     },
-    TxBlobsByRangeRequest {
-        peer_id: PeerId,
-        request_id: PeerRequestId,
-        request: TxBlobsByRangeRequest,
-    },
     BlocksByRootsRequest {
         peer_id: PeerId,
         request_id: PeerRequestId,
@@ -838,7 +811,6 @@ impl<T: BeaconChainTypes> Work<T> {
             Work::ChainSegment { .. } => CHAIN_SEGMENT,
             Work::Status { .. } => STATUS_PROCESSING,
             Work::BlocksByRangeRequest { .. } => BLOCKS_BY_RANGE_REQUEST,
-            Work::TxBlobsByRangeRequest { .. } => TX_BLOBS_BY_RANGE_REQUEST,
             Work::BlocksByRootsRequest { .. } => BLOCKS_BY_ROOTS_REQUEST,
             Work::BlobsByRangeRequest {..} => BLOBS_BY_RANGE_REQUEST,
             Work::UnknownBlockAttestation { .. } => UNKNOWN_BLOCK_ATTESTATION,
@@ -1090,7 +1062,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                         } else if let Some(item) = gossip_block_queue.pop() {
                             self.spawn_worker(item, toolbox);
                         //FIXME(sean)
-                        } else if let Some(item) = gossip_blob_queue.pop() {
+                        } else if let Some(item) = gossip_blobs_sidecar_queue.pop() {
                             self.spawn_worker(item, toolbox);
                         // Check the aggregates, *then* the unaggregates since we assume that
                         // aggregates are more valuable to local validators and effectively give us
@@ -1331,9 +1303,6 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                             Work::BlocksByRangeRequest { .. } => {
                                 bbrange_queue.push(work, work_id, &self.log)
                             }
-                            Work::TxBlobsByRangeRequest { .. } => {
-                                txbbrange_queue.push(work, work_id, &self.log)
-                            }
                             Work::BlocksByRootsRequest { .. } => {
                                 bbroots_queue.push(work, work_id, &self.log)
                             }
@@ -1571,7 +1540,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                 seen_timestamp,
             } => task_spawner.spawn_async(async move {
                 worker
-                    .process_gossip_blobs_sidecar(
+                    .process_gossip_blob(
                         message_id,
                         peer_id,
                         peer_client,

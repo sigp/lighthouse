@@ -7,7 +7,6 @@ use tree_hash::{PackedEncoding, TreeHash};
 #[serde(transparent)]
 pub struct BlsFieldElement(pub Uint256);
 
-
 impl Encode for BlsFieldElement {
     fn is_ssz_fixed_len() -> bool {
         <Uint256 as Encode>::is_ssz_fixed_len()
@@ -45,7 +44,7 @@ impl TreeHash for BlsFieldElement {
         <Uint256>::tree_hash_type()
     }
 
-    fn tree_hash_packed_encoding(&self) -> PackedEncoding{
+    fn tree_hash_packed_encoding(&self) -> PackedEncoding {
         self.0.tree_hash_packed_encoding()
     }
 

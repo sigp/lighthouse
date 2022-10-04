@@ -71,11 +71,7 @@ lazy_static! {
     + types::ExecutionPayload::<MainnetEthSpec>::max_execution_payload_size() // adding max size of execution payload (~16gb)
     + ssz::BYTES_PER_LENGTH_OFFSET; // Adding the additional ssz offset for the `ExecutionPayload` field
 
-    pub static ref BLOB_MIN: usize = BlobsSidecar::<MainnetEthSpec>::empty()
-    .as_ssz_bytes()
-    .len();
-
-    pub static ref BLOB_MAX: usize = BlobsSidecar::<MainnetEthSpec>::max_size();
+    pub static ref SIGNED_BEACON_BLOCK_EIP4844_MAX: usize = *SIGNED_BEACON_BLOCK_MERGE_MAX + (48 * <MainnetEthSpec>::max_blobs_per_block());
 
     pub static ref BLOCKS_BY_ROOT_REQUEST_MIN: usize =
         VariableList::<Hash256, MaxRequestBlocks>::from(Vec::<Hash256>::new())
@@ -108,7 +104,7 @@ lazy_static! {
 pub(crate) const MAX_RPC_SIZE: usize = 1_048_576; // 1M
 /// The maximum bytes that can be sent across the RPC post-merge.
 pub(crate) const MAX_RPC_SIZE_POST_MERGE: usize = 10 * 1_048_576; // 10M
-//TODO(sean) check
+                                                                  //TODO(sean) check
 pub(crate) const MAX_RPC_SIZE_POST_EIP4844: usize = 20 * 1_048_576; // 10M
 /// The protocol prefix the RPC protocol id.
 const PROTOCOL_PREFIX: &str = "/eth2/beacon_chain/req";
@@ -160,7 +156,6 @@ pub enum Protocol {
     Goodbye,
     /// The `BlocksByRange` protocol name.
     BlocksByRange,
-    TxBlobsByRange,
     /// The `BlocksByRoot` protocol name.
     BlocksByRoot,
     /// The `BlobsByRange` protocol name.
@@ -302,9 +297,10 @@ impl ProtocolId {
             Protocol::BlocksByRoot => {
                 RpcLimits::new(*BLOCKS_BY_ROOT_REQUEST_MIN, *BLOCKS_BY_ROOT_REQUEST_MAX)
             }
-            Protocol::BlobsByRange => {
-                RpcLimits::new(*BLOCKS_BY_ROOT_REQUEST_MIN, *BLOCKS_BY_ROOT_REQUEST_MAX)
-            }
+            Protocol::BlobsByRange => RpcLimits::new(
+                <BlobsByRangeRequest as Encode>::ssz_fixed_len(),
+                <BlobsByRangeRequest as Encode>::ssz_fixed_len(),
+            ),
             Protocol::Ping => RpcLimits::new(
                 <Ping as Encode>::ssz_fixed_len(),
                 <Ping as Encode>::ssz_fixed_len(),
@@ -478,9 +474,11 @@ impl<TSpec: EthSpec> InboundRequest<TSpec> {
                 ProtocolId::new(Protocol::BlocksByRoot, Version::V2, Encoding::SSZSnappy),
                 ProtocolId::new(Protocol::BlocksByRoot, Version::V1, Encoding::SSZSnappy),
             ],
-            InboundRequest::BlobsByRange(_) => vec![
-                ProtocolId::new(Protocol::BlocksByRoot, Version::V1, Encoding::SSZSnappy),
-            ],
+            InboundRequest::BlobsByRange(_) => vec![ProtocolId::new(
+                Protocol::BlocksByRoot,
+                Version::V1,
+                Encoding::SSZSnappy,
+            )],
             InboundRequest::Ping(_) => vec![ProtocolId::new(
                 Protocol::Ping,
                 Version::V1,
@@ -501,7 +499,6 @@ impl<TSpec: EthSpec> InboundRequest<TSpec> {
             InboundRequest::Status(_) => 1,
             InboundRequest::Goodbye(_) => 0,
             InboundRequest::BlocksByRange(req) => req.count,
-            InboundRequest::TxBlobsByRange(req) => req.count,
             InboundRequest::BlocksByRoot(req) => req.block_roots.len() as u64,
             InboundRequest::BlobsByRange(req) => req.count,
             InboundRequest::Ping(_) => 1,
@@ -515,7 +512,6 @@ impl<TSpec: EthSpec> InboundRequest<TSpec> {
             InboundRequest::Status(_) => Protocol::Status,
             InboundRequest::Goodbye(_) => Protocol::Goodbye,
             InboundRequest::BlocksByRange(_) => Protocol::BlocksByRange,
-            InboundRequest::TxBlobsByRange(_) => Protocol::TxBlobsByRange,
             InboundRequest::BlocksByRoot(_) => Protocol::BlocksByRoot,
             InboundRequest::BlobsByRange(_) => Protocol::BlobsByRange,
             InboundRequest::Ping(_) => Protocol::Ping,
@@ -530,7 +526,6 @@ impl<TSpec: EthSpec> InboundRequest<TSpec> {
             // this only gets called after `multiple_responses()` returns true. Therefore, only
             // variants that have `multiple_responses()` can have values.
             InboundRequest::BlocksByRange(_) => ResponseTermination::BlocksByRange,
-            InboundRequest::TxBlobsByRange(_) => ResponseTermination::TxBlobsByRange,
             InboundRequest::BlocksByRoot(_) => ResponseTermination::BlocksByRoot,
             InboundRequest::BlobsByRange(_) => ResponseTermination::BlobsByRange,
             InboundRequest::Status(_) => unreachable!(),

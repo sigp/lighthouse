@@ -246,9 +246,8 @@ impl ChainSpec {
                     Some(fork_epoch) if epoch >= fork_epoch => ForkName::Altair,
                     _ => ForkName::Base,
                 },
-            }
+            },
         }
-
     }
 
     /// Returns the fork version for a named fork.

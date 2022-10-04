@@ -161,7 +161,9 @@ impl RPCRateLimiterBuilder {
             .bbrange_quota
             .ok_or("BlocksByRange quota not specified")?;
 
-        let blbrange_quota = self.blbrange_quota.ok_or("BlobsByRange quota not specified")?;
+        let blbrange_quota = self
+            .blbrange_quota
+            .ok_or("BlobsByRange quota not specified")?;
 
         // create the rate limiters
         let ping_rl = Limiter::from_quota(ping_quota)?;

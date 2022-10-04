@@ -1,4 +1,7 @@
-use crate::{test_utils::TestRandom, test_utils::RngCore, *, kzg_commitment::KzgCommitment, kzg_proof::KzgProof, blob::Blob};
+use crate::{
+    blob::Blob, kzg_commitment::KzgCommitment, kzg_proof::KzgProof, test_utils::RngCore,
+    test_utils::TestRandom, *,
+};
 use derivative::Derivative;
 use serde_derive::{Deserialize, Serialize};
 use ssz::Encode;

@@ -228,7 +228,7 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq +
         Self::BytesPerLogsBloom::to_usize()
     }
 
-    fn max_object_list_size() -> usize {
+    fn max_blobs_per_block() -> usize {
         Self::MaxBlobsPerBlock::to_usize()
     }
 

@@ -89,21 +89,15 @@ pub enum SyncMessage<T: EthSpec> {
     RpcBlock {
         request_id: RequestId,
         peer_id: PeerId,
-        beacon_block: Option<Box<SignedBeaconBlock<T>>>,
+        beacon_block: Option<Arc<SignedBeaconBlock<T>>>,
         seen_timestamp: Duration,
     },
 
-    /// A [`TxBlobsByRangeResponse`] response has been received.
-    TxBlobsByRangeResponse {
+    /// A blob has been received from RPC.
+    RpcBlob {
         peer_id: PeerId,
         request_id: RequestId,
-        blob_wrapper: Option<Box<BlobsSidecar<T>>>,
-    },
-
-    /// A [`BlocksByRoot`] response has been received.
-    BlocksByRootResponse {
-        peer_id: PeerId,
-        beacon_block: Option<Arc<SignedBeaconBlock<T>>>,
+        blob_sidecar: Option<Arc<BlobsSidecar<T>>>,
         seen_timestamp: Duration,
     },
 
@@ -598,6 +592,8 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     .block_lookups
                     .parent_chain_processed(chain_hash, result, &mut self.network),
             },
+            //FIXME(sean)
+            SyncMessage::RpcBlob { .. } => todo!()
         }
     }
 

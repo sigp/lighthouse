@@ -1,8 +1,8 @@
-use std::fmt;
+use crate::test_utils::{RngCore, TestRandom};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use ssz::{Decode, DecodeError, Encode};
+use std::fmt;
 use tree_hash::{PackedEncoding, TreeHash};
-use crate::test_utils::{RngCore, TestRandom};
 
 const KZG_PROOF_BYTES_LEN: usize = 48;
 
@@ -35,19 +35,19 @@ impl Into<[u8; KZG_PROOF_BYTES_LEN]> for KzgProof {
 }
 
 pub mod serde_kzg_proof {
-    use serde::de::Error;
     use super::*;
+    use serde::de::Error;
 
     pub fn serialize<S>(bytes: &[u8; KZG_PROOF_BYTES_LEN], serializer: S) -> Result<S::Ok, S::Error>
-        where
-            S: Serializer,
+    where
+        S: Serializer,
     {
         serializer.serialize_str(&eth2_serde_utils::hex::encode(bytes))
     }
 
     pub fn deserialize<'de, D>(deserializer: D) -> Result<[u8; KZG_PROOF_BYTES_LEN], D::Error>
-        where
-            D: Deserializer<'de>,
+    where
+        D: Deserializer<'de>,
     {
         let s: String = Deserialize::deserialize(deserializer)?;
 

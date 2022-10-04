@@ -695,12 +695,12 @@ impl<T: BeaconChainTypes> Worker<T> {
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub fn process_gossip_blob(
+    pub async fn process_gossip_blob(
         self,
         _message_id: MessageId,
         _peer_id: PeerId,
         _peer_client: Client,
-        _blob: BlobsSidecar<T::EthSpec>,
+        _blob: Arc<SignedBlobsSidecar<T::EthSpec>>,
         _reprocess_tx: mpsc::Sender<ReprocessQueueMessage<T>>,
         _duplicate_cache: DuplicateCache,
         _seen_duration: Duration,
@@ -951,22 +951,6 @@ impl<T: BeaconChainTypes> Worker<T> {
         let block: Arc<_> = verified_block.block.clone();
         let block_root = verified_block.block_root;
 
-        let sidecar = if verified_block.block.message()
-            .body().blob_kzg_commitments().map(|committments| committments.is_empty()).unwrap_or(true) {
-            None
-        } else if let Some(sidecar) = self.chain.sidecar_waiting_for_block.lock().as_ref() {
-            if sidecar.message.beacon_block_root == verified_block.block_root() {
-                Some(sidecar.clone())
-            } else {
-                *self.chain.block_waiting_for_sidecar.lock() = Some(verified_block);
-                return
-            }
-        } else {
-            *self.chain.block_waiting_for_sidecar.lock() = Some(verified_block);
-            // we need the sidecar but dont have it yet
-            return
-        };
-
         match self
             .chain
             .process_block(block_root, verified_block, CountUnrealized::True)
@@ -1012,7 +996,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     "Failed to verify execution payload";
                     "error" => %e
                 );
-                    }
+                    },
                     other => {
                         debug!(
                     self.log,
@@ -1034,10 +1018,6 @@ impl<T: BeaconChainTypes> Worker<T> {
                     }
                 };
             }
-        } else {
-            *self.chain.sidecar_waiting_for_block.lock() = Some(blobs);
-        }
-    }
 
     pub fn process_gossip_voluntary_exit(
         self,

@@ -38,8 +38,8 @@ use std::marker::PhantomData;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
-use types::*;
 use types::signed_blobs_sidecar::SignedBlobsSidecar;
+use types::*;
 
 /// On-disk database that stores finalized states efficiently.
 ///
@@ -480,22 +480,28 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             .key_delete(DBColumn::ExecPayload.into(), block_root.as_bytes())
     }
 
-    pub fn put_blobs(&self,
-                    block_root: &Hash256,
-                    blobs: SignedBlobsSidecar<E>,
+    pub fn put_blobs(
+        &self,
+        block_root: &Hash256,
+        blobs: SignedBlobsSidecar<E>,
     ) -> Result<(), Error> {
-        self.hot_db.put_bytes(DBColumn::BeaconBlob.into(), block_root.as_bytes(), &blobs.as_ssz_bytes())?;
+        self.hot_db.put_bytes(
+            DBColumn::BeaconBlob.into(),
+            block_root.as_bytes(),
+            &blobs.as_ssz_bytes(),
+        )?;
         self.blob_cache.lock().push(*block_root, blobs);
         Ok(())
     }
 
-    pub fn get_blobs(&self,
-                    block_root: &Hash256,
-    ) -> Result<Option<SignedBlobsSidecar<E>>, Error> {
+    pub fn get_blobs(&self, block_root: &Hash256) -> Result<Option<SignedBlobsSidecar<E>>, Error> {
         if let Some(blobs) = self.blob_cache.lock().get(block_root) {
             Ok(Some(blobs.clone()))
         } else {
-            if let Some(bytes) = self.hot_db.get_bytes(DBColumn::BeaconBlob.into(), block_root.as_bytes())? {
+            if let Some(bytes) = self
+                .hot_db
+                .get_bytes(DBColumn::BeaconBlob.into(), block_root.as_bytes())?
+            {
                 let ret = SignedBlobsSidecar::from_ssz_bytes(&bytes)?;
                 self.blob_cache.lock().put(*block_root, ret.clone());
                 Ok(Some(ret))
@@ -512,10 +518,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         ops: &mut Vec<KeyValueStoreOp>,
     ) {
         let db_key = get_key_for_col(DBColumn::BeaconBlob.into(), key.as_bytes());
-        ops.push(KeyValueStoreOp::PutKeyValue(
-            db_key,
-            blobs.as_ssz_bytes(),
-        ));
+        ops.push(KeyValueStoreOp::PutKeyValue(db_key, blobs.as_ssz_bytes()));
     }
 
     pub fn put_state_summary(
@@ -746,11 +749,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 }
 
                 StoreOp::PutBlobs(block_root, blobs) => {
-                    self.blobs_as_kv_store_ops(
-                        &block_root,
-                        &blobs,
-                        &mut key_value_batch,
-                    );
+                    self.blobs_as_kv_store_ops(&block_root, &blobs, &mut key_value_batch);
                 }
 
                 StoreOp::PutStateSummary(state_root, summary) => {

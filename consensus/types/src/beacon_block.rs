@@ -1,6 +1,6 @@
 use crate::beacon_block_body::{
-    BeaconBlockBodyAltair, BeaconBlockBodyBase, BeaconBlockBodyMerge, BeaconBlockBodyRef,
-    BeaconBlockBodyRefMut, BeaconBlockBodyEip4844
+    BeaconBlockBodyAltair, BeaconBlockBodyBase, BeaconBlockBodyEip4844, BeaconBlockBodyMerge,
+    BeaconBlockBodyRef, BeaconBlockBodyRefMut,
 };
 use crate::test_utils::TestRandom;
 use crate::*;

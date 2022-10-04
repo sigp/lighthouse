@@ -319,26 +319,26 @@ impl<E: EthSpec> SignedBeaconBlockEip4844<E, BlindedPayload<E>> {
     ) -> SignedBeaconBlockEip4844<E, FullPayload<E>> {
         let SignedBeaconBlockEip4844 {
             message:
-            BeaconBlockEip4844 {
-                slot,
-                proposer_index,
-                parent_root,
-                state_root,
-                body:
-                BeaconBlockBodyEip4844 {
-                    randao_reveal,
-                    eth1_data,
-                    graffiti,
-                    proposer_slashings,
-                    attester_slashings,
-                    attestations,
-                    deposits,
-                    voluntary_exits,
-                    sync_aggregate,
-                    execution_payload: BlindedPayload { .. },
-                    blob_kzg_commitments,
+                BeaconBlockEip4844 {
+                    slot,
+                    proposer_index,
+                    parent_root,
+                    state_root,
+                    body:
+                        BeaconBlockBodyEip4844 {
+                            randao_reveal,
+                            eth1_data,
+                            graffiti,
+                            proposer_slashings,
+                            attester_slashings,
+                            attestations,
+                            deposits,
+                            voluntary_exits,
+                            sync_aggregate,
+                            execution_payload: BlindedPayload { .. },
+                            blob_kzg_commitments,
+                        },
                 },
-            },
             signature,
         } = self;
         SignedBeaconBlockEip4844 {

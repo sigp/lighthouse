@@ -1,6 +1,6 @@
 use super::*;
 use serde::{Deserialize, Serialize};
-use types::{EthSpec, ExecutionBlockHash, FixedVector, Transaction, Unsigned, VariableList, execution_payload::BlobsBundle};
+use types::{EthSpec, ExecutionBlockHash, FixedVector, Transaction, Unsigned, VariableList};
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -277,45 +277,6 @@ pub struct JsonBlobBundlesV1<T: EthSpec> {
     pub blobs: Vec<Blob<T>>,
     pub aggregated_proof: KzgProof,
 }
-
-impl <T: EthSpec> From<BlobsBundle<T>> for JsonBlobBundlesV1<T> {
-    fn from(p: BlobsBundle<T>) -> Self {
-        // Use this verbose deconstruction pattern to ensure no field is left unused.
-        let BlobsBundle {
-            block_hash,
-            aggregated_proof,
-            blobs,
-            kzgs,
-        } = p;
-
-        Self {
-            block_hash,
-            aggregated_proof,
-            blobs,
-            kzgs,
-        }
-    }
-}
-
-impl <T: EthSpec> From<JsonBlobBundlesV1<T>> for BlobsBundle<T> {
-    fn from(j: JsonBlobBundlesV1<T>) -> Self {
-        // Use this verbose deconstruction pattern to ensure no field is left unused.
-        let JsonBlobBundlesV1 {
-            block_hash,
-            aggregated_proof,
-            blobs,
-            kzgs,
-        } = j;
-
-        Self {
-            block_hash,
-            aggregated_proof,
-            blobs,
-            kzgs,
-        }
-    }
-}
-
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

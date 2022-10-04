@@ -1,3 +1,5 @@
+use self::behaviour::Behaviour;
+use self::gossip_cache::GossipCache;
 use crate::config::{gossipsub_config, NetworkLoad};
 use crate::discovery::{
     subnet_predicate, DiscoveredPeers, Discovery, FIND_NODE_QUERY_CLOSEST_PEERS,
@@ -7,11 +9,10 @@ use crate::peer_manager::{
     ConnectionDirection, PeerManager, PeerManagerEvent,
 };
 use crate::peer_manager::{MIN_OUTBOUND_ONLY_FACTOR, PEER_EXCESS_FACTOR, PRIORITY_PEER_EXCESS};
+use crate::rpc::methods::BlobsByRangeRequest;
+use crate::rpc::*;
 use crate::service::behaviour::BehaviourEvent;
 pub use crate::service::behaviour::Gossipsub;
-use crate::rpc::*;
-use crate::rpc::methods::BlobsByRangeRequest;
-use crate::service::{Context as ServiceContext, METADATA_FILENAME};
 use crate::types::{
     subnet_from_topic_hash, GossipEncoding, GossipKind, GossipTopic, SnappyTransform, Subnet,
     SubnetDiscovery,
@@ -29,13 +30,17 @@ use libp2p::gossipsub::subscription_filter::MaxCountSubscriptionFilter;
 use libp2p::gossipsub::{
     GossipsubEvent, IdentTopic as Topic, MessageAcceptance, MessageAuthenticity, MessageId,
 };
-use slog::{crit, debug, o, trace, warn};
+use libp2p::identify::{Identify, IdentifyConfig, IdentifyEvent};
+use libp2p::multiaddr::{Multiaddr, Protocol as MProtocol};
+use libp2p::swarm::{ConnectionLimits, Swarm, SwarmBuilder, SwarmEvent};
+use libp2p::PeerId;
+use slog::{crit, debug, info, o, trace, warn};
 use ssz::Encode;
-use types::blobs_sidecar::BlobsSidecar;
 use std::collections::HashSet;
 use std::fs::File;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::pin::Pin;
 use std::{
     collections::VecDeque,
     marker::PhantomData,
@@ -44,13 +49,9 @@ use std::{
 };
 use types::{
     consts::altair::SYNC_COMMITTEE_SUBNET_COUNT, EnrForkId, EthSpec, ForkContext,
-    SignedBeaconBlock, Slot, SubnetId, SyncSubnetId, VariableList
+    SignedBeaconBlock, Slot, SubnetId, SyncSubnetId, VariableList,
 };
-use crate::rpc::methods::TxBlobsByRangeRequest;
-use utils::{build_transport, strip_peer_id, MAX_CONNECTIONS_PER_PEER};
-
-use self::behaviour::Behaviour;
-use self::gossip_cache::GossipCache;
+use utils::{build_transport, strip_peer_id, Context as ServiceContext, MAX_CONNECTIONS_PER_PEER};
 
 pub mod api_types;
 mod behaviour;
@@ -988,9 +989,6 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
             Request::BlocksByRange { .. } => {
                 metrics::inc_counter_vec(&metrics::TOTAL_RPC_REQUESTS, &["blocks_by_range"])
             }
-            Request::TxBlobsByRange { .. } => {
-                metrics::inc_counter_vec(&metrics::TOTAL_RPC_REQUESTS, &["tx_blobs_by_range"])
-            }
             Request::BlocksByRoot { .. } => {
                 metrics::inc_counter_vec(&metrics::TOTAL_RPC_REQUESTS, &["blocks_by_root"])
             }
@@ -1261,7 +1259,12 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                         Some(event)
                     }
                     InboundRequest::BlobsByRange(req) => {
-                        self.propagate_request(peer_request_id, peer_id, Request::BlobsByRange(req))
+                        let event = self.build_request(
+                            peer_request_id,
+                            peer_id,
+                            Request::BlobsByRange(req),
+                        );
+                        Some(event)
                     }
                 }
             }
@@ -1287,21 +1290,17 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                     RPCResponse::BlocksByRange(resp) => {
                         self.build_response(id, peer_id, Response::BlocksByRange(Some(resp)))
                     }
-                    RPCResponse::TxBlobsByRange(resp) => {
-                        self.propagate_response(id, peer_id, Response::TxBlobsByRange(Some(resp)))
+                    RPCResponse::BlobsByRange(resp) => {
+                        self.build_response(id, peer_id, Response::BlobsByRange(Some(resp)))
                     }
                     RPCResponse::BlocksByRoot(resp) => {
                         self.build_response(id, peer_id, Response::BlocksByRoot(Some(resp)))
-                    }
-                    RPCResponse::BlobsByRange(resp) => {
-                        self.propagate_response(id, peer_id, Response::BlobsByRange(Some(resp)))
                     }
                 }
             }
             Ok(RPCReceived::EndOfStream(id, termination)) => {
                 let response = match termination {
                     ResponseTermination::BlocksByRange => Response::BlocksByRange(None),
-                    ResponseTermination::TxBlobsByRange => Response::TxBlobsByRange(None),
                     ResponseTermination::BlocksByRoot => Response::BlocksByRoot(None),
                     ResponseTermination::BlobsByRange => Response::BlobsByRange(None),
                 };

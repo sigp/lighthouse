@@ -1,3 +1,4 @@
+use crate::kzg_commitment::KzgCommitment;
 use crate::test_utils::TestRandom;
 use crate::*;
 use derivative::Derivative;
@@ -8,7 +9,6 @@ use std::marker::PhantomData;
 use superstruct::superstruct;
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
-use crate::kzg_commitment::KzgCommitment;
 
 /// The body of a `BeaconChain` block, containing operations.
 ///
@@ -256,10 +256,10 @@ impl<E: EthSpec> From<BeaconBlockBodyMerge<E, FullPayload<E>>>
 }
 
 impl<E: EthSpec> From<BeaconBlockBodyEip4844<E, FullPayload<E>>>
-for (
-    BeaconBlockBodyEip4844<E, BlindedPayload<E>>,
-    Option<ExecutionPayload<E>>,
-)
+    for (
+        BeaconBlockBodyEip4844<E, BlindedPayload<E>>,
+        Option<ExecutionPayload<E>>,
+    )
 {
     fn from(body: BeaconBlockBodyEip4844<E, FullPayload<E>>) -> Self {
         let BeaconBlockBodyEip4844 {
@@ -272,7 +272,7 @@ for (
             deposits,
             voluntary_exits,
             sync_aggregate,
-            execution_payload: FullPayload { execution_payload},
+            execution_payload: FullPayload { execution_payload },
             blob_kzg_commitments,
         } = body;
 

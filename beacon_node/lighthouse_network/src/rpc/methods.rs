@@ -12,8 +12,8 @@ use std::ops::Deref;
 use std::sync::Arc;
 use strum::IntoStaticStr;
 use superstruct::superstruct;
-use types::{Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot};
 use types::blobs_sidecar::BlobsSidecar;
+use types::{Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot};
 
 /// Maximum number of blocks in a single request.
 pub type MaxRequestBlocks = U1024;
@@ -22,6 +22,9 @@ pub const MAX_REQUEST_BLOCKS: u64 = 1024;
 /// Maximum length of error message.
 pub type MaxErrorLen = U256;
 pub const MAX_ERROR_LEN: u64 = 256;
+
+pub type MaxRequestBlobsSidecars = U1024;
+pub const MAX_REQUEST_BLOBS_SIDECARS: u64 = 1024;
 
 /// Wrapper over SSZ List to represent error message in rpc responses.
 #[derive(Debug, Clone)]
@@ -232,12 +235,6 @@ pub struct OldBlocksByRangeRequest {
     pub step: u64,
 }
 
-#[derive(Encode, Decode, Clone, Debug, PartialEq)]
-pub struct TxBlobsByRangeRequest {
-    pub execution_block_number: u64,
-    pub count: u64,
-}
-
 /// Request a number of beacon block bodies from a peer.
 #[derive(Clone, Debug, PartialEq)]
 pub struct BlocksByRootRequest {
@@ -257,13 +254,11 @@ pub enum RPCResponse<T: EthSpec> {
     /// batch.
     BlocksByRange(Arc<SignedBeaconBlock<T>>),
 
-    TxBlobsByRange(Box<BlobsSidecar<T>>),
-
     /// A response to a get BLOCKS_BY_ROOT request.
     BlocksByRoot(Arc<SignedBeaconBlock<T>>),
 
     /// A response to a get BLOBS_BY_RANGE request
-    BlobsByRange(Arc<VariableList<BlobsSidecar<T>, T::MaxRequestBlobsSidecars>>),
+    BlobsByRange(Arc<BlobsSidecar<T>>),
 
     /// A PONG response to a PING request.
     Pong(Ping),
@@ -278,13 +273,11 @@ pub enum ResponseTermination {
     /// Blocks by range stream termination.
     BlocksByRange,
 
-    TxBlobsByRange,
-
     /// Blocks by root stream termination.
     BlocksByRoot,
 
-    // Blobs by range stream termination.
-    BlobsByRange
+    /// Blobs by range stream termination.
+    BlobsByRange,
 }
 
 /// The structured response containing a result/code indicating success or failure
@@ -345,7 +338,6 @@ impl<T: EthSpec> RPCCodedResponse<T> {
             RPCCodedResponse::Success(resp) => match resp {
                 RPCResponse::Status(_) => false,
                 RPCResponse::BlocksByRange(_) => true,
-                RPCResponse::TxBlobsByRange(_) => true,
                 RPCResponse::BlocksByRoot(_) => true,
                 RPCResponse::BlobsByRange(_) => true,
                 RPCResponse::Pong(_) => false,
@@ -415,14 +407,11 @@ impl<T: EthSpec> std::fmt::Display for RPCResponse<T> {
             RPCResponse::BlocksByRange(block) => {
                 write!(f, "BlocksByRange: Block slot: {}", block.slot())
             }
-            RPCResponse::TxBlobsByRange(blob) => {
-                write!(f, "TxBlobsByRange: Block slot: {}", blob.beacon_block_slot)
-            }
             RPCResponse::BlocksByRoot(block) => {
                 write!(f, "BlocksByRoot: Block slot: {}", block.slot())
             }
             RPCResponse::BlobsByRange(blob) => {
-                write!(f, "BlobsByRange: Blob slot: {}", blob.len())
+                write!(f, "BlobsByRange: Blob slot: {}", blob.beacon_block_slot)
             }
             RPCResponse::Pong(ping) => write!(f, "Pong: {}", ping.data),
             RPCResponse::MetaData(metadata) => write!(f, "Metadata: {}", metadata.seq_number()),
@@ -472,13 +461,9 @@ impl std::fmt::Display for OldBlocksByRangeRequest {
     }
 }
 
-impl std::fmt::Display for TxBlobsByRangeRequest {
+impl std::fmt::Display for BlobsByRangeRequest {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "Execution block number: {}, Count: {}",
-            self.execution_block_number, self.count
-        )
+        write!(f, "Start Slot: {}, Count: {}", self.start_slot, self.count)
     }
 }
 

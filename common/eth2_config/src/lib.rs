@@ -308,9 +308,5 @@ define_hardcoded_nets!(
         // directory.
         GENESIS_STATE_IS_KNOWN
     ),
-    (
-        eip4844,
-        "eip4844",
-        GENESIS_STATE_IS_KNOWN
-    )
+    (eip4844, "eip4844", GENESIS_STATE_IS_KNOWN)
 );

@@ -6,7 +6,6 @@ use crate::status::status_message;
 use crate::sync::manager::RequestId as SyncId;
 use crate::sync::SyncMessage;
 use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes};
-use lighthouse_network::rpc::methods::TxBlobsByRangeRequest;
 use lighthouse_network::rpc::*;
 use lighthouse_network::rpc::methods::BlobsByRangeRequest;
 use lighthouse_network::{
@@ -218,40 +217,29 @@ impl<T: BeaconChainTypes> Processor<T> {
         });
     }
 
-    /// Handle a `BlocksByRange` request from the peer.
-    pub fn on_tx_blobs_by_range_request(
-        &mut self,
-        peer_id: PeerId,
-        request_id: PeerRequestId,
-        req: TxBlobsByRangeRequest,
-    ) {
-        self.send_beacon_processor_work(BeaconWorkEvent::tx_blob_by_range_request(
-            peer_id, request_id, req,
-        ))
-    }
-
-    pub fn on_tx_blobs_by_range_response(
+    pub fn on_blobs_by_range_response(
         &mut self,
         peer_id: PeerId,
         request_id: RequestId,
-        blob_wrapper: Option<Box<BlobsSidecar<T::EthSpec>>>,
+        blob_wrapper: Option<Arc<BlobsSidecar<T::EthSpec>>>,
     ) {
         trace!(
             self.log,
-            "Received TxBlobsByRange Response";
+            "Received BlobsByRange Response";
             "peer" => %peer_id,
         );
 
         if let RequestId::Sync(id) = request_id {
-            self.send_to_sync(SyncMessage::TxBlobsByRangeResponse {
+            self.send_to_sync(SyncMessage::RpcBlob {
                 peer_id,
                 request_id: id,
-                blob_wrapper,
+                blob_sidecar: blob_wrapper,
+                seen_timestamp: timestamp_now(),
             });
         } else {
             debug!(
                 self.log,
-                "All tx blobs by range responses should belong to sync"
+                "All blobs by range responses should belong to sync"
             );
         }
     }
@@ -284,15 +272,6 @@ impl<T: BeaconChainTypes> Processor<T> {
             beacon_block,
             seen_timestamp: timestamp_now(),
         });
-    }
-
-    pub fn on_blobs_by_range_response(
-        &mut self,
-        peer_id: PeerId,
-        request_id: RequestId,
-        beacon_blob: Option<Arc<VariableList<BlobsSidecar<T::EthSpec>, <<T as BeaconChainTypes>::EthSpec as EthSpec>::MaxRequestBlobsSidecars>>>,
-    ) {
-
     }
 
     /// Process a gossip message declaring a new block.

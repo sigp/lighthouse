@@ -4,6 +4,7 @@
 //! This crate only provides useful functionality for "The Merge", it does not provide any of the
 //! deposit-contract functionality that the `beacon_node/eth1` crate already provides.
 
+use crate::json_structures::JsonBlobBundlesV1;
 use crate::payload_cache::PayloadCache;
 use auth::{strip_prefix, Auth, JwtKey};
 use builder_client::BuilderHttpClient;
@@ -787,10 +788,10 @@ impl<T: EthSpec> ExecutionLayer<T> {
         timestamp: u64,
         prev_randao: Hash256,
         suggested_fee_recipient: Address,
-    ) -> Result<BlobsBundle<T>, Error> {
+    ) -> Result<JsonBlobBundlesV1<T>, Error> {
         debug!(
             self.log(),
-            "Issuing engine_getPayload";
+            "Issuing engine_getBlobsBundle";
             "suggested_fee_recipient" => ?suggested_fee_recipient,
             "prev_randao" => ?prev_randao,
             "timestamp" => timestamp,
@@ -808,22 +809,15 @@ impl<T: EthSpec> ExecutionLayer<T> {
                         &[metrics::HIT],
                     );
                     id
-                } else {             
+                } else {
                     error!(
                         self.log(),
                         "Exec engine unable to produce blobs, did you call get_payload before?",
                     );
-                    return Err(ApiError::PayloadIdUnavailable);                       
+                    return Err(ApiError::PayloadIdUnavailable);
                 };
 
-                engine
-                    .api
-                    .get_blobs_bundle_v1::<T>(payload_id)
-                    .await
-                    .map(|bundle| {
-                        // TODO verify the blob bundle here?
-                        bundle.into()
-                    })
+                engine.api.get_blobs_bundle_v1::<T>(payload_id).await
             })
             .await
             .map_err(Box::new)
@@ -935,18 +929,6 @@ impl<T: EthSpec> ExecutionLayer<T> {
             .await
             .map_err(Box::new)
             .map_err(Error::EngineError)
-    }
-
-    pub async fn get_blob<T: EthSpec>(
-        &self,
-        _parent_hash: Hash256,
-        _timestamp: u64,
-        _random: Hash256,
-        _finalized_block_hash: Hash256,
-        _proposer_index: u64,
-        _versioned_hash: Hash256,
-    ) -> Result<BlobDetailsV1, Error> {
-        todo!()
     }
 
     /// Maps to the `engine_newPayload` JSON-RPC call.

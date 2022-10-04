@@ -1,4 +1,5 @@
 use crate::{test_utils::TestRandom, *};
+use core::hash::Hasher;
 use derivative::Derivative;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -8,7 +9,6 @@ use std::fmt::Debug;
 use std::hash::Hash;
 use test_random_derive::TestRandom;
 use tree_hash::{PackedEncoding, TreeHash};
-use core::hash::Hasher;
 
 #[derive(Debug)]
 pub enum BlockType {

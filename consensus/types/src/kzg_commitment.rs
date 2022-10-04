@@ -14,7 +14,7 @@ impl TreeHash for KzgCommitment {
         <[u8; 48] as TreeHash>::tree_hash_type()
     }
 
-    fn tree_hash_packed_encoding(&self) -> PackedEncoding{
+    fn tree_hash_packed_encoding(&self) -> PackedEncoding {
         self.0.tree_hash_packed_encoding()
     }
 

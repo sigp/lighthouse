@@ -6,11 +6,9 @@ use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 use strum::IntoStaticStr;
 pub use types::{
-    Address, EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadHeader, FixedVector,
-    Hash256, Uint256, VariableList, kzg_proof::KzgProof, kzg_commitment::KzgCommitment, blob::Blob,
+    blob::Blob, Address, EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadHeader,
+    FixedVector, Hash256, KzgCommitment, KzgProof, Uint256, VariableList,
 };
-use types::{KzgCommitment};
-
 
 pub mod auth;
 pub mod http;

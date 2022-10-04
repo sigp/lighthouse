@@ -17,6 +17,7 @@ use fork_choice::{InvalidationOperation, PayloadVerificationStatus};
 use proto_array::{Block as ProtoBlock, ExecutionStatus};
 use slog::debug;
 use slot_clock::SlotClock;
+use ssz_types::VariableList;
 use state_processing::per_block_processing::{
     compute_timestamp_at_slot, is_execution_enabled, is_merge_transition_complete,
     partially_verify_execution_payload,
@@ -24,7 +25,10 @@ use state_processing::per_block_processing::{
 use std::sync::Arc;
 use tokio::task::JoinHandle;
 use tree_hash::TreeHash;
-use types::{*, execution_payload::BlobsBundle};
+use types::{
+    BeaconBlockRef, BeaconState, BeaconStateError, EthSpec, ExecPayload, ExecutionBlockHash,
+    Hash256, KzgCommitment, SignedBeaconBlock, Slot,
+};
 
 pub type PreparePayloadResult<Payload> = Result<Payload, BlockProductionError>;
 pub type PreparePayloadHandle<Payload> = JoinHandle<Option<PreparePayloadResult<Payload>>>;
@@ -387,36 +391,6 @@ pub fn get_execution_payload<
     Ok(join_handle)
 }
 
-/// Wraps the async `prepare_execution_payload` function as a blocking task.
-pub fn prepare_execution_payload_and_blobs_blocking<
-    T: BeaconChainTypes,
-    Payload: ExecPayload<T::EthSpec>,
->(
-    chain: &BeaconChain<T>,
-    state: &BeaconState<T::EthSpec>,
-    proposer_index: u64,
-) -> Result<
-    Option<(
-        Payload,
-        VariableList<
-            KzgCommitment,
-            <<T as BeaconChainTypes>::EthSpec as EthSpec>::MaxBlobsPerBlock,
-        >,
-    )>,
-    BlockProductionError,
-> {
-    let execution_layer = chain
-        .execution_layer
-        .as_ref()
-        .ok_or(BlockProductionError::ExecutionLayerMissing)?;
-
-    execution_layer
-        .block_on_generic(|_| async {
-            prepare_execution_payload_and_blobs::<T, Payload>(chain, state, proposer_index).await
-        })
-        .map_err(BlockProductionError::BlockingFailed)?
-}
-
 /// Prepares an execution payload for inclusion in a block.
 ///
 /// Will return `Ok(None)` if the merge fork has occurred, but a terminal block has not been found.
@@ -513,7 +487,7 @@ where
         .await
         .map_err(BlockProductionError::GetPayloadFailed)?;
 
-    /* 
+    /*
     TODO: fetch blob bundles from el engine for block building
     let suggested_fee_recipient = execution_layer.get_suggested_fee_recipient(proposer_index).await;
     let blobs = execution_layer.get_blob_bundles(parent_hash, timestamp, random, suggested_fee_recipient)
@@ -522,24 +496,4 @@ where
     */
 
     Ok(execution_payload)
-}
-
-pub async fn prepare_execution_payload_and_blobs<
-    T: BeaconChainTypes,
-    Payload: ExecPayload<T::EthSpec>,
->(
-    _chain: &BeaconChain<T>,
-    _state: &BeaconState<T::EthSpec>,
-    _proposer_index: u64,
-) -> Result<
-    Option<(
-        Payload,
-        VariableList<
-            KzgCommitment,
-            <<T as BeaconChainTypes>::EthSpec as EthSpec>::MaxBlobsPerBlock,
-        >,
-    )>,
-    BlockProductionError,
-> {
-    todo!()
 }

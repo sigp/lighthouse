@@ -17,9 +17,9 @@ use crate::early_attester_cache::EarlyAttesterCache;
 use crate::errors::{BeaconChainError as Error, BlockProductionError};
 use crate::eth1_chain::{Eth1Chain, Eth1ChainBackend};
 use crate::events::ServerSentEventHandler;
-use crate::execution_payload::{ PreparePayloadHandle};
+use crate::execution_payload::get_execution_payload;
+use crate::execution_payload::PreparePayloadHandle;
 use crate::fork_choice_signal::{ForkChoiceSignalRx, ForkChoiceSignalTx, ForkChoiceWaitResult};
-use crate::execution_payload::{get_execution_payload, get_execution_payload_and_blobs};
 use crate::head_tracker::HeadTracker;
 use crate::historical_blocks::HistoricalBlockError;
 use crate::migrate::BackgroundMigrator;
@@ -377,8 +377,6 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     /// Sender given to tasks, so that if they encounter a state in which execution cannot
     /// continue they can request that everything shuts down.
     pub shutdown_sender: Sender<ShutdownReason>,
-    pub block_waiting_for_sidecar: Mutex<Option<GossipVerifiedBlock<T>>>,
-    pub sidecar_waiting_for_block: Mutex<Option<Arc<SignedBlobsSidecar<T::EthSpec>>>>,
     /// Logging to CLI, etc.
     pub(crate) log: Logger,
     /// Arbitrary bytes included in the blocks.
@@ -2440,7 +2438,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self: &Arc<Self>,
         block_root: Hash256,
         unverified_block: B,
-        sidecar: Option<Arc<SignedBlobsSidecar<T::EthSpec>>>,
         count_unrealized: CountUnrealized,
     ) -> Result<Hash256, BlockError<T::EthSpec>> {
         // Start the Prometheus timer.
@@ -2458,7 +2455,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             let execution_pending =
                 unverified_block.into_execution_pending_block(block_root, &chain)?;
             chain
-                .import_execution_pending_block(execution_pending, sidecar, count_unrealized)
+                .import_execution_pending_block(execution_pending, count_unrealized)
                 .await
         };
 
@@ -2516,7 +2513,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     async fn import_execution_pending_block(
         self: Arc<Self>,
         execution_pending_block: ExecutionPendingBlock<T>,
-        sidecar: Option<Arc<SignedBlobsSidecar<T::EthSpec>>>,
         count_unrealized: CountUnrealized,
     ) -> Result<Hash256, BlockError<T::EthSpec>> {
         let ExecutionPendingBlock {
@@ -2572,7 +2568,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 move || {
                     chain.import_block(
                         block,
-                        sidecar,
                         block_root,
                         state,
                         confirmed_state_roots,
@@ -2595,7 +2590,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     fn import_block(
         &self,
         signed_block: Arc<SignedBeaconBlock<T::EthSpec>>,
-        sidecar: Option<Arc<SignedBlobsSidecar<T::EthSpec>>>,
         block_root: Hash256,
         mut state: BeaconState<T::EthSpec>,
         confirmed_state_roots: Vec<Hash256>,
@@ -2934,9 +2928,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .collect();
         ops.push(StoreOp::PutBlock(block_root, signed_block.clone()));
         ops.push(StoreOp::PutState(block.state_root(), &state));
-        if let Some(sidecar) = sidecar {
-            ops.push(StoreOp::PutBlobs(block_root, sidecar));
-        }
         let txn_lock = self.store.hot_db.begin_rw_transaction();
 
         if let Err(e) = self.store.do_atomically(ops) {
