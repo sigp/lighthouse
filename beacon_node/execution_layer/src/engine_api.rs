@@ -166,9 +166,3 @@ pub struct ProposeBlindedBlockResponse {
     pub latest_valid_hash: Option<Hash256>,
     pub validation_error: Option<String>,
 }
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct BlobDetailsV1 {
-    kzg: KzgCommitment,
-    blob: Vec<Hash256>,
-}

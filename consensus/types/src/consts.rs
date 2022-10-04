@@ -22,7 +22,7 @@ pub mod altair {
 pub mod merge {
     pub const INTERVALS_PER_SLOT: u64 = 3;
 }
-pub mod cappella {
+pub mod eip4844 {
     use crate::Uint256;
 
     use lazy_static::lazy_static;

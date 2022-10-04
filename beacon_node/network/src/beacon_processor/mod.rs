@@ -157,7 +157,7 @@ const MAX_STATUS_QUEUE_LEN: usize = 1_024;
 /// will be stored before we start dropping them.
 const MAX_BLOCKS_BY_RANGE_QUEUE_LEN: usize = 1_024;
 
-const MAX_TX_BLOBS_BY_RANGE_QUEUE_LEN: usize = 1_024;
+const MAX_BLOBS_BY_RANGE_QUEUE_LEN: usize = 1_024;
 
 /// The maximum number of queued `BlocksByRootRequest` objects received from the network RPC that
 /// will be stored before we start dropping them.
@@ -951,14 +951,13 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
         let mut chain_segment_queue = FifoQueue::new(MAX_CHAIN_SEGMENT_QUEUE_LEN);
         let mut backfill_chain_segment = FifoQueue::new(MAX_CHAIN_SEGMENT_QUEUE_LEN);
         let mut gossip_block_queue = FifoQueue::new(MAX_GOSSIP_BLOCK_QUEUE_LEN);
-        let mut gossip_blobs_sidecar_queue = FifoQueue::new(MAX_GOSSIP_BLOCK_QUEUE_LEN);
+        let mut gossip_blobs_sidecar_queue = FifoQueue::new(MAX_GOSSIP_BLOB_QUEUE_LEN);
         let mut delayed_block_queue = FifoQueue::new(MAX_DELAYED_BLOCK_QUEUE_LEN);
 
         let mut status_queue = FifoQueue::new(MAX_STATUS_QUEUE_LEN);
         let mut bbrange_queue = FifoQueue::new(MAX_BLOCKS_BY_RANGE_QUEUE_LEN);
-        let mut txbbrange_queue = FifoQueue::new(MAX_TX_BLOBS_BY_RANGE_QUEUE_LEN);
         let mut bbroots_queue = FifoQueue::new(MAX_BLOCKS_BY_ROOTS_QUEUE_LEN);
-        let mut blbrange_queue = FifoQueue::new(MAX_BLOCKS_BY_ROOTS_QUEUE_LEN);
+        let mut blbrange_queue = FifoQueue::new(MAX_BLOBS_BY_RANGE_QUEUE_LEN);
 
         // Channels for sending work to the re-process scheduler (`work_reprocessing_tx`) and to
         // receive them back once they are ready (`ready_work_rx`).
@@ -1343,9 +1342,8 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                     &metrics::BEACON_PROCESSOR_GOSSIP_BLOCK_QUEUE_TOTAL,
                     gossip_block_queue.len() as i64,
                 );
-                //FIXME(sean) blob metrics
                 metrics::set_gauge(
-                    &metrics::BEACON_PROCESSOR_RPC_BLOCK_QUEUE_TOTAL,
+                    &metrics::BEACON_PROCESSOR_RPC_BLOB_QUEUE_TOTAL,
                     rpc_block_queue.len() as i64,
                 );
                 metrics::set_gauge(

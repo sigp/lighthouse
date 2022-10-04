@@ -18,7 +18,7 @@ pub struct StoreConfig {
     pub slots_per_restore_point_set_explicitly: bool,
     /// Maximum number of blocks to store in the in-memory block cache.
     pub block_cache_size: usize,
-    /// Maximum number of blobs to store in the in-memory block cache.
+    /// Maximum number of blobs to store in the in-memory blob cache.
     pub blob_cache_size: usize,
     /// Whether to compact the database on initialization.
     pub compact_on_init: bool,

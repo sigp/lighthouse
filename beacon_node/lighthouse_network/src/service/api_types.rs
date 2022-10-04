@@ -33,7 +33,7 @@ pub enum Request {
     Status(StatusMessage),
     /// A blocks by range request.
     BlocksByRange(BlocksByRangeRequest),
-    /// A bloibs by range request.
+    /// A blobs by range request.
     BlobsByRange(BlobsByRangeRequest),
     /// A request blocks root request.
     BlocksByRoot(BlocksByRootRequest),

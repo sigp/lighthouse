@@ -786,9 +786,6 @@ impl<T: BeaconChainTypes> Worker<T> {
 
                 verified_block
             }
-            Err(BlockError::MissingSidecar) => {
-               todo!(); //is relevant?
-            }
             Err(BlockError::ParentUnknown(block)) => {
                 debug!(
                     self.log,

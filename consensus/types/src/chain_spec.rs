@@ -22,8 +22,7 @@ pub enum Domain {
     ContributionAndProof,
     SyncCommitteeSelectionProof,
     ApplicationMask(ApplicationDomain),
-    //FIXME(sean) add this domain
-    //BlobsSideCar,
+    BlobsSideCar,
 }
 
 /// Lighthouse's internal configuration struct.
@@ -565,7 +564,7 @@ impl ChainSpec {
             domain_sync_committee: 7,
             domain_sync_committee_selection_proof: 8,
             domain_contribution_and_proof: 9,
-            altair_fork_version: [0x01, 0x00, 0x0f, 0xfd],
+            altair_fork_version: [0x01, 0x00, 0x00, 0x00],
             altair_fork_epoch: Some(Epoch::new(74240)),
 
             /*
@@ -576,7 +575,7 @@ impl ChainSpec {
             min_slashing_penalty_quotient_bellatrix: u64::checked_pow(2, 5)
                 .expect("pow does not overflow"),
             proportional_slashing_multiplier_bellatrix: 3,
-            bellatrix_fork_version: [0x02, 0x00, 0x0f, 0xfd],
+            bellatrix_fork_version: [0x02, 0x00, 0x00, 0x00],
             bellatrix_fork_epoch: Some(Epoch::new(144896)),
             terminal_total_difficulty: Uint256::from_dec_str("58750000000000000000000")
                 .expect("terminal_total_difficulty is a valid integer"),
@@ -587,8 +586,8 @@ impl ChainSpec {
             /*
              * Eip4844 hard fork params
              */
-            eip4844_fork_version: [0x04, 0x00, 0x00, 0xfd],
-            eip4844_fork_epoch: Some(Epoch::new(u64::MAX)),
+            eip4844_fork_version: [0x04, 0x00, 0x00, 0x00],
+            eip4844_fork_epoch: None,
 
             /*
              * Network specific
@@ -646,8 +645,7 @@ impl ChainSpec {
                 .checked_add(Uint256::one())
                 .expect("addition does not overflow"),
             // Eip4844
-            //FIXME(sean)
-            eip4844_fork_version: [0x03, 0x00, 0x00, 0x01],
+            eip4844_fork_version: [0x04, 0x00, 0x00, 0x01],
             eip4844_fork_epoch: None,
             // Other
             network_id: 2, // lighthouse testnet network id
@@ -805,7 +803,7 @@ impl ChainSpec {
             safe_slots_to_import_optimistically: 128u64,
 
             eip4844_fork_version: [0x04, 0x00, 0x00, 0x64],
-            eip4844_fork_epoch: Some(Epoch::new(u64::MAX)),
+            eip4844_fork_epoch: None,
 
             /*
              * Network specific

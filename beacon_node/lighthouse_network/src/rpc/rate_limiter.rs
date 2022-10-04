@@ -100,7 +100,7 @@ pub struct RPCRateLimiterBuilder {
     bbrange_quota: Option<Quota>,
     /// Quota for the BlocksByRoot protocol.
     bbroots_quota: Option<Quota>,
-    /// Quota for the BlocksByRange protocol.
+    /// Quota for the BlobsByRange protocol.
     blbrange_quota: Option<Quota>,
 }
 

@@ -475,7 +475,7 @@ impl<TSpec: EthSpec> InboundRequest<TSpec> {
                 ProtocolId::new(Protocol::BlocksByRoot, Version::V1, Encoding::SSZSnappy),
             ],
             InboundRequest::BlobsByRange(_) => vec![ProtocolId::new(
-                Protocol::BlocksByRoot,
+                Protocol::BlobsByRange,
                 Version::V1,
                 Encoding::SSZSnappy,
             )],

@@ -410,7 +410,7 @@ fn context_bytes<T: EthSpec>(
                     // NOTE: If you are adding another fork type here, be sure to modify the
                     //       `fork_context.to_context_bytes()` function to support it as well!
                     SignedBeaconBlock::Eip4844 { .. } => {
-                        // Merge context being `None` implies that "merge never happened".
+                        // Eip4844 context being `None` implies that "merge never happened".
                         fork_context.to_context_bytes(ForkName::Eip4844)
                     }
                     SignedBeaconBlock::Merge { .. } => {

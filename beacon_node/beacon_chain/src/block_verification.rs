@@ -147,7 +147,6 @@ pub enum BlockError<T: EthSpec> {
         present_slot: Slot,
         block_slot: Slot,
     },
-    MissingSidecar,
     /// The block state_root does not match the generated state.
     ///
     /// ## Peer scoring

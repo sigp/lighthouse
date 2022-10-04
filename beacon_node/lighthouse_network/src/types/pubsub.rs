@@ -175,10 +175,6 @@ impl<T: EthSpec> PubsubMessage<T> {
                                     SignedBeaconBlockEip4844::from_ssz_bytes(data)
                                         .map_err(|e| format!("{:?}", e))?,
                                 ),
-                                Some(ForkName::Eip4844) => SignedBeaconBlock::<T>::Eip4844(
-                                    SignedBeaconBlockEip4844::from_ssz_bytes(data)
-                                        .map_err(|e| format!("{:?}", e))?,
-                                ),
                                 None => {
                                     return Err(format!(
                                         "Unknown gossipsub fork digest: {:?}",
