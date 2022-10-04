@@ -1631,6 +1631,8 @@ dependencies = [
  "exit-future",
  "futures",
  "logging",
+ "serde",
+ "serde_derive",
  "slog",
  "slog-async",
  "slog-json",

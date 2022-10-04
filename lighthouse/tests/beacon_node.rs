@@ -1454,3 +1454,39 @@ fn monitoring_endpoint() {
             assert_eq!(api_conf.update_period_secs, Some(30));
         });
 }
+
+// Tests for Logger flags.
+#[test]
+fn default_log_color_flag() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert!(!config.logger_config.log_color);
+        });
+}
+#[test]
+fn enabled_log_color_flag() {
+    CommandLineTest::new()
+        .flag("log-color", None)
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert!(config.logger_config.log_color);
+        });
+}
+#[test]
+fn default_disable_log_timestamp_flag() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert!(!config.logger_config.disable_log_timestamp);
+        });
+}
+#[test]
+fn enabled_disable_log_timestamp_flag() {
+    CommandLineTest::new()
+        .flag("disable-log-timestamp", None)
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert!(config.logger_config.disable_log_timestamp);
+        });
+}
