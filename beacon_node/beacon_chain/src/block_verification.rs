@@ -1753,7 +1753,7 @@ fn cheap_state_advance_to_obtain_committees<'a, E: EthSpec>(
 }
 
 /// Obtains a read-locked `ValidatorPubkeyCache` from the `chain`.
-fn get_validator_pubkey_cache<T: BeaconChainTypes>(
+pub fn get_validator_pubkey_cache<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
 ) -> Result<RwLockReadGuard<ValidatorPubkeyCache<T>>, BlockError<T::EthSpec>> {
     chain
