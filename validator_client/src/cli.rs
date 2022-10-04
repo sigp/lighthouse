@@ -26,6 +26,16 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 )
                 .takes_value(true),
         )
+        .arg(
+            Arg::with_name("disable-run-on-all")
+                .long("disable-run-on-all")
+                .value_name("DISABLE_RUN_ON_ALL")
+                .help("By default, Lighthouse publishes attestation, sync committee subscriptions \
+                       and proposer preparation messages to all beacon nodes provided in the \
+                       `--beacon-nodes flag`. This option changes that behaviour such that these \
+                       api calls only go out to the first available and synced beacon node")
+                .takes_value(false)
+        )
         // This argument is deprecated, use `--beacon-nodes` instead.
         .arg(
             Arg::with_name("server")

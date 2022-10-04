@@ -815,7 +815,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             if let Some(request_root) = request_root_opt {
                 if let Ok(prev_root) = state.get_block_root(prev_slot) {
-                    return Ok(Some((*prev_root != request_root).then(|| request_root)));
+                    return Ok(Some((*prev_root != request_root).then_some(request_root)));
                 }
             }
 
@@ -837,7 +837,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     slot: curr_slot,
                 });
             }
-            Ok((curr_root != prev_root).then(|| curr_root))
+            Ok((curr_root != prev_root).then_some(curr_root))
         } else {
             Ok(None)
         }
@@ -2226,7 +2226,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 }
             }
 
-            match check_block_relevancy(&block, Some(block_root), self) {
+            match check_block_relevancy(&block, block_root, self) {
                 // If the block is relevant, add it to the filtered chain segment.
                 Ok(_) => filtered_chain_segment.push((block_root, block)),
                 // If the block is already known, simply ignore this block.
@@ -2350,7 +2350,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             // Import the blocks into the chain.
             for signature_verified_block in signature_verified_blocks {
                 match self
-                    .process_block(signature_verified_block, count_unrealized)
+                    .process_block(
+                        signature_verified_block.block_root(),
+                        signature_verified_block,
+                        count_unrealized,
+                    )
                     .await
                 {
                     Ok(_) => imported_blocks += 1,
@@ -2393,7 +2397,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         Ok(verified) => {
                             debug!(
                                 chain.log,
-                                "Successfully processed gossip block";
+                                "Successfully verified gossip block";
                                 "graffiti" => graffiti_string,
                                 "slot" => slot,
                                 "root" => ?verified.block_root(),
@@ -2435,6 +2439,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// verification.
     pub async fn process_block<B: IntoExecutionPendingBlock<T>>(
         self: &Arc<Self>,
+        block_root: Hash256,
         unverified_block: B,
         count_unrealized: CountUnrealized,
     ) -> Result<Hash256, BlockError<T::EthSpec>> {
@@ -2450,7 +2455,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // A small closure to group the verification and import errors.
         let chain = self.clone();
         let import_block = async move {
-            let execution_pending = unverified_block.into_execution_pending_block(&chain)?;
+            let execution_pending =
+                unverified_block.into_execution_pending_block(block_root, &chain)?;
             chain
                 .import_execution_pending_block(execution_pending, count_unrealized)
                 .await
@@ -2871,7 +2877,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .pubkeys
                 .iter()
                 .zip(sync_aggregate.sync_committee_bits.iter())
-                .filter_map(|(pubkey, bit)| bit.then(|| pubkey))
+                .filter_map(|(pubkey, bit)| bit.then_some(pubkey))
                 .collect::<Vec<_>>();
 
             validator_monitor.register_sync_aggregate_in_block(
@@ -4841,13 +4847,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             metrics::stop_timer(committee_building_timer);
 
-            if let Err(e) = sender.send(committee_cache.clone()) {
-                debug!(
-                    self.log,
-                    "Did not fulfil committee promise";
-                    "error" => %e
-                )
-            }
+            sender.send(committee_cache.clone());
 
             map_fn(&committee_cache, shuffling_decision_block)
         }

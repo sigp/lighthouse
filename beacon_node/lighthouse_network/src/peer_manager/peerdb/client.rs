@@ -181,7 +181,7 @@ fn client_from_agent_version(agent_version: &str) -> (ClientKind, String, String
             }
             (kind, version, os_version)
         }
-        Some("js-libp2p") => {
+        Some("js-libp2p") | Some("lodestar") => {
             let kind = ClientKind::Lodestar;
             let mut version = String::from("unknown");
             let mut os_version = version.clone();

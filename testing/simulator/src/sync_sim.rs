@@ -52,6 +52,7 @@ fn syncing_sim(
             logfile_debug_level: "debug",
             log_format,
             log_color: false,
+            disable_log_timestamp: false,
             max_log_size: 0,
             max_log_number: 0,
             compression: false,

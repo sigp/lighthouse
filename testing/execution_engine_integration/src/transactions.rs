@@ -1,7 +1,7 @@
 use deposit_contract::{encode_eth1_tx_data, BYTECODE, CONTRACT_DEPLOY_GAS, DEPOSIT_GAS};
 use ethers_core::types::{
     transaction::{eip2718::TypedTransaction, eip2930::AccessList},
-    Address, Bytes, Eip1559TransactionRequest, TransactionRequest,
+    Address, Bytes, Eip1559TransactionRequest, TransactionRequest, U256,
 };
 use types::{DepositData, EthSpec, Hash256, Keypair, Signature};
 
@@ -56,30 +56,36 @@ impl Transaction {
                 .value(1)
                 .with_access_list(AccessList::default())
                 .into(),
-            Self::DeployDepositContract(addr) => TransactionRequest::new()
-                .from(*addr)
-                .data(Bytes::from(BYTECODE.to_vec()))
-                .gas(CONTRACT_DEPLOY_GAS)
-                .into(),
+            Self::DeployDepositContract(addr) => {
+                let mut bytecode = String::from_utf8(BYTECODE.to_vec()).unwrap();
+                bytecode.retain(|c| c.is_ascii_hexdigit());
+                let bytecode = hex::decode(&bytecode[1..]).unwrap();
+                TransactionRequest::new()
+                    .from(*addr)
+                    .data(Bytes::from(bytecode))
+                    .gas(CONTRACT_DEPLOY_GAS)
+                    .into()
+            }
             Self::DepositDepositContract {
                 sender,
                 deposit_contract_address,
             } => {
                 let keypair = Keypair::random();
 
+                let amount: u64 = 32_000_000_000;
                 let mut deposit = DepositData {
                     pubkey: keypair.pk.into(),
                     withdrawal_credentials: Hash256::zero(),
-                    amount: 32_000_000_000,
+                    amount,
                     signature: Signature::empty().into(),
                 };
-
                 deposit.signature = deposit.create_signature(&keypair.sk, &E::default_spec());
                 TransactionRequest::new()
                     .from(*sender)
                     .to(*deposit_contract_address)
                     .data(Bytes::from(encode_eth1_tx_data(&deposit).unwrap()))
                     .gas(DEPOSIT_GAS)
+                    .value(U256::from(amount) * U256::exp10(9))
                     .into()
             }
         }

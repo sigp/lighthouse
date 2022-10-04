@@ -1151,7 +1151,7 @@ where
                             selection_proof
                                 .is_aggregator::<E>()
                                 .expect("should determine aggregator")
-                                .then(|| validator_index)
+                                .then_some(validator_index)
                         })?;
 
                     let default = SyncCommitteeContribution::from_message(
@@ -1474,12 +1474,13 @@ where
     pub async fn process_block(
         &self,
         slot: Slot,
+        block_root: Hash256,
         block: SignedBeaconBlock<E>,
     ) -> Result<SignedBeaconBlockHash, BlockError<E>> {
         self.set_current_slot(slot);
         let block_hash: SignedBeaconBlockHash = self
             .chain
-            .process_block(Arc::new(block), CountUnrealized::True)
+            .process_block(block_root, Arc::new(block), CountUnrealized::True)
             .await?
             .into();
         self.chain.recompute_head_at_current_slot().await;
@@ -1492,7 +1493,11 @@ where
     ) -> Result<SignedBeaconBlockHash, BlockError<E>> {
         let block_hash: SignedBeaconBlockHash = self
             .chain
-            .process_block(Arc::new(block), CountUnrealized::True)
+            .process_block(
+                block.canonical_root(),
+                Arc::new(block),
+                CountUnrealized::True,
+            )
             .await?
             .into();
         self.chain.recompute_head_at_current_slot().await;
@@ -1557,7 +1562,9 @@ where
     ) -> Result<(SignedBeaconBlockHash, SignedBeaconBlock<E>, BeaconState<E>), BlockError<E>> {
         self.set_current_slot(slot);
         let (block, new_state) = self.make_block(state, slot).await;
-        let block_hash = self.process_block(slot, block.clone()).await?;
+        let block_hash = self
+            .process_block(slot, block.canonical_root(), block.clone())
+            .await?;
         Ok((block_hash, block, new_state))
     }
 
