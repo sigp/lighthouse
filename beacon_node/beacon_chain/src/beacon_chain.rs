@@ -3187,8 +3187,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         };
         let (state, state_root_opt) = if head_slot < slot {
             // Attempt an aggressive re-org if configured and the conditions are right.
-            if let Some(re_org_state) =
-                self.get_state_for_re_org(slot, head_slot, head_block_root)?
+            if let Some(re_org_state) = self.get_state_for_re_org(slot, head_slot, head_block_root)
             {
                 info!(
                     self.log,
@@ -3241,84 +3240,102 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     /// Fetch the beacon state to use for producing a block if a 1-slot proposer re-org is viable.
     ///
-    /// This function will return `Ok(None)` if proposer re-orgs are disabled.
+    /// This function will return `None` if proposer re-orgs are disabled.
     fn get_state_for_re_org(
         &self,
         slot: Slot,
         head_slot: Slot,
         canonical_head: Hash256,
-    ) -> Result<Option<BlockProductionPreState<T::EthSpec>>, BlockProductionError> {
-        if let Some(re_org_threshold) = self.config.re_org_threshold {
-            if self.spec.proposer_score_boost.is_none() {
-                warn!(
-                    self.log,
-                    "Ignoring proposer re-org configuration";
-                    "reason" => "this network does not have proposer boost enabled"
-                );
-                return Ok(None);
-            }
+    ) -> Option<BlockProductionPreState<T::EthSpec>> {
+        let re_org_threshold = self.config.re_org_threshold?;
 
-            let slot_delay = self
-                .slot_clock
-                .seconds_from_current_slot_start(self.spec.seconds_per_slot)
-                .ok_or(BlockProductionError::UnableToReadSlot)?;
-
-            // Attempt a proposer re-org if:
-            //
-            // 1. It seems we have time to propagate and still receive the proposer boost.
-            // 2. The current head block was seen late.
-            // 3. The `get_proposer_head` conditions from fork choice pass.
-            let proposing_on_time = slot_delay < max_re_org_slot_delay(self.spec.seconds_per_slot);
-            let head_late =
-                self.block_observed_after_attestation_deadline(canonical_head, head_slot);
-            let mut proposer_head = Default::default();
-            let mut cache_hit = true;
-
-            if proposing_on_time && head_late {
-                // Is the current head weak and appropriate for re-orging?
-                proposer_head = self
-                    .canonical_head
-                    .fork_choice_write_lock()
-                    .get_proposer_head(slot, canonical_head, re_org_threshold, &self.spec)?;
-
-                if let Some(re_org_head) = proposer_head.re_org_head {
-                    // Only attempt a re-org if we hit the snapshot cache.
-                    if let Some(pre_state) = self
-                        .snapshot_cache
-                        .try_read_for(BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT)
-                        .and_then(|snapshot_cache| {
-                            snapshot_cache.get_state_for_block_production(re_org_head)
-                        })
-                    {
-                        debug!(
-                            self.log,
-                            "Attempting re-org due to weak head";
-                            "head" => ?canonical_head,
-                            "re_org_head" => ?re_org_head,
-                            "head_weight" => ?proposer_head.canonical_head_weight,
-                            "re_org_weight" => ?proposer_head.re_org_weight_threshold,
-                        );
-                        return Ok(Some(pre_state));
-                    }
-                    cache_hit = false;
-                }
-            }
-            debug!(
+        if self.spec.proposer_score_boost.is_none() {
+            warn!(
                 self.log,
-                "Not attempting re-org";
-                "head" => ?canonical_head,
-                "head_weight" => ?proposer_head.canonical_head_weight,
-                "re_org_weight" => ?proposer_head.re_org_weight_threshold,
-                "head_late" => head_late,
-                "proposing_on_time" => proposing_on_time,
-                "single_slot" => proposer_head.is_single_slot_re_org,
-                "ffg_competitive" => proposer_head.ffg_competitive,
-                "cache_hit" => cache_hit,
-                "shuffling_stable" => proposer_head.shuffling_stable,
+                "Ignoring proposer re-org configuration";
+                "reason" => "this network does not have proposer boost enabled"
             );
+            return None;
         }
 
-        Ok(None)
+        let slot_delay = self
+            .slot_clock
+            .seconds_from_current_slot_start(self.spec.seconds_per_slot)
+            .or_else(|| {
+                warn!(
+                    self.log,
+                    "Not attempting re-org";
+                    "error" => "unable to read slot clock"
+                );
+                None
+            })?;
+
+        // Attempt a proposer re-org if:
+        //
+        // 1. It seems we have time to propagate and still receive the proposer boost.
+        // 2. The current head block was seen late.
+        // 3. The `get_proposer_head` conditions from fork choice pass.
+        let proposing_on_time = slot_delay < max_re_org_slot_delay(self.spec.seconds_per_slot);
+        let head_late = self.block_observed_after_attestation_deadline(canonical_head, head_slot);
+        let mut proposer_head = Default::default();
+        let mut cache_hit = true;
+
+        if proposing_on_time && head_late {
+            // Is the current head weak and appropriate for re-orging?
+            proposer_head = self
+                .canonical_head
+                .fork_choice_read_lock()
+                .get_proposer_head(
+                    slot,
+                    canonical_head,
+                    re_org_threshold,
+                    self.config.re_org_participation_threshold,
+                )
+                .map_err(|e| {
+                    warn!(
+                        self.log,
+                        "Not attempting re-org";
+                        "error" => ?e,
+                    );
+                })
+                .ok()?;
+
+            if let Some(re_org_head) = proposer_head.re_org_head {
+                // Only attempt a re-org if we hit the snapshot cache.
+                if let Some(pre_state) = self
+                    .snapshot_cache
+                    .try_read_for(BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT)
+                    .and_then(|snapshot_cache| {
+                        snapshot_cache.get_state_for_block_production(re_org_head)
+                    })
+                {
+                    info!(
+                        self.log,
+                        "Attempting re-org due to weak head";
+                        "head" => ?canonical_head,
+                        "re_org_head" => ?re_org_head,
+                        "head_weight" => ?proposer_head.canonical_head_weight,
+                        "re_org_weight" => ?proposer_head.re_org_weight_threshold,
+                    );
+                    return Some(pre_state);
+                }
+                cache_hit = false;
+            }
+        }
+        debug!(
+            self.log,
+            "Not attempting re-org";
+            "head" => ?canonical_head,
+            "head_weight" => ?proposer_head.canonical_head_weight,
+            "re_org_weight" => ?proposer_head.re_org_weight_threshold,
+            "head_late" => head_late,
+            "proposing_on_time" => proposing_on_time,
+            "single_slot" => proposer_head.is_single_slot_re_org,
+            "ffg_competitive" => proposer_head.ffg_competitive,
+            "cache_hit" => cache_hit,
+            "shuffling_stable" => proposer_head.shuffling_stable,
+        );
+        None
     }
 
     /// Determine whether a fork choice update to the execution layer should be suppressed.

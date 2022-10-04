@@ -1,9 +1,12 @@
-use crate::error::Error;
-use crate::proto_array::CountUnrealizedFull;
-use crate::proto_array::{
-    calculate_proposer_boost, InvalidationOperation, Iter, ProposerBoost, ProtoArray, ProtoNode,
+use crate::{
+    error::Error,
+    proto_array::{
+        calculate_proposer_boost, CountUnrealizedFull, InvalidationOperation, Iter, ProposerBoost,
+        ProtoArray, ProtoNode,
+    },
+    ssz_container::SszContainer,
+    JustifiedBalances,
 };
-use crate::ssz_container::SszContainer;
 use serde_derive::{Deserialize, Serialize};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
@@ -189,13 +192,25 @@ pub struct ProposerHead {
     pub ffg_competitive: bool,
     /// Is the re-org block off an epoch boundary where the proposer shuffling could change?
     pub shuffling_stable: bool,
+    /// Is the chain's participation level sufficiently healthy to justify a re-org?
+    pub participation_ok: bool,
 }
+
+/// New-type for the re-org threshold percentage.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct ReOrgThreshold(pub u64);
+
+/// New-type for the participation threshold percentage.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct ParticipationThreshold(pub u64);
 
 #[derive(PartialEq)]
 pub struct ProtoArrayForkChoice {
     pub(crate) proto_array: ProtoArray,
     pub(crate) votes: ElasticList<VoteTracker>,
-    pub(crate) balances: Vec<u64>,
+    pub(crate) balances: JustifiedBalances,
 }
 
 impl ProtoArrayForkChoice {
@@ -244,7 +259,7 @@ impl ProtoArrayForkChoice {
         Ok(Self {
             proto_array,
             votes: ElasticList::default(),
-            balances: vec![],
+            balances: JustifiedBalances::default(),
         })
     }
 
@@ -303,21 +318,20 @@ impl ProtoArrayForkChoice {
         &mut self,
         justified_checkpoint: Checkpoint,
         finalized_checkpoint: Checkpoint,
-        justified_state_balances: &[u64],
+        justified_state_balances: &JustifiedBalances,
         proposer_boost_root: Hash256,
         equivocating_indices: &BTreeSet<u64>,
         current_slot: Slot,
         spec: &ChainSpec,
     ) -> Result<Hash256, String> {
         let old_balances = &mut self.balances;
-
         let new_balances = justified_state_balances;
 
         let deltas = compute_deltas(
             &self.proto_array.indices,
             &mut self.votes,
-            old_balances,
-            new_balances,
+            &old_balances.effective_balances,
+            &new_balances.effective_balances,
             equivocating_indices,
         )
         .map_err(|e| format!("find_head compute_deltas failed: {:?}", e))?;
@@ -334,7 +348,7 @@ impl ProtoArrayForkChoice {
             )
             .map_err(|e| format!("find_head apply_score_changes failed: {:?}", e))?;
 
-        *old_balances = new_balances.to_vec();
+        *old_balances = new_balances.clone();
 
         self.proto_array
             .find_head::<E>(&justified_checkpoint.root, current_slot)
@@ -344,9 +358,10 @@ impl ProtoArrayForkChoice {
     pub fn get_proposer_head<E: EthSpec>(
         &self,
         current_slot: Slot,
-        justified_state_balances: &[u64],
+        justified_balances: &JustifiedBalances,
         canonical_head: Hash256,
-        re_org_vote_fraction: u64,
+        re_org_threshold: ReOrgThreshold,
+        participation_threshold: ParticipationThreshold,
     ) -> Result<ProposerHead, String> {
         let nodes = self
             .proto_array
@@ -363,7 +378,7 @@ impl ProtoArrayForkChoice {
         let is_single_slot_re_org =
             parent_node.slot + 1 == head_node.slot && head_node.slot + 1 == current_slot;
 
-        // Do not re-org one the first slot of an epoch because this is liable to change the
+        // Do not re-org on the first slot of an epoch because this is liable to change the
         // shuffling and rob us of a proposal entirely. A more sophisticated check could be
         // done here, but we're prioristing speed and simplicity over precision.
         let shuffling_stable = current_slot % E::slots_per_epoch() != 0;
@@ -377,20 +392,27 @@ impl ProtoArrayForkChoice {
             && parent_node.unrealized_finalized_checkpoint
                 == head_node.unrealized_finalized_checkpoint;
 
+        // To prevent excessive re-orgs when the chain is struggling, only re-org when participation
+        // is above the configured threshold. This should not overflow.
+        let participation_ok = parent_node.weight
+            >= justified_balances.total_effective_balance * participation_threshold.0 / 100;
+
         // Only re-org if the head's weight is less than the configured committee fraction.
         let re_org_weight_threshold =
-            calculate_proposer_boost::<E>(justified_state_balances, re_org_vote_fraction)
-                .ok_or_else(|| {
-                    "overflow calculating committee weight for proposer boost".to_string()
-                })?;
+            calculate_proposer_boost::<E>(justified_balances, re_org_threshold.0).ok_or_else(
+                || "overflow calculating committee weight for proposer boost".to_string(),
+            )?;
         let canonical_head_weight = self
-            .get_block_unique_weight(canonical_head, justified_state_balances)
+            .get_block_unique_weight(canonical_head, &justified_balances.effective_balances)
             .map_err(|e| format!("overflow calculating head weight: {:?}", e))?;
         let is_weak_head = canonical_head_weight < re_org_weight_threshold;
 
-        let re_org_head =
-            (is_single_slot_re_org && shuffling_stable && ffg_competitive && is_weak_head)
-                .then(|| parent_node.root);
+        let re_org_head = (is_single_slot_re_org
+            && shuffling_stable
+            && ffg_competitive
+            && participation_ok
+            && is_weak_head)
+            .then(|| parent_node.root);
 
         Ok(ProposerHead {
             re_org_head,
@@ -399,6 +421,7 @@ impl ProtoArrayForkChoice {
             is_single_slot_re_org,
             ffg_competitive,
             shuffling_stable,
+            participation_ok,
         })
     }
 
@@ -479,7 +502,7 @@ impl ProtoArrayForkChoice {
                             if vote.current_root == node.root {
                                 // Any voting validator that does not have a balance should be
                                 // ignored. This is consistent with `compute_deltas`.
-                                self.balances.get(validator_index)
+                                self.balances.effective_balances.get(validator_index)
                             } else {
                                 None
                             }
@@ -649,10 +672,11 @@ impl ProtoArrayForkChoice {
         bytes: &[u8],
         count_unrealized_full: CountUnrealizedFull,
     ) -> Result<Self, String> {
-        SszContainer::from_ssz_bytes(bytes)
-            .map(|container| (container, count_unrealized_full))
-            .map(Into::into)
-            .map_err(|e| format!("Failed to decode ProtoArrayForkChoice: {:?}", e))
+        let container = SszContainer::from_ssz_bytes(bytes)
+            .map_err(|e| format!("Failed to decode ProtoArrayForkChoice: {:?}", e))?;
+        (container, count_unrealized_full)
+            .try_into()
+            .map_err(|e| format!("Failed to initialize ProtoArrayForkChoice: {e:?}"))
     }
 
     /// Returns a read-lock to core `ProtoArray` struct.

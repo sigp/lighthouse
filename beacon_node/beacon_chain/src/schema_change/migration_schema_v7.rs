@@ -43,7 +43,8 @@ pub(crate) fn update_with_reinitialized_fork_choice<T: BeaconChainTypes>(
         beacon_block_root: anchor_block_root,
         beacon_state: anchor_state,
     };
-    let store = BeaconForkChoiceStore::get_forkchoice_store(db, &snapshot);
+    let store = BeaconForkChoiceStore::get_forkchoice_store(db, &snapshot)
+        .map_err(|e| format!("Unable to initialize fork choice store: {e:?}"))?;
     let fork_choice = ForkChoice::from_anchor(
         store,
         anchor_block_root,
@@ -91,8 +92,9 @@ pub(crate) fn update_fork_choice<T: BeaconChainTypes>(
     let ssz_container_v10: SszContainerV10 = ssz_container_v7.into();
     let ssz_container: SszContainer = ssz_container_v10.into();
     // `CountUnrealizedFull::default()` represents the count-unrealized-full config which will be overwritten on startup.
-    let mut fork_choice: ProtoArrayForkChoice =
-        (ssz_container, CountUnrealizedFull::default()).into();
+    let mut fork_choice: ProtoArrayForkChoice = (ssz_container, CountUnrealizedFull::default())
+        .try_into()
+        .map_err(|e| StoreError::SchemaMigrationError(format!("{e:?}")))?;
 
     update_checkpoints::<T>(finalized_checkpoint.root, &nodes_v6, &mut fork_choice, db)
         .map_err(StoreError::SchemaMigrationError)?;

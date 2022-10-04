@@ -1488,7 +1488,7 @@ fn proposer_re_org_fraction() {
         .flag("enable-proposer-re-orgs", Some("true"))
         .flag("proposer-re-org-fraction", Some("90"))
         .run()
-        .with_config(|config| assert_eq!(config.chain.re_org_threshold, Some(90)));
+        .with_config(|config| assert_eq!(config.chain.re_org_threshold.unwrap().0, 90));
 }
 
 #[test]

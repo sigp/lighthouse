@@ -1,3 +1,4 @@
+use safe_arith::ArithError;
 use types::{Checkpoint, Epoch, ExecutionBlockHash, Hash256, Slot};
 
 #[derive(Clone, PartialEq, Debug)]
@@ -49,6 +50,13 @@ pub enum Error {
         block_root: Hash256,
         parent_root: Hash256,
     },
+    Arith(ArithError),
+}
+
+impl From<ArithError> for Error {
+    fn from(e: ArithError) -> Self {
+        Error::Arith(e)
+    }
 }
 
 #[derive(Clone, PartialEq, Debug)]

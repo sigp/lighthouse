@@ -1,6 +1,9 @@
 //! Generic tests that make use of the (newer) `InteractiveApiTester`
 use crate::common::*;
-use beacon_chain::test_utils::{AttestationStrategy, BlockStrategy};
+use beacon_chain::{
+    chain_config::ReOrgThreshold,
+    test_utils::{AttestationStrategy, BlockStrategy},
+};
 use eth2::types::DepositContractData;
 use slot_clock::SlotClock;
 use state_processing::state_advance::complete_state_advance;
@@ -69,7 +72,7 @@ pub async fn proposer_boost_re_org_test(
         None,
         validator_count,
         Some(Box::new(move |builder| {
-            builder.proposer_re_org_threshold(re_org_threshold)
+            builder.proposer_re_org_threshold(re_org_threshold.map(ReOrgThreshold))
         })),
     )
     .await;

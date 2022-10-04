@@ -1,8 +1,10 @@
-pub use proto_array::CountUnrealizedFull;
+pub use proto_array::{CountUnrealizedFull, ParticipationThreshold, ReOrgThreshold};
 use serde_derive::{Deserialize, Serialize};
 use types::Checkpoint;
 
-pub const DEFAULT_RE_ORG_THRESHOLD: u64 = 10;
+pub const DEFAULT_RE_ORG_THRESHOLD: ReOrgThreshold = ReOrgThreshold(10);
+pub const DEFAULT_RE_ORG_PARTICIPATION_THRESHOLD: ParticipationThreshold =
+    ParticipationThreshold(80);
 pub const DEFAULT_FORK_CHOICE_BEFORE_PROPOSAL_TIMEOUT: u64 = 250;
 
 #[derive(Debug, PartialEq, Eq, Clone, Deserialize, Serialize)]
@@ -22,8 +24,10 @@ pub struct ChainConfig {
     pub enable_lock_timeouts: bool,
     /// The max size of a message that can be sent over the network.
     pub max_network_size: usize,
-    /// Maximum percentage of weight at which to attempt re-orging the canonical head.
-    pub re_org_threshold: Option<u64>,
+    /// Maximum percentage of committee weight at which to attempt re-orging the canonical head.
+    pub re_org_threshold: Option<ReOrgThreshold>,
+    /// Minimum participation at which a proposer re-org should be attempted.
+    pub re_org_participation_threshold: ParticipationThreshold,
     /// Number of milliseconds to wait for fork choice before proposing a block.
     ///
     /// If set to 0 then block proposal will not wait for fork choice at all.
@@ -59,6 +63,7 @@ impl Default for ChainConfig {
             enable_lock_timeouts: true,
             max_network_size: 10 * 1_048_576, // 10M
             re_org_threshold: None,
+            re_org_participation_threshold: DEFAULT_RE_ORG_PARTICIPATION_THRESHOLD,
             fork_choice_before_proposal_timeout_ms: DEFAULT_FORK_CHOICE_BEFORE_PROPOSAL_TIMEOUT,
             // Builder fallback configs that are set in `clap` will override these.
             builder_fallback_skips: 3,

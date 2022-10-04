@@ -1,6 +1,7 @@
 use crate::{ForkChoiceStore, InvalidationOperation};
 use proto_array::{
-    Block as ProtoBlock, CountUnrealizedFull, ExecutionStatus, ProposerHead, ProtoArrayForkChoice,
+    Block as ProtoBlock, CountUnrealizedFull, ExecutionStatus, ParticipationThreshold,
+    ProposerHead, ProtoArrayForkChoice, ReOrgThreshold,
 };
 use slog::{crit, debug, warn, Logger};
 use ssz_derive::{Decode, Encode};
@@ -58,6 +59,10 @@ pub enum Error<T> {
     },
     MissingFinalizedBlock {
         finalized_checkpoint: Checkpoint,
+    },
+    WrongSlotForGetProposerHead {
+        current_slot: Slot,
+        fc_store_slot: Slot,
     },
     UnrealizedVoteProcessing(state_processing::EpochProcessingError),
     ParticipationCacheBuild(BeaconStateError),
@@ -555,15 +560,22 @@ where
     }
 
     pub fn get_proposer_head(
-        &mut self,
+        &self,
         current_slot: Slot,
         canonical_head: Hash256,
-        re_org_threshold: u64,
-        spec: &ChainSpec,
+        re_org_threshold: ReOrgThreshold,
+        participation_threshold: ParticipationThreshold,
     ) -> Result<ProposerHead, Error<T::Error>> {
-        // Calling `update_time` is essential, as it needs to dequeue attestations from the previous
-        // slot so we can see how many attesters voted for the canonical head.
-        self.update_time(current_slot, spec)?;
+        // Ensure that fork choice has already been updated for the current slot. This prevents
+        // us from having to take a write lock or do any dequeueing of attestations in this
+        // function.
+        let fc_store_slot = self.fc_store.get_current_slot();
+        if current_slot != fc_store_slot {
+            return Err(Error::WrongSlotForGetProposerHead {
+                current_slot,
+                fc_store_slot,
+            });
+        }
 
         self.proto_array
             .get_proposer_head::<E>(
@@ -571,6 +583,7 @@ where
                 self.fc_store.justified_balances(),
                 canonical_head,
                 re_org_threshold,
+                participation_threshold,
             )
             .map_err(Into::into)
     }

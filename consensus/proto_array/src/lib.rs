@@ -1,12 +1,15 @@
 mod error;
 pub mod fork_choice_test_definition;
+mod justified_balances;
 mod proto_array;
 mod proto_array_fork_choice;
 mod ssz_container;
 
+pub use crate::justified_balances::JustifiedBalances;
 pub use crate::proto_array::{CountUnrealizedFull, InvalidationOperation};
 pub use crate::proto_array_fork_choice::{
-    Block, ExecutionStatus, ProposerHead, ProtoArrayForkChoice,
+    Block, ExecutionStatus, ParticipationThreshold, ProposerHead, ProtoArrayForkChoice,
+    ReOrgThreshold,
 };
 pub use error::Error;
 

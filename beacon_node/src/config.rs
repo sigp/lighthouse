@@ -1,4 +1,4 @@
-use beacon_chain::chain_config::DEFAULT_RE_ORG_THRESHOLD;
+use beacon_chain::chain_config::{ReOrgThreshold, DEFAULT_RE_ORG_THRESHOLD};
 use clap::ArgMatches;
 use clap_utils::flags::DISABLE_MALLOC_TUNING_FLAG;
 use client::{ClientConfig, ClientGenesis};
@@ -650,6 +650,7 @@ pub fn get_config<E: EthSpec>(
         if enable_re_orgs {
             client_config.chain.re_org_threshold = Some(
                 clap_utils::parse_optional(cli_args, "proposer-re-org-fraction")?
+                    .map(ReOrgThreshold)
                     .unwrap_or(DEFAULT_RE_ORG_THRESHOLD),
             );
         } else {
