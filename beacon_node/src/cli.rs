@@ -440,7 +440,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                        JSON-RPC connection. Uses the same endpoint to populate the \
                        deposit cache.")
                 .takes_value(true)
-                .requires("execution-jwt")
         )
         .arg(
             Arg::with_name("execution-jwt")
@@ -450,6 +449,17 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .help("File path which contains the hex-encoded JWT secret for the \
                        execution endpoint provided in the --execution-endpoint flag.")
                 .requires("execution-endpoint")
+                .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("execution-jwt-secret-key")
+                .long("execution-jwt-secret-key")
+                .value_name("EXECUTION-JWT-SECRET-KEY")
+                .alias("jwt-secret-key")
+                .help("Hex-encoded JWT secret for the \
+                       execution endpoint provided in the --execution-endpoint flag.")
+                .requires("execution-endpoint")
+                .conflicts_with("execution-jwt")
                 .takes_value(true)
         )
         .arg(

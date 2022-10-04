@@ -3,6 +3,7 @@ use clap_utils::flags::DISABLE_MALLOC_TUNING_FLAG;
 use client::{ClientConfig, ClientGenesis};
 use directory::{DEFAULT_BEACON_NODE_DIR, DEFAULT_NETWORK_DIR, DEFAULT_ROOT_DIR};
 use environment::RuntimeContext;
+use execution_layer::DEFAULT_JWT_FILE;
 use genesis::Eth1Endpoint;
 use http_api::TlsConfig;
 use lighthouse_network::{multiaddr::Protocol, Enr, Multiaddr, NetworkConfig, PeerIdSerialized};
@@ -288,12 +289,34 @@ pub fn get_config<E: EthSpec>(
         let execution_endpoint =
             parse_only_one_value(endpoints, SensitiveUrl::parse, "--execution-endpoint", log)?;
 
-        // Parse a single JWT secret, logging warnings if multiple are supplied.
-        //
-        // JWTs are required if `--execution-endpoint` is supplied.
-        let secret_files: String = clap_utils::parse_required(cli_args, "execution-jwt")?;
-        let secret_file =
-            parse_only_one_value(&secret_files, PathBuf::from_str, "--execution-jwt", log)?;
+        // JWTs are required if `--execution-endpoint` is supplied. They can be either passed via
+        // file_path or directly as string.
+
+        let secret_file: PathBuf;
+        // Parse a single JWT secret from a given file_path, logging warnings if multiple are supplied.
+        if let Some(secret_files) = cli_args.value_of("execution-jwt") {
+            secret_file =
+                parse_only_one_value(secret_files, PathBuf::from_str, "--execution-jwt", log)?;
+
+        // Check if the JWT secret key is passed directly via cli flag and persist it to the default
+        // file location.
+        } else if let Some(jwt_secret_key) = cli_args.value_of("execution-jwt-secret-key") {
+            use std::fs::File;
+            use std::io::Write;
+            secret_file = client_config.data_dir.join(DEFAULT_JWT_FILE);
+            let mut jwt_secret_key_file = File::create(secret_file.clone())
+                .map_err(|e| format!("Error while creating jwt_secret_key file: {:?}", e))?;
+            jwt_secret_key_file
+                .write_all(jwt_secret_key.as_bytes())
+                .map_err(|e| {
+                    format!(
+                        "Error occured while writing to jwt_secret_key file: {:?}",
+                        e
+                    )
+                })?;
+        } else {
+            return Err("Error! Please set either --execution-jwt file_path or --execution-jwt-secret-key directly via cli when using --execution-endpoint".to_string());
+        }
 
         // Parse and set the payload builder, if any.
         if let Some(endpoint) = cli_args.value_of("builder") {

@@ -4,7 +4,7 @@ use crate::exec::{CommandLineTestExec, CompletedTest};
 use eth1::Eth1Endpoint;
 use lighthouse_network::PeerId;
 use std::fs::File;
-use std::io::Write;
+use std::io::{Read, Write};
 use std::net::IpAddr;
 use std::path::PathBuf;
 use std::process::Command;
@@ -383,6 +383,27 @@ fn run_merge_execution_endpoints_flag_test(flag: &str) {
             );
             // Only the first secret file should be used.
             assert_eq!(config.secret_files, vec![jwts[0].clone()]);
+        });
+}
+#[test]
+fn run_execution_jwt_secret_key_is_persisted() {
+    let jwt_secret_key = "0x3cbc11b0d8fa16f3344eacfd6ff6430b9d30734450e8adcf5400f88d327dcb33";
+    CommandLineTest::new()
+        .flag("execution-endpoint", Some("http://localhost:8551/"))
+        .flag("execution-jwt-secret-key", Some(jwt_secret_key))
+        .run_with_zero_port()
+        .with_config(|config| {
+            let config = config.execution_layer.as_ref().unwrap();
+            assert_eq!(
+                config.execution_endpoints[0].full.to_string(),
+                "http://localhost:8551/"
+            );
+            let mut file_jwt_secret_key = String::new();
+            File::open(config.secret_files[0].clone())
+                .expect("could not open jwt_secret_key file")
+                .read_to_string(&mut file_jwt_secret_key)
+                .expect("could not read from file");
+            assert_eq!(file_jwt_secret_key, jwt_secret_key);
         });
 }
 #[test]
