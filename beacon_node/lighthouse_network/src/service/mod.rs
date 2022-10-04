@@ -16,9 +16,9 @@ use crate::types::{
     subnet_from_topic_hash, GossipEncoding, GossipKind, GossipTopic, SnappyTransform, Subnet,
     SubnetDiscovery,
 };
+use crate::EnrExt;
 use crate::Eth2Enr;
 use crate::{error, metrics, Enr, NetworkGlobals, PubsubMessage, TopicHash};
-use crate::{EnrExt};
 use api_types::{PeerRequestId, Request, RequestId, Response};
 use futures::stream::StreamExt;
 use gossipsub_scoring_parameters::{lighthouse_gossip_thresholds, PeerScoreSettings};
@@ -35,7 +35,7 @@ use libp2p::swarm::{ConnectionLimits, Swarm, SwarmBuilder, SwarmEvent};
 use libp2p::PeerId;
 use slog::{crit, debug, info, o, trace, warn};
 use std::io::Write;
-use std::path::{PathBuf};
+use std::path::PathBuf;
 use std::pin::Pin;
 use std::{
     marker::PhantomData,

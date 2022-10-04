@@ -12,6 +12,7 @@ use crate::block_verification::{
     signature_verify_chain_segment, BlockError, ExecutionPendingBlock, GossipVerifiedBlock,
     IntoExecutionPendingBlock, PayloadVerificationOutcome, POS_PANDA_BANNER,
 };
+pub use crate::canonical_head::{CanonicalHead, CanonicalHeadRwLock};
 use crate::chain_config::ChainConfig;
 use crate::early_attester_cache::EarlyAttesterCache;
 use crate::errors::{BeaconChainError as Error, BlockProductionError};
@@ -57,6 +58,7 @@ use eth2::types::{EventKind, SseBlock, SyncDuty};
 use execution_layer::{
     BuilderParams, ChainHealth, ExecutionLayer, FailedCondition, PayloadAttributes, PayloadStatus,
 };
+pub use fork_choice::CountUnrealized;
 use fork_choice::{
     AttestationFromBlock, ExecutionStatus, ForkChoice, ForkchoiceUpdateParameters,
     InvalidationOperation, PayloadVerificationStatus, ResetPayloadStatuses,
@@ -98,8 +100,6 @@ use task_executor::{ShutdownReason, TaskExecutor};
 use tree_hash::TreeHash;
 use types::beacon_state::CloneConfig;
 use types::*;
-pub use crate::canonical_head::{CanonicalHead, CanonicalHeadRwLock};
-pub use fork_choice::CountUnrealized;
 
 pub type ForkChoiceError = fork_choice::Error<crate::ForkChoiceStoreError>;
 

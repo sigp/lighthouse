@@ -8,7 +8,7 @@ use sensitive_url::SensitiveUrl;
 use serde::de::DeserializeOwned;
 use serde_json::json;
 use std::time::Duration;
-use types::{EthSpec};
+use types::EthSpec;
 
 pub use deposit_log::{DepositLog, Log};
 pub use reqwest::Client;

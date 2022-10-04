@@ -1,7 +1,7 @@
 use crate::bls_field_element::BlsFieldElement;
 use crate::test_utils::RngCore;
 use crate::test_utils::TestRandom;
-use crate::{EthSpec};
+use crate::EthSpec;
 use serde::{Deserialize, Serialize};
 use ssz::{Decode, DecodeError, Encode};
 use ssz_types::VariableList;

@@ -21,8 +21,8 @@ use tokio_util::{
     compat::{Compat, FuturesAsyncReadCompatExt},
 };
 use types::{
-    BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockMerge, EthSpec,
-    ForkContext, ForkName, Hash256, MainnetEthSpec, Signature, SignedBeaconBlock,
+    BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockMerge, EthSpec, ForkContext,
+    ForkName, Hash256, MainnetEthSpec, Signature, SignedBeaconBlock,
 };
 
 lazy_static! {

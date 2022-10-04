@@ -60,13 +60,13 @@ use std::task::Context;
 use std::time::Duration;
 use std::{cmp, collections::HashSet};
 use task_executor::TaskExecutor;
-use tokio::sync::{mpsc};
-use types::{
-    Attestation, AttesterSlashing, Hash256, ProposerSlashing,
-    SignedAggregateAndProof, SignedBeaconBlock, SignedContributionAndProof, SignedVoluntaryExit,
-    SubnetId, SyncCommitteeMessage, SyncSubnetId,
-};
+use tokio::sync::mpsc;
 use types::signed_blobs_sidecar::SignedBlobsSidecar;
+use types::{
+    Attestation, AttesterSlashing, Hash256, ProposerSlashing, SignedAggregateAndProof,
+    SignedBeaconBlock, SignedContributionAndProof, SignedVoluntaryExit, SubnetId,
+    SyncCommitteeMessage, SyncSubnetId,
+};
 use work_reprocessing_queue::{
     spawn_reprocess_scheduler, QueuedAggregate, QueuedRpcBlock, QueuedUnaggregate, ReadyWork,
 };
@@ -788,7 +788,7 @@ pub enum Work<T: BeaconChainTypes> {
         peer_id: PeerId,
         request_id: PeerRequestId,
         request: BlobsByRangeRequest,
-    }
+    },
 }
 
 impl<T: BeaconChainTypes> Work<T> {
@@ -812,7 +812,7 @@ impl<T: BeaconChainTypes> Work<T> {
             Work::Status { .. } => STATUS_PROCESSING,
             Work::BlocksByRangeRequest { .. } => BLOCKS_BY_RANGE_REQUEST,
             Work::BlocksByRootsRequest { .. } => BLOCKS_BY_ROOTS_REQUEST,
-            Work::BlobsByRangeRequest {..} => BLOBS_BY_RANGE_REQUEST,
+            Work::BlobsByRangeRequest { .. } => BLOBS_BY_RANGE_REQUEST,
             Work::UnknownBlockAttestation { .. } => UNKNOWN_BLOCK_ATTESTATION,
             Work::UnknownBlockAggregate { .. } => UNKNOWN_BLOCK_AGGREGATE,
         }
@@ -1693,7 +1693,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
             Work::BlobsByRangeRequest {
                 peer_id,
                 request_id,
-                request
+                request,
             } => task_spawner.spawn_blocking_with_manual_send_idle(move |send_idle_on_drop| {
                 worker.handle_blobs_by_range_request(
                     sub_executor,

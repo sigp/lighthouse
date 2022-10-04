@@ -593,7 +593,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     .parent_chain_processed(chain_hash, result, &mut self.network),
             },
             //FIXME(sean)
-            SyncMessage::RpcBlob { .. } => todo!()
+            SyncMessage::RpcBlob { .. } => todo!(),
         }
     }
 

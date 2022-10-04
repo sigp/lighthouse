@@ -17,12 +17,12 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use store::hot_cold_store::HotColdDBError;
 use tokio::sync::mpsc;
-use types::{
-    Attestation, AttesterSlashing, EthSpec, Hash256, IndexedAttestation,
-    ProposerSlashing, SignedAggregateAndProof, SignedBeaconBlock, SignedContributionAndProof,
-    SignedVoluntaryExit, Slot, SubnetId, SyncCommitteeMessage, SyncSubnetId,
-};
 use types::signed_blobs_sidecar::SignedBlobsSidecar;
+use types::{
+    Attestation, AttesterSlashing, EthSpec, Hash256, IndexedAttestation, ProposerSlashing,
+    SignedAggregateAndProof, SignedBeaconBlock, SignedContributionAndProof, SignedVoluntaryExit,
+    Slot, SubnetId, SyncCommitteeMessage, SyncSubnetId,
+};
 
 use super::{
     super::work_reprocessing_queue::{
@@ -959,31 +959,31 @@ impl<T: BeaconChainTypes> Worker<T> {
             Ok(block_root) => {
                 metrics::inc_counter(&metrics::BEACON_PROCESSOR_GOSSIP_BLOCK_IMPORTED_TOTAL);
 
-                        if reprocess_tx
-                            .try_send(ReprocessQueueMessage::BlockImported(block_root))
-                            .is_err()
-                        {
-                            error!(
+                if reprocess_tx
+                    .try_send(ReprocessQueueMessage::BlockImported(block_root))
+                    .is_err()
+                {
+                    error!(
                         self.log,
                         "Failed to inform block import";
                         "source" => "gossip",
                         "block_root" => ?block_root,
                     )
-                        };
+                };
 
-                        debug!(
+                debug!(
                     self.log,
                     "Gossipsub block processed";
                     "block" => ?block_root,
                     "peer_id" => %peer_id
                 );
 
-                        self.chain.recompute_head_at_current_slot().await;
-                    }
-                    Err(BlockError::ParentUnknown { .. }) => {
-                        // Inform the sync manager to find parents for this block
-                        // This should not occur. It should be checked by `should_forward_block`
-                        error!(
+                self.chain.recompute_head_at_current_slot().await;
+            }
+            Err(BlockError::ParentUnknown { .. }) => {
+                // Inform the sync manager to find parents for this block
+                // This should not occur. It should be checked by `should_forward_block`
+                error!(
                     self.log,
                     "Block with unknown parent attempted to be processed";
                     "peer_id" => %peer_id
@@ -996,28 +996,28 @@ impl<T: BeaconChainTypes> Worker<T> {
                     "Failed to verify execution payload";
                     "error" => %e
                 );
-                    },
-                    other => {
-                        debug!(
+            }
+            other => {
+                debug!(
                     self.log,
                     "Invalid gossip beacon block";
                     "outcome" => ?other,
                     "block root" => ?block_root,
                     "block slot" => block.slot()
                 );
-                        self.gossip_penalize_peer(
-                            peer_id,
-                            PeerAction::MidToleranceError,
-                            "bad_gossip_block_ssz",
-                        );
-                        trace!(
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::MidToleranceError,
+                    "bad_gossip_block_ssz",
+                );
+                trace!(
                     self.log,
                     "Invalid gossip beacon block ssz";
                     "ssz" => format_args!("0x{}", hex::encode(block.as_ssz_bytes())),
                 );
-                    }
-                };
             }
+        };
+    }
 
     pub fn process_gossip_voluntary_exit(
         self,

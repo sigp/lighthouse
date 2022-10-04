@@ -1,4 +1,4 @@
-use crate::{Uint256};
+use crate::Uint256;
 use serde::{Deserialize, Serialize};
 use ssz::{Decode, DecodeError, Encode};
 use tree_hash::{PackedEncoding, TreeHash};

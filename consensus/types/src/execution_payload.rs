@@ -1,6 +1,4 @@
-use crate::{
-    test_utils::TestRandom, *,
-};
+use crate::{test_utils::TestRandom, *};
 use derivative::Derivative;
 use serde_derive::{Deserialize, Serialize};
 use ssz::Encode;
