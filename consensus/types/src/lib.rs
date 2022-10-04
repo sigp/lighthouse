@@ -157,6 +157,7 @@ pub use crate::signed_beacon_block::{
     SignedBeaconBlockHash, SignedBeaconBlockMerge, SignedBlindedBeaconBlock,
 };
 pub use crate::signed_beacon_block_header::SignedBeaconBlockHeader;
+pub use crate::signed_blobs_sidecar::SignedBlobsSidecar;
 pub use crate::signed_contribution_and_proof::SignedContributionAndProof;
 pub use crate::signed_voluntary_exit::SignedVoluntaryExit;
 pub use crate::signing_data::{SignedRoot, SigningData};
@@ -183,7 +184,8 @@ pub type Uint256 = ethereum_types::U256;
 pub type Address = H160;
 pub type ForkVersion = [u8; 4];
 pub type BLSFieldElement = Uint256;
-pub type Blob<T> = FixedVector<BLSFieldElement, T>;
+pub type Blob<T> = FixedVector<BLSFieldElement, <T as EthSpec>::FieldElementsPerBlob>;
+pub type Polynomial<T> = VariableList<BLSFieldElement, <T as EthSpec>::FieldElementsPerBlob>;
 
 pub use bls::{
     AggregatePublicKey, AggregateSignature, Keypair, PublicKey, PublicKeyBytes, SecretKey,

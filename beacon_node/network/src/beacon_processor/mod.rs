@@ -1182,8 +1182,6 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                             self.spawn_worker(item, toolbox);
                         } else if let Some(item) = bbrange_queue.pop() {
                             self.spawn_worker(item, toolbox);
-                        } else if let Some(item) = txbbrange_queue.pop() {
-                            self.spawn_worker(item, toolbox);
                         } else if let Some(item) = bbroots_queue.pop() {
                             self.spawn_worker(item, toolbox);
                         // Check slashings after all other consensus messages so we prioritize

@@ -13,6 +13,7 @@ use tree_hash::TreeHash;
 pub enum Domain {
     BeaconProposer,
     BeaconAttester,
+    BlobsSideCar,
     Randao,
     Deposit,
     VoluntaryExit,
@@ -22,7 +23,6 @@ pub enum Domain {
     ContributionAndProof,
     SyncCommitteeSelectionProof,
     ApplicationMask(ApplicationDomain),
-    BlobsSideCar,
 }
 
 /// Lighthouse's internal configuration struct.
@@ -99,6 +99,7 @@ pub struct ChainSpec {
      */
     pub(crate) domain_beacon_proposer: u32,
     pub(crate) domain_beacon_attester: u32,
+    pub(crate) domain_blobs_sidecar: u32,
     pub(crate) domain_randao: u32,
     pub(crate) domain_deposit: u32,
     pub(crate) domain_voluntary_exit: u32,
@@ -340,6 +341,7 @@ impl ChainSpec {
         match domain {
             Domain::BeaconProposer => self.domain_beacon_proposer,
             Domain::BeaconAttester => self.domain_beacon_attester,
+            Domain::BlobsSideCar => self.domain_blobs_sidecar,
             Domain::Randao => self.domain_randao,
             Domain::Deposit => self.domain_deposit,
             Domain::VoluntaryExit => self.domain_voluntary_exit,
@@ -529,6 +531,7 @@ impl ChainSpec {
             domain_voluntary_exit: 4,
             domain_selection_proof: 5,
             domain_aggregate_and_proof: 6,
+            domain_blobs_sidecar: 10, // 0x0a000000
 
             /*
              * Fork choice
@@ -743,6 +746,7 @@ impl ChainSpec {
             domain_voluntary_exit: 4,
             domain_selection_proof: 5,
             domain_aggregate_and_proof: 6,
+            domain_blobs_sidecar: 10,
 
             /*
              * Fork choice
@@ -1181,6 +1185,7 @@ mod tests {
 
         test_domain(Domain::BeaconProposer, spec.domain_beacon_proposer, &spec);
         test_domain(Domain::BeaconAttester, spec.domain_beacon_attester, &spec);
+        test_domain(Domain::BlobsSideCar, spec.domain_blobs_sidecar, &spec);
         test_domain(Domain::Randao, spec.domain_randao, &spec);
         test_domain(Domain::Deposit, spec.domain_deposit, &spec);
         test_domain(Domain::VoluntaryExit, spec.domain_voluntary_exit, &spec);

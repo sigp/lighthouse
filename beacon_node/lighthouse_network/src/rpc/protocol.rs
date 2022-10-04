@@ -20,8 +20,10 @@ use tokio_util::{
     codec::Framed,
     compat::{Compat, FuturesAsyncReadCompatExt},
 };
+use types::BlobsSidecar;
+use types::SignedBlobsSidecar;
 use types::{
-    BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockMerge, EthSpec, ForkContext,
+    BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockMerge, Blob, EthSpec, ForkContext,
     ForkName, Hash256, MainnetEthSpec, Signature, SignedBeaconBlock,
 };
 
@@ -98,6 +100,14 @@ lazy_static! {
     .as_ssz_bytes()
     .len();
 
+    pub static ref SIGNED_BLOBS_SIDECAR_MIN: usize = SignedBlobsSidecar {
+      message: BlobsSidecar::<MainnetEthSpec>::empty(),
+      signature: Signature::empty(),
+    }.as_ssz_bytes()
+    .len();
+
+    pub static ref SIGNED_BLOBS_SIDECAR_MAX: usize = *SIGNED_BLOBS_SIDECAR_MIN // Max size of variable length `blobs` field
+            + (MainnetEthSpec::max_blobs_per_block() * <Blob<MainnetEthSpec> as Encode>::ssz_fixed_len());
 }
 
 /// The maximum bytes that can be sent across the RPC pre-merge.
