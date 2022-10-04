@@ -10,7 +10,7 @@ use std::io::{Error, ErrorKind};
 use std::sync::Arc;
 use types::signed_blobs_sidecar::SignedBlobsSidecar;
 use types::{
-    Attestation, AttesterSlashing, BlobsSidecar, EthSpec, ForkContext, ForkName, ProposerSlashing,
+    Attestation, AttesterSlashing, EthSpec, ForkContext, ForkName, ProposerSlashing,
     SignedAggregateAndProof, SignedBeaconBlock, SignedBeaconBlockAltair, SignedBeaconBlockBase,
     SignedBeaconBlockEip4844, SignedBeaconBlockMerge, SignedContributionAndProof,
     SignedVoluntaryExit, SubnetId, SyncCommitteeMessage, SyncSubnetId,

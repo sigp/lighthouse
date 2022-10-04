@@ -1,8 +1,8 @@
 use crate::bls_field_element::BlsFieldElement;
 use crate::test_utils::RngCore;
 use crate::test_utils::TestRandom;
-use crate::{EthSpec, Uint256};
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use crate::{EthSpec};
+use serde::{Deserialize, Serialize};
 use ssz::{Decode, DecodeError, Encode};
 use ssz_types::VariableList;
 use tree_hash::{PackedEncoding, TreeHash};
@@ -14,7 +14,7 @@ pub struct Blob<T: EthSpec>(pub VariableList<BlsFieldElement, T::FieldElementsPe
 impl<T: EthSpec> TestRandom for Blob<T> {
     fn random_for_test(rng: &mut impl RngCore) -> Self {
         let mut res = Blob(VariableList::empty());
-        for i in 0..4096 {
+        for _i in 0..4096 {
             let slice = ethereum_types::U256([
                 rng.next_u64(),
                 rng.next_u64(),

@@ -3,14 +3,12 @@
 use super::*;
 use crate::auth::Auth;
 use crate::json_structures::*;
-use eth2::lighthouse::Eth1Block;
 use reqwest::header::CONTENT_TYPE;
 use sensitive_url::SensitiveUrl;
 use serde::de::DeserializeOwned;
 use serde_json::json;
-
 use std::time::Duration;
-use types::{EthSpec, FullPayload};
+use types::{EthSpec};
 
 pub use deposit_log::{DepositLog, Log};
 pub use reqwest::Client;

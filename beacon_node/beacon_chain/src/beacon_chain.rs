@@ -98,11 +98,8 @@ use task_executor::{ShutdownReason, TaskExecutor};
 use tree_hash::TreeHash;
 use types::beacon_state::CloneConfig;
 use types::*;
-
 pub use crate::canonical_head::{CanonicalHead, CanonicalHeadRwLock};
 pub use fork_choice::CountUnrealized;
-use types::kzg_commitment::KzgCommitment;
-use types::signed_blobs_sidecar::SignedBlobsSidecar;
 
 pub type ForkChoiceError = fork_choice::Error<crate::ForkChoiceStoreError>;
 

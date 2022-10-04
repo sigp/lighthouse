@@ -62,7 +62,7 @@ use std::{cmp, collections::HashSet};
 use task_executor::TaskExecutor;
 use tokio::sync::{mpsc};
 use types::{
-    Attestation, AttesterSlashing, BlobsSidecar, Hash256, ProposerSlashing,
+    Attestation, AttesterSlashing, Hash256, ProposerSlashing,
     SignedAggregateAndProof, SignedBeaconBlock, SignedContributionAndProof, SignedVoluntaryExit,
     SubnetId, SyncCommitteeMessage, SyncSubnetId,
 };

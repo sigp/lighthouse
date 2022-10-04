@@ -18,7 +18,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use store::hot_cold_store::HotColdDBError;
 use tokio::sync::mpsc;
 use types::{
-    Attestation, AttesterSlashing, BlobsSidecar, EthSpec, Hash256, IndexedAttestation,
+    Attestation, AttesterSlashing, EthSpec, Hash256, IndexedAttestation,
     ProposerSlashing, SignedAggregateAndProof, SignedBeaconBlock, SignedContributionAndProof,
     SignedVoluntaryExit, Slot, SubnetId, SyncCommitteeMessage, SyncSubnetId,
 };

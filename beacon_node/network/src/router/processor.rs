@@ -5,7 +5,7 @@ use crate::service::{NetworkMessage, RequestId};
 use crate::status::status_message;
 use crate::sync::manager::RequestId as SyncId;
 use crate::sync::SyncMessage;
-use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes};
+use beacon_chain::{BeaconChain, BeaconChainTypes};
 use lighthouse_network::rpc::*;
 use lighthouse_network::rpc::methods::BlobsByRangeRequest;
 use lighthouse_network::{

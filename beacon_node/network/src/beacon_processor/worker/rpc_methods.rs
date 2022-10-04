@@ -12,7 +12,7 @@ use slog::{debug, error};
 use slot_clock::SlotClock;
 use std::sync::Arc;
 use task_executor::TaskExecutor;
-use types::{Epoch, EthSpec, Hash256, Slot, VariableList};
+use types::{Epoch, EthSpec, Hash256, Slot};
 
 use super::Worker;
 
@@ -377,10 +377,10 @@ impl<T: BeaconChainTypes> Worker<T> {
     /// Handle a `BlobsByRange` request from the peer.
     pub fn handle_blobs_by_range_request(
         self,
-        executor: TaskExecutor,
-        send_on_drop: SendOnDrop,
+        _executor: TaskExecutor,
+        _send_on_drop: SendOnDrop,
         peer_id: PeerId,
-        request_id: PeerRequestId,
+        _request_id: PeerRequestId,
         mut req: BlobsByRangeRequest,
     ) {
         debug!(self.log, "Received BlobsByRange Request";

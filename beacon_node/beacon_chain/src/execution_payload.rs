@@ -17,7 +17,6 @@ use fork_choice::{InvalidationOperation, PayloadVerificationStatus};
 use proto_array::{Block as ProtoBlock, ExecutionStatus};
 use slog::debug;
 use slot_clock::SlotClock;
-use ssz_types::VariableList;
 use state_processing::per_block_processing::{
     compute_timestamp_at_slot, is_execution_enabled, is_merge_transition_complete,
     partially_verify_execution_payload,
@@ -27,7 +26,7 @@ use tokio::task::JoinHandle;
 use tree_hash::TreeHash;
 use types::{
     BeaconBlockRef, BeaconState, BeaconStateError, EthSpec, ExecPayload, ExecutionBlockHash,
-    Hash256, KzgCommitment, SignedBeaconBlock, Slot,
+    Hash256, SignedBeaconBlock, Slot,
 };
 
 pub type PreparePayloadResult<Payload> = Result<Payload, BlockProductionError>;
