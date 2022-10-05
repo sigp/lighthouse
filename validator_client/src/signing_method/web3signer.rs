@@ -11,6 +11,7 @@ pub enum MessageType {
     AggregateAndProof,
     Attestation,
     BlockV2,
+    BlobsSidecar,
     Deposit,
     RandaoReveal,
     VoluntaryExit,
@@ -50,6 +51,8 @@ pub enum Web3SignerObject<'a, T: EthSpec, Payload: ExecPayload<T>> {
         #[serde(skip_serializing_if = "Option::is_none")]
         block_header: Option<BeaconBlockHeader>,
     },
+    //FIXME(sean) just guessing here
+    BlobsSidecar(&'a BlobsSidecar<T>),
     #[allow(dead_code)]
     Deposit {
         pubkey: PublicKeyBytes,
@@ -105,6 +108,7 @@ impl<'a, T: EthSpec, Payload: ExecPayload<T>> Web3SignerObject<'a, T, Payload> {
             Web3SignerObject::AggregateAndProof(_) => MessageType::AggregateAndProof,
             Web3SignerObject::Attestation(_) => MessageType::Attestation,
             Web3SignerObject::BeaconBlock { .. } => MessageType::BlockV2,
+            Web3SignerObject::BlobsSidecar(_) => MessageType::BlobsSidecar,
             Web3SignerObject::Deposit { .. } => MessageType::Deposit,
             Web3SignerObject::RandaoReveal { .. } => MessageType::RandaoReveal,
             Web3SignerObject::VoluntaryExit(_) => MessageType::VoluntaryExit,

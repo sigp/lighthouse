@@ -603,6 +603,27 @@ impl BeaconNodeHttpClient {
         Ok(())
     }
 
+    /// `POST beacon/blobs`
+    ///
+    /// Returns `Ok(None)` on a 404 error.
+    pub async fn post_beacon_blobs<T: EthSpec>(
+        &self,
+        block: &SignedBlobsSidecar<T>,
+    ) -> Result<(), Error> {
+        let mut path = self.eth_path(V1)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("beacon")
+            .push("blobs");
+
+        //FIXME(sean) should we re-use the proposal timeout? seems reasonable to..
+        self.post_with_timeout(path, block, self.timeouts.proposal)
+            .await?;
+
+        Ok(())
+    }
+
     /// `POST beacon/blinded_blocks`
     ///
     /// Returns `Ok(None)` on a 404 error.
@@ -1264,6 +1285,32 @@ impl BeaconNodeHttpClient {
         if skip_randao_verification == SkipRandaoVerification::Yes {
             path.query_pairs_mut()
                 .append_pair("skip_randao_verification", "");
+        }
+
+        self.get(path).await
+    }
+
+    /// `GET v1/validator/blocks_and_blobs/{slot}`
+    pub async fn get_validator_blocks_and_blobs<T: EthSpec, Payload: ExecPayload<T>>(
+        &self,
+        slot: Slot,
+        randao_reveal: &SignatureBytes,
+        graffiti: Option<&Graffiti>,
+    ) -> Result<ForkVersionedResponse<BlocksAndBlobs<T, Payload>>, Error> {
+        let mut path = self.eth_path(V1)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("validator")
+            .push("blocks_and_blobs")
+            .push(&slot.to_string());
+
+        path.query_pairs_mut()
+            .append_pair("randao_reveal", &randao_reveal.to_string());
+
+        if let Some(graffiti) = graffiti {
+            path.query_pairs_mut()
+                .append_pair("graffiti", &graffiti.to_string());
         }
 
         self.get(path).await

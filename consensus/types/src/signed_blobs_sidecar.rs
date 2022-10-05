@@ -8,7 +8,17 @@ use tree_hash_derive::TreeHash;
 
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 #[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, PartialEq)]
-pub struct SignedBlobsSidecar<E: EthSpec> {
-    pub message: BlobsSidecar<E>,
+#[serde(bound = "T: EthSpec")]
+pub struct SignedBlobsSidecar<T: EthSpec> {
+    pub message: BlobsSidecar<T>,
     pub signature: Signature,
+}
+
+impl<T: EthSpec> SignedBlobsSidecar<T> {
+    pub fn from_blob(blob: BlobsSidecar<T>, signature: Signature) -> Self {
+        Self {
+            message: blob,
+            signature,
+        }
+    }
 }

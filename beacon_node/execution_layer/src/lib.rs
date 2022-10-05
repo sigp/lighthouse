@@ -787,8 +787,10 @@ impl<T: EthSpec> ExecutionLayer<T> {
         parent_hash: ExecutionBlockHash,
         timestamp: u64,
         prev_randao: Hash256,
-        suggested_fee_recipient: Address,
+        proposer_index: u64,
     ) -> Result<JsonBlobBundlesV1<T>, Error> {
+        let suggested_fee_recipient = self.get_suggested_fee_recipient(proposer_index).await;
+
         debug!(
             self.log(),
             "Issuing engine_getBlobsBundle";

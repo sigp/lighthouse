@@ -12,6 +12,7 @@ use crate::{
     BeaconChain, BeaconChainError, BeaconChainTypes, BlockError, BlockProductionError,
     ExecutionPayloadError,
 };
+use execution_layer::json_structures::JsonBlobBundlesV1;
 use execution_layer::{BuilderParams, PayloadStatus};
 use fork_choice::{InvalidationOperation, PayloadVerificationStatus};
 use proto_array::{Block as ProtoBlock, ExecutionStatus};
@@ -25,12 +26,13 @@ use std::sync::Arc;
 use tokio::task::JoinHandle;
 use tree_hash::TreeHash;
 use types::{
-    BeaconBlockRef, BeaconState, BeaconStateError, EthSpec, ExecPayload, ExecutionBlockHash,
-    Hash256, SignedBeaconBlock, Slot,
+    BeaconBlockRef, BeaconState, BeaconStateError, Blob, BlobsSidecar, EthSpec, ExecPayload,
+    ExecutionBlockHash, Hash256, KzgCommitment, SignedBeaconBlock, Slot,
 };
 
-pub type PreparePayloadResult<Payload> = Result<Payload, BlockProductionError>;
-pub type PreparePayloadHandle<Payload> = JoinHandle<Option<PreparePayloadResult<Payload>>>;
+pub type PreparePayloadResult<Payload, E> =
+    Result<(Payload, Vec<KzgCommitment>, Vec<Blob<E>>), BlockProductionError>;
+pub type PreparePayloadHandle<Payload, E> = JoinHandle<Option<PreparePayloadResult<Payload, E>>>;
 
 #[derive(PartialEq)]
 pub enum AllowOptimisticImport {
@@ -354,7 +356,7 @@ pub fn get_execution_payload<
     state: &BeaconState<T::EthSpec>,
     proposer_index: u64,
     builder_params: BuilderParams,
-) -> Result<PreparePayloadHandle<Payload>, BlockProductionError> {
+) -> Result<PreparePayloadHandle<Payload, T::EthSpec>, BlockProductionError> {
     // Compute all required values from the `state` now to avoid needing to pass it into a spawned
     // task.
     let spec = &chain.spec;
@@ -413,7 +415,7 @@ pub async fn prepare_execution_payload<T, Payload>(
     proposer_index: u64,
     latest_execution_payload_header_block_hash: ExecutionBlockHash,
     builder_params: BuilderParams,
-) -> Result<Payload, BlockProductionError>
+) -> PreparePayloadResult<Payload, T::EthSpec>
 where
     T: BeaconChainTypes,
     Payload: ExecPayload<T::EthSpec> + Default,
@@ -473,8 +475,8 @@ where
     // Note: the suggested_fee_recipient is stored in the `execution_layer`, it will add this parameter.
     //
     // This future is not executed here, it's up to the caller to await it.
-    let execution_payload = execution_layer
-        .get_payload::<Payload>(
+    let (execution_payload_result, blobs_result) = tokio::join!(
+        execution_layer.get_payload::<Payload>(
             parent_hash,
             timestamp,
             random,
@@ -482,17 +484,20 @@ where
             forkchoice_update_params,
             builder_params,
             &chain.spec,
-        )
-        .await
-        .map_err(BlockProductionError::GetPayloadFailed)?;
+        ),
+        execution_layer.get_blob_bundles(parent_hash, timestamp, random, proposer_index)
+    );
 
-    /*
-    TODO: fetch blob bundles from el engine for block building
-    let suggested_fee_recipient = execution_layer.get_suggested_fee_recipient(proposer_index).await;
-    let blobs = execution_layer.get_blob_bundles(parent_hash, timestamp, random, suggested_fee_recipient)
-    .await
-    .map_err(BlockProductionError::GetPayloadFailed)?;
-    */
+    let execution_payload =
+        execution_payload_result.map_err(BlockProductionError::GetPayloadFailed)?;
+    let blobs = blobs_result.map_err(BlockProductionError::GetPayloadFailed)?;
 
-    Ok(execution_payload)
+    if execution_payload.block_hash() != blobs.block_hash {
+        return Err(BlockProductionError::BlobPayloadMismatch {
+            blob_block_hash: blobs.block_hash,
+            payload_block_hash: execution_payload.block_hash(),
+        });
+    }
+
+    Ok((execution_payload, blobs.kzgs, blobs.blobs))
 }

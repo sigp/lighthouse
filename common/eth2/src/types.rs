@@ -1110,6 +1110,14 @@ pub struct LivenessResponseData {
     pub is_live: bool,
 }
 
+#[derive(PartialEq, Debug, Serialize, Deserialize)]
+#[serde(bound = "T: EthSpec, Payload: ExecPayload<T>")]
+pub struct BlocksAndBlobs<T: EthSpec, Payload: ExecPayload<T>> {
+    pub block: BeaconBlock<T, Payload>,
+    pub blobs: Vec<Blob<T>>,
+    pub kzg_aggregate_proof: KzgProof,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

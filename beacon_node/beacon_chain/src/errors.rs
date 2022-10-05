@@ -249,6 +249,11 @@ pub enum BlockProductionError {
     BlockingFailed(execution_layer::Error),
     TerminalPoWBlockLookupFailed(execution_layer::Error),
     GetPayloadFailed(execution_layer::Error),
+    GetBlobsFailed(execution_layer::Error),
+    BlobPayloadMismatch {
+        blob_block_hash: ExecutionBlockHash,
+        payload_block_hash: ExecutionBlockHash,
+    },
     FailedToReadFinalizedBlock(store::Error),
     MissingFinalizedBlock(Hash256),
     BlockTooLarge(usize),

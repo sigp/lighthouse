@@ -255,7 +255,7 @@ struct PartialBeaconBlock<E: EthSpec, Payload> {
     deposits: Vec<Deposit>,
     voluntary_exits: Vec<SignedVoluntaryExit>,
     sync_aggregate: Option<SyncAggregate<E>>,
-    prepare_payload_handle: Option<PreparePayloadHandle<Payload>>,
+    prepare_payload_handle: Option<PreparePayloadHandle<Payload, E>>,
 }
 
 pub type BeaconForkChoice<T> = ForkChoice<
@@ -3291,15 +3291,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         //
         // Wait for the execution layer to return an execution payload (if one is required).
         let prepare_payload_handle = partial_beacon_block.prepare_payload_handle.take();
-        let execution_payload = if let Some(prepare_payload_handle) = prepare_payload_handle {
-            let execution_payload = prepare_payload_handle
-                .await
-                .map_err(BlockProductionError::TokioJoin)?
-                .ok_or(BlockProductionError::ShuttingDown)??;
-            Some(execution_payload)
-        } else {
-            None
-        };
+        let (execution_payload, kzg_commitments, blobs) =
+            if let Some(prepare_payload_handle) = prepare_payload_handle {
+                let (execution_payload, commitments, blobs) = prepare_payload_handle
+                    .await
+                    .map_err(BlockProductionError::TokioJoin)?
+                    .ok_or(BlockProductionError::ShuttingDown)??;
+                (execution_payload, commitments, blobs)
+            } else {
+                return Err(BlockProductionError::MissingExecutionPayload);
+            };
 
         // Part 3/3 (blocking)
         //
@@ -3311,6 +3312,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     chain.complete_partial_beacon_block(
                         partial_beacon_block,
                         execution_payload,
+                        kzg_commitments,
                         verification,
                     )
                 },
@@ -3557,7 +3559,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     fn complete_partial_beacon_block<Payload: ExecPayload<T::EthSpec>>(
         &self,
         partial_beacon_block: PartialBeaconBlock<T::EthSpec, Payload>,
-        execution_payload: Option<Payload>,
+        execution_payload: Payload,
+        kzg_commitments: Vec<KzgCommitment>,
         verification: ProduceBlockVerification,
     ) -> Result<BeaconBlockAndState<T::EthSpec, Payload>, BlockProductionError> {
         let PartialBeaconBlock {
@@ -3633,8 +3636,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     voluntary_exits: voluntary_exits.into(),
                     sync_aggregate: sync_aggregate
                         .ok_or(BlockProductionError::MissingSyncAggregate)?,
-                    execution_payload: execution_payload
-                        .ok_or(BlockProductionError::MissingExecutionPayload)?,
+                    execution_payload,
                 },
             }),
             BeaconState::Eip4844(_) => BeaconBlock::Eip4844(BeaconBlockEip4844 {
@@ -3653,10 +3655,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     voluntary_exits: voluntary_exits.into(),
                     sync_aggregate: sync_aggregate
                         .ok_or(BlockProductionError::MissingSyncAggregate)?,
-                    execution_payload: execution_payload
-                        .ok_or(BlockProductionError::MissingExecutionPayload)?,
+                    execution_payload,
                     //FIXME(sean) get blobs
-                    blob_kzg_commitments: VariableList::empty(),
+                    blob_kzg_commitments: VariableList::from(kzg_commitments),
                 },
             }),
         };

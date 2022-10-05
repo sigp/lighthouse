@@ -1,6 +1,6 @@
 use super::*;
 use serde::{Deserialize, Serialize};
-use types::{EthSpec, ExecutionBlockHash, FixedVector, Transaction, Unsigned, VariableList};
+use types::{Blob, EthSpec, ExecutionBlockHash, FixedVector, Transaction, Unsigned, VariableList};
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -272,10 +272,9 @@ impl From<JsonPayloadAttributesV1> for PayloadAttributes {
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[serde(bound = "T: EthSpec", rename_all = "camelCase")]
 pub struct JsonBlobBundlesV1<T: EthSpec> {
-    pub block_hash: Hash256,
+    pub block_hash: ExecutionBlockHash,
     pub kzgs: Vec<KzgCommitment>,
     pub blobs: Vec<Blob<T>>,
-    pub aggregated_proof: KzgProof,
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]

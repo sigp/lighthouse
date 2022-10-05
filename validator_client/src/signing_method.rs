@@ -37,6 +37,7 @@ pub enum Error {
 pub enum SignableMessage<'a, T: EthSpec, Payload: ExecPayload<T> = FullPayload<T>> {
     RandaoReveal(Epoch),
     BeaconBlock(&'a BeaconBlock<T, Payload>),
+    BlobsSidecar(&'a BlobsSidecar<T>),
     AttestationData(&'a AttestationData),
     SignedAggregateAndProof(&'a AggregateAndProof<T>),
     SelectionProof(Slot),
@@ -58,6 +59,7 @@ impl<'a, T: EthSpec, Payload: ExecPayload<T>> SignableMessage<'a, T, Payload> {
         match self {
             SignableMessage::RandaoReveal(epoch) => epoch.signing_root(domain),
             SignableMessage::BeaconBlock(b) => b.signing_root(domain),
+            SignableMessage::BlobsSidecar(b) => b.signing_root(domain),
             SignableMessage::AttestationData(a) => a.signing_root(domain),
             SignableMessage::SignedAggregateAndProof(a) => a.signing_root(domain),
             SignableMessage::SelectionProof(slot) => slot.signing_root(domain),
@@ -180,6 +182,7 @@ impl SigningMethod {
                         Web3SignerObject::RandaoReveal { epoch }
                     }
                     SignableMessage::BeaconBlock(block) => Web3SignerObject::beacon_block(block)?,
+                    SignableMessage::BlobsSidecar(blob) => Web3SignerObject::BlobsSidecar(blob),
                     SignableMessage::AttestationData(a) => Web3SignerObject::Attestation(a),
                     SignableMessage::SignedAggregateAndProof(a) => {
                         Web3SignerObject::AggregateAndProof(a)
