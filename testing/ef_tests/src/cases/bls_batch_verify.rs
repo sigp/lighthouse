@@ -4,7 +4,9 @@ use crate::impl_bls_load_case;
 use bls::{verify_signature_sets, BlsWrappedSignature, PublicKeyBytes, Signature, SignatureSet};
 use serde_derive::Deserialize;
 use std::borrow::Cow;
+use std::str::FromStr;
 use types::Hash256;
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct BlsBatchVerifyInput {
     pubkeys: Vec<PublicKeyBytes>,
@@ -26,11 +28,7 @@ impl Case for BlsBatchVerify {
             .input
             .messages
             .iter()
-            .map(|message| {
-                hex::decode(&message[2..])
-                    .map_err(|e| Error::FailedToParseTest(format!("{:?}", e)))
-                    .map(|bytes| Hash256::from_slice(&bytes))
-            })
+            .map(|s| Hash256::from_str(s).map_err(|e| Error::FailedToParseTest(format!("{:?}", e))))
             .collect::<Result<Vec<_>, _>>()?;
 
         let pubkeys = self
@@ -48,10 +46,7 @@ impl Case for BlsBatchVerify {
             .signatures
             .iter()
             .map(|s| {
-                hex::decode(&s[2..])
-                    .ok()
-                    .and_then(|bytes: Vec<u8>| Signature::deserialize(&bytes).ok())
-                    .ok_or_else(|| Error::FailedToParseTest(format!("{:?}", self.input.signatures)))
+                Signature::from_str(s).map_err(|e| Error::FailedToParseTest(format!("{:?}", e)))
             })
             .collect::<Result<Vec<_>, _>>()?;
 

@@ -5,6 +5,7 @@ use std::convert::TryFrom;
 use std::fmt::Debug;
 use tree_hash::TreeHash;
 use types::ForkName;
+
 /// Macro to wrap U128 and U256 so they deserialize correctly.
 macro_rules! uint_wrapper {
     ($wrapper_name:ident, $wrapped_type:ty) => {

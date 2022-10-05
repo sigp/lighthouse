@@ -49,7 +49,7 @@ pub trait Handler {
         let as_directory = |entry: Result<DirEntry, std::io::Error>| -> Option<DirEntry> {
             entry
                 .ok()
-                .filter(|e| e.file_type().map(|ty| ty.is_dir()).unwrap_or(false))
+                .filter(|e| e.file_type().map(|ty| ty.is_dir()).unwrap())
         };
 
         let test_cases = fs::read_dir(&handler_path)
