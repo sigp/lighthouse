@@ -143,7 +143,7 @@ macro_rules! bls_handler {
                     })
                     .collect();
 
-                let results = Cases { test_cases }.test_results(fork_name);
+                let results = Cases { test_cases }.test_results(fork_name, Self::use_rayon());
 
                 let name = format!(
                     "{}/{}/{}",

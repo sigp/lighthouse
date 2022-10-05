@@ -46,8 +46,8 @@ excluded_paths = [
     # One of the EF researchers likes to pack the tarballs on a Mac
     ".*\.DS_Store.*",
     # More Mac weirdness.
-    "tests/mainnet/bellatrix/operations/deposit/pyspec_tests/deposit_with_previous_fork_version__valid_ineffective/._meta.yaml"
-    # bls tests are moved to bls tests directory
+    "tests/mainnet/bellatrix/operations/deposit/pyspec_tests/deposit_with_previous_fork_version__valid_ineffective/._meta.yaml",
+    # bls tests are moved to bls12-381-tests directory
     "tests/general/phase0/bls",
     # some bls tests are not included now
     "bls12-381-tests/deserialization_G1",
