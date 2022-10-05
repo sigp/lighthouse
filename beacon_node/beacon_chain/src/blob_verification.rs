@@ -87,13 +87,13 @@ impl From<BeaconStateError> for BlobError {
 /// the p2p network.
 #[derive(Derivative)]
 #[derivative(Debug(bound = "T: BeaconChainTypes"))]
-pub struct GossipVerifiedBlobsSidecar<T: BeaconChainTypes> {
-    pub blob_sidecar: Arc<SignedBlobsSidecar<T::EthSpec>>,
+pub struct VerifiedBlobsSidecar<'a, T: BeaconChainTypes> {
+    pub blob_sidecar: &'a SignedBlobsSidecar<T::EthSpec>,
 }
 
-impl<T: BeaconChainTypes> GossipVerifiedBlobsSidecar<T> {
-    pub fn new(
-        blob_sidecar: Arc<SignedBlobsSidecar<T::EthSpec>>,
+impl<'a, T: BeaconChainTypes> VerifiedBlobsSidecar<'a, T> {
+    pub fn verify(
+        blob_sidecar: &'a SignedBlobsSidecar<T::EthSpec>,
         chain: &BeaconChain<T>,
     ) -> Result<Self, BlobError> {
         let blob_slot = blob_sidecar.message.beacon_block_slot;
@@ -121,7 +121,7 @@ impl<T: BeaconChainTypes> GossipVerifiedBlobsSidecar<T> {
         }
 
         // Verify that blobs are properly formatted
-        //TODO: add the check while constructing a Blob type from bytes
+        //TODO: add the check while constructing a Blob type from bytes instead of after
         for (i, blob) in blob_sidecar.message.blobs.iter().enumerate() {
             if blob.iter().any(|b| *b >= *BLS_MODULUS) {
                 return Err(BlobError::BlobOutOfRange { blob_index: i });

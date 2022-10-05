@@ -1542,7 +1542,6 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                         peer_client,
                         blobs,
                         work_reprocessing_tx,
-                        duplicate_cache,
                         seen_timestamp,
                     )
                     .await

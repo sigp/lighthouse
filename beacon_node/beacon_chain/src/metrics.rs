@@ -941,6 +941,22 @@ lazy_static! {
             "beacon_pre_finalization_block_lookup_count",
             "Number of block roots subject to single block lookups"
         );
+
+    /*
+     * Blob sidecar Verification
+     */
+    pub static ref BLOBS_SIDECAR_PROCESSING_REQUESTS: Result<IntCounter> = try_create_int_counter(
+        "beacon_blobs_sidecar_processing_requests_total",
+        "Count of all blob sidecars submitted for processing"
+    );
+    pub static ref BLOBS_SIDECAR_PROCESSING_SUCCESSES: Result<IntCounter> = try_create_int_counter(
+        "beacon_blobs_sidecar_processing_successes_total",
+        "Number of blob sidecars verified for gossip"
+    );
+    pub static ref BLOBS_SIDECAR_GOSSIP_VERIFICATION_TIMES: Result<Histogram> = try_create_histogram(
+        "beacon_blobs_sidecar_gossip_verification_seconds",
+        "Full runtime of blob sidecars gossip verification"
+    );
 }
 
 /// Scrape the `beacon_chain` for metrics that are not constantly updated (e.g., the present slot,

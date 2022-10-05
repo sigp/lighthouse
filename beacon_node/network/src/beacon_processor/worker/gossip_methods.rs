@@ -3,6 +3,7 @@ use crate::{metrics, service::NetworkMessage, sync::SyncMessage};
 use beacon_chain::store::Error;
 use beacon_chain::{
     attestation_verification::{self, Error as AttnError, VerifiedAttestation},
+    blob_verification::BlobError,
     observed_operations::ObservationOutcome,
     sync_committee_verification::{self, Error as SyncCommitteeError},
     validator_monitor::get_block_delay_ms,
@@ -697,15 +698,27 @@ impl<T: BeaconChainTypes> Worker<T> {
     #[allow(clippy::too_many_arguments)]
     pub async fn process_gossip_blob(
         self,
-        _message_id: MessageId,
-        _peer_id: PeerId,
-        _peer_client: Client,
-        _blob: Arc<SignedBlobsSidecar<T::EthSpec>>,
-        _reprocess_tx: mpsc::Sender<ReprocessQueueMessage<T>>,
-        _duplicate_cache: DuplicateCache,
-        _seen_duration: Duration,
+        message_id: MessageId,
+        peer_id: PeerId,
+        peer_client: Client,
+        blob: Arc<SignedBlobsSidecar<T::EthSpec>>,
+        reprocess_tx: mpsc::Sender<ReprocessQueueMessage<T>>,
+        seen_timestamp: Duration,
     ) {
-        //FIXME(sean)
+        match self.chain.verify_blobs_sidecar_for_gossip(&blob) {
+            Ok(verified_sidecar) => {
+                // Register with validator monitor
+                // Propagate
+                // Apply to fork choice
+            }
+            Err(error) => self.handle_blobs_verification_failure(
+                peer_id,
+                message_id,
+                Some(reprocess_tx),
+                error,
+                seen_timestamp,
+            ),
+        };
     }
 
     /// Process the beacon block received from the gossip network and
@@ -2211,5 +2224,16 @@ impl<T: BeaconChainTypes> Worker<T> {
             .map_or(false, |current_slot| sync_message_slot == current_slot);
 
         self.propagate_if_timely(is_timely, message_id, peer_id)
+    }
+
+    /// Handle an error whilst verifying a `SignedBlobsSidecar` from the network.
+    fn handle_blobs_verification_failure(
+        &self,
+        peer_id: PeerId,
+        message_id: MessageId,
+        reprocess_tx: Option<mpsc::Sender<ReprocessQueueMessage<T>>>,
+        error: BlobError,
+        seen_timestamp: Duration,
+    ) {
     }
 }
