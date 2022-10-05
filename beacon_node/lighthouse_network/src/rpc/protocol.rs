@@ -114,8 +114,7 @@ lazy_static! {
 pub(crate) const MAX_RPC_SIZE: usize = 1_048_576; // 1M
 /// The maximum bytes that can be sent across the RPC post-merge.
 pub(crate) const MAX_RPC_SIZE_POST_MERGE: usize = 10 * 1_048_576; // 10M
-                                                                  //TODO(sean) check
-pub(crate) const MAX_RPC_SIZE_POST_EIP4844: usize = 20 * 1_048_576; // 10M
+pub(crate) const MAX_RPC_SIZE_POST_EIP4844: usize = 10 * 1_048_576; // 10M
 /// The protocol prefix the RPC protocol id.
 const PROTOCOL_PREFIX: &str = "/eth2/beacon_chain/req";
 /// Time allowed for the first byte of a request to arrive before we time out (Time To First Byte).
@@ -152,7 +151,7 @@ pub fn rpc_block_limits_by_fork(current_fork: ForkName) -> RpcLimits {
         ),
         ForkName::Eip4844 => RpcLimits::new(
             *SIGNED_BEACON_BLOCK_BASE_MIN, // Base block is smaller than altair and merge blocks
-            *SIGNED_BEACON_BLOCK_EIP4844_MAX, // Merge block is larger than base and altair blocks
+            *SIGNED_BEACON_BLOCK_EIP4844_MAX, // EIP 4844 block is larger than base, altair and merge blocks
         ),
     }
 }
@@ -329,8 +328,9 @@ impl ProtocolId {
             Protocol::Goodbye => RpcLimits::new(0, 0), // Goodbye request has no response
             Protocol::BlocksByRange => rpc_block_limits_by_fork(fork_context.current_fork()),
             Protocol::BlocksByRoot => rpc_block_limits_by_fork(fork_context.current_fork()),
-            Protocol::BlobsByRange => rpc_block_limits_by_fork(fork_context.current_fork()),
-
+            Protocol::BlobsByRange => {
+                RpcLimits::new(*SIGNED_BLOBS_SIDECAR_MIN, *SIGNED_BLOBS_SIDECAR_MAX)
+            }
             Protocol::Ping => RpcLimits::new(
                 <Ping as Encode>::ssz_fixed_len(),
                 <Ping as Encode>::ssz_fixed_len(),
