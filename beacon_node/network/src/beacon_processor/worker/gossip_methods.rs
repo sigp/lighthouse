@@ -1,3 +1,4 @@
+use crate::beacon_processor::work_reprocessing_queue::QueuedBlobsSidecar;
 use crate::{metrics, service::NetworkMessage, sync::SyncMessage};
 
 use beacon_chain::store::Error;
@@ -696,13 +697,12 @@ impl<T: BeaconChainTypes> Worker<T> {
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub async fn process_gossip_blob(
+    pub fn process_gossip_blob(
         self,
         message_id: MessageId,
         peer_id: PeerId,
-        peer_client: Client,
         blob: Arc<SignedBlobsSidecar<T::EthSpec>>,
-        reprocess_tx: mpsc::Sender<ReprocessQueueMessage<T>>,
+        reprocess_tx: Option<mpsc::Sender<ReprocessQueueMessage<T>>>,
         seen_timestamp: Duration,
     ) {
         match self.chain.verify_blobs_sidecar_for_gossip(&blob) {
@@ -714,8 +714,9 @@ impl<T: BeaconChainTypes> Worker<T> {
             Err(error) => self.handle_blobs_verification_failure(
                 peer_id,
                 message_id,
-                Some(reprocess_tx),
+                reprocess_tx,
                 error,
+                blob,
                 seen_timestamp,
             ),
         };
@@ -2233,7 +2234,78 @@ impl<T: BeaconChainTypes> Worker<T> {
         message_id: MessageId,
         reprocess_tx: Option<mpsc::Sender<ReprocessQueueMessage<T>>>,
         error: BlobError,
+        blobs_sidecar: Arc<SignedBlobsSidecar<T::EthSpec>>,
         seen_timestamp: Duration,
     ) {
+        // TODO: metrics
+        match &error {
+            BlobError::FutureSlot { .. } => {
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+            }
+            BlobError::PastSlot { .. } => {
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+            }
+            BlobError::BeaconChainError(e) => {
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+            }
+            BlobError::BlobOutOfRange { blob_index } => {
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
+            }
+            BlobError::InvalidKZGCommitment => {
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
+            }
+            BlobError::ProposalSignatureInvalid => {
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
+            }
+            BlobError::RepeatSidecar { proposer, slot } => {
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+            }
+            BlobError::UnknownHeadBlock { beacon_block_root } => {
+                debug!(
+                    self.log,
+                    "Blob sidecar for unknown block";
+                    "peer_id" => %peer_id,
+                    "block" => ?beacon_block_root
+                );
+                if let Some(sender) = reprocess_tx {
+                    // We don't know the block, get the sync manager to handle the block lookup, and
+                    // send the attestation to be scheduled for re-processing.
+                    self.sync_tx
+                        .send(SyncMessage::UnknownBlockHash(peer_id, *beacon_block_root))
+                        .unwrap_or_else(|_| {
+                            warn!(
+                                self.log,
+                                "Failed to send to sync service";
+                                "msg" => "UnknownBlockHash"
+                            )
+                        });
+                    let msg = ReprocessQueueMessage::UnknownBlobSidecar(QueuedBlobsSidecar {
+                        peer_id,
+                        message_id,
+                        blobs_sidecar,
+                        seen_timestamp,
+                    });
+
+                    if sender.try_send(msg).is_err() {
+                        error!(
+                            self.log,
+                            "Failed to send blob sidecar for re-processing";
+                        )
+                    }
+                } else {
+                    // We shouldn't make any further attempts to process this attestation.
+                    //
+                    // Don't downscore the peer since it's not clear if we requested this head
+                    // block from them or not.
+                    self.propagate_validation_result(
+                        message_id,
+                        peer_id,
+                        MessageAcceptance::Ignore,
+                    );
+                }
+
+                return;
+            }
+        }
     }
 }

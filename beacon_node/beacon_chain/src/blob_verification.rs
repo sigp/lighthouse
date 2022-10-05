@@ -62,6 +62,14 @@ pub enum BlobError {
     /// be equal to the given sidecar.
     RepeatSidecar { proposer: u64, slot: Slot },
 
+    /// The `blobs_sidecar.message.beacon_block_root` block is unknown.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The attestation points to a block we have not yet imported. It's unclear if the attestation
+    /// is valid or not.
+    UnknownHeadBlock { beacon_block_root: Hash256 },
+
     /// There was an error whilst processing the sync contribution. It is not known if it is valid or invalid.
     ///
     /// ## Peer scoring

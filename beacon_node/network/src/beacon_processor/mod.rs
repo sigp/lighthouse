@@ -80,6 +80,8 @@ mod worker;
 use crate::beacon_processor::work_reprocessing_queue::QueuedGossipBlock;
 pub use worker::{ChainSegmentProcessId, GossipAggregatePackage, GossipAttestationPackage};
 
+use self::work_reprocessing_queue::QueuedBlobsSidecar;
+
 /// The maximum size of the channel for work events to the `BeaconProcessor`.
 ///
 /// Setting this too low will cause consensus messages to be dropped.
@@ -116,6 +118,8 @@ const MAX_GOSSIP_BLOCK_QUEUE_LEN: usize = 1_024;
 
 //FIXME(sean) verify
 const MAX_GOSSIP_BLOB_QUEUE_LEN: usize = 1_024;
+//FIXME(sean) verify
+const MAX_BLOBS_SIDECAR_REPROCESS_QUEUE_LEN: usize = 1_024;
 
 /// The maximum number of queued `SignedBeaconBlock` objects received prior to their slot (but
 /// within acceptable clock disparity) that will be queued before we start dropping them.
@@ -206,6 +210,7 @@ pub const BLOCKS_BY_ROOTS_REQUEST: &str = "blocks_by_roots_request";
 pub const BLOBS_BY_RANGE_REQUEST: &str = "blobs_by_range_request";
 pub const UNKNOWN_BLOCK_ATTESTATION: &str = "unknown_block_attestation";
 pub const UNKNOWN_BLOCK_AGGREGATE: &str = "unknown_block_aggregate";
+pub const UNKNOWN_BLOBS_SIDECAR: &str = "unknown_blobs_sidecar";
 
 /// A simple first-in-first-out queue with a maximum length.
 struct FifoQueue<T> {
@@ -413,7 +418,7 @@ impl<T: BeaconChainTypes> WorkEvent<T> {
     pub fn gossip_blobs_sidecar(
         message_id: MessageId,
         peer_id: PeerId,
-        peer_client: Client,
+        _peer_client: Client,
         blobs: Arc<SignedBlobsSidecar<T::EthSpec>>,
         seen_timestamp: Duration,
     ) -> Self {
@@ -422,7 +427,6 @@ impl<T: BeaconChainTypes> WorkEvent<T> {
             work: Work::GossipBlobsSidecar {
                 message_id,
                 peer_id,
-                peer_client,
                 blobs,
                 seen_timestamp,
             },
@@ -670,6 +674,20 @@ impl<T: BeaconChainTypes> std::convert::From<ReadyWork<T>> for WorkEvent<T> {
                     seen_timestamp,
                 },
             },
+            ReadyWork::BlobsSidecar(QueuedBlobsSidecar {
+                peer_id,
+                message_id,
+                blobs_sidecar,
+                seen_timestamp,
+            }) => Self {
+                drop_during_sync: true,
+                work: Work::UnknownBlobsSidecar {
+                    message_id,
+                    peer_id,
+                    blobs: blobs_sidecar,
+                    seen_timestamp,
+                },
+            },
         }
     }
 }
@@ -722,7 +740,12 @@ pub enum Work<T: BeaconChainTypes> {
     GossipBlobsSidecar {
         message_id: MessageId,
         peer_id: PeerId,
-        peer_client: Client,
+        blobs: Arc<SignedBlobsSidecar<T::EthSpec>>,
+        seen_timestamp: Duration,
+    },
+    UnknownBlobsSidecar {
+        message_id: MessageId,
+        peer_id: PeerId,
         blobs: Arc<SignedBlobsSidecar<T::EthSpec>>,
         seen_timestamp: Duration,
     },
@@ -815,6 +838,7 @@ impl<T: BeaconChainTypes> Work<T> {
             Work::BlobsByRangeRequest { .. } => BLOBS_BY_RANGE_REQUEST,
             Work::UnknownBlockAttestation { .. } => UNKNOWN_BLOCK_ATTESTATION,
             Work::UnknownBlockAggregate { .. } => UNKNOWN_BLOCK_AGGREGATE,
+            Work::UnknownBlobsSidecar { .. } => UNKNOWN_BLOBS_SIDECAR,
         }
     }
 }
@@ -931,6 +955,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
             LifoQueue::new(MAX_AGGREGATED_ATTESTATION_REPROCESS_QUEUE_LEN);
         let mut unknown_block_attestation_queue =
             LifoQueue::new(MAX_UNAGGREGATED_ATTESTATION_REPROCESS_QUEUE_LEN);
+        let mut unknown_blobs_sidecar_queue = LifoQueue::new(MAX_BLOBS_SIDECAR_REPROCESS_QUEUE_LEN);
 
         let mut sync_message_queue = LifoQueue::new(MAX_SYNC_MESSAGE_QUEUE_LEN);
         let mut sync_contribution_queue = LifoQueue::new(MAX_SYNC_CONTRIBUTION_QUEUE_LEN);
@@ -1312,6 +1337,9 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                             Work::UnknownBlockAggregate { .. } => {
                                 unknown_block_aggregate_queue.push(work)
                             }
+                            Work::UnknownBlobsSidecar { .. } => {
+                                unknown_blobs_sidecar_queue.push(work)
+                            }
                         }
                     }
                 }
@@ -1531,20 +1559,16 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
             Work::GossipBlobsSidecar {
                 message_id,
                 peer_id,
-                peer_client,
                 blobs,
                 seen_timestamp,
             } => task_spawner.spawn_async(async move {
-                worker
-                    .process_gossip_blob(
-                        message_id,
-                        peer_id,
-                        peer_client,
-                        blobs,
-                        work_reprocessing_tx,
-                        seen_timestamp,
-                    )
-                    .await
+                worker.process_gossip_blob(
+                    message_id,
+                    peer_id,
+                    blobs,
+                    Some(work_reprocessing_tx),
+                    seen_timestamp,
+                )
             }),
             /*
              * Import for blocks that we received earlier than their intended slot.
@@ -1730,6 +1754,14 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                     None,
                     seen_timestamp,
                 )
+            }),
+            Work::UnknownBlobsSidecar {
+                message_id,
+                peer_id,
+                blobs,
+                seen_timestamp,
+            } => task_spawner.spawn_blocking(move || {
+                worker.process_gossip_blob(message_id, peer_id, blobs, None, seen_timestamp)
             }),
         };
     }
