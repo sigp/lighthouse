@@ -105,6 +105,7 @@ impl<'a, T: BeaconChainTypes> VerifiedBlobsSidecar<'a, T> {
         chain: &BeaconChain<T>,
     ) -> Result<Self, BlobError> {
         let blob_slot = blob_sidecar.message.beacon_block_slot;
+        let blob_root = blob_sidecar.message.beacon_block_root;
         // Do not gossip or process blobs from future or past slots.
         let latest_permissible_slot = chain
             .slot_clock
@@ -116,6 +117,9 @@ impl<'a, T: BeaconChainTypes> VerifiedBlobsSidecar<'a, T> {
                 latest_permissible_slot: blob_slot,
             });
         }
+
+        // TODO: return `UnknownHeadBlock` if blob_root doesn't exist in fork choice
+        // and wherever it could be found.
 
         let earliest_permissible_slot = chain
             .slot_clock
