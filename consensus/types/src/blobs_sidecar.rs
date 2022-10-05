@@ -1,5 +1,5 @@
 use crate::kzg_proof::KzgProof;
-use crate::{BeaconBlock, Blob, EthSpec, Hash256, SignedRoot, Slot};
+use crate::{Blob, EthSpec, Hash256, SignedRoot, Slot};
 use serde_derive::{Deserialize, Serialize};
 use ssz::Encode;
 use ssz_derive::{Decode, Encode};

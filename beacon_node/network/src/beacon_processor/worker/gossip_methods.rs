@@ -2245,10 +2245,10 @@ impl<T: BeaconChainTypes> Worker<T> {
             BlobError::PastSlot { .. } => {
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
             }
-            BlobError::BeaconChainError(e) => {
+            BlobError::BeaconChainError(_e) => {
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
             }
-            BlobError::BlobOutOfRange { blob_index } => {
+            BlobError::BlobOutOfRange { blob_index: _ } => {
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
             }
             BlobError::InvalidKZGCommitment => {
@@ -2257,7 +2257,7 @@ impl<T: BeaconChainTypes> Worker<T> {
             BlobError::ProposalSignatureInvalid => {
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
             }
-            BlobError::RepeatSidecar { proposer, slot } => {
+            BlobError::RepeatSidecar { proposer: _, slot: _ } => {
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
             }
             BlobError::UnknownHeadBlock { beacon_block_root } => {

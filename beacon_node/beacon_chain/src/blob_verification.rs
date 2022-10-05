@@ -2,11 +2,10 @@ use derivative::Derivative;
 use slot_clock::SlotClock;
 
 use crate::beacon_chain::{BeaconChain, BeaconChainTypes, MAXIMUM_GOSSIP_CLOCK_DISPARITY};
-use crate::{block_verification::get_validator_pubkey_cache, BeaconChainError};
+use crate::{BeaconChainError};
 use bls::PublicKey;
-use std::sync::Arc;
 use types::{
-    consts::eip4844::BLS_MODULUS, BeaconStateError, BlobsSidecar, EthSpec, Hash256,
+    consts::eip4844::BLS_MODULUS, BeaconStateError, Hash256,
     SignedBlobsSidecar, Slot,
 };
 
@@ -105,7 +104,7 @@ impl<'a, T: BeaconChainTypes> VerifiedBlobsSidecar<'a, T> {
         chain: &BeaconChain<T>,
     ) -> Result<Self, BlobError> {
         let blob_slot = blob_sidecar.message.beacon_block_slot;
-        let blob_root = blob_sidecar.message.beacon_block_root;
+        let _blob_root = blob_sidecar.message.beacon_block_root;
         // Do not gossip or process blobs from future or past slots.
         let latest_permissible_slot = chain
             .slot_clock

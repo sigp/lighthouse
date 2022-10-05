@@ -12,7 +12,6 @@ use crate::{
     BeaconChain, BeaconChainError, BeaconChainTypes, BlockError, BlockProductionError,
     ExecutionPayloadError,
 };
-use execution_layer::json_structures::JsonBlobBundlesV1;
 use execution_layer::{BuilderParams, PayloadStatus};
 use fork_choice::{InvalidationOperation, PayloadVerificationStatus};
 use proto_array::{Block as ProtoBlock, ExecutionStatus};
@@ -26,7 +25,7 @@ use std::sync::Arc;
 use tokio::task::JoinHandle;
 use tree_hash::TreeHash;
 use types::{
-    BeaconBlockRef, BeaconState, BeaconStateError, Blob, BlobsSidecar, EthSpec, ExecPayload,
+    BeaconBlockRef, BeaconState, BeaconStateError, Blob, EthSpec, ExecPayload,
     ExecutionBlockHash, Hash256, KzgCommitment, SignedBeaconBlock, Slot,
 };
 

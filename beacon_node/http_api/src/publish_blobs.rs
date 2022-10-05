@@ -1,16 +1,13 @@
 use crate::metrics;
-use beacon_chain::validator_monitor::{get_block_delay_ms, get_slot_delay_ms, timestamp_now};
-use beacon_chain::{BeaconChain, BeaconChainTypes, BlockError, CountUnrealized};
+use beacon_chain::validator_monitor::{get_slot_delay_ms, timestamp_now};
+use beacon_chain::{BeaconChain, BeaconChainTypes};
 use lighthouse_network::PubsubMessage;
 use network::NetworkMessage;
-use slog::{crit, error, info, warn, Logger};
-use slot_clock::SlotClock;
+use slog::{Logger};
 use std::sync::Arc;
 use tokio::sync::mpsc::UnboundedSender;
-use tree_hash::TreeHash;
 use types::{
-    BlindedPayload, ExecPayload, ExecutionBlockHash, ExecutionPayload, FullPayload, Hash256,
-    SignedBeaconBlock, SignedBlobsSidecar,
+    SignedBlobsSidecar,
 };
 use warp::Rejection;
 
