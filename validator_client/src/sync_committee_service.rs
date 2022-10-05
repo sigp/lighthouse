@@ -568,7 +568,7 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
 
         if let Err(e) = self
             .beacon_nodes
-            .first_success(
+            .run(
                 RequireSynced::No,
                 OfflineOnFailure::Yes,
                 |beacon_node| async move {

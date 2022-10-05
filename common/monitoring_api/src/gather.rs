@@ -43,6 +43,16 @@ impl JsonMetric {
             }
         }
     }
+
+    /// Return a default json value given given the metric type.
+    fn get_typed_value_default(&self) -> serde_json::Value {
+        match self.ty {
+            JsonType::Integer => json!(0),
+            JsonType::Boolean => {
+                json!(false)
+            }
+        }
+    }
 }
 
 /// The required metrics for the beacon and validator processes.
@@ -154,6 +164,16 @@ pub fn gather_metrics(metrics_map: &HashMap<String, JsonMetric>) -> Option<serde
             let value = metric.get_typed_value(value);
             let _ = res.insert(metric.json_output_key.to_string(), value);
         };
+    }
+    // Insert default metrics for all monitoring service metrics that do not
+    // exist as lighthouse metrics.
+    for json_metric in metrics_map.values() {
+        if !res.contains_key(json_metric.json_output_key) {
+            let _ = res.insert(
+                json_metric.json_output_key.to_string(),
+                json_metric.get_typed_value_default(),
+            );
+        }
     }
     Some(serde_json::Value::Object(res))
 }

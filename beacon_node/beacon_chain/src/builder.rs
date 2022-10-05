@@ -856,6 +856,20 @@ where
             beacon_chain.store_migrator.process_reconstruction();
         }
 
+        // Prune finalized execution payloads in the background.
+        if beacon_chain.store.get_config().prune_payloads {
+            let store = beacon_chain.store.clone();
+            let log = log.clone();
+            beacon_chain.task_executor.spawn_blocking(
+                move || {
+                    if let Err(e) = store.try_prune_execution_payloads(false) {
+                        error!(log, "Error pruning payloads in background"; "error" => ?e);
+                    }
+                },
+                "prune_payloads_background",
+            );
+        }
+
         Ok(beacon_chain)
     }
 }
@@ -883,7 +897,7 @@ where
             .ok_or("dummy_eth1_backend requires a log")?;
 
         let backend =
-            CachingEth1Backend::new(Eth1Config::default(), log.clone(), self.spec.clone());
+            CachingEth1Backend::new(Eth1Config::default(), log.clone(), self.spec.clone())?;
 
         self.eth1_chain = Some(Eth1Chain::new_dummy(backend));
 

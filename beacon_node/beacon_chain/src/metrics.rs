@@ -254,6 +254,10 @@ lazy_static! {
         try_create_int_counter("beacon_shuffling_cache_hits_total", "Count of times shuffling cache fulfils request");
     pub static ref SHUFFLING_CACHE_MISSES: Result<IntCounter> =
         try_create_int_counter("beacon_shuffling_cache_misses_total", "Count of times shuffling cache fulfils request");
+    pub static ref SHUFFLING_CACHE_PROMISE_HITS: Result<IntCounter> =
+        try_create_int_counter("beacon_shuffling_cache_promise_hits_total", "Count of times shuffling cache returns a promise to future shuffling");
+    pub static ref SHUFFLING_CACHE_PROMISE_FAILS: Result<IntCounter> =
+        try_create_int_counter("beacon_shuffling_cache_promise_fails_total", "Count of times shuffling cache detects a failed promise");
 
     /*
      * Early attester cache
@@ -304,6 +308,10 @@ lazy_static! {
     pub static ref FORK_CHOICE_REORG_COUNT: Result<IntCounter> = try_create_int_counter(
         "beacon_fork_choice_reorg_total",
         "Count of occasions fork choice has switched to a different chain"
+    );
+    pub static ref FORK_CHOICE_REORG_DISTANCE: Result<IntGauge> = try_create_int_gauge(
+        "beacon_fork_choice_reorg_distance",
+        "The distance of each re-org of the fork choice algorithm"
     );
     pub static ref FORK_CHOICE_REORG_COUNT_INTEROP: Result<IntCounter> = try_create_int_counter(
         "beacon_reorgs_total",

@@ -2,7 +2,7 @@
 #  - from the `lighthouse` dir with the command: `docker build -f ./lcli/Dockerflie .`
 #  - from the current directory with the command: `docker build -f ./Dockerfile ../`
 FROM rust:1.62.1-bullseye AS builder
-RUN apt-get update && apt-get -y upgrade && apt-get install -y cmake libclang-dev
+RUN apt-get update && apt-get -y upgrade && apt-get install -y cmake libclang-dev protobuf-compiler
 COPY . lighthouse
 ARG PORTABLE
 ENV PORTABLE $PORTABLE

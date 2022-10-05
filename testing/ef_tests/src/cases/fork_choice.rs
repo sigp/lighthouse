@@ -331,11 +331,11 @@ impl<E: EthSpec> Tester<E> {
     pub fn process_block(&self, block: SignedBeaconBlock<E>, valid: bool) -> Result<(), Error> {
         let block_root = block.canonical_root();
         let block = Arc::new(block);
-        let result = self.block_on_dangerous(
-            self.harness
-                .chain
-                .process_block(block.clone(), CountUnrealized::False),
-        )?;
+        let result = self.block_on_dangerous(self.harness.chain.process_block(
+            block_root,
+            block.clone(),
+            CountUnrealized::False,
+        ))?;
         if result.is_ok() != valid {
             return Err(Error::DidntFail(format!(
                 "block with root {} was valid={} whilst test expects valid={}. result: {:?}",

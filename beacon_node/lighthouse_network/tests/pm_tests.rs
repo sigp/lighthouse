@@ -98,9 +98,7 @@ async fn banned_peers_consistency() {
             discovery_enabled: false,
             ..Default::default()
         };
-        let pm = PeerManager::new(pm_config, globals.clone(), &pm_log)
-            .await
-            .unwrap();
+        let pm = PeerManager::new(pm_config, globals.clone(), &pm_log).unwrap();
         let mut pm_swarm = swarm::new_test_swarm(Behaviour::new(pm));
         let pm_addr = swarm::bind_listener(&mut pm_swarm).await;
         let service = Service { swarm: pm_swarm };

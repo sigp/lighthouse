@@ -212,7 +212,7 @@ fn map_relevant_epochs_to_roots<T: BeaconChainTypes>(
 
         let root = iter
             .find_map(|next| match next {
-                Ok((root, slot)) => (slot == start_slot).then(|| Ok(root)),
+                Ok((root, slot)) => (slot == start_slot).then_some(Ok(root)),
                 Err(e) => Some(Err(format!("{:?}", e))),
             })
             .transpose()?
@@ -286,7 +286,7 @@ fn find_finalized_descendant_heads(
         .filter_map(|(index, node)| {
             (!nodes_referenced_as_parents.contains(&index)
                 && fork_choice.is_descendant(finalized_root, node.root))
-            .then(|| HeadInfo {
+            .then_some(HeadInfo {
                 index,
                 root: node.root,
                 slot: node.slot,
@@ -306,7 +306,7 @@ fn update_store_justified_checkpoint(
         .filter_map(|node| {
             (node.finalized_checkpoint
                 == Some(persisted_fork_choice.fork_choice_store.finalized_checkpoint))
-            .then(|| node.justified_checkpoint)
+            .then_some(node.justified_checkpoint)
             .flatten()
         })
         .max_by_key(|justified_checkpoint| justified_checkpoint.epoch)
