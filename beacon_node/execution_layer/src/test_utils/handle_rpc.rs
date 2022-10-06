@@ -90,18 +90,14 @@ pub async fn handle_rpc<T: EthSpec>(
                 };
 
             let dynamic_response = if should_import {
-                Some(
-                    ctx.execution_block_generator
-                        .write()
-                        .new_payload(request.into()),
-                )
+                Some(ctx.execution_block_generator.write().new_payload(request))
             } else {
                 None
             };
 
             let response = static_response.or(dynamic_response).unwrap();
 
-            Ok(serde_json::to_value(PayloadStatusV1::from(response)).unwrap())
+            Ok(serde_json::to_value(response).unwrap())
         }
         ENGINE_GET_PAYLOAD_V1 => {
             let request: JsonPayloadIdRequest = get_param(params, 0)?;
@@ -131,7 +127,7 @@ pub async fn handle_rpc<T: EthSpec>(
                     status.latest_valid_hash = Some(head_block_hash)
                 }
 
-                response.payload_status = status.into();
+                response.payload_status = status;
             }
 
             Ok(serde_json::to_value(JsonForkchoiceUpdatedResponse::from(response)).unwrap())
