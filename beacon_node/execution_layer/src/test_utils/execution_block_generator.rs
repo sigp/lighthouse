@@ -1,10 +1,8 @@
 use crate::engines::ForkChoiceState;
 use crate::{
     engine_api::{
-        json_structures::{
-            JsonForkchoiceUpdatedV1Response, JsonPayloadStatusV1, JsonPayloadStatusV1Status,
-        },
-        ExecutionBlock, PayloadAttributes, PayloadId, PayloadStatusV1, PayloadStatusV1Status,
+        ExecutionBlock, ForkchoiceUpdatedResponse, PayloadAttributes, PayloadId, PayloadStatusV1,
+        PayloadStatusV1Status,
     },
     ExecutionBlockWithTransactions,
 };
@@ -327,7 +325,7 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
         &mut self,
         forkchoice_state: ForkChoiceState,
         payload_attributes: Option<PayloadAttributes>,
-    ) -> Result<JsonForkchoiceUpdatedV1Response, String> {
+    ) -> Result<ForkchoiceUpdatedResponse, String> {
         if let Some(payload) = self
             .pending_payloads
             .remove(&forkchoice_state.head_block_hash)
@@ -346,9 +344,9 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
                 .contains_key(&forkchoice_state.finalized_block_hash);
 
         if unknown_head_block_hash || unknown_safe_block_hash || unknown_finalized_block_hash {
-            return Ok(JsonForkchoiceUpdatedV1Response {
-                payload_status: JsonPayloadStatusV1 {
-                    status: JsonPayloadStatusV1Status::Syncing,
+            return Ok(ForkchoiceUpdatedResponse {
+                payload_status: PayloadStatusV1 {
+                    status: PayloadStatusV1Status::Syncing,
                     latest_valid_hash: None,
                     validation_error: None,
                 },
@@ -405,9 +403,9 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
             }
         };
 
-        Ok(JsonForkchoiceUpdatedV1Response {
-            payload_status: JsonPayloadStatusV1 {
-                status: JsonPayloadStatusV1Status::Valid,
+        Ok(ForkchoiceUpdatedResponse {
+            payload_status: PayloadStatusV1 {
+                status: PayloadStatusV1Status::Valid,
                 latest_valid_hash: Some(forkchoice_state.head_block_hash),
                 validation_error: None,
             },

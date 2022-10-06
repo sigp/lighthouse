@@ -1,6 +1,7 @@
 use super::Context;
 use crate::engine_api::{http::*, *};
 use crate::json_structures::*;
+use crate::ForkChoiceState;
 use serde::de::DeserializeOwned;
 use serde_json::Value as JsonValue;
 use std::sync::Arc;
@@ -75,7 +76,7 @@ pub async fn handle_rpc<T: EthSpec>(
             }
         }
         ENGINE_NEW_PAYLOAD_V1 => {
-            let request: JsonExecutionPayloadV1<T> = get_param(params, 0)?;
+            let request: ExecutionPayload<T> = get_param(params, 0)?;
 
             let (static_response, should_import) =
                 if let Some(mut response) = ctx.static_new_payload_response.lock().clone() {
@@ -100,7 +101,7 @@ pub async fn handle_rpc<T: EthSpec>(
 
             let response = static_response.or(dynamic_response).unwrap();
 
-            Ok(serde_json::to_value(JsonPayloadStatusV1::from(response)).unwrap())
+            Ok(serde_json::to_value(PayloadStatusV1::from(response)).unwrap())
         }
         ENGINE_GET_PAYLOAD_V1 => {
             let request: JsonPayloadIdRequest = get_param(params, 0)?;
@@ -112,21 +113,18 @@ pub async fn handle_rpc<T: EthSpec>(
                 .get_payload(&id)
                 .ok_or_else(|| format!("no payload for id {:?}", id))?;
 
-            Ok(serde_json::to_value(JsonExecutionPayloadV1::from(response)).unwrap())
+            Ok(serde_json::to_value(response).unwrap())
         }
         ENGINE_FORKCHOICE_UPDATED_V1 => {
-            let forkchoice_state: JsonForkChoiceStateV1 = get_param(params, 0)?;
-            let payload_attributes: Option<JsonPayloadAttributesV1> = get_param(params, 1)?;
+            let forkchoice_state: ForkChoiceState = get_param(params, 0)?;
+            let payload_attributes: Option<PayloadAttributes> = get_param(params, 1)?;
 
             let head_block_hash = forkchoice_state.head_block_hash;
 
             let mut response = ctx
                 .execution_block_generator
                 .write()
-                .forkchoice_updated_v1(
-                    forkchoice_state.into(),
-                    payload_attributes.map(|json| json.into()),
-                )?;
+                .forkchoice_updated_v1(forkchoice_state, payload_attributes)?;
 
             if let Some(mut status) = ctx.static_forkchoice_updated_response.lock().clone() {
                 if status.status == PayloadStatusV1Status::Valid {
@@ -136,7 +134,7 @@ pub async fn handle_rpc<T: EthSpec>(
                 response.payload_status = status.into();
             }
 
-            Ok(serde_json::to_value(response).unwrap())
+            Ok(serde_json::to_value(JsonForkchoiceUpdatedResponse::from(response)).unwrap())
         }
         ENGINE_EXCHANGE_TRANSITION_CONFIGURATION_V1 => {
             let block_generator = ctx.execution_block_generator.read();

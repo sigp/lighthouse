@@ -642,13 +642,10 @@ impl HttpJsonRpc {
         &self,
         execution_payload: ExecutionPayload<T>,
     ) -> Result<PayloadStatusV1, Error> {
-        let params = json!([JsonExecutionPayloadV1::from(execution_payload)]);
+        let params = json!([execution_payload]);
 
-        let response: JsonPayloadStatusV1 = self
-            .rpc_request(ENGINE_NEW_PAYLOAD_V1, params, ENGINE_NEW_PAYLOAD_TIMEOUT)
-            .await?;
-
-        Ok(response.into())
+        self.rpc_request(ENGINE_NEW_PAYLOAD_V1, params, ENGINE_NEW_PAYLOAD_TIMEOUT)
+            .await
     }
 
     pub async fn get_payload_v1<T: EthSpec>(
@@ -656,12 +653,8 @@ impl HttpJsonRpc {
         payload_id: PayloadId,
     ) -> Result<ExecutionPayload<T>, Error> {
         let params = json!([JsonPayloadIdRequest::from(payload_id)]);
-
-        let response: JsonExecutionPayloadV1<T> = self
-            .rpc_request(ENGINE_GET_PAYLOAD_V1, params, ENGINE_GET_PAYLOAD_TIMEOUT)
-            .await?;
-
-        Ok(response.into())
+        self.rpc_request(ENGINE_GET_PAYLOAD_V1, params, ENGINE_GET_PAYLOAD_TIMEOUT)
+            .await
     }
 
     pub async fn forkchoice_updated_v1(
@@ -669,12 +662,9 @@ impl HttpJsonRpc {
         forkchoice_state: ForkChoiceState,
         payload_attributes: Option<PayloadAttributes>,
     ) -> Result<ForkchoiceUpdatedResponse, Error> {
-        let params = json!([
-            JsonForkChoiceStateV1::from(forkchoice_state),
-            payload_attributes.map(JsonPayloadAttributesV1::from)
-        ]);
+        let params = json!([forkchoice_state, payload_attributes]);
 
-        let response: JsonForkchoiceUpdatedV1Response = self
+        let response: JsonForkchoiceUpdatedResponse = self
             .rpc_request(
                 ENGINE_FORKCHOICE_UPDATED_V1,
                 params,
@@ -817,7 +807,7 @@ mod test {
     fn encode_transactions<E: EthSpec>(
         transactions: Transactions<E>,
     ) -> Result<serde_json::Value, serde_json::Error> {
-        let ep: JsonExecutionPayloadV1<E> = JsonExecutionPayloadV1 {
+        let ep: ExecutionPayload<E> = ExecutionPayload {
             transactions,
             ..<_>::default()
         };
@@ -847,7 +837,7 @@ mod test {
         json.as_object_mut()
             .unwrap()
             .insert("transactions".into(), transactions);
-        let ep: JsonExecutionPayloadV1<E> = serde_json::from_value(json)?;
+        let ep: ExecutionPayload<E> = serde_json::from_value(json)?;
         Ok(ep.transactions)
     }
 
@@ -1341,7 +1331,7 @@ mod test {
                             extra_data: vec![].into(),
                             base_fee_per_gas: Uint256::from(7),
                             block_hash: ExecutionBlockHash::from_str("0x6359b8381a370e2f54072a5784ddd78b6ed024991558c511d4452eb4f6ac898c").unwrap(),
-                        transactions: vec![].into(),
+                            transactions: vec![].into(),
                         };
 
                     assert_eq!(payload, expected);

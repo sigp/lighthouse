@@ -12,9 +12,7 @@ use beacon_chain::{
     INVALID_JUSTIFIED_PAYLOAD_SHUTDOWN_REASON,
 };
 use execution_layer::{
-    json_structures::{JsonForkChoiceStateV1, JsonPayloadAttributesV1},
-    test_utils::ExecutionBlockGenerator,
-    ExecutionLayer, ForkChoiceState, PayloadAttributes,
+    test_utils::ExecutionBlockGenerator, ExecutionLayer, ForkChoiceState, PayloadAttributes,
 };
 use fork_choice::{
     CountUnrealized, Error as ForkChoiceError, InvalidationOperation, PayloadVerificationStatus,
@@ -126,14 +124,14 @@ impl InvalidPayloadRig {
         let params = json.get("params").expect("no params");
 
         let fork_choice_state_json = params.get(0).expect("no payload param");
-        let fork_choice_state: JsonForkChoiceStateV1 =
+        let fork_choice_state: ForkChoiceState =
             serde_json::from_value(fork_choice_state_json.clone()).unwrap();
 
         let payload_param_json = params.get(1).expect("no payload param");
-        let attributes: JsonPayloadAttributesV1 =
+        let attributes: PayloadAttributes =
             serde_json::from_value(payload_param_json.clone()).unwrap();
 
-        (fork_choice_state.into(), attributes.into())
+        (fork_choice_state, attributes)
     }
 
     fn previous_payload_attributes(&self) -> PayloadAttributes {

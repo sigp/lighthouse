@@ -1,7 +1,6 @@
 use crate::engines::ForkChoiceState;
 pub use ethers_core::types::Transaction;
 use http::deposit_methods::RpcError;
-pub use json_structures::TransitionConfigurationV1;
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 use strum::IntoStaticStr;
@@ -72,7 +71,8 @@ impl From<builder_client::Error> for Error {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, IntoStaticStr)]
+#[derive(Clone, Copy, Debug, PartialEq, IntoStaticStr, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 #[strum(serialize_all = "snake_case")]
 pub enum PayloadStatusV1Status {
     Valid,
@@ -82,7 +82,8 @@ pub enum PayloadStatusV1Status {
     InvalidBlockHash,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PayloadStatusV1 {
     pub status: PayloadStatusV1Status,
     pub latest_valid_hash: Option<ExecutionBlockHash>,
@@ -140,8 +141,10 @@ pub struct ExecutionBlockWithTransactions<T: EthSpec> {
     pub transactions: Vec<Transaction>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PayloadAttributes {
+    #[serde(with = "eth2_serde_utils::u64_hex_be")]
     pub timestamp: u64,
     pub prev_randao: Hash256,
     pub suggested_fee_recipient: Address,
@@ -151,6 +154,16 @@ pub struct PayloadAttributes {
 pub struct ForkchoiceUpdatedResponse {
     pub payload_status: PayloadStatusV1,
     pub payload_id: Option<PayloadId>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TransitionConfigurationV1 {
+    #[serde(with = "eth2_serde_utils::u256_hex_be")]
+    pub terminal_total_difficulty: Uint256,
+    pub terminal_block_hash: ExecutionBlockHash,
+    #[serde(with = "eth2_serde_utils::u64_hex_be")]
+    pub terminal_block_number: u64,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]

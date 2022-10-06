@@ -5,6 +5,7 @@ use crate::engine_api::{
 };
 use crate::HttpJsonRpc;
 use lru::LruCache;
+use serde::{Deserialize, Serialize};
 use slog::{debug, error, info, Logger};
 use std::future::Future;
 use std::sync::Arc;
@@ -87,7 +88,8 @@ impl State {
     }
 }
 
-#[derive(Copy, Clone, PartialEq, Debug)]
+#[derive(Copy, Clone, PartialEq, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ForkChoiceState {
     pub head_block_hash: ExecutionBlockHash,
     pub safe_block_hash: ExecutionBlockHash,
