@@ -290,6 +290,7 @@ pub struct Config {
     pub max_blocks_per_update: Option<usize>,
     /// If set to true, the eth1 caches are wiped clean when the eth1 service starts.
     pub purge_cache: bool,
+    pub execution_timeout_multiplier: u32,
 }
 
 impl Config {
@@ -347,6 +348,7 @@ impl Default for Config {
             max_log_requests_per_update: Some(5_000),
             max_blocks_per_update: Some(8_192),
             purge_cache: false,
+            execution_timeout_multiplier: 1,
         }
     }
 }
@@ -361,11 +363,13 @@ pub fn endpoint_from_config(config: &Config) -> Result<HttpJsonRpc, String> {
         } => {
             let auth = Auth::new_with_path(jwt_path, jwt_id, jwt_version)
                 .map_err(|e| format!("Failed to initialize jwt auth: {:?}", e))?;
-            HttpJsonRpc::new_with_auth(endpoint, auth)
+            HttpJsonRpc::new_with_auth(endpoint, auth, Some(config.execution_timeout_multiplier))
                 .map_err(|e| format!("Failed to create eth1 json rpc client: {:?}", e))
         }
-        Eth1Endpoint::NoAuth(endpoint) => HttpJsonRpc::new(endpoint)
-            .map_err(|e| format!("Failed to create eth1 json rpc client: {:?}", e)),
+        Eth1Endpoint::NoAuth(endpoint) => {
+            HttpJsonRpc::new(endpoint, Some(config.execution_timeout_multiplier))
+                .map_err(|e| format!("Failed to create eth1 json rpc client: {:?}", e))
+        }
     }
 }
 
