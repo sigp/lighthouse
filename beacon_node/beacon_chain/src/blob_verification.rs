@@ -1,13 +1,13 @@
 use derivative::Derivative;
 use slot_clock::SlotClock;
 
-use crate::beacon_chain::{BeaconChain, BeaconChainTypes, MAXIMUM_GOSSIP_CLOCK_DISPARITY};
-use crate::{BeaconChainError};
-use bls::PublicKey;
-use types::{
-    consts::eip4844::BLS_MODULUS, BeaconStateError, Hash256,
-    SignedBlobsSidecar, Slot,
+use crate::beacon_chain::{
+    BeaconChain, BeaconChainTypes, MAXIMUM_GOSSIP_CLOCK_DISPARITY,
+    VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT,
 };
+use crate::BeaconChainError;
+use bls::PublicKey;
+use types::{consts::eip4844::BLS_MODULUS, BeaconStateError, Hash256, SignedBlobsSidecar, Slot};
 
 pub enum BlobError {
     /// The blob sidecar is from a slot that is later than the current slot (with respect to the
@@ -69,6 +69,13 @@ pub enum BlobError {
     /// is valid or not.
     UnknownHeadBlock { beacon_block_root: Hash256 },
 
+    /// The proposal_index corresponding to blob.beacon_block_root is not known.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The block is invalid and the peer is faulty.
+    UnknownValidator(u64),
+
     /// There was an error whilst processing the sync contribution. It is not known if it is valid or invalid.
     ///
     /// ## Peer scoring
@@ -103,17 +110,17 @@ impl<'a, T: BeaconChainTypes> VerifiedBlobsSidecar<'a, T> {
         blob_sidecar: &'a SignedBlobsSidecar<T::EthSpec>,
         chain: &BeaconChain<T>,
     ) -> Result<Self, BlobError> {
-        let blob_slot = blob_sidecar.message.beacon_block_slot;
-        let _blob_root = blob_sidecar.message.beacon_block_root;
+        let block_slot = blob_sidecar.message.beacon_block_slot;
+        let block_root = blob_sidecar.message.beacon_block_root;
         // Do not gossip or process blobs from future or past slots.
         let latest_permissible_slot = chain
             .slot_clock
             .now_with_future_tolerance(MAXIMUM_GOSSIP_CLOCK_DISPARITY)
             .ok_or(BeaconChainError::UnableToReadSlot)?;
-        if blob_slot > latest_permissible_slot {
+        if block_slot > latest_permissible_slot {
             return Err(BlobError::FutureSlot {
                 message_slot: latest_permissible_slot,
-                latest_permissible_slot: blob_slot,
+                latest_permissible_slot: block_slot,
             });
         }
 
@@ -124,10 +131,10 @@ impl<'a, T: BeaconChainTypes> VerifiedBlobsSidecar<'a, T> {
             .slot_clock
             .now_with_past_tolerance(MAXIMUM_GOSSIP_CLOCK_DISPARITY)
             .ok_or(BeaconChainError::UnableToReadSlot)?;
-        if blob_slot > earliest_permissible_slot {
+        if block_slot > earliest_permissible_slot {
             return Err(BlobError::PastSlot {
                 message_slot: earliest_permissible_slot,
-                earliest_permissible_slot: blob_slot,
+                earliest_permissible_slot: block_slot,
             });
         }
 
@@ -140,34 +147,59 @@ impl<'a, T: BeaconChainTypes> VerifiedBlobsSidecar<'a, T> {
         }
 
         // Verify that the KZG proof is a valid G1 point
+        // TODO(pawan): KZG commitment can also be point at infinity, use a different check
+        // (bls.KeyValidate)
         if PublicKey::deserialize(&blob_sidecar.message.kzg_aggregate_proof.0).is_err() {
             return Err(BlobError::InvalidKZGCommitment);
         }
 
-        // TODO: Verify proposer signature
+        let proposer_shuffling_root = chain
+            .canonical_head
+            .cached_head()
+            .snapshot
+            .beacon_state
+            .proposer_shuffling_decision_root(block_root)?;
 
-        // // let state = /* Get a valid state */
-        // let proposer_index = state.get_beacon_proposer_index(blob_slot, &chain.spec)? as u64;
-        // let signature_is_valid = {
-        //     let pubkey_cache = get_validator_pubkey_cache(chain)?;
-        //     let pubkey = pubkey_cache
-        //         .get(proposer_index as usize)
-        //         .ok_or_else(|| BlobError::UnknownValidator(proposer_index)?;
-        //     blob.verify_signature(
-        //         Some(block_root),
-        //         pubkey,
-        //         &fork,
-        //         chain.genesis_validators_root,
-        //         &chain.spec,
-        //     )
-        // };
+        let (proposer_index, fork) = match chain
+            .beacon_proposer_cache
+            .lock()
+            .get_slot::<T::EthSpec>(proposer_shuffling_root, block_slot)
+        {
+            Some(proposer) => (proposer.index, proposer.fork),
+            None => {
+                let state = &chain.canonical_head.cached_head().snapshot.beacon_state;
+                (
+                    state.get_beacon_proposer_index(block_slot, &chain.spec)?,
+                    state.fork(),
+                )
+            }
+        };
+        let signature_is_valid = {
+            let pubkey_cache = chain
+                .validator_pubkey_cache
+                .try_read_for(VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT)
+                .ok_or(BeaconChainError::ValidatorPubkeyCacheLockTimeout)
+                .map_err(BlobError::BeaconChainError)?;
 
-        // if !signature_is_valid {
-        //     return Err(BlobError::ProposalSignatureInvalid);
-        // }
+            let pubkey = pubkey_cache
+                .get(proposer_index as usize)
+                .ok_or_else(|| BlobError::UnknownValidator(proposer_index as u64))?;
 
-        // TODO: Check that we have not already received a sidecar with a valid signature for this slot.
+            blob_sidecar.verify_signature(
+                None,
+                pubkey,
+                &fork,
+                chain.genesis_validators_root,
+                &chain.spec,
+            )
+        };
 
+        if !signature_is_valid {
+            return Err(BlobError::ProposalSignatureInvalid);
+        }
+
+        // TODO(pawan): Check that we have not already received a sidecar with a valid signature for this slot.
+        // TODO(pawan): check if block hash is already known
         Ok(Self { blob_sidecar })
     }
 }
