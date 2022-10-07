@@ -1498,6 +1498,26 @@ impl<T: EthSpec> BeaconState<T> {
         }
     }
 
+    /// Returns the cache for some `RelativeEpoch`, replacing the existing cache with an
+    /// un-initialized cache. Returns an error if the existing cache has not been initialized.
+    pub fn take_committee_cache(
+        &mut self,
+        relative_epoch: RelativeEpoch,
+    ) -> Result<CommitteeCache, Error> {
+        let i = Self::committee_cache_index(relative_epoch);
+        let current_epoch = self.current_epoch();
+        let cache = self
+            .committee_caches_mut()
+            .get_mut(i)
+            .ok_or(Error::CommitteeCachesOutOfBounds(i))?;
+
+        if cache.is_initialized_at(relative_epoch.into_epoch(current_epoch)) {
+            Ok(mem::take(cache))
+        } else {
+            Err(Error::CommitteeCacheUninitialized(Some(relative_epoch)))
+        }
+    }
+
     /// Drops the cache, leaving it in an uninitialized state.
     pub fn drop_committee_cache(&mut self, relative_epoch: RelativeEpoch) -> Result<(), Error> {
         *self.committee_cache_at_index_mut(Self::committee_cache_index(relative_epoch))? =

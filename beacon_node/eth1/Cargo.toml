@@ -31,5 +31,4 @@ lighthouse_metrics = { path = "../../common/lighthouse_metrics"}
 lazy_static = "1.4.0"
 task_executor = { path = "../../common/task_executor" }
 eth2 = { path = "../../common/eth2" }
-fallback = { path = "../../common/fallback" }
 sensitive_url = { path = "../../common/sensitive_url" }

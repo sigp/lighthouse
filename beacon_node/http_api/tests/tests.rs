@@ -13,18 +13,19 @@ use eth2::{
 };
 use execution_layer::test_utils::Operation;
 use execution_layer::test_utils::TestingBuilder;
+use execution_layer::test_utils::DEFAULT_BUILDER_THRESHOLD_WEI;
 use futures::stream::{Stream, StreamExt};
 use futures::FutureExt;
 use http_api::{BlockId, StateId};
 use lighthouse_network::{Enr, EnrExt, PeerId};
-use network::NetworkMessage;
+use network::NetworkReceivers;
 use proto_array::ExecutionStatus;
 use sensitive_url::SensitiveUrl;
 use slot_clock::SlotClock;
 use state_processing::per_slot_processing;
 use std::convert::TryInto;
 use std::sync::Arc;
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::oneshot;
 use tokio::time::Duration;
 use tree_hash::TreeHash;
 use types::application_domain::ApplicationDomain;
@@ -65,7 +66,7 @@ struct ApiTester {
     proposer_slashing: ProposerSlashing,
     voluntary_exit: SignedVoluntaryExit,
     _server_shutdown: oneshot::Sender<()>,
-    network_rx: mpsc::UnboundedReceiver<NetworkMessage<E>>,
+    network_rx: NetworkReceivers<E>,
     local_enr: Enr,
     external_peer_id: PeerId,
     mock_builder: Option<Arc<TestingBuilder<E>>>,
@@ -341,10 +342,20 @@ impl ApiTester {
     }
 
     pub async fn new_mev_tester() -> Self {
-        Self::new_with_hard_forks(true, true)
+        let tester = Self::new_with_hard_forks(true, true)
             .await
             .test_post_validator_register_validator()
-            .await
+            .await;
+        // Make sure bids always meet the minimum threshold.
+        tester
+            .mock_builder
+            .as_ref()
+            .unwrap()
+            .builder
+            .add_operation(Operation::Value(Uint256::from(
+                DEFAULT_BUILDER_THRESHOLD_WEI,
+            )));
+        tester
     }
 
     fn skip_slots(self, count: u64) -> Self {
@@ -899,7 +910,7 @@ impl ApiTester {
         self.client.post_beacon_blocks(next_block).await.unwrap();
 
         assert!(
-            self.network_rx.recv().await.is_some(),
+            self.network_rx.network_recv.recv().await.is_some(),
             "valid blocks should be sent to network"
         );
 
@@ -913,7 +924,7 @@ impl ApiTester {
         assert!(self.client.post_beacon_blocks(&next_block).await.is_err());
 
         assert!(
-            self.network_rx.recv().await.is_some(),
+            self.network_rx.network_recv.recv().await.is_some(),
             "invalid blocks should be sent to network"
         );
 
@@ -1041,7 +1052,7 @@ impl ApiTester {
             .unwrap();
 
         assert!(
-            self.network_rx.recv().await.is_some(),
+            self.network_rx.network_recv.recv().await.is_some(),
             "valid attestation should be sent to network"
         );
 
@@ -1078,7 +1089,7 @@ impl ApiTester {
         }
 
         assert!(
-            self.network_rx.recv().await.is_some(),
+            self.network_rx.network_recv.recv().await.is_some(),
             "if some attestations are valid, we should send them to the network"
         );
 
@@ -1108,7 +1119,7 @@ impl ApiTester {
             .unwrap();
 
         assert!(
-            self.network_rx.recv().await.is_some(),
+            self.network_rx.network_recv.recv().await.is_some(),
             "valid attester slashing should be sent to network"
         );
 
@@ -1125,7 +1136,7 @@ impl ApiTester {
             .unwrap_err();
 
         assert!(
-            self.network_rx.recv().now_or_never().is_none(),
+            self.network_rx.network_recv.recv().now_or_never().is_none(),
             "invalid attester slashing should not be sent to network"
         );
 
@@ -1154,7 +1165,7 @@ impl ApiTester {
             .unwrap();
 
         assert!(
-            self.network_rx.recv().await.is_some(),
+            self.network_rx.network_recv.recv().await.is_some(),
             "valid proposer slashing should be sent to network"
         );
 
@@ -1171,7 +1182,7 @@ impl ApiTester {
             .unwrap_err();
 
         assert!(
-            self.network_rx.recv().now_or_never().is_none(),
+            self.network_rx.network_recv.recv().now_or_never().is_none(),
             "invalid proposer slashing should not be sent to network"
         );
 
@@ -1200,7 +1211,7 @@ impl ApiTester {
             .unwrap();
 
         assert!(
-            self.network_rx.recv().await.is_some(),
+            self.network_rx.network_recv.recv().await.is_some(),
             "valid exit should be sent to network"
         );
 
@@ -1217,7 +1228,7 @@ impl ApiTester {
             .unwrap_err();
 
         assert!(
-            self.network_rx.recv().now_or_never().is_none(),
+            self.network_rx.network_recv.recv().now_or_never().is_none(),
             "invalid exit should not be sent to network"
         );
 
@@ -1928,11 +1939,11 @@ impl ApiTester {
 
             let block = self
                 .client
-                .get_validator_blocks_with_verify_randao::<E, FullPayload<E>>(
+                .get_validator_blocks_modular::<E, FullPayload<E>>(
                     slot,
+                    &Signature::infinity().unwrap().into(),
                     None,
-                    None,
-                    Some(false),
+                    SkipRandaoVerification::Yes,
                 )
                 .await
                 .unwrap()
@@ -1982,45 +1993,23 @@ impl ApiTester {
                 sk.sign(message).into()
             };
 
-            // Check failure with no `verify_randao` passed.
+            // Check failure with no `skip_randao_verification` passed.
             self.client
                 .get_validator_blocks::<E, FullPayload<E>>(slot, &bad_randao_reveal, None)
                 .await
                 .unwrap_err();
 
-            // Check failure with `verify_randao=true`.
+            // Check failure with `skip_randao_verification` (requires infinity sig).
             self.client
-                .get_validator_blocks_with_verify_randao::<E, FullPayload<E>>(
+                .get_validator_blocks_modular::<E, FullPayload<E>>(
                     slot,
-                    Some(&bad_randao_reveal),
+                    &bad_randao_reveal,
                     None,
-                    Some(true),
+                    SkipRandaoVerification::Yes,
                 )
                 .await
                 .unwrap_err();
 
-            // Check failure with no randao reveal provided.
-            self.client
-                .get_validator_blocks_with_verify_randao::<E, FullPayload<E>>(
-                    slot, None, None, None,
-                )
-                .await
-                .unwrap_err();
-
-            // Check success with `verify_randao=false`.
-            let block = self
-                .client
-                .get_validator_blocks_with_verify_randao::<E, FullPayload<E>>(
-                    slot,
-                    Some(&bad_randao_reveal),
-                    None,
-                    Some(false),
-                )
-                .await
-                .unwrap()
-                .data;
-
-            assert_eq!(block.slot(), slot);
             self.chain.slot_clock.set_slot(slot.as_u64() + 1);
         }
 
@@ -2095,11 +2084,11 @@ impl ApiTester {
 
             let block = self
                 .client
-                .get_validator_blinded_blocks_with_verify_randao::<E, Payload>(
+                .get_validator_blinded_blocks_modular::<E, Payload>(
                     slot,
+                    &Signature::infinity().unwrap().into(),
                     None,
-                    None,
-                    Some(false),
+                    SkipRandaoVerification::Yes,
                 )
                 .await
                 .unwrap()
@@ -2151,45 +2140,23 @@ impl ApiTester {
                 sk.sign(message).into()
             };
 
-            // Check failure with no `verify_randao` passed.
+            // Check failure with full randao verification enabled.
             self.client
                 .get_validator_blinded_blocks::<E, Payload>(slot, &bad_randao_reveal, None)
                 .await
                 .unwrap_err();
 
-            // Check failure with `verify_randao=true`.
+            // Check failure with `skip_randao_verification` (requires infinity sig).
             self.client
-                .get_validator_blinded_blocks_with_verify_randao::<E, Payload>(
+                .get_validator_blinded_blocks_modular::<E, Payload>(
                     slot,
-                    Some(&bad_randao_reveal),
+                    &bad_randao_reveal,
                     None,
-                    Some(true),
+                    SkipRandaoVerification::Yes,
                 )
                 .await
                 .unwrap_err();
 
-            // Check failure with no randao reveal provided.
-            self.client
-                .get_validator_blinded_blocks_with_verify_randao::<E, Payload>(
-                    slot, None, None, None,
-                )
-                .await
-                .unwrap_err();
-
-            // Check success with `verify_randao=false`.
-            let block = self
-                .client
-                .get_validator_blinded_blocks_with_verify_randao::<E, Payload>(
-                    slot,
-                    Some(&bad_randao_reveal),
-                    None,
-                    Some(false),
-                )
-                .await
-                .unwrap()
-                .data;
-
-            assert_eq!(block.slot(), slot);
             self.chain.slot_clock.set_slot(slot.as_u64() + 1);
         }
 
@@ -2351,7 +2318,7 @@ impl ApiTester {
             .await
             .unwrap();
 
-        assert!(self.network_rx.recv().await.is_some());
+        assert!(self.network_rx.network_recv.recv().await.is_some());
 
         self
     }
@@ -2366,7 +2333,7 @@ impl ApiTester {
             .await
             .unwrap_err();
 
-        assert!(self.network_rx.recv().now_or_never().is_none());
+        assert!(self.network_rx.network_recv.recv().now_or_never().is_none());
 
         self
     }
@@ -2385,7 +2352,11 @@ impl ApiTester {
             .await
             .unwrap();
 
-        self.network_rx.recv().now_or_never().unwrap();
+        self.network_rx
+            .validator_subscription_recv
+            .recv()
+            .now_or_never()
+            .unwrap();
 
         self
     }
@@ -3180,6 +3151,43 @@ impl ApiTester {
             .get_payload_by_root(&payload.tree_hash_root())
             .is_some());
 
+        self
+    }
+
+    pub async fn test_payload_rejects_inadequate_builder_threshold(self) -> Self {
+        // Mutate value.
+        self.mock_builder
+            .as_ref()
+            .unwrap()
+            .builder
+            .add_operation(Operation::Value(Uint256::from(
+                DEFAULT_BUILDER_THRESHOLD_WEI - 1,
+            )));
+
+        let slot = self.chain.slot().unwrap();
+        let epoch = self.chain.epoch().unwrap();
+
+        let (_, randao_reveal) = self.get_test_randao(slot, epoch).await;
+
+        let payload = self
+            .client
+            .get_validator_blinded_blocks::<E, BlindedPayload<E>>(slot, &randao_reveal, None)
+            .await
+            .unwrap()
+            .data
+            .body()
+            .execution_payload()
+            .unwrap()
+            .clone();
+
+        // If this cache is populated, it indicates fallback to the local EE was correctly used.
+        assert!(self
+            .chain
+            .execution_layer
+            .as_ref()
+            .unwrap()
+            .get_payload_by_root(&payload.tree_hash_root())
+            .is_some());
         self
     }
 
@@ -4152,6 +4160,14 @@ async fn builder_chain_health_optimistic_head() {
     ApiTester::new_mev_tester()
         .await
         .test_builder_chain_health_optimistic_head()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn builder_inadequate_builder_threshold() {
+    ApiTester::new_mev_tester()
+        .await
+        .test_payload_rejects_inadequate_builder_threshold()
         .await;
 }
 

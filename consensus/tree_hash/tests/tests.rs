@@ -1,5 +1,5 @@
 use ssz_derive::Encode;
-use tree_hash::{Hash256, MerkleHasher, TreeHash, BYTES_PER_CHUNK};
+use tree_hash::{Hash256, MerkleHasher, PackedEncoding, TreeHash, BYTES_PER_CHUNK};
 use tree_hash_derive::TreeHash;
 
 #[derive(Encode)]
@@ -18,7 +18,7 @@ impl tree_hash::TreeHash for HashVec {
         tree_hash::TreeHashType::List
     }
 
-    fn tree_hash_packed_encoding(&self) -> Vec<u8> {
+    fn tree_hash_packed_encoding(&self) -> PackedEncoding {
         unreachable!("List should never be packed.")
     }
 

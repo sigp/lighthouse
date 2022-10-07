@@ -41,28 +41,27 @@ async fn get_chain_segment() -> Vec<BeaconSnapshot<E>> {
         )
         .await;
 
-    harness
+    let mut segment = Vec::with_capacity(CHAIN_SEGMENT_LENGTH);
+    for snapshot in harness
         .chain
         .chain_dump()
         .expect("should dump chain")
         .into_iter()
-        .map(|snapshot| {
-            let full_block = harness
-                .chain
-                .store
-                .make_full_block(
-                    &snapshot.beacon_block_root,
-                    snapshot.beacon_block.as_ref().clone(),
-                )
-                .unwrap();
-            BeaconSnapshot {
-                beacon_block_root: snapshot.beacon_block_root,
-                beacon_block: Arc::new(full_block),
-                beacon_state: snapshot.beacon_state,
-            }
-        })
         .skip(1)
-        .collect()
+    {
+        let full_block = harness
+            .chain
+            .get_block(&snapshot.beacon_block_root)
+            .await
+            .unwrap()
+            .unwrap();
+        segment.push(BeaconSnapshot {
+            beacon_block_root: snapshot.beacon_block_root,
+            beacon_block: Arc::new(full_block),
+            beacon_state: snapshot.beacon_state,
+        });
+    }
+    segment
 }
 
 fn get_harness(validator_count: usize) -> BeaconChainHarness<EphemeralHarnessType<E>> {
@@ -347,6 +346,7 @@ async fn assert_invalid_signature(
     let process_res = harness
         .chain
         .process_block(
+            snapshots[block_index].beacon_block.canonical_root(),
             snapshots[block_index].beacon_block.clone(),
             CountUnrealized::True,
         )
@@ -404,12 +404,14 @@ async fn invalid_signature_gossip_block() {
             .await
             .into_block_error()
             .expect("should import all blocks prior to the one being tested");
+        let signed_block = SignedBeaconBlock::from_block(block, junk_signature());
         assert!(
             matches!(
                 harness
                     .chain
                     .process_block(
-                        Arc::new(SignedBeaconBlock::from_block(block, junk_signature())),
+                        signed_block.canonical_root(),
+                        Arc::new(signed_block),
                         CountUnrealized::True
                     )
                     .await,
@@ -719,7 +721,11 @@ async fn block_gossip_verification() {
 
         harness
             .chain
-            .process_block(gossip_verified, CountUnrealized::True)
+            .process_block(
+                gossip_verified.block_root,
+                gossip_verified,
+                CountUnrealized::True,
+            )
             .await
             .expect("should import valid gossip verified block");
     }
@@ -986,7 +992,11 @@ async fn verify_block_for_gossip_slashing_detection() {
         .unwrap();
     harness
         .chain
-        .process_block(verified_block, CountUnrealized::True)
+        .process_block(
+            verified_block.block_root,
+            verified_block,
+            CountUnrealized::True,
+        )
         .await
         .unwrap();
     unwrap_err(
@@ -1021,7 +1031,11 @@ async fn verify_block_for_gossip_doppelganger_detection() {
     let attestations = verified_block.block.message().body().attestations().clone();
     harness
         .chain
-        .process_block(verified_block, CountUnrealized::True)
+        .process_block(
+            verified_block.block_root,
+            verified_block,
+            CountUnrealized::True,
+        )
         .await
         .unwrap();
 
@@ -1162,7 +1176,11 @@ async fn add_base_block_to_altair_chain() {
     assert!(matches!(
         harness
             .chain
-            .process_block(Arc::new(base_block.clone()), CountUnrealized::True)
+            .process_block(
+                base_block.canonical_root(),
+                Arc::new(base_block.clone()),
+                CountUnrealized::True
+            )
             .await
             .err()
             .expect("should error when processing base block"),
@@ -1290,7 +1308,11 @@ async fn add_altair_block_to_base_chain() {
     assert!(matches!(
         harness
             .chain
-            .process_block(Arc::new(altair_block.clone()), CountUnrealized::True)
+            .process_block(
+                altair_block.canonical_root(),
+                Arc::new(altair_block.clone()),
+                CountUnrealized::True
+            )
             .await
             .err()
             .expect("should error when processing altair block"),

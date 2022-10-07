@@ -320,6 +320,15 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 and never provide an untrusted URL.")
                 .takes_value(true),
         )
+        .arg(
+            Arg::with_name("monitoring-endpoint-period")
+                .long("monitoring-endpoint-period")
+                .value_name("SECONDS")
+                .help("Defines how many seconds to wait between each message sent to \
+                       the monitoring-endpoint. Default: 60s")
+                .requires("monitoring-endpoint")
+                .takes_value(true),
+        )
 
         /*
          * Standard staking flags
@@ -363,9 +372,9 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .long("eth1-endpoints")
                 .value_name("HTTP-ENDPOINTS")
                 .conflicts_with("eth1-endpoint")
-                .help("One or more comma-delimited server endpoints for web3 connection. \
-                       If multiple endpoints are given the endpoints are used as fallback in the \
-                       given order. Also enables the --eth1 flag. \
+                .help("One http endpoint for a web3 connection to an execution node. \
+                       Note: This flag is now only useful for testing, use `--execution-endpoint` \
+                       flag to connect to an execution node on mainnet and testnets.
                        Defaults to http://127.0.0.1:8545.")
                 .takes_value(true)
         )
@@ -431,7 +440,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                        JSON-RPC connection. Uses the same endpoint to populate the \
                        deposit cache.")
                 .takes_value(true)
-                .requires("execution-jwt")
         )
         .arg(
             Arg::with_name("execution-jwt")
@@ -441,6 +449,17 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .help("File path which contains the hex-encoded JWT secret for the \
                        execution endpoint provided in the --execution-endpoint flag.")
                 .requires("execution-endpoint")
+                .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("execution-jwt-secret-key")
+                .long("execution-jwt-secret-key")
+                .value_name("EXECUTION-JWT-SECRET-KEY")
+                .alias("jwt-secret-key")
+                .help("Hex-encoded JWT secret for the \
+                       execution endpoint provided in the --execution-endpoint flag.")
+                .requires("execution-endpoint")
+                .conflicts_with("execution-jwt")
                 .takes_value(true)
         )
         .arg(
@@ -503,6 +522,15 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("auto-compact-db")
                 .long("auto-compact-db")
                 .help("Enable or disable automatic compaction of the database on finalization.")
+                .takes_value(true)
+                .default_value("true")
+        )
+        .arg(
+            Arg::with_name("prune-payloads")
+                .long("prune-payloads")
+                .help("Prune execution payloads from Lighthouse's database. This saves space but \
+                       imposes load on the execution client, as payloads need to be \
+                       reconstructed and sent to syncing peers.")
                 .takes_value(true)
                 .default_value("true")
         )
@@ -778,6 +806,21 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(false)
         )
         .arg(
+            Arg::with_name("builder-profit-threshold")
+                .long("builder-profit-threshold")
+                .value_name("WEI_VALUE")
+                .help("The minimum reward in wei provided to the proposer by a block builder for \
+                    an external payload to be considered for inclusion in a proposal. If this \
+                    threshold is not met, the local EE's payload will be used. This is currently \
+                    *NOT* in comparison to the value of the local EE's payload. It simply checks \
+                    whether the total proposer reward from an external payload is equal to or \
+                    greater than this value. In the future, a comparison to a local payload is \
+                    likely to be added. Example: Use 250000000000000000 to set the threshold to \
+                     0.25 ETH.")
+                .default_value("0")
+                .takes_value(true)
+        )
+        .arg(
             Arg::with_name("count-unrealized")
                 .long("count-unrealized")
                 .hidden(true)
@@ -785,6 +828,14 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                        vote tracking method.")
                 .takes_value(true)
                 .default_value("true")
+        )
+        .arg(
+            Arg::with_name("count-unrealized-full")
+                .long("count-unrealized-full")
+                .hidden(true)
+                .help("Stricter version of `count-unrealized`.")
+                .takes_value(true)
+                .default_value("false")
         )
         .arg(
             Arg::with_name("reset-payload-statuses")

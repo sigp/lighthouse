@@ -1,10 +1,10 @@
-use beacon_node::ClientConfig as Config;
+use beacon_node::{beacon_chain::CountUnrealizedFull, ClientConfig as Config};
 
 use crate::exec::{CommandLineTestExec, CompletedTest};
 use eth1::Eth1Endpoint;
 use lighthouse_network::PeerId;
 use std::fs::File;
-use std::io::Write;
+use std::io::{Read, Write};
 use std::net::IpAddr;
 use std::path::PathBuf;
 use std::process::Command;
@@ -68,7 +68,7 @@ fn staking_flag() {
             assert!(config.http_api.enabled);
             assert!(config.sync_eth1_chain);
             assert_eq!(
-                config.eth1.endpoints.get_endpoints()[0].to_string(),
+                config.eth1.endpoint.get_endpoint().to_string(),
                 DEFAULT_ETH1_ENDPOINT
             );
         });
@@ -179,6 +179,45 @@ fn count_unrealized_true() {
 }
 
 #[test]
+fn count_unrealized_full_no_arg() {
+    CommandLineTest::new()
+        .flag("count-unrealized-full", None)
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config.chain.count_unrealized_full,
+                CountUnrealizedFull::False
+            )
+        });
+}
+
+#[test]
+fn count_unrealized_full_false() {
+    CommandLineTest::new()
+        .flag("count-unrealized-full", Some("false"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config.chain.count_unrealized_full,
+                CountUnrealizedFull::False
+            )
+        });
+}
+
+#[test]
+fn count_unrealized_full_true() {
+    CommandLineTest::new()
+        .flag("count-unrealized-full", Some("true"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config.chain.count_unrealized_full,
+                CountUnrealizedFull::True
+            )
+        });
+}
+
+#[test]
 fn reset_payload_statuses_default() {
     CommandLineTest::new()
         .run_with_zero_port()
@@ -254,27 +293,16 @@ fn eth1_flag() {
 #[test]
 fn eth1_endpoints_flag() {
     CommandLineTest::new()
-        .flag(
-            "eth1-endpoints",
-            Some("http://localhost:9545,https://infura.io/secret"),
-        )
+        .flag("eth1-endpoints", Some("http://localhost:9545"))
         .run_with_zero_port()
         .with_config(|config| {
             assert_eq!(
-                config.eth1.endpoints.get_endpoints()[0].full.to_string(),
+                config.eth1.endpoint.get_endpoint().full.to_string(),
                 "http://localhost:9545/"
             );
             assert_eq!(
-                config.eth1.endpoints.get_endpoints()[0].to_string(),
+                config.eth1.endpoint.get_endpoint().to_string(),
                 "http://localhost:9545/"
-            );
-            assert_eq!(
-                config.eth1.endpoints.get_endpoints()[1].full.to_string(),
-                "https://infura.io/secret"
-            );
-            assert_eq!(
-                config.eth1.endpoints.get_endpoints()[1].to_string(),
-                "https://infura.io/"
             );
             assert!(config.sync_eth1_chain);
         });
@@ -358,6 +386,27 @@ fn run_merge_execution_endpoints_flag_test(flag: &str) {
         });
 }
 #[test]
+fn run_execution_jwt_secret_key_is_persisted() {
+    let jwt_secret_key = "0x3cbc11b0d8fa16f3344eacfd6ff6430b9d30734450e8adcf5400f88d327dcb33";
+    CommandLineTest::new()
+        .flag("execution-endpoint", Some("http://localhost:8551/"))
+        .flag("execution-jwt-secret-key", Some(jwt_secret_key))
+        .run_with_zero_port()
+        .with_config(|config| {
+            let config = config.execution_layer.as_ref().unwrap();
+            assert_eq!(
+                config.execution_endpoints[0].full.to_string(),
+                "http://localhost:8551/"
+            );
+            let mut file_jwt_secret_key = String::new();
+            File::open(config.secret_files[0].clone())
+                .expect("could not open jwt_secret_key file")
+                .read_to_string(&mut file_jwt_secret_key)
+                .expect("could not read from file");
+            assert_eq!(file_jwt_secret_key, jwt_secret_key);
+        });
+}
+#[test]
 fn merge_execution_endpoints_flag() {
     run_merge_execution_endpoints_flag_test("execution-endpoints")
 }
@@ -390,7 +439,7 @@ fn run_execution_endpoints_overrides_eth1_endpoints_test(eth1_flag: &str, execut
             // The eth1 endpoint should have been set to the --execution-endpoint value in defiance
             // of --eth1-endpoints.
             assert_eq!(
-                config.eth1.endpoints,
+                config.eth1.endpoint,
                 Eth1Endpoint::Auth {
                     endpoint: SensitiveUrl::parse(execution_endpoint).unwrap(),
                     jwt_path: jwt_path.clone(),
@@ -532,6 +581,38 @@ fn builder_fallback_flags() {
             assert_eq!(config.chain.builder_fallback_disable_checks, true);
         },
     );
+    run_payload_builder_flag_test_with_config(
+        "builder",
+        "http://meow.cats",
+        Some("builder-profit-threshold"),
+        Some("1000000000000000000000000"),
+        |config| {
+            assert_eq!(
+                config
+                    .execution_layer
+                    .as_ref()
+                    .unwrap()
+                    .builder_profit_threshold,
+                1000000000000000000000000
+            );
+        },
+    );
+    run_payload_builder_flag_test_with_config(
+        "builder",
+        "http://meow.cats",
+        None,
+        None,
+        |config| {
+            assert_eq!(
+                config
+                    .execution_layer
+                    .as_ref()
+                    .unwrap()
+                    .builder_profit_threshold,
+                0
+            );
+        },
+    );
 }
 
 fn run_jwt_optional_flags_test(jwt_flag: &str, jwt_id_flag: &str, jwt_version_flag: &str) {
@@ -553,7 +634,7 @@ fn run_jwt_optional_flags_test(jwt_flag: &str, jwt_id_flag: &str, jwt_version_fl
             assert_eq!(el_config.jwt_id, Some(id.to_string()));
             assert_eq!(el_config.jwt_version, Some(version.to_string()));
             assert_eq!(
-                config.eth1.endpoints,
+                config.eth1.endpoint,
                 Eth1Endpoint::Auth {
                     endpoint: SensitiveUrl::parse(execution_endpoint).unwrap(),
                     jwt_path: dir.path().join(jwt_file),
@@ -1156,6 +1237,19 @@ fn compact_db_flag() {
         .with_config(|config| assert!(config.store.compact_on_init));
 }
 #[test]
+fn prune_payloads_default() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| assert!(config.store.prune_payloads));
+}
+#[test]
+fn prune_payloads_on_startup_false() {
+    CommandLineTest::new()
+        .flag("prune-payloads", Some("false"))
+        .run_with_zero_port()
+        .with_config(|config| assert!(!config.store.prune_payloads));
+}
+#[test]
 fn reconstruct_historic_states_flag() {
     CommandLineTest::new()
         .flag("reconstruct-historic-states", None)
@@ -1345,7 +1439,7 @@ fn slasher_backend_override_to_default() {
 }
 
 #[test]
-pub fn malloc_tuning_flag() {
+fn malloc_tuning_flag() {
     CommandLineTest::new()
         .flag("disable-malloc-tuning", None)
         .run_with_zero_port()
@@ -1366,5 +1460,54 @@ fn ensure_panic_on_failed_launch() {
                 .as_ref()
                 .expect("Unable to parse Slasher config");
             assert_eq!(slasher_config.chunk_size, 10);
+        });
+}
+
+#[test]
+fn monitoring_endpoint() {
+    CommandLineTest::new()
+        .flag("monitoring-endpoint", Some("http://example:8000"))
+        .flag("monitoring-endpoint-period", Some("30"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            let api_conf = config.monitoring_api.as_ref().unwrap();
+            assert_eq!(api_conf.monitoring_endpoint.as_str(), "http://example:8000");
+            assert_eq!(api_conf.update_period_secs, Some(30));
+        });
+}
+
+// Tests for Logger flags.
+#[test]
+fn default_log_color_flag() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert!(!config.logger_config.log_color);
+        });
+}
+#[test]
+fn enabled_log_color_flag() {
+    CommandLineTest::new()
+        .flag("log-color", None)
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert!(config.logger_config.log_color);
+        });
+}
+#[test]
+fn default_disable_log_timestamp_flag() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert!(!config.logger_config.disable_log_timestamp);
+        });
+}
+#[test]
+fn enabled_disable_log_timestamp_flag() {
+    CommandLineTest::new()
+        .flag("disable-log-timestamp", None)
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert!(config.logger_config.disable_log_timestamp);
         });
 }

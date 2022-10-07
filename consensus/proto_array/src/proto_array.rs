@@ -118,6 +118,24 @@ impl Default for ProposerBoost {
     }
 }
 
+/// Indicate whether we should strictly count unrealized justification/finalization votes.
+#[derive(Default, PartialEq, Eq, Debug, Serialize, Deserialize, Copy, Clone)]
+pub enum CountUnrealizedFull {
+    True,
+    #[default]
+    False,
+}
+
+impl From<bool> for CountUnrealizedFull {
+    fn from(b: bool) -> Self {
+        if b {
+            CountUnrealizedFull::True
+        } else {
+            CountUnrealizedFull::False
+        }
+    }
+}
+
 #[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
 pub struct ProtoArray {
     /// Do not attempt to prune the tree unless it has at least this many nodes. Small prunes
@@ -128,6 +146,7 @@ pub struct ProtoArray {
     pub nodes: Vec<ProtoNode>,
     pub indices: HashMap<Hash256, usize>,
     pub previous_proposer_boost: ProposerBoost,
+    pub count_unrealized_full: CountUnrealizedFull,
 }
 
 impl ProtoArray {
@@ -903,14 +922,15 @@ impl ProtoArray {
             let current_epoch = current_slot.epoch(E::slots_per_epoch());
 
             // If previous epoch is justified, pull up all tips to at least the previous epoch
-            if current_epoch > genesis_epoch && self.justified_checkpoint.epoch + 1 == current_epoch
+            if CountUnrealizedFull::True == self.count_unrealized_full
+                && (current_epoch > genesis_epoch
+                    && self.justified_checkpoint.epoch + 1 == current_epoch)
             {
                 unrealized_justified_checkpoint.epoch + 1 >= current_epoch
             // If previous epoch is not justified, pull up only tips from past epochs up to the current epoch
             } else {
                 // If block is from a previous epoch, filter using unrealized justification & finalization information
-                if node.slot.epoch(E::slots_per_epoch()) < current_epoch
-                {
+                if node.slot.epoch(E::slots_per_epoch()) < current_epoch {
                     checkpoint_match_predicate(
                         unrealized_justified_checkpoint,
                         unrealized_finalized_checkpoint,

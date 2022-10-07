@@ -28,6 +28,7 @@ pub use mock_execution_layer::MockExecutionLayer;
 pub const DEFAULT_TERMINAL_DIFFICULTY: u64 = 6400;
 pub const DEFAULT_TERMINAL_BLOCK: u64 = 64;
 pub const DEFAULT_JWT_SECRET: [u8; 32] = [42; 32];
+pub const DEFAULT_BUILDER_THRESHOLD_WEI: u128 = 1_000_000_000_000_000_000;
 
 mod execution_block_generator;
 mod handle_rpc;

@@ -112,6 +112,8 @@ pub struct Timeouts {
     pub proposer_duties: Duration,
     pub sync_committee_contribution: Duration,
     pub sync_duties: Duration,
+    pub get_beacon_blocks_ssz: Duration,
+    pub get_debug_beacon_states: Duration,
 }
 
 impl Timeouts {
@@ -124,6 +126,8 @@ impl Timeouts {
             proposer_duties: timeout,
             sync_committee_contribution: timeout,
             sync_duties: timeout,
+            get_beacon_blocks_ssz: timeout,
+            get_debug_beacon_states: timeout,
         }
     }
 }
@@ -239,9 +243,10 @@ impl BeaconNodeHttpClient {
         &self,
         url: U,
         accept_header: Accept,
+        timeout: Duration,
     ) -> Result<Option<Vec<u8>>, Error> {
         let opt_response = self
-            .get_response(url, |b| b.accept(accept_header))
+            .get_response(url, |b| b.accept(accept_header).timeout(timeout))
             .await
             .optional()?;
         match opt_response {
@@ -701,7 +706,7 @@ impl BeaconNodeHttpClient {
     ) -> Result<Option<SignedBeaconBlock<T>>, Error> {
         let path = self.get_beacon_blocks_path(block_id)?;
 
-        self.get_bytes_opt_accept_header(path, Accept::Ssz)
+        self.get_bytes_opt_accept_header(path, Accept::Ssz, self.timeouts.get_beacon_blocks_ssz)
             .await?
             .map(|bytes| SignedBeaconBlock::from_ssz_bytes(&bytes, spec).map_err(Error::InvalidSsz))
             .transpose()
@@ -1167,7 +1172,7 @@ impl BeaconNodeHttpClient {
     ) -> Result<Option<BeaconState<T>>, Error> {
         let path = self.get_debug_beacon_states_path(state_id)?;
 
-        self.get_bytes_opt_accept_header(path, Accept::Ssz)
+        self.get_bytes_opt_accept_header(path, Accept::Ssz, self.timeouts.get_debug_beacon_states)
             .await?
             .map(|bytes| BeaconState::from_ssz_bytes(&bytes, spec).map_err(Error::InvalidSsz))
             .transpose()
@@ -1228,17 +1233,17 @@ impl BeaconNodeHttpClient {
         randao_reveal: &SignatureBytes,
         graffiti: Option<&Graffiti>,
     ) -> Result<ForkVersionedResponse<BeaconBlock<T, Payload>>, Error> {
-        self.get_validator_blocks_with_verify_randao(slot, Some(randao_reveal), graffiti, None)
+        self.get_validator_blocks_modular(slot, randao_reveal, graffiti, SkipRandaoVerification::No)
             .await
     }
 
     /// `GET v2/validator/blocks/{slot}`
-    pub async fn get_validator_blocks_with_verify_randao<T: EthSpec, Payload: ExecPayload<T>>(
+    pub async fn get_validator_blocks_modular<T: EthSpec, Payload: ExecPayload<T>>(
         &self,
         slot: Slot,
-        randao_reveal: Option<&SignatureBytes>,
+        randao_reveal: &SignatureBytes,
         graffiti: Option<&Graffiti>,
-        verify_randao: Option<bool>,
+        skip_randao_verification: SkipRandaoVerification,
     ) -> Result<ForkVersionedResponse<BeaconBlock<T, Payload>>, Error> {
         let mut path = self.eth_path(V2)?;
 
@@ -1248,19 +1253,17 @@ impl BeaconNodeHttpClient {
             .push("blocks")
             .push(&slot.to_string());
 
-        if let Some(randao_reveal) = randao_reveal {
-            path.query_pairs_mut()
-                .append_pair("randao_reveal", &randao_reveal.to_string());
-        }
+        path.query_pairs_mut()
+            .append_pair("randao_reveal", &randao_reveal.to_string());
 
         if let Some(graffiti) = graffiti {
             path.query_pairs_mut()
                 .append_pair("graffiti", &graffiti.to_string());
         }
 
-        if let Some(verify_randao) = verify_randao {
+        if skip_randao_verification == SkipRandaoVerification::Yes {
             path.query_pairs_mut()
-                .append_pair("verify_randao", &verify_randao.to_string());
+                .append_pair("skip_randao_verification", "");
         }
 
         self.get(path).await
@@ -1273,25 +1276,22 @@ impl BeaconNodeHttpClient {
         randao_reveal: &SignatureBytes,
         graffiti: Option<&Graffiti>,
     ) -> Result<ForkVersionedResponse<BeaconBlock<T, Payload>>, Error> {
-        self.get_validator_blinded_blocks_with_verify_randao(
+        self.get_validator_blinded_blocks_modular(
             slot,
-            Some(randao_reveal),
+            randao_reveal,
             graffiti,
-            None,
+            SkipRandaoVerification::No,
         )
         .await
     }
 
     /// `GET v1/validator/blinded_blocks/{slot}`
-    pub async fn get_validator_blinded_blocks_with_verify_randao<
-        T: EthSpec,
-        Payload: ExecPayload<T>,
-    >(
+    pub async fn get_validator_blinded_blocks_modular<T: EthSpec, Payload: ExecPayload<T>>(
         &self,
         slot: Slot,
-        randao_reveal: Option<&SignatureBytes>,
+        randao_reveal: &SignatureBytes,
         graffiti: Option<&Graffiti>,
-        verify_randao: Option<bool>,
+        skip_randao_verification: SkipRandaoVerification,
     ) -> Result<ForkVersionedResponse<BeaconBlock<T, Payload>>, Error> {
         let mut path = self.eth_path(V1)?;
 
@@ -1301,19 +1301,17 @@ impl BeaconNodeHttpClient {
             .push("blinded_blocks")
             .push(&slot.to_string());
 
-        if let Some(randao_reveal) = randao_reveal {
-            path.query_pairs_mut()
-                .append_pair("randao_reveal", &randao_reveal.to_string());
-        }
+        path.query_pairs_mut()
+            .append_pair("randao_reveal", &randao_reveal.to_string());
 
         if let Some(graffiti) = graffiti {
             path.query_pairs_mut()
                 .append_pair("graffiti", &graffiti.to_string());
         }
 
-        if let Some(verify_randao) = verify_randao {
+        if skip_randao_verification == SkipRandaoVerification::Yes {
             path.query_pairs_mut()
-                .append_pair("verify_randao", &verify_randao.to_string());
+                .append_key_only("skip_randao_verification");
         }
 
         self.get(path).await

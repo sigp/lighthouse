@@ -252,6 +252,20 @@ lazy_static! {
             "Gossipsub sync_committee errors per error type",
             &["type"]
         );
+
+    /*
+     * Network queue metrics
+     */
+    pub static ref NETWORK_RECEIVE_EVENTS: Result<IntCounterVec> = try_create_int_counter_vec(
+        "network_receive_events",
+        "Count of events received by the channel to the network service",
+        &["type"]
+    );
+    pub static ref NETWORK_RECEIVE_TIMES: Result<HistogramVec> = try_create_histogram_vec(
+        "network_receive_times",
+        "Time taken for network to handle an event sent to the network service.",
+        &["type"]
+    );
 }
 
 lazy_static! {
@@ -297,13 +311,18 @@ lazy_static! {
     /*
      * Block Delay Metrics
      */
-    pub static ref BEACON_BLOCK_GOSSIP_PROPAGATION_VERIFICATION_DELAY_TIME: Result<Histogram> = try_create_histogram(
+    pub static ref BEACON_BLOCK_GOSSIP_PROPAGATION_VERIFICATION_DELAY_TIME: Result<Histogram> = try_create_histogram_with_buckets(
         "beacon_block_gossip_propagation_verification_delay_time",
         "Duration between when the block is received and when it is verified for propagation.",
+        // [0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5]
+        decimal_buckets(-3,-1)
     );
-    pub static ref BEACON_BLOCK_GOSSIP_SLOT_START_DELAY_TIME: Result<Histogram> = try_create_histogram(
+    pub static ref BEACON_BLOCK_GOSSIP_SLOT_START_DELAY_TIME: Result<Histogram> = try_create_histogram_with_buckets(
         "beacon_block_gossip_slot_start_delay_time",
         "Duration between when the block is received and the start of the slot it belongs to.",
+        // [0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 50]
+        decimal_buckets(-1,2)
+
     );
     pub static ref BEACON_BLOCK_GOSSIP_ARRIVED_LATE_TOTAL: Result<IntCounter> = try_create_int_counter(
         "beacon_block_gossip_arrived_late_total",
