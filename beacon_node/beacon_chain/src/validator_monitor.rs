@@ -1,4 +1,4 @@
-//! Provides detailed logging and metrics for a set of registered validators.
+/! Provides detailed logging and metrics for a set of registered validators.
 //!
 //! This component should not affect consensus.
 
@@ -718,7 +718,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
             );
 
             validator.with_epoch_summary(epoch, |summary| {
-                summary.register_aggregated_attestation(delay)
+                summary.register_block(delay)
             });
         }
     }
