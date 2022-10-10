@@ -64,6 +64,9 @@ pub enum Error<T> {
         current_slot: Slot,
         fc_store_slot: Slot,
     },
+    ProposerBoostNotExpiredForGetProposerHead {
+        proposer_boost_root: Hash256,
+    },
     UnrealizedVoteProcessing(state_processing::EpochProcessingError),
     ParticipationCacheBuild(BeaconStateError),
     ValidatorStatuses(BeaconStateError),
@@ -574,6 +577,14 @@ where
             return Err(Error::WrongSlotForGetProposerHead {
                 current_slot,
                 fc_store_slot,
+            });
+        }
+
+        // Similarly, the proposer boost for the previous head should already have expired.
+        let proposer_boost_root = self.fc_store.proposer_boost_root();
+        if !proposer_boost_root.is_zero() {
+            return Err(Error::ProposerBoostNotExpiredForGetProposerHead {
+                proposer_boost_root,
             });
         }
 

@@ -394,17 +394,20 @@ impl ProtoArrayForkChoice {
 
         // To prevent excessive re-orgs when the chain is struggling, only re-org when participation
         // is above the configured threshold. This should not overflow.
-        let participation_ok = parent_node.weight
-            >= justified_balances.total_effective_balance * participation_threshold.0 / 100;
+        let participation_committee_threshold =
+            calculate_proposer_boost::<E>(justified_balances, participation_threshold.0)
+                .ok_or_else(|| {
+                    "overflow calculating committee weight for participation threshold".to_string()
+                })?;
+        let participation_ok =
+            parent_node.weight >= participation_committee_threshold.saturating_mul(2);
 
         // Only re-org if the head's weight is less than the configured committee fraction.
         let re_org_weight_threshold =
             calculate_proposer_boost::<E>(justified_balances, re_org_threshold.0).ok_or_else(
-                || "overflow calculating committee weight for proposer boost".to_string(),
+                || "overflow calculating committee weight for re-org threshold".to_string(),
             )?;
-        let canonical_head_weight = self
-            .get_block_unique_weight(canonical_head, &justified_balances.effective_balances)
-            .map_err(|e| format!("overflow calculating head weight: {:?}", e))?;
+        let canonical_head_weight = head_node.weight;
         let is_weak_head = canonical_head_weight < re_org_weight_threshold;
 
         let re_org_head = (is_single_slot_re_org
@@ -430,13 +433,20 @@ impl ProtoArrayForkChoice {
     /// This weight is the weight unique to the block, *not* including the weight of its ancestors.
     ///
     /// Any `proposer_boost` in effect is ignored: only attestations are counted.
-    fn get_block_unique_weight(
+    // FIXME(sproul): consider deleting
+    pub fn get_block_unique_weight(
         &self,
         block_root: Hash256,
         justified_balances: &[u64],
+        equivocating_indices: &BTreeSet<u64>,
     ) -> Result<u64, Error> {
         let mut unique_weight = 0u64;
         for (validator_index, vote) in self.votes.iter().enumerate() {
+            // Skip equivocating validators.
+            if equivocating_indices.contains(&(validator_index as u64)) {
+                continue;
+            }
+
             // Check the `next_root` as we care about the most recent attestations, including ones
             // from the previous slot that have just been dequeued but haven't run fully through
             // fork choice yet.

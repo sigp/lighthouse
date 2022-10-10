@@ -3340,6 +3340,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             "ffg_competitive" => proposer_head.ffg_competitive,
             "cache_hit" => cache_hit,
             "shuffling_stable" => proposer_head.shuffling_stable,
+            "participation_ok" => proposer_head.participation_ok,
         );
         None
     }

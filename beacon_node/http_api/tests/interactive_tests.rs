@@ -66,6 +66,7 @@ pub async fn proposer_boost_re_org_test(
     // Validator count needs to be at least 32 or proposer boost gets set to 0 when computing
     // `validator_count // 32`.
     let validator_count = 32;
+    let all_validators = (0..validator_count).collect::<Vec<usize>>();
     let num_initial = head_slot.as_u64() - 1;
 
     let tester = InteractiveTester::<E>::new_with_mutator(
@@ -100,6 +101,17 @@ pub async fn proposer_boost_re_org_test(
 
     let block_a_root = harness.head_block_root();
     let state_a = harness.get_current_state();
+
+    // Attest to block A during slot B.
+    harness.advance_slot();
+    let block_a_empty_votes = harness.make_attestations(
+        &all_validators,
+        &state_a,
+        state_a.canonical_root(),
+        block_a_root.into(),
+        slot_b,
+    );
+    harness.process_attestations(block_a_empty_votes);
 
     // Produce block B and process it halfway through the slot.
     let (block_b, mut state_b) = harness.make_block(state_a.clone(), slot_b).await;
