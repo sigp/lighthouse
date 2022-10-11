@@ -34,7 +34,8 @@
 use crate::persisted_fork_choice::PersistedForkChoice;
 use crate::{
     beacon_chain::{
-        BeaconForkChoice, BeaconStore, BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT, FORK_CHOICE_DB_KEY,
+        BeaconForkChoice, BeaconStore, OverrideForkchoiceUpdate,
+        BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT, FORK_CHOICE_DB_KEY,
     },
     block_times_cache::BlockTimesCache,
     events::ServerSentEventHandler,
@@ -114,6 +115,11 @@ impl<E: EthSpec> CachedHead<E> {
         self.snapshot.beacon_block_root
     }
 
+    /// Returns the root of the parent of the head block.
+    pub fn parent_block_root(&self) -> Hash256 {
+        self.snapshot.beacon_block.parent_root()
+    }
+
     /// Returns root of the `BeaconState` at the head of the beacon chain.
     ///
     /// ## Note
@@ -144,6 +150,21 @@ impl<E: EthSpec> CachedHead<E> {
         let state = &self.snapshot.beacon_state;
         let root = *state.get_randao_mix(state.current_epoch())?;
         Ok(root)
+    }
+
+    /// Returns the randao mix for the parent of the block at the head of the chain.
+    ///
+    /// This is useful for re-orging the current head. The parent's RANDAO value is read from
+    /// the head's execution payload because it is unavailable in the beacon state's RANDAO mixes
+    /// array after being overwritten by the head block's RANDAO mix.
+    ///
+    /// This will error if the head block is not execution-enabled (post Bellatrix).
+    pub fn parent_random(&self) -> Result<Hash256, BeaconStateError> {
+        self.snapshot
+            .beacon_block
+            .message()
+            .execution_payload()
+            .map(|payload| payload.prev_randao())
     }
 
     /// Returns the active validator count for the current epoch of the head state.
@@ -1124,7 +1145,11 @@ fn spawn_execution_layer_updates<T: BeaconChainTypes>(
                 }
 
                 if let Err(e) = chain
-                    .update_execution_engine_forkchoice(current_slot, forkchoice_update_params)
+                    .update_execution_engine_forkchoice(
+                        current_slot,
+                        forkchoice_update_params,
+                        OverrideForkchoiceUpdate::Yes,
+                    )
                     .await
                 {
                     crit!(

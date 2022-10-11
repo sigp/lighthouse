@@ -49,9 +49,7 @@ use crate::validator_monitor::{
     HISTORIC_EPOCHS as VALIDATOR_MONITOR_HISTORIC_EPOCHS,
 };
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
-use crate::BeaconForkChoiceStore;
-use crate::BeaconSnapshot;
-use crate::{metrics, BeaconChainError};
+use crate::{metrics, BeaconChainError, BeaconForkChoiceStore, BeaconSnapshot, CachedHead};
 use eth2::types::{EventKind, SseBlock, SyncDuty};
 use execution_layer::{
     BuilderParams, ChainHealth, ExecutionLayer, FailedCondition, PayloadAttributes, PayloadStatus,
@@ -182,6 +180,17 @@ pub enum ChainSegmentResult<T: EthSpec> {
 pub enum ProduceBlockVerification {
     VerifyRandao,
     NoVerification,
+}
+
+pub struct PrePayloadAttributes {
+    pub proposer_index: u64,
+    pub prev_randao: Hash256,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OverrideForkchoiceUpdate {
+    Yes,
+    AlreadyApplied,
 }
 
 /// The accepted clock drift for nodes gossiping blocks and attestations. See:
@@ -3345,7 +3354,110 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         None
     }
 
-    /// Determine whether a fork choice update to the execution layer should be suppressed.
+    ///
+    pub fn get_pre_payload_attributes(
+        &self,
+        proposal_slot: Slot,
+        proposer_head: Hash256,
+        cached_head: &CachedHead<T::EthSpec>,
+    ) -> Result<Option<PrePayloadAttributes>, Error> {
+        let proposal_epoch = proposal_slot.epoch(T::EthSpec::slots_per_epoch());
+
+        let head_block_root = cached_head.head_block_root();
+        let parent_block_root = cached_head.parent_block_root();
+
+        // The proposer head must be equal to the canonical head or its parent.
+        if proposer_head != head_block_root && proposer_head != parent_block_root {
+            warn!(
+                self.log,
+                "Unable to compute payload attributes";
+                "block_root" => ?proposer_head,
+                "head_block_root" => ?head_block_root,
+            );
+            return Ok(None);
+        }
+
+        // Compute the proposer index.
+        let head_epoch = cached_head.head_slot().epoch(T::EthSpec::slots_per_epoch());
+        let shuffling_decision_root = if head_epoch == proposal_epoch {
+            cached_head
+                .snapshot
+                .beacon_state
+                .proposer_shuffling_decision_root(proposer_head)?
+        } else {
+            proposer_head
+        };
+        let cached_proposer = self
+            .beacon_proposer_cache
+            .lock()
+            .get_slot::<T::EthSpec>(shuffling_decision_root, proposal_slot);
+        let proposer_index = if let Some(proposer) = cached_proposer {
+            proposer.index as u64
+        } else {
+            if head_epoch + 2 < proposal_epoch {
+                warn!(
+                    self.log,
+                    "Skipping proposer preparation";
+                    "msg" => "this is a non-critical issue that can happen on unhealthy nodes or \
+                              networks.",
+                    "proposal_epoch" => proposal_epoch,
+                    "head_epoch" => head_epoch,
+                );
+
+                // Don't skip the head forward more than two epochs. This avoids burdening an
+                // unhealthy node.
+                //
+                // Although this node might miss out on preparing for a proposal, they should still
+                // be able to propose. This will prioritise beacon chain health over efficient
+                // packing of execution blocks.
+                return Ok(None);
+            }
+
+            let (proposers, decision_root, _, fork) =
+                compute_proposer_duties_from_head(proposal_epoch, self)?;
+
+            let proposer_offset = (proposal_slot % T::EthSpec::slots_per_epoch()).as_usize();
+            let proposer = *proposers
+                .get(proposer_offset)
+                .ok_or(BeaconChainError::NoProposerForSlot(proposal_slot))?;
+
+            self.beacon_proposer_cache.lock().insert(
+                proposal_epoch,
+                decision_root,
+                proposers,
+                fork,
+            )?;
+
+            // It's possible that the head changes whilst computing these duties. If so, abandon
+            // this routine since the change of head would have also spawned another instance of
+            // this routine.
+            //
+            // Exit now, after updating the cache.
+            if decision_root != shuffling_decision_root {
+                warn!(
+                    self.log,
+                    "Head changed during proposer preparation";
+                );
+                return Ok(None);
+            }
+
+            proposer as u64
+        };
+
+        // Get the `prev_randao` value.
+        let prev_randao = if proposer_head == parent_block_root {
+            cached_head.parent_random()
+        } else {
+            cached_head.head_random()
+        }?;
+
+        Ok(Some(PrePayloadAttributes {
+            proposer_index,
+            prev_randao,
+        }))
+    }
+
+    /// Determine whether a fork choice update to the execution layer should be overridden.
     ///
     /// This is *only* necessary when proposer re-orgs are enabled, because we have to prevent the
     /// execution layer from enshrining the block we want to re-org as the head.
@@ -3353,15 +3465,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// This function uses heuristics that align quite closely but not exactly with the re-org
     /// conditions set out in `get_state_for_re_org` and `get_proposer_head`. The differences are
     /// documented below.
-    async fn should_suppress_fork_choice_update(
+    fn overridden_forkchoice_update_params(
         &self,
+        canonical_forkchoice_params: ForkchoiceUpdateParameters,
         current_slot: Slot,
-        head_block_root: Hash256,
-    ) -> Result<bool, Error> {
-        // Never supress if proposer re-orgs are disabled.
+    ) -> Result<ForkchoiceUpdateParameters, Error> {
+        // Never override if proposer re-orgs are disabled.
         if self.config.re_org_threshold.is_none() {
-            return Ok(false);
+            return Ok(canonical_forkchoice_params);
         }
+
+        let head_block_root = canonical_forkchoice_params.head_root;
 
         // Load details of the head block and its parent from fork choice.
         let (head_node, parent_node) = {
@@ -3376,7 +3490,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .collect::<Vec<_>>();
 
             if nodes.len() != 2 {
-                return Ok(false);
+                return Ok(canonical_forkchoice_params);
             }
 
             let parent = nodes.pop().ok_or(Error::SuppressForkChoiceError)?;
@@ -3392,6 +3506,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // If our proposal fails entirely we will attest to the wrong head during
         // `re_org_block_slot` and only re-align with the canonical chain 500ms before the start of
         // the next slot (i.e. `head_slot + 2`).
+        // FIXME(sproul): add some timing conditions here
         let current_slot_ok = head_node.slot == current_slot || re_org_block_slot == current_slot;
 
         // Only attempt single slot re-orgs, and not at epoch boundaries.
@@ -3404,14 +3519,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             && parent_node.unrealized_finalized_checkpoint
                 == head_node.unrealized_finalized_checkpoint;
 
-        // Check that this node has a proposer prepared to execute a re-org.
-        let prepared_for_re_org = self
-            .execution_layer
-            .as_ref()
-            .ok_or(Error::ExecutionLayerMissing)?
-            .payload_attributes(re_org_block_slot, parent_node.root)
-            .await
-            .is_some();
+        // FIXME(sproul): add participation check
 
         // Check that the head block arrived late and is vulnerable to a re-org. This check is only
         // a heuristic compared to the proper weight check in `get_state_for_re_org`, the reason
@@ -3421,13 +3529,40 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let head_block_late =
             self.block_observed_after_attestation_deadline(head_block_root, head_node.slot);
 
-        let might_re_org = current_slot_ok
-            && block_slot_ok
-            && ffg_competitive
-            && prepared_for_re_org
-            && head_block_late;
+        let might_re_org = current_slot_ok && block_slot_ok && ffg_competitive && head_block_late;
 
-        Ok(might_re_org)
+        if !might_re_org {
+            debug!(
+                self.log,
+                "Not overriding fork choice update";
+                "current_slot_ok" => current_slot_ok,
+                "block_slot_ok" => block_slot_ok,
+                "ffg_competitive" => ffg_competitive,
+                "head_block_late" => head_block_late
+            );
+            return Ok(canonical_forkchoice_params);
+        }
+
+        let parent_head_hash = if let Some(hash) = parent_node.execution_status.block_hash() {
+            hash
+        } else {
+            warn!(
+                self.log,
+                "Missing exec block hash for parent";
+                "parent_root" => ?parent_node.root,
+                "status" => ?parent_node.execution_status,
+            );
+            return Ok(canonical_forkchoice_params);
+        };
+
+        let forkchoice_update_params = ForkchoiceUpdateParameters {
+            head_root: parent_node.root,
+            head_hash: Some(parent_head_hash),
+            justified_hash: canonical_forkchoice_params.justified_hash,
+            finalized_hash: canonical_forkchoice_params.finalized_hash,
+        };
+
+        Ok(forkchoice_update_params)
     }
 
     /// Check if the block with `block_root` was observed after the attestation deadline of `slot`.
@@ -4012,7 +4147,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         current_slot: Slot,
     ) -> Result<(), Error> {
         let prepare_slot = current_slot + 1;
-        let prepare_epoch = prepare_slot.epoch(T::EthSpec::slots_per_epoch());
 
         // There's no need to run the proposer preparation routine before the bellatrix fork.
         if self.slot_is_prior_to_bellatrix(prepare_slot) {
@@ -4030,156 +4164,96 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Ok(());
         }
 
-        // Atomically read some values from the canonical head, whilst avoiding holding the cached
-        // head `Arc` any longer than necessary.
+        // Load the cached head and its forkchoice update parameters.
         //
         // Use a blocking task since blocking the core executor on the canonical head read lock can
         // block the core tokio executor.
         let chain = self.clone();
-        let (head_slot, head_root, head_decision_root, head_random, forkchoice_update_params) =
-            self.spawn_blocking_handle(
+        let maybe_prep_data = self
+            .spawn_blocking_handle(
                 move || {
                     let cached_head = chain.canonical_head.cached_head();
-                    let head_block_root = cached_head.head_block_root();
-                    let decision_root = cached_head
-                        .snapshot
-                        .beacon_state
-                        .proposer_shuffling_decision_root(head_block_root)?;
-                    Ok::<_, Error>((
-                        cached_head.head_slot(),
-                        head_block_root,
-                        decision_root,
-                        cached_head.head_random()?,
-                        cached_head.forkchoice_update_parameters(),
-                    ))
+
+                    // Don't bother with proposer prep if the head is more than
+                    // `PREPARE_PROPOSER_HISTORIC_EPOCHS` prior to the current slot.
+                    //
+                    // This prevents the routine from running during sync.
+                    let head_slot = cached_head.head_slot();
+                    if head_slot + T::EthSpec::slots_per_epoch() * PREPARE_PROPOSER_HISTORIC_EPOCHS
+                        < current_slot
+                    {
+                        debug!(
+                            chain.log,
+                            "Head too old for proposer prep";
+                            "head_slot" => head_slot,
+                            "current_slot" => current_slot,
+                        );
+                        return Ok(None);
+                    }
+
+                    let canonical_fcu_params = cached_head.forkchoice_update_parameters();
+                    let fcu_params = chain
+                        .overridden_forkchoice_update_params(canonical_fcu_params, current_slot)?;
+                    let pre_payload_attributes = chain.get_pre_payload_attributes(
+                        prepare_slot,
+                        fcu_params.head_root,
+                        &cached_head,
+                    )?;
+                    Ok::<_, Error>(Some((fcu_params, pre_payload_attributes)))
                 },
-                "prepare_beacon_proposer_fork_choice_read",
+                "prepare_beacon_proposer_head_read",
             )
             .await??;
-        let head_epoch = head_slot.epoch(T::EthSpec::slots_per_epoch());
 
-        // Don't bother with proposer prep if the head is more than
-        // `PREPARE_PROPOSER_HISTORIC_EPOCHS` prior to the current slot.
-        //
-        // This prevents the routine from running during sync.
-        if head_slot + T::EthSpec::slots_per_epoch() * PREPARE_PROPOSER_HISTORIC_EPOCHS
-            < current_slot
-        {
-            debug!(
-                self.log,
-                "Head too old for proposer prep";
-                "head_slot" => head_slot,
-                "current_slot" => current_slot,
-            );
-            return Ok(());
-        }
-
-        // Ensure that the shuffling decision root is correct relative to the epoch we wish to
-        // query.
-        let shuffling_decision_root = if head_epoch == prepare_epoch {
-            head_decision_root
-        } else {
-            head_root
-        };
-
-        // Read the proposer from the proposer cache.
-        let cached_proposer = self
-            .beacon_proposer_cache
-            .lock()
-            .get_slot::<T::EthSpec>(shuffling_decision_root, prepare_slot);
-        let proposer = if let Some(proposer) = cached_proposer {
-            proposer.index
-        } else {
-            if head_epoch + 2 < prepare_epoch {
-                warn!(
-                    self.log,
-                    "Skipping proposer preparation";
-                    "msg" => "this is a non-critical issue that can happen on unhealthy nodes or \
-                              networks.",
-                    "prepare_epoch" => prepare_epoch,
-                    "head_epoch" => head_epoch,
-                );
-
-                // Don't skip the head forward more than two epochs. This avoids burdening an
-                // unhealthy node.
-                //
-                // Although this node might miss out on preparing for a proposal, they should still
-                // be able to propose. This will prioritise beacon chain health over efficient
-                // packing of execution blocks.
+        let (forkchoice_update_params, pre_payload_attributes) =
+            if let Some((fcu, Some(pre_payload))) = maybe_prep_data {
+                (fcu, pre_payload)
+            } else {
+                // Appropriate log messages have already been logged above and in
+                // `get_pre_payload_attributes`.
                 return Ok(());
-            }
-
-            let (proposers, decision_root, _, fork) =
-                compute_proposer_duties_from_head(prepare_epoch, self)?;
-
-            let proposer_index = prepare_slot.as_usize() % (T::EthSpec::slots_per_epoch() as usize);
-            let proposer = *proposers
-                .get(proposer_index)
-                .ok_or(BeaconChainError::NoProposerForSlot(prepare_slot))?;
-
-            self.beacon_proposer_cache.lock().insert(
-                prepare_epoch,
-                decision_root,
-                proposers,
-                fork,
-            )?;
-
-            // It's possible that the head changes whilst computing these duties. If so, abandon
-            // this routine since the change of head would have also spawned another instance of
-            // this routine.
-            //
-            // Exit now, after updating the cache.
-            if decision_root != shuffling_decision_root {
-                warn!(
-                    self.log,
-                    "Head changed during proposer preparation";
-                );
-                return Ok(());
-            }
-
-            proposer
-        };
+            };
 
         // If the execution layer doesn't have any proposer data for this validator then we assume
         // it's not connected to this BN and no action is required.
+        let proposer = pre_payload_attributes.proposer_index;
         if !execution_layer
-            .has_proposer_preparation_data(proposer as u64)
+            .has_proposer_preparation_data(proposer)
             .await
         {
             return Ok(());
         }
 
+        let head_root = forkchoice_update_params.head_root;
         let payload_attributes = PayloadAttributes {
             timestamp: self
                 .slot_clock
                 .start_of(prepare_slot)
                 .ok_or(Error::InvalidSlot(prepare_slot))?
                 .as_secs(),
-            prev_randao: head_random,
-            suggested_fee_recipient: execution_layer
-                .get_suggested_fee_recipient(proposer as u64)
-                .await,
+            prev_randao: pre_payload_attributes.prev_randao,
+            suggested_fee_recipient: execution_layer.get_suggested_fee_recipient(proposer).await,
         };
 
         debug!(
             self.log,
             "Preparing beacon proposer";
             "payload_attributes" => ?payload_attributes,
-            "head_root" => ?head_root,
             "prepare_slot" => prepare_slot,
             "validator" => proposer,
+            "parent_root" => ?head_root,
         );
 
         let already_known = execution_layer
-            .insert_proposer(prepare_slot, head_root, proposer as u64, payload_attributes)
+            .insert_proposer(prepare_slot, head_root, proposer, payload_attributes)
             .await;
+
         // Only push a log to the user if this is the first time we've seen this proposer for this
         // slot.
         if !already_known {
             info!(
                 self.log,
                 "Prepared beacon proposer";
-                "already_known" => already_known,
                 "prepare_slot" => prepare_slot,
                 "validator" => proposer,
                 "parent_root" => ?head_root,
@@ -4204,27 +4278,24 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 return Ok(());
             };
 
-        // If either of the following are true, send a fork-choice update message to the
-        // EL:
-        //
-        // 1. We're in the tail-end of the slot (as defined by
-        //    PAYLOAD_PREPARATION_LOOKAHEAD_FACTOR)
-        // 2. The head block is one slot (or less) behind the prepare slot (e.g., we're
-        //    preparing for the next slot and the block at the current slot is already
-        //    known).
+        // If we are close enough to the proposal slot, send an fcU, which will have payload
+        // attributes filled in by the execution layer cache we just primed.
         if till_prepare_slot
             <= self.slot_clock.slot_duration() / PAYLOAD_PREPARATION_LOOKAHEAD_FACTOR
-            || head_slot + 1 >= prepare_slot
         {
             debug!(
                 self.log,
-                "Pushing update to prepare proposer";
+                "Sending forkchoiceUpdate for proposer prep";
                 "till_prepare_slot" => ?till_prepare_slot,
                 "prepare_slot" => prepare_slot
             );
 
-            self.update_execution_engine_forkchoice(current_slot, forkchoice_update_params)
-                .await?;
+            self.update_execution_engine_forkchoice(
+                current_slot,
+                forkchoice_update_params,
+                OverrideForkchoiceUpdate::AlreadyApplied,
+            )
+            .await?;
         }
 
         Ok(())
@@ -4233,7 +4304,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub async fn update_execution_engine_forkchoice(
         self: &Arc<Self>,
         current_slot: Slot,
-        params: ForkchoiceUpdateParameters,
+        input_params: ForkchoiceUpdateParameters,
+        override_forkchoice_update: OverrideForkchoiceUpdate,
     ) -> Result<(), Error> {
         let next_slot = current_slot + 1;
 
@@ -4254,6 +4326,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .execution_layer
             .as_ref()
             .ok_or(Error::ExecutionLayerMissing)?;
+
+        // Determine whether to override the forkchoiceUpdated message if we want to re-org
+        // the current head at the next slot.
+        let params = if override_forkchoice_update == OverrideForkchoiceUpdate::Yes {
+            let chain = self.clone();
+            self.spawn_blocking_handle(
+                move || chain.overridden_forkchoice_update_params(input_params, current_slot),
+                "update_execution_engine_forkchoice_override",
+            )
+            .await??
+        } else {
+            input_params
+        };
 
         // Take the global lock for updating the execution engine fork choice.
         //
@@ -4328,21 +4413,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 }
             }
         };
-
-        // Determine whether to suppress the forkchoiceUpdated message if we want to re-org
-        // the current head at the next slot.
-        if self
-            .should_suppress_fork_choice_update(current_slot, head_block_root)
-            .await?
-        {
-            debug!(
-                self.log,
-                "Suppressing fork choice update";
-                "head_block_root" => ?head_block_root,
-                "current_slot" => current_slot,
-            );
-            return Ok(());
-        }
 
         let forkchoice_updated_response = execution_layer
             .notify_forkchoice_updated(

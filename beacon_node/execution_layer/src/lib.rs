@@ -1025,6 +1025,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
             "finalized_block_hash" => ?finalized_block_hash,
             "justified_block_hash" => ?justified_block_hash,
             "head_block_hash" => ?head_block_hash,
+            "head_block_root" => ?head_block_root,
             "current_slot" => current_slot,
         );
 
@@ -1033,6 +1034,12 @@ impl<T: EthSpec> ExecutionLayer<T> {
 
         // Compute the "lookahead", the time between when the payload will be produced and now.
         if let Some(payload_attributes) = payload_attributes {
+            debug!(
+                self.log(),
+                "Sending payload attributes";
+                "timestamp" => payload_attributes.timestamp,
+                "prev_randao" => ?payload_attributes.prev_randao,
+            );
             if let Ok(now) = SystemTime::now().duration_since(UNIX_EPOCH) {
                 let timestamp = Duration::from_secs(payload_attributes.timestamp);
                 if let Some(lookahead) = timestamp.checked_sub(now) {
@@ -1041,12 +1048,14 @@ impl<T: EthSpec> ExecutionLayer<T> {
                         lookahead,
                     );
                 } else {
+                    /* FIXME(sproul): re-enable this, or fix it
                     debug!(
                         self.log(),
                         "Late payload attributes";
                         "timestamp" => ?timestamp,
                         "now" => ?now,
                     )
+                    */
                 }
             }
         }

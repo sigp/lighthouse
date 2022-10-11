@@ -1,14 +1,23 @@
 //! Generic tests that make use of the (newer) `InteractiveApiTester`
 use crate::common::*;
+use beacon_chain::proposer_prep_service::PAYLOAD_PREPARATION_LOOKAHEAD_FACTOR;
 use beacon_chain::{
     chain_config::ReOrgThreshold,
     test_utils::{AttestationStrategy, BlockStrategy},
 };
 use eth2::types::DepositContractData;
+use execution_layer::{ForkChoiceState, PayloadAttributes};
+use parking_lot::Mutex;
 use slot_clock::SlotClock;
 use state_processing::state_advance::complete_state_advance;
+use std::collections::HashMap;
+use std::sync::Arc;
+use std::time::Duration;
 use tree_hash::TreeHash;
-use types::{EthSpec, FullPayload, MainnetEthSpec, Slot};
+use types::{
+    Address, EthSpec, ExecPayload, ExecutionBlockHash, ForkName, FullPayload, MainnetEthSpec,
+    ProposerPreparationData, Slot,
+};
 
 type E = MainnetEthSpec;
 
@@ -38,6 +47,53 @@ async fn deposit_contract_custom_network() {
     assert_eq!(result, expected);
 }
 
+/// Data structure for tracking fork choice updates received by the mock execution layer.
+#[derive(Debug, Default)]
+struct ForkChoiceUpdates {
+    updates: HashMap<ExecutionBlockHash, Vec<ForkChoiceUpdateMetadata>>,
+}
+
+#[derive(Debug, Clone)]
+struct ForkChoiceUpdateMetadata {
+    received_at: Duration,
+    state: ForkChoiceState,
+    payload_attributes: Option<PayloadAttributes>,
+}
+
+impl ForkChoiceUpdates {
+    fn insert(&mut self, update: ForkChoiceUpdateMetadata) {
+        self.updates
+            .entry(update.state.head_block_hash)
+            .or_insert_with(Vec::new)
+            .push(update);
+    }
+
+    fn contains_update_for(&self, block_hash: ExecutionBlockHash) -> bool {
+        self.updates.contains_key(&block_hash)
+    }
+
+    /// Find the first fork choice update for `head_block_hash` with payload attributes for a
+    /// block proposal at `proposal_timestamp`.
+    fn first_update_with_payload_attributes(
+        &self,
+        head_block_hash: ExecutionBlockHash,
+        proposal_timestamp: u64,
+    ) -> Option<ForkChoiceUpdateMetadata> {
+        self.updates
+            .get(&head_block_hash)?
+            .iter()
+            .find(|update| {
+                update
+                    .payload_attributes
+                    .as_ref()
+                    .map_or(false, |payload_attributes| {
+                        payload_attributes.timestamp == proposal_timestamp
+                    })
+            })
+            .cloned()
+    }
+}
+
 // Test that the beacon node will try to perform proposer boost re-orgs on late blocks when
 // configured.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -63,6 +119,10 @@ pub async fn proposer_boost_re_org_test(
 ) {
     assert!(head_slot > 0);
 
+    // We require a network with execution enabled so we can check EL message timings.
+    let mut spec = ForkName::Merge.make_genesis_spec(E::default_spec());
+    spec.terminal_total_difficulty = 1.into();
+
     // Validator count needs to be at least 32 or proposer boost gets set to 0 when computing
     // `validator_count // 32`.
     let validator_count = 32;
@@ -70,7 +130,7 @@ pub async fn proposer_boost_re_org_test(
     let num_initial = head_slot.as_u64() - 1;
 
     let tester = InteractiveTester::<E>::new_with_mutator(
-        None,
+        Some(spec),
         validator_count,
         Some(Box::new(move |builder| {
             builder.proposer_re_org_threshold(re_org_threshold.map(ReOrgThreshold))
@@ -78,7 +138,36 @@ pub async fn proposer_boost_re_org_test(
     )
     .await;
     let harness = &tester.harness;
+    let mock_el = harness.mock_execution_layer.as_ref().unwrap();
+    let execution_ctx = mock_el.server.ctx.clone();
     let slot_clock = &harness.chain.slot_clock;
+
+    // Move to terminal block.
+    mock_el.server.all_payloads_valid();
+    execution_ctx
+        .execution_block_generator
+        .write()
+        .move_to_terminal_block()
+        .unwrap();
+
+    // Send proposer preparation data for all validators.
+    let proposer_preparation_data = all_validators
+        .iter()
+        .map(|i| ProposerPreparationData {
+            validator_index: *i as u64,
+            fee_recipient: Address::from_low_u64_be(*i as u64),
+        })
+        .collect::<Vec<_>>();
+    harness
+        .chain
+        .execution_layer
+        .as_ref()
+        .unwrap()
+        .update_proposer_preparation(
+            head_slot.epoch(E::slots_per_epoch()) + 1,
+            &proposer_preparation_data,
+        )
+        .await;
 
     // Create some chain depth.
     harness.advance_slot();
@@ -90,6 +179,27 @@ pub async fn proposer_boost_re_org_test(
         )
         .await;
 
+    // Start collecting fork choice updates.
+    let forkchoice_updates = Arc::new(Mutex::new(ForkChoiceUpdates::default()));
+    let forkchoice_updates_inner = forkchoice_updates.clone();
+    let chain_inner = harness.chain.clone();
+
+    execution_ctx
+        .hook
+        .lock()
+        .set_forkchoice_updated_hook(Box::new(move |state, payload_attributes| {
+            let received_at = chain_inner.slot_clock.now_duration().unwrap();
+            let state = ForkChoiceState::from(state);
+            let payload_attributes = payload_attributes.map(Into::into);
+            let update = ForkChoiceUpdateMetadata {
+                received_at,
+                state,
+                payload_attributes,
+            };
+            forkchoice_updates_inner.lock().insert(update);
+            None
+        }));
+
     // We set up the following block graph, where B is a block that arrives late and is re-orged
     // by C.
     //
@@ -100,6 +210,7 @@ pub async fn proposer_boost_re_org_test(
     let slot_c = slot_a + 2;
 
     let block_a_root = harness.head_block_root();
+    let block_a = harness.get_block(block_a_root.into()).unwrap();
     let state_a = harness.get_current_state();
 
     // Attest to block A during slot B.
@@ -126,7 +237,7 @@ pub async fn proposer_boost_re_org_test(
         None,
         None,
     );
-    harness.process_block_result(block_b).await.unwrap();
+    harness.process_block_result(block_b.clone()).await.unwrap();
 
     // Add attestations to block B.
     /* FIXME(sproul): implement attestations
@@ -140,6 +251,11 @@ pub async fn proposer_boost_re_org_test(
         )
     }
     */
+    // Simulate the scheduled call to prepare proposers at 8 seconds into the slot.
+    let payload_lookahead = slot_clock.slot_duration() / PAYLOAD_PREPARATION_LOOKAHEAD_FACTOR;
+    let scheduled_prepare_time = slot_clock.start_of(slot_c).unwrap() - payload_lookahead;
+    slot_clock.set_current_time(scheduled_prepare_time);
+    harness.chain.prepare_beacon_proposer(slot_b).await.unwrap();
 
     // Produce block C.
     while harness.get_current_slot() != slot_c {
@@ -173,8 +289,50 @@ pub async fn proposer_boost_re_org_test(
     }
 
     // Applying block C should cause it to become head regardless (re-org or continuation).
-    let block_root_c = harness.process_block_result(block_c).await.unwrap().into();
+    let block_root_c = harness
+        .process_block_result(block_c.clone())
+        .await
+        .unwrap()
+        .into();
     assert_eq!(harness.head_block_root(), block_root_c);
+
+    // Check the fork choice updates that were sent.
+    let forkchoice_updates = forkchoice_updates.lock();
+    let block_a_exec_hash = block_a.message().execution_payload().unwrap().block_hash();
+    let block_b_exec_hash = block_b.message().execution_payload().unwrap().block_hash();
+    let block_c_exec_hash = block_c.message().execution_payload().unwrap().block_hash();
+
+    let block_c_timestamp = block_c.message().execution_payload().unwrap().timestamp();
+
+    // If we re-orged then no fork choice update for B should have been sent.
+    assert_eq!(
+        should_re_org,
+        !forkchoice_updates.contains_update_for(block_b_exec_hash),
+        "{block_b_exec_hash:?}"
+    );
+
+    // Check the timing of the first fork choice update with payload attributes for block C.
+    let c_parent_hash = if should_re_org {
+        block_a_exec_hash
+    } else {
+        block_b_exec_hash
+    };
+    let first_update = forkchoice_updates
+        .first_update_with_payload_attributes(c_parent_hash, block_c_timestamp)
+        .unwrap();
+    let payload_attribs = first_update.payload_attributes.as_ref().unwrap();
+
+    let lookahead = slot_clock
+        .start_of(slot_c)
+        .unwrap()
+        .checked_sub(first_update.received_at)
+        .unwrap();
+    assert!(
+        lookahead >= payload_lookahead && lookahead <= 2 * payload_lookahead,
+        "lookahead={lookahead:?}, timestamp={}, prev_randao={:?}",
+        payload_attribs.timestamp,
+        payload_attribs.prev_randao,
+    );
 }
 
 // Test that running fork choice before proposing results in selection of the correct head.

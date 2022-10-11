@@ -64,6 +64,7 @@ impl<E: EthSpec> InteractiveTester<E> {
             .spec_or_default(spec)
             .deterministic_keypairs(validator_count)
             .logger(test_logger())
+            .mock_execution_layer()
             .fresh_ephemeral_store();
 
         if let Some(mutator) = mutator {
