@@ -49,8 +49,9 @@ pub trait Handler {
         let as_directory = |entry: Result<DirEntry, std::io::Error>| -> Option<DirEntry> {
             entry
                 .ok()
-                .filter(|e| e.file_type().map(|ty| ty.is_dir()).unwrap_or(false))
+                .filter(|e| e.file_type().map(|ty| ty.is_dir()).unwrap())
         };
+
         let test_cases = fs::read_dir(&handler_path)
             .unwrap_or_else(|e| panic!("handler dir {} exists: {:?}", handler_path.display(), e))
             .filter_map(as_directory)
@@ -58,6 +59,7 @@ pub trait Handler {
             .filter_map(as_directory)
             .map(|test_case_dir| {
                 let path = test_case_dir.path();
+
                 let case = Self::Case::load_from_dir(&path, fork_name).expect("test should load");
                 (path, case)
             })
@@ -75,7 +77,7 @@ pub trait Handler {
     }
 }
 
-macro_rules! bls_handler {
+macro_rules! bls_eth_handler {
     ($runner_name: ident, $case_name:ident, $handler_name:expr) => {
         #[derive(Derivative)]
         #[derivative(Default(bound = ""))]
@@ -95,8 +97,69 @@ macro_rules! bls_handler {
     };
 }
 
+macro_rules! bls_handler {
+    ($runner_name: ident, $case_name:ident, $handler_name:expr) => {
+        #[derive(Derivative)]
+        #[derivative(Default(bound = ""))]
+        pub struct $runner_name;
+
+        impl Handler for $runner_name {
+            type Case = cases::$case_name;
+
+            fn runner_name() -> &'static str {
+                "bls"
+            }
+
+            fn config_name() -> &'static str {
+                "bls12-381-tests"
+            }
+
+            fn handler_name(&self) -> String {
+                $handler_name.into()
+            }
+
+            fn run(&self) {
+                let fork_name = ForkName::Base;
+                let fork_name_str = fork_name.to_string();
+                let handler_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                    .join("consensus-spec-tests")
+                    .join(Self::config_name())
+                    .join(self.handler_name());
+
+                let as_file = |entry: Result<DirEntry, std::io::Error>| -> Option<DirEntry> {
+                    entry
+                        .ok()
+                        .filter(|e| e.file_type().map(|ty| ty.is_file()).unwrap_or(false))
+                };
+                let test_cases: Vec<(PathBuf, Self::Case)> = fs::read_dir(&handler_path)
+                    .expect("handler dir exists")
+                    .filter_map(as_file)
+                    .map(|test_case_path| {
+                        let path = test_case_path.path();
+                        let case =
+                            Self::Case::load_from_dir(&path, fork_name).expect("test should load");
+
+                        (path, case)
+                    })
+                    .collect();
+
+                let results = Cases { test_cases }.test_results(fork_name, Self::use_rayon());
+
+                let name = format!(
+                    "{}/{}/{}",
+                    fork_name_str,
+                    Self::runner_name(),
+                    self.handler_name()
+                );
+                crate::results::assert_tests_pass(&name, &handler_path, &results);
+            }
+        }
+    };
+}
+
 bls_handler!(BlsAggregateSigsHandler, BlsAggregateSigs, "aggregate");
 bls_handler!(BlsSignMsgHandler, BlsSign, "sign");
+bls_handler!(BlsBatchVerifyHandler, BlsBatchVerify, "batch_verify");
 bls_handler!(BlsVerifyMsgHandler, BlsVerify, "verify");
 bls_handler!(
     BlsAggregateVerifyHandler,
@@ -108,12 +171,12 @@ bls_handler!(
     BlsFastAggregateVerify,
     "fast_aggregate_verify"
 );
-bls_handler!(
+bls_eth_handler!(
     BlsEthAggregatePubkeysHandler,
     BlsEthAggregatePubkeys,
     "eth_aggregate_pubkeys"
 );
-bls_handler!(
+bls_eth_handler!(
     BlsEthFastAggregateVerifyHandler,
     BlsEthFastAggregateVerify,
     "eth_fast_aggregate_verify"

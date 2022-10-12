@@ -120,6 +120,12 @@ fn bls_verify() {
 
 #[test]
 #[cfg(not(feature = "fake_crypto"))]
+fn bls_batch_verify() {
+    BlsBatchVerifyHandler::default().run();
+}
+
+#[test]
+#[cfg(not(feature = "fake_crypto"))]
 fn bls_aggregate_verify() {
     BlsAggregateVerifyHandler::default().run();
 }
