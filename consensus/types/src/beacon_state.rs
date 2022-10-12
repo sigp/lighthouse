@@ -172,7 +172,7 @@ impl From<BeaconStateHash> for Hash256 {
 
 /// The state of the `BeaconChain` at some slot.
 #[superstruct(
-    variants(Base, Altair, Merge, Eip4844),
+    variants(Base, Altair, Merge, Capella, Eip4844),
     variant_attributes(
         derive(
             Derivative,
@@ -250,9 +250,9 @@ where
     pub current_epoch_attestations: VariableList<PendingAttestation<T>, T::MaxPendingAttestations>,
 
     // Participation (Altair and later)
-    #[superstruct(only(Altair, Merge, Eip4844))]
+    #[superstruct(only(Altair, Merge, Capella, Eip4844))]
     pub previous_epoch_participation: VariableList<ParticipationFlags, T::ValidatorRegistryLimit>,
-    #[superstruct(only(Altair, Merge, Eip4844))]
+    #[superstruct(only(Altair, Merge, Capella, Eip4844))]
     pub current_epoch_participation: VariableList<ParticipationFlags, T::ValidatorRegistryLimit>,
 
     // Finality
@@ -267,18 +267,39 @@ where
 
     // Inactivity
     #[serde(with = "ssz_types::serde_utils::quoted_u64_var_list")]
-    #[superstruct(only(Altair, Merge, Eip4844))]
+    #[superstruct(only(Altair, Merge, Capella, Eip4844))]
     pub inactivity_scores: VariableList<u64, T::ValidatorRegistryLimit>,
 
     // Light-client sync committees
-    #[superstruct(only(Altair, Merge, Eip4844))]
+    #[superstruct(only(Altair, Merge, Capella, Eip4844))]
     pub current_sync_committee: Arc<SyncCommittee<T>>,
-    #[superstruct(only(Altair, Merge, Eip4844))]
+    #[superstruct(only(Altair, Merge, Capella, Eip4844))]
     pub next_sync_committee: Arc<SyncCommittee<T>>,
 
     // Execution
-    #[superstruct(only(Merge, Eip4844))]
-    pub latest_execution_payload_header: ExecutionPayloadHeader<T>,
+    #[superstruct(
+        only(Merge),
+        partial_getter(rename = "latest_execution_payload_header_merge")
+    )]
+    pub latest_execution_payload_header: ExecutionPayloadHeaderMerge<T>,
+    #[superstruct(
+        only(Capella),
+        partial_getter(rename = "latest_execution_payload_header_capella")
+    )]
+    pub latest_execution_payload_header: ExecutionPayloadHeaderCapella<T>,
+    #[superstruct(
+        only(Eip4844),
+        partial_getter(rename = "latest_execution_payload_header_eip4844")
+    )]
+    pub latest_execution_payload_header: ExecutionPayloadHeaderEip4844<T>,
+
+    // Withdrawals
+    #[superstruct(only(Capella, Eip4844))]
+    pub withdrawal_queue: VariableList<Withdrawal, T::WithdrawalQueueLimit>,
+    #[superstruct(only(Capella, Eip4844))]
+    pub next_withdrawal_index: u64,
+    #[superstruct(only(Capella, Eip4844))]
+    pub next_partial_withdrawal_validator_index: u64,
 
     // Caching (not in the spec)
     #[serde(skip_serializing, skip_deserializing)]
@@ -389,6 +410,7 @@ impl<T: EthSpec> BeaconState<T> {
             BeaconState::Base { .. } => ForkName::Base,
             BeaconState::Altair { .. } => ForkName::Altair,
             BeaconState::Merge { .. } => ForkName::Merge,
+            BeaconState::Capella { .. } => ForkName::Capella,
             BeaconState::Eip4844 { .. } => ForkName::Eip4844,
         };
 
@@ -677,6 +699,23 @@ impl<T: EthSpec> BeaconState<T> {
             .get(index)
             .copied()
             .ok_or(Error::ShuffleIndexOutOfBounds(index))
+    }
+
+    // TODO: check this implementation
+    /// Convenience accessor for the `execution_payload_header` as an `ExecutionPayloadHeaderRef`.
+    pub fn latest_execution_payload_header(&self) -> Result<ExecutionPayloadHeaderRef<T>, Error> {
+        match self {
+            BeaconState::Base(_) | BeaconState::Altair(_) => Err(Error::IncorrectStateVariant),
+            BeaconState::Merge(state) => Ok(ExecutionPayloadHeaderRef::Merge(
+                &state.latest_execution_payload_header,
+            )),
+            BeaconState::Capella(state) => Ok(ExecutionPayloadHeaderRef::Capella(
+                &state.latest_execution_payload_header,
+            )),
+            BeaconState::Eip4844(state) => Ok(ExecutionPayloadHeaderRef::Eip4844(
+                &state.latest_execution_payload_header,
+            )),
+        }
     }
 
     /// Return `true` if the validator who produced `slot_signature` is eligible to aggregate.
@@ -1103,6 +1142,7 @@ impl<T: EthSpec> BeaconState<T> {
             BeaconState::Base(state) => (&mut state.validators, &mut state.balances),
             BeaconState::Altair(state) => (&mut state.validators, &mut state.balances),
             BeaconState::Merge(state) => (&mut state.validators, &mut state.balances),
+            BeaconState::Capella(state) => (&mut state.validators, &mut state.balances),
             BeaconState::Eip4844(state) => (&mut state.validators, &mut state.balances),
         }
     }
@@ -1300,6 +1340,7 @@ impl<T: EthSpec> BeaconState<T> {
                 BeaconState::Base(_) => Err(BeaconStateError::IncorrectStateVariant),
                 BeaconState::Altair(state) => Ok(&mut state.current_epoch_participation),
                 BeaconState::Merge(state) => Ok(&mut state.current_epoch_participation),
+                BeaconState::Capella(state) => Ok(&mut state.current_epoch_participation),
                 BeaconState::Eip4844(state) => Ok(&mut state.current_epoch_participation),
             }
         } else if epoch == self.previous_epoch() {
@@ -1307,6 +1348,7 @@ impl<T: EthSpec> BeaconState<T> {
                 BeaconState::Base(_) => Err(BeaconStateError::IncorrectStateVariant),
                 BeaconState::Altair(state) => Ok(&mut state.previous_epoch_participation),
                 BeaconState::Merge(state) => Ok(&mut state.previous_epoch_participation),
+                BeaconState::Capella(state) => Ok(&mut state.previous_epoch_participation),
                 BeaconState::Eip4844(state) => Ok(&mut state.previous_epoch_participation),
             }
         } else {
@@ -1612,6 +1654,7 @@ impl<T: EthSpec> BeaconState<T> {
             BeaconState::Base(inner) => BeaconState::Base(inner.clone()),
             BeaconState::Altair(inner) => BeaconState::Altair(inner.clone()),
             BeaconState::Merge(inner) => BeaconState::Merge(inner.clone()),
+            BeaconState::Capella(inner) => BeaconState::Capella(inner.clone()),
             BeaconState::Eip4844(inner) => BeaconState::Eip4844(inner.clone()),
         };
         if config.committee_caches {

@@ -17,7 +17,7 @@ use tree_hash_derive::TreeHash;
 
 /// A block of the `BeaconChain`.
 #[superstruct(
-    variants(Base, Altair, Merge, Eip4844),
+    variants(Base, Altair, Merge, Capella, Eip4844),
     variant_attributes(
         derive(
             Debug,
@@ -48,7 +48,7 @@ use tree_hash_derive::TreeHash;
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 #[tree_hash(enum_behaviour = "transparent")]
 #[ssz(enum_behaviour = "transparent")]
-pub struct BeaconBlock<T: EthSpec, Payload: ExecPayload<T> = FullPayload<T>> {
+pub struct BeaconBlock<T: EthSpec, Payload: AbstractExecPayload<T> = FullPayload<T>> {
     #[superstruct(getter(copy))]
     pub slot: Slot,
     #[superstruct(getter(copy))]
@@ -64,16 +64,22 @@ pub struct BeaconBlock<T: EthSpec, Payload: ExecPayload<T> = FullPayload<T>> {
     pub body: BeaconBlockBodyAltair<T, Payload>,
     #[superstruct(only(Merge), partial_getter(rename = "body_merge"))]
     pub body: BeaconBlockBodyMerge<T, Payload>,
+    #[superstruct(only(Capella), partial_getter(rename = "body_capella"))]
+    pub body: BeaconBlockBodyCapella<T, Payload>,
     #[superstruct(only(Eip4844), partial_getter(rename = "body_eip4844"))]
     pub body: BeaconBlockBodyEip4844<T, Payload>,
 }
 
 pub type BlindedBeaconBlock<E> = BeaconBlock<E, BlindedPayload<E>>;
 
-impl<T: EthSpec, Payload: ExecPayload<T>> SignedRoot for BeaconBlock<T, Payload> {}
-impl<'a, T: EthSpec, Payload: ExecPayload<T>> SignedRoot for BeaconBlockRef<'a, T, Payload> {}
+impl<T: EthSpec, Payload: AbstractExecPayload<T>> SignedRoot for BeaconBlock<T, Payload> {}
+impl<'a, T: EthSpec, Payload: AbstractExecPayload<T>> SignedRoot
+    for BeaconBlockRef<'a, T, Payload>
+{
+}
 
-impl<T: EthSpec, Payload: ExecPayload<T>> BeaconBlock<T, Payload> {
+impl<T: EthSpec, Payload: AbstractExecPayload<T>> BeaconBlock<T, Payload> {
+    // FIXME: deal with capella / eip4844 forks here as well
     /// Returns an empty block to be used during genesis.
     pub fn empty(spec: &ChainSpec) -> Self {
         if spec.bellatrix_fork_epoch == Some(T::genesis_epoch()) {
@@ -180,7 +186,7 @@ impl<T: EthSpec, Payload: ExecPayload<T>> BeaconBlock<T, Payload> {
     }
 }
 
-impl<'a, T: EthSpec, Payload: ExecPayload<T>> BeaconBlockRef<'a, T, Payload> {
+impl<'a, T: EthSpec, Payload: AbstractExecPayload<T>> BeaconBlockRef<'a, T, Payload> {
     /// Returns the name of the fork pertaining to `self`.
     ///
     /// Will return an `Err` if `self` has been instantiated to a variant conflicting with the fork
@@ -191,6 +197,7 @@ impl<'a, T: EthSpec, Payload: ExecPayload<T>> BeaconBlockRef<'a, T, Payload> {
             BeaconBlockRef::Base { .. } => ForkName::Base,
             BeaconBlockRef::Altair { .. } => ForkName::Altair,
             BeaconBlockRef::Merge { .. } => ForkName::Merge,
+            BeaconBlockRef::Capella { .. } => ForkName::Capella,
             BeaconBlockRef::Eip4844 { .. } => ForkName::Eip4844,
         };
 
@@ -245,12 +252,12 @@ impl<'a, T: EthSpec, Payload: ExecPayload<T>> BeaconBlockRef<'a, T, Payload> {
 
     /// Extracts a reference to an execution payload from a block, returning an error if the block
     /// is pre-merge.
-    pub fn execution_payload(&self) -> Result<&Payload, Error> {
+    pub fn execution_payload(&self) -> Result<Payload::Ref<'a>, Error> {
         self.body().execution_payload()
     }
 }
 
-impl<'a, T: EthSpec, Payload: ExecPayload<T>> BeaconBlockRefMut<'a, T, Payload> {
+impl<'a, T: EthSpec, Payload: AbstractExecPayload<T>> BeaconBlockRefMut<'a, T, Payload> {
     /// Convert a mutable reference to a beacon block to a mutable ref to its body.
     pub fn body_mut(self) -> BeaconBlockBodyRefMut<'a, T, Payload> {
         map_beacon_block_ref_mut_into_beacon_block_body_ref_mut!(&'a _, self, |block, cons| cons(
@@ -259,7 +266,7 @@ impl<'a, T: EthSpec, Payload: ExecPayload<T>> BeaconBlockRefMut<'a, T, Payload> 
     }
 }
 
-impl<T: EthSpec, Payload: ExecPayload<T>> BeaconBlockBase<T, Payload> {
+impl<T: EthSpec, Payload: AbstractExecPayload<T>> BeaconBlockBase<T, Payload> {
     /// Returns an empty block to be used during genesis.
     pub fn empty(spec: &ChainSpec) -> Self {
         BeaconBlockBase {
@@ -380,7 +387,7 @@ impl<T: EthSpec, Payload: ExecPayload<T>> BeaconBlockBase<T, Payload> {
     }
 }
 
-impl<T: EthSpec, Payload: ExecPayload<T>> BeaconBlockAltair<T, Payload> {
+impl<T: EthSpec, Payload: AbstractExecPayload<T>> BeaconBlockAltair<T, Payload> {
     /// Returns an empty Altair block to be used during genesis.
     pub fn empty(spec: &ChainSpec) -> Self {
         BeaconBlockAltair {
@@ -439,7 +446,7 @@ impl<T: EthSpec, Payload: ExecPayload<T>> BeaconBlockAltair<T, Payload> {
     }
 }
 
-impl<T: EthSpec, Payload: ExecPayload<T>> BeaconBlockMerge<T, Payload> {
+impl<T: EthSpec, Payload: AbstractExecPayload<T>> BeaconBlockMerge<T, Payload> {
     /// Returns an empty Merge block to be used during genesis.
     pub fn empty(spec: &ChainSpec) -> Self {
         BeaconBlockMerge {
@@ -461,7 +468,7 @@ impl<T: EthSpec, Payload: ExecPayload<T>> BeaconBlockMerge<T, Payload> {
                 deposits: VariableList::empty(),
                 voluntary_exits: VariableList::empty(),
                 sync_aggregate: SyncAggregate::empty(),
-                execution_payload: Payload::default(),
+                execution_payload: Payload::Merge::default(),
             },
         }
     }
@@ -536,7 +543,7 @@ macro_rules! impl_from {
                     parent_root,
                     state_root,
                     body,
-                }, payload)
+                }, payload.map(Into::into))
             }
         }
     }
@@ -545,6 +552,7 @@ macro_rules! impl_from {
 impl_from!(BeaconBlockBase, <E, FullPayload<E>>, <E, BlindedPayload<E>>, |body: BeaconBlockBodyBase<_, _>| body.into());
 impl_from!(BeaconBlockAltair, <E, FullPayload<E>>, <E, BlindedPayload<E>>, |body: BeaconBlockBodyAltair<_, _>| body.into());
 impl_from!(BeaconBlockMerge, <E, FullPayload<E>>, <E, BlindedPayload<E>>, |body: BeaconBlockBodyMerge<_, _>| body.into());
+impl_from!(BeaconBlockCapella, <E, FullPayload<E>>, <E, BlindedPayload<E>>, |body: BeaconBlockBodyCapella<_, _>| body.into());
 impl_from!(BeaconBlockEip4844, <E, FullPayload<E>>, <E, BlindedPayload<E>>, |body: BeaconBlockBodyEip4844<_, _>| body.into());
 
 // We can clone blocks with payloads to blocks without payloads, without cloning the payload.
@@ -576,6 +584,7 @@ macro_rules! impl_clone_as_blinded {
 impl_clone_as_blinded!(BeaconBlockBase, <E, FullPayload<E>>, <E, BlindedPayload<E>>);
 impl_clone_as_blinded!(BeaconBlockAltair, <E, FullPayload<E>>, <E, BlindedPayload<E>>);
 impl_clone_as_blinded!(BeaconBlockMerge, <E, FullPayload<E>>, <E, BlindedPayload<E>>);
+impl_clone_as_blinded!(BeaconBlockCapella, <E, FullPayload<E>>, <E, BlindedPayload<E>>);
 impl_clone_as_blinded!(BeaconBlockEip4844, <E, FullPayload<E>>, <E, BlindedPayload<E>>);
 
 // A reference to a full beacon block can be cloned into a blinded beacon block, without cloning the

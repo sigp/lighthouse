@@ -428,7 +428,7 @@ dependencies = [
  "state_processing",
  "store",
  "strum",
- "superstruct",
+ "superstruct 0.5.0",
  "task_executor",
  "tempfile",
  "tokio",
@@ -3692,7 +3692,7 @@ dependencies = [
  "smallvec",
  "snap",
  "strum",
- "superstruct",
+ "superstruct 0.5.0",
  "task_executor",
  "tempfile",
  "tiny-keccak",
@@ -6396,6 +6396,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "superstruct"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "75b9e5728aa1a87141cefd4e7509903fc01fa0dcb108022b1e841a67c5159fc5"
+dependencies = [
+ "darling",
+ "itertools",
+ "proc-macro2",
+ "quote",
+ "smallvec",
+ "syn",
+]
+
+[[package]]
 name = "swap_or_not_shuffle"
 version = "0.2.0"
 dependencies = [
@@ -7125,7 +7139,7 @@ dependencies = [
  "slog",
  "smallvec",
  "state_processing",
- "superstruct",
+ "superstruct 0.6.0",
  "swap_or_not_shuffle",
  "tempfile",
  "test_random_derive",

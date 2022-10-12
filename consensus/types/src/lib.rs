@@ -1,5 +1,5 @@
 //! Ethereum 2.0 types
-
+#![feature(generic_associated_types)]
 // Required for big type-level numbers
 #![recursion_limit = "128"]
 // Clippy lint set up
@@ -85,6 +85,7 @@ pub mod sync_selection_proof;
 pub mod sync_subnet_id;
 mod tree_hash_impls;
 pub mod validator_registration_data;
+pub mod withdrawal;
 
 pub mod slot_data;
 #[cfg(feature = "sqlite")]
@@ -105,12 +106,12 @@ pub use crate::attestation_data::AttestationData;
 pub use crate::attestation_duty::AttestationDuty;
 pub use crate::attester_slashing::AttesterSlashing;
 pub use crate::beacon_block::{
-    BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockEip4844, BeaconBlockMerge,
-    BeaconBlockRef, BeaconBlockRefMut,
+    BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockCapella, BeaconBlockEip4844,
+    BeaconBlockMerge, BeaconBlockRef, BeaconBlockRefMut, BlindedBeaconBlock,
 };
 pub use crate::beacon_block_body::{
-    BeaconBlockBody, BeaconBlockBodyAltair, BeaconBlockBodyBase, BeaconBlockBodyEip4844,
-    BeaconBlockBodyMerge, BeaconBlockBodyRef, BeaconBlockBodyRefMut,
+    BeaconBlockBody, BeaconBlockBodyAltair, BeaconBlockBodyBase, BeaconBlockBodyCapella,
+    BeaconBlockBodyEip4844, BeaconBlockBodyMerge, BeaconBlockBodyRef, BeaconBlockBodyRefMut,
 };
 pub use crate::beacon_block_header::BeaconBlockHeader;
 pub use crate::beacon_committee::{BeaconCommittee, OwnedBeaconCommittee};
@@ -129,8 +130,14 @@ pub use crate::enr_fork_id::EnrForkId;
 pub use crate::eth1_data::Eth1Data;
 pub use crate::eth_spec::EthSpecId;
 pub use crate::execution_block_hash::ExecutionBlockHash;
-pub use crate::execution_payload::{ExecutionPayload, Transaction, Transactions};
-pub use crate::execution_payload_header::ExecutionPayloadHeader;
+pub use crate::execution_payload::{
+    ExecutionPayload, ExecutionPayloadCapella, ExecutionPayloadEip4844, ExecutionPayloadMerge,
+    ExecutionPayloadRef, Transaction, Transactions,
+};
+pub use crate::execution_payload_header::{
+    ExecutionPayloadHeader, ExecutionPayloadHeaderCapella, ExecutionPayloadHeaderEip4844,
+    ExecutionPayloadHeaderMerge, ExecutionPayloadHeaderRef, ExecutionPayloadHeaderRefMut,
+};
 pub use crate::fork::Fork;
 pub use crate::fork_context::ForkContext;
 pub use crate::fork_data::ForkData;
@@ -143,7 +150,11 @@ pub use crate::kzg_commitment::KzgCommitment;
 pub use crate::kzg_proof::KzgProof;
 pub use crate::participation_flags::ParticipationFlags;
 pub use crate::participation_list::ParticipationList;
-pub use crate::payload::{BlindedPayload, BlockType, ExecPayload, FullPayload};
+pub use crate::payload::{
+    AbstractExecPayload, BlindedPayload, BlindedPayloadCapella, BlindedPayloadEip4844,
+    BlindedPayloadMerge, BlindedPayloadRef, BlockType, ExecPayload, FullPayload,
+    FullPayloadCapella, FullPayloadEip4844, FullPayloadMerge, FullPayloadRef,
+};
 pub use crate::pending_attestation::PendingAttestation;
 pub use crate::preset::{AltairPreset, BasePreset, BellatrixPreset};
 pub use crate::proposer_preparation_data::ProposerPreparationData;
@@ -176,6 +187,7 @@ pub use crate::validator::Validator;
 pub use crate::validator_registration_data::*;
 pub use crate::validator_subscription::ValidatorSubscription;
 pub use crate::voluntary_exit::VoluntaryExit;
+pub use crate::withdrawal::Withdrawal;
 use serde_big_array::BigArray;
 
 pub type CommitteeIndex = u64;
