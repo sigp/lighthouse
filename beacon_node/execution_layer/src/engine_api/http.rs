@@ -543,7 +543,7 @@ impl HttpJsonRpc {
         Ok(Self {
             client: Client::builder().build()?,
             url,
-            execution_timeout_multiplier: execution_timeout_multiplier.unwrap_or_else(|| 1),
+            execution_timeout_multiplier: execution_timeout_multiplier.unwrap_or(1),
             auth: Some(auth),
         })
     }
