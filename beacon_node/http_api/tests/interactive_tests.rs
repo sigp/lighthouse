@@ -1,6 +1,5 @@
 //! Generic tests that make use of the (newer) `InteractiveApiTester`
 use crate::common::*;
-use beacon_chain::proposer_prep_service::PAYLOAD_PREPARATION_LOOKAHEAD_FACTOR;
 use beacon_chain::{
     chain_config::ReOrgThreshold,
     test_utils::{AttestationStrategy, BlockStrategy},
@@ -252,7 +251,7 @@ pub async fn proposer_boost_re_org_test(
     }
     */
     // Simulate the scheduled call to prepare proposers at 8 seconds into the slot.
-    let payload_lookahead = slot_clock.slot_duration() / PAYLOAD_PREPARATION_LOOKAHEAD_FACTOR;
+    let payload_lookahead = harness.chain.config.prepare_payload_lookahead;
     let scheduled_prepare_time = slot_clock.start_of(slot_c).unwrap() - payload_lookahead;
     slot_clock.set_current_time(scheduled_prepare_time);
     harness.chain.prepare_beacon_proposer(slot_b).await.unwrap();

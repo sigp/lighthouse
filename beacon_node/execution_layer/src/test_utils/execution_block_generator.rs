@@ -105,7 +105,7 @@ pub struct PoWBlock {
     pub timestamp: u64,
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct ExecutionBlockGenerator<T: EthSpec> {
     /*
      * Common database
@@ -317,20 +317,12 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
             && !self.blocks.contains_key(&block.parent_hash())
         {
             return Err(format!("parent block {:?} is unknown", block.parent_hash()));
-        } else if let Some(hashes) = self.block_hashes.get_mut(&block.block_number()) {
-            hashes.push(block.block_hash());
-        } else {
-            self.block_hashes
-                .insert(block.block_number(), vec![block.block_hash()]);
         }
 
-        self.insert_block_without_checks(block)
+        Ok(self.insert_block_without_checks(block))
     }
 
-    pub fn insert_block_without_checks(
-        &mut self,
-        block: Block<T>,
-    ) -> Result<ExecutionBlockHash, String> {
+    pub fn insert_block_without_checks(&mut self, block: Block<T>) -> ExecutionBlockHash {
         let block_hash = block.block_hash();
         self.block_hashes
             .entry(block.block_number())
@@ -338,29 +330,39 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
             .push(block_hash);
         self.blocks.insert(block_hash, block);
 
-        Ok(block_hash)
+        block_hash
     }
 
     pub fn modify_last_block(&mut self, block_modifier: impl FnOnce(&mut Block<T>)) {
-        /* FIXME(sproul): fix this
-        if let Some((last_block_hash, block_number)) =
-            self.block_hashes.keys().max().and_then(|block_number| {
-                self.block_hashes
-                    .get(block_number)
-                    .map(|block| (block, *block_number))
+        if let Some(last_block_hash) = self
+            .block_hashes
+            .iter_mut()
+            .max_by_key(|(block_number, _)| *block_number)
+            .and_then(|(_, block_hashes)| {
+                // Remove block hash, we will re-insert with the new block hash after modifying it.
+                block_hashes.pop()
             })
         {
-            let mut block = self.blocks.remove(last_block_hash).unwrap();
+            let mut block = self.blocks.remove(&last_block_hash).unwrap();
             block_modifier(&mut block);
+
             // Update the block hash after modifying the block
             match &mut block {
                 Block::PoW(b) => b.block_hash = ExecutionBlockHash::from_root(b.tree_hash_root()),
                 Block::PoS(b) => b.block_hash = ExecutionBlockHash::from_root(b.tree_hash_root()),
             }
-            self.block_hashes.insert(block_number, block.block_hash());
-            self.blocks.insert(block.block_hash(), block);
+
+            // Update head.
+            if self
+                .head_block
+                .as_ref()
+                .map_or(true, |head| head.block_hash() == last_block_hash)
+            {
+                self.head_block = Some(block.clone());
+            }
+
+            self.insert_block_without_checks(block);
         }
-        */
     }
 
     pub fn get_payload(&mut self, id: &PayloadId) -> Option<ExecutionPayload<T>> {

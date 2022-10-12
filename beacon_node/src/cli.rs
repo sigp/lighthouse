@@ -751,6 +751,16 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true)
         )
         .arg(
+            Arg::with_name("prepare-payload-lookahead")
+                .long("prepare-payload-lookahead")
+                .value_name("MILLISECONDS")
+                .help("The time before the start of a proposal slot at which payload attributes \
+                       should be sent. Low values are useful for execution nodes which don't \
+                       improve their payload after the first call, and high values are useful \
+                       for ensuring the EL is given ample notice. Default: 1/3 of a slot.")
+                .takes_value(true)
+        )
+        .arg(
             Arg::with_name("fork-choice-before-proposal-timeout")
                 .long("fork-choice-before-proposal-timeout")
                 .help("Set the maximum number of milliseconds to wait for fork choice before \

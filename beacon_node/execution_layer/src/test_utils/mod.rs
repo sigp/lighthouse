@@ -359,8 +359,7 @@ impl<T: EthSpec> MockServer<T> {
             .write()
             // The EF tests supply blocks out of order, so we must import them "without checks" and
             // trust they form valid chains.
-            .insert_block_without_checks(block)
-            .unwrap();
+            .insert_block_without_checks(block);
     }
 
     pub fn get_block(&self, block_hash: ExecutionBlockHash) -> Option<Block<T>> {

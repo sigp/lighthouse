@@ -658,6 +658,11 @@ pub fn get_config<E: EthSpec>(
         }
     }
 
+    client_config.chain.prepare_payload_lookahead =
+        clap_utils::parse_optional(cli_args, "prepare-payload-lookahead")?.unwrap_or_else(|| {
+            Duration::from_secs(spec.seconds_per_slot) / DEFAULT_PREPARE_PAYLOAD_LOOKAHEAD_FACTOR
+        });
+
     if let Some(timeout) =
         clap_utils::parse_optional(cli_args, "fork-choice-before-proposal-timeout")?
     {

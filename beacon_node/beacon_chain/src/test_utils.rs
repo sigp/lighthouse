@@ -32,7 +32,7 @@ use rand::SeedableRng;
 use rayon::prelude::*;
 use sensitive_url::SensitiveUrl;
 use slog::Logger;
-use slot_clock::TestingSlotClock;
+use slot_clock::{SlotClock, TestingSlotClock};
 use state_processing::per_block_processing::compute_timestamp_at_slot;
 use state_processing::{
     state_advance::{complete_state_advance, partial_state_advance},
@@ -1748,6 +1748,12 @@ where
     /// Does not produce blocks or attestations.
     pub fn advance_slot(&self) {
         self.chain.slot_clock.advance_slot();
+    }
+
+    /// Advance the clock to `lookahead` before the start of `slot`.
+    pub fn advance_to_slot_lookahead(&self, slot: Slot, lookahead: Duration) {
+        let time = self.chain.slot_clock.start_of(slot).unwrap() - lookahead;
+        self.chain.slot_clock.set_current_time(time);
     }
 
     /// Deprecated: Use make_block() instead

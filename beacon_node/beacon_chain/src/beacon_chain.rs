@@ -37,7 +37,6 @@ use crate::observed_operations::{ObservationOutcome, ObservedOperations};
 use crate::persisted_beacon_chain::{PersistedBeaconChain, DUMMY_CANONICAL_HEAD_BLOCK_ROOT};
 use crate::persisted_fork_choice::PersistedForkChoice;
 use crate::pre_finalization_cache::PreFinalizationBlockCache;
-use crate::proposer_prep_service::PAYLOAD_PREPARATION_LOOKAHEAD_FACTOR;
 use crate::shuffling_cache::{BlockShufflingIds, ShufflingCache};
 use crate::snapshot_cache::{BlockProductionPreState, SnapshotCache};
 use crate::sync_committee_verification::{
@@ -182,13 +181,17 @@ pub enum ProduceBlockVerification {
     NoVerification,
 }
 
+/// Payload attributes for which the `beacon_chain` crate is responsible.
 pub struct PrePayloadAttributes {
     pub proposer_index: u64,
     pub prev_randao: Hash256,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Define whether a forkchoiceUpdate needs to be checked for an override (`Yes`) or has already
+/// been checked (`AlreadyApplied`). It is safe to specify `Yes` even if re-orgs are disabled.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub enum OverrideForkchoiceUpdate {
+    #[default]
     Yes,
     AlreadyApplied,
 }
@@ -3532,14 +3535,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let might_re_org = current_slot_ok && block_slot_ok && ffg_competitive && head_block_late;
 
         if !might_re_org {
-            debug!(
-                self.log,
-                "Not overriding fork choice update";
-                "current_slot_ok" => current_slot_ok,
-                "block_slot_ok" => block_slot_ok,
-                "ffg_competitive" => ffg_competitive,
-                "head_block_late" => head_block_late
-            );
             return Ok(canonical_forkchoice_params);
         }
 
@@ -3554,6 +3549,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             );
             return Ok(canonical_forkchoice_params);
         };
+
+        debug!(
+            self.log,
+            "Fork choice update overridden";
+            "canonical_head" => ?head_node.root,
+            "override" => ?parent_node.root,
+            "slot" => current_slot,
+        );
 
         let forkchoice_update_params = ForkchoiceUpdateParameters {
             head_root: parent_node.root,
@@ -4137,11 +4140,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// The `PayloadAttributes` are used by the EL to give it a look-ahead for preparing an optimal
     /// set of transactions for a new `ExecutionPayload`.
     ///
-    /// This function will result in a call to `forkchoiceUpdated` on the EL if:
-    ///
-    /// 1. We're in the tail-end of the slot (as defined by PAYLOAD_PREPARATION_LOOKAHEAD_FACTOR)
-    /// 2. The head block is one slot (or less) behind the prepare slot (e.g., we're preparing for
-    ///    the next slot and the block at the current slot is already known).
+    /// This function will result in a call to `forkchoiceUpdated` on the EL if we're in the
+    /// tail-end of the slot (as defined by `self.config.prepare_payload_lookahead`).
     pub async fn prepare_beacon_proposer(
         self: &Arc<Self>,
         current_slot: Slot,
@@ -4280,9 +4280,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // If we are close enough to the proposal slot, send an fcU, which will have payload
         // attributes filled in by the execution layer cache we just primed.
-        if till_prepare_slot
-            <= self.slot_clock.slot_duration() / PAYLOAD_PREPARATION_LOOKAHEAD_FACTOR
-        {
+        if till_prepare_slot <= self.config.prepare_payload_lookahead {
             debug!(
                 self.log,
                 "Sending forkchoiceUpdate for proposer prep";

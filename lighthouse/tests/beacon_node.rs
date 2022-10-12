@@ -134,6 +134,31 @@ fn fork_choice_before_proposal_timeout_zero() {
 }
 
 #[test]
+fn prepare_payload_lookahead_default() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config.chain.prepare_payload_lookahead,
+                Duration::from_secs(4),
+            )
+        });
+}
+
+#[test]
+fn prepare_payload_lookahead_shorter() {
+    CommandLineTest::new()
+        .flag("prepare-payload-lookahead", Some("1500"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config.chain.prepare_payload_lookahead,
+                Duration::from_millis(1500)
+            )
+        });
+}
+
+#[test]
 fn paranoid_block_proposal_default() {
     CommandLineTest::new()
         .run_with_zero_port()

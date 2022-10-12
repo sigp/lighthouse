@@ -1,11 +1,16 @@
 pub use proto_array::{CountUnrealizedFull, ParticipationThreshold, ReOrgThreshold};
 use serde_derive::{Deserialize, Serialize};
+use std::time::Duration;
 use types::Checkpoint;
 
 pub const DEFAULT_RE_ORG_THRESHOLD: ReOrgThreshold = ReOrgThreshold(10);
 pub const DEFAULT_RE_ORG_PARTICIPATION_THRESHOLD: ParticipationThreshold =
     ParticipationThreshold(80);
 pub const DEFAULT_FORK_CHOICE_BEFORE_PROPOSAL_TIMEOUT: u64 = 250;
+
+/// At 12s slot times, the means that the payload preparation routine will run 4s before the start
+/// of each slot (`12 / 3 = 4`).
+pub const DEFAULT_PREPARE_PAYLOAD_LOOKAHEAD_FACTOR: u32 = 3;
 
 #[derive(Debug, PartialEq, Eq, Clone, Deserialize, Serialize)]
 pub struct ChainConfig {
@@ -52,6 +57,11 @@ pub struct ChainConfig {
     pub paranoid_block_proposal: bool,
     /// Whether to strictly count unrealized justified votes.
     pub count_unrealized_full: CountUnrealizedFull,
+    /// The offset from the start of a proposal slot at which payload attributes should be sent.
+    ///
+    /// Low values are useful for execution engines which don't improve their payload after the
+    /// first call, and high values are useful for ensuring the EL is given ample notice.
+    pub prepare_payload_lookahead: Duration,
 }
 
 impl Default for ChainConfig {
@@ -74,6 +84,7 @@ impl Default for ChainConfig {
             always_reset_payload_statuses: false,
             paranoid_block_proposal: false,
             count_unrealized_full: CountUnrealizedFull::default(),
+            prepare_payload_lookahead: Duration::from_secs(4),
         }
     }
 }

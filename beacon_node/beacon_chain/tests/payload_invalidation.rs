@@ -7,8 +7,8 @@ use beacon_chain::otb_verification_service::{
 use beacon_chain::{
     canonical_head::{CachedHead, CanonicalHead},
     test_utils::{BeaconChainHarness, EphemeralHarnessType},
-    BeaconChainError, BlockError, ExecutionPayloadError, StateSkipConfig, WhenSlotSkipped,
-    INVALID_FINALIZED_MERGE_TRANSITION_BLOCK_SHUTDOWN_REASON,
+    BeaconChainError, BlockError, ExecutionPayloadError, OverrideForkchoiceUpdate, StateSkipConfig,
+    WhenSlotSkipped, INVALID_FINALIZED_MERGE_TRANSITION_BLOCK_SHUTDOWN_REASON,
     INVALID_JUSTIFIED_PAYLOAD_SHUTDOWN_REASON,
 };
 use execution_layer::{
@@ -19,6 +19,7 @@ use execution_layer::{
 use fork_choice::{
     CountUnrealized, Error as ForkChoiceError, InvalidationOperation, PayloadVerificationStatus,
 };
+use logging::test_logger;
 use proto_array::{Error as ProtoArrayError, ExecutionStatus};
 use slot_clock::SlotClock;
 use std::collections::HashMap;
@@ -59,6 +60,7 @@ impl InvalidPayloadRig {
 
         let harness = BeaconChainHarness::builder(MainnetEthSpec)
             .spec(spec)
+            .logger(test_logger())
             .deterministic_keypairs(VALIDATOR_COUNT)
             .mock_execution_layer()
             .fresh_ephemeral_store()
@@ -976,6 +978,10 @@ async fn payload_preparation() {
     )
     .await;
 
+    rig.harness.advance_to_slot_lookahead(
+        next_slot,
+        rig.harness.chain.config.prepare_payload_lookahead,
+    );
     rig.harness
         .chain
         .prepare_beacon_proposer(rig.harness.chain.slot().unwrap())
@@ -1119,7 +1125,11 @@ async fn payload_preparation_before_transition_block() {
         .get_forkchoice_update_parameters();
     rig.harness
         .chain
-        .update_execution_engine_forkchoice(current_slot, forkchoice_update_params)
+        .update_execution_engine_forkchoice(
+            current_slot,
+            forkchoice_update_params,
+            OverrideForkchoiceUpdate::Yes,
+        )
         .await
         .unwrap();
 
