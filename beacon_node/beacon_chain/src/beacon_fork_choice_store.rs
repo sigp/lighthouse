@@ -187,7 +187,7 @@ where
             root: anchor_root,
         };
         let finalized_checkpoint = justified_checkpoint;
-        let justified_balances = JustifiedBalances::from_justified_state(&anchor_state)?;
+        let justified_balances = JustifiedBalances::from_justified_state(anchor_state)?;
 
         Ok(Self {
             store,

@@ -259,7 +259,7 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
         )?;
 
         // Insert block into block tree
-        let _ = self.insert_block(Block::PoW(block.clone()))?;
+        self.insert_block(Block::PoW(block))?;
 
         // Set head
         if let Some(head_total_difficulty) =
@@ -296,7 +296,7 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
             parent_hash,
         )?;
 
-        let hash = self.insert_block(Block::PoW(block.clone()))?;
+        let hash = self.insert_block(Block::PoW(block))?;
         // Set head
         if let Some(head_total_difficulty) =
             self.head_block.as_ref().and_then(|b| b.total_difficulty())

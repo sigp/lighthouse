@@ -1,4 +1,6 @@
-use beacon_chain::chain_config::{ReOrgThreshold, DEFAULT_RE_ORG_THRESHOLD};
+use beacon_chain::chain_config::{
+    ReOrgThreshold, DEFAULT_PREPARE_PAYLOAD_LOOKAHEAD_FACTOR, DEFAULT_RE_ORG_THRESHOLD,
+};
 use clap::ArgMatches;
 use clap_utils::flags::DISABLE_MALLOC_TUNING_FLAG;
 use client::{ClientConfig, ClientGenesis};
@@ -17,6 +19,7 @@ use std::fs;
 use std::net::{IpAddr, Ipv4Addr, ToSocketAddrs};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
+use std::time::Duration;
 use types::{Checkpoint, Epoch, EthSpec, Hash256, PublicKeyBytes, GRAFFITI_BYTES_LEN};
 use unused_port::{unused_tcp_port, unused_udp_port};
 
@@ -659,9 +662,12 @@ pub fn get_config<E: EthSpec>(
     }
 
     client_config.chain.prepare_payload_lookahead =
-        clap_utils::parse_optional(cli_args, "prepare-payload-lookahead")?.unwrap_or_else(|| {
-            Duration::from_secs(spec.seconds_per_slot) / DEFAULT_PREPARE_PAYLOAD_LOOKAHEAD_FACTOR
-        });
+        clap_utils::parse_optional(cli_args, "prepare-payload-lookahead")?
+            .map(Duration::from_millis)
+            .unwrap_or_else(|| {
+                Duration::from_secs(spec.seconds_per_slot)
+                    / DEFAULT_PREPARE_PAYLOAD_LOOKAHEAD_FACTOR
+            });
 
     if let Some(timeout) =
         clap_utils::parse_optional(cli_args, "fork-choice-before-proposal-timeout")?

@@ -7,16 +7,9 @@ type ForkChoiceUpdatedHook = dyn Fn(
     + Send
     + Sync;
 
+#[derive(Default)]
 pub struct Hook {
     forkchoice_updated: Option<Box<ForkChoiceUpdatedHook>>,
-}
-
-impl Default for Hook {
-    fn default() -> Self {
-        Hook {
-            forkchoice_updated: None,
-        }
-    }
 }
 
 impl Hook {

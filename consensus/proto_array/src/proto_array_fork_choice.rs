@@ -415,7 +415,7 @@ impl ProtoArrayForkChoice {
             && ffg_competitive
             && participation_ok
             && is_weak_head)
-            .then(|| parent_node.root);
+            .then_some(parent_node.root);
 
         Ok(ProposerHead {
             re_org_head,
