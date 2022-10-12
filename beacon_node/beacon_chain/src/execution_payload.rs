@@ -25,8 +25,8 @@ use std::sync::Arc;
 use tokio::task::JoinHandle;
 use tree_hash::TreeHash;
 use types::{
-    BeaconBlockRef, BeaconState, BeaconStateError, Blob, EthSpec, ExecPayload,
-    ExecutionBlockHash, Hash256, KzgCommitment, SignedBeaconBlock, Slot,
+    BeaconBlockRef, BeaconState, BeaconStateError, Blob, EthSpec, ExecPayload, ExecutionBlockHash,
+    Hash256, KzgCommitment, SignedBeaconBlock, Slot,
 };
 
 pub type PreparePayloadResult<Payload, E> =

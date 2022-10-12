@@ -3,12 +3,10 @@ use beacon_chain::validator_monitor::{get_slot_delay_ms, timestamp_now};
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use lighthouse_network::PubsubMessage;
 use network::NetworkMessage;
-use slog::{Logger};
+use slog::Logger;
 use std::sync::Arc;
 use tokio::sync::mpsc::UnboundedSender;
-use types::{
-    SignedBlobsSidecar,
-};
+use types::SignedBlobsSidecar;
 use warp::Rejection;
 
 /// Handles a request from the HTTP API for full blocks.
