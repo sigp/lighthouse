@@ -38,7 +38,7 @@ impl From<SignedBeaconBlockHash> for Hash256 {
 
 /// A `BeaconBlock` and a signature from its proposer.
 #[superstruct(
-    variants(Base, Altair, Merge, Eip4844),
+    variants(Base, Altair, Merge, Capella, Eip4844),
     variant_attributes(
         derive(
             Debug,
@@ -65,13 +65,15 @@ impl From<SignedBeaconBlockHash> for Hash256 {
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 #[tree_hash(enum_behaviour = "transparent")]
 #[ssz(enum_behaviour = "transparent")]
-pub struct SignedBeaconBlock<E: EthSpec, Payload: ExecPayload<E> = FullPayload<E>> {
+pub struct SignedBeaconBlock<E: EthSpec, Payload: AbstractExecPayload<E> = FullPayload<E>> {
     #[superstruct(only(Base), partial_getter(rename = "message_base"))]
     pub message: BeaconBlockBase<E, Payload>,
     #[superstruct(only(Altair), partial_getter(rename = "message_altair"))]
     pub message: BeaconBlockAltair<E, Payload>,
     #[superstruct(only(Merge), partial_getter(rename = "message_merge"))]
     pub message: BeaconBlockMerge<E, Payload>,
+    #[superstruct(only(Capella), partial_getter(rename = "message_capella"))]
+    pub message: BeaconBlockCapella<E, Payload>,
     #[superstruct(only(Eip4844), partial_getter(rename = "message_eip4844"))]
     pub message: BeaconBlockEip4844<E, Payload>,
     pub signature: Signature,
@@ -79,7 +81,7 @@ pub struct SignedBeaconBlock<E: EthSpec, Payload: ExecPayload<E> = FullPayload<E
 
 pub type SignedBlindedBeaconBlock<E> = SignedBeaconBlock<E, BlindedPayload<E>>;
 
-impl<E: EthSpec, Payload: ExecPayload<E>> SignedBeaconBlock<E, Payload> {
+impl<E: EthSpec, Payload: AbstractExecPayload<E>> SignedBeaconBlock<E, Payload> {
     /// Returns the name of the fork pertaining to `self`.
     ///
     /// Will return an `Err` if `self` has been instantiated to a variant conflicting with the fork
@@ -130,6 +132,9 @@ impl<E: EthSpec, Payload: ExecPayload<E>> SignedBeaconBlock<E, Payload> {
             }
             BeaconBlock::Merge(message) => {
                 SignedBeaconBlock::Merge(SignedBeaconBlockMerge { message, signature })
+            }
+            BeaconBlock::Capella(message) => {
+                SignedBeaconBlock::Capella(SignedBeaconBlockCapella { message, signature })
             }
             BeaconBlock::Eip4844(message) => {
                 SignedBeaconBlock::Eip4844(SignedBeaconBlockEip4844 { message, signature })
@@ -263,7 +268,7 @@ impl<E: EthSpec> From<SignedBeaconBlockAltair<E, BlindedPayload<E>>>
 impl<E: EthSpec> SignedBeaconBlockMerge<E, BlindedPayload<E>> {
     pub fn into_full_block(
         self,
-        execution_payload: ExecutionPayload<E>,
+        execution_payload: ExecutionPayloadMerge<E>,
     ) -> SignedBeaconBlockMerge<E, FullPayload<E>> {
         let SignedBeaconBlockMerge {
             message:
@@ -283,7 +288,7 @@ impl<E: EthSpec> SignedBeaconBlockMerge<E, BlindedPayload<E>> {
                             deposits,
                             voluntary_exits,
                             sync_aggregate,
-                            execution_payload: BlindedPayload { .. },
+                            execution_payload: BlindedPayloadMerge { .. },
                         },
                 },
             signature,
@@ -304,7 +309,59 @@ impl<E: EthSpec> SignedBeaconBlockMerge<E, BlindedPayload<E>> {
                     deposits,
                     voluntary_exits,
                     sync_aggregate,
-                    execution_payload: FullPayload { execution_payload },
+                    execution_payload: FullPayloadMerge { execution_payload },
+                },
+            },
+            signature,
+        }
+    }
+}
+
+impl<E: EthSpec> SignedBeaconBlockCapella<E, BlindedPayload<E>> {
+    pub fn into_full_block(
+        self,
+        execution_payload: ExecutionPayloadCapella<E>,
+    ) -> SignedBeaconBlockCapella<E, FullPayload<E>> {
+        let SignedBeaconBlockCapella {
+            message:
+                BeaconBlockCapella {
+                    slot,
+                    proposer_index,
+                    parent_root,
+                    state_root,
+                    body:
+                        BeaconBlockBodyCapella {
+                            randao_reveal,
+                            eth1_data,
+                            graffiti,
+                            proposer_slashings,
+                            attester_slashings,
+                            attestations,
+                            deposits,
+                            voluntary_exits,
+                            sync_aggregate,
+                            execution_payload: BlindedPayloadCapella { .. },
+                        },
+                },
+            signature,
+        } = self;
+        SignedBeaconBlockCapella {
+            message: BeaconBlockCapella {
+                slot,
+                proposer_index,
+                parent_root,
+                state_root,
+                body: BeaconBlockBodyCapella {
+                    randao_reveal,
+                    eth1_data,
+                    graffiti,
+                    proposer_slashings,
+                    attester_slashings,
+                    attestations,
+                    deposits,
+                    voluntary_exits,
+                    sync_aggregate,
+                    execution_payload: FullPayloadCapella { execution_payload },
                 },
             },
             signature,
@@ -315,7 +372,7 @@ impl<E: EthSpec> SignedBeaconBlockMerge<E, BlindedPayload<E>> {
 impl<E: EthSpec> SignedBeaconBlockEip4844<E, BlindedPayload<E>> {
     pub fn into_full_block(
         self,
-        execution_payload: ExecutionPayload<E>,
+        execution_payload: ExecutionPayloadEip4844<E>,
     ) -> SignedBeaconBlockEip4844<E, FullPayload<E>> {
         let SignedBeaconBlockEip4844 {
             message:
@@ -335,7 +392,7 @@ impl<E: EthSpec> SignedBeaconBlockEip4844<E, BlindedPayload<E>> {
                             deposits,
                             voluntary_exits,
                             sync_aggregate,
-                            execution_payload: BlindedPayload { .. },
+                            execution_payload: BlindedPayloadEip4844 { .. },
                             blob_kzg_commitments,
                         },
                 },
@@ -357,7 +414,7 @@ impl<E: EthSpec> SignedBeaconBlockEip4844<E, BlindedPayload<E>> {
                     deposits,
                     voluntary_exits,
                     sync_aggregate,
-                    execution_payload: FullPayload { execution_payload },
+                    execution_payload: FullPayloadEip4844 { execution_payload },
                     blob_kzg_commitments,
                 },
             },
@@ -371,15 +428,23 @@ impl<E: EthSpec> SignedBeaconBlock<E, BlindedPayload<E>> {
         self,
         execution_payload: Option<ExecutionPayload<E>>,
     ) -> Option<SignedBeaconBlock<E, FullPayload<E>>> {
-        let full_block = match self {
-            SignedBeaconBlock::Base(block) => SignedBeaconBlock::Base(block.into()),
-            SignedBeaconBlock::Altair(block) => SignedBeaconBlock::Altair(block.into()),
-            SignedBeaconBlock::Merge(block) => {
-                SignedBeaconBlock::Merge(block.into_full_block(execution_payload?))
+        let full_block = match (self, execution_payload) {
+            (SignedBeaconBlock::Base(block), _) => SignedBeaconBlock::Base(block.into()),
+            (SignedBeaconBlock::Altair(block), _) => SignedBeaconBlock::Altair(block.into()),
+            (SignedBeaconBlock::Merge(block), Some(ExecutionPayload::Merge(payload))) => {
+                SignedBeaconBlock::Merge(block.into_full_block(payload))
             }
-            SignedBeaconBlock::Eip4844(block) => {
-                SignedBeaconBlock::Eip4844(block.into_full_block(execution_payload?))
+            (SignedBeaconBlock::Capella(block), Some(ExecutionPayload::Capella(payload))) => {
+                SignedBeaconBlock::Capella(block.into_full_block(payload))
             }
+            (SignedBeaconBlock::Eip4844(block), Some(ExecutionPayload::Eip4844(payload))) => {
+                SignedBeaconBlock::Eip4844(block.into_full_block(payload))
+            }
+            // avoid wildcard matching forks so that compiler will
+            // direct us here when a new fork has been added
+            (SignedBeaconBlock::Merge(_), _) => return None,
+            (SignedBeaconBlock::Capella(_), _) => return None,
+            (SignedBeaconBlock::Eip4844(_), _) => return None,
         };
         Some(full_block)
     }

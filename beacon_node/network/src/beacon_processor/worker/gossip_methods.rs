@@ -2257,7 +2257,10 @@ impl<T: BeaconChainTypes> Worker<T> {
             BlobError::ProposalSignatureInvalid => {
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
             }
-            BlobError::RepeatSidecar { proposer: _, slot: _ } => {
+            BlobError::RepeatSidecar {
+                proposer: _,
+                slot: _,
+            } => {
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
             }
             BlobError::UnknownHeadBlock { beacon_block_root } => {

@@ -1,4 +1,7 @@
-use crate::{ChainSpec, EthSpec, ExecPayload, ExecutionPayloadHeader, SignedRoot, Uint256};
+use crate::{
+    AbstractExecPayload, ChainSpec, EthSpec, ExecPayload, ExecutionPayloadHeader, SignedRoot,
+    Uint256,
+};
 use bls::PublicKeyBytes;
 use bls::Signature;
 use serde::{Deserialize as De, Deserializer, Serialize as Ser, Serializer};
@@ -10,7 +13,7 @@ use tree_hash_derive::TreeHash;
 #[serde_as]
 #[derive(PartialEq, Debug, Serialize, Deserialize, TreeHash, Clone)]
 #[serde(bound = "E: EthSpec, Payload: ExecPayload<E>")]
-pub struct BuilderBid<E: EthSpec, Payload: ExecPayload<E>> {
+pub struct BuilderBid<E: EthSpec, Payload: AbstractExecPayload<E>> {
     #[serde_as(as = "BlindedPayloadAsHeader<E>")]
     pub header: Payload,
     #[serde(with = "eth2_serde_utils::quoted_u256")]
@@ -21,12 +24,12 @@ pub struct BuilderBid<E: EthSpec, Payload: ExecPayload<E>> {
     _phantom_data: PhantomData<E>,
 }
 
-impl<E: EthSpec, Payload: ExecPayload<E>> SignedRoot for BuilderBid<E, Payload> {}
+impl<E: EthSpec, Payload: AbstractExecPayload<E>> SignedRoot for BuilderBid<E, Payload> {}
 
 /// Validator registration, for use in interacting with servers implementing the builder API.
 #[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
 #[serde(bound = "E: EthSpec, Payload: ExecPayload<E>")]
-pub struct SignedBuilderBid<E: EthSpec, Payload: ExecPayload<E>> {
+pub struct SignedBuilderBid<E: EthSpec, Payload: AbstractExecPayload<E>> {
     pub message: BuilderBid<E, Payload>,
     pub signature: Signature,
 }
@@ -42,7 +45,7 @@ impl<E: EthSpec, Payload: ExecPayload<E>> SerializeAs<Payload> for BlindedPayloa
     }
 }
 
-impl<'de, E: EthSpec, Payload: ExecPayload<E>> DeserializeAs<'de, Payload>
+impl<'de, E: EthSpec, Payload: AbstractExecPayload<E>> DeserializeAs<'de, Payload>
     for BlindedPayloadAsHeader<E>
 {
     fn deserialize_as<D>(deserializer: D) -> Result<Payload, D::Error>
@@ -55,7 +58,7 @@ impl<'de, E: EthSpec, Payload: ExecPayload<E>> DeserializeAs<'de, Payload>
     }
 }
 
-impl<E: EthSpec, Payload: ExecPayload<E>> SignedBuilderBid<E, Payload> {
+impl<E: EthSpec, Payload: AbstractExecPayload<E>> SignedBuilderBid<E, Payload> {
     pub fn verify_signature(&self, spec: &ChainSpec) -> bool {
         self.message
             .pubkey

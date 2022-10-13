@@ -13,12 +13,35 @@ pub type Transactions<T> = VariableList<
     <T as EthSpec>::MaxTransactionsPerPayload,
 >;
 
-#[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
-#[derive(
-    Default, Debug, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom, Derivative,
+#[superstruct(
+    variants(Merge, Capella, Eip4844),
+    variant_attributes(
+        derive(
+            Default,
+            Debug,
+            Clone,
+            Serialize,
+            Deserialize,
+            Encode,
+            Decode,
+            TreeHash,
+            TestRandom,
+            Derivative,
+        ),
+        derivative(PartialEq, Hash(bound = "T: EthSpec")),
+        serde(bound = "T: EthSpec", deny_unknown_fields),
+        cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))
+    ),
+    cast_error(ty = "Error", expr = "BeaconStateError::IncorrectStateVariant"),
+    partial_getter_error(ty = "Error", expr = "BeaconStateError::IncorrectStateVariant")
 )]
+#[derive(Debug, Clone, Serialize, Encode, Deserialize, TreeHash, Derivative)]
 #[derivative(PartialEq, Hash(bound = "T: EthSpec"))]
+#[serde(untagged)]
 #[serde(bound = "T: EthSpec")]
+#[ssz(enum_behaviour = "transparent")]
+#[tree_hash(enum_behaviour = "transparent")]
+#[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 pub struct ExecutionPayload<T: EthSpec> {
     pub parent_hash: ExecutionBlockHash,
     pub fee_recipient: Address,
@@ -39,28 +62,57 @@ pub struct ExecutionPayload<T: EthSpec> {
     pub extra_data: VariableList<u8, T::MaxExtraDataBytes>,
     #[serde(with = "eth2_serde_utils::quoted_u256")]
     pub base_fee_per_gas: Uint256,
+    #[superstruct(only(Eip4844))]
+    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    pub excess_blobs: u64,
     pub block_hash: ExecutionBlockHash,
     #[serde(with = "ssz_types::serde_utils::list_of_hex_var_list")]
     pub transactions: Transactions<T>,
+    #[superstruct(only(Capella, Eip4844))]
+    pub withdrawals: VariableList<Withdrawal, T::MaxWithdrawalsPerPayload>,
 }
 
 impl<T: EthSpec> ExecutionPayload<T> {
-    pub fn empty() -> Self {
-        Self::default()
-    }
-
     #[allow(clippy::integer_arithmetic)]
     /// Returns the maximum size of an execution payload.
-    pub fn max_execution_payload_size() -> usize {
+    pub fn max_execution_payload_merge_size() -> usize {
         // Fixed part
-        Self::empty().as_ssz_bytes().len()
+        ExecutionPayloadMerge::<T>::default().as_ssz_bytes().len()
             // Max size of variable length `extra_data` field
             + (T::max_extra_data_bytes() * <u8 as Encode>::ssz_fixed_len())
             // Max size of variable length `transactions` field
             + (T::max_transactions_per_payload() * (ssz::BYTES_PER_LENGTH_OFFSET + T::max_bytes_per_transaction()))
     }
 
+    #[allow(clippy::integer_arithmetic)]
+    /// Returns the maximum size of an execution payload.
+    pub fn max_execution_payload_capella_size() -> usize {
+        // Fixed part
+        ExecutionPayloadCapella::<T>::default().as_ssz_bytes().len()
+            // Max size of variable length `extra_data` field
+            + (T::max_extra_data_bytes() * <u8 as Encode>::ssz_fixed_len())
+            // Max size of variable length `transactions` field
+            + (T::max_transactions_per_payload() * (ssz::BYTES_PER_LENGTH_OFFSET + T::max_bytes_per_transaction()))
+            // Max size of variable length `withdrawals` field
+            // TODO: check this
+            + (T::max_withdrawals_per_payload() * (ssz::BYTES_PER_LENGTH_OFFSET + <Withdrawal as Encode>::ssz_fixed_len()))
+    }
+
+    #[allow(clippy::integer_arithmetic)]
+    /// Returns the maximum size of an execution payload.
+    pub fn max_execution_payload_eip4844_size() -> usize {
+        // Fixed part
+        ExecutionPayloadEip4844::<T>::default().as_ssz_bytes().len()
+            // Max size of variable length `extra_data` field
+            + (T::max_extra_data_bytes() * <u8 as Encode>::ssz_fixed_len())
+            // Max size of variable length `transactions` field
+            + (T::max_transactions_per_payload() * (ssz::BYTES_PER_LENGTH_OFFSET + T::max_bytes_per_transaction()))
+            // Max size of variable length `withdrawals` field
+            // TODO: check this
+            + (T::max_withdrawals_per_payload() * (ssz::BYTES_PER_LENGTH_OFFSET + <Withdrawal as Encode>::ssz_fixed_len()))
+    }
+
     pub fn blob_txns_iter(&self) -> Iter<'_, Transaction<T::MaxBytesPerTransaction>> {
-        self.transactions.iter()
+        self.transactions().iter()
     }
 }
