@@ -499,6 +499,16 @@ impl<T: EthSpec> ExecutionLayer<T> {
             .contains_key(&proposer_index)
     }
 
+    /// Check if a proposer is registered as a local validator, *from a synchronous context*.
+    ///
+    /// This method MUST NOT be called from an async task.
+    pub fn has_proposer_preparation_data_blocking(&self, proposer_index: u64) -> bool {
+        self.inner
+            .proposer_preparation_data
+            .blocking_lock()
+            .contains_key(&proposer_index)
+    }
+
     /// Returns the fee-recipient address that should be used to build a block
     pub async fn get_suggested_fee_recipient(&self, proposer_index: u64) -> Address {
         if let Some(preparation_data_entry) =
@@ -1034,12 +1044,6 @@ impl<T: EthSpec> ExecutionLayer<T> {
 
         // Compute the "lookahead", the time between when the payload will be produced and now.
         if let Some(payload_attributes) = payload_attributes {
-            debug!(
-                self.log(),
-                "Sending payload attributes";
-                "timestamp" => payload_attributes.timestamp,
-                "prev_randao" => ?payload_attributes.prev_randao,
-            );
             if let Ok(now) = SystemTime::now().duration_since(UNIX_EPOCH) {
                 let timestamp = Duration::from_secs(payload_attributes.timestamp);
                 if let Some(lookahead) = timestamp.checked_sub(now) {

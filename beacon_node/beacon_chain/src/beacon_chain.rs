@@ -3522,6 +3522,32 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             && parent_node.unrealized_finalized_checkpoint
                 == head_node.unrealized_finalized_checkpoint;
 
+        // Only attempt a re-org if we have a proposer registered for the re-org slot.
+        let proposing_next_slot = block_slot_ok
+            .then(|| {
+                let shuffling_decision_root =
+                    parent_node.next_epoch_shuffling_id.shuffling_decision_block;
+                let proposer_index = self
+                    .beacon_proposer_cache
+                    .lock()
+                    .get_slot::<T::EthSpec>(shuffling_decision_root, re_org_block_slot)
+                    .or_else(|| {
+                        debug!(
+                            self.log,
+                            "Fork choice override proposer shuffling miss";
+                            "slot" => re_org_block_slot,
+                            "decision_root" => ?shuffling_decision_root,
+                        );
+                        None
+                    })?
+                    .index;
+                self.execution_layer
+                    .as_ref()
+                    .map(|el| el.has_proposer_preparation_data_blocking(proposer_index as u64))
+            })
+            .flatten()
+            .unwrap_or(false);
+
         // FIXME(sproul): add participation check
 
         // Check that the head block arrived late and is vulnerable to a re-org. This check is only
@@ -3532,23 +3558,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let head_block_late =
             self.block_observed_after_attestation_deadline(head_block_root, head_node.slot);
 
-        let might_re_org = current_slot_ok && block_slot_ok && ffg_competitive && head_block_late;
+        let might_re_org = current_slot_ok
+            && block_slot_ok
+            && ffg_competitive
+            && proposing_next_slot
+            && head_block_late;
 
         if !might_re_org {
             return Ok(canonical_forkchoice_params);
         }
 
-        let parent_head_hash = if let Some(hash) = parent_node.execution_status.block_hash() {
-            hash
-        } else {
-            warn!(
-                self.log,
-                "Missing exec block hash for parent";
-                "parent_root" => ?parent_node.root,
-                "status" => ?parent_node.execution_status,
-            );
-            return Ok(canonical_forkchoice_params);
-        };
+        let parent_head_hash = parent_node.execution_status.block_hash();
 
         debug!(
             self.log,
@@ -3560,7 +3580,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let forkchoice_update_params = ForkchoiceUpdateParameters {
             head_root: parent_node.root,
-            head_hash: Some(parent_head_hash),
+            head_hash: parent_head_hash,
             justified_hash: canonical_forkchoice_params.justified_hash,
             finalized_hash: canonical_forkchoice_params.finalized_hash,
         };
