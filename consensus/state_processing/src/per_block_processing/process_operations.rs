@@ -9,7 +9,7 @@ use crate::VerifySignatures;
 use safe_arith::SafeArith;
 use types::consts::altair::{PARTICIPATION_FLAG_WEIGHTS, PROPOSER_WEIGHT, WEIGHT_DENOMINATOR};
 
-pub fn process_operations<'a, T: EthSpec, Payload: ExecPayload<T>>(
+pub fn process_operations<'a, T: EthSpec, Payload: AbstractExecPayload<T>>(
     state: &mut BeaconState<T>,
     block_body: BeaconBlockBodyRef<'a, T, Payload>,
     proposer_index: u64,
@@ -219,7 +219,7 @@ pub fn process_attester_slashings<T: EthSpec>(
 }
 /// Wrapper function to handle calling the correct version of `process_attestations` based on
 /// the fork.
-pub fn process_attestations<'a, T: EthSpec, Payload: ExecPayload<T>>(
+pub fn process_attestations<'a, T: EthSpec, Payload: AbstractExecPayload<T>>(
     state: &mut BeaconState<T>,
     block_body: BeaconBlockBodyRef<'a, T, Payload>,
     proposer_index: u64,
