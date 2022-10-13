@@ -168,10 +168,6 @@ where
         &mut self.0[i]
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = &T> {
-        self.0.iter()
-    }
-
     pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut T> {
         self.0.iter_mut()
     }
@@ -426,42 +422,6 @@ impl ProtoArrayForkChoice {
             shuffling_stable,
             participation_ok,
         })
-    }
-
-    /// Compute the sum of attester balances of attestations to a specific block root.
-    ///
-    /// This weight is the weight unique to the block, *not* including the weight of its ancestors.
-    ///
-    /// Any `proposer_boost` in effect is ignored: only attestations are counted.
-    // FIXME(sproul): consider deleting
-    pub fn get_block_unique_weight(
-        &self,
-        block_root: Hash256,
-        justified_balances: &[u64],
-        equivocating_indices: &BTreeSet<u64>,
-    ) -> Result<u64, Error> {
-        let mut unique_weight = 0u64;
-        for (validator_index, vote) in self.votes.iter().enumerate() {
-            // Skip equivocating validators.
-            if equivocating_indices.contains(&(validator_index as u64)) {
-                continue;
-            }
-
-            // Check the `next_root` as we care about the most recent attestations, including ones
-            // from the previous slot that have just been dequeued but haven't run fully through
-            // fork choice yet.
-            if vote.next_root == block_root {
-                let validator_balance = justified_balances
-                    .get(validator_index)
-                    .copied()
-                    .unwrap_or(0);
-
-                unique_weight = unique_weight
-                    .checked_add(validator_balance)
-                    .ok_or(Error::UniqueWeightOverflow(block_root))?;
-            }
-        }
-        Ok(unique_weight)
     }
 
     /// Returns `true` if there are any blocks in `self` with an `INVALID` execution payload status.

@@ -3481,10 +3481,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let head_block_root = canonical_forkchoice_params.head_root;
 
         // Load details of the head block and its parent from fork choice.
-        let (head_node, parent_node) = {
-            let mut nodes = self
-                .canonical_head
-                .fork_choice_read_lock()
+        let (head_node, parent_node, participation_threshold) = {
+            let fork_choice = self.canonical_head.fork_choice_read_lock();
+
+            let mut nodes = fork_choice
                 .proto_array()
                 .core_proto_array()
                 .iter_nodes(&head_block_root)
@@ -3498,7 +3498,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             let parent = nodes.pop().ok_or(Error::SuppressForkChoiceError)?;
             let head = nodes.pop().ok_or(Error::SuppressForkChoiceError)?;
-            (head, parent)
+
+            let participation_threshold = fork_choice
+                .compute_participation_threshold_weight(self.config.re_org_participation_threshold);
+
+            (head, parent, participation_threshold)
         };
 
         // The slot of our potential re-org block is always 1 greater than the head block because we
@@ -3506,11 +3510,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let re_org_block_slot = head_node.slot + 1;
 
         // Suppress only during the head block's slot, or at most until the end of the next slot.
-        // If our proposal fails entirely we will attest to the wrong head during
-        // `re_org_block_slot` and only re-align with the canonical chain 500ms before the start of
-        // the next slot (i.e. `head_slot + 2`).
-        // FIXME(sproul): add some timing conditions here
-        let current_slot_ok = head_node.slot == current_slot || re_org_block_slot == current_slot;
+        // If a re-orging proposal isn't made by the `max_re_org_slot_delay` then we give up
+        // and allow the fork choice update for the canonical head through so that we may attest
+        // correctly.
+        let current_slot_ok = if head_node.slot == current_slot {
+            true
+        } else if re_org_block_slot == current_slot {
+            self.slot_clock
+                .seconds_from_current_slot_start(self.spec.seconds_per_slot)
+                .map_or(false, |delay| {
+                    delay <= max_re_org_slot_delay(self.spec.seconds_per_slot)
+                })
+        } else {
+            false
+        };
 
         // Only attempt single slot re-orgs, and not at epoch boundaries.
         let block_slot_ok = parent_node.slot + 1 == head_node.slot
@@ -3523,7 +3536,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 == head_node.unrealized_finalized_checkpoint;
 
         // Only attempt a re-org if we have a proposer registered for the re-org slot.
-        let proposing_next_slot = block_slot_ok
+        let proposing_at_re_org_slot = block_slot_ok
             .then(|| {
                 let shuffling_decision_root =
                     parent_node.next_epoch_shuffling_id.shuffling_decision_block;
@@ -3548,7 +3561,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .flatten()
             .unwrap_or(false);
 
-        // FIXME(sproul): add participation check
+        // Check that the parent's weight is greater than the participation threshold.
+        // If we are still in the slot of the canonical head block then only check against
+        // a 1x threshold as all attestations may not have arrived yet.
+        let participation_multiplier = if current_slot == head_node.slot { 1 } else { 2 };
+        let participation_ok = participation_threshold.map_or(false, |threshold| {
+            parent_node.weight >= threshold.saturating_mul(participation_multiplier)
+        });
 
         // Check that the head block arrived late and is vulnerable to a re-org. This check is only
         // a heuristic compared to the proper weight check in `get_state_for_re_org`, the reason
@@ -3561,7 +3580,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let might_re_org = current_slot_ok
             && block_slot_ok
             && ffg_competitive
-            && proposing_next_slot
+            && proposing_at_re_org_slot
+            && participation_ok
             && head_block_late;
 
         if !might_re_org {

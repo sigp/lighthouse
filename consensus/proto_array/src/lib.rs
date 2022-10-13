@@ -6,7 +6,9 @@ mod proto_array_fork_choice;
 mod ssz_container;
 
 pub use crate::justified_balances::JustifiedBalances;
-pub use crate::proto_array::{CountUnrealizedFull, InvalidationOperation};
+pub use crate::proto_array::{
+    calculate_proposer_boost, CountUnrealizedFull, InvalidationOperation,
+};
 pub use crate::proto_array_fork_choice::{
     Block, ExecutionStatus, ParticipationThreshold, ProposerHead, ProtoArrayForkChoice,
     ReOrgThreshold,

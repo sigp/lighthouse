@@ -1,7 +1,7 @@
 use crate::{ForkChoiceStore, InvalidationOperation};
 use proto_array::{
-    Block as ProtoBlock, CountUnrealizedFull, ExecutionStatus, ParticipationThreshold,
-    ProposerHead, ProtoArrayForkChoice, ReOrgThreshold,
+    calculate_proposer_boost, Block as ProtoBlock, CountUnrealizedFull, ExecutionStatus,
+    ParticipationThreshold, ProposerHead, ProtoArrayForkChoice, ReOrgThreshold,
 };
 use slog::{crit, debug, warn, Logger};
 use ssz_derive::{Decode, Encode};
@@ -597,6 +597,23 @@ where
                 participation_threshold,
             )
             .map_err(Into::into)
+    }
+
+    /// Compute the weight corresponding to `participation_threshold`.
+    ///
+    /// This is a fraction of a single committee weight, measured approximately against
+    /// the justified balances, just like proposer boost.
+    pub fn compute_participation_threshold_weight(
+        &self,
+        participation_threshold: ParticipationThreshold,
+    ) -> Option<u64>
+    where
+        E: EthSpec,
+    {
+        calculate_proposer_boost::<E>(
+            self.fc_store.justified_balances(),
+            participation_threshold.0,
+        )
     }
 
     /// Return information about:

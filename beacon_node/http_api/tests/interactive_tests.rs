@@ -112,7 +112,7 @@ pub async fn proposer_boost_re_org_bad_ffg() {
 
 pub async fn proposer_boost_re_org_test(
     head_slot: Slot,
-    num_head_votes: Option<u64>,
+    _num_head_votes: Option<u64>,
     re_org_threshold: Option<u64>,
     should_re_org: bool,
 ) {
@@ -299,7 +299,6 @@ pub async fn proposer_boost_re_org_test(
     let forkchoice_updates = forkchoice_updates.lock();
     let block_a_exec_hash = block_a.message().execution_payload().unwrap().block_hash();
     let block_b_exec_hash = block_b.message().execution_payload().unwrap().block_hash();
-    let block_c_exec_hash = block_c.message().execution_payload().unwrap().block_hash();
 
     let block_c_timestamp = block_c.message().execution_payload().unwrap().timestamp();
 

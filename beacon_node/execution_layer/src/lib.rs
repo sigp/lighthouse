@@ -1052,14 +1052,12 @@ impl<T: EthSpec> ExecutionLayer<T> {
                         lookahead,
                     );
                 } else {
-                    /* FIXME(sproul): re-enable this, or fix it
                     debug!(
                         self.log(),
                         "Late payload attributes";
                         "timestamp" => ?timestamp,
                         "now" => ?now,
                     )
-                    */
                 }
             }
         }
