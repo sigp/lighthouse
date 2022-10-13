@@ -7,9 +7,9 @@ use ssz::DecodeError;
 use std::borrow::Cow;
 use tree_hash::TreeHash;
 use types::{
-    AggregateSignature, AttesterSlashing, BeaconBlockRef, BeaconState, BeaconStateError, ChainSpec,
-    DepositData, Domain, Epoch, EthSpec, ExecPayload, Fork, Hash256, InconsistentFork,
-    IndexedAttestation, ProposerSlashing, PublicKey, PublicKeyBytes, Signature,
+    AbstractExecPayload, AggregateSignature, AttesterSlashing, BeaconBlockRef, BeaconState,
+    BeaconStateError, ChainSpec, DepositData, Domain, Epoch, EthSpec, ExecPayload, Fork, Hash256,
+    InconsistentFork, IndexedAttestation, ProposerSlashing, PublicKey, PublicKeyBytes, Signature,
     SignedAggregateAndProof, SignedBeaconBlock, SignedBeaconBlockHeader,
     SignedContributionAndProof, SignedRoot, SignedVoluntaryExit, SigningData, Slot, SyncAggregate,
     SyncAggregatorSelectionData, Unsigned,
@@ -71,7 +71,7 @@ where
 }
 
 /// A signature set that is valid if a block was signed by the expected block producer.
-pub fn block_proposal_signature_set<'a, T, F, Payload: ExecPayload<T>>(
+pub fn block_proposal_signature_set<'a, T, F, Payload: AbstractExecPayload<T>>(
     state: &'a BeaconState<T>,
     get_pubkey: F,
     signed_block: &'a SignedBeaconBlock<T, Payload>,
@@ -108,7 +108,7 @@ where
 /// Unlike `block_proposal_signature_set` this does **not** check that the proposer index is
 /// correct according to the shuffling. It should only be used if no suitable `BeaconState` is
 /// available.
-pub fn block_proposal_signature_set_from_parts<'a, T, F, Payload: ExecPayload<T>>(
+pub fn block_proposal_signature_set_from_parts<'a, T, F, Payload: AbstractExecPayload<T>>(
     signed_block: &'a SignedBeaconBlock<T, Payload>,
     block_root: Option<Hash256>,
     proposer_index: u64,
@@ -152,7 +152,7 @@ where
 }
 
 /// A signature set that is valid if the block proposers randao reveal signature is correct.
-pub fn randao_signature_set<'a, T, F, Payload: ExecPayload<T>>(
+pub fn randao_signature_set<'a, T, F, Payload: AbstractExecPayload<T>>(
     state: &'a BeaconState<T>,
     get_pubkey: F,
     block: BeaconBlockRef<'a, T, Payload>,
