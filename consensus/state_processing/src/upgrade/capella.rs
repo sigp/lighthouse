@@ -1,30 +1,28 @@
+use ssz_types::VariableList;
 use std::mem;
-use types::{
-    BeaconState, BeaconStateError as Error, BeaconStateMerge, ChainSpec, EthSpec,
-    ExecutionPayloadHeaderMerge, Fork,
-};
+use types::{BeaconState, BeaconStateCapella, BeaconStateError as Error, ChainSpec, EthSpec, Fork};
 
-/// Transform a `Altair` state into an `Merge` state.
-pub fn upgrade_to_bellatrix<E: EthSpec>(
+/// Transform a `Merge` state into an `Capella` state.
+pub fn upgrade_to_capella<E: EthSpec>(
     pre_state: &mut BeaconState<E>,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
     let epoch = pre_state.current_epoch();
-    let pre = pre_state.as_altair_mut()?;
+    let pre = pre_state.as_merge_mut()?;
 
     // Where possible, use something like `mem::take` to move fields from behind the &mut
     // reference. For other fields that don't have a good default value, use `clone`.
     //
     // Fixed size vectors get cloned because replacing them would require the same size
     // allocation as cloning.
-    let post = BeaconState::Merge(BeaconStateMerge {
+    let post = BeaconState::Capella(BeaconStateCapella {
         // Versioning
         genesis_time: pre.genesis_time,
         genesis_validators_root: pre.genesis_validators_root,
         slot: pre.slot,
         fork: Fork {
             previous_version: pre.fork.current_version,
-            current_version: spec.bellatrix_fork_version,
+            current_version: spec.capella_fork_version,
             epoch,
         },
         // History
@@ -57,7 +55,11 @@ pub fn upgrade_to_bellatrix<E: EthSpec>(
         current_sync_committee: pre.current_sync_committee.clone(),
         next_sync_committee: pre.next_sync_committee.clone(),
         // Execution
-        latest_execution_payload_header: <ExecutionPayloadHeaderMerge<E>>::default(),
+        latest_execution_payload_header: pre.latest_execution_payload_header.upgrade_to_capella(),
+        // Withdrawals
+        withdrawal_queue: VariableList::empty(),
+        next_withdrawal_index: 0,
+        next_partial_withdrawal_validator_index: 0,
         // Caches
         total_active_balance: pre.total_active_balance,
         committee_caches: mem::take(&mut pre.committee_caches),

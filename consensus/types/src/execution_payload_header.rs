@@ -65,6 +65,73 @@ pub struct ExecutionPayloadHeader<T: EthSpec> {
     pub withdrawals_root: Hash256,
 }
 
+impl<'a, T: EthSpec> ExecutionPayloadHeaderRef<'a, T> {
+    // FIXME: maybe this could be a derived trait..
+    pub fn is_default(self) -> bool {
+        match self {
+            ExecutionPayloadHeaderRef::Merge(header) => {
+                *header == ExecutionPayloadHeaderMerge::default()
+            }
+            ExecutionPayloadHeaderRef::Capella(header) => {
+                *header == ExecutionPayloadHeaderCapella::default()
+            }
+            ExecutionPayloadHeaderRef::Eip4844(header) => {
+                *header == ExecutionPayloadHeaderEip4844::default()
+            }
+        }
+    }
+}
+
+impl<T: EthSpec> ExecutionPayloadHeaderMerge<T> {
+    pub fn upgrade_to_capella(&self) -> ExecutionPayloadHeaderCapella<T> {
+        // TODO: if this is correct we should calculate and hardcode this..
+        let empty_withdrawals_root =
+            VariableList::<Withdrawal, T::MaxWithdrawalsPerPayload>::empty().tree_hash_root();
+        ExecutionPayloadHeaderCapella {
+            parent_hash: self.parent_hash,
+            fee_recipient: self.fee_recipient,
+            state_root: self.state_root,
+            receipts_root: self.receipts_root,
+            logs_bloom: self.logs_bloom.clone(),
+            prev_randao: self.prev_randao,
+            block_number: self.block_number,
+            gas_limit: self.gas_limit,
+            gas_used: self.gas_used,
+            timestamp: self.timestamp,
+            extra_data: self.extra_data.clone(),
+            base_fee_per_gas: self.base_fee_per_gas,
+            block_hash: self.block_hash,
+            transactions_root: self.transactions_root,
+            // FIXME: the spec doesn't seem to define what to do here..
+            withdrawals_root: empty_withdrawals_root,
+        }
+    }
+}
+
+impl<T: EthSpec> ExecutionPayloadHeaderCapella<T> {
+    pub fn upgrade_to_eip4844(&self) -> ExecutionPayloadHeaderEip4844<T> {
+        ExecutionPayloadHeaderEip4844 {
+            parent_hash: self.parent_hash,
+            fee_recipient: self.fee_recipient,
+            state_root: self.state_root,
+            receipts_root: self.receipts_root,
+            logs_bloom: self.logs_bloom.clone(),
+            prev_randao: self.prev_randao,
+            block_number: self.block_number,
+            gas_limit: self.gas_limit,
+            gas_used: self.gas_used,
+            timestamp: self.timestamp,
+            extra_data: self.extra_data.clone(),
+            base_fee_per_gas: self.base_fee_per_gas,
+            // TODO: verify if this is correct
+            excess_blobs: 0,
+            block_hash: self.block_hash,
+            transactions_root: self.transactions_root,
+            withdrawals_root: self.withdrawals_root,
+        }
+    }
+}
+
 impl<T: EthSpec> From<ExecutionPayloadMerge<T>> for ExecutionPayloadHeaderMerge<T> {
     fn from(payload: ExecutionPayloadMerge<T>) -> Self {
         Self {

@@ -8,7 +8,7 @@ use std::borrow::Cow;
 use tree_hash::TreeHash;
 use types::{
     AbstractExecPayload, AggregateSignature, AttesterSlashing, BeaconBlockRef, BeaconState,
-    BeaconStateError, ChainSpec, DepositData, Domain, Epoch, EthSpec, ExecPayload, Fork, Hash256,
+    BeaconStateError, ChainSpec, DepositData, Domain, Epoch, EthSpec, Fork, Hash256,
     InconsistentFork, IndexedAttestation, ProposerSlashing, PublicKey, PublicKeyBytes, Signature,
     SignedAggregateAndProof, SignedBeaconBlock, SignedBeaconBlockHeader,
     SignedContributionAndProof, SignedRoot, SignedVoluntaryExit, SigningData, Slot, SyncAggregate,
