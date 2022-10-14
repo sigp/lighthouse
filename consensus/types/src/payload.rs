@@ -621,17 +621,6 @@ impl<T: EthSpec> ExecPayload<T> for BlindedPayload<T> {
     // TODO: can this function be optimized?
     fn is_default(&self) -> bool {
         match self {
-            /*
-            Self::Merge(payload) => {
-                payload.execution_payload_header == ExecutionPayloadHeaderMerge::default()
-            }
-            Self::Capella(payload) => {
-                payload.execution_payload_header == ExecutionPayloadHeaderCapella::default()
-            }
-            Self::Eip4844(payload) => {
-                payload.execution_payload_header == ExecutionPayloadHeaderEip4844::default()
-            }
-            */
             Self::Merge(payload) => payload.is_default(),
             Self::Capella(payload) => payload.is_default(),
             Self::Eip4844(payload) => payload.is_default(),

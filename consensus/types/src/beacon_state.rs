@@ -718,6 +718,23 @@ impl<T: EthSpec> BeaconState<T> {
         }
     }
 
+    pub fn latest_execution_payload_header_mut(
+        &mut self,
+    ) -> Result<ExecutionPayloadHeaderRefMut<T>, Error> {
+        match self {
+            BeaconState::Base(_) | BeaconState::Altair(_) => Err(Error::IncorrectStateVariant),
+            BeaconState::Merge(state) => Ok(ExecutionPayloadHeaderRefMut::Merge(
+                &mut state.latest_execution_payload_header,
+            )),
+            BeaconState::Capella(state) => Ok(ExecutionPayloadHeaderRefMut::Capella(
+                &mut state.latest_execution_payload_header,
+            )),
+            BeaconState::Eip4844(state) => Ok(ExecutionPayloadHeaderRefMut::Eip4844(
+                &mut state.latest_execution_payload_header,
+            )),
+        }
+    }
+
     /// Return `true` if the validator who produced `slot_signature` is eligible to aggregate.
     ///
     /// Spec v0.12.1

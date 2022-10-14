@@ -11,6 +11,7 @@ pub use weigh_justification_and_finalization::weigh_justification_and_finalizati
 
 pub mod altair;
 pub mod base;
+pub mod capella;
 pub mod effective_balance_updates;
 pub mod epoch_processing_summary;
 pub mod errors;
@@ -37,9 +38,8 @@ pub fn process_epoch<T: EthSpec>(
 
     match state {
         BeaconState::Base(_) => base::process_epoch(state, spec),
-        BeaconState::Altair(_) | BeaconState::Merge(_) | BeaconState::Eip4844(_) => {
-            altair::process_epoch(state, spec)
-        }
+        BeaconState::Altair(_) | BeaconState::Merge(_) => altair::process_epoch(state, spec),
+        BeaconState::Capella(_) | BeaconState::Eip4844(_) => capella::process_epoch(state, spec),
     }
 }
 

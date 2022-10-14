@@ -1,6 +1,6 @@
 use std::collections::BTreeSet;
 use std::fmt::Debug;
-use types::{BeaconBlockRef, BeaconState, Checkpoint, EthSpec, ExecPayload, Hash256, Slot};
+use types::{AbstractExecPayload, BeaconBlockRef, BeaconState, Checkpoint, EthSpec, Hash256, Slot};
 
 /// Approximates the `Store` in "Ethereum 2.0 Phase 0 -- Beacon Chain Fork Choice":
 ///
@@ -33,7 +33,7 @@ pub trait ForkChoiceStore<T: EthSpec>: Sized {
 
     /// Called whenever `ForkChoice::on_block` has verified a block, but not yet added it to fork
     /// choice. Allows the implementer to performing caching or other housekeeping duties.
-    fn on_verified_block<Payload: ExecPayload<T>>(
+    fn on_verified_block<Payload: AbstractExecPayload<T>>(
         &mut self,
         block: BeaconBlockRef<T, Payload>,
         block_root: Hash256,

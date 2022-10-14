@@ -154,7 +154,7 @@ pub fn per_block_processing<T: EthSpec, Payload: AbstractExecPayload<T>>(
     // previous block.
     if is_execution_enabled(state, block.body()) {
         let payload = block.body().execution_payload()?;
-        process_execution_payload(state, payload, spec)?;
+        process_execution_payload::<T, Payload>(state, payload, spec)?;
     }
 
     process_randao(state, block, verify_randao, spec)?;
@@ -319,16 +319,16 @@ pub fn get_new_eth1_data<T: EthSpec>(
 /// Contains a partial set of checks from the `process_execution_payload` function:
 ///
 /// https://github.com/ethereum/consensus-specs/blob/v1.1.5/specs/merge/beacon-chain.md#process_execution_payload
-pub fn partially_verify_execution_payload<T: EthSpec, Payload: ExecPayload<T>>(
+pub fn partially_verify_execution_payload<'payload, T: EthSpec, Payload: AbstractExecPayload<T>>(
     state: &BeaconState<T>,
-    payload: &Payload,
+    payload: Payload::Ref<'payload>,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
     if is_merge_transition_complete(state) {
         block_verify!(
-            payload.parent_hash() == state.latest_execution_payload_header()?.block_hash,
+            payload.parent_hash() == *state.latest_execution_payload_header()?.block_hash(),
             BlockProcessingError::ExecutionHashChainIncontiguous {
-                expected: state.latest_execution_payload_header()?.block_hash,
+                expected: *state.latest_execution_payload_header()?.block_hash(),
                 found: payload.parent_hash(),
             }
         );
@@ -360,14 +360,33 @@ pub fn partially_verify_execution_payload<T: EthSpec, Payload: ExecPayload<T>>(
 /// Partially equivalent to the `process_execution_payload` function:
 ///
 /// https://github.com/ethereum/consensus-specs/blob/v1.1.5/specs/merge/beacon-chain.md#process_execution_payload
-pub fn process_execution_payload<T: EthSpec, Payload: ExecPayload<T>>(
+pub fn process_execution_payload<'payload, T: EthSpec, Payload: AbstractExecPayload<T>>(
     state: &mut BeaconState<T>,
-    payload: &Payload,
+    payload: Payload::Ref<'payload>,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
-    partially_verify_execution_payload(state, payload, spec)?;
+    partially_verify_execution_payload::<T, Payload>(state, payload, spec)?;
 
-    *state.latest_execution_payload_header_mut()? = payload.to_execution_payload_header();
+    match state.latest_execution_payload_header_mut()? {
+        ExecutionPayloadHeaderRefMut::Merge(header_mut) => {
+            match payload.to_execution_payload_header() {
+                ExecutionPayloadHeader::Merge(header) => *header_mut = header,
+                _ => return Err(BlockProcessingError::IncorrectStateType),
+            }
+        }
+        ExecutionPayloadHeaderRefMut::Capella(header_mut) => {
+            match payload.to_execution_payload_header() {
+                ExecutionPayloadHeader::Capella(header) => *header_mut = header,
+                _ => return Err(BlockProcessingError::IncorrectStateType),
+            }
+        }
+        ExecutionPayloadHeaderRefMut::Eip4844(header_mut) => {
+            match payload.to_execution_payload_header() {
+                ExecutionPayloadHeader::Eip4844(header) => *header_mut = header,
+                _ => return Err(BlockProcessingError::IncorrectStateType),
+            }
+        }
+    }
 
     Ok(())
 }
@@ -380,7 +399,7 @@ pub fn process_execution_payload<T: EthSpec, Payload: ExecPayload<T>>(
 pub fn is_merge_transition_complete<T: EthSpec>(state: &BeaconState<T>) -> bool {
     state
         .latest_execution_payload_header()
-        .map(|header| *header != <ExecutionPayloadHeader<T>>::default())
+        .map(|header| !header.is_default())
         .unwrap_or(false)
 }
 /// https://github.com/ethereum/consensus-specs/blob/dev/specs/bellatrix/beacon-chain.md#is_merge_transition_block
