@@ -654,11 +654,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     })
                 })
                 .and_then(|mut snapshot| {
-                    // Regardless of where we got the state from, attempt to build the committee
-                    // caches.
+                    // Regardless of where we got the state from, attempt to build all the
+                    // caches except the tree hash cache.
                     snapshot
                         .beacon_state
-                        .build_all_committee_caches(&self.spec)
+                        .build_all_caches(&self.spec)
                         .map_err(Into::into)
                         .map(|()| snapshot)
                 })?;
