@@ -376,7 +376,7 @@ impl<T: EthSpec> MockServer<T> {
 
     pub fn set_payload_statuses(&self, block_hash: ExecutionBlockHash, status: PayloadStatusV1) {
         self.set_new_payload_status(block_hash, status.clone());
-        self.set_fcu_payload_status(block_hash, status.clone());
+        self.set_fcu_payload_status(block_hash, status);
     }
 
     pub fn set_new_payload_status(&self, block_hash: ExecutionBlockHash, status: PayloadStatusV1) {
