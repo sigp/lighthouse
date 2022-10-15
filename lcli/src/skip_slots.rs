@@ -121,7 +121,7 @@ pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<
     };
 
     for i in 0..runs {
-        let mut state = state.clone_with(CloneConfig::committee_caches_only());
+        let mut state = state.clone_with(CloneConfig::all());
 
         let start = Instant::now();
 
