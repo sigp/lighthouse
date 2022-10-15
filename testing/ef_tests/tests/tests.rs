@@ -449,6 +449,12 @@ fn fork_choice_ex_ante() {
 }
 
 #[test]
+fn optimistic_sync() {
+    OptimisticSyncHandler::<MinimalEthSpec>::default().run();
+    OptimisticSyncHandler::<MainnetEthSpec>::default().run();
+}
+
+#[test]
 fn genesis_initialization() {
     GenesisInitializationHandler::<MinimalEthSpec>::default().run();
 }

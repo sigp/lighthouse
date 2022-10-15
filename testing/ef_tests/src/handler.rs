@@ -548,6 +548,37 @@ impl<E: EthSpec + TypeName> Handler for ForkChoiceHandler<E> {
 
 #[derive(Derivative)]
 #[derivative(Default(bound = ""))]
+pub struct OptimisticSyncHandler<E>(PhantomData<E>);
+
+impl<E: EthSpec + TypeName> Handler for OptimisticSyncHandler<E> {
+    type Case = cases::ForkChoiceTest<E>;
+
+    fn config_name() -> &'static str {
+        E::name()
+    }
+
+    fn runner_name() -> &'static str {
+        "sync"
+    }
+
+    fn handler_name(&self) -> String {
+        "optimistic".into()
+    }
+
+    fn use_rayon() -> bool {
+        // The opt sync tests use `block_on` which can cause panics with rayon.
+        false
+    }
+
+    fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
+        fork_name != ForkName::Base
+            && fork_name != ForkName::Altair
+            && cfg!(not(feature = "fake_crypto"))
+    }
+}
+
+#[derive(Derivative)]
+#[derivative(Default(bound = ""))]
 pub struct GenesisValidityHandler<E>(PhantomData<E>);
 
 impl<E: EthSpec + TypeName> Handler for GenesisValidityHandler<E> {

@@ -1500,6 +1500,7 @@ dependencies = [
  "eth2_ssz",
  "eth2_ssz_derive",
  "ethereum-types 0.12.1",
+ "execution_layer",
  "fork_choice",
  "fs2",
  "hex",
