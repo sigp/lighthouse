@@ -18,6 +18,8 @@ const MAX_UNION_SELECTOR: u8 = 127;
 struct StructOpts {
     #[darling(default)]
     enum_behaviour: Option<String>,
+    #[darling(default)]
+    transparent: bool,
 }
 
 /// Field-level configuration.
@@ -43,15 +45,20 @@ enum EnumBehaviour {
 }
 
 impl EnumBehaviour {
-    pub fn new(s: Option<String>) -> Option<Self> {
-        s.map(|s| match s.as_ref() {
-            ENUM_TRANSPARENT => EnumBehaviour::Transparent,
-            ENUM_UNION => EnumBehaviour::Union,
-            other => panic!(
-                "{} is an invalid enum_behaviour, use either {:?}",
-                other, ENUM_VARIANTS
-            ),
-        })
+    pub fn new(s: &StructOpts) -> Option<Self> {
+        s.enum_behaviour
+            .as_ref()
+            .map(|behaviour_string| match behaviour_string.as_ref() {
+                ENUM_TRANSPARENT => EnumBehaviour::Transparent,
+                ENUM_UNION if s.transparent => {
+                    panic!("cannot use \"transparent\" and \"enum_behaviour(union)\" together")
+                }
+                ENUM_UNION => EnumBehaviour::Union,
+                other => panic!(
+                    "{} is an invalid enum_behaviour, use either {:?}",
+                    other, ENUM_VARIANTS
+                ),
+            })
     }
 }
 
@@ -94,14 +101,19 @@ fn parse_ssz_fields(struct_data: &syn::DataStruct) -> Vec<(&syn::Type, &syn::Ide
 pub fn ssz_encode_derive(input: TokenStream) -> TokenStream {
     let item = parse_macro_input!(input as DeriveInput);
     let opts = StructOpts::from_derive_input(&item).unwrap();
-    let enum_opt = EnumBehaviour::new(opts.enum_behaviour);
+    let enum_opt = EnumBehaviour::new(&opts);
 
     match &item.data {
         syn::Data::Struct(s) => {
             if enum_opt.is_some() {
                 panic!("enum_behaviour is invalid for structs");
             }
-            ssz_encode_derive_struct(&item, s)
+
+            if opts.transparent {
+                ssz_encode_derive_struct_transparent(&item, s)
+            } else {
+                ssz_encode_derive_struct(&item, s)
+            }
         }
         syn::Data::Enum(s) => match enum_opt.expect(NO_ENUM_BEHAVIOUR_ERROR) {
             EnumBehaviour::Transparent => ssz_encode_derive_enum_transparent(&item, s),
@@ -213,6 +225,60 @@ fn ssz_encode_derive_struct(derive_input: &DeriveInput, struct_data: &DataStruct
                 )*
 
                 encoder.finalize();
+            }
+        }
+    };
+    output.into()
+}
+
+/// Derive `ssz::Encode` "transparently" for a struct which has exactly one non-skipped field.
+///
+/// The single field is encoded directly, making the outermost `struct` transparent.
+///
+/// ## Field attributes
+///
+/// - `#[ssz(skip_serializing)]`: the field will not be serialized.
+fn ssz_encode_derive_struct_transparent(
+    derive_input: &DeriveInput,
+    struct_data: &DataStruct,
+) -> TokenStream {
+    let name = &derive_input.ident;
+    let (impl_generics, ty_generics, where_clause) = &derive_input.generics.split_for_impl();
+    let ssz_fields = parse_ssz_fields(struct_data);
+    let num_fields = ssz_fields
+        .iter()
+        .filter(|(_, _, field_opts)| !field_opts.skip_deserializing)
+        .count();
+
+    if num_fields != 1 {
+        panic!(
+            "A \"transparent\" struct must have exactly one non-skipped field ({} fields found)",
+            num_fields
+        );
+    }
+
+    let (ty, ident, _field_opts) = ssz_fields
+        .iter()
+        .filter(|(_, _, field_opts)| !field_opts.skip_deserializing)
+        .next()
+        .unwrap();
+
+    let output = quote! {
+        impl #impl_generics ssz::Encode for #name #ty_generics #where_clause {
+            fn is_ssz_fixed_len() -> bool {
+                <#ty as ssz::Encode>::is_ssz_fixed_len()
+            }
+
+            fn ssz_fixed_len() -> usize {
+                <#ty as ssz::Encode>::ssz_fixed_len()
+            }
+
+            fn ssz_bytes_len(&self) -> usize {
+                self.#ident.ssz_bytes_len()
+            }
+
+            fn ssz_append(&self, buf: &mut Vec<u8>) {
+                self.#ident.ssz_append(buf)
             }
         }
     };
@@ -368,14 +434,18 @@ fn ssz_encode_derive_enum_union(derive_input: &DeriveInput, enum_data: &DataEnum
 pub fn ssz_decode_derive(input: TokenStream) -> TokenStream {
     let item = parse_macro_input!(input as DeriveInput);
     let opts = StructOpts::from_derive_input(&item).unwrap();
-    let enum_opt = EnumBehaviour::new(opts.enum_behaviour);
+    let enum_opt = EnumBehaviour::new(&opts);
 
     match &item.data {
         syn::Data::Struct(s) => {
             if enum_opt.is_some() {
                 panic!("enum_behaviour is invalid for structs");
             }
-            ssz_decode_derive_struct(&item, s)
+            if opts.transparent {
+                ssz_decode_derive_struct_transparent(&item, s)
+            } else {
+                ssz_decode_derive_struct(&item, s)
+            }
         }
         syn::Data::Enum(s) => match enum_opt.expect(NO_ENUM_BEHAVIOUR_ERROR) {
             EnumBehaviour::Transparent => panic!(
@@ -539,6 +609,81 @@ fn ssz_decode_derive_struct(item: &DeriveInput, struct_data: &DataStruct) -> Tok
                         )*
                     })
                 }
+            }
+        }
+    };
+    output.into()
+}
+
+/// Implements `ssz::Decode` "transparently" for a `struct` with exactly one non-skipped field.
+///
+/// The bytes will be decoded as if they are the inner field, without the outmost struct. The
+/// outermost struct will then be applied artificially.
+///
+/// ## Field attributes
+///
+/// - `#[ssz(skip_deserializing)]`: during de-serialization the field will be instantiated from a
+/// `Default` implementation. The decoder will assume that the field was not serialized at all
+/// (e.g., if it has been serialized, an error will be raised instead of `Default` overriding it).
+fn ssz_decode_derive_struct_transparent(
+    item: &DeriveInput,
+    struct_data: &DataStruct,
+) -> TokenStream {
+    let name = &item.ident;
+    let (impl_generics, ty_generics, where_clause) = &item.generics.split_for_impl();
+    let ssz_fields = parse_ssz_fields(struct_data);
+    let num_fields = ssz_fields
+        .iter()
+        .filter(|(_, _, field_opts)| !field_opts.skip_deserializing)
+        .count();
+
+    if num_fields != 1 {
+        panic!(
+            "A \"transparent\" struct must have exactly one non-skipped field ({} fields found)",
+            num_fields
+        );
+    }
+
+    let mut field_names = vec![];
+    let mut fields = vec![];
+    let mut wrapped_type = None;
+
+    for (ty, ident, field_opts) in ssz_fields {
+        field_names.push(quote! {
+            #ident
+        });
+
+        if field_opts.skip_deserializing {
+            fields.push(quote! {
+                #ident: <_>::default(),
+            });
+        } else {
+            fields.push(quote! {
+                #ident: <_>::from_ssz_bytes(bytes)?,
+            });
+            wrapped_type = Some(ty);
+        }
+    }
+
+    let ty = wrapped_type.unwrap();
+
+    let output = quote! {
+        impl #impl_generics ssz::Decode for #name #ty_generics #where_clause {
+            fn is_ssz_fixed_len() -> bool {
+                <#ty as ssz::Decode>::is_ssz_fixed_len()
+            }
+
+            fn ssz_fixed_len() -> usize {
+                <#ty as ssz::Decode>::ssz_fixed_len()
+            }
+
+            fn from_ssz_bytes(bytes: &[u8]) -> std::result::Result<Self, ssz::DecodeError> {
+                Ok(Self {
+                    #(
+                        #fields
+                    )*
+
+                })
             }
         }
     };
