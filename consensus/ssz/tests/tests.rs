@@ -393,6 +393,7 @@ mod derive_macro {
     use ssz::{Decode, Encode};
     use ssz_derive::{Decode, Encode};
     use std::fmt::Debug;
+    use std::marker::PhantomData;
 
     fn assert_encode<T: Encode>(item: &T, bytes: &[u8]) {
         assert_eq!(item.as_ssz_bytes(), bytes);
@@ -528,5 +529,47 @@ mod derive_macro {
 
         assert_encode_decode(&TwoVecUnion::A(vec![0, 1]), &[0, 0, 1]);
         assert_encode_decode(&TwoVecUnion::B(vec![0, 1]), &[1, 0, 1]);
+    }
+
+    #[derive(PartialEq, Debug, Encode, Decode)]
+    #[ssz(transparent)]
+    struct TransparentStruct {
+        inner: Vec<u8>,
+    }
+
+    impl TransparentStruct {
+        fn new(inner: u8) -> Self {
+            Self { inner: vec![inner] }
+        }
+    }
+
+    #[test]
+    fn transparent_struct() {
+        assert_encode_decode(&TransparentStruct::new(42), &vec![42_u8].as_ssz_bytes());
+    }
+
+    #[derive(PartialEq, Debug, Encode, Decode)]
+    #[ssz(transparent)]
+    struct TransparentStructSkippedField {
+        inner: Vec<u8>,
+        #[ssz(skip_serializing, skip_deserializing)]
+        skipped: PhantomData<u64>,
+    }
+
+    impl TransparentStructSkippedField {
+        fn new(inner: u8) -> Self {
+            Self {
+                inner: vec![inner],
+                skipped: PhantomData,
+            }
+        }
+    }
+
+    #[test]
+    fn transparent_struct_skipped_field() {
+        assert_encode_decode(
+            &TransparentStructSkippedField::new(42),
+            &vec![42_u8].as_ssz_bytes(),
+        );
     }
 }
