@@ -506,7 +506,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .arg(
             Arg::with_name("execution-timeout-multiplier")
                 .long("execution-timeout-multiplier")
-                .value_name("EXECUTION-TIMEOUT-MULTIPLIER")
+                .value_name("NUM")
                 .help("Unsigned integer to multiply the default execution timeouts by.")
                 .default_value("1")
                 .takes_value(true)
