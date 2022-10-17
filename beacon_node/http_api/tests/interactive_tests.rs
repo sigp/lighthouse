@@ -192,8 +192,8 @@ pub async fn proposer_boost_re_org_weight_misprediction() {
     .await;
 }
 
-// TODO(sproul): test current slot >1 block from head
-// TODO(sproul): test parent >1 block from head
+// FIXME(sproul): test current slot >1 block from head
+// FIXME(sproul): test parent >1 block from head
 
 /// Run a proposer boost re-org test.
 ///
@@ -387,6 +387,12 @@ pub async fn proposer_boost_re_org_test(
     harness.advance_to_slot_lookahead(slot_c, payload_lookahead);
     harness.chain.prepare_beacon_proposer(slot_b).await.unwrap();
 
+    // Simulate the scheduled call to fork choice + prepare proposers 500ms before the next slot.
+    let fork_choice_lookahead = Duration::from_millis(500);
+    harness.advance_to_slot_lookahead(slot_c, fork_choice_lookahead);
+    harness.chain.recompute_head_at_slot(slot_c).await;
+    harness.chain.prepare_beacon_proposer(slot_b).await.unwrap();
+
     // Produce block C.
     while harness.get_current_slot() != slot_c {
         harness.advance_slot();
@@ -458,21 +464,17 @@ pub async fn proposer_boost_re_org_test(
         .unwrap();
 
     if !misprediction {
-        assert!(
-            lookahead >= payload_lookahead && lookahead <= 2 * payload_lookahead,
+        assert_eq!(
+            lookahead, payload_lookahead,
             "lookahead={lookahead:?}, timestamp={}, prev_randao={:?}",
-            payload_attribs.timestamp,
-            payload_attribs.prev_randao,
+            payload_attribs.timestamp, payload_attribs.prev_randao,
         );
     } else {
-        // On a misprediction we issue the first fcU immediately before creating a block.
-        // This is sub-optimal and could likely be improved in future with some clever tricks.
+        // On a misprediction we issue the first fcU 500ms before creating a block!
         assert_eq!(
-            lookahead,
-            Duration::from_secs(0),
+            lookahead, fork_choice_lookahead,
             "timestamp={}, prev_randao={:?}",
-            payload_attribs.timestamp,
-            payload_attribs.prev_randao,
+            payload_attribs.timestamp, payload_attribs.prev_randao,
         );
     }
 }

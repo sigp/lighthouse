@@ -599,21 +599,15 @@ where
             .map_err(Into::into)
     }
 
-    /// Compute the weight corresponding to `participation_threshold`.
+    /// Compute the weight corresponding to `committee_percent`.
     ///
     /// This is a fraction of a single committee weight, measured approximately against
     /// the justified balances, just like proposer boost.
-    pub fn compute_participation_threshold_weight(
-        &self,
-        participation_threshold: ParticipationThreshold,
-    ) -> Option<u64>
+    pub fn compute_committee_fraction(&self, committee_percent: u64) -> Option<u64>
     where
         E: EthSpec,
     {
-        calculate_proposer_boost::<E>(
-            self.fc_store.justified_balances(),
-            participation_threshold.0,
-        )
+        calculate_proposer_boost::<E>(self.fc_store.justified_balances(), committee_percent)
     }
 
     /// Return information about:

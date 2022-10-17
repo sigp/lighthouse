@@ -8,9 +8,11 @@ pub const DEFAULT_RE_ORG_PARTICIPATION_THRESHOLD: ParticipationThreshold =
     ParticipationThreshold(70);
 pub const DEFAULT_FORK_CHOICE_BEFORE_PROPOSAL_TIMEOUT: u64 = 250;
 
-/// At 12s slot times, the means that the payload preparation routine will run 4s before the start
-/// of each slot (`12 / 3 = 4`).
+/// Default fraction of a slot lookahead for payload preparation (12/3 = 4 seconds on mainnet).
 pub const DEFAULT_PREPARE_PAYLOAD_LOOKAHEAD_FACTOR: u32 = 3;
+
+/// Fraction of a slot lookahead for fork choice in the state advance timer (500ms on mainnet).
+pub const FORK_CHOICE_LOOKAHEAD_FACTOR: u32 = 24;
 
 #[derive(Debug, PartialEq, Eq, Clone, Deserialize, Serialize)]
 pub struct ChainConfig {

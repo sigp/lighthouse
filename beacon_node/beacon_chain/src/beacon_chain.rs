@@ -54,7 +54,7 @@ use execution_layer::{
     BuilderParams, ChainHealth, ExecutionLayer, FailedCondition, PayloadAttributes, PayloadStatus,
 };
 use fork_choice::{
-    AttestationFromBlock, ExecutionStatus, ForkChoice, ForkchoiceUpdateParameters,
+    AttestationFromBlock, ExecutionStatus, ForkChoice, ForkChoiceStore, ForkchoiceUpdateParameters,
     InvalidationOperation, PayloadVerificationStatus, ResetPayloadStatuses,
 };
 use futures::channel::mpsc::Sender;
@@ -3471,17 +3471,24 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     fn overridden_forkchoice_update_params(
         &self,
         canonical_forkchoice_params: ForkchoiceUpdateParameters,
-        current_slot: Slot,
     ) -> Result<ForkchoiceUpdateParameters, Error> {
         // Never override if proposer re-orgs are disabled.
-        if self.config.re_org_threshold.is_none() {
+        let re_org_threshold = if let Some(threshold) = self.config.re_org_threshold {
+            threshold
+        } else {
             return Ok(canonical_forkchoice_params);
-        }
+        };
 
         let head_block_root = canonical_forkchoice_params.head_root;
 
         // Load details of the head block and its parent from fork choice.
-        let (head_node, parent_node, participation_threshold) = {
+        let (
+            head_node,
+            parent_node,
+            participation_threshold_weight,
+            re_org_threshold_weight,
+            fork_choice_slot,
+        ) = {
             let fork_choice = self.canonical_head.fork_choice_read_lock();
 
             let mut nodes = fork_choice
@@ -3499,28 +3506,43 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             let parent = nodes.pop().ok_or(Error::SuppressForkChoiceError)?;
             let head = nodes.pop().ok_or(Error::SuppressForkChoiceError)?;
 
-            let participation_threshold = fork_choice
-                .compute_participation_threshold_weight(self.config.re_org_participation_threshold);
+            let participation_threshold_weight = fork_choice
+                .compute_committee_fraction(self.config.re_org_participation_threshold.0);
 
-            (head, parent, participation_threshold)
+            let re_org_threshold_weight =
+                fork_choice.compute_committee_fraction(re_org_threshold.0);
+
+            let slot = fork_choice.fc_store().get_current_slot();
+
+            (
+                head,
+                parent,
+                participation_threshold_weight,
+                re_org_threshold_weight,
+                slot,
+            )
         };
 
         // The slot of our potential re-org block is always 1 greater than the head block because we
         // only attempt single-slot re-orgs.
         let re_org_block_slot = head_node.slot + 1;
 
-        // Suppress only during the head block's slot, or at most until the end of the next slot.
         // If a re-orging proposal isn't made by the `max_re_org_slot_delay` then we give up
         // and allow the fork choice update for the canonical head through so that we may attest
         // correctly.
-        let current_slot_ok = if head_node.slot == current_slot {
+        let current_slot_ok = if head_node.slot == fork_choice_slot {
             true
-        } else if re_org_block_slot == current_slot {
+        } else if re_org_block_slot == fork_choice_slot {
             self.slot_clock
-                .seconds_from_current_slot_start(self.spec.seconds_per_slot)
-                .map_or(false, |delay| {
-                    delay <= max_re_org_slot_delay(self.spec.seconds_per_slot)
+                .start_of(re_org_block_slot)
+                .and_then(|slot_start| {
+                    let now = self.slot_clock.now_duration()?;
+                    Some(
+                        now.saturating_sub(slot_start)
+                            <= max_re_org_slot_delay(self.spec.seconds_per_slot),
+                    )
                 })
+                .unwrap_or(false)
         } else {
             false
         };
@@ -3564,10 +3586,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Check that the parent's weight is greater than the participation threshold.
         // If we are still in the slot of the canonical head block then only check against
         // a 1x threshold as all attestations may not have arrived yet.
-        let participation_multiplier = if current_slot == head_node.slot { 1 } else { 2 };
-        let participation_ok = participation_threshold.map_or(false, |threshold| {
+        let participation_multiplier = fork_choice_slot.saturating_sub(parent_node.slot).as_u64();
+        let participation_ok = participation_threshold_weight.map_or(false, |threshold| {
             parent_node.weight >= threshold.saturating_mul(participation_multiplier)
         });
+
+        // If the current slot is already equal to the proposal slot (or we are in the tail end of
+        // the prior slot), then check the actual weight of the head against the re-org threshold.
+        let head_weak = if fork_choice_slot == re_org_block_slot {
+            re_org_threshold_weight.map_or(false, |threshold| head_node.weight < threshold)
+        } else {
+            true
+        };
 
         // Check that the head block arrived late and is vulnerable to a re-org. This check is only
         // a heuristic compared to the proper weight check in `get_state_for_re_org`, the reason
@@ -3582,6 +3612,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             && ffg_competitive
             && proposing_at_re_org_slot
             && participation_ok
+            && head_weak
             && head_block_late;
 
         if !might_re_org {
@@ -3595,7 +3626,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             "Fork choice update overridden";
             "canonical_head" => ?head_node.root,
             "override" => ?parent_node.root,
-            "slot" => current_slot,
+            "slot" => fork_choice_slot,
         );
 
         let forkchoice_update_params = ForkchoiceUpdateParameters {
@@ -4232,8 +4263,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     }
 
                     let canonical_fcu_params = cached_head.forkchoice_update_parameters();
-                    let fcu_params = chain
-                        .overridden_forkchoice_update_params(canonical_fcu_params, current_slot)?;
+                    let fcu_params =
+                        chain.overridden_forkchoice_update_params(canonical_fcu_params)?;
                     let pre_payload_attributes = chain.get_pre_payload_attributes(
                         prepare_slot,
                         fcu_params.head_root,
@@ -4370,7 +4401,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let params = if override_forkchoice_update == OverrideForkchoiceUpdate::Yes {
             let chain = self.clone();
             self.spawn_blocking_handle(
-                move || chain.overridden_forkchoice_update_params(input_params, current_slot),
+                move || chain.overridden_forkchoice_update_params(input_params),
                 "update_execution_engine_forkchoice_override",
             )
             .await??
