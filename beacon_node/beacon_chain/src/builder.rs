@@ -21,7 +21,7 @@ use fork_choice::{ForkChoice, ResetPayloadStatuses};
 use futures::channel::mpsc::Sender;
 use operation_pool::{OperationPool, PersistedOperationPool};
 use parking_lot::RwLock;
-use proto_array::ReOrgThreshold;
+use proto_array::{ParticipationThreshold, ReOrgThreshold};
 use slasher::Slasher;
 use slog::{crit, error, info, Logger};
 use slot_clock::{SlotClock, TestingSlotClock};
@@ -162,6 +162,15 @@ where
     /// Sets the proposer re-org threshold.
     pub fn proposer_re_org_threshold(mut self, threshold: Option<ReOrgThreshold>) -> Self {
         self.chain_config.re_org_threshold = threshold;
+        self
+    }
+
+    /// Sets the proposer re-org participation threshold.
+    pub fn proposer_re_org_participation_threshold(
+        mut self,
+        threshold: ParticipationThreshold,
+    ) -> Self {
+        self.chain_config.re_org_participation_threshold = threshold;
         self
     }
 

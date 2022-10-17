@@ -1,7 +1,7 @@
 //! Generic tests that make use of the (newer) `InteractiveApiTester`
 use crate::common::*;
 use beacon_chain::{
-    chain_config::ReOrgThreshold,
+    chain_config::{ParticipationThreshold, ReOrgThreshold},
     test_utils::{AttestationStrategy, BlockStrategy},
 };
 use eth2::types::DepositContractData;
@@ -93,28 +93,126 @@ impl ForkChoiceUpdates {
     }
 }
 
+pub struct ReOrgTest {
+    head_slot: Slot,
+    re_org_threshold: u64,
+    participation_threshold: u64,
+    percent_parent_votes: usize,
+    percent_empty_votes: usize,
+    percent_head_votes: usize,
+    should_re_org: bool,
+    misprediction: bool,
+}
+
+impl Default for ReOrgTest {
+    /// Default config represents a regular easy re-org.
+    fn default() -> Self {
+        Self {
+            head_slot: Slot::new(30),
+            re_org_threshold: 20,
+            participation_threshold: 70,
+            percent_parent_votes: 100,
+            percent_empty_votes: 100,
+            percent_head_votes: 0,
+            should_re_org: true,
+            misprediction: false,
+        }
+    }
+}
+
 // Test that the beacon node will try to perform proposer boost re-orgs on late blocks when
 // configured.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 pub async fn proposer_boost_re_org_zero_weight() {
-    proposer_boost_re_org_test(Slot::new(30), None, Some(10), true).await
+    proposer_boost_re_org_test(ReOrgTest::default()).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 pub async fn proposer_boost_re_org_epoch_boundary() {
-    proposer_boost_re_org_test(Slot::new(31), None, Some(10), false).await
+    proposer_boost_re_org_test(ReOrgTest {
+        head_slot: Slot::new(31),
+        should_re_org: false,
+        ..Default::default()
+    })
+    .await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 pub async fn proposer_boost_re_org_bad_ffg() {
-    proposer_boost_re_org_test(Slot::new(64 + 22), None, Some(10), false).await
+    proposer_boost_re_org_test(ReOrgTest {
+        head_slot: Slot::new(64 + 22),
+        should_re_org: false,
+        ..Default::default()
+    })
+    .await;
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+pub async fn proposer_boost_re_org_low_total_participation() {
+    proposer_boost_re_org_test(ReOrgTest {
+        head_slot: Slot::new(30),
+        percent_parent_votes: 70,
+        percent_empty_votes: 60,
+        percent_head_votes: 10,
+        participation_threshold: 71,
+        should_re_org: false,
+        ..Default::default()
+    })
+    .await;
+}
+
+/// Participation initially appears high at 80%, but drops off to 80+50/2 = 65% after the head
+/// block. This results in a misprediction.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+pub async fn proposer_boost_re_org_participation_misprediction() {
+    proposer_boost_re_org_test(ReOrgTest {
+        head_slot: Slot::new(30),
+        percent_parent_votes: 80,
+        percent_empty_votes: 50,
+        percent_head_votes: 0,
+        participation_threshold: 70,
+        should_re_org: false,
+        misprediction: true,
+        ..Default::default()
+    })
+    .await;
+}
+
+/// The head block is late but still receives 30% of the committee vote, leading to a misprediction.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+pub async fn proposer_boost_re_org_weight_misprediction() {
+    proposer_boost_re_org_test(ReOrgTest {
+        head_slot: Slot::new(30),
+        percent_empty_votes: 70,
+        percent_head_votes: 30,
+        should_re_org: false,
+        misprediction: true,
+        ..Default::default()
+    })
+    .await;
+}
+
+// TODO(sproul): test current slot >1 block from head
+// TODO(sproul): test parent >1 block from head
+
+/// Run a proposer boost re-org test.
+///
+/// - `head_slot`: the slot of the canonical head to be reorged
+/// - `reorg_threshold`: committee percentage value for reorging
+/// - `num_empty_votes`: percentage of comm of attestations for the parent block
+/// - `num_head_votes`: number of attestations for the head block
+/// - `should_re_org`: whether the proposer should build on the parent rather than the head
 pub async fn proposer_boost_re_org_test(
-    head_slot: Slot,
-    _num_head_votes: Option<u64>,
-    re_org_threshold: Option<u64>,
-    should_re_org: bool,
+    ReOrgTest {
+        head_slot,
+        re_org_threshold,
+        participation_threshold,
+        percent_parent_votes,
+        percent_empty_votes,
+        percent_head_votes,
+        should_re_org,
+        misprediction,
+    }: ReOrgTest,
 ) {
     assert!(head_slot > 0);
 
@@ -122,17 +220,31 @@ pub async fn proposer_boost_re_org_test(
     let mut spec = ForkName::Merge.make_genesis_spec(E::default_spec());
     spec.terminal_total_difficulty = 1.into();
 
-    // Validator count needs to be at least 32 or proposer boost gets set to 0 when computing
-    // `validator_count // 32`.
-    let validator_count = 32;
+    // Ensure there are enough validators to have `attesters_per_slot`.
+    let attesters_per_slot = 10;
+    let validator_count = E::slots_per_epoch() as usize * attesters_per_slot;
     let all_validators = (0..validator_count).collect::<Vec<usize>>();
-    let num_initial = head_slot.as_u64() - 1;
+    let num_initial = head_slot.as_u64() - 2;
+
+    // Check that the required vote percentages can be satisfied exactly using `attesters_per_slot`.
+    assert_eq!(100 % attesters_per_slot, 0);
+    let percent_per_attester = 100 / attesters_per_slot;
+    assert_eq!(percent_parent_votes % percent_per_attester, 0);
+    assert_eq!(percent_empty_votes % percent_per_attester, 0);
+    assert_eq!(percent_head_votes % percent_per_attester, 0);
+    let num_parent_votes = Some(attesters_per_slot * percent_parent_votes / 100);
+    let num_empty_votes = Some(attesters_per_slot * percent_empty_votes / 100);
+    let num_head_votes = Some(attesters_per_slot * percent_head_votes / 100);
 
     let tester = InteractiveTester::<E>::new_with_mutator(
         Some(spec),
         validator_count,
         Some(Box::new(move |builder| {
-            builder.proposer_re_org_threshold(re_org_threshold.map(ReOrgThreshold))
+            builder
+                .proposer_re_org_threshold(Some(ReOrgThreshold(re_org_threshold)))
+                .proposer_re_org_participation_threshold(ParticipationThreshold(
+                    participation_threshold,
+                ))
         })),
     )
     .await;
@@ -204,24 +316,45 @@ pub async fn proposer_boost_re_org_test(
     //
     // A | B | - |
     // ^ | - | C |
-    let slot_a = Slot::new(num_initial);
+
+    let slot_a = Slot::new(num_initial + 1);
     let slot_b = slot_a + 1;
     let slot_c = slot_a + 2;
 
-    let block_a_root = harness.head_block_root();
-    let block_a = harness.get_block(block_a_root.into()).unwrap();
-    let state_a = harness.get_current_state();
-
-    // Attest to block A during slot B.
     harness.advance_slot();
-    let block_a_empty_votes = harness.make_attestations(
+    let (block_a_root, block_a, state_a) = harness
+        .add_block_at_slot(slot_a, harness.get_current_state())
+        .await
+        .unwrap();
+
+    // Attest to block A during slot A.
+    let (block_a_parent_votes, _) = harness.make_attestations_with_limit(
         &all_validators,
         &state_a,
         state_a.canonical_root(),
-        block_a_root.into(),
+        block_a_root,
+        slot_a,
+        num_parent_votes,
+    );
+    harness.process_attestations(block_a_parent_votes);
+
+    // Attest to block A during slot B.
+    harness.advance_slot();
+    let (block_a_empty_votes, block_a_attesters) = harness.make_attestations_with_limit(
+        &all_validators,
+        &state_a,
+        state_a.canonical_root(),
+        block_a_root,
         slot_b,
+        num_empty_votes,
     );
     harness.process_attestations(block_a_empty_votes);
+
+    let remaining_attesters = all_validators
+        .iter()
+        .copied()
+        .filter(|index| !block_a_attesters.contains(index))
+        .collect::<Vec<_>>();
 
     // Produce block B and process it halfway through the slot.
     let (block_b, mut state_b) = harness.make_block(state_a.clone(), slot_b).await;
@@ -239,21 +372,19 @@ pub async fn proposer_boost_re_org_test(
     harness.process_block_result(block_b.clone()).await.unwrap();
 
     // Add attestations to block B.
-    /* FIXME(sproul): implement attestations
-    if let Some(num_head_votes) = num_head_votes {
-        harness.attest_block(
-            &state_b,
-            state_b.canonical_root(),
-            block_b_root,
-            &block_b,
-            &[]
-        )
-    }
-    */
+    let (block_b_head_votes, _) = harness.make_attestations_with_limit(
+        &remaining_attesters,
+        &state_b,
+        state_b.canonical_root(),
+        block_b_root.into(),
+        slot_b,
+        num_head_votes,
+    );
+    harness.process_attestations(block_b_head_votes);
+
     // Simulate the scheduled call to prepare proposers at 8 seconds into the slot.
     let payload_lookahead = harness.chain.config.prepare_payload_lookahead;
-    let scheduled_prepare_time = slot_clock.start_of(slot_c).unwrap() - payload_lookahead;
-    slot_clock.set_current_time(scheduled_prepare_time);
+    harness.advance_to_slot_lookahead(slot_c, payload_lookahead);
     harness.chain.prepare_beacon_proposer(slot_b).await.unwrap();
 
     // Produce block C.
@@ -281,7 +412,7 @@ pub async fn proposer_boost_re_org_test(
 
     if should_re_org {
         // Block C should build on A.
-        assert_eq!(block_c.parent_root(), block_a_root);
+        assert_eq!(block_c.parent_root(), block_a_root.into());
     } else {
         // Block C should build on B.
         assert_eq!(block_c.parent_root(), block_b_root);
@@ -325,12 +456,25 @@ pub async fn proposer_boost_re_org_test(
         .unwrap()
         .checked_sub(first_update.received_at)
         .unwrap();
-    assert!(
-        lookahead >= payload_lookahead && lookahead <= 2 * payload_lookahead,
-        "lookahead={lookahead:?}, timestamp={}, prev_randao={:?}",
-        payload_attribs.timestamp,
-        payload_attribs.prev_randao,
-    );
+
+    if !misprediction {
+        assert!(
+            lookahead >= payload_lookahead && lookahead <= 2 * payload_lookahead,
+            "lookahead={lookahead:?}, timestamp={}, prev_randao={:?}",
+            payload_attribs.timestamp,
+            payload_attribs.prev_randao,
+        );
+    } else {
+        // On a misprediction we issue the first fcU immediately before creating a block.
+        // This is sub-optimal and could likely be improved in future with some clever tricks.
+        assert_eq!(
+            lookahead,
+            Duration::from_secs(0),
+            "timestamp={}, prev_randao={:?}",
+            payload_attribs.timestamp,
+            payload_attribs.prev_randao,
+        );
+    }
 }
 
 // Test that running fork choice before proposing results in selection of the correct head.
