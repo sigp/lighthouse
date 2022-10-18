@@ -47,7 +47,7 @@ use tree_hash_derive::TreeHash;
 #[serde(bound = "T: EthSpec, Payload: ExecPayload<T>")]
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 #[tree_hash(enum_behaviour = "transparent")]
-#[ssz(enum_behaviour = "transparent")]
+#[ssz(transparent)]
 pub struct BeaconBlock<T: EthSpec, Payload: ExecPayload<T> = FullPayload<T>> {
     #[superstruct(getter(copy))]
     pub slot: Slot,
