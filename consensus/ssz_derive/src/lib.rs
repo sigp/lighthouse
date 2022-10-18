@@ -15,11 +15,11 @@
 //!
 //! The following field attributes are available:
 //!
-//! - `#[ssz(with = "module")]`: uses the methods in `module` to implement `ssz::Encode` or
+//! - `#[ssz(with = "module")]`: uses the methods in `module` to implement `ssz::Encode` and
 //!     `ssz::Decode`. This is useful when it's not possible to create an `impl` for that type
-//!     (e.g. it is defined in another crate).
+//!     (e.g. the type is defined in another crate).
 //! - `#[ssz(skip_serializing)]`: this field will not be included in the serialized SSZ vector.
-//! - `#[ssz(skip_deserializing)]`: this field will not be expected to be included in the serialized
+//! - `#[ssz(skip_deserializing)]`: this field will not be expected in the serialized
 //!   SSZ vector and it will be initialized from a `Default` implementation.
 //!
 //! ## Examples
@@ -215,7 +215,7 @@ impl<'a> Procedure<'a> {
                         behaviour: EnumBehaviour::Transparent,
                     },
                     Some(other) => panic!(
-                        "{} is not a valid struct behaviour, use \"container\" or \"transparent\"",
+                        "{} is not a valid enum behaviour, use \"container\" or \"transparent\"",
                         other
                     ),
                     None => panic!("{}", NO_ENUM_BEHAVIOUR_ERROR),
