@@ -1,6 +1,6 @@
 use crate::{ForkChoiceStore, InvalidationOperation};
 use proto_array::{
-    calculate_proposer_boost, Block as ProtoBlock, CountUnrealizedFull, ExecutionStatus,
+    calculate_committee_fraction, Block as ProtoBlock, CountUnrealizedFull, ExecutionStatus,
     ParticipationThreshold, ProposerHead, ProtoArrayForkChoice, ReOrgThreshold,
 };
 use slog::{crit, debug, warn, Logger};
@@ -603,11 +603,11 @@ where
     ///
     /// This is a fraction of a single committee weight, measured approximately against
     /// the justified balances, just like proposer boost.
-    pub fn compute_committee_fraction(&self, committee_percent: u64) -> Option<u64>
+    pub fn calculate_committee_fraction(&self, committee_percent: u64) -> Option<u64>
     where
         E: EthSpec,
     {
-        calculate_proposer_boost::<E>(self.fc_store.justified_balances(), committee_percent)
+        calculate_committee_fraction::<E>(self.fc_store.justified_balances(), committee_percent)
     }
 
     /// Return information about:

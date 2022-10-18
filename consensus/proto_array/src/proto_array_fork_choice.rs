@@ -1,8 +1,8 @@
 use crate::{
     error::Error,
     proto_array::{
-        calculate_proposer_boost, CountUnrealizedFull, InvalidationOperation, Iter, ProposerBoost,
-        ProtoArray, ProtoNode,
+        calculate_committee_fraction, CountUnrealizedFull, InvalidationOperation, Iter,
+        ProposerBoost, ProtoArray, ProtoNode,
     },
     ssz_container::SszContainer,
     JustifiedBalances,
@@ -376,7 +376,7 @@ impl ProtoArrayForkChoice {
 
         // Do not re-org on the first slot of an epoch because this is liable to change the
         // shuffling and rob us of a proposal entirely. A more sophisticated check could be
-        // done here, but we're prioristing speed and simplicity over precision.
+        // done here, but we're prioritising speed and simplicity over precision.
         let shuffling_stable = current_slot % E::slots_per_epoch() != 0;
 
         // Only re-org if the new head will be competitive with the current head's justification and
@@ -391,7 +391,7 @@ impl ProtoArrayForkChoice {
         // To prevent excessive re-orgs when the chain is struggling, only re-org when participation
         // is above the configured threshold. This should not overflow.
         let participation_committee_threshold =
-            calculate_proposer_boost::<E>(justified_balances, participation_threshold.0)
+            calculate_committee_fraction::<E>(justified_balances, participation_threshold.0)
                 .ok_or_else(|| {
                     "overflow calculating committee weight for participation threshold".to_string()
                 })?;
@@ -400,7 +400,7 @@ impl ProtoArrayForkChoice {
 
         // Only re-org if the head's weight is less than the configured committee fraction.
         let re_org_weight_threshold =
-            calculate_proposer_boost::<E>(justified_balances, re_org_threshold.0).ok_or_else(
+            calculate_committee_fraction::<E>(justified_balances, re_org_threshold.0).ok_or_else(
                 || "overflow calculating committee weight for re-org threshold".to_string(),
             )?;
         let canonical_head_weight = head_node.weight;
@@ -486,9 +486,11 @@ impl ProtoArrayForkChoice {
                             // Compute the score based upon the current balances. We can't rely on
                             // the `previous_proposr_boost.score` since it is set to zero with an
                             // invalid node.
-                            let proposer_score =
-                                calculate_proposer_boost::<E>(&self.balances, proposer_score_boost)
-                                    .ok_or("Failed to compute proposer boost")?;
+                            let proposer_score = calculate_committee_fraction::<E>(
+                                &self.balances,
+                                proposer_score_boost,
+                            )
+                            .ok_or("Failed to compute proposer boost")?;
                             // Store the score we've applied here so it can be removed in
                             // a later call to `apply_score_changes`.
                             self.proto_array.previous_proposer_boost.score = proposer_score;

@@ -93,6 +93,7 @@ use store::{
 use task_executor::{ShutdownReason, TaskExecutor};
 use tree_hash::TreeHash;
 use types::beacon_state::CloneConfig;
+use types::consts::merge::INTERVALS_PER_SLOT;
 use types::*;
 
 pub use crate::canonical_head::{CanonicalHead, CanonicalHeadRwLock};
@@ -117,7 +118,7 @@ pub const VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT: Duration = Duration::from_secs(1)
 /// The latest delay from the start of the slot at which to attempt a 1-slot re-org.
 fn max_re_org_slot_delay(seconds_per_slot: u64) -> Duration {
     // Allow at least half of the attestation deadline for the block to propagate.
-    Duration::from_secs(seconds_per_slot) / 6
+    Duration::from_secs(seconds_per_slot) / INTERVALS_PER_SLOT as u32 / 2
 }
 
 // These keys are all zero because they get stored in different columns, see `DBColumn` type.
@@ -3226,7 +3227,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     self.log,
                     "Proposing block to re-org current head";
                     "slot" => slot,
-                    "head" => %head_block_root,
+                    "head_to_reorg" => %head_block_root,
                 );
                 (re_org_state.pre_state, re_org_state.state_root)
             }
@@ -3311,7 +3312,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let proposing_on_time = slot_delay < max_re_org_slot_delay(self.spec.seconds_per_slot);
         let head_late = self.block_observed_after_attestation_deadline(canonical_head, head_slot);
         let mut proposer_head = Default::default();
-        let mut cache_hit = true;
+        let mut cache_miss = false;
 
         if proposing_on_time && head_late {
             // Is the current head weak and appropriate for re-orging?
@@ -3346,13 +3347,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         self.log,
                         "Attempting re-org due to weak head";
                         "head" => ?canonical_head,
-                        "re_org_head" => ?re_org_head,
-                        "head_weight" => ?proposer_head.canonical_head_weight,
-                        "re_org_weight" => ?proposer_head.re_org_weight_threshold,
+                        "parent" => ?re_org_head,
+                        "head_weight" => proposer_head.canonical_head_weight.unwrap_or(0),
+                        "threshold_weight" => proposer_head.re_org_weight_threshold.unwrap_or(0),
                     );
                     return Some(pre_state);
                 }
-                cache_hit = false;
+                cache_miss = true;
             }
         }
         debug!(
@@ -3365,7 +3366,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             "proposing_on_time" => proposing_on_time,
             "single_slot" => proposer_head.is_single_slot_re_org,
             "ffg_competitive" => proposer_head.ffg_competitive,
-            "cache_hit" => cache_hit,
+            "cache_miss" => cache_miss,
             "shuffling_stable" => proposer_head.shuffling_stable,
             "participation_ok" => proposer_head.participation_ok,
         );
@@ -3525,10 +3526,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             let head = nodes.pop().ok_or(Error::SuppressForkChoiceError)?;
 
             let participation_threshold_weight = fork_choice
-                .compute_committee_fraction(self.config.re_org_participation_threshold.0);
+                .calculate_committee_fraction(self.config.re_org_participation_threshold.0);
 
             let re_org_threshold_weight =
-                fork_choice.compute_committee_fraction(re_org_threshold.0);
+                fork_choice.calculate_committee_fraction(re_org_threshold.0);
 
             let slot = fork_choice.fc_store().get_current_slot();
 

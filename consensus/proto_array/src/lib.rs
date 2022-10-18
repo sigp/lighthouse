@@ -7,7 +7,7 @@ mod ssz_container;
 
 pub use crate::justified_balances::JustifiedBalances;
 pub use crate::proto_array::{
-    calculate_proposer_boost, CountUnrealizedFull, InvalidationOperation,
+    calculate_committee_fraction, CountUnrealizedFull, InvalidationOperation,
 };
 pub use crate::proto_array_fork_choice::{
     Block, ExecutionStatus, ParticipationThreshold, ProposerHead, ProtoArrayForkChoice,

@@ -241,9 +241,11 @@ impl ProtoArray {
                     // Invalid nodes (or their ancestors) should not receive a proposer boost.
                     && !execution_status_is_invalid
                 {
-                    proposer_score =
-                        calculate_proposer_boost::<E>(new_justified_balances, proposer_score_boost)
-                            .ok_or(Error::ProposerBoostOverflow(node_index))?;
+                    proposer_score = calculate_committee_fraction::<E>(
+                        new_justified_balances,
+                        proposer_score_boost,
+                    )
+                    .ok_or(Error::ProposerBoostOverflow(node_index))?;
                     node_delta = node_delta
                         .checked_add(proposer_score as i64)
                         .ok_or(Error::DeltaOverflow(node_index))?;
@@ -1009,7 +1011,7 @@ impl ProtoArray {
 /// A helper method to calculate the proposer boost based on the given `justified_balances`.
 ///
 /// https://github.com/ethereum/consensus-specs/blob/dev/specs/phase0/fork-choice.md#get_latest_attesting_balance
-pub fn calculate_proposer_boost<E: EthSpec>(
+pub fn calculate_committee_fraction<E: EthSpec>(
     justified_balances: &JustifiedBalances,
     proposer_score_boost: u64,
 ) -> Option<u64> {
