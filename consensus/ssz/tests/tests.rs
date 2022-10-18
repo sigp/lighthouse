@@ -448,6 +448,13 @@ mod derive_macro {
     }
 
     #[derive(PartialEq, Debug, Encode)]
+    #[ssz(transparent)]
+    enum TwoVariableTransDirectTag {
+        A(VariableA),
+        B(VariableB),
+    }
+
+    #[derive(PartialEq, Debug, Encode)]
     struct TwoVariableTransStruct {
         a: TwoVariableTrans,
     }
@@ -455,6 +462,13 @@ mod derive_macro {
     #[derive(PartialEq, Debug, Encode, Decode)]
     #[ssz(enum_behaviour = "union")]
     enum TwoVariableUnion {
+        A(VariableA),
+        B(VariableB),
+    }
+
+    #[derive(PartialEq, Debug, Encode, Decode)]
+    #[ssz(union)]
+    enum TwoVariableUnionDirectTag {
         A(VariableA),
         B(VariableB),
     }
