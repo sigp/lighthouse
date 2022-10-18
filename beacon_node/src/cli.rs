@@ -853,9 +853,10 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(false)
         )
         .arg(
-            Arg::with_name("disable-eth1-sync")
-                .long("disable-eth1-sync")
+            Arg::with_name("disable-deposit-contract-sync")
+                .long("disable-deposit-contract-sync")
                 .help("Explictly disables the eth1 service. \
+                      This overrides any previous option that depend on it. \
                       Useful if you intend to run a non-validating beacon node.")
                 .takes_value(false)
         )

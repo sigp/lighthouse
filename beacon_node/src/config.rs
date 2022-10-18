@@ -668,7 +668,8 @@ pub fn get_config<E: EthSpec>(
         client_config.chain.enable_lock_timeouts = false;
     }
 
-    if cli_args.is_present("disable-eth1-sync") {
+    // Note: This overrides any previous flags that enable this option.
+    if cli_args.is_present("disable-deposit-contract-sync") {
         client_config.sync_eth1_chain = false;
     }
 
