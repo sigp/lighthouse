@@ -530,10 +530,9 @@ pub struct BeaconChainHarness<T: BeaconChainTypes> {
     pub rng: Mutex<StdRng>,
 }
 
-pub type HarnessAttestations<E> = Vec<(
-    Vec<(Attestation<E>, SubnetId)>,
-    Option<SignedAggregateAndProof<E>>,
-)>;
+pub type CommitteeAttestations<E> = Vec<(Attestation<E>, SubnetId)>;
+pub type HarnessAttestations<E> =
+    Vec<(CommitteeAttestations<E>, Option<SignedAggregateAndProof<E>>)>;
 
 pub type HarnessSyncContributions<E> = Vec<(
     Vec<(SyncCommitteeMessage, usize)>,
@@ -872,7 +871,7 @@ where
         state_root: Hash256,
         head_block_root: SignedBeaconBlockHash,
         attestation_slot: Slot,
-    ) -> Vec<Vec<(Attestation<E>, SubnetId)>> {
+    ) -> Vec<CommitteeAttestations<E>> {
         self.make_unaggregated_attestations_with_limit(
             attesting_validators,
             state,
@@ -892,7 +891,7 @@ where
         head_block_root: SignedBeaconBlockHash,
         attestation_slot: Slot,
         limit: Option<usize>,
-    ) -> (Vec<Vec<(Attestation<E>, SubnetId)>>, Vec<usize>) {
+    ) -> (Vec<CommitteeAttestations<E>>, Vec<usize>) {
         let committee_count = state.get_committee_count_at_slot(state.slot()).unwrap();
         let fork = self
             .spec

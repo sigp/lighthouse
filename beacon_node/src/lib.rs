@@ -117,7 +117,7 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
             info!(
                 log,
                 "Block production enabled";
-                "endpoints" => format!("{:?}", &client_config.eth1.endpoints),
+                "endpoint" => format!("{:?}", &client_config.eth1.endpoint),
                 "method" => "json rpc via http"
             );
             builder

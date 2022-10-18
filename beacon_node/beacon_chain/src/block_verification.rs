@@ -71,7 +71,8 @@ use state_processing::{
     block_signature_verifier::{BlockSignatureVerifier, Error as BlockSignatureVerifierError},
     per_block_processing, per_slot_processing,
     state_advance::partial_state_advance,
-    BlockProcessingError, BlockSignatureStrategy, SlotProcessingError, VerifyBlockRoot,
+    BlockProcessingError, BlockSignatureStrategy, ConsensusContext, SlotProcessingError,
+    VerifyBlockRoot,
 };
 use std::borrow::Cow;
 use std::fs;
@@ -549,7 +550,7 @@ pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
     let mut signature_verifier = get_signature_verifier(&state, &pubkey_cache, &chain.spec);
 
     for (block_root, block) in &chain_segment {
-        signature_verifier.include_all_signatures(block, Some(*block_root))?;
+        signature_verifier.include_all_signatures(block, Some(*block_root), None)?;
     }
 
     if signature_verifier.verify().is_err() {
@@ -560,10 +561,17 @@ pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
 
     let mut signature_verified_blocks = chain_segment
         .into_iter()
-        .map(|(block_root, block)| SignatureVerifiedBlock {
-            block,
-            block_root,
-            parent: None,
+        .map(|(block_root, block)| {
+            // Proposer index has already been verified above during signature verification.
+            let consensus_context = ConsensusContext::new(block.slot())
+                .set_current_block_root(block_root)
+                .set_proposer_index(block.message().proposer_index());
+            SignatureVerifiedBlock {
+                block,
+                block_root,
+                parent: None,
+                consensus_context,
+            }
         })
         .collect::<Vec<_>>();
 
@@ -582,6 +590,7 @@ pub struct GossipVerifiedBlock<T: BeaconChainTypes> {
     pub block: Arc<SignedBeaconBlock<T::EthSpec>>,
     pub block_root: Hash256,
     parent: Option<PreProcessingSnapshot<T::EthSpec>>,
+    consensus_context: ConsensusContext<T::EthSpec>,
 }
 
 /// A wrapper around a `SignedBeaconBlock` that indicates that all signatures (except the deposit
@@ -590,6 +599,7 @@ pub struct SignatureVerifiedBlock<T: BeaconChainTypes> {
     block: Arc<SignedBeaconBlock<T::EthSpec>>,
     block_root: Hash256,
     parent: Option<PreProcessingSnapshot<T::EthSpec>>,
+    consensus_context: ConsensusContext<T::EthSpec>,
 }
 
 /// Used to await the result of executing payload with a remote EE.
@@ -863,10 +873,16 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         // Validate the block's execution_payload (if any).
         validate_execution_payload_for_gossip(&parent_block, block.message(), chain)?;
 
+        // Having checked the proposer index and the block root we can cache them.
+        let consensus_context = ConsensusContext::new(block.slot())
+            .set_current_block_root(block_root)
+            .set_proposer_index(block.message().proposer_index());
+
         Ok(Self {
             block,
             block_root,
             parent,
+            consensus_context,
         })
     }
 
@@ -926,10 +942,13 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
 
         let mut signature_verifier = get_signature_verifier(&state, &pubkey_cache, &chain.spec);
 
-        signature_verifier.include_all_signatures(&block, Some(block_root))?;
+        signature_verifier.include_all_signatures(&block, Some(block_root), None)?;
 
         if signature_verifier.verify().is_ok() {
             Ok(Self {
+                consensus_context: ConsensusContext::new(block.slot())
+                    .set_current_block_root(block_root)
+                    .set_proposer_index(block.message().proposer_index()),
                 block,
                 block_root,
                 parent: Some(parent),
@@ -972,13 +991,18 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
 
         let mut signature_verifier = get_signature_verifier(&state, &pubkey_cache, &chain.spec);
 
-        signature_verifier.include_all_signatures_except_proposal(&block)?;
+        // Gossip verification has already checked the proposer index. Use it to check the RANDAO
+        // signature.
+        let verified_proposer_index = Some(block.message().proposer_index());
+        signature_verifier
+            .include_all_signatures_except_proposal(&block, verified_proposer_index)?;
 
         if signature_verifier.verify().is_ok() {
             Ok(Self {
                 block,
                 block_root: from.block_root,
                 parent: Some(parent),
+                consensus_context: from.consensus_context,
             })
         } else {
             Err(BlockError::InvalidSignature)
@@ -1015,8 +1039,14 @@ impl<T: BeaconChainTypes> IntoExecutionPendingBlock<T> for SignatureVerifiedBloc
                 .map_err(|e| BlockSlashInfo::SignatureValid(header.clone(), e))?
         };
 
-        ExecutionPendingBlock::from_signature_verified_components(block, block_root, parent, chain)
-            .map_err(|e| BlockSlashInfo::SignatureValid(header, e))
+        ExecutionPendingBlock::from_signature_verified_components(
+            block,
+            block_root,
+            parent,
+            self.consensus_context,
+            chain,
+        )
+        .map_err(|e| BlockSlashInfo::SignatureValid(header, e))
     }
 
     fn block(&self) -> &SignedBeaconBlock<T::EthSpec> {
@@ -1057,6 +1087,7 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
         block_root: Hash256,
         parent: PreProcessingSnapshot<T::EthSpec>,
+        mut consensus_context: ConsensusContext<T::EthSpec>,
         chain: &Arc<BeaconChain<T>>,
     ) -> Result<Self, BlockError<T::EthSpec>> {
         if let Some(parent) = chain
@@ -1340,10 +1371,10 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
         if let Err(err) = per_block_processing(
             &mut state,
             &block,
-            Some(block_root),
             // Signatures were verified earlier in this function.
             BlockSignatureStrategy::NoVerification,
             VerifyBlockRoot::True,
+            &mut consensus_context,
             &chain.spec,
         ) {
             match err {

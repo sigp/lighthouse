@@ -120,6 +120,12 @@ fn bls_verify() {
 
 #[test]
 #[cfg(not(feature = "fake_crypto"))]
+fn bls_batch_verify() {
+    BlsBatchVerifyHandler::default().run();
+}
+
+#[test]
+#[cfg(not(feature = "fake_crypto"))]
 fn bls_aggregate_verify() {
     BlsAggregateVerifyHandler::default().run();
 }
@@ -440,6 +446,12 @@ fn fork_choice_on_merge_block() {
 fn fork_choice_ex_ante() {
     ForkChoiceHandler::<MinimalEthSpec>::new("ex_ante").run();
     ForkChoiceHandler::<MainnetEthSpec>::new("ex_ante").run();
+}
+
+#[test]
+fn optimistic_sync() {
+    OptimisticSyncHandler::<MinimalEthSpec>::default().run();
+    OptimisticSyncHandler::<MainnetEthSpec>::default().run();
 }
 
 #[test]

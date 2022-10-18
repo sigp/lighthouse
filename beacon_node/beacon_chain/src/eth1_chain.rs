@@ -431,12 +431,13 @@ impl<T: EthSpec> CachingEth1Backend<T> {
     /// Instantiates `self` with empty caches.
     ///
     /// Does not connect to the eth1 node or start any tasks to keep the cache updated.
-    pub fn new(config: Eth1Config, log: Logger, spec: ChainSpec) -> Self {
-        Self {
-            core: HttpService::new(config, log.clone(), spec),
+    pub fn new(config: Eth1Config, log: Logger, spec: ChainSpec) -> Result<Self, String> {
+        Ok(Self {
+            core: HttpService::new(config, log.clone(), spec)
+                .map_err(|e| format!("Failed to create eth1 http service: {:?}", e))?,
             log,
             _phantom: PhantomData,
-        }
+        })
     }
 
     /// Starts the routine which connects to the external eth1 node and updates the caches.
@@ -730,11 +731,9 @@ mod test {
             };
 
             let log = null_logger().unwrap();
-            Eth1Chain::new(CachingEth1Backend::new(
-                eth1_config,
-                log,
-                MainnetEthSpec::default_spec(),
-            ))
+            Eth1Chain::new(
+                CachingEth1Backend::new(eth1_config, log, MainnetEthSpec::default_spec()).unwrap(),
+            )
         }
 
         fn get_deposit_log(i: u64, spec: &ChainSpec) -> DepositLog {
