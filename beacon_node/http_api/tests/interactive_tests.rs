@@ -95,6 +95,10 @@ impl ForkChoiceUpdates {
 
 pub struct ReOrgTest {
     head_slot: Slot,
+    /// Number of slots between parent block and canonical head.
+    parent_distance: u64,
+    /// Number of slots between head block and block proposal slot.
+    head_distance: u64,
     re_org_threshold: u64,
     participation_threshold: u64,
     percent_parent_votes: usize,
@@ -109,6 +113,8 @@ impl Default for ReOrgTest {
     fn default() -> Self {
         Self {
             head_slot: Slot::new(30),
+            parent_distance: 1,
+            head_distance: 1,
             re_org_threshold: 20,
             participation_threshold: 70,
             percent_parent_votes: 100,
@@ -161,6 +167,43 @@ pub async fn proposer_boost_re_org_low_total_participation() {
     .await;
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+pub async fn proposer_boost_re_org_parent_distance() {
+    proposer_boost_re_org_test(ReOrgTest {
+        head_slot: Slot::new(30),
+        parent_distance: 2,
+        should_re_org: false,
+        ..Default::default()
+    })
+    .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+pub async fn proposer_boost_re_org_head_distance() {
+    proposer_boost_re_org_test(ReOrgTest {
+        head_slot: Slot::new(29),
+        head_distance: 2,
+        should_re_org: false,
+        ..Default::default()
+    })
+    .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+pub async fn proposer_boost_re_org_very_unhealthy() {
+    proposer_boost_re_org_test(ReOrgTest {
+        head_slot: Slot::new(31),
+        parent_distance: 2,
+        head_distance: 2,
+        percent_parent_votes: 10,
+        percent_empty_votes: 10,
+        percent_head_votes: 10,
+        should_re_org: false,
+        ..Default::default()
+    })
+    .await;
+}
+
 /// Participation initially appears high at 80%, but drops off to 80+50/2 = 65% after the head
 /// block. This results in a misprediction.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -192,9 +235,6 @@ pub async fn proposer_boost_re_org_weight_misprediction() {
     .await;
 }
 
-// FIXME(sproul): test current slot >1 block from head
-// FIXME(sproul): test parent >1 block from head
-
 /// Run a proposer boost re-org test.
 ///
 /// - `head_slot`: the slot of the canonical head to be reorged
@@ -205,6 +245,8 @@ pub async fn proposer_boost_re_org_weight_misprediction() {
 pub async fn proposer_boost_re_org_test(
     ReOrgTest {
         head_slot,
+        parent_distance,
+        head_distance,
         re_org_threshold,
         participation_threshold,
         percent_parent_votes,
@@ -224,7 +266,7 @@ pub async fn proposer_boost_re_org_test(
     let attesters_per_slot = 10;
     let validator_count = E::slots_per_epoch() as usize * attesters_per_slot;
     let all_validators = (0..validator_count).collect::<Vec<usize>>();
-    let num_initial = head_slot.as_u64() - 2;
+    let num_initial = head_slot.as_u64().checked_sub(parent_distance + 1).unwrap();
 
     // Check that the required vote percentages can be satisfied exactly using `attesters_per_slot`.
     assert_eq!(100 % attesters_per_slot, 0);
@@ -318,8 +360,8 @@ pub async fn proposer_boost_re_org_test(
     // ^ | - | C |
 
     let slot_a = Slot::new(num_initial + 1);
-    let slot_b = slot_a + 1;
-    let slot_c = slot_a + 2;
+    let slot_b = slot_a + parent_distance;
+    let slot_c = slot_b + head_distance;
 
     harness.advance_slot();
     let (block_a_root, block_a, state_a) = harness
@@ -339,7 +381,9 @@ pub async fn proposer_boost_re_org_test(
     harness.process_attestations(block_a_parent_votes);
 
     // Attest to block A during slot B.
-    harness.advance_slot();
+    for _ in 0..parent_distance {
+        harness.advance_slot();
+    }
     let (block_a_empty_votes, block_a_attesters) = harness.make_attestations_with_limit(
         &all_validators,
         &state_a,
@@ -382,23 +426,35 @@ pub async fn proposer_boost_re_org_test(
     );
     harness.process_attestations(block_b_head_votes);
 
-    // Simulate the scheduled call to prepare proposers at 8 seconds into the slot.
     let payload_lookahead = harness.chain.config.prepare_payload_lookahead;
-    harness.advance_to_slot_lookahead(slot_c, payload_lookahead);
-    harness.chain.prepare_beacon_proposer(slot_b).await.unwrap();
-
-    // Simulate the scheduled call to fork choice + prepare proposers 500ms before the next slot.
     let fork_choice_lookahead = Duration::from_millis(500);
-    harness.advance_to_slot_lookahead(slot_c, fork_choice_lookahead);
-    harness.chain.recompute_head_at_slot(slot_c).await;
-    harness.chain.prepare_beacon_proposer(slot_b).await.unwrap();
-
-    // Produce block C.
     while harness.get_current_slot() != slot_c {
+        let current_slot = harness.get_current_slot();
+        let next_slot = current_slot + 1;
+
+        // Simulate the scheduled call to prepare proposers at 8 seconds into the slot.
+        harness.advance_to_slot_lookahead(next_slot, payload_lookahead);
+        harness
+            .chain
+            .prepare_beacon_proposer(current_slot)
+            .await
+            .unwrap();
+
+        // Simulate the scheduled call to fork choice + prepare proposers 500ms before the
+        // next slot.
+        harness.advance_to_slot_lookahead(next_slot, fork_choice_lookahead);
+        harness.chain.recompute_head_at_slot(next_slot).await;
+        harness
+            .chain
+            .prepare_beacon_proposer(current_slot)
+            .await
+            .unwrap();
+
         harness.advance_slot();
         harness.chain.per_slot_task().await;
     }
 
+    // Produce block C.
     // Advance state_b so we can get the proposer.
     complete_state_advance(&mut state_b, None, slot_c, &harness.chain.spec).unwrap();
 
