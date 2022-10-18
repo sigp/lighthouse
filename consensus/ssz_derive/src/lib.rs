@@ -7,7 +7,7 @@
 //!
 //! - `#[ssz(enum_behaviour = "union")]`: encodes and decodes an `enum` with a one-byte variant selector.
 //! - `#[ssz(enum_behaviour = "transparent")]`: allows encoding an `enum` by serializing only the
-//!     value and outermost the `enum`.
+//!     value whilst ignoring outermost the `enum`.
 //! - `#[ssz(struct_behaviour = "container")]`: encodes and decodes the `struct` as an SSZ
 //!     "container".
 //! - `#[ssz(struct_behaviour = "transparent")]`: encodes and decodes a `struct` with exactly one
@@ -89,7 +89,7 @@
 //! #[ssz(enum_behaviour = "union")]
 //! enum UnionEnum {
 //!     Foo(u8),
-//!     Bar(u8),
+//!     Bar(Vec<u8>),
 //! }
 //!
 //! assert_eq!(
@@ -97,8 +97,8 @@
 //!     vec![0, 42]
 //! );
 //! assert_eq!(
-//!     UnionEnum::from_ssz_bytes(&[1, 42]).unwrap(),
-//!     UnionEnum::Bar(42),
+//!     UnionEnum::from_ssz_bytes(&[1, 42, 42]).unwrap(),
+//!     UnionEnum::Bar(vec![42, 42]),
 //! );
 //!
 //! /// Represented as only the value in the enum variant.
