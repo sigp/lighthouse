@@ -244,7 +244,7 @@ impl<T: EthSpec> MockExecutionLayer<T> {
         let block_hash = self
             .server
             .execution_block_generator()
-            .insert_pow_block_by_hash(head_block.parent_hash())
+            .insert_pow_block_by_hash(head_block.parent_hash(), 1)
             .unwrap();
         (self, block_hash)
     }

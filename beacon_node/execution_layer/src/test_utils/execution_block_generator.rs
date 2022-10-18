@@ -282,6 +282,7 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
     pub fn insert_pow_block_by_hash(
         &mut self,
         parent_hash: ExecutionBlockHash,
+        unique_id: u64,
     ) -> Result<ExecutionBlockHash, String> {
         let parent_block = self.block_by_hash(parent_hash).ok_or_else(|| {
             format!(
@@ -289,14 +290,21 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
                 parent_hash
             )
         })?;
-        let block = generate_pow_block(
+
+        let mut block = generate_pow_block(
             self.terminal_total_difficulty,
             self.terminal_block_number,
             parent_block.block_number() + 1,
             parent_hash,
         )?;
 
+        // Hack the block hash to make this block distinct from any other block with a different
+        // `unique_id` (the default is 0).
+        block.block_hash = ExecutionBlockHash::from_root(Hash256::from_low_u64_be(unique_id));
+        block.block_hash = ExecutionBlockHash::from_root(block.tree_hash_root());
+
         let hash = self.insert_block(Block::PoW(block))?;
+
         // Set head
         if let Some(head_total_difficulty) =
             self.head_block.as_ref().and_then(|b| b.total_difficulty())
