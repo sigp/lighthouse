@@ -2235,6 +2235,7 @@ name = "eth2_ssz_derive"
 version = "0.3.1"
 dependencies = [
  "darling 0.13.4",
+ "eth2_ssz",
  "proc-macro2",
  "quote",
  "syn",
