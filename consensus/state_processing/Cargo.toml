@@ -14,7 +14,7 @@ bls = { path = "../../crypto/bls" }
 integer-sqrt = "0.1.5"
 itertools = "0.10.0"
 eth2_ssz = "0.4.1"
-eth2_ssz_derive = "0.3.0"
+eth2_ssz_derive = "0.3.1"
 eth2_ssz_types = "0.2.2"
 merkle_proof = { path = "../merkle_proof" }
 safe_arith = { path = "../safe_arith" }
