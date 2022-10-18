@@ -572,7 +572,7 @@ dependencies = [
  "eth2",
  "eth2_hashing",
  "eth2_ssz",
- "eth2_ssz_derive 0.3.0",
+ "eth2_ssz_derive",
  "eth2_ssz_types",
  "execution_layer",
  "exit-future",
@@ -903,7 +903,7 @@ version = "0.1.0"
 dependencies = [
  "eth2_hashing",
  "eth2_ssz",
- "eth2_ssz_derive 0.3.0",
+ "eth2_ssz_derive",
  "eth2_ssz_types",
  "ethereum-types 0.14.1",
  "quickcheck",
@@ -1911,7 +1911,7 @@ dependencies = [
  "compare_fields_derive",
  "derivative",
  "eth2_ssz",
- "eth2_ssz_derive 0.3.0",
+ "eth2_ssz_derive",
  "ethereum-types 0.14.1",
  "execution_layer",
  "fork_choice",
@@ -2063,7 +2063,7 @@ dependencies = [
  "eth1_test_rig",
  "eth2",
  "eth2_ssz",
- "eth2_ssz_derive 0.3.0",
+ "eth2_ssz_derive",
  "execution_layer",
  "futures",
  "hex",
@@ -2108,7 +2108,7 @@ dependencies = [
  "eth2_keystore",
  "eth2_serde_utils",
  "eth2_ssz",
- "eth2_ssz_derive 0.3.0",
+ "eth2_ssz_derive",
  "futures",
  "futures-util",
  "libsecp256k1",
@@ -2224,7 +2224,7 @@ dependencies = [
 name = "eth2_ssz"
 version = "0.4.1"
 dependencies = [
- "eth2_ssz_derive 0.4.0",
+ "eth2_ssz_derive",
  "ethereum-types 0.14.1",
  "itertools",
  "smallvec",
@@ -2232,22 +2232,9 @@ dependencies = [
 
 [[package]]
 name = "eth2_ssz_derive"
-version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "635b86d2c941bb71e7419a571e1763d65c93e51a1bafc400352e3bef6ff59fc9"
+version = "0.3.1"
 dependencies = [
  "darling 0.13.4",
- "proc-macro2",
- "quote",
- "syn",
-]
-
-[[package]]
-name = "eth2_ssz_derive"
-version = "0.4.0"
-dependencies = [
- "darling 0.13.4",
- "eth2_ssz",
  "proc-macro2",
  "quote",
  "syn",
@@ -2686,7 +2673,7 @@ version = "0.1.0"
 dependencies = [
  "beacon_chain",
  "eth2_ssz",
- "eth2_ssz_derive 0.3.0",
+ "eth2_ssz_derive",
  "proto_array",
  "slog",
  "state_processing",
@@ -4360,7 +4347,7 @@ dependencies = [
  "discv5",
  "error-chain",
  "eth2_ssz",
- "eth2_ssz_derive 0.3.0",
+ "eth2_ssz_derive",
  "eth2_ssz_types",
  "exit-future",
  "fnv",
@@ -5310,7 +5297,7 @@ dependencies = [
  "bitvec 1.0.1",
  "derivative",
  "eth2_ssz",
- "eth2_ssz_derive 0.3.0",
+ "eth2_ssz_derive",
  "itertools",
  "lazy_static",
  "lighthouse_metrics",
@@ -5910,7 +5897,7 @@ name = "proto_array"
 version = "0.2.0"
 dependencies = [
  "eth2_ssz",
- "eth2_ssz_derive 0.3.0",
+ "eth2_ssz_derive",
  "safe_arith",
  "serde",
  "serde_derive",
@@ -7016,7 +7003,7 @@ dependencies = [
  "bincode",
  "byteorder",
  "eth2_ssz",
- "eth2_ssz_derive 0.3.0",
+ "eth2_ssz_derive",
  "filesystem",
  "flate2",
  "lazy_static",
@@ -7294,7 +7281,7 @@ dependencies = [
  "env_logger 0.9.3",
  "eth2_hashing",
  "eth2_ssz",
- "eth2_ssz_derive 0.3.0",
+ "eth2_ssz_derive",
  "eth2_ssz_types",
  "int_to_bytes",
  "integer-sqrt",
@@ -7336,7 +7323,7 @@ dependencies = [
  "db-key",
  "directory",
  "eth2_ssz",
- "eth2_ssz_derive 0.3.0",
+ "eth2_ssz_derive",
  "itertools",
  "lazy_static",
  "leveldb",
@@ -8061,7 +8048,7 @@ dependencies = [
  "beacon_chain",
  "eth2_hashing",
  "eth2_ssz",
- "eth2_ssz_derive 0.3.0",
+ "eth2_ssz_derive",
  "ethereum-types 0.14.1",
  "rand 0.8.5",
  "smallvec",
@@ -8230,7 +8217,7 @@ dependencies = [
  "eth2_interop_keypairs",
  "eth2_serde_utils",
  "eth2_ssz",
- "eth2_ssz_derive 0.3.0",
+ "eth2_ssz_derive",
  "eth2_ssz_types",
  "ethereum-types 0.14.1",
  "hex",
