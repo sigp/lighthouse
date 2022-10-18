@@ -503,7 +503,14 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .requires("execution-endpoint")
                 .takes_value(true)
         )
-
+        .arg(
+            Arg::with_name("execution-timeout-multiplier")
+                .long("execution-timeout-multiplier")
+                .value_name("NUM")
+                .help("Unsigned integer to multiply the default execution timeouts by.")
+                .default_value("1")
+                .takes_value(true)
+        )
         /*
          * Database purging and compaction.
          */

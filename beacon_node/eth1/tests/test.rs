@@ -493,7 +493,8 @@ mod deposit_tree {
             let mut deposit_roots = vec![];
             let mut deposit_counts = vec![];
 
-            let client = HttpJsonRpc::new(SensitiveUrl::parse(&eth1.endpoint()).unwrap()).unwrap();
+            let client =
+                HttpJsonRpc::new(SensitiveUrl::parse(&eth1.endpoint()).unwrap(), None).unwrap();
 
             // Perform deposits to the smart contract, recording it's state along the way.
             for deposit in &deposits {
@@ -597,7 +598,8 @@ mod http {
                 .expect("should start eth1 environment");
             let deposit_contract = &eth1.deposit_contract;
             let web3 = eth1.web3();
-            let client = HttpJsonRpc::new(SensitiveUrl::parse(&eth1.endpoint()).unwrap()).unwrap();
+            let client =
+                HttpJsonRpc::new(SensitiveUrl::parse(&eth1.endpoint()).unwrap(), None).unwrap();
 
             let block_number = get_block_number(&web3).await;
             let logs = blocking_deposit_logs(&client, &eth1, 0..block_number).await;
@@ -711,7 +713,8 @@ mod fast {
                 MainnetEthSpec::default_spec(),
             )
             .unwrap();
-            let client = HttpJsonRpc::new(SensitiveUrl::parse(&eth1.endpoint()).unwrap()).unwrap();
+            let client =
+                HttpJsonRpc::new(SensitiveUrl::parse(&eth1.endpoint()).unwrap(), None).unwrap();
             let n = 10;
             let deposits: Vec<_> = (0..n).map(|_| random_deposit_data()).collect();
             for deposit in &deposits {
