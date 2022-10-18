@@ -1,7 +1,123 @@
 #![recursion_limit = "256"]
 //! Provides procedural derive macros for the `Encode` and `Decode` traits of the `eth2_ssz` crate.
 //!
-//! Supports field attributes, see each derive macro for more information.
+//! ## Attributes
+//!
+//! The following struct\enum attributes are available:
+//!
+//! - `#[ssz(enum_behaviour = "union")]`: encodes and decodes an `enum` with a one-byte variant selector.
+//! - `#[ssz(enum_behaviour = "transparent")]`: allows encoding an `enum` by serializing only the
+//!     value and outermost the `enum`.
+//! - `#[ssz(struct_behaviour = "container")]`: encodes and decodes the `struct` as an SSZ
+//!     "container".
+//! - `#[ssz(struct_behaviour = "transparent")]`: encodes and decodes a `struct` with exactly one
+//!     non-skipped field as if the outermost `struct` does not exist.
+//!
+//! The following field attributes are available:
+//!
+//! - `#[ssz(with = "module")]`: uses the methods in `module` to implement `ssz::Encode` or
+//!     `ssz::Decode`. This is useful when it's not possible to create an `impl` for that type
+//!     (e.g. it is defined in another crate).
+//! - `#[ssz(skip_serializing)]`: this field will not be included in the serialized SSZ vector.
+//! - `#[ssz(skip_deserializing)]`: this field will not be expected to be included in the serialized
+//!   SSZ vector and it will be initialized from a `Default` implementation.
+//!
+//! ## Examples
+//!
+//! ### Structs
+//!
+//! ```rust
+//! use ssz::{Encode, Decode};
+//! use ssz_derive::{Encode, Decode};
+//!
+//! /// Represented as an SSZ "list" wrapped in an SSZ "container".
+//! #[derive(Debug, PartialEq, Encode, Decode)]
+//! #[ssz(struct_behaviour = "container")]   // "container" is the default behaviour
+//! struct TypicalStruct {
+//!     foo: Vec<u8>
+//! }
+//!
+//! assert_eq!(
+//!     TypicalStruct { foo: vec![42] }.as_ssz_bytes(),
+//!     vec![4, 0, 0, 0, 42]
+//! );
+//!
+//! assert_eq!(
+//!     TypicalStruct::from_ssz_bytes(&[4, 0, 0, 0, 42]).unwrap(),
+//!     TypicalStruct { foo: vec![42] },
+//! );
+//!
+//! /// Represented as an SSZ "list" *without* an SSZ "container".
+//! #[derive(Encode, Decode)]
+//! #[ssz(struct_behaviour = "transparent")]
+//! struct NewType {
+//!     foo: Vec<u8>
+//! }
+//!
+//! assert_eq!(
+//!     NewType { foo: vec![42] }.as_ssz_bytes(),
+//!     vec![42]
+//! );
+//!
+//! /// Represented as an SSZ "list" *without* an SSZ "container". The `bar` byte is ignored.
+//! #[derive(Debug, PartialEq, Encode, Decode)]
+//! #[ssz(struct_behaviour = "transparent")]
+//! struct NewTypeSkippedField {
+//!     foo: Vec<u8>,
+//!     #[ssz(skip_serializing, skip_deserializing)]
+//!     bar: u8,
+//! }
+//!
+//! assert_eq!(
+//!     NewTypeSkippedField { foo: vec![42], bar: 99 }.as_ssz_bytes(),
+//!     vec![42]
+//! );
+//! assert_eq!(
+//!     NewTypeSkippedField::from_ssz_bytes(&[42]).unwrap(),
+//!     NewTypeSkippedField { foo: vec![42], bar: 0 }
+//! );
+//! ```
+//!
+//! ### Enums
+//!
+//! ```rust
+//! use ssz::{Encode, Decode};
+//! use ssz_derive::{Encode, Decode};
+//!
+//! /// Represented as an SSZ "union".
+//! #[derive(Debug, PartialEq, Encode, Decode)]
+//! #[ssz(enum_behaviour = "union")]
+//! enum UnionEnum {
+//!     Foo(u8),
+//!     Bar(u8),
+//! }
+//!
+//! assert_eq!(
+//!     UnionEnum::Foo(42).as_ssz_bytes(),
+//!     vec![0, 42]
+//! );
+//! assert_eq!(
+//!     UnionEnum::from_ssz_bytes(&[1, 42]).unwrap(),
+//!     UnionEnum::Bar(42),
+//! );
+//!
+//! /// Represented as only the value in the enum variant.
+//! #[derive(Debug, PartialEq, Encode)]
+//! #[ssz(enum_behaviour = "transparent")]
+//! enum TransparentEnum {
+//!     Foo(u8),
+//!     Bar(Vec<u8>),
+//! }
+//!
+//! assert_eq!(
+//!     TransparentEnum::Foo(42).as_ssz_bytes(),
+//!     vec![42]
+//! );
+//! assert_eq!(
+//!     TransparentEnum::Bar(vec![42, 42]).as_ssz_bytes(),
+//!     vec![42, 42]
+//! );
+//! ```
 
 use darling::{FromDeriveInput, FromMeta};
 use proc_macro::TokenStream;
@@ -15,9 +131,8 @@ const MAX_UNION_SELECTOR: u8 = 127;
 
 const ENUM_TRANSPARENT: &str = "transparent";
 const ENUM_UNION: &str = "union";
-const ENUM_VARIANTS: &[&str] = &[ENUM_TRANSPARENT, ENUM_UNION];
-const NO_ENUM_BEHAVIOUR_ERROR: &str = "enums require a \"transparent\" or \"union\" attribute, \
-    e.g., #[ssz(transparent)]";
+const NO_ENUM_BEHAVIOUR_ERROR: &str = "enums require an \"enum_behaviour\" attribute with \
+    a \"transparent\" or \"union\" value, e.g., #[ssz(enum_behaviour = \"transparent\")]";
 
 #[derive(Debug, FromDeriveInput)]
 #[darling(attributes(ssz))]
@@ -25,9 +140,7 @@ struct StructOpts {
     #[darling(default)]
     enum_behaviour: Option<String>,
     #[darling(default)]
-    transparent: bool,
-    #[darling(default)]
-    union: bool,
+    struct_behaviour: Option<String>,
 }
 
 /// Field-level configuration.
@@ -41,60 +154,76 @@ struct FieldOpts {
     skip_deserializing: bool,
 }
 
-struct Config {
-    struct_behaviour: StructBehaviour,
-    enum_behaviour: EnumBehaviour,
-}
-
-impl Config {
-    fn read(item: &DeriveInput) -> Self {
-        let opts = StructOpts::from_derive_input(item).unwrap();
-
-        let enum_behaviour = match (opts.transparent, opts.union, &opts.enum_behaviour) {
-            (false, false, None) => EnumBehaviour::Unspecified,
-            (true, false, None) => EnumBehaviour::Transparent,
-            (false, true, None) => EnumBehaviour::Union,
-            (false, false, Some(behaviour_string)) => match behaviour_string.as_ref() {
-                ENUM_TRANSPARENT => EnumBehaviour::Transparent,
-                ENUM_UNION => EnumBehaviour::Union,
-                other => panic!(
-                    "{} is an invalid enum_behaviour, use either {:?}",
-                    other, ENUM_VARIANTS
-                ),
-            },
-            (true, true, _) => panic!("cannot provide both \"transparent\" and \"union\""),
-            (_, _, Some(_)) => {
-                panic!("\"enum_behaviour\" cannot be used with \"transparent\" or \"union\"")
-            }
-        };
-
-        // Don't allow `enum_behaviour` for structs.
-        if matches!(item.data, syn::Data::Struct(_)) && opts.enum_behaviour.is_some() {
-            panic!("cannot provide \"enum_behaviour\" for a struct")
-        }
-
-        let struct_behaviour = if opts.transparent {
-            StructBehaviour::Transparent
-        } else {
-            StructBehaviour::Container
-        };
-
-        Self {
-            struct_behaviour,
-            enum_behaviour,
-        }
-    }
+enum Procedure<'a> {
+    Struct {
+        data: &'a syn::DataStruct,
+        behaviour: StructBehaviour,
+    },
+    Enum {
+        data: &'a syn::DataEnum,
+        behaviour: EnumBehaviour,
+    },
 }
 
 enum StructBehaviour {
-    Transparent,
     Container,
+    Transparent,
 }
 
 enum EnumBehaviour {
-    Transparent,
     Union,
-    Unspecified,
+    Transparent,
+}
+
+impl<'a> Procedure<'a> {
+    fn read(item: &'a DeriveInput) -> Self {
+        let opts = StructOpts::from_derive_input(item).unwrap();
+
+        match &item.data {
+            syn::Data::Struct(data) => {
+                if opts.enum_behaviour.is_some() {
+                    panic!("cannot use \"enum_behaviour\" for a struct");
+                }
+
+                match opts.struct_behaviour.as_deref() {
+                    Some("container") | None => Procedure::Struct {
+                        data,
+                        behaviour: StructBehaviour::Container,
+                    },
+                    Some("transparent") => Procedure::Struct {
+                        data,
+                        behaviour: StructBehaviour::Transparent,
+                    },
+                    Some(other) => panic!(
+                        "{} is not a valid struct behaviour, use \"container\" or \"transparent\"",
+                        other
+                    ),
+                }
+            }
+            syn::Data::Enum(data) => {
+                if opts.struct_behaviour.is_some() {
+                    panic!("cannot use \"struct_behaviour\" for an enum");
+                }
+
+                match opts.enum_behaviour.as_deref() {
+                    Some("union") => Procedure::Enum {
+                        data,
+                        behaviour: EnumBehaviour::Union,
+                    },
+                    Some("transparent") => Procedure::Enum {
+                        data,
+                        behaviour: EnumBehaviour::Transparent,
+                    },
+                    Some(other) => panic!(
+                        "{} is not a valid struct behaviour, use \"container\" or \"transparent\"",
+                        other
+                    ),
+                    None => panic!("{}", NO_ENUM_BEHAVIOUR_ERROR),
+                }
+            }
+            _ => panic!("ssz_derive only supports structs and enums"),
+        }
+    }
 }
 
 fn parse_ssz_fields(struct_data: &syn::DataStruct) -> Vec<(&syn::Type, &syn::Ident, FieldOpts)> {
@@ -135,19 +264,17 @@ fn parse_ssz_fields(struct_data: &syn::DataStruct) -> Vec<(&syn::Type, &syn::Ide
 #[proc_macro_derive(Encode, attributes(ssz))]
 pub fn ssz_encode_derive(input: TokenStream) -> TokenStream {
     let item = parse_macro_input!(input as DeriveInput);
-    let config = Config::read(&item);
+    let procedure = Procedure::read(&item);
 
-    match &item.data {
-        syn::Data::Struct(s) => match config.struct_behaviour {
-            StructBehaviour::Transparent => ssz_encode_derive_struct_transparent(&item, s),
-            StructBehaviour::Container => ssz_encode_derive_struct(&item, s),
+    match procedure {
+        Procedure::Struct { data, behaviour } => match behaviour {
+            StructBehaviour::Transparent => ssz_encode_derive_struct_transparent(&item, data),
+            StructBehaviour::Container => ssz_encode_derive_struct(&item, data),
         },
-        syn::Data::Enum(s) => match config.enum_behaviour {
-            EnumBehaviour::Transparent => ssz_encode_derive_enum_transparent(&item, s),
-            EnumBehaviour::Union => ssz_encode_derive_enum_union(&item, s),
-            EnumBehaviour::Unspecified => panic!("{}", NO_ENUM_BEHAVIOUR_ERROR),
+        Procedure::Enum { data, behaviour } => match behaviour {
+            EnumBehaviour::Transparent => ssz_encode_derive_enum_transparent(&item, data),
+            EnumBehaviour::Union => ssz_encode_derive_enum_union(&item, data),
         },
-        _ => panic!("ssz_derive only supports structs and enums"),
     }
 }
 
@@ -460,22 +587,20 @@ fn ssz_encode_derive_enum_union(derive_input: &DeriveInput, enum_data: &DataEnum
 #[proc_macro_derive(Decode, attributes(ssz))]
 pub fn ssz_decode_derive(input: TokenStream) -> TokenStream {
     let item = parse_macro_input!(input as DeriveInput);
-    let config = Config::read(&item);
+    let procedure = Procedure::read(&item);
 
-    match &item.data {
-        syn::Data::Struct(s) => match config.struct_behaviour {
-            StructBehaviour::Transparent => ssz_decode_derive_struct_transparent(&item, s),
-            StructBehaviour::Container => ssz_decode_derive_struct(&item, s),
+    match procedure {
+        Procedure::Struct { data, behaviour } => match behaviour {
+            StructBehaviour::Transparent => ssz_decode_derive_struct_transparent(&item, data),
+            StructBehaviour::Container => ssz_decode_derive_struct(&item, data),
         },
-        syn::Data::Enum(s) => match config.enum_behaviour {
-            EnumBehaviour::Union => ssz_decode_derive_enum_union(&item, s),
+        Procedure::Enum { data, behaviour } => match behaviour {
+            EnumBehaviour::Union => ssz_decode_derive_enum_union(&item, data),
             EnumBehaviour::Transparent => panic!(
                 "Decode cannot be derived for enum_behaviour \"{}\", only \"{}\" is valid.",
                 ENUM_TRANSPARENT, ENUM_UNION
             ),
-            EnumBehaviour::Unspecified => panic!("{}", NO_ENUM_BEHAVIOUR_ERROR),
         },
-        _ => panic!("ssz_derive only supports structs and enums"),
     }
 }
 

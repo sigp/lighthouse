@@ -430,13 +430,6 @@ mod derive_macro {
     }
 
     #[derive(PartialEq, Debug, Encode)]
-    #[ssz(transparent)]
-    enum TwoVariableTransDirectTag {
-        A(VariableA),
-        B(VariableB),
-    }
-
-    #[derive(PartialEq, Debug, Encode)]
     struct TwoVariableTransStruct {
         a: TwoVariableTrans,
     }
@@ -444,13 +437,6 @@ mod derive_macro {
     #[derive(PartialEq, Debug, Encode, Decode)]
     #[ssz(enum_behaviour = "union")]
     enum TwoVariableUnion {
-        A(VariableA),
-        B(VariableB),
-    }
-
-    #[derive(PartialEq, Debug, Encode, Decode)]
-    #[ssz(union)]
-    enum TwoVariableUnionDirectTag {
         A(VariableA),
         B(VariableB),
     }
@@ -528,7 +514,7 @@ mod derive_macro {
     }
 
     #[derive(PartialEq, Debug, Encode, Decode)]
-    #[ssz(transparent)]
+    #[ssz(struct_behaviour = "transparent")]
     struct TransparentStruct {
         inner: Vec<u8>,
     }
@@ -545,7 +531,7 @@ mod derive_macro {
     }
 
     #[derive(PartialEq, Debug, Encode, Decode)]
-    #[ssz(transparent)]
+    #[ssz(struct_behaviour = "transparent")]
     struct TransparentStructSkippedField {
         inner: Vec<u8>,
         #[ssz(skip_serializing, skip_deserializing)]

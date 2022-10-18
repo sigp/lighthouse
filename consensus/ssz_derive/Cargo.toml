@@ -17,3 +17,4 @@ quote = "1.0.7"
 darling = "0.13.0"
 
 [dev-dependencies]
+eth2_ssz = "0.4.1"
