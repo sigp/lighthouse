@@ -1991,60 +1991,75 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         target_epoch: Epoch,
         state: &BeaconState<T::EthSpec>,
     ) -> bool {
-        let slots_per_epoch = T::EthSpec::slots_per_epoch();
-        let shuffling_lookahead = 1 + self.spec.min_seed_lookahead.as_u64();
-
-        // Shuffling can't have changed if we're in the first few epochs
-        if state.current_epoch() < shuffling_lookahead {
-            return true;
-        }
-
-        // Otherwise the shuffling is determined by the block at the end of the target epoch
-        // minus the shuffling lookahead (usually 2). We call this the "pivot".
-        let pivot_slot =
-            if target_epoch == state.previous_epoch() || target_epoch == state.current_epoch() {
-                (target_epoch - shuffling_lookahead).end_slot(slots_per_epoch)
-            } else {
-                return false;
-            };
-
-        let state_pivot_block_root = match state.get_block_root(pivot_slot) {
-            Ok(root) => *root,
-            Err(e) => {
-                warn!(
-                    &self.log,
-                    "Missing pivot block root for attestation";
-                    "slot" => pivot_slot,
-                    "error" => ?e,
-                );
-                return false;
-            }
-        };
-
-        // Use fork choice's view of the block DAG to quickly evaluate whether the attestation's
-        // pivot block is the same as the current state's pivot block. If it is, then the
-        // attestation's shuffling is the same as the current state's.
-        // To account for skipped slots, find the first block at *or before* the pivot slot.
-        let fork_choice_lock = self.canonical_head.fork_choice_read_lock();
-        let pivot_block_root = fork_choice_lock
-            .proto_array()
-            .core_proto_array()
-            .iter_block_roots(block_root)
-            .find(|(_, slot)| *slot <= pivot_slot)
-            .map(|(block_root, _)| block_root);
-        drop(fork_choice_lock);
-
-        match pivot_block_root {
-            Some(root) => root == state_pivot_block_root,
-            None => {
+        self.shuffling_is_compatible_result(block_root, target_epoch, state)
+            .unwrap_or_else(|e| {
                 debug!(
-                    &self.log,
-                    "Discarding attestation because of missing ancestor";
-                    "pivot_slot" => pivot_slot.as_u64(),
+                    self.log,
+                    "Skipping attestation with incompatible shuffling";
                     "block_root" => ?block_root,
+                    "target_epoch" => target_epoch,
+                    "reason" => ?e,
                 );
                 false
+            })
+    }
+
+    fn shuffling_is_compatible_result(
+        &self,
+        block_root: &Hash256,
+        target_epoch: Epoch,
+        state: &BeaconState<T::EthSpec>,
+    ) -> Result<bool, Error> {
+        // Compute the shuffling ID for the head state in the `target_epoch`.
+        let relative_epoch = RelativeEpoch::from_epoch(state.current_epoch(), target_epoch)
+            .map_err(|e| Error::BeaconStateError(e.into()))?;
+        let head_shuffling_id =
+            AttestationShufflingId::new(self.genesis_block_root, state, relative_epoch)?;
+
+        // Load the block's shuffling ID from fork choice. We use the variant of `get_block` that
+        // checks descent from the finalized block, so there's one case where we'll spuriously
+        // return `false`: where an attestation for the previous epoch nominates the pivot block
+        // which is the parent block of the finalized block. Such attestations are not useful, so
+        // this doesn't matter.
+        let fork_choice_lock = self.canonical_head.fork_choice_read_lock();
+        let block = fork_choice_lock
+            .get_block(block_root)
+            .ok_or(Error::AttestationHeadNotInForkChoice(*block_root))?;
+        drop(fork_choice_lock);
+
+        let block_shuffling_id = if target_epoch == block.current_epoch_shuffling_id.shuffling_epoch
+        {
+            block.current_epoch_shuffling_id
+        } else if target_epoch == block.next_epoch_shuffling_id.shuffling_epoch {
+            block.next_epoch_shuffling_id
+        } else if target_epoch > block.next_epoch_shuffling_id.shuffling_epoch {
+            AttestationShufflingId {
+                shuffling_epoch: target_epoch,
+                shuffling_decision_block: *block_root,
             }
+        } else {
+            debug!(
+                self.log,
+                "Skipping attestation with incompatible shuffling";
+                "block_root" => ?block_root,
+                "target_epoch" => target_epoch,
+                "reason" => "target epoch less than block epoch"
+            );
+            return Ok(false);
+        };
+
+        if head_shuffling_id == block_shuffling_id {
+            Ok(true)
+        } else {
+            debug!(
+                self.log,
+                "Skipping attestation with incompatible shuffling";
+                "block_root" => ?block_root,
+                "target_epoch" => target_epoch,
+                "head_shuffling_id" => ?head_shuffling_id,
+                "block_shuffling_id" => ?block_shuffling_id,
+            );
+            Ok(false)
         }
     }
 
@@ -4460,7 +4475,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// If the committee for `(head_block_root, shuffling_epoch)` isn't found in the
     /// `shuffling_cache`, we will read a state from disk and then update the `shuffling_cache`.
-    pub(crate) fn with_committee_cache<F, R>(
+    pub fn with_committee_cache<F, R>(
         &self,
         head_block_root: Hash256,
         shuffling_epoch: Epoch,
