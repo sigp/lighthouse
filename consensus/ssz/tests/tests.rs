@@ -387,7 +387,7 @@ mod derive_macro {
     }
 
     #[derive(PartialEq, Debug, Encode, Decode)]
-    #[ssz(enum_behaviour = "union")]
+    #[ssz(union)]
     enum TwoFixedUnion {
         U8(u8),
         U16(u16),
@@ -423,15 +423,8 @@ mod derive_macro {
     }
 
     #[derive(PartialEq, Debug, Encode)]
-    #[ssz(enum_behaviour = "transparent")]
-    enum TwoVariableTrans {
-        A(VariableA),
-        B(VariableB),
-    }
-
-    #[derive(PartialEq, Debug, Encode)]
     #[ssz(transparent)]
-    enum TwoVariableTransDirectTag {
+    enum TwoVariableTrans {
         A(VariableA),
         B(VariableB),
     }
@@ -442,15 +435,8 @@ mod derive_macro {
     }
 
     #[derive(PartialEq, Debug, Encode, Decode)]
-    #[ssz(enum_behaviour = "union")]
-    enum TwoVariableUnion {
-        A(VariableA),
-        B(VariableB),
-    }
-
-    #[derive(PartialEq, Debug, Encode, Decode)]
     #[ssz(union)]
-    enum TwoVariableUnionDirectTag {
+    enum TwoVariableUnion {
         A(VariableA),
         B(VariableB),
     }
@@ -509,7 +495,7 @@ mod derive_macro {
     }
 
     #[derive(PartialEq, Debug, Encode, Decode)]
-    #[ssz(enum_behaviour = "union")]
+    #[ssz(union)]
     enum TwoVecUnion {
         A(Vec<u8>),
         B(Vec<u8>),

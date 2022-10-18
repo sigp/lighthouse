@@ -1,7 +1,127 @@
 #![recursion_limit = "256"]
 //! Provides procedural derive macros for the `Encode` and `Decode` traits of the `eth2_ssz` crate.
 //!
-//! Supports field attributes, see each derive macro for more information.
+//! ## Struct Attributes
+//!
+//! The following struct attributes are available:
+//!
+//! - `#[ssz(union)]`
+//!     - For `enum`, implements `ssz::Encode` and `ssz::Decode` such that the union variant is
+//!       encoded as a single byte in the SSZ vector.
+//!     - Not supported for `struct`.
+//! - `#[ssz(transparent)]`
+//!     - For `enum`, implements `ssz::Encode` such that the `enum` is ignored. `ssz::Decode` is not
+//!       supported.
+//!     - For `struct`, implements `ssz::Encode` and `ssz::Decode` such that the outermost `struct`
+//!       is ignored for encoding and decoding. This is useful for new-type wrappers. The `struct`
+//!       must have exactly one non-skipped field.
+//!
+//! ## Field Attributes
+//!
+//! The following field attributes are available:
+//!
+//! - `#[ssz(with = "module")]`: uses the methods in `module` to implement `ssz::Encode` or
+//!   `ssz::Decode`. This is useful when it's not possible to create an `impl` for that type
+//!   (perhaps it is defined in another crate).
+//! - `#[ssz(skip_serializing)]`: this field will not be included in the serialized SSZ vector.
+//! - `#[ssz(skip_deserializing)]`: this field will not be expected to be included in the serialized
+//!   SSZ vector and it will be initialized from a `Default` implementation.
+//!
+//! ## Examples
+//!
+//! ### Structs
+//!
+//! ```rust
+//! use ssz::{Encode, Decode};
+//! use ssz_derive::{Encode, Decode};
+//!
+//! /// Represented as an SSZ "list" wrapped in an SSZ "container".
+//! #[derive(Debug, PartialEq, Encode, Decode)]
+//! struct TypicalStruct {
+//!     foo: Vec<u8>
+//! }
+//!
+//! assert_eq!(
+//!     TypicalStruct { foo: vec![42] }.as_ssz_bytes(),
+//!     vec![4, 0, 0, 0, 42]
+//! );
+//!
+//! assert_eq!(
+//!     TypicalStruct::from_ssz_bytes(&[4, 0, 0, 0, 42]).unwrap(),
+//!     TypicalStruct { foo: vec![42] },
+//! );
+//!
+//! /// Represented as an SSZ "list" *without* an SSZ "container".
+//! #[derive(Encode, Decode)]
+//! #[ssz(transparent)]
+//! struct NewType {
+//!     foo: Vec<u8>
+//! }
+//!
+//! assert_eq!(
+//!     NewType { foo: vec![42] }.as_ssz_bytes(),
+//!     vec![42]
+//! );
+//!
+//! /// Represented as an SSZ "list" *without* an SSZ "container". The `bar` byte is ignored.
+//! #[derive(Debug, PartialEq, Encode, Decode)]
+//! #[ssz(transparent)]
+//! struct NewTypeSkippedField {
+//!     foo: Vec<u8>,
+//!     #[ssz(skip_serializing, skip_deserializing)]
+//!     bar: u8,
+//! }
+//!
+//! assert_eq!(
+//!     NewTypeSkippedField { foo: vec![42], bar: 99 }.as_ssz_bytes(),
+//!     vec![42]
+//! );
+//! assert_eq!(
+//!     NewTypeSkippedField::from_ssz_bytes(&[42]).unwrap(),
+//!     NewTypeSkippedField { foo: vec![42], bar: 0 }
+//! );
+//! ```
+//!
+//! ### Enums
+//!
+//! ```rust
+//! use ssz::{Encode, Decode};
+//! use ssz_derive::{Encode, Decode};
+//!
+//! /// Represented as an SSZ "union".
+//! #[derive(Debug, PartialEq, Encode, Decode)]
+//! #[ssz(union)]
+//! enum UnionEnum {
+//!     Foo(u8),
+//!     Bar(u8),
+//! }
+//!
+//! assert_eq!(
+//!     UnionEnum::Foo(42).as_ssz_bytes(),
+//!     vec![0, 42]
+//! );
+//! assert_eq!(
+//!     UnionEnum::from_ssz_bytes(&[1, 42]).unwrap(),
+//!     UnionEnum::Bar(42),
+//! );
+//!
+//! /// Represented as only the value in the enum variant.
+//! #[derive(Debug, PartialEq, Encode)]
+//! #[ssz(transparent)]
+//! enum TransparentEnum {
+//!     Foo(u8),
+//!     Bar(Vec<u8>),
+//! }
+//!
+//! assert_eq!(
+//!     TransparentEnum::Foo(42).as_ssz_bytes(),
+//!     vec![42]
+//! );
+//! assert_eq!(
+//!     TransparentEnum::Bar(vec![42, 42]).as_ssz_bytes(),
+//!     vec![42, 42]
+//! );
+//! ```
 
 use darling::{FromDeriveInput, FromMeta};
 use proc_macro::TokenStream;
@@ -13,11 +133,8 @@ use syn::{parse_macro_input, DataEnum, DataStruct, DeriveInput, Ident};
 /// extensions).
 const MAX_UNION_SELECTOR: u8 = 127;
 
-const ENUM_TRANSPARENT: &str = "transparent";
-const ENUM_UNION: &str = "union";
-const ENUM_VARIANTS: &[&str] = &[ENUM_TRANSPARENT, ENUM_UNION];
 const NO_ENUM_BEHAVIOUR_ERROR: &str = "enums require a \"transparent\" or \"union\" attribute, \
-    e.g., #[ssz(transparent)]";
+    e.g., #[ssz(transparent)] or #[ssz(union)]";
 
 #[derive(Debug, FromDeriveInput)]
 #[darling(attributes(ssz))]
@@ -54,18 +171,11 @@ impl Config {
             (false, false, None) => EnumBehaviour::Unspecified,
             (true, false, None) => EnumBehaviour::Transparent,
             (false, true, None) => EnumBehaviour::Union,
-            (false, false, Some(behaviour_string)) => match behaviour_string.as_ref() {
-                ENUM_TRANSPARENT => EnumBehaviour::Transparent,
-                ENUM_UNION => EnumBehaviour::Union,
-                other => panic!(
-                    "{} is an invalid enum_behaviour, use either {:?}",
-                    other, ENUM_VARIANTS
-                ),
-            },
             (true, true, _) => panic!("cannot provide both \"transparent\" and \"union\""),
-            (_, _, Some(_)) => {
-                panic!("\"enum_behaviour\" cannot be used with \"transparent\" or \"union\"")
-            }
+            (_, _, Some(_)) => panic!(
+                "the \"enum_behaviour\" attribute has been removed, please use \
+                either #[ssz(transparent)] or #[ssz(union)] instead"
+            ),
         };
 
         // Don't allow `enum_behaviour` for structs.
@@ -470,8 +580,7 @@ pub fn ssz_decode_derive(input: TokenStream) -> TokenStream {
         syn::Data::Enum(s) => match config.enum_behaviour {
             EnumBehaviour::Union => ssz_decode_derive_enum_union(&item, s),
             EnumBehaviour::Transparent => panic!(
-                "Decode cannot be derived for enum_behaviour \"{}\", only \"{}\" is valid.",
-                ENUM_TRANSPARENT, ENUM_UNION
+                "Decode cannot be derived for enum_behaviour \"transparent\", only \"union\" is valid."
             ),
             EnumBehaviour::Unspecified => panic!("{}", NO_ENUM_BEHAVIOUR_ERROR),
         },
