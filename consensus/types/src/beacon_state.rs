@@ -200,7 +200,7 @@ impl From<BeaconStateHash> for Hash256 {
 #[serde(bound = "T: EthSpec")]
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 #[tree_hash(enum_behaviour = "transparent")]
-#[ssz(enum_behaviour = "transparent")]
+#[ssz(transparent)]
 pub struct BeaconState<T>
 where
     T: EthSpec,

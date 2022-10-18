@@ -27,7 +27,7 @@ pub struct VoteTracker {
 
 /// Represents the verification status of an execution payload.
 #[derive(Clone, Copy, Debug, PartialEq, Encode, Decode, Serialize, Deserialize)]
-#[ssz(enum_behaviour = "union")]
+#[ssz(union)]
 pub enum ExecutionStatus {
     /// An EL has determined that the payload is valid.
     Valid(ExecutionBlockHash),

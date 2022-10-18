@@ -167,15 +167,18 @@ impl Config {
     fn read(item: &DeriveInput) -> Self {
         let opts = StructOpts::from_derive_input(item).unwrap();
 
-        let enum_behaviour = match (opts.transparent, opts.union, &opts.enum_behaviour) {
-            (false, false, None) => EnumBehaviour::Unspecified,
-            (true, false, None) => EnumBehaviour::Transparent,
-            (false, true, None) => EnumBehaviour::Union,
-            (true, true, _) => panic!("cannot provide both \"transparent\" and \"union\""),
-            (_, _, Some(_)) => panic!(
+        if opts.enum_behaviour.is_some() {
+            panic!(
                 "the \"enum_behaviour\" attribute has been removed, please use \
                 either #[ssz(transparent)] or #[ssz(union)] instead"
-            ),
+            )
+        }
+
+        let enum_behaviour = match (opts.transparent, opts.union) {
+            (true, true) => panic!("cannot provide both \"transparent\" and \"union\""),
+            (false, false) => EnumBehaviour::Unspecified,
+            (true, false) => EnumBehaviour::Transparent,
+            (false, true) => EnumBehaviour::Union,
         };
 
         // Don't allow `enum_behaviour` for structs.
