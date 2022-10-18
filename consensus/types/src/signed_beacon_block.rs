@@ -64,7 +64,7 @@ impl From<SignedBeaconBlockHash> for Hash256 {
 #[serde(bound = "E: EthSpec, Payload: ExecPayload<E>")]
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 #[tree_hash(enum_behaviour = "transparent")]
-#[ssz(transparent)]
+#[ssz(enum_behaviour = "transparent")]
 pub struct SignedBeaconBlock<E: EthSpec, Payload: ExecPayload<E> = FullPayload<E>> {
     #[superstruct(only(Base), partial_getter(rename = "message_base"))]
     pub message: BeaconBlockBase<E, Payload>,

@@ -18,7 +18,7 @@ use types::*;
     variant_attributes(derive(Debug, PartialEq, Clone, Encode, Decode))
 )]
 #[derive(Debug, PartialEq, Clone, Encode)]
-#[ssz(transparent)]
+#[ssz(enum_behaviour = "transparent")]
 pub struct PartialBeaconState<T>
 where
     T: EthSpec,
