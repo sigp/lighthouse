@@ -70,6 +70,11 @@ pub enum BlockProcessingError {
         found: u64,
     },
     ExecutionInvalid,
+    BlobVersionHashMismatch,
+    BlobVersionHashIndexOutOfBounds {
+        index: usize,
+        length: usize,
+    },
 }
 
 impl From<BeaconStateError> for BlockProcessingError {

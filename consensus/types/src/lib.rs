@@ -1,5 +1,4 @@
 //! Ethereum 2.0 types
-#![feature(generic_associated_types)]
 // Required for big type-level numbers
 #![recursion_limit = "128"]
 // Clippy lint set up
@@ -198,6 +197,7 @@ pub type ForkVersion = [u8; 4];
 pub type BLSFieldElement = Uint256;
 pub type Blob<T> = FixedVector<BLSFieldElement, <T as EthSpec>::FieldElementsPerBlob>;
 pub type Polynomial<T> = VariableList<BLSFieldElement, <T as EthSpec>::FieldElementsPerBlob>;
+pub type VersionedHash = Hash256;
 
 pub use bls::{
     AggregatePublicKey, AggregateSignature, Keypair, PublicKey, PublicKeyBytes, SecretKey,
