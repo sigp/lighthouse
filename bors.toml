@@ -22,7 +22,8 @@ status = [
     "cargo-vendor",
     "check-msrv",
     "slasher-tests",
-    "syncing-simulator-ubuntu"
+    "syncing-simulator-ubuntu",
+    "disallowed-from-async-lint"
 ]
 use_squash_merge = true
 timeout_sec = 10800
