@@ -74,7 +74,7 @@ impl Default for ChainConfig {
             reconstruct_historic_states: false,
             enable_lock_timeouts: true,
             max_network_size: 10 * 1_048_576, // 10M
-            re_org_threshold: None,
+            re_org_threshold: Some(DEFAULT_RE_ORG_THRESHOLD),
             re_org_participation_threshold: DEFAULT_RE_ORG_PARTICIPATION_THRESHOLD,
             fork_choice_before_proposal_timeout_ms: DEFAULT_FORK_CHOICE_BEFORE_PROPOSAL_TIMEOUT,
             // Builder fallback configs that are set in `clap` will override these.

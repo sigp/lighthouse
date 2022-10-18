@@ -3372,7 +3372,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         None
     }
 
+    /// Get the proposer index and `prev_randao` value for a proposal at slot `proposal_slot`.
     ///
+    /// The `proposer_head` may be the head block of `cached_head` or its parent. An error will
+    /// be returned for any other value.
     pub fn get_pre_payload_attributes(
         &self,
         proposal_slot: Slot,
