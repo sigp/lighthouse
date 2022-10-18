@@ -20,6 +20,10 @@ pub fn process_inactivity_updates<T: EthSpec>(
 
     // Fast path: inactivity scores have already been pre-computed.
     if let Some(inactivity_score_updates) = participation_cache.inactivity_score_updates.take() {
+        // We need to flush the existing inactivity scores in case tree hashing hasn't happened in
+        // a long time (e.g. during state reconstruction).
+        // FIXME(sproul): re-think this
+        state.inactivity_scores_mut()?.apply_updates()?;
         state
             .inactivity_scores_mut()?
             .bulk_update(inactivity_score_updates)?;
