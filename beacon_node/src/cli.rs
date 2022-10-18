@@ -747,18 +747,26 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(false)
         )
         .arg(
-            Arg::with_name("enable-proposer-re-orgs")
-                .long("enable-proposer-re-orgs")
-                .help("Attempt to re-org out weak/late blocks from other proposers \
-                       (potentially risky)")
-                .takes_value(true)
+            Arg::with_name("disable-proposer-reorgs")
+                .long("disable-proposer-reorgs")
+                .help("Do not attempt to reorg late blocks from other validators when proposing.")
+                .takes_value(false)
         )
         .arg(
-            Arg::with_name("proposer-re-org-fraction")
-                .long("proposer-re-org-fraction")
-                .help("Percentage of vote weight below which to attempt a proposer re-org")
-                .requires("enable-proposer-re-orgs")
-                .takes_value(true)
+            Arg::with_name("proposer-reorg-threshold")
+                .long("proposer-reorg-threshold")
+                .value_name("PERCENT")
+                .help("Percentage of vote weight below which to attempt a proposer reorg. \
+                       Default: 20%")
+                .conflicts_with("disable-proposer-reorgs")
+        )
+        .arg(
+            Arg::with_name("proposer-reorg-participation-threshold")
+                .long("proposer-reorg-participation-threshold")
+                .value_name("PERCENT")
+                .help("Minimum participation percentage at proposer reorgs are allowed. \
+                       Default: 70%")
+                .conflicts_with("disable-proposer-reorgs")
         )
         .arg(
             Arg::with_name("prepare-payload-lookahead")

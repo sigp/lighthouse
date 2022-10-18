@@ -1,5 +1,6 @@
 use beacon_chain::chain_config::{
-    ReOrgThreshold, DEFAULT_PREPARE_PAYLOAD_LOOKAHEAD_FACTOR, DEFAULT_RE_ORG_THRESHOLD,
+    ParticipationThreshold, ReOrgThreshold, DEFAULT_PREPARE_PAYLOAD_LOOKAHEAD_FACTOR,
+    DEFAULT_RE_ORG_PARTICIPATION_THRESHOLD, DEFAULT_RE_ORG_THRESHOLD,
 };
 use clap::ArgMatches;
 use clap_utils::flags::DISABLE_MALLOC_TUNING_FLAG;
@@ -669,16 +670,18 @@ pub fn get_config<E: EthSpec>(
         client_config.chain.enable_lock_timeouts = false;
     }
 
-    if let Some(enable_re_orgs) = clap_utils::parse_optional(cli_args, "enable-proposer-re-orgs")? {
-        if enable_re_orgs {
-            client_config.chain.re_org_threshold = Some(
-                clap_utils::parse_optional(cli_args, "proposer-re-org-fraction")?
-                    .map(ReOrgThreshold)
-                    .unwrap_or(DEFAULT_RE_ORG_THRESHOLD),
-            );
-        } else {
-            client_config.chain.re_org_threshold = None;
-        }
+    if cli_args.is_present("disable-proposer-reorgs") {
+        client_config.chain.re_org_threshold = None;
+    } else {
+        client_config.chain.re_org_threshold = Some(
+            clap_utils::parse_optional(cli_args, "proposer-reorg-threshold")?
+                .map(ReOrgThreshold)
+                .unwrap_or(DEFAULT_RE_ORG_THRESHOLD),
+        );
+        client_config.chain.re_org_participation_threshold =
+            clap_utils::parse_optional(cli_args, "proposer-reorg-participation-threshold")?
+                .map(ParticipationThreshold)
+                .unwrap_or(DEFAULT_RE_ORG_PARTICIPATION_THRESHOLD);
     }
 
     client_config.chain.prepare_payload_lookahead =

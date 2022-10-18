@@ -1,7 +1,9 @@
 use beacon_node::{beacon_chain::CountUnrealizedFull, ClientConfig as Config};
 
 use crate::exec::{CommandLineTestExec, CompletedTest};
-use beacon_node::beacon_chain::chain_config::DEFAULT_RE_ORG_THRESHOLD;
+use beacon_node::beacon_chain::chain_config::{
+    DEFAULT_RE_ORG_PARTICIPATION_THRESHOLD, DEFAULT_RE_ORG_THRESHOLD,
+};
 use eth1::Eth1Endpoint;
 use lighthouse_network::PeerId;
 use std::fs::File;
@@ -1491,40 +1493,41 @@ fn ensure_panic_on_failed_launch() {
 }
 
 #[test]
-fn enable_proposer_re_orgs_true() {
-    CommandLineTest::new()
-        .flag("enable-proposer-re-orgs", Some("true"))
-        .run()
-        .with_config(|config| {
-            assert_eq!(
-                config.chain.re_org_threshold,
-                Some(DEFAULT_RE_ORG_THRESHOLD)
-            )
-        });
-}
-
-#[test]
-fn enable_proposer_re_orgs_false() {
-    CommandLineTest::new()
-        .flag("enable-proposer-re-orgs", Some("false"))
-        .run()
-        .with_config(|config| assert_eq!(config.chain.re_org_threshold, None));
-}
-
-#[test]
 fn enable_proposer_re_orgs_default() {
+    CommandLineTest::new().run().with_config(|config| {
+        assert_eq!(
+            config.chain.re_org_threshold,
+            Some(DEFAULT_RE_ORG_THRESHOLD)
+        );
+        assert_eq!(
+            config.chain.re_org_participation_threshold,
+            DEFAULT_RE_ORG_PARTICIPATION_THRESHOLD,
+        );
+    });
+}
+
+#[test]
+fn disable_proposer_re_orgs() {
     CommandLineTest::new()
+        .flag("disable-proposer-reorgs", None)
         .run()
         .with_config(|config| assert_eq!(config.chain.re_org_threshold, None));
 }
 
 #[test]
-fn proposer_re_org_fraction() {
+fn proposer_re_org_threshold() {
     CommandLineTest::new()
-        .flag("enable-proposer-re-orgs", Some("true"))
-        .flag("proposer-re-org-fraction", Some("90"))
+        .flag("proposer-reorg-threshold", Some("90"))
         .run()
         .with_config(|config| assert_eq!(config.chain.re_org_threshold.unwrap().0, 90));
+}
+
+#[test]
+fn proposer_re_org_participation_threshold() {
+    CommandLineTest::new()
+        .flag("proposer-reorg-participation-threshold", Some("20"))
+        .run()
+        .with_config(|config| assert_eq!(config.chain.re_org_participation_threshold.0, 20));
 }
 
 #[test]
