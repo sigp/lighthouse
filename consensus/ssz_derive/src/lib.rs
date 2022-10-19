@@ -3,7 +3,7 @@
 //!
 //! ## Attributes
 //!
-//! The following struct\enum attributes are available:
+//! The following struct/enum attributes are available:
 //!
 //! - `#[ssz(enum_behaviour = "union")]`: encodes and decodes an `enum` with a one-byte variant selector.
 //! - `#[ssz(enum_behaviour = "transparent")]`: allows encoding an `enum` by serializing only the
@@ -50,31 +50,55 @@
 //! /// Represented as an SSZ "list" *without* an SSZ "container".
 //! #[derive(Encode, Decode)]
 //! #[ssz(struct_behaviour = "transparent")]
-//! struct NewType {
+//! struct WrapperStruct {
 //!     foo: Vec<u8>
 //! }
 //!
 //! assert_eq!(
-//!     NewType { foo: vec![42] }.as_ssz_bytes(),
+//!     WrapperStruct { foo: vec![42] }.as_ssz_bytes(),
 //!     vec![42]
 //! );
 //!
 //! /// Represented as an SSZ "list" *without* an SSZ "container". The `bar` byte is ignored.
 //! #[derive(Debug, PartialEq, Encode, Decode)]
 //! #[ssz(struct_behaviour = "transparent")]
-//! struct NewTypeSkippedField {
+//! struct WrapperStructSkippedField {
 //!     foo: Vec<u8>,
 //!     #[ssz(skip_serializing, skip_deserializing)]
 //!     bar: u8,
 //! }
 //!
 //! assert_eq!(
-//!     NewTypeSkippedField { foo: vec![42], bar: 99 }.as_ssz_bytes(),
+//!     WrapperStructSkippedField { foo: vec![42], bar: 99 }.as_ssz_bytes(),
+//!     vec![42]
+//! );
+//! assert_eq!(
+//!     WrapperStructSkippedField::from_ssz_bytes(&[42]).unwrap(),
+//!     WrapperStructSkippedField { foo: vec![42], bar: 0 }
+//! );
+//!
+//! /// Represented as an SSZ "list" *without* an SSZ "container".
+//! #[derive(Encode, Decode)]
+//! #[ssz(struct_behaviour = "transparent")]
+//! struct NewType(Vec<u8>);
+//!
+//! assert_eq!(
+//!     NewType(vec![42]).as_ssz_bytes(),
+//!     vec![42]
+//! );
+//!
+//! /// Represented as an SSZ "list" *without* an SSZ "container". The `bar` byte is ignored.
+//! #[derive(Debug, PartialEq, Encode, Decode)]
+//! #[ssz(struct_behaviour = "transparent")]
+//! struct NewTypeSkippedField(Vec<u8>, #[ssz(skip_serializing, skip_deserializing)] u8);
+//!
+//! assert_eq!(
+//!     NewTypeSkippedField(vec![42], 99).as_ssz_bytes(),
 //!     vec![42]
 //! );
 //! assert_eq!(
 //!     NewTypeSkippedField::from_ssz_bytes(&[42]).unwrap(),
-//!     NewTypeSkippedField { foo: vec![42], bar: 0 }
+//!     NewTypeSkippedField(vec![42], 0)
 //! );
 //! ```
 //!
@@ -226,16 +250,15 @@ impl<'a> Procedure<'a> {
     }
 }
 
-fn parse_ssz_fields(struct_data: &syn::DataStruct) -> Vec<(&syn::Type, &syn::Ident, FieldOpts)> {
+fn parse_ssz_fields(
+    struct_data: &syn::DataStruct,
+) -> Vec<(&syn::Type, Option<&syn::Ident>, FieldOpts)> {
     struct_data
         .fields
         .iter()
         .map(|field| {
             let ty = &field.ty;
-            let ident = match &field.ident {
-                Some(ref ident) => ident,
-                _ => panic!("ssz_derive only supports named struct fields."),
-            };
+            let ident = field.ident.as_ref();
 
             let field_opts_candidates = field
                 .attrs
@@ -298,6 +321,13 @@ fn ssz_encode_derive_struct(derive_input: &DeriveInput, struct_data: &DataStruct
         if field_opts.skip_serializing {
             continue;
         }
+
+        let ident = match ident {
+            Some(ref ident) => ident,
+            _ => panic!(
+                "#[ssz(struct_behaviour = \"container\")] only supports named struct fields."
+            ),
+        };
 
         if let Some(module) = field_opts.with {
             let module = quote! { #module::encode };
@@ -417,25 +447,48 @@ fn ssz_encode_derive_struct_transparent(
         .find(|(_, _, field_opts)| !field_opts.skip_deserializing)
         .expect("\"transparent\" struct must have at least one non-skipped field");
 
-    let output = quote! {
-        impl #impl_generics ssz::Encode for #name #ty_generics #where_clause {
-            fn is_ssz_fixed_len() -> bool {
-                <#ty as ssz::Encode>::is_ssz_fixed_len()
-            }
+    let output = if let Some(field_name) = ident {
+        quote! {
+            impl #impl_generics ssz::Encode for #name #ty_generics #where_clause {
+                fn is_ssz_fixed_len() -> bool {
+                    <#ty as ssz::Encode>::is_ssz_fixed_len()
+                }
 
-            fn ssz_fixed_len() -> usize {
-                <#ty as ssz::Encode>::ssz_fixed_len()
-            }
+                fn ssz_fixed_len() -> usize {
+                    <#ty as ssz::Encode>::ssz_fixed_len()
+                }
 
-            fn ssz_bytes_len(&self) -> usize {
-                self.#ident.ssz_bytes_len()
-            }
+                fn ssz_bytes_len(&self) -> usize {
+                    self.#field_name.ssz_bytes_len()
+                }
 
-            fn ssz_append(&self, buf: &mut Vec<u8>) {
-                self.#ident.ssz_append(buf)
+                fn ssz_append(&self, buf: &mut Vec<u8>) {
+                    self.#field_name.ssz_append(buf)
+                }
+            }
+        }
+    } else {
+        quote! {
+            impl #impl_generics ssz::Encode for #name #ty_generics #where_clause {
+                fn is_ssz_fixed_len() -> bool {
+                    <#ty as ssz::Encode>::is_ssz_fixed_len()
+                }
+
+                fn ssz_fixed_len() -> usize {
+                    <#ty as ssz::Encode>::ssz_fixed_len()
+                }
+
+                fn ssz_bytes_len(&self) -> usize {
+                    self.0.ssz_bytes_len()
+                }
+
+                fn ssz_append(&self, buf: &mut Vec<u8>) {
+                    self.0.ssz_append(buf)
+                }
             }
         }
     };
+
     output.into()
 }
 
@@ -625,6 +678,13 @@ fn ssz_decode_derive_struct(item: &DeriveInput, struct_data: &DataStruct) -> Tok
     let mut fixed_lens = vec![];
 
     for (ty, ident, field_opts) in parse_ssz_fields(struct_data) {
+        let ident = match ident {
+            Some(ref ident) => ident,
+            _ => panic!(
+                "#[ssz(struct_behaviour = \"container\")] only supports named struct fields."
+            ),
+        };
+
         field_names.push(quote! {
             #ident
         });
@@ -763,7 +823,7 @@ fn ssz_decode_derive_struct(item: &DeriveInput, struct_data: &DataStruct) -> Tok
 
 /// Implements `ssz::Decode` "transparently" for a `struct` with exactly one non-skipped field.
 ///
-/// The bytes will be decoded as if they are the inner field, without the outmost struct. The
+/// The bytes will be decoded as if they are the inner field, without the outermost struct. The
 /// outermost struct will then be applied artificially.
 ///
 /// ## Field attributes
@@ -790,24 +850,33 @@ fn ssz_decode_derive_struct_transparent(
         );
     }
 
-    let mut field_names = vec![];
     let mut fields = vec![];
     let mut wrapped_type = None;
 
-    for (ty, ident, field_opts) in ssz_fields {
-        field_names.push(quote! {
-            #ident
-        });
-
-        if field_opts.skip_deserializing {
-            fields.push(quote! {
-                #ident: <_>::default(),
-            });
+    for (i, (ty, ident, field_opts)) in ssz_fields.into_iter().enumerate() {
+        if let Some(name) = ident {
+            if field_opts.skip_deserializing {
+                fields.push(quote! {
+                    #name: <_>::default(),
+                });
+            } else {
+                fields.push(quote! {
+                    #name: <_>::from_ssz_bytes(bytes)?,
+                });
+                wrapped_type = Some(ty);
+            }
         } else {
-            fields.push(quote! {
-                #ident: <_>::from_ssz_bytes(bytes)?,
-            });
-            wrapped_type = Some(ty);
+            let index = syn::Index::from(i);
+            if field_opts.skip_deserializing {
+                fields.push(quote! {
+                    #index:<_>::default(),
+                });
+            } else {
+                fields.push(quote! {
+                    #index:<_>::from_ssz_bytes(bytes)?,
+                });
+                wrapped_type = Some(ty);
+            }
         }
     }
 
