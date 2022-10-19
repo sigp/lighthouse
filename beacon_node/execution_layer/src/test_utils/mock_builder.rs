@@ -304,7 +304,7 @@ impl<E: EthSpec> mev_build_rs::BlindedBlockProvider for MockBuilder<E> {
             finalized_hash: Some(finalized_execution_hash),
         };
 
-        let payload = self
+        let (payload, block_value) = self
             .el
             .get_full_payload_caching::<BlindedPayload<E>>(
                 head_execution_hash,
@@ -314,8 +314,11 @@ impl<E: EthSpec> mev_build_rs::BlindedBlockProvider for MockBuilder<E> {
                 forkchoice_update_params,
             )
             .await
-            .map_err(convert_err)?
-            .to_execution_payload_header();
+            .map_err(convert_err)?;
+
+        let payload = payload.to_execution_payload_header();
+        let ssz_block_val =
+            block_value.map_or(ssz_rs::U256::default(), |val| to_ssz_rs(&val).unwrap());
 
         let json_payload = serde_json::to_string(&payload).map_err(convert_err)?;
         let mut header: ServerPayloadHeader =
@@ -325,7 +328,7 @@ impl<E: EthSpec> mev_build_rs::BlindedBlockProvider for MockBuilder<E> {
 
         let mut message = BuilderBid {
             header,
-            value: ssz_rs::U256::default(),
+            value: ssz_block_val,
             public_key: self.builder_sk.public_key(),
         };
 
