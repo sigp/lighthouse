@@ -668,6 +668,11 @@ pub fn get_config<E: EthSpec>(
         client_config.chain.enable_lock_timeouts = false;
     }
 
+    // Note: This overrides any previous flags that enable this option.
+    if cli_args.is_present("disable-deposit-contract-sync") {
+        client_config.sync_eth1_chain = false;
+    }
+
     if let Some(timeout) =
         clap_utils::parse_optional(cli_args, "fork-choice-before-proposal-timeout")?
     {
