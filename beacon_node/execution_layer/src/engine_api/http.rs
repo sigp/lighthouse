@@ -34,6 +34,8 @@ pub const ENGINE_NEW_PAYLOAD_TIMEOUT: Duration = Duration::from_secs(8);
 pub const ENGINE_GET_PAYLOAD_V1: &str = "engine_getPayloadV1";
 pub const ENGINE_GET_PAYLOAD_TIMEOUT: Duration = Duration::from_secs(2);
 
+pub const ENGINE_GET_PAYLOAD_V2: &str = "engine_getPayloadV2";
+
 pub const ENGINE_FORKCHOICE_UPDATED_V1: &str = "engine_forkchoiceUpdatedV1";
 pub const ENGINE_FORKCHOICE_UPDATED_TIMEOUT: Duration = Duration::from_secs(8);
 
@@ -515,6 +517,14 @@ pub mod deposit_methods {
     }
 }
 
+pub enum GetPayloadResponse<T: EthSpec> {
+    V1(ExecutionPayload<T>),
+    V2 {
+        payload: ExecutionPayload<T>,
+        block_value: Uint256,
+    },
+}
+
 pub struct HttpJsonRpc {
     pub client: Client,
     pub url: SensitiveUrl,
@@ -651,17 +661,43 @@ impl HttpJsonRpc {
         Ok(response.into())
     }
 
+    pub async fn get_payload<T: EthSpec>(
+        &self,
+        payload_id: PayloadId,
+    ) -> Result<GetPayloadResponse<T>, Error> {
+        match self.get_payload_v2(payload_id).await {
+            Err(_) => self.get_payload_v2(payload_id).await,
+            Ok(resp) => Ok(resp),
+        }
+    }
+
     pub async fn get_payload_v1<T: EthSpec>(
         &self,
         payload_id: PayloadId,
-    ) -> Result<ExecutionPayload<T>, Error> {
+    ) -> Result<GetPayloadResponse<T>, Error> {
         let params = json!([JsonPayloadIdRequest::from(payload_id)]);
 
         let response: JsonExecutionPayloadV1<T> = self
             .rpc_request(ENGINE_GET_PAYLOAD_V1, params, ENGINE_GET_PAYLOAD_TIMEOUT)
             .await?;
 
-        Ok(response.into())
+        Ok(GetPayloadResponse::V1(response.into()))
+    }
+
+    pub async fn get_payload_v2<T: EthSpec>(
+        &self,
+        payload_id: PayloadId,
+    ) -> Result<GetPayloadResponse<T>, Error> {
+        let params = json!([JsonPayloadIdRequest::from(payload_id)]);
+
+        let response: JsonExecutionPayloadV2<T> = self
+            .rpc_request(ENGINE_GET_PAYLOAD_V2, params, ENGINE_GET_PAYLOAD_TIMEOUT)
+            .await?;
+
+        Ok(GetPayloadResponse::V2 {
+            payload: response.execution_payload_v1.into(),
+            block_value: response.block_value,
+        })
     }
 
     pub async fn forkchoice_updated_v1(

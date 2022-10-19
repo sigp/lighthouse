@@ -4,6 +4,7 @@
 //! This crate only provides useful functionality for "The Merge", it does not provide any of the
 //! deposit-contract functionality that the `beacon_node/eth1` crate already provides.
 
+use crate::http::GetPayloadResponse;
 use crate::payload_cache::PayloadCache;
 use auth::{strip_prefix, Auth, JwtKey};
 use builder_client::BuilderHttpClient;
@@ -607,7 +608,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                     );
                     let (relay_result, local_result) = tokio::join!(
                         builder.get_builder_header::<T, Payload>(slot, parent_hash, &pubkey),
-                        self.get_full_payload_caching(
+                        self.get_full_payload_caching::<Payload>(
                             parent_hash,
                             timestamp,
                             prev_randao,
@@ -617,7 +618,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                     );
 
                     return match (relay_result, local_result) {
-                        (Err(e), Ok(local)) => {
+                        (Err(e), Ok((local, _))) => {
                             warn!(
                                 self.log(),
                                 "Unable to retrieve a payload from a connected \
@@ -625,7 +626,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                             );
                             Ok(local)
                         }
-                        (Ok(None), Ok(local)) => {
+                        (Ok(None), Ok((local, _))) => {
                             info!(
                                 self.log(),
                                 "No payload provided by connected builder. \
@@ -633,7 +634,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                             );
                             Ok(local)
                         }
-                        (Ok(Some(relay)), Ok(local)) => {
+                        (Ok(Some(relay)), Ok((local, local_block_value))) => {
                             let is_signature_valid = relay.data.verify_signature(spec);
                             let header = relay.data.message.header;
 
@@ -645,6 +646,18 @@ impl<T: EthSpec> ExecutionLayer<T> {
 
                             let relay_value = relay.data.message.value;
                             let configured_value = self.inner.builder_profit_threshold;
+
+                            if let Some(local_value) = local_block_value {
+                                if local_value >= relay_value {
+                                    info!(
+                                        self.log(),
+                                        "Local block is more profitable than relay block";
+                                        "local_block_value" => %local_value,
+                                        "relay_value" => %relay_value
+                                    );
+                                    return Ok(local)
+                                }
+                            }
                             if relay_value < configured_value {
                                 info!(
                                         self.log(),
@@ -738,7 +751,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
             suggested_fee_recipient,
             forkchoice_update_params,
         )
-        .await
+        .await.map(|res| res.0)
     }
 
     /// Get a full payload without caching its result in the execution layer's payload cache.
@@ -758,7 +771,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
             forkchoice_update_params,
             noop,
         )
-        .await
+        .await.map(|res| res.0)
     }
 
     /// Get a full payload and cache its result in the execution layer's payload cache.
@@ -769,7 +782,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
         prev_randao: Hash256,
         suggested_fee_recipient: Address,
         forkchoice_update_params: ForkchoiceUpdateParameters,
-    ) -> Result<Payload, Error> {
+    ) -> Result<(Payload, Option<Uint256>), Error> {
         self.get_full_payload_with(
             parent_hash,
             timestamp,
@@ -789,7 +802,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
         suggested_fee_recipient: Address,
         forkchoice_update_params: ForkchoiceUpdateParameters,
         f: fn(&ExecutionLayer<T>, &ExecutionPayload<T>) -> Option<ExecutionPayload<T>>,
-    ) -> Result<Payload, Error> {
+    ) -> Result<(Payload, Option<Uint256>), Error> {
         debug!(
             self.log(),
             "Issuing engine_getPayload";
@@ -857,9 +870,15 @@ impl<T: EthSpec> ExecutionLayer<T> {
 
                 engine
                     .api
-                    .get_payload_v1::<T>(payload_id)
+                    .get_payload::<T>(payload_id)
                     .await
-                    .map(|full_payload| {
+                    .map(|response| {
+                        let (full_payload, block_value) = match response {
+                            GetPayloadResponse::V1(full_payload) => (full_payload, None),
+                            GetPayloadResponse::V2 { payload, block_value } => 
+                                (payload, Some(block_value))
+                            
+                        };
                         if full_payload.fee_recipient != suggested_fee_recipient {
                             error!(
                                 self.log(),
@@ -880,7 +899,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                                  attempts."
                             );
                         }
-                        full_payload.into()
+                        (full_payload.into(), block_value)
                     })
             })
             .await

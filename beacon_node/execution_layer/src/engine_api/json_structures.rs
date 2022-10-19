@@ -123,6 +123,14 @@ impl<T: EthSpec> From<JsonExecutionPayloadHeaderV1<T>> for ExecutionPayloadHeade
 
 #[derive(Debug, PartialEq, Default, Serialize, Deserialize)]
 #[serde(bound = "T: EthSpec", rename_all = "camelCase")]
+pub struct JsonExecutionPayloadV2<T: EthSpec> {
+    pub execution_payload_v1: JsonExecutionPayloadV1<T>,
+    #[serde(with = "eth2_serde_utils::u256_hex_be")]
+    pub block_value: Uint256,
+}
+
+#[derive(Debug, PartialEq, Default, Serialize, Deserialize)]
+#[serde(bound = "T: EthSpec", rename_all = "camelCase")]
 pub struct JsonExecutionPayloadV1<T: EthSpec> {
     pub parent_hash: ExecutionBlockHash,
     pub fee_recipient: Address,
