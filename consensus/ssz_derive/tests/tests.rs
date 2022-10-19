@@ -180,3 +180,36 @@ fn transparent_struct_skipped_field() {
         &vec![42_u8].as_ssz_bytes(),
     );
 }
+
+#[derive(PartialEq, Debug, Encode, Decode)]
+#[ssz(struct_behaviour = "transparent")]
+struct TransparentStructNewType(Vec<u8>);
+
+#[test]
+fn transparent_struct_newtype() {
+    assert_encode_decode(
+        &TransparentStructNewType(vec![42_u8]),
+        &vec![42_u8].as_ssz_bytes(),
+    );
+}
+
+#[derive(PartialEq, Debug, Encode, Decode)]
+#[ssz(struct_behaviour = "transparent")]
+struct TransparentStructNewTypeSkippedField(
+    Vec<u8>,
+    #[ssz(skip_serializing, skip_deserializing)] PhantomData<u64>,
+);
+
+impl TransparentStructNewTypeSkippedField {
+    fn new(inner: Vec<u8>) -> Self {
+        Self(inner, PhantomData)
+    }
+}
+
+#[test]
+fn transparent_struct_newtype_skipped_field() {
+    assert_encode_decode(
+        &TransparentStructNewTypeSkippedField::new(vec![42_u8]),
+        &vec![42_u8].as_ssz_bytes(),
+    );
+}
