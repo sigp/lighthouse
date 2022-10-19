@@ -227,7 +227,10 @@ where
             } else {
                 VerifyBlockRoot::False
             });
-            let mut ctxt = ConsensusContext::new(block.slot());
+            // Proposer index was already checked when this block was originally processed, we
+            // can omit recomputing it during replay.
+            let mut ctxt = ConsensusContext::new(block.slot())
+                .set_proposer_index(block.message().proposer_index());
             per_block_processing(
                 &mut self.state,
                 block,

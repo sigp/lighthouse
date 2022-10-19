@@ -362,7 +362,7 @@ fn do_transition<T: EthSpec>(
             decompressor,
             &block,
             Some(block_root),
-            false,
+            Some(block.message().proposer_index()),
             spec,
         )
         .map_err(|e| format!("Invalid block signature: {:?}", e))?;

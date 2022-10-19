@@ -639,11 +639,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 }
             };
 
-            // Regardless of where we got the state from, attempt to build the committee
-            // caches.
-            new_snapshot
-                .beacon_state
-                .build_all_committee_caches(&self.spec)?;
+            // Regardless of where we got the state from, attempt to build all the
+            // caches except the tree hash cache.
+            new_snapshot.beacon_state.build_all_caches(&self.spec)?;
 
             let new_cached_head = CachedHead {
                 snapshot: Arc::new(new_snapshot),

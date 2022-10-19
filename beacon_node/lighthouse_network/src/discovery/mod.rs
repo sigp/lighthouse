@@ -7,8 +7,8 @@ pub(crate) mod enr;
 pub mod enr_ext;
 
 // Allow external use of the lighthouse ENR builder
-use crate::behaviour::TARGET_SUBNET_PEERS;
 use crate::metrics;
+use crate::service::TARGET_SUBNET_PEERS;
 use crate::{error, Enr, NetworkConfig, NetworkGlobals, Subnet, SubnetDiscovery};
 use discv5::{enr::NodeId, Discv5, Discv5Event};
 pub use enr::{
@@ -21,6 +21,8 @@ pub use libp2p::core::identity::{Keypair, PublicKey};
 use enr::{ATTESTATION_BITFIELD_ENR_KEY, ETH2_ENR_KEY, SYNC_COMMITTEE_BITFIELD_ENR_KEY};
 use futures::prelude::*;
 use futures::stream::FuturesUnordered;
+use libp2p::multiaddr::Protocol;
+use libp2p::swarm::AddressScore;
 pub use libp2p::{
     core::{connection::ConnectionId, ConnectedPoint, Multiaddr, PeerId},
     swarm::{
@@ -67,13 +69,11 @@ pub const FIND_NODE_QUERY_CLOSEST_PEERS: usize = 16;
 /// The threshold for updating `min_ttl` on a connected peer.
 const DURATION_DIFFERENCE: Duration = Duration::from_millis(1);
 
-/// The events emitted by polling discovery.
-pub enum DiscoveryEvent {
-    /// A query has completed. This result contains a mapping of discovered peer IDs to the `min_ttl`
-    /// of the peer if it is specified.
-    QueryResult(HashMap<PeerId, Option<Instant>>),
-    /// This indicates that our local UDP socketaddr has been updated and we should inform libp2p.
-    SocketUpdated(SocketAddr),
+/// A query has completed. This result contains a mapping of discovered peer IDs to the `min_ttl`
+/// of the peer if it is specified.
+#[derive(Debug)]
+pub struct DiscoveredPeers {
+    pub peers: HashMap<PeerId, Option<Instant>>,
 }
 
 #[derive(Clone, PartialEq)]
@@ -362,7 +362,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
     }
 
     /// Returns an iterator over all enr entries in the DHT.
-    pub fn table_entries_enr(&mut self) -> Vec<Enr> {
+    pub fn table_entries_enr(&self) -> Vec<Enr> {
         self.discv5.table_entries_enr()
     }
 
@@ -909,7 +909,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
 impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
     // Discovery is not a real NetworkBehaviour...
     type ConnectionHandler = libp2p::swarm::handler::DummyConnectionHandler;
-    type OutEvent = DiscoveryEvent;
+    type OutEvent = DiscoveredPeers;
 
     fn new_handler(&mut self) -> Self::ConnectionHandler {
         libp2p::swarm::handler::DummyConnectionHandler::default()
@@ -976,11 +976,9 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
         self.process_queue();
 
         // Drive the queries and return any results from completed queries
-        if let Some(results) = self.poll_queries(cx) {
+        if let Some(peers) = self.poll_queries(cx) {
             // return the result to the peer manager
-            return Poll::Ready(NBAction::GenerateEvent(DiscoveryEvent::QueryResult(
-                results,
-            )));
+            return Poll::Ready(NBAction::GenerateEvent(DiscoveredPeers { peers }));
         }
 
         // Process the server event stream
@@ -1019,8 +1017,8 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
                             }
                             */
                         }
-                        Discv5Event::SocketUpdated(socket) => {
-                            info!(self.log, "Address updated"; "ip" => %socket.ip(), "udp_port" => %socket.port());
+                        Discv5Event::SocketUpdated(socket_addr) => {
+                            info!(self.log, "Address updated"; "ip" => %socket_addr.ip(), "udp_port" => %socket_addr.port());
                             metrics::inc_counter(&metrics::ADDRESS_UPDATE_COUNT);
                             metrics::check_nat();
                             // Discv5 will have updated our local ENR. We save the updated version
@@ -1029,9 +1027,16 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
                             enr::save_enr_to_disk(Path::new(&self.enr_dir), &enr, &self.log);
                             // update  network globals
                             *self.network_globals.local_enr.write() = enr;
-                            return Poll::Ready(NBAction::GenerateEvent(
-                                DiscoveryEvent::SocketUpdated(socket),
-                            ));
+                            // A new UDP socket has been detected.
+                            // Build a multiaddr to report to libp2p
+                            let mut address = Multiaddr::from(socket_addr.ip());
+                            // NOTE: This doesn't actually track the external TCP port. More sophisticated NAT handling
+                            // should handle this.
+                            address.push(Protocol::Tcp(self.network_globals.listen_port_tcp()));
+                            return Poll::Ready(NBAction::ReportObservedAddr {
+                                address,
+                                score: AddressScore::Finite(1),
+                            });
                         }
                         Discv5Event::EnrAdded { .. }
                         | Discv5Event::TalkRequest(_)

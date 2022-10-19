@@ -447,6 +447,21 @@ impl<T: EthSpec> BeaconState<T> {
         Ok(self.pubkey_cache().get(pubkey))
     }
 
+    /// Immutable variant of `get_validator_index` which errors if the cache is not up to date.
+    pub fn get_validator_index_read_only(
+        &self,
+        pubkey: &PublicKeyBytes,
+    ) -> Result<Option<usize>, Error> {
+        let pubkey_cache = self.pubkey_cache();
+        if pubkey_cache.len() != self.validators().len() {
+            return Err(Error::PubkeyCacheIncomplete {
+                cache_len: pubkey_cache.len(),
+                registry_len: self.validators().len(),
+            });
+        }
+        Ok(pubkey_cache.get(pubkey))
+    }
+
     /// The epoch corresponding to `self.slot()`.
     pub fn current_epoch(&self) -> Epoch {
         self.slot().epoch(T::slots_per_epoch())

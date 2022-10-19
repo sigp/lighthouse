@@ -281,7 +281,7 @@ impl InvalidPayloadRig {
                 }
                 let root = self
                     .harness
-                    .process_block(slot, block.clone())
+                    .process_block(slot, block.canonical_root(), block.clone())
                     .await
                     .unwrap();
 
@@ -320,7 +320,11 @@ impl InvalidPayloadRig {
                 set_new_payload(new_payload_response);
                 set_forkchoice_updated(forkchoice_response);
 
-                match self.harness.process_block(slot, block).await {
+                match self
+                    .harness
+                    .process_block(slot, block.canonical_root(), block)
+                    .await
+                {
                     Err(error) if evaluate_error(&error) => (),
                     Err(other) => {
                         panic!("evaluate_error returned false with {:?}", other)
@@ -685,7 +689,11 @@ async fn invalidates_all_descendants() {
     let fork_block_root = rig
         .harness
         .chain
-        .process_block(Arc::new(fork_block), CountUnrealized::True)
+        .process_block(
+            fork_block.canonical_root(),
+            Arc::new(fork_block),
+            CountUnrealized::True,
+        )
         .await
         .unwrap();
     rig.recompute_head().await;
@@ -777,7 +785,11 @@ async fn switches_heads() {
     let fork_block_root = rig
         .harness
         .chain
-        .process_block(Arc::new(fork_block), CountUnrealized::True)
+        .process_block(
+            fork_block.canonical_root(),
+            Arc::new(fork_block),
+            CountUnrealized::True,
+        )
         .await
         .unwrap();
     rig.recompute_head().await;
@@ -1023,7 +1035,7 @@ async fn invalid_parent() {
 
     // Ensure the block built atop an invalid payload is invalid for import.
     assert!(matches!(
-        rig.harness.chain.process_block(block.clone(), CountUnrealized::True).await,
+        rig.harness.chain.process_block(block.canonical_root(), block.clone(), CountUnrealized::True).await,
         Err(BlockError::ParentExecutionPayloadInvalid { parent_root: invalid_root })
         if invalid_root == parent_root
     ));
@@ -1305,7 +1317,7 @@ async fn build_optimistic_chain(
     for block in blocks {
         rig.harness
             .chain
-            .process_block(block, CountUnrealized::True)
+            .process_block(block.canonical_root(), block, CountUnrealized::True)
             .await
             .unwrap();
     }
@@ -1863,7 +1875,11 @@ async fn recover_from_invalid_head_by_importing_blocks() {
     // Import the fork block, it should become the head.
     rig.harness
         .chain
-        .process_block(fork_block.clone(), CountUnrealized::True)
+        .process_block(
+            fork_block.canonical_root(),
+            fork_block.clone(),
+            CountUnrealized::True,
+        )
         .await
         .unwrap();
     rig.recompute_head().await;

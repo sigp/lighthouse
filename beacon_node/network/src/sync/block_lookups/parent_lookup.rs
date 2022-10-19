@@ -1,3 +1,4 @@
+use super::RootBlockTuple;
 use beacon_chain::BeaconChainTypes;
 use lighthouse_network::PeerId;
 use std::sync::Arc;
@@ -58,11 +59,15 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
             .any(|d_block| d_block.as_ref() == block)
     }
 
-    pub fn new(block: Arc<SignedBeaconBlock<T::EthSpec>>, peer_id: PeerId) -> Self {
+    pub fn new(
+        block_root: Hash256,
+        block: Arc<SignedBeaconBlock<T::EthSpec>>,
+        peer_id: PeerId,
+    ) -> Self {
         let current_parent_request = SingleBlockRequest::new(block.parent_root(), peer_id);
 
         Self {
-            chain_hash: block.canonical_root(),
+            chain_hash: block_root,
             downloaded_blocks: vec![block],
             current_parent_request,
             current_parent_request_id: None,
@@ -130,12 +135,15 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
         &mut self,
         block: Option<Arc<SignedBeaconBlock<T::EthSpec>>>,
         failed_chains: &mut lru_cache::LRUTimeCache<Hash256>,
-    ) -> Result<Option<Arc<SignedBeaconBlock<T::EthSpec>>>, VerifyError> {
-        let block = self.current_parent_request.verify_block(block)?;
+    ) -> Result<Option<RootBlockTuple<T::EthSpec>>, VerifyError> {
+        let root_and_block = self.current_parent_request.verify_block(block)?;
 
         // check if the parent of this block isn't in the failed cache. If it is, this chain should
         // be dropped and the peer downscored.
-        if let Some(parent_root) = block.as_ref().map(|block| block.parent_root()) {
+        if let Some(parent_root) = root_and_block
+            .as_ref()
+            .map(|(_, block)| block.parent_root())
+        {
             if failed_chains.contains(&parent_root) {
                 self.current_parent_request.register_failure_downloading();
                 self.current_parent_request_id = None;
@@ -143,7 +151,7 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
             }
         }
 
-        Ok(block)
+        Ok(root_and_block)
     }
 
     pub fn get_processing_peer(&self, chain_hash: Hash256) -> Option<PeerId> {

@@ -118,9 +118,7 @@ pub async fn create_api_server_on_port<T: BeaconChainTypes>(
 
     // Only a peer manager can add peers, so we create a dummy manager.
     let config = lighthouse_network::peer_manager::config::Config::default();
-    let mut pm = PeerManager::new(config, network_globals.clone(), &log)
-        .await
-        .unwrap();
+    let mut pm = PeerManager::new(config, network_globals.clone(), &log).unwrap();
 
     // add a peer
     let peer_id = PeerId::random();
@@ -133,7 +131,8 @@ pub async fn create_api_server_on_port<T: BeaconChainTypes>(
     pm.inject_connection_established(&peer_id, &con_id, &connected_point, None, 0);
     *network_globals.sync_state.write() = SyncState::Synced;
 
-    let eth1_service = eth1::Service::new(eth1::Config::default(), log.clone(), chain.spec.clone());
+    let eth1_service =
+        eth1::Service::new(eth1::Config::default(), log.clone(), chain.spec.clone()).unwrap();
 
     let context = Arc::new(Context {
         config: Config {

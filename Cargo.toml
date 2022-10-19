@@ -43,7 +43,6 @@ members = [
     "common/unused_port",
     "common/validator_dir",
     "common/warp_utils",
-    "common/fallback",
     "common/monitoring_api",
 
     "database_manager",
@@ -103,3 +102,9 @@ eth2_serde_utils = { path = "consensus/serde_utils" }
 
 [patch."https://github.com/sigp/milhouse"]
 milhouse = { path = "../milhouse" }
+
+[profile.maxperf]
+inherits = "release"
+lto = "fat"
+codegen-units = 1
+incremental = false

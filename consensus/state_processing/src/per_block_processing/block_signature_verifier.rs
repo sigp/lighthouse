@@ -123,11 +123,11 @@ where
         decompressor: D,
         block: &'a SignedBeaconBlock<T, Payload>,
         block_root: Option<Hash256>,
-        check_proposer_index: bool,
+        verified_proposer_index: Option<u64>,
         spec: &'a ChainSpec,
     ) -> Result<()> {
         let mut verifier = Self::new(state, get_pubkey, decompressor, spec);
-        verifier.include_all_signatures(block, block_root, check_proposer_index)?;
+        verifier.include_all_signatures(block, block_root, verified_proposer_index)?;
         verifier.verify()
     }
 
@@ -136,10 +136,10 @@ where
         &mut self,
         block: &'a SignedBeaconBlock<T, Payload>,
         block_root: Option<Hash256>,
-        check_proposer_index: bool,
+        verified_proposer_index: Option<u64>,
     ) -> Result<()> {
-        self.include_block_proposal(block, block_root, check_proposer_index)?;
-        self.include_all_signatures_except_proposal(block)?;
+        self.include_block_proposal(block, block_root, verified_proposer_index)?;
+        self.include_all_signatures_except_proposal(block, verified_proposer_index)?;
 
         Ok(())
     }
@@ -149,8 +149,9 @@ where
     pub fn include_all_signatures_except_proposal<Payload: ExecPayload<T>>(
         &mut self,
         block: &'a SignedBeaconBlock<T, Payload>,
+        verified_proposer_index: Option<u64>,
     ) -> Result<()> {
-        self.include_randao_reveal(block)?;
+        self.include_randao_reveal(block, verified_proposer_index)?;
         self.include_proposer_slashings(block)?;
         self.include_attester_slashings(block)?;
         self.include_attestations(block)?;
@@ -166,14 +167,14 @@ where
         &mut self,
         block: &'a SignedBeaconBlock<T, Payload>,
         block_root: Option<Hash256>,
-        check_proposer_index: bool,
+        verified_proposer_index: Option<u64>,
     ) -> Result<()> {
         let set = block_proposal_signature_set(
             self.state,
             self.get_pubkey.clone(),
             block,
             block_root,
-            check_proposer_index,
+            verified_proposer_index,
             self.spec,
         )?;
         self.sets.push(set);
@@ -184,11 +185,13 @@ where
     pub fn include_randao_reveal<Payload: ExecPayload<T>>(
         &mut self,
         block: &'a SignedBeaconBlock<T, Payload>,
+        verified_proposer_index: Option<u64>,
     ) -> Result<()> {
         let set = randao_signature_set(
             self.state,
             self.get_pubkey.clone(),
             block.message(),
+            verified_proposer_index,
             self.spec,
         )?;
         self.sets.push(set);

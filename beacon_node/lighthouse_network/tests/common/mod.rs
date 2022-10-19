@@ -1,10 +1,10 @@
 #![cfg(test)]
 use libp2p::gossipsub::GossipsubConfigBuilder;
+use lighthouse_network::service::Network as LibP2PService;
 use lighthouse_network::Enr;
 use lighthouse_network::EnrExt;
 use lighthouse_network::Multiaddr;
-use lighthouse_network::Service as LibP2PService;
-use lighthouse_network::{Libp2pEvent, NetworkConfig};
+use lighthouse_network::{NetworkConfig, NetworkEvent};
 use slog::{debug, error, o, Drain};
 use std::sync::Arc;
 use std::sync::Weak;
@@ -119,18 +119,19 @@ pub async fn build_libp2p_instance(
         LibP2PService::new(executor, libp2p_context, &log)
             .await
             .expect("should build libp2p instance")
-            .1,
+            .0,
         signal,
     )
 }
 
 #[allow(dead_code)]
 pub fn get_enr(node: &LibP2PService<ReqId, E>) -> Enr {
-    node.swarm.behaviour().local_enr()
+    node.local_enr()
 }
 
 // Returns `n` libp2p peers in fully connected topology.
 #[allow(dead_code)]
+/*
 pub async fn build_full_mesh(
     rt: Weak<Runtime>,
     log: slog::Logger,
@@ -157,8 +158,7 @@ pub async fn build_full_mesh(
         }
     }
     nodes
-}
-
+}*/
 // Constructs a pair of nodes with separate loggers. The sender dials the receiver.
 // This returns a (sender, receiver) pair.
 #[allow(dead_code)]
@@ -173,19 +173,19 @@ pub async fn build_node_pair(
     let mut sender = build_libp2p_instance(rt.clone(), vec![], sender_log, fork_name).await;
     let mut receiver = build_libp2p_instance(rt, vec![], receiver_log, fork_name).await;
 
-    let receiver_multiaddr = receiver.swarm.behaviour_mut().local_enr().multiaddr()[1].clone();
+    let receiver_multiaddr = receiver.local_enr().multiaddr()[1].clone();
 
     // let the two nodes set up listeners
     let sender_fut = async {
         loop {
-            if let Libp2pEvent::NewListenAddr(_) = sender.next_event().await {
+            if let NetworkEvent::NewListenAddr(_) = sender.next_event().await {
                 return;
             }
         }
     };
     let receiver_fut = async {
         loop {
-            if let Libp2pEvent::NewListenAddr(_) = receiver.next_event().await {
+            if let NetworkEvent::NewListenAddr(_) = receiver.next_event().await {
                 return;
             }
         }
@@ -199,7 +199,8 @@ pub async fn build_node_pair(
         _ = joined => {}
     }
 
-    match libp2p::Swarm::dial(&mut sender.swarm, receiver_multiaddr.clone()) {
+    // sender.dial_peer(peer_id);
+    match sender.testing_dial(receiver_multiaddr.clone()) {
         Ok(()) => {
             debug!(log, "Sender dialed receiver"; "address" => format!("{:?}", receiver_multiaddr))
         }
@@ -226,7 +227,7 @@ pub async fn build_linear(
         .map(|x| get_enr(x).multiaddr()[1].clone())
         .collect();
     for i in 0..n - 1 {
-        match libp2p::Swarm::dial(&mut nodes[i].swarm, multiaddrs[i + 1].clone()) {
+        match nodes[i].testing_dial(multiaddrs[i + 1].clone()) {
             Ok(()) => debug!(log, "Connected"),
             Err(_) => error!(log, "Failed to connect"),
         };
