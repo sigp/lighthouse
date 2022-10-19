@@ -30,12 +30,16 @@ pub struct StoreConfig {
     pub compact_on_prune: bool,
     /// Whether to prune payloads on initialization and finalization.
     pub prune_payloads: bool,
+    /// Whether to store finalized blocks in the freezer database.
+    pub separate_blocks: bool,
 }
 
 /// Variant of `StoreConfig` that gets written to disk. Contains immutable configuration params.
 #[derive(Debug, Clone, PartialEq, Eq, Encode, Decode)]
 pub struct OnDiskStoreConfig {
     pub slots_per_restore_point: u64,
+    // FIXME(sproul): schema migration
+    pub separate_blocks: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -56,6 +60,7 @@ impl Default for StoreConfig {
             compact_on_init: false,
             compact_on_prune: true,
             prune_payloads: true,
+            separate_blocks: true,
         }
     }
 }
@@ -64,6 +69,7 @@ impl StoreConfig {
     pub fn as_disk_config(&self) -> OnDiskStoreConfig {
         OnDiskStoreConfig {
             slots_per_restore_point: self.slots_per_restore_point,
+            separate_blocks: self.separate_blocks,
         }
     }
 

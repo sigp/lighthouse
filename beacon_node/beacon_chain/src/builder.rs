@@ -252,7 +252,7 @@ where
             .ok_or("Fork choice not found in store")?;
 
         let genesis_block = store
-            .get_blinded_block(&chain.genesis_block_root)
+            .get_blinded_block(&chain.genesis_block_root, Some(Slot::new(0)))
             .map_err(|e| descriptive_db_error("genesis block", &e))?
             .ok_or("Genesis block not found in store")?;
         let genesis_state = store
@@ -303,6 +303,7 @@ where
             .ok_or("set_genesis_state requires a store")?;
 
         let beacon_block = genesis_block(&mut beacon_state, &self.spec)?;
+        let blinded_block = beacon_block.clone_as_blinded();
 
         beacon_state
             .build_all_caches(&self.spec)
@@ -319,12 +320,12 @@ where
             .put_state(&beacon_state_root, &beacon_state)
             .map_err(|e| format!("Failed to store genesis state: {:?}", e))?;
         store
-            .put_block(&beacon_block_root, beacon_block.clone())
+            .put_cold_blinded_block(&beacon_block_root, &blinded_block)
             .map_err(|e| format!("Failed to store genesis block: {:?}", e))?;
 
         // Store the genesis block under the `ZERO_HASH` key.
         store
-            .put_block(&Hash256::zero(), beacon_block.clone())
+            .put_cold_blinded_block(&Hash256::zero(), &blinded_block)
             .map_err(|e| {
                 format!(
                     "Failed to store genesis block under 0x00..00 alias: {:?}",
@@ -634,7 +635,7 @@ where
         // Try to decode the head block according to the current fork, if that fails, try
         // to backtrack to before the most recent fork.
         let (head_block_root, head_block, head_reverted) =
-            match store.get_full_block(&initial_head_block_root) {
+            match store.get_full_block(&initial_head_block_root, None) {
                 Ok(Some(block)) => (initial_head_block_root, block, false),
                 Ok(None) => return Err("Head block not found in store".into()),
                 Err(StoreError::SszDecodeError(_)) => {
@@ -1060,7 +1061,7 @@ mod test {
         assert_eq!(
             chain
                 .store
-                .get_blinded_block(&Hash256::zero())
+                .get_blinded_block(&Hash256::zero(), None)
                 .expect("should read db")
                 .expect("should find genesis block"),
             block.clone_as_blinded(),

@@ -566,7 +566,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .default_value("4")
                 .takes_value(true)
         )
-
         /*
          * Misc.
          */

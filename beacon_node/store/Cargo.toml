@@ -28,6 +28,6 @@ sloggers = { version = "2.1.1", features = ["json"] }
 directory = { path = "../../common/directory" }
 tree_hash = "0.4.0"
 take-until = "0.1.0"
-zstd = "0.10.0"
+zstd = "0.11.0"
 strum = { version = "0.24.0", features = ["derive"] }
 bls = { path = "../../crypto/bls" }

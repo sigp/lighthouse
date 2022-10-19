@@ -39,7 +39,7 @@ pub fn upgrade_to_v12<T: BeaconChainTypes>(
         .unrealized_justified_checkpoint
         .root;
     let justified_block = db
-        .get_blinded_block(&justified_block_root)?
+        .get_blinded_block(&justified_block_root, None)?
         .ok_or_else(|| {
             Error::SchemaMigrationError(format!(
                 "unrealized justified block missing for migration: {justified_block_root:?}",

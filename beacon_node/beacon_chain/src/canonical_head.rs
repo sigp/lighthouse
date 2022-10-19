@@ -267,7 +267,7 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
         let fork_choice_view = fork_choice.cached_fork_choice_view();
         let beacon_block_root = fork_choice_view.head_block_root;
         let beacon_block = store
-            .get_full_block(&beacon_block_root)?
+            .get_full_block(&beacon_block_root, None)?
             .ok_or(Error::MissingBeaconBlock(beacon_block_root))?;
         let beacon_state_root = beacon_block.state_root();
         let beacon_state = store
@@ -623,7 +623,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             let mut new_snapshot = {
                 let beacon_block = self
                     .store
-                    .get_full_block(&new_view.head_block_root)?
+                    .get_full_block(&new_view.head_block_root, None)?
                     .ok_or(Error::MissingBeaconBlock(new_view.head_block_root))?;
 
                 // FIXME(sproul): use advanced state?

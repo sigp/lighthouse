@@ -189,7 +189,7 @@ impl<'a, T: EthSpec, Hot: ItemStore<T>, Cold: ItemStore<T>> RootsIterator<'a, T,
         block_hash: Hash256,
     ) -> Result<Self, Error> {
         let block = store
-            .get_blinded_block(&block_hash)?
+            .get_blinded_block(&block_hash, None)?
             .ok_or_else(|| BeaconStateError::MissingBeaconBlock(block_hash.into()))?;
         let state = store
             .get_state(&block.state_root(), Some(block.slot()))?
@@ -286,7 +286,7 @@ impl<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>
             let block = if self.decode_any_variant {
                 self.store.get_block_any_variant(&block_root)
             } else {
-                self.store.get_blinded_block(&block_root)
+                self.store.get_blinded_block(&block_root, None)
             }?
             .ok_or(Error::BlockNotFound(block_root))?;
             self.next_block_root = block.message().parent_root();
@@ -329,7 +329,8 @@ impl<'a, T: EthSpec, Hot: ItemStore<T>, Cold: ItemStore<T>> BlockIterator<'a, T,
     fn do_next(&mut self) -> Result<Option<SignedBeaconBlock<T, BlindedPayload<T>>>, Error> {
         if let Some(result) = self.roots.next() {
             let (root, _slot) = result?;
-            self.roots.inner.store.get_blinded_block(&root)
+            // Don't use slot hint here as it could be a skipped slot.
+            self.roots.inner.store.get_blinded_block(&root, None)
         } else {
             Ok(None)
         }

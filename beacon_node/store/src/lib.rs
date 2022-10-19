@@ -174,8 +174,19 @@ pub enum DBColumn {
     /// For data related to the database itself.
     #[strum(serialize = "bma")]
     BeaconMeta,
+    /// Data related to blocks.
+    ///
+    /// - Key: `Hash256` block root.
+    /// - Value in hot DB: SSZ-encoded blinded block.
+    /// - Value in cold DB: 8-byte slot of block.
     #[strum(serialize = "blk")]
     BeaconBlock,
+    /// Frozen beacon blocks.
+    ///
+    /// - Key: 8-byte slot.
+    /// - Value: ZSTD-compressed SSZ-encoded blinded block.
+    #[strum(serialize = "bbf")]
+    BeaconBlockFrozen,
     /// For full `BeaconState`s in the hot database (finalized or fork-boundary states).
     #[strum(serialize = "ste")]
     BeaconState,
