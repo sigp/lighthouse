@@ -57,6 +57,24 @@ pub fn inspect_cli_app<'a, 'b>() -> App<'a, 'b> {
                 .default_value("sizes")
                 .possible_values(InspectTarget::VARIANTS),
         )
+        .arg(
+            Arg::with_name("skip")
+                .long("skip")
+                .value_name("N")
+                .help("Skip over the first N keys"),
+        )
+        .arg(
+            Arg::with_name("limit")
+                .long("limit")
+                .value_name("N")
+                .help("Output at most N keys"),
+        )
+        .arg(
+            Arg::with_name("freezer")
+                .long("freezer")
+                .help("Inspect the freezer DB rather than the hot DB")
+                .takes_value(false),
+        )
 }
 
 pub fn prune_payloads_app<'a, 'b>() -> App<'a, 'b> {
@@ -149,24 +167,40 @@ pub fn display_db_version<E: EthSpec>(
     Ok(())
 }
 
-#[derive(Debug, EnumString, EnumVariantNames)]
+#[derive(Debug, PartialEq, Eq, EnumString, EnumVariantNames)]
 pub enum InspectTarget {
     #[strum(serialize = "sizes")]
     ValueSizes,
     #[strum(serialize = "total")]
     ValueTotal,
+    #[strum(serialize = "values")]
+    ValueBytes,
+    #[strum(serialize = "gaps")]
+    Gaps,
 }
 
 pub struct InspectConfig {
     column: DBColumn,
     target: InspectTarget,
+    skip: Option<usize>,
+    limit: Option<usize>,
+    freezer: bool,
 }
 
 fn parse_inspect_config(cli_args: &ArgMatches) -> Result<InspectConfig, String> {
     let column = clap_utils::parse_required(cli_args, "column")?;
     let target = clap_utils::parse_required(cli_args, "output")?;
+    let skip = clap_utils::parse_optional(cli_args, "skip")?;
+    let limit = clap_utils::parse_optional(cli_args, "limit")?;
+    let freezer = cli_args.is_present("freezer");
 
-    Ok(InspectConfig { column, target })
+    Ok(InspectConfig {
+        column,
+        target,
+        skip,
+        limit,
+        freezer,
+    })
 }
 
 pub fn inspect_db<E: EthSpec>(
@@ -189,26 +223,63 @@ pub fn inspect_db<E: EthSpec>(
     )?;
 
     let mut total = 0;
+    let mut num_keys = 0;
 
-    for res in db.hot_db.iter_column(inspect_config.column) {
+    let sub_db = if inspect_config.freezer {
+        &db.cold_db
+    } else {
+        &db.hot_db
+    };
+
+    let skip = inspect_config.skip.unwrap_or(0);
+    let limit = inspect_config.limit.unwrap_or(usize::MAX);
+
+    let mut prev_key = 0;
+    let mut found_gaps = false;
+
+    for res in sub_db
+        .iter_column::<Vec<u8>>(inspect_config.column)
+        .skip(skip)
+        .take(limit)
+    {
         let (key, value) = res?;
 
         match inspect_config.target {
             InspectTarget::ValueSizes => {
-                println!("{:?}: {} bytes", key, value.len());
-                total += value.len();
+                println!("{}: {} bytes", hex::encode(&key), value.len());
             }
-            InspectTarget::ValueTotal => {
-                total += value.len();
+            InspectTarget::ValueBytes => {
+                println!("{}: {}", hex::encode(&key), hex::encode(&value));
             }
+            InspectTarget::Gaps => {
+                // Convert last 8 bytes of key to u64.
+                let numeric_key = u64::from_be_bytes(
+                    key[key.len() - 8..]
+                        .try_into()
+                        .expect("key is at least 8 bytes"),
+                );
+
+                if numeric_key > prev_key + 1 {
+                    println!(
+                        "gap between keys {} and {} (offset: {})",
+                        prev_key, numeric_key, num_keys,
+                    );
+                    found_gaps = true;
+                }
+                prev_key = numeric_key;
+            }
+            InspectTarget::ValueTotal => (),
         }
+        total += value.len();
+        num_keys += 1;
     }
 
-    match inspect_config.target {
-        InspectTarget::ValueSizes | InspectTarget::ValueTotal => {
-            println!("Total: {} bytes", total);
-        }
+    if inspect_config.target == InspectTarget::Gaps && !found_gaps {
+        println!("No gaps found!");
     }
+
+    println!("Num keys: {}", num_keys);
+    println!("Total: {} bytes", total);
 
     Ok(())
 }

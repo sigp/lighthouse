@@ -65,6 +65,7 @@ pub enum Error {
     DuplicateValidatorPublicKey,
     InvalidValidatorPubkeyBytes(bls::Error),
     ValidatorPubkeyCacheUninitialized,
+    InvalidKey,
 }
 
 pub trait HandleUnavailable<T> {
