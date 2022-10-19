@@ -856,7 +856,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("disable-deposit-contract-sync")
                 .long("disable-deposit-contract-sync")
                 .help("Explictly disables syncing of deposit logs from the execution node. \
-                      This overrides any previous option that depend on it. \
+                      This overrides any previous option that depends on it. \
                       Useful if you intend to run a non-validating beacon node.")
                 .takes_value(false)
         )
