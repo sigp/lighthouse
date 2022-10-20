@@ -99,6 +99,7 @@ pub enum HotColdDBError {
     },
     MissingStateToFreeze(Hash256),
     MissingRestorePointHash(u64),
+    MissingRestorePointState(Slot),
     MissingRestorePoint(Hash256),
     MissingColdStateSummary(Hash256),
     MissingHotStateSummary(Hash256),
@@ -1221,7 +1222,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
         // 1. Convert to PartialBeaconState and store that in the DB.
         let partial_state = PartialBeaconState::from_state_forgetful(state);
-        let op = partial_state.as_kv_store_op(*state_root, &self.config)?;
+        let op = partial_state.as_kv_store_op(&self.config)?;
         ops.push(op);
 
         // 2. Store updated vector entries.
@@ -1232,8 +1233,11 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         store_updated_vector(RandaoMixes, db, state, &self.spec, ops)?;
 
         // 3. Store restore point.
+        // FIXME(sproul): backwards compat
+        /*
         let restore_point_index = state.slot().as_u64() / self.config.slots_per_restore_point;
         self.store_restore_point_hash(restore_point_index, *state_root, ops)?;
+        */
 
         Ok(())
     }
@@ -1259,8 +1263,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
         if slot <= lower_limit || slot >= upper_limit {
             if slot % self.config.slots_per_restore_point == 0 {
-                let restore_point_idx = slot.as_u64() / self.config.slots_per_restore_point;
-                self.load_restore_point_by_index(restore_point_idx)
+                self.load_restore_point(slot)
             } else {
                 self.load_cold_intermediate_state(slot)
             }
@@ -1270,12 +1273,15 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         }
     }
 
-    /// Load a restore point state by its `state_root`.
-    fn load_restore_point(&self, state_root: &Hash256) -> Result<BeaconState<E>, Error> {
+    /// Load a restore point state by its `slot`.
+    fn load_restore_point(&self, slot: Slot) -> Result<BeaconState<E>, Error> {
         let bytes = self
             .cold_db
-            .get_bytes(DBColumn::BeaconState.into(), state_root.as_bytes())?
-            .ok_or(HotColdDBError::MissingRestorePoint(*state_root))?;
+            .get_bytes(
+                DBColumn::BeaconRestorePointState.into(),
+                &slot.as_u64().to_be_bytes(),
+            )?
+            .ok_or(HotColdDBError::MissingRestorePointState(slot))?;
 
         let mut ssz_bytes = Vec::with_capacity(self.config.estimate_decompressed_size(bytes.len()));
         let mut decoder = Decoder::new(&*bytes).map_err(Error::Compression)?;
@@ -1298,26 +1304,29 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         partial_state.try_into_full_state(immutable_validators)
     }
 
+    /* FIXME(sproul): backwards compat
     /// Load a restore point state by its `restore_point_index`.
-    fn load_restore_point_by_index(
+    fn load_legacy_restore_point_by_index(
         &self,
         restore_point_index: u64,
     ) -> Result<BeaconState<E>, Error> {
         let state_root = self.load_restore_point_hash(restore_point_index)?;
         self.load_restore_point(&state_root)
     }
+    */
 
     /// Load a frozen state that lies between restore points.
     fn load_cold_intermediate_state(&self, slot: Slot) -> Result<BeaconState<E>, Error> {
         // 1. Load the restore points either side of the intermediate state.
-        let low_restore_point_idx = slot.as_u64() / self.config.slots_per_restore_point;
-        let high_restore_point_idx = low_restore_point_idx + 1;
+        let sprp = self.config.slots_per_restore_point;
+        let low_restore_point_slot = slot / sprp * sprp;
+        let high_restore_point_slot = low_restore_point_slot + sprp;
 
         // Acquire the read lock, so that the split can't change while this is happening.
         let split = self.split.read_recursive();
 
-        let low_restore_point = self.load_restore_point_by_index(low_restore_point_idx)?;
-        let high_restore_point = self.get_restore_point(high_restore_point_idx, &split)?;
+        let low_restore_point = self.load_restore_point(low_restore_point_slot)?;
+        let high_restore_point = self.get_restore_point(high_restore_point_slot, &split)?;
 
         // 2. Load the blocks from the high restore point back to the low restore point.
         let blocks = self.load_blocks_to_replay(
@@ -1342,10 +1351,10 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     /// Get the restore point with the given index, or if it is out of bounds, the split state.
     pub(crate) fn get_restore_point(
         &self,
-        restore_point_idx: u64,
+        slot: Slot,
         split: &Split,
     ) -> Result<BeaconState<E>, Error> {
-        if restore_point_idx * self.config.slots_per_restore_point >= split.slot.as_u64() {
+        if slot >= split.slot.as_u64() {
             self.get_state(&split.state_root, Some(split.slot))?
                 .ok_or(HotColdDBError::MissingSplitState(
                     split.state_root,
@@ -1353,7 +1362,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 ))
                 .map_err(Into::into)
         } else {
-            self.load_restore_point_by_index(restore_point_idx)
+            self.load_restore_point(slot)
         }
     }
 

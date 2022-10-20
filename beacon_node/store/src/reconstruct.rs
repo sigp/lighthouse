@@ -42,10 +42,7 @@ where
         // Iterate blocks from the state lower limit to the upper limit.
         let lower_limit_slot = anchor.state_lower_limit;
         let split = self.get_split_info();
-        let upper_limit_state = self.get_restore_point(
-            anchor.state_upper_limit.as_u64() / slots_per_restore_point,
-            &split,
-        )?;
+        let upper_limit_state = self.get_restore_point(anchor.state_upper_limit, &split)?;
         let upper_limit_slot = upper_limit_state.slot();
 
         // Use a dummy root, as we never read the block for the upper limit state.

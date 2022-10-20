@@ -234,9 +234,12 @@ pub enum DBColumn {
     ForkChoice,
     #[strum(serialize = "pkc")]
     PubkeyCache,
-    /// For the table mapping restore point numbers to state roots.
+    /// For the legacy table mapping restore point numbers to state roots.
     #[strum(serialize = "brp")]
     BeaconRestorePoint,
+    /// For the new table mapping restore point slots to compressed beacon states.
+    #[strum(serialize = "rps")]
+    BeaconRestorePointState,
     #[strum(serialize = "bbr")]
     BeaconBlockRoots,
     #[strum(serialize = "bsr")]
@@ -291,7 +294,8 @@ impl DBColumn {
             | Self::BeaconStateRoots
             | Self::BeaconHistoricalRoots
             | Self::BeaconRandaoMixes
-            | Self::BeaconBlockFrozen => 8,
+            | Self::BeaconBlockFrozen
+            | Self::BeaconRestorePointState => 8,
         }
     }
 }

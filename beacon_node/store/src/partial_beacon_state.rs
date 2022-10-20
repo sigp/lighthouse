@@ -21,6 +21,7 @@ use zstd::Encoder;
 )]
 #[derive(Debug, PartialEq, Clone, Encode)]
 #[ssz(enum_behaviour = "transparent")]
+// FIXME(sproul): schema migration
 pub struct PartialBeaconState<T>
 where
     T: EthSpec,
@@ -209,12 +210,11 @@ impl<T: EthSpec> PartialBeaconState<T> {
     }
 
     /// Prepare the partial state for storage in the KV database.
-    pub fn as_kv_store_op(
-        &self,
-        state_root: Hash256,
-        config: &StoreConfig,
-    ) -> Result<KeyValueStoreOp, Error> {
-        let db_key = get_key_for_col(DBColumn::BeaconState.into(), state_root.as_bytes());
+    pub fn as_kv_store_op(&self, config: &StoreConfig) -> Result<KeyValueStoreOp, Error> {
+        let db_key = get_key_for_col(
+            DBColumn::BeaconRestorePointState.into(),
+            &self.slot().as_u64().to_be_bytes(),
+        );
 
         let ssz_bytes = self.as_ssz_bytes();
 
