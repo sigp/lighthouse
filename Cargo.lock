@@ -128,7 +128,7 @@ dependencies = [
 [[package]]
 name = "amcl"
 version = "0.3.0"
-source = "git+https://github.com/sigp/milagro_bls?tag=v1.4.2#16655aa033175a90c10ef02aa144e2835de23aec"
+source = "git+https://github.com/sigp/milagro_bls?branch=uncompressed#ae944c03a4ae43df29a5cd7d35c7ad82b7cb937a"
 
 [[package]]
 name = "ansi_term"
@@ -578,13 +578,14 @@ version = "0.2.0"
 dependencies = [
  "arbitrary",
  "blst",
+ "criterion",
  "eth2_hashing 0.3.0",
  "eth2_serde_utils",
  "eth2_ssz",
  "ethereum-types 0.12.1",
  "hex",
  "milagro_bls",
- "rand 0.7.3",
+ "rand 0.8.5",
  "serde",
  "serde_derive",
  "tree_hash",
@@ -3987,13 +3988,13 @@ dependencies = [
 
 [[package]]
 name = "milagro_bls"
-version = "1.4.2"
-source = "git+https://github.com/sigp/milagro_bls?tag=v1.4.2#16655aa033175a90c10ef02aa144e2835de23aec"
+version = "1.5.0"
+source = "git+https://github.com/sigp/milagro_bls?branch=uncompressed#ae944c03a4ae43df29a5cd7d35c7ad82b7cb937a"
 dependencies = [
  "amcl",
  "hex",
  "lazy_static",
- "rand 0.7.3",
+ "rand 0.8.5",
  "zeroize",
 ]
 

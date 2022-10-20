@@ -1,7 +1,7 @@
 use super::*;
 use crate::case_result::compare_result;
 use crate::impl_bls_load_case;
-use bls::{PublicKeyBytes, Signature, SignatureBytes};
+use bls::{PublicKey, PublicKeyBytes, Signature, SignatureBytes};
 use serde_derive::Deserialize;
 use std::convert::TryInto;
 use types::Hash256;
@@ -30,6 +30,13 @@ impl Case for BlsVerify {
             .try_into()
             .and_then(|signature: Signature| {
                 let pk = self.input.pubkey.decompress()?;
+
+                // Check serialization roundtrip.
+                let pk_uncompressed = pk.serialize_uncompressed();
+                let pk_from_uncompressed = PublicKey::deserialize_uncompressed(&pk_uncompressed)
+                    .expect("uncompressed serialization should round-trip");
+                assert_eq!(pk_from_uncompressed, pk);
+
                 Ok(signature.verify(&pk, Hash256::from_slice(&message)))
             })
             .unwrap_or(false);

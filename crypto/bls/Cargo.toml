@@ -7,8 +7,9 @@ edition = "2021"
 [dependencies]
 eth2_ssz = "0.4.1"
 tree_hash = "0.4.1"
-milagro_bls = { git = "https://github.com/sigp/milagro_bls", tag = "v1.4.2", optional = true }
-rand = "0.7.3"
+# FIXME(bls): update this to v1.5+ once issue is fixed
+milagro_bls = { git = "https://github.com/sigp/milagro_bls", branch = "uncompressed", optional = true }
+rand = "0.8.5"
 serde = "1.0.116"
 serde_derive = "1.0.116"
 eth2_serde_utils = "0.1.1"
@@ -26,3 +27,10 @@ milagro = ["milagro_bls"]
 supranational = ["blst"]
 supranational-portable = ["supranational", "blst/portable"]
 supranational-force-adx = ["supranational", "blst/force-adx"]
+
+[dev-dependencies]
+criterion = "0.3.3"
+
+[[bench]]
+name = "compress_decompress"
+harness = false
