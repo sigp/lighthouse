@@ -47,6 +47,13 @@ impl ForkContext {
             ));
         }
 
+        if spec.capella_fork_epoch.is_some() {
+            fork_to_digest.push((
+                ForkName::Capella,
+                ChainSpec::compute_fork_digest(spec.capella_fork_version, genesis_validators_root),
+            ));
+        }
+
         if spec.eip4844_fork_epoch.is_some() {
             fork_to_digest.push((
                 ForkName::Eip4844,

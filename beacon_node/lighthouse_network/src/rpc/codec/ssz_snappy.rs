@@ -17,7 +17,8 @@ use std::sync::Arc;
 use tokio_util::codec::{Decoder, Encoder};
 use types::{
     BlobsSidecar, EthSpec, ForkContext, ForkName, SignedBeaconBlock, SignedBeaconBlockAltair,
-    SignedBeaconBlockBase, SignedBeaconBlockEip4844, SignedBeaconBlockMerge,
+    SignedBeaconBlockBase, SignedBeaconBlockCapella, SignedBeaconBlockEip4844,
+    SignedBeaconBlockMerge,
 };
 use unsigned_varint::codec::Uvi;
 
@@ -413,6 +414,10 @@ fn context_bytes<T: EthSpec>(
                         // Eip4844 context being `None` implies that "merge never happened".
                         fork_context.to_context_bytes(ForkName::Eip4844)
                     }
+                    SignedBeaconBlock::Capella { .. } => {
+                        // Capella context being `None` implies that "merge never happened".
+                        fork_context.to_context_bytes(ForkName::Capella)
+                    }
                     SignedBeaconBlock::Merge { .. } => {
                         // Merge context being `None` implies that "merge never happened".
                         fork_context.to_context_bytes(ForkName::Merge)
@@ -599,6 +604,11 @@ fn handle_v2_response<T: EthSpec>(
                         decoded_buffer,
                     )?),
                 )))),
+                ForkName::Capella => Ok(Some(RPCResponse::BlocksByRange(Arc::new(
+                    SignedBeaconBlock::Capella(SignedBeaconBlockCapella::from_ssz_bytes(
+                        decoded_buffer,
+                    )?),
+                )))),
                 ForkName::Eip4844 => Ok(Some(RPCResponse::BlocksByRange(Arc::new(
                     SignedBeaconBlock::Eip4844(SignedBeaconBlockEip4844::from_ssz_bytes(
                         decoded_buffer,
@@ -616,6 +626,11 @@ fn handle_v2_response<T: EthSpec>(
                 )))),
                 ForkName::Merge => Ok(Some(RPCResponse::BlocksByRoot(Arc::new(
                     SignedBeaconBlock::Merge(SignedBeaconBlockMerge::from_ssz_bytes(
+                        decoded_buffer,
+                    )?),
+                )))),
+                ForkName::Capella => Ok(Some(RPCResponse::BlocksByRange(Arc::new(
+                    SignedBeaconBlock::Capella(SignedBeaconBlockCapella::from_ssz_bytes(
                         decoded_buffer,
                     )?),
                 )))),

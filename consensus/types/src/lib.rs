@@ -1,5 +1,4 @@
 //! Ethereum 2.0 types
-#![feature(generic_associated_types)]
 // Required for big type-level numbers
 #![recursion_limit = "128"]
 // Clippy lint set up
@@ -164,8 +163,9 @@ pub use crate::selection_proof::SelectionProof;
 pub use crate::shuffling_id::AttestationShufflingId;
 pub use crate::signed_aggregate_and_proof::SignedAggregateAndProof;
 pub use crate::signed_beacon_block::{
-    SignedBeaconBlock, SignedBeaconBlockAltair, SignedBeaconBlockBase, SignedBeaconBlockEip4844,
-    SignedBeaconBlockHash, SignedBeaconBlockMerge, SignedBlindedBeaconBlock,
+    SignedBeaconBlock, SignedBeaconBlockAltair, SignedBeaconBlockBase, SignedBeaconBlockCapella,
+    SignedBeaconBlockEip4844, SignedBeaconBlockHash, SignedBeaconBlockMerge,
+    SignedBlindedBeaconBlock,
 };
 pub use crate::signed_beacon_block_header::SignedBeaconBlockHeader;
 pub use crate::signed_blobs_sidecar::SignedBlobsSidecar;

@@ -586,7 +586,7 @@ impl BeaconNodeHttpClient {
     /// `POST beacon/blocks`
     ///
     /// Returns `Ok(None)` on a 404 error.
-    pub async fn post_beacon_blocks<T: EthSpec, Payload: ExecPayload<T>>(
+    pub async fn post_beacon_blocks<T: EthSpec, Payload: AbstractExecPayload<T>>(
         &self,
         block: &SignedBeaconBlock<T, Payload>,
     ) -> Result<(), Error> {
@@ -627,7 +627,7 @@ impl BeaconNodeHttpClient {
     /// `POST beacon/blinded_blocks`
     ///
     /// Returns `Ok(None)` on a 404 error.
-    pub async fn post_beacon_blinded_blocks<T: EthSpec, Payload: ExecPayload<T>>(
+    pub async fn post_beacon_blinded_blocks<T: EthSpec, Payload: AbstractExecPayload<T>>(
         &self,
         block: &SignedBeaconBlock<T, Payload>,
     ) -> Result<(), Error> {

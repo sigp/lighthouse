@@ -94,8 +94,7 @@ impl<T: EthSpec> ExecutionPayload<T> {
             // Max size of variable length `transactions` field
             + (T::max_transactions_per_payload() * (ssz::BYTES_PER_LENGTH_OFFSET + T::max_bytes_per_transaction()))
             // Max size of variable length `withdrawals` field
-            // TODO: check this
-            + (T::max_withdrawals_per_payload() * (ssz::BYTES_PER_LENGTH_OFFSET + <Withdrawal as Encode>::ssz_fixed_len()))
+            + (T::max_withdrawals_per_payload() * <Withdrawal as Encode>::ssz_fixed_len())
     }
 
     #[allow(clippy::integer_arithmetic)]
@@ -108,8 +107,7 @@ impl<T: EthSpec> ExecutionPayload<T> {
             // Max size of variable length `transactions` field
             + (T::max_transactions_per_payload() * (ssz::BYTES_PER_LENGTH_OFFSET + T::max_bytes_per_transaction()))
             // Max size of variable length `withdrawals` field
-            // TODO: check this
-            + (T::max_withdrawals_per_payload() * (ssz::BYTES_PER_LENGTH_OFFSET + <Withdrawal as Encode>::ssz_fixed_len()))
+            + (T::max_withdrawals_per_payload() * <Withdrawal as Encode>::ssz_fixed_len())
     }
 
     pub fn blob_txns_iter(&self) -> Iter<'_, Transaction<T::MaxBytesPerTransaction>> {
