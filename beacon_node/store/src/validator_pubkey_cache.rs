@@ -1,5 +1,8 @@
 use crate::{DBColumn, Error, HotColdDB, ItemStore, StoreItem};
+use bls::PUBLIC_KEY_UNCOMPRESSED_BYTES_LEN;
+use smallvec::SmallVec;
 use ssz::{Decode, Encode};
+use ssz_derive::{Decode, Encode};
 use std::collections::HashMap;
 use std::convert::TryInto;
 use std::marker::PhantomData;
@@ -64,16 +67,14 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> ValidatorPubkeyCache<E, 
         let mut validators = vec![];
 
         for validator_index in 0.. {
-            if let Some(DatabaseValidator(validator)) =
+            if let Some(db_validator) =
                 store.get_item(&DatabaseValidator::key_for_index(validator_index))?
             {
-                pubkeys.push(
-                    (&validator.pubkey)
-                        .try_into()
-                        .map_err(|e| Error::ValidatorPubkeyCacheError(format!("{:?}", e)))?,
-                );
+                let (pubkey, validator) =
+                    DatabaseValidator::into_immutable_validator(&db_validator)?;
+                pubkeys.push(pubkey);
                 indices.insert(validator.pubkey, validator_index);
-                validators.push(validator);
+                validators.push(Arc::new(validator));
             } else {
                 break;
             }
@@ -125,6 +126,10 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> ValidatorPubkeyCache<E, 
                 return Err(Error::DuplicateValidatorPublicKey);
             }
 
+            let pubkey = (&validator.pubkey)
+                .try_into()
+                .map_err(Error::InvalidValidatorPubkeyBytes)?;
+
             // The item is written to disk _before_ it is written into
             // the local struct.
             //
@@ -136,14 +141,10 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> ValidatorPubkeyCache<E, 
             // that are never referenced in a state.
             store.put_item(
                 &DatabaseValidator::key_for_index(i),
-                &DatabaseValidator(validator.clone()),
+                &DatabaseValidator::from_immutable_validator(&pubkey, &validator),
             )?;
 
-            self.pubkeys.push(
-                (&validator.pubkey)
-                    .try_into()
-                    .map_err(Error::InvalidValidatorPubkeyBytes)?,
-            );
+            self.pubkeys.push(pubkey);
             self.indices.insert(validator.pubkey, i);
             self.validators.push(validator);
         }
@@ -190,7 +191,11 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> ValidatorPubkeyCache<E, 
 /// Wrapper for a public key stored in the database.
 ///
 /// Keyed by the validator index as `Hash256::from_low_u64_be(index)`.
-struct DatabaseValidator(Arc<ValidatorImmutable>);
+#[derive(Encode, Decode)]
+struct DatabaseValidator {
+    pubkey: SmallVec<[u8; PUBLIC_KEY_UNCOMPRESSED_BYTES_LEN]>,
+    withdrawal_credentials: Hash256,
+}
 
 impl StoreItem for DatabaseValidator {
     fn db_column() -> DBColumn {
@@ -198,17 +203,38 @@ impl StoreItem for DatabaseValidator {
     }
 
     fn as_store_bytes(&self) -> Result<Vec<u8>, Error> {
-        Ok(self.0.as_ssz_bytes())
+        Ok(self.as_ssz_bytes())
     }
 
     fn from_store_bytes(bytes: &[u8]) -> Result<Self, Error> {
-        Ok(Self(Arc::new(ValidatorImmutable::from_ssz_bytes(bytes)?)))
+        Ok(Self::from_ssz_bytes(bytes)?)
     }
 }
 
 impl DatabaseValidator {
     fn key_for_index(index: usize) -> Hash256 {
         Hash256::from_low_u64_be(index as u64)
+    }
+
+    fn from_immutable_validator(pubkey: &PublicKey, validator: &ValidatorImmutable) -> Self {
+        DatabaseValidator {
+            pubkey: pubkey.serialize_uncompressed().into(),
+            withdrawal_credentials: validator.withdrawal_credentials,
+        }
+    }
+
+    fn into_immutable_validator(&self) -> Result<(PublicKey, ValidatorImmutable), Error> {
+        let pubkey = PublicKey::deserialize_uncompressed(&self.pubkey)
+            .map_err(Error::InvalidValidatorPubkeyBytes)?;
+        let pubkey_bytes = pubkey.compress();
+        let withdrawal_credentials = self.withdrawal_credentials;
+        Ok((
+            pubkey,
+            ValidatorImmutable {
+                pubkey: pubkey_bytes,
+                withdrawal_credentials,
+            },
+        ))
     }
 }
 

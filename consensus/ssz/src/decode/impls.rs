@@ -407,6 +407,7 @@ impl_for_vec!(SmallVec<[T; 5]>, None);
 impl_for_vec!(SmallVec<[T; 6]>, None);
 impl_for_vec!(SmallVec<[T; 7]>, None);
 impl_for_vec!(SmallVec<[T; 8]>, None);
+impl_for_vec!(SmallVec<[T; 96]>, None);
 
 impl<K, V> Decode for BTreeMap<K, V>
 where

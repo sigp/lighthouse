@@ -307,6 +307,7 @@ impl_for_vec!(SmallVec<[T; 5]>);
 impl_for_vec!(SmallVec<[T; 6]>);
 impl_for_vec!(SmallVec<[T; 7]>);
 impl_for_vec!(SmallVec<[T; 8]>);
+impl_for_vec!(SmallVec<[T; 96]>);
 
 impl<K, V> Encode for BTreeMap<K, V>
 where
