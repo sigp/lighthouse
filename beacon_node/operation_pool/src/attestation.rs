@@ -47,18 +47,17 @@ impl<'a, T: EthSpec> AttMaxCover<'a, T> {
             .get_beacon_committee(att.data.slot, att.data.index)
             .ok()?;
         let indices = get_attesting_indices::<T>(committee.committee, &fresh_validators).ok()?;
+        let sqrt_total_active_balance = base::SqrtTotalActiveBalance::new(total_active_balance);
         let fresh_validators_rewards: HashMap<u64, u64> = indices
             .iter()
             .map(|i| *i as u64)
             .flat_map(|validator_index| {
-                let reward = base::get_base_reward(
-                    state,
-                    validator_index as usize,
-                    total_active_balance,
-                    spec,
-                )
-                .ok()?
-                .checked_div(spec.proposer_reward_quotient)?;
+                let effective_balance =
+                    state.get_effective_balance(validator_index as usize).ok()?;
+                let reward =
+                    base::get_base_reward(effective_balance, sqrt_total_active_balance, spec)
+                        .ok()?
+                        .checked_div(spec.proposer_reward_quotient)?;
                 Some((validator_index, reward))
             })
             .collect();

@@ -74,7 +74,7 @@ use eth2::{
 use ssz::Encode;
 use state_processing::{
     block_signature_verifier::BlockSignatureVerifier, per_block_processing, per_slot_processing,
-    BlockSignatureStrategy, ConsensusContext, VerifyBlockRoot,
+    BlockSignatureStrategy, ConsensusContext, EpochCache, VerifyBlockRoot,
 };
 use std::borrow::Cow;
 use std::fs::File;
@@ -195,7 +195,10 @@ pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<
     let store = Arc::new(store);
 
     debug!("Building pubkey cache (might take some time)");
-    let validator_pubkey_cache = ValidatorPubkeyCache::new(&pre_state, store)
+    let validator_pubkey_cache = store.immutable_validators.clone();
+    validator_pubkey_cache
+        .write()
+        .import_new_pubkeys(&pre_state, &store)
         .map_err(|e| format!("Failed to create pubkey cache: {:?}", e))?;
 
     /*
@@ -226,6 +229,7 @@ pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<
      */
 
     let mut output_post_state = None;
+    let mut saved_ctxt = None;
     for i in 0..runs {
         let pre_state = pre_state.clone();
         let block = block.clone();
@@ -238,7 +242,8 @@ pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<
             block,
             state_root_opt,
             &config,
-            &validator_pubkey_cache,
+            &*validator_pubkey_cache.read(),
+            &mut saved_ctxt,
             spec,
         )?;
 
@@ -300,6 +305,7 @@ fn do_transition<T: EthSpec>(
     mut state_root_opt: Option<Hash256>,
     config: &Config,
     validator_pubkey_cache: &ValidatorPubkeyCache<EphemeralHarnessType<T>>,
+    saved_ctxt: &mut Option<ConsensusContext<T>>,
     spec: &ChainSpec,
 ) -> Result<BeaconState<T>, String> {
     if !config.exclude_cache_builds {
@@ -369,10 +375,25 @@ fn do_transition<T: EthSpec>(
         debug!("Batch verify block signatures: {:?}", t.elapsed());
     }
 
+    let mut ctxt = if let Some(ctxt) = saved_ctxt {
+        ctxt.clone()
+    } else {
+        let mut ctxt = ConsensusContext::new(pre_state.slot())
+            .set_current_block_root(block_root)
+            .set_proposer_index(block.message().proposer_index());
+
+        if config.exclude_cache_builds {
+            ctxt = ctxt.set_epoch_cache(
+                EpochCache::new(&pre_state, spec)
+                    .map_err(|e| format!("unable to build epoch cache: {e:?}"))?,
+            );
+            *saved_ctxt = Some(ctxt.clone());
+        }
+        ctxt
+    };
+
     let t = Instant::now();
-    let mut ctxt = ConsensusContext::new(pre_state.slot())
-        .set_current_block_root(block_root)
-        .set_proposer_index(block.message().proposer_index());
+
     per_block_processing(
         &mut pre_state,
         &block,

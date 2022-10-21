@@ -1,3 +1,5 @@
+use crate::{EpochCache, EpochCacheError};
+use std::borrow::Cow;
 use std::marker::PhantomData;
 use tree_hash::TreeHash;
 use types::{
@@ -5,7 +7,7 @@ use types::{
     Slot,
 };
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ConsensusContext<T: EthSpec> {
     /// Slot to act as an identifier/safeguard
     slot: Slot,
@@ -13,12 +15,15 @@ pub struct ConsensusContext<T: EthSpec> {
     proposer_index: Option<u64>,
     /// Block root of the block at `slot`.
     current_block_root: Option<Hash256>,
+    /// Epoch cache of values that are useful for block processing that are static over an epoch.
+    epoch_cache: Option<EpochCache>,
     _phantom: PhantomData<T>,
 }
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum ContextError {
     BeaconState(BeaconStateError),
+    EpochCache(EpochCacheError),
     SlotMismatch { slot: Slot, expected: Slot },
 }
 
@@ -28,12 +33,19 @@ impl From<BeaconStateError> for ContextError {
     }
 }
 
+impl From<EpochCacheError> for ContextError {
+    fn from(e: EpochCacheError) -> Self {
+        Self::EpochCache(e)
+    }
+}
+
 impl<T: EthSpec> ConsensusContext<T> {
     pub fn new(slot: Slot) -> Self {
         Self {
             slot,
             proposer_index: None,
             current_block_root: None,
+            epoch_cache: None,
             _phantom: PhantomData,
         }
     }
@@ -88,5 +100,30 @@ impl<T: EthSpec> ConsensusContext<T> {
                 expected: self.slot,
             })
         }
+    }
+
+    pub fn set_epoch_cache(mut self, epoch_cache: EpochCache) -> Self {
+        self.epoch_cache = Some(epoch_cache);
+        self
+    }
+
+    pub fn get_base_reward<E: EthSpec>(
+        &mut self,
+        state: &BeaconState<E>,
+        validator_index: usize,
+        spec: &ChainSpec,
+    ) -> Result<u64, ContextError> {
+        self.check_slot(state.slot())?;
+
+        // Build epoch cache if not already built.
+        let epoch_cache = if let Some(ref cache) = self.epoch_cache {
+            Cow::Borrowed(cache)
+        } else {
+            let cache = EpochCache::new(state, spec)?;
+            self.epoch_cache = Some(cache.clone());
+            Cow::Owned(cache)
+        };
+
+        Ok(epoch_cache.get_base_reward(validator_index)?)
     }
 }

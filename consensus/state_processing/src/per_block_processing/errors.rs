@@ -1,5 +1,5 @@
 use super::signature_sets::Error as SignatureSetError;
-use crate::ContextError;
+use crate::{ContextError, EpochCacheError};
 use merkle_proof::MerkleTreeError;
 use safe_arith::ArithError;
 use types::*;
@@ -73,6 +73,7 @@ pub enum BlockProcessingError {
     ExecutionInvalid,
     ConsensusContext(ContextError),
     MilhouseError(milhouse::Error),
+    EpochCacheError(EpochCacheError),
 }
 
 impl From<BeaconStateError> for BlockProcessingError {
@@ -108,6 +109,12 @@ impl From<SyncAggregateInvalid> for BlockProcessingError {
 impl From<ContextError> for BlockProcessingError {
     fn from(e: ContextError) -> Self {
         BlockProcessingError::ConsensusContext(e)
+    }
+}
+
+impl From<EpochCacheError> for BlockProcessingError {
+    fn from(e: EpochCacheError) -> Self {
+        BlockProcessingError::EpochCacheError(e)
     }
 }
 

@@ -19,6 +19,7 @@ mod metrics;
 pub mod block_replayer;
 pub mod common;
 pub mod consensus_context;
+pub mod epoch_cache;
 pub mod genesis;
 pub mod per_block_processing;
 pub mod per_epoch_processing;
@@ -29,6 +30,7 @@ pub mod verify_operation;
 
 pub use block_replayer::{BlockReplayError, BlockReplayer};
 pub use consensus_context::{ConsensusContext, ContextError};
+pub use epoch_cache::{EpochCache, EpochCacheError, EpochCacheKey};
 pub use genesis::{
     eth2_genesis_time, initialize_beacon_state_from_eth1, is_valid_genesis_state,
     process_activations,

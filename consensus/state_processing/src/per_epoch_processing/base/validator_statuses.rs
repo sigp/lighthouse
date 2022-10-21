@@ -53,6 +53,8 @@ impl InclusionInfo {
 pub struct ValidatorStatus {
     /// True if the validator has been slashed, ever.
     pub is_slashed: bool,
+    /// True if the validator is eligible.
+    pub is_eligible: bool,
     /// True if the validator can withdraw in the current epoch.
     pub is_withdrawable_in_current_epoch: bool,
     /// True if the validator was active in the state's _current_ epoch.
@@ -92,6 +94,7 @@ impl ValidatorStatus {
         // Update all the bool fields, only updating `self` if `other` is true (never setting
         // `self` to false).
         set_self_if_other_is_true!(self, other, is_slashed);
+        set_self_if_other_is_true!(self, other, is_eligible);
         set_self_if_other_is_true!(self, other, is_withdrawable_in_current_epoch);
         set_self_if_other_is_true!(self, other, is_active_in_current_epoch);
         set_self_if_other_is_true!(self, other, is_active_in_previous_epoch);
@@ -195,24 +198,27 @@ impl ValidatorStatuses {
         let mut statuses = Vec::with_capacity(state.validators().len());
         let mut total_balances = TotalBalances::new(spec);
 
-        for (i, validator) in state.validators().iter().enumerate() {
-            let effective_balance = state.get_effective_balance(i)?;
+        let current_epoch = state.current_epoch();
+        let previous_epoch = state.previous_epoch();
+
+        for validator in state.validators().iter() {
+            let effective_balance = validator.effective_balance();
             let mut status = ValidatorStatus {
                 is_slashed: validator.slashed(),
-                is_withdrawable_in_current_epoch: validator
-                    .is_withdrawable_at(state.current_epoch()),
+                is_eligible: state.is_eligible_validator(previous_epoch, validator),
+                is_withdrawable_in_current_epoch: validator.is_withdrawable_at(current_epoch),
                 current_epoch_effective_balance: effective_balance,
                 ..ValidatorStatus::default()
             };
 
-            if validator.is_active_at(state.current_epoch()) {
+            if validator.is_active_at(current_epoch) {
                 status.is_active_in_current_epoch = true;
                 total_balances
                     .current_epoch
                     .safe_add_assign(effective_balance)?;
             }
 
-            if validator.is_active_at(state.previous_epoch()) {
+            if validator.is_active_at(previous_epoch) {
                 status.is_active_in_previous_epoch = true;
                 total_balances
                     .previous_epoch
@@ -285,10 +291,10 @@ impl ValidatorStatuses {
         }
 
         // Compute the total balances
-        for (index, v) in self.statuses.iter().enumerate() {
+        for v in self.statuses.iter() {
             // According to the spec, we only count unslashed validators towards the totals.
             if !v.is_slashed {
-                let validator_balance = state.get_effective_balance(index)?;
+                let validator_balance = v.current_epoch_effective_balance;
 
                 if v.is_current_epoch_attester {
                     self.total_balances

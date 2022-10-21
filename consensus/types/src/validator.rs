@@ -73,50 +73,61 @@ impl Validator {
         });
     }
 
+    #[inline]
     pub fn withdrawal_credentials(&self) -> Hash256 {
         self.immutable.withdrawal_credentials
     }
 
+    #[inline]
     pub fn effective_balance(&self) -> u64 {
         self.mutable.effective_balance
     }
 
+    #[inline]
     pub fn slashed(&self) -> bool {
         self.mutable.slashed
     }
 
+    #[inline]
     pub fn activation_eligibility_epoch(&self) -> Epoch {
         self.mutable.activation_eligibility_epoch
     }
 
+    #[inline]
     pub fn activation_epoch(&self) -> Epoch {
         self.mutable.activation_epoch
     }
 
+    #[inline]
     pub fn exit_epoch(&self) -> Epoch {
         self.mutable.exit_epoch
     }
 
+    #[inline]
     pub fn withdrawable_epoch(&self) -> Epoch {
         self.mutable.withdrawable_epoch
     }
 
     /// Returns `true` if the validator is considered active at some epoch.
+    #[inline]
     pub fn is_active_at(&self, epoch: Epoch) -> bool {
         self.activation_epoch() <= epoch && epoch < self.exit_epoch()
     }
 
     /// Returns `true` if the validator is slashable at some epoch.
+    #[inline]
     pub fn is_slashable_at(&self, epoch: Epoch) -> bool {
         !self.slashed() && self.activation_epoch() <= epoch && epoch < self.withdrawable_epoch()
     }
 
     /// Returns `true` if the validator is considered exited at some epoch.
+    #[inline]
     pub fn is_exited_at(&self, epoch: Epoch) -> bool {
         self.exit_epoch() <= epoch
     }
 
     /// Returns `true` if the validator is able to withdraw at some epoch.
+    #[inline]
     pub fn is_withdrawable_at(&self, epoch: Epoch) -> bool {
         epoch >= self.withdrawable_epoch()
     }
@@ -124,6 +135,7 @@ impl Validator {
     /// Returns `true` if the validator is eligible to join the activation queue.
     ///
     /// Spec v0.12.1
+    #[inline]
     pub fn is_eligible_for_activation_queue(&self, spec: &ChainSpec) -> bool {
         self.activation_eligibility_epoch() == spec.far_future_epoch
             && self.effective_balance() == spec.max_effective_balance
@@ -132,6 +144,7 @@ impl Validator {
     /// Returns `true` if the validator is eligible to be activated.
     ///
     /// Spec v0.12.1
+    #[inline]
     pub fn is_eligible_for_activation<E: EthSpec>(
         &self,
         state: &BeaconState<E>,
