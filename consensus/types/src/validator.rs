@@ -13,9 +13,11 @@ const NUM_FIELDS: usize = 8;
 /// Information about a `BeaconChain` validator.
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TestRandom)]
-// FIXME(sproul): fix serialize/deserialize impl
+#[serde(deny_unknown_fields)]
 pub struct Validator {
+    #[serde(flatten)]
     pub immutable: Arc<ValidatorImmutable>,
+    #[serde(flatten)]
     pub mutable: ValidatorMutable,
 }
 
