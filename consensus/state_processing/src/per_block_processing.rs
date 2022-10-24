@@ -111,16 +111,13 @@ pub fn per_block_processing<T: EthSpec, Payload: ExecPayload<T>>(
     let verify_signatures = match block_signature_strategy {
         BlockSignatureStrategy::VerifyBulk => {
             // Verify all signatures in the block at once.
-            let block_root = Some(ctxt.get_current_block_root(signed_block)?);
-            let proposer_index = Some(ctxt.get_proposer_index(state, spec)?);
             block_verify!(
                 BlockSignatureVerifier::verify_entire_block(
                     state,
                     |i| get_pubkey_from_state(state, i),
                     |pk_bytes| pk_bytes.decompress().ok().map(Cow::Owned),
                     signed_block,
-                    block_root,
-                    proposer_index,
+                    ctxt,
                     spec
                 )
                 .is_ok(),

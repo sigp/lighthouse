@@ -347,6 +347,23 @@ fn do_transition<T: EthSpec>(
         .map_err(|e| format!("Unable to build caches: {:?}", e))?;
     debug!("Build all caches (again): {:?}", t.elapsed());
 
+    let mut ctxt = if let Some(ctxt) = saved_ctxt {
+        ctxt.clone()
+    } else {
+        let mut ctxt = ConsensusContext::new(pre_state.slot())
+            .set_current_block_root(block_root)
+            .set_proposer_index(block.message().proposer_index());
+
+        if config.exclude_cache_builds {
+            ctxt = ctxt.set_epoch_cache(
+                EpochCache::new(&pre_state, spec)
+                    .map_err(|e| format!("unable to build epoch cache: {e:?}"))?,
+            );
+            *saved_ctxt = Some(ctxt.clone());
+        }
+        ctxt
+    };
+
     if !config.no_signature_verification {
         let get_pubkey = move |validator_index| {
             validator_pubkey_cache
@@ -367,30 +384,18 @@ fn do_transition<T: EthSpec>(
             get_pubkey,
             decompressor,
             &block,
-            Some(block_root),
-            Some(block.message().proposer_index()),
+            &mut ctxt,
             spec,
         )
         .map_err(|e| format!("Invalid block signature: {:?}", e))?;
         debug!("Batch verify block signatures: {:?}", t.elapsed());
+
+        // Signature verification should prime the indexed attestation cache.
+        assert_eq!(
+            ctxt.num_cached_indexed_attestations(),
+            block.message().body().attestations().len()
+        );
     }
-
-    let mut ctxt = if let Some(ctxt) = saved_ctxt {
-        ctxt.clone()
-    } else {
-        let mut ctxt = ConsensusContext::new(pre_state.slot())
-            .set_current_block_root(block_root)
-            .set_proposer_index(block.message().proposer_index());
-
-        if config.exclude_cache_builds {
-            ctxt = ctxt.set_epoch_cache(
-                EpochCache::new(&pre_state, spec)
-                    .map_err(|e| format!("unable to build epoch cache: {e:?}"))?,
-            );
-            *saved_ctxt = Some(ctxt.clone());
-        }
-        ctxt
-    };
 
     let t = Instant::now();
 

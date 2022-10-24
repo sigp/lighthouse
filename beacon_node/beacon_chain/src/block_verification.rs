@@ -547,8 +547,22 @@ pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
     let pubkey_cache = get_validator_pubkey_cache(chain)?;
     let mut signature_verifier = get_signature_verifier::<T>(&state, &pubkey_cache, &chain.spec);
 
+    let mut signature_verified_blocks = Vec::with_capacity(chain_segment.len());
+
     for (block_root, block) in &chain_segment {
-        signature_verifier.include_all_signatures(block, Some(*block_root), None)?;
+        let mut consensus_context =
+            ConsensusContext::new(block.slot()).set_current_block_root(*block_root);
+
+        signature_verifier.include_all_signatures(&block, &mut consensus_context)?;
+
+        // Save the block and its consensus context. The context will have had its proposer index
+        // and attesting indices filled in, which can be used to accelerate later block processing.
+        signature_verified_blocks.push(SignatureVerifiedBlock {
+            block: block.clone(),
+            block_root: *block_root,
+            parent: None,
+            consensus_context,
+        });
     }
 
     if signature_verifier.verify().is_err() {
@@ -556,22 +570,6 @@ pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
     }
 
     drop(pubkey_cache);
-
-    let mut signature_verified_blocks = chain_segment
-        .into_iter()
-        .map(|(block_root, block)| {
-            // Proposer index has already been verified above during signature verification.
-            let consensus_context = ConsensusContext::new(block.slot())
-                .set_current_block_root(block_root)
-                .set_proposer_index(block.message().proposer_index());
-            SignatureVerifiedBlock {
-                block,
-                block_root,
-                parent: None,
-                consensus_context,
-            }
-        })
-        .collect::<Vec<_>>();
 
     if let Some(signature_verified_block) = signature_verified_blocks.first_mut() {
         signature_verified_block.parent = Some(parent);
@@ -941,13 +939,14 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
         let mut signature_verifier =
             get_signature_verifier::<T>(&state, &pubkey_cache, &chain.spec);
 
-        signature_verifier.include_all_signatures(&block, Some(block_root), None)?;
+        let mut consensus_context =
+            ConsensusContext::new(block.slot()).set_current_block_root(block_root);
+
+        signature_verifier.include_all_signatures(&block, &mut consensus_context)?;
 
         if signature_verifier.verify().is_ok() {
             Ok(Self {
-                consensus_context: ConsensusContext::new(block.slot())
-                    .set_current_block_root(block_root)
-                    .set_proposer_index(block.message().proposer_index()),
+                consensus_context,
                 block,
                 block_root,
                 parent: Some(parent),
@@ -993,16 +992,16 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
 
         // Gossip verification has already checked the proposer index. Use it to check the RANDAO
         // signature.
-        let verified_proposer_index = Some(block.message().proposer_index());
+        let mut consensus_context = from.consensus_context;
         signature_verifier
-            .include_all_signatures_except_proposal(&block, verified_proposer_index)?;
+            .include_all_signatures_except_proposal(&block, &mut consensus_context)?;
 
         if signature_verifier.verify().is_ok() {
             Ok(Self {
                 block,
                 block_root: from.block_root,
                 parent: Some(parent),
-                consensus_context: from.consensus_context,
+                consensus_context,
             })
         } else {
             Err(BlockError::InvalidSignature)

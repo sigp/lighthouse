@@ -57,8 +57,14 @@ pub mod base {
 
         // Verify and apply each attestation.
         for (i, attestation) in attestations.iter().enumerate() {
-            verify_attestation_for_block_inclusion(state, attestation, verify_signatures, spec)
-                .map_err(|e| e.into_with_index(i))?;
+            verify_attestation_for_block_inclusion(
+                state,
+                attestation,
+                ctxt,
+                verify_signatures,
+                spec,
+            )
+            .map_err(|e| e.into_with_index(i))?;
 
             let pending_attestation = PendingAttestation {
                 aggregation_bits: attestation.aggregation_bits.clone(),
@@ -115,9 +121,16 @@ pub mod altair {
 
         let proposer_index = ctxt.get_proposer_index(state, spec)?;
 
-        let indexed_attestation =
-            verify_attestation_for_block_inclusion(state, attestation, verify_signatures, spec)
-                .map_err(|e| e.into_with_index(att_index))?;
+        let attesting_indices = verify_attestation_for_block_inclusion(
+            state,
+            attestation,
+            ctxt,
+            verify_signatures,
+            spec,
+        )
+        .map_err(|e| e.into_with_index(att_index))?
+        .attesting_indices
+        .clone();
 
         // Matching roots, participation flag indices
         let data = &attestation.data;
@@ -127,7 +140,7 @@ pub mod altair {
 
         // Update epoch participation flags.
         let mut proposer_reward_numerator = 0;
-        for index in &indexed_attestation.attesting_indices {
+        for index in &attesting_indices {
             let index = *index as usize;
 
             for (flag_index, &weight) in PARTICIPATION_FLAG_WEIGHTS.iter().enumerate() {

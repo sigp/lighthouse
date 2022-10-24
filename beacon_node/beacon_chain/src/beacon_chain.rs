@@ -140,10 +140,6 @@ const MAX_PER_SLOT_FORK_CHOICE_DISTANCE: u64 = 256;
 pub const INVALID_JUSTIFIED_PAYLOAD_SHUTDOWN_REASON: &str =
     "Justified block has an invalid execution payload.";
 
-// FIXME(sproul): decide whether to keep this
-// Interval before the attestation deadline during which to consider blocks "borderline" late.
-// const BORDERLINE_LATE_BLOCK_TOLERANCE: Duration = Duration::from_millis(50);
-
 pub const INVALID_FINALIZED_MERGE_TRANSITION_BLOCK_SHUTDOWN_REASON: &str =
     "Finalized merge transition block is invalid.";
 
@@ -3369,10 +3365,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // This will be a lot slower but guards against bugs in block production and can be
         // quickly rolled out without a release.
         if self.config.paranoid_block_proposal {
+            let mut tmp_ctxt = ConsensusContext::new(state.slot());
             attestations.retain(|att| {
                 verify_attestation_for_block_inclusion(
                     &state,
                     att,
+                    &mut tmp_ctxt,
                     VerifySignatures::True,
                     &self.spec,
                 )

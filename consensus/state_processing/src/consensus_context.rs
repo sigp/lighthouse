@@ -1,10 +1,13 @@
+use crate::common::get_indexed_attestation;
+use crate::per_block_processing::errors::{AttestationInvalid, BlockOperationError};
 use crate::{EpochCache, EpochCacheError};
 use std::borrow::Cow;
+use std::collections::{hash_map::Entry, HashMap};
 use std::marker::PhantomData;
 use tree_hash::TreeHash;
 use types::{
-    BeaconState, BeaconStateError, ChainSpec, EthSpec, ExecPayload, Hash256, SignedBeaconBlock,
-    Slot,
+    Attestation, AttestationData, BeaconState, BeaconStateError, BitList, ChainSpec, EthSpec,
+    ExecPayload, Hash256, IndexedAttestation, SignedBeaconBlock, Slot,
 };
 
 #[derive(Debug, Clone)]
@@ -17,6 +20,9 @@ pub struct ConsensusContext<T: EthSpec> {
     current_block_root: Option<Hash256>,
     /// Epoch cache of values that are useful for block processing that are static over an epoch.
     epoch_cache: Option<EpochCache>,
+    /// Cache of indexed attestations constructed during block processing.
+    indexed_attestations:
+        HashMap<(AttestationData, BitList<T::MaxValidatorsPerCommittee>), IndexedAttestation<T>>,
     _phantom: PhantomData<T>,
 }
 
@@ -46,6 +52,7 @@ impl<T: EthSpec> ConsensusContext<T> {
             proposer_index: None,
             current_block_root: None,
             epoch_cache: None,
+            indexed_attestations: HashMap::new(),
             _phantom: PhantomData,
         }
     }
@@ -107,9 +114,9 @@ impl<T: EthSpec> ConsensusContext<T> {
         self
     }
 
-    pub fn get_base_reward<E: EthSpec>(
+    pub fn get_base_reward(
         &mut self,
-        state: &BeaconState<E>,
+        state: &BeaconState<T>,
         validator_index: usize,
         spec: &ChainSpec,
     ) -> Result<u64, ContextError> {
@@ -125,5 +132,31 @@ impl<T: EthSpec> ConsensusContext<T> {
         };
 
         Ok(epoch_cache.get_base_reward(validator_index)?)
+    }
+
+    pub fn get_indexed_attestation(
+        &mut self,
+        state: &BeaconState<T>,
+        attestation: &Attestation<T>,
+    ) -> Result<&IndexedAttestation<T>, BlockOperationError<AttestationInvalid>> {
+        let key = (
+            attestation.data.clone(),
+            attestation.aggregation_bits.clone(),
+        );
+
+        match self.indexed_attestations.entry(key) {
+            Entry::Occupied(occupied) => Ok(occupied.into_mut()),
+            Entry::Vacant(vacant) => {
+                let committee =
+                    state.get_beacon_committee(attestation.data.slot, attestation.data.index)?;
+                let indexed_attestation =
+                    get_indexed_attestation(committee.committee, attestation)?;
+                Ok(vacant.insert(indexed_attestation))
+            }
+        }
+    }
+
+    pub fn num_cached_indexed_attestations(&self) -> usize {
+        self.indexed_attestations.len()
     }
 }
