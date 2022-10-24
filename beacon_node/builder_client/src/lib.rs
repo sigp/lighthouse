@@ -1,6 +1,6 @@
 use eth2::types::builder_bid::SignedBuilderBid;
 use eth2::types::{
-    AbstractExecPayload, BlindedPayload, EthSpec, ExecPayload, ExecutionBlockHash,
+    AbstractExecPayload, BlindedPayload, EthSpec, ExecutionBlockHash,
     ExecutionPayload, ForkVersionedResponse, PublicKeyBytes, SignedBeaconBlock,
     SignedValidatorRegistrationData, Slot,
 };

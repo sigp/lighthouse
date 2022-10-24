@@ -1,7 +1,7 @@
 use serde_derive::Serialize;
 use std::sync::Arc;
 use types::{
-    beacon_state::CloneConfig, AbstractExecPayload, BeaconState, EthSpec, ExecPayload, FullPayload,
+    beacon_state::CloneConfig, AbstractExecPayload, BeaconState, EthSpec, FullPayload,
     Hash256, SignedBeaconBlock,
 };
 

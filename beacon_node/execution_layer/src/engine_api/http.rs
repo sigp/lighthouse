@@ -817,10 +817,10 @@ mod test {
     fn encode_transactions<E: EthSpec>(
         transactions: Transactions<E>,
     ) -> Result<serde_json::Value, serde_json::Error> {
-        let ep: JsonExecutionPayload<E> = JsonExecutionPayload {
+        let ep: JsonExecutionPayload<E> = JsonExecutionPayload::V1(JsonExecutionPayloadV1 {
             transactions,
             ..<_>::default()
-        };
+        });
         let json = serde_json::to_value(&ep)?;
         Ok(json.get("transactions").unwrap().clone())
     }
@@ -999,11 +999,11 @@ mod test {
                                 safe_block_hash: ExecutionBlockHash::repeat_byte(1),
                                 finalized_block_hash: ExecutionBlockHash::zero(),
                             },
-                            Some(PayloadAttributes {
+                            Some(PayloadAttributes::V1(PayloadAttributesV1 {
                                 timestamp: 5,
                                 prev_randao: Hash256::zero(),
                                 suggested_fee_recipient: Address::repeat_byte(0),
-                            }),
+                            })),
                         )
                         .await;
                 },
@@ -1034,11 +1034,11 @@ mod test {
                             safe_block_hash: ExecutionBlockHash::repeat_byte(1),
                             finalized_block_hash: ExecutionBlockHash::zero(),
                         },
-                        Some(PayloadAttributes {
+                        Some(PayloadAttributes::V1(PayloadAttributesV1 {
                             timestamp: 5,
                             prev_randao: Hash256::zero(),
                             suggested_fee_recipient: Address::repeat_byte(0),
-                        }),
+                        })),
                     )
                     .await
             })
@@ -1217,11 +1217,11 @@ mod test {
                                 safe_block_hash: ExecutionBlockHash::from_str("0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a").unwrap(),
                                 finalized_block_hash: ExecutionBlockHash::zero(),
                             },
-                            Some(PayloadAttributes {
+                            Some(PayloadAttributes::V1(PayloadAttributesV1 {
                                 timestamp: 5,
                                 prev_randao: Hash256::zero(),
                                 suggested_fee_recipient: Address::from_str("0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b").unwrap(),
-                            })
+                            }))
                         )
                         .await;
                 },
@@ -1264,11 +1264,11 @@ mod test {
                                 safe_block_hash: ExecutionBlockHash::from_str("0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a").unwrap(),
                                 finalized_block_hash: ExecutionBlockHash::zero(),
                             },
-                            Some(PayloadAttributes {
+                            Some(PayloadAttributes::V1(PayloadAttributesV1 {
                                 timestamp: 5,
                                 prev_randao: Hash256::zero(),
                                 suggested_fee_recipient: Address::from_str("0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b").unwrap(),
-                            })
+                            }))
                         )
                         .await
                         .unwrap();
