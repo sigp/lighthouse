@@ -1248,7 +1248,7 @@ impl BeaconNodeHttpClient {
     }
 
     /// `GET v2/validator/blocks/{slot}`
-    pub async fn get_validator_blocks<T: EthSpec, Payload: ExecPayload<T>>(
+    pub async fn get_validator_blocks<T: EthSpec, Payload: AbstractExecPayload<T>>(
         &self,
         slot: Slot,
         randao_reveal: &SignatureBytes,
@@ -1259,7 +1259,7 @@ impl BeaconNodeHttpClient {
     }
 
     /// `GET v2/validator/blocks/{slot}`
-    pub async fn get_validator_blocks_modular<T: EthSpec, Payload: ExecPayload<T>>(
+    pub async fn get_validator_blocks_modular<T: EthSpec, Payload: AbstractExecPayload<T>>(
         &self,
         slot: Slot,
         randao_reveal: &SignatureBytes,
@@ -1291,7 +1291,7 @@ impl BeaconNodeHttpClient {
     }
 
     /// `GET v1/validator/blocks_and_blobs/{slot}`
-    pub async fn get_validator_blocks_and_blobs<T: EthSpec, Payload: ExecPayload<T>>(
+    pub async fn get_validator_blocks_and_blobs<T: EthSpec, Payload: AbstractExecPayload<T>>(
         &self,
         slot: Slot,
         randao_reveal: &SignatureBytes,
@@ -1317,7 +1317,7 @@ impl BeaconNodeHttpClient {
     }
 
     /// `GET v2/validator/blinded_blocks/{slot}`
-    pub async fn get_validator_blinded_blocks<T: EthSpec, Payload: ExecPayload<T>>(
+    pub async fn get_validator_blinded_blocks<T: EthSpec, Payload: AbstractExecPayload<T>>(
         &self,
         slot: Slot,
         randao_reveal: &SignatureBytes,
@@ -1333,7 +1333,10 @@ impl BeaconNodeHttpClient {
     }
 
     /// `GET v1/validator/blinded_blocks/{slot}`
-    pub async fn get_validator_blinded_blocks_modular<T: EthSpec, Payload: ExecPayload<T>>(
+    pub async fn get_validator_blinded_blocks_modular<
+        T: EthSpec,
+        Payload: AbstractExecPayload<T>,
+    >(
         &self,
         slot: Slot,
         randao_reveal: &SignatureBytes,

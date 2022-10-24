@@ -4,7 +4,6 @@
 //! This crate only provides useful functionality for "The Merge", it does not provide any of the
 //! deposit-contract functionality that the `beacon_node/eth1` crate already provides.
 
-use crate::json_structures::JsonBlobBundlesV1;
 use crate::payload_cache::PayloadCache;
 use auth::{strip_prefix, Auth, JwtKey};
 use builder_client::BuilderHttpClient;
@@ -33,10 +32,12 @@ use tokio::{
     time::sleep,
 };
 use tokio_stream::wrappers::WatchStream;
+use types::{AbstractExecPayload, ExecPayload, ExecutionPayloadEip4844, ExecutionPayloadRef};
 use types::{
-    BlindedPayload, BlockType, ChainSpec, Epoch, ExecPayload, ExecutionBlockHash, ForkName,
+    BlindedPayload, BlockType, ChainSpec, Epoch, ExecutionBlockHash, ForkName,
     ProposerPreparationData, PublicKeyBytes, SignedBeaconBlock, Slot,
 };
+use types::{ExecutionPayload, ExecutionPayloadCapella, ExecutionPayloadMerge};
 
 mod engine_api;
 mod engines;
@@ -536,7 +537,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
     /// The result will be returned from the first node that returns successfully. No more nodes
     /// will be contacted.
     #[allow(clippy::too_many_arguments)]
-    pub async fn get_payload<Payload: ExecPayload<T>>(
+    pub async fn get_payload<Payload: AbstractExecPayload<T>>(
         &self,
         parent_hash: ExecutionBlockHash,
         timestamp: u64,
@@ -583,7 +584,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
     }
 
     #[allow(clippy::too_many_arguments)]
-    async fn get_blinded_payload<Payload: ExecPayload<T>>(
+    async fn get_blinded_payload<Payload: AbstractExecPayload<T>>(
         &self,
         parent_hash: ExecutionBlockHash,
         timestamp: u64,
@@ -743,7 +744,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
     }
 
     /// Get a full payload without caching its result in the execution layer's payload cache.
-    async fn get_full_payload<Payload: ExecPayload<T>>(
+    async fn get_full_payload<Payload: AbstractExecPayload<T>>(
         &self,
         parent_hash: ExecutionBlockHash,
         timestamp: u64,
@@ -763,7 +764,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
     }
 
     /// Get a full payload and cache its result in the execution layer's payload cache.
-    async fn get_full_payload_caching<Payload: ExecPayload<T>>(
+    async fn get_full_payload_caching<Payload: AbstractExecPayload<T>>(
         &self,
         parent_hash: ExecutionBlockHash,
         timestamp: u64,
@@ -782,51 +783,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
         .await
     }
 
-    pub async fn get_blob_bundles(
-        &self,
-        parent_hash: ExecutionBlockHash,
-        timestamp: u64,
-        prev_randao: Hash256,
-        proposer_index: u64,
-    ) -> Result<JsonBlobBundlesV1<T>, Error> {
-        let suggested_fee_recipient = self.get_suggested_fee_recipient(proposer_index).await;
-
-        debug!(
-            self.log(),
-            "Issuing engine_getBlobsBundle";
-            "suggested_fee_recipient" => ?suggested_fee_recipient,
-            "prev_randao" => ?prev_randao,
-            "timestamp" => timestamp,
-            "parent_hash" => ?parent_hash,
-        );
-        self.engine()
-            .request(|engine| async move {
-                let payload_id = if let Some(id) = engine
-                    .get_payload_id(parent_hash, timestamp, prev_randao, suggested_fee_recipient)
-                    .await
-                {
-                    // The payload id has been cached for this engine.
-                    metrics::inc_counter_vec(
-                        &metrics::EXECUTION_LAYER_PRE_PREPARED_PAYLOAD_ID,
-                        &[metrics::HIT],
-                    );
-                    id
-                } else {
-                    error!(
-                        self.log(),
-                        "Exec engine unable to produce blobs, did you call get_payload before?",
-                    );
-                    return Err(ApiError::PayloadIdUnavailable);
-                };
-
-                engine.api.get_blobs_bundle_v1::<T>(payload_id).await
-            })
-            .await
-            .map_err(Box::new)
-            .map_err(Error::EngineError)
-    }
-
-    async fn get_full_payload_with<Payload: ExecPayload<T>>(
+    async fn get_full_payload_with<Payload: AbstractExecPayload<T>>(
         &self,
         parent_hash: ExecutionBlockHash,
         timestamp: u64,
@@ -871,11 +828,13 @@ impl<T: EthSpec> ExecutionLayer<T> {
                             .finalized_hash
                             .unwrap_or_else(ExecutionBlockHash::zero),
                     };
-                    let payload_attributes = PayloadAttributes {
+                    // FIXME: This will have to properly handle forks. To do that,
+                    //        withdrawals will need to be passed into this function
+                    let payload_attributes = PayloadAttributes::V1(PayloadAttributesV1 {
                         timestamp,
                         prev_randao,
                         suggested_fee_recipient,
-                    };
+                    });
 
                     let response = engine
                         .notify_forkchoice_updated(
@@ -905,7 +864,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                     .get_payload_v1::<T>(payload_id)
                     .await
                     .map(|full_payload| {
-                        if full_payload.fee_recipient != suggested_fee_recipient {
+                        if full_payload.fee_recipient() != suggested_fee_recipient {
                             error!(
                                 self.log(),
                                 "Inconsistent fee recipient";
@@ -914,7 +873,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                                 indicate that fees are being diverted to another address. Please \
                                 ensure that the value of suggested_fee_recipient is set correctly and \
                                 that the Execution Engine is trusted.",
-                                "fee_recipient" => ?full_payload.fee_recipient,
+                                "fee_recipient" => ?full_payload.fee_recipient(),
                                 "suggested_fee_recipient" => ?suggested_fee_recipient,
                             );
                         }
@@ -958,9 +917,9 @@ impl<T: EthSpec> ExecutionLayer<T> {
         trace!(
             self.log(),
             "Issuing engine_newPayload";
-            "parent_hash" => ?execution_payload.parent_hash,
-            "block_hash" => ?execution_payload.block_hash,
-            "block_number" => execution_payload.block_number,
+            "parent_hash" => ?execution_payload.parent_hash(),
+            "block_hash" => ?execution_payload.block_hash(),
+            "block_number" => execution_payload.block_number(),
         );
 
         let result = self
@@ -975,7 +934,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
             );
         }
 
-        process_payload_status(execution_payload.block_hash, result, self.log())
+        process_payload_status(execution_payload.block_hash(), result, self.log())
             .map_err(Box::new)
             .map_err(Error::EngineError)
     }
@@ -1076,9 +1035,9 @@ impl<T: EthSpec> ExecutionLayer<T> {
         let payload_attributes = self.payload_attributes(next_slot, head_block_root).await;
 
         // Compute the "lookahead", the time between when the payload will be produced and now.
-        if let Some(payload_attributes) = payload_attributes {
+        if let Some(ref payload_attributes) = payload_attributes {
             if let Ok(now) = SystemTime::now().duration_since(UNIX_EPOCH) {
-                let timestamp = Duration::from_secs(payload_attributes.timestamp);
+                let timestamp = Duration::from_secs(payload_attributes.timestamp());
                 if let Some(lookahead) = timestamp.checked_sub(now) {
                     metrics::observe_duration(
                         &metrics::EXECUTION_LAYER_PAYLOAD_ATTRIBUTES_LOOKAHEAD,
@@ -1105,11 +1064,16 @@ impl<T: EthSpec> ExecutionLayer<T> {
             .set_latest_forkchoice_state(forkchoice_state)
             .await;
 
+        let payload_attributes_ref = &payload_attributes;
         let result = self
             .engine()
             .request(|engine| async move {
                 engine
-                    .notify_forkchoice_updated(forkchoice_state, payload_attributes, self.log())
+                    .notify_forkchoice_updated(
+                        forkchoice_state,
+                        payload_attributes_ref.clone(),
+                        self.log(),
+                    )
                     .await
             })
             .await;
@@ -1399,7 +1363,8 @@ impl<T: EthSpec> ExecutionLayer<T> {
         let _timer = metrics::start_timer(&metrics::EXECUTION_LAYER_GET_PAYLOAD_BY_BLOCK_HASH);
 
         if hash == ExecutionBlockHash::zero() {
-            return Ok(Some(ExecutionPayload::default()));
+            // FIXME: how to handle forks properly here?
+            return Ok(Some(ExecutionPayloadMerge::default().into()));
         }
 
         let block = if let Some(block) = engine.api.get_block_by_hash_with_txns::<T>(hash).await? {
@@ -1410,7 +1375,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
 
         let transactions = VariableList::new(
             block
-                .transactions
+                .transactions()
                 .into_iter()
                 .map(|transaction| VariableList::new(transaction.rlp().to_vec()))
                 .collect::<Result<_, _>>()
@@ -1418,22 +1383,73 @@ impl<T: EthSpec> ExecutionLayer<T> {
         )
         .map_err(ApiError::DeserializeTransactions)?;
 
-        Ok(Some(ExecutionPayload {
-            parent_hash: block.parent_hash,
-            fee_recipient: block.fee_recipient,
-            state_root: block.state_root,
-            receipts_root: block.receipts_root,
-            logs_bloom: block.logs_bloom,
-            prev_randao: block.prev_randao,
-            block_number: block.block_number,
-            gas_limit: block.gas_limit,
-            gas_used: block.gas_used,
-            timestamp: block.timestamp,
-            extra_data: block.extra_data,
-            base_fee_per_gas: block.base_fee_per_gas,
-            block_hash: block.block_hash,
-            transactions,
-        }))
+        let payload = match block {
+            ExecutionBlockWithTransactions::Merge(merge_block) => {
+                ExecutionPayload::Merge(ExecutionPayloadMerge {
+                    parent_hash: merge_block.parent_hash,
+                    fee_recipient: merge_block.fee_recipient,
+                    state_root: merge_block.state_root,
+                    receipts_root: merge_block.receipts_root,
+                    logs_bloom: merge_block.logs_bloom,
+                    prev_randao: merge_block.prev_randao,
+                    block_number: merge_block.block_number,
+                    gas_limit: merge_block.gas_limit,
+                    gas_used: merge_block.gas_used,
+                    timestamp: merge_block.timestamp,
+                    extra_data: merge_block.extra_data,
+                    base_fee_per_gas: merge_block.base_fee_per_gas,
+                    block_hash: merge_block.block_hash,
+                    transactions,
+                })
+            }
+            ExecutionBlockWithTransactions::Capella(capella_block) => {
+                let withdrawals = VariableList::new(capella_block.withdrawals.clone())
+                    .map_err(ApiError::DeserializeWithdrawals)?;
+
+                ExecutionPayload::Capella(ExecutionPayloadCapella {
+                    parent_hash: capella_block.parent_hash,
+                    fee_recipient: capella_block.fee_recipient,
+                    state_root: capella_block.state_root,
+                    receipts_root: capella_block.receipts_root,
+                    logs_bloom: capella_block.logs_bloom,
+                    prev_randao: capella_block.prev_randao,
+                    block_number: capella_block.block_number,
+                    gas_limit: capella_block.gas_limit,
+                    gas_used: capella_block.gas_used,
+                    timestamp: capella_block.timestamp,
+                    extra_data: capella_block.extra_data,
+                    base_fee_per_gas: capella_block.base_fee_per_gas,
+                    block_hash: capella_block.block_hash,
+                    transactions,
+                    withdrawals,
+                })
+            }
+            ExecutionBlockWithTransactions::Eip4844(eip4844_block) => {
+                let withdrawals = VariableList::new(eip4844_block.withdrawals.clone())
+                    .map_err(ApiError::DeserializeWithdrawals)?;
+
+                ExecutionPayload::Eip4844(ExecutionPayloadEip4844 {
+                    parent_hash: eip4844_block.parent_hash,
+                    fee_recipient: eip4844_block.fee_recipient,
+                    state_root: eip4844_block.state_root,
+                    receipts_root: eip4844_block.receipts_root,
+                    logs_bloom: eip4844_block.logs_bloom,
+                    prev_randao: eip4844_block.prev_randao,
+                    block_number: eip4844_block.block_number,
+                    gas_limit: eip4844_block.gas_limit,
+                    gas_used: eip4844_block.gas_used,
+                    timestamp: eip4844_block.timestamp,
+                    extra_data: eip4844_block.extra_data,
+                    base_fee_per_gas: eip4844_block.base_fee_per_gas,
+                    excess_blobs: eip4844_block.excess_blobs,
+                    block_hash: eip4844_block.block_hash,
+                    transactions,
+                    withdrawals,
+                })
+            }
+        };
+
+        Ok(Some(payload))
     }
 
     pub async fn propose_blinded_beacon_block(

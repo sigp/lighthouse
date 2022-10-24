@@ -10,6 +10,7 @@ use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 use types::{
     test_utils::generate_deterministic_keypairs, Address, Config, EthSpec, ExecutionPayloadHeader,
+    ExecutionPayloadHeaderMerge,
 };
 
 pub fn run<T: EthSpec>(testnet_dir_path: PathBuf, matches: &ArgMatches) -> Result<(), String> {
@@ -75,7 +76,9 @@ pub fn run<T: EthSpec>(testnet_dir_path: PathBuf, matches: &ArgMatches) -> Resul
                         .map_err(|e| format!("Unable to open {}: {}", filename, e))?;
                     file.read_to_end(&mut bytes)
                         .map_err(|e| format!("Unable to read {}: {}", filename, e))?;
-                    ExecutionPayloadHeader::<T>::from_ssz_bytes(bytes.as_slice())
+                    //FIXME(sean)
+                    ExecutionPayloadHeaderMerge::<T>::from_ssz_bytes(bytes.as_slice())
+                        .map(ExecutionPayloadHeader::Merge)
                         .map_err(|e| format!("SSZ decode failed: {:?}", e))
                 })
                 .transpose()?;
@@ -84,9 +87,9 @@ pub fn run<T: EthSpec>(testnet_dir_path: PathBuf, matches: &ArgMatches) -> Resul
             execution_payload_header.as_ref()
         {
             let eth1_block_hash =
-                parse_optional(matches, "eth1-block-hash")?.unwrap_or(payload.block_hash);
+                parse_optional(matches, "eth1-block-hash")?.unwrap_or(payload.block_hash());
             let genesis_time =
-                parse_optional(matches, "genesis-time")?.unwrap_or(payload.timestamp);
+                parse_optional(matches, "genesis-time")?.unwrap_or(payload.timestamp());
             (eth1_block_hash, genesis_time)
         } else {
             let eth1_block_hash = parse_required(matches, "eth1-block-hash").map_err(|_| {

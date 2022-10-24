@@ -4,7 +4,7 @@ use ssz::Encode;
 use std::fs::File;
 use std::io::Write;
 use std::time::{SystemTime, UNIX_EPOCH};
-use types::{EthSpec, ExecutionPayloadHeader};
+use types::{EthSpec, ExecutionPayloadHeader, ExecutionPayloadHeaderMerge};
 
 pub fn run<T: EthSpec>(matches: &ArgMatches) -> Result<(), String> {
     let eth1_block_hash = parse_required(matches, "execution-block-hash")?;
@@ -18,14 +18,16 @@ pub fn run<T: EthSpec>(matches: &ArgMatches) -> Result<(), String> {
     let gas_limit = parse_required(matches, "gas-limit")?;
     let file_name = matches.value_of("file").ok_or("No file supplied")?;
 
-    let execution_payload_header: ExecutionPayloadHeader<T> = ExecutionPayloadHeader {
-        gas_limit,
-        base_fee_per_gas,
-        timestamp: genesis_time,
-        block_hash: eth1_block_hash,
-        prev_randao: eth1_block_hash.into_root(),
-        ..ExecutionPayloadHeader::default()
-    };
+    //FIXME(sean)
+    let execution_payload_header: ExecutionPayloadHeader<T> =
+        ExecutionPayloadHeader::Merge(ExecutionPayloadHeaderMerge {
+            gas_limit,
+            base_fee_per_gas,
+            timestamp: genesis_time,
+            block_hash: eth1_block_hash,
+            prev_randao: eth1_block_hash.into_root(),
+            ..ExecutionPayloadHeaderMerge::default()
+        });
     let mut file = File::create(file_name).map_err(|_| "Unable to create file".to_string())?;
     let bytes = execution_payload_header.as_ssz_bytes();
     file.write_all(bytes.as_slice())

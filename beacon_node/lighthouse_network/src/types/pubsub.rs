@@ -12,9 +12,8 @@ use types::signed_blobs_sidecar::SignedBlobsSidecar;
 use types::{
     Attestation, AttesterSlashing, EthSpec, ForkContext, ForkName, ProposerSlashing,
     SignedAggregateAndProof, SignedBeaconBlock, SignedBeaconBlockAltair, SignedBeaconBlockBase,
-    SignedBeaconBlockCapella,
-    SignedBeaconBlockEip4844, SignedBeaconBlockMerge, SignedContributionAndProof,
-    SignedVoluntaryExit, SubnetId, SyncCommitteeMessage, SyncSubnetId,
+    SignedBeaconBlockCapella, SignedBeaconBlockEip4844, SignedBeaconBlockMerge,
+    SignedContributionAndProof, SignedVoluntaryExit, SubnetId, SyncCommitteeMessage, SyncSubnetId,
 };
 
 #[derive(Debug, Clone, PartialEq)]

@@ -37,31 +37,45 @@ use BeaconStateError;
 #[ssz(enum_behaviour = "transparent")]
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 pub struct ExecutionPayloadHeader<T: EthSpec> {
+    #[superstruct(getter(copy))]
     pub parent_hash: ExecutionBlockHash,
+    #[superstruct(getter(copy))]
     pub fee_recipient: Address,
+    #[superstruct(getter(copy))]
     pub state_root: Hash256,
+    #[superstruct(getter(copy))]
     pub receipts_root: Hash256,
     #[serde(with = "ssz_types::serde_utils::hex_fixed_vec")]
     pub logs_bloom: FixedVector<u8, T::BytesPerLogsBloom>,
+    #[superstruct(getter(copy))]
     pub prev_randao: Hash256,
     #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[superstruct(getter(copy))]
     pub block_number: u64,
     #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[superstruct(getter(copy))]
     pub gas_limit: u64,
     #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[superstruct(getter(copy))]
     pub gas_used: u64,
     #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[superstruct(getter(copy))]
     pub timestamp: u64,
     #[serde(with = "ssz_types::serde_utils::hex_var_list")]
     pub extra_data: VariableList<u8, T::MaxExtraDataBytes>,
     #[serde(with = "eth2_serde_utils::quoted_u256")]
+    #[superstruct(getter(copy))]
     pub base_fee_per_gas: Uint256,
     #[superstruct(only(Eip4844))]
     #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[superstruct(getter(copy))]
     pub excess_blobs: u64,
+    #[superstruct(getter(copy))]
     pub block_hash: ExecutionBlockHash,
+    #[superstruct(getter(copy))]
     pub transactions_root: Hash256,
     #[superstruct(only(Capella, Eip4844))]
+    #[superstruct(getter(copy))]
     pub withdrawals_root: Hash256,
 }
 

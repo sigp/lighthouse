@@ -2309,6 +2309,7 @@ impl<T: BeaconChainTypes> Worker<T> {
 
                 return;
             }
+            &BlobError::UnknownValidator(_) => todo!(),
         }
     }
 }

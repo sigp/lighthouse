@@ -12,7 +12,10 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
-use types::{EthSpec, ExecutionBlockHash, ExecutionPayload, Hash256, Uint256};
+use types::{
+    EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadCapella, ExecutionPayloadMerge,
+    Hash256, Uint256,
+};
 
 const GAS_LIMIT: u64 = 16384;
 const GAS_USED: u64 = GAS_LIMIT - 1;
@@ -28,21 +31,21 @@ impl<T: EthSpec> Block<T> {
     pub fn block_number(&self) -> u64 {
         match self {
             Block::PoW(block) => block.block_number,
-            Block::PoS(payload) => payload.block_number,
+            Block::PoS(payload) => payload.block_number(),
         }
     }
 
     pub fn parent_hash(&self) -> ExecutionBlockHash {
         match self {
             Block::PoW(block) => block.parent_hash,
-            Block::PoS(payload) => payload.parent_hash,
+            Block::PoS(payload) => payload.parent_hash(),
         }
     }
 
     pub fn block_hash(&self) -> ExecutionBlockHash {
         match self {
             Block::PoW(block) => block.block_hash,
-            Block::PoS(payload) => payload.block_hash,
+            Block::PoS(payload) => payload.block_hash(),
         }
     }
 
@@ -63,33 +66,18 @@ impl<T: EthSpec> Block<T> {
                 timestamp: block.timestamp,
             },
             Block::PoS(payload) => ExecutionBlock {
-                block_hash: payload.block_hash,
-                block_number: payload.block_number,
-                parent_hash: payload.parent_hash,
+                block_hash: payload.block_hash(),
+                block_number: payload.block_number(),
+                parent_hash: payload.parent_hash(),
                 total_difficulty,
-                timestamp: payload.timestamp,
+                timestamp: payload.timestamp(),
             },
         }
     }
 
     pub fn as_execution_block_with_tx(&self) -> Option<ExecutionBlockWithTransactions<T>> {
         match self {
-            Block::PoS(payload) => Some(ExecutionBlockWithTransactions {
-                parent_hash: payload.parent_hash,
-                fee_recipient: payload.fee_recipient,
-                state_root: payload.state_root,
-                receipts_root: payload.receipts_root,
-                logs_bloom: payload.logs_bloom.clone(),
-                prev_randao: payload.prev_randao,
-                block_number: payload.block_number,
-                gas_limit: payload.gas_limit,
-                gas_used: payload.gas_used,
-                timestamp: payload.timestamp,
-                extra_data: payload.extra_data.clone(),
-                base_fee_per_gas: payload.base_fee_per_gas,
-                block_hash: payload.block_hash,
-                transactions: vec![],
-            }),
+            Block::PoS(payload) => Some(payload.clone().into()),
             Block::PoW(_) => None,
         }
     }
@@ -283,7 +271,9 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
             // Update the block hash after modifying the block
             match &mut block {
                 Block::PoW(b) => b.block_hash = ExecutionBlockHash::from_root(b.tree_hash_root()),
-                Block::PoS(b) => b.block_hash = ExecutionBlockHash::from_root(b.tree_hash_root()),
+                Block::PoS(b) => {
+                    *b.block_hash_mut() = ExecutionBlockHash::from_root(b.tree_hash_root())
+                }
             }
             self.block_hashes.insert(block_number, block.block_hash());
             self.blocks.insert(block.block_hash(), block);
@@ -295,7 +285,7 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
     }
 
     pub fn new_payload(&mut self, payload: ExecutionPayload<T>) -> PayloadStatusV1 {
-        let parent = if let Some(parent) = self.blocks.get(&payload.parent_hash) {
+        let parent = if let Some(parent) = self.blocks.get(&payload.parent_hash()) {
             parent
         } else {
             return PayloadStatusV1 {
@@ -305,7 +295,7 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
             };
         };
 
-        if payload.block_number != parent.block_number() + 1 {
+        if payload.block_number() != parent.block_number() + 1 {
             return PayloadStatusV1 {
                 status: PayloadStatusV1Status::Invalid,
                 latest_valid_hash: Some(parent.block_hash()),
@@ -313,8 +303,8 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
             };
         }
 
-        let valid_hash = payload.block_hash;
-        self.pending_payloads.insert(payload.block_hash, payload);
+        let valid_hash = payload.block_hash();
+        self.pending_payloads.insert(payload.block_hash(), payload);
 
         PayloadStatusV1 {
             status: PayloadStatusV1Status::Valid,
@@ -379,24 +369,52 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
                 let id = payload_id_from_u64(self.next_payload_id);
                 self.next_payload_id += 1;
 
-                let mut execution_payload = ExecutionPayload {
-                    parent_hash: forkchoice_state.head_block_hash,
-                    fee_recipient: attributes.suggested_fee_recipient,
-                    receipts_root: Hash256::repeat_byte(42),
-                    state_root: Hash256::repeat_byte(43),
-                    logs_bloom: vec![0; 256].into(),
-                    prev_randao: attributes.prev_randao,
-                    block_number: parent.block_number() + 1,
-                    gas_limit: GAS_LIMIT,
-                    gas_used: GAS_USED,
-                    timestamp: attributes.timestamp,
-                    extra_data: "block gen was here".as_bytes().to_vec().into(),
-                    base_fee_per_gas: Uint256::one(),
-                    block_hash: ExecutionBlockHash::zero(),
-                    transactions: vec![].into(),
+                // FIXME: think about how to test different forks
+                let mut execution_payload = match &attributes {
+                    PayloadAttributes::V1(pa) => ExecutionPayload::Merge(ExecutionPayloadMerge {
+                        parent_hash: forkchoice_state.head_block_hash,
+                        fee_recipient: pa.suggested_fee_recipient,
+                        receipts_root: Hash256::repeat_byte(42),
+                        state_root: Hash256::repeat_byte(43),
+                        logs_bloom: vec![0; 256].into(),
+                        prev_randao: pa.prev_randao,
+                        block_number: parent.block_number() + 1,
+                        gas_limit: GAS_LIMIT,
+                        gas_used: GAS_USED,
+                        timestamp: pa.timestamp,
+                        extra_data: "block gen was here".as_bytes().to_vec().into(),
+                        base_fee_per_gas: Uint256::one(),
+                        block_hash: ExecutionBlockHash::zero(),
+                        transactions: vec![].into(),
+                    }),
+                    PayloadAttributes::V2(pa) => {
+                        ExecutionPayload::Capella(ExecutionPayloadCapella {
+                            parent_hash: forkchoice_state.head_block_hash,
+                            fee_recipient: pa.suggested_fee_recipient,
+                            receipts_root: Hash256::repeat_byte(42),
+                            state_root: Hash256::repeat_byte(43),
+                            logs_bloom: vec![0; 256].into(),
+                            prev_randao: pa.prev_randao,
+                            block_number: parent.block_number() + 1,
+                            gas_limit: GAS_LIMIT,
+                            gas_used: GAS_USED,
+                            timestamp: pa.timestamp,
+                            extra_data: "block gen was here".as_bytes().to_vec().into(),
+                            base_fee_per_gas: Uint256::one(),
+                            block_hash: ExecutionBlockHash::zero(),
+                            transactions: vec![].into(),
+                            withdrawals: pa
+                                .withdrawals
+                                .iter()
+                                .cloned()
+                                .map(Into::into)
+                                .collect::<Vec<_>>()
+                                .into(),
+                        })
+                    }
                 };
 
-                execution_payload.block_hash =
+                *execution_payload.block_hash_mut() =
                     ExecutionBlockHash::from_root(execution_payload.tree_hash_root());
 
                 self.payload_ids.insert(id, execution_payload);

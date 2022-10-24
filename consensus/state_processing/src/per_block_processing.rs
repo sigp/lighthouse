@@ -326,9 +326,9 @@ pub fn partially_verify_execution_payload<'payload, T: EthSpec, Payload: Abstrac
 ) -> Result<(), BlockProcessingError> {
     if is_merge_transition_complete(state) {
         block_verify!(
-            payload.parent_hash() == *state.latest_execution_payload_header()?.block_hash(),
+            payload.parent_hash() == state.latest_execution_payload_header()?.block_hash(),
             BlockProcessingError::ExecutionHashChainIncontiguous {
-                expected: *state.latest_execution_payload_header()?.block_hash(),
+                expected: state.latest_execution_payload_header()?.block_hash(),
                 found: payload.parent_hash(),
             }
         );
