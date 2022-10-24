@@ -711,7 +711,7 @@ mod test {
     use std::future::Future;
     use std::str::FromStr;
     use std::sync::Arc;
-    use types::{MainnetEthSpec, Transactions, Unsigned, VariableList};
+    use types::{AbstractExecPayload, ExecutionPayloadMerge, ForkName, FullPayload, MainnetEthSpec, Transactions, Unsigned, VariableList};
 
     struct Tester {
         server: MockServer<MainnetEthSpec>,
@@ -848,7 +848,7 @@ mod test {
             .unwrap()
             .insert("transactions".into(), transactions);
         let ep: JsonExecutionPayload<E> = serde_json::from_value(json)?;
-        Ok(ep.transactions)
+        Ok(ep.transactions().clone())
     }
 
     fn assert_transactions_serde<E: EthSpec>(
@@ -1074,7 +1074,7 @@ mod test {
             .assert_request_equals(
                 |client| async move {
                     let _ = client
-                        .new_payload_v1::<MainnetEthSpec>(ExecutionPayload {
+                        .new_payload_v1::<MainnetEthSpec>(ExecutionPayload::Merge(ExecutionPayloadMerge{
                             parent_hash: ExecutionBlockHash::repeat_byte(0),
                             fee_recipient: Address::repeat_byte(1),
                             state_root: Hash256::repeat_byte(1),
@@ -1089,7 +1089,7 @@ mod test {
                             base_fee_per_gas: Uint256::from(1),
                             block_hash: ExecutionBlockHash::repeat_byte(1),
                             transactions: vec![].into(),
-                        })
+                        }))
                         .await;
                 },
                 json!({
@@ -1119,7 +1119,7 @@ mod test {
         Tester::new(false)
             .assert_auth_failure(|client| async move {
                 client
-                    .new_payload_v1::<MainnetEthSpec>(ExecutionPayload {
+                    .new_payload_v1::<MainnetEthSpec>(ExecutionPayload::Merge(ExecutionPayloadMerge{
                         parent_hash: ExecutionBlockHash::repeat_byte(0),
                         fee_recipient: Address::repeat_byte(1),
                         state_root: Hash256::repeat_byte(1),
@@ -1134,7 +1134,7 @@ mod test {
                         base_fee_per_gas: Uint256::from(1),
                         block_hash: ExecutionBlockHash::repeat_byte(1),
                         transactions: vec![].into(),
-                    })
+                    }))
                     .await
             })
             .await;
@@ -1327,7 +1327,7 @@ mod test {
                         .await
                         .unwrap();
 
-                    let expected = ExecutionPayload {
+                    let expected = ExecutionPayload::Merge(ExecutionPayloadMerge {
                             parent_hash: ExecutionBlockHash::from_str("0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a").unwrap(),
                             fee_recipient: Address::from_str("0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b").unwrap(),
                             state_root: Hash256::from_str("0xca3149fa9e37db08d1cd49c9061db1002ef1cd58db2210f2115c8c989b2bdf45").unwrap(),
@@ -1342,7 +1342,7 @@ mod test {
                             base_fee_per_gas: Uint256::from(7),
                             block_hash: ExecutionBlockHash::from_str("0x6359b8381a370e2f54072a5784ddd78b6ed024991558c511d4452eb4f6ac898c").unwrap(),
                         transactions: vec![].into(),
-                        };
+                        });
 
                     assert_eq!(payload, expected);
                 },
@@ -1352,7 +1352,7 @@ mod test {
                 // engine_newPayloadV1 REQUEST validation
                 |client| async move {
                     let _ = client
-                        .new_payload_v1::<MainnetEthSpec>(ExecutionPayload {
+                        .new_payload_v1::<MainnetEthSpec>(ExecutionPayload::Merge(ExecutionPayloadMerge{
                             parent_hash: ExecutionBlockHash::from_str("0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a").unwrap(),
                             fee_recipient: Address::from_str("0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b").unwrap(),
                             state_root: Hash256::from_str("0xca3149fa9e37db08d1cd49c9061db1002ef1cd58db2210f2115c8c989b2bdf45").unwrap(),
@@ -1367,7 +1367,7 @@ mod test {
                             base_fee_per_gas: Uint256::from(7),
                             block_hash: ExecutionBlockHash::from_str("0x3559e851470f6e7bbed1db474980683e8c315bfce99b2a6ef47c057c04de7858").unwrap(),
                             transactions: vec![].into(),
-                        })
+                        }))
                         .await;
                 },
                 json!({
@@ -1406,7 +1406,7 @@ mod test {
                 })],
                 |client| async move {
                     let response = client
-                        .new_payload_v1::<MainnetEthSpec>(ExecutionPayload::default())
+                        .new_payload_v1::<MainnetEthSpec>(FullPayload::default_at_fork(ForkName::Merge).into())
                         .await
                         .unwrap();
 

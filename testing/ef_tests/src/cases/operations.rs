@@ -18,9 +18,8 @@ use state_processing::per_block_processing::{
 use std::fmt::Debug;
 use std::path::Path;
 use types::{
-    AbstractExecPayload, Attestation, AttesterSlashing, BeaconBlock, BeaconState, BlindedPayload,
-    ChainSpec, Deposit, EthSpec, ExecutionPayload, ExecutionPayloadMerge, ForkName, FullPayload,
-    OwnedExecPayload, ProposerSlashing, SignedVoluntaryExit, SyncAggregate,
+    Attestation, AttesterSlashing, BeaconBlock, BeaconState, BlindedPayload,
+    ChainSpec, Deposit, EthSpec, ExecutionPayload, ExecutionPayloadMerge, ForkName, FullPayload, ProposerSlashing, SignedVoluntaryExit, SyncAggregate,
 };
 
 #[derive(Debug, Clone, Default, Deserialize)]

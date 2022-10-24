@@ -32,7 +32,7 @@ use tokio::{
     time::sleep,
 };
 use tokio_stream::wrappers::WatchStream;
-use types::{AbstractExecPayload, ExecPayload, ExecutionPayloadEip4844, ExecutionPayloadRef};
+use types::{AbstractExecPayload, ExecPayload, ExecutionPayloadEip4844};
 use types::{
     BlindedPayload, BlockType, ChainSpec, Epoch, ExecutionBlockHash, ForkName,
     ProposerPreparationData, PublicKeyBytes, SignedBeaconBlock, Slot,

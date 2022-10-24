@@ -9,8 +9,7 @@ use std::sync::Arc;
 use tokio::sync::mpsc::UnboundedSender;
 use tree_hash::TreeHash;
 use types::{
-    AbstractExecPayload, BlindedPayload, EthSpec, ExecPayload, ExecutionBlockHash,
-    ExecutionPayload, FullPayload, Hash256, SignedBeaconBlock,
+    AbstractExecPayload, BlindedPayload, EthSpec, ExecPayload, ExecutionBlockHash, FullPayload, Hash256, SignedBeaconBlock,
 };
 use warp::Rejection;
 
