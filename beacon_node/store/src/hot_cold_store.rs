@@ -513,8 +513,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             return Ok(None);
         };
 
-        // FIXME(sproul): dodgy compression factor estimation
-        let mut ssz_bytes = Vec::with_capacity(2 * bytes.len());
+        let mut ssz_bytes = Vec::with_capacity(self.config.estimate_decompressed_size(bytes.len()));
         let mut decoder = Decoder::new(&*bytes).map_err(Error::Compression)?;
         decoder
             .read_to_end(&mut ssz_bytes)
@@ -550,12 +549,11 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             &slot.as_u64().to_be_bytes(),
         );
 
-        // FIXME(sproul): fix compression estimate and level
-        let compression_level = 3;
         let ssz_bytes = block.as_ssz_bytes();
-        let mut compressed_value = Vec::with_capacity(ssz_bytes.len() / 2);
-        let mut encoder =
-            Encoder::new(&mut compressed_value, compression_level).map_err(Error::Compression)?;
+        let mut compressed_value =
+            Vec::with_capacity(self.config.estimate_compressed_size(ssz_bytes.len()));
+        let mut encoder = Encoder::new(&mut compressed_value, self.config.compression_level)
+            .map_err(Error::Compression)?;
         encoder.write_all(&ssz_bytes).map_err(Error::Compression)?;
         encoder.finish().map_err(Error::Compression)?;
 

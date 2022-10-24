@@ -626,7 +626,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     .get_full_block(&new_view.head_block_root, None)?
                     .ok_or(Error::MissingBeaconBlock(new_view.head_block_root))?;
 
-                // FIXME(sproul): use advanced state?
                 let beacon_state_root = beacon_block.state_root();
                 let beacon_state: BeaconState<T::EthSpec> = self
                     .get_state(&beacon_state_root, Some(beacon_block.slot()))?
@@ -1288,8 +1287,7 @@ fn observe_head_block_delays<E: EthSpec, S: SlotClock>(
         // If the block was enshrined as head too late for attestations to be created for it,
         // log a debug warning and increment a metric.
         if late_head {
-            // FIXME(sproul): restore this metric, idk where it went
-            // metrics::inc_counter(&metrics::BEACON_BLOCK_HEAD_SLOT_START_DELAY_EXCEEDED_TOTAL);
+            metrics::inc_counter(&metrics::BEACON_BLOCK_HEAD_SLOT_START_DELAY_EXCEEDED_TOTAL);
             debug!(
                 log,
                 "Delayed head block";

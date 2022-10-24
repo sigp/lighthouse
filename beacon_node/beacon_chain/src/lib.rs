@@ -72,7 +72,6 @@ pub use store;
 pub use timeout_rw_lock::TimeoutRwLock;
 pub use types;
 
-// FIXME(sproul): compatibility shim
 pub mod validator_pubkey_cache {
     use crate::BeaconChainTypes;
 

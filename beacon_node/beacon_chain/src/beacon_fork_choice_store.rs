@@ -197,7 +197,6 @@ where
         };
         let finalized_checkpoint = justified_checkpoint;
 
-        // FIXME(sproul): avoid `to_vec` perf penalty
         Self {
             store,
             balances_cache: <_>::default(),

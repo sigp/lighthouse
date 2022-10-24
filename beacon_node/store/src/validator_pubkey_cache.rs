@@ -100,8 +100,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> ValidatorPubkeyCache<E, 
             self.import(
                 state
                     .validators()
-                    .iter_from(self.pubkeys.len())
-                    .unwrap() // FIXME(sproul)
+                    .iter_from(self.pubkeys.len())?
                     .map(|v| v.immutable.clone()),
                 store,
             )

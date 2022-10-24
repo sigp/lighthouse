@@ -813,6 +813,11 @@ lazy_static! {
         // [0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 50]
         decimal_buckets(-1,2)
     );
+    pub static ref BEACON_BLOCK_HEAD_SLOT_START_DELAY_EXCEEDED_TOTAL: Result<IntCounter> = try_create_int_counter(
+        "beacon_block_head_slot_start_delay_exceeded_total",
+        "Triggered when the duration between the start of the block's slot and the current time \
+        will result in failed attestations.",
+    );
     pub static ref BEACON_BLOCK_HEAD_MISSED_ATT_DEADLINE_LATE: Result<IntCounter> = try_create_int_counter(
         "beacon_block_head_missed_att_deadline_late",
         "Total number of delayed head blocks that arrived late"
