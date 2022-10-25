@@ -1,6 +1,6 @@
 [package]
 name = "beacon_node"
-version = "3.1.2"
+version = "3.2.0"
 authors = ["Paul Hauner <paul@paulhauner.com>", "Age Manning <Age@AgeManning.com"]
 edition = "2021"
 
