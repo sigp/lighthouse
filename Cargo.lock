@@ -2800,6 +2800,7 @@ dependencies = [
  "slot_clock",
  "state_processing",
  "store",
+ "sysinfo",
  "task_executor",
  "tokio",
  "tokio-stream",

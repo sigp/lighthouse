@@ -18,7 +18,10 @@ mod state_id;
 mod sync_committees;
 mod validator_inclusion;
 mod version;
+mod ui;
 
+use sysinfo::{System,SystemExt};
+use parking_lot::RwLock;
 use beacon_chain::{
     attestation_verification::VerifiedAttestation, observed_operations::ObservationOutcome,
     validator_monitor::timestamp_now, AttestationError as AttnError, BeaconChain, BeaconChainError,
@@ -429,6 +432,33 @@ pub fn serve<T: BeaconChainTypes>(
     // Create a `warp` filter that provides access to the logger.
     let inner_ctx = ctx.clone();
     let log_filter = warp::any().map(move || inner_ctx.log.clone());
+
+    // Create a `warp` filter that provides access to local system information.
+    let system_info = Arc::new(RwLock::new(sysinfo::System::new()));
+    { // grab write access for initialisation
+        let mut system_info = system_info.write();
+        system_info.refresh_disks_list();
+        system_info.refresh_networks_list();
+    } // end lock
+
+    let system_info_filter= warp::any()
+            .map(move || system_info.clone())
+            .map(|sysinfo: Arc<RwLock<System>>|  {
+                      { // refresh stats
+                          let mut sysinfo_lock = sysinfo.write();
+                          sysinfo_lock.refresh_memory();
+                          sysinfo_lock.refresh_cpu_specifics(sysinfo::CpuRefreshKind::everything());
+                          sysinfo_lock.refresh_cpu();
+                          sysinfo_lock.refresh_system();
+                          sysinfo_lock.refresh_networks();
+                          sysinfo_lock.refresh_disks();
+                      } // end lock
+                      sysinfo
+            });
+
+    let app_start = std::time::Instant::now();
+    let app_start_filter= warp::any().map(move || app_start.clone());
+
 
     /*
      *
@@ -2693,6 +2723,21 @@ pub fn serve<T: BeaconChainTypes>(
             })
         });
 
+    // GET lighthouse/ui/health
+    let get_lighthouse_ui_health = warp::path("lighthouse")
+        .and(warp::path("ui"))
+        .and(warp::path("health"))
+        .and(warp::path::end())
+        .and(system_info_filter.clone())
+        .and(app_start_filter.clone())
+        .and_then(|sysinfo, runtime_start: std::time::Instant| {
+            blocking_json_task(move || {
+                let runtime = runtime_start.elapsed().as_secs() as u64;
+                Ok(api_types::GenericResponse::from(ui::SystemHealth::observe(sysinfo, runtime)))
+            })
+        });
+
+
     // GET lighthouse/syncing
     let get_lighthouse_syncing = warp::path("lighthouse")
         .and(warp::path("syncing"))
@@ -3139,6 +3184,7 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(get_validator_aggregate_attestation.boxed())
                 .or(get_validator_sync_committee_contribution.boxed())
                 .or(get_lighthouse_health.boxed())
+                .or(get_lighthouse_ui_health.boxed())
                 .or(get_lighthouse_syncing.boxed())
                 .or(get_lighthouse_nat.boxed())
                 .or(get_lighthouse_peers.boxed())

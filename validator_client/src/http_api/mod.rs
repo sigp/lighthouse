@@ -200,6 +200,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                       { // refresh stats
                           let mut sysinfo_lock = sysinfo.write();
                           sysinfo_lock.refresh_memory();
+                          sysinfo_lock.refresh_cpu_specifics(sysinfo::CpuRefreshKind::everything());
                           sysinfo_lock.refresh_cpu();
                           sysinfo_lock.refresh_system();
                           sysinfo_lock.refresh_networks();
