@@ -10,6 +10,7 @@ use account_utils::{
     mnemonic_from_phrase,
     validator_definitions::{SigningDefinition, ValidatorDefinition, Web3SignerDefinition},
 };
+use sysinfo::{System,SystemExt};
 pub use api_secret::ApiSecret;
 use create_validator::{create_validators_mnemonic, create_validators_web3signer};
 use eth2::lighthouse_vc::{
@@ -27,6 +28,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use task_executor::TaskExecutor;
 use types::{ChainSpec, ConfigAndPreset, EthSpec};
+use parking_lot::RwLock;
 use validator_dir::Builder as ValidatorDirBuilder;
 use warp::{
     http::{
@@ -184,6 +186,31 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
     let api_token_path_inner = api_token_path.clone();
     let api_token_path_filter = warp::any().map(move || api_token_path_inner.clone());
 
+    // Create a `warp` filter that provides access to local system information.
+    let system_info = Arc::new(RwLock::new(sysinfo::System::new()));
+    { // grab write access for initialisation
+        let mut system_info = system_info.write();
+        system_info.refresh_disks_list();
+        system_info.refresh_networks_list();
+    } // end lock
+
+    let system_info_filter= warp::any()
+            .map(move || system_info.clone())
+            .map(|sysinfo: Arc<RwLock<System>>|  {
+                      { // refresh stats
+                          let mut sysinfo_lock = sysinfo.write();
+                          sysinfo_lock.refresh_memory();
+                          sysinfo_lock.refresh_cpu();
+                          sysinfo_lock.refresh_system();
+                          sysinfo_lock.refresh_networks();
+                          sysinfo_lock.refresh_disks();
+                      } // end lock
+                      sysinfo
+            });
+
+    let app_start = std::time::Instant::now();
+    let app_start_filter= warp::any().map(move || app_start.clone());
+
     // GET lighthouse/version
     let get_node_version = warp::path("lighthouse")
         .and(warp::path("version"))
@@ -285,12 +312,13 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(warp::path("ui"))
         .and(warp::path("health"))
         .and(warp::path::end())
+        .and(system_info_filter.clone())
+        .and(app_start_filter.clone())
         .and(signer.clone())
-        .and_then(|signer| {
+        .and_then(|sysinfo, runtime_start: std::time::Instant, signer| {
             blocking_signed_json_task(signer, move || {
-                ui::SystemHealth::observe()
-                    .map(api_types::GenericResponse::from)
-                    .map_err(warp_utils::reject::custom_bad_request)
+                let runtime = runtime_start.elapsed().as_secs() as u64;
+                Ok(api_types::GenericResponse::from(ui::SystemHealth::observe(sysinfo, runtime)))
             })
         });
 
