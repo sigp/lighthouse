@@ -1,4 +1,4 @@
-use crate::{hot_cold_store::HotColdDBError, Error, HotColdDB, ItemStore};
+use crate::{hot_cold_store::HotColdDBError, Error, HotColdDB, HotStateSummary, ItemStore};
 use types::{EthSpec, Hash256, Slot};
 
 pub struct HotStateRootIter<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> {
@@ -20,7 +20,7 @@ impl<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotStateRootIter<'a,
         }
     }
 
-    fn do_next(&mut self) -> Result<Option<(Hash256, Slot)>, Error> {
+    fn do_next(&mut self) -> Result<Option<(Hash256, HotStateSummary)>, Error> {
         if self.next_state_root.is_zero() {
             return Ok(None);
         }
@@ -30,20 +30,19 @@ impl<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotStateRootIter<'a,
             .load_hot_state_summary(&self.next_state_root)?
             .ok_or(HotColdDBError::MissingHotStateSummary(self.next_state_root))?;
 
-        let slot = self.next_slot;
         let state_root = self.next_state_root;
 
         self.next_state_root = summary.prev_state_root;
         self.next_slot -= 1;
 
-        Ok(Some((state_root, slot)))
+        Ok(Some((state_root, summary)))
     }
 }
 
 impl<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> Iterator
     for HotStateRootIter<'a, E, Hot, Cold>
 {
-    type Item = Result<(Hash256, Slot), Error>;
+    type Item = Result<(Hash256, HotStateSummary), Error>;
 
     fn next(&mut self) -> Option<Self::Item> {
         self.do_next().transpose()

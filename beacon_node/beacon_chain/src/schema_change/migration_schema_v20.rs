@@ -1,3 +1,6 @@
+// FIXME(sproul): implement migration
+#![allow(unused)]
+
 use crate::{
     beacon_chain::{BeaconChainTypes, BEACON_CHAIN_DB_KEY},
     persisted_beacon_chain::PersistedBeaconChain,
@@ -25,6 +28,7 @@ fn get_state_by_replay<T: BeaconChainTypes>(
     db: &HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>,
     state_root: Hash256,
 ) -> Result<BeaconState<T::EthSpec>, Error> {
+    /* FIXME(sproul): fix migration
     // Load state summary.
     let HotStateSummaryV1 {
         slot,
@@ -39,12 +43,15 @@ fn get_state_by_replay<T: BeaconChainTypes>(
     let blocks = db.load_blocks_to_replay(epoch_boundary_state.slot(), slot, latest_block_root)?;
 
     db.replay_blocks(epoch_boundary_state, blocks, slot, std::iter::empty(), None)
+    */
+    panic!()
 }
 
 pub fn upgrade_to_v20<T: BeaconChainTypes>(
     db: Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>,
     log: Logger,
 ) -> Result<(), Error> {
+    /* FIXME(sproul): fix this
     let mut ops = vec![];
 
     // Translate hot state summaries to new format:
@@ -191,12 +198,15 @@ pub fn upgrade_to_v20<T: BeaconChainTypes>(
     }
 
     db.store_schema_version_atomically(SchemaVersion(20), ops)
+    */
+    panic!()
 }
 
 pub fn downgrade_from_v20<T: BeaconChainTypes>(
     db: Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>,
     log: Logger,
 ) -> Result<(), Error> {
+    /* FIXME(sproul): broken
     let slots_per_epoch = T::EthSpec::slots_per_epoch();
 
     // Iterate hot state summaries and re-write them so that:
@@ -258,4 +268,6 @@ pub fn downgrade_from_v20<T: BeaconChainTypes>(
     }
 
     db.store_schema_version_atomically(SchemaVersion(8), ops)
+    */
+    panic!()
 }

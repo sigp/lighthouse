@@ -39,6 +39,7 @@ use state_processing::{
     block_replayer::PreSlotHook, BlockProcessingError, BlockReplayer, SlotProcessingError,
 };
 use std::cmp::min;
+use std::collections::VecDeque;
 use std::io::{Read, Write};
 use std::marker::PhantomData;
 use std::path::Path;
@@ -48,7 +49,7 @@ use types::*;
 use types::{beacon_state::BeaconStateDiff, EthSpec};
 use zstd::{Decoder, Encoder};
 
-pub const MAX_PARENT_STATES_TO_CACHE: u64 = 32;
+pub const MAX_PARENT_STATES_TO_CACHE: u64 = 1;
 
 /// On-disk database that stores finalized states efficiently.
 ///
@@ -891,12 +892,17 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         // Store a summary of the state.
         // We store one even for the epoch boundary states, as we may need their slots
         // when doing a look up by state root.
-        let hot_state_summary = HotStateSummary::new(state_root, state)?;
+        let diff_base_slot = self.state_diff_slot(state.slot());
+
+        let hot_state_summary = HotStateSummary::new(state_root, state, diff_base_slot)?;
         let op = hot_state_summary.as_kv_store_op(*state_root)?;
         ops.push(op);
 
-        // On the epoch boundary, store a diff from the previous epoch boundary state -- unless
-        // we're at a fork boundary in which case the full state must be stored.
+        // On an epoch boundary, consider storing:
+        //
+        // 1. A full state, if the state is the split state or a fork boundary state.
+        // 2. A state diff, if the state is a multiple of `epochs_per_state_diff` after the
+        //    split state.
         if state.slot() % E::slots_per_epoch() == 0 {
             if self.is_stored_as_full_state(*state_root, state.slot())? {
                 info!(
@@ -906,25 +912,24 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                     "state_root" => ?state_root,
                 );
                 self.store_full_state_in_batch(state_root, state, ops)?;
-            } else {
-                /* FIXME(sproul): disabling this biz
+            } else if let Some(base_slot) = diff_base_slot {
                 debug!(
                     self.log,
-                    "Storing state diff on epoch boundary";
+                    "Storing state diff on boundary";
                     "slot" => state.slot(),
+                    "base_slot" => base_slot,
                     "state_root" => ?state_root,
                 );
-                let prev_epoch_state_root = hot_state_summary.epoch_boundary_state_root;
-                let prev_boundary_state = self.get_hot_state(&prev_epoch_state_root)?.ok_or(
-                    HotColdDBError::MissingEpochBoundaryState(prev_epoch_state_root),
+                let diff_base_state_root = hot_state_summary.diff_base_state_root;
+                let diff_base_state = self.get_hot_state(&diff_base_state_root)?.ok_or(
+                    HotColdDBError::MissingEpochBoundaryState(diff_base_state_root),
                 )?;
 
                 let compute_diff_timer =
                     metrics::start_timer(&metrics::BEACON_STATE_DIFF_COMPUTE_TIME);
-                let diff = BeaconStateDiff::compute_diff(&prev_boundary_state, state)?;
+                let diff = BeaconStateDiff::compute_diff(&diff_base_state, state)?;
                 drop(compute_diff_timer);
                 ops.push(self.state_diff_as_kv_store_op(state_root, &diff)?);
-                */
             }
         }
 
@@ -975,7 +980,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
     /// Load a post-finalization state from the hot database.
     ///
-    /// Will replay blocks from the nearest epoch boundary.
+    /// Use a combination of state diffs and replayed blocks as appropriate.
     ///
     /// Return the `(state, latest_block_root)` if found.
     pub fn load_hot_state(
@@ -991,156 +996,223 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             return self.load_hot_state_full(state_root).map(Some);
         }
 
-        if let Some(HotStateSummary {
-            slot,
-            latest_block_root,
-            epoch_boundary_state_root,
-            prev_state_root: _,
-        }) = self.load_hot_state_summary(state_root)?
+        let target_summary = if let Some(summary) = self.load_hot_state_summary(state_root)? {
+            summary
+        } else {
+            return Ok(None);
+        };
+
+        let target_slot = target_summary.slot;
+        let target_latest_block_root = target_summary.latest_block_root;
+
+        // Load the latest block, and use it to confirm the validity of this state.
+        if self
+            .get_blinded_block(&target_summary.latest_block_root, None)?
+            .is_none()
         {
-            // Load the latest block, and use it to confirm the validity of this state.
-            let latest_block =
-                if let Some(block) = self.get_blinded_block(&latest_block_root, None)? {
-                    block
-                } else {
-                    // Dangling state, will be deleted fully once finalization advances past it.
-                    debug!(
-                        self.log,
-                        "Ignoring state load for dangling state";
-                        "state_root" => ?state_root,
-                        "slot" => slot,
-                        "latest_block_root" => ?latest_block_root,
-                    );
-                    return Ok(None);
-                };
+            // Dangling state, will be deleted fully once finalization advances past it.
+            debug!(
+                self.log,
+                "Ignoring state load for dangling state";
+                "state_root" => ?state_root,
+                "slot" => target_slot,
+                "latest_block_root" => ?target_summary.latest_block_root,
+            );
+            return Ok(None);
+        }
 
-            // On a fork boundary slot load a full state from disk.
-            if self.spec.fork_activated_at_slot::<E>(slot).is_some() {
-                return self.load_hot_state_full(state_root).map(Some);
+        // Backtrack until we reach a state that is in the cache, or in the worst case
+        // the finalized state (this should only be reachable on first start-up).
+        let state_summary_iter = HotStateRootIter::new(self, target_slot, *state_root);
+
+        // State and state root of the state upon which blocks and diffs will be replayed.
+        let mut base_state = None;
+
+        // State diffs to be replayed on top of `base_state`.
+        // Each element is `(summary, state_root, diff)` such that applying `diff` to the
+        // state with `summary.diff_base_state_root` yields the state with `state_root`.
+        let mut state_diffs = VecDeque::new();
+
+        // State roots for all slots between `base_state` and the `target_slot`. Depending on how
+        // the diffs fall, some of these roots may not be needed.
+        let mut state_roots = VecDeque::new();
+
+        for res in state_summary_iter {
+            let (prior_state_root, prior_summary) = res?;
+
+            state_roots.push_front(Ok((prior_state_root, prior_summary.slot)));
+
+            // Check if this state is in the cache.
+            if let Some(state) = self.state_cache.lock().get_by_state_root(prior_state_root) {
+                debug!(
+                    self.log,
+                    "Found cached base state for replay";
+                    "base_state_root" => ?prior_state_root,
+                    "base_slot" => prior_summary.slot,
+                    "target_state_root" => ?state_root,
+                    "target_slot" => target_slot,
+                );
+                base_state = Some((prior_state_root, state));
+                break;
             }
 
-            // On any other epoch boundary load and apply a diff.
-            /* FIXME(sproul): disabled temporarily
-            if slot % E::slots_per_epoch() == 0 {
-                return self
-                    .load_state_from_diff(*state_root, epoch_boundary_state_root)
-                    .map(Some);
-            }
-            */
-
-            // Backtrack until we reach a state that is in the cache, or in the worst case
-            // the finalized state (this should only be reachable on first start-up).
-            let state_root_iter = HotStateRootIter::new(self, slot, *state_root);
-            let mut state_roots = Vec::with_capacity(32);
-            let mut state = None;
-
-            for res in state_root_iter {
-                let (prior_state_root, prior_slot) = res?;
-
-                state_roots.push(Ok((prior_state_root, prior_slot)));
-
-                // Check if this state is in the cache.
-                if let Some(base_state) =
-                    self.state_cache.lock().get_by_state_root(prior_state_root)
-                {
-                    debug!(
-                        self.log,
-                        "Found cached base state for replay";
-                        "base_state_root" => ?prior_state_root,
-                        "base_slot" => prior_slot,
-                        "target_state_root" => ?state_root,
-                        "target_slot" => slot,
-                    );
-                    state = Some(base_state);
-                    break;
-                }
-
-                // If the prior state is the split state and it isn't cached then load it in
-                // entirety from disk. This should only happen on first start up.
-                if prior_state_root == self.get_split_info().state_root {
-                    debug!(
-                        self.log,
-                        "Using split state as base state for replay";
-                        "base_state_root" => ?prior_state_root,
-                        "base_slot" => prior_slot,
-                        "target_state_root" => ?state_root,
-                        "target_slot" => slot,
-                    );
-                    let (split_state, _) = self.load_hot_state_full(&prior_state_root)?;
-                    state = Some(split_state);
-                    break;
-                }
+            // If the prior state is the split state and it isn't cached then load it in
+            // entirety from disk. This should only happen on first start up.
+            if prior_state_root == self.get_split_info().state_root {
+                debug!(
+                    self.log,
+                    "Using split state as base state for replay";
+                    "base_state_root" => ?prior_state_root,
+                    "base_slot" => prior_summary.slot,
+                    "target_state_root" => ?state_root,
+                    "target_slot" => target_slot,
+                );
+                let (split_state, _) = self.load_hot_state_full(&prior_state_root)?;
+                base_state = Some((prior_state_root, split_state));
+                break;
             }
 
-            let base_state = state.ok_or(Error::NoBaseStateFound(*state_root))?;
+            // If there's a state diff stored at this slot, load it and store it for application.
+            if !prior_summary.diff_base_state_root.is_zero() {
+                let diff = self.load_state_diff(prior_state_root)?;
+                state_diffs.push_front((prior_summary, prior_state_root, diff));
+            }
+        }
 
-            // Reverse the collected state roots so that they are in slot ascending order.
-            state_roots.reverse();
+        let (_, mut state) = base_state.ok_or(Error::NoBaseStateFound(*state_root))?;
 
-            // Collect the blocks to replay.
-            // We already have the latest block loaded, which is sufficient if the base state is
-            // just one slot behind the state to be constructed.
-            let mut blocks = if base_state.slot() + 1 == slot {
-                Vec::with_capacity(1)
-            } else {
-                self.load_blocks_to_replay(base_state.slot(), slot - 1, latest_block.parent_root())?
-            };
-            blocks.push(latest_block);
+        // Construct a mutable iterator for the state roots, which will be iterated through
+        // consecutive calls to `replay_blocks`.
+        let mut state_roots_iter = state_roots.into_iter();
 
-            let state_cacher_hook: PreSlotHook<_, _> = Box::new(|opt_state_root, state| {
-                // Ensure all caches are built before attempting to cache.
-                state.update_tree_hash_cache()?;
-                state.build_all_caches(&self.spec)?;
-
-                if let Some(state_root) = opt_state_root {
-                    // Cache
-                    if state.slot() + MAX_PARENT_STATES_TO_CACHE > slot
-                        || state.slot() % E::slots_per_epoch() == 0
-                    {
-                        debug!(
-                            self.log,
-                            "Caching ancestor state";
-                            "state_root" => ?state_root,
-                            "slot" => state.slot(),
-                        );
-                        // FIXME(sproul): this block root could be optimized out
-                        let latest_block_root = state.get_latest_block_root(state_root);
-                        self.state_cache
-                            .lock()
-                            .put_state(state_root, latest_block_root, state)?;
-                    }
-                } else {
-                    debug!(
-                        self.log,
-                        "Block replay state root miss";
-                        "slot" => state.slot(),
-                    );
-                }
-                Ok(())
-            });
-
-            let mut state = self.replay_blocks(
-                base_state,
-                blocks,
-                slot,
-                state_roots.into_iter(),
-                Some(state_cacher_hook),
-            )?;
-
+        // This hook caches states from block replay so that they may be reused.
+        let state_cacher_hook = |opt_state_root: Option<Hash256>, state: &mut BeaconState<_>| {
+            // Ensure all caches are built before attempting to cache.
             state.update_tree_hash_cache()?;
             state.build_all_caches(&self.spec)?;
 
-            Ok(Some((state, latest_block_root)))
-        } else {
-            Ok(None)
+            if let Some(state_root) = opt_state_root {
+                // Cache
+                if state.slot() + MAX_PARENT_STATES_TO_CACHE >= target_slot
+                    || state.slot() % E::slots_per_epoch() == 0
+                {
+                    let slot = state.slot();
+                    let latest_block_root = state.get_latest_block_root(state_root);
+                    if let PutStateOutcome::New =
+                        self.state_cache
+                            .lock()
+                            .put_state(state_root, latest_block_root, state)?
+                    {
+                        debug!(
+                            self.log,
+                            "Cached ancestor state";
+                            "state_root" => ?state_root,
+                            "slot" => slot,
+                        );
+                    }
+                }
+            } else {
+                debug!(
+                    self.log,
+                    "Block replay state root miss";
+                    "slot" => state.slot(),
+                );
+            }
+            Ok(())
+        };
+
+        // Apply the diffs, and replay blocks atop the base state to reach the target state.
+        while state.slot() < target_slot {
+            // Drop unncessary diffs.
+            state_diffs.retain(|(summary, diff_root, _)| {
+                let keep = summary.diff_base_slot >= state.slot();
+                if !keep {
+                    debug!(
+                        self.log,
+                        "Ignoring irrelevant state diff";
+                        "diff_state_root" => ?diff_root,
+                        "diff_base_slot" => summary.diff_base_slot,
+                        "current_state_slot" => state.slot(),
+                    );
+                }
+                keep
+            });
+
+            // Get the next diff that will be applicable, taking the highest slot diff in case of
+            // multiple diffs which are applicable at the same base slot, which can happen if the
+            // diff frequency has changed.
+            let mut next_state_diff: Option<(HotStateSummary, Hash256, BeaconStateDiff<_>)> = None;
+            while let Some((summary, _, _)) = state_diffs.front() {
+                if next_state_diff.as_ref().map_or(true, |(current, _, _)| {
+                    summary.diff_base_slot == current.diff_base_slot
+                }) {
+                    next_state_diff = state_diffs.pop_front();
+                } else {
+                    break;
+                }
+            }
+
+            // Replay blocks to get to the next diff's base state, or to the target state if there
+            // is no next diff to apply.
+            if next_state_diff
+                .as_ref()
+                .map_or(true, |(next_summary, _, _)| {
+                    next_summary.diff_base_slot != state.slot()
+                })
+            {
+                let (next_slot, latest_block_root) = next_state_diff
+                    .as_ref()
+                    .map(|(summary, _, _)| (summary.diff_base_slot, summary.latest_block_root))
+                    .unwrap_or_else(|| (target_summary.slot, target_latest_block_root));
+                debug!(
+                    self.log,
+                    "Replaying blocks";
+                    "from_slot" => state.slot(),
+                    "to_slot" => next_slot,
+                    "latest_block_root" => ?latest_block_root,
+                );
+                let blocks =
+                    self.load_blocks_to_replay(state.slot(), next_slot, latest_block_root)?;
+
+                state = self.replay_blocks(
+                    state,
+                    blocks,
+                    next_slot,
+                    &mut state_roots_iter,
+                    Some(Box::new(state_cacher_hook)),
+                )?;
+
+                state.update_tree_hash_cache()?;
+                state.build_all_caches(&self.spec)?;
+            }
+
+            // Apply state diff. Block replay should have ensured that the diff is now applicable.
+            if let Some((summary, to_root, diff)) = next_state_diff {
+                debug!(
+                    self.log,
+                    "Applying state diff";
+                    "from_root" => ?summary.diff_base_state_root,
+                    "from_slot" => summary.diff_base_slot,
+                    "to_root" => ?to_root,
+                    "to_slot" => summary.slot,
+                );
+                debug_assert_eq!(summary.diff_base_slot, state.slot());
+
+                diff.apply_diff(&mut state)?;
+
+                state.update_tree_hash_cache()?;
+                state.build_all_caches(&self.spec)?;
+            }
         }
+
+        Ok(Some((state, target_latest_block_root)))
     }
 
     /// Determine if the `state_root` at `slot` should be stored as a full state.
     ///
     /// This is dependent on the database's current split point, so may change from `false` to
     /// `true` after a finalization update. It cannot change from `true` to `false` for a state in
-    /// the hot database as the split state will be migrated to
+    /// the hot database as the split state will be migrated to the freezer.
     ///
     /// All fork boundary states are also stored as full states.
     pub fn is_stored_as_full_state(&self, state_root: Hash256, slot: Slot) -> Result<bool, Error> {
@@ -1152,6 +1224,25 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         } else {
             Err(Error::SlotIsBeforeSplit { slot })
         }
+    }
+
+    /// Determine if a state diff should be stored at `slot`.
+    ///
+    /// If `Some(base_slot)` is returned then a state diff should be constructed for the state
+    /// at `slot` based on the ancestor state at `base_slot`. The frequency of state diffs stored
+    /// on disk is determined by the `epochs_per_state_diff` parameter.
+    pub fn state_diff_slot(&self, slot: Slot) -> Option<Slot> {
+        let split = self.get_split_info();
+        let slots_per_epoch = E::slots_per_epoch();
+
+        if slot % slots_per_epoch != 0 {
+            return None;
+        }
+
+        let epochs_since_split = slot.saturating_sub(split.slot).epoch(slots_per_epoch);
+
+        (epochs_since_split > 0 && epochs_since_split % self.config.epochs_per_state_diff == 0)
+            .then(|| slot.saturating_sub(self.config.epochs_per_state_diff * slots_per_epoch))
     }
 
     pub fn load_hot_state_full(
@@ -1174,25 +1265,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         state.build_all_caches(&self.spec)?;
 
         let latest_block_root = state.get_latest_block_root(*state_root);
-        Ok((state, latest_block_root))
-    }
-
-    pub fn load_state_from_diff(
-        &self,
-        state_root: Hash256,
-        prev_epoch_state_root: Hash256,
-    ) -> Result<(BeaconState<E>, Hash256), Error> {
-        let diff = self.load_state_diff(state_root)?;
-        let mut state = self.get_hot_state(&prev_epoch_state_root)?.ok_or(
-            HotColdDBError::MissingEpochBoundaryState(prev_epoch_state_root),
-        )?;
-        diff.apply_diff(&mut state)?;
-
-        // Do a tree hash here so that the cache is fully built.
-        state.update_tree_hash_cache()?;
-        state.build_all_caches(&self.spec)?;
-
-        let latest_block_root = state.get_latest_block_root(state_root);
         Ok((state, latest_block_root))
     }
 
@@ -2112,8 +2184,15 @@ impl StoreItem for Split {
 pub struct HotStateSummary {
     pub slot: Slot,
     pub latest_block_root: Hash256,
-    /// The state root of the state at the prior epoch boundary.
-    pub epoch_boundary_state_root: Hash256,
+    /// The state root of a state prior to this state with respect to which this state's diff is
+    /// stored.
+    ///
+    /// Set to 0 if this state *is not* stored as a diff.
+    ///
+    /// Formerly known as the `epoch_boundary_state_root`.
+    pub diff_base_state_root: Hash256,
+    /// The slot of the state with `diff_base_state_root`, or 0 if no diff is stored.
+    pub diff_base_slot: Slot,
     /// The state root of the state at the prior slot.
     #[superstruct(only(V10))]
     pub prev_state_root: Hash256,
@@ -2143,19 +2222,25 @@ impl_store_item_summary!(HotStateSummaryV10);
 
 impl HotStateSummary {
     /// Construct a new summary of the given state.
-    pub fn new<E: EthSpec>(state_root: &Hash256, state: &BeaconState<E>) -> Result<Self, Error> {
+    pub fn new<E: EthSpec>(
+        state_root: &Hash256,
+        state: &BeaconState<E>,
+        diff_base_slot: Option<Slot>,
+    ) -> Result<Self, Error> {
         // Fill in the state root on the latest block header if necessary (this happens on all
         // slots where there isn't a skip).
         let slot = state.slot();
         let latest_block_root = state.get_latest_block_root(*state_root);
-        let epoch_boundary_slot = (slot - 1) / E::slots_per_epoch() * E::slots_per_epoch();
-        let epoch_boundary_state_root = if epoch_boundary_slot == slot {
-            *state_root
-        } else {
+
+        // Set the diff state root as appropriate.
+        let diff_base_state_root = if let Some(base_slot) = diff_base_slot {
             *state
-                .get_state_root(epoch_boundary_slot)
+                .get_state_root(base_slot)
                 .map_err(HotColdDBError::HotStateSummaryError)?
+        } else {
+            Hash256::zero()
         };
+
         let prev_state_root = if let Ok(prev_slot) = slot.safe_sub(1) {
             *state
                 .get_state_root(prev_slot)
@@ -2165,9 +2250,10 @@ impl HotStateSummary {
         };
 
         Ok(HotStateSummary {
-            slot: state.slot(),
+            slot,
             latest_block_root,
-            epoch_boundary_state_root,
+            diff_base_state_root,
+            diff_base_slot: diff_base_slot.unwrap_or(Slot::new(0)),
             prev_state_root,
         })
     }

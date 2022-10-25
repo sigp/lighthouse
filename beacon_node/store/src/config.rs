@@ -6,6 +6,7 @@ use types::{EthSpec, MinimalEthSpec};
 
 pub const PREV_DEFAULT_SLOTS_PER_RESTORE_POINT: u64 = 2048;
 pub const DEFAULT_SLOTS_PER_RESTORE_POINT: u64 = 8192;
+pub const DEFAULT_EPOCHS_PER_STATE_DIFF: u64 = 4;
 pub const DEFAULT_BLOCK_CACHE_SIZE: usize = 64;
 pub const DEFAULT_STATE_CACHE_SIZE: usize = 128;
 pub const DEFAULT_COMPRESSION_LEVEL: i32 = 1;
@@ -18,6 +19,8 @@ pub struct StoreConfig {
     pub slots_per_restore_point: u64,
     /// Flag indicating whether the `slots_per_restore_point` was set explicitly by the user.
     pub slots_per_restore_point_set_explicitly: bool,
+    /// Number of epochs between state diffs in the hot database.
+    pub epochs_per_state_diff: u64,
     /// Maximum number of blocks to store in the in-memory block cache.
     pub block_cache_size: usize,
     /// Maximum number of states to store in the in-memory state cache.
@@ -38,9 +41,9 @@ pub struct StoreConfig {
 
 /// Variant of `StoreConfig` that gets written to disk. Contains immutable configuration params.
 #[derive(Debug, Clone, PartialEq, Eq, Encode, Decode)]
+// FIXME(sproul): schema migration
 pub struct OnDiskStoreConfig {
     pub slots_per_restore_point: u64,
-    // FIXME(sproul): schema migration
     pub linear_blocks: bool,
     pub linear_restore_points: bool,
 }
@@ -57,6 +60,7 @@ impl Default for StoreConfig {
             // Safe default for tests, shouldn't ever be read by a CLI node.
             slots_per_restore_point: MinimalEthSpec::slots_per_historical_root() as u64,
             slots_per_restore_point_set_explicitly: false,
+            epochs_per_state_diff: DEFAULT_EPOCHS_PER_STATE_DIFF,
             block_cache_size: DEFAULT_BLOCK_CACHE_SIZE,
             state_cache_size: DEFAULT_STATE_CACHE_SIZE,
             compression_level: DEFAULT_COMPRESSION_LEVEL,
