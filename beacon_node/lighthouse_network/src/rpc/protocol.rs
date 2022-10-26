@@ -21,7 +21,6 @@ use tokio_util::{
     compat::{Compat, FuturesAsyncReadCompatExt},
 };
 use types::BlobsSidecar;
-use types::SignedBlobsSidecar;
 use types::{
     BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockMerge, Blob, EthSpec, ForkContext,
     ForkName, Hash256, MainnetEthSpec, Signature, SignedBeaconBlock,

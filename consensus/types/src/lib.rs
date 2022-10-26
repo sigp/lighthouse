@@ -95,7 +95,6 @@ pub mod blobs_sidecar;
 pub mod bls_field_element;
 pub mod kzg_commitment;
 pub mod kzg_proof;
-pub mod signed_blobs_sidecar;
 
 use ethereum_types::{H160, H256};
 
@@ -168,7 +167,6 @@ pub use crate::signed_beacon_block::{
     SignedBlindedBeaconBlock,
 };
 pub use crate::signed_beacon_block_header::SignedBeaconBlockHeader;
-pub use crate::signed_blobs_sidecar::SignedBlobsSidecar;
 pub use crate::signed_contribution_and_proof::SignedContributionAndProof;
 pub use crate::signed_voluntary_exit::SignedVoluntaryExit;
 pub use crate::signing_data::{SignedRoot, SigningData};

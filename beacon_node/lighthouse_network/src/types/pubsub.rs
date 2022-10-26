@@ -3,25 +3,34 @@
 use crate::types::{GossipEncoding, GossipKind, GossipTopic};
 use crate::TopicHash;
 use libp2p::gossipsub::{DataTransform, GossipsubMessage, RawGossipsubMessage};
+use serde_derive::{Deserialize, Serialize};
 use snap::raw::{decompress_len, Decoder, Encoder};
 use ssz::{Decode, Encode};
+use ssz_derive::{Decode, Encode};
 use std::boxed::Box;
 use std::io::{Error, ErrorKind};
 use std::sync::Arc;
-use types::signed_blobs_sidecar::SignedBlobsSidecar;
+use tree_hash_derive::TreeHash;
 use types::{
-    Attestation, AttesterSlashing, EthSpec, ForkContext, ForkName, ProposerSlashing,
+    Attestation, AttesterSlashing, BlobsSidecar, EthSpec, ForkContext, ForkName, ProposerSlashing,
     SignedAggregateAndProof, SignedBeaconBlock, SignedBeaconBlockAltair, SignedBeaconBlockBase,
     SignedBeaconBlockCapella, SignedBeaconBlockEip4844, SignedBeaconBlockMerge,
     SignedContributionAndProof, SignedVoluntaryExit, SubnetId, SyncCommitteeMessage, SyncSubnetId,
 };
 
+#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, PartialEq)]
+#[serde(bound = "T: EthSpec")]
+pub struct SignedBeaconBlockAndBlobsSidecar<T: EthSpec> {
+    beacon_block: SignedBeaconBlock<T>,
+    blobs_sidecar: BlobsSidecar<T>,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum PubsubMessage<T: EthSpec> {
     /// Gossipsub message providing notification of a new block.
     BeaconBlock(Arc<SignedBeaconBlock<T>>),
-    /// Gossipsub message providing notification of a new blobs sidecar.
-    BlobsSidecars(Arc<SignedBlobsSidecar<T>>),
+    /// Gossipsub message providing notification of a new SignedBeaconBlock coupled with a blobs sidecar.
+    BeaconBlockAndBlobsSidecars(Arc<SignedBeaconBlockAndBlobsSidecar<T>>),
     /// Gossipsub message providing notification of a Aggregate attestation and associated proof.
     AggregateAndProofAttestation(Box<SignedAggregateAndProof<T>>),
     /// Gossipsub message providing notification of a raw un-aggregated attestation with its shard id.
@@ -109,7 +118,9 @@ impl<T: EthSpec> PubsubMessage<T> {
     pub fn kind(&self) -> GossipKind {
         match self {
             PubsubMessage::BeaconBlock(_) => GossipKind::BeaconBlock,
-            PubsubMessage::BlobsSidecars(_) => GossipKind::BlobsSidecar,
+            PubsubMessage::BeaconBlockAndBlobsSidecars(_) => {
+                GossipKind::BeaconBlocksAndBlobsSidecar
+            }
             PubsubMessage::AggregateAndProofAttestation(_) => GossipKind::BeaconAggregateAndProof,
             PubsubMessage::Attestation(attestation_data) => {
                 GossipKind::Attestation(attestation_data.0)
@@ -188,10 +199,13 @@ impl<T: EthSpec> PubsubMessage<T> {
                             };
                         Ok(PubsubMessage::BeaconBlock(Arc::new(beacon_block)))
                     }
-                    GossipKind::BlobsSidecar => {
-                        let blobs_sidecar = SignedBlobsSidecar::from_ssz_bytes(data)
-                            .map_err(|e| format!("{:?}", e))?;
-                        Ok(PubsubMessage::BlobsSidecars(Arc::new(blobs_sidecar)))
+                    GossipKind::BeaconBlocksAndBlobsSidecar => {
+                        let block_and_blobs_sidecar =
+                            SignedBeaconBlockAndBlobsSidecar::from_ssz_bytes(data)
+                                .map_err(|e| format!("{:?}", e))?;
+                        Ok(PubsubMessage::BeaconBlockAndBlobsSidecars(Arc::new(
+                            block_and_blobs_sidecar,
+                        )))
                     }
                     GossipKind::VoluntaryExit => {
                         let voluntary_exit = SignedVoluntaryExit::from_ssz_bytes(data)
@@ -237,7 +251,7 @@ impl<T: EthSpec> PubsubMessage<T> {
         // messages for us.
         match &self {
             PubsubMessage::BeaconBlock(data) => data.as_ssz_bytes(),
-            PubsubMessage::BlobsSidecars(data) => data.as_ssz_bytes(),
+            PubsubMessage::BeaconBlockAndBlobsSidecars(data) => data.as_ssz_bytes(),
             PubsubMessage::AggregateAndProofAttestation(data) => data.as_ssz_bytes(),
             PubsubMessage::VoluntaryExit(data) => data.as_ssz_bytes(),
             PubsubMessage::ProposerSlashing(data) => data.as_ssz_bytes(),
@@ -258,11 +272,11 @@ impl<T: EthSpec> std::fmt::Display for PubsubMessage<T> {
                 block.slot(),
                 block.message().proposer_index()
             ),
-            PubsubMessage::BlobsSidecars(blobs) => write!(
+            PubsubMessage::BeaconBlockAndBlobsSidecars(block_and_blob) => write!(
                 f,
-                "Blobs Sidecar: slot: {}, blobs: {}",
-                blobs.message.beacon_block_slot,
-                blobs.message.blobs.len(),
+                "Beacon block and Blobs Sidecar: slot: {}, blobs: {}",
+                block_and_blob.beacon_block.slot(),
+                block_and_blob.blobs_sidecar.blobs.len(),
             ),
             PubsubMessage::AggregateAndProofAttestation(att) => write!(
                 f,
