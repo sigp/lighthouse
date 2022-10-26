@@ -1,8 +1,10 @@
+use lighthouse_network::{types::SyncState, NetworkGlobals};
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::sync::Arc;
 use sysinfo::{CpuExt, DiskExt, NetworkExt, NetworksExt, System, SystemExt};
+use types::EthSpec;
 
 /// System related health, specific to the UI.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -40,6 +42,13 @@ pub struct SystemHealth {
     /// Total bytes sent over the main interface.
     pub network_bytes_total_transmit: u64,
 
+    /// The current NAT status.
+    pub nat_open: bool,
+    /// The current number of connected peers.
+    pub connected_peers: usize,
+    /// The current syncing state of the consensus node.
+    pub sync_state: SyncState,
+
     /// System uptime.
     pub system_uptime: u64,
     /// Application uptime.
@@ -56,7 +65,11 @@ pub struct SystemHealth {
 
 impl SystemHealth {
     /// Populates the system health.
-    pub fn observe(sysinfo: Arc<RwLock<System>>, app_uptime: u64) -> Self {
+    pub fn observe<TSpec: EthSpec>(
+        sysinfo: Arc<RwLock<System>>,
+        app_uptime: u64,
+        network_globals: Arc<NetworkGlobals<TSpec>>,
+    ) -> Self {
         let sysinfo = sysinfo.read();
         let loadavg = sysinfo.load_average();
 
@@ -126,6 +139,9 @@ impl SystemHealth {
             network_name,
             network_bytes_total_received,
             network_bytes_total_transmit,
+            nat_open: network_globals.nat_open(),
+            connected_peers: network_globals.connected_peers(),
+            sync_state: network_globals.sync_state(),
             system_uptime,
             app_uptime,
             system_name: sysinfo.name().unwrap_or(String::from("")),

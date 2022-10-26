@@ -7,7 +7,7 @@ use crate::EnrExt;
 use crate::{Enr, GossipTopic, Multiaddr, PeerId};
 use parking_lot::RwLock;
 use std::collections::HashSet;
-use std::sync::atomic::{AtomicU16, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU16, Ordering};
 use types::EthSpec;
 
 pub struct NetworkGlobals<TSpec: EthSpec> {
@@ -31,6 +31,8 @@ pub struct NetworkGlobals<TSpec: EthSpec> {
     pub sync_state: RwLock<SyncState>,
     /// The current state of the backfill sync.
     pub backfill_state: RwLock<BackFillState>,
+    /// An estimate indicating if the node has a correct port-forward.
+    pub nat_open: AtomicBool,
 }
 
 impl<TSpec: EthSpec> NetworkGlobals<TSpec> {
@@ -53,6 +55,7 @@ impl<TSpec: EthSpec> NetworkGlobals<TSpec> {
             gossipsub_subscriptions: RwLock::new(HashSet::new()),
             sync_state: RwLock::new(SyncState::Stalled),
             backfill_state: RwLock::new(BackFillState::NotRequired),
+            nat_open: AtomicBool::new(false),
         }
     }
 
@@ -110,6 +113,11 @@ impl<TSpec: EthSpec> NetworkGlobals<TSpec> {
     /// Returns the current backfill state.
     pub fn backfill_state(&self) -> BackFillState {
         self.backfill_state.read().clone()
+    }
+
+    /// Returns an estimate if we think our node is behind a NAT or not.
+    pub fn nat_open(&self) -> bool {
+        self.nat_open.load(Ordering::Relaxed)
     }
 
     /// Returns a `Client` type if one is known for the `PeerId`.

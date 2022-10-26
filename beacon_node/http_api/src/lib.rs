@@ -16,12 +16,10 @@ mod proposer_duties;
 mod publish_blocks;
 mod state_id;
 mod sync_committees;
+mod ui;
 mod validator_inclusion;
 mod version;
-mod ui;
 
-use sysinfo::{System,SystemExt};
-use parking_lot::RwLock;
 use beacon_chain::{
     attestation_verification::VerifiedAttestation, observed_operations::ObservationOutcome,
     validator_monitor::timestamp_now, AttestationError as AttnError, BeaconChain, BeaconChainError,
@@ -34,6 +32,7 @@ use eth2::types::{
 use lighthouse_network::{types::SyncState, EnrExt, NetworkGlobals, PeerId, PubsubMessage};
 use lighthouse_version::version_with_platform;
 use network::{NetworkMessage, NetworkSenders, ValidatorSubscriptionMessage};
+use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use slog::{crit, debug, error, info, warn, Logger};
 use slot_clock::SlotClock;
@@ -45,6 +44,7 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::Arc;
+use sysinfo::{System, SystemExt};
 use tokio::sync::mpsc::{Sender, UnboundedSender};
 use tokio_stream::{wrappers::BroadcastStream, StreamExt};
 use types::{
@@ -435,30 +435,32 @@ pub fn serve<T: BeaconChainTypes>(
 
     // Create a `warp` filter that provides access to local system information.
     let system_info = Arc::new(RwLock::new(sysinfo::System::new()));
-    { // grab write access for initialisation
+    {
+        // grab write access for initialisation
         let mut system_info = system_info.write();
         system_info.refresh_disks_list();
         system_info.refresh_networks_list();
     } // end lock
 
-    let system_info_filter= warp::any()
+    let system_info_filter =
+        warp::any()
             .map(move || system_info.clone())
-            .map(|sysinfo: Arc<RwLock<System>>|  {
-                      { // refresh stats
-                          let mut sysinfo_lock = sysinfo.write();
-                          sysinfo_lock.refresh_memory();
-                          sysinfo_lock.refresh_cpu_specifics(sysinfo::CpuRefreshKind::everything());
-                          sysinfo_lock.refresh_cpu();
-                          sysinfo_lock.refresh_system();
-                          sysinfo_lock.refresh_networks();
-                          sysinfo_lock.refresh_disks();
-                      } // end lock
-                      sysinfo
+            .map(|sysinfo: Arc<RwLock<System>>| {
+                {
+                    // refresh stats
+                    let mut sysinfo_lock = sysinfo.write();
+                    sysinfo_lock.refresh_memory();
+                    sysinfo_lock.refresh_cpu_specifics(sysinfo::CpuRefreshKind::everything());
+                    sysinfo_lock.refresh_cpu();
+                    sysinfo_lock.refresh_system();
+                    sysinfo_lock.refresh_networks();
+                    sysinfo_lock.refresh_disks();
+                } // end lock
+                sysinfo
             });
 
     let app_start = std::time::Instant::now();
-    let app_start_filter= warp::any().map(move || app_start.clone());
-
+    let app_start_filter = warp::any().map(move || app_start.clone());
 
     /*
      *
@@ -2730,13 +2732,19 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path::end())
         .and(system_info_filter.clone())
         .and(app_start_filter.clone())
-        .and_then(|sysinfo, runtime_start: std::time::Instant| {
-            blocking_json_task(move || {
-                let runtime = runtime_start.elapsed().as_secs() as u64;
-                Ok(api_types::GenericResponse::from(ui::SystemHealth::observe(sysinfo, runtime)))
-            })
-        });
-
+        .and(network_globals.clone())
+        .and_then(
+            |sysinfo, runtime_start: std::time::Instant, network_globals| {
+                blocking_json_task(move || {
+                    let runtime = runtime_start.elapsed().as_secs() as u64;
+                    Ok(api_types::GenericResponse::from(ui::SystemHealth::observe(
+                        sysinfo,
+                        runtime,
+                        network_globals,
+                    )))
+                })
+            },
+        );
 
     // GET lighthouse/syncing
     let get_lighthouse_syncing = warp::path("lighthouse")

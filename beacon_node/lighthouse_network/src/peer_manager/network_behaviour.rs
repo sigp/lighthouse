@@ -1,3 +1,4 @@
+use std::sync::atomic::Ordering;
 use std::task::{Context, Poll};
 
 use futures::StreamExt;
@@ -120,6 +121,8 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
         // Check NAT if metrics are enabled
         if self.network_globals.local_enr.read().udp().is_some() {
             metrics::check_nat();
+            // Update the globals variable
+            self.network_globals.nat_open.store(true, Ordering::Relaxed);
         }
 
         // Check to make sure the peer is not supposed to be banned
