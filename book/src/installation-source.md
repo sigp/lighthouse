@@ -16,7 +16,7 @@ operating system.
 Install the following packages:
 
 ```bash
-sudo apt install -y git gcc g++ make cmake pkg-config llvm-dev libclang-dev clang
+sudo apt install -y git gcc g++ make cmake pkg-config llvm-dev libclang-dev clang protobuf-compiler
 ```
 
 > Note: Lighthouse requires CMake v3.12 or newer, which isn't available in the package repositories
@@ -32,13 +32,18 @@ sudo apt install -y git gcc g++ make cmake pkg-config llvm-dev libclang-dev clan
 brew install cmake
 ```
 
+1. Install protoc using Homebrew:
+```
+brew install protobuf
+```
+
 [Homebrew]: https://brew.sh/
 
 #### Windows
 
 1. Install [Git](https://git-scm.com/book/en/v2/Getting-Started-Installing-Git).
 1. Install the [Chocolatey](https://chocolatey.org/install) package manager for Windows.
-1. Install Make, CMake and LLVM using Chocolatey:
+1. Install Make, CMake, LLVM and protoc using Chocolatey:
 
 ```
 choco install make
@@ -52,10 +57,13 @@ choco install cmake --installargs 'ADD_CMAKE_TO_PATH=System'
 choco install llvm
 ```
 
+```
+choco install protoc
+```
+
 These dependencies are for compiling Lighthouse natively on Windows. Lighthouse can also run
 successfully under the [Windows Subsystem for Linux (WSL)][WSL]. If using Ubuntu under WSL, you
 should follow the instructions for Ubuntu listed in the [Dependencies (Ubuntu)](#ubuntu) section.
-
 [WSL]: https://docs.microsoft.com/en-us/windows/wsl/about
 
 ## Build Lighthouse
@@ -112,7 +120,7 @@ You can customise the features that Lighthouse is built with using the `FEATURES
 variable. E.g.
 
 ```
-env FEATURES="gnosis,slasher-lmdb" make
+FEATURES=gnosis,slasher-lmdb make
 ```
 
 Commonly used features include:
@@ -122,6 +130,25 @@ Commonly used features include:
 * `modern`: support for exclusively modern hardware.
 * `slasher-mdbx`: support for the MDBX slasher backend (enabled by default).
 * `slasher-lmdb`: support for the LMDB slasher backend.
+
+## Compilation Profiles
+
+You can customise the compiler settings used to compile Lighthouse via
+[Cargo profiles](https://doc.rust-lang.org/cargo/reference/profiles.html).
+
+Lighthouse includes several profiles which can be selected via the `PROFILE` environment variable.
+
+* `release`: default for source builds, enables most optimisations while not taking too long to
+  compile.
+* `maxperf`: default for binary releases, enables aggressive optimisations including full LTO.
+  Although compiling with this profile improves some benchmarks by around 20% compared to `release`,
+  it imposes a _significant_ cost at compile time and is only recommended if you have a fast CPU.
+
+To compile with `maxperf`:
+
+```
+PROFILE=maxperf make
+```
 
 ## Troubleshooting
 

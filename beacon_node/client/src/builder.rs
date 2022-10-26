@@ -430,7 +430,7 @@ where
                 info!(
                     context.log(),
                     "Waiting for eth2 genesis from eth1";
-                    "eth1_endpoints" => format!("{:?}", &config.eth1.endpoints),
+                    "eth1_endpoints" => format!("{:?}", &config.eth1.endpoint),
                     "contract_deploy_block" => config.eth1.deposit_contract_deploy_block,
                     "deposit_contract" => &config.eth1.deposit_contract_address
                 );
@@ -439,7 +439,7 @@ where
                     config.eth1,
                     context.log().clone(),
                     context.eth2_config().spec.clone(),
-                );
+                )?;
 
                 // If the HTTP API server is enabled, start an instance of it where it only
                 // contains a reference to the eth1 service (all non-eth1 endpoints will fail
@@ -517,7 +517,9 @@ where
             ClientGenesis::FromStore => builder.resume_from_db().map(|v| (v, None))?,
         };
 
-        self.eth1_service = eth1_service_option;
+        if config.sync_eth1_chain {
+            self.eth1_service = eth1_service_option;
+        }
         self.beacon_chain_builder = Some(beacon_chain_builder);
         Ok(self)
     }
@@ -942,7 +944,7 @@ where
 
             CachingEth1Backend::from_service(eth1_service_from_genesis)
         } else if config.purge_cache {
-            CachingEth1Backend::new(config, context.log().clone(), spec)
+            CachingEth1Backend::new(config, context.log().clone(), spec)?
         } else {
             beacon_chain_builder
                 .get_persisted_eth1_backend()?
@@ -956,11 +958,7 @@ where
                     .map(|chain| chain.into_backend())
                 })
                 .unwrap_or_else(|| {
-                    Ok(CachingEth1Backend::new(
-                        config,
-                        context.log().clone(),
-                        spec.clone(),
-                    ))
+                    CachingEth1Backend::new(config, context.log().clone(), spec.clone())
                 })?
         };
 

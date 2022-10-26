@@ -1,14 +1,14 @@
+use crate::service::endpoint_from_config;
 use crate::Config;
 use crate::{
     block_cache::{BlockCache, Eth1Block},
     deposit_cache::{DepositCache, SszDepositCache, SszDepositCacheV1, SszDepositCacheV13},
-    service::EndpointsCache,
 };
+use execution_layer::HttpJsonRpc;
 use parking_lot::RwLock;
 use ssz::four_byte_option_impl;
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
-use std::sync::Arc;
 use superstruct::superstruct;
 use types::{ChainSpec, DepositTreeSnapshot, Eth1Data};
 
@@ -43,11 +43,10 @@ impl DepositUpdater {
     }
 }
 
-#[derive(Default)]
 pub struct Inner {
     pub block_cache: RwLock<BlockCache>,
     pub deposit_cache: RwLock<DepositUpdater>,
-    pub endpoints_cache: RwLock<Option<Arc<EndpointsCache>>>,
+    pub endpoint: HttpJsonRpc,
     // this gets set to Some(Eth1Data) when the deposit finalization conditions are met
     pub to_finalize: RwLock<Option<Eth1Data>>,
     pub config: RwLock<Config>,
@@ -123,7 +122,8 @@ impl SszEth1Cache {
                 cache: self.deposit_cache.to_deposit_cache()?,
                 last_processed_block: self.last_processed_block,
             }),
-            endpoints_cache: RwLock::new(None),
+            endpoint: endpoint_from_config(&config)
+                .map_err(|e| format!("Failed to create endpoint: {:?}", e))?,
             to_finalize: RwLock::new(None),
             // Set the remote head_block zero when creating a new instance. We only care about
             // present and future eth1 nodes.

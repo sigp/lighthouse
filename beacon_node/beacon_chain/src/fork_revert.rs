@@ -5,7 +5,8 @@ use proto_array::CountUnrealizedFull;
 use slog::{info, warn, Logger};
 use state_processing::state_advance::complete_state_advance;
 use state_processing::{
-    per_block_processing, per_block_processing::BlockSignatureStrategy, VerifyBlockRoot,
+    per_block_processing, per_block_processing::BlockSignatureStrategy, ConsensusContext,
+    VerifyBlockRoot,
 };
 use std::sync::Arc;
 use std::time::Duration;
@@ -172,12 +173,14 @@ pub fn reset_fork_choice_to_finalization<E: EthSpec, Hot: ItemStore<E>, Cold: It
         complete_state_advance(&mut state, None, block.slot(), spec)
             .map_err(|e| format!("State advance failed: {:?}", e))?;
 
+        let mut ctxt = ConsensusContext::new(block.slot())
+            .set_proposer_index(block.message().proposer_index());
         per_block_processing(
             &mut state,
             &block,
-            None,
             BlockSignatureStrategy::NoVerification,
             VerifyBlockRoot::True,
+            &mut ctxt,
             spec,
         )
         .map_err(|e| format!("Error replaying block: {:?}", e))?;

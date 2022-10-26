@@ -48,6 +48,10 @@ If you set up an execution engine with `--execution-endpoint` then you *must* pr
 using `--execution-jwt`. This is a mandatory form of authentication that ensures that Lighthouse
 has authority to control the execution engine.
 
+> Tip: the --execution-jwt-secret-key <STRING> flag can be used instead of --execution-jwt <FILE>.
+> This is useful, for example, for users who wish to inject the value into a Docker container without
+> needing to pass a jwt secret file.
+
 The execution engine connection must be **exclusive**, i.e. you must have one execution node
 per beacon node. The reason for this is that the beacon node _controls_ the execution node. Please
 see the [FAQ](#faq) for further information about why many:1 and 1:many configurations are not

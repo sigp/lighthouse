@@ -675,7 +675,7 @@ pub mod tests {
     #[test]
     fn test_finalization_boundaries() {
         let n = 8;
-        let half = n / 2 as usize;
+        let half = (n / 2) as usize;
 
         let mut deposit_cache = get_cache_with_deposits(n as u64);
 

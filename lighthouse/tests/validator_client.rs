@@ -442,3 +442,19 @@ fn monitoring_endpoint() {
             assert_eq!(api_conf.update_period_secs, Some(30));
         });
 }
+#[test]
+fn disable_run_on_all_default() {
+    CommandLineTest::new().run().with_config(|config| {
+        assert!(!config.disable_run_on_all);
+    });
+}
+
+#[test]
+fn disable_run_on_all() {
+    CommandLineTest::new()
+        .flag("disable-run-on-all", None)
+        .run()
+        .with_config(|config| {
+            assert!(config.disable_run_on_all);
+        });
+}

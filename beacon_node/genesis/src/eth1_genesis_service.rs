@@ -43,7 +43,7 @@ impl Eth1GenesisService {
     /// Creates a new service. Does not attempt to connect to the Eth1 node.
     ///
     /// Modifies the given `config` to make it more suitable to the task of listening to genesis.
-    pub fn new(config: Eth1Config, log: Logger, spec: ChainSpec) -> Self {
+    pub fn new(config: Eth1Config, log: Logger, spec: ChainSpec) -> Result<Self, String> {
         let config = Eth1Config {
             // Truncating the block cache makes searching for genesis more
             // complicated.
@@ -64,15 +64,16 @@ impl Eth1GenesisService {
             ..config
         };
 
-        Self {
-            eth1_service: Eth1Service::new(config, log, spec),
+        Ok(Self {
+            eth1_service: Eth1Service::new(config, log, spec)
+                .map_err(|e| format!("Failed to create eth1 service: {:?}", e))?,
             stats: Arc::new(Statistics {
                 highest_processed_block: AtomicU64::new(0),
                 active_validator_count: AtomicUsize::new(0),
                 total_deposit_count: AtomicUsize::new(0),
                 latest_timestamp: AtomicU64::new(0),
             }),
-        }
+        })
     }
 
     /// Returns the first eth1 block that has enough deposits that it's a (potentially invalid)
@@ -112,11 +113,9 @@ impl Eth1GenesisService {
             "Importing eth1 deposit logs";
         );
 
-        let endpoints = eth1_service.init_endpoints()?;
-
         loop {
             let update_result = eth1_service
-                .update_deposit_cache(None, &endpoints)
+                .update_deposit_cache(None)
                 .await
                 .map_err(|e| format!("{:?}", e));
 
@@ -158,7 +157,7 @@ impl Eth1GenesisService {
             }
 
             // Download new eth1 blocks into the cache.
-            let blocks_imported = match eth1_service.update_block_cache(None, &endpoints).await {
+            let blocks_imported = match eth1_service.update_block_cache(None).await {
                 Ok(outcome) => {
                     debug!(
                         log,

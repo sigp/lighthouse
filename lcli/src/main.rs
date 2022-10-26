@@ -781,10 +781,11 @@ fn run<T: EthSpec>(
         .map_err(|e| format!("should start tokio runtime: {:?}", e))?
         .initialize_logger(LoggerConfig {
             path: None,
-            debug_level: "trace",
-            logfile_debug_level: "trace",
+            debug_level: String::from("trace"),
+            logfile_debug_level: String::from("trace"),
             log_format: None,
             log_color: false,
+            disable_log_timestamp: false,
             max_log_size: 0,
             max_log_number: 0,
             compression: false,
