@@ -34,6 +34,9 @@ pub const ENGINE_NEW_PAYLOAD_TIMEOUT: Duration = Duration::from_secs(8);
 pub const ENGINE_GET_PAYLOAD_V1: &str = "engine_getPayloadV1";
 pub const ENGINE_GET_PAYLOAD_TIMEOUT: Duration = Duration::from_secs(2);
 
+pub const ENGINE_GET_BLOBS_BUNDLE_V1: &str = "engine_getBlobsBundleV1";
+pub const ENGINE_GET_BLOBS_BUNDLE_TIMEOUT: Duration = Duration::from_secs(2);
+
 pub const ENGINE_FORKCHOICE_UPDATED_V1: &str = "engine_forkchoiceUpdatedV1";
 pub const ENGINE_FORKCHOICE_UPDATED_TIMEOUT: Duration = Duration::from_secs(8);
 
@@ -44,7 +47,7 @@ pub const ENGINE_EXCHANGE_TRANSITION_CONFIGURATION_V1_TIMEOUT: Duration = Durati
 /// This error is returned during a `chainId` call by Geth.
 pub const EIP155_ERROR_STR: &str = "chain not synced beyond EIP-155 replay-protection fork block";
 
-/// Contains methods to convert arbitary bytes to an ETH2 deposit contract object.
+/// Contains methods to convert arbitrary bytes to an ETH2 deposit contract object.
 pub mod deposit_log {
     use ssz::Decode;
     use state_processing::per_block_processing::signature_sets::deposit_pubkey_signature_message;
@@ -664,6 +667,23 @@ impl HttpJsonRpc {
         Ok(response.into())
     }
 
+    pub async fn get_blobs_bundle_v1<T: EthSpec>(
+        &self,
+        payload_id: PayloadId,
+    ) -> Result<JsonBlobBundles<T>, Error> {
+        let params = json!([JsonPayloadIdRequest::from(payload_id)]);
+
+        let response: JsonBlobBundles<T> = self
+            .rpc_request(
+                ENGINE_GET_BLOBS_BUNDLE_V1,
+                params,
+                ENGINE_GET_BLOBS_BUNDLE_TIMEOUT,
+            )
+            .await?;
+
+        Ok(response)
+    }
+
     pub async fn forkchoice_updated_v1(
         &self,
         forkchoice_state: ForkChoiceState,
@@ -711,7 +731,10 @@ mod test {
     use std::future::Future;
     use std::str::FromStr;
     use std::sync::Arc;
-    use types::{AbstractExecPayload, ExecutionPayloadMerge, ForkName, FullPayload, MainnetEthSpec, Transactions, Unsigned, VariableList};
+    use types::{
+        AbstractExecPayload, ExecutionPayloadMerge, ForkName, FullPayload, MainnetEthSpec,
+        Transactions, Unsigned, VariableList,
+    };
 
     struct Tester {
         server: MockServer<MainnetEthSpec>,
@@ -1074,22 +1097,24 @@ mod test {
             .assert_request_equals(
                 |client| async move {
                     let _ = client
-                        .new_payload_v1::<MainnetEthSpec>(ExecutionPayload::Merge(ExecutionPayloadMerge{
-                            parent_hash: ExecutionBlockHash::repeat_byte(0),
-                            fee_recipient: Address::repeat_byte(1),
-                            state_root: Hash256::repeat_byte(1),
-                            receipts_root: Hash256::repeat_byte(0),
-                            logs_bloom: vec![1; 256].into(),
-                            prev_randao: Hash256::repeat_byte(1),
-                            block_number: 0,
-                            gas_limit: 1,
-                            gas_used: 2,
-                            timestamp: 42,
-                            extra_data: vec![].into(),
-                            base_fee_per_gas: Uint256::from(1),
-                            block_hash: ExecutionBlockHash::repeat_byte(1),
-                            transactions: vec![].into(),
-                        }))
+                        .new_payload_v1::<MainnetEthSpec>(ExecutionPayload::Merge(
+                            ExecutionPayloadMerge {
+                                parent_hash: ExecutionBlockHash::repeat_byte(0),
+                                fee_recipient: Address::repeat_byte(1),
+                                state_root: Hash256::repeat_byte(1),
+                                receipts_root: Hash256::repeat_byte(0),
+                                logs_bloom: vec![1; 256].into(),
+                                prev_randao: Hash256::repeat_byte(1),
+                                block_number: 0,
+                                gas_limit: 1,
+                                gas_used: 2,
+                                timestamp: 42,
+                                extra_data: vec![].into(),
+                                base_fee_per_gas: Uint256::from(1),
+                                block_hash: ExecutionBlockHash::repeat_byte(1),
+                                transactions: vec![].into(),
+                            },
+                        ))
                         .await;
                 },
                 json!({
@@ -1119,22 +1144,24 @@ mod test {
         Tester::new(false)
             .assert_auth_failure(|client| async move {
                 client
-                    .new_payload_v1::<MainnetEthSpec>(ExecutionPayload::Merge(ExecutionPayloadMerge{
-                        parent_hash: ExecutionBlockHash::repeat_byte(0),
-                        fee_recipient: Address::repeat_byte(1),
-                        state_root: Hash256::repeat_byte(1),
-                        receipts_root: Hash256::repeat_byte(0),
-                        logs_bloom: vec![1; 256].into(),
-                        prev_randao: Hash256::repeat_byte(1),
-                        block_number: 0,
-                        gas_limit: 1,
-                        gas_used: 2,
-                        timestamp: 42,
-                        extra_data: vec![].into(),
-                        base_fee_per_gas: Uint256::from(1),
-                        block_hash: ExecutionBlockHash::repeat_byte(1),
-                        transactions: vec![].into(),
-                    }))
+                    .new_payload_v1::<MainnetEthSpec>(ExecutionPayload::Merge(
+                        ExecutionPayloadMerge {
+                            parent_hash: ExecutionBlockHash::repeat_byte(0),
+                            fee_recipient: Address::repeat_byte(1),
+                            state_root: Hash256::repeat_byte(1),
+                            receipts_root: Hash256::repeat_byte(0),
+                            logs_bloom: vec![1; 256].into(),
+                            prev_randao: Hash256::repeat_byte(1),
+                            block_number: 0,
+                            gas_limit: 1,
+                            gas_used: 2,
+                            timestamp: 42,
+                            extra_data: vec![].into(),
+                            base_fee_per_gas: Uint256::from(1),
+                            block_hash: ExecutionBlockHash::repeat_byte(1),
+                            transactions: vec![].into(),
+                        },
+                    ))
                     .await
             })
             .await;

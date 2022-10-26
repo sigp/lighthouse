@@ -4,6 +4,7 @@
 //! This crate only provides useful functionality for "The Merge", it does not provide any of the
 //! deposit-contract functionality that the `beacon_node/eth1` crate already provides.
 
+use crate::json_structures::JsonBlobBundles;
 use crate::payload_cache::PayloadCache;
 use auth::{strip_prefix, Auth, JwtKey};
 use builder_client::BuilderHttpClient;
@@ -32,7 +33,7 @@ use tokio::{
     time::sleep,
 };
 use tokio_stream::wrappers::WatchStream;
-use types::{AbstractExecPayload, ExecPayload, ExecutionPayloadEip4844};
+use types::{AbstractExecPayload, Blob, ExecPayload, ExecutionPayloadEip4844, KzgCommitment};
 use types::{
     BlindedPayload, BlockType, ChainSpec, Epoch, ExecutionBlockHash, ForkName,
     ProposerPreparationData, PublicKeyBytes, SignedBeaconBlock, Slot,
@@ -86,6 +87,70 @@ pub enum Error {
 impl From<ApiError> for Error {
     fn from(e: ApiError) -> Self {
         Error::ApiError(e)
+    }
+}
+
+pub enum BlockProposalContents<T: EthSpec, Payload: AbstractExecPayload<T>> {
+    Payload(Payload),
+    PayloadAndBlobs {
+        payload: Payload,
+        kzg_commitments: Vec<KzgCommitment>,
+        blobs: Vec<Blob<T>>,
+    },
+}
+
+impl<T: EthSpec, Payload: AbstractExecPayload<T>> BlockProposalContents<T, Payload> {
+    pub fn payload(&self) -> &Payload {
+        match self {
+            Self::Payload(payload) => payload,
+            Self::PayloadAndBlobs {
+                payload,
+                kzg_commitments: _,
+                blobs: _,
+            } => payload,
+        }
+    }
+    pub fn to_payload(self) -> Payload {
+        match self {
+            Self::Payload(payload) => payload,
+            Self::PayloadAndBlobs {
+                payload,
+                kzg_commitments: _,
+                blobs: _,
+            } => payload,
+        }
+    }
+    pub fn kzg_commitments(&self) -> Option<&[KzgCommitment]> {
+        match self {
+            Self::Payload(_) => None,
+            Self::PayloadAndBlobs {
+                payload: _,
+                kzg_commitments,
+                blobs: _,
+            } => Some(kzg_commitments),
+        }
+    }
+    pub fn blobs(&self) -> Option<&[Blob<T>]> {
+        match self {
+            Self::Payload(_) => None,
+            Self::PayloadAndBlobs {
+                payload: _,
+                kzg_commitments: _,
+                blobs,
+            } => Some(blobs),
+        }
+    }
+    pub fn default_at_fork(fork_name: ForkName) -> Self {
+        match fork_name {
+            ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {
+                BlockProposalContents::Payload(Payload::default_at_fork(fork_name))
+            }
+            ForkName::Eip4844 => BlockProposalContents::PayloadAndBlobs {
+                payload: Payload::default_at_fork(fork_name),
+                blobs: vec![],
+                kzg_commitments: vec![],
+            },
+        }
     }
 }
 
@@ -546,7 +611,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
         forkchoice_update_params: ForkchoiceUpdateParameters,
         builder_params: BuilderParams,
         spec: &ChainSpec,
-    ) -> Result<Payload, Error> {
+    ) -> Result<BlockProposalContents<T, Payload>, Error> {
         let suggested_fee_recipient = self.get_suggested_fee_recipient(proposer_index).await;
 
         match Payload::block_type() {
@@ -593,7 +658,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
         forkchoice_update_params: ForkchoiceUpdateParameters,
         builder_params: BuilderParams,
         spec: &ChainSpec,
-    ) -> Result<Payload, Error> {
+    ) -> Result<BlockProposalContents<T, Payload>, Error> {
         if let Some(builder) = self.builder() {
             let slot = builder_params.slot;
             let pubkey = builder_params.pubkey;
@@ -636,6 +701,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                             Ok(local)
                         }
                         (Ok(Some(relay)), Ok(local)) => {
+                            let local_payload = local.payload();
                             let is_signature_valid = relay.data.verify_signature(spec);
                             let header = relay.data.message.header;
 
@@ -669,14 +735,14 @@ impl<T: EthSpec> ExecutionLayer<T> {
                                     falling back to local execution engine."
                                 );
                                 Ok(local)
-                            } else if header.timestamp() != local.timestamp() {
+                            } else if header.timestamp() != local_payload.timestamp() {
                                 warn!(
                                     self.log(),
                                     "Invalid timestamp from connected builder, \
                                     falling back to local execution engine."
                                 );
                                 Ok(local)
-                            } else if header.block_number() != local.block_number() {
+                            } else if header.block_number() != local_payload.block_number() {
                                 warn!(
                                     self.log(),
                                     "Invalid block number from connected builder, \
@@ -707,7 +773,8 @@ impl<T: EthSpec> ExecutionLayer<T> {
                                         not match, using it anyways."
                                     );
                                 }
-                                Ok(header)
+                                //FIXME(sean) the builder API needs to be updated
+                                Ok(BlockProposalContents::Payload(header))
                             }
                         }
                         (relay_result, Err(local_error)) => {
@@ -716,7 +783,10 @@ impl<T: EthSpec> ExecutionLayer<T> {
                             relay_result
                                 .map_err(Error::Builder)?
                                 .ok_or(Error::NoHeaderFromBuilder)
-                                .map(|d| d.data.message.header)
+                                .map(|d| {
+                                    //FIXME(sean) the builder API needs to be updated
+                                    BlockProposalContents::Payload(d.data.message.header)
+                                })
                         }
                     };
                 }
@@ -751,7 +821,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
         prev_randao: Hash256,
         suggested_fee_recipient: Address,
         forkchoice_update_params: ForkchoiceUpdateParameters,
-    ) -> Result<Payload, Error> {
+    ) -> Result<BlockProposalContents<T, Payload>, Error> {
         self.get_full_payload_with(
             parent_hash,
             timestamp,
@@ -771,7 +841,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
         prev_randao: Hash256,
         suggested_fee_recipient: Address,
         forkchoice_update_params: ForkchoiceUpdateParameters,
-    ) -> Result<Payload, Error> {
+    ) -> Result<BlockProposalContents<T, Payload>, Error> {
         self.get_full_payload_with(
             parent_hash,
             timestamp,
@@ -791,15 +861,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
         suggested_fee_recipient: Address,
         forkchoice_update_params: ForkchoiceUpdateParameters,
         f: fn(&ExecutionLayer<T>, &ExecutionPayload<T>) -> Option<ExecutionPayload<T>>,
-    ) -> Result<Payload, Error> {
-        debug!(
-            self.log(),
-            "Issuing engine_getPayload";
-            "suggested_fee_recipient" => ?suggested_fee_recipient,
-            "prev_randao" => ?prev_randao,
-            "timestamp" => timestamp,
-            "parent_hash" => ?parent_hash,
-        );
+    ) -> Result<BlockProposalContents<T, Payload>, Error> {
         self.engine()
             .request(|engine| async move {
                 let payload_id = if let Some(id) = engine
@@ -859,33 +921,64 @@ impl<T: EthSpec> ExecutionLayer<T> {
                     }
                 };
 
-                engine
-                    .api
-                    .get_payload_v1::<T>(payload_id)
-                    .await
-                    .map(|full_payload| {
-                        if full_payload.fee_recipient() != suggested_fee_recipient {
-                            error!(
-                                self.log(),
-                                "Inconsistent fee recipient";
-                                "msg" => "The fee recipient returned from the Execution Engine differs \
-                                from the suggested_fee_recipient set on the beacon node. This could \
-                                indicate that fees are being diverted to another address. Please \
-                                ensure that the value of suggested_fee_recipient is set correctly and \
-                                that the Execution Engine is trusted.",
-                                "fee_recipient" => ?full_payload.fee_recipient(),
-                                "suggested_fee_recipient" => ?suggested_fee_recipient,
-                            );
-                        }
-                        if f(self, &full_payload).is_some() {
-                            warn!(
-                                self.log(),
-                                "Duplicate payload cached, this might indicate redundant proposal \
+                let blob_fut = async {
+                    //FIXME(sean) do a fork check here and return None otherwise
+                    debug!(
+                        self.log(),
+                        "Issuing engine_getBlobsBundle";
+                        "suggested_fee_recipient" => ?suggested_fee_recipient,
+                        "prev_randao" => ?prev_randao,
+                        "timestamp" => timestamp,
+                        "parent_hash" => ?parent_hash,
+                    );
+                    Some(engine.api.get_blobs_bundle_v1::<T>(payload_id).await)
+                };
+                let payload_fut = async {
+                    debug!(
+                        self.log(),
+                        "Issuing engine_getPayload";
+                        "suggested_fee_recipient" => ?suggested_fee_recipient,
+                        "prev_randao" => ?prev_randao,
+                        "timestamp" => timestamp,
+                        "parent_hash" => ?parent_hash,
+                    );
+                    engine.api.get_payload_v1::<T>(payload_id).await
+                };
+
+                let (blob, payload) = tokio::join!(blob_fut, payload_fut);
+                let payload = payload.map(|full_payload| {
+                    if full_payload.fee_recipient() != suggested_fee_recipient {
+                        error!(
+                            self.log(),
+                            "Inconsistent fee recipient";
+                            "msg" => "The fee recipient returned from the Execution Engine differs \
+                            from the suggested_fee_recipient set on the beacon node. This could \
+                            indicate that fees are being diverted to another address. Please \
+                            ensure that the value of suggested_fee_recipient is set correctly and \
+                            that the Execution Engine is trusted.",
+                            "fee_recipient" => ?full_payload.fee_recipient(),
+                            "suggested_fee_recipient" => ?suggested_fee_recipient,
+                        );
+                    }
+                    if f(self, &full_payload).is_some() {
+                        warn!(
+                            self.log(),
+                            "Duplicate payload cached, this might indicate redundant proposal \
                                  attempts."
-                            );
-                        }
-                        full_payload.into()
+                        );
+                    }
+                    full_payload.into()
+                })?;
+                if let Some(blob) = blob.transpose()? {
+                    // FIXME(sean) cache blobs
+                    Ok(BlockProposalContents::PayloadAndBlobs {
+                        payload,
+                        blobs: blob.blobs,
+                        kzg_commitments: blob.kzgs,
                     })
+                } else {
+                    Ok(BlockProposalContents::Payload(payload))
+                }
             })
             .await
             .map_err(Box::new)

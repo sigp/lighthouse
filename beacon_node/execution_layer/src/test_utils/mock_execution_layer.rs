@@ -162,6 +162,7 @@ impl<T: EthSpec> MockExecutionLayer<T> {
             )
             .await
             .unwrap()
+            .to_payload()
             .into();
 
         let block_hash = payload.block_hash();
@@ -192,7 +193,8 @@ impl<T: EthSpec> MockExecutionLayer<T> {
                 &self.spec,
             )
             .await
-            .unwrap();
+            .unwrap()
+            .to_payload();
 
         assert_eq!(payload_header.block_hash(), block_hash);
         assert_eq!(payload_header.parent_hash(), parent_hash);

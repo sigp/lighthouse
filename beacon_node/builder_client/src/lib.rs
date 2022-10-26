@@ -1,8 +1,8 @@
 use eth2::types::builder_bid::SignedBuilderBid;
 use eth2::types::{
-    AbstractExecPayload, BlindedPayload, EthSpec, ExecutionBlockHash,
-    ExecutionPayload, ForkVersionedResponse, PublicKeyBytes, SignedBeaconBlock,
-    SignedValidatorRegistrationData, Slot,
+    AbstractExecPayload, BlindedPayload, EthSpec, ExecutionBlockHash, ExecutionPayload,
+    ForkVersionedResponse, PublicKeyBytes, SignedBeaconBlock, SignedValidatorRegistrationData,
+    Slot,
 };
 pub use eth2::Error;
 use eth2::{ok_or_error, StatusCode};

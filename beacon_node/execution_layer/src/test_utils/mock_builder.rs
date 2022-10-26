@@ -316,6 +316,7 @@ impl<E: EthSpec> mev_build_rs::BlindedBlockProvider for MockBuilder<E> {
             )
             .await
             .map_err(convert_err)?
+            .to_payload()
             .to_execution_payload_header();
 
         let json_payload = serde_json::to_string(&payload).map_err(convert_err)?;

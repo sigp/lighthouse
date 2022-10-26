@@ -12,7 +12,7 @@ use crate::{
     BeaconChain, BeaconChainError, BeaconChainTypes, BlockError, BlockProductionError,
     ExecutionPayloadError,
 };
-use execution_layer::{BuilderParams, PayloadStatus};
+use execution_layer::{BlockProposalContents, BuilderParams, PayloadStatus};
 use fork_choice::{InvalidationOperation, PayloadVerificationStatus};
 use proto_array::{Block as ProtoBlock, ExecutionStatus};
 use slog::debug;
@@ -26,8 +26,9 @@ use tokio::task::JoinHandle;
 use tree_hash::TreeHash;
 use types::*;
 
-pub type PreparePayloadResult<Payload> = Result<Payload, BlockProductionError>;
-pub type PreparePayloadHandle<Payload> = JoinHandle<Option<PreparePayloadResult<Payload>>>;
+pub type PreparePayloadResult<E, Payload> =
+    Result<BlockProposalContents<E, Payload>, BlockProductionError>;
+pub type PreparePayloadHandle<E, Payload> = JoinHandle<Option<PreparePayloadResult<E, Payload>>>;
 
 #[derive(PartialEq)]
 pub enum AllowOptimisticImport {
@@ -351,7 +352,7 @@ pub fn get_execution_payload<
     state: &BeaconState<T::EthSpec>,
     proposer_index: u64,
     builder_params: BuilderParams,
-) -> Result<PreparePayloadHandle<Payload>, BlockProductionError> {
+) -> Result<PreparePayloadHandle<T::EthSpec, Payload>, BlockProductionError> {
     // Compute all required values from the `state` now to avoid needing to pass it into a spawned
     // task.
     let spec = &chain.spec;
@@ -410,7 +411,7 @@ pub async fn prepare_execution_payload<T, Payload>(
     proposer_index: u64,
     latest_execution_payload_header_block_hash: ExecutionBlockHash,
     builder_params: BuilderParams,
-) -> Result<Payload, BlockProductionError>
+) -> Result<BlockProposalContents<T::EthSpec, Payload>, BlockProductionError>
 where
     T: BeaconChainTypes,
     Payload: AbstractExecPayload<T::EthSpec>,
@@ -431,7 +432,7 @@ where
         if is_terminal_block_hash_set && !is_activation_epoch_reached {
             // Use the "empty" payload if there's a terminal block hash, but we haven't reached the
             // terminal block epoch yet.
-            return Ok(Payload::default_at_fork(fork));
+            return Ok(BlockProposalContents::default_at_fork(fork));
         }
 
         let terminal_pow_block_hash = execution_layer
@@ -444,7 +445,7 @@ where
         } else {
             // If the merge transition hasn't occurred yet and the EL hasn't found the terminal
             // block, return an "empty" payload.
-            return Ok(Payload::default_at_fork(fork));
+            return Ok(BlockProposalContents::default_at_fork(fork));
         }
     } else {
         latest_execution_payload_header_block_hash
@@ -471,7 +472,7 @@ where
     // Note: the suggested_fee_recipient is stored in the `execution_layer`, it will add this parameter.
     //
     // This future is not executed here, it's up to the caller to await it.
-    let execution_payload = execution_layer
+    let block_contents = execution_layer
         .get_payload::<Payload>(
             parent_hash,
             timestamp,
@@ -484,5 +485,5 @@ where
         .await
         .map_err(BlockProductionError::GetPayloadFailed)?;
 
-    Ok(execution_payload)
+    Ok(block_contents)
 }

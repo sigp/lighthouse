@@ -57,8 +57,8 @@ use crate::BeaconSnapshot;
 use crate::{metrics, BeaconChainError};
 use eth2::types::{EventKind, SseBlock, SyncDuty};
 use execution_layer::{
-    BuilderParams, ChainHealth, ExecutionLayer, FailedCondition, PayloadAttributes,
-    PayloadAttributesV1, PayloadAttributesV2, PayloadStatus,
+    BlockProposalContents, BuilderParams, ChainHealth, ExecutionLayer, FailedCondition,
+    PayloadAttributes, PayloadAttributesV1, PayloadAttributesV2, PayloadStatus,
 };
 pub use fork_choice::CountUnrealized;
 use fork_choice::{
@@ -242,7 +242,7 @@ pub trait BeaconChainTypes: Send + Sync + 'static {
 }
 
 /// Used internally to split block production into discrete functions.
-struct PartialBeaconBlock<E: EthSpec, Payload> {
+struct PartialBeaconBlock<E: EthSpec, Payload: AbstractExecPayload<E>> {
     state: BeaconState<E>,
     slot: Slot,
     proposer_index: u64,
@@ -256,7 +256,7 @@ struct PartialBeaconBlock<E: EthSpec, Payload> {
     deposits: Vec<Deposit>,
     voluntary_exits: Vec<SignedVoluntaryExit>,
     sync_aggregate: Option<SyncAggregate<E>>,
-    prepare_payload_handle: Option<PreparePayloadHandle<Payload>>,
+    prepare_payload_handle: Option<PreparePayloadHandle<E, Payload>>,
 }
 
 pub type BeaconForkChoice<T> = ForkChoice<
@@ -3566,7 +3566,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     fn complete_partial_beacon_block<Payload: AbstractExecPayload<T::EthSpec>>(
         &self,
         partial_beacon_block: PartialBeaconBlock<T::EthSpec, Payload>,
-        execution_payload: Payload,
+        block_contents: BlockProposalContents<T::EthSpec, Payload>,
         kzg_commitments: Vec<KzgCommitment>,
         verification: ProduceBlockVerification,
     ) -> Result<BeaconBlockAndState<T::EthSpec, Payload>, BlockProductionError> {
@@ -3643,7 +3643,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     voluntary_exits: voluntary_exits.into(),
                     sync_aggregate: sync_aggregate
                         .ok_or(BlockProductionError::MissingSyncAggregate)?,
-                    execution_payload: execution_payload
+                    execution_payload: block_contents
+                        .to_payload()
                         .try_into()
                         .map_err(|_| BlockProductionError::InvalidPayloadFork)?,
                 },
@@ -3664,7 +3665,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     voluntary_exits: voluntary_exits.into(),
                     sync_aggregate: sync_aggregate
                         .ok_or(BlockProductionError::MissingSyncAggregate)?,
-                    execution_payload: execution_payload
+                    execution_payload: block_contents
+                        .to_payload()
                         .try_into()
                         .map_err(|_| BlockProductionError::InvalidPayloadFork)?,
                 },
@@ -3685,7 +3687,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     voluntary_exits: voluntary_exits.into(),
                     sync_aggregate: sync_aggregate
                         .ok_or(BlockProductionError::MissingSyncAggregate)?,
-                    execution_payload: execution_payload
+                    execution_payload: block_contents
+                        .to_payload()
                         .try_into()
                         .map_err(|_| BlockProductionError::InvalidPayloadFork)?,
                     //FIXME(sean) get blobs

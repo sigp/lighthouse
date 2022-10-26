@@ -2,8 +2,8 @@ use super::*;
 use serde::{Deserialize, Serialize};
 use superstruct::superstruct;
 use types::{
-    EthSpec, ExecutionBlockHash, ExecutionPayloadEip4844, ExecutionPayloadHeaderEip4844,
-    FixedVector, Transaction, Unsigned, VariableList,
+    Blob, EthSpec, ExecutionBlockHash, ExecutionPayloadEip4844, ExecutionPayloadHeaderEip4844,
+    FixedVector, KzgCommitment, Transaction, Unsigned, VariableList,
 };
 use types::{ExecutionPayload, ExecutionPayloadCapella, ExecutionPayloadMerge};
 use types::{ExecutionPayloadHeader, ExecutionPayloadHeaderCapella, ExecutionPayloadHeaderMerge};
@@ -457,6 +457,14 @@ impl From<JsonPayloadAttributes> for PayloadAttributes {
             }),
         }
     }
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[serde(bound = "T: EthSpec", rename_all = "camelCase")]
+pub struct JsonBlobBundles<T: EthSpec> {
+    pub block_hash: ExecutionBlockHash,
+    pub kzgs: Vec<KzgCommitment>,
+    pub blobs: Vec<Blob<T>>,
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]

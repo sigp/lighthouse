@@ -330,6 +330,7 @@ impl<E: GenericExecutionEngine> TestRig<E> {
             )
             .await
             .unwrap()
+            .to_payload()
             .execution_payload();
 
         /*
@@ -453,6 +454,7 @@ impl<E: GenericExecutionEngine> TestRig<E> {
             )
             .await
             .unwrap()
+            .to_payload()
             .execution_payload();
 
         /*
