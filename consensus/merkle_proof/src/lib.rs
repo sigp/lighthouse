@@ -191,6 +191,10 @@ impl MerkleTree {
             MerkleTree::Finalized(_) => Ok(()),
             MerkleTree::Zero(_) => Err(MerkleTreeError::ZeroNodeFinalized),
             MerkleTree::Leaf(hash) => {
+                if level != 0 {
+                    // This shouldn't happen but this is a sanity check
+                    return Err(MerkleTreeError::PleaseNotifyTheDevs);
+                }
                 *self = MerkleTree::Finalized(*hash);
                 Ok(())
             }

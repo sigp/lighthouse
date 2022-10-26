@@ -47,6 +47,8 @@ pub enum Error {
     DepositTree(merkle_proof::MerkleTreeError),
     /// An unexpected condition was encountered.
     Internal(String),
+    /// This is for errors that should never occur
+    PleaseNotifyTheDevs,
 }
 
 pub type SszDepositCache = SszDepositCacheV13;
@@ -193,7 +195,7 @@ impl DepositCache {
             finalized_deposit_count: snapshot.deposit_count,
             finalized_block_height: snapshot.execution_block_height,
             deposit_tree,
-            deposit_roots: Vec::new(),
+            deposit_roots: vec![snapshot.deposit_root],
         })
     }
 
@@ -262,7 +264,7 @@ impl DepositCache {
             let finalized_log = self
                 .get_log((deposits_to_finalize - 1) as usize)
                 .cloned()
-                .expect("log should exist");
+                .ok_or(Error::PleaseNotifyTheDevs)?;
             let drop = (deposits_to_finalize - currently_finalized) as usize;
             self.deposit_tree
                 .finalize(eth1_block.into())
@@ -295,11 +297,12 @@ impl DepositCache {
         match log.index.cmp(&(self.len() as u64)) {
             Ordering::Equal => {
                 let deposit = log.deposit_data.tree_hash_root();
-                self.leaves.push(deposit);
-                self.logs.push(log);
+                // should push to deposit_tree first because it's fallible
                 self.deposit_tree
                     .push_leaf(deposit)
                     .map_err(Error::DepositTree)?;
+                self.leaves.push(deposit);
+                self.logs.push(log);
                 self.deposit_roots.push(self.deposit_tree.root());
                 Ok(DepositCacheInsertOutcome::Inserted)
             }
@@ -335,7 +338,7 @@ impl DepositCache {
     ///
     /// ## Errors
     ///
-    /// - If `deposit_count` is larger than `end`.
+    /// - If `deposit_count` is less than `end`.
     /// - There are not sufficient deposits in the tree to generate the proof.
     pub fn get_deposits(
         &self,
@@ -587,12 +590,6 @@ pub mod tests {
             .expect("should get the full tree");
         assert_eq!(deposits.len(), 0, "should return no deposits");
 
-        // Get 0 deposits, with 0 deposit count, tree depth 0.
-        let (_, deposits) = deposit_cache
-            .get_deposits(0, 0, 0)
-            .expect("should get the full tree");
-        assert_eq!(deposits.len(), 0, "should return no deposits");
-
         // Get all deposits, with max deposit count.
         let (full_root, deposits) = deposit_cache
             .get_deposits(0, n, n)
@@ -653,7 +650,7 @@ pub mod tests {
         // Range higher than count.
         assert!(tree.get_deposits(0, 4, 2).is_err());
 
-        let block7 = fake_eth1_block(tree.get_log(7).expect("should return log"));
+        let block7 = fake_eth1_block(&tree, 7).expect("should create fake eth1 block");
         tree.finalize(block7).expect("should finalize");
         // Range starts <= finalized deposit
         assert!(tree.get_deposits(6, 9, 11).is_err());
@@ -662,14 +659,154 @@ pub mod tests {
         assert!(tree.get_deposits(8, 9, 11).is_ok());
     }
 
-    fn fake_eth1_block(deposit_log: &DepositLog) -> Eth1Block {
-        Eth1Block {
+    // returns an eth1 block that can be used to finalize the cache at `deposit_index`
+    // this will ensure the `deposit_root` on the `Eth1Block` is correct
+    fn fake_eth1_block(deposit_cache: &DepositCache, deposit_index: usize) -> Option<Eth1Block> {
+        let deposit_log = deposit_cache.get_log(deposit_index)?;
+        Some(Eth1Block {
             hash: Hash256::from_low_u64_be(deposit_log.block_number),
             timestamp: 0,
             number: deposit_log.block_number,
-            deposit_root: None,
+            deposit_root: deposit_cache.get_root(deposit_index + 1).cloned(),
             deposit_count: Some(deposit_log.index + 1),
+        })
+    }
+
+    #[test]
+    fn test_finalization_boundaries() {
+        let n = 8;
+        let half = n / 2 as usize;
+
+        let mut deposit_cache = get_cache_with_deposits(n as u64);
+
+        let full_root_before_finalization = deposit_cache.deposit_tree.root();
+        let half_log_plus1_before_finalization = deposit_cache
+            .get_log(half + 1)
+            .expect("log should exist")
+            .clone();
+        let half_root_plus1_before_finalization =
+            *deposit_cache.get_root(half + 1).expect("root should exist");
+
+        let (root_before_finalization, proof_before_finalization) = deposit_cache
+            .get_deposits((half + 1) as u64, (half + 2) as u64, (half + 2) as u64)
+            .expect("should return 1 deposit with proof");
+
+        // finalize on the tree at half
+        let half_block =
+            fake_eth1_block(&deposit_cache, half).expect("fake block should be created");
+        assert!(
+            deposit_cache.get_deposit_snapshot().is_none(),
+            "snapshot should  not exist as tree has not been finalized"
+        );
+        deposit_cache
+            .finalize(half_block)
+            .expect("tree should_finalize");
+
+        // check boundary conditions for get_log
+        assert!(
+            deposit_cache.get_log(half).is_none(),
+            "log at finalized deposit should NOT exist"
+        );
+        assert_eq!(
+            *deposit_cache.get_log(half + 1).expect("log should exist"),
+            half_log_plus1_before_finalization,
+            "log after finalized deposit should match before finalization"
+        );
+        // check boundary conditions for get_root
+        assert!(
+            deposit_cache.get_root(half).is_none(),
+            "root at finalized deposit should NOT exist"
+        );
+        assert_eq!(
+            *deposit_cache.get_root(half + 1).expect("root should exist"),
+            half_root_plus1_before_finalization,
+            "root after finalized deposit should match before finalization"
+        );
+        // full root should match before and after finalization
+        assert_eq!(
+            deposit_cache.deposit_tree.root(),
+            full_root_before_finalization,
+            "full root should match before and after finalization"
+        );
+        // check boundary conditions for get_deposits (proof)
+        assert!(
+            deposit_cache
+                .get_deposits(half as u64, (half + 1) as u64, (half + 1) as u64)
+                .is_err(),
+            "cannot prove the finalized deposit"
+        );
+        let (root_after_finalization, proof_after_finalization) = deposit_cache
+            .get_deposits((half + 1) as u64, (half + 2) as u64, (half + 2) as u64)
+            .expect("should return 1 deposit with proof");
+        assert_eq!(
+            root_before_finalization, root_after_finalization,
+            "roots before and after finalization should match"
+        );
+        assert_eq!(
+            proof_before_finalization, proof_after_finalization,
+            "proof before and after finalization should match"
+        );
+
+        // recover tree from snapshot by replaying deposits
+        let snapshot = deposit_cache
+            .get_deposit_snapshot()
+            .expect("snapshot should exist");
+        let mut recovered = DepositCache::from_deposit_snapshot(1, &snapshot)
+            .expect("should recover finalized tree");
+        for i in half + 1..n {
+            let mut log = example_log();
+            log.index = i as u64;
+            log.block_number = i as u64;
+            log.deposit_data.withdrawal_credentials = Hash256::from_low_u64_be(i as u64);
+            recovered
+                .insert_log(log)
+                .expect("should add consecutive logs");
         }
+
+        // check the same boundary conditions above for the recovered tree
+        assert!(
+            recovered.get_log(half).is_none(),
+            "log at finalized deposit should NOT exist"
+        );
+        assert_eq!(
+            *recovered.get_log(half + 1).expect("log should exist"),
+            half_log_plus1_before_finalization,
+            "log after finalized deposit should match before finalization in recovered tree"
+        );
+        // check boundary conditions for get_root
+        assert!(
+            recovered.get_root(half).is_none(),
+            "root at finalized deposit should NOT exist"
+        );
+        assert_eq!(
+            *recovered.get_root(half + 1).expect("root should exist"),
+            half_root_plus1_before_finalization,
+            "root after finalized deposit should match before finalization in recovered tree"
+        );
+        // full root should match before and after finalization
+        assert_eq!(
+            recovered.deposit_tree.root(),
+            full_root_before_finalization,
+            "full root should match before and after finalization"
+        );
+        // check boundary conditions for get_deposits (proof)
+        assert!(
+            recovered
+                .get_deposits(half as u64, (half + 1) as u64, (half + 1) as u64)
+                .is_err(),
+            "cannot prove the finalized deposit"
+        );
+        let (recovered_root_after_finalization, recovered_proof_after_finalization) = recovered
+            .get_deposits((half + 1) as u64, (half + 2) as u64, (half + 2) as u64)
+            .expect("should return 1 deposit with proof");
+        assert_eq!(
+            root_before_finalization, recovered_root_after_finalization,
+            "recovered roots before and after finalization should match"
+        );
+        assert_eq!(
+            proof_before_finalization, recovered_proof_after_finalization,
+            "recovered proof before and after finalization should match"
+        );
     }
 
     #[test]
@@ -734,7 +871,8 @@ pub mod tests {
             .get_log((quarter - 1) as usize)
             .cloned()
             .expect("should return log");
-        let f0_block = fake_eth1_block(&f0_log);
+        let f0_block = fake_eth1_block(&deposit_cache, (quarter - 1) as usize)
+            .expect("fake eth1 block should be created");
 
         // finalize first quarter
         deposit_cache
@@ -835,7 +973,8 @@ pub mod tests {
             .cloned()
             .expect("should return log");
         // finalize a little less than half to test multiple finalization
-        let f1_block = fake_eth1_block(&f1_log);
+        let f1_block = fake_eth1_block(&deposit_cache, (half - 2) as usize)
+            .expect("should create fake eth1 block");
         deposit_cache
             .finalize(f1_block)
             .expect("should finalize a little less than half");
@@ -928,13 +1067,13 @@ pub mod tests {
     #[test]
     fn ssz_encode_decode_with_finalization() {
         let mut deposit_cache = get_cache_with_deposits(512);
-        let block383 = fake_eth1_block(deposit_cache.get_log(383).expect("should return log"));
+        let block383 = fake_eth1_block(&deposit_cache, 383).expect("should create fake eth1 block");
         deposit_cache.finalize(block383).expect("should finalize");
         let mut first_recovery = ssz_round_trip(&deposit_cache);
 
         verify_equality(&deposit_cache, &first_recovery);
         // finalize again to verify equality after multiple finalizations
-        let block447 = fake_eth1_block(deposit_cache.get_log(447).expect("should return log"));
+        let block447 = fake_eth1_block(&deposit_cache, 447).expect("should create fake eth1 block");
         first_recovery.finalize(block447).expect("should finalize");
 
         let mut second_recovery = ssz_round_trip(&first_recovery);
@@ -942,7 +1081,7 @@ pub mod tests {
 
         // verify equality of a tree that finalized block383, block447, block479
         // with a tree that finalized block383, block479
-        let block479 = fake_eth1_block(deposit_cache.get_log(479).expect("should return log"));
+        let block479 = fake_eth1_block(&deposit_cache, 479).expect("should create fake eth1 block");
         second_recovery
             .finalize(block479.clone())
             .expect("should finalize");

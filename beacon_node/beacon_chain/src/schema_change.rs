@@ -249,7 +249,7 @@ pub fn migrate_schema<T: BeaconChainTypes>(
                     match migration_schema_v13::update_eth1_cache(persisted_eth1_v1) {
                         Ok(upgraded_eth1) => upgraded_eth1,
                         Err(e) => {
-                            warn!(log, "Failed to deserialize SszEth1CacheV1: {:?}", e);
+                            warn!(log, "Failed to deserialize SszEth1CacheV1"; "error" => ?e);
                             warn!(log, "Reinitializing eth1 cache");
                             migration_schema_v13::reinitialized_eth1_cache_v13(
                                 deposit_contract_deploy_block,
@@ -277,7 +277,7 @@ pub fn migrate_schema<T: BeaconChainTypes>(
                         )
                     }
                     Err(e) => {
-                        warn!(log, "Unable to downgrade eth1 cache from newer version: failed to deserialize SszEth1CacheV13: {:?}", e);
+                        warn!(log, "Unable to downgrade eth1 cache from newer version: failed to deserialize SszEth1CacheV13"; "error" => ?e);
                         warn!(log, "Reinitializing eth1 cache");
                         migration_schema_v13::reinitialized_eth1_cache_v1(
                             deposit_contract_deploy_block,

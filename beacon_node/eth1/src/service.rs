@@ -564,7 +564,6 @@ impl Service {
         spec: ChainSpec,
         deposit_snapshot: &DepositTreeSnapshot,
     ) -> Result<Self, Error> {
-        // first get eth1_block from endpoint
         let endpoints = Arc::new(
             EndpointsCache::from_config(&config, log.clone())
                 .map_err(Error::FailedToInitializeFromSnapshot)?,
