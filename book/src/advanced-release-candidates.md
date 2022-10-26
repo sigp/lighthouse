@@ -15,7 +15,7 @@ ergonomics of new features or changes.
 Github will clearly show such releases as a "Pre-release" and they *will not* show up on
 [sigp/lighthouse/releases/latest]. However, release candidates *will* show up on the
 [sigp/lighthouse/releases] page, so **please pay attention to avoid the release candidates when
-you're looking for stable Lighthouse**.
+you're looking for a stable Lighthouse**.
 
 From time to time, Lighthouse may use the terms "release candidate" and "pre release"
 interchangeably. A pre release is identical to a release candidate.
