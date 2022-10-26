@@ -4,7 +4,8 @@ use crate::execution_engine::{
 use crate::transactions::transactions;
 use ethers_providers::Middleware;
 use execution_layer::{
-    BuilderParams, ChainHealth, ExecutionLayer, PayloadAttributes, PayloadStatus,
+    BuilderParams, ChainHealth, ExecutionLayer, PayloadAttributes, PayloadAttributesV1,
+    PayloadStatus,
 };
 use fork_choice::ForkchoiceUpdateParameters;
 use reqwest::{header::CONTENT_TYPE, Client};
@@ -278,11 +279,11 @@ impl<E: GenericExecutionEngine> TestRig<E> {
                 Slot::new(1), // Insert proposer for the next slot
                 head_root,
                 proposer_index,
-                PayloadAttributes {
+                PayloadAttributes::V1(PayloadAttributesV1 {
                     timestamp,
                     prev_randao,
                     suggested_fee_recipient: Address::zero(),
-                },
+                }),
             )
             .await;
 
@@ -329,7 +330,8 @@ impl<E: GenericExecutionEngine> TestRig<E> {
             )
             .await
             .unwrap()
-            .execution_payload;
+            .to_payload()
+            .execution_payload();
 
         /*
          * Execution Engine A:
@@ -337,7 +339,7 @@ impl<E: GenericExecutionEngine> TestRig<E> {
          * Indicate that the payload is the head of the chain, before submitting a
          * `notify_new_payload`.
          */
-        let head_block_hash = valid_payload.block_hash;
+        let head_block_hash = valid_payload.block_hash();
         let finalized_block_hash = ExecutionBlockHash::zero();
         let slot = Slot::new(42);
         let head_block_root = Hash256::repeat_byte(42);
@@ -377,7 +379,7 @@ impl<E: GenericExecutionEngine> TestRig<E> {
          *
          * Do not provide payload attributes (we'll test that later).
          */
-        let head_block_hash = valid_payload.block_hash;
+        let head_block_hash = valid_payload.block_hash();
         let finalized_block_hash = ExecutionBlockHash::zero();
         let slot = Slot::new(42);
         let head_block_root = Hash256::repeat_byte(42);
@@ -394,7 +396,7 @@ impl<E: GenericExecutionEngine> TestRig<E> {
             .await
             .unwrap();
         assert_eq!(status, PayloadStatus::Valid);
-        assert_eq!(valid_payload.transactions.len(), pending_txs.len());
+        assert_eq!(valid_payload.transactions().len(), pending_txs.len());
 
         // Verify that all submitted txs were successful
         for pending_tx in pending_txs {
@@ -414,7 +416,7 @@ impl<E: GenericExecutionEngine> TestRig<E> {
          */
 
         let mut invalid_payload = valid_payload.clone();
-        invalid_payload.prev_randao = Hash256::from_low_u64_be(42);
+        *invalid_payload.prev_randao_mut() = Hash256::from_low_u64_be(42);
         let status = self
             .ee_a
             .execution_layer
@@ -429,8 +431,8 @@ impl<E: GenericExecutionEngine> TestRig<E> {
          * Produce another payload atop the previous one.
          */
 
-        let parent_hash = valid_payload.block_hash;
-        let timestamp = valid_payload.timestamp + 1;
+        let parent_hash = valid_payload.block_hash();
+        let timestamp = valid_payload.timestamp() + 1;
         let prev_randao = Hash256::zero();
         let proposer_index = 0;
         let builder_params = BuilderParams {
@@ -452,7 +454,8 @@ impl<E: GenericExecutionEngine> TestRig<E> {
             )
             .await
             .unwrap()
-            .execution_payload;
+            .to_payload()
+            .execution_payload();
 
         /*
          * Execution Engine A:
@@ -474,13 +477,13 @@ impl<E: GenericExecutionEngine> TestRig<E> {
          *
          * Indicate that the payload is the head of the chain, providing payload attributes.
          */
-        let head_block_hash = valid_payload.block_hash;
+        let head_block_hash = valid_payload.block_hash();
         let finalized_block_hash = ExecutionBlockHash::zero();
-        let payload_attributes = PayloadAttributes {
-            timestamp: second_payload.timestamp + 1,
+        let payload_attributes = PayloadAttributes::V1(PayloadAttributesV1 {
+            timestamp: second_payload.timestamp() + 1,
             prev_randao: Hash256::zero(),
             suggested_fee_recipient: Address::zero(),
-        };
+        });
         let slot = Slot::new(42);
         let head_block_root = Hash256::repeat_byte(100);
         let validator_index = 0;
@@ -524,7 +527,7 @@ impl<E: GenericExecutionEngine> TestRig<E> {
          *
          * Set the second payload as the head, without providing payload attributes.
          */
-        let head_block_hash = second_payload.block_hash;
+        let head_block_hash = second_payload.block_hash();
         let finalized_block_hash = ExecutionBlockHash::zero();
         let slot = Slot::new(42);
         let head_block_root = Hash256::repeat_byte(42);
@@ -576,7 +579,7 @@ impl<E: GenericExecutionEngine> TestRig<E> {
          *
          * Set the second payload as the head, without providing payload attributes.
          */
-        let head_block_hash = second_payload.block_hash;
+        let head_block_hash = second_payload.block_hash();
         let finalized_block_hash = ExecutionBlockHash::zero();
         let slot = Slot::new(42);
         let head_block_root = Hash256::repeat_byte(42);
@@ -605,7 +608,7 @@ async fn check_payload_reconstruction<E: GenericExecutionEngine>(
 ) {
     let reconstructed = ee
         .execution_layer
-        .get_payload_by_block_hash(payload.block_hash)
+        .get_payload_by_block_hash(payload.block_hash())
         .await
         .unwrap()
         .unwrap();

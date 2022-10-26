@@ -13,8 +13,8 @@ use std::ops::Deref;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use types::{
-    BlindedPayload, BlobsSidecar, BlockType, EthSpec, ExecPayload, ForkName, FullPayload,
-    PublicKeyBytes, Slot,
+    AbstractExecPayload, BlindedPayload, BlobsSidecar, BlockType, EthSpec, ExecPayload, ForkName,
+    FullPayload, PublicKeyBytes, Slot,
 };
 
 #[derive(Debug)]
@@ -276,7 +276,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
     }
 
     /// Produce a block at the given slot for validator_pubkey
-    async fn publish_block<Payload: ExecPayload<E>>(
+    async fn publish_block<Payload: AbstractExecPayload<E>>(
         self,
         slot: Slot,
         validator_pubkey: PublicKeyBytes,
@@ -444,7 +444,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                     "slot" => signed_block.slot().as_u64(),
                 );
             }
-            ForkName::Eip4844 => {
+            ForkName::Capella | ForkName::Eip4844 => {
                 if matches!(Payload::block_type(), BlockType::Blinded) {
                     //FIXME(sean)
                     crit!(

@@ -1111,8 +1111,8 @@ pub struct LivenessResponseData {
 }
 
 #[derive(PartialEq, Debug, Serialize, Deserialize)]
-#[serde(bound = "T: EthSpec, Payload: ExecPayload<T>")]
-pub struct BlocksAndBlobs<T: EthSpec, Payload: ExecPayload<T>> {
+#[serde(bound = "T: EthSpec, Payload: AbstractExecPayload<T>")]
+pub struct BlocksAndBlobs<T: EthSpec, Payload: AbstractExecPayload<T>> {
     pub block: BeaconBlock<T, Payload>,
     pub blobs: Vec<Blob<T>>,
     pub kzg_aggregate_proof: KzgProof,

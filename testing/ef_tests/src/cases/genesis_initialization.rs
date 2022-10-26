@@ -4,7 +4,10 @@ use crate::decode::{ssz_decode_file, ssz_decode_state, yaml_decode_file};
 use serde_derive::Deserialize;
 use state_processing::initialize_beacon_state_from_eth1;
 use std::path::PathBuf;
-use types::{BeaconState, Deposit, EthSpec, ExecutionPayloadHeader, ForkName, Hash256};
+use types::{
+    BeaconState, Deposit, EthSpec, ExecutionPayloadHeader, ExecutionPayloadHeaderMerge, ForkName,
+    Hash256,
+};
 
 #[derive(Debug, Clone, Deserialize)]
 struct Metadata {
@@ -38,9 +41,14 @@ impl<E: EthSpec> LoadCase for GenesisInitialization<E> {
         let meta: Metadata = yaml_decode_file(&path.join("meta.yaml"))?;
         let execution_payload_header: Option<ExecutionPayloadHeader<E>> =
             if meta.execution_payload_header.unwrap_or(false) {
-                Some(ssz_decode_file(
+                //FIXME(sean) we could decode based on timestamp - we probably don't do decode a payload
+                // without a block this elsewhere at presetn. But when we support SSZ in the builder api we may need to.
+                // Although that API should include fork info. Hardcoding this for now
+                Some(ExecutionPayloadHeader::Merge(ssz_decode_file::<
+                    ExecutionPayloadHeaderMerge<E>,
+                >(
                     &path.join("execution_payload_header.ssz_snappy"),
-                )?)
+                )?))
             } else {
                 None
             };

@@ -167,7 +167,7 @@ impl Engine {
     ) -> Result<ForkchoiceUpdatedResponse, EngineApiError> {
         let response = self
             .api
-            .forkchoice_updated_v1(forkchoice_state, payload_attributes)
+            .forkchoice_updated_v1(forkchoice_state, payload_attributes.clone())
             .await?;
 
         if let Some(payload_id) = response.payload_id {
@@ -347,13 +347,14 @@ impl Engine {
     }
 }
 
+// TODO: revisit this - do we need to key on withdrawals as well here?
 impl PayloadIdCacheKey {
     fn new(state: &ForkChoiceState, attributes: &PayloadAttributes) -> Self {
         Self {
             head_block_hash: state.head_block_hash,
-            timestamp: attributes.timestamp,
-            prev_randao: attributes.prev_randao,
-            suggested_fee_recipient: attributes.suggested_fee_recipient,
+            timestamp: attributes.timestamp(),
+            prev_randao: attributes.prev_randao(),
+            suggested_fee_recipient: attributes.suggested_fee_recipient(),
         }
     }
 }

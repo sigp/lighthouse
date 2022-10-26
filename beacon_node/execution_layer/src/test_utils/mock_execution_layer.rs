@@ -1,7 +1,7 @@
 use crate::{
     test_utils::{
-        MockServer, DEFAULT_BUILDER_THRESHOLD_WEI, DEFAULT_JWT_SECRET, DEFAULT_TERMINAL_BLOCK,
-        DEFAULT_TERMINAL_DIFFICULTY,
+        Block, MockServer, DEFAULT_BUILDER_THRESHOLD_WEI, DEFAULT_JWT_SECRET,
+        DEFAULT_TERMINAL_BLOCK, DEFAULT_TERMINAL_DIFFICULTY,
     },
     Config, *,
 };
@@ -99,20 +99,37 @@ impl<T: EthSpec> MockExecutionLayer<T> {
             finalized_hash: None,
         };
 
+        // FIXME: this is just best guess for how to deal with forks here..
+        let payload_attributes = match &latest_execution_block {
+            &Block::PoS(ref pos_block) => match pos_block {
+                &ExecutionPayload::Merge(_) => PayloadAttributes::V1(PayloadAttributesV1 {
+                    timestamp,
+                    prev_randao,
+                    suggested_fee_recipient: Address::repeat_byte(42),
+                }),
+                &ExecutionPayload::Capella(_) | &ExecutionPayload::Eip4844(_) => {
+                    PayloadAttributes::V2(PayloadAttributesV2 {
+                        timestamp,
+                        prev_randao,
+                        suggested_fee_recipient: Address::repeat_byte(42),
+                        // FIXME: think about adding withdrawals here..
+                        withdrawals: vec![],
+                    })
+                }
+            },
+            // I guess a PoW blocks means we should use Merge?
+            &Block::PoW(_) => PayloadAttributes::V1(PayloadAttributesV1 {
+                timestamp,
+                prev_randao,
+                suggested_fee_recipient: Address::repeat_byte(42),
+            }),
+        };
+
         // Insert a proposer to ensure the fork choice updated command works.
         let slot = Slot::new(0);
         let validator_index = 0;
         self.el
-            .insert_proposer(
-                slot,
-                head_block_root,
-                validator_index,
-                PayloadAttributes {
-                    timestamp,
-                    prev_randao,
-                    suggested_fee_recipient: Address::repeat_byte(42),
-                },
-            )
+            .insert_proposer(slot, head_block_root, validator_index, payload_attributes)
             .await;
 
         self.el
@@ -132,7 +149,7 @@ impl<T: EthSpec> MockExecutionLayer<T> {
             slot,
             chain_health: ChainHealth::Healthy,
         };
-        let payload = self
+        let payload: ExecutionPayload<T> = self
             .el
             .get_payload::<FullPayload<T>>(
                 parent_hash,
@@ -145,12 +162,14 @@ impl<T: EthSpec> MockExecutionLayer<T> {
             )
             .await
             .unwrap()
-            .execution_payload;
-        let block_hash = payload.block_hash;
-        assert_eq!(payload.parent_hash, parent_hash);
-        assert_eq!(payload.block_number, block_number);
-        assert_eq!(payload.timestamp, timestamp);
-        assert_eq!(payload.prev_randao, prev_randao);
+            .to_payload()
+            .into();
+
+        let block_hash = payload.block_hash();
+        assert_eq!(payload.parent_hash(), parent_hash);
+        assert_eq!(payload.block_number(), block_number);
+        assert_eq!(payload.timestamp(), timestamp);
+        assert_eq!(payload.prev_randao(), prev_randao);
 
         // Ensure the payload cache is empty.
         assert!(self
@@ -175,12 +194,13 @@ impl<T: EthSpec> MockExecutionLayer<T> {
             )
             .await
             .unwrap()
-            .execution_payload_header;
-        assert_eq!(payload_header.block_hash, block_hash);
-        assert_eq!(payload_header.parent_hash, parent_hash);
-        assert_eq!(payload_header.block_number, block_number);
-        assert_eq!(payload_header.timestamp, timestamp);
-        assert_eq!(payload_header.prev_randao, prev_randao);
+            .to_payload();
+
+        assert_eq!(payload_header.block_hash(), block_hash);
+        assert_eq!(payload_header.parent_hash(), parent_hash);
+        assert_eq!(payload_header.block_number(), block_number);
+        assert_eq!(payload_header.timestamp(), timestamp);
+        assert_eq!(payload_header.prev_randao(), prev_randao);
 
         // Ensure the payload cache has the correct payload.
         assert_eq!(

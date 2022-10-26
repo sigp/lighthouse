@@ -5,6 +5,7 @@ use crate::decode::{ssz_decode_file, ssz_decode_file_with, ssz_decode_state, yam
 use crate::testing_spec;
 use crate::type_name::TypeName;
 use serde_derive::Deserialize;
+use ssz::Decode;
 use state_processing::per_block_processing::{
     errors::BlockProcessingError,
     process_block_header, process_execution_payload,
@@ -18,8 +19,8 @@ use std::fmt::Debug;
 use std::path::Path;
 use types::{
     Attestation, AttesterSlashing, BeaconBlock, BeaconState, BlindedPayload, ChainSpec, Deposit,
-    EthSpec, ExecutionPayload, ForkName, FullPayload, ProposerSlashing, SignedVoluntaryExit,
-    SyncAggregate,
+    EthSpec, ExecutionPayload, ExecutionPayloadMerge, ForkName, FullPayload, ProposerSlashing,
+    SignedVoluntaryExit, SyncAggregate,
 };
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -81,16 +82,17 @@ impl<E: EthSpec> Operation<E> for Attestation<E> {
             BeaconState::Base(_) => {
                 base::process_attestations(state, &[self.clone()], VerifySignatures::True, spec)
             }
-            BeaconState::Altair(_) | BeaconState::Merge(_) | BeaconState::Eip4844(_) => {
-                altair::process_attestation(
-                    state,
-                    self,
-                    0,
-                    proposer_index,
-                    VerifySignatures::True,
-                    spec,
-                )
-            }
+            BeaconState::Altair(_)
+            | BeaconState::Merge(_)
+            | BeaconState::Capella(_)
+            | BeaconState::Eip4844(_) => altair::process_attestation(
+                state,
+                self,
+                0,
+                proposer_index,
+                VerifySignatures::True,
+                spec,
+            ),
         }
     }
 }
@@ -237,8 +239,13 @@ impl<E: EthSpec> Operation<E> for FullPayload<E> {
         fork_name != ForkName::Base && fork_name != ForkName::Altair
     }
 
+    //FIXME(sean) we could decode based on timestamp - we probably don't do decode a payload
+    // without a block this elsewhere at presetn. But when we support SSZ in the builder api we may need to.
+    // Although that API should include fork info. Hardcoding this for now
     fn decode(path: &Path, _spec: &ChainSpec) -> Result<Self, Error> {
-        ssz_decode_file(path)
+        ssz_decode_file::<ExecutionPayloadMerge<E>>(path)
+            .map(ExecutionPayload::Merge)
+            .map(Into::into)
     }
 
     fn apply_to(
@@ -252,7 +259,7 @@ impl<E: EthSpec> Operation<E> for FullPayload<E> {
             .as_ref()
             .map_or(false, |e| e.execution_valid);
         if valid {
-            process_execution_payload(state, self, spec)
+            process_execution_payload::<E, FullPayload<E>>(state, self.to_ref(), spec)
         } else {
             Err(BlockProcessingError::ExecutionInvalid)
         }
@@ -272,7 +279,12 @@ impl<E: EthSpec> Operation<E> for BlindedPayload<E> {
     }
 
     fn decode(path: &Path, _spec: &ChainSpec) -> Result<Self, Error> {
-        ssz_decode_file::<ExecutionPayload<E>>(path).map(Into::into)
+        //FIXME(sean) we could decode based on timestamp - we probably don't do decode a payload
+        // without a block this elsewhere at presetn. But when we support SSZ in the builder api we may need to.
+        // Although that API should include fork info. Hardcoding this for now
+        let payload: Result<ExecutionPayload<E>, Error> =
+            ssz_decode_file::<ExecutionPayloadMerge<E>>(path).map(Into::into);
+        payload.map(Into::into)
     }
 
     fn apply_to(
@@ -286,7 +298,7 @@ impl<E: EthSpec> Operation<E> for BlindedPayload<E> {
             .as_ref()
             .map_or(false, |e| e.execution_valid);
         if valid {
-            process_execution_payload(state, self, spec)
+            process_execution_payload::<E, BlindedPayload<E>>(state, self.to_ref(), spec)
         } else {
             Err(BlockProcessingError::ExecutionInvalid)
         }

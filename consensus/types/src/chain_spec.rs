@@ -253,11 +253,14 @@ impl ChainSpec {
     pub fn fork_name_at_epoch(&self, epoch: Epoch) -> ForkName {
         match self.eip4844_fork_epoch {
             Some(fork_epoch) if epoch >= fork_epoch => ForkName::Eip4844,
-            _ => match self.bellatrix_fork_epoch {
-                Some(fork_epoch) if epoch >= fork_epoch => ForkName::Merge,
-                _ => match self.altair_fork_epoch {
-                    Some(fork_epoch) if epoch >= fork_epoch => ForkName::Altair,
-                    _ => ForkName::Base,
+            _ => match self.capella_fork_epoch {
+                Some(fork_epoch) if epoch >= fork_epoch => ForkName::Capella,
+                _ => match self.bellatrix_fork_epoch {
+                    Some(fork_epoch) if epoch >= fork_epoch => ForkName::Merge,
+                    _ => match self.altair_fork_epoch {
+                        Some(fork_epoch) if epoch >= fork_epoch => ForkName::Altair,
+                        _ => ForkName::Base,
+                    },
                 },
             },
         }

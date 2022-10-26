@@ -1,5 +1,5 @@
 use crate::test_utils::DEFAULT_JWT_SECRET;
-use crate::{Config, ExecutionLayer, PayloadAttributes};
+use crate::{Config, ExecutionLayer, PayloadAttributes, PayloadAttributesV1};
 use async_trait::async_trait;
 use eth2::types::{BlockId, StateId, ValidatorId};
 use eth2::{BeaconNodeHttpClient, Timeouts};
@@ -287,11 +287,12 @@ impl<E: EthSpec> mev_build_rs::BlindedBlockProvider for MockBuilder<E> {
             .get_randao_mix(head_state.current_epoch())
             .map_err(convert_err)?;
 
-        let payload_attributes = PayloadAttributes {
+        // FIXME: think about proper fork here
+        let payload_attributes = PayloadAttributes::V1(PayloadAttributesV1 {
             timestamp,
             prev_randao: *prev_randao,
             suggested_fee_recipient: fee_recipient,
-        };
+        });
 
         self.el
             .insert_proposer(slot, head_block_root, val_index, payload_attributes)
@@ -315,6 +316,7 @@ impl<E: EthSpec> mev_build_rs::BlindedBlockProvider for MockBuilder<E> {
             )
             .await
             .map_err(convert_err)?
+            .to_payload()
             .to_execution_payload_header();
 
         let json_payload = serde_json::to_string(&payload).map_err(convert_err)?;

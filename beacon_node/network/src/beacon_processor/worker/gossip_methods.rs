@@ -706,6 +706,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         seen_timestamp: Duration,
     ) {
         match self.chain.verify_blobs_sidecar_for_gossip(&blob) {
+            //FIXME(sean)
             Ok(verified_sidecar) => {
                 // Register with validator monitor
                 // Propagate
@@ -2309,6 +2310,7 @@ impl<T: BeaconChainTypes> Worker<T> {
 
                 return;
             }
+            &BlobError::UnknownValidator(_) => todo!(),
         }
     }
 }
