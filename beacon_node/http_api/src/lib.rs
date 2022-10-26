@@ -1542,7 +1542,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and_then(
             |accept_header: Option<api_types::Accept>, eth1_service: eth1::Service| {
                 blocking_task(move || match accept_header {
-                    Some(api_types::Accept::Json) => {
+                    Some(api_types::Accept::Json) | None => {
                         let snapshot = eth1_service.get_deposit_snapshot();
                         Ok(
                             warp::reply::json(&api_types::GenericResponse::from(snapshot))
