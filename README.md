@@ -25,7 +25,7 @@ Lighthouse is:
 - Security-focused. Fuzzing techniques have been continuously applied and several external security reviews have been performed.
 - Built in [Rust](https://www.rust-lang.org), a modern language providing unique safety guarantees and
 	excellent performance (comparable to C++).
-- Funded by various organizations, including Sigma Prime, the
+- Funded by various organisations, including Sigma Prime, the
 	Ethereum Foundation, ConsenSys, the Decentralization Foundation and private individuals.
 - Actively involved in the specification and security analysis of the
 	Ethereum proof-of-stake consensus specification.
