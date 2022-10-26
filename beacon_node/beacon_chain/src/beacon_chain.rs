@@ -1778,11 +1778,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         })
     }
 
-    /// Accepts some `SignedBlobsSidecar` from the network and attempts to verify it,
+    /// Accepts some `BlobsSidecar` received over from the network and attempts to verify it,
     /// returning `Ok(_)` if it is valid to be (re)broadcast on the gossip network.
     pub fn verify_blobs_sidecar_for_gossip<'a>(
         &self,
-        blobs_sidecar: &'a SignedBlobsSidecar<T::EthSpec>,
+        blobs_sidecar: &'a BlobsSidecar<T::EthSpec>,
     ) -> Result<VerifiedBlobsSidecar<'a, T>, BlobError> {
         metrics::inc_counter(&metrics::BLOBS_SIDECAR_PROCESSING_REQUESTS);
         let _timer = metrics::start_timer(&metrics::BLOBS_SIDECAR_GOSSIP_VERIFICATION_TIMES);

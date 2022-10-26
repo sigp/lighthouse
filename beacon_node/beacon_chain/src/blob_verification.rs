@@ -4,7 +4,7 @@ use slot_clock::SlotClock;
 use crate::beacon_chain::{BeaconChain, BeaconChainTypes, MAXIMUM_GOSSIP_CLOCK_DISPARITY};
 use crate::BeaconChainError;
 use bls::PublicKey;
-use types::{consts::eip4844::BLS_MODULUS, BeaconStateError, Hash256, SignedBlobsSidecar, Slot};
+use types::{consts::eip4844::BLS_MODULUS, BeaconStateError, BlobsSidecar, Hash256, Slot};
 
 pub enum BlobError {
     /// The blob sidecar is from a slot that is later than the current slot (with respect to the
@@ -79,20 +79,20 @@ impl From<BeaconStateError> for BlobError {
     }
 }
 
-/// A wrapper around a `SignedBlobsSidecar` that indicates it has been approved for re-gossiping on
-/// the p2p network.
+/// A wrapper around a `BlobsSidecar` that indicates it has been verified w.r.t the corresponding
+/// `SignedBeaconBlock`.
 #[derive(Derivative)]
 #[derivative(Debug(bound = "T: BeaconChainTypes"))]
 pub struct VerifiedBlobsSidecar<'a, T: BeaconChainTypes> {
-    pub blob_sidecar: &'a SignedBlobsSidecar<T::EthSpec>,
+    pub blob_sidecar: &'a BlobsSidecar<T::EthSpec>,
 }
 
 impl<'a, T: BeaconChainTypes> VerifiedBlobsSidecar<'a, T> {
     pub fn verify(
-        blob_sidecar: &'a SignedBlobsSidecar<T::EthSpec>,
+        blob_sidecar: &'a BlobsSidecar<T::EthSpec>,
         chain: &BeaconChain<T>,
     ) -> Result<Self, BlobError> {
-        let blob_slot = blob_sidecar.message.beacon_block_slot;
+        let blob_slot = blob_sidecar.beacon_block_slot;
         // Do not gossip or process blobs from future or past slots.
         let latest_permissible_slot = chain
             .slot_clock
@@ -118,38 +118,16 @@ impl<'a, T: BeaconChainTypes> VerifiedBlobsSidecar<'a, T> {
 
         // Verify that blobs are properly formatted
         //TODO: add the check while constructing a Blob type from bytes instead of after
-        for (i, blob) in blob_sidecar.message.blobs.iter().enumerate() {
+        for (i, blob) in blob_sidecar.blobs.iter().enumerate() {
             if blob.iter().any(|b| *b >= *BLS_MODULUS) {
                 return Err(BlobError::BlobOutOfRange { blob_index: i });
             }
         }
 
         // Verify that the KZG proof is a valid G1 point
-        if PublicKey::deserialize(&blob_sidecar.message.kzg_aggregate_proof.0).is_err() {
+        if PublicKey::deserialize(&blob_sidecar.kzg_aggregate_proof.0).is_err() {
             return Err(BlobError::InvalidKZGCommitment);
         }
-
-        // TODO: Verify proposer signature
-
-        // // let state = /* Get a valid state */
-        // let proposer_index = state.get_beacon_proposer_index(blob_slot, &chain.spec)? as u64;
-        // let signature_is_valid = {
-        //     let pubkey_cache = get_validator_pubkey_cache(chain)?;
-        //     let pubkey = pubkey_cache
-        //         .get(proposer_index as usize)
-        //         .ok_or_else(|| BlobError::UnknownValidator(proposer_index)?;
-        //     blob.verify_signature(
-        //         Some(block_root),
-        //         pubkey,
-        //         &fork,
-        //         chain.genesis_validators_root,
-        //         &chain.spec,
-        //     )
-        // };
-
-        // if !signature_is_valid {
-        //     return Err(BlobError::ProposalSignatureInvalid);
-        // }
 
         // TODO: Check that we have not already received a sidecar with a valid signature for this slot.
 

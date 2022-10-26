@@ -10,7 +10,10 @@ use beacon_chain::{
     BeaconChainError, BeaconChainTypes, BlockError, CountUnrealized, ForkChoiceError,
     GossipVerifiedBlock,
 };
-use lighthouse_network::{Client, MessageAcceptance, MessageId, PeerAction, PeerId, ReportSource};
+use lighthouse_network::{
+    Client, MessageAcceptance, MessageId, PeerAction, PeerId, ReportSource,
+    SignedBeaconBlockAndBlobsSidecar,
+};
 use slog::{crit, debug, error, info, trace, warn};
 use slot_clock::SlotClock;
 use ssz::Encode;
@@ -18,11 +21,10 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use store::hot_cold_store::HotColdDBError;
 use tokio::sync::mpsc;
-use types::signed_blobs_sidecar::SignedBlobsSidecar;
 use types::{
-    Attestation, AttesterSlashing, EthSpec, Hash256, IndexedAttestation, ProposerSlashing,
-    SignedAggregateAndProof, SignedBeaconBlock, SignedContributionAndProof, SignedVoluntaryExit,
-    Slot, SubnetId, SyncCommitteeMessage, SyncSubnetId,
+    Attestation, AttesterSlashing, BlobsSidecar, EthSpec, Hash256, IndexedAttestation,
+    ProposerSlashing, SignedAggregateAndProof, SignedBeaconBlock, SignedContributionAndProof,
+    SignedVoluntaryExit, Slot, SubnetId, SyncCommitteeMessage, SyncSubnetId,
 };
 
 use super::{
@@ -696,30 +698,15 @@ impl<T: BeaconChainTypes> Worker<T> {
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub async fn process_gossip_blob(
+    pub async fn process_gossip_block_and_blobs_sidecar(
         self,
         message_id: MessageId,
         peer_id: PeerId,
         peer_client: Client,
-        blob: Arc<SignedBlobsSidecar<T::EthSpec>>,
-        reprocess_tx: mpsc::Sender<ReprocessQueueMessage<T>>,
+        block_and_blob: Arc<SignedBeaconBlockAndBlobsSidecar<T::EthSpec>>,
         seen_timestamp: Duration,
     ) {
-        match self.chain.verify_blobs_sidecar_for_gossip(&blob) {
-            //FIXME(sean)
-            Ok(verified_sidecar) => {
-                // Register with validator monitor
-                // Propagate
-                // Apply to fork choice
-            }
-            Err(error) => self.handle_blobs_verification_failure(
-                peer_id,
-                message_id,
-                Some(reprocess_tx),
-                error,
-                seen_timestamp,
-            ),
-        };
+        unimplemented!()
     }
 
     /// Process the beacon block received from the gossip network and
