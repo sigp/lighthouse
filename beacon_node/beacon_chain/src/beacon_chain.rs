@@ -57,7 +57,8 @@ use crate::BeaconSnapshot;
 use crate::{metrics, BeaconChainError};
 use eth2::types::{EventKind, SseBlock, SyncDuty};
 use execution_layer::{
-    BuilderParams, ChainHealth, ExecutionLayer, FailedCondition, PayloadAttributes, PayloadStatus,
+    BlockProposalContents, BuilderParams, ChainHealth, ExecutionLayer, FailedCondition,
+    PayloadAttributes, PayloadAttributesV1, PayloadAttributesV2, PayloadStatus,
 };
 pub use fork_choice::CountUnrealized;
 use fork_choice::{
@@ -241,7 +242,7 @@ pub trait BeaconChainTypes: Send + Sync + 'static {
 }
 
 /// Used internally to split block production into discrete functions.
-struct PartialBeaconBlock<E: EthSpec, Payload> {
+struct PartialBeaconBlock<E: EthSpec, Payload: AbstractExecPayload<E>> {
     state: BeaconState<E>,
     slot: Slot,
     proposer_index: u64,
@@ -255,7 +256,7 @@ struct PartialBeaconBlock<E: EthSpec, Payload> {
     deposits: Vec<Deposit>,
     voluntary_exits: Vec<SignedVoluntaryExit>,
     sync_aggregate: Option<SyncAggregate<E>>,
-    prepare_payload_handle: Option<PreparePayloadHandle<Payload, E>>,
+    prepare_payload_handle: Option<PreparePayloadHandle<E, Payload>>,
 }
 
 pub type BeaconForkChoice<T> = ForkChoice<
@@ -928,12 +929,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // If we only have a blinded block, load the execution payload from the EL.
         let block_message = blinded_block.message();
-        let execution_payload_header = &block_message
+        let execution_payload_header = block_message
             .execution_payload()
             .map_err(|_| Error::BlockVariantLacksExecutionPayload(*block_root))?
-            .execution_payload_header;
+            .to_execution_payload_header();
 
-        let exec_block_hash = execution_payload_header.block_hash;
+        let exec_block_hash = execution_payload_header.block_hash();
 
         let execution_payload = self
             .execution_layer
@@ -944,10 +945,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .map_err(|e| Error::ExecutionLayerErrorPayloadReconstruction(exec_block_hash, e))?
             .ok_or(Error::BlockHashMissingFromExecutionLayer(exec_block_hash))?;
 
+        //FIXME(sean) avoid the clone by comparing refs to headers (`as_execution_payload_header` method ?)
+        let full_payload: FullPayload<T::EthSpec> = execution_payload.clone().into();
+
         // Verify payload integrity.
-        let header_from_payload = ExecutionPayloadHeader::from(&execution_payload);
-        if header_from_payload != *execution_payload_header {
-            for txn in &execution_payload.transactions {
+        let header_from_payload = full_payload.to_execution_payload_header();
+        if header_from_payload != execution_payload_header {
+            for txn in execution_payload.transactions() {
                 debug!(
                     self.log,
                     "Reconstructed txn";
@@ -960,8 +964,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 exec_block_hash,
                 canonical_payload_root: execution_payload_header.tree_hash_root(),
                 reconstructed_payload_root: header_from_payload.tree_hash_root(),
-                canonical_transactions_root: execution_payload_header.transactions_root,
-                reconstructed_transactions_root: header_from_payload.transactions_root,
+                canonical_transactions_root: execution_payload_header.transactions_root(),
+                reconstructed_transactions_root: header_from_payload.transactions_root(),
             });
         }
 
@@ -3126,7 +3130,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// The produced block will not be inherently valid, it must be signed by a block producer.
     /// Block signing is out of the scope of this function and should be done by a separate program.
-    pub async fn produce_block<Payload: ExecPayload<T::EthSpec>>(
+    pub async fn produce_block<Payload: AbstractExecPayload<T::EthSpec> + 'static>(
         self: &Arc<Self>,
         randao_reveal: Signature,
         slot: Slot,
@@ -3142,7 +3146,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 
     /// Same as `produce_block` but allowing for configuration of RANDAO-verification.
-    pub async fn produce_block_with_verification<Payload: ExecPayload<T::EthSpec>>(
+    pub async fn produce_block_with_verification<
+        Payload: AbstractExecPayload<T::EthSpec> + 'static,
+    >(
         self: &Arc<Self>,
         randao_reveal: Signature,
         slot: Slot,
@@ -3256,7 +3262,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// The provided `state_root_opt` should only ever be set to `Some` if the contained value is
     /// equal to the root of `state`. Providing this value will serve as an optimization to avoid
     /// performing a tree hash in some scenarios.
-    pub async fn produce_block_on_state<Payload: ExecPayload<T::EthSpec>>(
+    pub async fn produce_block_on_state<Payload: AbstractExecPayload<T::EthSpec> + 'static>(
         self: &Arc<Self>,
         state: BeaconState<T::EthSpec>,
         state_root_opt: Option<Hash256>,
@@ -3291,16 +3297,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         //
         // Wait for the execution layer to return an execution payload (if one is required).
         let prepare_payload_handle = partial_beacon_block.prepare_payload_handle.take();
-        let (execution_payload, kzg_commitments, blobs) =
-            if let Some(prepare_payload_handle) = prepare_payload_handle {
-                let (execution_payload, commitments, blobs) = prepare_payload_handle
-                    .await
-                    .map_err(BlockProductionError::TokioJoin)?
-                    .ok_or(BlockProductionError::ShuttingDown)??;
-                (execution_payload, commitments, blobs)
-            } else {
-                return Err(BlockProductionError::MissingExecutionPayload);
-            };
+        let execution_payload = if let Some(prepare_payload_handle) = prepare_payload_handle {
+            prepare_payload_handle
+                .await
+                .map_err(BlockProductionError::TokioJoin)?
+                .ok_or(BlockProductionError::ShuttingDown)??
+        } else {
+            return Err(BlockProductionError::MissingExecutionPayload);
+        };
+
+        //FIXME(sean) waiting for the BN<>EE api for this to stabilize
+        let kzg_commitments = vec![];
 
         // Part 3/3 (blocking)
         //
@@ -3323,7 +3330,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .map_err(BlockProductionError::TokioJoin)?
     }
 
-    fn produce_partial_beacon_block<Payload: ExecPayload<T::EthSpec>>(
+    fn produce_partial_beacon_block<Payload: AbstractExecPayload<T::EthSpec> + 'static>(
         self: &Arc<Self>,
         mut state: BeaconState<T::EthSpec>,
         state_root_opt: Option<Hash256>,
@@ -3383,7 +3390,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // allows it to run concurrently with things like attestation packing.
         let prepare_payload_handle = match &state {
             BeaconState::Base(_) | BeaconState::Altair(_) => None,
-            BeaconState::Merge(_) | BeaconState::Eip4844(_) => {
+            BeaconState::Merge(_) | BeaconState::Capella(_) | BeaconState::Eip4844(_) => {
                 let prepare_payload_handle =
                     get_execution_payload(self.clone(), &state, proposer_index, builder_params)?;
                 Some(prepare_payload_handle)
@@ -3556,10 +3563,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         })
     }
 
-    fn complete_partial_beacon_block<Payload: ExecPayload<T::EthSpec>>(
+    fn complete_partial_beacon_block<Payload: AbstractExecPayload<T::EthSpec>>(
         &self,
         partial_beacon_block: PartialBeaconBlock<T::EthSpec, Payload>,
-        execution_payload: Payload,
+        block_contents: BlockProposalContents<T::EthSpec, Payload>,
         kzg_commitments: Vec<KzgCommitment>,
         verification: ProduceBlockVerification,
     ) -> Result<BeaconBlockAndState<T::EthSpec, Payload>, BlockProductionError> {
@@ -3636,7 +3643,32 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     voluntary_exits: voluntary_exits.into(),
                     sync_aggregate: sync_aggregate
                         .ok_or(BlockProductionError::MissingSyncAggregate)?,
-                    execution_payload,
+                    execution_payload: block_contents
+                        .to_payload()
+                        .try_into()
+                        .map_err(|_| BlockProductionError::InvalidPayloadFork)?,
+                },
+            }),
+            BeaconState::Capella(_) => BeaconBlock::Capella(BeaconBlockCapella {
+                slot,
+                proposer_index,
+                parent_root,
+                state_root: Hash256::zero(),
+                body: BeaconBlockBodyCapella {
+                    randao_reveal,
+                    eth1_data,
+                    graffiti,
+                    proposer_slashings: proposer_slashings.into(),
+                    attester_slashings: attester_slashings.into(),
+                    attestations: attestations.into(),
+                    deposits: deposits.into(),
+                    voluntary_exits: voluntary_exits.into(),
+                    sync_aggregate: sync_aggregate
+                        .ok_or(BlockProductionError::MissingSyncAggregate)?,
+                    execution_payload: block_contents
+                        .to_payload()
+                        .try_into()
+                        .map_err(|_| BlockProductionError::InvalidPayloadFork)?,
                 },
             }),
             BeaconState::Eip4844(_) => BeaconBlock::Eip4844(BeaconBlockEip4844 {
@@ -3655,7 +3687,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     voluntary_exits: voluntary_exits.into(),
                     sync_aggregate: sync_aggregate
                         .ok_or(BlockProductionError::MissingSyncAggregate)?,
-                    execution_payload,
+                    execution_payload: block_contents
+                        .to_payload()
+                        .try_into()
+                        .map_err(|_| BlockProductionError::InvalidPayloadFork)?,
                     //FIXME(sean) get blobs
                     blob_kzg_commitments: VariableList::from(kzg_commitments),
                 },
@@ -3973,16 +4008,33 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Ok(());
         }
 
-        let payload_attributes = PayloadAttributes {
-            timestamp: self
-                .slot_clock
-                .start_of(prepare_slot)
-                .ok_or(Error::InvalidSlot(prepare_slot))?
-                .as_secs(),
-            prev_randao: head_random,
-            suggested_fee_recipient: execution_layer
-                .get_suggested_fee_recipient(proposer as u64)
-                .await,
+        let payload_attributes = match self.spec.fork_name_at_epoch(prepare_epoch) {
+            ForkName::Base | ForkName::Altair | ForkName::Merge => {
+                PayloadAttributes::V1(PayloadAttributesV1 {
+                    timestamp: self
+                        .slot_clock
+                        .start_of(prepare_slot)
+                        .ok_or(Error::InvalidSlot(prepare_slot))?
+                        .as_secs(),
+                    prev_randao: head_random,
+                    suggested_fee_recipient: execution_layer
+                        .get_suggested_fee_recipient(proposer as u64)
+                        .await,
+                })
+            }
+            ForkName::Capella | ForkName::Eip4844 => PayloadAttributes::V2(PayloadAttributesV2 {
+                timestamp: self
+                    .slot_clock
+                    .start_of(prepare_slot)
+                    .ok_or(Error::InvalidSlot(prepare_slot))?
+                    .as_secs(),
+                prev_randao: head_random,
+                suggested_fee_recipient: execution_layer
+                    .get_suggested_fee_recipient(proposer as u64)
+                    .await,
+                //FIXME(sean)
+                withdrawals: vec![],
+            }),
         };
 
         debug!(
@@ -4122,7 +4174,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     {
                         // We are a proposer, check for terminal_pow_block_hash
                         if let Some(terminal_pow_block_hash) = execution_layer
-                            .get_terminal_pow_block_hash(&self.spec, payload_attributes.timestamp)
+                            .get_terminal_pow_block_hash(&self.spec, payload_attributes.timestamp())
                             .await
                             .map_err(Error::ForkchoiceUpdate)?
                         {
@@ -4297,7 +4349,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Returns `Ok(false)` if the block is pre-Bellatrix, or has `ExecutionStatus::Valid`.
     /// Returns `Ok(true)` if the block has `ExecutionStatus::Optimistic` or has
     /// `ExecutionStatus::Invalid`.
-    pub fn is_optimistic_or_invalid_block<Payload: ExecPayload<T::EthSpec>>(
+    pub fn is_optimistic_or_invalid_block<Payload: AbstractExecPayload<T::EthSpec>>(
         &self,
         block: &SignedBeaconBlock<T::EthSpec, Payload>,
     ) -> Result<bool, BeaconChainError> {
@@ -4323,7 +4375,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// There is a potential race condition when syncing where the block_root of `head_block` could
     /// be pruned from the fork choice store before being read.
-    pub fn is_optimistic_or_invalid_head_block<Payload: ExecPayload<T::EthSpec>>(
+    pub fn is_optimistic_or_invalid_head_block<Payload: AbstractExecPayload<T::EthSpec>>(
         &self,
         head_block: &SignedBeaconBlock<T::EthSpec, Payload>,
     ) -> Result<bool, BeaconChainError> {

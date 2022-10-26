@@ -9,8 +9,8 @@ use std::sync::Arc;
 use tokio::sync::mpsc::UnboundedSender;
 use tree_hash::TreeHash;
 use types::{
-    BlindedPayload, ExecPayload, ExecutionBlockHash, ExecutionPayload, FullPayload, Hash256,
-    SignedBeaconBlock,
+    AbstractExecPayload, BlindedPayload, EthSpec, ExecPayload, ExecutionBlockHash, FullPayload,
+    Hash256, SignedBeaconBlock,
 };
 use warp::Rejection;
 
@@ -158,12 +158,17 @@ async fn reconstruct_block<T: BeaconChainTypes>(
 
         // If the execution block hash is zero, use an empty payload.
         let full_payload = if payload_header.block_hash() == ExecutionBlockHash::zero() {
-            ExecutionPayload::default()
+            FullPayload::default_at_fork(
+                chain
+                    .spec
+                    .fork_name_at_epoch(block.slot().epoch(T::EthSpec::slots_per_epoch())),
+            )
+            .into()
             // If we already have an execution payload with this transactions root cached, use it.
         } else if let Some(cached_payload) =
             el.get_payload_by_root(&payload_header.tree_hash_root())
         {
-            info!(log, "Reconstructing a full block using a local payload"; "block_hash" => ?cached_payload.block_hash);
+            info!(log, "Reconstructing a full block using a local payload"; "block_hash" => ?cached_payload.block_hash());
             cached_payload
             // Otherwise, this means we are attempting a blind block proposal.
         } else {
@@ -176,7 +181,7 @@ async fn reconstruct_block<T: BeaconChainTypes>(
                         e
                     ))
                 })?;
-            info!(log, "Successfully published a block to the builder network"; "block_hash" => ?full_payload.block_hash);
+            info!(log, "Successfully published a block to the builder network"; "block_hash" => ?full_payload.block_hash());
             full_payload
         };
 

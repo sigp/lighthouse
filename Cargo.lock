@@ -2097,6 +2097,7 @@ dependencies = [
  "ssz-rs",
  "state_processing",
  "strum",
+ "superstruct 0.6.0",
  "task_executor",
  "tempfile",
  "tokio",

@@ -75,12 +75,12 @@ pub async fn handle_rpc<T: EthSpec>(
             }
         }
         ENGINE_NEW_PAYLOAD_V1 => {
-            let request: JsonExecutionPayloadV1<T> = get_param(params, 0)?;
+            let request: JsonExecutionPayload<T> = get_param(params, 0)?;
 
             let (static_response, should_import) =
                 if let Some(mut response) = ctx.static_new_payload_response.lock().clone() {
                     if response.status.status == PayloadStatusV1Status::Valid {
-                        response.status.latest_valid_hash = Some(request.block_hash)
+                        response.status.latest_valid_hash = Some(*request.block_hash())
                     }
 
                     (Some(response.status), response.should_import)
@@ -112,11 +112,11 @@ pub async fn handle_rpc<T: EthSpec>(
                 .get_payload(&id)
                 .ok_or_else(|| format!("no payload for id {:?}", id))?;
 
-            Ok(serde_json::to_value(JsonExecutionPayloadV1::from(response)).unwrap())
+            Ok(serde_json::to_value(JsonExecutionPayload::from(response)).unwrap())
         }
         ENGINE_FORKCHOICE_UPDATED_V1 => {
             let forkchoice_state: JsonForkChoiceStateV1 = get_param(params, 0)?;
-            let payload_attributes: Option<JsonPayloadAttributesV1> = get_param(params, 1)?;
+            let payload_attributes: Option<JsonPayloadAttributes> = get_param(params, 1)?;
 
             let head_block_hash = forkchoice_state.head_block_hash;
 

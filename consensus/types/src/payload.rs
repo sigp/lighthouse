@@ -57,7 +57,13 @@ impl<T: EthSpec, P> OwnedExecPayload<T> for P where
 }
 
 pub trait AbstractExecPayload<T: EthSpec>:
-    ExecPayload<T> + Sized + From<ExecutionPayload<T>> + TryFrom<ExecutionPayloadHeader<T>>
+    ExecPayload<T>
+    + Sized
+    + From<ExecutionPayload<T>>
+    + TryFrom<ExecutionPayloadHeader<T>>
+    + TryInto<Self::Merge>
+    + TryInto<Self::Capella>
+    + TryInto<Self::Eip4844>
 {
     type Ref<'a>: ExecPayload<T>
         + Copy
@@ -77,6 +83,8 @@ pub trait AbstractExecPayload<T: EthSpec>:
         + Into<Self>
         + From<ExecutionPayloadEip4844<T>>
         + TryFrom<ExecutionPayloadHeaderEip4844<T>>;
+
+    fn default_at_fork(fork_name: ForkName) -> Self;
 }
 
 #[superstruct(
@@ -124,6 +132,22 @@ impl<T: EthSpec> From<FullPayload<T>> for ExecutionPayload<T> {
             FullPayload::Merge(payload) => ExecutionPayload::Merge(payload.execution_payload),
             FullPayload::Capella(payload) => ExecutionPayload::Capella(payload.execution_payload),
             FullPayload::Eip4844(payload) => ExecutionPayload::Eip4844(payload.execution_payload),
+        }
+    }
+}
+
+impl<'a, T: EthSpec> From<FullPayloadRef<'a, T>> for ExecutionPayload<T> {
+    fn from(full_payload: FullPayloadRef<'a, T>) -> Self {
+        match full_payload {
+            FullPayloadRef::Merge(payload) => {
+                ExecutionPayload::Merge(payload.execution_payload.clone())
+            }
+            FullPayloadRef::Capella(payload) => {
+                ExecutionPayload::Capella(payload.execution_payload.clone())
+            }
+            FullPayloadRef::Eip4844(payload) => {
+                ExecutionPayload::Eip4844(payload.execution_payload.clone())
+            }
         }
     }
 }
@@ -425,6 +449,51 @@ impl<T: EthSpec> AbstractExecPayload<T> for FullPayload<T> {
     type Merge = FullPayloadMerge<T>;
     type Capella = FullPayloadCapella<T>;
     type Eip4844 = FullPayloadEip4844<T>;
+
+    fn default_at_fork(fork_name: ForkName) -> Self {
+        match fork_name {
+            //FIXME(sean) error handling
+            ForkName::Base | ForkName::Altair => panic!(),
+            ForkName::Merge => FullPayloadMerge::default().into(),
+            ForkName::Capella => FullPayloadCapella::default().into(),
+            ForkName::Eip4844 => FullPayloadEip4844::default().into(),
+        }
+    }
+}
+
+//FIXME(sean) fix errors
+impl<T: EthSpec> TryInto<FullPayloadMerge<T>> for FullPayload<T> {
+    type Error = ();
+
+    fn try_into(self) -> Result<FullPayloadMerge<T>, Self::Error> {
+        match self {
+            FullPayload::Merge(payload) => Ok(payload),
+            FullPayload::Capella(_) => Err(()),
+            FullPayload::Eip4844(_) => Err(()),
+        }
+    }
+}
+impl<T: EthSpec> TryInto<FullPayloadCapella<T>> for FullPayload<T> {
+    type Error = ();
+
+    fn try_into(self) -> Result<FullPayloadCapella<T>, Self::Error> {
+        match self {
+            FullPayload::Merge(_) => Err(()),
+            FullPayload::Capella(payload) => Ok(payload),
+            FullPayload::Eip4844(_) => Err(()),
+        }
+    }
+}
+impl<T: EthSpec> TryInto<FullPayloadEip4844<T>> for FullPayload<T> {
+    type Error = ();
+
+    fn try_into(self) -> Result<FullPayloadEip4844<T>, Self::Error> {
+        match self {
+            FullPayload::Merge(_) => Err(()),
+            FullPayload::Capella(_) => Err(()),
+            FullPayload::Eip4844(payload) => Ok(payload),
+        }
+    }
 }
 
 impl<T: EthSpec> From<ExecutionPayload<T>> for FullPayload<T> {
@@ -855,6 +924,51 @@ impl<T: EthSpec> AbstractExecPayload<T> for BlindedPayload<T> {
     type Merge = BlindedPayloadMerge<T>;
     type Capella = BlindedPayloadCapella<T>;
     type Eip4844 = BlindedPayloadEip4844<T>;
+
+    fn default_at_fork(fork_name: ForkName) -> Self {
+        match fork_name {
+            //FIXME(sean) error handling
+            ForkName::Base | ForkName::Altair => panic!(),
+            ForkName::Merge => BlindedPayloadMerge::default().into(),
+            ForkName::Capella => BlindedPayloadCapella::default().into(),
+            ForkName::Eip4844 => BlindedPayloadEip4844::default().into(),
+        }
+    }
+}
+
+//FIXME(sean) fix errors
+impl<T: EthSpec> TryInto<BlindedPayloadMerge<T>> for BlindedPayload<T> {
+    type Error = ();
+
+    fn try_into(self) -> Result<BlindedPayloadMerge<T>, Self::Error> {
+        match self {
+            BlindedPayload::Merge(payload) => Ok(payload),
+            BlindedPayload::Capella(_) => Err(()),
+            BlindedPayload::Eip4844(_) => Err(()),
+        }
+    }
+}
+impl<T: EthSpec> TryInto<BlindedPayloadCapella<T>> for BlindedPayload<T> {
+    type Error = ();
+
+    fn try_into(self) -> Result<BlindedPayloadCapella<T>, Self::Error> {
+        match self {
+            BlindedPayload::Merge(_) => Err(()),
+            BlindedPayload::Capella(payload) => Ok(payload),
+            BlindedPayload::Eip4844(_) => Err(()),
+        }
+    }
+}
+impl<T: EthSpec> TryInto<BlindedPayloadEip4844<T>> for BlindedPayload<T> {
+    type Error = ();
+
+    fn try_into(self) -> Result<BlindedPayloadEip4844<T>, Self::Error> {
+        match self {
+            BlindedPayload::Merge(_) => Err(()),
+            BlindedPayload::Capella(_) => Err(()),
+            BlindedPayload::Eip4844(payload) => Ok(payload),
+        }
+    }
 }
 
 impl<T: EthSpec> Default for FullPayloadMerge<T> {

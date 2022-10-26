@@ -34,7 +34,7 @@ pub enum Error {
 }
 
 /// Enumerates all messages that can be signed by a validator.
-pub enum SignableMessage<'a, T: EthSpec, Payload: ExecPayload<T> = FullPayload<T>> {
+pub enum SignableMessage<'a, T: EthSpec, Payload: AbstractExecPayload<T> = FullPayload<T>> {
     RandaoReveal(Epoch),
     BeaconBlock(&'a BeaconBlock<T, Payload>),
     BlobsSidecar(&'a BlobsSidecar<T>),
@@ -50,7 +50,7 @@ pub enum SignableMessage<'a, T: EthSpec, Payload: ExecPayload<T> = FullPayload<T
     ValidatorRegistration(&'a ValidatorRegistrationData),
 }
 
-impl<'a, T: EthSpec, Payload: ExecPayload<T>> SignableMessage<'a, T, Payload> {
+impl<'a, T: EthSpec, Payload: AbstractExecPayload<T>> SignableMessage<'a, T, Payload> {
     /// Returns the `SignedRoot` for the contained message.
     ///
     /// The actual `SignedRoot` trait is not used since it also requires a `TreeHash` impl, which is
@@ -118,7 +118,7 @@ impl SigningContext {
 
 impl SigningMethod {
     /// Return the signature of `signable_message`, with respect to the `signing_context`.
-    pub async fn get_signature<T: EthSpec, Payload: ExecPayload<T>>(
+    pub async fn get_signature<T: EthSpec, Payload: AbstractExecPayload<T>>(
         &self,
         signable_message: SignableMessage<'_, T, Payload>,
         signing_context: SigningContext,
@@ -143,7 +143,7 @@ impl SigningMethod {
             .await
     }
 
-    pub async fn get_signature_from_root<T: EthSpec, Payload: ExecPayload<T>>(
+    pub async fn get_signature_from_root<T: EthSpec, Payload: AbstractExecPayload<T>>(
         &self,
         signable_message: SignableMessage<'_, T, Payload>,
         signing_root: Hash256,

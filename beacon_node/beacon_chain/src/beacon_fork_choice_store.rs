@@ -14,7 +14,7 @@ use std::sync::Arc;
 use store::{Error as StoreError, HotColdDB, ItemStore};
 use superstruct::superstruct;
 use types::{
-    BeaconBlockRef, BeaconState, BeaconStateError, Checkpoint, Epoch, EthSpec, ExecPayload,
+    AbstractExecPayload, BeaconBlockRef, BeaconState, BeaconStateError, Checkpoint, Epoch, EthSpec,
     Hash256, Slot,
 };
 
@@ -268,7 +268,7 @@ where
         self.time = slot
     }
 
-    fn on_verified_block<Payload: ExecPayload<E>>(
+    fn on_verified_block<Payload: AbstractExecPayload<E>>(
         &mut self,
         _block: BeaconBlockRef<E, Payload>,
         block_root: Hash256,

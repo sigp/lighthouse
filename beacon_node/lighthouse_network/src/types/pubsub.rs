@@ -12,8 +12,8 @@ use types::signed_blobs_sidecar::SignedBlobsSidecar;
 use types::{
     Attestation, AttesterSlashing, EthSpec, ForkContext, ForkName, ProposerSlashing,
     SignedAggregateAndProof, SignedBeaconBlock, SignedBeaconBlockAltair, SignedBeaconBlockBase,
-    SignedBeaconBlockEip4844, SignedBeaconBlockMerge, SignedContributionAndProof,
-    SignedVoluntaryExit, SubnetId, SyncCommitteeMessage, SyncSubnetId,
+    SignedBeaconBlockCapella, SignedBeaconBlockEip4844, SignedBeaconBlockMerge,
+    SignedContributionAndProof, SignedVoluntaryExit, SubnetId, SyncCommitteeMessage, SyncSubnetId,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -173,6 +173,10 @@ impl<T: EthSpec> PubsubMessage<T> {
                                 ),
                                 Some(ForkName::Eip4844) => SignedBeaconBlock::<T>::Eip4844(
                                     SignedBeaconBlockEip4844::from_ssz_bytes(data)
+                                        .map_err(|e| format!("{:?}", e))?,
+                                ),
+                                Some(ForkName::Capella) => SignedBeaconBlock::<T>::Capella(
+                                    SignedBeaconBlockCapella::from_ssz_bytes(data)
                                         .map_err(|e| format!("{:?}", e))?,
                                 ),
                                 None => {
