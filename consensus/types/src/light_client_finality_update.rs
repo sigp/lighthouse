@@ -1,5 +1,5 @@
 use super::{BeaconBlockHeader, EthSpec, FixedVector, Hash256, Slot, SyncAggregate, SyncCommittee};
-use crate::{light_client_update::Error, test_utils::TestRandom, BeaconBlock, BeaconState, ChainSpec};
+use crate::{light_client_update::*, test_utils::TestRandom, BeaconBlock, BeaconState, ChainSpec};
 use safe_arith::ArithError;
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
@@ -19,7 +19,7 @@ pub struct LightClientFinalityUpdate<T: EthSpec> {
     /// The last `BeaconBlockHeader` from the last attested finalized block (end of epoch).
     pub finalized_header: BeaconBlockHeader,
     /// Merkle proof attesting finalized header.
-    pub finality_branch: FixedVector<Hash256, U6>,
+    pub finality_branch: FixedVector<Hash256, FinalizedRootProofLen>,
     /// current sync aggreggate
     pub sync_aggregate: SyncAggregate<T>,
     /// Slot of the sync aggregated singature
@@ -64,7 +64,7 @@ impl<T: EthSpec> LightClientFinalityUpdate<T> {
         Ok(Self {
             attested_header: attested_header,
             finalized_header: finalized_header,
-            finality_branch: FixedVector::new(vec![Hash256::zero(); 6])?,
+            finality_branch: FixedVector::new(vec![Hash256::zero(); FINALIZED_ROOT_PROOF_LEN])?,
             sync_aggregate: sync_aggregate.clone(),
             signature_slot: block.slot(),
         })

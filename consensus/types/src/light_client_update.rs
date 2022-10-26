@@ -8,6 +8,18 @@ use std::sync::Arc;
 use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
 
+pub const FINALIZED_ROOT_INDEX: usize = 105;
+pub const CURRENT_SYNC_COMMITTEE_INDEX: usize = 54;
+pub const NEXT_SYNC_COMMITTEE_INDEX: usize = 55;
+
+pub type FinalizedRootProofLen = U6;
+pub type CurrentSyncCommitteeProofLen = U5;
+pub type NextSyncCommitteeProofLen = U5;
+
+pub const FINALIZED_ROOT_PROOF_LEN: usize = 6;
+pub const CURRENT_SYNC_COMMITTEE_PROOF_LEN: usize = 5;
+pub const NEXT_SYNC_COMMITTEE_PROOF_LEN: usize = 5;
+
 #[derive(Debug, PartialEq, Clone)]
 pub enum Error {
     SszTypesError(ssz_types::Error),
@@ -49,11 +61,11 @@ pub struct LightClientUpdate<T: EthSpec> {
     /// The `SyncCommittee` used in the next period.
     pub next_sync_committee: Arc<SyncCommittee<T>>,
     /// Merkle proof for next sync committee
-    pub next_sync_committee_branch: FixedVector<Hash256, U5>,
+    pub next_sync_committee_branch: FixedVector<Hash256, NextSyncCommitteeProofLen>,
     /// The last `BeaconBlockHeader` from the last attested finalized block (end of epoch).
     pub finalized_header: BeaconBlockHeader,
     /// Merkle proof attesting finalized header.
-    pub finality_branch: FixedVector<Hash256, U6>,
+    pub finality_branch: FixedVector<Hash256, FinalizedRootProofLen>,
     /// current sync aggreggate
     pub sync_aggregate: SyncAggregate<T>,
     /// Slot of the sync aggregated singature
@@ -106,9 +118,9 @@ impl<T: EthSpec> LightClientUpdate<T> {
         Ok(Self {
             attested_header,
             next_sync_committee: attested_state.next_sync_committee()?.clone(),
-            next_sync_committee_branch: FixedVector::new(vec![Hash256::zero(); 5])?,
+            next_sync_committee_branch: FixedVector::new(vec![Hash256::zero(); NEXT_SYNC_COMMITTEE_PROOF_LEN])?,
             finalized_header,
-            finality_branch: FixedVector::new(vec![Hash256::zero(); 6])?,
+            finality_branch: FixedVector::new(vec![Hash256::zero(); FINALIZED_ROOT_PROOF_LEN])?,
             sync_aggregate: sync_aggregate.clone(),
             signature_slot: block.slot(),
         })
@@ -119,6 +131,28 @@ impl<T: EthSpec> LightClientUpdate<T> {
 mod tests {
     use super::*;
     use crate::MainnetEthSpec;
+    use ssz_types::typenum::Unsigned;
 
     ssz_tests!(LightClientUpdate<MainnetEthSpec>);
+
+    #[test]
+    fn finalized_root_params() {
+        assert!(2usize.pow(FINALIZED_ROOT_PROOF_LEN as u32) <= FINALIZED_ROOT_INDEX);
+        assert!(2usize.pow(FINALIZED_ROOT_PROOF_LEN as u32 + 1) > FINALIZED_ROOT_INDEX);
+        assert_eq!(FinalizedRootProofLen::to_usize(), FINALIZED_ROOT_PROOF_LEN);
+    }
+
+    #[test]
+    fn current_sync_committee_params() {
+        assert!(2usize.pow(CURRENT_SYNC_COMMITTEE_PROOF_LEN as u32) <= CURRENT_SYNC_COMMITTEE_INDEX);
+        assert!(2usize.pow(CURRENT_SYNC_COMMITTEE_PROOF_LEN as u32 + 1) > CURRENT_SYNC_COMMITTEE_INDEX);
+        assert_eq!(CurrentSyncCommitteeProofLen::to_usize(), CURRENT_SYNC_COMMITTEE_PROOF_LEN);
+    }
+
+    #[test]
+    fn next_sync_committee_params() {
+        assert!(2usize.pow(NEXT_SYNC_COMMITTEE_PROOF_LEN as u32) <= NEXT_SYNC_COMMITTEE_INDEX);
+        assert!(2usize.pow(NEXT_SYNC_COMMITTEE_PROOF_LEN as u32 + 1) > NEXT_SYNC_COMMITTEE_INDEX);
+        assert_eq!(NextSyncCommitteeProofLen::to_usize(), NEXT_SYNC_COMMITTEE_PROOF_LEN);
+    }
 }
