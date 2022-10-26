@@ -401,6 +401,7 @@ impl From<JsonWithdrawal> for Withdrawal {
         Self {
             index: jw.index,
             address: jw.address,
+            //FIXME(sean) if EE gives us too large a number this panics
             amount: (jw.amount / 1000000000).as_u64(),
         }
     }
