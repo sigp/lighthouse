@@ -440,6 +440,8 @@ pub fn serve<T: BeaconChainTypes>(
         let mut system_info = system_info.write();
         system_info.refresh_disks_list();
         system_info.refresh_networks_list();
+        system_info.refresh_cpu_specifics(sysinfo::CpuRefreshKind::everything());
+        system_info.refresh_cpu();
     } // end lock
 
     let system_info_filter =
