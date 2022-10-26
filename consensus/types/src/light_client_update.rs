@@ -118,7 +118,10 @@ impl<T: EthSpec> LightClientUpdate<T> {
         Ok(Self {
             attested_header,
             next_sync_committee: attested_state.next_sync_committee()?.clone(),
-            next_sync_committee_branch: FixedVector::new(vec![Hash256::zero(); NEXT_SYNC_COMMITTEE_PROOF_LEN])?,
+            next_sync_committee_branch: FixedVector::new(vec![
+                Hash256::zero();
+                NEXT_SYNC_COMMITTEE_PROOF_LEN
+            ])?,
             finalized_header,
             finality_branch: FixedVector::new(vec![Hash256::zero(); FINALIZED_ROOT_PROOF_LEN])?,
             sync_aggregate: sync_aggregate.clone(),
@@ -144,15 +147,25 @@ mod tests {
 
     #[test]
     fn current_sync_committee_params() {
-        assert!(2usize.pow(CURRENT_SYNC_COMMITTEE_PROOF_LEN as u32) <= CURRENT_SYNC_COMMITTEE_INDEX);
-        assert!(2usize.pow(CURRENT_SYNC_COMMITTEE_PROOF_LEN as u32 + 1) > CURRENT_SYNC_COMMITTEE_INDEX);
-        assert_eq!(CurrentSyncCommitteeProofLen::to_usize(), CURRENT_SYNC_COMMITTEE_PROOF_LEN);
+        assert!(
+            2usize.pow(CURRENT_SYNC_COMMITTEE_PROOF_LEN as u32) <= CURRENT_SYNC_COMMITTEE_INDEX
+        );
+        assert!(
+            2usize.pow(CURRENT_SYNC_COMMITTEE_PROOF_LEN as u32 + 1) > CURRENT_SYNC_COMMITTEE_INDEX
+        );
+        assert_eq!(
+            CurrentSyncCommitteeProofLen::to_usize(),
+            CURRENT_SYNC_COMMITTEE_PROOF_LEN
+        );
     }
 
     #[test]
     fn next_sync_committee_params() {
         assert!(2usize.pow(NEXT_SYNC_COMMITTEE_PROOF_LEN as u32) <= NEXT_SYNC_COMMITTEE_INDEX);
         assert!(2usize.pow(NEXT_SYNC_COMMITTEE_PROOF_LEN as u32 + 1) > NEXT_SYNC_COMMITTEE_INDEX);
-        assert_eq!(NextSyncCommitteeProofLen::to_usize(), NEXT_SYNC_COMMITTEE_PROOF_LEN);
+        assert_eq!(
+            NextSyncCommitteeProofLen::to_usize(),
+            NEXT_SYNC_COMMITTEE_PROOF_LEN
+        );
     }
 }

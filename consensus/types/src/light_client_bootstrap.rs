@@ -28,7 +28,10 @@ impl<T: EthSpec> LightClientBootstrap<T> {
             header,
             current_sync_committee: beacon_state.current_sync_committee()?.clone(),
             /// TODO(Giulio2002): Generate Merkle Proof, this is just empty hashes
-            current_sync_committee_branch: FixedVector::new(vec![Hash256::zero(); CURRENT_SYNC_COMMITTEE_PROOF_LEN])?,
+            current_sync_committee_branch: FixedVector::new(vec![
+                Hash256::zero();
+                CURRENT_SYNC_COMMITTEE_PROOF_LEN
+            ])?,
         })
     }
 }
