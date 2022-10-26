@@ -18,10 +18,13 @@ use types::{
     SignedContributionAndProof, SignedVoluntaryExit, SubnetId, SyncCommitteeMessage, SyncSubnetId,
 };
 
+/// TODO(pawan): move this to consensus/types? strictly not a consensus type
 #[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, PartialEq)]
 #[serde(bound = "T: EthSpec")]
 pub struct SignedBeaconBlockAndBlobsSidecar<T: EthSpec> {
-    beacon_block: SignedBeaconBlock<T>,
+    // TODO(pawan): switch to a SignedBeaconBlock and use ssz offsets for decoding to make this
+    // future proof?
+    beacon_block: SignedBeaconBlockEip4844<T>,
     blobs_sidecar: BlobsSidecar<T>,
 }
 
@@ -182,10 +185,12 @@ impl<T: EthSpec> PubsubMessage<T> {
                                     SignedBeaconBlockMerge::from_ssz_bytes(data)
                                         .map_err(|e| format!("{:?}", e))?,
                                 ),
-                                Some(ForkName::Eip4844) => SignedBeaconBlock::<T>::Eip4844(
-                                    SignedBeaconBlockEip4844::from_ssz_bytes(data)
-                                        .map_err(|e| format!("{:?}", e))?,
-                                ),
+                                Some(ForkName::Eip4844) => {
+                                    return Err(
+                                        "beacon_block topic is not used from eip4844 fork onwards"
+                                            .to_string(),
+                                    )
+                                }
                                 Some(ForkName::Capella) => SignedBeaconBlock::<T>::Capella(
                                     SignedBeaconBlockCapella::from_ssz_bytes(data)
                                         .map_err(|e| format!("{:?}", e))?,
@@ -200,12 +205,28 @@ impl<T: EthSpec> PubsubMessage<T> {
                         Ok(PubsubMessage::BeaconBlock(Arc::new(beacon_block)))
                     }
                     GossipKind::BeaconBlocksAndBlobsSidecar => {
-                        let block_and_blobs_sidecar =
-                            SignedBeaconBlockAndBlobsSidecar::from_ssz_bytes(data)
-                                .map_err(|e| format!("{:?}", e))?;
-                        Ok(PubsubMessage::BeaconBlockAndBlobsSidecars(Arc::new(
-                            block_and_blobs_sidecar,
-                        )))
+                        match fork_context.from_context_bytes(gossip_topic.fork_digest) {
+                            Some(ForkName::Eip4844) => {
+                                let block_and_blobs_sidecar =
+                                    SignedBeaconBlockAndBlobsSidecar::from_ssz_bytes(data)
+                                        .map_err(|e| format!("{:?}", e))?;
+                                Ok(PubsubMessage::BeaconBlockAndBlobsSidecars(Arc::new(
+                                    block_and_blobs_sidecar,
+                                )))
+                            }
+                            Some(
+                                ForkName::Base
+                                | ForkName::Altair
+                                | ForkName::Merge
+                                | ForkName::Capella,
+                            )
+                            | None => {
+                                return Err(format!(
+                                "beacon_blobs_and_sidecar topic invalid for given fork digest {:?}",
+                                gossip_topic.fork_digest
+                            ))
+                            }
+                        }
                     }
                     GossipKind::VoluntaryExit => {
                         let voluntary_exit = SignedVoluntaryExit::from_ssz_bytes(data)
@@ -275,7 +296,7 @@ impl<T: EthSpec> std::fmt::Display for PubsubMessage<T> {
             PubsubMessage::BeaconBlockAndBlobsSidecars(block_and_blob) => write!(
                 f,
                 "Beacon block and Blobs Sidecar: slot: {}, blobs: {}",
-                block_and_blob.beacon_block.slot(),
+                block_and_blob.beacon_block.message.slot,
                 block_and_blob.blobs_sidecar.blobs.len(),
             ),
             PubsubMessage::AggregateAndProofAttestation(att) => write!(

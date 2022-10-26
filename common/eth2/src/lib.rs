@@ -608,7 +608,7 @@ impl BeaconNodeHttpClient {
     /// Returns `Ok(None)` on a 404 error.
     pub async fn post_beacon_blobs<T: EthSpec>(
         &self,
-        block: &SignedBlobsSidecar<T>,
+        block: &BlobsSidecar<T>,
     ) -> Result<(), Error> {
         let mut path = self.eth_path(V1)?;
 
