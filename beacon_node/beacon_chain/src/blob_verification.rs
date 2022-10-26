@@ -2,12 +2,9 @@ use derivative::Derivative;
 use slot_clock::SlotClock;
 
 use crate::beacon_chain::{BeaconChain, BeaconChainTypes, MAXIMUM_GOSSIP_CLOCK_DISPARITY};
-use crate::{BeaconChainError};
+use crate::BeaconChainError;
 use bls::PublicKey;
-use types::{
-    consts::eip4844::BLS_MODULUS, BeaconStateError, Hash256,
-    SignedBlobsSidecar, Slot,
-};
+use types::{consts::eip4844::BLS_MODULUS, BeaconStateError, Hash256, SignedBlobsSidecar, Slot};
 
 pub enum BlobError {
     /// The blob sidecar is from a slot that is later than the current slot (with respect to the
@@ -104,7 +101,6 @@ impl<'a, T: BeaconChainTypes> VerifiedBlobsSidecar<'a, T> {
         chain: &BeaconChain<T>,
     ) -> Result<Self, BlobError> {
         let blob_slot = blob_sidecar.message.beacon_block_slot;
-        let _blob_root = blob_sidecar.message.beacon_block_root;
         // Do not gossip or process blobs from future or past slots.
         let latest_permissible_slot = chain
             .slot_clock
@@ -116,9 +112,6 @@ impl<'a, T: BeaconChainTypes> VerifiedBlobsSidecar<'a, T> {
                 latest_permissible_slot: blob_slot,
             });
         }
-
-        // TODO: return `UnknownHeadBlock` if blob_root doesn't exist in fork choice
-        // and wherever it could be found.
 
         let earliest_permissible_slot = chain
             .slot_clock
