@@ -3058,7 +3058,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Do not write to eth1 finalization cache for blocks older than 5 epochs
         // this helps reduce noise during sync
-        if block_delay_total < self.slot_clock.slot_duration() * 160 {
+        if block_delay_total < self.slot_clock.slot_duration() * 5 * T::EthSpec::slots_per_epoch() {
             let parent_block_epoch = parent_block.slot().epoch(T::EthSpec::slots_per_epoch());
             if parent_block_epoch < current_epoch {
                 // we've crossed epoch boundary, store Eth1FinalizationData
