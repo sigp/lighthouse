@@ -65,6 +65,27 @@ impl Validator {
         // Has not yet been activated
         && self.activation_epoch == spec.far_future_epoch
     }
+
+    /// Returns `true` if the validator has eth1 withdrawal credential
+    pub fn has_eth1_withdrawal_credential(&self, spec: &ChainSpec) -> bool {
+        self.withdrawal_credentials
+            .as_bytes()
+            .first()
+            .map(|byte| *byte == spec.eth1_address_withdrawal_prefix_byte)
+            .unwrap_or(false)
+    }
+
+    /// Returns `true` if the validator is fully withdrawable at some epoch
+    pub fn is_fully_withdrawable_at(&self, balance: u64, epoch: Epoch, spec: &ChainSpec) -> bool {
+        self.has_eth1_withdrawal_credential(spec) && self.withdrawable_epoch <= epoch && balance > 0
+    }
+
+    /// Returns `true` if the validator is partially withdrawable
+    pub fn is_partially_withdrawable_validator(&self, balance: u64, spec: &ChainSpec) -> bool {
+        self.has_eth1_withdrawal_credential(spec)
+            && self.effective_balance == spec.max_effective_balance
+            && balance > spec.max_effective_balance
+    }
 }
 
 impl Default for Validator {

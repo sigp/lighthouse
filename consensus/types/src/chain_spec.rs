@@ -73,6 +73,7 @@ pub struct ChainSpec {
      */
     pub genesis_fork_version: [u8; 4],
     pub bls_withdrawal_prefix_byte: u8,
+    pub eth1_address_withdrawal_prefix_byte: u8,
 
     /*
      * Time parameters
@@ -519,7 +520,8 @@ impl ChainSpec {
              * Initial Values
              */
             genesis_fork_version: [0; 4],
-            bls_withdrawal_prefix_byte: 0,
+            bls_withdrawal_prefix_byte: 0x00,
+            eth1_address_withdrawal_prefix_byte: 0x01,
 
             /*
              * Time parameters
@@ -748,7 +750,8 @@ impl ChainSpec {
              * Initial Values
              */
             genesis_fork_version: [0x00, 0x00, 0x00, 0x64],
-            bls_withdrawal_prefix_byte: 0,
+            bls_withdrawal_prefix_byte: 0x00,
+            eth1_address_withdrawal_prefix_byte: 0x01,
 
             /*
              * Time parameters
