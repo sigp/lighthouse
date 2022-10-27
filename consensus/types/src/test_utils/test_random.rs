@@ -108,7 +108,7 @@ where
         let mut output = vec![];
 
         if N::to_usize() != 0 {
-            for _ in 0..(usize::random_for_test(rng) % std::cmp::min(4, N::to_usize())) {
+            for _ in 0..(usize::random_for_test(rng) % N::to_usize()) {
                 output.push(<T>::random_for_test(rng));
             }
         }
