@@ -33,13 +33,6 @@ pub struct SystemHealth {
     /// Free space in disk.
     pub disk_bytes_free: u64,
 
-    /// The name of the network that uses the most traffic.
-    pub network_name: String,
-    /// Total bytes received over the main interface.
-    pub network_bytes_total_received: u64,
-    /// Total bytes sent over the main interface.
-    pub network_bytes_total_transmit: u64,
-
     /// System uptime.
     pub system_uptime: u64,
     /// Application uptime.
@@ -63,8 +56,6 @@ impl SystemHealth {
         let cpus = sysinfo.cpus();
 
         let disks = sysinfo.disks();
-
-        let networks = sysinfo.networks();
 
         let system_uptime = sysinfo.uptime();
 
@@ -93,19 +84,6 @@ impl SystemHealth {
                 }
             }
         };
-
-        // Find the network with the most traffic and assume this is the main network
-        let (network_name, network_bytes_total_received, network_bytes_total_transmit) = networks
-            .iter()
-            .max_by_key(|(_name, network)| network.total_received())
-            .map(|(name, network)| {
-                (
-                    name.clone(),
-                    network.total_received(),
-                    network.total_transmitted(),
-                )
-            })
-            .unwrap_or_else(|| (String::from("None"), 0, 0));
 
         // Attempt to get the clock speed from the name of the CPU
         let cpu_frequency_from_name = cpus.iter().next().and_then(|cpu| {
@@ -138,9 +116,6 @@ impl SystemHealth {
             global_cpu_frequency,
             disk_bytes_total,
             disk_bytes_free,
-            network_name,
-            network_bytes_total_received,
-            network_bytes_total_transmit,
             system_uptime,
             app_uptime,
             system_name: sysinfo.name().unwrap_or(String::from("")),
