@@ -16,6 +16,8 @@ pub enum Error {
     InvalidNodeDelta(usize),
     DeltaOverflow(usize),
     ProposerBoostOverflow(usize),
+    ReOrgThresholdOverflow,
+    ReOrgParticipationThresholdOverflow,
     IndexOverflow(&'static str),
     InvalidExecutionDeltaOverflow(usize),
     InvalidDeltaLen {

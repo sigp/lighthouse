@@ -54,7 +54,7 @@ use execution_layer::{
     BuilderParams, ChainHealth, ExecutionLayer, FailedCondition, PayloadAttributes, PayloadStatus,
 };
 use fork_choice::{
-    AttestationFromBlock, ExecutionStatus, ForkChoice, ForkChoiceStore, ForkchoiceUpdateParameters,
+    AttestationFromBlock, ExecutionStatus, ForkChoice, ForkchoiceUpdateParameters,
     InvalidationOperation, PayloadVerificationStatus, ResetPayloadStatuses,
 };
 use futures::channel::mpsc::Sender;
@@ -62,7 +62,7 @@ use itertools::process_results;
 use itertools::Itertools;
 use operation_pool::{AttestationRef, OperationPool, PersistedOperationPool};
 use parking_lot::{Mutex, RwLock};
-use proto_array::CountUnrealizedFull;
+use proto_array::{CountUnrealizedFull, DoNotReOrg, ProposerHeadError};
 use safe_arith::SafeArith;
 use slasher::Slasher;
 use slog::{crit, debug, error, info, trace, warn, Logger};
@@ -3310,67 +3310,81 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // 2. The current head block was seen late.
         // 3. The `get_proposer_head` conditions from fork choice pass.
         let proposing_on_time = slot_delay < max_re_org_slot_delay(self.spec.seconds_per_slot);
-        let head_late = self.block_observed_after_attestation_deadline(canonical_head, head_slot);
-        let mut proposer_head = Default::default();
-        let mut cache_miss = false;
+        if !proposing_on_time {
+            debug!(
+                self.log,
+                "Not attempting re-org";
+                "reason" => "not proposing on time",
+            );
+            return None;
+        }
 
-        if proposing_on_time && head_late {
-            // Is the current head weak and appropriate for re-orging?
-            proposer_head = self
-                .canonical_head
-                .fork_choice_read_lock()
-                .get_proposer_head(
-                    slot,
-                    canonical_head,
-                    re_org_threshold,
-                    self.config.re_org_participation_threshold,
-                )
-                .map_err(|e| {
+        let head_late = self.block_observed_after_attestation_deadline(canonical_head, head_slot);
+        if !head_late {
+            debug!(
+                self.log,
+                "Not attempting re-org";
+                "reason" => "head not late"
+            );
+            return None;
+        }
+
+        // Is the current head weak and appropriate for re-orging?
+        let proposer_head = self
+            .canonical_head
+            .fork_choice_read_lock()
+            .get_proposer_head(
+                slot,
+                canonical_head,
+                re_org_threshold,
+                self.config.re_org_participation_threshold,
+            )
+            .map_err(|e| match e {
+                ProposerHeadError::DoNotReOrg(reason) => {
+                    debug!(
+                        self.log,
+                        "Not attempting re-org";
+                        "reason" => %reason,
+                    );
+                }
+                ProposerHeadError::Error(e) => {
                     warn!(
                         self.log,
                         "Not attempting re-org";
                         "error" => ?e,
                     );
-                })
-                .ok()?;
-
-            if let Some(re_org_head) = proposer_head.re_org_head {
-                // Only attempt a re-org if we hit the snapshot cache.
-                if let Some(pre_state) = self
-                    .snapshot_cache
-                    .try_read_for(BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT)
-                    .and_then(|snapshot_cache| {
-                        snapshot_cache.get_state_for_block_production(re_org_head)
-                    })
-                {
-                    info!(
-                        self.log,
-                        "Attempting re-org due to weak head";
-                        "head" => ?canonical_head,
-                        "parent" => ?re_org_head,
-                        "head_weight" => proposer_head.canonical_head_weight.unwrap_or(0),
-                        "threshold_weight" => proposer_head.re_org_weight_threshold.unwrap_or(0),
-                    );
-                    return Some(pre_state);
                 }
-                cache_miss = true;
-            }
-        }
-        debug!(
+            })
+            .ok()?;
+        let re_org_parent_block = proposer_head.parent_node.root;
+
+        // Only attempt a re-org if we hit the snapshot cache.
+        let pre_state = self
+            .snapshot_cache
+            .try_read_for(BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT)
+            .and_then(|snapshot_cache| {
+                snapshot_cache.get_state_for_block_production(re_org_parent_block)
+            })
+            .or_else(|| {
+                debug!(
+                    self.log,
+                    "Not attempting re-org";
+                    "reason" => "missed snapshot cache",
+                    "parent_block" => ?re_org_parent_block,
+                );
+                None
+            })?;
+
+        info!(
             self.log,
-            "Not attempting re-org";
-            "head" => ?canonical_head,
-            "head_weight" => ?proposer_head.canonical_head_weight,
-            "re_org_weight" => ?proposer_head.re_org_weight_threshold,
-            "head_late" => head_late,
-            "proposing_on_time" => proposing_on_time,
-            "single_slot" => proposer_head.is_single_slot_re_org,
-            "ffg_competitive" => proposer_head.ffg_competitive,
-            "cache_miss" => cache_miss,
-            "shuffling_stable" => proposer_head.shuffling_stable,
-            "participation_ok" => proposer_head.participation_ok,
+            "Attempting re-org due to weak head";
+            "weak_head" => ?canonical_head,
+            "parent" => ?re_org_parent_block,
+            "head_weight" => proposer_head.head_node.weight,
+            "threshold_weight" => proposer_head.re_org_weight_threshold
         );
-        None
+
+        Some(pre_state)
     }
 
     /// Get the proposer index and `prev_randao` value for a proposal at slot `proposal_slot`.
@@ -3491,132 +3505,132 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         canonical_forkchoice_params: ForkchoiceUpdateParameters,
     ) -> Result<ForkchoiceUpdateParameters, Error> {
+        self.overridden_forkchoice_update_params_or_failure_reason(&canonical_forkchoice_params)
+            .or_else(|e| match e {
+                ProposerHeadError::DoNotReOrg(reason) => {
+                    trace!(
+                        self.log,
+                        "Not suppressing fork choice update";
+                        "reason" => %reason,
+                    );
+                    Ok(canonical_forkchoice_params)
+                }
+                ProposerHeadError::Error(e) => Err(e),
+            })
+    }
+
+    fn overridden_forkchoice_update_params_or_failure_reason(
+        &self,
+        canonical_forkchoice_params: &ForkchoiceUpdateParameters,
+    ) -> Result<ForkchoiceUpdateParameters, ProposerHeadError<Error>> {
         // Never override if proposer re-orgs are disabled.
-        let re_org_threshold = if let Some(threshold) = self.config.re_org_threshold {
-            threshold
-        } else {
-            return Ok(canonical_forkchoice_params);
-        };
+        let re_org_threshold = self
+            .config
+            .re_org_threshold
+            .ok_or(DoNotReOrg::ReOrgsDisabled)?;
 
         let head_block_root = canonical_forkchoice_params.head_root;
 
-        // Load details of the head block and its parent from fork choice.
-        let (
-            head_node,
-            parent_node,
-            participation_threshold_weight,
-            re_org_threshold_weight,
-            fork_choice_slot,
-        ) = {
-            let fork_choice = self.canonical_head.fork_choice_read_lock();
-
-            let mut nodes = fork_choice
-                .proto_array()
-                .core_proto_array()
-                .iter_nodes(&head_block_root)
-                .take(2)
-                .cloned()
-                .collect::<Vec<_>>();
-
-            if nodes.len() != 2 {
-                return Ok(canonical_forkchoice_params);
-            }
-
-            let parent = nodes.pop().ok_or(Error::SuppressForkChoiceError)?;
-            let head = nodes.pop().ok_or(Error::SuppressForkChoiceError)?;
-
-            let participation_threshold_weight = fork_choice
-                .calculate_committee_fraction(self.config.re_org_participation_threshold.0);
-
-            let re_org_threshold_weight =
-                fork_choice.calculate_committee_fraction(re_org_threshold.0);
-
-            let slot = fork_choice.fc_store().get_current_slot();
-
-            (
-                head,
-                parent,
-                participation_threshold_weight,
-                re_org_threshold_weight,
-                slot,
+        // Perform initial checks and load the relevant info from fork choice.
+        let info = self
+            .canonical_head
+            .fork_choice_read_lock()
+            .get_preliminary_proposer_head(
+                head_block_root,
+                re_org_threshold,
+                self.config.re_org_participation_threshold,
             )
-        };
+            .map_err(|e| e.map_inner_error(Error::ProposerHeadForkChoiceError))?;
 
         // The slot of our potential re-org block is always 1 greater than the head block because we
         // only attempt single-slot re-orgs.
-        let re_org_block_slot = head_node.slot + 1;
+        let head_slot = info.head_node.slot;
+        let re_org_block_slot = head_slot + 1;
+        let fork_choice_slot = info.current_slot;
 
         // If a re-orging proposal isn't made by the `max_re_org_slot_delay` then we give up
         // and allow the fork choice update for the canonical head through so that we may attest
         // correctly.
-        let current_slot_ok = if head_node.slot == fork_choice_slot {
+        let current_slot_ok = if head_slot == fork_choice_slot {
             true
         } else if re_org_block_slot == fork_choice_slot {
             self.slot_clock
                 .start_of(re_org_block_slot)
                 .and_then(|slot_start| {
                     let now = self.slot_clock.now_duration()?;
-                    Some(
-                        now.saturating_sub(slot_start)
-                            <= max_re_org_slot_delay(self.spec.seconds_per_slot),
-                    )
+                    let slot_delay = now.saturating_sub(slot_start);
+                    Some(slot_delay <= max_re_org_slot_delay(self.spec.seconds_per_slot))
                 })
                 .unwrap_or(false)
         } else {
             false
         };
-
-        // Only attempt single slot re-orgs, and not at epoch boundaries.
-        let block_slot_ok = parent_node.slot + 1 == head_node.slot
-            && re_org_block_slot % T::EthSpec::slots_per_epoch() != 0;
-
-        // Only attempt re-orgs with competitive FFG information.
-        let ffg_competitive = parent_node.unrealized_justified_checkpoint
-            == head_node.unrealized_justified_checkpoint
-            && parent_node.unrealized_finalized_checkpoint
-                == head_node.unrealized_finalized_checkpoint;
+        if !current_slot_ok {
+            return Err(DoNotReOrg::HeadDistance.into());
+        }
 
         // Only attempt a re-org if we have a proposer registered for the re-org slot.
-        let proposing_at_re_org_slot = block_slot_ok
-            .then(|| {
-                let shuffling_decision_root =
-                    parent_node.next_epoch_shuffling_id.shuffling_decision_block;
-                let proposer_index = self
-                    .beacon_proposer_cache
-                    .lock()
-                    .get_slot::<T::EthSpec>(shuffling_decision_root, re_org_block_slot)
-                    .or_else(|| {
-                        debug!(
-                            self.log,
-                            "Fork choice override proposer shuffling miss";
-                            "slot" => re_org_block_slot,
-                            "decision_root" => ?shuffling_decision_root,
-                        );
-                        None
-                    })?
-                    .index;
-                self.execution_layer
-                    .as_ref()
-                    .map(|el| el.has_proposer_preparation_data_blocking(proposer_index as u64))
-            })
-            .flatten()
-            .unwrap_or(false);
+        let proposing_at_re_org_slot = {
+            let shuffling_decision_root = info
+                .parent_node
+                .next_epoch_shuffling_id
+                .shuffling_decision_block;
+            let proposer_index = self
+                .beacon_proposer_cache
+                .lock()
+                .get_slot::<T::EthSpec>(shuffling_decision_root, re_org_block_slot)
+                .ok_or_else(|| {
+                    debug!(
+                        self.log,
+                        "Fork choice override proposer shuffling miss";
+                        "slot" => re_org_block_slot,
+                        "decision_root" => ?shuffling_decision_root,
+                    );
+                    DoNotReOrg::NotProposing
+                })?
+                .index as u64;
+
+            self.execution_layer
+                .as_ref()
+                .ok_or(ProposerHeadError::Error(Error::ExecutionLayerMissing))?
+                .has_proposer_preparation_data_blocking(proposer_index)
+        };
+        if !proposing_at_re_org_slot {
+            return Err(DoNotReOrg::NotProposing.into());
+        }
 
         // Check that the parent's weight is greater than the participation threshold.
         // If we are still in the slot of the canonical head block then only check against
         // a 1x threshold as all attestations may not have arrived yet.
-        let participation_multiplier = fork_choice_slot.saturating_sub(parent_node.slot).as_u64();
-        let participation_ok = participation_threshold_weight.map_or(false, |threshold| {
-            parent_node.weight >= threshold.saturating_mul(participation_multiplier)
-        });
+        let participation_multiplier = fork_choice_slot
+            .saturating_sub(info.parent_node.slot)
+            .as_u64();
+        let participation_weight_threshold = info
+            .participation_weight_threshold
+            .saturating_mul(participation_multiplier);
+        let participation_ok = info.parent_node.weight >= participation_weight_threshold;
+        if !participation_ok {
+            return Err(DoNotReOrg::ParticipationTooLow {
+                parent_weight: info.parent_node.weight,
+                participation_weight_threshold,
+            }
+            .into());
+        }
 
         // If the current slot is already equal to the proposal slot (or we are in the tail end of
         // the prior slot), then check the actual weight of the head against the re-org threshold.
         let head_weak = if fork_choice_slot == re_org_block_slot {
-            re_org_threshold_weight.map_or(false, |threshold| head_node.weight < threshold)
+            info.head_node.weight < info.re_org_weight_threshold
         } else {
             true
         };
+        if !head_weak {
+            return Err(DoNotReOrg::HeadNotWeak {
+                head_weight: info.head_node.weight,
+                re_org_weight_threshold: info.re_org_weight_threshold,
+            }
+            .into());
+        }
 
         // Check that the head block arrived late and is vulnerable to a re-org. This check is only
         // a heuristic compared to the proper weight check in `get_state_for_re_org`, the reason
@@ -3624,36 +3638,26 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // attestations for it. We also can't dequeue attestations for the block during the
         // current slot, which would be necessary for determining its weight.
         let head_block_late =
-            self.block_observed_after_attestation_deadline(head_block_root, head_node.slot);
-
-        let might_re_org = current_slot_ok
-            && block_slot_ok
-            && ffg_competitive
-            && proposing_at_re_org_slot
-            && participation_ok
-            && head_weak
-            && head_block_late;
-
-        if !might_re_org {
-            return Ok(canonical_forkchoice_params);
+            self.block_observed_after_attestation_deadline(head_block_root, head_slot);
+        if !head_block_late {
+            return Err(DoNotReOrg::HeadNotLate.into());
         }
 
-        let parent_head_hash = parent_node.execution_status.block_hash();
-
-        debug!(
-            self.log,
-            "Fork choice update overridden";
-            "canonical_head" => ?head_node.root,
-            "override" => ?parent_node.root,
-            "slot" => fork_choice_slot,
-        );
-
+        let parent_head_hash = info.parent_node.execution_status.block_hash();
         let forkchoice_update_params = ForkchoiceUpdateParameters {
-            head_root: parent_node.root,
+            head_root: info.parent_node.root,
             head_hash: parent_head_hash,
             justified_hash: canonical_forkchoice_params.justified_hash,
             finalized_hash: canonical_forkchoice_params.finalized_hash,
         };
+
+        debug!(
+            self.log,
+            "Fork choice update overridden";
+            "canonical_head" => ?head_block_root,
+            "override" => ?info.parent_node.root,
+            "slot" => fork_choice_slot,
+        );
 
         Ok(forkchoice_update_params)
     }

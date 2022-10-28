@@ -174,22 +174,119 @@ where
 }
 
 /// Information about the proposer head used for opportunistic re-orgs.
-#[derive(Default, Clone)]
-pub struct ProposerHead {
-    /// If set, the head block that the proposer should build upon.
-    pub re_org_head: Option<Hash256>,
-    /// The weight difference between the canonical head and its parent.
-    pub canonical_head_weight: Option<u64>,
+#[derive(Clone)]
+pub struct ProposerHeadInfo {
+    /// Information about the *current* head block, which may be re-orged.
+    pub head_node: ProtoNode,
+    /// Information about the parent of the current head, which should be selected as the parent
+    /// for a new proposal *if* a re-org is decided on.
+    pub parent_node: ProtoNode,
     /// The computed fraction of the active committee balance below which we can re-org.
-    pub re_org_weight_threshold: Option<u64>,
-    /// Is this is a single slot re-org?
-    pub is_single_slot_re_org: bool,
-    /// Is the proposer head's FFG information competitive with the head to be re-orged?
-    pub ffg_competitive: bool,
-    /// Is the re-org block off an epoch boundary where the proposer shuffling could change?
-    pub shuffling_stable: bool,
-    /// Is the chain's participation level sufficiently healthy to justify a re-org?
-    pub participation_ok: bool,
+    pub re_org_weight_threshold: u64,
+    /// The computed fraction of the
+    ///
+    /// This value requires an additional 1-2x multiplier depending on the current slot.
+    pub participation_weight_threshold: u64,
+    /// The current slot from fork choice's point of view, may lead the wall-clock slot by upto
+    /// 500ms.
+    pub current_slot: Slot,
+}
+
+/// Error type to enable short-circuiting checks in `get_proposer_head`.
+///
+/// This type intentionally does not implement `Debug` so that callers are forced to handle the
+/// enum.
+#[derive(Clone, PartialEq)]
+pub enum ProposerHeadError<E> {
+    DoNotReOrg(DoNotReOrg),
+    Error(E),
+}
+
+impl<E> From<DoNotReOrg> for ProposerHeadError<E> {
+    fn from(e: DoNotReOrg) -> ProposerHeadError<E> {
+        Self::DoNotReOrg(e)
+    }
+}
+
+impl From<Error> for ProposerHeadError<Error> {
+    fn from(e: Error) -> Self {
+        Self::Error(e)
+    }
+}
+
+impl<E1> ProposerHeadError<E1> {
+    pub fn convert_inner_error<E2>(self) -> ProposerHeadError<E2>
+    where
+        E2: From<E1>,
+    {
+        self.map_inner_error(E2::from)
+    }
+
+    pub fn map_inner_error<E2>(self, f: impl FnOnce(E1) -> E2) -> ProposerHeadError<E2> {
+        match self {
+            ProposerHeadError::DoNotReOrg(reason) => ProposerHeadError::DoNotReOrg(reason),
+            ProposerHeadError::Error(error) => ProposerHeadError::Error(f(error)),
+        }
+    }
+}
+
+/// Reasons why a re-org should not be attempted.
+///
+/// This type intentionally does not implement `Debug` so that the `Display` impl must be used.
+#[derive(Clone, PartialEq)]
+pub enum DoNotReOrg {
+    MissingHeadOrParentNode,
+    ParentDistance,
+    HeadDistance,
+    ShufflingUnstable,
+    JustificationAndFinalizationNotCompetitive,
+    ParticipationTooLow {
+        parent_weight: u64,
+        participation_weight_threshold: u64,
+    },
+    HeadNotWeak {
+        head_weight: u64,
+        re_org_weight_threshold: u64,
+    },
+    HeadNotLate,
+    NotProposing,
+    ReOrgsDisabled,
+}
+
+impl std::fmt::Display for DoNotReOrg {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            Self::MissingHeadOrParentNode => write!(f, "unknown head or parent"),
+            Self::ParentDistance => write!(f, "parent too far from head"),
+            Self::HeadDistance => write!(f, "head too far from current slot"),
+            Self::ShufflingUnstable => write!(f, "shuffling unstable at epoch boundary"),
+            Self::JustificationAndFinalizationNotCompetitive => {
+                write!(f, "justification or finalization not competitive")
+            }
+            Self::ParticipationTooLow {
+                parent_weight,
+                participation_weight_threshold,
+            } => write!(
+                f,
+                "participation too low ({parent_weight}/{participation_weight_threshold})"
+            ),
+            Self::HeadNotWeak {
+                head_weight,
+                re_org_weight_threshold,
+            } => {
+                write!(f, "head not weak ({head_weight}/{re_org_weight_threshold})")
+            }
+            Self::HeadNotLate => {
+                write!(f, "head arrived on time")
+            }
+            Self::NotProposing => {
+                write!(f, "not proposing at next slot")
+            }
+            Self::ReOrgsDisabled => {
+                write!(f, "re-orgs disabled in config")
+            }
+        }
+    }
 }
 
 /// New-type for the re-org threshold percentage.
@@ -197,7 +294,7 @@ pub struct ProposerHead {
 #[serde(transparent)]
 pub struct ReOrgThreshold(pub u64);
 
-/// New-type for the participation threshold percentage.
+/// New-type for the re-org participation threshold percentage.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct ParticipationThreshold(pub u64);
@@ -351,76 +448,124 @@ impl ProtoArrayForkChoice {
             .map_err(|e| format!("find_head failed: {:?}", e))
     }
 
+    /// Get the block to propose on during `current_slot`.
+    ///
+    /// This function returns a *definitive* result which should be acted on.
     pub fn get_proposer_head<E: EthSpec>(
         &self,
         current_slot: Slot,
-        justified_balances: &JustifiedBalances,
         canonical_head: Hash256,
+        justified_balances: &JustifiedBalances,
         re_org_threshold: ReOrgThreshold,
         participation_threshold: ParticipationThreshold,
-    ) -> Result<ProposerHead, String> {
-        let nodes = self
+    ) -> Result<ProposerHeadInfo, ProposerHeadError<Error>> {
+        let info = self.get_proposer_head_info::<E>(
+            current_slot,
+            canonical_head,
+            justified_balances,
+            re_org_threshold,
+            participation_threshold,
+        )?;
+
+        // Only re-org a single slot. This prevents cascading failures during asynchrony.
+        let head_slot_ok = info.head_node.slot + 1 == current_slot;
+        if !head_slot_ok {
+            return Err(DoNotReOrg::HeadDistance.into());
+        }
+
+        // To prevent excessive re-orgs when the chain is struggling, only re-org when participation
+        // is above the configured threshold.
+        let parent_weight = info.parent_node.weight;
+        let participation_weight_threshold = info.participation_weight_threshold.saturating_mul(2);
+        let participation_ok = parent_weight >= participation_weight_threshold;
+        if !participation_ok {
+            return Err(DoNotReOrg::ParticipationTooLow {
+                parent_weight,
+                participation_weight_threshold,
+            }
+            .into());
+        }
+
+        // Only re-org if the head's weight is less than the configured committee fraction.
+        let head_weight = info.head_node.weight;
+        let re_org_weight_threshold = info.re_org_weight_threshold;
+        let weak_head = head_weight < re_org_weight_threshold;
+        if !weak_head {
+            return Err(DoNotReOrg::HeadNotWeak {
+                head_weight,
+                re_org_weight_threshold,
+            }
+            .into());
+        }
+
+        // All checks have passed, build upon the parent to re-org the head.
+        Ok(info)
+    }
+
+    /// Get information about the block to propose on during `current_slot`.
+    ///
+    /// This function returns a *partial* result which must be processed further.
+    pub fn get_proposer_head_info<E: EthSpec>(
+        &self,
+        current_slot: Slot,
+        canonical_head: Hash256,
+        justified_balances: &JustifiedBalances,
+        re_org_threshold: ReOrgThreshold,
+        participation_threshold: ParticipationThreshold,
+    ) -> Result<ProposerHeadInfo, ProposerHeadError<Error>> {
+        let mut nodes = self
             .proto_array
             .iter_nodes(&canonical_head)
             .take(2)
+            .cloned()
             .collect::<Vec<_>>();
-        if nodes.len() != 2 {
-            return Ok(ProposerHead::default());
+
+        let parent_node = nodes.pop().ok_or(DoNotReOrg::MissingHeadOrParentNode)?;
+        let head_node = nodes.pop().ok_or(DoNotReOrg::MissingHeadOrParentNode)?;
+
+        let parent_slot = parent_node.slot;
+        let head_slot = head_node.slot;
+        let re_org_block_slot = head_slot + 1;
+
+        // Check parent distance from head.
+        // Do not check head distance from current slot, as that condition needs to be
+        // late-evaluated and is elided when `current_slot == head_slot`.
+        let parent_slot_ok = parent_slot + 1 == head_slot;
+        if !parent_slot_ok {
+            return Err(DoNotReOrg::ParentDistance.into());
         }
-        let head_node = nodes[0];
-        let parent_node = nodes[1];
 
-        // Only re-org a single slot. This prevents cascading failures during asynchrony.
-        let is_single_slot_re_org =
-            parent_node.slot + 1 == head_node.slot && head_node.slot + 1 == current_slot;
+        // Check shuffling stability.
+        let shuffling_stable = re_org_block_slot % E::slots_per_epoch() != 0;
+        if !shuffling_stable {
+            return Err(DoNotReOrg::ShufflingUnstable.into());
+        }
 
-        // Do not re-org on the first slot of an epoch because this is liable to change the
-        // shuffling and rob us of a proposal entirely. A more sophisticated check could be
-        // done here, but we're prioritising speed and simplicity over precision.
-        let shuffling_stable = current_slot % E::slots_per_epoch() != 0;
-
-        // Only re-org if the new head will be competitive with the current head's justification and
-        // finalization. In lieu of computing new justification and finalization for our re-org
-        // block that hasn't been created yet, just check if the parent we would build on is
-        // competitive with the head.
+        // Check FFG.
         let ffg_competitive = parent_node.unrealized_justified_checkpoint
             == head_node.unrealized_justified_checkpoint
             && parent_node.unrealized_finalized_checkpoint
                 == head_node.unrealized_finalized_checkpoint;
+        if !ffg_competitive {
+            return Err(DoNotReOrg::JustificationAndFinalizationNotCompetitive.into());
+        }
 
-        // To prevent excessive re-orgs when the chain is struggling, only re-org when participation
-        // is above the configured threshold. This should not overflow.
-        let participation_committee_threshold =
-            calculate_committee_fraction::<E>(justified_balances, participation_threshold.0)
-                .ok_or_else(|| {
-                    "overflow calculating committee weight for participation threshold".to_string()
-                })?;
-        let participation_ok =
-            parent_node.weight >= participation_committee_threshold.saturating_mul(2);
-
-        // Only re-org if the head's weight is less than the configured committee fraction.
+        // Compute re-org weight threshold.
         let re_org_weight_threshold =
-            calculate_committee_fraction::<E>(justified_balances, re_org_threshold.0).ok_or_else(
-                || "overflow calculating committee weight for re-org threshold".to_string(),
-            )?;
-        let canonical_head_weight = head_node.weight;
-        let is_weak_head = canonical_head_weight < re_org_weight_threshold;
+            calculate_committee_fraction::<E>(justified_balances, re_org_threshold.0)
+                .ok_or(Error::ReOrgThresholdOverflow)?;
 
-        let re_org_head = (is_single_slot_re_org
-            && shuffling_stable
-            && ffg_competitive
-            && participation_ok
-            && is_weak_head)
-            .then_some(parent_node.root);
+        // Compute participation threshold.
+        let participation_weight_threshold =
+            calculate_committee_fraction::<E>(justified_balances, participation_threshold.0)
+                .ok_or(Error::ReOrgParticipationThresholdOverflow)?;
 
-        Ok(ProposerHead {
-            re_org_head,
-            canonical_head_weight: Some(canonical_head_weight),
-            re_org_weight_threshold: Some(re_org_weight_threshold),
-            is_single_slot_re_org,
-            ffg_competitive,
-            shuffling_stable,
-            participation_ok,
+        Ok(ProposerHeadInfo {
+            head_node,
+            parent_node,
+            re_org_weight_threshold,
+            participation_weight_threshold,
+            current_slot,
         })
     }
 

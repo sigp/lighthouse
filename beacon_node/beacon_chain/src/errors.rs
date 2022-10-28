@@ -204,7 +204,7 @@ pub enum BeaconChainError {
     MissingPersistedForkChoice,
     CommitteePromiseFailed(oneshot_broadcast::Error),
     MaxCommitteePromises(usize),
-    SuppressForkChoiceError,
+    ProposerHeadForkChoiceError(fork_choice::Error<proto_array::Error>),
 }
 
 easy_from_to!(SlotProcessingError, BeaconChainError);
