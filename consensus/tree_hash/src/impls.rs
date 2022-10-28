@@ -81,7 +81,26 @@ macro_rules! impl_for_lt_32byte_u8_array {
 
 impl_for_lt_32byte_u8_array!(4);
 impl_for_lt_32byte_u8_array!(32);
-impl_for_lt_32byte_u8_array!(48);
+
+impl TreeHash for [u8; 48] {
+    fn tree_hash_type() -> TreeHashType {
+        TreeHashType::Vector
+    }
+
+    fn tree_hash_packed_encoding(&self) -> PackedEncoding {
+        unreachable!("Vector should never be packed.")
+    }
+
+    fn tree_hash_packing_factor() -> usize {
+        unreachable!("Vector should never be packed.")
+    }
+
+    fn tree_hash_root(&self) -> Hash256 {
+        let values_per_chunk = BYTES_PER_CHUNK;
+        let minimum_chunk_count = (48 + values_per_chunk - 1) / values_per_chunk;
+        merkle_root(self, minimum_chunk_count)
+    }
+}
 
 impl TreeHash for U128 {
     fn tree_hash_type() -> TreeHashType {

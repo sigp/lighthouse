@@ -3,12 +3,20 @@ use crate::*;
 use derivative::Derivative;
 use serde_derive::{Deserialize, Serialize};
 use ssz::{Decode, DecodeError, Encode};
+use std::fmt;
+use std::fmt::{Display, Formatter};
 use tree_hash::{PackedEncoding, TreeHash};
 
-//TODO: is there a way around this newtype
 #[derive(Derivative, Debug, Clone, Serialize, Deserialize)]
 #[derivative(PartialEq, Eq, Hash)]
 pub struct KzgCommitment(#[serde(with = "BigArray")] [u8; 48]);
+
+impl Display for KzgCommitment {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", eth2_serde_utils::hex::encode(&self.0))
+    }
+}
+
 impl TreeHash for KzgCommitment {
     fn tree_hash_type() -> tree_hash::TreeHashType {
         <[u8; 48] as TreeHash>::tree_hash_type()

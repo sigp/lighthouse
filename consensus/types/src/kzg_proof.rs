@@ -8,7 +8,7 @@ const KZG_PROOF_BYTES_LEN: usize = 48;
 
 #[derive(Debug, PartialEq, Hash, Clone, Copy, Serialize, Deserialize)]
 #[serde(transparent)]
-pub struct KzgProof(#[serde(with = "serde_kzg_proof")] pub [u8; KZG_PROOF_BYTES_LEN]);
+pub struct KzgProof(#[serde(with = "BigArray")] pub [u8; KZG_PROOF_BYTES_LEN]);
 
 impl fmt::Display for KzgProof {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

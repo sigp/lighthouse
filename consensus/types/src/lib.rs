@@ -90,9 +90,7 @@ pub mod slot_data;
 #[cfg(feature = "sqlite")]
 pub mod sqlite;
 
-pub mod blob;
 pub mod blobs_sidecar;
-pub mod bls_field_element;
 pub mod kzg_commitment;
 pub mod kzg_proof;
 pub mod signed_blobs_sidecar;
@@ -197,7 +195,6 @@ pub type Address = H160;
 pub type ForkVersion = [u8; 4];
 pub type BLSFieldElement = Uint256;
 pub type Blob<T> = FixedVector<BLSFieldElement, <T as EthSpec>::FieldElementsPerBlob>;
-pub type Polynomial<T> = VariableList<BLSFieldElement, <T as EthSpec>::FieldElementsPerBlob>;
 
 pub use bls::{
     AggregatePublicKey, AggregateSignature, Keypair, PublicKey, PublicKeyBytes, SecretKey,
