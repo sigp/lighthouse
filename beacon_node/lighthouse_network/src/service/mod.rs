@@ -1342,10 +1342,12 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                 Some(NetworkEvent::PeerDisconnected(peer_id))
             }
             PeerManagerEvent::Banned(peer_id, associated_ips) => {
+                self.swarm.ban_peer_id(peer_id);
                 self.discovery_mut().ban_peer(&peer_id, associated_ips);
                 Some(NetworkEvent::PeerBanned(peer_id))
             }
             PeerManagerEvent::UnBanned(peer_id, associated_ips) => {
+                self.swarm.unban_peer_id(peer_id);
                 self.discovery_mut().unban_peer(&peer_id, associated_ips);
                 Some(NetworkEvent::PeerUnbanned(peer_id))
             }

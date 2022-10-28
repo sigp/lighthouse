@@ -103,7 +103,7 @@ opt-in). Instead, we assert that since the withdrawal keys can be regenerated
 from a mnemonic, having them lying around on the file-system only presents risk
 and complexity.
 
-At the time or writing, we do not expose the commands to regenerate keys from
+At the time of writing, we do not expose the commands to regenerate keys from
 mnemonics. However, key regeneration is tested on the public Lighthouse
 repository and will be exposed prior to mainnet launch.
 

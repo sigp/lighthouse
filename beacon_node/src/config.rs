@@ -687,6 +687,11 @@ pub fn get_config<E: EthSpec>(
                 .unwrap_or(DEFAULT_RE_ORG_PARTICIPATION_THRESHOLD);
     }
 
+    // Note: This overrides any previous flags that enable this option.
+    if cli_args.is_present("disable-deposit-contract-sync") {
+        client_config.sync_eth1_chain = false;
+    }
+
     client_config.chain.prepare_payload_lookahead =
         clap_utils::parse_optional(cli_args, "prepare-payload-lookahead")?
             .map(Duration::from_millis)

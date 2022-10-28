@@ -457,7 +457,9 @@ where
             ClientGenesis::FromStore => builder.resume_from_db().map(|v| (v, None))?,
         };
 
-        self.eth1_service = eth1_service_option;
+        if config.sync_eth1_chain {
+            self.eth1_service = eth1_service_option;
+        }
         self.beacon_chain_builder = Some(beacon_chain_builder);
         Ok(self)
     }
