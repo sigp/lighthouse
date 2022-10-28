@@ -381,6 +381,8 @@ impl<T: EthSpec> From<ExecutionPayload<T>> for JsonExecutionPayload<T> {
 pub struct JsonWithdrawal {
     #[serde(with = "eth2_serde_utils::u64_hex_be")]
     pub index: u64,
+    #[serde(with = "eth2_serde_utils::u64_hex_be")]
+    pub validator_index: u64,
     pub address: Address,
     #[serde(with = "eth2_serde_utils::u256_hex_be")]
     pub amount: Uint256,
@@ -390,6 +392,7 @@ impl From<Withdrawal> for JsonWithdrawal {
     fn from(withdrawal: Withdrawal) -> Self {
         Self {
             index: withdrawal.index,
+            validator_index: withdrawal.validator_index,
             address: withdrawal.address,
             amount: Uint256::from((withdrawal.amount as u128) * 1000000000u128),
         }
@@ -400,6 +403,7 @@ impl From<JsonWithdrawal> for Withdrawal {
     fn from(jw: JsonWithdrawal) -> Self {
         Self {
             index: jw.index,
+            validator_index: jw.validator_index,
             address: jw.address,
             //FIXME(sean) if EE gives us too large a number this panics
             amount: (jw.amount / 1000000000).as_u64(),

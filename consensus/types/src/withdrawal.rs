@@ -15,6 +15,7 @@ use tree_hash_derive::TreeHash;
 pub struct Withdrawal {
     #[serde(with = "eth2_serde_utils::quoted_u64")]
     pub index: u64,
+    pub validator_index: u64,
     pub address: Address,
     pub amount: u64,
 }

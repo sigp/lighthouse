@@ -66,9 +66,9 @@ pub fn process_epoch<T: EthSpec>(
     altair::process_sync_committee_updates(state, spec)?;
 
     // Withdrawals
-    process_full_withdrawals(state)?;
+    process_full_withdrawals(state, spec)?;
 
-    process_partial_withdrawals(state)?;
+    process_partial_withdrawals(state, spec)?;
 
     // Rotate the epoch caches to suit the epoch transition.
     state.advance_caches(spec)?;
