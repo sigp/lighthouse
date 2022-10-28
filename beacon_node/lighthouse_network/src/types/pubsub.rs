@@ -24,8 +24,8 @@ use types::{
 pub struct SignedBeaconBlockAndBlobsSidecar<T: EthSpec> {
     // TODO(pawan): switch to a SignedBeaconBlock and use ssz offsets for decoding to make this
     // future proof?
-    beacon_block: SignedBeaconBlockEip4844<T>,
-    blobs_sidecar: BlobsSidecar<T>,
+    pub beacon_block: SignedBeaconBlockEip4844<T>,
+    pub blobs_sidecar: BlobsSidecar<T>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
