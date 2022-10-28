@@ -71,13 +71,28 @@ impl SystemHealth {
         // Helper functions to extract specific data
 
         // Find the root fs and report this
-        let (disk_bytes_total, disk_bytes_free) = disks
-            .iter()
-            .find(|disk| {
-                disk.mount_point() == Path::new("/") || disk.mount_point() == Path::new("C:\\")
-            })
-            .map(|disk| (disk.total_space(), disk.available_space()))
-            .unwrap_or_else(|| (0, 0));
+        let (disk_bytes_total, disk_bytes_free) = {
+            let individual_disk = disks
+                .iter()
+                .find(|disk| {
+                    disk.mount_point() == Path::new("/")
+                        || disk.mount_point() == Path::new("C:\\")
+                        || disk.mount_point() == Path::new("/System/Volumes/Data")
+                })
+                .map(|disk| (disk.total_space(), disk.available_space()));
+
+            match individual_disk {
+                Some(v) => v,
+                None => {
+                    // If we can't find a known partition, just add them all up
+                    disks.iter().fold((0, 0), |mut current_sizes, disk| {
+                        current_sizes.0 += disk.total_space();
+                        current_sizes.1 += disk.available_space();
+                        current_sizes
+                    })
+                }
+            }
+        };
 
         // Find the network with the most traffic and assume this is the main network
         let (network_name, network_bytes_total_received, network_bytes_total_transmit) = networks
