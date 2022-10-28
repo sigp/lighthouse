@@ -2,7 +2,7 @@
 
 This document provides detail for users who want to run a merge-ready Lighthouse node.
 
-> The merge is occuring on mainnet in September. You _must_ have a merge-ready setup by September 6
+> The merge is occurring on mainnet in September. You _must_ have a merge-ready setup by September 6
 > 2022.
 
 ## Necessary Configuration
