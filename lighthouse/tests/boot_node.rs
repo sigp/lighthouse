@@ -56,7 +56,7 @@ impl CommandLineTestExec for CommandLineTest {
 fn enr_address_arg() {
     let mut test = CommandLineTest::new();
     test.run_with_ip().with_config(|config| {
-        assert_eq!(config.local_enr.ip(), Some(IP_ADDRESS.parse().unwrap()));
+        assert_eq!(config.local_enr.ip4(), Some(IP_ADDRESS.parse().unwrap()));
     });
 }
 
@@ -127,7 +127,7 @@ fn enr_port_flag() {
         .flag("enr-port", Some(port.to_string().as_str()))
         .run_with_ip()
         .with_config(|config| {
-            assert_eq!(config.local_enr.udp(), Some(port));
+            assert_eq!(config.local_enr.udp4(), Some(port));
         })
 }
 
