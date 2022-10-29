@@ -72,8 +72,7 @@ impl DepositTreeSnapshot {
     }
     pub fn is_valid(&self) -> bool {
         self.calculate_root()
-            .map(|calculated| self.deposit_root == calculated)
-            .unwrap_or(false)
+            .map_or(false, |calculated| self.deposit_root == calculated)
     }
 }
 
