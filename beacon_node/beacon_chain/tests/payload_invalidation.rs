@@ -385,7 +385,7 @@ impl InvalidPayloadRig {
             .fork_choice_write_lock()
             .get_head(self.harness.chain.slot().unwrap(), &self.harness.chain.spec)
         {
-            Err(ForkChoiceError::ProtoArrayError(e)) if e.contains(s) => (),
+            Err(ForkChoiceError::ProtoArrayStringError(e)) if e.contains(s) => (),
             other => panic!("expected {} error, got {:?}", s, other),
         };
     }
@@ -1058,7 +1058,7 @@ async fn invalid_parent() {
             &rig.harness.chain.spec,
             CountUnrealized::True,
         ),
-        Err(ForkChoiceError::ProtoArrayError(message))
+        Err(ForkChoiceError::ProtoArrayStringError(message))
         if message.contains(&format!(
             "{:?}",
             ProtoArrayError::ParentExecutionStatusIsInvalid {
