@@ -42,6 +42,7 @@
 //!            END
 //!
 //! ```
+use crate::eth1_finalization_cache::Eth1FinalizationData;
 use crate::execution_payload::{
     is_optimistic_candidate_block, validate_execution_payload_for_gossip, validate_merge_block,
     AllowOptimisticImport, PayloadNotifier,
@@ -622,6 +623,7 @@ pub struct ExecutionPendingBlock<T: BeaconChainTypes> {
     pub block_root: Hash256,
     pub state: BeaconState<T::EthSpec>,
     pub parent_block: SignedBeaconBlock<T::EthSpec, BlindedPayload<T::EthSpec>>,
+    pub parent_eth1_finalization_data: Eth1FinalizationData,
     pub confirmed_state_roots: Vec<Hash256>,
     pub payload_verification_handle: PayloadVerificationHandle<T::EthSpec>,
 }
@@ -1164,6 +1166,11 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
             .into());
         }
 
+        let parent_eth1_finalization_data = Eth1FinalizationData {
+            eth1_data: state.eth1_data().clone(),
+            eth1_deposit_index: state.eth1_deposit_index(),
+        };
+
         let distance = block.slot().as_u64().saturating_sub(state.slot().as_u64());
         for _ in 0..distance {
             let state_root = if parent.beacon_block.slot() == state.slot() {
@@ -1419,6 +1426,7 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
             block_root,
             state,
             parent_block: parent.beacon_block,
+            parent_eth1_finalization_data,
             confirmed_state_roots,
             payload_verification_handle,
         })

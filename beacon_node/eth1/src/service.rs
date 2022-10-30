@@ -20,7 +20,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::time::{interval_at, Duration, Instant};
-use types::{ChainSpec, EthSpec, Unsigned};
+use types::{ChainSpec, DepositTreeSnapshot, Eth1Data, EthSpec, Unsigned};
 
 /// Indicates the default eth1 chain id we use for the deposit contract.
 pub const DEFAULT_CHAIN_ID: Eth1Id = Eth1Id::Goerli;
@@ -63,7 +63,13 @@ async fn endpoint_state(
     config_chain_id: &Eth1Id,
     log: &Logger,
 ) -> EndpointState {
-    let error_connecting = |e| {
+    let error_connecting = |e: String| {
+        debug!(
+            log,
+            "eth1 endpoint error";
+            "endpoint" => %endpoint,
+            "error" => &e,
+        );
         warn!(
             log,
             "Error connecting to eth1 node endpoint";
@@ -213,6 +219,10 @@ pub enum Error {
     GetDepositLogsFailed(String),
     /// There was an unexpected internal error.
     Internal(String),
+    /// Error finalizing deposit
+    FailedToFinalizeDeposit(String),
+    /// There was a problem Initializing from deposit snapshot
+    FailedToInitializeFromSnapshot(String),
 }
 
 /// The success message for an Eth1Data cache update.
@@ -395,6 +405,7 @@ impl Service {
                     config.deposit_contract_deploy_block,
                 )),
                 endpoint: endpoint_from_config(&config)?,
+                to_finalize: RwLock::new(None),
                 remote_head_block: RwLock::new(None),
                 config: RwLock::new(config),
                 spec,
@@ -405,6 +416,36 @@ impl Service {
 
     pub fn client(&self) -> &HttpJsonRpc {
         &self.inner.endpoint
+    }
+
+    /// Creates a new service, initializing the deposit tree from a snapshot.
+    pub fn from_deposit_snapshot(
+        config: Config,
+        log: Logger,
+        spec: ChainSpec,
+        deposit_snapshot: &DepositTreeSnapshot,
+    ) -> Result<Self, Error> {
+        let deposit_cache =
+            DepositUpdater::from_snapshot(config.deposit_contract_deploy_block, deposit_snapshot)
+                .map_err(Error::FailedToInitializeFromSnapshot)?;
+
+        Ok(Self {
+            inner: Arc::new(Inner {
+                block_cache: <_>::default(),
+                deposit_cache: RwLock::new(deposit_cache),
+                endpoint: endpoint_from_config(&config)
+                    .map_err(Error::FailedToInitializeFromSnapshot)?,
+                to_finalize: RwLock::new(None),
+                remote_head_block: RwLock::new(None),
+                config: RwLock::new(config),
+                spec,
+            }),
+            log,
+        })
+    }
+
+    pub fn set_to_finalize(&self, eth1_data: Option<Eth1Data>) {
+        *(self.inner.to_finalize.write()) = eth1_data;
     }
 
     /// Returns the follow distance that has been shortened to accommodate for differences in the
@@ -521,7 +562,7 @@ impl Service {
         let deposits = self.deposits().read();
         deposits
             .cache
-            .get_valid_signature_count(deposits.cache.latest_block_number()?)
+            .get_valid_signature_count(deposits.cache.latest_block_number())
     }
 
     /// Returns the number of deposits with valid signatures that have been observed up to and
@@ -619,7 +660,8 @@ impl Service {
                     "old_block_number" => deposit_cache.last_processed_block,
                     "new_block_number" => deposit_cache.cache.latest_block_number(),
                 );
-                deposit_cache.last_processed_block = deposit_cache.cache.latest_block_number();
+                deposit_cache.last_processed_block =
+                    Some(deposit_cache.cache.latest_block_number());
             }
 
             let outcome =
@@ -698,6 +740,37 @@ impl Service {
                 "deposits" => format!("{:?}", deposit),
             ),
         };
+        let optional_eth1data = self.inner.to_finalize.write().take();
+        if let Some(eth1data_to_finalize) = optional_eth1data {
+            let already_finalized = self
+                .inner
+                .deposit_cache
+                .read()
+                .cache
+                .finalized_deposit_count();
+            let deposit_count_to_finalize = eth1data_to_finalize.deposit_count;
+            if deposit_count_to_finalize > already_finalized {
+                match self.finalize_deposits(eth1data_to_finalize) {
+                    Err(e) => error!(
+                        self.log,
+                        "Failed to finalize deposit cache";
+                        "error" => ?e,
+                    ),
+                    Ok(()) => info!(
+                        self.log,
+                        "Successfully finalized deposit tree";
+                        "finalized deposit count" => deposit_count_to_finalize,
+                    ),
+                }
+            } else {
+                debug!(
+                    self.log,
+                    "Deposits tree already finalized";
+                    "already_finalized" => already_finalized,
+                    "deposit_count_to_finalize" => deposit_count_to_finalize,
+                );
+            }
+        }
         Ok(())
     }
 
@@ -731,6 +804,30 @@ impl Service {
             latest_cached_block.as_ref(),
             &self.inner.spec,
         )
+    }
+
+    pub fn finalize_deposits(&self, eth1_data: Eth1Data) -> Result<(), Error> {
+        let eth1_block = self
+            .inner
+            .block_cache
+            .read()
+            .block_by_hash(&eth1_data.block_hash)
+            .cloned()
+            .ok_or_else(|| {
+                Error::FailedToFinalizeDeposit(
+                    "Finalized block not found in block cache".to_string(),
+                )
+            })?;
+        self.inner
+            .deposit_cache
+            .write()
+            .cache
+            .finalize(eth1_block)
+            .map_err(|e| Error::FailedToFinalizeDeposit(format!("{:?}", e)))
+    }
+
+    pub fn get_deposit_snapshot(&self) -> Option<DepositTreeSnapshot> {
+        self.inner.deposit_cache.read().cache.get_deposit_snapshot()
     }
 
     /// Contacts the remote eth1 node and attempts to import deposit logs up to the configured
