@@ -2873,6 +2873,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         if !payload_verification_status.is_optimistic()
             && block.slot() + EARLY_ATTESTER_CACHE_HISTORIC_SLOTS >= current_slot
         {
+            let fork_choice_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_FORK_CHOICE);
             match fork_choice.get_head(current_slot, &self.spec) {
                 // This block became the head, add it to the early attester cache.
                 Ok(new_head_root) if new_head_root == block_root => {
@@ -2906,6 +2907,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     "error" => ?e
                 ),
             }
+            drop(fork_choice_timer);
         }
 
         // Register sync aggregate with validator monitor

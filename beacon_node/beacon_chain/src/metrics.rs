@@ -72,6 +72,11 @@ lazy_static! {
         "beacon_block_processing_attestation_observation_seconds",
         "Time spent hashing and remembering all the attestations in the block"
     );
+    pub static ref BLOCK_PROCESSING_FORK_CHOICE: Result<Histogram> = try_create_histogram_with_buckets(
+        "beacon_block_processing_fork_choice_seconds",
+        "Time spent running fork choice's `get_head` during block import",
+        exponential_buckets(1e-3, 2.0, 8)
+    );
     pub static ref BLOCK_SYNC_AGGREGATE_SET_BITS: Result<IntGauge> = try_create_int_gauge(
         "block_sync_aggregate_set_bits",
         "The number of true bits in the last sync aggregate in a block"
