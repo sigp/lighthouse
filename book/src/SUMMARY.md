@@ -46,6 +46,7 @@
     * [Pre-Releases](./advanced-pre-releases.md)
     * [Release Candidates](./advanced-release-candidates.md)
     * [MEV and Lighthouse](./builders.md)
+    * [Late Block Re-orgs](./late-block-re-orgs.md)
 * [Contributing](./contributing.md)
     * [Development Environment](./setup.md)
 * [FAQs](./faq.md)
