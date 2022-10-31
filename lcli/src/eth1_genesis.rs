@@ -21,13 +21,9 @@ pub fn run<T: EthSpec>(
         .value_of("eth1-endpoint")
         .map(|e| {
             warn!("The --eth1-endpoint flag is deprecated. Please use --eth1-endpoints instead");
-            vec![String::from(e)]
+            String::from(e)
         })
-        .or_else(|| {
-            matches
-                .value_of("eth1-endpoints")
-                .map(|s| s.split(',').map(String::from).collect())
-        });
+        .or_else(|| matches.value_of("eth1-endpoints").map(String::from));
 
     let mut eth2_network_config = Eth2NetworkConfig::load(testnet_dir.clone())?;
 
@@ -35,12 +31,9 @@ pub fn run<T: EthSpec>(
 
     let mut config = Eth1Config::default();
     if let Some(v) = endpoints.clone() {
-        let endpoints = v
-            .iter()
-            .map(|s| SensitiveUrl::parse(s))
-            .collect::<Result<_, _>>()
+        let endpoint = SensitiveUrl::parse(&v)
             .map_err(|e| format!("Unable to parse eth1 endpoint URL: {:?}", e))?;
-        config.endpoints = Eth1Endpoint::NoAuth(endpoints);
+        config.endpoint = Eth1Endpoint::NoAuth(endpoint);
     }
     config.deposit_contract_address = format!("{:?}", spec.deposit_contract_address);
     config.deposit_contract_deploy_block = eth2_network_config.deposit_contract_deploy_block;
@@ -49,7 +42,7 @@ pub fn run<T: EthSpec>(
     config.node_far_behind_seconds = max(5, config.follow_distance) * spec.seconds_per_eth1_block;
 
     let genesis_service =
-        Eth1GenesisService::new(config, env.core_context().log().clone(), spec.clone());
+        Eth1GenesisService::new(config, env.core_context().log().clone(), spec.clone())?;
 
     env.runtime().block_on(async {
         let _ = genesis_service

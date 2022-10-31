@@ -33,7 +33,7 @@ slot_clock = { path = "../../common/slot_clock" }
 eth2_hashing = "0.3.0"
 eth2_ssz = "0.4.1"
 eth2_ssz_types = "0.2.2"
-eth2_ssz_derive = "0.3.0"
+eth2_ssz_derive = "0.3.1"
 state_processing = { path = "../../consensus/state_processing" }
 tree_hash = "0.4.1"
 types = { path = "../../consensus/types" }

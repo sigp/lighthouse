@@ -299,9 +299,13 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         )?;
 
         // attestation subnet service
-        let attestation_service =
-            AttestationService::new(beacon_chain.clone(), config, &network_log);
-
+        let attestation_service = AttestationService::new(
+            beacon_chain.clone(),
+            #[cfg(feature = "deterministic_long_lived_attnets")]
+            network_globals.local_enr().node_id().raw().into(),
+            config,
+            &network_log,
+        );
         // sync committee subnet service
         let sync_committee_service =
             SyncCommitteeService::new(beacon_chain.clone(), config, &network_log);

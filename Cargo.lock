@@ -1631,6 +1631,8 @@ dependencies = [
  "exit-future",
  "futures",
  "logging",
+ "serde",
+ "serde_derive",
  "slog",
  "slog-async",
  "slog-json",
@@ -1661,7 +1663,6 @@ dependencies = [
  "eth2_ssz",
  "eth2_ssz_derive",
  "execution_layer",
- "fallback",
  "futures",
  "hex",
  "lazy_static",
@@ -1828,9 +1829,10 @@ dependencies = [
 
 [[package]]
 name = "eth2_ssz_derive"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "darling",
+ "eth2_ssz",
  "proc-macro2",
  "quote",
  "syn",
@@ -2116,13 +2118,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e43f2f1833d64e33f15592464d6fdd70f349dda7b1a53088eb83cd94014008c5"
 dependencies = [
  "futures",
-]
-
-[[package]]
-name = "fallback"
-version = "0.1.0"
-dependencies = [
- "itertools",
 ]
 
 [[package]]
@@ -4157,6 +4152,7 @@ dependencies = [
  "error-chain",
  "eth2_ssz",
  "eth2_ssz_types",
+ "ethereum-types 0.12.1",
  "exit-future",
  "fnv",
  "futures",

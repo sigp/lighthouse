@@ -84,6 +84,15 @@ jobs:
               run: echo "LIBCLANG_PATH=$((gcm clang).source -replace "clang.exe")" >> $env:GITHUB_ENV
 
             # ==============================
+            # Windows & Mac dependencies
+            # ==============================
+            - name: Install Protoc
+              if: contains(matrix.arch, 'darwin') || contains(matrix.arch, 'windows')
+              uses: arduino/setup-protoc@v1
+              with:
+                repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+            # ==============================
             #       Builds
             # ==============================
 

@@ -22,6 +22,8 @@ jobs:
         run: rustup update stable
       - name: Install Protoc
         uses: arduino/setup-protoc@v1
+        with:
+            repo-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Install ganache
         run: npm install ganache@latest --global
 
