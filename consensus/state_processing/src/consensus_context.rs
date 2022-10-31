@@ -1,8 +1,11 @@
+use crate::common::get_indexed_attestation;
+use crate::per_block_processing::errors::{AttestationInvalid, BlockOperationError};
+use std::collections::{hash_map::Entry, HashMap};
 use std::marker::PhantomData;
 use tree_hash::TreeHash;
 use types::{
-    BeaconState, BeaconStateError, ChainSpec, EthSpec, ExecPayload, Hash256, SignedBeaconBlock,
-    Slot,
+    Attestation, AttestationData, BeaconState, BeaconStateError, BitList, ChainSpec, EthSpec,
+    ExecPayload, Hash256, IndexedAttestation, SignedBeaconBlock, Slot,
 };
 
 #[derive(Debug)]
@@ -13,6 +16,9 @@ pub struct ConsensusContext<T: EthSpec> {
     proposer_index: Option<u64>,
     /// Block root of the block at `slot`.
     current_block_root: Option<Hash256>,
+    /// Cache of indexed attestations constructed during block processing.
+    indexed_attestations:
+        HashMap<(AttestationData, BitList<T::MaxValidatorsPerCommittee>), IndexedAttestation<T>>,
     _phantom: PhantomData<T>,
 }
 
@@ -34,6 +40,7 @@ impl<T: EthSpec> ConsensusContext<T> {
             slot,
             proposer_index: None,
             current_block_root: None,
+            indexed_attestations: HashMap::new(),
             _phantom: PhantomData,
         }
     }
@@ -88,5 +95,31 @@ impl<T: EthSpec> ConsensusContext<T> {
                 expected: self.slot,
             })
         }
+    }
+
+    pub fn get_indexed_attestation(
+        &mut self,
+        state: &BeaconState<T>,
+        attestation: &Attestation<T>,
+    ) -> Result<&IndexedAttestation<T>, BlockOperationError<AttestationInvalid>> {
+        let key = (
+            attestation.data.clone(),
+            attestation.aggregation_bits.clone(),
+        );
+
+        match self.indexed_attestations.entry(key) {
+            Entry::Occupied(occupied) => Ok(occupied.into_mut()),
+            Entry::Vacant(vacant) => {
+                let committee =
+                    state.get_beacon_committee(attestation.data.slot, attestation.data.index)?;
+                let indexed_attestation =
+                    get_indexed_attestation(committee.committee, attestation)?;
+                Ok(vacant.insert(indexed_attestation))
+            }
+        }
+    }
+
+    pub fn num_cached_indexed_attestations(&self) -> usize {
+        self.indexed_attestations.len()
     }
 }

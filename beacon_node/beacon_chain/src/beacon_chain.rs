@@ -3513,10 +3513,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // This will be a lot slower but guards against bugs in block production and can be
         // quickly rolled out without a release.
         if self.config.paranoid_block_proposal {
+            let mut tmp_ctxt = ConsensusContext::new(state.slot());
             attestations.retain(|att| {
                 verify_attestation_for_block_inclusion(
                     &state,
                     att,
+                    &mut tmp_ctxt,
                     VerifySignatures::True,
                     &self.spec,
                 )
