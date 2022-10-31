@@ -37,12 +37,12 @@ directory = { path = "../../common/directory" }
 regex = "1.5.5"
 strum = { version = "0.24.0", features = ["derive"] }
 superstruct = "0.5.0"
-prometheus-client = "0.16.0"
+prometheus-client = "0.18.0"
 unused_port = { path = "../../common/unused_port" }
 delay_map = "0.1.1"
 
 [dependencies.libp2p]
-version = "0.45.1"
+version = "0.48.0"
 default-features = false
 features = ["websocket", "identify", "mplex", "yamux", "noise", "gossipsub", "dns-tokio", "tcp-tokio", "plaintext", "secp256k1"]
 

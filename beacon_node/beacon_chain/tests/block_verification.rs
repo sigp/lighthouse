@@ -11,7 +11,7 @@ use slasher::{Config as SlasherConfig, Slasher};
 use state_processing::{
     common::get_indexed_attestation,
     per_block_processing::{per_block_processing, BlockSignatureStrategy},
-    per_slot_processing, BlockProcessingError, VerifyBlockRoot,
+    per_slot_processing, BlockProcessingError, ConsensusContext, VerifyBlockRoot,
 };
 use std::marker::PhantomData;
 use std::sync::Arc;
@@ -346,6 +346,7 @@ async fn assert_invalid_signature(
     let process_res = harness
         .chain
         .process_block(
+            snapshots[block_index].beacon_block.canonical_root(),
             snapshots[block_index].beacon_block.clone(),
             CountUnrealized::True,
         )
@@ -403,12 +404,14 @@ async fn invalid_signature_gossip_block() {
             .await
             .into_block_error()
             .expect("should import all blocks prior to the one being tested");
+        let signed_block = SignedBeaconBlock::from_block(block, junk_signature());
         assert!(
             matches!(
                 harness
                     .chain
                     .process_block(
-                        Arc::new(SignedBeaconBlock::from_block(block, junk_signature())),
+                        signed_block.canonical_root(),
+                        Arc::new(signed_block),
                         CountUnrealized::True
                     )
                     .await,
@@ -718,7 +721,11 @@ async fn block_gossip_verification() {
 
         harness
             .chain
-            .process_block(gossip_verified, CountUnrealized::True)
+            .process_block(
+                gossip_verified.block_root,
+                gossip_verified,
+                CountUnrealized::True,
+            )
             .await
             .expect("should import valid gossip verified block");
     }
@@ -985,7 +992,11 @@ async fn verify_block_for_gossip_slashing_detection() {
         .unwrap();
     harness
         .chain
-        .process_block(verified_block, CountUnrealized::True)
+        .process_block(
+            verified_block.block_root,
+            verified_block,
+            CountUnrealized::True,
+        )
         .await
         .unwrap();
     unwrap_err(
@@ -1020,7 +1031,11 @@ async fn verify_block_for_gossip_doppelganger_detection() {
     let attestations = verified_block.block.message().body().attestations().clone();
     harness
         .chain
-        .process_block(verified_block, CountUnrealized::True)
+        .process_block(
+            verified_block.block_root,
+            verified_block,
+            CountUnrealized::True,
+        )
         .await
         .unwrap();
 
@@ -1124,14 +1139,15 @@ async fn add_base_block_to_altair_chain() {
     // Ensure that it would be impossible to apply this block to `per_block_processing`.
     {
         let mut state = state;
+        let mut ctxt = ConsensusContext::new(base_block.slot());
         per_slot_processing(&mut state, None, &harness.chain.spec).unwrap();
         assert!(matches!(
             per_block_processing(
                 &mut state,
                 &base_block,
-                None,
                 BlockSignatureStrategy::NoVerification,
                 VerifyBlockRoot::True,
+                &mut ctxt,
                 &harness.chain.spec,
             ),
             Err(BlockProcessingError::InconsistentBlockFork(
@@ -1161,7 +1177,11 @@ async fn add_base_block_to_altair_chain() {
     assert!(matches!(
         harness
             .chain
-            .process_block(Arc::new(base_block.clone()), CountUnrealized::True)
+            .process_block(
+                base_block.canonical_root(),
+                Arc::new(base_block.clone()),
+                CountUnrealized::True
+            )
             .await
             .err()
             .expect("should error when processing base block"),
@@ -1252,14 +1272,15 @@ async fn add_altair_block_to_base_chain() {
     // Ensure that it would be impossible to apply this block to `per_block_processing`.
     {
         let mut state = state;
+        let mut ctxt = ConsensusContext::new(altair_block.slot());
         per_slot_processing(&mut state, None, &harness.chain.spec).unwrap();
         assert!(matches!(
             per_block_processing(
                 &mut state,
                 &altair_block,
-                None,
                 BlockSignatureStrategy::NoVerification,
                 VerifyBlockRoot::True,
+                &mut ctxt,
                 &harness.chain.spec,
             ),
             Err(BlockProcessingError::InconsistentBlockFork(
@@ -1289,7 +1310,11 @@ async fn add_altair_block_to_base_chain() {
     assert!(matches!(
         harness
             .chain
-            .process_block(Arc::new(altair_block.clone()), CountUnrealized::True)
+            .process_block(
+                altair_block.canonical_root(),
+                Arc::new(altair_block.clone()),
+                CountUnrealized::True
+            )
             .await
             .err()
             .expect("should error when processing altair block"),

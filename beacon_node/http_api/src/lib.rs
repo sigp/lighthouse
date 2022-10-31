@@ -668,9 +668,10 @@ pub fn serve<T: BeaconChainTypes>(
                 "Invalid validator ID".to_string(),
             ))
         }))
+        .and(log_filter.clone())
         .and(warp::path::end())
         .and_then(
-            |state_id: StateId, chain: Arc<BeaconChain<T>>, validator_id: ValidatorId| {
+            |state_id: StateId, chain: Arc<BeaconChain<T>>, validator_id: ValidatorId, log| {
                 blocking_json_task(move || {
                     let (data, execution_optimistic) = state_id
                         .map_state_and_execution_optimistic(
@@ -678,7 +679,23 @@ pub fn serve<T: BeaconChainTypes>(
                             |state, execution_optimistic| {
                                 let index_opt = match &validator_id {
                                     ValidatorId::PublicKey(pubkey) => {
-                                        state.validators().iter().position(|v| v.pubkey == *pubkey)
+                                        // Fast path: use the pubkey cache which is probably
+                                        // initialised at the head.
+                                        match state.get_validator_index_read_only(pubkey) {
+                                            Ok(result) => result,
+                                            Err(e) => {
+                                                // Slow path, fall back to iteration.
+                                                debug!(
+                                                    log,
+                                                    "Validator look-up cache miss";
+                                                    "reason" => ?e,
+                                                );
+                                                state
+                                                    .validators()
+                                                    .iter()
+                                                    .position(|v| v.pubkey == *pubkey)
+                                            }
+                                        }
                                     }
                                     ValidatorId::Index(index) => Some(*index as usize),
                                 };
@@ -1046,7 +1063,7 @@ pub fn serve<T: BeaconChainTypes>(
              chain: Arc<BeaconChain<T>>,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
              log: Logger| async move {
-                publish_blocks::publish_block(block, chain, &network_tx, log)
+                publish_blocks::publish_block(None, block, chain, &network_tx, log)
                     .await
                     .map(|()| warp::reply())
             },
@@ -2531,7 +2548,7 @@ pub fn serve<T: BeaconChainTypes>(
                                         || matches!(validator_status, ValidatorStatus::Active);
 
                                 // Filter out validators who are not 'active' or 'pending'.
-                                is_active_or_pending.then(|| {
+                                is_active_or_pending.then_some({
                                     (
                                         ProposerPreparationData {
                                             validator_index: validator_index as u64,

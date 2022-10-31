@@ -109,6 +109,7 @@ pub struct QueuedGossipBlock<T: BeaconChainTypes> {
 /// A block that arrived for processing when the same block was being imported over gossip.
 /// It is queued for later import.
 pub struct QueuedRpcBlock<T: EthSpec> {
+    pub block_root: Hash256,
     pub block: Arc<SignedBeaconBlock<T>>,
     pub process_type: BlockProcessType,
     pub seen_timestamp: Duration,

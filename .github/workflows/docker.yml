@@ -51,6 +51,9 @@ jobs:
                          aarch64-portable,
                          x86_64,
                          x86_64-portable]
+                include:
+                    - profile: maxperf
+
         needs: [extract-version]
         env:
             # We need to enable experimental docker features in order to use `docker buildx`
@@ -67,17 +70,17 @@ jobs:
             - name: Cross build Lighthouse binary
               run: |
                   cargo install cross
-                  make build-${{ matrix.binary }}
+                  env CROSS_PROFILE=${{ matrix.profile }} make build-${{ matrix.binary }}
             - name: Move cross-built binary into Docker scope (if ARM)
               if: startsWith(matrix.binary, 'aarch64')
               run: |
                   mkdir ./bin;
-                  mv ./target/aarch64-unknown-linux-gnu/release/lighthouse ./bin;
+                  mv ./target/aarch64-unknown-linux-gnu/${{ matrix.profile }}/lighthouse ./bin;
             - name: Move cross-built binary into Docker scope (if x86_64)
               if: startsWith(matrix.binary, 'x86_64')
               run: |
                   mkdir ./bin;
-                  mv ./target/x86_64-unknown-linux-gnu/release/lighthouse ./bin;
+                  mv ./target/x86_64-unknown-linux-gnu/${{ matrix.profile }}/lighthouse ./bin;
             - name: Map aarch64 to arm64 short arch
               if: startsWith(matrix.binary, 'aarch64')
               run: echo "SHORT_ARCH=arm64" >> $GITHUB_ENV
