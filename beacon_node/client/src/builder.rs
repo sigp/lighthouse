@@ -277,8 +277,52 @@ where
                     BeaconNodeHttpClient::new(url, Timeouts::set_all(CHECKPOINT_SYNC_HTTP_TIMEOUT));
                 let slots_per_epoch = TEthSpec::slots_per_epoch();
 
-                debug!(context.log(), "Downloading finalized block");
+                let deposit_snapshot = if config.sync_eth1_chain {
+                    // We want to fetch deposit snapshot before fetching the finalized beacon state to
+                    // ensure that the snapshot is not newer than the beacon state that satisfies the
+                    // deposit finalization conditions
+                    debug!(context.log(), "Downloading deposit snapshot");
+                    let deposit_snapshot_result = remote
+                        .get_deposit_snapshot()
+                        .await
+                        .map_err(|e| match e {
+                            ApiError::InvalidSsz(e) => format!(
+                                "Unable to parse SSZ: {:?}. Ensure the checkpoint-sync-url refers to a \
+                                node for the correct network",
+                                e
+                            ),
+                            e => format!("Error fetching deposit snapshot from remote: {:?}", e),
+                        });
+                    match deposit_snapshot_result {
+                        Ok(Some(deposit_snapshot)) => {
+                            if deposit_snapshot.is_valid() {
+                                Some(deposit_snapshot)
+                            } else {
+                                warn!(context.log(), "Remote BN sent invalid deposit snapshot!");
+                                None
+                            }
+                        }
+                        Ok(None) => {
+                            warn!(
+                                context.log(),
+                                "Remote BN does not support EIP-4881 fast deposit sync"
+                            );
+                            None
+                        }
+                        Err(e) => {
+                            warn!(
+                                context.log(),
+                                "Remote BN does not support EIP-4881 fast deposit sync";
+                                "error" => e
+                            );
+                            None
+                        }
+                    }
+                } else {
+                    None
+                };
 
+                debug!(context.log(), "Downloading finalized block");
                 // Find a suitable finalized block on an epoch boundary.
                 let mut block = remote
                     .get_beacon_blocks_ssz::<TEthSpec>(BlockId::Finalized, &spec)
@@ -362,9 +406,33 @@ where
                     "state_root" => ?state_root,
                 );
 
+                let service =
+                    deposit_snapshot.and_then(|snapshot| match Eth1Service::from_deposit_snapshot(
+                        config.eth1,
+                        context.log().clone(),
+                        spec,
+                        &snapshot,
+                    ) {
+                        Ok(service) => {
+                            info!(
+                                context.log(),
+                                "Loaded deposit tree snapshot";
+                                "deposits loaded" => snapshot.deposit_count,
+                            );
+                            Some(service)
+                        }
+                        Err(e) => {
+                            warn!(context.log(),
+                                "Unable to load deposit snapshot";
+                                "error" => ?e
+                            );
+                            None
+                        }
+                    });
+
                 builder
                     .weak_subjectivity_state(state, block, genesis_state)
-                    .map(|v| (v, None))?
+                    .map(|v| (v, service))?
             }
             ClientGenesis::DepositContract => {
                 info!(
@@ -810,9 +878,16 @@ where
         self.freezer_db_path = Some(cold_path.into());
 
         let inner_spec = spec.clone();
+        let deposit_contract_deploy_block = context
+            .eth2_network_config
+            .as_ref()
+            .map(|config| config.deposit_contract_deploy_block)
+            .unwrap_or(0);
+
         let schema_upgrade = |db, from, to| {
             migrate_schema::<Witness<TSlotClock, TEth1Backend, _, _, _>>(
                 db,
+                deposit_contract_deploy_block,
                 datadir,
                 from,
                 to,

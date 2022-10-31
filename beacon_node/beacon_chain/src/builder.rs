@@ -1,5 +1,6 @@
 use crate::beacon_chain::{CanonicalHead, BEACON_CHAIN_DB_KEY, ETH1_CACHE_DB_KEY, OP_POOL_DB_KEY};
 use crate::eth1_chain::{CachingEth1Backend, SszEth1};
+use crate::eth1_finalization_cache::Eth1FinalizationCache;
 use crate::fork_choice_signal::ForkChoiceSignalTx;
 use crate::fork_revert::{reset_fork_choice_to_finalization, revert_to_fork_boundary};
 use crate::head_tracker::HeadTracker;
@@ -795,6 +796,7 @@ where
                 head_for_snapshot_cache,
             )),
             shuffling_cache: TimeoutRwLock::new(ShufflingCache::new()),
+            eth1_finalization_cache: TimeoutRwLock::new(Eth1FinalizationCache::new(log.clone())),
             beacon_proposer_cache: <_>::default(),
             block_times_cache: <_>::default(),
             pre_finalization_block_cache: <_>::default(),

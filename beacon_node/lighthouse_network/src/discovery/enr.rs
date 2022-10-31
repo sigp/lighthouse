@@ -149,12 +149,12 @@ pub fn create_enr_builder_from_config<T: EnrKey>(
         builder.ip(enr_address);
     }
     if let Some(udp_port) = config.enr_udp_port {
-        builder.udp(udp_port);
+        builder.udp4(udp_port);
     }
     // we always give it our listening tcp port
     if enable_tcp {
         let tcp_port = config.enr_tcp_port.unwrap_or(config.libp2p_port);
-        builder.tcp(tcp_port);
+        builder.tcp4(tcp_port);
     }
     builder
 }
@@ -189,13 +189,13 @@ pub fn build_enr<T: EthSpec>(
 /// If this function returns true, we use the `disk_enr`.
 fn compare_enr(local_enr: &Enr, disk_enr: &Enr) -> bool {
     // take preference over disk_enr address if one is not specified
-    (local_enr.ip().is_none() || local_enr.ip() == disk_enr.ip())
+    (local_enr.ip4().is_none() || local_enr.ip4() == disk_enr.ip4())
         // tcp ports must match
-        && local_enr.tcp() == disk_enr.tcp()
+        && local_enr.tcp4() == disk_enr.tcp4()
         // must match on the same fork
         && local_enr.get(ETH2_ENR_KEY) == disk_enr.get(ETH2_ENR_KEY)
         // take preference over disk udp port if one is not specified
-        && (local_enr.udp().is_none() || local_enr.udp() == disk_enr.udp())
+        && (local_enr.udp4().is_none() || local_enr.udp4() == disk_enr.udp4())
         // we need the ATTESTATION_BITFIELD_ENR_KEY and SYNC_COMMITTEE_BITFIELD_ENR_KEY key to match, 
         // otherwise we use a new ENR. This will likely only be true for non-validating nodes
         && local_enr.get(ATTESTATION_BITFIELD_ENR_KEY) == disk_enr.get(ATTESTATION_BITFIELD_ENR_KEY)
