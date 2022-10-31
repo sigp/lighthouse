@@ -34,6 +34,8 @@ pub trait ExecPayload<T: EthSpec>: Debug + Clone + PartialEq + Hash + TreeHash +
     fn block_hash(&self) -> ExecutionBlockHash;
     fn fee_recipient(&self) -> Address;
     fn gas_limit(&self) -> u64;
+
+    /// This will return `None` on blinded blocks or pre-merge blocks.
     fn transactions(&self) -> Option<&Transactions<T>>;
 
     // Is this a default payload? (pre-merge)

@@ -1,10 +1,8 @@
 use crate::BlockProcessingError;
-use eth2_hashing::{hash, hash_fixed};
+use eth2_hashing::hash_fixed;
 use itertools::{EitherOrBoth, Itertools};
 use ssz::Decode;
 use ssz_types::VariableList;
-use std::slice::Iter;
-use std::vec::IntoIter;
 use types::consts::eip4844::{BLOB_TX_TYPE, VERSIONED_HASH_VERSION_KZG};
 use types::{
     AbstractExecPayload, BeaconBlockBodyRef, EthSpec, ExecPayload, FullPayload, FullPayloadRef,
@@ -47,9 +45,21 @@ pub fn verify_kzg_commitments_against_transactions<T: EthSpec>(
             // Need to use `itertools::zip_longest` here because just zipping hides if one iter is shorter
             // and `itertools::zip_eq` panics.
             .zip_longest(kzg_commitments.into_iter())
-            .map(|next| match next {
-                EitherOrBoth::Both(hash, commitmnet) => Ok((hash?, commitmnet)),
-                _ => Err(BlockProcessingError::BlobVersionHashMismatch),
+            .enumerate()
+            .map(|(index, next)| match next {
+                EitherOrBoth::Both(hash, commitment) => Ok((hash?, commitment)),
+                // The number of versioned hashes from the blob transactions exceeds the number of
+                // commitments in the block.
+                EitherOrBoth::Left(_) => Err(BlockProcessingError::BlobNumCommitmentsMismatch {
+                    commitments_processed_in_block: index,
+                    commitments_processed_in_transactions: index + 1,
+                }),
+                // The number of commitments in the block exceeds the number of versioned hashes
+                // in the blob transactions.
+                EitherOrBoth::Right(_) => Err(BlockProcessingError::BlobNumCommitmentsMismatch {
+                    commitments_processed_in_block: index + 1,
+                    commitments_processed_in_transactions: index,
+                }),
             });
 
         itertools::process_results(zipped_iter, |mut iter| {
@@ -60,6 +70,7 @@ pub fn verify_kzg_commitments_against_transactions<T: EthSpec>(
     })?
 }
 
+/// Only transactions of type `BLOB_TX_TYPE` should be passed into this function.
 fn tx_peek_blob_versioned_hashes<T: EthSpec>(
     opaque_tx: &Transaction<T::MaxBytesPerTransaction>,
 ) -> Result<
@@ -90,12 +101,13 @@ fn tx_peek_blob_versioned_hashes<T: EthSpec>(
     let num_hashes = (tx_len - blob_versioned_hashes_offset as usize) / 32;
 
     Ok((0..num_hashes).into_iter().map(move |i| {
-        let bytes = opaque_tx.get(i..i + 32).ok_or(
-            BlockProcessingError::BlobVersionHashIndexOutOfBounds {
+        let next_version_hash_index = blob_versioned_hashes_offset as usize + (i * 32);
+        let bytes = opaque_tx
+            .get(next_version_hash_index..next_version_hash_index + 32)
+            .ok_or(BlockProcessingError::BlobVersionHashIndexOutOfBounds {
                 length: tx_len,
-                index: i + 32,
-            },
-        )?;
+                index: next_version_hash_index as usize + 32,
+            })?;
         Ok(VersionedHash::from_slice(bytes))
     }))
 }
