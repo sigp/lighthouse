@@ -113,6 +113,7 @@ pub trait AbstractExecPayload<T: EthSpec>:
         derivative(PartialEq, Hash(bound = "T: EthSpec")),
         tree_hash(enum_behaviour = "transparent"),
     ),
+    map_into(ExecutionPayload),
     cast_error(ty = "Error", expr = "BeaconStateError::IncorrectStateVariant"),
     partial_getter_error(ty = "Error", expr = "BeaconStateError::IncorrectStateVariant")
 )]
@@ -161,11 +162,10 @@ impl<T: EthSpec> ExecPayload<T> for FullPayload<T> {
     }
 
     fn to_execution_payload_header(&self) -> ExecutionPayloadHeader<T> {
-        match self {
-            Self::Merge(payload) => payload.to_execution_payload_header(),
-            Self::Capella(payload) => payload.to_execution_payload_header(),
-            Self::Eip4844(payload) => payload.to_execution_payload_header(),
-        }
+        let payload = map_full_payload_into_execution_payload!(self.clone(), |inner, cons| {
+            cons(inner.execution_payload)
+        });
+        ExecutionPayloadHeader::from(payload)
     }
 
     fn parent_hash<'a>(&'a self) -> ExecutionBlockHash {
@@ -217,22 +217,19 @@ impl<T: EthSpec> ExecPayload<T> for FullPayload<T> {
         })
     }
 
-    fn is_default(&self) -> bool {
-        match self {
-            Self::Merge(payload) => payload.is_default(),
-            Self::Capella(payload) => payload.is_default(),
-            Self::Eip4844(payload) => payload.is_default(),
-        }
+    fn is_default<'a>(&'a self) -> bool {
+        map_full_payload_ref!(&'a _, self.to_ref(), move |payload, cons| {
+            cons(payload);
+            payload.execution_payload == <_>::default()
+        })
     }
 }
 
 impl<T: EthSpec> FullPayload<T> {
     pub fn execution_payload(&self) -> ExecutionPayload<T> {
-        match self {
-            Self::Merge(full) => ExecutionPayload::Merge(full.execution_payload.clone()),
-            Self::Capella(full) => ExecutionPayload::Capella(full.execution_payload.clone()),
-            Self::Eip4844(full) => ExecutionPayload::Eip4844(full.execution_payload.clone()),
-        }
+        map_full_payload_into_execution_payload!(self.clone(), |inner, cons| {
+            cons(inner.execution_payload)
+        })
     }
 }
 
@@ -241,12 +238,11 @@ impl<'b, T: EthSpec> ExecPayload<T> for FullPayloadRef<'b, T> {
         BlockType::Full
     }
 
-    fn to_execution_payload_header(&self) -> ExecutionPayloadHeader<T> {
-        match self {
-            Self::Merge(payload) => payload.to_execution_payload_header(),
-            Self::Capella(payload) => payload.to_execution_payload_header(),
-            Self::Eip4844(payload) => payload.to_execution_payload_header(),
-        }
+    fn to_execution_payload_header<'a>(&'a self) -> ExecutionPayloadHeader<T> {
+        map_full_payload_ref!(&'a _, self, move |payload, cons| {
+            cons(payload);
+            ExecutionPayloadHeader::from(payload.to_execution_payload_header())
+        })
     }
 
     fn parent_hash<'a>(&'a self) -> ExecutionBlockHash {
@@ -300,17 +296,10 @@ impl<'b, T: EthSpec> ExecPayload<T> for FullPayloadRef<'b, T> {
 
     // TODO: can this function be optimized?
     fn is_default<'a>(&'a self) -> bool {
-        match self {
-            Self::Merge(payload_ref) => {
-                payload_ref.execution_payload == ExecutionPayloadMerge::default()
-            }
-            Self::Capella(payload_ref) => {
-                payload_ref.execution_payload == ExecutionPayloadCapella::default()
-            }
-            Self::Eip4844(payload_ref) => {
-                payload_ref.execution_payload == ExecutionPayloadEip4844::default()
-            }
-        }
+        map_full_payload_ref!(&'a _, self, move |payload, cons| {
+            cons(payload);
+            payload.execution_payload == <_>::default()
+        })
     }
 }
 
@@ -378,6 +367,7 @@ impl<T: EthSpec> TryFrom<ExecutionPayloadHeader<T>> for FullPayload<T> {
         derivative(PartialEq, Hash(bound = "T: EthSpec")),
         tree_hash(enum_behaviour = "transparent"),
     ),
+    map_into(ExecutionPayloadHeader),
     cast_error(ty = "Error", expr = "BeaconStateError::IncorrectStateVariant"),
     partial_getter_error(ty = "Error", expr = "BeaconStateError::IncorrectStateVariant")
 )]
@@ -400,174 +390,135 @@ impl<T: EthSpec> ExecPayload<T> for BlindedPayload<T> {
     }
 
     fn to_execution_payload_header(&self) -> ExecutionPayloadHeader<T> {
-        match self {
-            Self::Merge(payload) => {
-                ExecutionPayloadHeader::Merge(payload.execution_payload_header.clone())
-            }
-            Self::Capella(payload) => {
-                ExecutionPayloadHeader::Capella(payload.execution_payload_header.clone())
-            }
-            Self::Eip4844(payload) => {
-                ExecutionPayloadHeader::Eip4844(payload.execution_payload_header.clone())
-            }
-        }
+        map_blinded_payload_into_execution_payload_header!(self.clone(), |inner, cons| {
+            cons(inner.execution_payload_header)
+        })
     }
 
-    fn parent_hash(&self) -> ExecutionBlockHash {
-        match self {
-            Self::Merge(payload) => payload.execution_payload_header.parent_hash,
-            Self::Capella(payload) => payload.execution_payload_header.parent_hash,
-            Self::Eip4844(payload) => payload.execution_payload_header.parent_hash,
-        }
+    fn parent_hash<'a>(&'a self) -> ExecutionBlockHash {
+        map_blinded_payload_ref!(&'a _, self.to_ref(), move |payload, cons| {
+            cons(payload);
+            payload.execution_payload_header.parent_hash
+        })
     }
 
-    fn prev_randao(&self) -> Hash256 {
-        match self {
-            Self::Merge(payload) => payload.execution_payload_header.prev_randao,
-            Self::Capella(payload) => payload.execution_payload_header.prev_randao,
-            Self::Eip4844(payload) => payload.execution_payload_header.prev_randao,
-        }
+    fn prev_randao<'a>(&'a self) -> Hash256 {
+        map_blinded_payload_ref!(&'a _, self.to_ref(), move |payload, cons| {
+            cons(payload);
+            payload.execution_payload_header.prev_randao
+        })
     }
 
-    fn block_number(&self) -> u64 {
-        match self {
-            Self::Merge(payload) => payload.execution_payload_header.block_number,
-            Self::Capella(payload) => payload.execution_payload_header.block_number,
-            Self::Eip4844(payload) => payload.execution_payload_header.block_number,
-        }
+    fn block_number<'a>(&'a self) -> u64 {
+        map_blinded_payload_ref!(&'a _, self.to_ref(), move |payload, cons| {
+            cons(payload);
+            payload.execution_payload_header.block_number
+        })
     }
 
-    fn timestamp(&self) -> u64 {
-        match self {
-            Self::Merge(payload) => payload.execution_payload_header.timestamp,
-            Self::Capella(payload) => payload.execution_payload_header.timestamp,
-            Self::Eip4844(payload) => payload.execution_payload_header.timestamp,
-        }
+    fn timestamp<'a>(&'a self) -> u64 {
+        map_blinded_payload_ref!(&'a _, self.to_ref(), move |payload, cons| {
+            cons(payload);
+            payload.execution_payload_header.timestamp
+        })
     }
 
-    fn block_hash(&self) -> ExecutionBlockHash {
-        match self {
-            Self::Merge(payload) => payload.execution_payload_header.block_hash,
-            Self::Capella(payload) => payload.execution_payload_header.block_hash,
-            Self::Eip4844(payload) => payload.execution_payload_header.block_hash,
-        }
+    fn block_hash<'a>(&'a self) -> ExecutionBlockHash {
+        map_blinded_payload_ref!(&'a _, self.to_ref(), move |payload, cons| {
+            cons(payload);
+            payload.execution_payload_header.block_hash
+        })
     }
 
-    fn fee_recipient(&self) -> Address {
-        match self {
-            Self::Merge(payload) => payload.execution_payload_header.fee_recipient,
-            Self::Capella(payload) => payload.execution_payload_header.fee_recipient,
-            Self::Eip4844(payload) => payload.execution_payload_header.fee_recipient,
-        }
+    fn fee_recipient<'a>(&'a self) -> Address {
+        map_blinded_payload_ref!(&'a _, self.to_ref(), move |payload, cons| {
+            cons(payload);
+            payload.execution_payload_header.fee_recipient
+        })
     }
 
-    fn gas_limit(&self) -> u64 {
-        match self {
-            Self::Merge(payload) => payload.execution_payload_header.gas_limit,
-            Self::Capella(payload) => payload.execution_payload_header.gas_limit,
-            Self::Eip4844(payload) => payload.execution_payload_header.gas_limit,
-        }
+    fn gas_limit<'a>(&'a self) -> u64 {
+        map_blinded_payload_ref!(&'a _, self.to_ref(), move |payload, cons| {
+            cons(payload);
+            payload.execution_payload_header.gas_limit
+        })
     }
 
-    // TODO: can this function be optimized?
-    fn is_default(&self) -> bool {
-        match self {
-            Self::Merge(payload) => payload.is_default(),
-            Self::Capella(payload) => payload.is_default(),
-            Self::Eip4844(payload) => payload.is_default(),
-        }
+    fn is_default<'a>(&'a self) -> bool {
+        map_blinded_payload_ref!(&'a _, self.to_ref(), move |payload, cons| {
+            cons(payload);
+            payload.execution_payload_header == <_>::default()
+        })
     }
 }
 
-// FIXME(sproul): deduplicate this
 impl<'b, T: EthSpec> ExecPayload<T> for BlindedPayloadRef<'b, T> {
     fn block_type() -> BlockType {
         BlockType::Blinded
     }
 
-    fn to_execution_payload_header(&self) -> ExecutionPayloadHeader<T> {
-        match self {
-            Self::Merge(payload) => {
-                ExecutionPayloadHeader::Merge(payload.execution_payload_header.clone())
-            }
-            Self::Capella(payload) => {
-                ExecutionPayloadHeader::Capella(payload.execution_payload_header.clone())
-            }
-            Self::Eip4844(payload) => {
-                ExecutionPayloadHeader::Eip4844(payload.execution_payload_header.clone())
-            }
-        }
+    fn to_execution_payload_header<'a>(&'a self) -> ExecutionPayloadHeader<T> {
+        map_blinded_payload_ref!(&'a _, self, move |payload, cons| {
+            cons(payload);
+            payload.to_execution_payload_header()
+        })
     }
 
-    fn parent_hash(&self) -> ExecutionBlockHash {
-        match self {
-            Self::Merge(payload) => payload.execution_payload_header.parent_hash,
-            Self::Capella(payload) => payload.execution_payload_header.parent_hash,
-            Self::Eip4844(payload) => payload.execution_payload_header.parent_hash,
-        }
+    fn parent_hash<'a>(&'a self) -> ExecutionBlockHash {
+        map_blinded_payload_ref!(&'a _, self, move |payload, cons| {
+            cons(payload);
+            payload.execution_payload_header.parent_hash
+        })
     }
 
-    fn prev_randao(&self) -> Hash256 {
-        match self {
-            Self::Merge(payload) => payload.execution_payload_header.prev_randao,
-            Self::Capella(payload) => payload.execution_payload_header.prev_randao,
-            Self::Eip4844(payload) => payload.execution_payload_header.prev_randao,
-        }
+    fn prev_randao<'a>(&'a self) -> Hash256 {
+        map_blinded_payload_ref!(&'a _, self, move |payload, cons| {
+            cons(payload);
+            payload.execution_payload_header.prev_randao
+        })
     }
 
-    fn block_number(&self) -> u64 {
-        match self {
-            Self::Merge(payload) => payload.execution_payload_header.block_number,
-            Self::Capella(payload) => payload.execution_payload_header.block_number,
-            Self::Eip4844(payload) => payload.execution_payload_header.block_number,
-        }
+    fn block_number<'a>(&'a self) -> u64 {
+        map_blinded_payload_ref!(&'a _, self, move |payload, cons| {
+            cons(payload);
+            payload.execution_payload_header.block_number
+        })
     }
 
-    fn timestamp(&self) -> u64 {
-        match self {
-            Self::Merge(payload) => payload.execution_payload_header.timestamp,
-            Self::Capella(payload) => payload.execution_payload_header.timestamp,
-            Self::Eip4844(payload) => payload.execution_payload_header.timestamp,
-        }
+    fn timestamp<'a>(&'a self) -> u64 {
+        map_blinded_payload_ref!(&'a _, self, move |payload, cons| {
+            cons(payload);
+            payload.execution_payload_header.timestamp
+        })
     }
 
-    fn block_hash(&self) -> ExecutionBlockHash {
-        match self {
-            Self::Merge(payload) => payload.execution_payload_header.block_hash,
-            Self::Capella(payload) => payload.execution_payload_header.block_hash,
-            Self::Eip4844(payload) => payload.execution_payload_header.block_hash,
-        }
+    fn block_hash<'a>(&'a self) -> ExecutionBlockHash {
+        map_blinded_payload_ref!(&'a _, self, move |payload, cons| {
+            cons(payload);
+            payload.execution_payload_header.block_hash
+        })
     }
 
-    fn fee_recipient(&self) -> Address {
-        match self {
-            Self::Merge(payload) => payload.execution_payload_header.fee_recipient,
-            Self::Capella(payload) => payload.execution_payload_header.fee_recipient,
-            Self::Eip4844(payload) => payload.execution_payload_header.fee_recipient,
-        }
+    fn fee_recipient<'a>(&'a self) -> Address {
+        map_blinded_payload_ref!(&'a _, self, move |payload, cons| {
+            cons(payload);
+            payload.execution_payload_header.fee_recipient
+        })
     }
 
-    fn gas_limit(&self) -> u64 {
-        match self {
-            Self::Merge(payload) => payload.execution_payload_header.gas_limit,
-            Self::Capella(payload) => payload.execution_payload_header.gas_limit,
-            Self::Eip4844(payload) => payload.execution_payload_header.gas_limit,
-        }
+    fn gas_limit<'a>(&'a self) -> u64 {
+        map_blinded_payload_ref!(&'a _, self, move |payload, cons| {
+            cons(payload);
+            payload.execution_payload_header.gas_limit
+        })
     }
 
     // TODO: can this function be optimized?
     fn is_default<'a>(&'a self) -> bool {
-        match self {
-            Self::Merge(payload) => {
-                payload.execution_payload_header == ExecutionPayloadHeaderMerge::default()
-            }
-            Self::Capella(payload) => {
-                payload.execution_payload_header == ExecutionPayloadHeaderCapella::default()
-            }
-            Self::Eip4844(payload) => {
-                payload.execution_payload_header == ExecutionPayloadHeaderEip4844::default()
-            }
-        }
+        map_blinded_payload_ref!(&'a _, self, move |payload, cons| {
+            cons(payload);
+            payload.execution_payload_header == <_>::default()
+        })
     }
 }
 

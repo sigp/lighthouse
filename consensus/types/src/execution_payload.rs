@@ -121,8 +121,4 @@ impl<T: EthSpec> ExecutionPayload<T> {
             // Max size of variable length `withdrawals` field
             + (T::max_withdrawals_per_payload() * <Withdrawal as Encode>::ssz_fixed_len())
     }
-
-    pub fn blob_txns_iter(&self) -> Iter<'_, Transaction<T::MaxBytesPerTransaction>> {
-        self.transactions().iter()
-    }
 }

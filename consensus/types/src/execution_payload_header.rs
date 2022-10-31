@@ -210,6 +210,34 @@ impl<T: EthSpec> From<ExecutionPayloadEip4844<T>> for ExecutionPayloadHeaderEip4
     }
 }
 
+impl<T: EthSpec> From<ExecutionPayloadMerge<T>> for ExecutionPayloadHeader<T> {
+    fn from(payload: ExecutionPayloadMerge<T>) -> Self {
+        Self::Merge(ExecutionPayloadHeaderMerge::from(payload))
+    }
+}
+
+impl<T: EthSpec> From<ExecutionPayloadCapella<T>> for ExecutionPayloadHeader<T> {
+    fn from(payload: ExecutionPayloadCapella<T>) -> Self {
+        Self::Capella(ExecutionPayloadHeaderCapella::from(payload))
+    }
+}
+
+impl<T: EthSpec> From<ExecutionPayloadEip4844<T>> for ExecutionPayloadHeader<T> {
+    fn from(payload: ExecutionPayloadEip4844<T>) -> Self {
+        Self::Eip4844(ExecutionPayloadHeaderEip4844::from(payload))
+    }
+}
+
+impl<T: EthSpec> From<ExecutionPayload<T>> for ExecutionPayloadHeader<T> {
+    fn from(payload: ExecutionPayload<T>) -> Self {
+        match payload {
+            ExecutionPayload::Merge(payload) => Self::from(payload),
+            ExecutionPayload::Capella(payload) => Self::from(payload),
+            ExecutionPayload::Eip4844(payload) => Self::from(payload),
+        }
+    }
+}
+
 impl<T: EthSpec> TryFrom<ExecutionPayloadHeader<T>> for ExecutionPayloadHeaderMerge<T> {
     type Error = BeaconStateError;
     fn try_from(header: ExecutionPayloadHeader<T>) -> Result<Self, Self::Error> {
