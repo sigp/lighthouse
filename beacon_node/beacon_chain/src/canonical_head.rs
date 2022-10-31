@@ -786,6 +786,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         new_cached_head: &CachedHead<T::EthSpec>,
         new_head_proto_block: ProtoBlock,
     ) -> Result<(), Error> {
+        let _timer = metrics::start_timer(&metrics::FORK_CHOICE_AFTER_NEW_HEAD_TIMES);
         let old_snapshot = &old_cached_head.snapshot;
         let new_snapshot = &new_cached_head.snapshot;
         let new_head_is_optimistic = new_head_proto_block
@@ -923,6 +924,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         new_view: ForkChoiceView,
         finalized_proto_block: ProtoBlock,
     ) -> Result<(), Error> {
+        let _timer = metrics::start_timer(&metrics::FORK_CHOICE_AFTER_FINALIZATION_TIMES);
         let new_snapshot = &new_cached_head.snapshot;
         let finalized_block_is_optimistic = finalized_proto_block
             .execution_status

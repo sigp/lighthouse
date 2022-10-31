@@ -322,12 +322,25 @@ lazy_static! {
         "beacon_reorgs_total",
         "Count of occasions fork choice has switched to a different chain"
     );
-    pub static ref FORK_CHOICE_TIMES: Result<Histogram> =
-        try_create_histogram("beacon_fork_choice_seconds", "Full runtime of fork choice");
+    pub static ref FORK_CHOICE_TIMES: Result<Histogram> = try_create_histogram_with_buckets(
+        "beacon_fork_choice_seconds",
+        "Full runtime of fork choice",
+        linear_buckets(10e-3, 20e-3, 10)
+    );
     pub static ref FORK_CHOICE_OVERRIDE_FCU_TIMES: Result<Histogram> = try_create_histogram_with_buckets(
         "beacon_fork_choice_override_fcu_seconds",
         "Time taken to compute the optional forkchoiceUpdated override",
         exponential_buckets(1e-3, 2.0, 8)
+    );
+    pub static ref FORK_CHOICE_AFTER_NEW_HEAD_TIMES: Result<Histogram> = try_create_histogram_with_buckets(
+        "beacon_fork_choice_after_new_head_seconds",
+        "Time taken to run `after_new_head`",
+        exponential_buckets(1e-3, 2.0, 10)
+    );
+    pub static ref FORK_CHOICE_AFTER_FINALIZATION_TIMES: Result<Histogram> = try_create_histogram_with_buckets(
+        "beacon_fork_choice_after_finalization_seconds",
+        "Time taken to run `after_finalization`",
+        exponential_buckets(1e-3, 2.0, 10)
     );
     pub static ref FORK_CHOICE_PROCESS_BLOCK_TIMES: Result<Histogram> = try_create_histogram(
         "beacon_fork_choice_process_block_seconds",
