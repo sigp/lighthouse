@@ -3398,6 +3398,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         // Is the current head weak and appropriate for re-orging?
+        let proposer_head_timer =
+            metrics::start_timer(&metrics::BLOCK_PRODUCTION_GET_PROPOSER_HEAD_TIMES);
         let proposer_head = self
             .canonical_head
             .fork_choice_read_lock()
@@ -3424,6 +3426,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 }
             })
             .ok()?;
+        drop(proposer_head_timer);
         let re_org_parent_block = proposer_head.parent_node.root;
 
         // Only attempt a re-org if we hit the snapshot cache.
@@ -3591,6 +3594,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         canonical_forkchoice_params: &ForkchoiceUpdateParameters,
     ) -> Result<ForkchoiceUpdateParameters, ProposerHeadError<Error>> {
+        let _timer = metrics::start_timer(&metrics::FORK_CHOICE_OVERRIDE_FCU_TIMES);
+
         // Never override if proposer re-orgs are disabled.
         let re_org_threshold = self
             .config
