@@ -90,6 +90,7 @@ pub mod generics {
     pub use crate::generic_secret_key::GenericSecretKey;
     pub use crate::generic_signature::GenericSignature;
     pub use crate::generic_signature_bytes::GenericSignatureBytes;
+    pub use crate::generic_signature_set::WrappedSignature;
 }
 
 /// Defines all the fundamental BLS points which should be exported by this crate by making
@@ -109,6 +110,13 @@ macro_rules! define_mod {
             pub type AggregatePublicKey =
                 GenericAggregatePublicKey<bls_variant::PublicKey, bls_variant::AggregatePublicKey>;
             pub type Signature = GenericSignature<bls_variant::PublicKey, bls_variant::Signature>;
+            pub type BlsWrappedSignature<'a> = WrappedSignature<
+                'a,
+                bls_variant::PublicKey,
+                bls_variant::AggregatePublicKey,
+                bls_variant::Signature,
+                bls_variant::AggregateSignature,
+            >;
             pub type AggregateSignature = GenericAggregateSignature<
                 bls_variant::PublicKey,
                 bls_variant::AggregatePublicKey,

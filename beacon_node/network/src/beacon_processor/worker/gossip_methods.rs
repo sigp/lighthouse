@@ -713,16 +713,28 @@ impl<T: BeaconChainTypes> Worker<T> {
             block_delay,
         );
 
+        let verification_result = self
+            .chain
+            .clone()
+            .verify_block_for_gossip(block.clone())
+            .await;
+
+        let block_root = if let Ok(verified_block) = &verification_result {
+            verified_block.block_root
+        } else {
+            block.canonical_root()
+        };
+
         // Write the time the block was observed into delay cache.
         self.chain.block_times_cache.write().set_time_observed(
-            block.canonical_root(),
+            block_root,
             block.slot(),
             seen_duration,
             Some(peer_id.to_string()),
             Some(peer_client.to_string()),
         );
 
-        let verified_block = match self.chain.clone().verify_block_for_gossip(block).await {
+        let verified_block = match verification_result {
             Ok(verified_block) => {
                 if block_delay >= self.chain.slot_clock.unagg_attestation_production_delay() {
                     metrics::inc_counter(&metrics::BEACON_BLOCK_GOSSIP_ARRIVED_LATE_TOTAL);
@@ -762,9 +774,9 @@ impl<T: BeaconChainTypes> Worker<T> {
                 debug!(
                     self.log,
                     "Unknown parent for gossip block";
-                    "root" => ?block.canonical_root()
+                    "root" => ?block_root
                 );
-                self.send_sync_message(SyncMessage::UnknownBlock(peer_id, block));
+                self.send_sync_message(SyncMessage::UnknownBlock(peer_id, block, block_root));
                 return None;
             }
             Err(e @ BlockError::BeaconChainError(_)) => {
@@ -918,10 +930,11 @@ impl<T: BeaconChainTypes> Worker<T> {
         _seen_duration: Duration,
     ) {
         let block: Arc<_> = verified_block.block.clone();
+        let block_root = verified_block.block_root;
 
         match self
             .chain
-            .process_block(verified_block, CountUnrealized::True)
+            .process_block(block_root, verified_block, CountUnrealized::True)
             .await
         {
             Ok(block_root) => {
@@ -956,7 +969,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     "Block with unknown parent attempted to be processed";
                     "peer_id" => %peer_id
                 );
-                self.send_sync_message(SyncMessage::UnknownBlock(peer_id, block));
+                self.send_sync_message(SyncMessage::UnknownBlock(peer_id, block, block_root));
             }
             Err(ref e @ BlockError::ExecutionPayloadError(ref epe)) if !epe.penalize_peer() => {
                 debug!(
@@ -970,7 +983,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     self.log,
                     "Invalid gossip beacon block";
                     "outcome" => ?other,
-                    "block root" => ?block.canonical_root(),
+                    "block root" => ?block_root,
                     "block slot" => block.slot()
                 );
                 self.gossip_penalize_peer(

@@ -1,6 +1,7 @@
 use crate::{
     per_block_processing, per_epoch_processing::EpochProcessingSummary, per_slot_processing,
-    BlockProcessingError, BlockSignatureStrategy, SlotProcessingError, VerifyBlockRoot,
+    BlockProcessingError, BlockSignatureStrategy, ConsensusContext, SlotProcessingError,
+    VerifyBlockRoot,
 };
 use std::marker::PhantomData;
 use types::{BeaconState, BlindedPayload, ChainSpec, EthSpec, Hash256, SignedBeaconBlock, Slot};
@@ -254,12 +255,16 @@ where
                     VerifyBlockRoot::False
                 }
             });
+            // Proposer index was already checked when this block was originally processed, we
+            // can omit recomputing it during replay.
+            let mut ctxt = ConsensusContext::new(block.slot())
+                .set_proposer_index(block.message().proposer_index());
             per_block_processing(
                 &mut self.state,
                 block,
-                None,
                 self.block_sig_strategy,
                 verify_block_root,
+                &mut ctxt,
                 self.spec,
             )
             .map_err(BlockReplayError::from)?;

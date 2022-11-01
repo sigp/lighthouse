@@ -372,9 +372,9 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .long("eth1-endpoints")
                 .value_name("HTTP-ENDPOINTS")
                 .conflicts_with("eth1-endpoint")
-                .help("One or more comma-delimited server endpoints for web3 connection. \
-                       If multiple endpoints are given the endpoints are used as fallback in the \
-                       given order. Also enables the --eth1 flag. \
+                .help("One http endpoint for a web3 connection to an execution node. \
+                       Note: This flag is now only useful for testing, use `--execution-endpoint` \
+                       flag to connect to an execution node on mainnet and testnets.
                        Defaults to http://127.0.0.1:8545.")
                 .takes_value(true)
         )
@@ -440,7 +440,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                        JSON-RPC connection. Uses the same endpoint to populate the \
                        deposit cache.")
                 .takes_value(true)
-                .requires("execution-jwt")
         )
         .arg(
             Arg::with_name("execution-jwt")
@@ -450,6 +449,17 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .help("File path which contains the hex-encoded JWT secret for the \
                        execution endpoint provided in the --execution-endpoint flag.")
                 .requires("execution-endpoint")
+                .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("execution-jwt-secret-key")
+                .long("execution-jwt-secret-key")
+                .value_name("EXECUTION-JWT-SECRET-KEY")
+                .alias("jwt-secret-key")
+                .help("Hex-encoded JWT secret for the \
+                       execution endpoint provided in the --execution-endpoint flag.")
+                .requires("execution-endpoint")
+                .conflicts_with("execution-jwt")
                 .takes_value(true)
         )
         .arg(
@@ -493,7 +503,14 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .requires("execution-endpoint")
                 .takes_value(true)
         )
-
+        .arg(
+            Arg::with_name("execution-timeout-multiplier")
+                .long("execution-timeout-multiplier")
+                .value_name("NUM")
+                .help("Unsigned integer to multiply the default execution timeouts by.")
+                .default_value("1")
+                .takes_value(true)
+        )
         /*
          * Database purging and compaction.
          */
@@ -833,6 +850,14 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .help("When present, Lighthouse will forget the payload statuses of any \
                        already-imported blocks. This can assist in the recovery from a consensus \
                        failure caused by the execution layer.")
+                .takes_value(false)
+        )
+        .arg(
+            Arg::with_name("disable-deposit-contract-sync")
+                .long("disable-deposit-contract-sync")
+                .help("Explictly disables syncing of deposit logs from the execution node. \
+                      This overrides any previous option that depends on it. \
+                      Useful if you intend to run a non-validating beacon node.")
                 .takes_value(false)
         )
 }

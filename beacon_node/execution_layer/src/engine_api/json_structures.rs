@@ -1,5 +1,6 @@
 use super::*;
 use serde::{Deserialize, Serialize};
+use strum::EnumString;
 use types::{EthSpec, ExecutionBlockHash, FixedVector, Transaction, Unsigned, VariableList};
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
@@ -311,8 +312,9 @@ impl From<JsonForkChoiceStateV1> for ForkChoiceState {
     }
 }
 
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, EnumString)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+#[strum(serialize_all = "SCREAMING_SNAKE_CASE")]
 pub enum JsonPayloadStatusV1Status {
     Valid,
     Invalid,

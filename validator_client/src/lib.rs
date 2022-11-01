@@ -77,6 +77,7 @@ const HTTP_SYNC_COMMITTEE_CONTRIBUTION_TIMEOUT_QUOTIENT: u32 = 4;
 const HTTP_SYNC_DUTIES_TIMEOUT_QUOTIENT: u32 = 4;
 const HTTP_GET_BEACON_BLOCK_SSZ_TIMEOUT_QUOTIENT: u32 = 4;
 const HTTP_GET_DEBUG_BEACON_STATE_QUOTIENT: u32 = 4;
+const HTTP_GET_DEPOSIT_SNAPSHOT_QUOTIENT: u32 = 4;
 
 const DOPPELGANGER_SERVICE_NAME: &str = "doppelganger";
 
@@ -291,6 +292,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
                             / HTTP_GET_BEACON_BLOCK_SSZ_TIMEOUT_QUOTIENT,
                         get_debug_beacon_states: slot_duration
                             / HTTP_GET_DEBUG_BEACON_STATE_QUOTIENT,
+                        get_deposit_snapshot: slot_duration / HTTP_GET_DEPOSIT_SNAPSHOT_QUOTIENT,
                     }
                 } else {
                     Timeouts::set_all(slot_duration)
@@ -327,8 +329,12 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
         // Initialize the number of connected, avaliable beacon nodes to 0.
         set_gauge(&http_metrics::metrics::AVAILABLE_BEACON_NODES_COUNT, 0);
 
-        let mut beacon_nodes: BeaconNodeFallback<_, T> =
-            BeaconNodeFallback::new(candidates, context.eth2_config.spec.clone(), log.clone());
+        let mut beacon_nodes: BeaconNodeFallback<_, T> = BeaconNodeFallback::new(
+            candidates,
+            config.disable_run_on_all,
+            context.eth2_config.spec.clone(),
+            log.clone(),
+        );
 
         // Perform some potentially long-running initialization tasks.
         let (genesis_time, genesis_validators_root) = tokio::select! {

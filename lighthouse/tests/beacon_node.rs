@@ -4,7 +4,7 @@ use crate::exec::{CommandLineTestExec, CompletedTest};
 use eth1::Eth1Endpoint;
 use lighthouse_network::PeerId;
 use std::fs::File;
-use std::io::Write;
+use std::io::{Read, Write};
 use std::net::IpAddr;
 use std::path::PathBuf;
 use std::process::Command;
@@ -68,7 +68,7 @@ fn staking_flag() {
             assert!(config.http_api.enabled);
             assert!(config.sync_eth1_chain);
             assert_eq!(
-                config.eth1.endpoints.get_endpoints()[0].to_string(),
+                config.eth1.endpoint.get_endpoint().to_string(),
                 DEFAULT_ETH1_ENDPOINT
             );
         });
@@ -293,27 +293,16 @@ fn eth1_flag() {
 #[test]
 fn eth1_endpoints_flag() {
     CommandLineTest::new()
-        .flag(
-            "eth1-endpoints",
-            Some("http://localhost:9545,https://infura.io/secret"),
-        )
+        .flag("eth1-endpoints", Some("http://localhost:9545"))
         .run_with_zero_port()
         .with_config(|config| {
             assert_eq!(
-                config.eth1.endpoints.get_endpoints()[0].full.to_string(),
+                config.eth1.endpoint.get_endpoint().full.to_string(),
                 "http://localhost:9545/"
             );
             assert_eq!(
-                config.eth1.endpoints.get_endpoints()[0].to_string(),
+                config.eth1.endpoint.get_endpoint().to_string(),
                 "http://localhost:9545/"
-            );
-            assert_eq!(
-                config.eth1.endpoints.get_endpoints()[1].full.to_string(),
-                "https://infura.io/secret"
-            );
-            assert_eq!(
-                config.eth1.endpoints.get_endpoints()[1].to_string(),
-                "https://infura.io/"
             );
             assert!(config.sync_eth1_chain);
         });
@@ -397,6 +386,43 @@ fn run_merge_execution_endpoints_flag_test(flag: &str) {
         });
 }
 #[test]
+fn run_execution_jwt_secret_key_is_persisted() {
+    let jwt_secret_key = "0x3cbc11b0d8fa16f3344eacfd6ff6430b9d30734450e8adcf5400f88d327dcb33";
+    CommandLineTest::new()
+        .flag("execution-endpoint", Some("http://localhost:8551/"))
+        .flag("execution-jwt-secret-key", Some(jwt_secret_key))
+        .run_with_zero_port()
+        .with_config(|config| {
+            let config = config.execution_layer.as_ref().unwrap();
+            assert_eq!(
+                config.execution_endpoints[0].full.to_string(),
+                "http://localhost:8551/"
+            );
+            let mut file_jwt_secret_key = String::new();
+            File::open(config.secret_files[0].clone())
+                .expect("could not open jwt_secret_key file")
+                .read_to_string(&mut file_jwt_secret_key)
+                .expect("could not read from file");
+            assert_eq!(file_jwt_secret_key, jwt_secret_key);
+        });
+}
+#[test]
+fn execution_timeout_multiplier_flag() {
+    let dir = TempDir::new().expect("Unable to create temporary directory");
+    CommandLineTest::new()
+        .flag("execution-endpoint", Some("http://meow.cats"))
+        .flag(
+            "execution-jwt",
+            dir.path().join("jwt-file").as_os_str().to_str(),
+        )
+        .flag("execution-timeout-multiplier", Some("3"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            let config = config.execution_layer.as_ref().unwrap();
+            assert_eq!(config.execution_timeout_multiplier, Some(3));
+        });
+}
+#[test]
 fn merge_execution_endpoints_flag() {
     run_merge_execution_endpoints_flag_test("execution-endpoints")
 }
@@ -429,7 +455,7 @@ fn run_execution_endpoints_overrides_eth1_endpoints_test(eth1_flag: &str, execut
             // The eth1 endpoint should have been set to the --execution-endpoint value in defiance
             // of --eth1-endpoints.
             assert_eq!(
-                config.eth1.endpoints,
+                config.eth1.endpoint,
                 Eth1Endpoint::Auth {
                     endpoint: SensitiveUrl::parse(execution_endpoint).unwrap(),
                     jwt_path: jwt_path.clone(),
@@ -624,7 +650,7 @@ fn run_jwt_optional_flags_test(jwt_flag: &str, jwt_id_flag: &str, jwt_version_fl
             assert_eq!(el_config.jwt_id, Some(id.to_string()));
             assert_eq!(el_config.jwt_version, Some(version.to_string()));
             assert_eq!(
-                config.eth1.endpoints,
+                config.eth1.endpoint,
                 Eth1Endpoint::Auth {
                     endpoint: SensitiveUrl::parse(execution_endpoint).unwrap(),
                     jwt_path: dir.path().join(jwt_file),
@@ -1464,4 +1490,74 @@ fn monitoring_endpoint() {
             assert_eq!(api_conf.monitoring_endpoint.as_str(), "http://example:8000");
             assert_eq!(api_conf.update_period_secs, Some(30));
         });
+}
+
+// Tests for Logger flags.
+#[test]
+fn default_log_color_flag() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert!(!config.logger_config.log_color);
+        });
+}
+#[test]
+fn enabled_log_color_flag() {
+    CommandLineTest::new()
+        .flag("log-color", None)
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert!(config.logger_config.log_color);
+        });
+}
+#[test]
+fn default_disable_log_timestamp_flag() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert!(!config.logger_config.disable_log_timestamp);
+        });
+}
+#[test]
+fn enabled_disable_log_timestamp_flag() {
+    CommandLineTest::new()
+        .flag("disable-log-timestamp", None)
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert!(config.logger_config.disable_log_timestamp);
+        });
+}
+
+#[test]
+fn sync_eth1_chain_default() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| assert_eq!(config.sync_eth1_chain, false));
+}
+
+#[test]
+fn sync_eth1_chain_execution_endpoints_flag() {
+    let dir = TempDir::new().expect("Unable to create temporary directory");
+    CommandLineTest::new()
+        .flag("execution-endpoints", Some("http://localhost:8551/"))
+        .flag(
+            "execution-jwt",
+            dir.path().join("jwt-file").as_os_str().to_str(),
+        )
+        .run_with_zero_port()
+        .with_config(|config| assert_eq!(config.sync_eth1_chain, true));
+}
+
+#[test]
+fn sync_eth1_chain_disable_deposit_contract_sync_flag() {
+    let dir = TempDir::new().expect("Unable to create temporary directory");
+    CommandLineTest::new()
+        .flag("disable-deposit-contract-sync", None)
+        .flag("execution-endpoints", Some("http://localhost:8551/"))
+        .flag(
+            "execution-jwt",
+            dir.path().join("jwt-file").as_os_str().to_str(),
+        )
+        .run_with_zero_port()
+        .with_config(|config| assert_eq!(config.sync_eth1_chain, false));
 }

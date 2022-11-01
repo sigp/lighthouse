@@ -30,6 +30,8 @@ mod single_block_lookup;
 #[cfg(test)]
 mod tests;
 
+pub type RootBlockTuple<T> = (Hash256, Arc<SignedBeaconBlock<T>>);
+
 const FAILED_CHAINS_CACHE_EXPIRY_SECONDS: u64 = 60;
 const SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS: u8 = 3;
 
@@ -101,11 +103,11 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     /// called in order to find the block's parent.
     pub fn search_parent(
         &mut self,
+        block_root: Hash256,
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
         peer_id: PeerId,
         cx: &mut SyncNetworkContext<T>,
     ) {
-        let block_root = block.canonical_root();
         let parent_root = block.parent_root();
         // If this block or it's parent is part of a known failed chain, ignore it.
         if self.failed_chains.contains(&parent_root) || self.failed_chains.contains(&block_root) {
@@ -125,7 +127,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             return;
         }
 
-        let parent_lookup = ParentLookup::new(block, peer_id);
+        let parent_lookup = ParentLookup::new(block_root, block, peer_id);
         self.request_parent(parent_lookup, cx);
     }
 
@@ -153,10 +155,11 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         };
 
         match request.get_mut().verify_block(block) {
-            Ok(Some(block)) => {
+            Ok(Some((block_root, block))) => {
                 // This is the correct block, send it for processing
                 if self
                     .send_block_for_processing(
+                        block_root,
                         block,
                         seen_timestamp,
                         BlockProcessType::SingleBlock { id },
@@ -217,11 +220,12 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         };
 
         match parent_lookup.verify_block(block, &mut self.failed_chains) {
-            Ok(Some(block)) => {
+            Ok(Some((block_root, block))) => {
                 // Block is correct, send to the beacon processor.
                 let chain_hash = parent_lookup.chain_hash();
                 if self
                     .send_block_for_processing(
+                        block_root,
                         block,
                         seen_timestamp,
                         BlockProcessType::ParentLookup { chain_hash },
@@ -420,7 +424,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                         error!(self.log, "Beacon chain error processing single block"; "block_root" => %root, "error" => ?e);
                     }
                     BlockError::ParentUnknown(block) => {
-                        self.search_parent(block, peer_id, cx);
+                        self.search_parent(root, block, peer_id, cx);
                     }
                     ref e @ BlockError::ExecutionPayloadError(ref epe) if !epe.penalize_peer() => {
                         // These errors indicate that the execution layer is offline
@@ -625,6 +629,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
 
     fn send_block_for_processing(
         &mut self,
+        block_root: Hash256,
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
         duration: Duration,
         process_type: BlockProcessType,
@@ -632,8 +637,8 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     ) -> Result<(), ()> {
         match cx.processor_channel_if_enabled() {
             Some(beacon_processor_send) => {
-                trace!(self.log, "Sending block for processing"; "block" => %block.canonical_root(), "process" => ?process_type);
-                let event = WorkEvent::rpc_beacon_block(block, duration, process_type);
+                trace!(self.log, "Sending block for processing"; "block" => ?block_root, "process" => ?process_type);
+                let event = WorkEvent::rpc_beacon_block(block_root, block, duration, process_type);
                 if let Err(e) = beacon_processor_send.try_send(event) {
                     error!(
                         self.log,
@@ -646,7 +651,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 }
             }
             None => {
-                trace!(self.log, "Dropping block ready for processing. Beacon processor not available"; "block" => %block.canonical_root());
+                trace!(self.log, "Dropping block ready for processing. Beacon processor not available"; "block" => %block_root);
                 Err(())
             }
         }

@@ -4,6 +4,7 @@ use std::task::{Context, Poll};
 use futures::StreamExt;
 use libp2p::core::connection::ConnectionId;
 use libp2p::core::ConnectedPoint;
+use libp2p::swarm::dial_opts::{DialOpts, PeerCondition};
 use libp2p::swarm::handler::DummyConnectionHandler;
 use libp2p::swarm::{
     ConnectionHandler, DialError, NetworkBehaviour, NetworkBehaviourAction, PollParameters,
@@ -17,7 +18,7 @@ use crate::rpc::GoodbyeReason;
 use crate::types::SyncState;
 
 use super::peerdb::BanResult;
-use super::{PeerManager, PeerManagerEvent, ReportSource};
+use super::{ConnectingType, PeerManager, PeerManagerEvent, ReportSource};
 
 impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
     type ConnectionHandler = DummyConnectionHandler;
@@ -100,6 +101,17 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
             self.events.shrink_to_fit();
         }
 
+        if let Some((peer_id, maybe_enr)) = self.peers_to_dial.pop_front() {
+            self.inject_peer_connection(&peer_id, ConnectingType::Dialing, maybe_enr);
+            let handler = self.new_handler();
+            return Poll::Ready(NetworkBehaviourAction::Dial {
+                opts: DialOpts::peer_id(peer_id)
+                    .condition(PeerCondition::Disconnected)
+                    .build(),
+                handler,
+            });
+        }
+
         Poll::Pending
     }
 
@@ -119,7 +131,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
         }
 
         // Check NAT if metrics are enabled
-        if self.network_globals.local_enr.read().udp().is_some() {
+        if self.network_globals.local_enr.read().udp4().is_some() {
             metrics::check_nat();
             // Update the globals variable
             self.network_globals.nat_open.store(true, Ordering::Relaxed);

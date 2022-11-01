@@ -176,7 +176,7 @@ impl Default for Config {
             .filter_rate_limiter(filter_rate_limiter)
             .filter_max_bans_per_ip(Some(5))
             .filter_max_nodes_per_ip(Some(10))
-            .table_filter(|enr| enr.ip().map_or(false, |ip| is_global(&ip))) // Filter non-global IPs
+            .table_filter(|enr| enr.ip4().map_or(false, |ip| is_global(&ip))) // Filter non-global IPs
             .ban_duration(Some(Duration::from_secs(3600)))
             .ping_interval(Duration::from_secs(300))
             .build();
