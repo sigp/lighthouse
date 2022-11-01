@@ -139,6 +139,13 @@ impl SystemHealth {
             }
         };
 
+        // Determine if the NAT is open or not.
+        let nat_open = lighthouse_network::metrics::NAT_OPEN
+            .as_ref()
+            .map(|v| v.get())
+            .unwrap_or(0)
+            != 0;
+
         Self {
             total_memory: sysinfo.total_memory(),
             free_memory: sysinfo.free_memory(),
@@ -154,7 +161,7 @@ impl SystemHealth {
             network_name,
             network_bytes_total_received,
             network_bytes_total_transmit,
-            nat_open: network_globals.nat_open(),
+            nat_open,
             connected_peers: network_globals.connected_peers(),
             sync_state: network_globals.sync_state(),
             system_uptime,

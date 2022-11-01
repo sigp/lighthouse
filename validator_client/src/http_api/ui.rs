@@ -2,7 +2,7 @@ use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::sync::Arc;
-use sysinfo::{CpuExt, DiskExt, NetworkExt, NetworksExt, System, SystemExt};
+use sysinfo::{CpuExt, DiskExt, System, SystemExt};
 
 /// System related health, specific to the UI.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

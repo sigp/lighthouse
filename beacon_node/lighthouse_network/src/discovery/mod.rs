@@ -38,7 +38,6 @@ use std::{
     net::{IpAddr, SocketAddr},
     path::Path,
     pin::Pin,
-    sync::atomic::Ordering,
     sync::Arc,
     task::{Context, Poll},
     time::{Duration, Instant},
@@ -1024,8 +1023,6 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
                             info!(self.log, "Address updated"; "ip" => %socket_addr.ip(), "udp_port" => %socket_addr.port());
                             metrics::inc_counter(&metrics::ADDRESS_UPDATE_COUNT);
                             metrics::check_nat();
-                            // Update the network globals NAT field.
-                            self.network_globals.nat_open.store(true, Ordering::Relaxed);
                             // Discv5 will have updated our local ENR. We save the updated version
                             // to disk.
                             let enr = self.discv5.local_enr();
