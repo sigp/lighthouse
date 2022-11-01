@@ -1,4 +1,3 @@
-use crate::beacon_processor::work_reprocessing_queue::QueuedBlobsSidecar;
 use crate::{metrics, service::NetworkMessage, sync::SyncMessage};
 
 use beacon_chain::store::Error;
@@ -11,7 +10,10 @@ use beacon_chain::{
     BeaconChainError, BeaconChainTypes, BlockError, CountUnrealized, ForkChoiceError,
     GossipVerifiedBlock,
 };
-use lighthouse_network::{Client, MessageAcceptance, MessageId, PeerAction, PeerId, ReportSource};
+use lighthouse_network::{
+    Client, MessageAcceptance, MessageId, PeerAction, PeerId, ReportSource,
+    SignedBeaconBlockAndBlobsSidecar,
+};
 use slog::{crit, debug, error, info, trace, warn};
 use slot_clock::SlotClock;
 use ssz::Encode;
@@ -19,11 +21,10 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use store::hot_cold_store::HotColdDBError;
 use tokio::sync::mpsc;
-use types::signed_blobs_sidecar::SignedBlobsSidecar;
 use types::{
-    Attestation, AttesterSlashing, EthSpec, Hash256, IndexedAttestation, ProposerSlashing,
-    SignedAggregateAndProof, SignedBeaconBlock, SignedContributionAndProof, SignedVoluntaryExit,
-    Slot, SubnetId, SyncCommitteeMessage, SyncSubnetId,
+    Attestation, AttesterSlashing, BlobsSidecar, EthSpec, Hash256, IndexedAttestation,
+    ProposerSlashing, SignedAggregateAndProof, SignedBeaconBlock, SignedContributionAndProof,
+    SignedVoluntaryExit, Slot, SubnetId, SyncCommitteeMessage, SyncSubnetId,
 };
 
 use super::{
@@ -697,30 +698,15 @@ impl<T: BeaconChainTypes> Worker<T> {
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub fn process_gossip_blob(
+    pub async fn process_gossip_block_and_blobs_sidecar(
         self,
         message_id: MessageId,
         peer_id: PeerId,
-        blob: Arc<SignedBlobsSidecar<T::EthSpec>>,
-        reprocess_tx: Option<mpsc::Sender<ReprocessQueueMessage<T>>>,
+        peer_client: Client,
+        block_and_blob: Arc<SignedBeaconBlockAndBlobsSidecar<T::EthSpec>>,
         seen_timestamp: Duration,
     ) {
-        match self.chain.verify_blobs_sidecar_for_gossip(&blob) {
-            //FIXME(sean)
-            Ok(verified_sidecar) => {
-                // Register with validator monitor
-                // Propagate
-                // Apply to fork choice
-            }
-            Err(error) => self.handle_blobs_verification_failure(
-                peer_id,
-                message_id,
-                reprocess_tx,
-                error,
-                blob,
-                seen_timestamp,
-            ),
-        };
+        unimplemented!()
     }
 
     /// Process the beacon block received from the gossip network and
@@ -2235,82 +2221,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         message_id: MessageId,
         reprocess_tx: Option<mpsc::Sender<ReprocessQueueMessage<T>>>,
         error: BlobError,
-        blobs_sidecar: Arc<SignedBlobsSidecar<T::EthSpec>>,
         seen_timestamp: Duration,
     ) {
-        // TODO: metrics
-        match &error {
-            BlobError::FutureSlot { .. } => {
-                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
-            }
-            BlobError::PastSlot { .. } => {
-                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
-            }
-            BlobError::BeaconChainError(_e) => {
-                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
-            }
-            BlobError::BlobOutOfRange { blob_index: _ } => {
-                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
-            }
-            BlobError::InvalidKZGCommitment => {
-                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
-            }
-            BlobError::ProposalSignatureInvalid => {
-                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
-            }
-            BlobError::RepeatSidecar {
-                proposer: _,
-                slot: _,
-            } => {
-                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
-            }
-            BlobError::UnknownHeadBlock { beacon_block_root } => {
-                debug!(
-                    self.log,
-                    "Blob sidecar for unknown block";
-                    "peer_id" => %peer_id,
-                    "block" => ?beacon_block_root
-                );
-                if let Some(sender) = reprocess_tx {
-                    // We don't know the block, get the sync manager to handle the block lookup, and
-                    // send the attestation to be scheduled for re-processing.
-                    self.sync_tx
-                        .send(SyncMessage::UnknownBlockHash(peer_id, *beacon_block_root))
-                        .unwrap_or_else(|_| {
-                            warn!(
-                                self.log,
-                                "Failed to send to sync service";
-                                "msg" => "UnknownBlockHash"
-                            )
-                        });
-                    let msg = ReprocessQueueMessage::UnknownBlobSidecar(QueuedBlobsSidecar {
-                        peer_id,
-                        message_id,
-                        blobs_sidecar,
-                        seen_timestamp,
-                    });
-
-                    if sender.try_send(msg).is_err() {
-                        error!(
-                            self.log,
-                            "Failed to send blob sidecar for re-processing";
-                        )
-                    }
-                } else {
-                    // We shouldn't make any further attempts to process this attestation.
-                    //
-                    // Don't downscore the peer since it's not clear if we requested this head
-                    // block from them or not.
-                    self.propagate_validation_result(
-                        message_id,
-                        peer_id,
-                        MessageAcceptance::Ignore,
-                    );
-                }
-
-                return;
-            }
-            &BlobError::UnknownValidator(_) => todo!(),
-        }
     }
 }

@@ -7,7 +7,7 @@ use crate::sync::manager::RequestId as SyncId;
 use crate::sync::SyncMessage;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use lighthouse_network::rpc::methods::BlobsByRangeRequest;
-use lighthouse_network::rpc::*;
+use lighthouse_network::{rpc::*, SignedBeaconBlockAndBlobsSidecar};
 use lighthouse_network::{
     Client, MessageId, NetworkGlobals, PeerId, PeerRequestId, Request, Response,
 };
@@ -17,7 +17,6 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use store::SyncCommitteeMessage;
 use tokio::sync::mpsc;
-use types::signed_blobs_sidecar::SignedBlobsSidecar;
 use types::{
     Attestation, AttesterSlashing, BlobsSidecar, EthSpec, ProposerSlashing,
     SignedAggregateAndProof, SignedBeaconBlock, SignedContributionAndProof, SignedVoluntaryExit,
@@ -295,18 +294,18 @@ impl<T: BeaconChainTypes> Processor<T> {
         ))
     }
 
-    pub fn on_blobs_gossip(
+    pub fn on_block_and_blobs_sidecar_gossip(
         &mut self,
         message_id: MessageId,
         peer_id: PeerId,
         peer_client: Client,
-        blobs: Arc<SignedBlobsSidecar<T::EthSpec>>,
+        block_and_blobs: Arc<SignedBeaconBlockAndBlobsSidecar<T::EthSpec>>,
     ) {
-        self.send_beacon_processor_work(BeaconWorkEvent::gossip_blobs_sidecar(
+        self.send_beacon_processor_work(BeaconWorkEvent::gossip_block_and_blobs_sidecar(
             message_id,
             peer_id,
             peer_client,
-            blobs,
+            block_and_blobs,
             timestamp_now(),
         ))
     }

@@ -22,9 +22,9 @@ use types::{
     AggregateAndProof, Attestation, BeaconBlock, BlindedPayload, BlobsSidecar, ChainSpec,
     ContributionAndProof, Domain, Epoch, EthSpec, ExecPayload, Fork, FullPayload, Graffiti,
     Hash256, Keypair, PublicKeyBytes, SelectionProof, Signature, SignedAggregateAndProof,
-    SignedBeaconBlock, SignedBlobsSidecar, SignedContributionAndProof, SignedRoot,
-    SignedValidatorRegistrationData, Slot, SyncAggregatorSelectionData, SyncCommitteeContribution,
-    SyncCommitteeMessage, SyncSelectionProof, SyncSubnetId, ValidatorRegistrationData,
+    SignedBeaconBlock, SignedContributionAndProof, SignedRoot, SignedValidatorRegistrationData,
+    Slot, SyncAggregatorSelectionData, SyncCommitteeContribution, SyncCommitteeMessage,
+    SyncSelectionProof, SyncSubnetId, ValidatorRegistrationData,
 };
 use validator_dir::ValidatorDir;
 
@@ -530,42 +530,6 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
                 Err(Error::Slashable(e))
             }
         }
-    }
-
-    pub async fn sign_blobs(
-        &self,
-        validator_pubkey: PublicKeyBytes,
-        blobs_sidecar: BlobsSidecar<E>,
-        current_slot: Slot,
-    ) -> Result<SignedBlobsSidecar<E>, Error> {
-        let slot = blobs_sidecar.beacon_block_slot;
-
-        // Make sure the blob slot is not higher than the current slot to avoid potential attacks.
-        if slot > current_slot {
-            warn!(
-                self.log,
-                "Not signing blob with slot greater than current slot";
-                "blob_slot" => slot.as_u64(),
-                "current_slot" => current_slot.as_u64()
-            );
-            return Err(Error::GreaterThanCurrentSlot { slot, current_slot });
-        }
-
-        let signing_epoch = slot.epoch(E::slots_per_epoch());
-        let signing_context = self.signing_context(Domain::BlobsSideCar, signing_epoch);
-
-        metrics::inc_counter_vec(&metrics::SIGNED_BLOBS_TOTAL, &[metrics::SUCCESS]);
-
-        let signing_method = self.doppelganger_checked_signing_method(validator_pubkey)?;
-        let signature = signing_method
-            .get_signature::<E, FullPayload<E>>(
-                SignableMessage::BlobsSidecar(&blobs_sidecar),
-                signing_context,
-                &self.spec,
-                &self.task_executor,
-            )
-            .await?;
-        Ok(SignedBlobsSidecar::from_blob(blobs_sidecar, signature))
     }
 
     pub async fn sign_attestation(
