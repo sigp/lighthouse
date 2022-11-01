@@ -78,7 +78,7 @@ pub async fn handle_rpc<T: EthSpec>(
             let request: JsonExecutionPayload<T> = get_param(params, 0)?;
 
             // Canned responses set by block hash take priority.
-            if let Some(status) = ctx.get_new_payload_status(&request.block_hash) {
+            if let Some(status) = ctx.get_new_payload_status(&request.block_hash()) {
                 return Ok(serde_json::to_value(JsonPayloadStatusV1::from(status)).unwrap());
             }
 

@@ -706,6 +706,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         block_and_blob: Arc<SignedBeaconBlockAndBlobsSidecar<T::EthSpec>>,
         seen_timestamp: Duration,
     ) {
+        //FIXME
         unimplemented!()
     }
 
@@ -2212,16 +2213,5 @@ impl<T: BeaconChainTypes> Worker<T> {
             .map_or(false, |current_slot| sync_message_slot == current_slot);
 
         self.propagate_if_timely(is_timely, message_id, peer_id)
-    }
-
-    /// Handle an error whilst verifying a `SignedBlobsSidecar` from the network.
-    fn handle_blobs_verification_failure(
-        &self,
-        peer_id: PeerId,
-        message_id: MessageId,
-        reprocess_tx: Option<mpsc::Sender<ReprocessQueueMessage<T>>>,
-        error: BlobError,
-        seen_timestamp: Duration,
-    ) {
     }
 }

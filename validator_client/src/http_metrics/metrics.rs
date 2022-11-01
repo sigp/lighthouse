@@ -13,7 +13,6 @@ pub const BEACON_BLOCK: &str = "beacon_block";
 pub const BEACON_BLOCK_HTTP_GET: &str = "beacon_block_http_get";
 pub const BLINDED_BEACON_BLOCK_HTTP_GET: &str = "blinded_beacon_block_http_get";
 pub const BEACON_BLOCK_HTTP_POST: &str = "beacon_block_http_post";
-pub const BEACON_BLOB_HTTP_POST: &str = "beacon_blob_http_post";
 pub const BLINDED_BEACON_BLOCK_HTTP_POST: &str = "blinded_beacon_block_http_post";
 pub const ATTESTATIONS: &str = "attestations";
 pub const ATTESTATIONS_HTTP_GET: &str = "attestations_http_get";
