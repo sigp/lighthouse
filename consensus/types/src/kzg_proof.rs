@@ -1,7 +1,7 @@
 use crate::test_utils::{RngCore, TestRandom};
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
-use ssz::{Decode, Encode};
+use ssz::{Decode, DecodeError, Encode};
 use ssz_derive::{Decode, Encode};
 use std::fmt;
 use tree_hash::{PackedEncoding, TreeHash};

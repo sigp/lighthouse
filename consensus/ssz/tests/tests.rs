@@ -23,6 +23,13 @@ mod round_trip {
     }
 
     #[test]
+    fn option_u16() {
+        let items: Vec<Option<u16>> = vec![None, Some(2u16)];
+
+        round_trip(items);
+    }
+
+    #[test]
     fn u8_array_4() {
         let items: Vec<[u8; 4]> = vec![[0, 0, 0, 0], [1, 0, 0, 0], [1, 2, 3, 4], [1, 2, 0, 4]];
 
@@ -41,6 +48,17 @@ mod round_trip {
         let items: Vec<Vec<H256>> = vec![
             vec![],
             vec![H256::zero(), H256::from([1; 32]), H256::random()],
+        ];
+
+        round_trip(items);
+    }
+
+    #[test]
+    fn option_vec_h256() {
+        let items: Vec<Option<Vec<H256>>> = vec![
+            None,
+            Some(vec![]),
+            Some(vec![H256::zero(), H256::from([1; 32]), H256::random()]),
         ];
 
         round_trip(items);

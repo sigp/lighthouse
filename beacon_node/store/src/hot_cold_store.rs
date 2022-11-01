@@ -38,7 +38,6 @@ use std::marker::PhantomData;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
-use types::signed_blobs_sidecar::SignedBlobsSidecar;
 use types::*;
 
 /// On-disk database that stores finalized states efficiently.
@@ -62,7 +61,7 @@ pub struct HotColdDB<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> {
     /// The hot database also contains all blocks.
     pub hot_db: Hot,
     /// LRU cache of deserialized blobs. Updated whenever a blob is loaded.
-    blob_cache: Mutex<LruCache<Hash256, SignedBlobsSidecar<E>>>,
+    blob_cache: Mutex<LruCache<Hash256, BlobsSidecar<E>>>,
     /// LRU cache of deserialized blocks. Updated whenever a block is loaded.
     block_cache: Mutex<LruCache<Hash256, SignedBeaconBlock<E>>>,
     /// Chain spec.
@@ -480,11 +479,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             .key_delete(DBColumn::ExecPayload.into(), block_root.as_bytes())
     }
 
-    pub fn put_blobs(
-        &self,
-        block_root: &Hash256,
-        blobs: SignedBlobsSidecar<E>,
-    ) -> Result<(), Error> {
+    pub fn put_blobs(&self, block_root: &Hash256, blobs: BlobsSidecar<E>) -> Result<(), Error> {
         self.hot_db.put_bytes(
             DBColumn::BeaconBlob.into(),
             block_root.as_bytes(),
@@ -494,7 +489,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         Ok(())
     }
 
-    pub fn get_blobs(&self, block_root: &Hash256) -> Result<Option<SignedBlobsSidecar<E>>, Error> {
+    pub fn get_blobs(&self, block_root: &Hash256) -> Result<Option<BlobsSidecar<E>>, Error> {
         if let Some(blobs) = self.blob_cache.lock().get(block_root) {
             Ok(Some(blobs.clone()))
         } else {
@@ -502,7 +497,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 .hot_db
                 .get_bytes(DBColumn::BeaconBlob.into(), block_root.as_bytes())?
             {
-                let ret = SignedBlobsSidecar::from_ssz_bytes(&bytes)?;
+                let ret = BlobsSidecar::from_ssz_bytes(&bytes)?;
                 self.blob_cache.lock().put(*block_root, ret.clone());
                 Ok(Some(ret))
             } else {
@@ -514,7 +509,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     pub fn blobs_as_kv_store_ops(
         &self,
         key: &Hash256,
-        blobs: &SignedBlobsSidecar<E>,
+        blobs: &BlobsSidecar<E>,
         ops: &mut Vec<KeyValueStoreOp>,
     ) {
         let db_key = get_key_for_col(DBColumn::BeaconBlob.into(), key.as_bytes());

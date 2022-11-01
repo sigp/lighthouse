@@ -74,7 +74,7 @@ use eth2::{
 use ssz::Encode;
 use state_processing::{
     block_signature_verifier::BlockSignatureVerifier, per_block_processing, per_slot_processing,
-    BlockSignatureStrategy, VerifyBlockRoot,
+    BlockSignatureStrategy, ConsensusContext, VerifyBlockRoot,
 };
 use std::borrow::Cow;
 use std::fs::File;
@@ -360,6 +360,7 @@ fn do_transition<T: EthSpec>(
             decompressor,
             &block,
             Some(block_root),
+            Some(block.message().proposer_index()),
             spec,
         )
         .map_err(|e| format!("Invalid block signature: {:?}", e))?;
@@ -367,12 +368,15 @@ fn do_transition<T: EthSpec>(
     }
 
     let t = Instant::now();
+    let mut ctxt = ConsensusContext::new(pre_state.slot())
+        .set_current_block_root(block_root)
+        .set_proposer_index(block.message().proposer_index());
     per_block_processing(
         &mut pre_state,
         &block,
-        None,
         BlockSignatureStrategy::NoVerification,
         VerifyBlockRoot::True,
+        &mut ctxt,
         spec,
     )
     .map_err(|e| format!("State transition failed: {:?}", e))?;

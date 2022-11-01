@@ -1,23 +1,10 @@
-use crate::cases::LoadCase;
-use crate::decode::yaml_decode_file;
-use crate::error::Error;
 use serde_derive::Deserialize;
 use ssz::Encode;
 use ssz_derive::{Decode, Encode};
 use std::convert::TryFrom;
 use std::fmt::Debug;
-use std::path::Path;
 use tree_hash::TreeHash;
 use types::ForkName;
-
-/// Trait for all BLS cases to eliminate some boilerplate.
-pub trait BlsCase: serde::de::DeserializeOwned {}
-
-impl<T: BlsCase> LoadCase for T {
-    fn load_from_dir(path: &Path, _fork_name: ForkName) -> Result<Self, Error> {
-        yaml_decode_file(&path.join("data.yaml"))
-    }
-}
 
 /// Macro to wrap U128 and U256 so they deserialize correctly.
 macro_rules! uint_wrapper {
@@ -81,4 +68,25 @@ pub fn previous_fork(fork_name: ForkName) -> ForkName {
         ForkName::Capella => ForkName::Merge, // TODO: Check this when tests are released..
         ForkName::Eip4844 => ForkName::Capella, // TODO: Check this when tests are released..
     }
+}
+
+#[macro_export]
+macro_rules! impl_bls_load_case {
+    ($case_name:ident) => {
+        use $crate::decode::yaml_decode_file;
+        impl LoadCase for $case_name {
+            fn load_from_dir(path: &Path, _fork_name: ForkName) -> Result<Self, Error> {
+                yaml_decode_file(&path)
+            }
+        }
+    };
+
+    ($case_name:ident, $sub_path_name:expr) => {
+        use $crate::decode::yaml_decode_file;
+        impl LoadCase for $case_name {
+            fn load_from_dir(path: &Path, _fork_name: ForkName) -> Result<Self, Error> {
+                yaml_decode_file(&path.join($sub_path_name))
+            }
+        }
+    };
 }

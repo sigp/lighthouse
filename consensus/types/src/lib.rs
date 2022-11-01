@@ -35,6 +35,7 @@ pub mod contribution_and_proof;
 pub mod deposit;
 pub mod deposit_data;
 pub mod deposit_message;
+pub mod deposit_tree_snapshot;
 pub mod enr_fork_id;
 pub mod eth1_data;
 pub mod eth_spec;
@@ -48,6 +49,9 @@ pub mod free_attestation;
 pub mod graffiti;
 pub mod historical_batch;
 pub mod indexed_attestation;
+pub mod light_client_bootstrap;
+pub mod light_client_optimistic_update;
+pub mod light_client_update;
 pub mod pending_attestation;
 pub mod proposer_preparation_data;
 pub mod proposer_slashing;
@@ -93,7 +97,6 @@ pub mod sqlite;
 pub mod blobs_sidecar;
 pub mod kzg_commitment;
 pub mod kzg_proof;
-pub mod signed_blobs_sidecar;
 
 use ethereum_types::{H160, H256};
 
@@ -123,6 +126,7 @@ pub use crate::contribution_and_proof::ContributionAndProof;
 pub use crate::deposit::{Deposit, DEPOSIT_TREE_DEPTH};
 pub use crate::deposit_data::DepositData;
 pub use crate::deposit_message::DepositMessage;
+pub use crate::deposit_tree_snapshot::{DepositTreeSnapshot, FinalizedExecutionBlock};
 pub use crate::enr_fork_id::EnrForkId;
 pub use crate::eth1_data::Eth1Data;
 pub use crate::eth_spec::EthSpecId;
@@ -166,7 +170,6 @@ pub use crate::signed_beacon_block::{
     SignedBlindedBeaconBlock,
 };
 pub use crate::signed_beacon_block_header::SignedBeaconBlockHeader;
-pub use crate::signed_blobs_sidecar::SignedBlobsSidecar;
 pub use crate::signed_contribution_and_proof::SignedContributionAndProof;
 pub use crate::signed_voluntary_exit::SignedVoluntaryExit;
 pub use crate::signing_data::{SignedRoot, SigningData};
@@ -195,6 +198,7 @@ pub type Address = H160;
 pub type ForkVersion = [u8; 4];
 pub type BLSFieldElement = Uint256;
 pub type Blob<T> = FixedVector<BLSFieldElement, <T as EthSpec>::FieldElementsPerBlob>;
+pub type VersionedHash = Hash256;
 
 pub use bls::{
     AggregatePublicKey, AggregateSignature, Keypair, PublicKey, PublicKeyBytes, SecretKey,

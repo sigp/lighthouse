@@ -34,4 +34,5 @@ pub mod eip4844 {
         .expect("should initialize BLS_MODULUS");
     }
     pub const BLOB_TX_TYPE: u8 = 5;
+    pub const VERSIONED_HASH_VERSION_KZG: u8 = 1;
 }

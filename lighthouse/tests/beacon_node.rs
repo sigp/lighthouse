@@ -407,6 +407,22 @@ fn run_execution_jwt_secret_key_is_persisted() {
         });
 }
 #[test]
+fn execution_timeout_multiplier_flag() {
+    let dir = TempDir::new().expect("Unable to create temporary directory");
+    CommandLineTest::new()
+        .flag("execution-endpoint", Some("http://meow.cats"))
+        .flag(
+            "execution-jwt",
+            dir.path().join("jwt-file").as_os_str().to_str(),
+        )
+        .flag("execution-timeout-multiplier", Some("3"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            let config = config.execution_layer.as_ref().unwrap();
+            assert_eq!(config.execution_timeout_multiplier, Some(3));
+        });
+}
+#[test]
 fn merge_execution_endpoints_flag() {
     run_merge_execution_endpoints_flag_test("execution-endpoints")
 }
@@ -1510,4 +1526,38 @@ fn enabled_disable_log_timestamp_flag() {
         .with_config(|config| {
             assert!(config.logger_config.disable_log_timestamp);
         });
+}
+
+#[test]
+fn sync_eth1_chain_default() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| assert_eq!(config.sync_eth1_chain, false));
+}
+
+#[test]
+fn sync_eth1_chain_execution_endpoints_flag() {
+    let dir = TempDir::new().expect("Unable to create temporary directory");
+    CommandLineTest::new()
+        .flag("execution-endpoints", Some("http://localhost:8551/"))
+        .flag(
+            "execution-jwt",
+            dir.path().join("jwt-file").as_os_str().to_str(),
+        )
+        .run_with_zero_port()
+        .with_config(|config| assert_eq!(config.sync_eth1_chain, true));
+}
+
+#[test]
+fn sync_eth1_chain_disable_deposit_contract_sync_flag() {
+    let dir = TempDir::new().expect("Unable to create temporary directory");
+    CommandLineTest::new()
+        .flag("disable-deposit-contract-sync", None)
+        .flag("execution-endpoints", Some("http://localhost:8551/"))
+        .flag(
+            "execution-jwt",
+            dir.path().join("jwt-file").as_os_str().to_str(),
+        )
+        .run_with_zero_port()
+        .with_config(|config| assert_eq!(config.sync_eth1_chain, false));
 }

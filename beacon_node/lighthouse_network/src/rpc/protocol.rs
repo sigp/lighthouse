@@ -21,7 +21,6 @@ use tokio_util::{
     compat::{Compat, FuturesAsyncReadCompatExt},
 };
 use types::BlobsSidecar;
-use types::SignedBlobsSidecar;
 use types::{
     BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockMerge, Blob, EthSpec, ForkContext,
     ForkName, Hash256, MainnetEthSpec, Signature, SignedBeaconBlock,
@@ -108,13 +107,11 @@ lazy_static! {
     .as_ssz_bytes()
     .len();
 
-    pub static ref SIGNED_BLOBS_SIDECAR_MIN: usize = SignedBlobsSidecar {
-      message: BlobsSidecar::<MainnetEthSpec>::empty(),
-      signature: Signature::empty(),
-    }.as_ssz_bytes()
+    pub static ref BLOBS_SIDECAR_MIN: usize = BlobsSidecar::<MainnetEthSpec>::empty()
+    .as_ssz_bytes()
     .len();
 
-    pub static ref SIGNED_BLOBS_SIDECAR_MAX: usize = *SIGNED_BLOBS_SIDECAR_MIN // Max size of variable length `blobs` field
+    pub static ref BLOBS_SIDECAR_MAX: usize = *BLOBS_SIDECAR_MIN // Max size of variable length `blobs` field
             + (MainnetEthSpec::max_blobs_per_block() * <Blob<MainnetEthSpec> as Encode>::ssz_fixed_len());
 }
 
@@ -343,9 +340,7 @@ impl ProtocolId {
             Protocol::Goodbye => RpcLimits::new(0, 0), // Goodbye request has no response
             Protocol::BlocksByRange => rpc_block_limits_by_fork(fork_context.current_fork()),
             Protocol::BlocksByRoot => rpc_block_limits_by_fork(fork_context.current_fork()),
-            Protocol::BlobsByRange => {
-                RpcLimits::new(*SIGNED_BLOBS_SIDECAR_MIN, *SIGNED_BLOBS_SIDECAR_MAX)
-            }
+            Protocol::BlobsByRange => RpcLimits::new(*BLOBS_SIDECAR_MIN, *BLOBS_SIDECAR_MAX),
             Protocol::Ping => RpcLimits::new(
                 <Ping as Encode>::ssz_fixed_len(),
                 <Ping as Encode>::ssz_fixed_len(),

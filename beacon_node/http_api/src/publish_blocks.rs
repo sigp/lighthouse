@@ -1,7 +1,7 @@
 use crate::metrics;
 use beacon_chain::validator_monitor::{get_block_delay_ms, timestamp_now};
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockError, CountUnrealized};
-use lighthouse_network::PubsubMessage;
+use lighthouse_network::{PubsubMessage, SignedBeaconBlockAndBlobsSidecar};
 use network::NetworkMessage;
 use slog::{crit, error, info, warn, Logger};
 use slot_clock::SlotClock;
@@ -9,8 +9,8 @@ use std::sync::Arc;
 use tokio::sync::mpsc::UnboundedSender;
 use tree_hash::TreeHash;
 use types::{
-    AbstractExecPayload, BlindedPayload, EthSpec, ExecPayload, ExecutionBlockHash, FullPayload,
-    Hash256, SignedBeaconBlock,
+    AbstractExecPayload, BlindedPayload, BlobsSidecar, EthSpec, ExecPayload, ExecutionBlockHash,
+    FullPayload, Hash256, SignedBeaconBlock, SignedBeaconBlockEip4844,
 };
 use warp::Rejection;
 
@@ -18,6 +18,7 @@ use warp::Rejection;
 pub async fn publish_block<T: BeaconChainTypes>(
     block_root: Option<Hash256>,
     block: Arc<SignedBeaconBlock<T::EthSpec>>,
+    blobs_sidecar: Option<Arc<BlobsSidecar<T::EthSpec>>>,
     chain: Arc<BeaconChain<T>>,
     network_tx: &UnboundedSender<NetworkMessage<T::EthSpec>>,
     log: Logger,
@@ -26,7 +27,24 @@ pub async fn publish_block<T: BeaconChainTypes>(
 
     // Send the block, regardless of whether or not it is valid. The API
     // specification is very clear that this is the desired behaviour.
-    crate::publish_pubsub_message(network_tx, PubsubMessage::BeaconBlock(block.clone()))?;
+
+    let message = match &*block {
+        SignedBeaconBlock::Eip4844(block) => {
+            if let Some(sidecar) = blobs_sidecar {
+                PubsubMessage::BeaconBlockAndBlobsSidecars(Arc::new(
+                    SignedBeaconBlockAndBlobsSidecar {
+                        beacon_block: block.clone(),
+                        blobs_sidecar: (*sidecar).clone(),
+                    },
+                ))
+            } else {
+                //TODO(pawan): return an empty sidecar instead
+                return Err(warp_utils::reject::broadcast_without_import(format!("")));
+            }
+        }
+        _ => PubsubMessage::BeaconBlock(block.clone()),
+    };
+    crate::publish_pubsub_message(network_tx, message)?;
 
     // Determine the delay after the start of the slot, register it with metrics.
     let delay = get_block_delay_ms(seen_timestamp, block.message(), &chain.slot_clock);
@@ -135,6 +153,7 @@ pub async fn publish_blinded_block<T: BeaconChainTypes>(
     publish_block::<T>(
         Some(block_root),
         Arc::new(full_block),
+        None,
         chain,
         network_tx,
         log,

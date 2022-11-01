@@ -30,10 +30,7 @@ use task_executor::TaskExecutor;
 use tokio::sync::mpsc::{self, Receiver, Sender};
 use tokio::time::error::Error as TimeError;
 use tokio_util::time::delay_queue::{DelayQueue, Key as DelayKey};
-use types::{
-    Attestation, EthSpec, Hash256, SignedAggregateAndProof, SignedBeaconBlock, SignedBlobsSidecar,
-    SubnetId,
-};
+use types::{Attestation, EthSpec, Hash256, SignedAggregateAndProof, SignedBeaconBlock, SubnetId};
 
 const TASK_NAME: &str = "beacon_processor_reprocess_queue";
 const GOSSIP_BLOCKS: &str = "gossip_blocks";
@@ -47,10 +44,6 @@ const ADDITIONAL_QUEUED_BLOCK_DELAY: Duration = Duration::from_millis(5);
 /// For how long to queue aggregated and unaggregated attestations for re-processing.
 pub const QUEUED_ATTESTATION_DELAY: Duration = Duration::from_secs(12);
 
-/// For how long to queue blob sidecars for re-processing.
-/// TODO: rethink duration
-pub const QUEUED_BLOBS_SIDECARS_DELAY: Duration = Duration::from_secs(6);
-
 /// For how long to queue rpc blocks before sending them back for reprocessing.
 pub const QUEUED_RPC_BLOCK_DELAY: Duration = Duration::from_secs(3);
 
@@ -61,10 +54,6 @@ const MAXIMUM_QUEUED_BLOCKS: usize = 16;
 
 /// How many attestations we keep before new ones get dropped.
 const MAXIMUM_QUEUED_ATTESTATIONS: usize = 16_384;
-
-/// TODO: fix number
-/// How many blobs we keep before new ones get dropped.
-const MAXIMUM_QUEUED_BLOB_SIDECARS: usize = 16_384;
 
 /// Messages that the scheduler can receive.
 pub enum ReprocessQueueMessage<T: BeaconChainTypes> {
@@ -80,8 +69,6 @@ pub enum ReprocessQueueMessage<T: BeaconChainTypes> {
     UnknownBlockUnaggregate(QueuedUnaggregate<T::EthSpec>),
     /// An aggregated attestation that references an unknown block.
     UnknownBlockAggregate(QueuedAggregate<T::EthSpec>),
-    /// A blob sidecar that references an unknown block.
-    UnknownBlobSidecar(QueuedBlobsSidecar<T::EthSpec>),
 }
 
 /// Events sent by the scheduler once they are ready for re-processing.
@@ -90,7 +77,6 @@ pub enum ReadyWork<T: BeaconChainTypes> {
     RpcBlock(QueuedRpcBlock<T::EthSpec>),
     Unaggregate(QueuedUnaggregate<T::EthSpec>),
     Aggregate(QueuedAggregate<T::EthSpec>),
-    BlobsSidecar(QueuedBlobsSidecar<T::EthSpec>),
 }
 
 /// An Attestation for which the corresponding block was not seen while processing, queued for
@@ -132,15 +118,6 @@ pub struct QueuedRpcBlock<T: EthSpec> {
     pub should_process: bool,
 }
 
-/// A blob sidecar for which the corresponding block was not seen while processing, queued for
-/// later.
-pub struct QueuedBlobsSidecar<T: EthSpec> {
-    pub peer_id: PeerId,
-    pub message_id: MessageId,
-    pub blobs_sidecar: Arc<SignedBlobsSidecar<T>>,
-    pub seen_timestamp: Duration,
-}
-
 /// Unifies the different messages processed by the block delay queue.
 enum InboundEvent<T: BeaconChainTypes> {
     /// A gossip block that was queued for later processing and is ready for import.
@@ -150,8 +127,6 @@ enum InboundEvent<T: BeaconChainTypes> {
     ReadyRpcBlock(QueuedRpcBlock<T::EthSpec>),
     /// An aggregated or unaggregated attestation is ready for re-processing.
     ReadyAttestation(QueuedAttestationId),
-    /// A blob sidecar is ready for re-processing.
-    ReadyBlobsSidecar(QueuedBlobsSidecarId),
     /// A `DelayQueue` returned an error.
     DelayQueueError(TimeError, &'static str),
     /// A message sent to the `ReprocessQueue`
@@ -172,7 +147,6 @@ struct ReprocessQueue<T: BeaconChainTypes> {
     rpc_block_delay_queue: DelayQueue<QueuedRpcBlock<T::EthSpec>>,
     /// Queue to manage scheduled attestations.
     attestations_delay_queue: DelayQueue<QueuedAttestationId>,
-    blobs_sidecar_delay_queue: DelayQueue<QueuedBlobsSidecarId>,
 
     /* Queued items */
     /// Queued blocks.
@@ -181,19 +155,15 @@ struct ReprocessQueue<T: BeaconChainTypes> {
     queued_aggregates: FnvHashMap<usize, (QueuedAggregate<T::EthSpec>, DelayKey)>,
     /// Queued attestations.
     queued_unaggregates: FnvHashMap<usize, (QueuedUnaggregate<T::EthSpec>, DelayKey)>,
-    queued_blob_sidecars: FnvHashMap<usize, (QueuedBlobsSidecar<T::EthSpec>, DelayKey)>,
     /// Attestations (aggregated and unaggregated) per root.
     awaiting_attestations_per_root: HashMap<Hash256, Vec<QueuedAttestationId>>,
-    awaiting_blobs_sidecars_per_root: HashMap<Hash256, Vec<QueuedBlobsSidecarId>>,
 
     /* Aux */
     /// Next attestation id, used for both aggregated and unaggregated attestations
     next_attestation: usize,
-    next_sidecar: usize,
     early_block_debounce: TimeLatch,
     rpc_block_debounce: TimeLatch,
     attestation_delay_debounce: TimeLatch,
-    blobs_sidecar_debounce: TimeLatch,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -201,9 +171,6 @@ enum QueuedAttestationId {
     Aggregate(usize),
     Unaggregate(usize),
 }
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct QueuedBlobsSidecarId(usize);
 
 impl<T: EthSpec> QueuedAggregate<T> {
     pub fn beacon_block_root(&self) -> &Hash256 {
@@ -268,21 +235,6 @@ impl<T: BeaconChainTypes> Stream for ReprocessQueue<T> {
             Poll::Ready(None) | Poll::Pending => (),
         }
 
-        match self.blobs_sidecar_delay_queue.poll_expired(cx) {
-            Poll::Ready(Some(Ok(id))) => {
-                return Poll::Ready(Some(InboundEvent::ReadyBlobsSidecar(id.into_inner())));
-            }
-            Poll::Ready(Some(Err(e))) => {
-                return Poll::Ready(Some(InboundEvent::DelayQueueError(
-                    e,
-                    "blobs_sidecar_queue",
-                )));
-            }
-            // `Poll::Ready(None)` means that there are no more entries in the delay queue and we
-            // will continue to get this result until something else is added into the queue.
-            Poll::Ready(None) | Poll::Pending => (),
-        }
-
         // Last empty the messages channel.
         match self.work_reprocessing_rx.poll_recv(cx) {
             Poll::Ready(Some(message)) => return Poll::Ready(Some(InboundEvent::Msg(message))),
@@ -312,19 +264,14 @@ pub fn spawn_reprocess_scheduler<T: BeaconChainTypes>(
         gossip_block_delay_queue: DelayQueue::new(),
         rpc_block_delay_queue: DelayQueue::new(),
         attestations_delay_queue: DelayQueue::new(),
-        blobs_sidecar_delay_queue: DelayQueue::new(),
         queued_gossip_block_roots: HashSet::new(),
         queued_aggregates: FnvHashMap::default(),
         queued_unaggregates: FnvHashMap::default(),
-        queued_blob_sidecars: FnvHashMap::default(),
         awaiting_attestations_per_root: HashMap::new(),
-        awaiting_blobs_sidecars_per_root: HashMap::new(),
         next_attestation: 0,
-        next_sidecar: 0,
         early_block_debounce: TimeLatch::default(),
         rpc_block_debounce: TimeLatch::default(),
         attestation_delay_debounce: TimeLatch::default(),
-        blobs_sidecar_debounce: TimeLatch::default(),
     };
 
     executor.spawn(
@@ -526,39 +473,6 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
 
                 self.next_attestation += 1;
             }
-            InboundEvent::Msg(UnknownBlobSidecar(queued_blob_sidecar)) => {
-                if self.blobs_sidecar_delay_queue.len() >= MAXIMUM_QUEUED_BLOB_SIDECARS {
-                    if self.blobs_sidecar_debounce.elapsed() {
-                        error!(
-                            log,
-                            "Blobs sidecar queue is full";
-                            "queue_size" => MAXIMUM_QUEUED_BLOB_SIDECARS,
-                            "msg" => "check system clock"
-                        );
-                    }
-                    // Drop the attestation.
-                    return;
-                }
-
-                let id = QueuedBlobsSidecarId(self.next_sidecar);
-
-                // Register the delay.
-                let delay_key = self
-                    .blobs_sidecar_delay_queue
-                    .insert(id, QUEUED_BLOBS_SIDECARS_DELAY);
-
-                // Register this sidecar for the corresponding root.
-                self.awaiting_blobs_sidecars_per_root
-                    .entry(queued_blob_sidecar.blobs_sidecar.message.beacon_block_root)
-                    .or_default()
-                    .push(id);
-
-                // Store the blob sidecar and its info.
-                self.queued_blob_sidecars
-                    .insert(self.next_sidecar, (queued_blob_sidecar, delay_key));
-
-                self.next_sidecar += 1;
-            }
             InboundEvent::Msg(BlockImported(root)) => {
                 // Unqueue the attestations we have for this root, if any.
                 if let Some(queued_ids) = self.awaiting_attestations_per_root.remove(&root) {
@@ -599,43 +513,6 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
                                 "Unknown queued attestation for block root";
                                 "block_root" => ?root,
                                 "att_id" => ?id,
-                            );
-                        }
-                    }
-                }
-                // Unqueue the blob sidecars we have for this root, if any.
-                // TODO: merge the 2 data structures.
-                if let Some(queued_ids) = self.awaiting_blobs_sidecars_per_root.remove(&root) {
-                    for id in queued_ids {
-                        // metrics::inc_counter(
-                        //     &metrics::BEACON_PROCESSOR_REPROCESSING_QUEUE_MATCHED_ATTESTATIONS,
-                        // );
-
-                        if let Some((work, delay_key)) = self
-                            .queued_blob_sidecars
-                            .remove(&id.0)
-                            .map(|(blobs_sidecar, delay_key)| {
-                                (ReadyWork::BlobsSidecar(blobs_sidecar), delay_key)
-                            })
-                        {
-                            // Remove the delay.
-                            self.blobs_sidecar_delay_queue.remove(&delay_key);
-
-                            // Send the work.
-                            if self.ready_work_tx.try_send(work).is_err() {
-                                error!(
-                                    log,
-                                    "Failed to send scheduled blob sidecar";
-                                );
-                            }
-                        } else {
-                            // There is a mismatch between the blob sidecar ids registered for this
-                            // root and the queued blob sidecars. This should never happen.
-                            error!(
-                                log,
-                                "Unknown queued blob sidecar for block root";
-                                "block_root" => ?root,
-                                "id" => ?id,
                             );
                         }
                     }
@@ -710,40 +587,6 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
                     if let Some(queued_atts) = self.awaiting_attestations_per_root.get_mut(&root) {
                         if let Some(index) = queued_atts.iter().position(|&id| id == queued_id) {
                             queued_atts.swap_remove(index);
-                        }
-                    }
-                }
-            }
-            InboundEvent::ReadyBlobsSidecar(queued_blobs_sidecar_id) => {
-                // metrics::inc_counter(
-                //     &metrics::BEACON_PROCESSOR_REPROCESSING_QUEUE_EXPIRED_ATTESTATIONS,
-                // );
-
-                if let Some((root, work)) = self
-                    .queued_blob_sidecars
-                    .remove(&queued_blobs_sidecar_id.0)
-                    .map(|(blobs_sidecar, _delay_key)| {
-                        (
-                            blobs_sidecar.blobs_sidecar.message.beacon_block_root,
-                            ReadyWork::BlobsSidecar(blobs_sidecar),
-                        )
-                    })
-                {
-                    if self.ready_work_tx.try_send(work).is_err() {
-                        error!(
-                            log,
-                            "Failed to send scheduled attestation";
-                        );
-                    }
-
-                    if let Some(queued_blob_sidecars) =
-                        self.awaiting_blobs_sidecars_per_root.get_mut(&root)
-                    {
-                        if let Some(index) = queued_blob_sidecars
-                            .iter()
-                            .position(|&id| id == queued_blobs_sidecar_id)
-                        {
-                            queued_blob_sidecars.swap_remove(index);
                         }
                     }
                 }

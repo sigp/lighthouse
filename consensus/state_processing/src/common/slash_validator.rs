@@ -1,9 +1,13 @@
-use crate::common::{decrease_balance, increase_balance, initiate_validator_exit};
+use crate::{
+    common::{decrease_balance, increase_balance, initiate_validator_exit},
+    per_block_processing::errors::BlockProcessingError,
+    ConsensusContext,
+};
 use safe_arith::SafeArith;
 use std::cmp;
 use types::{
     consts::altair::{PROPOSER_WEIGHT, WEIGHT_DENOMINATOR},
-    BeaconStateError as Error, *,
+    *,
 };
 
 /// Slash the validator with index `slashed_index`.
@@ -11,8 +15,9 @@ pub fn slash_validator<T: EthSpec>(
     state: &mut BeaconState<T>,
     slashed_index: usize,
     opt_whistleblower_index: Option<usize>,
+    ctxt: &mut ConsensusContext<T>,
     spec: &ChainSpec,
-) -> Result<(), Error> {
+) -> Result<(), BlockProcessingError> {
     let epoch = state.current_epoch();
 
     initiate_validator_exit(state, slashed_index, spec)?;
@@ -39,7 +44,7 @@ pub fn slash_validator<T: EthSpec>(
     )?;
 
     // Apply proposer and whistleblower rewards
-    let proposer_index = state.get_beacon_proposer_index(state.slot(), spec)?;
+    let proposer_index = ctxt.get_proposer_index(state, spec)? as usize;
     let whistleblower_index = opt_whistleblower_index.unwrap_or(proposer_index);
     let whistleblower_reward =
         validator_effective_balance.safe_div(spec.whistleblower_reward_quotient)?;
@@ -55,7 +60,7 @@ pub fn slash_validator<T: EthSpec>(
 
     // Ensure the whistleblower index is in the validator registry.
     if state.validators().get(whistleblower_index).is_none() {
-        return Err(BeaconStateError::UnknownValidator(whistleblower_index));
+        return Err(BeaconStateError::UnknownValidator(whistleblower_index).into());
     }
 
     increase_balance(state, proposer_index, proposer_reward)?;

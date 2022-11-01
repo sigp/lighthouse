@@ -155,33 +155,12 @@ impl StateId {
         Ok((state, execution_optimistic))
     }
 
-    /*
     /// Map a function across the `BeaconState` identified by `self`.
+    ///
+    /// The optimistic status of the requested state is also provided to the `func` closure.
     ///
     /// This function will avoid instantiating/copying a new state when `self` points to the head
     /// of the chain.
-    #[allow(dead_code)]
-    pub fn map_state<T: BeaconChainTypes, F, U>(
-        &self,
-        chain: &BeaconChain<T>,
-        func: F,
-    ) -> Result<U, warp::Rejection>
-    where
-        F: Fn(&BeaconState<T::EthSpec>) -> Result<U, warp::Rejection>,
-    {
-        match &self.0 {
-            CoreStateId::Head => chain
-                .with_head(|snapshot| Ok(func(&snapshot.beacon_state)))
-                .map_err(warp_utils::reject::beacon_chain_error)?,
-            _ => func(&self.state(chain)?),
-        }
-    }
-    */
-
-    /// Functions the same as `map_state` but additionally computes the value of
-    /// `execution_optimistic` of the state identified by `self`.
-    ///
-    /// This is to avoid re-instantiating `state` unnecessarily.
     pub fn map_state_and_execution_optimistic<T: BeaconChainTypes, F, U>(
         &self,
         chain: &BeaconChain<T>,

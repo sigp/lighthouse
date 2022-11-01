@@ -13,7 +13,6 @@ mod block_rewards;
 mod database;
 mod metrics;
 mod proposer_duties;
-mod publish_blobs;
 mod publish_blocks;
 mod state_id;
 mod sync_committees;
@@ -49,7 +48,7 @@ use types::{
     Attestation, AttestationData, AttesterSlashing, BeaconStateError, BlindedPayload,
     CommitteeCache, ConfigAndPreset, Epoch, EthSpec, ForkName, FullPayload,
     ProposerPreparationData, ProposerSlashing, RelativeEpoch, SignedAggregateAndProof,
-    SignedBeaconBlock, SignedBlindedBeaconBlock, SignedBlobsSidecar, SignedContributionAndProof,
+    SignedBeaconBlock, SignedBlindedBeaconBlock, SignedContributionAndProof,
     SignedValidatorRegistrationData, SignedVoluntaryExit, Slot, SyncCommitteeMessage,
     SyncContributionData,
 };
@@ -1047,27 +1046,9 @@ pub fn serve<T: BeaconChainTypes>(
              chain: Arc<BeaconChain<T>>,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
              log: Logger| async move {
-                publish_blocks::publish_block(None, block, chain, &network_tx, log)
-                    .await
-                    .map(|()| warp::reply())
-            },
-        );
-
-    // POST beacon/blobs
-    let post_beacon_blobs = eth_v1
-        .and(warp::path("beacon"))
-        .and(warp::path("blobs"))
-        .and(warp::path::end())
-        .and(warp::body::json())
-        .and(chain_filter.clone())
-        .and(network_tx_filter.clone())
-        .and(log_filter.clone())
-        .and_then(
-            |blobs: Arc<SignedBlobsSidecar<T::EthSpec>>,
-             chain: Arc<BeaconChain<T>>,
-             network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
-             log: Logger| async move {
-                publish_blobs::publish_blobs(blobs, chain, &network_tx, log)
+                // need to have cached the blob sidecar somewhere in the beacon chain
+                // to publish
+                publish_blocks::publish_block(None, block, None, chain, &network_tx, log)
                     .await
                     .map(|()| warp::reply())
             },
@@ -1550,6 +1531,53 @@ pub fn serve<T: BeaconChainTypes>(
                         signatures, network_tx, &chain, log,
                     )?;
                     Ok(api_types::GenericResponse::from(()))
+                })
+            },
+        );
+
+    // GET beacon/deposit_snapshot
+    let get_beacon_deposit_snapshot = eth_v1
+        .and(warp::path("beacon"))
+        .and(warp::path("deposit_snapshot"))
+        .and(warp::path::end())
+        .and(warp::header::optional::<api_types::Accept>("accept"))
+        .and(eth1_service_filter.clone())
+        .and_then(
+            |accept_header: Option<api_types::Accept>, eth1_service: eth1::Service| {
+                blocking_task(move || match accept_header {
+                    Some(api_types::Accept::Json) | None => {
+                        let snapshot = eth1_service.get_deposit_snapshot();
+                        Ok(
+                            warp::reply::json(&api_types::GenericResponse::from(snapshot))
+                                .into_response(),
+                        )
+                    }
+                    _ => eth1_service
+                        .get_deposit_snapshot()
+                        .map(|snapshot| {
+                            Response::builder()
+                                .status(200)
+                                .header("Content-Type", "application/octet-stream")
+                                .body(snapshot.as_ssz_bytes().into())
+                                .map_err(|e| {
+                                    warp_utils::reject::custom_server_error(format!(
+                                        "failed to create response: {}",
+                                        e
+                                    ))
+                                })
+                        })
+                        .unwrap_or_else(|| {
+                            Response::builder()
+                                .status(503)
+                                .header("Content-Type", "application/octet-stream")
+                                .body(Vec::new().into())
+                                .map_err(|e| {
+                                    warp_utils::reject::custom_server_error(format!(
+                                        "failed to create response: {}",
+                                        e
+                                    ))
+                                })
+                        }),
                 })
             },
         );
@@ -3141,6 +3169,7 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(get_beacon_pool_attester_slashings.boxed())
                 .or(get_beacon_pool_proposer_slashings.boxed())
                 .or(get_beacon_pool_voluntary_exits.boxed())
+                .or(get_beacon_deposit_snapshot.boxed())
                 .or(get_config_fork_schedule.boxed())
                 .or(get_config_spec.boxed())
                 .or(get_config_deposit_contract.boxed())
@@ -3183,7 +3212,6 @@ pub fn serve<T: BeaconChainTypes>(
             post_beacon_blocks
                 .boxed()
                 .or(post_beacon_blinded_blocks.boxed())
-                .or(post_beacon_blobs.boxed())
                 .or(post_beacon_pool_attestations.boxed())
                 .or(post_beacon_pool_attester_slashings.boxed())
                 .or(post_beacon_pool_proposer_slashings.boxed())

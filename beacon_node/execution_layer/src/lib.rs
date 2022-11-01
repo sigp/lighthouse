@@ -226,6 +226,7 @@ pub struct Config {
     pub default_datadir: PathBuf,
     /// The minimum value of an external payload for it to be considered in a proposal.
     pub builder_profit_threshold: u128,
+    pub execution_timeout_multiplier: Option<u32>,
 }
 
 /// Provides access to one execution engine and provides a neat interface for consumption by the
@@ -247,6 +248,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
             jwt_version,
             default_datadir,
             builder_profit_threshold,
+            execution_timeout_multiplier,
         } = config;
 
         if urls.len() > 1 {
@@ -291,7 +293,8 @@ impl<T: EthSpec> ExecutionLayer<T> {
         let engine: Engine = {
             let auth = Auth::new(jwt_key, jwt_id, jwt_version);
             debug!(log, "Loaded execution endpoint"; "endpoint" => %execution_url, "jwt_path" => ?secret_file.as_path());
-            let api = HttpJsonRpc::new_with_auth(execution_url, auth).map_err(Error::ApiError)?;
+            let api = HttpJsonRpc::new_with_auth(execution_url, auth, execution_timeout_multiplier)
+                .map_err(Error::ApiError)?;
             Engine::new(api, executor.clone(), &log)
         };
 

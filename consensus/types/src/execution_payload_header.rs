@@ -79,6 +79,12 @@ pub struct ExecutionPayloadHeader<T: EthSpec> {
     pub withdrawals_root: Hash256,
 }
 
+impl<T: EthSpec> ExecutionPayloadHeader<T> {
+    pub fn transactions(&self) -> Option<&Transactions<T>> {
+        None
+    }
+}
+
 impl<'a, T: EthSpec> ExecutionPayloadHeaderRef<'a, T> {
     // FIXME: maybe this could be a derived trait..
     pub fn is_default(self) -> bool {

@@ -35,6 +35,7 @@ pub trait ExecPayload<T: EthSpec>: Debug + Clone + PartialEq + Hash + TreeHash +
     fn block_hash(&self) -> ExecutionBlockHash;
     fn fee_recipient(&self) -> Address;
     fn gas_limit(&self) -> u64;
+    fn transactions(&self) -> Option<&Transactions<T>>;
 
     /// Is this a default payload? (pre-merge)
     fn is_default(&self) -> bool;
@@ -217,6 +218,13 @@ impl<T: EthSpec> ExecPayload<T> for FullPayload<T> {
         })
     }
 
+    fn transactions<'a>(&'a self) -> Option<&Transactions<T>> {
+        map_full_payload_ref!(&'a _, self.to_ref(), move |payload, cons| {
+            cons(payload);
+            Some(&payload.execution_payload.transactions)
+        })
+    }
+
     fn is_default<'a>(&'a self) -> bool {
         map_full_payload_ref!(&'a _, self.to_ref(), move |payload, cons| {
             cons(payload);
@@ -291,6 +299,13 @@ impl<'b, T: EthSpec> ExecPayload<T> for FullPayloadRef<'b, T> {
         map_full_payload_ref!(&'a _, self, move |payload, cons| {
             cons(payload);
             payload.execution_payload.gas_limit
+        })
+    }
+
+    fn transactions<'a>(&'a self) -> Option<&Transactions<T>> {
+        map_full_payload_ref!(&'a _, self, move |payload, cons| {
+            cons(payload);
+            Some(&payload.execution_payload.transactions)
         })
     }
 
@@ -444,6 +459,10 @@ impl<T: EthSpec> ExecPayload<T> for BlindedPayload<T> {
         })
     }
 
+    fn transactions<'a>(&'a self) -> Option<&Transactions<T>> {
+        None
+    }
+
     fn is_default<'a>(&'a self) -> bool {
         map_blinded_payload_ref!(&'a _, self.to_ref(), move |payload, cons| {
             cons(payload);
@@ -513,6 +532,10 @@ impl<'b, T: EthSpec> ExecPayload<T> for BlindedPayloadRef<'b, T> {
         })
     }
 
+    fn transactions<'a>(&'a self) -> Option<&Transactions<T>> {
+        None
+    }
+
     // TODO: can this function be optimized?
     fn is_default<'a>(&'a self) -> bool {
         map_blinded_payload_ref!(&'a _, self, move |payload, cons| {
@@ -523,7 +546,7 @@ impl<'b, T: EthSpec> ExecPayload<T> for BlindedPayloadRef<'b, T> {
 }
 
 macro_rules! impl_exec_payload_common {
-    ($wrapper_type:ident, $wrapped_type_full:ident, $wrapped_header_type:ident, $wrapped_field:ident, $fork_variant:ident, $block_type_variant:ident) => {
+    ($wrapper_type:ident, $wrapped_type_full:ident, $wrapped_header_type:ident, $wrapped_field:ident, $fork_variant:ident, $block_type_variant:ident, $f:block) => {
         impl<T: EthSpec> ExecPayload<T> for $wrapper_type<T> {
             fn block_type() -> BlockType {
                 BlockType::$block_type_variant
@@ -566,6 +589,11 @@ macro_rules! impl_exec_payload_common {
             fn is_default(&self) -> bool {
                 self.$wrapped_field == $wrapped_type_full::default()
             }
+
+            fn transactions(&self) -> Option<&Transactions<T>> {
+                let f = $f;
+                f(self)
+            }
         }
 
         impl<T: EthSpec> From<$wrapped_type_full<T>> for $wrapper_type<T> {
@@ -586,7 +614,8 @@ macro_rules! impl_exec_payload_for_fork {
             $wrapped_type_header,
             execution_payload_header,
             $fork_variant,
-            Blinded
+            Blinded,
+            { |_| { None } }
         );
 
         impl<T: EthSpec> TryInto<$wrapper_type_header<T>> for BlindedPayload<T> {
@@ -646,7 +675,12 @@ macro_rules! impl_exec_payload_for_fork {
             $wrapped_type_header,
             execution_payload,
             $fork_variant,
-            Full
+            Full,
+            {
+                let c: for<'a> fn(&'a $wrapper_type_full<T>) -> Option<&'a Transactions<T>> =
+                    |payload: &$wrapper_type_full<T>| Some(&payload.execution_payload.transactions);
+                c
+            }
         );
 
         impl<T: EthSpec> Default for $wrapper_type_full<T> {
