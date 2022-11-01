@@ -1432,8 +1432,9 @@ where
         // Building proofs
         let mut proofs = vec![];
         for i in 0..leaves.len() {
-            let (_, mut proof) =
-                tree.generate_proof(i, self.spec.deposit_contract_tree_depth as usize);
+            let (_, mut proof) = tree
+                .generate_proof(i, self.spec.deposit_contract_tree_depth as usize)
+                .expect("should generate proof");
             proof.push(Hash256::from_slice(&int_to_bytes32(leaves.len() as u64)));
             proofs.push(proof);
         }

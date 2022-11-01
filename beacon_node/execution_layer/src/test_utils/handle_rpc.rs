@@ -77,6 +77,11 @@ pub async fn handle_rpc<T: EthSpec>(
         ENGINE_NEW_PAYLOAD_V1 => {
             let request: JsonExecutionPayload<T> = get_param(params, 0)?;
 
+            // Canned responses set by block hash take priority.
+            if let Some(status) = ctx.get_new_payload_status(&request.block_hash) {
+                return Ok(serde_json::to_value(JsonPayloadStatusV1::from(status)).unwrap());
+            }
+
             let (static_response, should_import) =
                 if let Some(mut response) = ctx.static_new_payload_response.lock().clone() {
                     if response.status.status == PayloadStatusV1Status::Valid {
@@ -119,6 +124,15 @@ pub async fn handle_rpc<T: EthSpec>(
             let payload_attributes: Option<JsonPayloadAttributes> = get_param(params, 1)?;
 
             let head_block_hash = forkchoice_state.head_block_hash;
+
+            // Canned responses set by block hash take priority.
+            if let Some(status) = ctx.get_fcu_payload_status(&head_block_hash) {
+                let response = JsonForkchoiceUpdatedV1Response {
+                    payload_status: JsonPayloadStatusV1::from(status),
+                    payload_id: None,
+                };
+                return Ok(serde_json::to_value(response).unwrap());
+            }
 
             let mut response = ctx
                 .execution_block_generator

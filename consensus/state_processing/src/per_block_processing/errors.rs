@@ -1,4 +1,5 @@
 use super::signature_sets::Error as SignatureSetError;
+use crate::ContextError;
 use merkle_proof::MerkleTreeError;
 use safe_arith::ArithError;
 use ssz::DecodeError;
@@ -72,6 +73,7 @@ pub enum BlockProcessingError {
         found: u64,
     },
     ExecutionInvalid,
+    ConsensusContext(ContextError),
     BlobVersionHashMismatch,
     /// The number of commitments in blob transactions in the payload does not match the number
     /// of commitments in the block.
@@ -122,6 +124,12 @@ impl From<SyncAggregateInvalid> for BlockProcessingError {
     }
 }
 
+impl From<ContextError> for BlockProcessingError {
+    fn from(e: ContextError) -> Self {
+        BlockProcessingError::ConsensusContext(e)
+    }
+}
+
 impl From<BlockOperationError<HeaderInvalid>> for BlockProcessingError {
     fn from(e: BlockOperationError<HeaderInvalid>) -> BlockProcessingError {
         match e {
@@ -129,6 +137,7 @@ impl From<BlockOperationError<HeaderInvalid>> for BlockProcessingError {
             BlockOperationError::BeaconStateError(e) => BlockProcessingError::BeaconStateError(e),
             BlockOperationError::SignatureSetError(e) => BlockProcessingError::SignatureSetError(e),
             BlockOperationError::SszTypesError(e) => BlockProcessingError::SszTypesError(e),
+            BlockOperationError::ConsensusContext(e) => BlockProcessingError::ConsensusContext(e),
             BlockOperationError::ArithError(e) => BlockProcessingError::ArithError(e),
         }
     }
@@ -156,6 +165,7 @@ macro_rules! impl_into_block_processing_error_with_index {
                         BlockOperationError::BeaconStateError(e) => BlockProcessingError::BeaconStateError(e),
                         BlockOperationError::SignatureSetError(e) => BlockProcessingError::SignatureSetError(e),
                         BlockOperationError::SszTypesError(e) => BlockProcessingError::SszTypesError(e),
+                        BlockOperationError::ConsensusContext(e) => BlockProcessingError::ConsensusContext(e),
                         BlockOperationError::ArithError(e) => BlockProcessingError::ArithError(e),
                     }
                 }
@@ -187,6 +197,7 @@ pub enum BlockOperationError<T> {
     BeaconStateError(BeaconStateError),
     SignatureSetError(SignatureSetError),
     SszTypesError(ssz_types::Error),
+    ConsensusContext(ContextError),
     ArithError(ArithError),
 }
 
@@ -219,6 +230,12 @@ impl<T> From<ArithError> for BlockOperationError<T> {
     }
 }
 
+impl<T> From<ContextError> for BlockOperationError<T> {
+    fn from(e: ContextError) -> Self {
+        BlockOperationError::ConsensusContext(e)
+    }
+}
+
 #[derive(Debug, PartialEq, Clone)]
 pub enum HeaderInvalid {
     ProposalSignatureInvalid,
@@ -228,14 +245,14 @@ pub enum HeaderInvalid {
         block_slot: Slot,
     },
     ProposerIndexMismatch {
-        block_proposer_index: usize,
-        state_proposer_index: usize,
+        block_proposer_index: u64,
+        state_proposer_index: u64,
     },
     ParentBlockRootMismatch {
         state: Hash256,
         block: Hash256,
     },
-    ProposerSlashed(usize),
+    ProposerSlashed(u64),
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -330,6 +347,7 @@ impl From<BlockOperationError<IndexedAttestationInvalid>>
             BlockOperationError::BeaconStateError(e) => BlockOperationError::BeaconStateError(e),
             BlockOperationError::SignatureSetError(e) => BlockOperationError::SignatureSetError(e),
             BlockOperationError::SszTypesError(e) => BlockOperationError::SszTypesError(e),
+            BlockOperationError::ConsensusContext(e) => BlockOperationError::ConsensusContext(e),
             BlockOperationError::ArithError(e) => BlockOperationError::ArithError(e),
         }
     }

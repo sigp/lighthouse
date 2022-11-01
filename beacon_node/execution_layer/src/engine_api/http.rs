@@ -211,6 +211,7 @@ pub mod deposit_methods {
     #[derive(Clone, Copy)]
     pub enum BlockQuery {
         Number(u64),
+        Hash(Hash256),
         Latest,
     }
 
@@ -325,9 +326,12 @@ pub mod deposit_methods {
             query: BlockQuery,
             timeout: Duration,
         ) -> Result<Block, String> {
-            let query_param = match query {
-                BlockQuery::Number(block_number) => format!("0x{:x}", block_number),
-                BlockQuery::Latest => "latest".to_string(),
+            let (method, query_param) = match query {
+                BlockQuery::Number(block_number) => {
+                    ("eth_getBlockByNumber", format!("0x{:x}", block_number))
+                }
+                BlockQuery::Hash(block_hash) => ("eth_getBlockByHash", format!("{:?}", block_hash)),
+                BlockQuery::Latest => ("eth_getBlockByNumber", "latest".to_string()),
             };
             let params = json!([
                 query_param,
@@ -335,9 +339,9 @@ pub mod deposit_methods {
             ]);
 
             let response: Value = self
-                .rpc_request("eth_getBlockByNumber", params, timeout)
+                .rpc_request(method, params, timeout)
                 .await
-                .map_err(|e| format!("eth_getBlockByNumber call failed {:?}", e))?;
+                .map_err(|e| format!("{} call failed {:?}", method, e))?;
 
             let hash: Vec<u8> = hex_to_bytes(
                 response
@@ -521,22 +525,32 @@ pub mod deposit_methods {
 pub struct HttpJsonRpc {
     pub client: Client,
     pub url: SensitiveUrl,
+    pub execution_timeout_multiplier: u32,
     auth: Option<Auth>,
 }
 
 impl HttpJsonRpc {
-    pub fn new(url: SensitiveUrl) -> Result<Self, Error> {
+    pub fn new(
+        url: SensitiveUrl,
+        execution_timeout_multiplier: Option<u32>,
+    ) -> Result<Self, Error> {
         Ok(Self {
             client: Client::builder().build()?,
             url,
+            execution_timeout_multiplier: execution_timeout_multiplier.unwrap_or(1),
             auth: None,
         })
     }
 
-    pub fn new_with_auth(url: SensitiveUrl, auth: Auth) -> Result<Self, Error> {
+    pub fn new_with_auth(
+        url: SensitiveUrl,
+        auth: Auth,
+        execution_timeout_multiplier: Option<u32>,
+    ) -> Result<Self, Error> {
         Ok(Self {
             client: Client::builder().build()?,
             url,
+            execution_timeout_multiplier: execution_timeout_multiplier.unwrap_or(1),
             auth: Some(auth),
         })
     }
@@ -593,7 +607,11 @@ impl std::fmt::Display for HttpJsonRpc {
 impl HttpJsonRpc {
     pub async fn upcheck(&self) -> Result<(), Error> {
         let result: serde_json::Value = self
-            .rpc_request(ETH_SYNCING, json!([]), ETH_SYNCING_TIMEOUT)
+            .rpc_request(
+                ETH_SYNCING,
+                json!([]),
+                ETH_SYNCING_TIMEOUT * self.execution_timeout_multiplier,
+            )
             .await?;
 
         /*
@@ -617,7 +635,7 @@ impl HttpJsonRpc {
         self.rpc_request(
             ETH_GET_BLOCK_BY_NUMBER,
             params,
-            ETH_GET_BLOCK_BY_NUMBER_TIMEOUT,
+            ETH_GET_BLOCK_BY_NUMBER_TIMEOUT * self.execution_timeout_multiplier,
         )
         .await
     }
@@ -628,8 +646,12 @@ impl HttpJsonRpc {
     ) -> Result<Option<ExecutionBlock>, Error> {
         let params = json!([block_hash, RETURN_FULL_TRANSACTION_OBJECTS]);
 
-        self.rpc_request(ETH_GET_BLOCK_BY_HASH, params, ETH_GET_BLOCK_BY_HASH_TIMEOUT)
-            .await
+        self.rpc_request(
+            ETH_GET_BLOCK_BY_HASH,
+            params,
+            ETH_GET_BLOCK_BY_HASH_TIMEOUT * self.execution_timeout_multiplier,
+        )
+        .await
     }
 
     pub async fn get_block_by_hash_with_txns<T: EthSpec>(
@@ -637,8 +659,12 @@ impl HttpJsonRpc {
         block_hash: ExecutionBlockHash,
     ) -> Result<Option<ExecutionBlockWithTransactions<T>>, Error> {
         let params = json!([block_hash, true]);
-        self.rpc_request(ETH_GET_BLOCK_BY_HASH, params, ETH_GET_BLOCK_BY_HASH_TIMEOUT)
-            .await
+        self.rpc_request(
+            ETH_GET_BLOCK_BY_HASH,
+            params,
+            ETH_GET_BLOCK_BY_HASH_TIMEOUT * self.execution_timeout_multiplier,
+        )
+        .await
     }
 
     pub async fn new_payload_v1<T: EthSpec>(
@@ -648,7 +674,11 @@ impl HttpJsonRpc {
         let params = json!([JsonExecutionPayload::from(execution_payload)]);
 
         let response: JsonPayloadStatusV1 = self
-            .rpc_request(ENGINE_NEW_PAYLOAD_V1, params, ENGINE_NEW_PAYLOAD_TIMEOUT)
+            .rpc_request(
+                ENGINE_NEW_PAYLOAD_V1,
+                params,
+                ENGINE_NEW_PAYLOAD_TIMEOUT * self.execution_timeout_multiplier,
+            )
             .await?;
 
         Ok(response.into())
@@ -661,7 +691,11 @@ impl HttpJsonRpc {
         let params = json!([JsonPayloadIdRequest::from(payload_id)]);
 
         let response: JsonExecutionPayload<T> = self
-            .rpc_request(ENGINE_GET_PAYLOAD_V1, params, ENGINE_GET_PAYLOAD_TIMEOUT)
+            .rpc_request(
+                ENGINE_GET_PAYLOAD_V1,
+                params,
+                ENGINE_GET_PAYLOAD_TIMEOUT * self.execution_timeout_multiplier,
+            )
             .await?;
 
         Ok(response.into())
@@ -698,7 +732,7 @@ impl HttpJsonRpc {
             .rpc_request(
                 ENGINE_FORKCHOICE_UPDATED_V1,
                 params,
-                ENGINE_FORKCHOICE_UPDATED_TIMEOUT,
+                ENGINE_FORKCHOICE_UPDATED_TIMEOUT * self.execution_timeout_multiplier,
             )
             .await?;
 
@@ -715,7 +749,8 @@ impl HttpJsonRpc {
             .rpc_request(
                 ENGINE_EXCHANGE_TRANSITION_CONFIGURATION_V1,
                 params,
-                ENGINE_EXCHANGE_TRANSITION_CONFIGURATION_V1_TIMEOUT,
+                ENGINE_EXCHANGE_TRANSITION_CONFIGURATION_V1_TIMEOUT
+                    * self.execution_timeout_multiplier,
             )
             .await?;
 
@@ -755,13 +790,13 @@ mod test {
                 let echo_auth =
                     Auth::new(JwtKey::from_slice(&DEFAULT_JWT_SECRET).unwrap(), None, None);
                 (
-                    Arc::new(HttpJsonRpc::new_with_auth(rpc_url, rpc_auth).unwrap()),
-                    Arc::new(HttpJsonRpc::new_with_auth(echo_url, echo_auth).unwrap()),
+                    Arc::new(HttpJsonRpc::new_with_auth(rpc_url, rpc_auth, None).unwrap()),
+                    Arc::new(HttpJsonRpc::new_with_auth(echo_url, echo_auth, None).unwrap()),
                 )
             } else {
                 (
-                    Arc::new(HttpJsonRpc::new(rpc_url).unwrap()),
-                    Arc::new(HttpJsonRpc::new(echo_url).unwrap()),
+                    Arc::new(HttpJsonRpc::new(rpc_url, None).unwrap()),
+                    Arc::new(HttpJsonRpc::new(echo_url, None).unwrap()),
                 )
             };
 

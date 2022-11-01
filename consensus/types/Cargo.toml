@@ -1,6 +1,6 @@
 [package]
 name = "types"
-version = "0.2.0"
+version = "0.2.1"
 authors = ["Paul Hauner <paul@paulhauner.com>", "Age Manning <Age@AgeManning.com>"]
 edition = "2021"
 

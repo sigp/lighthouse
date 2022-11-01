@@ -811,7 +811,6 @@ async fn shuffling_compatible_linear_chain() {
     let store = get_store(&db_path);
     let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
 
-    // Skip the block at the end of the first epoch.
     let head_block_root = harness
         .extend_chain(
             4 * E::slots_per_epoch() as usize,
@@ -824,10 +823,6 @@ async fn shuffling_compatible_linear_chain() {
         &harness,
         &get_state_for_block(&harness, head_block_root),
         head_block_root,
-        true,
-        true,
-        None,
-        None,
     );
 }
 
@@ -859,10 +854,6 @@ async fn shuffling_compatible_missing_pivot_block() {
         &harness,
         &get_state_for_block(&harness, head_block_root),
         head_block_root,
-        true,
-        true,
-        Some(E::slots_per_epoch() - 2),
-        Some(E::slots_per_epoch() - 2),
     );
 }
 
@@ -880,10 +871,10 @@ async fn shuffling_compatible_simple_fork() {
     let head1_state = get_state_for_block(&harness, head1);
     let head2_state = get_state_for_block(&harness, head2);
 
-    check_shuffling_compatible(&harness, &head1_state, head1, true, true, None, None);
-    check_shuffling_compatible(&harness, &head1_state, head2, false, false, None, None);
-    check_shuffling_compatible(&harness, &head2_state, head1, false, false, None, None);
-    check_shuffling_compatible(&harness, &head2_state, head2, true, true, None, None);
+    check_shuffling_compatible(&harness, &head1_state, head1);
+    check_shuffling_compatible(&harness, &head1_state, head2);
+    check_shuffling_compatible(&harness, &head2_state, head1);
+    check_shuffling_compatible(&harness, &head2_state, head2);
 
     drop(db_path);
 }
@@ -902,21 +893,10 @@ async fn shuffling_compatible_short_fork() {
     let head1_state = get_state_for_block(&harness, head1);
     let head2_state = get_state_for_block(&harness, head2);
 
-    check_shuffling_compatible(&harness, &head1_state, head1, true, true, None, None);
-    check_shuffling_compatible(&harness, &head1_state, head2, false, true, None, None);
-    // NOTE: don't check this case, as block 14 from the first chain appears valid on the second
-    // chain due to it matching the second chain's block 15.
-    // check_shuffling_compatible(&harness, &head2_state, head1, false, true, None, None);
-    check_shuffling_compatible(
-        &harness,
-        &head2_state,
-        head2,
-        true,
-        true,
-        // Required because of the skipped slot.
-        Some(2 * E::slots_per_epoch() - 2),
-        None,
-    );
+    check_shuffling_compatible(&harness, &head1_state, head1);
+    check_shuffling_compatible(&harness, &head1_state, head2);
+    check_shuffling_compatible(&harness, &head2_state, head1);
+    check_shuffling_compatible(&harness, &head2_state, head2);
 
     drop(db_path);
 }
@@ -940,54 +920,82 @@ fn check_shuffling_compatible(
     harness: &TestHarness,
     head_state: &BeaconState<E>,
     head_block_root: Hash256,
-    current_epoch_valid: bool,
-    previous_epoch_valid: bool,
-    current_epoch_cutoff_slot: Option<u64>,
-    previous_epoch_cutoff_slot: Option<u64>,
 ) {
-    let shuffling_lookahead = harness.chain.spec.min_seed_lookahead.as_u64() + 1;
-    let current_pivot_slot =
-        (head_state.current_epoch() - shuffling_lookahead).end_slot(E::slots_per_epoch());
-    let previous_pivot_slot =
-        (head_state.previous_epoch() - shuffling_lookahead).end_slot(E::slots_per_epoch());
-
     for maybe_tuple in harness
         .chain
         .rev_iter_block_roots_from(head_block_root)
         .unwrap()
     {
         let (block_root, slot) = maybe_tuple.unwrap();
-        // Shuffling is compatible targeting the current epoch,
-        // if slot is greater than or equal to the current epoch pivot block.
-        assert_eq!(
-            harness.chain.shuffling_is_compatible(
-                &block_root,
+
+        // Would an attestation to `block_root` at the current epoch be compatible with the head
+        // state's shuffling?
+        let current_epoch_shuffling_is_compatible = harness.chain.shuffling_is_compatible(
+            &block_root,
+            head_state.current_epoch(),
+            &head_state,
+        );
+
+        // Check for consistency with the more expensive shuffling lookup.
+        harness
+            .chain
+            .with_committee_cache(
+                block_root,
                 head_state.current_epoch(),
-                &head_state
-            ),
-            current_epoch_valid
-                && slot >= current_epoch_cutoff_slot.unwrap_or(current_pivot_slot.as_u64())
-        );
+                |committee_cache, _| {
+                    let state_cache = head_state.committee_cache(RelativeEpoch::Current).unwrap();
+                    if current_epoch_shuffling_is_compatible {
+                        assert_eq!(committee_cache, state_cache, "block at slot {slot}");
+                    } else {
+                        assert_ne!(committee_cache, state_cache, "block at slot {slot}");
+                    }
+                    Ok(())
+                },
+            )
+            .unwrap_or_else(|e| {
+                // If the lookup fails then the shuffling must be invalid in some way, e.g. the
+                // block with `block_root` is from a later epoch than `previous_epoch`.
+                assert!(
+                    !current_epoch_shuffling_is_compatible,
+                    "block at slot {slot} has compatible shuffling at epoch {} \
+                     but should be incompatible due to error: {e:?}",
+                    head_state.current_epoch()
+                );
+            });
+
         // Similarly for the previous epoch
-        assert_eq!(
-            harness.chain.shuffling_is_compatible(
-                &block_root,
+        let previous_epoch_shuffling_is_compatible = harness.chain.shuffling_is_compatible(
+            &block_root,
+            head_state.previous_epoch(),
+            &head_state,
+        );
+        harness
+            .chain
+            .with_committee_cache(
+                block_root,
                 head_state.previous_epoch(),
-                &head_state
-            ),
-            previous_epoch_valid
-                && slot >= previous_epoch_cutoff_slot.unwrap_or(previous_pivot_slot.as_u64())
-        );
-        // Targeting the next epoch should always return false
-        assert_eq!(
-            harness.chain.shuffling_is_compatible(
-                &block_root,
-                head_state.current_epoch() + 1,
-                &head_state
-            ),
-            false
-        );
-        // Targeting two epochs before the current epoch should also always return false
+                |committee_cache, _| {
+                    let state_cache = head_state.committee_cache(RelativeEpoch::Previous).unwrap();
+                    if previous_epoch_shuffling_is_compatible {
+                        assert_eq!(committee_cache, state_cache);
+                    } else {
+                        assert_ne!(committee_cache, state_cache);
+                    }
+                    Ok(())
+                },
+            )
+            .unwrap_or_else(|e| {
+                // If the lookup fails then the shuffling must be invalid in some way, e.g. the
+                // block with `block_root` is from a later epoch than `previous_epoch`.
+                assert!(
+                    !previous_epoch_shuffling_is_compatible,
+                    "block at slot {slot} has compatible shuffling at epoch {} \
+                     but should be incompatible due to error: {e:?}",
+                    head_state.previous_epoch()
+                );
+            });
+
+        // Targeting two epochs before the current epoch should always return false
         if head_state.current_epoch() >= 2 {
             assert_eq!(
                 harness.chain.shuffling_is_compatible(

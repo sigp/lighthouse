@@ -15,6 +15,7 @@ pub mod chain_config;
 mod early_attester_cache;
 mod errors;
 pub mod eth1_chain;
+mod eth1_finalization_cache;
 pub mod events;
 pub mod execution_payload;
 pub mod fork_choice_signal;

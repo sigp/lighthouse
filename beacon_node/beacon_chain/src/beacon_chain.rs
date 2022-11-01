@@ -18,6 +18,7 @@ use crate::chain_config::ChainConfig;
 use crate::early_attester_cache::EarlyAttesterCache;
 use crate::errors::{BeaconChainError as Error, BlockProductionError};
 use crate::eth1_chain::{Eth1Chain, Eth1ChainBackend};
+use crate::eth1_finalization_cache::{Eth1FinalizationCache, Eth1FinalizationData};
 use crate::events::ServerSentEventHandler;
 use crate::execution_payload::get_execution_payload;
 use crate::execution_payload::PreparePayloadHandle;
@@ -85,7 +86,7 @@ use state_processing::{
     },
     per_slot_processing,
     state_advance::{complete_state_advance, partial_state_advance},
-    BlockSignatureStrategy, SigVerifiedOp, VerifyBlockRoot, VerifyOperation,
+    BlockSignatureStrategy, ConsensusContext, SigVerifiedOp, VerifyBlockRoot, VerifyOperation,
 };
 use std::cmp::Ordering;
 use std::collections::HashMap;
@@ -118,6 +119,9 @@ pub const ATTESTATION_CACHE_LOCK_TIMEOUT: Duration = Duration::from_secs(1);
 /// The time-out before failure during an operation to take a read/write RwLock on the
 /// validator pubkey cache.
 pub const VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT: Duration = Duration::from_secs(1);
+
+/// The timeout for the eth1 finalization cache
+pub const ETH1_FINALIZATION_CACHE_LOCK_TIMEOUT: Duration = Duration::from_millis(200);
 
 // These keys are all zero because they get stored in different columns, see `DBColumn` type.
 pub const BEACON_CHAIN_DB_KEY: Hash256 = Hash256::zero();
@@ -361,6 +365,8 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub(crate) snapshot_cache: TimeoutRwLock<SnapshotCache<T::EthSpec>>,
     /// Caches the attester shuffling for a given epoch and shuffling key root.
     pub shuffling_cache: TimeoutRwLock<ShufflingCache>,
+    /// A cache of eth1 deposit data at epoch boundaries for deposit finalization
+    pub eth1_finalization_cache: TimeoutRwLock<Eth1FinalizationCache>,
     /// Caches the beacon block proposer shuffling for a given epoch and shuffling key root.
     pub beacon_proposer_cache: Mutex<BeaconProposerCache>,
     /// Caches a map of `validator_index -> validator_pubkey`.
@@ -2013,60 +2019,75 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         target_epoch: Epoch,
         state: &BeaconState<T::EthSpec>,
     ) -> bool {
-        let slots_per_epoch = T::EthSpec::slots_per_epoch();
-        let shuffling_lookahead = 1 + self.spec.min_seed_lookahead.as_u64();
-
-        // Shuffling can't have changed if we're in the first few epochs
-        if state.current_epoch() < shuffling_lookahead {
-            return true;
-        }
-
-        // Otherwise the shuffling is determined by the block at the end of the target epoch
-        // minus the shuffling lookahead (usually 2). We call this the "pivot".
-        let pivot_slot =
-            if target_epoch == state.previous_epoch() || target_epoch == state.current_epoch() {
-                (target_epoch - shuffling_lookahead).end_slot(slots_per_epoch)
-            } else {
-                return false;
-            };
-
-        let state_pivot_block_root = match state.get_block_root(pivot_slot) {
-            Ok(root) => *root,
-            Err(e) => {
-                warn!(
-                    &self.log,
-                    "Missing pivot block root for attestation";
-                    "slot" => pivot_slot,
-                    "error" => ?e,
-                );
-                return false;
-            }
-        };
-
-        // Use fork choice's view of the block DAG to quickly evaluate whether the attestation's
-        // pivot block is the same as the current state's pivot block. If it is, then the
-        // attestation's shuffling is the same as the current state's.
-        // To account for skipped slots, find the first block at *or before* the pivot slot.
-        let fork_choice_lock = self.canonical_head.fork_choice_read_lock();
-        let pivot_block_root = fork_choice_lock
-            .proto_array()
-            .core_proto_array()
-            .iter_block_roots(block_root)
-            .find(|(_, slot)| *slot <= pivot_slot)
-            .map(|(block_root, _)| block_root);
-        drop(fork_choice_lock);
-
-        match pivot_block_root {
-            Some(root) => root == state_pivot_block_root,
-            None => {
+        self.shuffling_is_compatible_result(block_root, target_epoch, state)
+            .unwrap_or_else(|e| {
                 debug!(
-                    &self.log,
-                    "Discarding attestation because of missing ancestor";
-                    "pivot_slot" => pivot_slot.as_u64(),
+                    self.log,
+                    "Skipping attestation with incompatible shuffling";
                     "block_root" => ?block_root,
+                    "target_epoch" => target_epoch,
+                    "reason" => ?e,
                 );
                 false
+            })
+    }
+
+    fn shuffling_is_compatible_result(
+        &self,
+        block_root: &Hash256,
+        target_epoch: Epoch,
+        state: &BeaconState<T::EthSpec>,
+    ) -> Result<bool, Error> {
+        // Compute the shuffling ID for the head state in the `target_epoch`.
+        let relative_epoch = RelativeEpoch::from_epoch(state.current_epoch(), target_epoch)
+            .map_err(|e| Error::BeaconStateError(e.into()))?;
+        let head_shuffling_id =
+            AttestationShufflingId::new(self.genesis_block_root, state, relative_epoch)?;
+
+        // Load the block's shuffling ID from fork choice. We use the variant of `get_block` that
+        // checks descent from the finalized block, so there's one case where we'll spuriously
+        // return `false`: where an attestation for the previous epoch nominates the pivot block
+        // which is the parent block of the finalized block. Such attestations are not useful, so
+        // this doesn't matter.
+        let fork_choice_lock = self.canonical_head.fork_choice_read_lock();
+        let block = fork_choice_lock
+            .get_block(block_root)
+            .ok_or(Error::AttestationHeadNotInForkChoice(*block_root))?;
+        drop(fork_choice_lock);
+
+        let block_shuffling_id = if target_epoch == block.current_epoch_shuffling_id.shuffling_epoch
+        {
+            block.current_epoch_shuffling_id
+        } else if target_epoch == block.next_epoch_shuffling_id.shuffling_epoch {
+            block.next_epoch_shuffling_id
+        } else if target_epoch > block.next_epoch_shuffling_id.shuffling_epoch {
+            AttestationShufflingId {
+                shuffling_epoch: target_epoch,
+                shuffling_decision_block: *block_root,
             }
+        } else {
+            debug!(
+                self.log,
+                "Skipping attestation with incompatible shuffling";
+                "block_root" => ?block_root,
+                "target_epoch" => target_epoch,
+                "reason" => "target epoch less than block epoch"
+            );
+            return Ok(false);
+        };
+
+        if head_shuffling_id == block_shuffling_id {
+            Ok(true)
+        } else {
+            debug!(
+                self.log,
+                "Skipping attestation with incompatible shuffling";
+                "block_root" => ?block_root,
+                "target_epoch" => target_epoch,
+                "head_shuffling_id" => ?head_shuffling_id,
+                "block_shuffling_id" => ?block_shuffling_id,
+            );
+            Ok(false)
         }
     }
 
@@ -2538,9 +2559,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             block,
             block_root,
             state,
-            parent_block: _,
+            parent_block,
             confirmed_state_roots,
             payload_verification_handle,
+            parent_eth1_finalization_data,
         } = execution_pending_block;
 
         let PayloadVerificationOutcome {
@@ -2592,6 +2614,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         confirmed_state_roots,
                         payload_verification_status,
                         count_unrealized,
+                        parent_block,
+                        parent_eth1_finalization_data,
                     )
                 },
                 "payload_verification_handle",
@@ -2606,6 +2630,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// An error is returned if the block was unable to be imported. It may be partially imported
     /// (i.e., this function is not atomic).
+    #[allow(clippy::too_many_arguments)]
     fn import_block(
         &self,
         signed_block: Arc<SignedBeaconBlock<T::EthSpec>>,
@@ -2614,6 +2639,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         confirmed_state_roots: Vec<Hash256>,
         payload_verification_status: PayloadVerificationStatus,
         count_unrealized: CountUnrealized,
+        parent_block: SignedBlindedBeaconBlock<T::EthSpec>,
+        parent_eth1_finalization_data: Eth1FinalizationData,
     ) -> Result<Hash256, BlockError<T::EthSpec>> {
         let current_slot = self.slot()?;
         let current_epoch = current_slot.epoch(T::EthSpec::slots_per_epoch());
@@ -2994,6 +3021,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let parent_root = block.parent_root();
         let slot = block.slot();
 
+        let current_eth1_finalization_data = Eth1FinalizationData {
+            eth1_data: state.eth1_data().clone(),
+            eth1_deposit_index: state.eth1_deposit_index(),
+        };
+        let current_finalized_checkpoint = state.finalized_checkpoint();
         self.snapshot_cache
             .try_write_for(BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT)
             .ok_or(Error::SnapshotCacheLockTimeout)
@@ -3065,6 +3097,57 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     .imported
                     .unwrap_or_else(|| Duration::from_secs(0)),
             );
+        }
+
+        // Do not write to eth1 finalization cache for blocks older than 5 epochs
+        // this helps reduce noise during sync
+        if block_delay_total
+            < self.slot_clock.slot_duration() * 5 * (T::EthSpec::slots_per_epoch() as u32)
+        {
+            let parent_block_epoch = parent_block.slot().epoch(T::EthSpec::slots_per_epoch());
+            if parent_block_epoch < current_epoch {
+                // we've crossed epoch boundary, store Eth1FinalizationData
+                let (checkpoint, eth1_finalization_data) =
+                    if current_slot % T::EthSpec::slots_per_epoch() == 0 {
+                        // current block is the checkpoint
+                        (
+                            Checkpoint {
+                                epoch: current_epoch,
+                                root: block_root,
+                            },
+                            current_eth1_finalization_data,
+                        )
+                    } else {
+                        // parent block is the checkpoint
+                        (
+                            Checkpoint {
+                                epoch: current_epoch,
+                                root: parent_block.canonical_root(),
+                            },
+                            parent_eth1_finalization_data,
+                        )
+                    };
+
+                if let Some(finalized_eth1_data) = self
+                    .eth1_finalization_cache
+                    .try_write_for(ETH1_FINALIZATION_CACHE_LOCK_TIMEOUT)
+                    .and_then(|mut cache| {
+                        cache.insert(checkpoint, eth1_finalization_data);
+                        cache.finalize(&current_finalized_checkpoint)
+                    })
+                {
+                    if let Some(eth1_chain) = self.eth1_chain.as_ref() {
+                        let finalized_deposit_count = finalized_eth1_data.deposit_count;
+                        eth1_chain.finalize_eth1_data(finalized_eth1_data);
+                        debug!(
+                            self.log,
+                            "called eth1_chain.finalize_eth1_data()";
+                            "epoch" => current_finalized_checkpoint.epoch,
+                            "deposit count" => finalized_deposit_count,
+                        );
+                    }
+                }
+            }
         }
 
         // Inform the unknown block cache, in case it was waiting on this block.
@@ -3525,7 +3608,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         let slot = state.slot();
-        let proposer_index = state.get_beacon_proposer_index(state.slot(), &self.spec)? as u64;
 
         let sync_aggregate = if matches!(&state, BeaconState::Base(_)) {
             None
@@ -3721,12 +3803,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             ProduceBlockVerification::VerifyRandao => BlockSignatureStrategy::VerifyRandao,
             ProduceBlockVerification::NoVerification => BlockSignatureStrategy::NoVerification,
         };
+        // Use a context without block root or proposer index so that both are checked.
+        let mut ctxt = ConsensusContext::new(block.slot());
         per_block_processing(
             &mut state,
             &block,
-            None,
             signature_strategy,
             VerifyBlockRoot::True,
+            &mut ctxt,
             &self.spec,
         )?;
         drop(process_timer);
@@ -4552,7 +4636,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// If the committee for `(head_block_root, shuffling_epoch)` isn't found in the
     /// `shuffling_cache`, we will read a state from disk and then update the `shuffling_cache`.
-    pub(crate) fn with_committee_cache<F, R>(
+    pub fn with_committee_cache<F, R>(
         &self,
         head_block_root: Hash256,
         shuffling_epoch: Epoch,

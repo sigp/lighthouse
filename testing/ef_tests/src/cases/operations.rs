@@ -5,15 +5,17 @@ use crate::decode::{ssz_decode_file, ssz_decode_file_with, ssz_decode_state, yam
 use crate::testing_spec;
 use crate::type_name::TypeName;
 use serde_derive::Deserialize;
-use ssz::Decode;
-use state_processing::per_block_processing::{
-    errors::BlockProcessingError,
-    process_block_header, process_execution_payload,
-    process_operations::{
-        altair, base, process_attester_slashings, process_deposits, process_exits,
-        process_proposer_slashings,
+use state_processing::{
+    per_block_processing::{
+        errors::BlockProcessingError,
+        process_block_header, process_execution_payload,
+        process_operations::{
+            altair, base, process_attester_slashings, process_deposits, process_exits,
+            process_proposer_slashings,
+        },
+        process_sync_aggregate, VerifyBlockRoot, VerifySignatures,
     },
-    process_sync_aggregate, VerifyBlockRoot, VerifySignatures,
+    ConsensusContext,
 };
 use std::fmt::Debug;
 use std::path::Path;
@@ -77,16 +79,20 @@ impl<E: EthSpec> Operation<E> for Attestation<E> {
         spec: &ChainSpec,
         _: &Operations<E, Self>,
     ) -> Result<(), BlockProcessingError> {
-        let proposer_index = state.get_beacon_proposer_index(state.slot(), spec)? as u64;
+        let mut ctxt = ConsensusContext::new(state.slot());
+        let proposer_index = ctxt.get_proposer_index(state, spec)?;
         match state {
-            BeaconState::Base(_) => {
-                base::process_attestations(state, &[self.clone()], VerifySignatures::True, spec)
-            }
+            BeaconState::Base(_) => base::process_attestations(
+                state,
+                &[self.clone()],
+                VerifySignatures::True,
+                &mut ctxt,
+                spec,
+            ),
             BeaconState::Altair(_)
             | BeaconState::Merge(_)
             | BeaconState::Capella(_)
-            | BeaconState::Eip4844(_) => altair::process_attestation(
-                state,
+            | BeaconState::Eip4844(_) => altair::process_attestation(                state,
                 self,
                 0,
                 proposer_index,
@@ -112,13 +118,25 @@ impl<E: EthSpec> Operation<E> for AttesterSlashing<E> {
         spec: &ChainSpec,
         _: &Operations<E, Self>,
     ) -> Result<(), BlockProcessingError> {
-        process_attester_slashings(state, &[self.clone()], VerifySignatures::True, spec)
+        let mut ctxt = ConsensusContext::new(state.slot());
+        process_attester_slashings(
+            state,
+            &[self.clone()],
+            VerifySignatures::True,
+            &mut ctxt,
+            spec,
+        )
     }
 }
 
 impl<E: EthSpec> Operation<E> for Deposit {
     fn decode(path: &Path, _spec: &ChainSpec) -> Result<Self, Error> {
         ssz_decode_file(path)
+    }
+
+    fn is_enabled_for_fork(_: ForkName) -> bool {
+        // Some deposit tests require signature verification but are not marked as such.
+        cfg!(not(feature = "fake_crypto"))
     }
 
     fn apply_to(
@@ -146,7 +164,14 @@ impl<E: EthSpec> Operation<E> for ProposerSlashing {
         spec: &ChainSpec,
         _: &Operations<E, Self>,
     ) -> Result<(), BlockProcessingError> {
-        process_proposer_slashings(state, &[self.clone()], VerifySignatures::True, spec)
+        let mut ctxt = ConsensusContext::new(state.slot());
+        process_proposer_slashings(
+            state,
+            &[self.clone()],
+            VerifySignatures::True,
+            &mut ctxt,
+            spec,
+        )
     }
 }
 
@@ -188,10 +213,12 @@ impl<E: EthSpec> Operation<E> for BeaconBlock<E> {
         spec: &ChainSpec,
         _: &Operations<E, Self>,
     ) -> Result<(), BlockProcessingError> {
+        let mut ctxt = ConsensusContext::new(state.slot());
         process_block_header(
             state,
             self.to_ref().temporary_block_header(),
             VerifyBlockRoot::True,
+            &mut ctxt,
             spec,
         )?;
         Ok(())

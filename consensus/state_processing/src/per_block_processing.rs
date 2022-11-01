@@ -1,3 +1,4 @@
+use crate::consensus_context::ConsensusContext;
 use errors::{BlockOperationError, BlockProcessingError, HeaderInvalid};
 use rayon::prelude::*;
 use safe_arith::{ArithError, SafeArith};
@@ -92,9 +93,9 @@ pub enum VerifyBlockRoot {
 pub fn per_block_processing<T: EthSpec, Payload: AbstractExecPayload<T>>(
     state: &mut BeaconState<T>,
     signed_block: &SignedBeaconBlock<T, Payload>,
-    block_root: Option<Hash256>,
     block_signature_strategy: BlockSignatureStrategy,
     verify_block_root: VerifyBlockRoot,
+    ctxt: &mut ConsensusContext<T>,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
     let block = signed_block.message();
@@ -112,6 +113,8 @@ pub fn per_block_processing<T: EthSpec, Payload: AbstractExecPayload<T>>(
     let verify_signatures = match block_signature_strategy {
         BlockSignatureStrategy::VerifyBulk => {
             // Verify all signatures in the block at once.
+            let block_root = Some(ctxt.get_current_block_root(signed_block)?);
+            let proposer_index = Some(ctxt.get_proposer_index(state, spec)?);
             block_verify!(
                 BlockSignatureVerifier::verify_entire_block(
                     state,
@@ -119,6 +122,7 @@ pub fn per_block_processing<T: EthSpec, Payload: AbstractExecPayload<T>>(
                     |pk_bytes| pk_bytes.decompress().ok().map(Cow::Owned),
                     signed_block,
                     block_root,
+                    proposer_index,
                     spec
                 )
                 .is_ok(),
@@ -135,11 +139,12 @@ pub fn per_block_processing<T: EthSpec, Payload: AbstractExecPayload<T>>(
         state,
         block.temporary_block_header(),
         verify_block_root,
+        ctxt,
         spec,
     )?;
 
     if verify_signatures.is_true() {
-        verify_block_signature(state, signed_block, block_root, spec)?;
+        verify_block_signature(state, signed_block, ctxt, spec)?;
     }
 
     let verify_randao = if let BlockSignatureStrategy::VerifyRandao = block_signature_strategy {
@@ -159,9 +164,9 @@ pub fn per_block_processing<T: EthSpec, Payload: AbstractExecPayload<T>>(
         process_execution_payload::<T, Payload>(state, payload, spec)?;
     }
 
-    process_randao(state, block, verify_randao, spec)?;
+    process_randao(state, block, verify_randao, ctxt, spec)?;
     process_eth1_data(state, block.body().eth1_data())?;
-    process_operations(state, block.body(), proposer_index, verify_signatures, spec)?;
+    process_operations(state, block.body(), verify_signatures, ctxt, spec)?;
 
     if let Ok(sync_aggregate) = block.body().sync_aggregate() {
         process_sync_aggregate(
@@ -183,6 +188,7 @@ pub fn process_block_header<T: EthSpec>(
     state: &mut BeaconState<T>,
     block_header: BeaconBlockHeader,
     verify_block_root: VerifyBlockRoot,
+    ctxt: &mut ConsensusContext<T>,
     spec: &ChainSpec,
 ) -> Result<u64, BlockOperationError<HeaderInvalid>> {
     // Verify that the slots match
@@ -201,8 +207,8 @@ pub fn process_block_header<T: EthSpec>(
     );
 
     // Verify that proposer index is the correct index
-    let proposer_index = block_header.proposer_index as usize;
-    let state_proposer_index = state.get_beacon_proposer_index(block_header.slot, spec)?;
+    let proposer_index = block_header.proposer_index;
+    let state_proposer_index = ctxt.get_proposer_index(state, spec)?;
     verify!(
         proposer_index == state_proposer_index,
         HeaderInvalid::ProposerIndexMismatch {
@@ -226,11 +232,11 @@ pub fn process_block_header<T: EthSpec>(
 
     // Verify proposer is not slashed
     verify!(
-        !state.get_validator(proposer_index)?.slashed,
+        !state.get_validator(proposer_index as usize)?.slashed,
         HeaderInvalid::ProposerSlashed(proposer_index)
     );
 
-    Ok(proposer_index as u64)
+    Ok(proposer_index)
 }
 
 /// Verifies the signature of a block.
@@ -239,15 +245,18 @@ pub fn process_block_header<T: EthSpec>(
 pub fn verify_block_signature<T: EthSpec, Payload: AbstractExecPayload<T>>(
     state: &BeaconState<T>,
     block: &SignedBeaconBlock<T, Payload>,
-    block_root: Option<Hash256>,
+    ctxt: &mut ConsensusContext<T>,
     spec: &ChainSpec,
 ) -> Result<(), BlockOperationError<HeaderInvalid>> {
+    let block_root = Some(ctxt.get_current_block_root(block)?);
+    let proposer_index = Some(ctxt.get_proposer_index(state, spec)?);
     verify!(
         block_proposal_signature_set(
             state,
             |i| get_pubkey_from_state(state, i),
             block,
             block_root,
+            proposer_index,
             spec
         )?
         .verify(),
@@ -263,12 +272,21 @@ pub fn process_randao<T: EthSpec, Payload: AbstractExecPayload<T>>(
     state: &mut BeaconState<T>,
     block: BeaconBlockRef<'_, T, Payload>,
     verify_signatures: VerifySignatures,
+    ctxt: &mut ConsensusContext<T>,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
     if verify_signatures.is_true() {
         // Verify RANDAO reveal signature.
+        let proposer_index = ctxt.get_proposer_index(state, spec)?;
         block_verify!(
-            randao_signature_set(state, |i| get_pubkey_from_state(state, i), block, spec)?.verify(),
+            randao_signature_set(
+                state,
+                |i| get_pubkey_from_state(state, i),
+                block,
+                Some(proposer_index),
+                spec
+            )?
+            .verify(),
             BlockProcessingError::RandaoSignatureInvalid
         );
     }

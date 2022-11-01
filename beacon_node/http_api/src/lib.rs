@@ -1535,6 +1535,53 @@ pub fn serve<T: BeaconChainTypes>(
             },
         );
 
+    // GET beacon/deposit_snapshot
+    let get_beacon_deposit_snapshot = eth_v1
+        .and(warp::path("beacon"))
+        .and(warp::path("deposit_snapshot"))
+        .and(warp::path::end())
+        .and(warp::header::optional::<api_types::Accept>("accept"))
+        .and(eth1_service_filter.clone())
+        .and_then(
+            |accept_header: Option<api_types::Accept>, eth1_service: eth1::Service| {
+                blocking_task(move || match accept_header {
+                    Some(api_types::Accept::Json) | None => {
+                        let snapshot = eth1_service.get_deposit_snapshot();
+                        Ok(
+                            warp::reply::json(&api_types::GenericResponse::from(snapshot))
+                                .into_response(),
+                        )
+                    }
+                    _ => eth1_service
+                        .get_deposit_snapshot()
+                        .map(|snapshot| {
+                            Response::builder()
+                                .status(200)
+                                .header("Content-Type", "application/octet-stream")
+                                .body(snapshot.as_ssz_bytes().into())
+                                .map_err(|e| {
+                                    warp_utils::reject::custom_server_error(format!(
+                                        "failed to create response: {}",
+                                        e
+                                    ))
+                                })
+                        })
+                        .unwrap_or_else(|| {
+                            Response::builder()
+                                .status(503)
+                                .header("Content-Type", "application/octet-stream")
+                                .body(Vec::new().into())
+                                .map_err(|e| {
+                                    warp_utils::reject::custom_server_error(format!(
+                                        "failed to create response: {}",
+                                        e
+                                    ))
+                                })
+                        }),
+                })
+            },
+        );
+
     /*
      * config
      */
@@ -3122,6 +3169,7 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(get_beacon_pool_attester_slashings.boxed())
                 .or(get_beacon_pool_proposer_slashings.boxed())
                 .or(get_beacon_pool_voluntary_exits.boxed())
+                .or(get_beacon_deposit_snapshot.boxed())
                 .or(get_config_fork_schedule.boxed())
                 .or(get_config_spec.boxed())
                 .or(get_config_deposit_contract.boxed())

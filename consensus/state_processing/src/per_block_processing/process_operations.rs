@@ -12,23 +12,25 @@ use types::consts::altair::{PARTICIPATION_FLAG_WEIGHTS, PROPOSER_WEIGHT, WEIGHT_
 pub fn process_operations<'a, T: EthSpec, Payload: AbstractExecPayload<T>>(
     state: &mut BeaconState<T>,
     block_body: BeaconBlockBodyRef<'a, T, Payload>,
-    proposer_index: u64,
     verify_signatures: VerifySignatures,
+    ctxt: &mut ConsensusContext<T>,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
     process_proposer_slashings(
         state,
         block_body.proposer_slashings(),
         verify_signatures,
+        ctxt,
         spec,
     )?;
     process_attester_slashings(
         state,
         block_body.attester_slashings(),
         verify_signatures,
+        ctxt,
         spec,
     )?;
-    process_attestations(state, block_body, proposer_index, verify_signatures, spec)?;
+    process_attestations(state, block_body, verify_signatures, ctxt, spec)?;
     process_deposits(state, block_body.deposits(), spec)?;
     process_exits(state, block_body.voluntary_exits(), verify_signatures, spec)?;
     Ok(())
@@ -45,12 +47,13 @@ pub mod base {
         state: &mut BeaconState<T>,
         attestations: &[Attestation<T>],
         verify_signatures: VerifySignatures,
+        ctxt: &mut ConsensusContext<T>,
         spec: &ChainSpec,
     ) -> Result<(), BlockProcessingError> {
         // Ensure the previous epoch cache exists.
         state.build_committee_cache(RelativeEpoch::Previous, spec)?;
 
-        let proposer_index = state.get_beacon_proposer_index(state.slot(), spec)? as u64;
+        let proposer_index = ctxt.get_proposer_index(state, spec)?;
 
         // Verify and apply each attestation.
         for (i, attestation) in attestations.iter().enumerate() {
@@ -87,10 +90,11 @@ pub mod altair {
     pub fn process_attestations<T: EthSpec>(
         state: &mut BeaconState<T>,
         attestations: &[Attestation<T>],
-        proposer_index: u64,
         verify_signatures: VerifySignatures,
+        ctxt: &mut ConsensusContext<T>,
         spec: &ChainSpec,
     ) -> Result<(), BlockProcessingError> {
+        let proposer_index = ctxt.get_proposer_index(state, spec)?;
         attestations
             .iter()
             .enumerate()
@@ -170,6 +174,7 @@ pub fn process_proposer_slashings<T: EthSpec>(
     state: &mut BeaconState<T>,
     proposer_slashings: &[ProposerSlashing],
     verify_signatures: VerifySignatures,
+    ctxt: &mut ConsensusContext<T>,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
     // Verify and apply proposer slashings in series.
@@ -186,6 +191,7 @@ pub fn process_proposer_slashings<T: EthSpec>(
                 state,
                 proposer_slashing.signed_header_1.message.proposer_index as usize,
                 None,
+                ctxt,
                 spec,
             )?;
 
@@ -201,6 +207,7 @@ pub fn process_attester_slashings<T: EthSpec>(
     state: &mut BeaconState<T>,
     attester_slashings: &[AttesterSlashing<T>],
     verify_signatures: VerifySignatures,
+    ctxt: &mut ConsensusContext<T>,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
     for (i, attester_slashing) in attester_slashings.iter().enumerate() {
@@ -211,7 +218,7 @@ pub fn process_attester_slashings<T: EthSpec>(
             get_slashable_indices(state, attester_slashing).map_err(|e| e.into_with_index(i))?;
 
         for i in slashable_indices {
-            slash_validator(state, i as usize, None, spec)?;
+            slash_validator(state, i as usize, None, ctxt, spec)?;
         }
     }
 
@@ -222,13 +229,19 @@ pub fn process_attester_slashings<T: EthSpec>(
 pub fn process_attestations<'a, T: EthSpec, Payload: AbstractExecPayload<T>>(
     state: &mut BeaconState<T>,
     block_body: BeaconBlockBodyRef<'a, T, Payload>,
-    proposer_index: u64,
     verify_signatures: VerifySignatures,
+    ctxt: &mut ConsensusContext<T>,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
     match block_body {
         BeaconBlockBodyRef::Base(_) => {
-            base::process_attestations(state, block_body.attestations(), verify_signatures, spec)?;
+            base::process_attestations(
+                state,
+                block_body.attestations(),
+                verify_signatures,
+                ctxt,
+                spec,
+            )?;
         }
         BeaconBlockBodyRef::Altair(_)
         | BeaconBlockBodyRef::Merge(_)
@@ -237,8 +250,8 @@ pub fn process_attestations<'a, T: EthSpec, Payload: AbstractExecPayload<T>>(
             altair::process_attestations(
                 state,
                 block_body.attestations(),
-                proposer_index,
                 verify_signatures,
+                ctxt,
                 spec,
             )?;
         }

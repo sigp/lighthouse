@@ -11,7 +11,7 @@ backed up, all validator keys can be trivially re-generated.
 
 The 24-word string is randomly generated during wallet creation and printed out
 to the terminal. It's important to **make one or more backups of the mnemonic**
-to ensure your ETH is not lost in the case of data loss. It very important to
+to ensure your ETH is not lost in the case of data loss. It is very important to
 **keep your mnemonic private** as it represents the ultimate control of your
 ETH.
 
