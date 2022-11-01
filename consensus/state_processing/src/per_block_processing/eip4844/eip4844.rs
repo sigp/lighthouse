@@ -1,6 +1,7 @@
 use crate::BlockProcessingError;
 use eth2_hashing::hash_fixed;
 use itertools::{EitherOrBoth, Itertools};
+use safe_arith::SafeArith;
 use ssz::Decode;
 use ssz_types::VariableList;
 use types::consts::eip4844::{BLOB_TX_TYPE, VERSIONED_HASH_VERSION_KZG};
@@ -39,7 +40,7 @@ pub fn verify_kzg_commitments_against_transactions<T: EthSpec>(
         })
         .map(|tx| tx_peek_blob_versioned_hashes::<T>(tx));
 
-    itertools::process_results(nested_iter, |mut iter| {
+    itertools::process_results(nested_iter, |iter| {
         let zipped_iter = iter
             .flatten()
             // Need to use `itertools::zip_longest` here because just zipping hides if one iter is shorter
@@ -52,12 +53,12 @@ pub fn verify_kzg_commitments_against_transactions<T: EthSpec>(
                 // commitments in the block.
                 EitherOrBoth::Left(_) => Err(BlockProcessingError::BlobNumCommitmentsMismatch {
                     commitments_processed_in_block: index,
-                    commitments_processed_in_transactions: index + 1,
+                    commitments_processed_in_transactions: index.safe_add(1)?,
                 }),
                 // The number of commitments in the block exceeds the number of versioned hashes
                 // in the blob transactions.
                 EitherOrBoth::Right(_) => Err(BlockProcessingError::BlobNumCommitmentsMismatch {
-                    commitments_processed_in_block: index + 1,
+                    commitments_processed_in_block: index.safe_add(1)?,
                     commitments_processed_in_transactions: index,
                 }),
             });
@@ -78,35 +79,37 @@ fn tx_peek_blob_versioned_hashes<T: EthSpec>(
     BlockProcessingError,
 > {
     let tx_len = opaque_tx.len();
-    let message_offset = 1 + u32::from_ssz_bytes(opaque_tx.get(1..5).ok_or(
+    let message_offset = 1.safe_add(u32::from_ssz_bytes(opaque_tx.get(1..5).ok_or(
         BlockProcessingError::BlobVersionHashIndexOutOfBounds {
             length: tx_len,
             index: 5,
         },
-    )?)?;
+    )?)?)?;
 
     let message_offset_usize = message_offset as usize;
 
-    // field offset: 32 + 8 + 32 + 32 + 8 + 4 + 32 + 4 + 4 = 156
-    let blob_versioned_hashes_offset = message_offset
-        + u32::from_ssz_bytes(
-            opaque_tx
-                .get((message_offset_usize + 156)..(message_offset_usize + 160))
-                .ok_or(BlockProcessingError::BlobVersionHashIndexOutOfBounds {
-                    length: tx_len,
-                    index: 160,
-                })?,
-        )?;
-
-    let num_hashes = (tx_len - blob_versioned_hashes_offset as usize) / 32;
-
-    Ok((0..num_hashes).into_iter().map(move |i| {
-        let next_version_hash_index = blob_versioned_hashes_offset as usize + (i * 32);
-        let bytes = opaque_tx
-            .get(next_version_hash_index..next_version_hash_index + 32)
+    // field offset: 32 + 8 + 32 + 32 + 8 + 4 + 32 + 4 + 4 + 32 = 188
+    let blob_versioned_hashes_offset = message_offset.safe_add(u32::from_ssz_bytes(
+        opaque_tx
+            .get(message_offset_usize.safe_add(188)?..message_offset_usize.safe_add(192)?)
             .ok_or(BlockProcessingError::BlobVersionHashIndexOutOfBounds {
                 length: tx_len,
-                index: next_version_hash_index as usize + 32,
+                index: message_offset_usize.safe_add(192)?,
+            })?,
+    )?)?;
+
+    let num_hashes = tx_len
+        .safe_sub(blob_versioned_hashes_offset as usize)?
+        .safe_div(32)?;
+
+    Ok((0..num_hashes).into_iter().map(move |i| {
+        let next_version_hash_index =
+            (blob_versioned_hashes_offset as usize).safe_add(i.safe_mul(32)?)?;
+        let bytes = opaque_tx
+            .get(next_version_hash_index..next_version_hash_index.safe_add(32)?)
+            .ok_or(BlockProcessingError::BlobVersionHashIndexOutOfBounds {
+                length: tx_len,
+                index: (next_version_hash_index as usize).safe_add(32)?,
             })?;
         Ok(VersionedHash::from_slice(bytes))
     }))
