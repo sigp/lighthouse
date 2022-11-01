@@ -35,6 +35,9 @@ pub trait ExecPayload<T: EthSpec>: Debug + Clone + PartialEq + Hash + TreeHash +
     fn fee_recipient(&self) -> Address;
     fn gas_limit(&self) -> u64;
 
+    /// This will return `None` on blinded blocks or pre-merge blocks.
+    fn transactions(&self) -> Option<&Transactions<T>>;
+
     // Is this a default payload? (pre-merge)
     fn is_default(&self) -> bool;
 }
@@ -191,6 +194,10 @@ impl<T: EthSpec> ExecPayload<T> for FullPayloadMerge<T> {
         self.execution_payload.gas_limit
     }
 
+    fn transactions(&self) -> Option<&Transactions<T>> {
+        Some(&self.execution_payload.transactions)
+    }
+
     // TODO: can this function be optimized?
     fn is_default(&self) -> bool {
         self.execution_payload == ExecutionPayloadMerge::default()
@@ -235,6 +242,10 @@ impl<T: EthSpec> ExecPayload<T> for FullPayloadCapella<T> {
         self.execution_payload.gas_limit
     }
 
+    fn transactions(&self) -> Option<&Transactions<T>> {
+        Some(&self.execution_payload.transactions)
+    }
+
     // TODO: can this function be optimized?
     fn is_default(&self) -> bool {
         self.execution_payload == ExecutionPayloadCapella::default()
@@ -277,6 +288,10 @@ impl<T: EthSpec> ExecPayload<T> for FullPayloadEip4844<T> {
 
     fn gas_limit(&self) -> u64 {
         self.execution_payload.gas_limit
+    }
+
+    fn transactions(&self) -> Option<&Transactions<T>> {
+        Some(&self.execution_payload.transactions)
     }
 
     // TODO: can this function be optimized?
@@ -344,6 +359,13 @@ impl<T: EthSpec> ExecPayload<T> for FullPayload<T> {
         map_full_payload_ref!(&'a _, self.to_ref(), move |payload, cons| {
             cons(payload);
             payload.execution_payload.gas_limit
+        })
+    }
+
+    fn transactions<'a>(&'a self) -> Option<&'a Transactions<T>> {
+        map_full_payload_ref!(&'a _, self.to_ref(), move |payload, cons| {
+            cons(payload);
+            Some(&payload.execution_payload.transactions)
         })
     }
 
@@ -425,6 +447,13 @@ impl<'b, T: EthSpec> ExecPayload<T> for FullPayloadRef<'b, T> {
         map_full_payload_ref!(&'a _, self, move |payload, cons| {
             cons(payload);
             payload.execution_payload.gas_limit
+        })
+    }
+
+    fn transactions<'a>(&'a self) -> Option<&'a Transactions<T>> {
+        map_full_payload_ref!(&'a _, self, move |payload, cons| {
+            cons(payload);
+            Some(&payload.execution_payload.transactions)
         })
     }
 
@@ -687,6 +716,10 @@ impl<T: EthSpec> ExecPayload<T> for BlindedPayload<T> {
         }
     }
 
+    fn transactions(&self) -> Option<&Transactions<T>> {
+        None
+    }
+
     // TODO: can this function be optimized?
     fn is_default(&self) -> bool {
         match self {
@@ -773,6 +806,10 @@ impl<'b, T: EthSpec> ExecPayload<T> for BlindedPayloadRef<'b, T> {
         }
     }
 
+    fn transactions(&self) -> Option<&Transactions<T>> {
+        None
+    }
+
     // TODO: can this function be optimized?
     fn is_default<'a>(&'a self) -> bool {
         match self {
@@ -828,6 +865,10 @@ impl<T: EthSpec> ExecPayload<T> for BlindedPayloadMerge<T> {
         self.execution_payload_header.gas_limit
     }
 
+    fn transactions(&self) -> Option<&Transactions<T>> {
+        None
+    }
+
     fn is_default(&self) -> bool {
         self.execution_payload_header == ExecutionPayloadHeaderMerge::default()
     }
@@ -871,6 +912,10 @@ impl<T: EthSpec> ExecPayload<T> for BlindedPayloadCapella<T> {
         self.execution_payload_header.gas_limit
     }
 
+    fn transactions(&self) -> Option<&Transactions<T>> {
+        None
+    }
+
     fn is_default(&self) -> bool {
         self.execution_payload_header == ExecutionPayloadHeaderCapella::default()
     }
@@ -912,6 +957,10 @@ impl<T: EthSpec> ExecPayload<T> for BlindedPayloadEip4844<T> {
 
     fn gas_limit(&self) -> u64 {
         self.execution_payload_header.gas_limit
+    }
+
+    fn transactions(&self) -> Option<&Transactions<T>> {
+        None
     }
 
     fn is_default(&self) -> bool {

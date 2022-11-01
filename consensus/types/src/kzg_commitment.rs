@@ -9,7 +9,7 @@ use tree_hash::{PackedEncoding, TreeHash};
 
 #[derive(Derivative, Debug, Clone, Serialize, Deserialize)]
 #[derivative(PartialEq, Eq, Hash)]
-pub struct KzgCommitment(#[serde(with = "BigArray")] [u8; 48]);
+pub struct KzgCommitment(#[serde(with = "BigArray")] pub [u8; 48]);
 
 impl Display for KzgCommitment {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {

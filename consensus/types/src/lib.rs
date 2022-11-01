@@ -193,6 +193,7 @@ pub type Address = H160;
 pub type ForkVersion = [u8; 4];
 pub type BLSFieldElement = Uint256;
 pub type Blob<T> = FixedVector<BLSFieldElement, <T as EthSpec>::FieldElementsPerBlob>;
+pub type VersionedHash = Hash256;
 
 pub use bls::{
     AggregatePublicKey, AggregateSignature, Keypair, PublicKey, PublicKeyBytes, SecretKey,

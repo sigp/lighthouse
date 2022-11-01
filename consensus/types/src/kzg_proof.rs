@@ -1,9 +1,9 @@
 use crate::test_utils::{RngCore, TestRandom};
 use serde::{Deserialize, Serialize};
+use serde_big_array::BigArray;
 use ssz::{Decode, DecodeError, Encode};
 use std::fmt;
 use tree_hash::{PackedEncoding, TreeHash};
-use serde_big_array::BigArray;
 
 const KZG_PROOF_BYTES_LEN: usize = 48;
 
