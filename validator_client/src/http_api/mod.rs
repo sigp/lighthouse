@@ -1,16 +1,15 @@
 mod api_secret;
-mod ui;
 mod create_validator;
 mod keystores;
 mod remotekeys;
 mod tests;
+mod ui;
 
 use crate::ValidatorStore;
 use account_utils::{
     mnemonic_from_phrase,
     validator_definitions::{SigningDefinition, ValidatorDefinition, Web3SignerDefinition},
 };
-use sysinfo::{System,SystemExt};
 pub use api_secret::ApiSecret;
 use create_validator::{create_validators_mnemonic, create_validators_web3signer};
 use eth2::lighthouse_vc::{
@@ -18,6 +17,7 @@ use eth2::lighthouse_vc::{
     types::{self as api_types, GenericResponse, PublicKey, PublicKeyBytes},
 };
 use lighthouse_version::version_with_platform;
+use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use slog::{crit, info, warn, Logger};
 use slot_clock::SlotClock;
@@ -26,9 +26,9 @@ use std::marker::PhantomData;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use std::sync::Arc;
+use sysinfo::{System, SystemExt};
 use task_executor::TaskExecutor;
 use types::{ChainSpec, ConfigAndPreset, EthSpec};
-use parking_lot::RwLock;
 use validator_dir::Builder as ValidatorDirBuilder;
 use warp::{
     http::{
@@ -188,29 +188,32 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
 
     // Create a `warp` filter that provides access to local system information.
     let system_info = Arc::new(RwLock::new(sysinfo::System::new()));
-    { // grab write access for initialisation
+    {
+        // grab write access for initialisation
         let mut system_info = system_info.write();
         system_info.refresh_disks_list();
         system_info.refresh_networks_list();
     } // end lock
 
-    let system_info_filter= warp::any()
+    let system_info_filter =
+        warp::any()
             .map(move || system_info.clone())
-            .map(|sysinfo: Arc<RwLock<System>>|  {
-                      { // refresh stats
-                          let mut sysinfo_lock = sysinfo.write();
-                          sysinfo_lock.refresh_memory();
-                          sysinfo_lock.refresh_cpu_specifics(sysinfo::CpuRefreshKind::everything());
-                          sysinfo_lock.refresh_cpu();
-                          sysinfo_lock.refresh_system();
-                          sysinfo_lock.refresh_networks();
-                          sysinfo_lock.refresh_disks();
-                      } // end lock
-                      sysinfo
+            .map(|sysinfo: Arc<RwLock<System>>| {
+                {
+                    // refresh stats
+                    let mut sysinfo_lock = sysinfo.write();
+                    sysinfo_lock.refresh_memory();
+                    sysinfo_lock.refresh_cpu_specifics(sysinfo::CpuRefreshKind::everything());
+                    sysinfo_lock.refresh_cpu();
+                    sysinfo_lock.refresh_system();
+                    sysinfo_lock.refresh_networks();
+                    sysinfo_lock.refresh_disks();
+                } // end lock
+                sysinfo
             });
 
     let app_start = std::time::Instant::now();
-    let app_start_filter= warp::any().map(move || app_start.clone());
+    let app_start_filter = warp::any().map(move || app_start.clone());
 
     // GET lighthouse/version
     let get_node_version = warp::path("lighthouse")
@@ -319,11 +322,11 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and_then(|sysinfo, runtime_start: std::time::Instant, signer| {
             blocking_signed_json_task(signer, move || {
                 let runtime = runtime_start.elapsed().as_secs() as u64;
-                Ok(api_types::GenericResponse::from(ui::SystemHealth::observe(sysinfo, runtime)))
+                Ok(api_types::GenericResponse::from(ui::SystemHealth::observe(
+                    sysinfo, runtime,
+                )))
             })
         });
-
-
 
     // POST lighthouse/validators/
     let post_validators = warp::path("lighthouse")
