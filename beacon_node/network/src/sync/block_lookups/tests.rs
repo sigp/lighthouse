@@ -259,7 +259,7 @@ fn test_single_block_lookup_becomes_parent_request() {
     assert_eq!(bl.single_block_lookups.len(), 0);
     rig.expect_parent_request();
     rig.expect_empty_network();
-    assert_eq!(bl.parent_queue.len(), 1);
+    assert_eq!(bl.parent_lookups.len(), 1);
 }
 
 #[test]
@@ -287,7 +287,7 @@ fn test_parent_lookup_happy_path() {
         was_non_empty: true,
     };
     bl.parent_chain_processed(chain_hash, process_result, &mut cx);
-    assert_eq!(bl.parent_queue.len(), 0);
+    assert_eq!(bl.parent_lookups.len(), 0);
 }
 
 #[test]
@@ -324,7 +324,7 @@ fn test_parent_lookup_wrong_response() {
         was_non_empty: true,
     };
     bl.parent_chain_processed(chain_hash, process_result, &mut cx);
-    assert_eq!(bl.parent_queue.len(), 0);
+    assert_eq!(bl.parent_lookups.len(), 0);
 }
 
 #[test]
@@ -356,7 +356,7 @@ fn test_parent_lookup_empty_response() {
         was_non_empty: true,
     };
     bl.parent_chain_processed(chain_hash, process_result, &mut cx);
-    assert_eq!(bl.parent_queue.len(), 0);
+    assert_eq!(bl.parent_lookups.len(), 0);
 }
 
 #[test]
@@ -387,7 +387,7 @@ fn test_parent_lookup_rpc_failure() {
         was_non_empty: true,
     };
     bl.parent_chain_processed(chain_hash, process_result, &mut cx);
-    assert_eq!(bl.parent_queue.len(), 0);
+    assert_eq!(bl.parent_lookups.len(), 0);
 }
 
 #[test]
@@ -419,11 +419,11 @@ fn test_parent_lookup_too_many_attempts() {
             }
         }
         if i < parent_lookup::PARENT_FAIL_TOLERANCE {
-            assert_eq!(bl.parent_queue[0].failed_attempts(), dbg!(i));
+            assert_eq!(bl.parent_lookups[0].failed_attempts(), dbg!(i));
         }
     }
 
-    assert_eq!(bl.parent_queue.len(), 0);
+    assert_eq!(bl.parent_lookups.len(), 0);
 }
 
 #[test]
@@ -450,11 +450,11 @@ fn test_parent_lookup_too_many_download_attempts_no_blacklist() {
             rig.expect_penalty();
         }
         if i < parent_lookup::PARENT_FAIL_TOLERANCE {
-            assert_eq!(bl.parent_queue[0].failed_attempts(), dbg!(i));
+            assert_eq!(bl.parent_lookups[0].failed_attempts(), dbg!(i));
         }
     }
 
-    assert_eq!(bl.parent_queue.len(), 0);
+    assert_eq!(bl.parent_lookups.len(), 0);
     assert!(!bl.failed_chains.contains(&block_hash));
     assert!(!bl.failed_chains.contains(&parent.canonical_root()));
 }
@@ -491,7 +491,7 @@ fn test_parent_lookup_too_many_processing_attempts_must_blacklist() {
     }
 
     assert!(bl.failed_chains.contains(&block_hash));
-    assert_eq!(bl.parent_queue.len(), 0);
+    assert_eq!(bl.parent_lookups.len(), 0);
 }
 
 #[test]
@@ -545,7 +545,7 @@ fn test_parent_lookup_disconnection() {
         &mut cx,
     );
     bl.peer_disconnected(&peer_id, &mut cx);
-    assert!(bl.parent_queue.is_empty());
+    assert!(bl.parent_lookups.is_empty());
 }
 
 #[test]
@@ -598,7 +598,7 @@ fn test_parent_lookup_ignored_response() {
     // Return an Ignored result. The request should be dropped
     bl.parent_block_processed(chain_hash, BlockProcessResult::Ignored, &mut cx);
     rig.expect_empty_network();
-    assert_eq!(bl.parent_queue.len(), 0);
+    assert_eq!(bl.parent_lookups.len(), 0);
 }
 
 /// This is a regression test.
@@ -607,8 +607,12 @@ fn test_same_chain_race_condition() {
     let (mut bl, mut cx, mut rig) = TestRig::test_setup(Some(Level::Debug));
 
     #[track_caller]
-    fn parent_queue_consistency(bl: &BlockLookups<T>) {
-        let hashes: Vec<_> = bl.parent_queue.iter().map(|req| req.chain_hash()).collect();
+    fn parent_lookups_consistency(bl: &BlockLookups<T>) {
+        let hashes: Vec<_> = bl
+            .parent_lookups
+            .iter()
+            .map(|req| req.chain_hash())
+            .collect();
         let expected = hashes.len();
         assert_eq!(
             expected,
@@ -652,7 +656,7 @@ fn test_same_chain_race_condition() {
         } else {
             bl.parent_block_processed(chain_hash, BlockError::ParentUnknown(block).into(), &mut cx)
         }
-        parent_queue_consistency(&bl)
+        parent_lookups_consistency(&bl)
     }
 
     // Processing succeeds, now the rest of the chain should be sent for processing.
@@ -661,11 +665,11 @@ fn test_same_chain_race_condition() {
     // Try to get this block again while the chain is being processed. We should not request it again.
     let peer_id = PeerId::random();
     bl.search_parent(chain_hash, trigger_block, peer_id, &mut cx);
-    parent_queue_consistency(&bl);
+    parent_lookups_consistency(&bl);
 
     let process_result = BatchProcessResult::Success {
         was_non_empty: true,
     };
     bl.parent_chain_processed(chain_hash, process_result, &mut cx);
-    assert_eq!(bl.parent_queue.len(), 0);
+    assert_eq!(bl.parent_lookups.len(), 0);
 }
