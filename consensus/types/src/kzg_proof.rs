@@ -2,13 +2,15 @@ use crate::test_utils::{RngCore, TestRandom};
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
 use ssz::{Decode, DecodeError, Encode};
+use ssz_derive::{Decode, Encode};
 use std::fmt;
 use tree_hash::{PackedEncoding, TreeHash};
 
 const KZG_PROOF_BYTES_LEN: usize = 48;
 
-#[derive(Debug, PartialEq, Hash, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Hash, Clone, Copy, Encode, Decode, Serialize, Deserialize)]
 #[serde(transparent)]
+#[ssz(struct_behaviour = "transparent")]
 pub struct KzgProof(#[serde(with = "BigArray")] pub [u8; KZG_PROOF_BYTES_LEN]);
 
 impl fmt::Display for KzgProof {
@@ -32,38 +34,6 @@ impl From<[u8; KZG_PROOF_BYTES_LEN]> for KzgProof {
 impl Into<[u8; KZG_PROOF_BYTES_LEN]> for KzgProof {
     fn into(self) -> [u8; KZG_PROOF_BYTES_LEN] {
         self.0
-    }
-}
-
-impl Encode for KzgProof {
-    fn is_ssz_fixed_len() -> bool {
-        <[u8; KZG_PROOF_BYTES_LEN] as Encode>::is_ssz_fixed_len()
-    }
-
-    fn ssz_fixed_len() -> usize {
-        <[u8; KZG_PROOF_BYTES_LEN] as Encode>::ssz_fixed_len()
-    }
-
-    fn ssz_bytes_len(&self) -> usize {
-        self.0.ssz_bytes_len()
-    }
-
-    fn ssz_append(&self, buf: &mut Vec<u8>) {
-        self.0.ssz_append(buf)
-    }
-}
-
-impl Decode for KzgProof {
-    fn is_ssz_fixed_len() -> bool {
-        <[u8; KZG_PROOF_BYTES_LEN] as Decode>::is_ssz_fixed_len()
-    }
-
-    fn ssz_fixed_len() -> usize {
-        <[u8; KZG_PROOF_BYTES_LEN] as Decode>::ssz_fixed_len()
-    }
-
-    fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
-        <[u8; KZG_PROOF_BYTES_LEN]>::from_ssz_bytes(bytes).map(Self)
     }
 }
 

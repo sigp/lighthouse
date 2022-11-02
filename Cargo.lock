@@ -1791,9 +1791,10 @@ dependencies = [
 
 [[package]]
 name = "eth2_ssz_derive"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "darling",
+ "eth2_ssz",
  "proc-macro2",
  "quote",
  "syn",

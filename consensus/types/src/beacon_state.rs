@@ -120,6 +120,7 @@ pub enum Error {
     ArithError(ArithError),
     MissingBeaconBlock(SignedBeaconBlockHash),
     MissingBeaconState(BeaconStateHash),
+    PayloadConversionLogicFlaw,
     SyncCommitteeNotKnown {
         current_epoch: Epoch,
         epoch: Epoch,

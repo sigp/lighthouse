@@ -79,6 +79,12 @@ pub struct ExecutionPayloadHeader<T: EthSpec> {
     pub withdrawals_root: Hash256,
 }
 
+impl<T: EthSpec> ExecutionPayloadHeader<T> {
+    pub fn transactions(&self) -> Option<&Transactions<T>> {
+        None
+    }
+}
+
 impl<'a, T: EthSpec> ExecutionPayloadHeaderRef<'a, T> {
     // FIXME: maybe this could be a derived trait..
     pub fn is_default(self) -> bool {
@@ -206,6 +212,34 @@ impl<T: EthSpec> From<ExecutionPayloadEip4844<T>> for ExecutionPayloadHeaderEip4
             block_hash: payload.block_hash,
             transactions_root: payload.transactions.tree_hash_root(),
             withdrawals_root: payload.withdrawals.tree_hash_root(),
+        }
+    }
+}
+
+impl<T: EthSpec> From<ExecutionPayloadMerge<T>> for ExecutionPayloadHeader<T> {
+    fn from(payload: ExecutionPayloadMerge<T>) -> Self {
+        Self::Merge(ExecutionPayloadHeaderMerge::from(payload))
+    }
+}
+
+impl<T: EthSpec> From<ExecutionPayloadCapella<T>> for ExecutionPayloadHeader<T> {
+    fn from(payload: ExecutionPayloadCapella<T>) -> Self {
+        Self::Capella(ExecutionPayloadHeaderCapella::from(payload))
+    }
+}
+
+impl<T: EthSpec> From<ExecutionPayloadEip4844<T>> for ExecutionPayloadHeader<T> {
+    fn from(payload: ExecutionPayloadEip4844<T>) -> Self {
+        Self::Eip4844(ExecutionPayloadHeaderEip4844::from(payload))
+    }
+}
+
+impl<T: EthSpec> From<ExecutionPayload<T>> for ExecutionPayloadHeader<T> {
+    fn from(payload: ExecutionPayload<T>) -> Self {
+        match payload {
+            ExecutionPayload::Merge(payload) => Self::from(payload),
+            ExecutionPayload::Capella(payload) => Self::from(payload),
+            ExecutionPayload::Eip4844(payload) => Self::from(payload),
         }
     }
 }

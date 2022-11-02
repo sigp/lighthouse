@@ -2,13 +2,14 @@ use crate::test_utils::TestRandom;
 use crate::*;
 use derivative::Derivative;
 use serde_derive::{Deserialize, Serialize};
-use ssz::{Decode, DecodeError, Encode};
+use ssz_derive::{Decode, Encode};
 use std::fmt;
 use std::fmt::{Display, Formatter};
 use tree_hash::{PackedEncoding, TreeHash};
 
-#[derive(Derivative, Debug, Clone, Serialize, Deserialize)]
+#[derive(Derivative, Debug, Clone, Encode, Decode, Serialize, Deserialize)]
 #[derivative(PartialEq, Eq, Hash)]
+#[ssz(struct_behaviour = "transparent")]
 pub struct KzgCommitment(#[serde(with = "BigArray")] pub [u8; 48]);
 
 impl Display for KzgCommitment {
@@ -38,29 +39,5 @@ impl TreeHash for KzgCommitment {
 impl TestRandom for KzgCommitment {
     fn random_for_test(rng: &mut impl rand::RngCore) -> Self {
         KzgCommitment(<[u8; 48] as TestRandom>::random_for_test(rng))
-    }
-}
-
-impl Decode for KzgCommitment {
-    fn is_ssz_fixed_len() -> bool {
-        <[u8; 48] as Decode>::is_ssz_fixed_len()
-    }
-
-    fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
-        <[u8; 48] as Decode>::from_ssz_bytes(bytes).map(KzgCommitment)
-    }
-}
-
-impl Encode for KzgCommitment {
-    fn is_ssz_fixed_len() -> bool {
-        <[u8; 48] as Encode>::is_ssz_fixed_len()
-    }
-
-    fn ssz_append(&self, buf: &mut Vec<u8>) {
-        self.0.ssz_append(buf)
-    }
-
-    fn ssz_bytes_len(&self) -> usize {
-        self.0.ssz_bytes_len()
     }
 }
