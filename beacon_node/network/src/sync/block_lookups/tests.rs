@@ -600,3 +600,72 @@ fn test_parent_lookup_ignored_response() {
     rig.expect_empty_network();
     assert_eq!(bl.parent_queue.len(), 0);
 }
+
+/// This is a regression test.
+#[test]
+fn test_same_chain_race_condition() {
+    let (mut bl, mut cx, mut rig) = TestRig::test_setup(Some(Level::Debug));
+
+    #[track_caller]
+    fn parent_queue_consistency(bl: &BlockLookups<T>) {
+        let hashes: Vec<_> = bl.parent_queue.iter().map(|req| req.chain_hash()).collect();
+        let expected = hashes.len();
+        assert_eq!(
+            expected,
+            hashes
+                .into_iter()
+                .collect::<std::collections::HashSet<_>>()
+                .len(),
+            "duplicated chain hashes in parent queue"
+        )
+    }
+    // if we use one or two blocks it will match on the hash or the parent hash, so make a longer
+    // chain.
+    let depth = 4;
+    let mut blocks = Vec::<Arc<SignedBeaconBlock<E>>>::with_capacity(depth);
+    while blocks.len() < depth {
+        let parent = blocks
+            .last()
+            .map(|b| b.canonical_root())
+            .unwrap_or_else(Hash256::random);
+        let block = Arc::new(rig.block_with_parent(parent));
+        blocks.push(block);
+    }
+
+    let peer_id = PeerId::random();
+    let trigger_block = blocks.pop().unwrap();
+    let chain_hash = trigger_block.canonical_root();
+    bl.search_parent(chain_hash, trigger_block.clone(), peer_id, &mut cx);
+
+    for (i, block) in blocks.into_iter().rev().enumerate() {
+        let id = rig.expect_parent_request();
+        // the block
+        bl.parent_lookup_response(id, peer_id, Some(block.clone()), D, &mut cx);
+        // the stream termination
+        bl.parent_lookup_response(id, peer_id, None, D, &mut cx);
+        // the processing request
+        rig.expect_block_process();
+        // the processing result
+        if i + 2 == depth {
+            // one block was removed
+            bl.parent_block_processed(chain_hash, BlockError::BlockIsAlreadyKnown.into(), &mut cx)
+        } else {
+            bl.parent_block_processed(chain_hash, BlockError::ParentUnknown(block).into(), &mut cx)
+        }
+        parent_queue_consistency(&bl)
+    }
+
+    // Processing succeeds, now the rest of the chain should be sent for processing.
+    rig.expect_parent_chain_process();
+
+    // Try to get this block again while the chain is being processed. We should not request it again.
+    let peer_id = PeerId::random();
+    bl.search_parent(chain_hash, trigger_block, peer_id, &mut cx);
+    parent_queue_consistency(&bl);
+
+    let process_result = BatchProcessResult::Success {
+        was_non_empty: true,
+    };
+    bl.parent_chain_processed(chain_hash, process_result, &mut cx);
+    assert_eq!(bl.parent_queue.len(), 0);
+}
