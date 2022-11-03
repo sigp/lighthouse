@@ -369,6 +369,7 @@ pub struct JsonPayloadAttributes {
     pub timestamp: u64,
     pub prev_randao: Hash256,
     pub suggested_fee_recipient: Address,
+    #[cfg(feature = "withdrawals")]
     #[superstruct(only(V2))]
     pub withdrawals: Vec<JsonWithdrawal>,
 }
@@ -385,6 +386,7 @@ impl From<PayloadAttributes> for JsonPayloadAttributes {
                 timestamp: pa.timestamp,
                 prev_randao: pa.prev_randao,
                 suggested_fee_recipient: pa.suggested_fee_recipient,
+                #[cfg(feature = "withdrawals")]
                 withdrawals: pa.withdrawals.into_iter().map(Into::into).collect(),
             }),
         }
