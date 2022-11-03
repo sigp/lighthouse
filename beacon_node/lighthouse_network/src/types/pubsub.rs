@@ -14,8 +14,8 @@ use tree_hash_derive::TreeHash;
 use types::{
     Attestation, AttesterSlashing, BlobsSidecar, EthSpec, ForkContext, ForkName, ProposerSlashing,
     SignedAggregateAndProof, SignedBeaconBlock, SignedBeaconBlockAltair, SignedBeaconBlockBase,
-    SignedBeaconBlockCapella, SignedBeaconBlockEip4844, SignedBeaconBlockMerge,
-    SignedContributionAndProof, SignedVoluntaryExit, SubnetId, SyncCommitteeMessage, SyncSubnetId,
+    SignedBeaconBlockCapella, SignedBeaconBlockMerge, SignedContributionAndProof,
+    SignedVoluntaryExit, SubnetId, SyncCommitteeMessage, SyncSubnetId,
 };
 
 /// TODO(pawan): move this to consensus/types? strictly not a consensus type
@@ -24,7 +24,7 @@ use types::{
 pub struct SignedBeaconBlockAndBlobsSidecar<T: EthSpec> {
     // TODO(pawan): switch to a SignedBeaconBlock and use ssz offsets for decoding to make this
     // future proof?
-    pub beacon_block: SignedBeaconBlockEip4844<T>,
+    pub beacon_block: SignedBeaconBlockCapella<T>,
     pub blobs_sidecar: BlobsSidecar<T>,
 }
 
@@ -185,12 +185,14 @@ impl<T: EthSpec> PubsubMessage<T> {
                                     SignedBeaconBlockMerge::from_ssz_bytes(data)
                                         .map_err(|e| format!("{:?}", e))?,
                                 ),
-                                Some(ForkName::Eip4844) => {
+                                #[cfg(feature = "eip4844")]
+                                Some(ForkName::Capella) => {
                                     return Err(
                                         "beacon_block topic is not used from eip4844 fork onwards"
                                             .to_string(),
                                     )
                                 }
+                                #[cfg(not(feature = "eip4844"))]
                                 Some(ForkName::Capella) => SignedBeaconBlock::<T>::Capella(
                                     SignedBeaconBlockCapella::from_ssz_bytes(data)
                                         .map_err(|e| format!("{:?}", e))?,
@@ -206,7 +208,7 @@ impl<T: EthSpec> PubsubMessage<T> {
                     }
                     GossipKind::BeaconBlocksAndBlobsSidecar => {
                         match fork_context.from_context_bytes(gossip_topic.fork_digest) {
-                            Some(ForkName::Eip4844) => {
+                            Some(ForkName::Capella) => {
                                 let block_and_blobs_sidecar =
                                     SignedBeaconBlockAndBlobsSidecar::from_ssz_bytes(data)
                                         .map_err(|e| format!("{:?}", e))?;

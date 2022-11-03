@@ -3,8 +3,8 @@ use serde::{Deserialize, Serialize};
 use strum::EnumString;
 use superstruct::superstruct;
 use types::{
-    Blob, EthSpec, ExecutionBlockHash, ExecutionPayloadEip4844, ExecutionPayloadHeaderEip4844,
-    FixedVector, KzgCommitment, Transaction, Unsigned, VariableList,
+    Blob, EthSpec, ExecutionBlockHash, FixedVector, KzgCommitment, Transaction, Unsigned,
+    VariableList,
 };
 use types::{ExecutionPayload, ExecutionPayloadCapella, ExecutionPayloadMerge};
 use types::{ExecutionPayloadHeader, ExecutionPayloadHeaderCapella, ExecutionPayloadHeaderMerge};
@@ -62,9 +62,9 @@ pub struct JsonPayloadIdResponse {
     pub payload_id: PayloadId,
 }
 
-// (V1,V2,V3) -> (Merge,Capella,EIP4844)
+// (V1,V2) -> (Merge,Capella)
 #[superstruct(
-    variants(V1, V2, V3),
+    variants(V1, V2),
     variant_attributes(
         derive(Debug, PartialEq, Default, Serialize, Deserialize,),
         serde(bound = "T: EthSpec", rename_all = "camelCase"),
@@ -94,12 +94,14 @@ pub struct JsonExecutionPayloadHeader<T: EthSpec> {
     pub extra_data: VariableList<u8, T::MaxExtraDataBytes>,
     #[serde(with = "eth2_serde_utils::u256_hex_be")]
     pub base_fee_per_gas: Uint256,
+    #[cfg(feature = "eip4844")]
     #[serde(with = "eth2_serde_utils::u64_hex_be")]
-    #[superstruct(only(V3))]
+    #[superstruct(only(V2))]
     pub excess_blobs: u64,
     pub block_hash: ExecutionBlockHash,
     pub transactions_root: Hash256,
-    #[superstruct(only(V2, V3))]
+    #[cfg(feature = "withdrawals")]
+    #[superstruct(only(V2))]
     pub withdrawals_root: Hash256,
 }
 
@@ -135,27 +137,12 @@ impl<T: EthSpec> From<JsonExecutionPayloadHeader<T>> for ExecutionPayloadHeader<
                 timestamp: v2.timestamp,
                 extra_data: v2.extra_data,
                 base_fee_per_gas: v2.base_fee_per_gas,
+                #[cfg(feature = "eip4844")]
+                excess_blobs: v2.excess_blobs,
                 block_hash: v2.block_hash,
                 transactions_root: v2.transactions_root,
+                #[cfg(feature = "withdrawals")]
                 withdrawals_root: v2.withdrawals_root,
-            }),
-            JsonExecutionPayloadHeader::V3(v3) => Self::Eip4844(ExecutionPayloadHeaderEip4844 {
-                parent_hash: v3.parent_hash,
-                fee_recipient: v3.fee_recipient,
-                state_root: v3.state_root,
-                receipts_root: v3.receipts_root,
-                logs_bloom: v3.logs_bloom,
-                prev_randao: v3.prev_randao,
-                block_number: v3.block_number,
-                gas_limit: v3.gas_limit,
-                gas_used: v3.gas_used,
-                timestamp: v3.timestamp,
-                extra_data: v3.extra_data,
-                base_fee_per_gas: v3.base_fee_per_gas,
-                excess_blobs: v3.excess_blobs,
-                block_hash: v3.block_hash,
-                transactions_root: v3.transactions_root,
-                withdrawals_root: v3.withdrawals_root,
             }),
         }
     }
@@ -193,35 +180,20 @@ impl<T: EthSpec> From<ExecutionPayloadHeader<T>> for JsonExecutionPayloadHeader<
                 timestamp: capella.timestamp,
                 extra_data: capella.extra_data,
                 base_fee_per_gas: capella.base_fee_per_gas,
+                #[cfg(feature = "eip4844")]
+                excess_blobs: capella.excess_blobs,
                 block_hash: capella.block_hash,
                 transactions_root: capella.transactions_root,
+                #[cfg(feature = "withdrawals")]
                 withdrawals_root: capella.withdrawals_root,
-            }),
-            ExecutionPayloadHeader::Eip4844(eip4844) => Self::V3(JsonExecutionPayloadHeaderV3 {
-                parent_hash: eip4844.parent_hash,
-                fee_recipient: eip4844.fee_recipient,
-                state_root: eip4844.state_root,
-                receipts_root: eip4844.receipts_root,
-                logs_bloom: eip4844.logs_bloom,
-                prev_randao: eip4844.prev_randao,
-                block_number: eip4844.block_number,
-                gas_limit: eip4844.gas_limit,
-                gas_used: eip4844.gas_used,
-                timestamp: eip4844.timestamp,
-                extra_data: eip4844.extra_data,
-                base_fee_per_gas: eip4844.base_fee_per_gas,
-                excess_blobs: eip4844.excess_blobs,
-                block_hash: eip4844.block_hash,
-                transactions_root: eip4844.transactions_root,
-                withdrawals_root: eip4844.withdrawals_root,
             }),
         }
     }
 }
 
-// (V1,V2, V2) -> (Merge,Capella,EIP4844)
+// (V1,V2) -> (Merge,Capella)
 #[superstruct(
-    variants(V1, V2, V3),
+    variants(V1, V2),
     variant_attributes(
         derive(Debug, PartialEq, Default, Serialize, Deserialize,),
         serde(bound = "T: EthSpec", rename_all = "camelCase"),
@@ -251,14 +223,16 @@ pub struct JsonExecutionPayload<T: EthSpec> {
     pub extra_data: VariableList<u8, T::MaxExtraDataBytes>,
     #[serde(with = "eth2_serde_utils::u256_hex_be")]
     pub base_fee_per_gas: Uint256,
-    #[superstruct(only(V3))]
+    #[cfg(feature = "eip4844")]
+    #[superstruct(only(V2))]
     #[serde(with = "eth2_serde_utils::u64_hex_be")]
     pub excess_blobs: u64,
     pub block_hash: ExecutionBlockHash,
     #[serde(with = "ssz_types::serde_utils::list_of_hex_var_list")]
     pub transactions:
         VariableList<Transaction<T::MaxBytesPerTransaction>, T::MaxTransactionsPerPayload>,
-    #[superstruct(only(V2, V3))]
+    #[cfg(feature = "withdrawals")]
+    #[superstruct(only(V2))]
     pub withdrawals: VariableList<Withdrawal, T::MaxWithdrawalsPerPayload>,
 }
 
@@ -294,27 +268,12 @@ impl<T: EthSpec> From<JsonExecutionPayload<T>> for ExecutionPayload<T> {
                 timestamp: v2.timestamp,
                 extra_data: v2.extra_data,
                 base_fee_per_gas: v2.base_fee_per_gas,
+                #[cfg(feature = "eip4844")]
+                excess_blobs: v2.excess_blobs,
                 block_hash: v2.block_hash,
                 transactions: v2.transactions,
+                #[cfg(feature = "withdrawals")]
                 withdrawals: v2.withdrawals,
-            }),
-            JsonExecutionPayload::V3(v3) => Self::Eip4844(ExecutionPayloadEip4844 {
-                parent_hash: v3.parent_hash,
-                fee_recipient: v3.fee_recipient,
-                state_root: v3.state_root,
-                receipts_root: v3.receipts_root,
-                logs_bloom: v3.logs_bloom,
-                prev_randao: v3.prev_randao,
-                block_number: v3.block_number,
-                gas_limit: v3.gas_limit,
-                gas_used: v3.gas_used,
-                timestamp: v3.timestamp,
-                extra_data: v3.extra_data,
-                base_fee_per_gas: v3.base_fee_per_gas,
-                excess_blobs: v3.excess_blobs,
-                block_hash: v3.block_hash,
-                transactions: v3.transactions,
-                withdrawals: v3.withdrawals,
             }),
         }
     }
@@ -352,27 +311,12 @@ impl<T: EthSpec> From<ExecutionPayload<T>> for JsonExecutionPayload<T> {
                 timestamp: capella.timestamp,
                 extra_data: capella.extra_data,
                 base_fee_per_gas: capella.base_fee_per_gas,
+                #[cfg(feature = "eip4844")]
+                excess_blobs: capella.excess_blobs,
                 block_hash: capella.block_hash,
                 transactions: capella.transactions,
+                #[cfg(feature = "withdrawals")]
                 withdrawals: capella.withdrawals,
-            }),
-            ExecutionPayload::Eip4844(eip4844) => Self::V3(JsonExecutionPayloadV3 {
-                parent_hash: eip4844.parent_hash,
-                fee_recipient: eip4844.fee_recipient,
-                state_root: eip4844.state_root,
-                receipts_root: eip4844.receipts_root,
-                logs_bloom: eip4844.logs_bloom,
-                prev_randao: eip4844.prev_randao,
-                block_number: eip4844.block_number,
-                gas_limit: eip4844.gas_limit,
-                gas_used: eip4844.gas_used,
-                timestamp: eip4844.timestamp,
-                extra_data: eip4844.extra_data,
-                base_fee_per_gas: eip4844.base_fee_per_gas,
-                excess_blobs: eip4844.excess_blobs,
-                block_hash: eip4844.block_hash,
-                transactions: eip4844.transactions,
-                withdrawals: eip4844.withdrawals,
             }),
         }
     }
@@ -459,6 +403,7 @@ impl From<JsonPayloadAttributes> for PayloadAttributes {
                 timestamp: jpa.timestamp,
                 prev_randao: jpa.prev_randao,
                 suggested_fee_recipient: jpa.suggested_fee_recipient,
+                #[cfg(feature = "withdrawals")]
                 withdrawals: jpa.withdrawals.into_iter().map(Into::into).collect(),
             }),
         }

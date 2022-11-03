@@ -13,6 +13,7 @@ pub use self::verify_attester_slashing::{
 pub use self::verify_proposer_slashing::verify_proposer_slashing;
 pub use altair::sync_committee::process_sync_aggregate;
 pub use block_signature_verifier::{BlockSignatureVerifier, ParallelSignatureSets};
+#[cfg(feature = "eip4844")]
 pub use eip4844::eip4844::process_blob_kzg_commitments;
 pub use is_valid_indexed_attestation::is_valid_indexed_attestation;
 pub use process_operations::process_operations;
@@ -178,6 +179,7 @@ pub fn per_block_processing<T: EthSpec, Payload: AbstractExecPayload<T>>(
         )?;
     }
 
+    #[cfg(feature = "eip4844")]
     process_blob_kzg_commitments(block.body())?;
 
     Ok(())
@@ -399,12 +401,6 @@ pub fn process_execution_payload<'payload, T: EthSpec, Payload: AbstractExecPayl
         ExecutionPayloadHeaderRefMut::Capella(header_mut) => {
             match payload.to_execution_payload_header() {
                 ExecutionPayloadHeader::Capella(header) => *header_mut = header,
-                _ => return Err(BlockProcessingError::IncorrectStateType),
-            }
-        }
-        ExecutionPayloadHeaderRefMut::Eip4844(header_mut) => {
-            match payload.to_execution_payload_header() {
-                ExecutionPayloadHeader::Eip4844(header) => *header_mut = header,
                 _ => return Err(BlockProcessingError::IncorrectStateType),
             }
         }

@@ -2,6 +2,7 @@ use crate::common::decrease_balance;
 use safe_arith::SafeArith;
 use types::{BeaconStateError as Error, *};
 
+#[cfg(feature = "withdrawals")]
 pub fn withdraw_balance<T: EthSpec>(
     state: &mut BeaconState<T>,
     validator_index: usize,

@@ -10,6 +10,7 @@ use types::{
     KzgCommitment, Transaction, Transactions, VersionedHash,
 };
 
+#[cfg(feature = "eip4844")]
 pub fn process_blob_kzg_commitments<T: EthSpec, Payload: AbstractExecPayload<T>>(
     block_body: BeaconBlockBodyRef<T, Payload>,
 ) -> Result<(), BlockProcessingError> {
@@ -27,6 +28,7 @@ pub fn process_blob_kzg_commitments<T: EthSpec, Payload: AbstractExecPayload<T>>
     Ok(())
 }
 
+#[cfg(feature = "eip4844")]
 pub fn verify_kzg_commitments_against_transactions<T: EthSpec>(
     transactions: &Transactions<T>,
     kzg_commitments: &VariableList<KzgCommitment, T::MaxBlobsPerBlock>,
@@ -71,6 +73,7 @@ pub fn verify_kzg_commitments_against_transactions<T: EthSpec>(
     })?
 }
 
+#[cfg(feature = "eip4844")]
 /// Only transactions of type `BLOB_TX_TYPE` should be passed into this function.
 fn tx_peek_blob_versioned_hashes<T: EthSpec>(
     opaque_tx: &Transaction<T::MaxBytesPerTransaction>,

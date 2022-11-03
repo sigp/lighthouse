@@ -14,7 +14,7 @@ use tree_hash_derive::TreeHash;
 ///
 /// This *superstruct* abstracts over the hard-fork.
 #[superstruct(
-    variants(Base, Altair, Merge, Capella, Eip4844),
+    variants(Base, Altair, Merge, Capella),
     variant_attributes(
         derive(
             Debug,
@@ -48,7 +48,7 @@ pub struct BeaconBlockBody<T: EthSpec, Payload: AbstractExecPayload<T> = FullPay
     pub attestations: VariableList<Attestation<T>, T::MaxAttestations>,
     pub deposits: VariableList<Deposit, T::MaxDeposits>,
     pub voluntary_exits: VariableList<SignedVoluntaryExit, T::MaxVoluntaryExits>,
-    #[superstruct(only(Altair, Merge, Capella, Eip4844))]
+    #[superstruct(only(Altair, Merge, Capella))]
     pub sync_aggregate: SyncAggregate<T>,
     // We flatten the execution payload so that serde can use the name of the inner type,
     // either `execution_payload` for full payloads, or `execution_payload_header` for blinded
@@ -59,10 +59,8 @@ pub struct BeaconBlockBody<T: EthSpec, Payload: AbstractExecPayload<T> = FullPay
     #[superstruct(only(Capella), partial_getter(rename = "execution_payload_capella"))]
     #[serde(flatten)]
     pub execution_payload: Payload::Capella,
-    #[superstruct(only(Eip4844), partial_getter(rename = "execution_payload_eip4844"))]
-    #[serde(flatten)]
-    pub execution_payload: Payload::Eip4844,
-    #[superstruct(only(Eip4844))]
+    #[superstruct(only(Capella))]
+    #[cfg(feature = "eip4844")]
     pub blob_kzg_commitments: VariableList<KzgCommitment, T::MaxBlobsPerBlock>,
     #[superstruct(only(Base, Altair))]
     #[ssz(skip_serializing, skip_deserializing)]
@@ -83,7 +81,6 @@ impl<'a, T: EthSpec, Payload: AbstractExecPayload<T>> BeaconBlockBodyRef<'a, T, 
             Self::Base(_) | Self::Altair(_) => Err(Error::IncorrectStateVariant),
             Self::Merge(body) => Ok(Payload::Ref::from(&body.execution_payload)),
             Self::Capella(body) => Ok(Payload::Ref::from(&body.execution_payload)),
-            Self::Eip4844(body) => Ok(Payload::Ref::from(&body.execution_payload)),
         }
     }
 }
@@ -96,7 +93,6 @@ impl<'a, T: EthSpec> BeaconBlockBodyRef<'a, T> {
             BeaconBlockBodyRef::Altair { .. } => ForkName::Altair,
             BeaconBlockBodyRef::Merge { .. } => ForkName::Merge,
             BeaconBlockBodyRef::Capella { .. } => ForkName::Capella,
-            BeaconBlockBodyRef::Eip4844 { .. } => ForkName::Eip4844,
         }
     }
 }
@@ -285,6 +281,7 @@ impl<E: EthSpec> From<BeaconBlockBodyCapella<E, FullPayload<E>>>
         Option<ExecutionPayloadCapella<E>>,
     )
 {
+    #[cfg(not(feature = "eip4844"))]
     fn from(body: BeaconBlockBodyCapella<E, FullPayload<E>>) -> Self {
         let BeaconBlockBodyCapella {
             randao_reveal,
@@ -317,16 +314,10 @@ impl<E: EthSpec> From<BeaconBlockBodyCapella<E, FullPayload<E>>>
             Some(execution_payload),
         )
     }
-}
 
-impl<E: EthSpec> From<BeaconBlockBodyEip4844<E, FullPayload<E>>>
-    for (
-        BeaconBlockBodyEip4844<E, BlindedPayload<E>>,
-        Option<ExecutionPayloadEip4844<E>>,
-    )
-{
-    fn from(body: BeaconBlockBodyEip4844<E, FullPayload<E>>) -> Self {
-        let BeaconBlockBodyEip4844 {
+    #[cfg(feature = "eip4844")]
+    fn from(body: BeaconBlockBodyCapella<E, FullPayload<E>>) -> Self {
+        let BeaconBlockBodyCapella {
             randao_reveal,
             eth1_data,
             graffiti,
@@ -336,12 +327,12 @@ impl<E: EthSpec> From<BeaconBlockBodyEip4844<E, FullPayload<E>>>
             deposits,
             voluntary_exits,
             sync_aggregate,
-            execution_payload: FullPayloadEip4844 { execution_payload },
+            execution_payload: FullPayloadCapella { execution_payload },
             blob_kzg_commitments,
         } = body;
 
         (
-            BeaconBlockBodyEip4844 {
+            BeaconBlockBodyCapella {
                 randao_reveal,
                 eth1_data,
                 graffiti,
@@ -351,7 +342,7 @@ impl<E: EthSpec> From<BeaconBlockBodyEip4844<E, FullPayload<E>>>
                 deposits,
                 voluntary_exits,
                 sync_aggregate,
-                execution_payload: BlindedPayloadEip4844 {
+                execution_payload: BlindedPayloadCapella {
                     execution_payload_header: From::from(execution_payload.clone()),
                 },
                 blob_kzg_commitments,
@@ -410,6 +401,7 @@ impl<E: EthSpec> BeaconBlockBodyMerge<E, FullPayload<E>> {
 
 impl<E: EthSpec> BeaconBlockBodyCapella<E, FullPayload<E>> {
     pub fn clone_as_blinded(&self) -> BeaconBlockBodyCapella<E, BlindedPayload<E>> {
+        #[cfg(not(feature = "eip4844"))]
         let BeaconBlockBodyCapella {
             randao_reveal,
             eth1_data,
@@ -421,6 +413,21 @@ impl<E: EthSpec> BeaconBlockBodyCapella<E, FullPayload<E>> {
             voluntary_exits,
             sync_aggregate,
             execution_payload: FullPayloadCapella { execution_payload },
+        } = self;
+
+        #[cfg(feature = "eip4844")]
+        let BeaconBlockBodyCapella {
+            randao_reveal,
+            eth1_data,
+            graffiti,
+            proposer_slashings,
+            attester_slashings,
+            attestations,
+            deposits,
+            voluntary_exits,
+            sync_aggregate,
+            execution_payload: FullPayloadCapella { execution_payload },
+            blob_kzg_commitments,
         } = self;
 
         BeaconBlockBodyCapella {
@@ -436,39 +443,7 @@ impl<E: EthSpec> BeaconBlockBodyCapella<E, FullPayload<E>> {
             execution_payload: BlindedPayloadCapella {
                 execution_payload_header: From::from(execution_payload.clone()),
             },
-        }
-    }
-}
-
-impl<E: EthSpec> BeaconBlockBodyEip4844<E, FullPayload<E>> {
-    pub fn clone_as_blinded(&self) -> BeaconBlockBodyEip4844<E, BlindedPayload<E>> {
-        let BeaconBlockBodyEip4844 {
-            randao_reveal,
-            eth1_data,
-            graffiti,
-            proposer_slashings,
-            attester_slashings,
-            attestations,
-            deposits,
-            voluntary_exits,
-            sync_aggregate,
-            execution_payload: FullPayloadEip4844 { execution_payload },
-            blob_kzg_commitments,
-        } = self;
-
-        BeaconBlockBodyEip4844 {
-            randao_reveal: randao_reveal.clone(),
-            eth1_data: eth1_data.clone(),
-            graffiti: *graffiti,
-            proposer_slashings: proposer_slashings.clone(),
-            attester_slashings: attester_slashings.clone(),
-            attestations: attestations.clone(),
-            deposits: deposits.clone(),
-            voluntary_exits: voluntary_exits.clone(),
-            sync_aggregate: sync_aggregate.clone(),
-            execution_payload: BlindedPayloadEip4844 {
-                execution_payload_header: From::from(execution_payload.clone()),
-            },
+            #[cfg(feature = "eip4844")]
             blob_kzg_commitments: blob_kzg_commitments.clone(),
         }
     }

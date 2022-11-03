@@ -5,7 +5,9 @@ use crate::per_epoch_processing::{
     historical_roots_update::process_historical_roots_update,
     resets::{process_eth1_data_reset, process_randao_mixes_reset, process_slashings_reset},
 };
+#[cfg(feature = "withdrawals")]
 pub use full_withdrawals::process_full_withdrawals;
+#[cfg(feature = "withdrawals")]
 pub use partial_withdrawals::process_partial_withdrawals;
 use types::{BeaconState, ChainSpec, EthSpec, RelativeEpoch};
 
@@ -66,8 +68,10 @@ pub fn process_epoch<T: EthSpec>(
     altair::process_sync_committee_updates(state, spec)?;
 
     // Withdrawals
+    #[cfg(feature = "withdrawals")]
     process_full_withdrawals(state, spec)?;
 
+    #[cfg(feature = "withdrawals")]
     process_partial_withdrawals(state, spec)?;
 
     // Rotate the epoch caches to suit the epoch transition.

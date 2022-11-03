@@ -33,7 +33,7 @@ use tokio::{
     time::sleep,
 };
 use tokio_stream::wrappers::WatchStream;
-use types::{AbstractExecPayload, Blob, ExecPayload, ExecutionPayloadEip4844, KzgCommitment};
+use types::{AbstractExecPayload, Blob, ExecPayload, KzgCommitment};
 use types::{
     BlindedPayload, BlockType, ChainSpec, Epoch, ExecutionBlockHash, ForkName,
     ProposerPreparationData, PublicKeyBytes, SignedBeaconBlock, Slot,
@@ -142,10 +142,15 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> BlockProposalContents<T, Paylo
     }
     pub fn default_at_fork(fork_name: ForkName) -> Self {
         match fork_name {
-            ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {
+            ForkName::Base | ForkName::Altair | ForkName::Merge => {
                 BlockProposalContents::Payload(Payload::default_at_fork(fork_name))
             }
-            ForkName::Eip4844 => BlockProposalContents::PayloadAndBlobs {
+            #[cfg(not(feature = "eip4844"))]
+            ForkName::Capella => {
+                BlockProposalContents::Payload(Payload::default_at_fork(fork_name))
+            }
+            #[cfg(feature = "eip4844")]
+            ForkName::Capella => BlockProposalContents::PayloadAndBlobs {
                 payload: Payload::default_at_fork(fork_name),
                 blobs: vec![],
                 kzg_commitments: vec![],
@@ -1515,31 +1520,11 @@ impl<T: EthSpec> ExecutionLayer<T> {
                     timestamp: capella_block.timestamp,
                     extra_data: capella_block.extra_data,
                     base_fee_per_gas: capella_block.base_fee_per_gas,
+                    #[cfg(feature = "eip4844")]
+                    excess_blobs: capella_block.excess_blobs,
                     block_hash: capella_block.block_hash,
                     transactions,
-                    withdrawals,
-                })
-            }
-            ExecutionBlockWithTransactions::Eip4844(eip4844_block) => {
-                let withdrawals = VariableList::new(eip4844_block.withdrawals.clone())
-                    .map_err(ApiError::DeserializeWithdrawals)?;
-
-                ExecutionPayload::Eip4844(ExecutionPayloadEip4844 {
-                    parent_hash: eip4844_block.parent_hash,
-                    fee_recipient: eip4844_block.fee_recipient,
-                    state_root: eip4844_block.state_root,
-                    receipts_root: eip4844_block.receipts_root,
-                    logs_bloom: eip4844_block.logs_bloom,
-                    prev_randao: eip4844_block.prev_randao,
-                    block_number: eip4844_block.block_number,
-                    gas_limit: eip4844_block.gas_limit,
-                    gas_used: eip4844_block.gas_used,
-                    timestamp: eip4844_block.timestamp,
-                    extra_data: eip4844_block.extra_data,
-                    base_fee_per_gas: eip4844_block.base_fee_per_gas,
-                    excess_blobs: eip4844_block.excess_blobs,
-                    block_hash: eip4844_block.block_hash,
-                    transactions,
+                    #[cfg(feature = "withdrawals")]
                     withdrawals,
                 })
             }

@@ -71,3 +71,5 @@ arbitrary-fuzz = [
   "swap_or_not_shuffle/arbitrary",
   "tree_hash/arbitrary",
 ]
+withdrawals = ["state_processing/withdrawals", "beacon_chain/withdrawals"]
+eip4844 = ["state_processing/eip4844", "beacon_chain/eip4844"]

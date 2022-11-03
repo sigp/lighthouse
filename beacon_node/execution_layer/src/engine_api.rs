@@ -118,7 +118,7 @@ pub struct ExecutionBlock {
 
 /// Representation of an execution block with enough detail to reconstruct a payload.
 #[superstruct(
-    variants(Merge, Capella, Eip4844),
+    variants(Merge, Capella),
     variant_attributes(
         derive(Clone, Debug, PartialEq, Serialize, Deserialize,),
         serde(bound = "T: EthSpec", rename_all = "camelCase"),
@@ -149,13 +149,15 @@ pub struct ExecutionBlockWithTransactions<T: EthSpec> {
     #[serde(with = "ssz_types::serde_utils::hex_var_list")]
     pub extra_data: VariableList<u8, T::MaxExtraDataBytes>,
     pub base_fee_per_gas: Uint256,
-    #[superstruct(only(Eip4844))]
+    #[cfg(feature = "eip4844")]
+    #[superstruct(only(Capella))]
     #[serde(with = "eth2_serde_utils::u64_hex_be")]
     pub excess_blobs: u64,
     #[serde(rename = "hash")]
     pub block_hash: ExecutionBlockHash,
     pub transactions: Vec<Transaction>,
-    #[superstruct(only(Capella, Eip4844))]
+    #[cfg(feature = "withdrawals")]
+    #[superstruct(only(Capella))]
     pub withdrawals: Vec<Withdrawal>,
 }
 
@@ -197,30 +199,7 @@ impl<T: EthSpec> From<ExecutionPayload<T>> for ExecutionBlockWithTransactions<T>
                     timestamp: block.timestamp,
                     extra_data: block.extra_data,
                     base_fee_per_gas: block.base_fee_per_gas,
-                    block_hash: block.block_hash,
-                    transactions: block
-                        .transactions
-                        .iter()
-                        .map(|tx| Transaction::decode(&Rlp::new(tx)))
-                        .collect::<Result<Vec<_>, _>>()
-                        .unwrap_or_else(|_| Vec::new()),
-                    withdrawals: block.withdrawals.into(),
-                })
-            }
-            ExecutionPayload::Eip4844(block) => {
-                Self::Eip4844(ExecutionBlockWithTransactionsEip4844 {
-                    parent_hash: block.parent_hash,
-                    fee_recipient: block.fee_recipient,
-                    state_root: block.state_root,
-                    receipts_root: block.receipts_root,
-                    logs_bloom: block.logs_bloom,
-                    prev_randao: block.prev_randao,
-                    block_number: block.block_number,
-                    gas_limit: block.gas_limit,
-                    gas_used: block.gas_used,
-                    timestamp: block.timestamp,
-                    extra_data: block.extra_data,
-                    base_fee_per_gas: block.base_fee_per_gas,
+                    #[cfg(feature = "eip4844")]
                     excess_blobs: block.excess_blobs,
                     block_hash: block.block_hash,
                     transactions: block
@@ -229,23 +208,13 @@ impl<T: EthSpec> From<ExecutionPayload<T>> for ExecutionBlockWithTransactions<T>
                         .map(|tx| Transaction::decode(&Rlp::new(tx)))
                         .collect::<Result<Vec<_>, _>>()
                         .unwrap_or_else(|_| Vec::new()),
+                    #[cfg(feature = "withdrawals")]
                     withdrawals: block.withdrawals.into(),
                 })
             }
         }
     }
 }
-
-/*
-impl<T: EthSpec> From<ExecutionBlockWithTransactions<T>> for ExecutionPayload<T> {
-    fn from(block: ExecutionBlockWithTransactions<T>) -> Self {
-        map_execution_block_with_transactions!(block, |inner, cons| {
-            let block = inner.into();
-            cons(block)
-        })
-    }
-}
- */
 
 #[superstruct(
     variants(V1, V2),
@@ -261,6 +230,7 @@ pub struct PayloadAttributes {
     pub prev_randao: Hash256,
     #[superstruct(getter(copy))]
     pub suggested_fee_recipient: Address,
+    #[cfg(feature = "withdrawals")]
     #[superstruct(only(V2))]
     pub withdrawals: Vec<Withdrawal>,
 }

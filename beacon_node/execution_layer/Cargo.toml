@@ -5,6 +5,10 @@ edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[features]
+withdrawals = ["types/withdrawals", "state_processing/withdrawals"]
+eip4844 = ["types/eip4844", "state_processing/eip4844"]
+
 [dependencies]
 types = { path = "../../consensus/types"}
 tokio = { version = "1.10.0", features = ["full"] }

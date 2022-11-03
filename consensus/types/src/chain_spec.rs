@@ -255,16 +255,13 @@ impl ChainSpec {
 
     /// Returns the name of the fork which is active at `epoch`.
     pub fn fork_name_at_epoch(&self, epoch: Epoch) -> ForkName {
-        match self.eip4844_fork_epoch {
-            Some(fork_epoch) if epoch >= fork_epoch => ForkName::Eip4844,
-            _ => match self.capella_fork_epoch {
-                Some(fork_epoch) if epoch >= fork_epoch => ForkName::Capella,
-                _ => match self.bellatrix_fork_epoch {
-                    Some(fork_epoch) if epoch >= fork_epoch => ForkName::Merge,
-                    _ => match self.altair_fork_epoch {
-                        Some(fork_epoch) if epoch >= fork_epoch => ForkName::Altair,
-                        _ => ForkName::Base,
-                    },
+        match self.capella_fork_epoch {
+            Some(fork_epoch) if epoch >= fork_epoch => ForkName::Capella,
+            _ => match self.bellatrix_fork_epoch {
+                Some(fork_epoch) if epoch >= fork_epoch => ForkName::Merge,
+                _ => match self.altair_fork_epoch {
+                    Some(fork_epoch) if epoch >= fork_epoch => ForkName::Altair,
+                    _ => ForkName::Base,
                 },
             },
         }
@@ -277,7 +274,6 @@ impl ChainSpec {
             ForkName::Altair => self.altair_fork_version,
             ForkName::Merge => self.bellatrix_fork_version,
             ForkName::Capella => self.capella_fork_version,
-            ForkName::Eip4844 => self.eip4844_fork_version,
         }
     }
 
@@ -288,7 +284,6 @@ impl ChainSpec {
             ForkName::Altair => self.altair_fork_epoch,
             ForkName::Merge => self.bellatrix_fork_epoch,
             ForkName::Capella => self.capella_fork_epoch,
-            ForkName::Eip4844 => self.eip4844_fork_epoch,
         }
     }
 
@@ -299,7 +294,6 @@ impl ChainSpec {
             BeaconState::Altair(_) => self.inactivity_penalty_quotient_altair,
             BeaconState::Merge(_) => self.inactivity_penalty_quotient_bellatrix,
             BeaconState::Capella(_) => self.inactivity_penalty_quotient_bellatrix,
-            BeaconState::Eip4844(_) => self.inactivity_penalty_quotient_bellatrix,
         }
     }
 
@@ -313,7 +307,6 @@ impl ChainSpec {
             BeaconState::Altair(_) => self.proportional_slashing_multiplier_altair,
             BeaconState::Merge(_) => self.proportional_slashing_multiplier_bellatrix,
             BeaconState::Capella(_) => self.proportional_slashing_multiplier_bellatrix,
-            BeaconState::Eip4844(_) => self.proportional_slashing_multiplier_bellatrix,
         }
     }
 
@@ -327,7 +320,6 @@ impl ChainSpec {
             BeaconState::Altair(_) => self.min_slashing_penalty_quotient_altair,
             BeaconState::Merge(_) => self.min_slashing_penalty_quotient_bellatrix,
             BeaconState::Capella(_) => self.min_slashing_penalty_quotient_bellatrix,
-            BeaconState::Eip4844(_) => self.min_slashing_penalty_quotient_bellatrix,
         }
     }
 

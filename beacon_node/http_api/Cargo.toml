@@ -5,6 +5,10 @@ authors = ["Paul Hauner <paul@paulhauner.com>"]
 edition = "2021"
 autotests = false # using a single test binary compiles faster
 
+[features]
+withdrawals = ["types/withdrawals", "state_processing/withdrawals", "execution_layer/withdrawals", "store/withdrawals" , "beacon_chain/withdrawals", "lighthouse_network/withdrawals"]
+eip4844 = ["types/eip4844", "state_processing/eip4844", "execution_layer/eip4844", "store/eip4844", "beacon_chain/eip4844", "lighthouse_network/eip4844"]
+
 [dependencies]
 warp = { version = "0.3.2", features = ["tls"] }
 serde = { version = "1.0.116", features = ["derive"] }

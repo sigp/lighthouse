@@ -17,8 +17,7 @@ use std::sync::Arc;
 use tokio_util::codec::{Decoder, Encoder};
 use types::{
     BlobsSidecar, EthSpec, ForkContext, ForkName, SignedBeaconBlock, SignedBeaconBlockAltair,
-    SignedBeaconBlockBase, SignedBeaconBlockCapella, SignedBeaconBlockEip4844,
-    SignedBeaconBlockMerge,
+    SignedBeaconBlockBase, SignedBeaconBlockCapella, SignedBeaconBlockMerge,
 };
 use unsigned_varint::codec::Uvi;
 
@@ -408,12 +407,6 @@ fn context_bytes<T: EthSpec>(
             | RPCResponse::BlocksByRoot(ref_box_block) = rpc_variant
             {
                 return match **ref_box_block {
-                    // NOTE: If you are adding another fork type here, be sure to modify the
-                    //       `fork_context.to_context_bytes()` function to support it as well!
-                    SignedBeaconBlock::Eip4844 { .. } => {
-                        // Eip4844 context being `None` implies that "merge never happened".
-                        fork_context.to_context_bytes(ForkName::Eip4844)
-                    }
                     SignedBeaconBlock::Capella { .. } => {
                         // Capella context being `None` implies that "merge never happened".
                         fork_context.to_context_bytes(ForkName::Capella)
@@ -609,11 +602,6 @@ fn handle_v2_response<T: EthSpec>(
                         decoded_buffer,
                     )?),
                 )))),
-                ForkName::Eip4844 => Ok(Some(RPCResponse::BlocksByRange(Arc::new(
-                    SignedBeaconBlock::Eip4844(SignedBeaconBlockEip4844::from_ssz_bytes(
-                        decoded_buffer,
-                    )?),
-                )))),
             },
             Protocol::BlocksByRoot => match fork_name {
                 ForkName::Altair => Ok(Some(RPCResponse::BlocksByRoot(Arc::new(
@@ -634,14 +622,9 @@ fn handle_v2_response<T: EthSpec>(
                         decoded_buffer,
                     )?),
                 )))),
-                ForkName::Eip4844 => Ok(Some(RPCResponse::BlocksByRange(Arc::new(
-                    SignedBeaconBlock::Eip4844(SignedBeaconBlockEip4844::from_ssz_bytes(
-                        decoded_buffer,
-                    )?),
-                )))),
             },
             Protocol::BlobsByRange => match fork_name {
-                ForkName::Eip4844 => Ok(Some(RPCResponse::BlobsByRange(Arc::new(
+                ForkName::Capella => Ok(Some(RPCResponse::BlobsByRange(Arc::new(
                     BlobsSidecar::from_ssz_bytes(decoded_buffer)?,
                 )))),
                 _ => Err(RPCError::ErrorResponse(
@@ -710,7 +693,6 @@ mod tests {
             ForkName::Altair => altair_fork_epoch.start_slot(Spec::slots_per_epoch()),
             ForkName::Merge => merge_fork_epoch.start_slot(Spec::slots_per_epoch()),
             ForkName::Capella => capella_fork_epoch.start_slot(Spec::slots_per_epoch()),
-            ForkName::Eip4844 => eip4844_fork_epoch.start_slot(Spec::slots_per_epoch()),
         };
         ForkContext::new::<Spec>(current_slot, Hash256::zero(), &chain_spec)
     }

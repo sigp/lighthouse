@@ -14,7 +14,7 @@ pub type Transactions<T> = VariableList<
 >;
 
 #[superstruct(
-    variants(Merge, Capella, Eip4844),
+    variants(Merge, Capella),
     variant_attributes(
         derive(
             Default,
@@ -72,7 +72,8 @@ pub struct ExecutionPayload<T: EthSpec> {
     #[serde(with = "eth2_serde_utils::quoted_u256")]
     #[superstruct(getter(copy))]
     pub base_fee_per_gas: Uint256,
-    #[superstruct(only(Eip4844))]
+    #[cfg(feature = "eip4844")]
+    #[superstruct(only(Capella))]
     #[serde(with = "eth2_serde_utils::quoted_u64")]
     #[superstruct(getter(copy))]
     pub excess_blobs: u64,
@@ -80,7 +81,8 @@ pub struct ExecutionPayload<T: EthSpec> {
     pub block_hash: ExecutionBlockHash,
     #[serde(with = "ssz_types::serde_utils::list_of_hex_var_list")]
     pub transactions: Transactions<T>,
-    #[superstruct(only(Capella, Eip4844))]
+    #[cfg(feature = "withdrawals")]
+    #[superstruct(only(Capella))]
     pub withdrawals: VariableList<Withdrawal, T::MaxWithdrawalsPerPayload>,
 }
 
@@ -96,6 +98,7 @@ impl<T: EthSpec> ExecutionPayload<T> {
             + (T::max_transactions_per_payload() * (ssz::BYTES_PER_LENGTH_OFFSET + T::max_bytes_per_transaction()))
     }
 
+    #[cfg(not(feature = "withdrawals"))]
     #[allow(clippy::integer_arithmetic)]
     /// Returns the maximum size of an execution payload.
     pub fn max_execution_payload_capella_size() -> usize {
@@ -105,15 +108,14 @@ impl<T: EthSpec> ExecutionPayload<T> {
             + (T::max_extra_data_bytes() * <u8 as Encode>::ssz_fixed_len())
             // Max size of variable length `transactions` field
             + (T::max_transactions_per_payload() * (ssz::BYTES_PER_LENGTH_OFFSET + T::max_bytes_per_transaction()))
-            // Max size of variable length `withdrawals` field
-            + (T::max_withdrawals_per_payload() * <Withdrawal as Encode>::ssz_fixed_len())
     }
 
+    #[cfg(feature = "withdrawals")]
     #[allow(clippy::integer_arithmetic)]
     /// Returns the maximum size of an execution payload.
-    pub fn max_execution_payload_eip4844_size() -> usize {
+    pub fn max_execution_payload_capella_size() -> usize {
         // Fixed part
-        ExecutionPayloadEip4844::<T>::default().as_ssz_bytes().len()
+        ExecutionPayloadCapella::<T>::default().as_ssz_bytes().len()
             // Max size of variable length `extra_data` field
             + (T::max_extra_data_bytes() * <u8 as Encode>::ssz_fixed_len())
             // Max size of variable length `transactions` field

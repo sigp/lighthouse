@@ -7,7 +7,7 @@ autotests = false
 rust-version = "1.62"
 
 [features]
-default = ["slasher-mdbx"]
+default = ["slasher-mdbx", "withdrawals", "eip4844"]
 # Writes debugging .ssz files to /tmp during block processing.
 write_ssz_files = ["beacon_node/write_ssz_files"]
 # Compiles the BLS crypto code so that the binary is portable across machines.
@@ -24,6 +24,8 @@ gnosis = []
 slasher-mdbx = ["slasher/mdbx"]
 # Support slasher LMDB backend.
 slasher-lmdb = ["slasher/lmdb"]
+withdrawals = ["types/withdrawals", "beacon_node/withdrawals", "lighthouse_network/withdrawals"]
+eip4844 = ["types/eip4844","beacon_node/eip4844", "lighthouse_network/withdrawals"]
 
 [dependencies]
 beacon_node = { "path" = "../beacon_node" }

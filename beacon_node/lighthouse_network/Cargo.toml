@@ -59,3 +59,5 @@ quickcheck_macros = "0.9.1"
 
 [features]
 libp2p-websocket = []
+eip4844 = ["types/eip4844"]
+withdrawals = ["types/withdrawals"]

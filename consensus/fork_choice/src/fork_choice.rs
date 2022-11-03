@@ -780,8 +780,7 @@ where
                     let justification_and_finalization_state = match block {
                         // FIXME: verify this is correct for Capella/Eip4844 because
                         //        epoch processing changes in Capella..
-                        BeaconBlockRef::Eip4844(_)
-                        | BeaconBlockRef::Capella(_)
+                        BeaconBlockRef::Capella(_)
                         | BeaconBlockRef::Merge(_)
                         | BeaconBlockRef::Altair(_) => {
                             let participation_cache =

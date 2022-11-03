@@ -10,7 +10,7 @@ use tokio::sync::mpsc::UnboundedSender;
 use tree_hash::TreeHash;
 use types::{
     AbstractExecPayload, BlindedPayload, BlobsSidecar, EthSpec, ExecPayload, ExecutionBlockHash,
-    FullPayload, Hash256, SignedBeaconBlock, SignedBeaconBlockEip4844,
+    FullPayload, Hash256, SignedBeaconBlock,
 };
 use warp::Rejection;
 
@@ -28,8 +28,9 @@ pub async fn publish_block<T: BeaconChainTypes>(
     // Send the block, regardless of whether or not it is valid. The API
     // specification is very clear that this is the desired behaviour.
 
+    #[cfg(feature = "eip4844")]
     let message = match &*block {
-        SignedBeaconBlock::Eip4844(block) => {
+        SignedBeaconBlock::Capella(block) => {
             if let Some(sidecar) = blobs_sidecar {
                 PubsubMessage::BeaconBlockAndBlobsSidecars(Arc::new(
                     SignedBeaconBlockAndBlobsSidecar {
@@ -44,6 +45,10 @@ pub async fn publish_block<T: BeaconChainTypes>(
         }
         _ => PubsubMessage::BeaconBlock(block.clone()),
     };
+
+    #[cfg(not(feature = "eip4844"))]
+    let message = PubsubMessage::BeaconBlock(block.clone());
+
     crate::publish_pubsub_message(network_tx, message)?;
 
     // Determine the delay after the start of the slot, register it with metrics.

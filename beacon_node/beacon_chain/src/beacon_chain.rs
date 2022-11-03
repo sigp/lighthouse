@@ -3473,7 +3473,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // allows it to run concurrently with things like attestation packing.
         let prepare_payload_handle = match &state {
             BeaconState::Base(_) | BeaconState::Altair(_) => None,
-            BeaconState::Merge(_) | BeaconState::Capella(_) | BeaconState::Eip4844(_) => {
+            BeaconState::Merge(_) | BeaconState::Capella(_) => {
                 let prepare_payload_handle =
                     get_execution_payload(self.clone(), &state, proposer_index, builder_params)?;
                 Some(prepare_payload_handle)
@@ -3751,28 +3751,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         .to_payload()
                         .try_into()
                         .map_err(|_| BlockProductionError::InvalidPayloadFork)?,
-                },
-            }),
-            BeaconState::Eip4844(_) => BeaconBlock::Eip4844(BeaconBlockEip4844 {
-                slot,
-                proposer_index,
-                parent_root,
-                state_root: Hash256::zero(),
-                body: BeaconBlockBodyEip4844 {
-                    randao_reveal,
-                    eth1_data,
-                    graffiti,
-                    proposer_slashings: proposer_slashings.into(),
-                    attester_slashings: attester_slashings.into(),
-                    attestations: attestations.into(),
-                    deposits: deposits.into(),
-                    voluntary_exits: voluntary_exits.into(),
-                    sync_aggregate: sync_aggregate
-                        .ok_or(BlockProductionError::MissingSyncAggregate)?,
-                    execution_payload: block_contents
-                        .to_payload()
-                        .try_into()
-                        .map_err(|_| BlockProductionError::InvalidPayloadFork)?,
+                    #[cfg(feature = "eip4844")]
                     //FIXME(sean) get blobs
                     blob_kzg_commitments: VariableList::from(kzg_commitments),
                 },
@@ -4106,7 +4085,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         .await,
                 })
             }
-            ForkName::Capella | ForkName::Eip4844 => PayloadAttributes::V2(PayloadAttributesV2 {
+            ForkName::Capella => PayloadAttributes::V2(PayloadAttributesV2 {
                 timestamp: self
                     .slot_clock
                     .start_of(prepare_slot)
@@ -4117,6 +4096,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     .get_suggested_fee_recipient(proposer as u64)
                     .await,
                 //FIXME(sean)
+                #[cfg(feature = "withdrawals")]
                 withdrawals: vec![],
             }),
         };

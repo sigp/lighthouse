@@ -66,13 +66,8 @@ pub trait AbstractExecPayload<T: EthSpec>:
     + TryFrom<ExecutionPayloadHeader<T>>
     + TryInto<Self::Merge>
     + TryInto<Self::Capella>
-    + TryInto<Self::Eip4844>
 {
-    type Ref<'a>: ExecPayload<T>
-        + Copy
-        + From<&'a Self::Merge>
-        + From<&'a Self::Capella>
-        + From<&'a Self::Eip4844>;
+    type Ref<'a>: ExecPayload<T> + Copy + From<&'a Self::Merge> + From<&'a Self::Capella>;
 
     type Merge: OwnedExecPayload<T>
         + Into<Self>
@@ -82,16 +77,12 @@ pub trait AbstractExecPayload<T: EthSpec>:
         + Into<Self>
         + From<ExecutionPayloadCapella<T>>
         + TryFrom<ExecutionPayloadHeaderCapella<T>>;
-    type Eip4844: OwnedExecPayload<T>
-        + Into<Self>
-        + From<ExecutionPayloadEip4844<T>>
-        + TryFrom<ExecutionPayloadHeaderEip4844<T>>;
 
     fn default_at_fork(fork_name: ForkName) -> Self;
 }
 
 #[superstruct(
-    variants(Merge, Capella, Eip4844),
+    variants(Merge, Capella),
     variant_attributes(
         derive(
             Debug,
@@ -127,8 +118,6 @@ pub struct FullPayload<T: EthSpec> {
     pub execution_payload: ExecutionPayloadMerge<T>,
     #[superstruct(only(Capella), partial_getter(rename = "execution_payload_capella"))]
     pub execution_payload: ExecutionPayloadCapella<T>,
-    #[superstruct(only(Eip4844), partial_getter(rename = "execution_payload_eip4844"))]
-    pub execution_payload: ExecutionPayloadEip4844<T>,
 }
 
 impl<T: EthSpec> From<FullPayload<T>> for ExecutionPayload<T> {
@@ -136,7 +125,6 @@ impl<T: EthSpec> From<FullPayload<T>> for ExecutionPayload<T> {
         match full_payload {
             FullPayload::Merge(payload) => ExecutionPayload::Merge(payload.execution_payload),
             FullPayload::Capella(payload) => ExecutionPayload::Capella(payload.execution_payload),
-            FullPayload::Eip4844(payload) => ExecutionPayload::Eip4844(payload.execution_payload),
         }
     }
 }
@@ -149,9 +137,6 @@ impl<'a, T: EthSpec> From<FullPayloadRef<'a, T>> for ExecutionPayload<T> {
             }
             FullPayloadRef::Capella(payload) => {
                 ExecutionPayload::Capella(payload.execution_payload.clone())
-            }
-            FullPayloadRef::Eip4844(payload) => {
-                ExecutionPayload::Eip4844(payload.execution_payload.clone())
             }
         }
     }
@@ -322,7 +307,6 @@ impl<T: EthSpec> AbstractExecPayload<T> for FullPayload<T> {
     type Ref<'a> = FullPayloadRef<'a, T>;
     type Merge = FullPayloadMerge<T>;
     type Capella = FullPayloadCapella<T>;
-    type Eip4844 = FullPayloadEip4844<T>;
 
     fn default_at_fork(fork_name: ForkName) -> Self {
         match fork_name {
@@ -330,7 +314,6 @@ impl<T: EthSpec> AbstractExecPayload<T> for FullPayload<T> {
             ForkName::Base | ForkName::Altair => panic!(),
             ForkName::Merge => FullPayloadMerge::default().into(),
             ForkName::Capella => FullPayloadCapella::default().into(),
-            ForkName::Eip4844 => FullPayloadEip4844::default().into(),
         }
     }
 }
@@ -344,9 +327,6 @@ impl<T: EthSpec> From<ExecutionPayload<T>> for FullPayload<T> {
             ExecutionPayload::Capella(execution_payload) => {
                 Self::Capella(FullPayloadCapella { execution_payload })
             }
-            ExecutionPayload::Eip4844(execution_payload) => {
-                Self::Eip4844(FullPayloadEip4844 { execution_payload })
-            }
         }
     }
 }
@@ -359,7 +339,7 @@ impl<T: EthSpec> TryFrom<ExecutionPayloadHeader<T>> for FullPayload<T> {
 }
 
 #[superstruct(
-    variants(Merge, Capella, Eip4844),
+    variants(Merge, Capella),
     variant_attributes(
         derive(
             Debug,
@@ -395,8 +375,6 @@ pub struct BlindedPayload<T: EthSpec> {
     pub execution_payload_header: ExecutionPayloadHeaderMerge<T>,
     #[superstruct(only(Capella), partial_getter(rename = "execution_payload_capella"))]
     pub execution_payload_header: ExecutionPayloadHeaderCapella<T>,
-    #[superstruct(only(Eip4844), partial_getter(rename = "execution_payload_eip4844"))]
-    pub execution_payload_header: ExecutionPayloadHeaderEip4844<T>,
 }
 
 impl<T: EthSpec> ExecPayload<T> for BlindedPayload<T> {
@@ -732,19 +710,11 @@ impl_exec_payload_for_fork!(
     ExecutionPayloadCapella,
     Capella
 );
-impl_exec_payload_for_fork!(
-    BlindedPayloadEip4844,
-    FullPayloadEip4844,
-    ExecutionPayloadHeaderEip4844,
-    ExecutionPayloadEip4844,
-    Eip4844
-);
 
 impl<T: EthSpec> AbstractExecPayload<T> for BlindedPayload<T> {
     type Ref<'a> = BlindedPayloadRef<'a, T>;
     type Merge = BlindedPayloadMerge<T>;
     type Capella = BlindedPayloadCapella<T>;
-    type Eip4844 = BlindedPayloadEip4844<T>;
 
     fn default_at_fork(fork_name: ForkName) -> Self {
         match fork_name {
@@ -752,7 +722,6 @@ impl<T: EthSpec> AbstractExecPayload<T> for BlindedPayload<T> {
             ForkName::Base | ForkName::Altair => panic!(),
             ForkName::Merge => BlindedPayloadMerge::default().into(),
             ForkName::Capella => BlindedPayloadCapella::default().into(),
-            ForkName::Eip4844 => BlindedPayloadEip4844::default().into(),
         }
     }
 }
@@ -762,7 +731,6 @@ impl<T: EthSpec> From<ExecutionPayload<T>> for BlindedPayload<T> {
         match payload {
             ExecutionPayload::Merge(payload) => BlindedPayload::Merge(payload.into()),
             ExecutionPayload::Capella(payload) => BlindedPayload::Capella(payload.into()),
-            ExecutionPayload::Eip4844(payload) => BlindedPayload::Eip4844(payload.into()),
         }
     }
 }
@@ -780,11 +748,6 @@ impl<T: EthSpec> From<ExecutionPayloadHeader<T>> for BlindedPayload<T> {
                     execution_payload_header,
                 })
             }
-            ExecutionPayloadHeader::Eip4844(execution_payload_header) => {
-                Self::Eip4844(BlindedPayloadEip4844 {
-                    execution_payload_header,
-                })
-            }
         }
     }
 }
@@ -797,9 +760,6 @@ impl<T: EthSpec> From<BlindedPayload<T>> for ExecutionPayloadHeader<T> {
             }
             BlindedPayload::Capella(blinded_payload) => {
                 ExecutionPayloadHeader::Capella(blinded_payload.execution_payload_header)
-            }
-            BlindedPayload::Eip4844(blinded_payload) => {
-                ExecutionPayloadHeader::Eip4844(blinded_payload.execution_payload_header)
             }
         }
     }

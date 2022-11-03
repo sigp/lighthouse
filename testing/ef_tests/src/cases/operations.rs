@@ -89,17 +89,16 @@ impl<E: EthSpec> Operation<E> for Attestation<E> {
                 &mut ctxt,
                 spec,
             ),
-            BeaconState::Altair(_)
-            | BeaconState::Merge(_)
-            | BeaconState::Capella(_)
-            | BeaconState::Eip4844(_) => altair::process_attestation(
-                state,
-                self,
-                0,
-                proposer_index,
-                VerifySignatures::True,
-                spec,
-            ),
+            BeaconState::Altair(_) | BeaconState::Merge(_) | BeaconState::Capella(_) => {
+                altair::process_attestation(
+                    state,
+                    self,
+                    0,
+                    proposer_index,
+                    VerifySignatures::True,
+                    spec,
+                )
+            }
         }
     }
 }
