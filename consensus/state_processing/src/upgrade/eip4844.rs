@@ -56,8 +56,11 @@ pub fn upgrade_to_eip4844<E: EthSpec>(
         // Execution
         latest_execution_payload_header: pre.latest_execution_payload_header.upgrade_to_eip4844(),
         // Withdrawals
+        #[cfg(feature = "withdrawals")]
         withdrawal_queue: mem::take(&mut pre.withdrawal_queue),
+        #[cfg(feature = "withdrawals")]
         next_withdrawal_index: pre.next_withdrawal_index,
+        #[cfg(feature = "withdrawals")]
         next_partial_withdrawal_validator_index: pre.next_partial_withdrawal_validator_index,
         // Caches
         total_active_balance: pre.total_active_balance,

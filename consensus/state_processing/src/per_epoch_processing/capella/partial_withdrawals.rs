@@ -1,8 +1,10 @@
+#[cfg(all(feature = "withdrawals", feature = "withdrawals-processing"))]
 use crate::common::withdraw_balance;
 use crate::EpochProcessingError;
 use safe_arith::SafeArith;
 use types::{beacon_state::BeaconState, eth_spec::EthSpec, ChainSpec};
 
+#[cfg(all(feature = "withdrawals", feature = "withdrawals-processing"))]
 pub fn process_partial_withdrawals<T: EthSpec>(
     state: &mut BeaconState<T>,
     spec: &ChainSpec,
