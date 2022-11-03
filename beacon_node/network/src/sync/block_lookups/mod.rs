@@ -85,7 +85,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         }
 
         if self.parent_lookups.iter_mut().any(|parent_req| {
-            parent_req.contains_block(&hash) || parent_req.add_peer(&hash, &peer_id)
+            parent_req.add_peer(&hash, &peer_id) || parent_req.contains_block(&hash)
         }) {
             // If the block was already downloaded, or is being downloaded in this moment, do not
             // request it.
@@ -95,7 +95,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         if self
             .processing_parent_lookups
             .values()
-            .any(|(hashes, _peers)| hashes.contains(&hash))
+            .any(|(hashes, _last_parent_request)| hashes.contains(&hash))
         {
             // we are already processing this block, ignore it.
             return;
