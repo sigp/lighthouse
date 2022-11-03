@@ -60,7 +60,7 @@ impl ApiSecret {
             // Create and write the secret key to file with appropriate permissions
             create_with_600_perms(
                 &sk_path,
-                eth2_serde_utils::hex::encode(&sk.serialize()).as_bytes(),
+                eth2_serde_utils::hex::encode(sk.serialize()).as_bytes(),
             )
             .map_err(|e| {
                 format!(
