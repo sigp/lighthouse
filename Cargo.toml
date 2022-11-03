@@ -99,7 +99,7 @@ eth2_hashing = { path = "crypto/eth2_hashing" }
 tree_hash = { path = "consensus/tree_hash" }
 tree_hash_derive = { path = "consensus/tree_hash_derive" }
 eth2_serde_utils = { path = "consensus/serde_utils" }
-
+# Come comment
 [profile.maxperf]
 inherits = "release"
 lto = "fat"
