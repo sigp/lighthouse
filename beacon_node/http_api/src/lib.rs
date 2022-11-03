@@ -1,3 +1,4 @@
+#![recursion_limit = "256"]
 //! This crate contains a HTTP server which serves the endpoints listed here:
 //!
 //! https://github.com/ethereum/beacon-APIs
