@@ -1,7 +1,7 @@
 #![cfg(feature = "ef_tests")]
 
 use ef_tests::*;
-use types::*;
+use types::{*, MainnetEthSpec};
 
 // Check that the hand-computed multiplications on EthSpec are correctly computed.
 // This test lives here because one is most likely to muck these up during a spec update.
@@ -463,6 +463,11 @@ fn genesis_initialization() {
 fn genesis_validity() {
     GenesisValidityHandler::<MinimalEthSpec>::default().run();
     // Note: there are no genesis validity tests for mainnet
+}
+
+#[test]
+fn merkle_proof_validity() {
+    MerkleProofValidityHandler::<MainnetEthSpec>::default().run();
 }
 
 #[test]
