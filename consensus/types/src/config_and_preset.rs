@@ -40,7 +40,7 @@ impl ConfigAndPreset {
         let extra_fields = get_extra_fields(spec);
 
         if spec.bellatrix_fork_epoch.is_some()
-            || fork_name == None
+            || fork_name.is_none()
             || fork_name == Some(ForkName::Merge)
         {
             let bellatrix_preset = BellatrixPreset::from_chain_spec::<T>(spec);
@@ -65,7 +65,7 @@ impl ConfigAndPreset {
 
 /// Get a hashmap of constants to add to the `PresetAndConfig`
 pub fn get_extra_fields(spec: &ChainSpec) -> HashMap<String, Value> {
-    let hex_string = |value: &[u8]| format!("0x{}", hex::encode(&value)).into();
+    let hex_string = |value: &[u8]| format!("0x{}", hex::encode(value)).into();
     let u32_hex = |v: u32| hex_string(&v.to_le_bytes());
     let u8_hex = |v: u8| hex_string(&v.to_le_bytes());
     hashmap! {
