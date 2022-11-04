@@ -43,3 +43,5 @@ arbitrary-fuzz = [
   "eth2_ssz_types/arbitrary",
   "tree_hash/arbitrary",
 ]
+withdrawals = ["types/withdrawals"]
+withdrawals-processing = []

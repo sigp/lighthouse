@@ -99,6 +99,7 @@ pub struct JsonExecutionPayloadHeader<T: EthSpec> {
     pub excess_blobs: u64,
     pub block_hash: ExecutionBlockHash,
     pub transactions_root: Hash256,
+    #[cfg(feature = "withdrawals")]
     #[superstruct(only(V2, V3))]
     pub withdrawals_root: Hash256,
 }
@@ -137,6 +138,7 @@ impl<T: EthSpec> From<JsonExecutionPayloadHeader<T>> for ExecutionPayloadHeader<
                 base_fee_per_gas: v2.base_fee_per_gas,
                 block_hash: v2.block_hash,
                 transactions_root: v2.transactions_root,
+                #[cfg(feature = "withdrawals")]
                 withdrawals_root: v2.withdrawals_root,
             }),
             JsonExecutionPayloadHeader::V3(v3) => Self::Eip4844(ExecutionPayloadHeaderEip4844 {
@@ -155,6 +157,7 @@ impl<T: EthSpec> From<JsonExecutionPayloadHeader<T>> for ExecutionPayloadHeader<
                 excess_blobs: v3.excess_blobs,
                 block_hash: v3.block_hash,
                 transactions_root: v3.transactions_root,
+                #[cfg(feature = "withdrawals")]
                 withdrawals_root: v3.withdrawals_root,
             }),
         }
@@ -195,6 +198,7 @@ impl<T: EthSpec> From<ExecutionPayloadHeader<T>> for JsonExecutionPayloadHeader<
                 base_fee_per_gas: capella.base_fee_per_gas,
                 block_hash: capella.block_hash,
                 transactions_root: capella.transactions_root,
+                #[cfg(feature = "withdrawals")]
                 withdrawals_root: capella.withdrawals_root,
             }),
             ExecutionPayloadHeader::Eip4844(eip4844) => Self::V3(JsonExecutionPayloadHeaderV3 {
@@ -213,6 +217,7 @@ impl<T: EthSpec> From<ExecutionPayloadHeader<T>> for JsonExecutionPayloadHeader<
                 excess_blobs: eip4844.excess_blobs,
                 block_hash: eip4844.block_hash,
                 transactions_root: eip4844.transactions_root,
+                #[cfg(feature = "withdrawals")]
                 withdrawals_root: eip4844.withdrawals_root,
             }),
         }
@@ -258,6 +263,7 @@ pub struct JsonExecutionPayload<T: EthSpec> {
     #[serde(with = "ssz_types::serde_utils::list_of_hex_var_list")]
     pub transactions:
         VariableList<Transaction<T::MaxBytesPerTransaction>, T::MaxTransactionsPerPayload>,
+    #[cfg(feature = "withdrawals")]
     #[superstruct(only(V2, V3))]
     pub withdrawals: VariableList<Withdrawal, T::MaxWithdrawalsPerPayload>,
 }
@@ -296,6 +302,7 @@ impl<T: EthSpec> From<JsonExecutionPayload<T>> for ExecutionPayload<T> {
                 base_fee_per_gas: v2.base_fee_per_gas,
                 block_hash: v2.block_hash,
                 transactions: v2.transactions,
+                #[cfg(feature = "withdrawals")]
                 withdrawals: v2.withdrawals,
             }),
             JsonExecutionPayload::V3(v3) => Self::Eip4844(ExecutionPayloadEip4844 {
@@ -314,6 +321,7 @@ impl<T: EthSpec> From<JsonExecutionPayload<T>> for ExecutionPayload<T> {
                 excess_blobs: v3.excess_blobs,
                 block_hash: v3.block_hash,
                 transactions: v3.transactions,
+                #[cfg(feature = "withdrawals")]
                 withdrawals: v3.withdrawals,
             }),
         }
@@ -354,6 +362,7 @@ impl<T: EthSpec> From<ExecutionPayload<T>> for JsonExecutionPayload<T> {
                 base_fee_per_gas: capella.base_fee_per_gas,
                 block_hash: capella.block_hash,
                 transactions: capella.transactions,
+                #[cfg(feature = "withdrawals")]
                 withdrawals: capella.withdrawals,
             }),
             ExecutionPayload::Eip4844(eip4844) => Self::V3(JsonExecutionPayloadV3 {
@@ -372,6 +381,7 @@ impl<T: EthSpec> From<ExecutionPayload<T>> for JsonExecutionPayload<T> {
                 excess_blobs: eip4844.excess_blobs,
                 block_hash: eip4844.block_hash,
                 transactions: eip4844.transactions,
+                #[cfg(feature = "withdrawals")]
                 withdrawals: eip4844.withdrawals,
             }),
         }
@@ -425,6 +435,7 @@ pub struct JsonPayloadAttributes {
     pub timestamp: u64,
     pub prev_randao: Hash256,
     pub suggested_fee_recipient: Address,
+    #[cfg(feature = "withdrawals")]
     #[superstruct(only(V2))]
     pub withdrawals: Vec<JsonWithdrawal>,
 }
@@ -441,6 +452,7 @@ impl From<PayloadAttributes> for JsonPayloadAttributes {
                 timestamp: pa.timestamp,
                 prev_randao: pa.prev_randao,
                 suggested_fee_recipient: pa.suggested_fee_recipient,
+                #[cfg(feature = "withdrawals")]
                 withdrawals: pa.withdrawals.into_iter().map(Into::into).collect(),
             }),
         }
@@ -459,6 +471,7 @@ impl From<JsonPayloadAttributes> for PayloadAttributes {
                 timestamp: jpa.timestamp,
                 prev_randao: jpa.prev_randao,
                 suggested_fee_recipient: jpa.suggested_fee_recipient,
+                #[cfg(feature = "withdrawals")]
                 withdrawals: jpa.withdrawals.into_iter().map(Into::into).collect(),
             }),
         }

@@ -295,10 +295,13 @@ where
     pub latest_execution_payload_header: ExecutionPayloadHeaderEip4844<T>,
 
     // Withdrawals
+    #[cfg(feature = "withdrawals")]
     #[superstruct(only(Capella, Eip4844))]
     pub withdrawal_queue: VariableList<Withdrawal, T::WithdrawalQueueLimit>,
+    #[cfg(feature = "withdrawals")]
     #[superstruct(only(Capella, Eip4844))]
     pub next_withdrawal_index: u64,
+    #[cfg(feature = "withdrawals")]
     #[superstruct(only(Capella, Eip4844))]
     pub next_partial_withdrawal_validator_index: u64,
 

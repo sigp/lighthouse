@@ -71,3 +71,4 @@ arbitrary-fuzz = [
   "swap_or_not_shuffle/arbitrary",
   "tree_hash/arbitrary",
 ]
+withdrawals = []

@@ -105,10 +105,13 @@ where
     pub latest_execution_payload_header: ExecutionPayloadHeaderEip4844<T>,
 
     // Withdrawals
+    #[cfg(feature = "withdrawals")]
     #[superstruct(only(Capella, Eip4844))]
     pub withdrawal_queue: VariableList<Withdrawal, T::WithdrawalQueueLimit>,
+    #[cfg(feature = "withdrawals")]
     #[superstruct(only(Capella, Eip4844))]
     pub next_withdrawal_index: u64,
+    #[cfg(feature = "withdrawals")]
     #[superstruct(only(Capella, Eip4844))]
     pub next_partial_withdrawal_validator_index: u64,
 }
@@ -199,6 +202,7 @@ impl<T: EthSpec> PartialBeaconState<T> {
                     latest_execution_payload_header
                 ]
             ),
+            #[cfg(feature = "withdrawals")]
             BeaconState::Capella(s) => impl_from_state_forgetful!(
                 s,
                 outer,
@@ -216,6 +220,22 @@ impl<T: EthSpec> PartialBeaconState<T> {
                     next_partial_withdrawal_validator_index
                 ]
             ),
+            #[cfg(not(feature = "withdrawals"))]
+            BeaconState::Capella(s) => impl_from_state_forgetful!(
+                s,
+                outer,
+                Capella,
+                PartialBeaconStateCapella,
+                [
+                    previous_epoch_participation,
+                    current_epoch_participation,
+                    current_sync_committee,
+                    next_sync_committee,
+                    inactivity_scores,
+                    latest_execution_payload_header
+                ]
+            ),
+            #[cfg(feature = "withdrawals")]
             BeaconState::Eip4844(s) => impl_from_state_forgetful!(
                 s,
                 outer,
@@ -231,6 +251,21 @@ impl<T: EthSpec> PartialBeaconState<T> {
                     withdrawal_queue,
                     next_withdrawal_index,
                     next_partial_withdrawal_validator_index
+                ]
+            ),
+            #[cfg(not(feature = "withdrawals"))]
+            BeaconState::Eip4844(s) => impl_from_state_forgetful!(
+                s,
+                outer,
+                Eip4844,
+                PartialBeaconStateEip4844,
+                [
+                    previous_epoch_participation,
+                    current_epoch_participation,
+                    current_sync_committee,
+                    next_sync_committee,
+                    inactivity_scores,
+                    latest_execution_payload_header
                 ]
             ),
         }
@@ -420,6 +455,7 @@ impl<E: EthSpec> TryInto<BeaconState<E>> for PartialBeaconState<E> {
                     latest_execution_payload_header
                 ]
             ),
+            #[cfg(feature = "withdrawals")]
             PartialBeaconState::Capella(inner) => impl_try_into_beacon_state!(
                 inner,
                 Capella,
@@ -436,6 +472,21 @@ impl<E: EthSpec> TryInto<BeaconState<E>> for PartialBeaconState<E> {
                     next_partial_withdrawal_validator_index
                 ]
             ),
+            #[cfg(not(feature = "withdrawals"))]
+            PartialBeaconState::Capella(inner) => impl_try_into_beacon_state!(
+                inner,
+                Capella,
+                BeaconStateCapella,
+                [
+                    previous_epoch_participation,
+                    current_epoch_participation,
+                    current_sync_committee,
+                    next_sync_committee,
+                    inactivity_scores,
+                    latest_execution_payload_header
+                ]
+            ),
+            #[cfg(feature = "withdrawals")]
             PartialBeaconState::Eip4844(inner) => impl_try_into_beacon_state!(
                 inner,
                 Eip4844,
@@ -450,6 +501,20 @@ impl<E: EthSpec> TryInto<BeaconState<E>> for PartialBeaconState<E> {
                     withdrawal_queue,
                     next_withdrawal_index,
                     next_partial_withdrawal_validator_index
+                ]
+            ),
+            #[cfg(not(feature = "withdrawals"))]
+            PartialBeaconState::Eip4844(inner) => impl_try_into_beacon_state!(
+                inner,
+                Eip4844,
+                BeaconStateEip4844,
+                [
+                    previous_epoch_participation,
+                    current_epoch_participation,
+                    current_sync_committee,
+                    next_sync_committee,
+                    inactivity_scores,
+                    latest_execution_payload_header
                 ]
             ),
         };

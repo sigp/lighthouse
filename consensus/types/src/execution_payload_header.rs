@@ -74,6 +74,7 @@ pub struct ExecutionPayloadHeader<T: EthSpec> {
     pub block_hash: ExecutionBlockHash,
     #[superstruct(getter(copy))]
     pub transactions_root: Hash256,
+    #[cfg(feature = "withdrawals")]
     #[superstruct(only(Capella, Eip4844))]
     #[superstruct(getter(copy))]
     pub withdrawals_root: Hash256,
@@ -104,6 +105,7 @@ impl<'a, T: EthSpec> ExecutionPayloadHeaderRef<'a, T> {
 
 impl<T: EthSpec> ExecutionPayloadHeaderMerge<T> {
     pub fn upgrade_to_capella(&self) -> ExecutionPayloadHeaderCapella<T> {
+        #[cfg(feature = "withdrawals")]
         // TODO: if this is correct we should calculate and hardcode this..
         let empty_withdrawals_root =
             VariableList::<Withdrawal, T::MaxWithdrawalsPerPayload>::empty().tree_hash_root();
@@ -122,6 +124,7 @@ impl<T: EthSpec> ExecutionPayloadHeaderMerge<T> {
             base_fee_per_gas: self.base_fee_per_gas,
             block_hash: self.block_hash,
             transactions_root: self.transactions_root,
+            #[cfg(feature = "withdrawals")]
             // FIXME: the spec doesn't seem to define what to do here..
             withdrawals_root: empty_withdrawals_root,
         }
@@ -147,6 +150,7 @@ impl<T: EthSpec> ExecutionPayloadHeaderCapella<T> {
             excess_blobs: 0,
             block_hash: self.block_hash,
             transactions_root: self.transactions_root,
+            #[cfg(feature = "withdrawals")]
             withdrawals_root: self.withdrawals_root,
         }
     }
@@ -189,6 +193,7 @@ impl<T: EthSpec> From<ExecutionPayloadCapella<T>> for ExecutionPayloadHeaderCape
             base_fee_per_gas: payload.base_fee_per_gas,
             block_hash: payload.block_hash,
             transactions_root: payload.transactions.tree_hash_root(),
+            #[cfg(feature = "withdrawals")]
             withdrawals_root: payload.withdrawals.tree_hash_root(),
         }
     }
@@ -211,6 +216,7 @@ impl<T: EthSpec> From<ExecutionPayloadEip4844<T>> for ExecutionPayloadHeaderEip4
             excess_blobs: payload.excess_blobs,
             block_hash: payload.block_hash,
             transactions_root: payload.transactions.tree_hash_root(),
+            #[cfg(feature = "withdrawals")]
             withdrawals_root: payload.withdrawals.tree_hash_root(),
         }
     }

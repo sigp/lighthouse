@@ -26,3 +26,7 @@ lru = "0.7.1"
 sloggers = { version = "2.1.1", features = ["json"] }
 directory = { path = "../../common/directory" }
 strum = { version = "0.24.0", features = ["derive"] }
+
+[features]
+withdrawals = ["state_processing/withdrawals", "types/withdrawals"]
+withdrawals-processing = ["state_processing/withdrawals-processing"]

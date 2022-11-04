@@ -1,7 +1,9 @@
+#[cfg(all(feature = "withdrawals", feature = "withdrawals-processing"))]
 use crate::common::withdraw_balance;
 use crate::EpochProcessingError;
 use types::{beacon_state::BeaconState, eth_spec::EthSpec, ChainSpec};
 
+#[cfg(all(feature = "withdrawals", feature = "withdrawals-processing"))]
 pub fn process_full_withdrawals<T: EthSpec>(
     state: &mut BeaconState<T>,
     spec: &ChainSpec,

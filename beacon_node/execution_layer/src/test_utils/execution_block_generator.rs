@@ -403,6 +403,7 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
                             base_fee_per_gas: Uint256::one(),
                             block_hash: ExecutionBlockHash::zero(),
                             transactions: vec![].into(),
+                            #[cfg(feature = "withdrawals")]
                             withdrawals: pa
                                 .withdrawals
                                 .iter()

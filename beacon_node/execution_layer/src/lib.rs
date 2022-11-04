@@ -1499,6 +1499,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                 })
             }
             ExecutionBlockWithTransactions::Capella(capella_block) => {
+                #[cfg(feature = "withdrawals")]
                 let withdrawals = VariableList::new(capella_block.withdrawals.clone())
                     .map_err(ApiError::DeserializeWithdrawals)?;
 
@@ -1517,10 +1518,12 @@ impl<T: EthSpec> ExecutionLayer<T> {
                     base_fee_per_gas: capella_block.base_fee_per_gas,
                     block_hash: capella_block.block_hash,
                     transactions,
+                    #[cfg(feature = "withdrawals")]
                     withdrawals,
                 })
             }
             ExecutionBlockWithTransactions::Eip4844(eip4844_block) => {
+                #[cfg(feature = "withdrawals")]
                 let withdrawals = VariableList::new(eip4844_block.withdrawals.clone())
                     .map_err(ApiError::DeserializeWithdrawals)?;
 
@@ -1540,6 +1543,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                     excess_blobs: eip4844_block.excess_blobs,
                     block_hash: eip4844_block.block_hash,
                     transactions,
+                    #[cfg(feature = "withdrawals")]
                     withdrawals,
                 })
             }
