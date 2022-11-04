@@ -155,6 +155,7 @@ pub struct ExecutionBlockWithTransactions<T: EthSpec> {
     #[serde(rename = "hash")]
     pub block_hash: ExecutionBlockHash,
     pub transactions: Vec<Transaction>,
+    #[cfg(feature = "withdrawals")]
     #[superstruct(only(Capella, Eip4844))]
     pub withdrawals: Vec<Withdrawal>,
 }
@@ -204,6 +205,7 @@ impl<T: EthSpec> From<ExecutionPayload<T>> for ExecutionBlockWithTransactions<T>
                         .map(|tx| Transaction::decode(&Rlp::new(tx)))
                         .collect::<Result<Vec<_>, _>>()
                         .unwrap_or_else(|_| Vec::new()),
+                    #[cfg(feature = "withdrawals")]
                     withdrawals: block.withdrawals.into(),
                 })
             }
@@ -229,23 +231,13 @@ impl<T: EthSpec> From<ExecutionPayload<T>> for ExecutionBlockWithTransactions<T>
                         .map(|tx| Transaction::decode(&Rlp::new(tx)))
                         .collect::<Result<Vec<_>, _>>()
                         .unwrap_or_else(|_| Vec::new()),
+                    #[cfg(feature = "withdrawals")]
                     withdrawals: block.withdrawals.into(),
                 })
             }
         }
     }
 }
-
-/*
-impl<T: EthSpec> From<ExecutionBlockWithTransactions<T>> for ExecutionPayload<T> {
-    fn from(block: ExecutionBlockWithTransactions<T>) -> Self {
-        map_execution_block_with_transactions!(block, |inner, cons| {
-            let block = inner.into();
-            cons(block)
-        })
-    }
-}
- */
 
 #[superstruct(
     variants(V1, V2),
@@ -261,6 +253,7 @@ pub struct PayloadAttributes {
     pub prev_randao: Hash256,
     #[superstruct(getter(copy))]
     pub suggested_fee_recipient: Address,
+    #[cfg(feature = "withdrawals")]
     #[superstruct(only(V2))]
     pub withdrawals: Vec<Withdrawal>,
 }

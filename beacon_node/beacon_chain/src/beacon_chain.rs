@@ -4117,6 +4117,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     .get_suggested_fee_recipient(proposer as u64)
                     .await,
                 //FIXME(sean)
+                #[cfg(feature = "withdrawals")]
                 withdrawals: vec![],
             }),
         };

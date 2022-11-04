@@ -106,7 +106,7 @@ impl<'a, T: EthSpec> ExecutionPayloadHeaderRef<'a, T> {
 impl<T: EthSpec> ExecutionPayloadHeaderMerge<T> {
     pub fn upgrade_to_capella(&self) -> ExecutionPayloadHeaderCapella<T> {
         #[cfg(feature = "withdrawals")]
-            // TODO: if this is correct we should calculate and hardcode this..
+        // TODO: if this is correct we should calculate and hardcode this..
         let empty_withdrawals_root =
             VariableList::<Withdrawal, T::MaxWithdrawalsPerPayload>::empty().tree_hash_root();
         ExecutionPayloadHeaderCapella {

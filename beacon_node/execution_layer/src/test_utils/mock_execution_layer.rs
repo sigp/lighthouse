@@ -113,6 +113,7 @@ impl<T: EthSpec> MockExecutionLayer<T> {
                         prev_randao,
                         suggested_fee_recipient: Address::repeat_byte(42),
                         // FIXME: think about adding withdrawals here..
+                        #[cfg(feature = "withdrawals")]
                         withdrawals: vec![],
                     })
                 }
