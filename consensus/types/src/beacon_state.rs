@@ -1713,7 +1713,7 @@ impl<T: EthSpec> BeaconState<T> {
     
         // 4. If we're proving the finalized root, patch in the finalized epoch to complete the proof.
         if generalized_index == light_client_update::FINALIZED_ROOT_INDEX {
-            proof.push(self.finalized_checkpoint().epoch.tree_hash_root());
+            proof.insert(0, self.finalized_checkpoint().epoch.tree_hash_root());
         }
     
         Ok(proof)

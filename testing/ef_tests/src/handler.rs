@@ -617,6 +617,33 @@ impl<E: EthSpec + TypeName> Handler for GenesisInitializationHandler<E> {
     }
 }
 
+
+#[derive(Derivative)]
+#[derivative(Default(bound = ""))]
+pub struct MerkleProofValidityHandler<E>(PhantomData<E>);
+
+impl<E: EthSpec + TypeName> Handler for MerkleProofValidityHandler<E> {
+    type Case = cases::MerkleProofValidity<E>;
+
+    fn config_name() -> &'static str {
+        E::name()
+    }
+
+    fn runner_name() -> &'static str {
+        "light_client"
+    }
+
+    fn handler_name(&self) -> String {
+        "single_merkle_proof".into()
+    }
+
+    fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
+        fork_name != ForkName::Base
+            && fork_name != ForkName::Altair
+            && cfg!(not(feature = "fake_crypto"))
+    }
+}
+
 #[derive(Derivative)]
 #[derivative(Default(bound = ""))]
 pub struct OperationsHandler<E, O>(PhantomData<(E, O)>);
