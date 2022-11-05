@@ -1,7 +1,7 @@
 #![cfg(feature = "ef_tests")]
 
 use ef_tests::*;
-use types::{*, MainnetEthSpec};
+use types::*;
 
 // Check that the hand-computed multiplications on EthSpec are correctly computed.
 // This test lives here because one is most likely to muck these up during a spec update.

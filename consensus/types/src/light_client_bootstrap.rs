@@ -24,7 +24,8 @@ impl<T: EthSpec> LightClientBootstrap<T> {
     pub fn from_beacon_state(mut beacon_state: BeaconState<T>) -> Result<Self, Error> {
         let mut header = beacon_state.latest_block_header().clone();
         header.state_root = beacon_state.tree_hash_root();
-        let current_sync_committee_branch = beacon_state.compute_merkle_proof(CURRENT_SYNC_COMMITTEE_INDEX)?;
+        let current_sync_committee_branch =
+            beacon_state.compute_merkle_proof(CURRENT_SYNC_COMMITTEE_INDEX)?;
         Ok(LightClientBootstrap {
             header,
             current_sync_committee: beacon_state.current_sync_committee()?.clone(),

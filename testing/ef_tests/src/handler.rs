@@ -617,7 +617,6 @@ impl<E: EthSpec + TypeName> Handler for GenesisInitializationHandler<E> {
     }
 }
 
-
 #[derive(Derivative)]
 #[derivative(Default(bound = ""))]
 pub struct MerkleProofValidityHandler<E>(PhantomData<E>);

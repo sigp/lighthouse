@@ -114,7 +114,8 @@ impl<T: EthSpec> LightClientUpdate<T> {
         if finalized_header.tree_hash_root() != beacon_state.finalized_checkpoint().root {
             return Err(Error::InvalidFinalizedBlock);
         }
-        let next_sync_committee_branch = attested_state.compute_merkle_proof(NEXT_SYNC_COMMITTEE_INDEX)?;
+        let next_sync_committee_branch =
+            attested_state.compute_merkle_proof(NEXT_SYNC_COMMITTEE_INDEX)?;
         let finality_branch = attested_state.compute_merkle_proof(FINALIZED_ROOT_INDEX)?;
         Ok(Self {
             attested_header,

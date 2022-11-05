@@ -210,7 +210,10 @@ impl<T: EthSpec> BeaconTreeHashCacheInner<T> {
         }
     }
 
-    pub fn recalculate_tree_hash_leaves(&mut self, state: &BeaconState<T>) -> Result<Vec<Hash256>, Error> {
+    pub fn recalculate_tree_hash_leaves(
+        &mut self,
+        state: &BeaconState<T>,
+    ) -> Result<Vec<Hash256>, Error> {
         let mut leaves = vec![];
         // Genesis data leaves.
         leaves.push(state.genesis_time().tree_hash_root());
@@ -220,39 +223,63 @@ impl<T: EthSpec> BeaconTreeHashCacheInner<T> {
         leaves.push(state.fork().tree_hash_root());
         leaves.push(state.latest_block_header().tree_hash_root());
         // Roots leaves.
-        leaves.push(state.block_roots()
-            .recalculate_tree_hash_root(&mut self.fixed_arena, &mut self.block_roots)?);
-        leaves.push(state.state_roots()
-            .recalculate_tree_hash_root(&mut self.fixed_arena, &mut self.state_roots)?);
-        leaves.push(state.historical_roots()
-            .recalculate_tree_hash_root(&mut self.fixed_arena, &mut self.historical_roots)?);
+        leaves.push(
+            state
+                .block_roots()
+                .recalculate_tree_hash_root(&mut self.fixed_arena, &mut self.block_roots)?,
+        );
+        leaves.push(
+            state
+                .state_roots()
+                .recalculate_tree_hash_root(&mut self.fixed_arena, &mut self.state_roots)?,
+        );
+        leaves.push(
+            state
+                .historical_roots()
+                .recalculate_tree_hash_root(&mut self.fixed_arena, &mut self.historical_roots)?,
+        );
         // Eth1 Data leaves.
         leaves.push(state.eth1_data().tree_hash_root());
-        leaves.push(self.eth1_data_votes
-            .recalculate_tree_hash_root(state)?);
+        leaves.push(self.eth1_data_votes.recalculate_tree_hash_root(state)?);
         leaves.push(state.eth1_deposit_index().tree_hash_root());
         // Validator leaves.
-        leaves.push(self.validators.recalculate_tree_hash_root(state.validators())?);
-        leaves.push(state.balances()
-            .recalculate_tree_hash_root(&mut self.balances_arena, &mut self.balances)?);
-        leaves.push(state.randao_mixes()
-            .recalculate_tree_hash_root(&mut self.fixed_arena, &mut self.randao_mixes)?);
-        leaves.push(state.slashings()
-            .recalculate_tree_hash_root(&mut self.slashings_arena, &mut self.slashings)?);
-        
+        leaves.push(
+            self.validators
+                .recalculate_tree_hash_root(state.validators())?,
+        );
+        leaves.push(
+            state
+                .balances()
+                .recalculate_tree_hash_root(&mut self.balances_arena, &mut self.balances)?,
+        );
+        leaves.push(
+            state
+                .randao_mixes()
+                .recalculate_tree_hash_root(&mut self.fixed_arena, &mut self.randao_mixes)?,
+        );
+        leaves.push(
+            state
+                .slashings()
+                .recalculate_tree_hash_root(&mut self.slashings_arena, &mut self.slashings)?,
+        );
+
         // Participation
         if let BeaconState::Base(state) = state {
             leaves.push(state.previous_epoch_attestations.tree_hash_root());
             leaves.push(state.current_epoch_attestations.tree_hash_root());
         } else {
-            leaves.push(self.previous_epoch_participation
-                .recalculate_tree_hash_root(&ParticipationList::new(
-                    state.previous_epoch_participation()?,
-                ))?);
-            leaves.push(self.current_epoch_participation
-                .recalculate_tree_hash_root(&ParticipationList::new(
-                    state.current_epoch_participation()?,
-                ))?);
+            leaves.push(
+                self.previous_epoch_participation
+                    .recalculate_tree_hash_root(&ParticipationList::new(
+                        state.previous_epoch_participation()?,
+                    ))?,
+            );
+            leaves.push(
+                self.current_epoch_participation
+                    .recalculate_tree_hash_root(&ParticipationList::new(
+                        state.current_epoch_participation()?,
+                    ))?,
+            );
         }
         // Checkpoint leaves
         leaves.push(state.justification_bits().tree_hash_root());
@@ -261,8 +288,10 @@ impl<T: EthSpec> BeaconTreeHashCacheInner<T> {
         leaves.push(state.finalized_checkpoint().tree_hash_root());
         // Inactivity & light-client sync committees (Altair and later).
         if let Ok(inactivity_scores) = state.inactivity_scores() {
-            leaves.push(self.inactivity_scores
-                .recalculate_tree_hash_root(inactivity_scores)?);
+            leaves.push(
+                self.inactivity_scores
+                    .recalculate_tree_hash_root(inactivity_scores)?,
+            );
         }
         if let Ok(current_sync_committee) = state.current_sync_committee() {
             leaves.push(current_sync_committee.tree_hash_root());
@@ -318,7 +347,7 @@ impl<T: EthSpec> BeaconTreeHashCacheInner<T> {
         let leaves = self.recalculate_tree_hash_leaves(state)?;
         for leaf in leaves {
             hasher.write(leaf.as_bytes())?;
-        }        
+        }
 
         let root = hasher.finish()?;
 

@@ -2,8 +2,8 @@ use super::*;
 use crate::decode::{ssz_decode_state, yaml_decode_file};
 use serde_derive::Deserialize;
 use std::path::Path;
-use types::{BeaconState, EthSpec, ForkName};
 use tree_hash::Hash256;
+use types::{BeaconState, EthSpec, ForkName};
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Metadata {
@@ -53,20 +53,29 @@ impl<E: EthSpec> Case for MerkleProofValidity<E> {
         state.initialize_tree_hash_cache();
         let proof = match state.compute_merkle_proof(self.merkle_proof.leaf_index) {
             Ok(proof) => proof,
-            Err(_) => return Err(Error::FailedToParseTest("Could not retrieve merkle proof".to_string())),
+            Err(_) => {
+                return Err(Error::FailedToParseTest(
+                    "Could not retrieve merkle proof".to_string(),
+                ))
+            }
         };
         let proof_len = proof.len();
         let branch_len = self.merkle_proof.branch.len();
         if proof_len != branch_len {
-            return Err(Error::NotEqual(format!("Branches not equal in length computed: {}, expected {}", proof_len, branch_len)));
+            return Err(Error::NotEqual(format!(
+                "Branches not equal in length computed: {}, expected {}",
+                proof_len, branch_len
+            )));
         }
 
         for i in 0..proof_len {
             let expected_leaf = self.merkle_proof.branch[i];
             if proof[i] != expected_leaf {
-                return Err(Error::NotEqual(
-                    format!("Leaves not equal in merke proof computed: {}, expected: {}",
-                        hex::encode(proof[i]).to_string(), hex::encode(expected_leaf).to_string())));
+                return Err(Error::NotEqual(format!(
+                    "Leaves not equal in merke proof computed: {}, expected: {}",
+                    hex::encode(proof[i]).to_string(),
+                    hex::encode(expected_leaf).to_string()
+                )));
             }
         }
         Ok(())
