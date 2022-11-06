@@ -14,7 +14,7 @@ pub fn upgrade_to_eip4844<E: EthSpec>(
     let previous_fork_version = if cfg!(feature ="withdrawals") {
         pre.fork.current_version
     } else {
-        spec.bellatrix_fork_epoch
+        spec.bellatrix_fork_version
     };
 
     // Where possible, use something like `mem::take` to move fields from behind the &mut
