@@ -214,55 +214,31 @@ impl<T: EthSpec> BeaconTreeHashCacheInner<T> {
         &mut self,
         state: &BeaconState<T>,
     ) -> Result<Vec<Hash256>, Error> {
-        let mut leaves = vec![];
-        // Genesis data leaves.
-        leaves.push(state.genesis_time().tree_hash_root());
-        leaves.push(state.genesis_validators_root().tree_hash_root());
-        // Current fork data leaves.
-        leaves.push(state.slot().tree_hash_root());
-        leaves.push(state.fork().tree_hash_root());
-        leaves.push(state.latest_block_header().tree_hash_root());
-        // Roots leaves.
-        leaves.push(
-            state
-                .block_roots()
+        let mut leaves = vec![
+            // Genesis data leaves.
+            state.genesis_time().tree_hash_root(),
+            state.genesis_validators_root().tree_hash_root(),
+            // Current fork data leaves.
+            state.slot().tree_hash_root(),
+            state.fork().tree_hash_root(),
+            state.latest_block_header().tree_hash_root(),
+            // Roots leaves.
+            state.block_roots()
                 .recalculate_tree_hash_root(&mut self.fixed_arena, &mut self.block_roots)?,
-        );
-        leaves.push(
-            state
-                .state_roots()
+            state.state_roots()
                 .recalculate_tree_hash_root(&mut self.fixed_arena, &mut self.state_roots)?,
-        );
-        leaves.push(
-            state
-                .historical_roots()
+            state.historical_roots()
                 .recalculate_tree_hash_root(&mut self.fixed_arena, &mut self.historical_roots)?,
-        );
-        // Eth1 Data leaves.
-        leaves.push(state.eth1_data().tree_hash_root());
-        leaves.push(self.eth1_data_votes.recalculate_tree_hash_root(state)?);
-        leaves.push(state.eth1_deposit_index().tree_hash_root());
-        // Validator leaves.
-        leaves.push(
-            self.validators
-                .recalculate_tree_hash_root(state.validators())?,
-        );
-        leaves.push(
-            state
-                .balances()
-                .recalculate_tree_hash_root(&mut self.balances_arena, &mut self.balances)?,
-        );
-        leaves.push(
-            state
-                .randao_mixes()
-                .recalculate_tree_hash_root(&mut self.fixed_arena, &mut self.randao_mixes)?,
-        );
-        leaves.push(
-            state
-                .slashings()
-                .recalculate_tree_hash_root(&mut self.slashings_arena, &mut self.slashings)?,
-        );
-
+            // Eth1 Data leaves.
+            state.eth1_data().tree_hash_root(),
+            self.eth1_data_votes.recalculate_tree_hash_root(state)?,
+            state.eth1_deposit_index().tree_hash_root(),
+            // Validator leaves.
+            self.validators.recalculate_tree_hash_root(state.validators())?,
+            state.balances().recalculate_tree_hash_root(&mut self.balances_arena, &mut self.balances)?,
+            state.randao_mixes().recalculate_tree_hash_root(&mut self.fixed_arena, &mut self.randao_mixes)?,
+            state.slashings().recalculate_tree_hash_root(&mut self.slashings_arena, &mut self.slashings)?
+        ];
         // Participation
         if let BeaconState::Base(state) = state {
             leaves.push(state.previous_epoch_attestations.tree_hash_root());
