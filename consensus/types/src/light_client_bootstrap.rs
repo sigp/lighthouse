@@ -21,7 +21,7 @@ pub struct LightClientBootstrap<T: EthSpec> {
 }
 
 impl<T: EthSpec> LightClientBootstrap<T> {
-    pub fn from_beacon_state(mut beacon_state: BeaconState<T>) -> Result<Self, Error> {
+    pub fn from_beacon_state(beacon_state: &mut BeaconState<T>) -> Result<Self, Error> {
         let mut header = beacon_state.latest_block_header().clone();
         header.state_root = beacon_state.tree_hash_root();
         let current_sync_committee_branch =

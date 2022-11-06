@@ -1701,17 +1701,13 @@ impl<T: EthSpec> BeaconState<T> {
             _ => return Err(Error::IndexNotSupported(generalized_index)),
         };
 
-        // 2. Get all `BeaconState` leaves.
-        // The most efficient way to get these at the moment is from the tree hash cache.
-        // We can copy the guts of this function (or generalize it):
-        // https://github.com/sigp/lighthouse/blob/6d5a2b509fac7b6ffe693866f58ba49989f946d7/consensus/types/src/beacon_state/tree_hash_cache.rs#L213-L371
+        // Get all `BeaconState` leaves.
         let cache = self.tree_hash_cache_mut().take();
-        let leaves;
-        if let Some(mut cache) = cache {
-            leaves = cache.recalculate_tree_hash_leaves(self)?;
+        let leaves = if let Some(mut cache) = cache {
+            cache.recalculate_tree_hash_leaves(self)?
         } else {
             return Err(Error::TreeHashCacheNotInitialized);
-        }
+        };
 
         // 3. Make deposit tree.
         // Use the depth of the `BeaconState` fields (i.e. `log2(32) = 5`).

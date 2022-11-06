@@ -31,7 +31,7 @@ impl<T: EthSpec> LightClientFinalityUpdate<T> {
         chain_spec: ChainSpec,
         beacon_state: BeaconState<T>,
         block: BeaconBlock<T>,
-        mut attested_state: BeaconState<T>,
+        attested_state: &mut BeaconState<T>,
         finalized_block: BeaconBlock<T>,
     ) -> Result<Self, Error> {
         let altair_fork_epoch = chain_spec
