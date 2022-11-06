@@ -1684,7 +1684,8 @@ impl<T: EthSpec> BeaconState<T> {
                 // for the internal nodes. Result should be 22 or 23, the field offset of the committee
                 // in the `BeaconState`:
                 // https://github.com/ethereum/consensus-specs/blob/dev/specs/altair/beacon-chain.md#beaconstate
-                generalized_index.checked_sub(tree_hash_cache::NUM_BEACON_STATE_HASH_TREE_ROOT_LEAVES)
+                generalized_index
+                    .checked_sub(tree_hash_cache::NUM_BEACON_STATE_HASH_TREE_ROOT_LEAVES)
                     .ok_or(Error::IndexNotSupported(generalized_index))?
             }
             light_client_update::FINALIZED_ROOT_INDEX => {
@@ -1693,7 +1694,8 @@ impl<T: EthSpec> BeaconState<T> {
                 let finalized_checkpoint_generalized_index = generalized_index / 2;
                 // Subtract off the internal nodes. Result should be 105/2 - 32 = 20 which matches
                 // position of `finalized_checkpoint` in `BeaconState`.
-                finalized_checkpoint_generalized_index.checked_sub(tree_hash_cache::NUM_BEACON_STATE_HASH_TREE_ROOT_LEAVES)
+                finalized_checkpoint_generalized_index
+                    .checked_sub(tree_hash_cache::NUM_BEACON_STATE_HASH_TREE_ROOT_LEAVES)
                     .ok_or(Error::IndexNotSupported(generalized_index))?
             }
             _ => return Err(Error::IndexNotSupported(generalized_index)),
