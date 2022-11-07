@@ -68,13 +68,13 @@ impl<E: EthSpec> Case for MerkleProofValidity<E> {
             )));
         }
 
-        for i in 0..proof_len {
+        for (i, proof_leaf) in proof.iter().enumerate().take(proof_len) {
             let expected_leaf = self.merkle_proof.branch[i];
-            if proof[i] != expected_leaf {
+            if *proof_leaf != expected_leaf {
                 return Err(Error::NotEqual(format!(
                     "Leaves not equal in merke proof computed: {}, expected: {}",
-                    hex::encode(proof[i]).to_string(),
-                    hex::encode(expected_leaf).to_string()
+                    hex::encode(proof_leaf),
+                    hex::encode(expected_leaf)
                 )));
             }
         }
