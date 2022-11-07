@@ -2627,7 +2627,12 @@ pub fn serve<T: BeaconChainTypes>(
                     .await
                     .map(|resp| warp::reply::json(&resp))
                     .map_err(|e| {
-                        error!(log, "Error from connected relay"; "error" => ?e);
+                        error!(
+                            log,
+                            "Relay error when registering validator(s)";
+                            "num_registrations" => filtered_registration_data.len(),
+                            "error" => ?e
+                        );
                         // Forward the HTTP status code if we are able to, otherwise fall back
                         // to a server error.
                         if let eth2::Error::ServerMessage(message) = e {
