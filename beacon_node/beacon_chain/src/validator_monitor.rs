@@ -332,34 +332,22 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                     metrics::set_int_gauge(
                         &metrics::VALIDATOR_MONITOR_SLASHED,
                         &[id],
-                        if validator.slashed { 1 } else { 0 },
+                        i64::from(validator.slashed),
                     );
                     metrics::set_int_gauge(
                         &metrics::VALIDATOR_MONITOR_ACTIVE,
                         &[id],
-                        if validator.is_active_at(current_epoch) {
-                            1
-                        } else {
-                            0
-                        },
+                        i64::from(validator.is_active_at(current_epoch)),
                     );
                     metrics::set_int_gauge(
                         &metrics::VALIDATOR_MONITOR_EXITED,
                         &[id],
-                        if validator.is_exited_at(current_epoch) {
-                            1
-                        } else {
-                            0
-                        },
+                        i64::from(validator.is_exited_at(current_epoch)),
                     );
                     metrics::set_int_gauge(
                         &metrics::VALIDATOR_MONITOR_WITHDRAWABLE,
                         &[id],
-                        if validator.is_withdrawable_at(current_epoch) {
-                            1
-                        } else {
-                            0
-                        },
+                        i64::from(validator.is_withdrawable_at(current_epoch)),
                     );
                     metrics::set_int_gauge(
                         &metrics::VALIDATOR_ACTIVATION_ELIGIBILITY_EPOCH,

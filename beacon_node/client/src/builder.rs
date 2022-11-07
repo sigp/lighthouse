@@ -858,7 +858,6 @@ where
     /// Specifies that the `Client` should use a `HotColdDB` database.
     pub fn disk_store(
         mut self,
-        datadir: &Path,
         hot_path: &Path,
         cold_path: &Path,
         config: StoreConfig,
@@ -888,7 +887,6 @@ where
             migrate_schema::<Witness<TSlotClock, TEth1Backend, _, _, _>>(
                 db,
                 deposit_contract_deploy_block,
-                datadir,
                 from,
                 to,
                 log,
