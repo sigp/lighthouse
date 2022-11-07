@@ -52,22 +52,22 @@ use crate::validator_monitor::HISTORIC_EPOCHS as VALIDATOR_MONITOR_HISTORIC_EPOC
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use crate::{
     beacon_chain::{
-        BeaconForkChoice, BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT, MAXIMUM_GOSSIP_CLOCK_DISPARITY,
-        VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT,
+        BeaconForkChoice, ForkChoiceError, BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT,
+        MAXIMUM_GOSSIP_CLOCK_DISPARITY, VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT,
     },
     metrics, BeaconChain, BeaconChainError, BeaconChainTypes,
 };
 use derivative::Derivative;
 use eth2::types::EventKind;
 use execution_layer::PayloadStatus;
-use fork_choice::PayloadVerificationStatus;
+use fork_choice::{AttestationFromBlock, PayloadVerificationStatus};
 use parking_lot::RwLockReadGuard;
 use proto_array::Block as ProtoBlock;
 use safe_arith::ArithError;
 use slog::{debug, error, warn, Logger};
 use slot_clock::SlotClock;
 use ssz::Encode;
-use state_processing::per_block_processing::is_merge_transition_block;
+use state_processing::per_block_processing::{errors::IntoWithIndex, is_merge_transition_block};
 use state_processing::{
     block_signature_verifier::{BlockSignatureVerifier, Error as BlockSignatureVerifierError},
     per_block_processing, per_slot_processing,
@@ -1127,6 +1127,78 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
 
         check_block_relevancy(&block, block_root, chain)?;
 
+        // Define a future that will verify the execution payload with an execution engine.
+        //
+        // We do this as early as possible so that later parts of this function can run in parallel
+        // with the payload verification.
+        let payload_notifier =
+            PayloadNotifier::new(chain.clone(), block.clone(), &parent.pre_state)?;
+        let is_valid_merge_transition_block =
+            is_merge_transition_block(&parent.pre_state, block.message().body());
+        let payload_verification_future = async move {
+            let chain = payload_notifier.chain.clone();
+            let block = payload_notifier.block.clone();
+
+            // If this block triggers the merge, check to ensure that it references valid execution
+            // blocks.
+            //
+            // The specification defines this check inside `on_block` in the fork-choice specification,
+            // however we perform the check here for two reasons:
+            //
+            // - There's no point in importing a block that will fail fork choice, so it's best to fail
+            //   early.
+            // - Doing the check here means we can keep our fork-choice implementation "pure". I.e., no
+            //   calls to remote servers.
+            if is_valid_merge_transition_block {
+                validate_merge_block(&chain, block.message(), AllowOptimisticImport::Yes).await?;
+            };
+
+            // The specification declares that this should be run *inside* `per_block_processing`,
+            // however we run it here to keep `per_block_processing` pure (i.e., no calls to external
+            // servers).
+            //
+            // It is important that this function is called *after* `per_slot_processing`, since the
+            // `randao` may change.
+            let payload_verification_status = payload_notifier.notify_new_payload().await?;
+
+            // If the payload did not validate or invalidate the block, check to see if this block is
+            // valid for optimistic import.
+            if payload_verification_status.is_optimistic() {
+                let block_hash_opt = block
+                    .message()
+                    .body()
+                    .execution_payload()
+                    .map(|full_payload| full_payload.execution_payload.block_hash);
+
+                // Ensure the block is a candidate for optimistic import.
+                if !is_optimistic_candidate_block(&chain, block.slot(), block.parent_root()).await?
+                {
+                    warn!(
+                        chain.log,
+                        "Rejecting optimistic block";
+                        "block_hash" => ?block_hash_opt,
+                        "msg" => "the execution engine is not synced"
+                    );
+                    return Err(ExecutionPayloadError::UnverifiedNonOptimisticCandidate.into());
+                }
+            }
+
+            Ok(PayloadVerificationOutcome {
+                payload_verification_status,
+                is_valid_merge_transition_block,
+            })
+        };
+        // Spawn the payload verification future as a new task, but don't wait for it to complete.
+        // The `payload_verification_future` will be awaited later to ensure verification completed
+        // successfully.
+        let payload_verification_handle = chain
+            .task_executor
+            .spawn_handle(
+                payload_verification_future,
+                "execution_payload_verification",
+            )
+            .ok_or(BeaconChainError::RuntimeShutdown)?;
+
         /*
          * Advance the given `parent.beacon_state` to the slot of the given `block`.
          */
@@ -1231,78 +1303,10 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
                 summaries.push(summary);
             }
         }
+        metrics::stop_timer(catchup_timer);
 
         let block_slot = block.slot();
         let state_current_epoch = state.current_epoch();
-
-        // Define a future that will verify the execution payload with an execution engine (but
-        // don't execute it yet).
-        let payload_notifier = PayloadNotifier::new(chain.clone(), block.clone(), &state)?;
-        let is_valid_merge_transition_block =
-            is_merge_transition_block(&state, block.message().body());
-        let payload_verification_future = async move {
-            let chain = payload_notifier.chain.clone();
-            let block = payload_notifier.block.clone();
-
-            // If this block triggers the merge, check to ensure that it references valid execution
-            // blocks.
-            //
-            // The specification defines this check inside `on_block` in the fork-choice specification,
-            // however we perform the check here for two reasons:
-            //
-            // - There's no point in importing a block that will fail fork choice, so it's best to fail
-            //   early.
-            // - Doing the check here means we can keep our fork-choice implementation "pure". I.e., no
-            //   calls to remote servers.
-            if is_valid_merge_transition_block {
-                validate_merge_block(&chain, block.message(), AllowOptimisticImport::Yes).await?;
-            };
-
-            // The specification declares that this should be run *inside* `per_block_processing`,
-            // however we run it here to keep `per_block_processing` pure (i.e., no calls to external
-            // servers).
-            //
-            // It is important that this function is called *after* `per_slot_processing`, since the
-            // `randao` may change.
-            let payload_verification_status = payload_notifier.notify_new_payload().await?;
-
-            // If the payload did not validate or invalidate the block, check to see if this block is
-            // valid for optimistic import.
-            if payload_verification_status.is_optimistic() {
-                let block_hash_opt = block
-                    .message()
-                    .body()
-                    .execution_payload()
-                    .map(|full_payload| full_payload.execution_payload.block_hash);
-
-                // Ensure the block is a candidate for optimistic import.
-                if !is_optimistic_candidate_block(&chain, block.slot(), block.parent_root()).await?
-                {
-                    warn!(
-                        chain.log,
-                        "Rejecting optimistic block";
-                        "block_hash" => ?block_hash_opt,
-                        "msg" => "the execution engine is not synced"
-                    );
-                    return Err(ExecutionPayloadError::UnverifiedNonOptimisticCandidate.into());
-                }
-            }
-
-            Ok(PayloadVerificationOutcome {
-                payload_verification_status,
-                is_valid_merge_transition_block,
-            })
-        };
-        // Spawn the payload verification future as a new task, but don't wait for it to complete.
-        // The `payload_verification_future` will be awaited later to ensure verification completed
-        // successfully.
-        let payload_verification_handle = chain
-            .task_executor
-            .spawn_handle(
-                payload_verification_future,
-                "execution_payload_verification",
-            )
-            .ok_or(BeaconChainError::RuntimeShutdown)?;
 
         // If the block is sufficiently recent, notify the validator monitor.
         if let Some(slot) = chain.slot_clock.now() {
@@ -1329,8 +1333,6 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
                 }
             }
         }
-
-        metrics::stop_timer(catchup_timer);
 
         /*
          * Build the committee caches on the state.
@@ -1420,6 +1422,44 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
                 local: state_root,
             });
         }
+
+        /*
+         * Apply the block's attestations to fork choice.
+         *
+         * We're running in parallel with the payload verification at this point, so this is
+         * free real estate.
+         */
+        let current_slot = chain.slot()?;
+        let mut fork_choice = chain.canonical_head.fork_choice_write_lock();
+
+        // Register each attester slashing in the block with fork choice.
+        for attester_slashing in block.message().body().attester_slashings() {
+            fork_choice.on_attester_slashing(attester_slashing);
+        }
+
+        // Register each attestation in the block with fork choice.
+        for (i, attestation) in block.message().body().attestations().iter().enumerate() {
+            let _fork_choice_attestation_timer =
+                metrics::start_timer(&metrics::FORK_CHOICE_PROCESS_ATTESTATION_TIMES);
+
+            let indexed_attestation = consensus_context
+                .get_indexed_attestation(&state, attestation)
+                .map_err(|e| BlockError::PerBlockProcessingError(e.into_with_index(i)))?;
+
+            match fork_choice.on_attestation(
+                current_slot,
+                indexed_attestation,
+                AttestationFromBlock::True,
+                &chain.spec,
+            ) {
+                Ok(()) => Ok(()),
+                // Ignore invalid attestations whilst importing attestations from a block. The
+                // block might be very old and therefore the attestations useless to fork choice.
+                Err(ForkChoiceError::InvalidAttestation(_)) => Ok(()),
+                Err(e) => Err(BlockError::BeaconChainError(e.into())),
+            }?;
+        }
+        drop(fork_choice);
 
         Ok(Self {
             block,

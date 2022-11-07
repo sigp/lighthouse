@@ -76,8 +76,8 @@ use state_processing::{
     common::get_attesting_indices_from_state,
     per_block_processing,
     per_block_processing::{
-        errors::{AttestationValidationError, IntoWithIndex},
-        verify_attestation_for_block_inclusion, VerifySignatures,
+        errors::AttestationValidationError, verify_attestation_for_block_inclusion,
+        VerifySignatures,
     },
     per_slot_processing,
     state_advance::{complete_state_advance, partial_state_advance},
@@ -2631,6 +2631,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let current_slot = self.slot()?;
         let current_epoch = current_slot.epoch(T::EthSpec::slots_per_epoch());
         let block = signed_block.message();
+        let post_exec_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_POST_EXEC_PROCESSING);
 
         // Check against weak subjectivity checkpoint.
         self.check_block_against_weak_subjectivity_checkpoint(block, block_root, &state)?;
@@ -2686,34 +2687,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .map_err(|e| BlockError::BeaconChainError(e.into()))?;
         }
 
-        // Register each attester slashing in the block with fork choice.
-        for attester_slashing in block.body().attester_slashings() {
-            fork_choice.on_attester_slashing(attester_slashing);
-        }
-
-        // Register each attestation in the block with the fork choice service.
-        for (i, attestation) in block.body().attestations().iter().enumerate() {
-            let _fork_choice_attestation_timer =
-                metrics::start_timer(&metrics::FORK_CHOICE_PROCESS_ATTESTATION_TIMES);
-
-            let indexed_attestation = consensus_context
-                .get_indexed_attestation(&state, attestation)
-                .map_err(|e| BlockError::PerBlockProcessingError(e.into_with_index(i)))?;
-
-            match fork_choice.on_attestation(
-                current_slot,
-                indexed_attestation,
-                AttestationFromBlock::True,
-                &self.spec,
-            ) {
-                Ok(()) => Ok(()),
-                // Ignore invalid attestations whilst importing attestations from a block. The
-                // block might be very old and therefore the attestations useless to fork choice.
-                Err(ForkChoiceError::InvalidAttestation(_)) => Ok(()),
-                Err(e) => Err(BlockError::BeaconChainError(e.into())),
-            }?;
-        }
-
         // If the block is recent enough and it was not optimistically imported, check to see if it
         // becomes the head block. If so, apply it to the early attester cache. This will allow
         // attestations to the block without waiting for the block and state to be inserted to the
@@ -2762,6 +2735,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 ),
             }
         }
+        drop(post_exec_timer);
 
         // ---------------------------- BLOCK PROBABLY ATTESTABLE ----------------------------------
         // Most blocks are now capable of being attested to thanks to the `early_attester_cache`
