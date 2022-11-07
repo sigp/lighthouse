@@ -281,7 +281,7 @@ where
             .attestations()
             .iter()
             .try_for_each(|attestation| {
-                let indexed_attestation = ctxt.get_indexed_attestation(&self.state, attestation)?;
+                let indexed_attestation = ctxt.get_indexed_attestation(self.state, attestation)?;
 
                 self.sets.push(indexed_attestation_signature_set(
                     self.state,

@@ -556,7 +556,7 @@ pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
         let mut consensus_context =
             ConsensusContext::new(block.slot()).set_current_block_root(*block_root);
 
-        signature_verifier.include_all_signatures(&block, &mut consensus_context)?;
+        signature_verifier.include_all_signatures(block, &mut consensus_context)?;
 
         // Save the block and its consensus context. The context will have had its proposer index
         // and attesting indices filled in, which can be used to accelerate later block processing.

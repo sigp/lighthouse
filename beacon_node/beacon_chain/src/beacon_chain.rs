@@ -2966,7 +2966,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             && wss_checkpoint.epoch <= new_finalized_checkpoint.epoch
         {
             if let Err(e) =
-                self.verify_weak_subjectivity_checkpoint(wss_checkpoint, block_root, &state)
+                self.verify_weak_subjectivity_checkpoint(wss_checkpoint, block_root, state)
             {
                 let mut shutdown_sender = self.shutdown_sender();
                 crit!(
@@ -3073,7 +3073,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 }
             };
             validator_monitor.register_attestation_in_block(
-                &indexed_attestation,
+                indexed_attestation,
                 parent_block_slot,
                 &self.spec,
             );
@@ -3228,8 +3228,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ) -> Result<(), BlockError<T::EthSpec>> {
         // For the current and next epoch of this state, ensure we have the shuffling from this
         // block in our cache.
-        for relative_epoch in &[RelativeEpoch::Current, RelativeEpoch::Next] {
-            let shuffling_id = AttestationShufflingId::new(block_root, &state, *relative_epoch)?;
+        for relative_epoch in [RelativeEpoch::Current, RelativeEpoch::Next] {
+            let shuffling_id = AttestationShufflingId::new(block_root, state, relative_epoch)?;
 
             let shuffling_is_cached = self
                 .shuffling_cache
@@ -3238,8 +3238,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .contains(&shuffling_id);
 
             if !shuffling_is_cached {
-                state.build_committee_cache(*relative_epoch, &self.spec)?;
-                let committee_cache = state.committee_cache(*relative_epoch)?;
+                state.build_committee_cache(relative_epoch, &self.spec)?;
+                let committee_cache = state.committee_cache(relative_epoch)?;
                 self.shuffling_cache
                     .try_write_for(ATTESTATION_CACHE_LOCK_TIMEOUT)
                     .ok_or(Error::AttestationCacheLockTimeout)?
@@ -3249,6 +3249,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn import_block_update_deposit_contract_finalization(
         &self,
         block: BeaconBlockRef<T::EthSpec>,
