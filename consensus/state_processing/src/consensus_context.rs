@@ -4,8 +4,8 @@ use std::collections::{hash_map::Entry, HashMap};
 use std::marker::PhantomData;
 use tree_hash::TreeHash;
 use types::{
-    Attestation, AttestationData, BeaconState, BeaconStateError, BitList, ChainSpec, EthSpec,
-    ExecPayload, Hash256, IndexedAttestation, SignedBeaconBlock, Slot,
+    Attestation, AttestationData, BeaconState, BeaconStateError, BitList, ChainSpec, Epoch,
+    EthSpec, ExecPayload, Hash256, IndexedAttestation, SignedBeaconBlock, Slot,
 };
 
 #[derive(Debug)]
@@ -26,6 +26,7 @@ pub struct ConsensusContext<T: EthSpec> {
 pub enum ContextError {
     BeaconState(BeaconStateError),
     SlotMismatch { slot: Slot, expected: Slot },
+    EpochMismatch { epoch: Epoch, expected: Epoch },
 }
 
 impl From<BeaconStateError> for ContextError {
@@ -55,7 +56,7 @@ impl<T: EthSpec> ConsensusContext<T> {
         state: &BeaconState<T>,
         spec: &ChainSpec,
     ) -> Result<u64, ContextError> {
-        self.check_slot(state.slot())?;
+        self.check_epoch(state.current_epoch())?;
 
         if let Some(proposer_index) = self.proposer_index {
             return Ok(proposer_index);
@@ -94,6 +95,15 @@ impl<T: EthSpec> ConsensusContext<T> {
                 slot,
                 expected: self.slot,
             })
+        }
+    }
+
+    fn check_epoch(&self, epoch: Epoch) -> Result<(), ContextError> {
+        let expected = self.slot.epoch(T::slots_per_epoch());
+        if epoch == expected {
+            Ok(())
+        } else {
+            Err(ContextError::EpochMismatch { epoch, expected })
         }
     }
 
