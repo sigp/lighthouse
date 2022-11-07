@@ -2880,38 +2880,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         metrics::inc_counter(&metrics::BLOCK_PROCESSING_SUCCESSES);
 
-        let block_delay_total = get_slot_delay_ms(block_time_imported, slot, &self.slot_clock);
-
-        // Do not write to the cache for blocks older than 2 epochs, this helps reduce writes to
-        // the cache during sync.
-        if block_delay_total < self.slot_clock.slot_duration() * 64 {
-            // Store the timestamp of the block being imported into the cache.
-            self.block_times_cache.write().set_time_imported(
-                block_root,
-                current_slot,
-                block_time_imported,
-            );
-        }
-
-        // Do not store metrics if the block was > 4 slots old, this helps prevent noise during
-        // sync.
-        if block_delay_total < self.slot_clock.slot_duration() * 4 {
-            // Observe the delay between when we observed the block and when we imported it.
-            let block_delays = self.block_times_cache.read().get_block_delays(
-                block_root,
-                self.slot_clock
-                    .start_of(current_slot)
-                    .unwrap_or_else(|| Duration::from_secs(0)),
-            );
-
-            metrics::observe_duration(
-                &metrics::BEACON_BLOCK_IMPORTED_OBSERVED_DELAY_TIME,
-                block_delays
-                    .imported
-                    .unwrap_or_else(|| Duration::from_secs(0)),
-            );
-        }
-
         // Update the deposit contract cache.
         self.import_block_update_deposit_contract_finalization(
             block,
@@ -2930,8 +2898,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self.import_block_update_metrics_and_events(
             block,
             block_root,
+            block_time_imported,
             payload_verification_status,
-            current_epoch,
+            current_slot,
         );
 
         Ok(block_root)
@@ -3190,13 +3159,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         block: BeaconBlockRef<T::EthSpec>,
         block_root: Hash256,
+        block_time_imported: Duration,
         payload_verification_status: PayloadVerificationStatus,
-        current_epoch: Epoch,
+        current_slot: Slot,
     ) {
         // Only present some metrics for blocks from the previous epoch or later.
         //
         // This helps avoid noise in the metrics during sync.
-        if block.slot().epoch(T::EthSpec::slots_per_epoch()) + 1 >= current_epoch {
+        if block.slot() + 2 * T::EthSpec::slots_per_epoch() >= current_slot {
             metrics::observe(
                 &metrics::OPERATIONS_PER_BLOCK_ATTESTATION,
                 block.body().attestations().len() as f64,
@@ -3208,6 +3178,39 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     sync_aggregate.num_set_bits() as i64,
                 );
             }
+        }
+
+        let block_delay_total =
+            get_slot_delay_ms(block_time_imported, block.slot(), &self.slot_clock);
+
+        // Do not write to the cache for blocks older than 2 epochs, this helps reduce writes to
+        // the cache during sync.
+        if block_delay_total < self.slot_clock.slot_duration() * 64 {
+            // Store the timestamp of the block being imported into the cache.
+            self.block_times_cache.write().set_time_imported(
+                block_root,
+                current_slot,
+                block_time_imported,
+            );
+        }
+
+        // Do not store metrics if the block was > 4 slots old, this helps prevent noise during
+        // sync.
+        if block_delay_total < self.slot_clock.slot_duration() * 4 {
+            // Observe the delay between when we observed the block and when we imported it.
+            let block_delays = self.block_times_cache.read().get_block_delays(
+                block_root,
+                self.slot_clock
+                    .start_of(current_slot)
+                    .unwrap_or_else(|| Duration::from_secs(0)),
+            );
+
+            metrics::observe_duration(
+                &metrics::BEACON_BLOCK_IMPORTED_OBSERVED_DELAY_TIME,
+                block_delays
+                    .imported
+                    .unwrap_or_else(|| Duration::from_secs(0)),
+            );
         }
 
         if let Some(event_handler) = self.event_handler.as_ref() {
