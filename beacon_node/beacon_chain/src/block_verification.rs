@@ -623,6 +623,7 @@ pub struct ExecutionPendingBlock<T: BeaconChainTypes> {
     pub parent_block: SignedBeaconBlock<T::EthSpec, BlindedPayload<T::EthSpec>>,
     pub parent_eth1_finalization_data: Eth1FinalizationData,
     pub confirmed_state_roots: Vec<Hash256>,
+    pub consensus_context: ConsensusContext<T::EthSpec>,
     pub payload_verification_handle: PayloadVerificationHandle<T::EthSpec>,
 }
 
@@ -1427,6 +1428,7 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
             parent_block: parent.beacon_block,
             parent_eth1_finalization_data,
             confirmed_state_roots,
+            consensus_context,
             payload_verification_handle,
         })
     }
