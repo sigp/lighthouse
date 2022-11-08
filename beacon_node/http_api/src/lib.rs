@@ -463,7 +463,7 @@ pub fn serve<T: BeaconChainTypes>(
             });
 
     let app_start = std::time::Instant::now();
-    let app_start_filter = warp::any().map(move || app_start.clone());
+    let app_start_filter = warp::any().map(move || app_start);
 
     /*
      *
@@ -2785,8 +2785,8 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path("ui"))
         .and(warp::path("health"))
         .and(warp::path::end())
-        .and(system_info_filter.clone())
-        .and(app_start_filter.clone())
+        .and(system_info_filter)
+        .and(app_start_filter)
         .and(network_globals.clone())
         .and_then(
             |sysinfo, runtime_start: std::time::Instant, network_globals| {
