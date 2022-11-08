@@ -3145,6 +3145,7 @@ dependencies = [
  "lighthouse_network",
  "lighthouse_version",
  "log",
+ "malloc_utils",
  "sensitive_url",
  "serde",
  "serde_json",

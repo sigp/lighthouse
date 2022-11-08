@@ -278,16 +278,6 @@ jobs:
       uses: arduino/setup-protoc@v1
     - name: Typecheck benchmark code without running it
       run: make check-benches
-  check-consensus:
-    name: check-consensus
-    runs-on: ubuntu-latest
-    needs: cargo-fmt
-    steps:
-    - uses: actions/checkout@v1
-    - name: Get latest version of stable Rust
-      run: rustup update stable
-    - name: Typecheck consensus code in strict mode
-      run: make check-consensus
   clippy:
     name: clippy
     runs-on: ubuntu-latest
