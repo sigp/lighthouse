@@ -9,6 +9,7 @@ name = "benches"
 harness = false
 
 [dependencies]
+merkle_proof = { path = "../../consensus/merkle_proof" }
 bls = { path = "../../crypto/bls" }
 compare_fields = { path = "../../common/compare_fields" }
 compare_fields_derive = { path = "../../common/compare_fields_derive" }
