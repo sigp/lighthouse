@@ -1701,7 +1701,7 @@ impl<T: EthSpec> BeaconState<T> {
             _ => return Err(Error::IndexNotSupported(generalized_index)),
         };
 
-        // Get all `BeaconState` leaves.
+        // 2. Get all `BeaconState` leaves.
         let cache = self.tree_hash_cache_mut().take();
         let leaves = if let Some(mut cache) = cache {
             cache.recalculate_tree_hash_leaves(self)?
