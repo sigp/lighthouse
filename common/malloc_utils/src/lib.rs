@@ -26,7 +26,8 @@
 
 #[cfg(all(
     target_os = "linux",
-    not(any(target_env = "musl", feature = "jemalloc"))
+    not(target_env = "musl"),
+    not(feature = "jemalloc")
 ))]
 mod glibc;
 
@@ -37,7 +38,8 @@ pub use interface::*;
 
 #[cfg(all(
     target_os = "linux",
-    not(any(target_env = "musl", feature = "jemalloc"))
+    not(target_env = "musl"),
+    not(feature = "jemalloc")
 ))]
 mod interface {
     pub use crate::glibc::configure_glibc_malloc as configure_memory_allocator;
@@ -54,7 +56,10 @@ mod interface {
     pub use crate::jemalloc::scrape_jemalloc_metrics as scrape_allocator_metrics;
 }
 
-#[cfg(any(not(target_os = "linux"), target_env = "musl"))]
+#[cfg(all(
+    any(not(target_os = "linux"), target_env = "musl"),
+    not(feature = "jemalloc")
+))]
 mod interface {
     #[allow(dead_code, clippy::unnecessary_wraps)]
     pub fn configure_memory_allocator() -> Result<(), String> {
