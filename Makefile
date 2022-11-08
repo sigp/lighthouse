@@ -109,10 +109,6 @@ cargo-fmt:
 check-benches:
 	cargo check --workspace --benches
 
-# Typechecks consensus code *without* allowing deprecated legacy arithmetic or metrics.
-check-consensus:
-	cargo check -p state_processing --no-default-features
-
 # Runs only the ef-test vectors.
 run-ef-tests:
 	rm -rf $(EF_TESTS)/.accessed_file_log.txt
