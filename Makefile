@@ -15,7 +15,12 @@ PINNED_NIGHTLY ?= nightly
 CLIPPY_PINNED_NIGHTLY=nightly-2022-05-19
 
 # List of features to use when building natively. Can be overriden via the environment.
-FEATURES ?= jemalloc
+# No jemalloc on Windows
+ifeq ($(OS),Windows_NT)
+    FEATURES?=
+else
+    FEATURES?=jemalloc
+endif
 
 # List of features to use when cross-compiling. Can be overridden via the environment.
 CROSS_FEATURES ?= gnosis,slasher-lmdb,slasher-mdbx,jemalloc
