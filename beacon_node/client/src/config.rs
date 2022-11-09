@@ -36,6 +36,7 @@ pub enum ClientGenesis {
     CheckpointSyncUrl {
         genesis_state_bytes: Vec<u8>,
         url: SensitiveUrl,
+        timeout: u64,
     },
 }
 

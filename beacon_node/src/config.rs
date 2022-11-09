@@ -473,10 +473,12 @@ pub fn get_config<E: EthSpec>(
         } else if let Some(remote_bn_url) = cli_args.value_of("checkpoint-sync-url") {
             let url = SensitiveUrl::parse(remote_bn_url)
                 .map_err(|e| format!("Invalid checkpoint sync URL: {:?}", e))?;
+            let timeout = clap_utils::parse_required::<u64>(cli_args, "checkpoint-sync-url-timeout")?;
 
             ClientGenesis::CheckpointSyncUrl {
                 genesis_state_bytes,
                 url,
+                timeout,
             }
         } else {
             // Note: re-serializing the genesis state is not so efficient, however it avoids adding
