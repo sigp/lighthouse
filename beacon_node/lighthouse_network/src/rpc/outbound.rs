@@ -1,4 +1,3 @@
-use std::fs::write;
 use std::marker::PhantomData;
 
 use super::methods::*;

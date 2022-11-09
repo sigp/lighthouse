@@ -1630,10 +1630,9 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                 peer_id,
                 request_id,
                 request,
-            } => task_spawner.spawn_blocking_with_manual_send_idle(move |send_idle_on_drop| {
+            } => task_spawner.spawn_blocking(move || {
                 worker.handle_light_client_bootstrap(
                     sub_executor,
-                    send_idle_on_drop,
                     peer_id,
                     request_id,
                     request,

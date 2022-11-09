@@ -208,7 +208,6 @@ impl<T: BeaconChainTypes> Worker<T> {
         pub fn handle_light_client_bootstrap(
             self,
             executor: TaskExecutor,
-            send_on_drop: SendOnDrop,
             peer_id: PeerId,
             request_id: PeerRequestId,
             request: LightClientBootstrapRequest,
