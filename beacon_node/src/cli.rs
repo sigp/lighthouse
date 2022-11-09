@@ -720,7 +720,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .help("Set the timeout for checkpoint sync calls to remote beacon node HTTP endpoint.")
                 .value_name("TIMEOUT")
                 .takes_value(true)
-                .requires("checkpoint-sync-url")
                 .default_value("60")
         )
         .arg(
