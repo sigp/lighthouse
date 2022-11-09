@@ -52,6 +52,8 @@ jobs:
       run: rustup update stable
     - name: Install Protoc
       uses: arduino/setup-protoc@v1
+      with:
+        repo-token: ${{ secrets.GITHUB_TOKEN }}
     - name: Install ganache
       run: sudo npm install -g ganache
     - name: Run tests in release
@@ -94,6 +96,8 @@ jobs:
       run: rustup update stable
     - name: Install Protoc
       uses: arduino/setup-protoc@v1
+      with:
+        repo-token: ${{ secrets.GITHUB_TOKEN }}
     - name: Run beacon_chain tests for all known forks
       run: make test-beacon-chain
   op-pool-tests:
@@ -106,6 +110,8 @@ jobs:
       run: rustup update stable
     - name: Install Protoc
       uses: arduino/setup-protoc@v1
+      with:
+        repo-token: ${{ secrets.GITHUB_TOKEN }}
     - name: Run operation_pool tests for all known forks
       run: make test-op-pool
   slasher-tests:
@@ -128,6 +134,8 @@ jobs:
       run: rustup update stable
     - name: Install Protoc
       uses: arduino/setup-protoc@v1
+      with:
+        repo-token: ${{ secrets.GITHUB_TOKEN }}
     - name: Install ganache
       run: sudo npm install -g ganache
     - name: Run tests in debug
@@ -142,6 +150,8 @@ jobs:
       run: rustup update stable
     - name: Install Protoc
       uses: arduino/setup-protoc@v1
+      with:
+        repo-token: ${{ secrets.GITHUB_TOKEN }}
     - name: Run state_transition_vectors in release.
       run: make run-state-transition-tests
   ef-tests-ubuntu:
@@ -154,6 +164,8 @@ jobs:
       run: rustup update stable
     - name: Install Protoc
       uses: arduino/setup-protoc@v1
+      with:
+        repo-token: ${{ secrets.GITHUB_TOKEN }}
     - name: Run consensus-spec-tests with blst, milagro and fake_crypto
       run: make test-ef
   dockerfile-ubuntu:
@@ -178,6 +190,8 @@ jobs:
       run: rustup update stable
     - name: Install Protoc
       uses: arduino/setup-protoc@v1
+      with:
+        repo-token: ${{ secrets.GITHUB_TOKEN }}
     - name: Install ganache
       run: sudo npm install -g ganache
     - name: Run the beacon chain sim that starts from an eth1 contract
@@ -192,6 +206,8 @@ jobs:
       run: rustup update stable
     - name: Install Protoc
       uses: arduino/setup-protoc@v1
+      with:
+        repo-token: ${{ secrets.GITHUB_TOKEN }}
     - name: Install ganache
       run: sudo npm install -g ganache
     - name: Run the beacon chain sim and go through the merge transition
@@ -206,6 +222,8 @@ jobs:
       run: rustup update stable
     - name: Install Protoc
       uses: arduino/setup-protoc@v1
+      with:
+        repo-token: ${{ secrets.GITHUB_TOKEN }}
     - name: Install ganache
       run: sudo npm install -g ganache
     - name: Run the beacon chain sim without an eth1 connection
@@ -220,6 +238,8 @@ jobs:
       run: rustup update stable
     - name: Install Protoc
       uses: arduino/setup-protoc@v1
+      with:
+        repo-token: ${{ secrets.GITHUB_TOKEN }}
     - name: Install ganache
       run: sudo npm install -g ganache
     - name: Run the syncing simulator
@@ -234,6 +254,8 @@ jobs:
       run: rustup update stable
     - name: Install Protoc
       uses: arduino/setup-protoc@v1
+      with:
+        repo-token: ${{ secrets.GITHUB_TOKEN }}
     - name: Install ganache
       run: sudo npm install -g ganache
     - name: Install lighthouse and lcli
@@ -264,6 +286,8 @@ jobs:
       run: rustup update stable
     - name: Install Protoc
       uses: arduino/setup-protoc@v1
+      with:
+        repo-token: ${{ secrets.GITHUB_TOKEN }}
     - name: Run exec engine integration tests in release
       run: make test-exec-engine
   check-benchmarks:
@@ -276,6 +300,8 @@ jobs:
       run: rustup update stable
     - name: Install Protoc
       uses: arduino/setup-protoc@v1
+      with:
+        repo-token: ${{ secrets.GITHUB_TOKEN }}
     - name: Typecheck benchmark code without running it
       run: make check-benches
   check-consensus:
@@ -298,6 +324,8 @@ jobs:
       run: rustup update stable
     - name: Install Protoc
       uses: arduino/setup-protoc@v1
+      with:
+        repo-token: ${{ secrets.GITHUB_TOKEN }}
     - name: Lint code for quality and style with Clippy
       run: make lint
     - name: Certify Cargo.lock freshness
@@ -319,6 +347,8 @@ jobs:
         cargo build --release --bin cargo-clippy --bin clippy-driver -Zunstable-options --out-dir $(rustc --print=sysroot)/bin
     - name: Install Protoc
       uses: arduino/setup-protoc@v1
+      with:
+        repo-token: ${{ secrets.GITHUB_TOKEN }}
     - name: Run Clippy with the disallowed-from-async lint
       run: make nightly-lint
   check-msrv:
@@ -331,6 +361,8 @@ jobs:
       run: rustup override set ${{ needs.extract-msrv.outputs.MSRV }}
     - name: Install Protoc
       uses: arduino/setup-protoc@v1
+      with:
+        repo-token: ${{ secrets.GITHUB_TOKEN }}
     - name: Run cargo check
       run: cargo check --workspace
   arbitrary-check:
@@ -373,6 +405,8 @@ jobs:
     # https://github.com/est31/cargo-udeps/issues/135
     - name: Install Protoc
       uses: arduino/setup-protoc@v1
+      with:
+        repo-token: ${{ secrets.GITHUB_TOKEN }}
     - name: Install cargo-udeps
       run: cargo install cargo-udeps --locked --force --version 0.1.30
     - name: Create Cargo config dir
