@@ -28,6 +28,7 @@ pub use handler::SubstreamId;
 pub use methods::{
     BlocksByRangeRequest, BlocksByRootRequest, GoodbyeReason, MaxRequestBlocks,
     RPCResponseErrorCode, ResponseTermination, StatusMessage, MAX_REQUEST_BLOCKS,
+    LightClientBootstrapRequest,
 };
 pub(crate) use outbound::OutboundRequest;
 pub use protocol::{max_rpc_size, Protocol, RPCError};
@@ -120,6 +121,7 @@ impl<Id: ReqId, TSpec: EthSpec> RPC<Id, TSpec> {
             .n_every(Protocol::Ping, 2, Duration::from_secs(10))
             .n_every(Protocol::Status, 5, Duration::from_secs(15))
             .one_every(Protocol::Goodbye, Duration::from_secs(10))
+            .one_every(Protocol::LightClientBootstrap, Duration::from_secs(10))
             .n_every(
                 Protocol::BlocksByRange,
                 methods::MAX_REQUEST_BLOCKS,

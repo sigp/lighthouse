@@ -501,6 +501,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                     Protocol::Ping => PeerAction::MidToleranceError,
                     Protocol::BlocksByRange => PeerAction::MidToleranceError,
                     Protocol::BlocksByRoot => PeerAction::MidToleranceError,
+                    Protocol::LightClientBootstrap => PeerAction::LowToleranceError,
                     Protocol::Goodbye => PeerAction::LowToleranceError,
                     Protocol::MetaData => PeerAction::LowToleranceError,
                     Protocol::Status => PeerAction::LowToleranceError,
@@ -517,6 +518,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                     Protocol::BlocksByRange => return,
                     Protocol::BlocksByRoot => return,
                     Protocol::Goodbye => return,
+                    Protocol::LightClientBootstrap => return,
                     Protocol::MetaData => PeerAction::LowToleranceError,
                     Protocol::Status => PeerAction::LowToleranceError,
                 }
@@ -531,6 +533,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                     Protocol::Ping => PeerAction::LowToleranceError,
                     Protocol::BlocksByRange => PeerAction::MidToleranceError,
                     Protocol::BlocksByRoot => PeerAction::MidToleranceError,
+                    Protocol::LightClientBootstrap => return,
                     Protocol::Goodbye => return,
                     Protocol::MetaData => return,
                     Protocol::Status => return,

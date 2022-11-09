@@ -45,6 +45,7 @@ use beacon_chain::{BeaconChain, BeaconChainTypes, GossipVerifiedBlock};
 use derivative::Derivative;
 use futures::stream::{Stream, StreamExt};
 use futures::task::Poll;
+use lighthouse_network::rpc::LightClientBootstrapRequest;
 use lighthouse_network::{
     rpc::{BlocksByRangeRequest, BlocksByRootRequest, StatusMessage},
     Client, MessageId, NetworkGlobals, PeerId, PeerRequestId,
@@ -195,6 +196,7 @@ pub const CHAIN_SEGMENT: &str = "chain_segment";
 pub const STATUS_PROCESSING: &str = "status_processing";
 pub const BLOCKS_BY_RANGE_REQUEST: &str = "blocks_by_range_request";
 pub const BLOCKS_BY_ROOTS_REQUEST: &str = "blocks_by_roots_request";
+pub const LIGHT_CLIENT_BOOTSTRAP_REQUEST: &str = "light_client_bootstrap";
 pub const UNKNOWN_BLOCK_ATTESTATION: &str = "unknown_block_attestation";
 pub const UNKNOWN_BLOCK_AGGREGATE: &str = "unknown_block_aggregate";
 
@@ -557,6 +559,22 @@ impl<T: BeaconChainTypes> WorkEvent<T> {
         }
     }
 
+    /// Create a new work event to process `LightClientBootstrap`s from the RPC network.
+    pub fn lightclient_bootstrap_request(
+        peer_id: PeerId,
+        request_id: PeerRequestId,
+        request: LightClientBootstrapRequest,
+    ) -> Self {
+        Self {
+            drop_during_sync: false,
+            work: Work::LightClientBootstrapRequest {
+                peer_id,
+                request_id,
+                request,
+            },
+        }
+    }
+
     /// Get a `str` representation of the type of work this `WorkEvent` contains.
     pub fn work_type(&self) -> &'static str {
         self.work.str_id()
@@ -733,6 +751,11 @@ pub enum Work<T: BeaconChainTypes> {
         request_id: PeerRequestId,
         request: BlocksByRootRequest,
     },
+    LightClientBootstrapRequest {
+        peer_id: PeerId,
+        request_id: PeerRequestId,
+        request: LightClientBootstrapRequest,
+    },
 }
 
 impl<T: BeaconChainTypes> Work<T> {
@@ -755,6 +778,7 @@ impl<T: BeaconChainTypes> Work<T> {
             Work::Status { .. } => STATUS_PROCESSING,
             Work::BlocksByRangeRequest { .. } => BLOCKS_BY_RANGE_REQUEST,
             Work::BlocksByRootsRequest { .. } => BLOCKS_BY_ROOTS_REQUEST,
+            Work::LightClientBootstrapRequest { .. } => LIGHT_CLIENT_BOOTSTRAP_REQUEST,
             Work::UnknownBlockAttestation { .. } => UNKNOWN_BLOCK_ATTESTATION,
             Work::UnknownBlockAggregate { .. } => UNKNOWN_BLOCK_AGGREGATE,
         }
@@ -898,7 +922,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
         let mut status_queue = FifoQueue::new(MAX_STATUS_QUEUE_LEN);
         let mut bbrange_queue = FifoQueue::new(MAX_BLOCKS_BY_RANGE_QUEUE_LEN);
         let mut bbroots_queue = FifoQueue::new(MAX_BLOCKS_BY_ROOTS_QUEUE_LEN);
-
+        let mut lcbootstrap_queue = FifoQueue::new(MAX_BLOCKS_BY_ROOTS_QUEUE_LEN);
         // Channels for sending work to the re-process scheduler (`work_reprocessing_tx`) and to
         // receive them back once they are ready (`ready_work_rx`).
         let (ready_work_tx, ready_work_rx) = mpsc::channel(MAX_SCHEDULED_WORK_QUEUE_LEN);
@@ -1119,6 +1143,8 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                             self.spawn_worker(item, toolbox);
                         } else if let Some(item) = bbrange_queue.pop() {
                             self.spawn_worker(item, toolbox);
+                        } else if let Some(item) = lcbootstrap_queue.pop() {
+                            self.spawn_worker(item, toolbox);
                         } else if let Some(item) = bbroots_queue.pop() {
                             self.spawn_worker(item, toolbox);
                         // Check slashings after all other consensus messages so we prioritize
@@ -1236,6 +1262,9 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                             }
                             Work::BlocksByRootsRequest { .. } => {
                                 bbroots_queue.push(work, work_id, &self.log)
+                            }
+                            Work::LightClientBootstrapRequest { .. } => {
+                                lcbootstrap_queue.push(work, work_id, &self.log)
                             }
                             Work::UnknownBlockAttestation { .. } => {
                                 unknown_block_attestation_queue.push(work)
@@ -1587,6 +1616,22 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                 request,
             } => task_spawner.spawn_blocking_with_manual_send_idle(move |send_idle_on_drop| {
                 worker.handle_blocks_by_root_request(
+                    sub_executor,
+                    send_idle_on_drop,
+                    peer_id,
+                    request_id,
+                    request,
+                )
+            }),
+            /*
+             * Processing of lightclient bootstrap requests from other peers.
+             */
+            Work::LightClientBootstrapRequest {
+                peer_id,
+                request_id,
+                request,
+            } => task_spawner.spawn_blocking_with_manual_send_idle(move |send_idle_on_drop| {
+                worker.handle_light_client_bootstrap(
                     sub_executor,
                     send_idle_on_drop,
                     peer_id,

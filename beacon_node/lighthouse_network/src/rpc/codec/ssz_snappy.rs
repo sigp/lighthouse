@@ -9,7 +9,7 @@ use snap::read::FrameDecoder;
 use snap::write::FrameEncoder;
 use ssz::{Decode, Encode};
 use ssz_types::VariableList;
-use std::io::Cursor;
+use std::{io::Cursor};
 use std::io::ErrorKind;
 use std::io::{Read, Write};
 use std::marker::PhantomData;
@@ -17,7 +17,7 @@ use std::sync::Arc;
 use tokio_util::codec::{Decoder, Encoder};
 use types::{
     EthSpec, ForkContext, ForkName, SignedBeaconBlock, SignedBeaconBlockAltair,
-    SignedBeaconBlockBase, SignedBeaconBlockMerge,
+    SignedBeaconBlockBase, SignedBeaconBlockMerge, Hash256, light_client_bootstrap::LightClientBootstrap,
 };
 use unsigned_varint::codec::Uvi;
 
@@ -70,6 +70,7 @@ impl<TSpec: EthSpec> Encoder<RPCCodedResponse<TSpec>> for SSZSnappyInboundCodec<
                 RPCResponse::Status(res) => res.as_ssz_bytes(),
                 RPCResponse::BlocksByRange(res) => res.as_ssz_bytes(),
                 RPCResponse::BlocksByRoot(res) => res.as_ssz_bytes(),
+                RPCResponse::LightClientBootstrap(res) => res.as_ssz_bytes(),
                 RPCResponse::Pong(res) => res.data.as_ssz_bytes(),
                 RPCResponse::MetaData(res) =>
                 // Encode the correct version of the MetaData response based on the negotiated version.
@@ -230,6 +231,7 @@ impl<TSpec: EthSpec> Encoder<OutboundRequest<TSpec>> for SSZSnappyOutboundCodec<
             OutboundRequest::BlocksByRoot(req) => req.block_roots.as_ssz_bytes(),
             OutboundRequest::Ping(req) => req.as_ssz_bytes(),
             OutboundRequest::MetaData(_) => return Ok(()), // no metadata to encode
+            OutboundRequest::LightClientBootstrap(req) => req.as_ssz_bytes(),
         };
         // SSZ encoded bytes should be within `max_packet_size`
         if bytes.len() > self.max_packet_size {
@@ -472,7 +474,9 @@ fn handle_v1_request<T: EthSpec>(
         Protocol::Ping => Ok(Some(InboundRequest::Ping(Ping {
             data: u64::from_ssz_bytes(decoded_buffer)?,
         }))),
-
+        Protocol::LightClientBootstrap => Ok(Some(InboundRequest::LightClientBootstrap(LightClientBootstrapRequest{
+            root: Hash256::from_ssz_bytes(decoded_buffer)?,
+        }))),
         // MetaData requests return early from InboundUpgrade and do not reach the decoder.
         // Handle this case just for completeness.
         Protocol::MetaData => {
@@ -544,6 +548,9 @@ fn handle_v1_response<T: EthSpec>(
         Protocol::MetaData => Ok(Some(RPCResponse::MetaData(MetaData::V1(
             MetaDataV1::from_ssz_bytes(decoded_buffer)?,
         )))),
+        Protocol::LightClientBootstrap => Ok(Some(RPCResponse::LightClientBootstrap(
+            LightClientBootstrap::from_ssz_bytes(decoded_buffer)?
+        )))
     }
 }
 
@@ -866,6 +873,9 @@ mod tests {
                 }
                 OutboundRequest::MetaData(metadata) => {
                     assert_eq!(decoded, InboundRequest::MetaData(metadata))
+                }
+                OutboundRequest::LightClientBootstrap(bootstrap) => {
+                    assert_eq!(decoded, InboundRequest::LightClientBootstrap(bootstrap))
                 }
             }
         }

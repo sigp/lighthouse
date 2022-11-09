@@ -153,6 +153,8 @@ pub enum Protocol {
     Ping,
     /// The `MetaData` protocol name.
     MetaData,
+    /// The `LightClientBootstrap` protocol name.
+    LightClientBootstrap
 }
 
 /// RPC Versions
@@ -179,6 +181,7 @@ impl std::fmt::Display for Protocol {
             Protocol::BlocksByRoot => "beacon_blocks_by_root",
             Protocol::Ping => "ping",
             Protocol::MetaData => "metadata",
+            Protocol::LightClientBootstrap => "light_client_bootstrap",
         };
         f.write_str(repr)
     }
@@ -289,6 +292,10 @@ impl ProtocolId {
                 <Ping as Encode>::ssz_fixed_len(),
                 <Ping as Encode>::ssz_fixed_len(),
             ),
+            Protocol::LightClientBootstrap => RpcLimits::new(
+                <LightClientBootstrapRequest as Encode>::ssz_fixed_len(),
+                <LightClientBootstrapRequest as Encode>::ssz_fixed_len(),
+            ),
             Protocol::MetaData => RpcLimits::new(0, 0), // Metadata requests are empty
         }
     }
@@ -311,6 +318,10 @@ impl ProtocolId {
             Protocol::MetaData => RpcLimits::new(
                 <MetaDataV1<T> as Encode>::ssz_fixed_len(),
                 <MetaDataV2<T> as Encode>::ssz_fixed_len(),
+            ),
+            Protocol::LightClientBootstrap => RpcLimits::new( 
+                <LightClientBootstrapRequest as Encode>::ssz_fixed_len(), 
+                <LightClientBootstrapRequest as Encode>::ssz_fixed_len(),
             ),
         }
     }
@@ -417,6 +428,7 @@ pub enum InboundRequest<TSpec: EthSpec> {
     Goodbye(GoodbyeReason),
     BlocksByRange(OldBlocksByRangeRequest),
     BlocksByRoot(BlocksByRootRequest),
+    LightClientBootstrap(LightClientBootstrapRequest),
     Ping(Ping),
     MetaData(PhantomData<TSpec>),
 }
@@ -465,6 +477,9 @@ impl<TSpec: EthSpec> InboundRequest<TSpec> {
                 ProtocolId::new(Protocol::MetaData, Version::V2, Encoding::SSZSnappy),
                 ProtocolId::new(Protocol::MetaData, Version::V1, Encoding::SSZSnappy),
             ],
+            InboundRequest::LightClientBootstrap(_) => vec![
+                ProtocolId::new(Protocol::LightClientBootstrap, Version::V1, Encoding::SSZSnappy),
+            ],
         }
     }
 
@@ -479,6 +494,7 @@ impl<TSpec: EthSpec> InboundRequest<TSpec> {
             InboundRequest::BlocksByRoot(req) => req.block_roots.len() as u64,
             InboundRequest::Ping(_) => 1,
             InboundRequest::MetaData(_) => 1,
+            InboundRequest::LightClientBootstrap(_) => 1,
         }
     }
 
@@ -491,6 +507,7 @@ impl<TSpec: EthSpec> InboundRequest<TSpec> {
             InboundRequest::BlocksByRoot(_) => Protocol::BlocksByRoot,
             InboundRequest::Ping(_) => Protocol::Ping,
             InboundRequest::MetaData(_) => Protocol::MetaData,
+            InboundRequest::LightClientBootstrap(_) => Protocol::LightClientBootstrap,
         }
     }
 
@@ -506,6 +523,7 @@ impl<TSpec: EthSpec> InboundRequest<TSpec> {
             InboundRequest::Goodbye(_) => unreachable!(),
             InboundRequest::Ping(_) => unreachable!(),
             InboundRequest::MetaData(_) => unreachable!(),
+            InboundRequest::LightClientBootstrap(_) => unreachable!(),
         }
     }
 }
@@ -609,6 +627,7 @@ impl<TSpec: EthSpec> std::fmt::Display for InboundRequest<TSpec> {
             InboundRequest::BlocksByRoot(req) => write!(f, "Blocks by root: {:?}", req),
             InboundRequest::Ping(ping) => write!(f, "Ping: {}", ping.data),
             InboundRequest::MetaData(_) => write!(f, "MetaData request"),
+            InboundRequest::LightClientBootstrap(bootstrap) => write!(f, "LightClientBootstrap: {}", bootstrap.root),
         }
     }
 }

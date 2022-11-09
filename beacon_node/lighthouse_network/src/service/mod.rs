@@ -978,6 +978,9 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
             Request::Status(_) => {
                 metrics::inc_counter_vec(&metrics::TOTAL_RPC_REQUESTS, &["status"])
             }
+            Request::LightClientBootstrap(_) => {
+                metrics::inc_counter_vec(&metrics::TOTAL_RPC_REQUESTS, &["light_client_bootstrap"])
+            }
             Request::BlocksByRange { .. } => {
                 metrics::inc_counter_vec(&metrics::TOTAL_RPC_REQUESTS, &["blocks_by_range"])
             }
@@ -1247,6 +1250,9 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                         );
                         Some(event)
                     }
+                    InboundRequest::LightClientBootstrap(_) => {
+                        unreachable!()
+                    }
                 }
             }
             Ok(RPCReceived::Response(id, resp)) => {
@@ -1273,6 +1279,9 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                     }
                     RPCResponse::BlocksByRoot(resp) => {
                         self.build_response(id, peer_id, Response::BlocksByRoot(Some(resp)))
+                    }
+                    RPCResponse::LightClientBootstrap(bootstrap) => {
+                        self.build_response(id, peer_id, Response::LightClientBootstrap(bootstrap))
                     }
                 }
             }
