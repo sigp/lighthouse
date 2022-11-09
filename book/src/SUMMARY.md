@@ -13,7 +13,7 @@
 * [Run a Node](./run_a_node.md)
 * [Become a Validator](./mainnet-validator.md)
     * [Become a Testnet Validator](./testnet-validator.md)
-#* [Merge Migration](./merge-migration.md)
+* [Merge Migration](./merge-migration.md)
 * [Key Management](./key-management.md)
     * [Create a wallet](./wallet-create.md)
     * [Create a validator](./validator-create.md)
