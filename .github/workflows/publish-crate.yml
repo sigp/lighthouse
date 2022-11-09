@@ -19,7 +19,7 @@ jobs:
         runs-on: ubuntu-latest
         steps:
             - name: Extract tag
-              run: echo "::set-output name=TAG::$(echo ${GITHUB_REF#refs/tags/})"
+              run: echo "TAG=$(echo ${GITHUB_REF#refs/tags/})" >> $GITHUB_OUTPUT
               id: extract_tag
         outputs:
             TAG: ${{ steps.extract_tag.outputs.TAG }}
