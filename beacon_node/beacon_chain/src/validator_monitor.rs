@@ -717,7 +717,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                 "validator" => %id,
             );
 
-            validator.with_epoch_summary(epoch, |epoch_summary| epoch_summary.register_block(delay));
+            validator.with_epoch_summary(epoch, |summary| summary.register_block(delay));
         }
     }
 
