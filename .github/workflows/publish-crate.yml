@@ -30,7 +30,7 @@ jobs:
         env:
             TAG: ${{ needs.extract-tag.outputs.TAG }}
         steps:
-            - uses: actions/checkout@v2
+            - uses: actions/checkout@v3
             - name: Update Rust
               run: rustup update stable
             - name: Cargo login
