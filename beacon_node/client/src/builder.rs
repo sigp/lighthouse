@@ -263,7 +263,6 @@ where
             ClientGenesis::CheckpointSyncUrl {
                 genesis_state_bytes,
                 url,
-                timeout,
             } => {
                 info!(
                     context.log(),
@@ -271,8 +270,12 @@ where
                     "remote_url" => %url,
                 );
 
-                let remote =
-                    BeaconNodeHttpClient::new(url, Timeouts::set_all(Duration::from_secs(timeout)));
+                let remote = BeaconNodeHttpClient::new(
+                    url,
+                    Timeouts::set_all(Duration::from_secs(
+                        config.chain.checkpoint_sync_url_timeout,
+                    )),
+                );
                 let slots_per_epoch = TEthSpec::slots_per_epoch();
 
                 let deposit_snapshot = if config.sync_eth1_chain {
