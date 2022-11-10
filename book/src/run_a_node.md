@@ -156,18 +156,14 @@ INFO Synced, slot: 3690668, block: 0x1244…cb92, epoch: 115333, finalized_epoch
 
 
 ## Step 5: Further reading
-[Become a Validator](./mainnet-validator.md)
 
-[Validator Monitoring](./validator-monitoring.md)
+Several other resources are the next logical step to explore after running your beacon node: 
 
-[Checkpoint Sync](./checkpoint-sync.md)
-More information on checkpoint sync is available in this section, or you can look at the FAQ for checkpoint sync.
+- Learn how to [become a validator](./mainnet-validator.md);
+- Explore how to [manage your keys](./key-management.md);
+- Research on [validator management](./validator-management.md);
+- Dig into the [APIs](./api.md) that the beacon node and validator client provide;
+- Study even more about [checkpoint sync](./checkpoint-sync.md); or
+- Investigate what steps had to be taken in the past to execute a smooth [merge migration](./merge-migration.md).
 
-[Merge Migration](./merge-migration.md)
-Please
-see the [FAQ](./merge-migration.md#faq) for further information about why many:1 and 1:many configurations are not
-supported.
-
-[APIs](./api.md)
-
-[Discord](https://discord.gg/cyAszAh)
+Finally, if you a struggling with anything, join our [Discord](https://discord.gg/cyAszAh). We are happy to help!
