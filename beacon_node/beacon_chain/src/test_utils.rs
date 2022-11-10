@@ -316,6 +316,12 @@ where
         self
     }
 
+    pub fn logger(mut self, log: Logger) -> Self {
+        self.log = log.clone();
+        self.runtime.set_logger(log);
+        self
+    }
+
     /// This mutator will be run before the `store_mutator`.
     pub fn initial_mutator(mut self, mutator: BoxedMutator<E, Hot, Cold>) -> Self {
         assert!(

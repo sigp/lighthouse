@@ -6585,6 +6585,7 @@ dependencies = [
  "futures",
  "lazy_static",
  "lighthouse_metrics",
+ "logging",
  "slog",
  "sloggers",
  "tokio",

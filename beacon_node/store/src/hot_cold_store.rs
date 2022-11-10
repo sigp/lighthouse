@@ -2023,7 +2023,7 @@ pub fn migrate_database<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
     }
 
     // Store the new finalized state as a full state in the database. It would likely previously
-    // have been stored as a diff.
+    // have been stored in memory, or maybe as a diff.
     store.store_full_state(&finalized_state_root, finalized_state)?;
 
     // Copy all of the states between the new finalized state and the split slot, from the hot DB to
@@ -2074,13 +2074,15 @@ pub fn migrate_database<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
 
         // Copy the blinded block from the hot database to the freezer.
         let blinded_block = store
-            .get_hot_blinded_block(&block_root)?
+            .get_blinded_block(&block_root, None)?
             .ok_or(Error::BlockNotFound(block_root))?;
-        store.blinded_block_as_cold_kv_store_ops(
-            &block_root,
-            &blinded_block,
-            &mut cold_db_block_ops,
-        )?;
+        if blinded_block.slot() == slot {
+            store.blinded_block_as_cold_kv_store_ops(
+                &block_root,
+                &blinded_block,
+                &mut cold_db_block_ops,
+            )?;
+        }
     }
 
     // Warning: Critical section.  We have to take care not to put any of the two databases in an

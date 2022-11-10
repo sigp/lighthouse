@@ -64,11 +64,20 @@ fn get_harness(
     store: Arc<HotColdDB<E, LevelDB<E>, LevelDB<E>>>,
     validator_count: usize,
 ) -> TestHarness {
+    // Most tests were written expecting instant migration on finalization.
+    let migrator_config = MigratorConfig::default().blocking().epochs_per_run(0);
+
+    let log = store.log.clone();
+
     let harness = BeaconChainHarness::builder(MinimalEthSpec)
+        .logger(log)
         .default_spec()
         .keypairs(KEYPAIRS[0..validator_count].to_vec())
         .fresh_disk_store(store)
         .mock_execution_layer()
+        .initial_mutator(Box::new(|builder: BeaconChainBuilder<_>| {
+            builder.store_migrator_config(migrator_config)
+        }))
         .build();
     harness.advance_slot();
     harness
@@ -271,6 +280,9 @@ async fn split_slot_restore() {
                 AttestationStrategy::AllValidators,
             )
             .await;
+
+        // Uhmm. FIXME(sproul)
+        // tokio::time::sleep(std::time::Duration::from_secs(10)).await;
 
         store.get_split_slot()
     };
@@ -561,7 +573,7 @@ async fn delete_blocks_and_states() {
     );
 
     let faulty_head_block = store
-        .get_blinded_block(&faulty_head.into())
+        .get_blinded_block(&faulty_head.into(), None)
         .expect("no errors")
         .expect("faulty head block exists");
 
@@ -603,7 +615,7 @@ async fn delete_blocks_and_states() {
             break;
         }
         store.delete_block(&block_root).unwrap();
-        assert_eq!(store.get_blinded_block(&block_root).unwrap(), None);
+        assert_eq!(store.get_blinded_block(&block_root, None).unwrap(), None);
     }
 
     // Deleting frozen states should do nothing
@@ -847,7 +859,7 @@ fn get_state_for_block(harness: &TestHarness, block_root: Hash256) -> BeaconStat
     let head_block = harness
         .chain
         .store
-        .get_blinded_block(&block_root)
+        .get_blinded_block(&block_root, None)
         .unwrap()
         .unwrap();
     harness
@@ -887,9 +899,17 @@ fn check_shuffling_compatible(
                 |committee_cache, _| {
                     let state_cache = head_state.committee_cache(RelativeEpoch::Current).unwrap();
                     if current_epoch_shuffling_is_compatible {
-                        assert_eq!(committee_cache, state_cache, "block at slot {slot}");
+                        assert_eq!(
+                            committee_cache,
+                            state_cache.as_ref(),
+                            "block at slot {slot}"
+                        );
                     } else {
-                        assert_ne!(committee_cache, state_cache, "block at slot {slot}");
+                        assert_ne!(
+                            committee_cache,
+                            state_cache.as_ref(),
+                            "block at slot {slot}"
+                        );
                     }
                     Ok(())
                 },
@@ -919,9 +939,9 @@ fn check_shuffling_compatible(
                 |committee_cache, _| {
                     let state_cache = head_state.committee_cache(RelativeEpoch::Previous).unwrap();
                     if previous_epoch_shuffling_is_compatible {
-                        assert_eq!(committee_cache, state_cache);
+                        assert_eq!(committee_cache, state_cache.as_ref());
                     } else {
-                        assert_ne!(committee_cache, state_cache);
+                        assert_ne!(committee_cache, state_cache.as_ref());
                     }
                     Ok(())
                 },
@@ -2019,7 +2039,7 @@ async fn weak_subjectivity_sync() {
     let wss_block = harness
         .chain
         .store
-        .get_full_block(&wss_checkpoint.root)
+        .get_full_block(&wss_checkpoint.root, None)
         .unwrap()
         .unwrap();
     let wss_state = full_store
@@ -2164,7 +2184,7 @@ async fn weak_subjectivity_sync() {
         .unwrap()
         .map(Result::unwrap)
     {
-        let block = store.get_blinded_block(&block_root).unwrap().unwrap();
+        let block = store.get_blinded_block(&block_root, None).unwrap().unwrap();
         assert_eq!(block.slot(), slot);
     }
 
@@ -2490,8 +2510,8 @@ fn assert_chains_pretty_much_the_same<T: BeaconChainTypes>(a: &BeaconChain<T>, b
     // Clone with committee caches only to prevent other caches from messing with the equality
     // check.
     assert_eq!(
-        a_head.beacon_state.clone_with_only_committee_caches(),
-        b_head.beacon_state.clone_with_only_committee_caches(),
+        a_head.beacon_state.clone(),
+        b_head.beacon_state.clone(),
         "head states should be equal"
     );
     assert_eq!(a.heads(), b.heads(), "heads() should be equal");

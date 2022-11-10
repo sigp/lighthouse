@@ -70,6 +70,11 @@ impl MigratorConfig {
         self.blocking = true;
         self
     }
+
+    pub fn epochs_per_run(mut self, epochs_per_run: u64) -> Self {
+        self.epochs_per_run = epochs_per_run;
+        self
+    }
 }
 
 /// Pruning can be successful, or in rare cases deferred to a later point.
