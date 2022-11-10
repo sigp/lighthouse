@@ -3647,6 +3647,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             voluntary_exits,
             sync_aggregate,
             prepare_payload_handle,
+            #[cfg(feature = "withdrawals")]
             bls_to_execution_changes,
         })
     }
