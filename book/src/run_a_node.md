@@ -60,9 +60,9 @@ per beacon node. The reason for this is that the beacon node _controls_ the exec
 ## Step 3: Run Lighthouse
 
 To run Lighthouse, we use the three flags from the steps above:
-- `--checkpoint-sync-url`
-- `--execution-endpoint`
-- `--execution-jwt`
+- `--checkpoint-sync-url`;
+- `--execution-endpoint`; and
+- `--execution-jwt`.
 
 Additionally, we run Lighthouse with the `--network` flag, which selects a network:
 
@@ -81,23 +81,36 @@ In the following, we will provide examples of what a Lighthouse setup could look
 
 ```
 lighthouse bn \
-  --http \
+  --network mainnet \
   --checkpoint-sync-url https://mainnet.checkpoint.sigp.io \
   --execution-endpoint http://localhost:8551 \
-  --execution-jwt /secrets/jwt.hex 
+  --execution-jwt /secrets/jwt.hex \
+  --http
 ```
+
+A Lighthouse beacon node can be configured to expose an HTTP server by supplying the `--http` flag. The default listen address is `127.0.0.1:5052`.
 
 ### Non-staking
 
 ``` 
 lighthouse bn \
+  --network mainnet \
   --checkpoint-sync-url https://mainnet.checkpoint.sigp.io \
   --execution-endpoint http://localhost:8551 \
   --execution-jwt /secrets/jwt.hex \
   --disable-deposit-contract-sync
 ```
 
+Since we are not staking, we can use the `--disable-deposit-contract-sync` flag.
+
+---
+
+Once Lighthouse runs, we can monitor the logs to see if it is syncing correctly.
+
 ## Step 4: Check logs
+Several logs help you identify if Lighthouse is running correctly. 
+
+### Logs - Checkpoint sync
 Lighthouse will print a message to indicate that checkpoint sync is being used:
 
 ```
@@ -116,7 +129,7 @@ Once the checkpoint is loaded Lighthouse will sync forwards to the head of the c
 If a validator client is connected to the node then it will be able to start completing its duties
 as soon as forwards sync completes.
 
-### Backfilling Blocks
+#### Backfilling Blocks
 
 Once forwards sync completes, Lighthouse will commence a "backfill sync" to download the blocks
 from the checkpoint back to genesis.
@@ -131,6 +144,15 @@ INFO Downloading historical blocks  est_time: 5 hrs 0 mins, speed: 111.96 slots/
 Once backfill is complete, a `INFO Historical block download complete` log will be emitted.
 
 Checkout [FAQ](./checkpoint-sync.md#faq) for more information.
+
+### Logs - Syncing
+
+You should see that Lighthouse remains in sync and marks blocks
+as `verified` indicating that they have been processed successfully by the execution engine:
+
+```
+INFO Synced, slot: 3690668, block: 0x1244…cb92, epoch: 115333, finalized_epoch: 115331, finalized_root: 0x0764…2a3d, exec_hash: 0x929c…1ff6 (verified), peers: 78
+```
 
 
 ## Step 5: Further reading
@@ -147,3 +169,5 @@ see the [FAQ](./merge-migration.md#faq) for further information about why many:1
 supported.
 
 [APIs](./api.md)
+
+[Discord](https://discord.gg/cyAszAh)
