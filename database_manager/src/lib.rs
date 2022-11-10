@@ -257,7 +257,6 @@ pub fn migrate_db<E: EthSpec>(
     migrate_schema::<Witness<SystemTimeSlotClock, CachingEth1Backend<E>, _, _, _>>(
         db,
         client_config.eth1.deposit_contract_deploy_block,
-        &client_config.get_data_dir(),
         from,
         to,
         log,

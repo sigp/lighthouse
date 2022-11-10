@@ -362,7 +362,7 @@ where
 
         let urls: Vec<SensitiveUrl> = urls
             .iter()
-            .map(|s| SensitiveUrl::parse(*s))
+            .map(|s| SensitiveUrl::parse(s))
             .collect::<Result<_, _>>()
             .unwrap();
 

@@ -39,7 +39,7 @@ impl<'de> Visitor<'de> for QuantityVisitor {
             hex::decode(&format!("0{}", stripped))
                 .map_err(|e| de::Error::custom(format!("invalid hex ({:?})", e)))
         } else {
-            hex::decode(&stripped).map_err(|e| de::Error::custom(format!("invalid hex ({:?})", e)))
+            hex::decode(stripped).map_err(|e| de::Error::custom(format!("invalid hex ({:?})", e)))
         }
     }
 }
