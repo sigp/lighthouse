@@ -718,7 +718,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("checkpoint-sync-url-timeout")
                 .long("checkpoint-sync-url-timeout")
                 .help("Set the timeout for checkpoint sync calls to remote beacon node HTTP endpoint.")
-                .value_name("TIMEOUT")
+                .value_name("SECONDS")
                 .takes_value(true)
                 .default_value("60")
         )
