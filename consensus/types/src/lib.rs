@@ -97,6 +97,7 @@ pub mod sqlite;
 pub mod blobs_sidecar;
 pub mod kzg_commitment;
 pub mod kzg_proof;
+pub mod signed_block_and_blobs;
 
 use ethereum_types::{H160, H256};
 
@@ -149,6 +150,7 @@ pub use crate::historical_batch::HistoricalBatch;
 pub use crate::indexed_attestation::IndexedAttestation;
 pub use crate::kzg_commitment::KzgCommitment;
 pub use crate::kzg_proof::KzgProof;
+pub use crate::signed_block_and_blobs::SignedBeaconBlockAndBlobsSidecar;
 pub use crate::participation_flags::ParticipationFlags;
 pub use crate::participation_list::ParticipationList;
 pub use crate::payload::{

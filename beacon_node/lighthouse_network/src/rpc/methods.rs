@@ -14,6 +14,7 @@ use strum::IntoStaticStr;
 use superstruct::superstruct;
 use types::blobs_sidecar::BlobsSidecar;
 use types::{Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot};
+use crate::SignedBeaconBlockAndBlobsSidecar;
 
 /// Maximum number of blocks in a single request.
 pub type MaxRequestBlocks = U1024;
@@ -258,7 +259,7 @@ pub enum RPCResponse<T: EthSpec> {
     BlocksByRoot(Arc<SignedBeaconBlock<T>>),
 
     /// A response to a get BLOBS_BY_RANGE request
-    BlobsByRange(Arc<BlobsSidecar<T>>),
+    BlobsByRange(Arc<SignedBeaconBlockAndBlobsSidecar<T>>),
 
     /// A PONG response to a PING request.
     Pong(Ping),

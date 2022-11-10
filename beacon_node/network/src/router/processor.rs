@@ -220,7 +220,7 @@ impl<T: BeaconChainTypes> Processor<T> {
         &mut self,
         peer_id: PeerId,
         request_id: RequestId,
-        blob_wrapper: Option<Arc<BlobsSidecar<T::EthSpec>>>,
+        blob_wrapper: Option<Arc<SignedBeaconBlockAndBlobsSidecar<T::EthSpec>>>,
     ) {
         trace!(
             self.log,

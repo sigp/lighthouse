@@ -18,16 +18,6 @@ use types::{
     SignedContributionAndProof, SignedVoluntaryExit, SubnetId, SyncCommitteeMessage, SyncSubnetId,
 };
 
-/// TODO(pawan): move this to consensus/types? strictly not a consensus type
-#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, PartialEq)]
-#[serde(bound = "T: EthSpec")]
-pub struct SignedBeaconBlockAndBlobsSidecar<T: EthSpec> {
-    // TODO(pawan): switch to a SignedBeaconBlock and use ssz offsets for decoding to make this
-    // future proof?
-    pub beacon_block: SignedBeaconBlockEip4844<T>,
-    pub blobs_sidecar: BlobsSidecar<T>,
-}
-
 #[derive(Debug, Clone, PartialEq)]
 pub enum PubsubMessage<T: EthSpec> {
     /// Gossipsub message providing notification of a new block.

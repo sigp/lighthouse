@@ -45,7 +45,7 @@ use beacon_chain::{BeaconChain, BeaconChainTypes, BlockError, EngineState};
 use futures::StreamExt;
 use lighthouse_network::rpc::methods::MAX_REQUEST_BLOCKS;
 use lighthouse_network::types::{NetworkGlobals, SyncState};
-use lighthouse_network::SyncInfo;
+use lighthouse_network::{SignedBeaconBlockAndBlobsSidecar, SyncInfo};
 use lighthouse_network::{PeerAction, PeerId};
 use slog::{crit, debug, error, info, trace, Logger};
 use std::boxed::Box;
@@ -97,7 +97,7 @@ pub enum SyncMessage<T: EthSpec> {
     RpcBlob {
         peer_id: PeerId,
         request_id: RequestId,
-        blob_sidecar: Option<Arc<BlobsSidecar<T>>>,
+        blob_sidecar: Option<Arc<SignedBeaconBlockAndBlobsSidecar<T>>>,
         seen_timestamp: Duration,
     },
 
@@ -592,8 +592,14 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     .block_lookups
                     .parent_chain_processed(chain_hash, result, &mut self.network),
             },
-            //FIXME(sean)
-            SyncMessage::RpcBlob { .. } => todo!(),
+            SyncMessage::RpcBlob {
+                peer_id,
+                request_id,
+                blob_sidecar,
+                seen_timestamp,
+            } => {
+            self.rpc_block_received(request_id, peer_id, beacon_block, seen_timestamp);
+            },
         }
     }
 

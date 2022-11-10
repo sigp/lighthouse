@@ -3,7 +3,7 @@ use crate::rpc::{
     protocol::{Encoding, Protocol, ProtocolId, RPCError, Version, ERROR_TYPE_MAX, ERROR_TYPE_MIN},
 };
 use crate::rpc::{InboundRequest, OutboundRequest, RPCCodedResponse, RPCResponse};
-use crate::{rpc::methods::*, EnrSyncCommitteeBitfield};
+use crate::{rpc::methods::*, EnrSyncCommitteeBitfield, SignedBeaconBlockAndBlobsSidecar};
 use libp2p::bytes::BytesMut;
 use snap::read::FrameDecoder;
 use snap::write::FrameEncoder;
@@ -642,7 +642,7 @@ fn handle_v2_response<T: EthSpec>(
             },
             Protocol::BlobsByRange => match fork_name {
                 ForkName::Eip4844 => Ok(Some(RPCResponse::BlobsByRange(Arc::new(
-                    BlobsSidecar::from_ssz_bytes(decoded_buffer)?,
+                    SignedBeaconBlockAndBlobsSidecar::from_ssz_bytes(decoded_buffer)?,
                 )))),
                 _ => Err(RPCError::ErrorResponse(
                     RPCResponseErrorCode::InvalidRequest,
