@@ -217,8 +217,9 @@ impl<T: BeaconChainTypes> Worker<T> {
             async move {
                 let state_root = request.root;
                 let mut beacon_state = match self.chain.get_state(&state_root, None) {
-                    Ok(beacon_state) => {
-                        if beacon_state == None {
+                    Ok(beacon_state) => match beacon_state {
+                        Some(state) => state,
+                        None => {
                             self.send_error_response(
                                 peer_id,
                                 RPCResponseErrorCode::ResourceUnavailable,
@@ -227,8 +228,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                             );
                             return;
                         }
-                        beacon_state.unwrap()
-                    }
+                    },
                     Err(_) => {
                         self.send_error_response(
                             peer_id,
