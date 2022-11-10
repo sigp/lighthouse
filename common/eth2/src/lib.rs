@@ -521,7 +521,7 @@ impl BeaconNodeHttpClient {
         &self,
         state_id: StateId,
         epoch: Option<Epoch>,
-    ) -> Result<ExecutionOptimisticResponse<RandaoMix>, Error> {
+    ) -> Result<Option<ExecutionOptimisticResponse<RandaoMix>>, Error> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
@@ -536,7 +536,7 @@ impl BeaconNodeHttpClient {
                 .append_pair("epoch", &epoch.to_string());
         }
 
-        self.get(path).await
+        self.get_opt(path).await
     }
 
     /// `GET beacon/states/{state_id}/validators/{validator_id}`
