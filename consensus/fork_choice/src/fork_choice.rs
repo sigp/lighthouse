@@ -570,6 +570,10 @@ where
         Ok(head_root)
     }
 
+    /// Get the block to build on as proposer, taking into account proposer re-orgs.
+    ///
+    /// You *must* call `get_head` for the proposal slot prior to calling this function and pass
+    /// in the result of `get_head` as `canonical_head`.
     pub fn get_proposer_head(
         &self,
         current_slot: Slot,

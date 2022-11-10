@@ -183,7 +183,7 @@ pub struct ProposerHeadInfo {
     pub parent_node: ProtoNode,
     /// The computed fraction of the active committee balance below which we can re-org.
     pub re_org_weight_threshold: u64,
-    /// The computed fraction of the
+    /// The computed fraction of the active committee balance which participation must exceed.
     ///
     /// This value requires an additional 1-2x multiplier depending on the current slot.
     pub participation_weight_threshold: u64,
