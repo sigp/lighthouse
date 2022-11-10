@@ -12,7 +12,9 @@ use std::ops::Deref;
 use std::sync::Arc;
 use strum::IntoStaticStr;
 use superstruct::superstruct;
-use types::{Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot, light_client_bootstrap::LightClientBootstrap};
+use types::{
+    light_client_bootstrap::LightClientBootstrap, Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot,
+};
 
 /// Maximum number of blocks in a single request.
 pub type MaxRequestBlocks = U1024;
@@ -401,8 +403,9 @@ impl<T: EthSpec> std::fmt::Display for RPCResponse<T> {
             }
             RPCResponse::Pong(ping) => write!(f, "Pong: {}", ping.data),
             RPCResponse::MetaData(metadata) => write!(f, "Metadata: {}", metadata.seq_number()),
-            RPCResponse::LightClientBootstrap(bootstrap) => 
+            RPCResponse::LightClientBootstrap(bootstrap) => {
                 write!(f, "LigthClientBootstrap Slot: {}", bootstrap.header.slot)
+            }
         }
     }
 }

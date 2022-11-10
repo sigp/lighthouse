@@ -154,7 +154,7 @@ pub enum Protocol {
     /// The `MetaData` protocol name.
     MetaData,
     /// The `LightClientBootstrap` protocol name.
-    LightClientBootstrap
+    LightClientBootstrap,
 }
 
 /// RPC Versions
@@ -319,8 +319,8 @@ impl ProtocolId {
                 <MetaDataV1<T> as Encode>::ssz_fixed_len(),
                 <MetaDataV2<T> as Encode>::ssz_fixed_len(),
             ),
-            Protocol::LightClientBootstrap => RpcLimits::new( 
-                <LightClientBootstrapRequest as Encode>::ssz_fixed_len(), 
+            Protocol::LightClientBootstrap => RpcLimits::new(
+                <LightClientBootstrapRequest as Encode>::ssz_fixed_len(),
                 <LightClientBootstrapRequest as Encode>::ssz_fixed_len(),
             ),
         }
@@ -477,9 +477,11 @@ impl<TSpec: EthSpec> InboundRequest<TSpec> {
                 ProtocolId::new(Protocol::MetaData, Version::V2, Encoding::SSZSnappy),
                 ProtocolId::new(Protocol::MetaData, Version::V1, Encoding::SSZSnappy),
             ],
-            InboundRequest::LightClientBootstrap(_) => vec![
-                ProtocolId::new(Protocol::LightClientBootstrap, Version::V1, Encoding::SSZSnappy),
-            ],
+            InboundRequest::LightClientBootstrap(_) => vec![ProtocolId::new(
+                Protocol::LightClientBootstrap,
+                Version::V1,
+                Encoding::SSZSnappy,
+            )],
         }
     }
 
@@ -627,7 +629,9 @@ impl<TSpec: EthSpec> std::fmt::Display for InboundRequest<TSpec> {
             InboundRequest::BlocksByRoot(req) => write!(f, "Blocks by root: {:?}", req),
             InboundRequest::Ping(ping) => write!(f, "Ping: {}", ping.data),
             InboundRequest::MetaData(_) => write!(f, "MetaData request"),
-            InboundRequest::LightClientBootstrap(bootstrap) => write!(f, "LightClientBootstrap: {}", bootstrap.root),
+            InboundRequest::LightClientBootstrap(bootstrap) => {
+                write!(f, "LightClientBootstrap: {}", bootstrap.root)
+            }
         }
     }
 }

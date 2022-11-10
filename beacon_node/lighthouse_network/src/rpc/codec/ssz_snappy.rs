@@ -9,15 +9,15 @@ use snap::read::FrameDecoder;
 use snap::write::FrameEncoder;
 use ssz::{Decode, Encode};
 use ssz_types::VariableList;
-use std::{io::Cursor};
+use std::io::Cursor;
 use std::io::ErrorKind;
 use std::io::{Read, Write};
 use std::marker::PhantomData;
 use std::sync::Arc;
 use tokio_util::codec::{Decoder, Encoder};
 use types::{
-    EthSpec, ForkContext, ForkName, SignedBeaconBlock, SignedBeaconBlockAltair,
-    SignedBeaconBlockBase, SignedBeaconBlockMerge, Hash256, light_client_bootstrap::LightClientBootstrap,
+    light_client_bootstrap::LightClientBootstrap, EthSpec, ForkContext, ForkName, Hash256,
+    SignedBeaconBlock, SignedBeaconBlockAltair, SignedBeaconBlockBase, SignedBeaconBlockMerge,
 };
 use unsigned_varint::codec::Uvi;
 
@@ -474,9 +474,11 @@ fn handle_v1_request<T: EthSpec>(
         Protocol::Ping => Ok(Some(InboundRequest::Ping(Ping {
             data: u64::from_ssz_bytes(decoded_buffer)?,
         }))),
-        Protocol::LightClientBootstrap => Ok(Some(InboundRequest::LightClientBootstrap(LightClientBootstrapRequest{
-            root: Hash256::from_ssz_bytes(decoded_buffer)?,
-        }))),
+        Protocol::LightClientBootstrap => Ok(Some(InboundRequest::LightClientBootstrap(
+            LightClientBootstrapRequest {
+                root: Hash256::from_ssz_bytes(decoded_buffer)?,
+            },
+        ))),
         // MetaData requests return early from InboundUpgrade and do not reach the decoder.
         // Handle this case just for completeness.
         Protocol::MetaData => {
@@ -549,8 +551,8 @@ fn handle_v1_response<T: EthSpec>(
             MetaDataV1::from_ssz_bytes(decoded_buffer)?,
         )))),
         Protocol::LightClientBootstrap => Ok(Some(RPCResponse::LightClientBootstrap(
-            LightClientBootstrap::from_ssz_bytes(decoded_buffer)?
-        )))
+            LightClientBootstrap::from_ssz_bytes(decoded_buffer)?,
+        ))),
     }
 }
 

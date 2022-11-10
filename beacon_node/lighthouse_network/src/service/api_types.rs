@@ -1,12 +1,12 @@
 use std::sync::Arc;
 
 use libp2p::core::connection::ConnectionId;
-use types::{EthSpec, SignedBeaconBlock, light_client_bootstrap::LightClientBootstrap};
+use types::{light_client_bootstrap::LightClientBootstrap, EthSpec, SignedBeaconBlock};
 
 use crate::rpc::{
     methods::{
-        BlocksByRangeRequest, BlocksByRootRequest, OldBlocksByRangeRequest, RPCCodedResponse,
-        RPCResponse, ResponseTermination, StatusMessage, LightClientBootstrapRequest,
+        BlocksByRangeRequest, BlocksByRootRequest, LightClientBootstrapRequest,
+        OldBlocksByRangeRequest, RPCCodedResponse, RPCResponse, ResponseTermination, StatusMessage,
     },
     OutboundRequest, SubstreamId,
 };
@@ -48,7 +48,7 @@ impl<TSpec: EthSpec> std::convert::From<Request> for OutboundRequest<TSpec> {
                     count,
                     step: 1,
                 })
-            },
+            }
             Request::LightClientBootstrap(b) => OutboundRequest::LightClientBootstrap(b),
             Request::Status(s) => OutboundRequest::Status(s),
         }
@@ -85,7 +85,9 @@ impl<TSpec: EthSpec> std::convert::From<Response<TSpec>> for RPCCodedResponse<TS
                 None => RPCCodedResponse::StreamTermination(ResponseTermination::BlocksByRange),
             },
             Response::Status(s) => RPCCodedResponse::Success(RPCResponse::Status(s)),
-            Response::LightClientBootstrap(b) => RPCCodedResponse::Success(RPCResponse::LightClientBootstrap(b)),
+            Response::LightClientBootstrap(b) => {
+                RPCCodedResponse::Success(RPCResponse::LightClientBootstrap(b))
+            }
         }
     }
 }

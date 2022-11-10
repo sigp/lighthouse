@@ -1631,12 +1631,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                 request_id,
                 request,
             } => task_spawner.spawn_blocking(move || {
-                worker.handle_light_client_bootstrap(
-                    sub_executor,
-                    peer_id,
-                    request_id,
-                    request,
-                )
+                worker.handle_light_client_bootstrap(sub_executor, peer_id, request_id, request)
             }),
             Work::UnknownBlockAttestation {
                 message_id,

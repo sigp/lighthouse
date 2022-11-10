@@ -85,9 +85,11 @@ impl<TSpec: EthSpec> OutboundRequest<TSpec> {
                 ProtocolId::new(Protocol::MetaData, Version::V2, Encoding::SSZSnappy),
                 ProtocolId::new(Protocol::MetaData, Version::V1, Encoding::SSZSnappy),
             ],
-            OutboundRequest::LightClientBootstrap(_) => vec![
-                ProtocolId::new(Protocol::LightClientBootstrap, Version::V1, Encoding::SSZSnappy)
-            ]
+            OutboundRequest::LightClientBootstrap(_) => vec![ProtocolId::new(
+                Protocol::LightClientBootstrap,
+                Version::V1,
+                Encoding::SSZSnappy,
+            )],
         }
     }
 
@@ -185,7 +187,9 @@ impl<TSpec: EthSpec> std::fmt::Display for OutboundRequest<TSpec> {
             OutboundRequest::BlocksByRoot(req) => write!(f, "Blocks by root: {:?}", req),
             OutboundRequest::Ping(ping) => write!(f, "Ping: {}", ping.data),
             OutboundRequest::MetaData(_) => write!(f, "MetaData request"),
-            OutboundRequest::LightClientBootstrap(bootstrap) => write!(f, "Lightclient Bootstrap: {}", bootstrap.root),
+            OutboundRequest::LightClientBootstrap(bootstrap) => {
+                write!(f, "Lightclient Bootstrap: {}", bootstrap.root)
+            }
         }
     }
 }
