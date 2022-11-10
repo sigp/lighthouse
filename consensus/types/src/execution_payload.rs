@@ -3,7 +3,6 @@ use derivative::Derivative;
 use serde_derive::{Deserialize, Serialize};
 use ssz::Encode;
 use ssz_derive::{Decode, Encode};
-use std::slice::Iter;
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
@@ -12,6 +11,8 @@ pub type Transactions<T> = VariableList<
     Transaction<<T as EthSpec>::MaxBytesPerTransaction>,
     <T as EthSpec>::MaxTransactionsPerPayload,
 >;
+
+pub type Withdrawals<T> = VariableList<Withdrawal, <T as EthSpec>::MaxWithdrawalsPerPayload>;
 
 #[superstruct(
     variants(Merge, Capella, Eip4844),
@@ -82,7 +83,7 @@ pub struct ExecutionPayload<T: EthSpec> {
     pub transactions: Transactions<T>,
     #[cfg(feature = "withdrawals")]
     #[superstruct(only(Capella, Eip4844))]
-    pub withdrawals: VariableList<Withdrawal, T::MaxWithdrawalsPerPayload>,
+    pub withdrawals: Withdrawals<T>,
 }
 
 impl<T: EthSpec> ExecutionPayload<T> {

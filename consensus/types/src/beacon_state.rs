@@ -297,13 +297,10 @@ where
     // Withdrawals
     #[cfg(feature = "withdrawals")]
     #[superstruct(only(Capella, Eip4844))]
-    pub withdrawal_queue: VariableList<Withdrawal, T::WithdrawalQueueLimit>,
-    #[cfg(feature = "withdrawals")]
-    #[superstruct(only(Capella, Eip4844))]
     pub next_withdrawal_index: u64,
     #[cfg(feature = "withdrawals")]
     #[superstruct(only(Capella, Eip4844))]
-    pub next_partial_withdrawal_validator_index: u64,
+    pub latest_withdrawal_validator_index: u64,
 
     // Caching (not in the spec)
     #[serde(skip_serializing, skip_deserializing)]

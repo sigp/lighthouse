@@ -11,8 +11,8 @@ use types::{
     BeaconStateError, ChainSpec, DepositData, Domain, Epoch, EthSpec, Fork, Hash256,
     InconsistentFork, IndexedAttestation, ProposerSlashing, PublicKey, PublicKeyBytes, Signature,
     SignedAggregateAndProof, SignedBeaconBlock, SignedBeaconBlockHeader,
-    SignedContributionAndProof, SignedRoot, SignedVoluntaryExit, SigningData, Slot, SyncAggregate,
-    SyncAggregatorSelectionData, Unsigned,
+    SignedBlsToExecutionChange, SignedContributionAndProof, SignedRoot, SignedVoluntaryExit,
+    SigningData, Slot, SyncAggregate, SyncAggregatorSelectionData, Unsigned,
 };
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -152,6 +152,33 @@ where
     Ok(SignatureSet::single_pubkey(
         signed_block.signature(),
         get_pubkey(proposer_index as usize).ok_or(Error::ValidatorUnknown(proposer_index))?,
+        message,
+    ))
+}
+
+pub fn bls_execution_change_signature_set<'a, T: EthSpec>(
+    state: &'a BeaconState<T>,
+    signed_address_change: &'a SignedBlsToExecutionChange,
+    spec: &'a ChainSpec,
+) -> Result<SignatureSet<'a>> {
+    let domain = spec.get_domain(
+        state.current_epoch(),
+        Domain::BlsToExecutionChange,
+        &state.fork(),
+        state.genesis_validators_root(),
+    );
+    let message = signed_address_change.message.signing_root(domain);
+    let signing_key = Cow::Owned(
+        signed_address_change
+            .message
+            .from_bls_pubkey
+            .decompress()
+            .map_err(|_| Error::PublicKeyDecompressionFailed)?,
+    );
+
+    Ok(SignatureSet::single_pubkey(
+        &signed_address_change.signature,
+        signing_key,
         message,
     ))
 }

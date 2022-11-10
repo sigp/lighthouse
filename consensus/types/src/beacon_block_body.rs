@@ -62,6 +62,10 @@ pub struct BeaconBlockBody<T: EthSpec, Payload: AbstractExecPayload<T> = FullPay
     #[superstruct(only(Eip4844), partial_getter(rename = "execution_payload_eip4844"))]
     #[serde(flatten)]
     pub execution_payload: Payload::Eip4844,
+    #[cfg(feature = "withdrawals")]
+    #[superstruct(only(Capella, Eip4844))]
+    pub bls_to_execution_changes:
+        VariableList<SignedBlsToExecutionChange, T::MaxBlsToExecutionChanges>,
     #[superstruct(only(Eip4844))]
     pub blob_kzg_commitments: VariableList<KzgCommitment, T::MaxBlobsPerBlock>,
     #[superstruct(only(Base, Altair))]

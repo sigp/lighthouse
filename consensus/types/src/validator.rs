@@ -1,5 +1,6 @@
 use crate::{
-    test_utils::TestRandom, BeaconState, ChainSpec, Epoch, EthSpec, Hash256, PublicKeyBytes,
+    test_utils::TestRandom, Address, BeaconState, BlsToExecutionChange, ChainSpec, Epoch, EthSpec,
+    Hash256, PublicKeyBytes,
 };
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
@@ -73,6 +74,16 @@ impl Validator {
             .first()
             .map(|byte| *byte == spec.eth1_address_withdrawal_prefix_byte)
             .unwrap_or(false)
+    }
+
+    /// Changes withdrawal credentials to  the provided eth1 execution address
+    ///
+    /// WARNING: this function does NO VALIDATION - it just does it!
+    pub fn change_withdrawal_credentials(&mut self, execution_address: &Address, spec: &ChainSpec) {
+        let mut bytes = [0u8; 32];
+        bytes[0] = spec.eth1_address_withdrawal_prefix_byte;
+        bytes[12..].copy_from_slice(execution_address.as_bytes());
+        self.withdrawal_credentials = Hash256::from(bytes);
     }
 
     /// Returns `true` if the validator is fully withdrawable at some epoch

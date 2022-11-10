@@ -36,6 +36,9 @@ pub trait ExecPayload<T: EthSpec>: Debug + Clone + PartialEq + Hash + TreeHash +
     fn fee_recipient(&self) -> Address;
     fn gas_limit(&self) -> u64;
     fn transactions(&self) -> Option<&Transactions<T>>;
+    /// fork-specific fields
+    #[cfg(feature = "withdrawals")]
+    fn withdrawals(&self) -> Option<Result<&Withdrawals<T>, Error>>;
 
     /// Is this a default payload? (pre-merge)
     fn is_default(&self) -> bool;
@@ -225,6 +228,15 @@ impl<T: EthSpec> ExecPayload<T> for FullPayload<T> {
         })
     }
 
+    #[cfg(feature = "withdrawals")]
+    fn withdrawals(&self) -> Option<Result<&Withdrawals<T>, Error>> {
+        match self {
+            FullPayload::Merge(_) => Some(Err(Error::IncorrectStateVariant)),
+            FullPayload::Capella(ref inner) => Some(Ok(&inner.execution_payload.withdrawals)),
+            FullPayload::Eip4844(ref inner) => Some(Ok(&inner.execution_payload.withdrawals)),
+        }
+    }
+
     fn is_default<'a>(&'a self) -> bool {
         map_full_payload_ref!(&'a _, self.to_ref(), move |payload, cons| {
             cons(payload);
@@ -307,6 +319,15 @@ impl<'b, T: EthSpec> ExecPayload<T> for FullPayloadRef<'b, T> {
             cons(payload);
             Some(&payload.execution_payload.transactions)
         })
+    }
+
+    #[cfg(feature = "withdrawals")]
+    fn withdrawals(&self) -> Option<Result<&Withdrawals<T>, Error>> {
+        match self {
+            FullPayloadRef::Merge(_inner) => Some(Err(Error::IncorrectStateVariant)),
+            FullPayloadRef::Capella(inner) => Some(Ok(&inner.execution_payload.withdrawals)),
+            FullPayloadRef::Eip4844(inner) => Some(Ok(&inner.execution_payload.withdrawals)),
+        }
     }
 
     // TODO: can this function be optimized?
@@ -463,6 +484,11 @@ impl<T: EthSpec> ExecPayload<T> for BlindedPayload<T> {
         None
     }
 
+    #[cfg(feature = "withdrawals")]
+    fn withdrawals(&self) -> Option<Result<&Withdrawals<T>, Error>> {
+        None
+    }
+
     fn is_default<'a>(&'a self) -> bool {
         map_blinded_payload_ref!(&'a _, self.to_ref(), move |payload, cons| {
             cons(payload);
@@ -536,6 +562,11 @@ impl<'b, T: EthSpec> ExecPayload<T> for BlindedPayloadRef<'b, T> {
         None
     }
 
+    #[cfg(feature = "withdrawals")]
+    fn withdrawals<'a>(&'a self) -> Option<Result<&Withdrawals<T>, Error>> {
+        None
+    }
+
     // TODO: can this function be optimized?
     fn is_default<'a>(&'a self) -> bool {
         map_blinded_payload_ref!(&'a _, self, move |payload, cons| {
@@ -546,7 +577,7 @@ impl<'b, T: EthSpec> ExecPayload<T> for BlindedPayloadRef<'b, T> {
 }
 
 macro_rules! impl_exec_payload_common {
-    ($wrapper_type:ident, $wrapped_type_full:ident, $wrapped_header_type:ident, $wrapped_field:ident, $fork_variant:ident, $block_type_variant:ident, $f:block) => {
+    ($wrapper_type:ident, $wrapped_type_full:ident, $wrapped_header_type:ident, $wrapped_field:ident, $fork_variant:ident, $block_type_variant:ident, $f:block, $g:block) => {
         impl<T: EthSpec> ExecPayload<T> for $wrapper_type<T> {
             fn block_type() -> BlockType {
                 BlockType::$block_type_variant
@@ -594,6 +625,12 @@ macro_rules! impl_exec_payload_common {
                 let f = $f;
                 f(self)
             }
+
+            #[cfg(feature = "withdrawals")]
+            fn withdrawals(&self) -> Option<Result<&Withdrawals<T>, Error>> {
+                let g = $g;
+                g(self)
+            }
         }
 
         impl<T: EthSpec> From<$wrapped_type_full<T>> for $wrapper_type<T> {
@@ -605,7 +642,7 @@ macro_rules! impl_exec_payload_common {
 }
 
 macro_rules! impl_exec_payload_for_fork {
-    ($wrapper_type_header:ident, $wrapper_type_full:ident, $wrapped_type_header:ident, $wrapped_type_full:ident, $fork_variant:ident) => {
+    ($wrapper_type_header:ident, $wrapper_type_full:ident, $wrapped_type_header:ident, $wrapped_type_full:ident, $fork_variant:ident, $withdrawal_fn:block) => {
         //*************** Blinded payload implementations ******************//
 
         impl_exec_payload_common!(
@@ -615,6 +652,7 @@ macro_rules! impl_exec_payload_for_fork {
             execution_payload_header,
             $fork_variant,
             Blinded,
+            { |_| { None } },
             { |_| { None } }
         );
 
@@ -680,7 +718,8 @@ macro_rules! impl_exec_payload_for_fork {
                 let c: for<'a> fn(&'a $wrapper_type_full<T>) -> Option<&'a Transactions<T>> =
                     |payload: &$wrapper_type_full<T>| Some(&payload.execution_payload.transactions);
                 c
-            }
+            },
+            $withdrawal_fn
         );
 
         impl<T: EthSpec> Default for $wrapper_type_full<T> {
@@ -723,21 +762,36 @@ impl_exec_payload_for_fork!(
     FullPayloadMerge,
     ExecutionPayloadHeaderMerge,
     ExecutionPayloadMerge,
-    Merge
+    Merge,
+    {
+        let c: for<'a> fn(&'a FullPayloadMerge<T>) -> Option<Result<&'a Withdrawals<T>, Error>> =
+            |_| Some(Err(Error::IncorrectStateVariant));
+        c
+    }
 );
 impl_exec_payload_for_fork!(
     BlindedPayloadCapella,
     FullPayloadCapella,
     ExecutionPayloadHeaderCapella,
     ExecutionPayloadCapella,
-    Capella
+    Capella,
+    {
+        let c: for<'a> fn(&'a FullPayloadCapella<T>) -> Option<Result<&Withdrawals<T>, Error>> =
+            |payload: &FullPayloadCapella<T>| Some(Ok(&payload.execution_payload.withdrawals));
+        c
+    }
 );
 impl_exec_payload_for_fork!(
     BlindedPayloadEip4844,
     FullPayloadEip4844,
     ExecutionPayloadHeaderEip4844,
     ExecutionPayloadEip4844,
-    Eip4844
+    Eip4844,
+    {
+        let c: for<'a> fn(&'a FullPayloadEip4844<T>) -> Option<Result<&Withdrawals<T>, Error>> =
+            |payload: &FullPayloadEip4844<T>| Some(Ok(&payload.execution_payload.withdrawals));
+        c
+    }
 );
 
 impl<T: EthSpec> AbstractExecPayload<T> for BlindedPayload<T> {

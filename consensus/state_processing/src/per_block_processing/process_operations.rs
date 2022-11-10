@@ -33,6 +33,9 @@ pub fn process_operations<'a, T: EthSpec, Payload: AbstractExecPayload<T>>(
     process_attestations(state, block_body, verify_signatures, ctxt, spec)?;
     process_deposits(state, block_body.deposits(), spec)?;
     process_exits(state, block_body.voluntary_exits(), verify_signatures, spec)?;
+    #[cfg(all(feature = "withdrawals", feature = "withdrawals-processing"))]
+    process_bls_to_execution_changes(state, block_body, verify_signatures, spec)?;
+
     Ok(())
 }
 
@@ -277,6 +280,46 @@ pub fn process_exits<T: EthSpec>(
         initiate_validator_exit(state, exit.message.validator_index as usize, spec)?;
     }
     Ok(())
+}
+
+/// Validates each `bls_to_execution_change` and updates the state
+///
+/// Returns `Ok(())` if the validation and state updates completed successfully. Otherwise returs
+/// an `Err` describing the invalid object or cause of failure.
+///
+/// https://github.com/ethereum/consensus-specs/blob/dev/specs/capella/beacon-chain.md#new-process_bls_to_execution_change
+#[cfg(all(feature = "withdrawals", feature = "withdrawals-processing"))]
+pub fn process_bls_to_execution_changes<'a, T: EthSpec, Payload: AbstractExecPayload<T>>(
+    state: &mut BeaconState<T>,
+    block_body: BeaconBlockBodyRef<'a, T, Payload>,
+    verify_signatures: VerifySignatures,
+    spec: &ChainSpec,
+) -> Result<(), BlockProcessingError> {
+    match block_body {
+        BeaconBlockBodyRef::Base(_)
+        | BeaconBlockBodyRef::Altair(_)
+        | BeaconBlockBodyRef::Merge(_) => Ok(()),
+        BeaconBlockBodyRef::Capella(_) | BeaconBlockBodyRef::Eip4844(_) => {
+            for (i, signed_address_change) in block_body.bls_to_execution_changes()?.enumerate() {
+                verify_bls_to_execution_change(
+                    state,
+                    &signed_address_change,
+                    verify_signatures,
+                    spec,
+                )
+                .map_err(|e| e.into_with_index(i))?;
+
+                state
+                    .get_validator_mut(signed_address_change.message.validator_index)?
+                    .change_withdrawal_credentials(
+                        signed_address_change.message.to_execution_address,
+                        spec,
+                    );
+            }
+
+            Ok(())
+        }
+    }
 }
 
 /// Validates each `Deposit` and updates the state, short-circuiting on an invalid object.
