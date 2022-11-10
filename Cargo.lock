@@ -2764,6 +2764,7 @@ version = "0.1.0"
 dependencies = [
  "beacon_chain",
  "bs58",
+ "directory",
  "environment",
  "eth1",
  "eth2",
@@ -2789,6 +2790,7 @@ dependencies = [
  "state_processing",
  "store",
  "sysinfo",
+ "system_health",
  "task_executor",
  "tokio",
  "tokio-stream",
@@ -6398,6 +6400,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "system_health"
+version = "0.1.0"
+dependencies = [
+ "lighthouse_network",
+ "parking_lot 0.12.1",
+ "serde",
+ "serde_derive",
+ "serde_json",
+ "sysinfo",
+ "types",
+]
+
+[[package]]
 name = "take_mut"
 version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7284,6 +7299,7 @@ dependencies = [
  "slog",
  "slot_clock",
  "sysinfo",
+ "system_health",
  "task_executor",
  "tempfile",
  "tokio",

@@ -17,7 +17,6 @@ mod proposer_duties;
 mod publish_blocks;
 mod state_id;
 mod sync_committees;
-mod ui;
 mod validator_inclusion;
 mod version;
 
@@ -27,6 +26,7 @@ use beacon_chain::{
     BeaconChainTypes, ProduceBlockVerification, WhenSlotSkipped,
 };
 pub use block_id::BlockId;
+use directory::DEFAULT_ROOT_DIR;
 use eth2::types::{
     self as api_types, EndpointVersion, SkipRandaoVerification, ValidatorId, ValidatorStatus,
 };
@@ -46,6 +46,7 @@ use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::Arc;
 use sysinfo::{System, SystemExt};
+use system_health::observe_system_health_bn;
 use tokio::sync::mpsc::{Sender, UnboundedSender};
 use tokio_stream::{wrappers::BroadcastStream, StreamExt};
 use types::{
@@ -113,6 +114,7 @@ pub struct Config {
     pub tls_config: Option<TlsConfig>,
     pub allow_sync_stalled: bool,
     pub spec_fork_name: Option<ForkName>,
+    pub data_dir: PathBuf,
 }
 
 impl Default for Config {
@@ -125,6 +127,7 @@ impl Default for Config {
             tls_config: None,
             allow_sync_stalled: false,
             spec_fork_name: None,
+            data_dir: PathBuf::from(DEFAULT_ROOT_DIR),
         }
     }
 }
@@ -325,6 +328,10 @@ pub fn serve<T: BeaconChainTypes>(
                 )),
             }
         });
+
+    // Create a `warp` filter for the data_dir.
+    let inner_data_dir = ctx.config.data_dir.clone();
+    let data_dir_filter = warp::any().map(move || inner_data_dir.clone());
 
     // Create a `warp` filter that provides access to the beacon chain.
     let inner_ctx = ctx.clone();
@@ -2787,14 +2794,16 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path::end())
         .and(system_info_filter)
         .and(app_start_filter)
+        .and(data_dir_filter)
         .and(network_globals.clone())
         .and_then(
-            |sysinfo, runtime_start: std::time::Instant, network_globals| {
+            |sysinfo, app_start: std::time::Instant, data_dir, network_globals| {
                 blocking_json_task(move || {
-                    let runtime = runtime_start.elapsed().as_secs() as u64;
-                    Ok(api_types::GenericResponse::from(ui::SystemHealth::observe(
+                    let app_uptime = app_start.elapsed().as_secs() as u64;
+                    Ok(api_types::GenericResponse::from(observe_system_health_bn(
                         sysinfo,
-                        runtime,
+                        data_dir,
+                        app_uptime,
                         network_globals,
                     )))
                 })

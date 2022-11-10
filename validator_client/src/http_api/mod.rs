@@ -3,7 +3,6 @@ mod create_validator;
 mod keystores;
 mod remotekeys;
 mod tests;
-mod ui;
 
 use crate::ValidatorStore;
 use account_utils::{
@@ -27,6 +26,7 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use std::sync::Arc;
 use sysinfo::{System, SystemExt};
+use system_health::observe_system_health_vc;
 use task_executor::TaskExecutor;
 use types::{ChainSpec, ConfigAndPreset, EthSpec};
 use validator_dir::Builder as ValidatorDirBuilder;
@@ -318,12 +318,13 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(warp::path::end())
         .and(system_info_filter)
         .and(app_start_filter)
+        .and(validator_dir_filter.clone())
         .and(signer.clone())
-        .and_then(|sysinfo, runtime_start: std::time::Instant, signer| {
+        .and_then(|sysinfo, app_start: std::time::Instant, val_dir, signer| {
             blocking_signed_json_task(signer, move || {
-                let runtime = runtime_start.elapsed().as_secs() as u64;
-                Ok(api_types::GenericResponse::from(ui::SystemHealth::observe(
-                    sysinfo, runtime,
+                let app_uptime = app_start.elapsed().as_secs() as u64;
+                Ok(api_types::GenericResponse::from(observe_system_health_vc(
+                    sysinfo, val_dir, app_uptime,
                 )))
             })
         });
