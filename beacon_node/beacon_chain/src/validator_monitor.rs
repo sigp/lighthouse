@@ -109,6 +109,11 @@ impl EpochSummary {
         }
     }
 
+    pub fn register_block(&mut self, delay: Duration) {
+        self.blocks += 1;
+        Self::update_if_lt(&mut self.block_min_delay, delay);
+    }
+
     pub fn register_unaggregated_attestation(&mut self, delay: Duration) {
         self.attestations += 1;
         Self::update_if_lt(&mut self.attestation_min_delay, delay);
@@ -332,34 +337,22 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                     metrics::set_int_gauge(
                         &metrics::VALIDATOR_MONITOR_SLASHED,
                         &[id],
-                        if validator.slashed { 1 } else { 0 },
+                        i64::from(validator.slashed),
                     );
                     metrics::set_int_gauge(
                         &metrics::VALIDATOR_MONITOR_ACTIVE,
                         &[id],
-                        if validator.is_active_at(current_epoch) {
-                            1
-                        } else {
-                            0
-                        },
+                        i64::from(validator.is_active_at(current_epoch)),
                     );
                     metrics::set_int_gauge(
                         &metrics::VALIDATOR_MONITOR_EXITED,
                         &[id],
-                        if validator.is_exited_at(current_epoch) {
-                            1
-                        } else {
-                            0
-                        },
+                        i64::from(validator.is_exited_at(current_epoch)),
                     );
                     metrics::set_int_gauge(
                         &metrics::VALIDATOR_MONITOR_WITHDRAWABLE,
                         &[id],
-                        if validator.is_withdrawable_at(current_epoch) {
-                            1
-                        } else {
-                            0
-                        },
+                        i64::from(validator.is_withdrawable_at(current_epoch)),
                     );
                     metrics::set_int_gauge(
                         &metrics::VALIDATOR_ACTIVATION_ELIGIBILITY_EPOCH,
@@ -625,13 +618,6 @@ impl<T: EthSpec> ValidatorMonitor<T> {
         Ok(())
     }
 
-    fn get_validator_id(&self, validator_index: u64) -> Option<&str> {
-        self.indices
-            .get(&validator_index)
-            .and_then(|pubkey| self.validators.get(pubkey))
-            .map(|validator| validator.id.as_str())
-    }
-
     fn get_validator(&self, validator_index: u64) -> Option<&MonitoredValidator> {
         self.indices
             .get(&validator_index)
@@ -697,7 +683,9 @@ impl<T: EthSpec> ValidatorMonitor<T> {
         block_root: Hash256,
         slot_clock: &S,
     ) {
-        if let Some(id) = self.get_validator_id(block.proposer_index()) {
+        let epoch = block.slot().epoch(T::slots_per_epoch());
+        if let Some(validator) = self.get_validator(block.proposer_index()) {
+            let id = &validator.id;
             let delay = get_block_delay_ms(seen_timestamp, block, slot_clock);
 
             metrics::inc_counter_vec(&metrics::VALIDATOR_MONITOR_BEACON_BLOCK_TOTAL, &[src, id]);
@@ -716,6 +704,8 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                 "src" => src,
                 "validator" => %id,
             );
+
+            validator.with_epoch_summary(epoch, |summary| summary.register_block(delay));
         }
     }
 

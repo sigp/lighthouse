@@ -9,7 +9,8 @@ use beacon_chain::{
     test_utils::{BeaconChainHarness, EphemeralHarnessType},
     BeaconChainTypes, CachedHead, CountUnrealized,
 };
-use serde_derive::Deserialize;
+use execution_layer::{json_structures::JsonPayloadStatusV1Status, PayloadStatusV1};
+use serde::Deserialize;
 use ssz_derive::Decode;
 use state_processing::state_advance::complete_state_advance;
 use std::future::Future;
@@ -51,15 +52,52 @@ pub struct Checks {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PayloadStatus {
+    status: JsonPayloadStatusV1Status,
+    latest_valid_hash: Option<ExecutionBlockHash>,
+    validation_error: Option<String>,
+}
+
+impl From<PayloadStatus> for PayloadStatusV1 {
+    fn from(status: PayloadStatus) -> Self {
+        PayloadStatusV1 {
+            status: status.status.into(),
+            latest_valid_hash: status.latest_valid_hash,
+            validation_error: status.validation_error,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
 #[serde(untagged, deny_unknown_fields)]
 pub enum Step<B, A, AS, P> {
-    Tick { tick: u64 },
-    ValidBlock { block: B },
-    MaybeValidBlock { block: B, valid: bool },
-    Attestation { attestation: A },
-    AttesterSlashing { attester_slashing: AS },
-    PowBlock { pow_block: P },
-    Checks { checks: Box<Checks> },
+    Tick {
+        tick: u64,
+    },
+    ValidBlock {
+        block: B,
+    },
+    MaybeValidBlock {
+        block: B,
+        valid: bool,
+    },
+    Attestation {
+        attestation: A,
+    },
+    AttesterSlashing {
+        attester_slashing: AS,
+    },
+    PowBlock {
+        pow_block: P,
+    },
+    OnPayloadInfo {
+        block_hash: ExecutionBlockHash,
+        payload_status: PayloadStatus,
+    },
+    Checks {
+        checks: Box<Checks>,
+    },
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -119,6 +157,13 @@ impl<E: EthSpec> LoadCase for ForkChoiceTest<E> {
                     ssz_decode_file(&path.join(format!("{}.ssz_snappy", pow_block)))
                         .map(|pow_block| Step::PowBlock { pow_block })
                 }
+                Step::OnPayloadInfo {
+                    block_hash,
+                    payload_status,
+                } => Ok(Step::OnPayloadInfo {
+                    block_hash,
+                    payload_status,
+                }),
                 Step::Checks { checks } => Ok(Step::Checks { checks }),
             })
             .collect::<Result<_, _>>()?;
@@ -168,6 +213,14 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
                     tester.process_attester_slashing(attester_slashing)
                 }
                 Step::PowBlock { pow_block } => tester.process_pow_block(pow_block),
+                Step::OnPayloadInfo {
+                    block_hash,
+                    payload_status,
+                } => {
+                    let el = tester.harness.mock_execution_layer.as_ref().unwrap();
+                    el.server
+                        .set_payload_statuses(*block_hash, payload_status.clone().into());
+                }
                 Step::Checks { checks } => {
                     let Checks {
                         head,

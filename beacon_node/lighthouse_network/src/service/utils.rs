@@ -269,7 +269,7 @@ pub(crate) fn save_metadata_to_disk<E: EthSpec>(
     metadata: MetaData<E>,
     log: &slog::Logger,
 ) {
-    let _ = std::fs::create_dir_all(&dir);
+    let _ = std::fs::create_dir_all(dir);
     match File::create(dir.join(METADATA_FILENAME))
         .and_then(|mut f| f.write_all(&metadata.as_ssz_bytes()))
     {

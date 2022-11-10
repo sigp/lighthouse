@@ -12,6 +12,7 @@ use parking_lot::{Mutex, RwLock, RwLockWriteGuard};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use slog::{info, Logger};
+use std::collections::HashMap;
 use std::convert::Infallible;
 use std::future::Future;
 use std::marker::PhantomData;
@@ -98,6 +99,8 @@ impl<T: EthSpec> MockServer<T> {
             static_new_payload_response: <_>::default(),
             static_forkchoice_updated_response: <_>::default(),
             static_get_block_by_hash_response: <_>::default(),
+            new_payload_statuses: <_>::default(),
+            fcu_payload_statuses: <_>::default(),
             _phantom: PhantomData,
         });
 
@@ -370,6 +373,25 @@ impl<T: EthSpec> MockServer<T> {
     pub fn drop_all_blocks(&self) {
         self.ctx.execution_block_generator.write().drop_all_blocks()
     }
+
+    pub fn set_payload_statuses(&self, block_hash: ExecutionBlockHash, status: PayloadStatusV1) {
+        self.set_new_payload_status(block_hash, status.clone());
+        self.set_fcu_payload_status(block_hash, status);
+    }
+
+    pub fn set_new_payload_status(&self, block_hash: ExecutionBlockHash, status: PayloadStatusV1) {
+        self.ctx
+            .new_payload_statuses
+            .lock()
+            .insert(block_hash, status);
+    }
+
+    pub fn set_fcu_payload_status(&self, block_hash: ExecutionBlockHash, status: PayloadStatusV1) {
+        self.ctx
+            .fcu_payload_statuses
+            .lock()
+            .insert(block_hash, status);
+    }
 }
 
 #[derive(Debug)]
@@ -419,7 +441,31 @@ pub struct Context<T: EthSpec> {
     pub static_new_payload_response: Arc<Mutex<Option<StaticNewPayloadResponse>>>,
     pub static_forkchoice_updated_response: Arc<Mutex<Option<PayloadStatusV1>>>,
     pub static_get_block_by_hash_response: Arc<Mutex<Option<Option<ExecutionBlock>>>>,
+
+    // Canned responses by block hash.
+    //
+    // This is a more flexible and less stateful alternative to `static_new_payload_response`
+    // and `preloaded_responses`.
+    pub new_payload_statuses: Arc<Mutex<HashMap<ExecutionBlockHash, PayloadStatusV1>>>,
+    pub fcu_payload_statuses: Arc<Mutex<HashMap<ExecutionBlockHash, PayloadStatusV1>>>,
+
     pub _phantom: PhantomData<T>,
+}
+
+impl<T: EthSpec> Context<T> {
+    pub fn get_new_payload_status(
+        &self,
+        block_hash: &ExecutionBlockHash,
+    ) -> Option<PayloadStatusV1> {
+        self.new_payload_statuses.lock().get(block_hash).cloned()
+    }
+
+    pub fn get_fcu_payload_status(
+        &self,
+        block_hash: &ExecutionBlockHash,
+    ) -> Option<PayloadStatusV1> {
+        self.fcu_payload_statuses.lock().get(block_hash).cloned()
+    }
 }
 
 /// Configuration for the HTTP server.

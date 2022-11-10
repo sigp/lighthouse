@@ -503,7 +503,14 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .requires("execution-endpoint")
                 .takes_value(true)
         )
-
+        .arg(
+            Arg::with_name("execution-timeout-multiplier")
+                .long("execution-timeout-multiplier")
+                .value_name("NUM")
+                .help("Unsigned integer to multiply the default execution timeouts by.")
+                .default_value("1")
+                .takes_value(true)
+        )
         /*
          * Database purging and compaction.
          */
@@ -843,6 +850,14 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .help("When present, Lighthouse will forget the payload statuses of any \
                        already-imported blocks. This can assist in the recovery from a consensus \
                        failure caused by the execution layer.")
+                .takes_value(false)
+        )
+        .arg(
+            Arg::with_name("disable-deposit-contract-sync")
+                .long("disable-deposit-contract-sync")
+                .help("Explictly disables syncing of deposit logs from the execution node. \
+                      This overrides any previous option that depends on it. \
+                      Useful if you intend to run a non-validating beacon node.")
                 .takes_value(false)
         )
 }

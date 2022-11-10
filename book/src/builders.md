@@ -188,7 +188,7 @@ with the builder network:
 INFO Published validator registrations to the builder network
 ```
 
-When you succesfully propose a block using a builder, you will see this log on the beacon node:
+When you successfully propose a block using a builder, you will see this log on the beacon node:
 
 ```
 INFO Successfully published a block to the builder network

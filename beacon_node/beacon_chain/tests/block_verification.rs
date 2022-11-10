@@ -11,7 +11,7 @@ use slasher::{Config as SlasherConfig, Slasher};
 use state_processing::{
     common::get_indexed_attestation,
     per_block_processing::{per_block_processing, BlockSignatureStrategy},
-    per_slot_processing, BlockProcessingError, VerifyBlockRoot,
+    per_slot_processing, BlockProcessingError, ConsensusContext, VerifyBlockRoot,
 };
 use std::marker::PhantomData;
 use std::sync::Arc;
@@ -1139,14 +1139,15 @@ async fn add_base_block_to_altair_chain() {
     // Ensure that it would be impossible to apply this block to `per_block_processing`.
     {
         let mut state = state;
+        let mut ctxt = ConsensusContext::new(base_block.slot());
         per_slot_processing(&mut state, None, &harness.chain.spec).unwrap();
         assert!(matches!(
             per_block_processing(
                 &mut state,
                 &base_block,
-                None,
                 BlockSignatureStrategy::NoVerification,
                 VerifyBlockRoot::True,
+                &mut ctxt,
                 &harness.chain.spec,
             ),
             Err(BlockProcessingError::InconsistentBlockFork(
@@ -1271,14 +1272,15 @@ async fn add_altair_block_to_base_chain() {
     // Ensure that it would be impossible to apply this block to `per_block_processing`.
     {
         let mut state = state;
+        let mut ctxt = ConsensusContext::new(altair_block.slot());
         per_slot_processing(&mut state, None, &harness.chain.spec).unwrap();
         assert!(matches!(
             per_block_processing(
                 &mut state,
                 &altair_block,
-                None,
                 BlockSignatureStrategy::NoVerification,
                 VerifyBlockRoot::True,
+                &mut ctxt,
                 &harness.chain.spec,
             ),
             Err(BlockProcessingError::InconsistentBlockFork(
