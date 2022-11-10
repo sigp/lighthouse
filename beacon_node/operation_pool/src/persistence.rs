@@ -142,6 +142,8 @@ impl<T: EthSpec> PersistedOperationPool<T> {
             attester_slashings,
             proposer_slashings,
             voluntary_exits,
+            // FIXME: IMPLEMENT THIS
+            bls_to_execution_changes: Default::default(),
             reward_cache: Default::default(),
             _phantom: Default::default(),
         };
