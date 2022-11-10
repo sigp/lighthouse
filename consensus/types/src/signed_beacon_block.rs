@@ -341,6 +341,8 @@ impl<E: EthSpec> SignedBeaconBlockCapella<E, BlindedPayload<E>> {
                             voluntary_exits,
                             sync_aggregate,
                             execution_payload: BlindedPayloadCapella { .. },
+                            #[cfg(feature = "withdrawals")]
+                            bls_to_execution_changes,
                         },
                 },
             signature,
@@ -362,6 +364,8 @@ impl<E: EthSpec> SignedBeaconBlockCapella<E, BlindedPayload<E>> {
                     voluntary_exits,
                     sync_aggregate,
                     execution_payload: FullPayloadCapella { execution_payload },
+                    #[cfg(feature = "withdrawals")]
+                    bls_to_execution_changes,
                 },
             },
             signature,
@@ -393,6 +397,8 @@ impl<E: EthSpec> SignedBeaconBlockEip4844<E, BlindedPayload<E>> {
                             voluntary_exits,
                             sync_aggregate,
                             execution_payload: BlindedPayloadEip4844 { .. },
+                            #[cfg(feature = "withdrawals")]
+                            bls_to_execution_changes,
                             blob_kzg_commitments,
                         },
                 },
@@ -415,6 +421,8 @@ impl<E: EthSpec> SignedBeaconBlockEip4844<E, BlindedPayload<E>> {
                     voluntary_exits,
                     sync_aggregate,
                     execution_payload: FullPayloadEip4844 { execution_payload },
+                    #[cfg(feature = "withdrawals")]
+                    bls_to_execution_changes,
                     blob_kzg_commitments,
                 },
             },

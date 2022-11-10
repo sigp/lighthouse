@@ -300,7 +300,9 @@ pub fn process_bls_to_execution_changes<'a, T: EthSpec, Payload: AbstractExecPay
         | BeaconBlockBodyRef::Altair(_)
         | BeaconBlockBodyRef::Merge(_) => Ok(()),
         BeaconBlockBodyRef::Capella(_) | BeaconBlockBodyRef::Eip4844(_) => {
-            for (i, signed_address_change) in block_body.bls_to_execution_changes()?.enumerate() {
+            for (i, signed_address_change) in
+                block_body.bls_to_execution_changes()?.iter().enumerate()
+            {
                 verify_bls_to_execution_change(
                     state,
                     &signed_address_change,
@@ -310,9 +312,9 @@ pub fn process_bls_to_execution_changes<'a, T: EthSpec, Payload: AbstractExecPay
                 .map_err(|e| e.into_with_index(i))?;
 
                 state
-                    .get_validator_mut(signed_address_change.message.validator_index)?
+                    .get_validator_mut(signed_address_change.message.validator_index as usize)?
                     .change_withdrawal_credentials(
-                        signed_address_change.message.to_execution_address,
+                        &signed_address_change.message.to_execution_address,
                         spec,
                     );
             }

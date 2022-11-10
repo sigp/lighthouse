@@ -58,11 +58,9 @@ pub fn upgrade_to_capella<E: EthSpec>(
         latest_execution_payload_header: pre.latest_execution_payload_header.upgrade_to_capella(),
         // Withdrawals
         #[cfg(feature = "withdrawals")]
-        withdrawal_queue: VariableList::empty(),
-        #[cfg(feature = "withdrawals")]
         next_withdrawal_index: 0,
         #[cfg(feature = "withdrawals")]
-        next_partial_withdrawal_validator_index: 0,
+        latest_withdrawal_validator_index: 0,
         // Caches
         total_active_balance: pre.total_active_balance,
         committee_caches: mem::take(&mut pre.committee_caches),

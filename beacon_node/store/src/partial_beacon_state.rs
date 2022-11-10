@@ -107,13 +107,10 @@ where
     // Withdrawals
     #[cfg(feature = "withdrawals")]
     #[superstruct(only(Capella, Eip4844))]
-    pub withdrawal_queue: VariableList<Withdrawal, T::WithdrawalQueueLimit>,
-    #[cfg(feature = "withdrawals")]
-    #[superstruct(only(Capella, Eip4844))]
     pub next_withdrawal_index: u64,
     #[cfg(feature = "withdrawals")]
     #[superstruct(only(Capella, Eip4844))]
-    pub next_partial_withdrawal_validator_index: u64,
+    pub latest_withdrawal_validator_index: u64,
 }
 
 /// Implement the conversion function from BeaconState -> PartialBeaconState.
@@ -215,9 +212,8 @@ impl<T: EthSpec> PartialBeaconState<T> {
                     next_sync_committee,
                     inactivity_scores,
                     latest_execution_payload_header,
-                    withdrawal_queue,
                     next_withdrawal_index,
-                    next_partial_withdrawal_validator_index
+                    latest_withdrawal_validator_index
                 ]
             ),
             #[cfg(not(feature = "withdrawals"))]
@@ -248,9 +244,8 @@ impl<T: EthSpec> PartialBeaconState<T> {
                     next_sync_committee,
                     inactivity_scores,
                     latest_execution_payload_header,
-                    withdrawal_queue,
                     next_withdrawal_index,
-                    next_partial_withdrawal_validator_index
+                    latest_withdrawal_validator_index
                 ]
             ),
             #[cfg(not(feature = "withdrawals"))]
@@ -467,9 +462,8 @@ impl<E: EthSpec> TryInto<BeaconState<E>> for PartialBeaconState<E> {
                     next_sync_committee,
                     inactivity_scores,
                     latest_execution_payload_header,
-                    withdrawal_queue,
                     next_withdrawal_index,
-                    next_partial_withdrawal_validator_index
+                    latest_withdrawal_validator_index
                 ]
             ),
             #[cfg(not(feature = "withdrawals"))]
@@ -498,9 +492,8 @@ impl<E: EthSpec> TryInto<BeaconState<E>> for PartialBeaconState<E> {
                     next_sync_committee,
                     inactivity_scores,
                     latest_execution_payload_header,
-                    withdrawal_queue,
                     next_withdrawal_index,
-                    next_partial_withdrawal_validator_index
+                    latest_withdrawal_validator_index
                 ]
             ),
             #[cfg(not(feature = "withdrawals"))]

@@ -261,6 +261,8 @@ struct PartialBeaconBlock<E: EthSpec, Payload: AbstractExecPayload<E>> {
     voluntary_exits: Vec<SignedVoluntaryExit>,
     sync_aggregate: Option<SyncAggregate<E>>,
     prepare_payload_handle: Option<PreparePayloadHandle<E, Payload>>,
+    #[cfg(feature = "withdrawals")]
+    bls_to_execution_changes: Vec<SignedBlsToExecutionChange>,
 }
 
 pub type BeaconForkChoice<T> = ForkChoice<
@@ -3485,6 +3487,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let eth1_data = eth1_chain.eth1_data_for_block_production(&state, &self.spec)?;
         let deposits = eth1_chain.deposits_for_block_inclusion(&state, &eth1_data, &self.spec)?;
+        let bls_to_execution_changes = self
+            .op_pool
+            .get_bls_to_execution_changes(&state, &self.spec);
 
         // Iterate through the naive aggregation pool and ensure all the attestations from there
         // are included in the operation pool.
@@ -3642,6 +3647,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             voluntary_exits,
             sync_aggregate,
             prepare_payload_handle,
+            bls_to_execution_changes,
         })
     }
 
@@ -3670,6 +3676,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             // this function. We can assume that the handle has already been consumed in order to
             // produce said `execution_payload`.
             prepare_payload_handle: _,
+            #[cfg(feature = "withdrawals")]
+            bls_to_execution_changes,
         } = partial_beacon_block;
 
         let inner_block = match &state {
@@ -3751,6 +3759,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         .to_payload()
                         .try_into()
                         .map_err(|_| BlockProductionError::InvalidPayloadFork)?,
+                    #[cfg(feature = "withdrawals")]
+                    bls_to_execution_changes: bls_to_execution_changes.into(),
                 },
             }),
             BeaconState::Eip4844(_) => BeaconBlock::Eip4844(BeaconBlockEip4844 {
@@ -3773,6 +3783,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         .to_payload()
                         .try_into()
                         .map_err(|_| BlockProductionError::InvalidPayloadFork)?,
+                    #[cfg(feature = "withdrawals")]
+                    bls_to_execution_changes: bls_to_execution_changes.into(),
                     //FIXME(sean) get blobs
                     blob_kzg_commitments: VariableList::from(kzg_commitments),
                 },
