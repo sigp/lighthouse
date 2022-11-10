@@ -4,10 +4,10 @@ This document provides detail for users who want to run a Lighthouse beacon node
 You should be finished with one [Installation](./installation.md) of your choice to continue with the following steps:
 
 1. Perform [Checkpoint sync](#step-1-checkpoint-sync);
-2. Set up an [execution node](#step-2-set-up-an-execution-node);
-3. Run [Lighthouse](#step-3-run-lighthouse);
-4. [Check logs](#step-4-check-logs); and
-5. [Further reading](#step-5-further-reading).
+1. Set up an [execution node](#step-2-set-up-an-execution-node);
+1. Run [Lighthouse](#step-3-run-lighthouse);
+1. [Check logs](#step-4-check-logs); and
+1. [Further reading](#step-5-further-reading).
 
 Checkpoint sync is *optional*; however,  we recommend it since it is substantially faster
 than syncing from genesis while still providing all the same features.
@@ -17,16 +17,87 @@ than syncing from genesis while still providing all the same features.
 Since version 2.0.0 Lighthouse supports syncing from a recent finalized checkpoint.
 The checkpoint sync can be done using [another synced beacon node](#automatic-checkpoint-sync) or a [public endpoint](#use-a-community-checkpoint-sync-endpoint) provided by the Ethereum community.
 
+In [step 3](#step-3-run-lighthouse), when running Lighthouse,
+we will enable checkpoint sync by providing the URL to the `--checkpoint-sync-url` flag.
+For now, we will copy the URL to the clipboard, selected in one of the following ways.
+
 ### Automatic checkpoint sync
 
-To begin checkpoint sync you will need HTTP API access to another synced beacon node. Enable
-checkpoint sync by providing the other beacon node's URL to `--checkpoint-sync-url`, alongside any
-other flags:
+To begin automatic checkpoint sync you will need HTTP API access to another synced beacon node.
+In this case, the URL could look like this: `http://remote-bn:5052`.
+
+> **Security Note**: You should cross-reference the `block_root` and `slot` of the loaded checkpoint
+> against a trusted source like a friend's node, or a block explorer.
+
+### Use a community checkpoint sync endpoint
+
+The Ethereum community provides various [public endpoints](https://eth-clients.github.io/checkpoint-sync-endpoints/) for you to choose from for your initial checkpoint state. Select one for your network and use it as the URL.
+
+For example, the URL for the checkpoint sync of the mainnet from Sigma Prime is `https://mainnet.checkpoint.sigp.io`,
+which we will use in [step 3](#step-3-run-lighthouse).
+
+## Step 2: Set up an execution node
+
+The Lighthouse beacon node *must* connect to an execution engine in order to validate the transactions
+present in blocks. Two flags are used to configure this connection:
+
+- `--execution-endpoint`: the *URL* of the execution engine API. Often this will be
+  `http://localhost:8551`.
+- `--execution-jwt`: the *path* to the file containing the JWT secret shared by Lighthouse and the
+  execution engine. This is a mandatory form of authentication that ensures that Lighthouse
+has authority to control the execution engine.
+
+Each execution engine has its own flags for configuring the engine API and JWT.
+Please consult the relevant page of your execution engine for the required flags:
+
+- [Geth: Connecting to Consensus Clients](https://geth.ethereum.org/docs/interface/consensus-clients)
+- [Nethermind: Running Nethermind & CL](https://docs.nethermind.io/nethermind/first-steps-with-nethermind/running-nethermind-post-merge)
+- [Besu: Connect to Mainnet](https://besu.hyperledger.org/en/stable/public-networks/get-started/connect/mainnet/)
+
+The execution engine connection must be *exclusive*, i.e. you must have one execution node
+per beacon node. The reason for this is that the beacon node _controls_ the execution node.
+
+## Step 3: Run Lighthouse
+
+To run Lighthouse, we use the three flags from the steps above:
+- `--checkpoint-sync-url`
+- `--execution-endpoint`
+- `--execution-jwt`
+
+Additionally, we run Lighthouse with the `--network` flag, which selects a network:
+
+- `lighthouse` (no flag): Mainnet.
+- `lighthouse --network mainnet`: Mainnet.
+- `lighthouse --network prater`: Prater (testnet).
+
+Using the correct `--network` flag is very important; using the wrong flag can
+result in penalties, slashings or lost deposits. As a rule of thumb, *always*
+provide a `--network` flag instead of relying on the default.
+
+Minor modifications depend on if you want to run your node while [staking](#staking) or [non-staking](#non-staking).
+In the following, we will provide examples of what a Lighthouse setup could look like.
+
+### Staking
 
 ```
-lighthouse bn --checkpoint-sync-url "http://remote-bn:5052" ...
+lighthouse bn \
+  --http \
+  --checkpoint-sync-url https://mainnet.checkpoint.sigp.io \
+  --execution-endpoint http://localhost:8551 \
+  --execution-jwt /secrets/jwt.hex 
 ```
 
+### Non-staking
+
+``` 
+lighthouse bn \
+  --checkpoint-sync-url https://mainnet.checkpoint.sigp.io \
+  --execution-endpoint http://localhost:8551 \
+  --execution-jwt /secrets/jwt.hex \
+  --disable-deposit-contract-sync
+```
+
+## Step 4: Check logs
 Lighthouse will print a message to indicate that checkpoint sync is being used:
 
 ```
@@ -40,20 +111,10 @@ loaded from the remote beacon node:
 INFO Loaded checkpoint block and state       state_root: 0xe8252c68784a8d5cc7e5429b0e95747032dd1dcee0d1dc9bdaf6380bf90bc8a6, block_root: 0x5508a20147299b1a7fe9dbea1a8b3bf979f74c52e7242039bd77cbff62c0695a, slot: 2034720, service: beacon
 ```
 
-> **Security Note**: You should cross-reference the `block_root` and `slot` of the loaded checkpoint
-> against a trusted source like a friend's node, or a block explorer.
-
 Once the checkpoint is loaded Lighthouse will sync forwards to the head of the chain.
 
 If a validator client is connected to the node then it will be able to start completing its duties
 as soon as forwards sync completes.
-
-### Use a community checkpoint sync endpoint
-
-The Ethereum community provides various [public endpoints](https://eth-clients.github.io/checkpoint-sync-endpoints/) for you to choose from for your initial checkpoint state. Select one for your network and use it as the url for the `--checkpoint-sync-url` flag.  e.g.
-```
-lighthouse bn --checkpoint-sync-url https://example.com/ ...
-```
 
 ### Backfilling Blocks
 
@@ -71,55 +132,6 @@ Once backfill is complete, a `INFO Historical block download complete` log will 
 
 Checkout [FAQ](./checkpoint-sync.md#faq) for more information.
 
-## Step 2: Set up an execution node
-
-The Lighthouse beacon node *must* connect to an execution engine in order to validate the transactions
-present in blocks. Two flags are used to configure this connection:
-
-- `--execution-endpoint <URL>`: the URL of the execution engine API. Often this will be
-  `http://localhost:8551`.
-- `--execution-jwt <FILE>`: the path to the file containing the JWT secret shared by Lighthouse and the
-  execution engine. This is a mandatory form of authentication that ensures that Lighthouse
-has authority to control the execution engine.
-
-```
-lighthouse bn --execution-endpoint <URL> --execution-jwt <FILE>
-```
-Each execution engine has its own flags for configuring the engine API and JWT.
-Please consult the relevant page of your execution engine for the required flags:
-
-- [Geth: Connecting to Consensus Clients](https://geth.ethereum.org/docs/interface/consensus-clients)
-- [Nethermind: Running Nethermind & CL](https://docs.nethermind.io/nethermind/first-steps-with-nethermind/running-nethermind-post-merge)
-- [Besu: Connect to Mainnet](https://besu.hyperledger.org/en/stable/public-networks/get-started/connect/mainnet/)
-
-The execution engine connection must be **exclusive**, i.e. you must have one execution node
-per beacon node. The reason for this is that the beacon node _controls_ the execution node. Please
-see the [FAQ](./merge-migration.md#faq) for further information about why many:1 and 1:many configurations are not
-supported.
-
-## Step 3: Run Lighthouse
-
-Staking:
-
-```
-lighthouse bn \
-  --http \
-  --checkpoint-sync-url https://mainnet.checkpoint.sigp.io \
-  --execution-endpoint http://localhost:8551 \
-  --execution-jwt /secrets/jwt.hex 
-```
-
-Non-staking:
-
-``` 
-lighthouse bn \
-  --checkpoint-sync-url https://mainnet.checkpoint.sigp.io \
-  --execution-endpoint http://localhost:8551 \
-  --execution-jwt /secrets/jwt.hex \
-  --disable-deposit-contract-sync
-```
-
-## Step 4: Check logs
 
 ## Step 5: Further reading
 [Become a Validator](./mainnet-validator.md)
@@ -127,7 +139,11 @@ lighthouse bn \
 [Validator Monitoring](./validator-monitoring.md)
 
 [Checkpoint Sync](./checkpoint-sync.md)
+More information on checkpoint sync is available in this section, or you can look at the FAQ for checkpoint sync.
 
 [Merge Migration](./merge-migration.md)
+Please
+see the [FAQ](./merge-migration.md#faq) for further information about why many:1 and 1:many configurations are not
+supported.
 
 [APIs](./api.md)
