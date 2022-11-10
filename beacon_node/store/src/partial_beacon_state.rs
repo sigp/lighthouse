@@ -110,7 +110,7 @@ where
     pub next_withdrawal_index: u64,
     #[cfg(feature = "withdrawals")]
     #[superstruct(only(Capella, Eip4844))]
-    pub latest_withdrawal_validator_index: u64,
+    pub next_withdrawal_validator_index: u64,
 }
 
 /// Implement the conversion function from BeaconState -> PartialBeaconState.
@@ -213,7 +213,7 @@ impl<T: EthSpec> PartialBeaconState<T> {
                     inactivity_scores,
                     latest_execution_payload_header,
                     next_withdrawal_index,
-                    latest_withdrawal_validator_index
+                    next_withdrawal_validator_index
                 ]
             ),
             #[cfg(not(feature = "withdrawals"))]
@@ -245,7 +245,7 @@ impl<T: EthSpec> PartialBeaconState<T> {
                     inactivity_scores,
                     latest_execution_payload_header,
                     next_withdrawal_index,
-                    latest_withdrawal_validator_index
+                    next_withdrawal_validator_index
                 ]
             ),
             #[cfg(not(feature = "withdrawals"))]
@@ -463,7 +463,7 @@ impl<E: EthSpec> TryInto<BeaconState<E>> for PartialBeaconState<E> {
                     inactivity_scores,
                     latest_execution_payload_header,
                     next_withdrawal_index,
-                    latest_withdrawal_validator_index
+                    next_withdrawal_validator_index
                 ]
             ),
             #[cfg(not(feature = "withdrawals"))]
@@ -493,7 +493,7 @@ impl<E: EthSpec> TryInto<BeaconState<E>> for PartialBeaconState<E> {
                     inactivity_scores,
                     latest_execution_payload_header,
                     next_withdrawal_index,
-                    latest_withdrawal_validator_index
+                    next_withdrawal_validator_index
                 ]
             ),
             #[cfg(not(feature = "withdrawals"))]

@@ -300,7 +300,7 @@ where
     pub next_withdrawal_index: u64,
     #[cfg(feature = "withdrawals")]
     #[superstruct(only(Capella, Eip4844))]
-    pub latest_withdrawal_validator_index: u64,
+    pub next_withdrawal_validator_index: u64,
 
     // Caching (not in the spec)
     #[serde(skip_serializing, skip_deserializing)]

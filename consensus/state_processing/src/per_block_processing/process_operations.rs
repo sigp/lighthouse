@@ -286,8 +286,6 @@ pub fn process_exits<T: EthSpec>(
 ///
 /// Returns `Ok(())` if the validation and state updates completed successfully. Otherwise returs
 /// an `Err` describing the invalid object or cause of failure.
-///
-/// https://github.com/ethereum/consensus-specs/blob/dev/specs/capella/beacon-chain.md#new-process_bls_to_execution_change
 #[cfg(all(feature = "withdrawals", feature = "withdrawals-processing"))]
 pub fn process_bls_to_execution_changes<'a, T: EthSpec, Payload: AbstractExecPayload<T>>(
     state: &mut BeaconState<T>,
