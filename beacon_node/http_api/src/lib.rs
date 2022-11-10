@@ -3290,6 +3290,7 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(get_lighthouse_merge_readiness.boxed())
                 .or(get_events.boxed()),
         )
+        .boxed()
         .or(warp::post().and(
             post_beacon_blocks
                 .boxed()
