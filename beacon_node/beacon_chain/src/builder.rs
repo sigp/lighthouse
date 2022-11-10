@@ -1,5 +1,6 @@
 use crate::beacon_chain::{CanonicalHead, BEACON_CHAIN_DB_KEY, ETH1_CACHE_DB_KEY, OP_POOL_DB_KEY};
 use crate::eth1_chain::{CachingEth1Backend, SszEth1};
+use crate::eth1_finalization_cache::Eth1FinalizationCache;
 use crate::fork_choice_signal::ForkChoiceSignalTx;
 use crate::fork_revert::{reset_fork_choice_to_finalization, revert_to_fork_boundary};
 use crate::head_tracker::HeadTracker;
@@ -17,7 +18,7 @@ use crate::{
 };
 use eth1::Config as Eth1Config;
 use execution_layer::ExecutionLayer;
-use fork_choice::ForkChoice;
+use fork_choice::{ForkChoice, ResetPayloadStatuses};
 use futures::channel::mpsc::Sender;
 use operation_pool::{OperationPool, PersistedOperationPool};
 use parking_lot::RwLock;
@@ -245,7 +246,12 @@ where
         let fork_choice =
             BeaconChain::<Witness<TSlotClock, TEth1Backend, _, _, _>>::load_fork_choice(
                 store.clone(),
+                ResetPayloadStatuses::always_reset_conditionally(
+                    self.chain_config.always_reset_payload_statuses,
+                ),
+                self.chain_config.count_unrealized_full,
                 &self.spec,
+                log,
             )
             .map_err(|e| format!("Unable to load fork choice from disk: {:?}", e))?
             .ok_or("Fork choice not found in store")?;
@@ -361,6 +367,7 @@ where
             &genesis.beacon_block,
             &genesis.beacon_state,
             current_slot,
+            self.chain_config.count_unrealized_full,
             &self.spec,
         )
         .map_err(|e| format!("Unable to initialize ForkChoice: {:?}", e))?;
@@ -402,6 +409,12 @@ where
                 weak_subj_state.slot(),
             ));
         }
+
+        // Prime all caches before storing the state in the database and computing the tree hash
+        // root.
+        weak_subj_state
+            .build_all_caches(&self.spec)
+            .map_err(|e| format!("Error building caches on checkpoint state: {e:?}"))?;
 
         let computed_state_root = weak_subj_state
             .update_tree_hash_cache()
@@ -472,6 +485,7 @@ where
             &snapshot.beacon_block,
             &snapshot.beacon_state,
             current_slot,
+            self.chain_config.count_unrealized_full,
             &self.spec,
         )
         .map_err(|e| format!("Unable to initialize ForkChoice: {:?}", e))?;
@@ -647,6 +661,8 @@ where
                 store.clone(),
                 Some(current_slot),
                 &self.spec,
+                self.chain_config.count_unrealized.into(),
+                self.chain_config.count_unrealized_full,
             )?;
         }
 
@@ -780,6 +796,7 @@ where
                 head_for_snapshot_cache,
             )),
             shuffling_cache: TimeoutRwLock::new(ShufflingCache::new()),
+            eth1_finalization_cache: TimeoutRwLock::new(Eth1FinalizationCache::new(log.clone())),
             beacon_proposer_cache: <_>::default(),
             block_times_cache: <_>::default(),
             pre_finalization_block_cache: <_>::default(),
@@ -841,6 +858,20 @@ where
             beacon_chain.store_migrator.process_reconstruction();
         }
 
+        // Prune finalized execution payloads in the background.
+        if beacon_chain.store.get_config().prune_payloads {
+            let store = beacon_chain.store.clone();
+            let log = log.clone();
+            beacon_chain.task_executor.spawn_blocking(
+                move || {
+                    if let Err(e) = store.try_prune_execution_payloads(false) {
+                        error!(log, "Error pruning payloads in background"; "error" => ?e);
+                    }
+                },
+                "prune_payloads_background",
+            );
+        }
+
         Ok(beacon_chain)
     }
 }
@@ -868,7 +899,7 @@ where
             .ok_or("dummy_eth1_backend requires a log")?;
 
         let backend =
-            CachingEth1Backend::new(Eth1Config::default(), log.clone(), self.spec.clone());
+            CachingEth1Backend::new(Eth1Config::default(), log.clone(), self.spec.clone())?;
 
         self.eth1_chain = Some(Eth1Chain::new_dummy(backend));
 

@@ -124,6 +124,8 @@ pub enum Error {
         current_epoch: Epoch,
         epoch: Epoch,
     },
+    IndexNotSupported(usize),
+    MerkleTreeError(merkle_proof::MerkleTreeError),
 }
 
 /// Control whether an epoch-indexed field can be indexed at the next epoch or not.
@@ -1498,6 +1500,26 @@ impl<T: EthSpec> BeaconState<T> {
         }
     }
 
+    /// Returns the cache for some `RelativeEpoch`, replacing the existing cache with an
+    /// un-initialized cache. Returns an error if the existing cache has not been initialized.
+    pub fn take_committee_cache(
+        &mut self,
+        relative_epoch: RelativeEpoch,
+    ) -> Result<CommitteeCache, Error> {
+        let i = Self::committee_cache_index(relative_epoch);
+        let current_epoch = self.current_epoch();
+        let cache = self
+            .committee_caches_mut()
+            .get_mut(i)
+            .ok_or(Error::CommitteeCachesOutOfBounds(i))?;
+
+        if cache.is_initialized_at(relative_epoch.into_epoch(current_epoch)) {
+            Ok(mem::take(cache))
+        } else {
+            Err(Error::CommitteeCacheUninitialized(Some(relative_epoch)))
+        }
+    }
+
     /// Drops the cache, leaving it in an uninitialized state.
     pub fn drop_committee_cache(&mut self, relative_epoch: RelativeEpoch) -> Result<(), Error> {
         *self.committee_cache_at_index_mut(Self::committee_cache_index(relative_epoch))? =
@@ -1649,6 +1671,57 @@ impl<T: EthSpec> BeaconState<T> {
         };
         Ok(sync_committee)
     }
+
+    pub fn compute_merkle_proof(
+        &mut self,
+        generalized_index: usize,
+    ) -> Result<Vec<Hash256>, Error> {
+        // 1. Convert generalized index to field index.
+        let field_index = match generalized_index {
+            light_client_update::CURRENT_SYNC_COMMITTEE_INDEX
+            | light_client_update::NEXT_SYNC_COMMITTEE_INDEX => {
+                // Sync committees are top-level fields, subtract off the generalized indices
+                // for the internal nodes. Result should be 22 or 23, the field offset of the committee
+                // in the `BeaconState`:
+                // https://github.com/ethereum/consensus-specs/blob/dev/specs/altair/beacon-chain.md#beaconstate
+                generalized_index
+                    .checked_sub(tree_hash_cache::NUM_BEACON_STATE_HASH_TREE_ROOT_LEAVES)
+                    .ok_or(Error::IndexNotSupported(generalized_index))?
+            }
+            light_client_update::FINALIZED_ROOT_INDEX => {
+                // Finalized root is the right child of `finalized_checkpoint`, divide by two to get
+                // the generalized index of `state.finalized_checkpoint`.
+                let finalized_checkpoint_generalized_index = generalized_index / 2;
+                // Subtract off the internal nodes. Result should be 105/2 - 32 = 20 which matches
+                // position of `finalized_checkpoint` in `BeaconState`.
+                finalized_checkpoint_generalized_index
+                    .checked_sub(tree_hash_cache::NUM_BEACON_STATE_HASH_TREE_ROOT_LEAVES)
+                    .ok_or(Error::IndexNotSupported(generalized_index))?
+            }
+            _ => return Err(Error::IndexNotSupported(generalized_index)),
+        };
+
+        // 2. Get all `BeaconState` leaves.
+        let cache = self.tree_hash_cache_mut().take();
+        let leaves = if let Some(mut cache) = cache {
+            cache.recalculate_tree_hash_leaves(self)?
+        } else {
+            return Err(Error::TreeHashCacheNotInitialized);
+        };
+
+        // 3. Make deposit tree.
+        // Use the depth of the `BeaconState` fields (i.e. `log2(32) = 5`).
+        let depth = light_client_update::CURRENT_SYNC_COMMITTEE_PROOF_LEN;
+        let tree = merkle_proof::MerkleTree::create(&leaves, depth);
+        let (_, mut proof) = tree.generate_proof(field_index, depth)?;
+
+        // 4. If we're proving the finalized root, patch in the finalized epoch to complete the proof.
+        if generalized_index == light_client_update::FINALIZED_ROOT_INDEX {
+            proof.insert(0, self.finalized_checkpoint().epoch.tree_hash_root());
+        }
+
+        Ok(proof)
+    }
 }
 
 impl From<RelativeEpochError> for Error {
@@ -1678,6 +1751,12 @@ impl From<cached_tree_hash::Error> for Error {
 impl From<tree_hash::Error> for Error {
     fn from(e: tree_hash::Error) -> Error {
         Error::TreeHashError(e)
+    }
+}
+
+impl From<merkle_proof::MerkleTreeError> for Error {
+    fn from(e: merkle_proof::MerkleTreeError) -> Error {
+        Error::MerkleTreeError(e)
     }
 }
 

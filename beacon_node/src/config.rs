@@ -3,6 +3,7 @@ use clap_utils::flags::DISABLE_MALLOC_TUNING_FLAG;
 use client::{ClientConfig, ClientGenesis};
 use directory::{DEFAULT_BEACON_NODE_DIR, DEFAULT_NETWORK_DIR, DEFAULT_ROOT_DIR};
 use environment::RuntimeContext;
+use execution_layer::DEFAULT_JWT_FILE;
 use genesis::Eth1Endpoint;
 use http_api::TlsConfig;
 use lighthouse_network::{multiaddr::Protocol, Enr, Multiaddr, NetworkConfig, PeerIdSerialized};
@@ -116,7 +117,14 @@ pub fn get_config<E: EthSpec>(
     }
 
     if cli_args.is_present("http-disable-legacy-spec") {
-        client_config.http_api.serve_legacy_spec = false;
+        warn!(
+            log,
+            "The flag --http-disable-legacy-spec is deprecated and will be removed"
+        );
+    }
+
+    if let Some(fork_name) = clap_utils::parse_optional(cli_args, "http-spec-fork")? {
+        client_config.http_api.spec_fork_name = Some(fork_name);
     }
 
     if cli_args.is_present("http-enable-tls") {
@@ -171,9 +179,13 @@ pub fn get_config<E: EthSpec>(
      * Explorer metrics
      */
     if let Some(monitoring_endpoint) = cli_args.value_of("monitoring-endpoint") {
+        let update_period_secs =
+            clap_utils::parse_optional(cli_args, "monitoring-endpoint-period")?;
+
         client_config.monitoring_api = Some(monitoring_api::Config {
             db_path: None,
             freezer_db_path: None,
+            update_period_secs,
             monitoring_endpoint: monitoring_endpoint.to_string(),
         });
     }
@@ -219,17 +231,14 @@ pub fn get_config<E: EthSpec>(
         );
         client_config.sync_eth1_chain = true;
 
-        let endpoints = vec![SensitiveUrl::parse(endpoint)
-            .map_err(|e| format!("eth1-endpoint was an invalid URL: {:?}", e))?];
-        client_config.eth1.endpoints = Eth1Endpoint::NoAuth(endpoints);
-    } else if let Some(endpoints) = cli_args.value_of("eth1-endpoints") {
+        let endpoint = SensitiveUrl::parse(endpoint)
+            .map_err(|e| format!("eth1-endpoint was an invalid URL: {:?}", e))?;
+        client_config.eth1.endpoint = Eth1Endpoint::NoAuth(endpoint);
+    } else if let Some(endpoint) = cli_args.value_of("eth1-endpoints") {
         client_config.sync_eth1_chain = true;
-        let endpoints = endpoints
-            .split(',')
-            .map(SensitiveUrl::parse)
-            .collect::<Result<_, _>>()
+        let endpoint = SensitiveUrl::parse(endpoint)
             .map_err(|e| format!("eth1-endpoints contains an invalid URL {:?}", e))?;
-        client_config.eth1.endpoints = Eth1Endpoint::NoAuth(endpoints);
+        client_config.eth1.endpoint = Eth1Endpoint::NoAuth(endpoint);
     }
 
     if let Some(val) = cli_args.value_of("eth1-blocks-per-log-query") {
@@ -280,12 +289,34 @@ pub fn get_config<E: EthSpec>(
         let execution_endpoint =
             parse_only_one_value(endpoints, SensitiveUrl::parse, "--execution-endpoint", log)?;
 
-        // Parse a single JWT secret, logging warnings if multiple are supplied.
-        //
-        // JWTs are required if `--execution-endpoint` is supplied.
-        let secret_files: String = clap_utils::parse_required(cli_args, "execution-jwt")?;
-        let secret_file =
-            parse_only_one_value(&secret_files, PathBuf::from_str, "--execution-jwt", log)?;
+        // JWTs are required if `--execution-endpoint` is supplied. They can be either passed via
+        // file_path or directly as string.
+
+        let secret_file: PathBuf;
+        // Parse a single JWT secret from a given file_path, logging warnings if multiple are supplied.
+        if let Some(secret_files) = cli_args.value_of("execution-jwt") {
+            secret_file =
+                parse_only_one_value(secret_files, PathBuf::from_str, "--execution-jwt", log)?;
+
+        // Check if the JWT secret key is passed directly via cli flag and persist it to the default
+        // file location.
+        } else if let Some(jwt_secret_key) = cli_args.value_of("execution-jwt-secret-key") {
+            use std::fs::File;
+            use std::io::Write;
+            secret_file = client_config.data_dir.join(DEFAULT_JWT_FILE);
+            let mut jwt_secret_key_file = File::create(secret_file.clone())
+                .map_err(|e| format!("Error while creating jwt_secret_key file: {:?}", e))?;
+            jwt_secret_key_file
+                .write_all(jwt_secret_key.as_bytes())
+                .map_err(|e| {
+                    format!(
+                        "Error occured while writing to jwt_secret_key file: {:?}",
+                        e
+                    )
+                })?;
+        } else {
+            return Err("Error! Please set either --execution-jwt file_path or --execution-jwt-secret-key directly via cli when using --execution-endpoint".to_string());
+        }
 
         // Parse and set the payload builder, if any.
         if let Some(endpoint) = cli_args.value_of("builder") {
@@ -302,6 +333,11 @@ pub fn get_config<E: EthSpec>(
         el_config.jwt_id = clap_utils::parse_optional(cli_args, "execution-jwt-id")?;
         el_config.jwt_version = clap_utils::parse_optional(cli_args, "execution-jwt-version")?;
         el_config.default_datadir = client_config.data_dir.clone();
+        el_config.builder_profit_threshold =
+            clap_utils::parse_required(cli_args, "builder-profit-threshold")?;
+        let execution_timeout_multiplier =
+            clap_utils::parse_required(cli_args, "execution-timeout-multiplier")?;
+        el_config.execution_timeout_multiplier = Some(execution_timeout_multiplier);
 
         // If `--execution-endpoint` is provided, we should ignore any `--eth1-endpoints` values and
         // use `--execution-endpoint` instead. Also, log a deprecation warning.
@@ -313,7 +349,7 @@ pub fn get_config<E: EthSpec>(
                     --eth1-endpoints has been deprecated for post-merge configurations"
             );
         }
-        client_config.eth1.endpoints = Eth1Endpoint::Auth {
+        client_config.eth1.endpoint = Eth1Endpoint::Auth {
             endpoint: execution_endpoint,
             jwt_path: secret_file,
             jwt_id: el_config.jwt_id.clone(),
@@ -343,6 +379,10 @@ pub fn get_config<E: EthSpec>(
         client_config.store.compact_on_prune = compact_on_prune
             .parse()
             .map_err(|_| "auto-compact-db takes a boolean".to_string())?;
+    }
+
+    if let Some(prune_payloads) = clap_utils::parse_optional(cli_args, "prune-payloads")? {
+        client_config.store.prune_payloads = prune_payloads;
     }
 
     /*
@@ -584,6 +624,10 @@ pub fn get_config<E: EthSpec>(
 
         slasher_config.broadcast = cli_args.is_present("slasher-broadcast");
 
+        if let Some(backend) = clap_utils::parse_optional(cli_args, "slasher-backend")? {
+            slasher_config.backend = backend;
+        }
+
         client_config.slasher = Some(slasher_config);
     }
 
@@ -624,11 +668,40 @@ pub fn get_config<E: EthSpec>(
         client_config.chain.enable_lock_timeouts = false;
     }
 
+    // Note: This overrides any previous flags that enable this option.
+    if cli_args.is_present("disable-deposit-contract-sync") {
+        client_config.sync_eth1_chain = false;
+    }
+
     if let Some(timeout) =
         clap_utils::parse_optional(cli_args, "fork-choice-before-proposal-timeout")?
     {
         client_config.chain.fork_choice_before_proposal_timeout_ms = timeout;
     }
+
+    client_config.chain.count_unrealized =
+        clap_utils::parse_required(cli_args, "count-unrealized")?;
+    client_config.chain.count_unrealized_full =
+        clap_utils::parse_required::<bool>(cli_args, "count-unrealized-full")?.into();
+
+    client_config.chain.always_reset_payload_statuses =
+        cli_args.is_present("reset-payload-statuses");
+
+    client_config.chain.paranoid_block_proposal = cli_args.is_present("paranoid-block-proposal");
+
+    /*
+     * Builder fallback configs.
+     */
+    client_config.chain.builder_fallback_skips =
+        clap_utils::parse_required(cli_args, "builder-fallback-skips")?;
+    client_config.chain.builder_fallback_skips_per_epoch =
+        clap_utils::parse_required(cli_args, "builder-fallback-skips-per-epoch")?;
+    client_config
+        .chain
+        .builder_fallback_epochs_since_finalization =
+        clap_utils::parse_required(cli_args, "builder-fallback-epochs-since-finalization")?;
+    client_config.chain.builder_fallback_disable_checks =
+        cli_args.is_present("builder-fallback-disable-checks");
 
     Ok(client_config)
 }

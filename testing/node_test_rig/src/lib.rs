@@ -17,6 +17,9 @@ use validator_dir::insecure_keys::build_deterministic_validator_dirs;
 pub use beacon_node::{ClientConfig, ClientGenesis, ProductionClient};
 pub use environment;
 pub use eth2;
+pub use execution_layer::test_utils::{
+    Config as MockServerConfig, MockExecutionConfig, MockServer,
+};
 pub use validator_client::Config as ValidatorConfig;
 
 /// The global timeout for HTTP requests to the beacon node.
@@ -209,5 +212,31 @@ impl<E: EthSpec> LocalValidatorClient<E> {
                     .expect("should start validator services");
                 Self { client, files }
             })
+    }
+}
+
+/// Provides an execution engine api server that is running in the current process on a given tokio executor (it
+/// is _local_ to this process).
+///
+/// Intended for use in testing and simulation. Not for production.
+pub struct LocalExecutionNode<E: EthSpec> {
+    pub server: MockServer<E>,
+    pub datadir: TempDir,
+}
+
+impl<E: EthSpec> LocalExecutionNode<E> {
+    pub fn new(context: RuntimeContext<E>, config: MockExecutionConfig) -> Self {
+        let datadir = TempBuilder::new()
+            .prefix("lighthouse_node_test_rig_el")
+            .tempdir()
+            .expect("should create temp directory for client datadir");
+        let jwt_file_path = datadir.path().join("jwt.hex");
+        if let Err(e) = std::fs::write(&jwt_file_path, config.jwt_key.hex_string()) {
+            panic!("Failed to write jwt file {}", e);
+        }
+        Self {
+            server: MockServer::new_with_config(&context.executor.handle().unwrap(), config),
+            datadir,
+        }
     }
 }

@@ -1,21 +1,18 @@
-use crate::beacon_node_fallback::{AllErrored, Error as FallbackError};
+use crate::beacon_node_fallback::{Error as FallbackError, Errors};
 use crate::{
     beacon_node_fallback::{BeaconNodeFallback, RequireSynced},
     graffiti_file::GraffitiFile,
+    OfflineOnFailure,
 };
 use crate::{http_metrics::metrics, validator_store::ValidatorStore};
 use environment::RuntimeContext;
 use eth2::types::Graffiti;
-use eth2::BeaconNodeHttpClient;
-use slog::{crit, debug, error, info, trace, warn, Logger};
+use slog::{crit, debug, error, info, trace, warn};
 use slot_clock::SlotClock;
 use std::ops::Deref;
 use std::sync::Arc;
 use tokio::sync::mpsc;
-use types::{
-    BeaconBlock, BlindedPayload, BlockType, Epoch, EthSpec, ExecPayload, FullPayload,
-    PublicKeyBytes, SignatureBytes, SignedBeaconBlock, Slot,
-};
+use types::{BlindedPayload, BlockType, EthSpec, ExecPayload, FullPayload, PublicKeyBytes, Slot};
 
 #[derive(Debug)]
 pub enum BlockError {
@@ -23,8 +20,8 @@ pub enum BlockError {
     Irrecoverable(String),
 }
 
-impl From<AllErrored<BlockError>> for BlockError {
-    fn from(e: AllErrored<BlockError>) -> Self {
+impl From<Errors<BlockError>> for BlockError {
+    fn from(e: Errors<BlockError>) -> Self {
         if e.0.iter().any(|(_, error)| {
             matches!(
                 error,
@@ -47,7 +44,6 @@ pub struct BlockServiceBuilder<T, E: EthSpec> {
     context: Option<RuntimeContext<E>>,
     graffiti: Option<Graffiti>,
     graffiti_file: Option<GraffitiFile>,
-    private_tx_proposals: bool,
 }
 
 impl<T: SlotClock + 'static, E: EthSpec> BlockServiceBuilder<T, E> {
@@ -60,7 +56,6 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockServiceBuilder<T, E> {
             context: None,
             graffiti: None,
             graffiti_file: None,
-            private_tx_proposals: false,
         }
     }
 
@@ -99,11 +94,6 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockServiceBuilder<T, E> {
         self
     }
 
-    pub fn private_tx_proposals(mut self, private_tx_proposals: bool) -> Self {
-        self.private_tx_proposals = private_tx_proposals;
-        self
-    }
-
     pub fn build(self) -> Result<BlockService<T, E>, String> {
         Ok(BlockService {
             inner: Arc::new(Inner {
@@ -122,7 +112,6 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockServiceBuilder<T, E> {
                 proposer_nodes: self.proposer_nodes,
                 graffiti: self.graffiti,
                 graffiti_file: self.graffiti_file,
-                private_tx_proposals: self.private_tx_proposals,
             }),
         })
     }
@@ -137,7 +126,6 @@ pub struct Inner<T, E: EthSpec> {
     context: RuntimeContext<E>,
     graffiti: Option<Graffiti>,
     graffiti_file: Option<GraffitiFile>,
-    private_tx_proposals: bool,
 }
 
 /// Attempts to produce attestations for any block producer(s) at the start of the epoch.
@@ -246,32 +234,29 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
             )
         }
 
-        let private_tx_proposals = self.private_tx_proposals;
-        let merge_slot = self
-            .context
-            .eth2_config
-            .spec
-            .bellatrix_fork_epoch
-            .unwrap_or_else(Epoch::max_value)
-            .start_slot(E::slots_per_epoch());
         for validator_pubkey in proposers {
+            let builder_proposals = self
+                .validator_store
+                .get_builder_proposals(&validator_pubkey);
             let service = self.clone();
             let log = log.clone();
             self.inner.context.executor.spawn(
                 async move {
-                    let publish_result = if private_tx_proposals && slot >= merge_slot {
+                    let publish_result = if builder_proposals {
                         let mut result = service.clone()
                             .publish_block::<BlindedPayload<E>>(slot, validator_pubkey)
                             .await;
                         match result.as_ref() {
                             Err(BlockError::Recoverable(e)) => {
-                                error!(log, "Error whilst producing a blinded block, attempting to publish full block"; "error" => ?e);
+                                error!(log, "Error whilst producing a blinded block, attempting to \
+                                    publish full block"; "error" => ?e);
                                 result = service
                                     .publish_block::<FullPayload<E>>(slot, validator_pubkey)
                                     .await;
                             },
                             Err(BlockError::Irrecoverable(e))  => {
-                                error!(log, "Error whilst producing a blinded block, cannot fallback because block was signed"; "error" => ?e);
+                                error!(log, "Error whilst producing a blinded block, cannot fallback \
+                                    because the block was signed"; "error" => ?e);
                             },
                             _ => {},
                         };
@@ -293,101 +278,6 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
             );
         }
 
-        Ok(())
-    }
-
-    /// Attempt to construct a `BeaconBlock` using a single beacon node.
-    async fn get_block_from_node<'a, Payload: ExecPayload<E>>(
-        beacon_node: &'a BeaconNodeHttpClient,
-        slot: Slot,
-        randao_reveal: &SignatureBytes,
-        graffiti: &Option<Graffiti>,
-        proposer_index: Option<u64>,
-    ) -> Result<BeaconBlock<E, Payload>, BlockError> {
-        let _get_timer = metrics::start_timer_vec(
-            &metrics::BLOCK_SERVICE_TIMES,
-            &[metrics::BEACON_BLOCK_HTTP_GET],
-        );
-        let block = match Payload::block_type() {
-            BlockType::Full => {
-                beacon_node
-                    .get_validator_blocks::<E, Payload>(slot, randao_reveal, graffiti.as_ref())
-                    .await
-                    .map_err(|e| {
-                        BlockError::Recoverable(format!(
-                            "Error from beacon node when producing block: {:?}",
-                            e
-                        ))
-                    })?
-                    .data
-            }
-            BlockType::Blinded => {
-                beacon_node
-                    .get_validator_blinded_blocks::<E, Payload>(
-                        slot,
-                        randao_reveal,
-                        graffiti.as_ref(),
-                    )
-                    .await
-                    .map_err(|e| {
-                        BlockError::Recoverable(format!(
-                            "Error from beacon node when producing block: {:?}",
-                            e
-                        ))
-                    })?
-                    .data
-            }
-        };
-
-        if proposer_index != Some(block.proposer_index()) {
-            return Err(BlockError::Recoverable(
-                "Proposer index does not match block proposer. Beacon chain re-orged".to_string(),
-            ));
-        }
-
-        Ok(block)
-    }
-
-    /// Attempt to publish a `SignedBeaconBlock` to a single beacon node.
-    async fn publish_block_to_node<'a, Payload: ExecPayload<E>>(
-        beacon_node: &'a BeaconNodeHttpClient,
-        signed_block: &'a SignedBeaconBlock<E, Payload>,
-        log: &'a Logger,
-    ) -> Result<(), BlockError> {
-        let _post_timer = metrics::start_timer_vec(
-            &metrics::BLOCK_SERVICE_TIMES,
-            &[metrics::BEACON_BLOCK_HTTP_POST],
-        );
-
-        match Payload::block_type() {
-            BlockType::Full => beacon_node
-                .post_beacon_blocks(signed_block)
-                .await
-                .map_err(|e| {
-                    BlockError::Irrecoverable(format!(
-                        "Error from beacon node when publishing block: {:?}",
-                        e
-                    ))
-                })?,
-            BlockType::Blinded => beacon_node
-                .post_beacon_blinded_blocks(signed_block)
-                .await
-                .map_err(|e| {
-                    BlockError::Irrecoverable(format!(
-                        "Error from beacon node when publishing block: {:?}",
-                        e
-                    ))
-                })?,
-        }
-
-        info!(
-            log,
-            "Successfully published block";
-            "deposits" => signed_block.message().body().deposits().len(),
-            "attestations" => signed_block.message().body().attestations().len(),
-            "graffiti" => signed_block.message().body().graffiti().as_utf8_lossy(),
-            "slot" => signed_block.slot().as_u64(),
-        );
         Ok(())
     }
 
@@ -430,39 +320,138 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
             .or_else(|| self.validator_store.graffiti(&validator_pubkey))
             .or(self.graffiti);
 
+        let randao_reveal_ref = &randao_reveal;
+        let self_ref = &self;
         let proposer_index = self.validator_store.validator_index(&validator_pubkey);
 
         // Request block from first responsive default node, if this fails attempt to retrieve a
         // block from a proposer node.
         let block = async {
-            // Attempt default nodes first, as these will be subscribed to attestation
-            // subnets and are more likely to produce profitable blocks.
+            // Request block from first responsive beacon node.
             match self
                 .beacon_nodes
-                .first_success(RequireSynced::No, |client| {
-                    Self::get_block_from_node(
-                        client,
-                        slot,
-                        &randao_reveal,
-                        &graffiti,
-                        proposer_index,
-                    )
-                })
+                .first_success(
+                    RequireSynced::No,
+                    OfflineOnFailure::Yes,
+                    |beacon_node| async move {
+                        let block = match Payload::block_type() {
+                            BlockType::Full => {
+                                let _get_timer = metrics::start_timer_vec(
+                                    &metrics::BLOCK_SERVICE_TIMES,
+                                    &[metrics::BEACON_BLOCK_HTTP_GET],
+                                );
+                                beacon_node
+                                    .get_validator_blocks::<E, Payload>(
+                                        slot,
+                                        randao_reveal_ref,
+                                        graffiti.as_ref(),
+                                    )
+                                    .await
+                                    .map_err(|e| {
+                                        BlockError::Recoverable(format!(
+                                            "Error from beacon node when producing block: {:?}",
+                                            e
+                                        ))
+                                    })?
+                                    .data
+                            }
+                            BlockType::Blinded => {
+                                let _get_timer = metrics::start_timer_vec(
+                                    &metrics::BLOCK_SERVICE_TIMES,
+                                    &[metrics::BLINDED_BEACON_BLOCK_HTTP_GET],
+                                );
+                                beacon_node
+                                    .get_validator_blinded_blocks::<E, Payload>(
+                                        slot,
+                                        randao_reveal_ref,
+                                        graffiti.as_ref(),
+                                    )
+                                    .await
+                                    .map_err(|e| {
+                                        BlockError::Recoverable(format!(
+                                            "Error from beacon node when producing block: {:?}",
+                                            e
+                                        ))
+                                    })?
+                                    .data
+                            }
+                        };
+
+                        if proposer_index != Some(block.proposer_index()) {
+                            return Err(BlockError::Recoverable(
+                            "Proposer index does not match block proposer. Beacon chain re-orged"
+                                .to_string(),
+                        ));
+                        }
+
+                        Ok::<_, BlockError>(block)
+                    },
+                )
                 .await
             {
-                Ok(v) => Ok(v),
+                Ok(v) => Ok(v), // Return the first block
                 Err(e) => {
+                    // There was an error try the proposer nodes.
+                    // TODO: Find a pattern to avoid this code duplication.
                     if let Some(proposer_nodes) = &self.proposer_nodes {
                         proposer_nodes
-                            .first_success(RequireSynced::No, |client| {
-                                Self::get_block_from_node(
-                                    client,
-                                    slot,
-                                    &randao_reveal,
-                                    &graffiti,
-                                    proposer_index,
-                                )
-                            })
+                            .first_success(
+                                RequireSynced::No,
+                                OfflineOnFailure::Yes,
+                                |beacon_node| async move {
+                                    let block = match Payload::block_type() {
+                                        BlockType::Full => {
+                                            let _get_timer = metrics::start_timer_vec(
+                                                &metrics::BLOCK_SERVICE_TIMES,
+                                                &[metrics::BEACON_BLOCK_HTTP_GET],
+                                            );
+                                            beacon_node
+                                                .get_validator_blocks::<E, Payload>(
+                                                    slot,
+                                                    randao_reveal_ref,
+                                                    graffiti.as_ref(),
+                                                )
+                                                .await
+                                                .map_err(|e| {
+                                                    BlockError::Recoverable(format!(
+                                        "Error from beacon node when producing block: {:?}",
+                                        e
+                                    ))
+                                                })?
+                                                .data
+                                        }
+                                        BlockType::Blinded => {
+                                            let _get_timer = metrics::start_timer_vec(
+                                                &metrics::BLOCK_SERVICE_TIMES,
+                                                &[metrics::BLINDED_BEACON_BLOCK_HTTP_GET],
+                                            );
+                                            beacon_node
+                                                .get_validator_blinded_blocks::<E, Payload>(
+                                                    slot,
+                                                    randao_reveal_ref,
+                                                    graffiti.as_ref(),
+                                                )
+                                                .await
+                                                .map_err(|e| {
+                                                    BlockError::Recoverable(format!(
+                                        "Error from beacon node when producing block: {:?}",
+                                        e
+                                    ))
+                                                })?
+                                                .data
+                                        }
+                                    };
+
+                                    if proposer_index != Some(block.proposer_index()) {
+                                        return Err(BlockError::Recoverable(
+                            "Proposer index does not match block proposer. Beacon chain re-orged"
+                                .to_string(),
+                        ));
+                                    }
+
+                                    Ok::<_, BlockError>(block)
+                                },
+                            )
                             .await
                     } else {
                         Err(e)
@@ -472,7 +461,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
         }
         .await?;
 
-        let signed_block = self
+        let signed_block = self_ref
             .validator_store
             .sign_block::<Payload>(validator_pubkey, block, current_slot)
             .await
@@ -481,25 +470,108 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
         // Publish block with first available publishing node, or fallback to a beacon node.
         async {
             if let Some(proposer_nodes) = &self.proposer_nodes {
+                // TODO: Find pattern to avoid code duplication
                 if proposer_nodes
-                    .first_success(RequireSynced::No, |client| {
-                        Self::publish_block_to_node(client, &signed_block, log)
-                    })
+                    .first_success(
+                        RequireSynced::No,
+                        OfflineOnFailure::Yes,
+                        |beacon_node| async {
+                            match Payload::block_type() {
+                                BlockType::Full => {
+                                    let _post_timer = metrics::start_timer_vec(
+                                        &metrics::BLOCK_SERVICE_TIMES,
+                                        &[metrics::BEACON_BLOCK_HTTP_POST],
+                                    );
+                                    beacon_node
+                                        .post_beacon_blocks(&signed_block)
+                                        .await
+                                        .map_err(|e| {
+                                            BlockError::Irrecoverable(format!(
+                                            "Error from beacon node when publishing block: {:?}",
+                                            e
+                                        ))
+                                        })?
+                                }
+                                BlockType::Blinded => {
+                                    let _post_timer = metrics::start_timer_vec(
+                                        &metrics::BLOCK_SERVICE_TIMES,
+                                        &[metrics::BLINDED_BEACON_BLOCK_HTTP_POST],
+                                    );
+                                    beacon_node
+                                        .post_beacon_blinded_blocks(&signed_block)
+                                        .await
+                                        .map_err(|e| {
+                                            BlockError::Irrecoverable(format!(
+                                            "Error from beacon node when publishing block: {:?}",
+                                            e
+                                        ))
+                                        })?
+                                }
+                            }
+                            Ok::<_, BlockError>(())
+                        },
+                    )
                     .await
                     .is_ok()
                 {
                     return Ok(());
                 }
             }
+
             // Fallback to beacon nodes
             self.beacon_nodes
-                .first_success(RequireSynced::No, |client| {
-                    Self::publish_block_to_node(client, &signed_block, log)
-                })
+                .first_success(
+                    RequireSynced::No,
+                    OfflineOnFailure::Yes,
+                    |beacon_node| async {
+                        match Payload::block_type() {
+                            BlockType::Full => {
+                                let _post_timer = metrics::start_timer_vec(
+                                    &metrics::BLOCK_SERVICE_TIMES,
+                                    &[metrics::BEACON_BLOCK_HTTP_POST],
+                                );
+                                beacon_node
+                                    .post_beacon_blocks(&signed_block)
+                                    .await
+                                    .map_err(|e| {
+                                        BlockError::Irrecoverable(format!(
+                                            "Error from beacon node when publishing block: {:?}",
+                                            e
+                                        ))
+                                    })?
+                            }
+                            BlockType::Blinded => {
+                                let _post_timer = metrics::start_timer_vec(
+                                    &metrics::BLOCK_SERVICE_TIMES,
+                                    &[metrics::BLINDED_BEACON_BLOCK_HTTP_POST],
+                                );
+                                beacon_node
+                                    .post_beacon_blinded_blocks(&signed_block)
+                                    .await
+                                    .map_err(|e| {
+                                        BlockError::Irrecoverable(format!(
+                                            "Error from beacon node when publishing block: {:?}",
+                                            e
+                                        ))
+                                    })?
+                            }
+                        }
+                        Ok::<_, BlockError>(())
+                    },
+                )
                 .await
         }
         .await?;
 
+        info!(
+            log,
+            "Successfully published block";
+            "block_type" => ?Payload::block_type(),
+            "deposits" => signed_block.message().body().deposits().len(),
+            "attestations" => signed_block.message().body().attestations().len(),
+            "graffiti" => ?graffiti.map(|g| g.as_utf8_lossy()),
+            "slot" => signed_block.slot().as_u64(),
+        );
         Ok(())
     }
 }

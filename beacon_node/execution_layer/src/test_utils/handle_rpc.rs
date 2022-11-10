@@ -49,15 +49,38 @@ pub async fn handle_rpc<T: EthSpec>(
                         .map_err(|e| format!("unable to parse hash: {:?}", e))
                 })?;
 
-            Ok(serde_json::to_value(
-                ctx.execution_block_generator
-                    .read()
-                    .execution_block_by_hash(hash),
-            )
-            .unwrap())
+            // If we have a static response set, just return that.
+            if let Some(response) = *ctx.static_get_block_by_hash_response.lock() {
+                return Ok(serde_json::to_value(response).unwrap());
+            }
+
+            let full_tx = params
+                .get(1)
+                .and_then(JsonValue::as_bool)
+                .ok_or_else(|| "missing/invalid params[1] value".to_string())?;
+            if full_tx {
+                Ok(serde_json::to_value(
+                    ctx.execution_block_generator
+                        .read()
+                        .execution_block_with_txs_by_hash(hash),
+                )
+                .unwrap())
+            } else {
+                Ok(serde_json::to_value(
+                    ctx.execution_block_generator
+                        .read()
+                        .execution_block_by_hash(hash),
+                )
+                .unwrap())
+            }
         }
         ENGINE_NEW_PAYLOAD_V1 => {
             let request: JsonExecutionPayloadV1<T> = get_param(params, 0)?;
+
+            // Canned responses set by block hash take priority.
+            if let Some(status) = ctx.get_new_payload_status(&request.block_hash) {
+                return Ok(serde_json::to_value(JsonPayloadStatusV1::from(status)).unwrap());
+            }
 
             let (static_response, should_import) =
                 if let Some(mut response) = ctx.static_new_payload_response.lock().clone() {
@@ -102,6 +125,15 @@ pub async fn handle_rpc<T: EthSpec>(
 
             let head_block_hash = forkchoice_state.head_block_hash;
 
+            // Canned responses set by block hash take priority.
+            if let Some(status) = ctx.get_fcu_payload_status(&head_block_hash) {
+                let response = JsonForkchoiceUpdatedV1Response {
+                    payload_status: JsonPayloadStatusV1::from(status),
+                    payload_id: None,
+                };
+                return Ok(serde_json::to_value(response).unwrap());
+            }
+
             let mut response = ctx
                 .execution_block_generator
                 .write()
@@ -119,6 +151,15 @@ pub async fn handle_rpc<T: EthSpec>(
             }
 
             Ok(serde_json::to_value(response).unwrap())
+        }
+        ENGINE_EXCHANGE_TRANSITION_CONFIGURATION_V1 => {
+            let block_generator = ctx.execution_block_generator.read();
+            let transition_config: TransitionConfigurationV1 = TransitionConfigurationV1 {
+                terminal_total_difficulty: block_generator.terminal_total_difficulty,
+                terminal_block_hash: block_generator.terminal_block_hash,
+                terminal_block_number: block_generator.terminal_block_number,
+            };
+            Ok(serde_json::to_value(transition_config).unwrap())
         }
         other => Err(format!(
             "The method {} does not exist/is not available",

@@ -161,6 +161,9 @@ pub struct ChainSpec {
     pub attestation_subnet_count: u64,
     pub random_subnets_per_validator: u64,
     pub epochs_per_random_subnet_subscription: u64,
+    pub subnets_per_node: u8,
+    pub epochs_per_subnet_subscription: u64,
+    attestation_subnet_extra_bits: u8,
 
     /*
      * Application params
@@ -427,6 +430,22 @@ impl ChainSpec {
         Hash256::from(domain)
     }
 
+    #[allow(clippy::integer_arithmetic)]
+    pub const fn attestation_subnet_prefix_bits(&self) -> u32 {
+        // maybe use log2 when stable https://github.com/rust-lang/rust/issues/70887
+
+        // NOTE: this line is here simply to guarantee that if self.attestation_subnet_count type
+        // is changed, a compiler warning will be raised. This code depends on the type being u64.
+        let attestation_subnet_count: u64 = self.attestation_subnet_count;
+        let attestation_subnet_count_bits = if attestation_subnet_count == 0 {
+            0
+        } else {
+            63 - attestation_subnet_count.leading_zeros()
+        };
+
+        self.attestation_subnet_extra_bits as u32 + attestation_subnet_count_bits
+    }
+
     /// Returns a `ChainSpec` compatible with the Ethereum Foundation specification.
     pub fn mainnet() -> Self {
         Self {
@@ -561,14 +580,9 @@ impl ChainSpec {
                 .expect("pow does not overflow"),
             proportional_slashing_multiplier_bellatrix: 3,
             bellatrix_fork_version: [0x02, 0x00, 0x00, 0x00],
-            bellatrix_fork_epoch: None,
-            terminal_total_difficulty: Uint256::MAX
-                .checked_sub(Uint256::from(2u64.pow(10)))
-                .expect("subtraction does not overflow")
-                // Add 1 since the spec declares `2**256 - 2**10` and we use
-                // `Uint256::MAX` which is `2*256- 1`.
-                .checked_add(Uint256::one())
-                .expect("addition does not overflow"),
+            bellatrix_fork_epoch: Some(Epoch::new(144896)),
+            terminal_total_difficulty: Uint256::from_dec_str("58750000000000000000000")
+                .expect("terminal_total_difficulty is a valid integer"),
             terminal_block_hash: ExecutionBlockHash::zero(),
             terminal_block_hash_activation_epoch: Epoch::new(u64::MAX),
             safe_slots_to_import_optimistically: 128u64,
@@ -581,9 +595,12 @@ impl ChainSpec {
             attestation_propagation_slot_range: 32,
             attestation_subnet_count: 64,
             random_subnets_per_validator: 1,
+            subnets_per_node: 1,
             maximum_gossip_clock_disparity_millis: 500,
             target_aggregators_per_committee: 16,
             epochs_per_random_subnet_subscription: 256,
+            epochs_per_subnet_subscription: 256,
+            attestation_subnet_extra_bits: 6,
 
             /*
              * Application specific
@@ -621,6 +638,13 @@ impl ChainSpec {
             // Merge
             bellatrix_fork_version: [0x02, 0x00, 0x00, 0x01],
             bellatrix_fork_epoch: None,
+            terminal_total_difficulty: Uint256::MAX
+                .checked_sub(Uint256::from(2u64.pow(10)))
+                .expect("subtraction does not overflow")
+                // Add 1 since the spec declares `2**256 - 2**10` and we use
+                // `Uint256::MAX` which is `2*256- 1`.
+                .checked_add(Uint256::one())
+                .expect("addition does not overflow"),
             // Other
             network_id: 2, // lighthouse testnet network id
             deposit_chain_id: 5,
@@ -784,9 +808,12 @@ impl ChainSpec {
             attestation_propagation_slot_range: 32,
             attestation_subnet_count: 64,
             random_subnets_per_validator: 1,
+            subnets_per_node: 1,
             maximum_gossip_clock_disparity_millis: 500,
             target_aggregators_per_committee: 16,
             epochs_per_random_subnet_subscription: 256,
+            epochs_per_subnet_subscription: 256,
+            attestation_subnet_extra_bits: 6,
 
             /*
              * Application specific
@@ -803,6 +830,10 @@ impl Default for ChainSpec {
 }
 
 /// Exact implementation of the *config* object from the Ethereum spec (YAML/JSON).
+///
+/// Fields relevant to hard forks after Altair should be optional so that we can continue
+/// to parse Altair configs. This default approach turns out to be much simpler than trying to
+/// make `Config` a superstruct because of the hassle of deserializing an untagged enum.
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 #[serde(rename_all = "UPPERCASE")]
 pub struct Config {
@@ -813,17 +844,13 @@ pub struct Config {
     #[serde(default)]
     pub preset_base: String,
 
-    // TODO(merge): remove this default
     #[serde(default = "default_terminal_total_difficulty")]
     #[serde(with = "eth2_serde_utils::quoted_u256")]
     pub terminal_total_difficulty: Uint256,
-    // TODO(merge): remove this default
     #[serde(default = "default_terminal_block_hash")]
     pub terminal_block_hash: ExecutionBlockHash,
-    // TODO(merge): remove this default
     #[serde(default = "default_terminal_block_hash_activation_epoch")]
     pub terminal_block_hash_activation_epoch: Epoch,
-    // TODO(merge): remove this default
     #[serde(default = "default_safe_slots_to_import_optimistically")]
     #[serde(with = "eth2_serde_utils::quoted_u64")]
     pub safe_slots_to_import_optimistically: u64,
@@ -843,12 +870,10 @@ pub struct Config {
     #[serde(deserialize_with = "deserialize_fork_epoch")]
     pub altair_fork_epoch: Option<MaybeQuoted<Epoch>>,
 
-    // TODO(merge): remove this default
     #[serde(default = "default_bellatrix_fork_version")]
     #[serde(with = "eth2_serde_utils::bytes_4_hex")]
     bellatrix_fork_version: [u8; 4],
-    // TODO(merge): remove this default
-    #[serde(default = "default_bellatrix_fork_epoch")]
+    #[serde(default)]
     #[serde(serialize_with = "serialize_fork_epoch")]
     #[serde(deserialize_with = "deserialize_fork_epoch")]
     pub bellatrix_fork_epoch: Option<MaybeQuoted<Epoch>>,
@@ -888,10 +913,6 @@ pub struct Config {
 fn default_bellatrix_fork_version() -> [u8; 4] {
     // This value shouldn't be used.
     [0xff, 0xff, 0xff, 0xff]
-}
-
-fn default_bellatrix_fork_epoch() -> Option<MaybeQuoted<Epoch>> {
-    None
 }
 
 /// Placeholder value: 2^256-2^10 (115792089237316195423570985008687907853269984665640564039457584007913129638912).
@@ -1335,10 +1356,7 @@ mod yaml_tests {
             default_safe_slots_to_import_optimistically()
         );
 
-        assert_eq!(
-            chain_spec.bellatrix_fork_epoch,
-            default_bellatrix_fork_epoch()
-        );
+        assert_eq!(chain_spec.bellatrix_fork_epoch, None);
 
         assert_eq!(
             chain_spec.bellatrix_fork_version,
@@ -1353,6 +1371,14 @@ mod yaml_tests {
             Uint256::from_dec_str(
                 "115792089237316195423570985008687907853269984665640564039457584007913129638912"
             )
+        );
+    }
+
+    #[test]
+    fn test_domain_builder() {
+        assert_eq!(
+            int_to_bytes4(ApplicationDomain::Builder.get_domain_constant()),
+            [0, 0, 0, 1]
         );
     }
 }

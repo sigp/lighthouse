@@ -12,7 +12,7 @@ use slog::{debug, error, o, trace, warn};
 
 use super::SubnetServiceMessage;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
-use hashset_delay::HashSetDelay;
+use delay_map::HashSetDelay;
 use lighthouse_network::{NetworkConfig, Subnet, SubnetDiscovery};
 use slot_clock::SlotClock;
 use types::{Epoch, EthSpec, SyncCommitteeSubscription, SyncSubnetId};

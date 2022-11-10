@@ -388,3 +388,73 @@ fn no_doppelganger_protection_flag() {
         .run()
         .with_config(|config| assert!(!config.enable_doppelganger_protection));
 }
+#[test]
+fn no_gas_limit_flag() {
+    CommandLineTest::new()
+        .run()
+        .with_config(|config| assert!(config.gas_limit.is_none()));
+}
+#[test]
+fn gas_limit_flag() {
+    CommandLineTest::new()
+        .flag("gas-limit", Some("600"))
+        .flag("builder-proposals", None)
+        .run()
+        .with_config(|config| assert_eq!(config.gas_limit, Some(600)));
+}
+#[test]
+fn no_builder_proposals_flag() {
+    CommandLineTest::new()
+        .run()
+        .with_config(|config| assert!(!config.builder_proposals));
+}
+#[test]
+fn builder_proposals_flag() {
+    CommandLineTest::new()
+        .flag("builder-proposals", None)
+        .run()
+        .with_config(|config| assert!(config.builder_proposals));
+}
+#[test]
+fn no_builder_registration_timestamp_override_flag() {
+    CommandLineTest::new()
+        .run()
+        .with_config(|config| assert!(config.builder_registration_timestamp_override.is_none()));
+}
+#[test]
+fn builder_registration_timestamp_override_flag() {
+    CommandLineTest::new()
+        .flag("builder-registration-timestamp-override", Some("100"))
+        .run()
+        .with_config(|config| {
+            assert_eq!(config.builder_registration_timestamp_override, Some(100))
+        });
+}
+#[test]
+fn monitoring_endpoint() {
+    CommandLineTest::new()
+        .flag("monitoring-endpoint", Some("http://example:8000"))
+        .flag("monitoring-endpoint-period", Some("30"))
+        .run()
+        .with_config(|config| {
+            let api_conf = config.monitoring_api.as_ref().unwrap();
+            assert_eq!(api_conf.monitoring_endpoint.as_str(), "http://example:8000");
+            assert_eq!(api_conf.update_period_secs, Some(30));
+        });
+}
+#[test]
+fn disable_run_on_all_default() {
+    CommandLineTest::new().run().with_config(|config| {
+        assert!(!config.disable_run_on_all);
+    });
+}
+
+#[test]
+fn disable_run_on_all() {
+    CommandLineTest::new()
+        .flag("disable-run-on-all", None)
+        .run()
+        .with_config(|config| {
+            assert!(config.disable_run_on_all);
+        });
+}

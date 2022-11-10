@@ -4,6 +4,7 @@ use http::deposit_methods::RpcError;
 pub use json_structures::TransitionConfigurationV1;
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
+use strum::IntoStaticStr;
 pub use types::{
     Address, EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadHeader, FixedVector,
     Hash256, Uint256, VariableList,
@@ -71,14 +72,14 @@ impl From<builder_client::Error> for Error {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, IntoStaticStr)]
+#[strum(serialize_all = "snake_case")]
 pub enum PayloadStatusV1Status {
     Valid,
     Invalid,
     Syncing,
     Accepted,
     InvalidBlockHash,
-    InvalidTerminalBlock,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -106,6 +107,8 @@ pub struct ExecutionBlock {
     pub block_number: u64,
     pub parent_hash: ExecutionBlockHash,
     pub total_difficulty: Uint256,
+    #[serde(with = "eth2_serde_utils::u64_hex_be")]
+    pub timestamp: u64,
 }
 
 /// Representation of an exection block with enough detail to reconstruct a payload.

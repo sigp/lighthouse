@@ -13,7 +13,7 @@ const GETH_REPO_URL: &str = "https://github.com/ethereum/go-ethereum";
 pub fn build_result(repo_dir: &Path) -> Output {
     Command::new("make")
         .arg("geth")
-        .current_dir(&repo_dir)
+        .current_dir(repo_dir)
         .output()
         .expect("failed to make geth")
 }
@@ -90,15 +90,21 @@ impl GenericExecutionEngine for GethEngine {
             .arg(datadir.path().to_str().unwrap())
             .arg("--http")
             .arg("--http.api")
-            .arg("engine,eth")
+            .arg("engine,eth,personal")
             .arg("--http.port")
             .arg(http_port.to_string())
             .arg("--authrpc.port")
             .arg(http_auth_port.to_string())
             .arg("--port")
             .arg(network_port.to_string())
+            .arg("--allow-insecure-unlock")
             .arg("--authrpc.jwtsecret")
             .arg(jwt_secret_path.as_path().to_str().unwrap())
+            // This flag is required to help Geth perform reliably when feeding it blocks
+            // one-by-one. For more information, see:
+            //
+            // https://github.com/sigp/lighthouse/pull/3382#issuecomment-1197680345
+            .arg("--syncmode=full")
             .stdout(build_utils::build_stdio())
             .stderr(build_utils::build_stdio())
             .spawn()

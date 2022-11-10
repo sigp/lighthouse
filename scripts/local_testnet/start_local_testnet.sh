@@ -5,14 +5,19 @@ set -Eeuo pipefail
 
 source ./vars.env
 
+# Set a higher ulimit in case we want to import 1000s of validators.
+ulimit -n 65536
+
 # VC_COUNT is defaulted in vars.env
 DEBUG_LEVEL=${DEBUG_LEVEL:-info}
+BUILDER_PROPOSALS=
 
 # Get options
-while getopts "v:d:h" flag; do
+while getopts "v:d:ph" flag; do
   case "${flag}" in
     v) VC_COUNT=${OPTARG};;
     d) DEBUG_LEVEL=${OPTARG};;
+    p) BUILDER_PROPOSALS="-p";;
     h)
         validators=$(( $VALIDATOR_COUNT / $BN_COUNT ))
         echo "Start local testnet, defaults: 1 eth1 node, $BN_COUNT beacon nodes,"
@@ -23,6 +28,7 @@ while getopts "v:d:h" flag; do
         echo "Options:"
         echo "   -v: VC_COUNT    default: $VC_COUNT"
         echo "   -d: DEBUG_LEVEL default: info"
+        echo "   -p:             enable private tx proposals"
         echo "   -h:             this help"
         exit
         ;;
@@ -113,7 +119,7 @@ done
 
 # Start requested number of validator clients
 for (( vc=1; vc<=$VC_COUNT; vc++ )); do
-    execute_command_add_PID validator_node_$vc.log ./validator_client.sh $DATADIR/node_$vc http://localhost:$((BN_http_port_base + $vc)) $DEBUG_LEVEL
+    execute_command_add_PID validator_node_$vc.log ./validator_client.sh $BUILDER_PROPOSALS -d $DEBUG_LEVEL $DATADIR/node_$vc http://localhost:$((BN_http_port_base + $vc))
 done
 
 echo "Started!"

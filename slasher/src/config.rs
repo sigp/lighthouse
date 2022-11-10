@@ -1,6 +1,7 @@
 use crate::Error;
 use serde_derive::{Deserialize, Serialize};
 use std::path::PathBuf;
+use strum::{Display, EnumString, EnumVariantNames};
 use types::{Epoch, EthSpec, IndexedAttestation};
 
 pub const DEFAULT_CHUNK_SIZE: usize = 16;
@@ -12,8 +13,15 @@ pub const DEFAULT_MAX_DB_SIZE: usize = 256 * 1024; // 256 GiB
 pub const DEFAULT_ATTESTATION_ROOT_CACHE_SIZE: usize = 100_000;
 pub const DEFAULT_BROADCAST: bool = false;
 
+#[cfg(feature = "mdbx")]
+pub const DEFAULT_BACKEND: DatabaseBackend = DatabaseBackend::Mdbx;
+#[cfg(all(feature = "lmdb", not(feature = "mdbx")))]
+pub const DEFAULT_BACKEND: DatabaseBackend = DatabaseBackend::Lmdb;
+#[cfg(not(any(feature = "mdbx", feature = "lmdb")))]
+pub const DEFAULT_BACKEND: DatabaseBackend = DatabaseBackend::Disabled;
+
 pub const MAX_HISTORY_LENGTH: usize = 1 << 16;
-pub const MDBX_GROWTH_STEP: isize = 256 * (1 << 20); // 256 MiB
+pub const MEGABYTE: usize = 1 << 20;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
@@ -32,6 +40,8 @@ pub struct Config {
     pub attestation_root_cache_size: usize,
     /// Whether to broadcast slashings found to the network.
     pub broadcast: bool,
+    /// Database backend to use.
+    pub backend: DatabaseBackend,
 }
 
 /// Immutable configuration parameters which are stored on disk and checked for consistency.
@@ -40,6 +50,18 @@ pub struct DiskConfig {
     pub chunk_size: usize,
     pub validator_chunk_size: usize,
     pub history_length: usize,
+}
+
+#[derive(
+    Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Display, EnumString, EnumVariantNames,
+)]
+#[strum(serialize_all = "lowercase")]
+pub enum DatabaseBackend {
+    #[cfg(feature = "mdbx")]
+    Mdbx,
+    #[cfg(feature = "lmdb")]
+    Lmdb,
+    Disabled,
 }
 
 impl Config {
@@ -54,6 +76,7 @@ impl Config {
             max_db_size_mbs: DEFAULT_MAX_DB_SIZE,
             attestation_root_cache_size: DEFAULT_ATTESTATION_ROOT_CACHE_SIZE,
             broadcast: DEFAULT_BROADCAST,
+            backend: DEFAULT_BACKEND,
         }
     }
 

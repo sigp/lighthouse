@@ -4,7 +4,7 @@ use lru::LruCache;
 use slog::{debug, warn, Logger};
 use state_processing::BlockReplayer;
 use std::sync::Arc;
-use types::BeaconBlock;
+use types::BlindedBeaconBlock;
 use warp_utils::reject::{
     beacon_chain_error, beacon_state_error, custom_bad_request, custom_server_error,
 };
@@ -52,6 +52,7 @@ pub fn get_block_rewards<T: BeaconChainTypes>(
         .build_all_caches(&chain.spec)
         .map_err(beacon_state_error)?;
 
+    let mut reward_cache = Default::default();
     let mut block_rewards = Vec::with_capacity(blocks.len());
 
     let block_replayer = BlockReplayer::new(state, &chain.spec)
@@ -63,6 +64,7 @@ pub fn get_block_rewards<T: BeaconChainTypes>(
                 block.message(),
                 block.canonical_root(),
                 state,
+                &mut reward_cache,
                 query.include_attestations,
             )?;
             block_rewards.push(block_reward);
@@ -94,12 +96,13 @@ pub fn get_block_rewards<T: BeaconChainTypes>(
 
 /// Compute block rewards for blocks passed in as input.
 pub fn compute_block_rewards<T: BeaconChainTypes>(
-    blocks: Vec<BeaconBlock<T::EthSpec>>,
+    blocks: Vec<BlindedBeaconBlock<T::EthSpec>>,
     chain: Arc<BeaconChain<T>>,
     log: Logger,
 ) -> Result<Vec<BlockReward>, warp::Rejection> {
     let mut block_rewards = Vec::with_capacity(blocks.len());
     let mut state_cache = LruCache::new(STATE_CACHE_SIZE);
+    let mut reward_cache = Default::default();
 
     for block in blocks {
         let parent_root = block.parent_root();
@@ -170,7 +173,13 @@ pub fn compute_block_rewards<T: BeaconChainTypes>(
 
         // Compute block reward.
         let block_reward = chain
-            .compute_block_reward(block.to_ref(), block.canonical_root(), state, true)
+            .compute_block_reward(
+                block.to_ref(),
+                block.canonical_root(),
+                state,
+                &mut reward_cache,
+                true,
+            )
             .map_err(beacon_chain_error)?;
         block_rewards.push(block_reward);
     }

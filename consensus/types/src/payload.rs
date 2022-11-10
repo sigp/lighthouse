@@ -7,8 +7,9 @@ use std::convert::TryFrom;
 use std::fmt::Debug;
 use std::hash::Hash;
 use test_random_derive::TestRandom;
-use tree_hash::TreeHash;
+use tree_hash::{PackedEncoding, TreeHash};
 
+#[derive(Debug)]
 pub enum BlockType {
     Blinded,
     Full,
@@ -18,6 +19,7 @@ pub trait ExecPayload<T: EthSpec>:
     Debug
     + Clone
     + Encode
+    + Debug
     + Decode
     + TestRandom
     + TreeHash
@@ -44,6 +46,8 @@ pub trait ExecPayload<T: EthSpec>:
     fn block_number(&self) -> u64;
     fn timestamp(&self) -> u64;
     fn block_hash(&self) -> ExecutionBlockHash;
+    fn fee_recipient(&self) -> Address;
+    fn gas_limit(&self) -> u64;
 }
 
 impl<T: EthSpec> ExecPayload<T> for FullPayload<T> {
@@ -74,6 +78,14 @@ impl<T: EthSpec> ExecPayload<T> for FullPayload<T> {
     fn block_hash(&self) -> ExecutionBlockHash {
         self.execution_payload.block_hash
     }
+
+    fn fee_recipient(&self) -> Address {
+        self.execution_payload.fee_recipient
+    }
+
+    fn gas_limit(&self) -> u64 {
+        self.execution_payload.gas_limit
+    }
 }
 
 impl<T: EthSpec> ExecPayload<T> for BlindedPayload<T> {
@@ -103,6 +115,14 @@ impl<T: EthSpec> ExecPayload<T> for BlindedPayload<T> {
 
     fn block_hash(&self) -> ExecutionBlockHash {
         self.execution_payload_header.block_hash
+    }
+
+    fn fee_recipient(&self) -> Address {
+        self.execution_payload_header.fee_recipient
+    }
+
+    fn gas_limit(&self) -> u64 {
+        self.execution_payload_header.gas_limit
     }
 }
 
@@ -155,7 +175,7 @@ impl<T: EthSpec> TreeHash for BlindedPayload<T> {
         <ExecutionPayloadHeader<T>>::tree_hash_type()
     }
 
-    fn tree_hash_packed_encoding(&self) -> Vec<u8> {
+    fn tree_hash_packed_encoding(&self) -> PackedEncoding {
         self.execution_payload_header.tree_hash_packed_encoding()
     }
 
@@ -224,7 +244,7 @@ impl<T: EthSpec> TreeHash for FullPayload<T> {
         <ExecutionPayload<T>>::tree_hash_type()
     }
 
-    fn tree_hash_packed_encoding(&self) -> Vec<u8> {
+    fn tree_hash_packed_encoding(&self) -> tree_hash::PackedEncoding {
         self.execution_payload.tree_hash_packed_encoding()
     }
 

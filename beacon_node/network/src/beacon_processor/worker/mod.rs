@@ -10,7 +10,7 @@ mod rpc_methods;
 mod sync_methods;
 
 pub use gossip_methods::{GossipAggregatePackage, GossipAttestationPackage};
-pub use sync_methods::{ChainSegmentProcessId, FailureMode};
+pub use sync_methods::ChainSegmentProcessId;
 
 pub(crate) const FUTURE_SLOT_TOLERANCE: u64 = 1;
 

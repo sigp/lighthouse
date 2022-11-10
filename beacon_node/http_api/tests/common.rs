@@ -11,14 +11,14 @@ use lighthouse_network::{
     types::{EnrAttestationBitfield, EnrSyncCommitteeBitfield, SyncState},
     ConnectedPoint, Enr, NetworkGlobals, PeerId, PeerManager,
 };
-use network::NetworkMessage;
+use network::{NetworkReceivers, NetworkSenders};
 use sensitive_url::SensitiveUrl;
 use slog::Logger;
 use std::future::Future;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::oneshot;
 use types::{ChainSpec, EthSpec};
 
 pub const TCP_PORT: u16 = 42;
@@ -30,7 +30,7 @@ pub const EXTERNAL_ADDR: &str = "/ip4/0.0.0.0/tcp/9000";
 pub struct InteractiveTester<E: EthSpec> {
     pub harness: BeaconChainHarness<EphemeralHarnessType<E>>,
     pub client: BeaconNodeHttpClient,
-    pub network_rx: mpsc::UnboundedReceiver<NetworkMessage<E>>,
+    pub network_rx: NetworkReceivers<E>,
     _server_shutdown: oneshot::Sender<()>,
 }
 
@@ -41,7 +41,7 @@ pub struct ApiServer<E: EthSpec, SFut: Future<Output = ()>> {
     pub server: SFut,
     pub listening_socket: SocketAddr,
     pub shutdown_tx: oneshot::Sender<()>,
-    pub network_rx: tokio::sync::mpsc::UnboundedReceiver<NetworkMessage<E>>,
+    pub network_rx: NetworkReceivers<E>,
     pub local_enr: Enr,
     pub external_peer_id: PeerId,
 }
@@ -87,7 +87,17 @@ pub async fn create_api_server<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
     log: Logger,
 ) -> ApiServer<T::EthSpec, impl Future<Output = ()>> {
-    let (network_tx, network_rx) = mpsc::unbounded_channel();
+    // Get a random unused port.
+    let port = unused_port::unused_tcp_port().unwrap();
+    create_api_server_on_port(chain, log, port).await
+}
+
+pub async fn create_api_server_on_port<T: BeaconChainTypes>(
+    chain: Arc<BeaconChain<T>>,
+    log: Logger,
+    port: u16,
+) -> ApiServer<T::EthSpec, impl Future<Output = ()>> {
+    let (network_senders, network_receivers) = NetworkSenders::new();
 
     // Default metadata
     let meta_data = MetaData::V2(MetaDataV2 {
@@ -108,9 +118,7 @@ pub async fn create_api_server<T: BeaconChainTypes>(
 
     // Only a peer manager can add peers, so we create a dummy manager.
     let config = lighthouse_network::peer_manager::config::Config::default();
-    let mut pm = PeerManager::new(config, network_globals.clone(), &log)
-        .await
-        .unwrap();
+    let mut pm = PeerManager::new(config, network_globals.clone(), &log).unwrap();
 
     // add a peer
     let peer_id = PeerId::random();
@@ -123,20 +131,21 @@ pub async fn create_api_server<T: BeaconChainTypes>(
     pm.inject_connection_established(&peer_id, &con_id, &connected_point, None, 0);
     *network_globals.sync_state.write() = SyncState::Synced;
 
-    let eth1_service = eth1::Service::new(eth1::Config::default(), log.clone(), chain.spec.clone());
+    let eth1_service =
+        eth1::Service::new(eth1::Config::default(), log.clone(), chain.spec.clone()).unwrap();
 
     let context = Arc::new(Context {
         config: Config {
             enabled: true,
             listen_addr: IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
-            listen_port: 0,
+            listen_port: port,
             allow_origin: None,
-            serve_legacy_spec: true,
             tls_config: None,
             allow_sync_stalled: false,
+            spec_fork_name: None,
         },
         chain: Some(chain.clone()),
-        network_tx: Some(network_tx),
+        network_senders: Some(network_senders),
         network_globals: Some(network_globals),
         eth1_service: Some(eth1_service),
         log,
@@ -153,7 +162,7 @@ pub async fn create_api_server<T: BeaconChainTypes>(
         server,
         listening_socket,
         shutdown_tx,
-        network_rx,
+        network_rx: network_receivers,
         local_enr: enr,
         external_peer_id: peer_id,
     }

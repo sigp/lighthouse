@@ -11,10 +11,15 @@ use crate::{
     StateSkipConfig,
 };
 use bls::get_withdrawal_credentials;
+use execution_layer::test_utils::DEFAULT_JWT_SECRET;
 use execution_layer::{
-    test_utils::{ExecutionBlockGenerator, MockExecutionLayer, DEFAULT_TERMINAL_BLOCK},
+    auth::JwtKey,
+    test_utils::{
+        ExecutionBlockGenerator, MockExecutionLayer, TestingBuilder, DEFAULT_TERMINAL_BLOCK,
+    },
     ExecutionLayer,
 };
+use fork_choice::CountUnrealized;
 use futures::channel::mpsc::Receiver;
 pub use genesis::{interop_genesis_state, DEFAULT_ETH1_BLOCK_HASH};
 use int_to_bytes::int_to_bytes32;
@@ -28,12 +33,14 @@ use rayon::prelude::*;
 use sensitive_url::SensitiveUrl;
 use slog::Logger;
 use slot_clock::TestingSlotClock;
+use state_processing::per_block_processing::compute_timestamp_at_slot;
 use state_processing::{
     state_advance::{complete_state_advance, partial_state_advance},
     StateRootStrategy,
 };
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
+use std::fmt;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
@@ -125,8 +132,7 @@ pub fn test_spec<E: EthSpec>() -> ChainSpec {
                 FORK_NAME_ENV_VAR, e
             )
         });
-        let fork = ForkName::from_str(fork_name.as_str())
-            .unwrap_or_else(|()| panic!("unknown FORK_NAME: {}", fork_name));
+        let fork = ForkName::from_str(fork_name.as_str()).unwrap();
         fork.make_genesis_spec(E::default_spec())
     } else {
         E::default_spec()
@@ -149,6 +155,8 @@ pub struct Builder<T: BeaconChainTypes> {
     store_mutator: Option<BoxedMutator<T::EthSpec, T::HotStore, T::ColdStore>>,
     execution_layer: Option<ExecutionLayer<T::EthSpec>>,
     mock_execution_layer: Option<MockExecutionLayer<T::EthSpec>>,
+    mock_builder: Option<TestingBuilder<T::EthSpec>>,
+    testing_slot_clock: Option<TestingSlotClock>,
     runtime: TestRuntime,
     log: Logger,
 }
@@ -202,6 +210,20 @@ impl<E: EthSpec> Builder<EphemeralHarnessType<E>> {
             builder
                 .genesis_state(genesis_state)
                 .expect("should build state using recent genesis")
+        };
+        self.store = Some(store);
+        self.store_mutator(Box::new(mutator))
+    }
+
+    /// Manually restore from a given `MemoryStore`.
+    pub fn resumed_ephemeral_store(
+        mut self,
+        store: Arc<HotColdDB<E, MemoryStore<E>, MemoryStore<E>>>,
+    ) -> Self {
+        let mutator = move |builder: BeaconChainBuilder<_>| {
+            builder
+                .resume_from_db()
+                .expect("should resume from database")
         };
         self.store = Some(store);
         self.store_mutator(Box::new(mutator))
@@ -266,6 +288,8 @@ where
             store_mutator: None,
             execution_layer: None,
             mock_execution_layer: None,
+            mock_builder: None,
+            testing_slot_clock: None,
             runtime,
             log,
         }
@@ -332,7 +356,7 @@ where
 
         let urls: Vec<SensitiveUrl> = urls
             .iter()
-            .map(|s| SensitiveUrl::parse(*s))
+            .map(|s| SensitiveUrl::parse(s))
             .collect::<Result<_, _>>()
             .unwrap();
 
@@ -361,10 +385,43 @@ where
             DEFAULT_TERMINAL_BLOCK,
             spec.terminal_block_hash,
             spec.terminal_block_hash_activation_epoch,
+            Some(JwtKey::from_slice(&DEFAULT_JWT_SECRET).unwrap()),
             None,
         );
         self.execution_layer = Some(mock.el.clone());
         self.mock_execution_layer = Some(mock);
+        self
+    }
+
+    pub fn mock_execution_layer_with_builder(mut self, beacon_url: SensitiveUrl) -> Self {
+        // Get a random unused port
+        let port = unused_port::unused_tcp_port().unwrap();
+        let builder_url = SensitiveUrl::parse(format!("http://127.0.0.1:{port}").as_str()).unwrap();
+
+        let spec = self.spec.clone().expect("cannot build without spec");
+        let mock_el = MockExecutionLayer::new(
+            self.runtime.task_executor.clone(),
+            spec.terminal_total_difficulty,
+            DEFAULT_TERMINAL_BLOCK,
+            spec.terminal_block_hash,
+            spec.terminal_block_hash_activation_epoch,
+            Some(JwtKey::from_slice(&DEFAULT_JWT_SECRET).unwrap()),
+            Some(builder_url.clone()),
+        )
+        .move_to_terminal_block();
+
+        let mock_el_url = SensitiveUrl::parse(mock_el.server.url().as_str()).unwrap();
+
+        self.mock_builder = Some(TestingBuilder::new(
+            mock_el_url,
+            builder_url,
+            beacon_url,
+            spec,
+            self.runtime.task_executor.clone(),
+        ));
+        self.execution_layer = Some(mock_el.el.clone());
+        self.mock_execution_layer = Some(mock_el);
+
         self
     }
 
@@ -376,6 +433,11 @@ where
             .expect("requires mock execution layer")
             .server
             .all_payloads_valid();
+        self
+    }
+
+    pub fn testing_slot_clock(mut self, slot_clock: TestingSlotClock) -> Self {
+        self.testing_slot_clock = Some(slot_clock);
         self
     }
 
@@ -419,7 +481,9 @@ where
         };
 
         // Initialize the slot clock only if it hasn't already been initialized.
-        builder = if builder.get_slot_clock().is_none() {
+        builder = if let Some(testing_slot_clock) = self.testing_slot_clock {
+            builder.slot_clock(testing_slot_clock)
+        } else if builder.get_slot_clock().is_none() {
             builder
                 .testing_slot_clock(Duration::from_secs(seconds_per_slot))
                 .expect("should configure testing slot clock")
@@ -436,6 +500,7 @@ where
             shutdown_receiver: Arc::new(Mutex::new(shutdown_receiver)),
             runtime: self.runtime,
             mock_execution_layer: self.mock_execution_layer,
+            mock_builder: self.mock_builder.map(Arc::new),
             rng: make_rng(),
         }
     }
@@ -454,6 +519,7 @@ pub struct BeaconChainHarness<T: BeaconChainTypes> {
     pub runtime: TestRuntime,
 
     pub mock_execution_layer: Option<MockExecutionLayer<T::EthSpec>>,
+    pub mock_builder: Option<Arc<TestingBuilder<T::EthSpec>>>,
 
     pub rng: Mutex<StdRng>,
 }
@@ -516,6 +582,11 @@ where
 
     pub fn get_current_state(&self) -> BeaconState<E> {
         self.chain.head_beacon_state_cloned()
+    }
+
+    pub fn get_timestamp_at_slot(&self) -> u64 {
+        let state = self.get_current_state();
+        compute_timestamp_at_slot(&state, &self.spec).unwrap()
     }
 
     pub fn get_current_state_and_root(&self) -> (BeaconState<E>, Hash256) {
@@ -1059,7 +1130,7 @@ where
                             selection_proof
                                 .is_aggregator::<E>()
                                 .expect("should determine aggregator")
-                                .then(|| validator_index)
+                                .then_some(validator_index)
                         })?;
 
                     let default = SyncCommitteeContribution::from_message(
@@ -1104,6 +1175,19 @@ where
     }
 
     pub fn make_attester_slashing(&self, validator_indices: Vec<u64>) -> AttesterSlashing<E> {
+        self.make_attester_slashing_with_epochs(validator_indices, None, None, None, None)
+    }
+
+    pub fn make_attester_slashing_with_epochs(
+        &self,
+        validator_indices: Vec<u64>,
+        source1: Option<Epoch>,
+        target1: Option<Epoch>,
+        source2: Option<Epoch>,
+        target2: Option<Epoch>,
+    ) -> AttesterSlashing<E> {
+        let fork = self.chain.canonical_head.cached_head().head_fork();
+
         let mut attestation_1 = IndexedAttestation {
             attesting_indices: VariableList::new(validator_indices).unwrap(),
             data: AttestationData {
@@ -1112,11 +1196,11 @@ where
                 beacon_block_root: Hash256::zero(),
                 target: Checkpoint {
                     root: Hash256::zero(),
-                    epoch: Epoch::new(0),
+                    epoch: target1.unwrap_or(fork.epoch),
                 },
                 source: Checkpoint {
                     root: Hash256::zero(),
-                    epoch: Epoch::new(0),
+                    epoch: source1.unwrap_or(Epoch::new(0)),
                 },
             },
             signature: AggregateSignature::infinity(),
@@ -1124,8 +1208,9 @@ where
 
         let mut attestation_2 = attestation_1.clone();
         attestation_2.data.index += 1;
+        attestation_2.data.source.epoch = source2.unwrap_or(Epoch::new(0));
+        attestation_2.data.target.epoch = target2.unwrap_or(fork.epoch);
 
-        let fork = self.chain.canonical_head.cached_head().head_fork();
         for attestation in &mut [&mut attestation_1, &mut attestation_2] {
             for &i in &attestation.attesting_indices {
                 let sk = &self.validator_keypairs[i as usize].sk;
@@ -1209,8 +1294,19 @@ where
     }
 
     pub fn make_proposer_slashing(&self, validator_index: u64) -> ProposerSlashing {
+        self.make_proposer_slashing_at_slot(validator_index, None)
+    }
+
+    pub fn make_proposer_slashing_at_slot(
+        &self,
+        validator_index: u64,
+        slot_override: Option<Slot>,
+    ) -> ProposerSlashing {
         let mut block_header_1 = self.chain.head_beacon_block().message().block_header();
         block_header_1.proposer_index = validator_index;
+        if let Some(slot) = slot_override {
+            block_header_1.slot = slot;
+        }
 
         let mut block_header_2 = block_header_1.clone();
         block_header_2.state_root = Hash256::zero();
@@ -1336,8 +1432,9 @@ where
         // Building proofs
         let mut proofs = vec![];
         for i in 0..leaves.len() {
-            let (_, mut proof) =
-                tree.generate_proof(i, self.spec.deposit_contract_tree_depth as usize);
+            let (_, mut proof) = tree
+                .generate_proof(i, self.spec.deposit_contract_tree_depth as usize)
+                .expect("should generate proof");
             proof.push(Hash256::from_slice(&int_to_bytes32(leaves.len() as u64)));
             proofs.push(proof);
         }
@@ -1357,12 +1454,16 @@ where
     pub async fn process_block(
         &self,
         slot: Slot,
+        block_root: Hash256,
         block: SignedBeaconBlock<E>,
     ) -> Result<SignedBeaconBlockHash, BlockError<E>> {
         self.set_current_slot(slot);
-        let block_hash: SignedBeaconBlockHash =
-            self.chain.process_block(Arc::new(block)).await?.into();
-        self.chain.recompute_head_at_current_slot().await?;
+        let block_hash: SignedBeaconBlockHash = self
+            .chain
+            .process_block(block_root, Arc::new(block), CountUnrealized::True)
+            .await?
+            .into();
+        self.chain.recompute_head_at_current_slot().await;
         Ok(block_hash)
     }
 
@@ -1370,9 +1471,16 @@ where
         &self,
         block: SignedBeaconBlock<E>,
     ) -> Result<SignedBeaconBlockHash, BlockError<E>> {
-        let block_hash: SignedBeaconBlockHash =
-            self.chain.process_block(Arc::new(block)).await?.into();
-        self.chain.recompute_head_at_current_slot().await?;
+        let block_hash: SignedBeaconBlockHash = self
+            .chain
+            .process_block(
+                block.canonical_root(),
+                Arc::new(block),
+                CountUnrealized::True,
+            )
+            .await?
+            .into();
+        self.chain.recompute_head_at_current_slot().await;
         Ok(block_hash)
     }
 
@@ -1411,7 +1519,7 @@ where
             self.chain
                 .apply_attestation_to_fork_choice(&verified)
                 .unwrap();
-            self.chain.add_to_block_inclusion_pool(&verified).unwrap();
+            self.chain.add_to_block_inclusion_pool(verified).unwrap();
         }
     }
 
@@ -1434,7 +1542,9 @@ where
     ) -> Result<(SignedBeaconBlockHash, SignedBeaconBlock<E>, BeaconState<E>), BlockError<E>> {
         self.set_current_slot(slot);
         let (block, new_state) = self.make_block(state, slot).await;
-        let block_hash = self.process_block(slot, block.clone()).await?;
+        let block_hash = self
+            .process_block(slot, block.canonical_root(), block.clone())
+            .await?;
         Ok((block_hash, block, new_state))
     }
 
@@ -1767,5 +1877,12 @@ where
         assert_ne!(honest_head, faulty_head, "forks should be distinct");
 
         (honest_head, faulty_head)
+    }
+}
+
+// Junk `Debug` impl to satistfy certain trait bounds during testing.
+impl<T: BeaconChainTypes> fmt::Debug for BeaconChainHarness<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "BeaconChainHarness")
     }
 }

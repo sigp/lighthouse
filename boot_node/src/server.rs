@@ -11,7 +11,10 @@ use types::EthSpec;
 pub async fn run<T: EthSpec>(config: BootNodeConfig<T>, log: slog::Logger) {
     // Print out useful information about the generated ENR
 
-    let enr_socket = config.local_enr.udp_socket().expect("Enr has a UDP socket");
+    let enr_socket = config
+        .local_enr
+        .udp4_socket()
+        .expect("Enr has a UDP socket");
     let eth2_field = config
         .local_enr
         .eth2()
@@ -39,7 +42,7 @@ pub async fn run<T: EthSpec>(config: BootNodeConfig<T>, log: slog::Logger) {
         info!(
             log,
             "Adding bootnode";
-            "address" => ?enr.udp_socket(),
+            "address" => ?enr.udp4_socket(),
             "peer_id" => enr.peer_id().to_string(),
             "node_id" => enr.node_id().to_string()
         );
@@ -89,11 +92,12 @@ pub async fn run<T: EthSpec>(config: BootNodeConfig<T>, log: slog::Logger) {
                         // Ignore these events here
                     }
                     Discv5Event::EnrAdded { .. } => {}     // Ignore
-                    Discv5Event::TalkRequest(_)  => {}     // Ignore
+                    Discv5Event::TalkRequest(_) => {}     // Ignore
                     Discv5Event::NodeInserted { .. } => {} // Ignore
                     Discv5Event::SocketUpdated(socket_addr) => {
                         info!(log, "External socket address updated"; "socket_addr" => format!("{:?}", socket_addr));
                     }
+                    Discv5Event::SessionEstablished{ .. } => {} // Ignore
                 }
             }
         }

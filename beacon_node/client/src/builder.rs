@@ -1,6 +1,7 @@
 use crate::config::{ClientGenesis, Config as ClientConfig};
 use crate::notifier::spawn_notifier;
 use crate::Client;
+use beacon_chain::otb_verification_service::start_otb_verification_service;
 use beacon_chain::proposer_prep_service::start_proposer_prep_service;
 use beacon_chain::schema_change::migrate_schema;
 use beacon_chain::{
@@ -21,7 +22,7 @@ use execution_layer::ExecutionLayer;
 use genesis::{interop_genesis_state, Eth1GenesisService, DEFAULT_ETH1_BLOCK_HASH};
 use lighthouse_network::{prometheus_client::registry::Registry, NetworkGlobals};
 use monitoring_api::{MonitoringHttpClient, ProcessType};
-use network::{NetworkConfig, NetworkMessage, NetworkService};
+use network::{NetworkConfig, NetworkSenders, NetworkService};
 use slasher::Slasher;
 use slasher_service::SlasherService;
 use slog::{debug, info, warn, Logger};
@@ -30,7 +31,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 use timer::spawn_timer;
-use tokio::sync::{mpsc::UnboundedSender, oneshot};
+use tokio::sync::oneshot;
 use types::{
     test_utils::generate_deterministic_keypairs, BeaconState, ChainSpec, EthSpec,
     ExecutionBlockHash, Hash256, SignedBeaconBlock,
@@ -65,7 +66,7 @@ pub struct ClientBuilder<T: BeaconChainTypes> {
     beacon_chain: Option<Arc<BeaconChain<T>>>,
     eth1_service: Option<Eth1Service>,
     network_globals: Option<Arc<NetworkGlobals<T::EthSpec>>>,
-    network_send: Option<UnboundedSender<NetworkMessage<T::EthSpec>>>,
+    network_senders: Option<NetworkSenders<T::EthSpec>>,
     gossipsub_registry: Option<Registry>,
     db_path: Option<PathBuf>,
     freezer_db_path: Option<PathBuf>,
@@ -97,7 +98,7 @@ where
             beacon_chain: None,
             eth1_service: None,
             network_globals: None,
-            network_send: None,
+            network_senders: None,
             gossipsub_registry: None,
             db_path: None,
             freezer_db_path: None,
@@ -276,8 +277,52 @@ where
                     BeaconNodeHttpClient::new(url, Timeouts::set_all(CHECKPOINT_SYNC_HTTP_TIMEOUT));
                 let slots_per_epoch = TEthSpec::slots_per_epoch();
 
-                debug!(context.log(), "Downloading finalized block");
+                let deposit_snapshot = if config.sync_eth1_chain {
+                    // We want to fetch deposit snapshot before fetching the finalized beacon state to
+                    // ensure that the snapshot is not newer than the beacon state that satisfies the
+                    // deposit finalization conditions
+                    debug!(context.log(), "Downloading deposit snapshot");
+                    let deposit_snapshot_result = remote
+                        .get_deposit_snapshot()
+                        .await
+                        .map_err(|e| match e {
+                            ApiError::InvalidSsz(e) => format!(
+                                "Unable to parse SSZ: {:?}. Ensure the checkpoint-sync-url refers to a \
+                                node for the correct network",
+                                e
+                            ),
+                            e => format!("Error fetching deposit snapshot from remote: {:?}", e),
+                        });
+                    match deposit_snapshot_result {
+                        Ok(Some(deposit_snapshot)) => {
+                            if deposit_snapshot.is_valid() {
+                                Some(deposit_snapshot)
+                            } else {
+                                warn!(context.log(), "Remote BN sent invalid deposit snapshot!");
+                                None
+                            }
+                        }
+                        Ok(None) => {
+                            warn!(
+                                context.log(),
+                                "Remote BN does not support EIP-4881 fast deposit sync"
+                            );
+                            None
+                        }
+                        Err(e) => {
+                            warn!(
+                                context.log(),
+                                "Remote BN does not support EIP-4881 fast deposit sync";
+                                "error" => e
+                            );
+                            None
+                        }
+                    }
+                } else {
+                    None
+                };
 
+                debug!(context.log(), "Downloading finalized block");
                 // Find a suitable finalized block on an epoch boundary.
                 let mut block = remote
                     .get_beacon_blocks_ssz::<TEthSpec>(BlockId::Finalized, &spec)
@@ -361,15 +406,39 @@ where
                     "state_root" => ?state_root,
                 );
 
+                let service =
+                    deposit_snapshot.and_then(|snapshot| match Eth1Service::from_deposit_snapshot(
+                        config.eth1,
+                        context.log().clone(),
+                        spec,
+                        &snapshot,
+                    ) {
+                        Ok(service) => {
+                            info!(
+                                context.log(),
+                                "Loaded deposit tree snapshot";
+                                "deposits loaded" => snapshot.deposit_count,
+                            );
+                            Some(service)
+                        }
+                        Err(e) => {
+                            warn!(context.log(),
+                                "Unable to load deposit snapshot";
+                                "error" => ?e
+                            );
+                            None
+                        }
+                    });
+
                 builder
                     .weak_subjectivity_state(state, block, genesis_state)
-                    .map(|v| (v, None))?
+                    .map(|v| (v, service))?
             }
             ClientGenesis::DepositContract => {
                 info!(
                     context.log(),
                     "Waiting for eth2 genesis from eth1";
-                    "eth1_endpoints" => format!("{:?}", &config.eth1.endpoints),
+                    "eth1_endpoints" => format!("{:?}", &config.eth1.endpoint),
                     "contract_deploy_block" => config.eth1.deposit_contract_deploy_block,
                     "deposit_contract" => &config.eth1.deposit_contract_address
                 );
@@ -378,7 +447,7 @@ where
                     config.eth1,
                     context.log().clone(),
                     context.eth2_config().spec.clone(),
-                );
+                )?;
 
                 // If the HTTP API server is enabled, start an instance of it where it only
                 // contains a reference to the eth1 service (all non-eth1 endpoints will fail
@@ -396,7 +465,7 @@ where
                     > = Arc::new(http_api::Context {
                         config: self.http_api_config.clone(),
                         chain: None,
-                        network_tx: None,
+                        network_senders: None,
                         network_globals: None,
                         eth1_service: Some(genesis_service.eth1_service.clone()),
                         log: context.log().clone(),
@@ -456,7 +525,9 @@ where
             ClientGenesis::FromStore => builder.resume_from_db().map(|v| (v, None))?,
         };
 
-        self.eth1_service = eth1_service_option;
+        if config.sync_eth1_chain {
+            self.eth1_service = eth1_service_option;
+        }
         self.beacon_chain_builder = Some(beacon_chain_builder);
         Ok(self)
     }
@@ -480,7 +551,7 @@ where
             None
         };
 
-        let (network_globals, network_send) = NetworkService::start(
+        let (network_globals, network_senders) = NetworkService::start(
             beacon_chain,
             config,
             context.executor,
@@ -492,7 +563,7 @@ where
         .map_err(|e| format!("Failed to start network: {:?}", e))?;
 
         self.network_globals = Some(network_globals);
-        self.network_send = Some(network_send);
+        self.network_senders = Some(network_senders);
         self.gossipsub_registry = gossipsub_registry;
 
         Ok(self)
@@ -536,16 +607,16 @@ where
             .beacon_chain
             .clone()
             .ok_or("slasher service requires a beacon chain")?;
-        let network_send = self
-            .network_send
+        let network_senders = self
+            .network_senders
             .clone()
-            .ok_or("slasher service requires a network sender")?;
+            .ok_or("slasher service requires network senders")?;
         let context = self
             .runtime_context
             .as_ref()
             .ok_or("slasher requires a runtime_context")?
             .service_context("slasher_service_ctxt".into());
-        SlasherService::new(beacon_chain, network_send).run(&context.executor)
+        SlasherService::new(beacon_chain, network_senders.network_send()).run(&context.executor)
     }
 
     /// Start the explorer client which periodically sends beacon
@@ -615,7 +686,7 @@ where
             let ctx = Arc::new(http_api::Context {
                 config: self.http_api_config.clone(),
                 chain: self.beacon_chain.clone(),
-                network_tx: self.network_send.clone(),
+                network_senders: self.network_senders.clone(),
                 network_globals: self.network_globals.clone(),
                 eth1_service: self.eth1_service.clone(),
                 log: log.clone(),
@@ -728,6 +799,7 @@ where
             }
 
             start_proposer_prep_service(runtime_context.executor.clone(), beacon_chain.clone());
+            start_otb_verification_service(runtime_context.executor.clone(), beacon_chain.clone());
         }
 
         Ok(Client {
@@ -786,7 +858,6 @@ where
     /// Specifies that the `Client` should use a `HotColdDB` database.
     pub fn disk_store(
         mut self,
-        datadir: &Path,
         hot_path: &Path,
         cold_path: &Path,
         config: StoreConfig,
@@ -806,10 +877,16 @@ where
         self.freezer_db_path = Some(cold_path.into());
 
         let inner_spec = spec.clone();
+        let deposit_contract_deploy_block = context
+            .eth2_network_config
+            .as_ref()
+            .map(|config| config.deposit_contract_deploy_block)
+            .unwrap_or(0);
+
         let schema_upgrade = |db, from, to| {
             migrate_schema::<Witness<TSlotClock, TEth1Backend, _, _, _>>(
                 db,
-                datadir,
+                deposit_contract_deploy_block,
                 from,
                 to,
                 log,
@@ -849,7 +926,7 @@ where
             .runtime_context
             .as_ref()
             .ok_or("caching_eth1_backend requires a runtime_context")?
-            .service_context("eth1_rpc".into());
+            .service_context("deposit_contract_rpc".into());
         let beacon_chain_builder = self
             .beacon_chain_builder
             .ok_or("caching_eth1_backend requires a beacon_chain_builder")?;
@@ -873,7 +950,7 @@ where
 
             CachingEth1Backend::from_service(eth1_service_from_genesis)
         } else if config.purge_cache {
-            CachingEth1Backend::new(config, context.log().clone(), spec)
+            CachingEth1Backend::new(config, context.log().clone(), spec)?
         } else {
             beacon_chain_builder
                 .get_persisted_eth1_backend()?
@@ -887,11 +964,7 @@ where
                     .map(|chain| chain.into_backend())
                 })
                 .unwrap_or_else(|| {
-                    Ok(CachingEth1Backend::new(
-                        config,
-                        context.log().clone(),
-                        spec.clone(),
-                    ))
+                    CachingEth1Backend::new(config, context.log().clone(), spec.clone())
                 })?
         };
 

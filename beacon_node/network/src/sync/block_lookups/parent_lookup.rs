@@ -1,6 +1,8 @@
+use super::RootBlockTuple;
+use beacon_chain::BeaconChainTypes;
 use lighthouse_network::PeerId;
 use std::sync::Arc;
-use store::{EthSpec, Hash256, SignedBeaconBlock};
+use store::{Hash256, SignedBeaconBlock};
 use strum::IntoStaticStr;
 
 use crate::sync::{
@@ -10,7 +12,7 @@ use crate::sync::{
 
 use super::single_block_lookup::{self, SingleBlockRequest};
 
-/// How many attempts we try to find a parent of a block before we give up trying .
+/// How many attempts we try to find a parent of a block before we give up trying.
 pub(crate) const PARENT_FAIL_TOLERANCE: u8 = 5;
 /// The maximum depth we will search for a parent block. In principle we should have sync'd any
 /// canonical chain to its head once the peer connects. A chain should not appear where it's depth
@@ -18,11 +20,11 @@ pub(crate) const PARENT_FAIL_TOLERANCE: u8 = 5;
 pub(crate) const PARENT_DEPTH_TOLERANCE: usize = SLOT_IMPORT_TOLERANCE * 2;
 
 /// Maintains a sequential list of parents to lookup and the lookup's current state.
-pub(crate) struct ParentLookup<T: EthSpec> {
+pub(crate) struct ParentLookup<T: BeaconChainTypes> {
     /// The root of the block triggering this parent request.
     chain_hash: Hash256,
     /// The blocks that have currently been downloaded.
-    downloaded_blocks: Vec<Arc<SignedBeaconBlock<T>>>,
+    downloaded_blocks: Vec<RootBlockTuple<T::EthSpec>>,
     /// Request of the last parent.
     current_parent_request: SingleBlockRequest<PARENT_FAIL_TOLERANCE>,
     /// Id of the last parent request.
@@ -41,23 +43,32 @@ pub enum VerifyError {
 pub enum RequestError {
     SendFailed(&'static str),
     ChainTooLong,
-    TooManyAttempts,
+    /// We witnessed too many failures trying to complete this parent lookup.
+    TooManyAttempts {
+        /// We received more failures trying to process the blocks than downloading them
+        /// from peers.
+        cannot_process: bool,
+    },
     NoPeers,
 }
 
-impl<T: EthSpec> ParentLookup<T> {
-    pub fn contains_block(&self, block: &SignedBeaconBlock<T>) -> bool {
+impl<T: BeaconChainTypes> ParentLookup<T> {
+    pub fn contains_block(&self, block_root: &Hash256) -> bool {
         self.downloaded_blocks
             .iter()
-            .any(|d_block| d_block.as_ref() == block)
+            .any(|(root, _d_block)| root == block_root)
     }
 
-    pub fn new(block: Arc<SignedBeaconBlock<T>>, peer_id: PeerId) -> Self {
+    pub fn new(
+        block_root: Hash256,
+        block: Arc<SignedBeaconBlock<T::EthSpec>>,
+        peer_id: PeerId,
+    ) -> Self {
         let current_parent_request = SingleBlockRequest::new(block.parent_root(), peer_id);
 
         Self {
-            chain_hash: block.canonical_root(),
-            downloaded_blocks: vec![block],
+            chain_hash: block_root,
+            downloaded_blocks: vec![(block_root, block)],
             current_parent_request,
             current_parent_request_id: None,
         }
@@ -87,9 +98,10 @@ impl<T: EthSpec> ParentLookup<T> {
         self.current_parent_request.check_peer_disconnected(peer_id)
     }
 
-    pub fn add_block(&mut self, block: Arc<SignedBeaconBlock<T>>) {
+    pub fn add_block(&mut self, block: Arc<SignedBeaconBlock<T::EthSpec>>) {
         let next_parent = block.parent_root();
-        self.downloaded_blocks.push(block);
+        let current_root = self.current_parent_request.hash;
+        self.downloaded_blocks.push((current_root, block));
         self.current_parent_request.hash = next_parent;
         self.current_parent_request.state = single_block_lookup::State::AwaitingDownload;
         self.current_parent_request_id = None;
@@ -99,40 +111,70 @@ impl<T: EthSpec> ParentLookup<T> {
         self.current_parent_request_id == Some(req_id)
     }
 
+    /// Consumes the parent request and destructures it into it's parts.
+    #[allow(clippy::type_complexity)]
+    pub fn parts_for_processing(
+        self,
+    ) -> (
+        Hash256,
+        Vec<Arc<SignedBeaconBlock<T::EthSpec>>>,
+        Vec<Hash256>,
+        SingleBlockRequest<PARENT_FAIL_TOLERANCE>,
+    ) {
+        let ParentLookup {
+            chain_hash,
+            downloaded_blocks,
+            current_parent_request,
+            current_parent_request_id: _,
+        } = self;
+        let block_count = downloaded_blocks.len();
+        let mut blocks = Vec::with_capacity(block_count);
+        let mut hashes = Vec::with_capacity(block_count);
+        for (hash, block) in downloaded_blocks {
+            blocks.push(block);
+            hashes.push(hash);
+        }
+        (chain_hash, blocks, hashes, current_parent_request)
+    }
+
     /// Get the parent lookup's chain hash.
     pub fn chain_hash(&self) -> Hash256 {
         self.chain_hash
     }
 
     pub fn download_failed(&mut self) {
-        self.current_parent_request.register_failure();
+        self.current_parent_request.register_failure_downloading();
         self.current_parent_request_id = None;
     }
 
-    pub fn chain_blocks(&mut self) -> Vec<Arc<SignedBeaconBlock<T>>> {
-        std::mem::take(&mut self.downloaded_blocks)
+    pub fn processing_failed(&mut self) {
+        self.current_parent_request.register_failure_processing();
+        self.current_parent_request_id = None;
     }
 
     /// Verifies that the received block is what we requested. If so, parent lookup now waits for
     /// the processing result of the block.
     pub fn verify_block(
         &mut self,
-        block: Option<Arc<SignedBeaconBlock<T>>>,
+        block: Option<Arc<SignedBeaconBlock<T::EthSpec>>>,
         failed_chains: &mut lru_cache::LRUTimeCache<Hash256>,
-    ) -> Result<Option<Arc<SignedBeaconBlock<T>>>, VerifyError> {
-        let block = self.current_parent_request.verify_block(block)?;
+    ) -> Result<Option<RootBlockTuple<T::EthSpec>>, VerifyError> {
+        let root_and_block = self.current_parent_request.verify_block(block)?;
 
         // check if the parent of this block isn't in the failed cache. If it is, this chain should
         // be dropped and the peer downscored.
-        if let Some(parent_root) = block.as_ref().map(|block| block.parent_root()) {
+        if let Some(parent_root) = root_and_block
+            .as_ref()
+            .map(|(_, block)| block.parent_root())
+        {
             if failed_chains.contains(&parent_root) {
-                self.current_parent_request.register_failure();
+                self.current_parent_request.register_failure_downloading();
                 self.current_parent_request_id = None;
                 return Err(VerifyError::PreviousFailure { parent_root });
             }
         }
 
-        Ok(block)
+        Ok(root_and_block)
     }
 
     pub fn get_processing_peer(&self, chain_hash: Hash256) -> Option<PeerId> {
@@ -144,7 +186,7 @@ impl<T: EthSpec> ParentLookup<T> {
 
     #[cfg(test)]
     pub fn failed_attempts(&self) -> u8 {
-        self.current_parent_request.failed_attempts
+        self.current_parent_request.failed_attempts()
     }
 
     pub fn add_peer(&mut self, block_root: &Hash256, peer_id: &PeerId) -> bool {
@@ -171,13 +213,15 @@ impl From<super::single_block_lookup::LookupRequestError> for RequestError {
     fn from(e: super::single_block_lookup::LookupRequestError) -> Self {
         use super::single_block_lookup::LookupRequestError as E;
         match e {
-            E::TooManyAttempts => RequestError::TooManyAttempts,
+            E::TooManyAttempts { cannot_process } => {
+                RequestError::TooManyAttempts { cannot_process }
+            }
             E::NoPeers => RequestError::NoPeers,
         }
     }
 }
 
-impl<T: EthSpec> slog::KV for ParentLookup<T> {
+impl<T: BeaconChainTypes> slog::KV for ParentLookup<T> {
     fn serialize(
         &self,
         record: &slog::Record,
@@ -195,7 +239,10 @@ impl RequestError {
         match self {
             RequestError::SendFailed(e) => e,
             RequestError::ChainTooLong => "chain_too_long",
-            RequestError::TooManyAttempts => "too_many_attempts",
+            RequestError::TooManyAttempts { cannot_process } if *cannot_process => {
+                "too_many_processing_attempts"
+            }
+            RequestError::TooManyAttempts { cannot_process: _ } => "too_many_downloading_attempts",
             RequestError::NoPeers => "no_peers",
         }
     }

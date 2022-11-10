@@ -14,7 +14,8 @@ eth2_ssz_derive = "0.3.0"
 
 [dependencies]
 ethereum-types = "0.12.1"
-smallvec = "1.6.1"
+smallvec = { version = "1.6.1", features = ["const_generics"] }
+itertools = "0.10.3"
 
 [features]
 arbitrary = ["ethereum-types/arbitrary"]

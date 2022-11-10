@@ -5,9 +5,12 @@ use crate::engine_api::{
 };
 use crate::HttpJsonRpc;
 use lru::LruCache;
-use slog::{crit, debug, info, warn, Logger};
+use slog::{debug, error, info, Logger};
 use std::future::Future;
-use tokio::sync::{Mutex, RwLock};
+use std::sync::Arc;
+use task_executor::TaskExecutor;
+use tokio::sync::{watch, Mutex, RwLock};
+use tokio_stream::wrappers::WatchStream;
 use types::{Address, ExecutionBlockHash, Hash256};
 
 /// The number of payload IDs that will be stored for each `Engine`.
@@ -16,12 +19,72 @@ use types::{Address, ExecutionBlockHash, Hash256};
 const PAYLOAD_ID_LRU_CACHE_SIZE: usize = 512;
 
 /// Stores the remembered state of a engine.
-#[derive(Copy, Clone, PartialEq)]
-enum EngineState {
+#[derive(Copy, Clone, PartialEq, Debug, Eq, Default)]
+enum EngineStateInternal {
     Synced,
+    #[default]
     Offline,
     Syncing,
     AuthFailed,
+}
+
+/// A subset of the engine state to inform other services if the engine is online or offline.
+#[derive(Debug, Clone, PartialEq, Eq, Copy)]
+pub enum EngineState {
+    Online,
+    Offline,
+}
+
+impl From<EngineStateInternal> for EngineState {
+    fn from(state: EngineStateInternal) -> Self {
+        match state {
+            EngineStateInternal::Synced | EngineStateInternal::Syncing => EngineState::Online,
+            EngineStateInternal::Offline | EngineStateInternal::AuthFailed => EngineState::Offline,
+        }
+    }
+}
+
+/// Wrapper structure that ensures changes to the engine state are correctly reported to watchers.
+struct State {
+    /// The actual engine state.
+    state: EngineStateInternal,
+    /// Notifier to watch the engine state.
+    notifier: watch::Sender<EngineState>,
+}
+
+impl std::ops::Deref for State {
+    type Target = EngineStateInternal;
+
+    fn deref(&self) -> &Self::Target {
+        &self.state
+    }
+}
+
+impl Default for State {
+    fn default() -> Self {
+        let state = EngineStateInternal::default();
+        let (notifier, _receiver) = watch::channel(state.into());
+        State { state, notifier }
+    }
+}
+
+impl State {
+    // Updates the state and notifies all watchers if the state has changed.
+    pub fn update(&mut self, new_state: EngineStateInternal) {
+        self.state = new_state;
+        self.notifier.send_if_modified(|last_state| {
+            let changed = *last_state != new_state.into(); // notify conditionally
+            *last_state = new_state.into(); // update the state unconditionally
+            changed
+        });
+    }
+
+    /// Gives access to a channel containing whether the last state is online.
+    ///
+    /// This can be called several times.
+    pub fn watch(&self) -> WatchStream<EngineState> {
+        self.notifier.subscribe().into()
+    }
 }
 
 #[derive(Copy, Clone, PartialEq, Debug)]
@@ -29,22 +92,6 @@ pub struct ForkChoiceState {
     pub head_block_hash: ExecutionBlockHash,
     pub safe_block_hash: ExecutionBlockHash,
     pub finalized_block_hash: ExecutionBlockHash,
-}
-
-/// Used to enable/disable logging on some tasks.
-#[derive(Copy, Clone, PartialEq)]
-pub enum Logging {
-    Enabled,
-    Disabled,
-}
-
-impl Logging {
-    pub fn is_enabled(&self) -> bool {
-        match self {
-            Logging::Enabled => true,
-            Logging::Disabled => false,
-        }
-    }
 }
 
 #[derive(Hash, PartialEq, std::cmp::Eq)]
@@ -67,21 +114,30 @@ pub enum EngineError {
 pub struct Engine {
     pub api: HttpJsonRpc,
     payload_id_cache: Mutex<LruCache<PayloadIdCacheKey, PayloadId>>,
-    state: RwLock<EngineState>,
-    pub latest_forkchoice_state: RwLock<Option<ForkChoiceState>>,
-    pub log: Logger,
+    state: RwLock<State>,
+    latest_forkchoice_state: RwLock<Option<ForkChoiceState>>,
+    executor: TaskExecutor,
+    log: Logger,
 }
 
 impl Engine {
     /// Creates a new, offline engine.
-    pub fn new(api: HttpJsonRpc, log: &Logger) -> Self {
+    pub fn new(api: HttpJsonRpc, executor: TaskExecutor, log: &Logger) -> Self {
         Self {
             api,
             payload_id_cache: Mutex::new(LruCache::new(PAYLOAD_ID_LRU_CACHE_SIZE)),
-            state: RwLock::new(EngineState::Offline),
+            state: Default::default(),
             latest_forkchoice_state: Default::default(),
+            executor,
             log: log.clone(),
         }
+    }
+
+    /// Gives access to a channel containing the last engine state.
+    ///
+    /// This can be called several times.
+    pub async fn watch_state(&self) -> WatchStream<EngineState> {
+        self.state.read().await.watch()
     }
 
     pub async fn get_payload_id(
@@ -177,166 +233,115 @@ impl Engine {
 
     /// Returns `true` if the engine has a "synced" status.
     pub async fn is_synced(&self) -> bool {
-        *self.state.read().await == EngineState::Synced
+        **self.state.read().await == EngineStateInternal::Synced
     }
+
     /// Run the `EngineApi::upcheck` function if the node's last known state is not synced. This
     /// might be used to recover the node if offline.
-    pub async fn upcheck_not_synced(&self, logging: Logging) {
-        let mut state_lock = self.state.write().await;
-        if *state_lock != EngineState::Synced {
-            match self.api.upcheck().await {
-                Ok(()) => {
-                    if logging.is_enabled() {
-                        info!(
-                            self.log,
-                            "Execution engine online";
-                        );
-                    }
+    pub async fn upcheck(&self) {
+        let state: EngineStateInternal = match self.api.upcheck().await {
+            Ok(()) => {
+                let mut state = self.state.write().await;
+                if **state != EngineStateInternal::Synced {
+                    info!(
+                        self.log,
+                        "Execution engine online";
+                    );
+
                     // Send the node our latest forkchoice_state.
                     self.send_latest_forkchoice_state().await;
-
-                    *state_lock = EngineState::Synced
+                } else {
+                    debug!(
+                        self.log,
+                        "Execution engine online";
+                    );
                 }
-                Err(EngineApiError::IsSyncing) => {
-                    if logging.is_enabled() {
-                        warn!(
-                            self.log,
-                            "Execution engine syncing";
-                        )
-                    }
-
-                    // Send the node our latest forkchoice_state, it may assist with syncing.
-                    self.send_latest_forkchoice_state().await;
-
-                    *state_lock = EngineState::Syncing
-                }
-                Err(EngineApiError::Auth(err)) => {
-                    if logging.is_enabled() {
-                        warn!(
-                            self.log,
-                            "Failed jwt authorization";
-                            "error" => ?err,
-                        );
-                    }
-
-                    *state_lock = EngineState::AuthFailed
-                }
-                Err(e) => {
-                    if logging.is_enabled() {
-                        warn!(
-                            self.log,
-                            "Execution engine offline";
-                            "error" => ?e,
-                        )
-                    }
-                }
+                state.update(EngineStateInternal::Synced);
+                **state
             }
-        }
+            Err(EngineApiError::IsSyncing) => {
+                let mut state = self.state.write().await;
+                state.update(EngineStateInternal::Syncing);
+                **state
+            }
+            Err(EngineApiError::Auth(err)) => {
+                error!(
+                    self.log,
+                    "Failed jwt authorization";
+                    "error" => ?err,
+                );
 
-        if *state_lock != EngineState::Synced && logging.is_enabled() {
-            crit!(
-                self.log,
-                "No synced execution engines";
-            )
-        }
-    }
-
-    /// Run `func` on the node.
-    ///
-    /// This function might try to run `func` twice. If the node returns an error it will try to
-    /// upcheck it and then run the function again.
-    pub async fn first_success<'a, F, G, H>(&'a self, func: F) -> Result<H, EngineError>
-    where
-        F: Fn(&'a Engine) -> G + Copy,
-        G: Future<Output = Result<H, EngineApiError>>,
-    {
-        match self.first_success_without_retry(func).await {
-            Ok(result) => Ok(result),
+                let mut state = self.state.write().await;
+                state.update(EngineStateInternal::AuthFailed);
+                **state
+            }
             Err(e) => {
-                debug!(self.log, "First engine call failed. Retrying"; "err" => ?e);
-                // Try to recover the node.
-                self.upcheck_not_synced(Logging::Enabled).await;
-                // Try again.
-                self.first_success_without_retry(func).await
-            }
-        }
-    }
+                error!(
+                    self.log,
+                    "Error during execution engine upcheck";
+                    "error" => ?e,
+                );
 
-    /// Run `func` on the node.
-    pub async fn first_success_without_retry<'a, F, G, H>(
-        &'a self,
-        func: F,
-    ) -> Result<H, EngineError>
-    where
-        F: Fn(&'a Engine) -> G,
-        G: Future<Output = Result<H, EngineApiError>>,
-    {
-        let (engine_synced, engine_auth_failed) = {
-            let state = self.state.read().await;
-            (
-                *state == EngineState::Synced,
-                *state == EngineState::AuthFailed,
-            )
+                let mut state = self.state.write().await;
+                state.update(EngineStateInternal::Offline);
+                **state
+            }
         };
-        if engine_synced {
-            match func(self).await {
-                Ok(result) => Ok(result),
-                Err(error) => {
-                    debug!(
-                        self.log,
-                        "Execution engine call failed";
-                        "error" => ?error,
-                    );
-                    *self.state.write().await = EngineState::Offline;
-                    Err(EngineError::Api { error })
-                }
-            }
-        } else if engine_auth_failed {
-            Err(EngineError::Auth)
-        } else {
-            Err(EngineError::Offline)
-        }
+
+        debug!(
+            self.log,
+            "Execution engine upcheck complete";
+            "state" => ?state,
+        );
     }
 
-    /// Runs `func` on the node.
+    /// Run `func` on the node regardless of the node's current state.
     ///
-    /// This function might try to run `func` twice. If all nodes return an error on the first time
-    /// it runs, it will try to upcheck all offline nodes and then run the function again.
-    pub async fn broadcast<'a, F, G, H>(&'a self, func: F) -> Result<H, EngineError>
-    where
-        F: Fn(&'a Engine) -> G + Copy,
-        G: Future<Output = Result<H, EngineApiError>>,
-    {
-        match self.broadcast_without_retry(func).await {
-            Err(EngineError::Offline { .. }) => {
-                self.upcheck_not_synced(Logging::Enabled).await;
-                self.broadcast_without_retry(func).await
-            }
-            other => other,
-        }
-    }
-
-    /// Runs `func` on the node if it's last state is not offline.
-    pub async fn broadcast_without_retry<'a, F, G, H>(&'a self, func: F) -> Result<H, EngineError>
+    /// ## Note
+    ///
+    /// This function takes locks on `self.state`, holding a conflicting lock might cause a
+    /// deadlock.
+    pub async fn request<'a, F, G, H>(self: &'a Arc<Self>, func: F) -> Result<H, EngineError>
     where
         F: Fn(&'a Engine) -> G,
         G: Future<Output = Result<H, EngineApiError>>,
     {
-        let func = &func;
-        if *self.state.read().await == EngineState::Offline {
-            Err(EngineError::Offline)
-        } else {
-            match func(self).await {
-                Ok(res) => Ok(res),
-                Err(error) => {
-                    debug!(
-                        self.log,
-                        "Execution engine call failed";
-                        "error" => ?error,
+        match func(self).await {
+            Ok(result) => {
+                // Take a clone *without* holding the read-lock since the `upcheck` function will
+                // take a write-lock.
+                let state: EngineStateInternal = **self.state.read().await;
+
+                // Keep an up to date engine state.
+                if state != EngineStateInternal::Synced {
+                    // Spawn the upcheck in another task to avoid slowing down this request.
+                    let inner_self = self.clone();
+                    self.executor.spawn(
+                        async move { inner_self.upcheck().await },
+                        "upcheck_after_success",
                     );
-                    *self.state.write().await = EngineState::Offline;
-                    Err(EngineError::Api { error })
                 }
+
+                Ok(result)
+            }
+            Err(error) => {
+                error!(
+                    self.log,
+                    "Execution engine call failed";
+                    "error" => ?error,
+                );
+
+                // The node just returned an error, run an upcheck so we can update the endpoint
+                // state.
+                //
+                // Spawn the upcheck in another task to avoid slowing down this request.
+                let inner_self = self.clone();
+                self.executor.spawn(
+                    async move { inner_self.upcheck().await },
+                    "upcheck_after_error",
+                );
+
+                Err(EngineError::Api { error })
             }
         }
     }
@@ -350,5 +355,24 @@ impl PayloadIdCacheKey {
             prev_randao: attributes.prev_randao,
             suggested_fee_recipient: attributes.suggested_fee_recipient,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tokio_stream::StreamExt;
+
+    #[tokio::test]
+    async fn test_state_notifier() {
+        let mut state = State::default();
+        let initial_state: EngineState = state.state.into();
+        assert_eq!(initial_state, EngineState::Offline);
+        state.update(EngineStateInternal::Synced);
+
+        // a watcher that arrives after the first update.
+        let mut watcher = state.watch();
+        let new_state = watcher.next().await.expect("Last state is always present");
+        assert_eq!(new_state, EngineState::Online);
     }
 }

@@ -14,12 +14,14 @@ The additional requirements for developers are:
   don't have `ganache` available on your `PATH` or if ganache is older than v7.
 - [`cmake`](https://cmake.org/cmake/help/latest/command/install.html). Used by
   some dependencies. See [`Installation Guide`](./installation.md) for more info.
+- [`protoc`](https://github.com/protocolbuffers/protobuf/releases) required for
+  the networking stack.
 - [`java 11 runtime`](https://openjdk.java.net/projects/jdk/). 11 is the minimum,
   used by web3signer_tests.
 
 
 ## Using `make`
-Commands to run the test suite are avaiable via the `Makefile` in the
+Commands to run the test suite are available via the `Makefile` in the
 project root for the benefit of CI/CD. We list some of these commands below so
 you can run them locally and avoid CI failures:
 

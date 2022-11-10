@@ -3,9 +3,11 @@ mod ffg_updates;
 mod no_votes;
 mod votes;
 
+use crate::proto_array::CountUnrealizedFull;
 use crate::proto_array_fork_choice::{Block, ExecutionStatus, ProtoArrayForkChoice};
 use crate::InvalidationOperation;
 use serde_derive::{Deserialize, Serialize};
+use std::collections::BTreeSet;
 use types::{
     AttestationShufflingId, Checkpoint, Epoch, EthSpec, ExecutionBlockHash, Hash256,
     MainnetEthSpec, Slot,
@@ -78,7 +80,7 @@ impl ForkChoiceTestDefinition {
 
         let junk_shuffling_id =
             AttestationShufflingId::from_components(Epoch::new(0), Hash256::zero());
-        let mut fork_choice = ProtoArrayForkChoice::new(
+        let mut fork_choice = ProtoArrayForkChoice::new::<MainnetEthSpec>(
             self.finalized_block_slot,
             Hash256::zero(),
             self.justified_checkpoint,
@@ -86,8 +88,10 @@ impl ForkChoiceTestDefinition {
             junk_shuffling_id.clone(),
             junk_shuffling_id,
             ExecutionStatus::Optimistic(ExecutionBlockHash::zero()),
+            CountUnrealizedFull::default(),
         )
         .expect("should create fork choice struct");
+        let equivocating_indices = BTreeSet::new();
 
         for (op_index, op) in self.operations.into_iter().enumerate() {
             match op.clone() {
@@ -103,6 +107,8 @@ impl ForkChoiceTestDefinition {
                             finalized_checkpoint,
                             &justified_state_balances,
                             Hash256::zero(),
+                            &equivocating_indices,
+                            Slot::new(0),
                             &spec,
                         )
                         .unwrap_or_else(|e| {
@@ -129,6 +135,8 @@ impl ForkChoiceTestDefinition {
                             finalized_checkpoint,
                             &justified_state_balances,
                             proposer_boost_root,
+                            &equivocating_indices,
+                            Slot::new(0),
                             &spec,
                         )
                         .unwrap_or_else(|e| {
@@ -152,6 +160,8 @@ impl ForkChoiceTestDefinition {
                         finalized_checkpoint,
                         &justified_state_balances,
                         Hash256::zero(),
+                        &equivocating_indices,
+                        Slot::new(0),
                         &spec,
                     );
 
@@ -190,13 +200,17 @@ impl ForkChoiceTestDefinition {
                         execution_status: ExecutionStatus::Optimistic(
                             ExecutionBlockHash::from_root(root),
                         ),
+                        unrealized_justified_checkpoint: None,
+                        unrealized_finalized_checkpoint: None,
                     };
-                    fork_choice.process_block(block).unwrap_or_else(|e| {
-                        panic!(
-                            "process_block op at index {} returned error: {:?}",
-                            op_index, e
-                        )
-                    });
+                    fork_choice
+                        .process_block::<MainnetEthSpec>(block, slot)
+                        .unwrap_or_else(|e| {
+                            panic!(
+                                "process_block op at index {} returned error: {:?}",
+                                op_index, e
+                            )
+                        });
                     check_bytes_round_trip(&fork_choice);
                 }
                 Operation::ProcessAttestation {
@@ -284,8 +298,8 @@ fn get_checkpoint(i: u64) -> Checkpoint {
 
 fn check_bytes_round_trip(original: &ProtoArrayForkChoice) {
     let bytes = original.as_bytes();
-    let decoded =
-        ProtoArrayForkChoice::from_bytes(&bytes).expect("fork choice should decode from bytes");
+    let decoded = ProtoArrayForkChoice::from_bytes(&bytes, CountUnrealizedFull::default())
+        .expect("fork choice should decode from bytes");
     assert!(
         *original == decoded,
         "fork choice should encode and decode without change"

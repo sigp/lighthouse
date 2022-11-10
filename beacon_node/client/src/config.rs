@@ -1,16 +1,16 @@
 use directory::DEFAULT_ROOT_DIR;
+use environment::LoggerConfig;
 use network::NetworkConfig;
 use sensitive_url::SensitiveUrl;
 use serde_derive::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 use types::{Graffiti, PublicKeyBytes};
-
 /// Default directory name for the freezer database under the top-level data dir.
 const DEFAULT_FREEZER_DB_DIR: &str = "freezer_db";
 
 /// Defines how the client should initialize the `BeaconChain` and other components.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub enum ClientGenesis {
     /// Creates a genesis state as per the 2019 Canada interop specifications.
     Interop {
@@ -21,6 +21,7 @@ pub enum ClientGenesis {
     FromStore,
     /// Connects to an eth1 node and waits until it can create the genesis state from the deposit
     /// contract.
+    #[default]
     DepositContract,
     /// Loads the genesis state from SSZ-encoded `BeaconState` bytes.
     ///
@@ -36,12 +37,6 @@ pub enum ClientGenesis {
         genesis_state_bytes: Vec<u8>,
         url: SensitiveUrl,
     },
-}
-
-impl Default for ClientGenesis {
-    fn default() -> Self {
-        Self::DepositContract
-    }
 }
 
 /// The core configuration of a Lighthouse beacon node.
@@ -77,6 +72,7 @@ pub struct Config {
     pub http_metrics: http_metrics::Config,
     pub monitoring_api: Option<monitoring_api::Config>,
     pub slasher: Option<slasher::Config>,
+    pub logger_config: LoggerConfig,
 }
 
 impl Default for Config {
@@ -101,6 +97,7 @@ impl Default for Config {
             slasher: None,
             validator_monitor_auto: false,
             validator_monitor_pubkeys: vec![],
+            logger_config: LoggerConfig::default(),
         }
     }
 }

@@ -138,6 +138,7 @@ pub enum BeaconChainError {
         new_slot: Slot,
     },
     AltairForkDisabled,
+    BuilderMissing,
     ExecutionLayerMissing,
     BlockVariantLacksExecutionPayload(Hash256),
     ExecutionLayerErrorPayloadReconstruction(ExecutionBlockHash, execution_layer::Error),
@@ -184,6 +185,9 @@ pub enum BeaconChainError {
     CannotAttestToFinalizedBlock {
         beacon_block_root: Hash256,
     },
+    SyncContributionDataReferencesFinalizedBlock {
+        beacon_block_root: Hash256,
+    },
     RuntimeShutdown,
     TokioJoin(tokio::task::JoinError),
     ProcessInvalidExecutionPayload(JoinError),
@@ -198,6 +202,8 @@ pub enum BeaconChainError {
     },
     AttestationHeadNotInForkChoice(Hash256),
     MissingPersistedForkChoice,
+    CommitteePromiseFailed(oneshot_broadcast::Error),
+    MaxCommitteePromises(usize),
 }
 
 easy_from_to!(SlotProcessingError, BeaconChainError);

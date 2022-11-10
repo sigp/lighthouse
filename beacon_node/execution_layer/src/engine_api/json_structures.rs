@@ -1,9 +1,7 @@
 use super::*;
 use serde::{Deserialize, Serialize};
-use types::{
-    EthSpec, ExecutionBlockHash, ExecutionPayloadHeader, FixedVector, Transaction, Unsigned,
-    VariableList,
-};
+use strum::EnumString;
+use types::{EthSpec, ExecutionBlockHash, FixedVector, Transaction, Unsigned, VariableList};
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -78,6 +76,7 @@ pub struct JsonExecutionPayloadHeaderV1<T: EthSpec> {
     pub timestamp: u64,
     #[serde(with = "ssz_types::serde_utils::hex_var_list")]
     pub extra_data: VariableList<u8, T::MaxExtraDataBytes>,
+    #[serde(with = "eth2_serde_utils::u256_hex_be")]
     pub base_fee_per_gas: Uint256,
     pub block_hash: ExecutionBlockHash,
     pub transactions_root: Hash256,
@@ -142,6 +141,7 @@ pub struct JsonExecutionPayloadV1<T: EthSpec> {
     pub timestamp: u64,
     #[serde(with = "ssz_types::serde_utils::hex_var_list")]
     pub extra_data: VariableList<u8, T::MaxExtraDataBytes>,
+    #[serde(with = "eth2_serde_utils::u256_hex_be")]
     pub base_fee_per_gas: Uint256,
     pub block_hash: ExecutionBlockHash,
     #[serde(with = "ssz_types::serde_utils::list_of_hex_var_list")]
@@ -312,15 +312,15 @@ impl From<JsonForkChoiceStateV1> for ForkChoiceState {
     }
 }
 
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, EnumString)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+#[strum(serialize_all = "SCREAMING_SNAKE_CASE")]
 pub enum JsonPayloadStatusV1Status {
     Valid,
     Invalid,
     Syncing,
     Accepted,
     InvalidBlockHash,
-    InvalidTerminalBlock,
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
@@ -339,9 +339,6 @@ impl From<PayloadStatusV1Status> for JsonPayloadStatusV1Status {
             PayloadStatusV1Status::Syncing => JsonPayloadStatusV1Status::Syncing,
             PayloadStatusV1Status::Accepted => JsonPayloadStatusV1Status::Accepted,
             PayloadStatusV1Status::InvalidBlockHash => JsonPayloadStatusV1Status::InvalidBlockHash,
-            PayloadStatusV1Status::InvalidTerminalBlock => {
-                JsonPayloadStatusV1Status::InvalidTerminalBlock
-            }
         }
     }
 }
@@ -353,9 +350,6 @@ impl From<JsonPayloadStatusV1Status> for PayloadStatusV1Status {
             JsonPayloadStatusV1Status::Syncing => PayloadStatusV1Status::Syncing,
             JsonPayloadStatusV1Status::Accepted => PayloadStatusV1Status::Accepted,
             JsonPayloadStatusV1Status::InvalidBlockHash => PayloadStatusV1Status::InvalidBlockHash,
-            JsonPayloadStatusV1Status::InvalidTerminalBlock => {
-                PayloadStatusV1Status::InvalidTerminalBlock
-            }
         }
     }
 }
@@ -430,62 +424,10 @@ impl From<ForkchoiceUpdatedResponse> for JsonForkchoiceUpdatedV1Response {
     }
 }
 
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum JsonProposeBlindedBlockResponseStatus {
-    Valid,
-    Invalid,
-    Syncing,
-}
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-#[serde(bound = "E: EthSpec")]
-pub struct JsonProposeBlindedBlockResponse<E: EthSpec> {
-    pub result: ExecutionPayload<E>,
-    pub error: Option<String>,
-}
-
-impl<E: EthSpec> From<JsonProposeBlindedBlockResponse<E>> for ExecutionPayload<E> {
-    fn from(j: JsonProposeBlindedBlockResponse<E>) -> Self {
-        let JsonProposeBlindedBlockResponse { result, error: _ } = j;
-        result
-    }
-}
-
-impl From<JsonProposeBlindedBlockResponseStatus> for ProposeBlindedBlockResponseStatus {
-    fn from(j: JsonProposeBlindedBlockResponseStatus) -> Self {
-        match j {
-            JsonProposeBlindedBlockResponseStatus::Valid => {
-                ProposeBlindedBlockResponseStatus::Valid
-            }
-            JsonProposeBlindedBlockResponseStatus::Invalid => {
-                ProposeBlindedBlockResponseStatus::Invalid
-            }
-            JsonProposeBlindedBlockResponseStatus::Syncing => {
-                ProposeBlindedBlockResponseStatus::Syncing
-            }
-        }
-    }
-}
-impl From<ProposeBlindedBlockResponseStatus> for JsonProposeBlindedBlockResponseStatus {
-    fn from(f: ProposeBlindedBlockResponseStatus) -> Self {
-        match f {
-            ProposeBlindedBlockResponseStatus::Valid => {
-                JsonProposeBlindedBlockResponseStatus::Valid
-            }
-            ProposeBlindedBlockResponseStatus::Invalid => {
-                JsonProposeBlindedBlockResponseStatus::Invalid
-            }
-            ProposeBlindedBlockResponseStatus::Syncing => {
-                JsonProposeBlindedBlockResponseStatus::Syncing
-            }
-        }
-    }
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TransitionConfigurationV1 {
+    #[serde(with = "eth2_serde_utils::u256_hex_be")]
     pub terminal_total_difficulty: Uint256,
     pub terminal_block_hash: ExecutionBlockHash,
     #[serde(with = "eth2_serde_utils::u64_hex_be")]

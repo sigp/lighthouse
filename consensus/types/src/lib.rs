@@ -36,6 +36,7 @@ pub mod contribution_and_proof;
 pub mod deposit;
 pub mod deposit_data;
 pub mod deposit_message;
+pub mod deposit_tree_snapshot;
 pub mod enr_fork_id;
 pub mod eth1_data;
 pub mod eth_spec;
@@ -49,6 +50,9 @@ pub mod free_attestation;
 pub mod graffiti;
 pub mod historical_batch;
 pub mod indexed_attestation;
+pub mod light_client_bootstrap;
+pub mod light_client_optimistic_update;
+pub mod light_client_update;
 pub mod pending_attestation;
 pub mod proposer_preparation_data;
 pub mod proposer_slashing;
@@ -99,7 +103,7 @@ pub use crate::attestation_duty::AttestationDuty;
 pub use crate::attester_slashing::AttesterSlashing;
 pub use crate::beacon_block::{
     BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockMerge, BeaconBlockRef,
-    BeaconBlockRefMut,
+    BeaconBlockRefMut, BlindedBeaconBlock,
 };
 pub use crate::beacon_block_body::{
     BeaconBlockBody, BeaconBlockBodyAltair, BeaconBlockBodyBase, BeaconBlockBodyMerge,
@@ -110,11 +114,14 @@ pub use crate::beacon_committee::{BeaconCommittee, OwnedBeaconCommittee};
 pub use crate::beacon_state::{BeaconTreeHashCache, Error as BeaconStateError, *};
 pub use crate::chain_spec::{ChainSpec, Config, Domain};
 pub use crate::checkpoint::Checkpoint;
-pub use crate::config_and_preset::ConfigAndPreset;
+pub use crate::config_and_preset::{
+    ConfigAndPreset, ConfigAndPresetAltair, ConfigAndPresetBellatrix,
+};
 pub use crate::contribution_and_proof::ContributionAndProof;
 pub use crate::deposit::{Deposit, DEPOSIT_TREE_DEPTH};
 pub use crate::deposit_data::DepositData;
 pub use crate::deposit_message::DepositMessage;
+pub use crate::deposit_tree_snapshot::{DepositTreeSnapshot, FinalizedExecutionBlock};
 pub use crate::enr_fork_id::EnrForkId;
 pub use crate::eth1_data::Eth1Data;
 pub use crate::eth_spec::EthSpecId;

@@ -7,8 +7,8 @@ use crate::per_block_processing::errors::{
     ProposerSlashingInvalid,
 };
 use crate::{
-    per_block_processing::process_operations, BlockSignatureStrategy, VerifyBlockRoot,
-    VerifySignatures,
+    per_block_processing::{process_operations, verify_exit::verify_exit},
+    BlockSignatureStrategy, ConsensusContext, VerifyBlockRoot, VerifySignatures,
 };
 use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
 use lazy_static::lazy_static;
@@ -67,12 +67,13 @@ async fn valid_block_ok() {
         .make_block_return_pre_state(state, slot + Slot::new(1))
         .await;
 
+    let mut ctxt = ConsensusContext::new(block.slot());
     let result = per_block_processing(
         &mut state,
         &block,
-        None,
         BlockSignatureStrategy::VerifyIndividual,
         VerifyBlockRoot::True,
+        &mut ctxt,
         &spec,
     );
 
@@ -91,12 +92,13 @@ async fn invalid_block_header_state_slot() {
     let (mut block, signature) = signed_block.deconstruct();
     *block.slot_mut() = slot + Slot::new(1);
 
+    let mut ctxt = ConsensusContext::new(block.slot());
     let result = per_block_processing(
         &mut state,
         &SignedBeaconBlock::from_block(block, signature),
-        None,
         BlockSignatureStrategy::VerifyIndividual,
         VerifyBlockRoot::True,
+        &mut ctxt,
         &spec,
     );
 
@@ -122,12 +124,13 @@ async fn invalid_parent_block_root() {
     let (mut block, signature) = signed_block.deconstruct();
     *block.parent_root_mut() = Hash256::from([0xAA; 32]);
 
+    let mut ctxt = ConsensusContext::new(block.slot());
     let result = per_block_processing(
         &mut state,
         &SignedBeaconBlock::from_block(block, signature),
-        None,
         BlockSignatureStrategy::VerifyIndividual,
         VerifyBlockRoot::True,
+        &mut ctxt,
         &spec,
     );
 
@@ -154,12 +157,13 @@ async fn invalid_block_signature() {
         .await;
     let (block, _) = signed_block.deconstruct();
 
+    let mut ctxt = ConsensusContext::new(block.slot());
     let result = per_block_processing(
         &mut state,
         &SignedBeaconBlock::from_block(block, Signature::empty()),
-        None,
         BlockSignatureStrategy::VerifyIndividual,
         VerifyBlockRoot::True,
+        &mut ctxt,
         &spec,
     );
 
@@ -186,12 +190,13 @@ async fn invalid_randao_reveal_signature() {
         })
         .await;
 
+    let mut ctxt = ConsensusContext::new(signed_block.slot());
     let result = per_block_processing(
         &mut state,
         &signed_block,
-        None,
         BlockSignatureStrategy::VerifyIndividual,
         VerifyBlockRoot::True,
+        &mut ctxt,
         &spec,
     );
 
@@ -386,15 +391,16 @@ async fn invalid_attestation_no_committee_for_index() {
     head_block.to_mut().body_mut().attestations_mut()[0]
         .data
         .index += 1;
+    let mut ctxt = ConsensusContext::new(state.slot());
     let result = process_operations::process_attestations(
         &mut state,
         head_block.body(),
-        head_block.proposer_index(),
         VerifySignatures::True,
+        &mut ctxt,
         &spec,
     );
 
-    // Expecting NoCommitee because we manually set the attestation's index to be invalid
+    // Expecting NoCommittee because we manually set the attestation's index to be invalid
     assert_eq!(
         result,
         Err(BlockProcessingError::AttestationInvalid {
@@ -424,11 +430,12 @@ async fn invalid_attestation_wrong_justified_checkpoint() {
         .data
         .source = new_justified_checkpoint;
 
+    let mut ctxt = ConsensusContext::new(state.slot());
     let result = process_operations::process_attestations(
         &mut state,
         head_block.body(),
-        head_block.proposer_index(),
         VerifySignatures::True,
+        &mut ctxt,
         &spec,
     );
 
@@ -463,15 +470,16 @@ async fn invalid_attestation_bad_aggregation_bitfield_len() {
     head_block.to_mut().body_mut().attestations_mut()[0].aggregation_bits =
         Bitfield::with_capacity(spec.target_committee_size).unwrap();
 
+    let mut ctxt = ConsensusContext::new(state.slot());
     let result = process_operations::process_attestations(
         &mut state,
         head_block.body(),
-        head_block.proposer_index(),
         VerifySignatures::True,
+        &mut ctxt,
         &spec,
     );
 
-    // Expecting InvalidBitfield because the size of the aggregation_bitfield is bigger than the commitee size.
+    // Expecting InvalidBitfield because the size of the aggregation_bitfield is bigger than the committee size.
     assert_eq!(
         result,
         Err(BlockProcessingError::BeaconStateError(
@@ -495,11 +503,12 @@ async fn invalid_attestation_bad_signature() {
         .0;
     head_block.to_mut().body_mut().attestations_mut()[0].signature = AggregateSignature::empty();
 
+    let mut ctxt = ConsensusContext::new(state.slot());
     let result = process_operations::process_attestations(
         &mut state,
         head_block.body(),
-        head_block.proposer_index(),
         VerifySignatures::True,
+        &mut ctxt,
         &spec,
     );
     // Expecting BadSignature because we're signing with invalid secret_keys
@@ -533,11 +542,12 @@ async fn invalid_attestation_included_too_early() {
         .data
         .slot = new_attesation_slot;
 
+    let mut ctxt = ConsensusContext::new(state.slot());
     let result = process_operations::process_attestations(
         &mut state,
         head_block.body(),
-        head_block.proposer_index(),
         VerifySignatures::True,
+        &mut ctxt,
         &spec,
     );
 
@@ -575,11 +585,12 @@ async fn invalid_attestation_included_too_late() {
         .data
         .slot = new_attesation_slot;
 
+    let mut ctxt = ConsensusContext::new(state.slot());
     let result = process_operations::process_attestations(
         &mut state,
         head_block.body(),
-        head_block.proposer_index(),
         VerifySignatures::True,
+        &mut ctxt,
         &spec,
     );
     assert_eq!(
@@ -613,11 +624,12 @@ async fn invalid_attestation_target_epoch_slot_mismatch() {
         .target
         .epoch += Epoch::new(1);
 
+    let mut ctxt = ConsensusContext::new(state.slot());
     let result = process_operations::process_attestations(
         &mut state,
         head_block.body(),
-        head_block.proposer_index(),
         VerifySignatures::True,
+        &mut ctxt,
         &spec,
     );
     assert_eq!(
@@ -640,10 +652,12 @@ async fn valid_insert_attester_slashing() {
     let attester_slashing = harness.make_attester_slashing(vec![1, 2]);
 
     let mut state = harness.get_current_state();
+    let mut ctxt = ConsensusContext::new(state.slot());
     let result = process_operations::process_attester_slashings(
         &mut state,
         &[attester_slashing],
         VerifySignatures::True,
+        &mut ctxt,
         &spec,
     );
 
@@ -660,10 +674,12 @@ async fn invalid_attester_slashing_not_slashable() {
     attester_slashing.attestation_1 = attester_slashing.attestation_2.clone();
 
     let mut state = harness.get_current_state();
+    let mut ctxt = ConsensusContext::new(state.slot());
     let result = process_operations::process_attester_slashings(
         &mut state,
         &[attester_slashing],
         VerifySignatures::True,
+        &mut ctxt,
         &spec,
     );
 
@@ -686,10 +702,12 @@ async fn invalid_attester_slashing_1_invalid() {
     attester_slashing.attestation_1.attesting_indices = VariableList::from(vec![2, 1]);
 
     let mut state = harness.get_current_state();
+    let mut ctxt = ConsensusContext::new(state.slot());
     let result = process_operations::process_attester_slashings(
         &mut state,
         &[attester_slashing],
         VerifySignatures::True,
+        &mut ctxt,
         &spec,
     );
 
@@ -715,10 +733,12 @@ async fn invalid_attester_slashing_2_invalid() {
     attester_slashing.attestation_2.attesting_indices = VariableList::from(vec![2, 1]);
 
     let mut state = harness.get_current_state();
+    let mut ctxt = ConsensusContext::new(state.slot());
     let result = process_operations::process_attester_slashings(
         &mut state,
         &[attester_slashing],
         VerifySignatures::True,
+        &mut ctxt,
         &spec,
     );
 
@@ -741,10 +761,12 @@ async fn valid_insert_proposer_slashing() {
     let harness = get_harness::<MainnetEthSpec>(EPOCH_OFFSET, VALIDATOR_COUNT).await;
     let proposer_slashing = harness.make_proposer_slashing(1);
     let mut state = harness.get_current_state();
+    let mut ctxt = ConsensusContext::new(state.slot());
     let result = process_operations::process_proposer_slashings(
         &mut state,
         &[proposer_slashing],
         VerifySignatures::True,
+        &mut ctxt,
         &spec,
     );
     // Expecting Ok(_) because we inserted a valid proposer slashing
@@ -760,10 +782,12 @@ async fn invalid_proposer_slashing_proposals_identical() {
     proposer_slashing.signed_header_1.message = proposer_slashing.signed_header_2.message.clone();
 
     let mut state = harness.get_current_state();
+    let mut ctxt = ConsensusContext::new(state.slot());
     let result = process_operations::process_proposer_slashings(
         &mut state,
         &[proposer_slashing],
         VerifySignatures::True,
+        &mut ctxt,
         &spec,
     );
 
@@ -787,10 +811,12 @@ async fn invalid_proposer_slashing_proposer_unknown() {
     proposer_slashing.signed_header_2.message.proposer_index = 3_141_592;
 
     let mut state = harness.get_current_state();
+    let mut ctxt = ConsensusContext::new(state.slot());
     let result = process_operations::process_proposer_slashings(
         &mut state,
         &[proposer_slashing],
         VerifySignatures::True,
+        &mut ctxt,
         &spec,
     );
 
@@ -811,10 +837,12 @@ async fn invalid_proposer_slashing_duplicate_slashing() {
 
     let proposer_slashing = harness.make_proposer_slashing(1);
     let mut state = harness.get_current_state();
+    let mut ctxt = ConsensusContext::new(state.slot());
     let result_1 = process_operations::process_proposer_slashings(
         &mut state,
         &[proposer_slashing.clone()],
         VerifySignatures::False,
+        &mut ctxt,
         &spec,
     );
     assert!(result_1.is_ok());
@@ -823,6 +851,7 @@ async fn invalid_proposer_slashing_duplicate_slashing() {
         &mut state,
         &[proposer_slashing],
         VerifySignatures::False,
+        &mut ctxt,
         &spec,
     );
     // Expecting ProposerNotSlashable because we've already slashed the validator
@@ -842,10 +871,12 @@ async fn invalid_bad_proposal_1_signature() {
     let mut proposer_slashing = harness.make_proposer_slashing(1);
     proposer_slashing.signed_header_1.signature = Signature::empty();
     let mut state = harness.get_current_state();
+    let mut ctxt = ConsensusContext::new(state.slot());
     let result = process_operations::process_proposer_slashings(
         &mut state,
         &[proposer_slashing],
         VerifySignatures::True,
+        &mut ctxt,
         &spec,
     );
 
@@ -866,10 +897,12 @@ async fn invalid_bad_proposal_2_signature() {
     let mut proposer_slashing = harness.make_proposer_slashing(1);
     proposer_slashing.signed_header_2.signature = Signature::empty();
     let mut state = harness.get_current_state();
+    let mut ctxt = ConsensusContext::new(state.slot());
     let result = process_operations::process_proposer_slashings(
         &mut state,
         &[proposer_slashing],
         VerifySignatures::True,
+        &mut ctxt,
         &spec,
     );
 
@@ -891,10 +924,12 @@ async fn invalid_proposer_slashing_proposal_epoch_mismatch() {
     proposer_slashing.signed_header_1.message.slot = Slot::new(0);
     proposer_slashing.signed_header_2.message.slot = Slot::new(128);
     let mut state = harness.get_current_state();
+    let mut ctxt = ConsensusContext::new(state.slot());
     let result = process_operations::process_proposer_slashings(
         &mut state,
         &[proposer_slashing],
         VerifySignatures::False,
+        &mut ctxt,
         &spec,
     );
 
@@ -909,4 +944,71 @@ async fn invalid_proposer_slashing_proposal_epoch_mismatch() {
             )
         })
     );
+}
+
+#[tokio::test]
+async fn fork_spanning_exit() {
+    let mut spec = MainnetEthSpec::default_spec();
+    let slots_per_epoch = MainnetEthSpec::slots_per_epoch();
+
+    spec.altair_fork_epoch = Some(Epoch::new(2));
+    spec.bellatrix_fork_epoch = Some(Epoch::new(4));
+    spec.shard_committee_period = 0;
+
+    let harness = BeaconChainHarness::builder(MainnetEthSpec::default())
+        .spec(spec.clone())
+        .deterministic_keypairs(VALIDATOR_COUNT)
+        .mock_execution_layer()
+        .fresh_ephemeral_store()
+        .build();
+
+    harness.extend_to_slot(slots_per_epoch.into()).await;
+
+    /*
+     * Produce an exit *before* Altair.
+     */
+
+    let signed_exit = harness.make_voluntary_exit(0, Epoch::new(1));
+    assert!(signed_exit.message.epoch < spec.altair_fork_epoch.unwrap());
+
+    /*
+     * Ensure the exit verifies before Altair.
+     */
+
+    let head = harness.chain.canonical_head.cached_head();
+    let head_state = &head.snapshot.beacon_state;
+    assert!(head_state.current_epoch() < spec.altair_fork_epoch.unwrap());
+    verify_exit(head_state, &signed_exit, VerifySignatures::True, &spec)
+        .expect("phase0 exit verifies against phase0 state");
+
+    /*
+     * Ensure the exit verifies after Altair.
+     */
+
+    harness
+        .extend_to_slot(spec.altair_fork_epoch.unwrap().start_slot(slots_per_epoch))
+        .await;
+    let head = harness.chain.canonical_head.cached_head();
+    let head_state = &head.snapshot.beacon_state;
+    assert!(head_state.current_epoch() >= spec.altair_fork_epoch.unwrap());
+    assert!(head_state.current_epoch() < spec.bellatrix_fork_epoch.unwrap());
+    verify_exit(head_state, &signed_exit, VerifySignatures::True, &spec)
+        .expect("phase0 exit verifies against altair state");
+
+    /*
+     * Ensure the exit no longer verifies after Bellatrix.
+     */
+
+    harness
+        .extend_to_slot(
+            spec.bellatrix_fork_epoch
+                .unwrap()
+                .start_slot(slots_per_epoch),
+        )
+        .await;
+    let head = harness.chain.canonical_head.cached_head();
+    let head_state = &head.snapshot.beacon_state;
+    assert!(head_state.current_epoch() >= spec.bellatrix_fork_epoch.unwrap());
+    verify_exit(head_state, &signed_exit, VerifySignatures::True, &spec)
+        .expect_err("phase0 exit does not verify against bellatrix state");
 }

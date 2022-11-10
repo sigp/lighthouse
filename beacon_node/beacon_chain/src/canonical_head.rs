@@ -43,7 +43,10 @@ use crate::{
     BeaconChain, BeaconChainError as Error, BeaconChainTypes, BeaconSnapshot,
 };
 use eth2::types::{EventKind, SseChainReorg, SseFinalizedCheckpoint, SseHead, SseLateHead};
-use fork_choice::{ExecutionStatus, ForkChoiceView, ForkchoiceUpdateParameters, ProtoBlock};
+use fork_choice::{
+    CountUnrealizedFull, ExecutionStatus, ForkChoiceView, ForkchoiceUpdateParameters, ProtoBlock,
+    ResetPayloadStatuses,
+};
 use itertools::process_results;
 use parking_lot::{Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use slog::{crit, debug, error, warn, Logger};
@@ -99,6 +102,8 @@ pub struct CachedHead<E: EthSpec> {
     /// The `execution_payload.block_hash` of the block at the head of the chain. Set to `None`
     /// before Bellatrix.
     head_hash: Option<ExecutionBlockHash>,
+    /// The `execution_payload.block_hash` of the justified block. Set to `None` before Bellatrix.
+    justified_hash: Option<ExecutionBlockHash>,
     /// The `execution_payload.block_hash` of the finalized block. Set to `None` before Bellatrix.
     finalized_hash: Option<ExecutionBlockHash>,
 }
@@ -183,6 +188,7 @@ impl<E: EthSpec> CachedHead<E> {
         ForkchoiceUpdateParameters {
             head_root: self.snapshot.beacon_block_root,
             head_hash: self.head_hash,
+            justified_hash: self.justified_hash,
             finalized_hash: self.finalized_hash,
         }
     }
@@ -224,6 +230,7 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
             justified_checkpoint: fork_choice_view.justified_checkpoint,
             finalized_checkpoint: fork_choice_view.finalized_checkpoint,
             head_hash: forkchoice_update_params.head_hash,
+            justified_hash: forkchoice_update_params.justified_hash,
             finalized_hash: forkchoice_update_params.finalized_hash,
         };
 
@@ -245,11 +252,20 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
         // and it needs to be dropped to prevent a dead-lock. Requiring it to be passed here is
         // defensive programming.
         mut fork_choice_write_lock: RwLockWriteGuard<BeaconForkChoice<T>>,
+        reset_payload_statuses: ResetPayloadStatuses,
+        count_unrealized_full: CountUnrealizedFull,
         store: &BeaconStore<T>,
         spec: &ChainSpec,
+        log: &Logger,
     ) -> Result<(), Error> {
-        let fork_choice = <BeaconChain<T>>::load_fork_choice(store.clone(), spec)?
-            .ok_or(Error::MissingPersistedForkChoice)?;
+        let fork_choice = <BeaconChain<T>>::load_fork_choice(
+            store.clone(),
+            reset_payload_statuses,
+            count_unrealized_full,
+            spec,
+            log,
+        )?
+        .ok_or(Error::MissingPersistedForkChoice)?;
         let fork_choice_view = fork_choice.cached_fork_choice_view();
         let beacon_block_root = fork_choice_view.head_block_root;
         let beacon_block = store
@@ -272,6 +288,7 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
             justified_checkpoint: fork_choice_view.justified_checkpoint,
             finalized_checkpoint: fork_choice_view.finalized_checkpoint,
             head_hash: forkchoice_update_params.head_hash,
+            justified_hash: forkchoice_update_params.justified_hash,
             finalized_hash: forkchoice_update_params.finalized_hash,
         };
 
@@ -293,6 +310,23 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
         self.fork_choice_read_lock()
             .get_block_execution_status(&head_block_root)
             .ok_or(Error::HeadMissingFromForkChoice(head_block_root))
+    }
+
+    /// Returns a clone of the `CachedHead` and the execution status of the contained head block.
+    ///
+    /// This will only return `Err` in the scenario where `self.fork_choice` has advanced
+    /// significantly past the cached `head_snapshot`. In such a scenario it is likely prudent to
+    /// run `BeaconChain::recompute_head` to update the cached values.
+    pub fn head_and_execution_status(
+        &self,
+    ) -> Result<(CachedHead<T::EthSpec>, ExecutionStatus), Error> {
+        let head = self.cached_head();
+        let head_block_root = head.head_block_root();
+        let execution_status = self
+            .fork_choice_read_lock()
+            .get_block_execution_status(&head_block_root)
+            .ok_or(Error::HeadMissingFromForkChoice(head_block_root))?;
+        Ok((head, execution_status))
     }
 
     /// Returns a clone of `self.cached_head`.
@@ -412,9 +446,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Execute the fork choice algorithm and enthrone the result as the canonical head.
     ///
     /// This method replaces the old `BeaconChain::fork_choice` method.
-    pub async fn recompute_head_at_current_slot(self: &Arc<Self>) -> Result<(), Error> {
-        let current_slot = self.slot()?;
-        self.recompute_head_at_slot(current_slot).await
+    pub async fn recompute_head_at_current_slot(self: &Arc<Self>) {
+        match self.slot() {
+            Ok(current_slot) => self.recompute_head_at_slot(current_slot).await,
+            Err(e) => error!(
+                self.log,
+                "No slot when recomputing head";
+                "error" => ?e
+            ),
+        }
     }
 
     /// Execute the fork choice algorithm and enthrone the result as the canonical head.
@@ -423,7 +463,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// different slot to the wall-clock can be useful for pushing fork choice into the next slot
     /// *just* before the start of the slot. This ensures that block production can use the correct
     /// head value without being delayed.
-    pub async fn recompute_head_at_slot(self: &Arc<Self>, current_slot: Slot) -> Result<(), Error> {
+    ///
+    /// This function purposefully does *not* return a `Result`. It's possible for fork choice to
+    /// fail to update if there is only one viable head and it has an invalid execution payload. In
+    /// such a case it's critical that the `BeaconChain` keeps importing blocks so that the
+    /// situation can be rectified. We avoid returning an error here so that calling functions
+    /// can't abort block import because an error is returned here.
+    pub async fn recompute_head_at_slot(self: &Arc<Self>, current_slot: Slot) {
         metrics::inc_counter(&metrics::FORK_CHOICE_REQUESTS);
         let _timer = metrics::start_timer(&metrics::FORK_CHOICE_TIMES);
 
@@ -433,15 +479,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 move || chain.recompute_head_at_slot_internal(current_slot),
                 "recompute_head_internal",
             )
-            .await?
+            .await
         {
             // Fork choice returned successfully and did not need to update the EL.
-            Ok(None) => Ok(()),
+            Ok(Ok(None)) => (),
             // Fork choice returned successfully and needed to update the EL. It has returned a
             // join-handle from when it spawned some async tasks. We should await those tasks.
-            Ok(Some(join_handle)) => match join_handle.await {
+            Ok(Ok(Some(join_handle))) => match join_handle.await {
                 // The async task completed successfully.
-                Ok(Some(())) => Ok(()),
+                Ok(Some(())) => (),
                 // The async task did not complete successfully since the runtime is shutting down.
                 Ok(None) => {
                     debug!(
@@ -449,7 +495,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         "Did not update EL fork choice";
                         "info" => "shutting down"
                     );
-                    Err(Error::RuntimeShutdown)
                 }
                 // The async task did not complete successfully, tokio returned an error.
                 Err(e) => {
@@ -458,13 +503,24 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         "Did not update EL fork choice";
                         "error" => ?e
                     );
-                    Err(Error::TokioJoin(e))
                 }
             },
             // There was an error recomputing the head.
-            Err(e) => {
+            Ok(Err(e)) => {
                 metrics::inc_counter(&metrics::FORK_CHOICE_ERRORS);
-                Err(e)
+                error!(
+                    self.log,
+                    "Error whist recomputing head";
+                    "error" => ?e
+                );
+            }
+            // There was an error spawning the task.
+            Err(e) => {
+                error!(
+                    self.log,
+                    "Failed to spawn recompute head task";
+                    "error" => ?e
+                );
             }
         }
     }
@@ -612,6 +668,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 justified_checkpoint: new_view.justified_checkpoint,
                 finalized_checkpoint: new_view.finalized_checkpoint,
                 head_hash: new_forkchoice_update_parameters.head_hash,
+                justified_hash: new_forkchoice_update_parameters.justified_hash,
                 finalized_hash: new_forkchoice_update_parameters.finalized_hash,
             };
 
@@ -638,6 +695,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 justified_checkpoint: new_view.justified_checkpoint,
                 finalized_checkpoint: new_view.finalized_checkpoint,
                 head_hash: new_forkchoice_update_parameters.head_hash,
+                justified_hash: new_forkchoice_update_parameters.justified_hash,
                 finalized_hash: new_forkchoice_update_parameters.finalized_hash,
             };
 
@@ -673,6 +731,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         drop(old_cached_head);
 
         // If the finalized checkpoint changed, perform some updates.
+        //
+        // The `after_finalization` function will take a write-lock on `fork_choice`, therefore it
+        // is a dead-lock risk to hold any other lock on fork choice at this point.
         if new_view.finalized_checkpoint != old_view.finalized_checkpoint {
             if let Err(e) =
                 self.after_finalization(&new_cached_head, new_view, finalized_proto_block)
@@ -706,6 +767,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ) -> Result<(), Error> {
         let old_snapshot = &old_cached_head.snapshot;
         let new_snapshot = &new_cached_head.snapshot;
+        let new_head_is_optimistic = new_head_proto_block
+            .execution_status
+            .is_optimistic_or_invalid();
 
         // Detect and potentially report any re-orgs.
         let reorg_distance = detect_reorg(
@@ -791,6 +855,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         current_duty_dependent_root,
                         previous_duty_dependent_root,
                         epoch_transition: is_epoch_transition,
+                        execution_optimistic: new_head_is_optimistic,
                     }));
                 }
                 (Err(e), _) | (_, Err(e)) => {
@@ -818,6 +883,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     new_head_block: new_snapshot.beacon_block_root,
                     new_head_state: new_snapshot.beacon_state_root(),
                     epoch: head_slot.epoch(T::EthSpec::slots_per_epoch()),
+                    execution_optimistic: new_head_is_optimistic,
                 }));
             }
         }
@@ -827,6 +893,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     /// Perform updates to caches and other components after the finalized checkpoint has been
     /// changed.
+    ///
+    /// This function will take a write-lock on `canonical_head.fork_choice`, therefore it would be
+    /// unwise to hold any lock on fork choice while calling this function.
     fn after_finalization(
         self: &Arc<Self>,
         new_cached_head: &CachedHead<T::EthSpec>,
@@ -834,6 +903,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         finalized_proto_block: ProtoBlock,
     ) -> Result<(), Error> {
         let new_snapshot = &new_cached_head.snapshot;
+        let finalized_block_is_optimistic = finalized_proto_block
+            .execution_status
+            .is_optimistic_or_invalid();
 
         self.op_pool
             .prune_all(&new_snapshot.beacon_state, self.epoch()?);
@@ -877,6 +949,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     // specific state root at the first slot of the finalized epoch (which
                     // might be a skip slot).
                     state: finalized_proto_block.state_root,
+                    execution_optimistic: finalized_block_is_optimistic,
                 }));
             }
         }
@@ -910,6 +983,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             new_view.finalized_checkpoint,
             self.head_tracker.clone(),
         )?;
+
+        // Take a write-lock on the canonical head and signal for it to prune.
+        self.canonical_head.fork_choice_write_lock().prune()?;
 
         Ok(())
     }
@@ -1113,6 +1189,10 @@ fn detect_reorg<E: EthSpec>(
 
         metrics::inc_counter(&metrics::FORK_CHOICE_REORG_COUNT);
         metrics::inc_counter(&metrics::FORK_CHOICE_REORG_COUNT_INTEROP);
+        metrics::set_gauge(
+            &metrics::FORK_CHOICE_REORG_DISTANCE,
+            reorg_distance.as_u64() as i64,
+        );
         warn!(
             log,
             "Beacon chain re-org";
@@ -1209,6 +1289,7 @@ fn observe_head_block_delays<E: EthSpec, S: SlotClock>(
     let block_time_set_as_head = timestamp_now();
     let head_block_root = head_block.root;
     let head_block_slot = head_block.slot;
+    let head_block_is_optimistic = head_block.execution_status.is_optimistic_or_invalid();
 
     // Calculate the total delay between the start of the slot and when it was set as head.
     let block_delay_total = get_slot_delay_ms(block_time_set_as_head, head_block_slot, slot_clock);
@@ -1301,6 +1382,7 @@ fn observe_head_block_delays<E: EthSpec, S: SlotClock>(
                 observed_delay: block_delays.observed,
                 imported_delay: block_delays.imported,
                 set_as_head_delay: block_delays.set_as_head,
+                execution_optimistic: head_block_is_optimistic,
             }));
         }
     }

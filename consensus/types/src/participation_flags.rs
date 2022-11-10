@@ -3,7 +3,7 @@ use safe_arith::{ArithError, SafeArith};
 use serde_derive::{Deserialize, Serialize};
 use ssz::{Decode, DecodeError, Encode};
 use test_random_derive::TestRandom;
-use tree_hash::{TreeHash, TreeHashType};
+use tree_hash::{PackedEncoding, TreeHash, TreeHashType};
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Deserialize, Serialize, TestRandom)]
 #[serde(transparent)]
@@ -78,7 +78,7 @@ impl TreeHash for ParticipationFlags {
         u8::tree_hash_type()
     }
 
-    fn tree_hash_packed_encoding(&self) -> Vec<u8> {
+    fn tree_hash_packed_encoding(&self) -> PackedEncoding {
         self.bits.tree_hash_packed_encoding()
     }
 

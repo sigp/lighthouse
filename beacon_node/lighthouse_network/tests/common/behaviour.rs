@@ -23,7 +23,8 @@
 use std::collections::HashMap;
 use std::task::{Context, Poll};
 
-use libp2p::core::connection::{ConnectedPoint, ConnectionId, ListenerId};
+use libp2p::core::connection::{ConnectedPoint, ConnectionId};
+use libp2p::core::transport::ListenerId;
 use libp2p::swarm::handler::{ConnectionHandler, DummyConnectionHandler, IntoConnectionHandler};
 use libp2p::swarm::{DialError, NetworkBehaviour, NetworkBehaviourAction, PollParameters};
 use libp2p::{Multiaddr, PeerId};
