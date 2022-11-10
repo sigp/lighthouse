@@ -45,7 +45,7 @@ pub struct ChainConfig {
     pub paranoid_block_proposal: bool,
     /// Whether to strictly count unrealized justified votes.
     pub count_unrealized_full: CountUnrealizedFull,
-    /// Optionally set timeout for calls to chackpoint sync endpoint.
+    /// Optionally set timeout for calls to checkpoint sync endpoint.
     pub checkpoint_sync_url_timeout: u64,
 }
 
