@@ -1580,3 +1580,18 @@ fn sync_eth1_chain_disable_deposit_contract_sync_flag() {
         .run_with_zero_port()
         .with_config(|config| assert_eq!(config.sync_eth1_chain, false));
 }
+
+#[test]
+fn light_client_server_default() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| assert_eq!(config.chain.enable_light_client_server, false));
+}
+
+#[test]
+fn light_client_server_enabled() {
+    CommandLineTest::new()
+        .flag("light-client-server", None)
+        .run_with_zero_port()
+        .with_config(|config| assert_eq!(config.chain.enable_light_client_server, true));
+}
