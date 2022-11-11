@@ -1702,12 +1702,12 @@ impl<T: EthSpec> BeaconState<T> {
         };
 
         // 2. Get all `BeaconState` leaves.
-        let cache = self.tree_hash_cache_mut().take();
-        let leaves = if let Some(mut cache) = cache {
-            cache.recalculate_tree_hash_leaves(self)?
-        } else {
-            return Err(Error::TreeHashCacheNotInitialized);
-        };
+        let mut cache = self
+            .tree_hash_cache_mut()
+            .take()
+            .ok_or(Error::TreeHashCacheNotInitialized)?;
+        let leaves = cache.recalculate_tree_hash_leaves(self)?;
+        self.tree_hash_cache_mut().restore(cache);
 
         // 3. Make deposit tree.
         // Use the depth of the `BeaconState` fields (i.e. `log2(32) = 5`).

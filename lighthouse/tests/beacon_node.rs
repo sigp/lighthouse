@@ -133,6 +133,25 @@ fn fork_choice_before_proposal_timeout_zero() {
 }
 
 #[test]
+fn checkpoint_sync_url_timeout_flag() {
+    CommandLineTest::new()
+        .flag("checkpoint-sync-url-timeout", Some("300"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(config.chain.checkpoint_sync_url_timeout, 300);
+        });
+}
+
+#[test]
+fn checkpoint_sync_url_timeout_default() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(config.chain.checkpoint_sync_url_timeout, 60);
+        });
+}
+
+#[test]
 fn paranoid_block_proposal_default() {
     CommandLineTest::new()
         .run_with_zero_port()
@@ -1560,4 +1579,19 @@ fn sync_eth1_chain_disable_deposit_contract_sync_flag() {
         )
         .run_with_zero_port()
         .with_config(|config| assert_eq!(config.sync_eth1_chain, false));
+}
+
+#[test]
+fn light_client_server_default() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| assert_eq!(config.chain.enable_light_client_server, false));
+}
+
+#[test]
+fn light_client_server_enabled() {
+    CommandLineTest::new()
+        .flag("light-client-server", None)
+        .run_with_zero_port()
+        .with_config(|config| assert_eq!(config.chain.enable_light_client_server, true));
 }
