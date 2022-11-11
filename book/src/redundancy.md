@@ -97,7 +97,7 @@ resource consumption akin to running 64+ validators.
 Lighthouse previously supported redundant execution nodes for fetching data from the deposit
 contract. On merged networks _this is no longer supported_. Each Lighthouse beacon node must be
 configured in a 1:1 relationship with an execution node. For more information on the rationale
-behind this decision please see the [Run a Node](./run_a_node.md) documentation.
+behind this decision please see the [Merge Migration](./merge-migration.md) documentation.
 
 To achieve redundancy we recommend configuring [Redundant beacon nodes](#redundant-beacon-nodes)
 where each has its own execution engine.
