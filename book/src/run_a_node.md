@@ -3,11 +3,11 @@
 This document provides detail for users who want to run a Lighthouse beacon node.
 You should be finished with one [Installation](./installation.md) of your choice to continue with the following steps:
 
-1. Perform [Checkpoint sync](#step-1-checkpoint-sync);
+1. Enable [checkpoint sync](#step-1-checkpoint-sync);
 1. Set up an [execution node](#step-2-set-up-an-execution-node);
 1. Run [Lighthouse](#step-3-run-lighthouse);
 1. [Check logs](#step-4-check-logs); and
-1. [Further reading](#step-5-further-reading).
+1. [Further readings](#step-5-further-readings).
 
 Checkpoint sync is *optional*; however,  we recommend it since it is substantially faster
 than syncing from genesis while still providing all the same features.
@@ -143,7 +143,7 @@ INFO Downloading historical blocks  est_time: 5 hrs 0 mins, speed: 111.96 slots/
 
 Once backfill is complete, a `INFO Historical block download complete` log will be emitted.
 
-Checkout [FAQ](./checkpoint-sync.md#faq) for more information.
+Check out the [FAQ](./checkpoint-sync.md#faq) for more information on the checkpoint sync.
 
 ### Logs - Syncing
 
@@ -155,7 +155,7 @@ INFO Synced, slot: 3690668, block: 0x1244…cb92, epoch: 115333, finalized_epoch
 ```
 
 
-## Step 5: Further reading
+## Step 5: Further readings
 
 Several other resources are the next logical step to explore after running your beacon node: 
 
