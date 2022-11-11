@@ -1250,9 +1250,14 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                         );
                         Some(event)
                     }
-                    InboundRequest::LightClientBootstrap(_) => {
-                        unreachable!()
-                    }
+                    InboundRequest::LightClientBootstrap(req) => {
+                        let event = self.build_request(
+                            peer_request_id,
+                            peer_id,
+                            Request::LightClientBootstrap(req),
+                        );
+                        Some(event)
+                    },
                 }
             }
             Ok(RPCReceived::Response(id, resp)) => {
@@ -1280,6 +1285,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                     RPCResponse::BlocksByRoot(resp) => {
                         self.build_response(id, peer_id, Response::BlocksByRoot(Some(resp)))
                     }
+                    // Should never be reached
                     RPCResponse::LightClientBootstrap(bootstrap) => {
                         self.build_response(id, peer_id, Response::LightClientBootstrap(bootstrap))
                     }
