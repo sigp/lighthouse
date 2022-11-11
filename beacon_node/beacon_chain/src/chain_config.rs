@@ -47,6 +47,8 @@ pub struct ChainConfig {
     pub count_unrealized_full: CountUnrealizedFull,
     /// Optionally set timeout for calls to checkpoint sync endpoint.
     pub checkpoint_sync_url_timeout: u64,
+    /// Whether to enable the light client server protocol.
+    pub enable_light_client_server: bool,
 }
 
 impl Default for ChainConfig {
@@ -68,6 +70,7 @@ impl Default for ChainConfig {
             paranoid_block_proposal: false,
             count_unrealized_full: CountUnrealizedFull::default(),
             checkpoint_sync_url_timeout: 60,
+            enable_light_client_server: false,
         }
     }
 }

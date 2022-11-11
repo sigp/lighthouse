@@ -705,6 +705,9 @@ pub fn get_config<E: EthSpec>(
     client_config.chain.builder_fallback_disable_checks =
         cli_args.is_present("builder-fallback-disable-checks");
 
+    // Light client server config.
+    client_config.chain.enable_light_client_server = cli_args.is_present("light-client-server");
+
     Ok(client_config)
 }
 

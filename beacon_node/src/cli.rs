@@ -868,4 +868,11 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                       Useful if you intend to run a non-validating beacon node.")
                 .takes_value(false)
         )
+        .arg(
+            Arg::with_name("light-client-server")
+                .long("light-client-server")
+                .help("Act as a full node supporting light clients on the p2p network \
+                       [experimental]")
+                .takes_value(false)
+        )
 }
