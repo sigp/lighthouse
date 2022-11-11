@@ -424,7 +424,7 @@ pub enum InboundRequest<TSpec: EthSpec> {
 // impl<TSpec: EthSpec> UpgradeInfo for InboundRequest<TSpec> {
 //     type Info = ProtocolId;
 //     type InfoIter = Vec<Self::Info>;
-// 
+//
 //     // add further protocols as we support more encodings/versions
 //     fn protocol_info(&self) -> Self::InfoIter {
 //         self.supported_protocols()
