@@ -20,7 +20,7 @@ use futures::StreamExt;
 use libp2p::{
     core::either::EitherError,
     swarm::SwarmEvent,
-    swarm::{handler::DummyConnectionHandler, DummyBehaviour, KeepAlive, Swarm},
+    swarm::{dummy::ConnectionHandler, DummyBehaviour, KeepAlive, Swarm},
     NetworkBehaviour,
 };
 

@@ -4,7 +4,7 @@ use futures::StreamExt;
 use libp2p::core::connection::ConnectionId;
 use libp2p::core::ConnectedPoint;
 use libp2p::swarm::dial_opts::{DialOpts, PeerCondition};
-use libp2p::swarm::handler::DummyConnectionHandler;
+use libp2p::swarm::dummy;
 use libp2p::swarm::{
     ConnectionHandler, DialError, NetworkBehaviour, NetworkBehaviourAction, PollParameters,
 };
@@ -20,21 +20,21 @@ use super::peerdb::BanResult;
 use super::{ConnectingType, PeerManager, PeerManagerEvent, ReportSource};
 
 impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
-    type ConnectionHandler = DummyConnectionHandler;
+    type ConnectionHandler = dummy::ConnectionHandler;
 
     type OutEvent = PeerManagerEvent;
 
     /* Required trait members */
 
     fn new_handler(&mut self) -> Self::ConnectionHandler {
-        DummyConnectionHandler::default()
+        dummy::ConnectionHandler
     }
 
     fn inject_event(
         &mut self,
         _: PeerId,
         _: ConnectionId,
-        _: <DummyConnectionHandler as ConnectionHandler>::OutEvent,
+        _: <dummy::ConnectionHandler as ConnectionHandler>::OutEvent,
     ) {
         unreachable!("Dummy handler does not emit events")
     }
@@ -194,7 +194,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
         peer_id: &PeerId,
         _: &ConnectionId,
         _: &ConnectedPoint,
-        _: DummyConnectionHandler,
+        _: dummy::ConnectionHandler,
         remaining_established: usize,
     ) {
         if remaining_established > 0 {
@@ -259,7 +259,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
     fn inject_dial_failure(
         &mut self,
         peer_id: Option<PeerId>,
-        _handler: DummyConnectionHandler,
+        _handler: dummy::ConnectionHandler,
         _error: &DialError,
     ) {
         if let Some(peer_id) = peer_id {

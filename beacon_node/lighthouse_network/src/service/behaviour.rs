@@ -7,8 +7,7 @@ use libp2p::gossipsub::subscription_filter::{
     MaxCountSubscriptionFilter, WhitelistSubscriptionFilter,
 };
 use libp2p::gossipsub::Gossipsub as BaseGossipsub;
-use libp2p::identify::Identify;
-use libp2p::swarm::NetworkBehaviour;
+use libp2p::identify::Behaviour as Identify;
 use libp2p::NetworkBehaviour;
 use types::EthSpec;
 

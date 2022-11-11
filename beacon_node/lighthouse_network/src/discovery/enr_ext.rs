@@ -232,7 +232,6 @@ impl CombinedKeyExt for CombinedKey {
                         .expect("libp2p key must be valid");
                 Ok(CombinedKey::from(ed_keypair))
             }
-            Keypair::Ecdsa(_) => Err("Ecdsa keypairs not supported"),
         }
     }
 }
@@ -266,10 +265,6 @@ pub fn peer_id_to_node_id(peer_id: &PeerId) -> Result<discv5::enr::NodeId, Strin
             hasher.finalize(&mut output);
             Ok(discv5::enr::NodeId::parse(&output).expect("Must be correct length"))
         }
-        PublicKey::Ecdsa(_) => Err(format!(
-            "Unsupported public key (Ecdsa) from peer {}",
-            peer_id
-        )),
     }
 }
 

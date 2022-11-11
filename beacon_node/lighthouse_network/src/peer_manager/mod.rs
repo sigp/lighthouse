@@ -7,7 +7,7 @@ use crate::{NetworkGlobals, PeerId};
 use crate::{Subnet, SubnetDiscovery};
 use delay_map::HashSetDelay;
 use discv5::Enr;
-use libp2p::identify::IdentifyInfo;
+use libp2p::identify::Info;
 use peerdb::{client::ClientKind, BanOperation, BanResult, ScoreUpdateResult};
 use rand::seq::SliceRandom;
 use slog::{debug, error, trace, warn};
@@ -392,7 +392,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     }
 
     /// Updates `PeerInfo` with `identify` information.
-    pub fn identify(&mut self, peer_id: &PeerId, info: &IdentifyInfo) {
+    pub fn identify(&mut self, peer_id: &PeerId, info: &Info) {
         if let Some(peer_info) = self.network_globals.peers.write().peer_info_mut(peer_id) {
             let previous_kind = peer_info.client().kind;
             let previous_listening_addresses =

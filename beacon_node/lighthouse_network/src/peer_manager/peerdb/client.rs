@@ -2,7 +2,7 @@
 //!
 //! Currently using identify to fingerprint.
 
-use libp2p::identify::IdentifyInfo;
+use libp2p::identify::Info;
 use serde::Serialize;
 use strum::{AsRefStr, EnumIter, IntoStaticStr};
 
@@ -51,7 +51,7 @@ impl Default for Client {
 
 impl Client {
     /// Builds a `Client` from `IdentifyInfo`.
-    pub fn from_identify_info(info: &IdentifyInfo) -> Self {
+    pub fn from_identify_info(info: &Info) -> Self {
         let (kind, version, os_version) = client_from_agent_version(&info.agent_version);
 
         Client {
