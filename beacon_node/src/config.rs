@@ -441,6 +441,8 @@ pub fn get_config<E: EthSpec>(
                 .extend_from_slice(boot_nodes)
         }
     }
+    client_config.chain.checkpoint_sync_url_timeout =
+        clap_utils::parse_required::<u64>(cli_args, "checkpoint-sync-url-timeout")?;
 
     client_config.genesis = if let Some(genesis_state_bytes) =
         eth2_network_config.genesis_state_bytes.clone()

@@ -133,6 +133,25 @@ fn fork_choice_before_proposal_timeout_zero() {
 }
 
 #[test]
+fn checkpoint_sync_url_timeout_flag() {
+    CommandLineTest::new()
+        .flag("checkpoint-sync-url-timeout", Some("300"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(config.chain.checkpoint_sync_url_timeout, 300);
+        });
+}
+
+#[test]
+fn checkpoint_sync_url_timeout_default() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(config.chain.checkpoint_sync_url_timeout, 60);
+        });
+}
+
+#[test]
 fn paranoid_block_proposal_default() {
     CommandLineTest::new()
         .run_with_zero_port()

@@ -715,6 +715,14 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .conflicts_with("checkpoint-state")
         )
         .arg(
+            Arg::with_name("checkpoint-sync-url-timeout")
+                .long("checkpoint-sync-url-timeout")
+                .help("Set the timeout for checkpoint sync calls to remote beacon node HTTP endpoint.")
+                .value_name("SECONDS")
+                .takes_value(true)
+                .default_value("60")
+        )
+        .arg(
             Arg::with_name("reconstruct-historic-states")
                 .long("reconstruct-historic-states")
                 .help("After a checkpoint sync, reconstruct historic states in the database.")
