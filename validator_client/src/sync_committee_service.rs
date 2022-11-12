@@ -182,7 +182,7 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
                 OfflineOnFailure::Yes,
                 |beacon_node| async move {
                     match beacon_node.get_beacon_blocks_root(BlockId::Head).await {
-                        Ok(Some(block)) if block.execution_optimistic == Some(true) => {
+                        Ok(Some(block)) if block.execution_optimistic == Some(false) => {
                             Ok(block.data.root)
                         }
                         Ok(Some(_)) => {
