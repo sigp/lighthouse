@@ -6,7 +6,10 @@ mod block_rewards;
 
 use crate::{
     ok_or_error,
-    types::{BeaconState, ChainSpec, Epoch, EthSpec, GenericResponse, ValidatorId},
+    types::{
+        BeaconState, ChainSpec, DepositTreeSnapshot, Epoch, EthSpec, FinalizedExecutionBlock,
+        GenericResponse, ValidatorId,
+    },
     BeaconNodeHttpClient, DepositData, Error, Eth1Data, Hash256, StateId, StatusCode,
 };
 use proto_array::core::ProtoArray;
@@ -328,6 +331,19 @@ impl Eth1Block {
             deposit_count: self.deposit_count?,
             block_hash: self.hash,
         })
+    }
+}
+
+impl From<Eth1Block> for FinalizedExecutionBlock {
+    fn from(eth1_block: Eth1Block) -> Self {
+        Self {
+            deposit_count: eth1_block.deposit_count.unwrap_or(0),
+            deposit_root: eth1_block
+                .deposit_root
+                .unwrap_or_else(|| DepositTreeSnapshot::default().deposit_root),
+            block_hash: eth1_block.hash,
+            block_height: eth1_block.number,
+        }
     }
 }
 

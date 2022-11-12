@@ -1,3 +1,4 @@
+#![recursion_limit = "256"]
 //! This crate contains a HTTP server which serves the endpoints listed here:
 //!
 //! https://github.com/ethereum/beacon-APIs
@@ -890,6 +891,37 @@ pub fn serve<T: BeaconChainTypes>(
             },
         );
 
+    // GET beacon/states/{state_id}/randao?epoch
+    let get_beacon_state_randao = beacon_states_path
+        .clone()
+        .and(warp::path("randao"))
+        .and(warp::query::<api_types::RandaoQuery>())
+        .and(warp::path::end())
+        .and_then(
+            |state_id: StateId, chain: Arc<BeaconChain<T>>, query: api_types::RandaoQuery| {
+                blocking_json_task(move || {
+                    let (randao, execution_optimistic) = state_id
+                        .map_state_and_execution_optimistic(
+                            &chain,
+                            |state, execution_optimistic| {
+                                let epoch = query.epoch.unwrap_or_else(|| state.current_epoch());
+                                let randao = *state.get_randao_mix(epoch).map_err(|e| {
+                                    warp_utils::reject::custom_bad_request(format!(
+                                        "epoch out of range: {e:?}"
+                                    ))
+                                })?;
+                                Ok((randao, execution_optimistic))
+                            },
+                        )?;
+
+                    Ok(
+                        api_types::GenericResponse::from(api_types::RandaoMix { randao })
+                            .add_execution_optimistic(execution_optimistic),
+                    )
+                })
+            },
+        );
+
     // GET beacon/headers
     //
     // Note: this endpoint only returns information about blocks in the canonical chain. Given that
@@ -1165,6 +1197,51 @@ pub fn serve<T: BeaconChainTypes>(
                 )
             })
         });
+
+    // GET beacon/blinded_blocks/{block_id}
+    let get_beacon_blinded_block = eth_v1
+        .and(warp::path("beacon"))
+        .and(warp::path("blinded_blocks"))
+        .and(block_id_or_err)
+        .and(chain_filter.clone())
+        .and(warp::path::end())
+        .and(warp::header::optional::<api_types::Accept>("accept"))
+        .and_then(
+            |block_id: BlockId,
+             chain: Arc<BeaconChain<T>>,
+             accept_header: Option<api_types::Accept>| {
+                blocking_task(move || {
+                    let (block, execution_optimistic) = block_id.blinded_block(&chain)?;
+                    let fork_name = block
+                        .fork_name(&chain.spec)
+                        .map_err(inconsistent_fork_rejection)?;
+
+                    match accept_header {
+                        Some(api_types::Accept::Ssz) => Response::builder()
+                            .status(200)
+                            .header("Content-Type", "application/octet-stream")
+                            .body(block.as_ssz_bytes().into())
+                            .map_err(|e| {
+                                warp_utils::reject::custom_server_error(format!(
+                                    "failed to create response: {}",
+                                    e
+                                ))
+                            }),
+                        _ => {
+                            // Post as a V2 endpoint so we return the fork version.
+                            execution_optimistic_fork_versioned_response(
+                                V2,
+                                fork_name,
+                                execution_optimistic,
+                                block,
+                            )
+                            .map(|res| warp::reply::json(&res).into_response())
+                        }
+                    }
+                    .map(|resp| add_consensus_version_header(resp, fork_name))
+                })
+            },
+        );
 
     /*
      * beacon/pool
@@ -1529,6 +1606,53 @@ pub fn serve<T: BeaconChainTypes>(
                         signatures, network_tx, &chain, log,
                     )?;
                     Ok(api_types::GenericResponse::from(()))
+                })
+            },
+        );
+
+    // GET beacon/deposit_snapshot
+    let get_beacon_deposit_snapshot = eth_v1
+        .and(warp::path("beacon"))
+        .and(warp::path("deposit_snapshot"))
+        .and(warp::path::end())
+        .and(warp::header::optional::<api_types::Accept>("accept"))
+        .and(eth1_service_filter.clone())
+        .and_then(
+            |accept_header: Option<api_types::Accept>, eth1_service: eth1::Service| {
+                blocking_task(move || match accept_header {
+                    Some(api_types::Accept::Json) | None => {
+                        let snapshot = eth1_service.get_deposit_snapshot();
+                        Ok(
+                            warp::reply::json(&api_types::GenericResponse::from(snapshot))
+                                .into_response(),
+                        )
+                    }
+                    _ => eth1_service
+                        .get_deposit_snapshot()
+                        .map(|snapshot| {
+                            Response::builder()
+                                .status(200)
+                                .header("Content-Type", "application/octet-stream")
+                                .body(snapshot.as_ssz_bytes().into())
+                                .map_err(|e| {
+                                    warp_utils::reject::custom_server_error(format!(
+                                        "failed to create response: {}",
+                                        e
+                                    ))
+                                })
+                        })
+                        .unwrap_or_else(|| {
+                            Response::builder()
+                                .status(503)
+                                .header("Content-Type", "application/octet-stream")
+                                .body(Vec::new().into())
+                                .map_err(|e| {
+                                    warp_utils::reject::custom_server_error(format!(
+                                        "failed to create response: {}",
+                                        e
+                                    ))
+                                })
+                        }),
                 })
             },
         );
@@ -2579,7 +2703,12 @@ pub fn serve<T: BeaconChainTypes>(
                     .await
                     .map(|resp| warp::reply::json(&resp))
                     .map_err(|e| {
-                        error!(log, "Error from connected relay"; "error" => ?e);
+                        error!(
+                            log,
+                            "Relay error when registering validator(s)";
+                            "num_registrations" => filtered_registration_data.len(),
+                            "error" => ?e
+                        );
                         // Forward the HTTP status code if we are able to, otherwise fall back
                         // to a server error.
                         if let eth2::Error::ServerMessage(message) = e {
@@ -3111,15 +3240,18 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(get_beacon_state_validators.boxed())
                 .or(get_beacon_state_committees.boxed())
                 .or(get_beacon_state_sync_committees.boxed())
+                .or(get_beacon_state_randao.boxed())
                 .or(get_beacon_headers.boxed())
                 .or(get_beacon_headers_block_id.boxed())
                 .or(get_beacon_block.boxed())
                 .or(get_beacon_block_attestations.boxed())
+                .or(get_beacon_blinded_block.boxed())
                 .or(get_beacon_block_root.boxed())
                 .or(get_beacon_pool_attestations.boxed())
                 .or(get_beacon_pool_attester_slashings.boxed())
                 .or(get_beacon_pool_proposer_slashings.boxed())
                 .or(get_beacon_pool_voluntary_exits.boxed())
+                .or(get_beacon_deposit_snapshot.boxed())
                 .or(get_config_fork_schedule.boxed())
                 .or(get_config_spec.boxed())
                 .or(get_config_deposit_contract.boxed())
@@ -3158,6 +3290,7 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(get_lighthouse_merge_readiness.boxed())
                 .or(get_events.boxed()),
         )
+        .boxed()
         .or(warp::post().and(
             post_beacon_blocks
                 .boxed()

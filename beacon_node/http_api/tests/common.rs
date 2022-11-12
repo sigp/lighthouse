@@ -131,7 +131,8 @@ pub async fn create_api_server_on_port<T: BeaconChainTypes>(
     pm.inject_connection_established(&peer_id, &con_id, &connected_point, None, 0);
     *network_globals.sync_state.write() = SyncState::Synced;
 
-    let eth1_service = eth1::Service::new(eth1::Config::default(), log.clone(), chain.spec.clone());
+    let eth1_service =
+        eth1::Service::new(eth1::Config::default(), log.clone(), chain.spec.clone()).unwrap();
 
     let context = Arc::new(Context {
         config: Config {
