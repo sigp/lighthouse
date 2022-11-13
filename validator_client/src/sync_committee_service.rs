@@ -200,7 +200,7 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
             Err(errs) => {
                 warn!(
                     log,
-                    "Refusing to sign sync committee messages for an optimstic head block or \
+                    "Refusing to sign sync committee messages for an optimistic head block or \
                     a block head with unknown optimistic status";
                     "errors" => errs.to_string(),
                     "slot" => slot,
