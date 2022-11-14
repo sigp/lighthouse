@@ -42,7 +42,9 @@ mod verify_deposit;
 mod verify_exit;
 mod verify_proposer_slashing;
 
+#[cfg(feature = "withdrawals-processing")]
 use crate::common::decrease_balance;
+
 #[cfg(feature = "arbitrary-fuzz")]
 use arbitrary::Arbitrary;
 
@@ -466,21 +468,22 @@ pub fn get_expected_withdrawals<T: EthSpec>(
     spec: &ChainSpec,
 ) -> Result<Withdrawals<T>, BlockProcessingError> {
     let epoch = state.current_epoch();
-    let mut withdrawal_index = *state.next_withdrawal_index()?;
-    let mut validator_index = *state.next_withdrawal_validator_index()?;
+    let mut withdrawal_index = state.next_withdrawal_index()?;
+    let mut validator_index = state.next_withdrawal_validator_index()?;
     let mut withdrawals = vec![];
 
     for _ in 0..state.validators().len() {
         let validator = state.get_validator(validator_index as usize)?;
-        let balance = *state
-            .balances()
-            .get(validator_index as usize)
-            .ok_or_else(|| BeaconStateError::BalancesOutOfBounds(validator_index as usize))?;
+        let balance = *state.balances().get(validator_index as usize).ok_or(
+            BeaconStateError::BalancesOutOfBounds(validator_index as usize),
+        )?;
         if validator.is_fully_withdrawable_at(balance, epoch, spec) {
             withdrawals.push(Withdrawal {
                 index: withdrawal_index,
                 validator_index,
-                address: Address::from_slice(&validator.withdrawal_credentials[12..]),
+                address: validator
+                    .get_eth1_withdrawal_address(spec)
+                    .ok_or(BlockProcessingError::WithdrawalCredentialsInvalid)?,
                 amount: balance,
             });
             withdrawal_index.safe_add_assign(1)?;
@@ -488,7 +491,9 @@ pub fn get_expected_withdrawals<T: EthSpec>(
             withdrawals.push(Withdrawal {
                 index: withdrawal_index,
                 validator_index,
-                address: Address::from_slice(&validator.withdrawal_credentials[12..]),
+                address: validator
+                    .get_eth1_withdrawal_address(spec)
+                    .ok_or(BlockProcessingError::WithdrawalCredentialsInvalid)?,
                 amount: balance.safe_sub(spec.max_effective_balance)?,
             });
             withdrawal_index.safe_add_assign(1)?;
@@ -496,7 +501,9 @@ pub fn get_expected_withdrawals<T: EthSpec>(
         if withdrawals.len() == T::max_withdrawals_per_payload() {
             break;
         }
-        validator_index = validator_index.safe_add(1)? % state.validators().len() as u64;
+        validator_index = validator_index
+            .safe_add(1)?
+            .safe_rem(state.validators().len() as u64)?;
     }
 
     Ok(withdrawals.into())
@@ -513,12 +520,13 @@ pub fn process_withdrawals<'payload, T: EthSpec, Payload: AbstractExecPayload<T>
         BeaconState::Merge(_) => Ok(()),
         BeaconState::Capella(_) | BeaconState::Eip4844(_) => {
             let expected_withdrawals = get_expected_withdrawals(state, spec)?;
+            let expected_root = expected_withdrawals.tree_hash_root();
             let withdrawals_root = payload.withdrawals_root()?;
 
-            if expected_withdrawals.tree_hash_root() != payload.withdrawals_root()? {
+            if expected_root != withdrawals_root {
                 return Err(BlockProcessingError::WithdrawalsRootMismatch {
-                    expected: expected_withdrawals.tree_hash_root(),
-                    found: payload.withdrawals_root()?,
+                    expected: expected_root,
+                    found: withdrawals_root,
                 });
             }
 
@@ -531,9 +539,11 @@ pub fn process_withdrawals<'payload, T: EthSpec, Payload: AbstractExecPayload<T>
             }
 
             if let Some(latest_withdrawal) = expected_withdrawals.last() {
-                *state.next_withdrawal_index_mut()? = latest_withdrawal.index + 1;
-                let next_validator_index =
-                    (latest_withdrawal.validator_index + 1) % state.validators().len() as u64;
+                *state.next_withdrawal_index_mut()? = latest_withdrawal.index.safe_add(1)?;
+                let next_validator_index = latest_withdrawal
+                    .validator_index
+                    .safe_add(1)?
+                    .safe_rem(state.validators().len() as u64)?;
                 *state.next_withdrawal_validator_index_mut()? = next_validator_index;
             }
 

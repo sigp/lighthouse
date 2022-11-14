@@ -1,6 +1,6 @@
 use crate::{
-    test_utils::TestRandom, Address, BeaconState, BlsToExecutionChange, ChainSpec, Epoch, EthSpec,
-    Hash256, PublicKeyBytes,
+    test_utils::TestRandom, Address, BeaconState, ChainSpec, Epoch, EthSpec, Hash256,
+    PublicKeyBytes,
 };
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
@@ -74,6 +74,18 @@ impl Validator {
             .first()
             .map(|byte| *byte == spec.eth1_address_withdrawal_prefix_byte)
             .unwrap_or(false)
+    }
+
+    /// Get the eth1 withdrawal address if this validator has one initialized.
+    pub fn get_eth1_withdrawal_address(&self, spec: &ChainSpec) -> Option<Address> {
+        self.has_eth1_withdrawal_credential(spec)
+            .then(|| {
+                self.withdrawal_credentials
+                    .as_bytes()
+                    .get(12..)
+                    .map(Address::from_slice)
+            })
+            .flatten()
     }
 
     /// Changes withdrawal credentials to  the provided eth1 execution address

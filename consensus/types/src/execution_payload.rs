@@ -1,7 +1,7 @@
 use crate::{test_utils::TestRandom, *};
 use derivative::Derivative;
 use serde_derive::{Deserialize, Serialize};
-use ssz::Encode;
+use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
@@ -87,6 +87,17 @@ pub struct ExecutionPayload<T: EthSpec> {
 }
 
 impl<T: EthSpec> ExecutionPayload<T> {
+    pub fn from_ssz_bytes(bytes: &[u8], fork_name: ForkName) -> Result<Self, ssz::DecodeError> {
+        match fork_name {
+            ForkName::Base | ForkName::Altair => Err(ssz::DecodeError::BytesInvalid(format!(
+                "unsupported fork for ExecutionPayload: {fork_name}",
+            ))),
+            ForkName::Merge => ExecutionPayloadMerge::from_ssz_bytes(bytes).map(Self::Merge),
+            ForkName::Capella => ExecutionPayloadCapella::from_ssz_bytes(bytes).map(Self::Capella),
+            ForkName::Eip4844 => ExecutionPayloadEip4844::from_ssz_bytes(bytes).map(Self::Eip4844),
+        }
+    }
+
     #[allow(clippy::integer_arithmetic)]
     /// Returns the maximum size of an execution payload.
     pub fn max_execution_payload_merge_size() -> usize {

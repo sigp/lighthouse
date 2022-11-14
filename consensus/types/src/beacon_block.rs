@@ -78,17 +78,20 @@ impl<'a, T: EthSpec, Payload: AbstractExecPayload<T>> SignedRoot
 {
 }
 
+/// Empty block trait for each block variant to implement.
+pub trait EmptyBlock {
+    /// Returns an empty block to be used during genesis.
+    fn empty(spec: &ChainSpec) -> Self;
+}
+
 impl<T: EthSpec, Payload: AbstractExecPayload<T>> BeaconBlock<T, Payload> {
-    // FIXME: deal with capella / eip4844 forks here as well
     /// Returns an empty block to be used during genesis.
     pub fn empty(spec: &ChainSpec) -> Self {
-        if spec.bellatrix_fork_epoch == Some(T::genesis_epoch()) {
-            Self::Merge(BeaconBlockMerge::empty(spec))
-        } else if spec.altair_fork_epoch == Some(T::genesis_epoch()) {
-            Self::Altair(BeaconBlockAltair::empty(spec))
-        } else {
-            Self::Base(BeaconBlockBase::empty(spec))
-        }
+        map_fork_name!(
+            spec.fork_name_at_epoch(T::genesis_epoch()),
+            Self,
+            EmptyBlock::empty(spec)
+        )
     }
 
     /// Custom SSZ decoder that takes a `ChainSpec` as context.
@@ -117,13 +120,12 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> BeaconBlock<T, Payload> {
     /// Usually it's better to prefer `from_ssz_bytes` which will decode the correct variant based
     /// on the fork slot.
     pub fn any_from_ssz_bytes(bytes: &[u8]) -> Result<Self, ssz::DecodeError> {
-        BeaconBlockMerge::from_ssz_bytes(bytes)
-            .map(BeaconBlock::Merge)
-            .or_else(|_| {
-                BeaconBlockAltair::from_ssz_bytes(bytes)
-                    .map(BeaconBlock::Altair)
-                    .or_else(|_| BeaconBlockBase::from_ssz_bytes(bytes).map(BeaconBlock::Base))
-            })
+        BeaconBlockEip4844::from_ssz_bytes(bytes)
+            .map(BeaconBlock::Eip4844)
+            .or_else(|_| BeaconBlockCapella::from_ssz_bytes(bytes).map(BeaconBlock::Capella))
+            .or_else(|_| BeaconBlockMerge::from_ssz_bytes(bytes).map(BeaconBlock::Merge))
+            .or_else(|_| BeaconBlockAltair::from_ssz_bytes(bytes).map(BeaconBlock::Altair))
+            .or_else(|_| BeaconBlockBase::from_ssz_bytes(bytes).map(BeaconBlock::Base))
     }
 
     /// Convenience accessor for the `body` as a `BeaconBlockBodyRef`.
@@ -266,9 +268,8 @@ impl<'a, T: EthSpec, Payload: AbstractExecPayload<T>> BeaconBlockRefMut<'a, T, P
     }
 }
 
-impl<T: EthSpec, Payload: AbstractExecPayload<T>> BeaconBlockBase<T, Payload> {
-    /// Returns an empty block to be used during genesis.
-    pub fn empty(spec: &ChainSpec) -> Self {
+impl<T: EthSpec, Payload: AbstractExecPayload<T>> EmptyBlock for BeaconBlockBase<T, Payload> {
+    fn empty(spec: &ChainSpec) -> Self {
         BeaconBlockBase {
             slot: spec.genesis_slot,
             proposer_index: 0,
@@ -291,7 +292,9 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> BeaconBlockBase<T, Payload> {
             },
         }
     }
+}
 
+impl<T: EthSpec, Payload: AbstractExecPayload<T>> BeaconBlockBase<T, Payload> {
     /// Return a block where the block has maximum size.
     pub fn full(spec: &ChainSpec) -> Self {
         let header = BeaconBlockHeader {
@@ -387,9 +390,9 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> BeaconBlockBase<T, Payload> {
     }
 }
 
-impl<T: EthSpec, Payload: AbstractExecPayload<T>> BeaconBlockAltair<T, Payload> {
+impl<T: EthSpec, Payload: AbstractExecPayload<T>> EmptyBlock for BeaconBlockAltair<T, Payload> {
     /// Returns an empty Altair block to be used during genesis.
-    pub fn empty(spec: &ChainSpec) -> Self {
+    fn empty(spec: &ChainSpec) -> Self {
         BeaconBlockAltair {
             slot: spec.genesis_slot,
             proposer_index: 0,
@@ -413,7 +416,9 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> BeaconBlockAltair<T, Payload> 
             },
         }
     }
+}
 
+impl<T: EthSpec, Payload: AbstractExecPayload<T>> BeaconBlockAltair<T, Payload> {
     /// Return an Altair block where the block has maximum size.
     pub fn full(spec: &ChainSpec) -> Self {
         let base_block: BeaconBlockBase<_, Payload> = BeaconBlockBase::full(spec);
@@ -446,9 +451,9 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> BeaconBlockAltair<T, Payload> 
     }
 }
 
-impl<T: EthSpec, Payload: AbstractExecPayload<T>> BeaconBlockMerge<T, Payload> {
+impl<T: EthSpec, Payload: AbstractExecPayload<T>> EmptyBlock for BeaconBlockMerge<T, Payload> {
     /// Returns an empty Merge block to be used during genesis.
-    pub fn empty(spec: &ChainSpec) -> Self {
+    fn empty(spec: &ChainSpec) -> Self {
         BeaconBlockMerge {
             slot: spec.genesis_slot,
             proposer_index: 0,
@@ -469,6 +474,67 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> BeaconBlockMerge<T, Payload> {
                 voluntary_exits: VariableList::empty(),
                 sync_aggregate: SyncAggregate::empty(),
                 execution_payload: Payload::Merge::default(),
+            },
+        }
+    }
+}
+
+impl<T: EthSpec, Payload: AbstractExecPayload<T>> EmptyBlock for BeaconBlockCapella<T, Payload> {
+    /// Returns an empty Capella block to be used during genesis.
+    fn empty(spec: &ChainSpec) -> Self {
+        BeaconBlockCapella {
+            slot: spec.genesis_slot,
+            proposer_index: 0,
+            parent_root: Hash256::zero(),
+            state_root: Hash256::zero(),
+            body: BeaconBlockBodyCapella {
+                randao_reveal: Signature::empty(),
+                eth1_data: Eth1Data {
+                    deposit_root: Hash256::zero(),
+                    block_hash: Hash256::zero(),
+                    deposit_count: 0,
+                },
+                graffiti: Graffiti::default(),
+                proposer_slashings: VariableList::empty(),
+                attester_slashings: VariableList::empty(),
+                attestations: VariableList::empty(),
+                deposits: VariableList::empty(),
+                voluntary_exits: VariableList::empty(),
+                sync_aggregate: SyncAggregate::empty(),
+                execution_payload: Payload::Capella::default(),
+                #[cfg(feature = "withdrawals")]
+                bls_to_execution_changes: VariableList::empty(),
+            },
+        }
+    }
+}
+
+impl<T: EthSpec, Payload: AbstractExecPayload<T>> EmptyBlock for BeaconBlockEip4844<T, Payload> {
+    /// Returns an empty Eip4844 block to be used during genesis.
+    fn empty(spec: &ChainSpec) -> Self {
+        BeaconBlockEip4844 {
+            slot: spec.genesis_slot,
+            proposer_index: 0,
+            parent_root: Hash256::zero(),
+            state_root: Hash256::zero(),
+            body: BeaconBlockBodyEip4844 {
+                randao_reveal: Signature::empty(),
+                eth1_data: Eth1Data {
+                    deposit_root: Hash256::zero(),
+                    block_hash: Hash256::zero(),
+                    deposit_count: 0,
+                },
+                graffiti: Graffiti::default(),
+                proposer_slashings: VariableList::empty(),
+                attester_slashings: VariableList::empty(),
+                attestations: VariableList::empty(),
+                deposits: VariableList::empty(),
+                voluntary_exits: VariableList::empty(),
+                sync_aggregate: SyncAggregate::empty(),
+                execution_payload: Payload::Eip4844::default(),
+                #[cfg(feature = "withdrawals")]
+                bls_to_execution_changes: VariableList::empty(),
+                blob_kzg_commitments: VariableList::empty(),
             },
         }
     }

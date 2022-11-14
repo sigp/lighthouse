@@ -1,4 +1,3 @@
-use ssz_types::VariableList;
 use std::mem;
 use types::{BeaconState, BeaconStateCapella, BeaconStateError as Error, ChainSpec, EthSpec, Fork};
 

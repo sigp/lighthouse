@@ -221,7 +221,7 @@ impl<T: EthSpec> ExecPayload<T> for FullPayload<T> {
         })
     }
 
-    fn transactions<'a>(&'a self) -> Option<&Transactions<T>> {
+    fn transactions<'a>(&'a self) -> Option<&'a Transactions<T>> {
         map_full_payload_ref!(&'a _, self.to_ref(), move |payload, cons| {
             cons(payload);
             Some(&payload.execution_payload.transactions)
@@ -265,7 +265,7 @@ impl<'b, T: EthSpec> ExecPayload<T> for FullPayloadRef<'b, T> {
     fn to_execution_payload_header<'a>(&'a self) -> ExecutionPayloadHeader<T> {
         map_full_payload_ref!(&'a _, self, move |payload, cons| {
             cons(payload);
-            ExecutionPayloadHeader::from(payload.to_execution_payload_header())
+            payload.to_execution_payload_header()
         })
     }
 
@@ -318,7 +318,7 @@ impl<'b, T: EthSpec> ExecPayload<T> for FullPayloadRef<'b, T> {
         })
     }
 
-    fn transactions<'a>(&'a self) -> Option<&Transactions<T>> {
+    fn transactions<'a>(&'a self) -> Option<&'a Transactions<T>> {
         map_full_payload_ref!(&'a _, self, move |payload, cons| {
             cons(payload);
             Some(&payload.execution_payload.transactions)
@@ -488,7 +488,7 @@ impl<T: EthSpec> ExecPayload<T> for BlindedPayload<T> {
         })
     }
 
-    fn transactions<'a>(&'a self) -> Option<&Transactions<T>> {
+    fn transactions(&self) -> Option<&Transactions<T>> {
         None
     }
 
@@ -574,7 +574,7 @@ impl<'b, T: EthSpec> ExecPayload<T> for BlindedPayloadRef<'b, T> {
         })
     }
 
-    fn transactions<'a>(&'a self) -> Option<&Transactions<T>> {
+    fn transactions(&self) -> Option<&Transactions<T>> {
         None
     }
 
