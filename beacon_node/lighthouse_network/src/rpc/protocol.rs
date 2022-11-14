@@ -433,58 +433,8 @@ pub enum InboundRequest<TSpec: EthSpec> {
     MetaData(PhantomData<TSpec>),
 }
 
-impl<TSpec: EthSpec> UpgradeInfo for InboundRequest<TSpec> {
-    type Info = ProtocolId;
-    type InfoIter = Vec<Self::Info>;
-
-    // add further protocols as we support more encodings/versions
-    fn protocol_info(&self) -> Self::InfoIter {
-        self.supported_protocols()
-    }
-}
-
 /// Implements the encoding per supported protocol for `RPCRequest`.
 impl<TSpec: EthSpec> InboundRequest<TSpec> {
-    pub fn supported_protocols(&self) -> Vec<ProtocolId> {
-        match self {
-            // add more protocols when versions/encodings are supported
-            InboundRequest::Status(_) => vec![ProtocolId::new(
-                Protocol::Status,
-                Version::V1,
-                Encoding::SSZSnappy,
-            )],
-            InboundRequest::Goodbye(_) => vec![ProtocolId::new(
-                Protocol::Goodbye,
-                Version::V1,
-                Encoding::SSZSnappy,
-            )],
-            InboundRequest::BlocksByRange(_) => vec![
-                // V2 has higher preference when negotiating a stream
-                ProtocolId::new(Protocol::BlocksByRange, Version::V2, Encoding::SSZSnappy),
-                ProtocolId::new(Protocol::BlocksByRange, Version::V1, Encoding::SSZSnappy),
-            ],
-            InboundRequest::BlocksByRoot(_) => vec![
-                // V2 has higher preference when negotiating a stream
-                ProtocolId::new(Protocol::BlocksByRoot, Version::V2, Encoding::SSZSnappy),
-                ProtocolId::new(Protocol::BlocksByRoot, Version::V1, Encoding::SSZSnappy),
-            ],
-            InboundRequest::Ping(_) => vec![ProtocolId::new(
-                Protocol::Ping,
-                Version::V1,
-                Encoding::SSZSnappy,
-            )],
-            InboundRequest::MetaData(_) => vec![
-                ProtocolId::new(Protocol::MetaData, Version::V2, Encoding::SSZSnappy),
-                ProtocolId::new(Protocol::MetaData, Version::V1, Encoding::SSZSnappy),
-            ],
-            InboundRequest::LightClientBootstrap(_) => vec![ProtocolId::new(
-                Protocol::LightClientBootstrap,
-                Version::V1,
-                Encoding::SSZSnappy,
-            )],
-        }
-    }
-
     /* These functions are used in the handler for stream management */
 
     /// Number of responses expected for this request.
