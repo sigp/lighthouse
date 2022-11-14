@@ -3,7 +3,7 @@
 //!
 //! ## Attributes
 //!
-//! The following struct\enum attributes are available:
+//! The following struct/enum attributes are available:
 //!
 //! - `#[ssz(enum_behaviour = "union")]`: encodes and decodes an `enum` with a one-byte variant selector.
 //! - `#[ssz(enum_behaviour = "transparent")]`: allows encoding an `enum` by serializing only the
@@ -763,7 +763,7 @@ fn ssz_decode_derive_struct(item: &DeriveInput, struct_data: &DataStruct) -> Tok
 
 /// Implements `ssz::Decode` "transparently" for a `struct` with exactly one non-skipped field.
 ///
-/// The bytes will be decoded as if they are the inner field, without the outmost struct. The
+/// The bytes will be decoded as if they are the inner field, without the outermost struct. The
 /// outermost struct will then be applied artificially.
 ///
 /// ## Field attributes
