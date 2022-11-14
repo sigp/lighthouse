@@ -296,10 +296,10 @@ where
 
     // Withdrawals
     #[cfg(feature = "withdrawals")]
-    #[superstruct(only(Capella, Eip4844))]
+    #[superstruct(only(Capella, Eip4844), partial_getter(copy))]
     pub next_withdrawal_index: u64,
     #[cfg(feature = "withdrawals")]
-    #[superstruct(only(Capella, Eip4844))]
+    #[superstruct(only(Capella, Eip4844), partial_getter(copy))]
     pub next_withdrawal_validator_index: u64,
 
     // Caching (not in the spec)
@@ -1784,6 +1784,8 @@ impl<T: EthSpec> CompareFields for BeaconState<T> {
             (BeaconState::Base(x), BeaconState::Base(y)) => x.compare_fields(y),
             (BeaconState::Altair(x), BeaconState::Altair(y)) => x.compare_fields(y),
             (BeaconState::Merge(x), BeaconState::Merge(y)) => x.compare_fields(y),
+            (BeaconState::Capella(x), BeaconState::Capella(y)) => x.compare_fields(y),
+            (BeaconState::Eip4844(x), BeaconState::Eip4844(y)) => x.compare_fields(y),
             _ => panic!("compare_fields: mismatched state variants",),
         }
     }

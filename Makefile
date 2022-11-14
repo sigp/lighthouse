@@ -20,6 +20,9 @@ CROSS_FEATURES ?= gnosis,slasher-lmdb,slasher-mdbx
 # Cargo profile for Cross builds. Default is for local builds, CI uses an override.
 CROSS_PROFILE ?= release
 
+# List of features to use when running EF tests.
+EF_TEST_FEATURES ?= beacon_chain/withdrawals,beacon_chain/withdrawals-processing
+
 # Cargo profile for regular builds.
 PROFILE ?= release
 
@@ -108,9 +111,9 @@ check-consensus:
 # Runs only the ef-test vectors.
 run-ef-tests:
 	rm -rf $(EF_TESTS)/.accessed_file_log.txt
-	cargo test --release -p ef_tests --features "ef_tests"
-	cargo test --release -p ef_tests --features "ef_tests,fake_crypto"
-	cargo test --release -p ef_tests --features "ef_tests,milagro"
+	cargo test --release -p ef_tests --features "ef_tests,$(EF_TEST_FEATURES)"
+	cargo test --release -p ef_tests --features "ef_tests,$(EF_TEST_FEATURES),fake_crypto"
+	cargo test --release -p ef_tests --features "ef_tests,$(EF_TEST_FEATURES),milagro"
 	./$(EF_TESTS)/check_all_files_accessed.py $(EF_TESTS)/.accessed_file_log.txt $(EF_TESTS)/consensus-spec-tests
 
 # Run the tests in the `beacon_chain` crate for all known forks.

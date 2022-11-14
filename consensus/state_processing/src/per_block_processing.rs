@@ -466,8 +466,8 @@ pub fn get_expected_withdrawals<T: EthSpec>(
     spec: &ChainSpec,
 ) -> Result<Withdrawals<T>, BlockProcessingError> {
     let epoch = state.current_epoch();
-    let mut withdrawal_index = *state.next_withdrawal_index()?;
-    let mut validator_index = *state.next_withdrawal_validator_index()?;
+    let mut withdrawal_index = state.next_withdrawal_index()?;
+    let mut validator_index = state.next_withdrawal_validator_index()?;
     let mut withdrawals = vec![];
 
     for _ in 0..state.validators().len() {

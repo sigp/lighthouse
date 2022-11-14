@@ -83,6 +83,18 @@ fn operations_execution_payload_blinded() {
 }
 
 #[test]
+fn operations_withdrawals() {
+    OperationsHandler::<MinimalEthSpec, WithdrawalsPayload<_>>::default().run();
+    OperationsHandler::<MainnetEthSpec, WithdrawalsPayload<_>>::default().run();
+}
+
+#[test]
+fn operations_bls_to_execution_change() {
+    OperationsHandler::<MinimalEthSpec, SignedBlsToExecutionChange>::default().run();
+    OperationsHandler::<MainnetEthSpec, SignedBlsToExecutionChange>::default().run();
+}
+
+#[test]
 fn sanity_blocks() {
     SanityBlocksHandler::<MinimalEthSpec>::default().run();
     SanityBlocksHandler::<MainnetEthSpec>::default().run();
@@ -250,6 +262,10 @@ mod ssz_static {
             .run();
         SszStaticHandler::<BeaconBlockBodyMerge<MainnetEthSpec>, MainnetEthSpec>::merge_only()
             .run();
+        SszStaticHandler::<BeaconBlockBodyCapella<MinimalEthSpec>, MinimalEthSpec>::capella_only()
+            .run();
+        SszStaticHandler::<BeaconBlockBodyCapella<MainnetEthSpec>, MainnetEthSpec>::capella_only()
+            .run();
     }
 
     // Altair and later
@@ -302,18 +318,44 @@ mod ssz_static {
     // Merge and later
     #[test]
     fn execution_payload() {
-        SszStaticHandler::<ExecutionPayload<MinimalEthSpec>, MinimalEthSpec>::merge_and_later()
+        SszStaticHandler::<ExecutionPayloadMerge<MinimalEthSpec>, MinimalEthSpec>::merge_only()
             .run();
-        SszStaticHandler::<ExecutionPayload<MainnetEthSpec>, MainnetEthSpec>::merge_and_later()
+        SszStaticHandler::<ExecutionPayloadMerge<MainnetEthSpec>, MainnetEthSpec>::merge_only()
+            .run();
+        SszStaticHandler::<ExecutionPayloadCapella<MinimalEthSpec>, MinimalEthSpec>::capella_only()
+            .run();
+        SszStaticHandler::<ExecutionPayloadCapella<MainnetEthSpec>, MainnetEthSpec>::capella_only()
             .run();
     }
 
     #[test]
     fn execution_payload_header() {
-        SszStaticHandler::<ExecutionPayloadHeader<MinimalEthSpec>, MinimalEthSpec>::merge_and_later()
+        SszStaticHandler::<ExecutionPayloadHeaderMerge<MinimalEthSpec>, MinimalEthSpec>::merge_only()
             .run();
-        SszStaticHandler::<ExecutionPayloadHeader<MainnetEthSpec>, MainnetEthSpec>::merge_and_later()
+        SszStaticHandler::<ExecutionPayloadHeaderMerge<MainnetEthSpec>, MainnetEthSpec>::merge_only()
             .run();
+        SszStaticHandler::<ExecutionPayloadHeaderCapella<MinimalEthSpec>, MinimalEthSpec>
+            ::capella_only().run();
+        SszStaticHandler::<ExecutionPayloadHeaderCapella<MainnetEthSpec>, MainnetEthSpec>
+            ::capella_only().run();
+    }
+
+    #[test]
+    fn withdrawal() {
+        SszStaticHandler::<Withdrawal, MinimalEthSpec>::capella_only().run();
+        SszStaticHandler::<Withdrawal, MainnetEthSpec>::capella_only().run();
+    }
+
+    #[test]
+    fn bls_to_execution_change() {
+        SszStaticHandler::<BlsToExecutionChange, MinimalEthSpec>::capella_only().run();
+        SszStaticHandler::<BlsToExecutionChange, MainnetEthSpec>::capella_only().run();
+    }
+
+    #[test]
+    fn signed_bls_to_execution_change() {
+        SszStaticHandler::<SignedBlsToExecutionChange, MinimalEthSpec>::capella_only().run();
+        SszStaticHandler::<SignedBlsToExecutionChange, MainnetEthSpec>::capella_only().run();
     }
 }
 
