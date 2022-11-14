@@ -421,15 +421,15 @@ pub enum InboundRequest<TSpec: EthSpec> {
     MetaData(PhantomData<TSpec>),
 }
 
-// impl<TSpec: EthSpec> UpgradeInfo for InboundRequest<TSpec> {
-//     type Info = ProtocolId;
-//     type InfoIter = Vec<Self::Info>;
-//
-//     // add further protocols as we support more encodings/versions
-//     fn protocol_info(&self) -> Self::InfoIter {
-//         self.supported_protocols()
-//     }
-// }
+impl<TSpec: EthSpec> UpgradeInfo for InboundRequest<TSpec> {
+    type Info = ProtocolId;
+    type InfoIter = Vec<Self::Info>;
+
+    // add further protocols as we support more encodings/versions
+    fn protocol_info(&self) -> Self::InfoIter {
+        self.supported_protocols()
+    }
+}
 
 /// Implements the encoding per supported protocol for `RPCRequest`.
 impl<TSpec: EthSpec> InboundRequest<TSpec> {
