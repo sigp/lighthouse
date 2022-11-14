@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 use tree_hash::TreeHash;
 use types::{
-    AbstractExecPayload, BeaconState, BeaconStateError, ChainSpec, EthSpec, ExecPayload, Hash256,
+    AbstractExecPayload, BeaconState, BeaconStateError, ChainSpec, EthSpec, Hash256,
     SignedBeaconBlock, Slot,
 };
 

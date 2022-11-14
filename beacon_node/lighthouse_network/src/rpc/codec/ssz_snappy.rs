@@ -683,8 +683,8 @@ mod tests {
     };
     use std::sync::Arc;
     use types::{
-        BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockMerge, Epoch, ForkContext,
-        FullPayload, Hash256, Signature, SignedBeaconBlock, Slot,
+        BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockMerge, EmptyBlock, Epoch,
+        ForkContext, FullPayload, Hash256, Signature, SignedBeaconBlock, Slot,
     };
 
     use snap::write::FrameEncoder;

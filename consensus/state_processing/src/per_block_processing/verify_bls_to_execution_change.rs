@@ -42,13 +42,13 @@ pub fn verify_bls_to_execution_change<T: EthSpec>(
     // FIXME: Should this check be put inside the verify_signatures.is_true() condition?
     //        I believe that's used for fuzzing so this is a Mehdi question..
     verify!(
-        validator.withdrawal_credentials.as_bytes()[1..] == pubkey_hash[1..],
+        validator.withdrawal_credentials.as_bytes().get(1..) == pubkey_hash.get(1..),
         Invalid::WithdrawalCredentialsMismatch
     );
 
     if verify_signatures.is_true() {
         verify!(
-            bls_execution_change_signature_set(state, signed_address_change, spec,)?.verify(),
+            bls_execution_change_signature_set(state, signed_address_change, spec)?.verify(),
             Invalid::BadSignature
         );
     }

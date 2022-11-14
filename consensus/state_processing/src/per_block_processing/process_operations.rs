@@ -290,14 +290,14 @@ pub fn process_exits<T: EthSpec>(
 /// Returns `Ok(())` if the validation and state updates completed successfully. Otherwise returs
 /// an `Err` describing the invalid object or cause of failure.
 #[cfg(all(feature = "withdrawals", feature = "withdrawals-processing"))]
-pub fn process_bls_to_execution_changes<'a, T: EthSpec>(
+pub fn process_bls_to_execution_changes<T: EthSpec>(
     state: &mut BeaconState<T>,
     bls_to_execution_changes: &[SignedBlsToExecutionChange],
     verify_signatures: VerifySignatures,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
     for (i, signed_address_change) in bls_to_execution_changes.iter().enumerate() {
-        verify_bls_to_execution_change(state, &signed_address_change, verify_signatures, spec)
+        verify_bls_to_execution_change(state, signed_address_change, verify_signatures, spec)
             .map_err(|e| e.into_with_index(i))?;
 
         state

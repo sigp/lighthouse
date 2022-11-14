@@ -4,7 +4,6 @@ use serde_derive::{Deserialize, Serialize};
 use ssz::Encode;
 use ssz_derive::{Decode, Encode};
 use ssz_types::VariableList;
-use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
@@ -23,6 +22,7 @@ impl<T: EthSpec> BlobsSidecar<T> {
     pub fn empty() -> Self {
         Self::default()
     }
+    #[allow(clippy::integer_arithmetic)]
     pub fn max_size() -> usize {
         // Fixed part
         Self::empty().as_ssz_bytes().len()

@@ -1,7 +1,6 @@
 use crate::test_utils::{RngCore, TestRandom};
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
-use ssz::{Decode, DecodeError, Encode};
 use ssz_derive::{Decode, Encode};
 use std::fmt;
 use tree_hash::{PackedEncoding, TreeHash};
@@ -15,7 +14,7 @@ pub struct KzgProof(#[serde(with = "BigArray")] pub [u8; KZG_PROOF_BYTES_LEN]);
 
 impl fmt::Display for KzgProof {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", eth2_serde_utils::hex::encode(&self.0))
+        write!(f, "{}", eth2_serde_utils::hex::encode(self.0))
     }
 }
 

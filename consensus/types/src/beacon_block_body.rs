@@ -76,7 +76,7 @@ pub struct BeaconBlockBody<T: EthSpec, Payload: AbstractExecPayload<T> = FullPay
 }
 
 impl<T: EthSpec, Payload: AbstractExecPayload<T>> BeaconBlockBody<T, Payload> {
-    pub fn execution_payload<'a>(&'a self) -> Result<Payload::Ref<'a>, Error> {
+    pub fn execution_payload(&self) -> Result<Payload::Ref<'_>, Error> {
         self.to_ref().execution_payload()
     }
 }
