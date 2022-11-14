@@ -16,7 +16,7 @@ jobs:
         runs-on: ubuntu-latest
         steps:
             - name: Extract version
-              run: echo "::set-output name=VERSION::$(echo ${GITHUB_REF#refs/tags/})"
+              run: echo "VERSION=$(echo ${GITHUB_REF#refs/tags/})" >> $GITHUB_OUTPUT
               id: extract_version
         outputs:
             VERSION: ${{ steps.extract_version.outputs.VERSION }}
@@ -62,7 +62,7 @@ jobs:
         needs: extract-version
         steps:
             - name: Checkout sources
-              uses: actions/checkout@v2
+              uses: actions/checkout@v3
             - name: Build toolchain
               uses: actions-rs/toolchain@v1
               with:
@@ -199,7 +199,7 @@ jobs:
         steps:
             # This is necessary for generating the changelog. It has to come before "Download Artifacts" or else it deletes the artifacts.
             - name: Checkout sources
-              uses: actions/checkout@v2
+              uses: actions/checkout@v3
               with:
                   fetch-depth: 0
 
@@ -216,7 +216,7 @@ jobs:
 
             - name: Generate Full Changelog
               id: changelog
-              run: echo "::set-output name=CHANGELOG::$(git log --pretty=format:"- %s" $(git describe --tags --abbrev=0 ${{ env.VERSION }}^)..${{ env.VERSION }})"
+              run: echo "CHANGELOG=$(git log --pretty=format:"- %s" $(git describe --tags --abbrev=0 ${{ env.VERSION }}^)..${{ env.VERSION }})" >> $GITHUB_OUTPUT
 
             - name: Create Release Draft
               env:

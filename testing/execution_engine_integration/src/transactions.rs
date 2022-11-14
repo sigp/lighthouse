@@ -30,7 +30,7 @@ pub fn transactions<E: EthSpec>(account1: Address, account2: Address) -> Vec<Typ
         Transaction::DepositDepositContract {
             sender: account1,
             deposit_contract_address: ethers_core::types::Address::from_slice(
-                &hex::decode(&DEPOSIT_CONTRACT_ADDRESS).unwrap(),
+                &hex::decode(DEPOSIT_CONTRACT_ADDRESS).unwrap(),
             ),
         }
         .transaction::<E>(),

@@ -13,7 +13,7 @@ const GETH_REPO_URL: &str = "https://github.com/ethereum/go-ethereum";
 pub fn build_result(repo_dir: &Path) -> Output {
     Command::new("make")
         .arg("geth")
-        .current_dir(&repo_dir)
+        .current_dir(repo_dir)
         .output()
         .expect("failed to make geth")
 }

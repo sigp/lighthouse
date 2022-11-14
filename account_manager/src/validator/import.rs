@@ -176,7 +176,7 @@ pub fn cli_run(matches: &ArgMatches, validator_dir: PathBuf) -> Result<(), Strin
 
             let password = match keystore_password_path.as_ref() {
                 Some(path) => {
-                    let password_from_file: ZeroizeString = fs::read_to_string(&path)
+                    let password_from_file: ZeroizeString = fs::read_to_string(path)
                         .map_err(|e| format!("Unable to read {:?}: {:?}", path, e))?
                         .into();
                     password_from_file.without_newlines()
@@ -256,7 +256,7 @@ pub fn cli_run(matches: &ArgMatches, validator_dir: PathBuf) -> Result<(), Strin
             .ok_or_else(|| format!("Badly formatted file name: {:?}", src_keystore))?;
 
         // Copy the keystore to the new location.
-        fs::copy(&src_keystore, &dest_keystore)
+        fs::copy(src_keystore, &dest_keystore)
             .map_err(|e| format!("Unable to copy keystore: {:?}", e))?;
 
         // Register with slashing protection.

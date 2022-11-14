@@ -441,6 +441,8 @@ pub fn get_config<E: EthSpec>(
                 .extend_from_slice(boot_nodes)
         }
     }
+    client_config.chain.checkpoint_sync_url_timeout =
+        clap_utils::parse_required::<u64>(cli_args, "checkpoint-sync-url-timeout")?;
 
     client_config.genesis = if let Some(genesis_state_bytes) =
         eth2_network_config.genesis_state_bytes.clone()
@@ -702,6 +704,9 @@ pub fn get_config<E: EthSpec>(
         clap_utils::parse_required(cli_args, "builder-fallback-epochs-since-finalization")?;
     client_config.chain.builder_fallback_disable_checks =
         cli_args.is_present("builder-fallback-disable-checks");
+
+    // Light client server config.
+    client_config.chain.enable_light_client_server = cli_args.is_present("light-client-server");
 
     Ok(client_config)
 }

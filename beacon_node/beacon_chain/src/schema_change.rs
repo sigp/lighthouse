@@ -17,7 +17,6 @@ use crate::persisted_fork_choice::{
 };
 use crate::types::ChainSpec;
 use slog::{warn, Logger};
-use std::path::Path;
 use std::sync::Arc;
 use store::hot_cold_store::{HotColdDB, HotColdDBError};
 use store::metadata::{SchemaVersion, CURRENT_SCHEMA_VERSION};
@@ -27,7 +26,6 @@ use store::{Error as StoreError, StoreItem};
 pub fn migrate_schema<T: BeaconChainTypes>(
     db: Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>,
     deposit_contract_deploy_block: u64,
-    datadir: &Path,
     from: SchemaVersion,
     to: SchemaVersion,
     log: Logger,
@@ -42,21 +40,12 @@ pub fn migrate_schema<T: BeaconChainTypes>(
             migrate_schema::<T>(
                 db.clone(),
                 deposit_contract_deploy_block,
-                datadir,
                 from,
                 next,
                 log.clone(),
                 spec,
             )?;
-            migrate_schema::<T>(
-                db,
-                deposit_contract_deploy_block,
-                datadir,
-                next,
-                to,
-                log,
-                spec,
-            )
+            migrate_schema::<T>(db, deposit_contract_deploy_block, next, to, log, spec)
         }
         // Downgrade across multiple versions by recursively migrating one step at a time.
         (_, _) if to.as_u64() + 1 < from.as_u64() => {
@@ -64,21 +53,12 @@ pub fn migrate_schema<T: BeaconChainTypes>(
             migrate_schema::<T>(
                 db.clone(),
                 deposit_contract_deploy_block,
-                datadir,
                 from,
                 next,
                 log.clone(),
                 spec,
             )?;
-            migrate_schema::<T>(
-                db,
-                deposit_contract_deploy_block,
-                datadir,
-                next,
-                to,
-                log,
-                spec,
-            )
+            migrate_schema::<T>(db, deposit_contract_deploy_block, next, to, log, spec)
         }
 
         //
