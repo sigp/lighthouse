@@ -284,7 +284,7 @@ mod bytes_4_without_0x_prefix {
     where
         S: serde::Serializer,
     {
-        let hex_string = &hex::encode(&bytes);
+        let hex_string = &hex::encode(bytes);
         serializer.serialize_str(hex_string)
     }
 
@@ -314,7 +314,7 @@ pub async fn vc_http_client<P: AsRef<Path>>(
 ) -> Result<(ValidatorClientHttpClient, Vec<SingleKeystoreResponse>), String> {
     let token_path = token_path.as_ref();
     let token_bytes =
-        fs::read(&token_path).map_err(|e| format!("Failed to read {:?}: {:?}", token_path, e))?;
+        fs::read(token_path).map_err(|e| format!("Failed to read {:?}: {:?}", token_path, e))?;
     let token_string = String::from_utf8(strip_off_newlines(token_bytes))
         .map_err(|e| format!("Failed to parse {:?} as utf8: {:?}", token_path, e))?;
     let http_client = ValidatorClientHttpClient::new(url.clone(), token_string).map_err(|e| {

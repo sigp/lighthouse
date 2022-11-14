@@ -427,7 +427,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                             ))
                         })?;
 
-                    let secrets_dir = store_passwords_in_secrets_dir.then(|| secrets_dir);
+                    let secrets_dir = store_passwords_in_secrets_dir.then_some(secrets_dir);
                     let password_storage = if let Some(secrets_dir) = &secrets_dir {
                         let password_path = keystore_password_path(secrets_dir, &body.keystore);
                         if password_path.exists() {

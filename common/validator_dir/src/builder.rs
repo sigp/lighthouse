@@ -247,7 +247,7 @@ impl<'a> Builder<'a> {
                 if self.store_withdrawal_keystore {
                     // Write the withdrawal password to file.
                     write_password_to_file(
-                        keystore_password_path(&password_dir, &withdrawal_keystore),
+                        keystore_password_path(password_dir, &withdrawal_keystore),
                         withdrawal_password.as_bytes(),
                     )?;
 
@@ -263,7 +263,7 @@ impl<'a> Builder<'a> {
         if let Some(password_dir) = self.password_dir.as_ref() {
             // Write the voting password to file.
             write_password_to_file(
-                keystore_password_path(&password_dir, &voting_keystore),
+                keystore_password_path(password_dir, &voting_keystore),
                 voting_password.as_bytes(),
             )?;
         }
