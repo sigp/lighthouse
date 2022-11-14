@@ -69,7 +69,7 @@ Available options can be seen in `config.yaml.default`.
 
 You can specify a config file during runtime:
 ```
-cargo run -- start-daemon --config path/to/config.yaml
+cargo run -- run-updater --config path/to/config.yaml
 ```
 
 You can specify only the parts of the config file which you need changed.
@@ -100,7 +100,7 @@ curl "http://localhost:5059/v1/slots/4635296"
 }
 ```
 
-#### `/v1/slots/?start_slot={}&end_slot={}`
+#### `/v1/slots?start_slot={}&end_slot={}`
 ```bash
 curl "http://localhost:5059/v1/slots?start_slot=4635296&end_slot=4635297"
 ```

@@ -3,11 +3,11 @@ use clap::{App, Arg};
 use tokio::sync::oneshot;
 
 pub const SERVE: &str = "serve";
-pub const START_DAEMON: &str = "start-daemon";
+pub const RUN_UPDATER: &str = "run-updater";
 pub const CONFIG: &str = "config";
 
-fn start_daemon<'a, 'b>() -> App<'a, 'b> {
-    App::new(START_DAEMON).setting(clap::AppSettings::ColoredHelp)
+fn run_updater<'a, 'b>() -> App<'a, 'b> {
+    App::new(RUN_UPDATER).setting(clap::AppSettings::ColoredHelp)
 }
 
 fn serve<'a, 'b>() -> App<'a, 'b> {
@@ -26,7 +26,7 @@ pub fn app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true)
                 .global(true),
         )
-        .subcommand(start_daemon())
+        .subcommand(run_updater())
         .subcommand(serve())
 }
 
@@ -41,7 +41,7 @@ pub async fn run() -> Result<(), String> {
     logger::init_logger(&config.log_level);
 
     match matches.subcommand() {
-        (START_DAEMON, Some(_)) => updater::run_once(config)
+        (RUN_UPDATER, Some(_)) => updater::run_updater(config)
             .await
             .map_err(|e| format!("Failure: {:?}", e)),
         (SERVE, Some(_)) => {

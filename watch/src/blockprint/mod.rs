@@ -1,3 +1,11 @@
+pub mod database;
+pub mod server;
+pub mod updater;
+
+mod config;
+
+use crate::database::WatchSlot;
+
 use eth2::SensitiveUrl;
 use reqwest::{Client, Response, Url};
 use serde::{Deserialize, Serialize};
@@ -6,9 +14,12 @@ use std::time::Duration;
 use types::Slot;
 
 pub use config::Config;
-
-mod config;
-mod error;
+pub use database::{
+    get_blockprint_by_root, get_blockprint_by_slot, get_highest_blockprint, get_lowest_blockprint,
+    get_unknown_blockprint, get_validators_clients_at_slot, insert_batch_blockprint,
+    list_consensus_clients, WatchBlockprint,
+};
+pub use server::blockprint_routes;
 
 const TIMEOUT: Duration = Duration::from_secs(50);
 
@@ -69,6 +80,7 @@ impl WatchBlockprintClient {
 
     // Returns the `greatest_block_slot` as reported by the Blockprint server.
     // Will error if the Blockprint server is not synced.
+    #[allow(dead_code)]
     pub async fn ensure_synced(&self) -> Result<Slot, Error> {
         let url = self.server.full.join("sync/")?.join("status")?;
 
@@ -82,6 +94,8 @@ impl WatchBlockprintClient {
         Ok(result.greatest_block_slot)
     }
 
+    // Pulls the latest blockprint for all validators.
+    #[allow(dead_code)]
     pub async fn blockprint_all_validators(
         &self,
         highest_validator: i32,
@@ -106,11 +120,13 @@ impl WatchBlockprintClient {
         Ok(map)
     }
 
-    pub async fn blockprint_proposers_between(
+    // Construct a request to the Blockprint server for a range of slots between `start_slot` and
+    // `end_slot`.
+    pub async fn get_blockprint(
         &self,
         start_slot: Slot,
         end_slot: Slot,
-    ) -> Result<HashMap<i32, String>, Error> {
+    ) -> Result<Vec<WatchBlockprint>, Error> {
         let url = self
             .server
             .full
@@ -119,13 +135,15 @@ impl WatchBlockprintClient {
 
         let response = self.get(url).await?;
 
-        let result = response.json::<Vec<BlockprintResponse>>().await?;
-
-        let mut map: HashMap<i32, String> = HashMap::with_capacity(result.len());
-        for print in result {
-            map.insert(print.proposer_index, print.best_guess_single);
-        }
-
-        Ok(map)
+        let result = response
+            .json::<Vec<BlockprintResponse>>()
+            .await?
+            .iter()
+            .map(|response| WatchBlockprint {
+                slot: WatchSlot::from_slot(response.slot),
+                best_guess: response.best_guess_single.clone(),
+            })
+            .collect();
+        Ok(result)
     }
 }

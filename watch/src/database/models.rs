@@ -1,13 +1,12 @@
 use crate::database::{
-    schema::{
-        beacon_blocks, block_packing, block_rewards, canonical_slots, proposer_info,
-        suboptimal_attestations, validators,
-    },
-    watch_types::{WatchAttestation, WatchHash, WatchPK, WatchSlot},
+    schema::{beacon_blocks, canonical_slots, proposer_info, validators},
+    watch_types::{WatchHash, WatchPK, WatchSlot},
 };
 use diesel::{Insertable, Queryable};
 use serde::{Deserialize, Serialize};
 use std::hash::{Hash, Hasher};
+
+pub type WatchEpoch = i32;
 
 #[derive(Debug, Queryable, Insertable, Serialize, Deserialize)]
 #[diesel(table_name = canonical_slots)]
@@ -24,6 +23,8 @@ pub struct WatchBeaconBlock {
     pub slot: WatchSlot,
     pub root: WatchHash,
     pub parent_root: WatchHash,
+    pub attestation_count: i32,
+    pub transaction_count: Option<i32>,
 }
 
 #[derive(Clone, Debug, Queryable, Insertable, Serialize, Deserialize)]
@@ -32,9 +33,8 @@ pub struct WatchValidator {
     pub index: i32,
     pub public_key: WatchPK,
     pub status: String,
-    pub client: Option<String>,
-    pub activation_epoch: Option<i32>,
-    pub exit_epoch: Option<i32>,
+    pub activation_epoch: Option<WatchEpoch>,
+    pub exit_epoch: Option<WatchEpoch>,
 }
 
 // Implement a minimal version of `Hash` and `Eq` so that we know if a validator status has changed.
@@ -63,44 +63,4 @@ pub struct WatchProposerInfo {
     pub slot: WatchSlot,
     pub proposer_index: i32,
     pub graffiti: String,
-}
-
-#[derive(Debug, Queryable, Insertable, Serialize, Deserialize)]
-#[diesel(table_name = block_rewards)]
-pub struct WatchBlockRewards {
-    pub slot: WatchSlot,
-    pub total: i32,
-    pub attestation_reward: i32,
-    pub sync_committee_reward: i32,
-}
-
-#[derive(Debug, Queryable, Insertable, Serialize, Deserialize)]
-#[diesel(table_name = block_packing)]
-pub struct WatchBlockPacking {
-    pub slot: WatchSlot,
-    pub available: i32,
-    pub included: i32,
-    pub prior_skip_slots: i32,
-}
-
-#[derive(Debug, Queryable, Insertable, Serialize, Deserialize)]
-#[diesel(table_name = suboptimal_attestations)]
-pub struct WatchSuboptimalAttestation {
-    pub epoch_start_slot: WatchSlot,
-    pub index: i32,
-    pub source: bool,
-    pub head: bool,
-    pub target: bool,
-}
-
-impl WatchSuboptimalAttestation {
-    pub fn to_attestation(&self, slots_per_epoch: u64) -> WatchAttestation {
-        WatchAttestation {
-            index: self.index,
-            epoch: self.epoch_start_slot.epoch(slots_per_epoch),
-            source: self.source,
-            head: self.head,
-            target: self.target,
-        }
-    }
 }

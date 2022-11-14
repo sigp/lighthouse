@@ -1,5 +1,9 @@
+use crate::block_packing::block_packing_routes;
+use crate::block_rewards::block_rewards_routes;
+use crate::blockprint::blockprint_routes;
 use crate::config::Config as FullConfig;
 use crate::database::{self, PgPool};
+use crate::suboptimal_attestations::{attestation_routes, blockprint_attestation_routes};
 //use axum::{extract::Extension, routing::get, Router};
 use axum::{
     handler::Handler,
@@ -7,7 +11,6 @@ use axum::{
     routing::get,
     Extension, Json, Router,
 };
-use error::Error;
 use eth2::types::ErrorMessage;
 use log::info;
 use std::future::Future;
@@ -15,6 +18,7 @@ use std::net::SocketAddr;
 use tokio::sync::oneshot;
 
 pub use config::Config;
+pub use error::Error;
 
 mod config;
 mod error;
@@ -30,7 +34,7 @@ pub async fn serve(config: FullConfig, shutdown: oneshot::Receiver<()>) -> Resul
             )
         })?;
 
-    let server = start_server(&config.server, slots_per_epoch as u64, db, async {
+    let server = start_server(&config, slots_per_epoch as u64, db, async {
         let _ = shutdown.await;
     })?;
 
@@ -56,12 +60,12 @@ pub async fn serve(config: FullConfig, shutdown: oneshot::Receiver<()>) -> Resul
 /// Returns an error if the server is unable to bind or there is another error during
 /// configuration.
 pub fn start_server(
-    config: &Config,
+    config: &FullConfig,
     slots_per_epoch: u64,
     pool: PgPool,
     shutdown: impl Future<Output = ()> + Send + Sync + 'static,
 ) -> Result<impl Future<Output = Result<(), hyper::Error>> + 'static, Error> {
-    let app = Router::new()
+    let mut app = Router::new()
         .route("/v1/slots", get(handler::get_slots_by_range))
         .route("/v1/slots/:slot", get(handler::get_slot))
         .route("/v1/slots/lowest", get(handler::get_slot_lowest))
@@ -80,43 +84,27 @@ pub fn start_server(
             "/v1/blocks/:block/proposer",
             get(handler::get_block_proposer),
         )
-        .route("/v1/blocks/:block/reward", get(handler::get_block_reward))
-        .route("/v1/blocks/:block/packing", get(handler::get_block_packing))
         .route("/v1/validators/:validator", get(handler::get_validator))
-        .route(
-            "/v1/validators/:validator/attestation/:epoch",
-            get(handler::get_validator_attestation),
-        )
-        .route(
-            "/v1/validators/missed/:vote/:epoch",
-            get(handler::get_validators_missed_vote),
-        )
-        .route(
-            "/v1/validators/missed/:vote/:epoch/graffiti",
-            get(handler::get_validators_missed_vote_graffiti),
-        )
-        .route(
-            "/v1/clients/missed/:vote/:epoch",
-            get(handler::get_clients_missed_vote),
-        )
-        .route(
-            "/v1/clients/missed/:vote/:epoch/percentages",
-            get(handler::get_clients_missed_vote_percentages),
-        )
-        .route(
-            "/v1/clients/missed/:vote/:epoch/percentages/relative",
-            get(handler::get_clients_missed_vote_percentages_relative),
-        )
+        .route("/v1/validators/all", get(handler::get_all_validators))
         .route("/v1/clients", get(handler::get_client_breakdown))
         .route(
             "/v1/clients/percentages",
             get(handler::get_client_breakdown_percentages),
         )
+        .merge(attestation_routes())
+        //.merge(blockprint_attestation_routes())
+        .merge(blockprint_routes())
+        .merge(block_packing_routes())
+        .merge(block_rewards_routes())
         .fallback(route_not_found.into_service())
         .layer(Extension(pool))
         .layer(Extension(slots_per_epoch));
 
-    let addr = SocketAddr::new(config.listen_addr, config.listen_port);
+    if config.blockprint.enabled && config.updater.attestations {
+        app = app.merge(blockprint_attestation_routes())
+    }
+
+    let addr = SocketAddr::new(config.server.listen_addr, config.server.listen_port);
 
     let server = axum::Server::try_bind(&addr)?.serve(app.into_make_service());
 

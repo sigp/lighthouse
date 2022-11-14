@@ -3,7 +3,7 @@
 use beacon_chain::test_utils::{
     AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
 };
-use eth2::types::BlockId;
+use eth2::{types::BlockId, BeaconNodeHttpClient, SensitiveUrl, Timeouts};
 use http_api::test_utils::{create_api_server, ApiServer};
 use network::NetworkMessage;
 
@@ -17,7 +17,7 @@ use watch::{
     config::Config,
     database::{self, Config as DatabaseConfig, PgPool, WatchSlot},
     server::{start_server, Config as ServerConfig},
-    updater::{handler::*, run_once, Config as UpdaterConfig},
+    updater::{handler::*, run_updater, Config as UpdaterConfig, WatchSpec},
 };
 
 use log::error;
@@ -33,6 +33,7 @@ type E = MainnetEthSpec;
 
 const VALIDATOR_COUNT: usize = 32;
 const SLOTS_PER_EPOCH: u64 = 32;
+const DEFAULT_TIMEOUT: Duration = Duration::from_secs(5);
 
 fn build_test_config(config: &DatabaseConfig) -> PostgresConfig {
     let mut postgres_config = PostgresConfig::new();
@@ -134,7 +135,7 @@ impl TesterBuilder {
          * Spawn a Watch HTTP API.
          */
         let (_watch_shutdown_tx, watch_shutdown_rx) = oneshot::channel();
-        let watch_server = start_server(&self.config.server, SLOTS_PER_EPOCH, pool, async {
+        let watch_server = start_server(&self.config, SLOTS_PER_EPOCH, pool, async {
             let _ = watch_shutdown_rx.await;
         })
         .unwrap();
@@ -154,9 +155,18 @@ impl TesterBuilder {
         };
 
         /*
+         * Create a HTTP client to talk to the Beacon Node API.
+         */
+        let beacon_node_url = SensitiveUrl::parse(&self.config.updater.beacon_node_url).unwrap();
+        let bn = BeaconNodeHttpClient::new(beacon_node_url, Timeouts::set_all(DEFAULT_TIMEOUT));
+        let spec = WatchSpec::mainnet("mainnet".to_string());
+
+        /*
          * Build update service
          */
-        let updater = UpdateHandler::new(self.config.clone()).await.unwrap();
+        let updater = UpdateHandler::new(bn, spec, self.config.clone())
+            .await
+            .unwrap();
 
         Tester {
             harness: self.harness,
@@ -180,7 +190,7 @@ struct Tester {
     pub harness: BeaconChainHarness<EphemeralHarnessType<E>>,
     pub client: WatchHttpClient,
     pub config: Config,
-    pub updater: UpdateHandler,
+    pub updater: UpdateHandler<E>,
     _bn_network_rx: mpsc::UnboundedReceiver<NetworkMessage<E>>,
     _bn_api_shutdown_tx: oneshot::Sender<()>,
     _watch_shutdown_tx: oneshot::Sender<()>,
@@ -227,7 +237,7 @@ impl Tester {
     /// Run the watch updater service.
     pub async fn run_update_service(&mut self, num_runs: usize) -> &mut Self {
         for _ in 0..num_runs {
-            run_once(self.config.clone()).await.unwrap();
+            run_updater(self.config.clone()).await.unwrap();
         }
         self
     }
@@ -252,20 +262,29 @@ impl Tester {
         self
     }
 
-    pub async fn fill_rewards_and_proposer_info(&mut self) -> &mut Self {
+    pub async fn fill_suboptimal_attestations(&mut self) -> &mut Self {
+        self.updater.fill_suboptimal_attestations().await.unwrap();
+
+        self
+    }
+
+    pub async fn backfill_suboptimal_attestations(&mut self) -> &mut Self {
         self.updater
-            .fill_block_rewards_and_proposer_info()
+            .backfill_suboptimal_attestations()
             .await
             .unwrap();
 
         self
     }
 
-    pub async fn backfill_rewards_and_proposer_info(&mut self) -> &mut Self {
-        self.updater
-            .backfill_block_rewards_and_proposer_info()
-            .await
-            .unwrap();
+    pub async fn fill_block_rewards(&mut self) -> &mut Self {
+        self.updater.fill_block_rewards().await.unwrap();
+
+        self
+    }
+
+    pub async fn backfill_block_rewards(&mut self) -> &mut Self {
+        self.updater.backfill_block_rewards().await.unwrap();
 
         self
     }
@@ -342,6 +361,19 @@ impl Tester {
             .await
             .unwrap()
             .is_none());
+        self
+    }
+
+    pub async fn assert_all_validators_exist(&mut self) -> &mut Self {
+        assert_eq!(
+            self.client
+                .get_all_validators()
+                .await
+                .unwrap()
+                .unwrap()
+                .len(),
+            VALIDATOR_COUNT
+        );
         self
     }
 
@@ -530,7 +562,7 @@ impl Tester {
                 .unwrap()
                 .unwrap();
             if !canonical_slot.skipped {
-                database::get_block_reward_by_slot(&mut conn, WatchSlot::new(slot))
+                database::get_block_rewards_by_slot(&mut conn, WatchSlot::new(slot))
                     .unwrap()
                     .unwrap();
                 database::get_proposer_info_by_slot(&mut conn, WatchSlot::new(slot))
@@ -576,6 +608,8 @@ async fn short_chain() {
         .await
         .run_update_service(1)
         .await
+        .assert_all_validators_exist()
+        .await
         .assert_canonical_slots_not_empty()
         .await
         .assert_canonical_chain_consistent(0)
@@ -607,6 +641,8 @@ async fn short_chain_sync_starts_on_skip_slot() {
         .await
         .run_update_service(1)
         .await
+        .assert_all_validators_exist()
+        .await
         .assert_canonical_slots_not_empty()
         .await
         .assert_canonical_chain_consistent(0)
@@ -636,6 +672,8 @@ async fn short_chain_with_skip_slot() {
         .await
         .run_update_service(1)
         .await
+        .assert_all_validators_exist()
+        .await
         .assert_canonical_slots_not_empty()
         .await
         .assert_highest_canonical_slot(5)
@@ -648,6 +686,8 @@ async fn short_chain_with_skip_slot() {
         .extend_chain(1)
         .await
         .run_update_service(1)
+        .await
+        .assert_all_validators_exist()
         .await
         .assert_highest_canonical_slot(7)
         .await
@@ -676,6 +716,8 @@ async fn short_chain_with_reorg() {
         .await
         .run_update_service(1)
         .await
+        .assert_all_validators_exist()
+        .await
         .assert_canonical_slots_not_empty()
         .await
         .assert_highest_canonical_slot(5)
@@ -690,6 +732,8 @@ async fn short_chain_with_reorg() {
         .extend_chain(1)
         .await
         .run_update_service(1)
+        .await
+        .assert_all_validators_exist()
         .await
         .assert_highest_canonical_slot(8)
         .await
@@ -752,6 +796,8 @@ async fn chain_grows() {
         .await
         .assert_highest_canonical_slot(7)
         .await
+        .update_validator_set()
+        .await
         // Insert all blocks.
         .update_unknown_blocks()
         .await
@@ -787,20 +833,23 @@ async fn chain_grows_with_metadata() {
         // Fill back to genesis.
         .perform_backfill()
         .await
+        // Insert all validators
+        .update_validator_set()
+        .await
         // Insert all blocks.
         .update_unknown_blocks()
         .await
-        // Insert all validators
-        .update_validator_set()
+        // All validators should be present.
+        .assert_all_validators_exist()
         .await
         // Check the chain is consistent
         .assert_canonical_chain_consistent(0)
         .await
         // Get other chain data.
         // Backfill before forward fill to ensure order is arbitrary.
-        .backfill_rewards_and_proposer_info()
+        .backfill_block_rewards()
         .await
-        .fill_rewards_and_proposer_info()
+        .fill_block_rewards()
         .await
         // All blocks should be present.
         .assert_lowest_canonical_slot(0)
@@ -838,6 +887,8 @@ async fn chain_grows_with_metadata() {
         .await
         .assert_highest_canonical_slot(7)
         .await
+        .update_validator_set()
+        .await
         // Insert all blocks.
         .update_unknown_blocks()
         .await
@@ -845,9 +896,9 @@ async fn chain_grows_with_metadata() {
         .assert_canonical_chain_consistent(0)
         .await
         // Get other chain data.
-        .fill_rewards_and_proposer_info()
+        .fill_block_rewards()
         .await
-        .backfill_rewards_and_proposer_info()
+        .backfill_block_rewards()
         .await
         // All rewards should be present.
         .assert_lowest_block_has_block_rewards()
@@ -888,19 +939,22 @@ async fn chain_grows_with_metadata_and_multiple_skip_slots() {
         // Fill back to genesis.
         .perform_backfill()
         .await
+        // Insert all validators
+        .update_validator_set()
+        .await
         // Insert all blocks.
         .update_unknown_blocks()
         .await
-        // Insert all validators
-        .update_validator_set()
+        // All validators should be present.
+        .assert_all_validators_exist()
         .await
         // Check the chain is consistent.
         .assert_canonical_chain_consistent(0)
         .await
         // Get other chain data.
-        .fill_rewards_and_proposer_info()
+        .fill_block_rewards()
         .await
-        .backfill_rewards_and_proposer_info()
+        .backfill_block_rewards()
         .await
         // All blocks should be present.
         .assert_lowest_canonical_slot(0)
@@ -937,10 +991,15 @@ async fn chain_grows_with_metadata_and_multiple_skip_slots() {
         // Update the head.
         .perform_head_update()
         .await
+        // All validators should be present.
+        .assert_all_validators_exist()
+        .await
         // All blocks should be present.
         .assert_lowest_canonical_slot(0)
         .await
         .assert_highest_canonical_slot(10)
+        .await
+        .update_validator_set()
         .await
         // Insert all blocks.
         .update_unknown_blocks()
@@ -950,9 +1009,9 @@ async fn chain_grows_with_metadata_and_multiple_skip_slots() {
         .await
         // Get other chain data.
         // Backfill before forward fill to ensure order is arbitrary.
-        .backfill_rewards_and_proposer_info()
+        .backfill_block_rewards()
         .await
-        .fill_rewards_and_proposer_info()
+        .fill_block_rewards()
         .await
         // All rewards should be present.
         .assert_lowest_block_has_block_rewards()
@@ -992,11 +1051,14 @@ async fn chain_grows_to_second_epoch() {
         // Fill back to genesis.
         .perform_backfill()
         .await
+        // Insert all validators
+        .update_validator_set()
+        .await
         // Insert all blocks.
         .update_unknown_blocks()
         .await
-        // Insert all validators
-        .update_validator_set()
+        // All validators should be present.
+        .assert_all_validators_exist()
         .await
         // Check the chain is consistent.
         .assert_canonical_chain_consistent(0)
@@ -1028,6 +1090,8 @@ async fn chain_grows_to_second_epoch() {
         .assert_lowest_canonical_slot(0)
         .await
         .assert_highest_canonical_slot(43)
+        .await
+        .update_validator_set()
         .await
         // Insert all blocks.
         .update_unknown_blocks()
@@ -1074,19 +1138,22 @@ async fn large_chain() {
         // Backfill 2 epochs as per default config.
         .perform_backfill()
         .await
+        // Insert all validators
+        .update_validator_set()
+        .await
         // Insert all blocks.
         .update_unknown_blocks()
         .await
-        // Insert all validators
-        .update_validator_set()
+        // All validators should be present.
+        .assert_all_validators_exist()
         .await
         // Check the chain is consistent.
         .assert_canonical_chain_consistent(384)
         .await
         // Get block rewards and proposer info.
-        .fill_rewards_and_proposer_info()
+        .fill_block_rewards()
         .await
-        .backfill_rewards_and_proposer_info()
+        .backfill_block_rewards()
         .await
         // Get block packings.
         .fill_block_packing()
@@ -1128,16 +1195,24 @@ async fn large_chain() {
         .await
         .assert_highest_canonical_slot(403)
         .await
-        // Insert all blocks.
-        .update_unknown_blocks()
-        .await
         // Update validators
         .update_validator_set()
         .await
-        // Get block rewards and proposer info.
-        .fill_rewards_and_proposer_info()
+        // Insert all blocks.
+        .update_unknown_blocks()
         .await
-        .backfill_rewards_and_proposer_info()
+        // All validators should be present.
+        .assert_all_validators_exist()
+        .await
+        // Get suboptimal attestations.
+        .fill_suboptimal_attestations()
+        .await
+        .backfill_suboptimal_attestations()
+        .await
+        // Get block rewards and proposer info.
+        .fill_block_rewards()
+        .await
+        .backfill_block_rewards()
         .await
         // Get block packing.
         // Backfill before forward fill to ensure order is arbitrary.

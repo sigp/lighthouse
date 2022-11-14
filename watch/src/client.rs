@@ -1,7 +1,10 @@
+use crate::block_packing::WatchBlockPacking;
+use crate::block_rewards::WatchBlockRewards;
 use crate::database::models::{
-    WatchBeaconBlock, WatchBlockPacking, WatchBlockRewards, WatchCanonicalSlot, WatchProposerInfo,
-    WatchValidator,
+    WatchBeaconBlock, WatchCanonicalSlot, WatchProposerInfo, WatchValidator,
 };
+use crate::suboptimal_attestations::WatchAttestation;
+
 use eth2::types::BlockId;
 use reqwest::Client;
 use serde::de::DeserializeOwned;
@@ -133,7 +136,7 @@ impl WatchHttpClient {
             .join("v1/")?
             .join("blocks/")?
             .join(&format!("{block_id}/"))?
-            .join("reward")?;
+            .join("rewards")?;
 
         self.get_opt(url).await
     }
@@ -148,6 +151,27 @@ impl WatchHttpClient {
             .join("blocks/")?
             .join(&format!("{block_id}/"))?
             .join("packing")?;
+
+        self.get_opt(url).await
+    }
+
+    pub async fn get_all_validators(&self) -> Result<Option<Vec<WatchValidator>>, Error> {
+        let url = self.server.join("v1/")?.join("validators/")?.join("all")?;
+
+        self.get_opt(url).await
+    }
+
+    pub async fn get_attestations(
+        &self,
+        epoch: i32,
+    ) -> Result<Option<Vec<WatchAttestation>>, Error> {
+        let url = self
+            .server
+            .join("v1/")?
+            .join("validators/")?
+            .join("all/")?
+            .join("attestation/")?
+            .join(&format!("{epoch}"))?;
 
         self.get_opt(url).await
     }

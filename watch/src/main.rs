@@ -1,11 +1,16 @@
+#![cfg(unix)]
+
 use std::process;
 
+mod block_packing;
+mod block_rewards;
 mod blockprint;
 mod cli;
 mod config;
 mod database;
 mod logger;
 mod server;
+mod suboptimal_attestations;
 mod updater;
 
 #[tokio::main]

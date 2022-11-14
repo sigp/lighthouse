@@ -1,6 +1,6 @@
 use crate::database::{
-    self, PgConn, PgPool, WatchAttestation, WatchBeaconBlock, WatchBlockPacking, WatchBlockRewards,
-    WatchCanonicalSlot, WatchHash, WatchPK, WatchProposerInfo, WatchSlot, WatchValidator,
+    self, Error as DbError, PgPool, WatchBeaconBlock, WatchCanonicalSlot, WatchHash, WatchPK,
+    WatchProposerInfo, WatchSlot, WatchValidator,
 };
 use crate::server::Error;
 use axum::{
@@ -10,7 +10,6 @@ use axum::{
 use eth2::types::BlockId;
 use std::collections::HashMap;
 use std::str::FromStr;
-use types::Epoch;
 
 pub async fn get_slot(
     Path(slot): Path<u64>,
@@ -178,42 +177,6 @@ pub async fn get_block_proposer(
     }
 }
 
-pub async fn get_block_reward(
-    Path(block_query): Path<String>,
-    Extension(pool): Extension<PgPool>,
-) -> Result<Json<Option<WatchBlockRewards>>, Error> {
-    let mut conn = database::get_connection(&pool).map_err(Error::Database)?;
-    match BlockId::from_str(&block_query).map_err(|_| Error::BadRequest)? {
-        BlockId::Root(root) => Ok(Json(database::get_block_reward_by_root(
-            &mut conn,
-            WatchHash::from_hash(root),
-        )?)),
-        BlockId::Slot(slot) => Ok(Json(database::get_block_reward_by_slot(
-            &mut conn,
-            WatchSlot::from_slot(slot),
-        )?)),
-        _ => Err(Error::BadRequest),
-    }
-}
-
-pub async fn get_block_packing(
-    Path(block_query): Path<String>,
-    Extension(pool): Extension<PgPool>,
-) -> Result<Json<Option<WatchBlockPacking>>, Error> {
-    let mut conn = database::get_connection(&pool).map_err(Error::Database)?;
-    match BlockId::from_str(&block_query).map_err(|_| Error::BadRequest)? {
-        BlockId::Root(root) => Ok(Json(database::get_block_packing_by_root(
-            &mut conn,
-            WatchHash::from_hash(root),
-        )?)),
-        BlockId::Slot(slot) => Ok(Json(database::get_block_packing_by_slot(
-            &mut conn,
-            WatchSlot::from_slot(slot),
-        )?)),
-        _ => Err(Error::BadRequest),
-    }
-}
-
 pub async fn get_validator(
     Path(validator_query): Path<String>,
     Extension(pool): Extension<PgPool>,
@@ -230,251 +193,52 @@ pub async fn get_validator(
     }
 }
 
-// Will return Ok(None) if the epoch is not synced or if the validator does not exist.
-// In the future it might be worth differentiating these events.
-pub async fn get_validator_attestation(
-    Path((validator_query, epoch_query)): Path<(String, u64)>,
+pub async fn get_all_validators(
     Extension(pool): Extension<PgPool>,
-    Extension(slots_per_epoch): Extension<u64>,
-) -> Result<Json<Option<WatchAttestation>>, Error> {
+) -> Result<Json<Vec<WatchValidator>>, Error> {
     let mut conn = database::get_connection(&pool).map_err(Error::Database)?;
-    let epoch = Epoch::new(epoch_query);
-
-    // Ensure the database has synced the target epoch.
-    if database::get_canonical_slot(
-        &mut conn,
-        WatchSlot::from_slot(epoch.end_slot(slots_per_epoch)),
-    )?
-    .is_none()
-    {
-        // Epoch is not fully synced.
-        return Ok(Json(None));
-    }
-
-    let index = if validator_query.starts_with("0x") {
-        let pubkey = WatchPK::from_str(&validator_query).map_err(|_| Error::BadRequest)?;
-        database::get_validator_by_public_key(&mut conn, pubkey)?
-            .ok_or(Error::NotFound)?
-            .index
-    } else {
-        i32::from_str(&validator_query).map_err(|_| Error::BadRequest)?
-    };
-    let attestation = if let Some(suboptimal_attestation) =
-        database::get_attestation_by_index(&mut conn, index, epoch, slots_per_epoch)?
-    {
-        Some(suboptimal_attestation.to_attestation(slots_per_epoch))
-    } else {
-        // Attestation was not in database. Check if the validator was active.
-        match database::get_validator_by_index(&mut conn, index)? {
-            Some(validator) => {
-                if let Some(activation_epoch) = validator.activation_epoch {
-                    if activation_epoch <= epoch.as_u64() as i32 {
-                        if let Some(exit_epoch) = validator.exit_epoch {
-                            if exit_epoch > epoch.as_u64() as i32 {
-                                // Validator is active and has not yet exited.
-                                Some(WatchAttestation::optimal(index, epoch))
-                            } else {
-                                // Validator has exited.
-                                None
-                            }
-                        } else {
-                            // Validator is active and has not yet exited.
-                            Some(WatchAttestation::optimal(index, epoch))
-                        }
-                    } else {
-                        // Validator is not yet active.
-                        None
-                    }
-                } else {
-                    // Validator is not yet active.
-                    None
-                }
-            }
-            None => return Err(Error::Other("Validator index does not exist".to_string())),
-        }
-    };
-    Ok(Json(attestation))
+    Ok(Json(database::get_all_validators(&mut conn)?))
 }
 
 pub async fn get_client_breakdown(
     Extension(pool): Extension<PgPool>,
-) -> Result<Json<HashMap<String, i64>>, Error> {
+    Extension(slots_per_epoch): Extension<u64>,
+) -> Result<Json<HashMap<String, usize>>, Error> {
     let mut conn = database::get_connection(&pool).map_err(Error::Database)?;
 
-    Ok(Json(database::get_validators_clients(&mut conn)?))
+    if let Some(target_slot) = database::get_highest_canonical_slot(&mut conn)? {
+        Ok(Json(database::get_validators_clients_at_slot(
+            &mut conn,
+            target_slot.slot,
+            slots_per_epoch,
+        )?))
+    } else {
+        Err(Error::Database(DbError::Other(
+            "No slots found in database.".to_string(),
+        )))
+    }
 }
 
 pub async fn get_client_breakdown_percentages(
     Extension(pool): Extension<PgPool>,
+    Extension(slots_per_epoch): Extension<u64>,
 ) -> Result<Json<HashMap<String, f64>>, Error> {
     let mut conn = database::get_connection(&pool).map_err(Error::Database)?;
 
-    let total = database::count_validators(&mut conn)?;
-    let clients = database::get_validators_clients(&mut conn)?;
     let mut result = HashMap::new();
-
-    for (client, number) in clients.iter() {
-        let percentage: f64 = *number as f64 / total as f64 * 100.0;
-        result.insert(client.to_string(), percentage);
-    }
-
-    Ok(Json(result))
-}
-
-pub async fn get_validators_missed_vote(
-    Path((vote, epoch)): Path<(String, u64)>,
-    Extension(pool): Extension<PgPool>,
-    Extension(slots_per_epoch): Extension<u64>,
-) -> Result<Json<Vec<i32>>, Error> {
-    let mut conn = database::get_connection(&pool).map_err(Error::Database)?;
-
-    let epoch_start_slot = WatchSlot::from_slot(Epoch::new(epoch).start_slot(slots_per_epoch));
-    match vote.to_lowercase().as_str() {
-        "source" => Ok(Json(database::get_validators_missed_source(
+    if let Some(target_slot) = database::get_highest_canonical_slot(&mut conn)? {
+        let total = database::count_validators_activated_before_slot(
             &mut conn,
-            epoch_start_slot,
-        )?)),
-        "head" => Ok(Json(database::get_validators_missed_head(
-            &mut conn,
-            epoch_start_slot,
-        )?)),
-        "target" => Ok(Json(database::get_validators_missed_target(
-            &mut conn,
-            epoch_start_slot,
-        )?)),
-        _ => Err(Error::BadRequest),
-    }
-}
-
-pub async fn get_validators_missed_vote_graffiti(
-    Path((vote, epoch)): Path<(String, u64)>,
-    Extension(pool): Extension<PgPool>,
-    Extension(slots_per_epoch): Extension<u64>,
-) -> Result<Json<HashMap<String, u64>>, Error> {
-    let mut conn = database::get_connection(&pool).map_err(Error::Database)?;
-
-    let Json(indices) = get_validators_missed_vote(
-        Path((vote, epoch)),
-        Extension(pool),
-        Extension(slots_per_epoch),
-    )
-    .await?;
-
-    let graffitis = database::get_validators_latest_proposer_info(&mut conn, indices)?
-        .iter()
-        .map(|(_, info)| info.graffiti.clone())
-        .collect::<Vec<String>>();
-
-    let mut result = HashMap::new();
-    for graffiti in graffitis {
-        if !result.contains_key(&graffiti) {
-            result.insert(graffiti.clone(), 0);
+            target_slot.slot,
+            slots_per_epoch,
+        )?;
+        let clients =
+            database::get_validators_clients_at_slot(&mut conn, target_slot.slot, slots_per_epoch)?;
+        for (client, number) in clients.iter() {
+            let percentage: f64 = *number as f64 / total as f64 * 100.0;
+            result.insert(client.to_string(), percentage);
         }
-        *result
-            .get_mut(&graffiti)
-            .ok_or_else(|| Error::Other("An unexpected error occurred".to_string()))? += 1;
     }
 
     Ok(Json(result))
-}
-
-pub async fn get_clients_missed_vote(
-    Path((vote, epoch)): Path<(String, u64)>,
-    Extension(pool): Extension<PgPool>,
-    Extension(slots_per_epoch): Extension<u64>,
-) -> Result<Json<HashMap<String, u64>>, Error> {
-    let mut conn = database::get_connection(&pool).map_err(Error::Database)?;
-
-    let Json(indices) = get_validators_missed_vote(
-        Path((vote, epoch)),
-        Extension(pool),
-        Extension(slots_per_epoch),
-    )
-    .await?;
-
-    let clients = database::get_validators_by_indices(&mut conn, indices)?
-        .into_iter()
-        .map(|val| val.client.unwrap_or_else(|| "Unknown".to_string()));
-    let mut result = HashMap::new();
-
-    for client in clients {
-        if !result.contains_key(&client) {
-            result.insert(client.clone(), 0);
-        }
-        *result
-            .get_mut(&client)
-            .ok_or_else(|| Error::Other("An unexpected error occurred".to_string()))? += 1;
-    }
-
-    Ok(Json(result))
-}
-
-pub async fn get_clients_missed_vote_percentages(
-    Path((vote, epoch)): Path<(String, u64)>,
-    Extension(pool): Extension<PgPool>,
-    Extension(slots_per_epoch): Extension<u64>,
-) -> Result<Json<HashMap<String, f64>>, Error> {
-    let Json(clients_counts) = get_clients_missed_vote(
-        Path((vote, epoch)),
-        Extension(pool.clone()),
-        Extension(slots_per_epoch),
-    )
-    .await?;
-
-    let mut conn = database::get_connection(&pool)?;
-    let totals = database::get_validators_clients(&mut conn)?;
-
-    let mut result = HashMap::new();
-    for (client, count) in clients_counts.iter() {
-        let percentage: f64 = *count as f64
-            / *totals
-                .get(client)
-                .ok_or_else(|| Error::Other("An unexpected error occurred".to_string()))?
-                as f64
-            * 100.0;
-        result.insert(client.to_string(), percentage);
-    }
-
-    Ok(Json(result))
-}
-
-pub async fn get_clients_missed_vote_percentages_relative(
-    Path((vote, epoch)): Path<(String, u64)>,
-    Extension(pool): Extension<PgPool>,
-    Extension(slots_per_epoch): Extension<u64>,
-) -> Result<Json<HashMap<String, f64>>, Error> {
-    let Json(clients_counts) = get_clients_missed_vote(
-        Path((vote, epoch)),
-        Extension(pool),
-        Extension(slots_per_epoch),
-    )
-    .await?;
-
-    let mut total: u64 = 0;
-    for (_, count) in clients_counts.iter() {
-        total += *count as u64
-    }
-
-    let mut result = HashMap::new();
-    for (client, count) in clients_counts.iter() {
-        let percentage: f64 = *count as f64 / total as f64 * 100.0;
-        result.insert(client.to_string(), percentage);
-    }
-
-    Ok(Json(result))
-}
-
-#[allow(dead_code)]
-pub fn get_proposer_info_by_range(
-    conn: &mut PgConn,
-    start_epoch: Epoch,
-    end_epoch: Epoch,
-    slots_per_epoch: u64,
-) -> Result<Option<Vec<WatchProposerInfo>>, Error> {
-    let start_slot = WatchSlot::from_slot(start_epoch.start_slot(slots_per_epoch));
-    let end_slot = WatchSlot::from_slot(end_epoch.end_slot(slots_per_epoch));
-
-    let result = database::get_proposer_info_by_range(conn, start_slot, end_slot)?;
-
-    Ok(result)
 }

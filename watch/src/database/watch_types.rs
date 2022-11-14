@@ -15,6 +15,7 @@ use types::{Epoch, Hash256, PublicKeyBytes, Slot};
     FromSqlRow,
     Deserialize,
     Serialize,
+    Hash,
     PartialEq,
     Eq,
     PartialOrd,
@@ -114,26 +115,5 @@ impl FromStr for WatchPK {
         Ok(WatchPK(
             PublicKeyBytes::from_str(s).map_err(|e| format!("Cannot be parsed: {}", e))?,
         ))
-    }
-}
-
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
-pub struct WatchAttestation {
-    pub index: i32,
-    pub epoch: Epoch,
-    pub source: bool,
-    pub head: bool,
-    pub target: bool,
-}
-
-impl WatchAttestation {
-    pub fn optimal(index: i32, epoch: Epoch) -> WatchAttestation {
-        WatchAttestation {
-            index,
-            epoch,
-            source: true,
-            head: true,
-            target: true,
-        }
     }
 }

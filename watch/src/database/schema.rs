@@ -5,7 +5,6 @@ diesel::table! {
         id -> Int4,
         config_name -> Text,
         slots_per_epoch -> Int4,
-        current_blockprint_checkpoint -> Nullable<Int4>,
     }
 }
 
@@ -14,6 +13,8 @@ diesel::table! {
         slot -> Int4,
         root -> Bytea,
         parent_root -> Bytea,
+        attestation_count -> Int4,
+        transaction_count -> Nullable<Int4>,
     }
 }
 
@@ -32,6 +33,13 @@ diesel::table! {
         total -> Int4,
         attestation_reward -> Int4,
         sync_committee_reward -> Int4,
+    }
+}
+
+diesel::table! {
+    blockprint (slot) {
+        slot -> Int4,
+        best_guess -> Text,
     }
 }
 
@@ -67,7 +75,6 @@ diesel::table! {
         index -> Int4,
         public_key -> Bytea,
         status -> Text,
-        client -> Nullable<Text>,
         activation_epoch -> Nullable<Int4>,
         exit_epoch -> Nullable<Int4>,
     }
@@ -75,6 +82,7 @@ diesel::table! {
 
 diesel::joinable!(block_packing -> beacon_blocks (slot));
 diesel::joinable!(block_rewards -> beacon_blocks (slot));
+diesel::joinable!(blockprint -> beacon_blocks (slot));
 diesel::joinable!(proposer_info -> beacon_blocks (slot));
 diesel::joinable!(proposer_info -> validators (proposer_index));
 diesel::joinable!(suboptimal_attestations -> canonical_slots (epoch_start_slot));
@@ -85,6 +93,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     beacon_blocks,
     block_packing,
     block_rewards,
+    blockprint,
     canonical_slots,
     proposer_info,
     suboptimal_attestations,

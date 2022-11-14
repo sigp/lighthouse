@@ -1,29 +1,100 @@
 use crate::config::Config as FullConfig;
-use crate::database::{
-    WatchBlockPacking, WatchBlockRewards, WatchPK, WatchProposerInfo, WatchSlot,
-    WatchSuboptimalAttestation, WatchValidator,
-};
-use error::Error;
+use crate::database::{WatchPK, WatchValidator};
 use eth2::{
     types::{BlockId, StateId},
-    BeaconNodeHttpClient,
+    BeaconNodeHttpClient, SensitiveUrl, Timeouts,
 };
-use handler::UpdateHandler;
 use log::{debug, error, info};
-use std::collections::HashSet;
-use std::time::Instant;
-use types::{BeaconBlockHeader, Epoch, Slot};
+use std::collections::{HashMap, HashSet};
+use std::marker::PhantomData;
+use std::time::{Duration, Instant};
+use types::{BeaconBlockHeader, EthSpec, GnosisEthSpec, MainnetEthSpec, SignedBeaconBlock};
 
 pub use config::Config;
+pub use error::Error;
+pub use handler::UpdateHandler;
 
 mod config;
-mod error;
+pub mod error;
 pub mod handler;
 
 const FAR_FUTURE_EPOCH: u64 = u64::MAX;
+const DEFAULT_TIMEOUT: Duration = Duration::from_secs(5);
 
-pub async fn run_once(config: FullConfig) -> Result<(), Error> {
-    let mut watch = UpdateHandler::new(config.clone()).await?;
+const MAINNET: &str = "mainnet";
+const GNOSIS: &str = "gnosis";
+
+pub struct WatchSpec<T: EthSpec> {
+    network: String,
+    spec: PhantomData<T>,
+}
+
+impl<T: EthSpec> WatchSpec<T> {
+    fn slots_per_epoch(&self) -> u64 {
+        T::slots_per_epoch()
+    }
+}
+
+impl WatchSpec<MainnetEthSpec> {
+    pub fn mainnet(network: String) -> Self {
+        Self {
+            network,
+            spec: PhantomData,
+            //spec: MainnetEthSpec,
+        }
+    }
+}
+
+impl WatchSpec<GnosisEthSpec> {
+    fn gnosis(network: String) -> Self {
+        Self {
+            network,
+            spec: PhantomData,
+            //spec: GnosisEthSpec,
+        }
+    }
+}
+
+pub async fn run_updater(config: FullConfig) -> Result<(), Error> {
+    let beacon_node_url =
+        SensitiveUrl::parse(&config.updater.beacon_node_url).map_err(Error::SensitiveUrl)?;
+    let bn = BeaconNodeHttpClient::new(beacon_node_url, Timeouts::set_all(DEFAULT_TIMEOUT));
+
+    let config_map = bn.get_config_spec::<HashMap<String, String>>().await?.data;
+
+    let config_name = config_map
+        .get("CONFIG_NAME")
+        .ok_or_else(|| {
+            Error::BeaconNodeNotCompatible("No field CONFIG_NAME on beacon node spec".to_string())
+        })?
+        .clone();
+
+    match config_map
+        .get("PRESET_BASE")
+        .ok_or_else(|| {
+            Error::BeaconNodeNotCompatible("Not field PRESET_BASE on beacon node spec".to_string())
+        })?
+        .to_lowercase()
+        .as_str()
+    {
+        MAINNET => {
+            let spec = WatchSpec::mainnet(config_name);
+            run_once(bn, spec, config).await
+        }
+        GNOSIS => {
+            let spec = WatchSpec::gnosis(config_name);
+            run_once(bn, spec, config).await
+        }
+        _ => unimplemented!(),
+    }
+}
+
+pub async fn run_once<T: EthSpec>(
+    bn: BeaconNodeHttpClient,
+    spec: WatchSpec<T>,
+    config: FullConfig,
+) -> Result<(), Error> {
+    let mut watch = UpdateHandler::new(bn, spec, config.clone()).await?;
 
     let sync_data = watch.get_bn_syncing_status().await?;
     if sync_data.is_syncing {
@@ -46,17 +117,19 @@ pub async fn run_once(config: FullConfig) -> Result<(), Error> {
     let block_backfill_timer_elapsed = block_backfill_timer.elapsed();
     debug!("Block backfill complete, time taken: {block_backfill_timer_elapsed:?}");
 
-    info!("Updating unknown blocks");
-    let unknown_block_timer = Instant::now();
-    watch.update_unknown_blocks().await?;
-    let unknown_block_timer_elapsed = unknown_block_timer.elapsed();
-    debug!("Unknown block update complete, time taken: {unknown_block_timer_elapsed:?}");
-
     info!("Updating validator set");
     let validator_timer = Instant::now();
     watch.update_validator_set().await?;
     let validator_timer_elapsed = validator_timer.elapsed();
     debug!("Validator update complete, time taken: {validator_timer_elapsed:?}");
+
+    // Update blocks after updating the validator set since the `proposer_index` must exist in the
+    // `validators` table.
+    info!("Updating unknown blocks");
+    let unknown_block_timer = Instant::now();
+    watch.update_unknown_blocks().await?;
+    let unknown_block_timer_elapsed = unknown_block_timer.elapsed();
+    debug!("Unknown block update complete, time taken: {unknown_block_timer_elapsed:?}");
 
     // Run additional modules
     if config.updater.attestations {
@@ -68,15 +141,13 @@ pub async fn run_once(config: FullConfig) -> Result<(), Error> {
         debug!("Attestation update complete, time taken: {attestation_timer_elapsed:?}");
     }
 
-    if config.updater.proposer_info || config.updater.block_rewards {
-        info!("Updating block rewards/proposer info");
-        let proposer_timer = Instant::now();
-        watch.fill_block_rewards_and_proposer_info().await?;
-        watch.backfill_block_rewards_and_proposer_info().await?;
-        let proposer_timer_elapsed = proposer_timer.elapsed();
-        debug!(
-            "Block Rewards/Proposer info update complete, time taken: {proposer_timer_elapsed:?}"
-        );
+    if config.updater.block_rewards {
+        info!("Updating block rewards");
+        let rewards_timer = Instant::now();
+        watch.fill_block_rewards().await?;
+        watch.backfill_block_rewards().await?;
+        let rewards_timer_elapsed = rewards_timer.elapsed();
+        debug!("Block Rewards update complete, time taken: {rewards_timer_elapsed:?}");
     }
 
     if config.updater.block_packing {
@@ -86,6 +157,15 @@ pub async fn run_once(config: FullConfig) -> Result<(), Error> {
         watch.backfill_block_packing().await?;
         let packing_timer_elapsed = packing_timer.elapsed();
         debug!("Block packing update complete, time taken: {packing_timer_elapsed:?}");
+    }
+
+    if config.blockprint.enabled {
+        info!("Updating blockprint");
+        let blockprint_timer = Instant::now();
+        watch.fill_blockprint().await?;
+        watch.backfill_blockprint().await?;
+        let blockprint_timer_elapsed = blockprint_timer.elapsed();
+        debug!("Blockprint update complete, time taken: {blockprint_timer_elapsed:?}");
     }
 
     Ok(())
@@ -110,6 +190,15 @@ pub async fn get_header(
         }
     }
     Ok(None)
+}
+
+pub async fn get_beacon_block<T: EthSpec>(
+    bn: &BeaconNodeHttpClient,
+    block_id: BlockId,
+) -> Result<Option<SignedBeaconBlock<T>>, Error> {
+    let block = bn.get_beacon_blocks(block_id).await?.map(|resp| resp.data);
+
+    Ok(block)
 }
 
 /// Queries the beacon node for the current validator set.
@@ -139,102 +228,9 @@ pub async fn get_validators(bn: &BeaconNodeHttpClient) -> Result<HashSet<WatchVa
             index: val.index as i32,
             public_key: WatchPK::from_pubkey(val.validator.pubkey),
             status: val.status.to_string(),
-            client: None,
             activation_epoch,
             exit_epoch,
         });
     }
     Ok(validator_map)
-}
-
-/// Sends a request to `lighthouse/analysis/attestation_performance`.
-/// Formats the response into a vector of `WatchSuboptimalAttestation`.
-///
-/// Any attestations with `source == true && head == true && target == true` are ignored.
-pub async fn get_attestation_performances(
-    bn: &BeaconNodeHttpClient,
-    start_epoch: Epoch,
-    end_epoch: Epoch,
-    slots_per_epoch: u64,
-) -> Result<Vec<WatchSuboptimalAttestation>, Error> {
-    let mut output = Vec::new();
-    let result = bn
-        .get_lighthouse_analysis_attestation_performance(
-            start_epoch,
-            end_epoch,
-            "global".to_string(),
-        )
-        .await?;
-    for index in result {
-        for epoch in index.epochs {
-            if epoch.1.active {
-                // Check if the attestation is suboptimal.
-                if !epoch.1.source || !epoch.1.head || !epoch.1.target {
-                    output.push(WatchSuboptimalAttestation {
-                        epoch_start_slot: WatchSlot::from_slot(
-                            Epoch::new(epoch.0).start_slot(slots_per_epoch),
-                        ),
-                        index: index.index as i32,
-                        source: epoch.1.source,
-                        head: epoch.1.head,
-                        target: epoch.1.target,
-                    })
-                }
-            }
-        }
-    }
-    Ok(output)
-}
-
-/// Sends a request to `lighthouse/analysis/block_rewards`.
-/// Formats the response into a vector of `WatchBlockRewards` and a vector of `WatchProposerInfo`.
-///
-/// Will fail if `start_slot == 0`.
-pub async fn get_block_rewards_and_proposer_info(
-    bn: &BeaconNodeHttpClient,
-    start_slot: Slot,
-    end_slot: Slot,
-) -> Result<(Vec<WatchBlockRewards>, Vec<WatchProposerInfo>), Error> {
-    Ok(bn
-        .get_lighthouse_analysis_block_rewards(start_slot, end_slot)
-        .await?
-        .into_iter()
-        .map(|data| {
-            (
-                WatchBlockRewards {
-                    slot: WatchSlot::from_slot(data.meta.slot),
-                    total: data.total as i32,
-                    attestation_reward: data.attestation_rewards.total as i32,
-                    sync_committee_reward: data.sync_committee_rewards as i32,
-                },
-                WatchProposerInfo {
-                    slot: WatchSlot::from_slot(data.meta.slot),
-                    proposer_index: data.meta.proposer_index as i32,
-                    graffiti: data.meta.graffiti,
-                },
-            )
-        })
-        .unzip())
-}
-
-/// Sends a request to `lighthouse/analysis/block_packing`.
-/// Formats the response into a vector of `WatchBlockPacking`.
-///
-/// Will fail if `start_epoch == 0`.
-pub async fn get_block_packing(
-    bn: &BeaconNodeHttpClient,
-    start_epoch: Epoch,
-    end_epoch: Epoch,
-) -> Result<Vec<WatchBlockPacking>, Error> {
-    Ok(bn
-        .get_lighthouse_analysis_block_packing(start_epoch, end_epoch)
-        .await?
-        .into_iter()
-        .map(|data| WatchBlockPacking {
-            slot: WatchSlot::from_slot(data.slot),
-            available: data.available_attestations as i32,
-            included: data.included_attestations as i32,
-            prior_skip_slots: data.prior_skip_slots as i32,
-        })
-        .collect())
 }

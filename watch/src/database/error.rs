@@ -3,9 +3,11 @@ use diesel::result::{ConnectionError, Error as PgError};
 use eth2::SensitiveError;
 use r2d2::Error as PoolError;
 use std::fmt;
+use types::BeaconStateError;
 
 #[derive(Debug)]
 pub enum Error {
+    BeaconState(BeaconStateError),
     Database(PgError),
     DatabaseCorrupted,
     InvalidSig(BlsError),
@@ -19,6 +21,12 @@ pub enum Error {
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{:?}", self)
+    }
+}
+
+impl From<BeaconStateError> for Error {
+    fn from(e: BeaconStateError) -> Self {
+        Error::BeaconState(e)
     }
 }
 

@@ -1,26 +1,3 @@
-#![allow(dead_code)]
-
-use self::schema::{
-    active_config, beacon_blocks, block_packing, block_rewards, canonical_slots, proposer_info,
-    suboptimal_attestations, validators,
-};
-use diesel::pg::PgConnection;
-use diesel::prelude::*;
-use diesel::r2d2::{Builder, ConnectionManager, Pool, PooledConnection};
-use diesel::upsert::excluded;
-use log::{debug, info};
-use std::collections::HashMap;
-use std::time::Instant;
-
-pub use self::error::Error;
-pub use self::models::{
-    WatchBeaconBlock, WatchBlockPacking, WatchBlockRewards, WatchCanonicalSlot, WatchProposerInfo,
-    WatchSuboptimalAttestation, WatchValidator,
-};
-pub use self::watch_types::{WatchAttestation, WatchHash, WatchPK, WatchSlot};
-pub use config::Config;
-pub use types::{BeaconBlockHeader, Epoch, Hash256, Slot};
-
 mod config;
 mod error;
 
@@ -30,6 +7,51 @@ pub mod schema;
 pub mod utils;
 pub mod watch_types;
 
+use self::schema::{
+    active_config, beacon_blocks, canonical_slots, proposer_info, suboptimal_attestations,
+    validators,
+};
+
+use diesel::dsl::max;
+use diesel::pg::PgConnection;
+use diesel::prelude::*;
+use diesel::r2d2::{Builder, ConnectionManager, Pool, PooledConnection};
+use diesel::upsert::excluded;
+use log::{debug, info};
+use std::collections::HashMap;
+use std::time::Instant;
+use types::{EthSpec, SignedBeaconBlock};
+
+pub use self::error::Error;
+pub use self::models::{WatchBeaconBlock, WatchCanonicalSlot, WatchProposerInfo, WatchValidator};
+pub use self::watch_types::{WatchHash, WatchPK, WatchSlot};
+
+pub use crate::block_rewards::{
+    get_block_rewards_by_root, get_block_rewards_by_slot, get_highest_block_rewards,
+    get_lowest_block_rewards, get_unknown_block_rewards, insert_batch_block_rewards,
+    WatchBlockRewards,
+};
+
+pub use crate::block_packing::{
+    get_block_packing_by_root, get_block_packing_by_slot, get_highest_block_packing,
+    get_lowest_block_packing, get_unknown_block_packing, insert_batch_block_packing,
+    WatchBlockPacking,
+};
+
+pub use crate::suboptimal_attestations::{
+    get_all_suboptimal_attestations_for_epoch, get_attestation_by_index, get_attestation_by_pubkey,
+    get_highest_attestation, get_lowest_attestation, insert_batch_suboptimal_attestations,
+    WatchAttestation, WatchSuboptimalAttestation,
+};
+
+pub use crate::blockprint::{
+    get_blockprint_by_root, get_blockprint_by_slot, get_highest_blockprint, get_lowest_blockprint,
+    get_unknown_blockprint, get_validators_clients_at_slot, insert_batch_blockprint,
+    WatchBlockprint,
+};
+
+pub use config::Config;
+
 /// Batch inserts cannot exceed a certain size.
 /// See https://github.com/diesel-rs/diesel/issues/2414.
 /// For some reason, this seems to translate to 65535 / 5 (13107) records.
@@ -37,16 +59,6 @@ pub const MAX_SIZE_BATCH_INSERT: usize = 13107;
 
 pub type PgPool = Pool<ConnectionManager<PgConnection>>;
 pub type PgConn = PooledConnection<ConnectionManager<PgConnection>>;
-
-fn unique_consensus_clients() -> Vec<String> {
-    vec![
-        "Lighthouse".to_string(),
-        "Lodestar".to_string(),
-        "Nimbus".to_string(),
-        "Prysm".to_string(),
-        "Teku".to_string(),
-    ]
-}
 
 /// Connect to a Postgresql database and build a connection pool.
 pub fn build_connection_pool(config: &Config) -> Result<PgPool, Error> {
@@ -67,7 +79,7 @@ pub fn get_connection(pool: &PgPool) -> Result<PgConn, Error> {
 pub fn insert_active_config(
     conn: &mut PgConn,
     new_config_name: String,
-    new_slots_per_epoch: i32,
+    new_slots_per_epoch: u64,
 ) -> Result<(), Error> {
     use self::active_config::dsl::*;
 
@@ -75,7 +87,7 @@ pub fn insert_active_config(
         .values(&vec![(
             id.eq(1),
             config_name.eq(new_config_name),
-            slots_per_epoch.eq(new_slots_per_epoch),
+            slots_per_epoch.eq(new_slots_per_epoch as i32),
         )])
         .on_conflict_do_nothing()
         .execute(conn)?;
@@ -91,32 +103,6 @@ pub fn get_active_config(conn: &mut PgConn) -> Result<Option<(String, i32)>, Err
         .filter(id.eq(1))
         .first::<(String, i32)>(conn)
         .optional()?)
-}
-
-/// Update the current blockprint checkpoint. This is used so we know the last slot which was
-/// synced with blockprint. We cannot just check the validator table since (almost) every validator will already
-/// have a `client` and they can change at any time.
-pub fn update_blockprint_checkpoint(
-    conn: &mut PgConn,
-    new_blockprint_checkpoint: WatchSlot,
-) -> Result<(), Error> {
-    use self::active_config::dsl::*;
-
-    diesel::update(active_config)
-        .filter(id.eq(1))
-        .set(current_blockprint_checkpoint.eq(new_blockprint_checkpoint))
-        .execute(conn)?;
-
-    Ok(())
-}
-
-/// Get the current blockprint checkpoint from the database.
-pub fn get_current_blockprint_checkpoint(conn: &mut PgConn) -> Result<Option<WatchSlot>, Error> {
-    use self::active_config::dsl::*;
-    Ok(active_config
-        .select(current_blockprint_checkpoint)
-        .filter(id.eq(1))
-        .first::<Option<WatchSlot>>(conn)?)
 }
 
 ///
@@ -137,26 +123,40 @@ pub fn insert_canonical_slot(conn: &mut PgConn, new_slot: WatchCanonicalSlot) ->
     Ok(())
 }
 
-/// Inserts a single row into the `beacon_blocks` table.
-/// The value is derived from the value of the given block `root` and `BeaconBlockHeader`.
-///
-/// On a conflict, it will do nothing, leaving the old value.
-///
-/// This additionally runs an UPDATE on the `canonical_slots` table so that it fills in
-/// `beacon_block` with the given block `root`.
-pub fn insert_beacon_block_from_header(
+pub fn insert_beacon_block<T: EthSpec>(
     conn: &mut PgConn,
-    header: &BeaconBlockHeader,
+    block: SignedBeaconBlock<T>,
     root: WatchHash,
 ) -> Result<(), Error> {
-    use self::beacon_blocks::dsl::{parent_root, root as block_root, slot as block_slot};
     use self::canonical_slots::dsl::{beacon_block, slot as canonical_slot};
 
-    let slot = WatchSlot::from_slot(header.slot);
-    let parent = WatchHash::from_hash(header.parent_root);
+    let block_message = block.message();
 
-    // Update `canonical_slots` first since the `beacon_blocks` table relies on the value of
-    // `beacon_block`.
+    // Pull out relevant values from the block.
+    let slot = WatchSlot::from_slot(block.slot());
+    let parent_root = WatchHash::from_hash(block.parent_root());
+    let proposer_index = block_message.proposer_index() as i32;
+    let graffiti = block_message.body().graffiti().as_utf8_lossy();
+    let attestation_count = block_message.body().attestations().len() as i32;
+    let transaction_count = block_message
+        .execution_payload()
+        .ok()
+        .map(|payload| payload.execution_payload.transactions.len() as i32);
+
+    let block_to_add = WatchBeaconBlock {
+        slot,
+        root,
+        parent_root,
+        attestation_count,
+        transaction_count,
+    };
+    let proposer_info_to_add = WatchProposerInfo {
+        slot,
+        proposer_index,
+        graffiti,
+    };
+
+    // Update the canonical slots table.
     diesel::update(canonical_slots::table)
         .set(beacon_block.eq(root))
         .filter(canonical_slot.eq(slot))
@@ -165,15 +165,16 @@ pub fn insert_beacon_block_from_header(
         .execute(conn)?;
 
     diesel::insert_into(beacon_blocks::table)
-        .values((
-            block_slot.eq(slot),
-            block_root.eq(root),
-            parent_root.eq(parent),
-        ))
+        .values(block_to_add)
         .on_conflict_do_nothing()
         .execute(conn)?;
 
-    debug!("Beacon block inserted at slot: {slot}, root: {root}, parent: {parent}");
+    diesel::insert_into(proposer_info::table)
+        .values(proposer_info_to_add)
+        .on_conflict_do_nothing()
+        .execute(conn)?;
+
+    debug!("Beacon block inserted at slot: {slot}, root: {root}, parent: {parent_root}");
     Ok(())
 }
 
@@ -226,160 +227,6 @@ pub fn insert_batch_validators(
     Ok(())
 }
 
-/// Insert a batch of values into the `validators` table.
-///
-/// If `client` conflicts, update the value.
-///
-/// Used when updating blockprint data for all validators at once.
-pub fn insert_batch_validators_blockprint(
-    conn: &mut PgConn,
-    all_validators: Vec<WatchValidator>,
-) -> Result<(), Error> {
-    use self::validators::dsl::*;
-
-    let mut count = 0;
-
-    for chunk in all_validators.chunks(1000) {
-        count += diesel::insert_into(validators)
-            .values(chunk)
-            .on_conflict(index)
-            .do_update()
-            .set(client.eq(excluded(client)))
-            .execute(conn)?;
-    }
-
-    debug!("Validators updated, count: {count}");
-    Ok(())
-}
-
-/// Insert a batch of values into the `suboptimal_attestations` table
-///
-/// Since attestations technically occur per-slot but we only store them per-epoch (via its
-/// `start_slot`) so if any slot in the epoch changes, we need to resync the whole epoch as a
-/// 'suboptimal' attestation could now be 'optimal'.
-///
-/// This is handled in the update code, where in the case of a re-org, the affected epoch is
-/// deleted completely.
-///
-/// On a conflict, it will do nothing.
-pub fn insert_batch_suboptimal_attestations(
-    conn: &mut PgConn,
-    attestations: Vec<WatchSuboptimalAttestation>,
-) -> Result<(), Error> {
-    use self::suboptimal_attestations::dsl::*;
-
-    let mut count = 0;
-    let timer = Instant::now();
-
-    for chunk in attestations.chunks(MAX_SIZE_BATCH_INSERT) {
-        count += diesel::insert_into(suboptimal_attestations)
-            .values(chunk)
-            .on_conflict_do_nothing()
-            .execute(conn)?;
-    }
-
-    let time_taken = timer.elapsed();
-    debug!("Attestations inserted, count: {count}, time taken: {time_taken:?}");
-    Ok(())
-}
-
-/// Insert a batch of values into the `proposer_info` table.
-///
-/// On a conflict, it will do nothing, leaving the old value.
-pub fn insert_batch_proposer_info(
-    conn: &mut PgConn,
-    info: Vec<WatchProposerInfo>,
-) -> Result<(), Error> {
-    use self::proposer_info::dsl::*;
-
-    let mut count = 0;
-    let timer = Instant::now();
-
-    for chunk in info.chunks(MAX_SIZE_BATCH_INSERT) {
-        count += diesel::insert_into(proposer_info)
-            .values(chunk)
-            .on_conflict_do_nothing()
-            .execute(conn)?;
-    }
-
-    let time_taken = timer.elapsed();
-    debug!("Proposer info inserted, count: {count}, time taken: {time_taken:?}");
-    Ok(())
-}
-
-/// Insert a batch of values into the `block_rewards` table.
-///
-/// On a conflict, it will do nothing, leaving the old value.
-pub fn insert_batch_block_rewards(
-    conn: &mut PgConn,
-    rewards: Vec<WatchBlockRewards>,
-) -> Result<(), Error> {
-    use self::block_rewards::dsl::*;
-
-    let mut count = 0;
-    let timer = Instant::now();
-
-    for chunk in rewards.chunks(MAX_SIZE_BATCH_INSERT) {
-        count += diesel::insert_into(block_rewards)
-            .values(chunk)
-            .on_conflict_do_nothing()
-            .execute(conn)?;
-    }
-
-    let time_taken = timer.elapsed();
-    debug!("Block rewards inserted, count: {count}, time_taken: {time_taken:?}");
-    Ok(())
-}
-
-/// Insert a batch of values into the `block_packing` table.
-///
-/// On a conflict, it will do nothing, leaving the old value.
-pub fn insert_batch_block_packing(
-    conn: &mut PgConn,
-    packing: Vec<WatchBlockPacking>,
-) -> Result<(), Error> {
-    use self::block_packing::dsl::*;
-
-    let mut count = 0;
-    let timer = Instant::now();
-
-    for chunk in packing.chunks(MAX_SIZE_BATCH_INSERT) {
-        count += diesel::insert_into(block_packing)
-            .values(chunk)
-            .on_conflict_do_nothing()
-            .execute(conn)?;
-    }
-
-    let time_taken = timer.elapsed();
-    debug!("Block packing inserted, count: {count}, time taken: {time_taken:?}");
-    Ok(())
-}
-
-///
-/// UPDATE statements
-///
-
-/// Updates the `client` column for a single row of the `validators` table corresponding to a given `index_query`.
-/// Updates the value of `client` to the value of `updated_client`.
-pub fn update_validator_client(
-    conn: &mut PgConn,
-    index_query: i32,
-    updated_client: String,
-) -> Result<(), Error> {
-    use self::validators::dsl::*;
-
-    let timer = Instant::now();
-
-    diesel::update(validators)
-        .set(client.eq(updated_client))
-        .filter(index.eq(index_query))
-        .execute(conn)?;
-
-    let time_taken = timer.elapsed();
-    debug!("Validator updated, index: {index_query:?}, time taken: {time_taken:?}");
-    Ok(())
-}
-
 ///
 /// SELECT statements
 ///
@@ -424,6 +271,7 @@ pub fn get_canonical_slot_by_root(
 
 /// Selects `root` from a single row of the `canonical_slots` table corresponding to a given
 /// `slot_query`.
+#[allow(dead_code)]
 pub fn get_root_at_slot(
     conn: &mut PgConn,
     slot_query: WatchSlot,
@@ -665,286 +513,6 @@ pub fn get_beacon_blocks_by_range(
     Ok(result)
 }
 
-/// Selects a single row from the `validators` table corresponding to a given
-/// `validator_index_query`.
-pub fn get_validator_by_index(
-    conn: &mut PgConn,
-    validator_index_query: i32,
-) -> Result<Option<WatchValidator>, Error> {
-    use self::validators::dsl::*;
-    let timer = Instant::now();
-
-    let result = validators
-        .filter(index.eq(validator_index_query))
-        .first::<WatchValidator>(conn)
-        .optional()?;
-
-    let time_taken = timer.elapsed();
-    debug!("Validator requested: {validator_index_query}, time taken: {time_taken:?}");
-    Ok(result)
-}
-
-/// Selects a single row from the `validators` table corresponding to a given
-/// `public_key_query`.
-pub fn get_validator_by_public_key(
-    conn: &mut PgConn,
-    public_key_query: WatchPK,
-) -> Result<Option<WatchValidator>, Error> {
-    use self::validators::dsl::*;
-    let timer = Instant::now();
-
-    let result = validators
-        .filter(public_key.eq(public_key_query))
-        .first::<WatchValidator>(conn)
-        .optional()?;
-
-    let time_taken = timer.elapsed();
-    debug!("Validator requested: {public_key_query}, time taken: {time_taken:?}");
-    Ok(result)
-}
-
-/// Selects all rows from the `validators` table which have an `index` contained in
-/// the `indices_query`.
-pub fn get_validators_by_indices(
-    conn: &mut PgConn,
-    indices_query: Vec<i32>,
-) -> Result<Vec<WatchValidator>, Error> {
-    use self::validators::dsl::*;
-    let timer = Instant::now();
-
-    let query_len = indices_query.len();
-    let result = validators
-        .filter(index.eq_any(indices_query))
-        .load::<WatchValidator>(conn)?;
-
-    let time_taken = timer.elapsed();
-    debug!("{query_len} validators requested, time taken: {time_taken:?}");
-    Ok(result)
-}
-
-// Selects all rows from the `validators` table.
-pub fn get_all_validators(conn: &mut PgConn) -> Result<Vec<WatchValidator>, Error> {
-    use self::validators::dsl::*;
-    let timer = Instant::now();
-
-    let result = validators.load::<WatchValidator>(conn)?;
-
-    let time_taken = timer.elapsed();
-    debug!("All validators requested, time taken: {time_taken:?}");
-    Ok(result)
-}
-
-/// Counts the number of occurances of each `client` present in the `validators` table.
-pub fn get_validators_clients(conn: &mut PgConn) -> Result<HashMap<String, i64>, Error> {
-    use self::validators::dsl::*;
-
-    let mut result = HashMap::new();
-
-    for identity in unique_consensus_clients() {
-        let res = validators
-            .filter(client.eq(identity.clone()))
-            .count()
-            .get_result(conn)?;
-        result.insert(identity, res);
-    }
-
-    let unknown = validators
-        .filter(client.is_null())
-        .count()
-        .get_result(conn)?;
-    result.insert("Unknown".to_string(), unknown);
-
-    Ok(result)
-}
-
-pub fn get_validators_latest_proposer_info(
-    conn: &mut PgConn,
-    indices_query: Vec<i32>,
-) -> Result<HashMap<i32, WatchProposerInfo>, Error> {
-    use self::proposer_info::dsl::*;
-
-    let proposers = proposer_info
-        .filter(proposer_index.eq_any(indices_query))
-        .load::<WatchProposerInfo>(conn)?;
-
-    let mut result = HashMap::new();
-    for proposer in proposers {
-        result
-            .entry(proposer.proposer_index)
-            .or_insert_with(|| proposer.clone());
-        let entry = result
-            .get_mut(&proposer.proposer_index)
-            .ok_or_else(|| Error::Other("An internal error occured".to_string()))?;
-        if proposer.slot > entry.slot {
-            entry.slot = proposer.slot
-        }
-    }
-
-    Ok(result)
-}
-
-/// Counts the number of row in the `validators` table.
-pub fn count_validators(conn: &mut PgConn) -> Result<i64, Error> {
-    use self::validators::dsl::*;
-
-    validators.count().get_result(conn).map_err(Error::Database)
-}
-
-/// Selects the row from the `suboptimal_attestations` table where `epoch_start_slot` is minimum.
-pub fn get_lowest_attestation(
-    conn: &mut PgConn,
-) -> Result<Option<WatchSuboptimalAttestation>, Error> {
-    use self::suboptimal_attestations::dsl::*;
-
-    Ok(suboptimal_attestations
-        .order_by(epoch_start_slot.asc())
-        .limit(1)
-        .first::<WatchSuboptimalAttestation>(conn)
-        .optional()?)
-}
-
-/// Selects the row from the `suboptimal_attestations` table where `epoch_start_slot` is maximum.
-pub fn get_highest_attestation(
-    conn: &mut PgConn,
-) -> Result<Option<WatchSuboptimalAttestation>, Error> {
-    use self::suboptimal_attestations::dsl::*;
-
-    Ok(suboptimal_attestations
-        .order_by(epoch_start_slot.desc())
-        .limit(1)
-        .first::<WatchSuboptimalAttestation>(conn)
-        .optional()?)
-}
-
-/// Selects a single row from the `suboptimal_attestations` table corresponding to a given
-/// `index_query` and `epoch_query`.
-pub fn get_attestation_by_index(
-    conn: &mut PgConn,
-    index_query: i32,
-    epoch_query: Epoch,
-    slots_per_epoch: u64,
-) -> Result<Option<WatchSuboptimalAttestation>, Error> {
-    use self::suboptimal_attestations::dsl::*;
-    let timer = Instant::now();
-
-    let result = suboptimal_attestations
-        .filter(epoch_start_slot.eq(WatchSlot::from_slot(
-            epoch_query.start_slot(slots_per_epoch),
-        )))
-        .filter(index.eq(index_query))
-        .first::<WatchSuboptimalAttestation>(conn)
-        .optional()?;
-
-    let time_taken = timer.elapsed();
-    debug!("Attestation requested for validator: {index_query}, epoch: {epoch_query}, time taken: {time_taken:?}");
-    Ok(result)
-}
-
-/// Selects a single row from the `suboptimal_attestations` table corresponding to a given
-/// `pubkey_query` and `epoch_query`.
-pub fn get_attestation_by_pubkey(
-    conn: &mut PgConn,
-    pubkey_query: WatchPK,
-    epoch_query: Epoch,
-    slots_per_epoch: u64,
-) -> Result<Option<WatchSuboptimalAttestation>, Error> {
-    use self::suboptimal_attestations::dsl::*;
-    use self::validators::dsl::{public_key, validators};
-    let timer = Instant::now();
-
-    let join = validators.inner_join(suboptimal_attestations);
-
-    let result = join
-        .select((epoch_start_slot, index, source, head, target))
-        .filter(epoch_start_slot.eq(WatchSlot::from_slot(
-            epoch_query.start_slot(slots_per_epoch),
-        )))
-        .filter(public_key.eq(pubkey_query))
-        .first::<WatchSuboptimalAttestation>(conn)
-        .optional()?;
-
-    let time_taken = timer.elapsed();
-    debug!("Attestation requested for validator: {pubkey_query}, epoch: {epoch_query}, time taken: {time_taken:?}");
-    Ok(result)
-}
-
-/// Selects `index` for all validators in the suboptimal_attestations table that have `source == false` for the corresponding
-/// `epoch_start_slot_query`.
-pub fn get_validators_missed_source(
-    conn: &mut PgConn,
-    epoch_start_slot_query: WatchSlot,
-) -> Result<Vec<i32>, Error> {
-    use self::suboptimal_attestations::dsl::*;
-
-    Ok(suboptimal_attestations
-        .select(index)
-        .filter(epoch_start_slot.eq(epoch_start_slot_query))
-        .filter(source.eq(false))
-        .load::<i32>(conn)?)
-}
-
-/// Selects `index` for all validators in the suboptimal_attestations table that have `head == false` for the corresponding
-/// `epoch_start_slot_query`.
-pub fn get_validators_missed_head(
-    conn: &mut PgConn,
-    epoch_start_slot_query: WatchSlot,
-) -> Result<Vec<i32>, Error> {
-    use self::suboptimal_attestations::dsl::*;
-
-    Ok(suboptimal_attestations
-        .select(index)
-        .filter(epoch_start_slot.eq(epoch_start_slot_query))
-        .filter(head.eq(false))
-        .load::<i32>(conn)?)
-}
-
-/// Selects `index` for all validators in the suboptimal_attestations table that have `target == false` for the corresponding
-/// `epoch_start_slot_query`.
-pub fn get_validators_missed_target(
-    conn: &mut PgConn,
-    epoch_start_slot_query: WatchSlot,
-) -> Result<Vec<i32>, Error> {
-    use self::suboptimal_attestations::dsl::*;
-
-    Ok(suboptimal_attestations
-        .select(index)
-        .filter(epoch_start_slot.eq(epoch_start_slot_query))
-        .filter(target.eq(false))
-        .load::<i32>(conn)?)
-}
-
-/// Selects the row from the `proposer_info` table where `slot` is minimum.
-pub fn get_lowest_proposer_info(conn: &mut PgConn) -> Result<Option<WatchProposerInfo>, Error> {
-    use self::proposer_info::dsl::*;
-    let timer = Instant::now();
-
-    let result = proposer_info
-        .order_by(slot.asc())
-        .limit(1)
-        .first::<WatchProposerInfo>(conn)
-        .optional()?;
-
-    let time_taken = timer.elapsed();
-    debug!("Proposer info requested for block: lowest, time taken: {time_taken:?}");
-    Ok(result)
-}
-
-/// Selects the row from the `proposer_info` table where `slot` is maximum.
-pub fn get_highest_proposer_info(conn: &mut PgConn) -> Result<Option<WatchProposerInfo>, Error> {
-    use self::proposer_info::dsl::*;
-    let timer = Instant::now();
-
-    let result = proposer_info
-        .order_by(slot.desc())
-        .limit(1)
-        .first::<WatchProposerInfo>(conn)
-        .optional()?;
-
-    let time_taken = timer.elapsed();
-    debug!("Proposer info requested for block: highest, time taken: {time_taken:?}");
-    Ok(result)
-}
-
 /// Selects a single row of the `proposer_info` table corresponding to a given `root_query`.
 pub fn get_proposer_info_by_root(
     conn: &mut PgConn,
@@ -987,6 +555,7 @@ pub fn get_proposer_info_by_slot(
 
 /// Selects multiple rows of the `proposer_info` table between `start_slot` and `end_slot`.
 /// Selects a single row of the `proposer_info` table corresponding to a given `slot_query`.
+#[allow(dead_code)]
 pub fn get_proposer_info_by_range(
     conn: &mut PgConn,
     start_slot: WatchSlot,
@@ -1008,191 +577,155 @@ pub fn get_proposer_info_by_range(
     Ok(result)
 }
 
-/// Selects the row from the `block_rewards` table where `slot` is minimum.
-pub fn get_lowest_block_rewards(conn: &mut PgConn) -> Result<Option<WatchBlockRewards>, Error> {
-    use self::block_rewards::dsl::*;
-    let timer = Instant::now();
-
-    let result = block_rewards
-        .order_by(slot.asc())
-        .limit(1)
-        .first::<WatchBlockRewards>(conn)
-        .optional()?;
-
-    let time_taken = timer.elapsed();
-    debug!("Block rewards requested: lowest, time_taken: {time_taken:?}");
-    Ok(result)
-}
-
-/// Selects the row from the `block_rewards` table where `slot` is maximum.
-pub fn get_highest_block_rewards(conn: &mut PgConn) -> Result<Option<WatchBlockRewards>, Error> {
-    use self::block_rewards::dsl::*;
-    let timer = Instant::now();
-
-    let result = block_rewards
-        .order_by(slot.desc())
-        .limit(1)
-        .first::<WatchBlockRewards>(conn)
-        .optional()?;
-
-    let time_taken = timer.elapsed();
-    debug!("Block rewards requested: highest, time_taken: {time_taken:?}");
-    Ok(result)
-}
-
-/// Selects a single row of the `block_rewards` table corresponding to a given `root_query`.
-pub fn get_block_reward_by_root(
+pub fn get_validators_latest_proposer_info(
     conn: &mut PgConn,
-    root_query: WatchHash,
-) -> Result<Option<WatchBlockRewards>, Error> {
-    use self::beacon_blocks::dsl::{beacon_blocks, root};
-    use self::block_rewards::dsl::*;
-    let timer = Instant::now();
+    indices_query: Vec<i32>,
+) -> Result<HashMap<i32, WatchProposerInfo>, Error> {
+    use self::proposer_info::dsl::*;
 
-    let join = beacon_blocks.inner_join(block_rewards);
+    let proposers = proposer_info
+        .filter(proposer_index.eq_any(indices_query))
+        .load::<WatchProposerInfo>(conn)?;
 
-    let result = join
-        .select((slot, total, attestation_reward, sync_committee_reward))
-        .filter(root.eq(root_query))
-        .first::<WatchBlockRewards>(conn)
-        .optional()?;
+    let mut result = HashMap::new();
+    for proposer in proposers {
+        result
+            .entry(proposer.proposer_index)
+            .or_insert_with(|| proposer.clone());
+        let entry = result
+            .get_mut(&proposer.proposer_index)
+            .ok_or_else(|| Error::Other("An internal error occured".to_string()))?;
+        if proposer.slot > entry.slot {
+            entry.slot = proposer.slot
+        }
+    }
 
-    let time_taken = timer.elapsed();
-    debug!("Block rewards requested: {root_query}, time_taken: {time_taken:?}");
     Ok(result)
 }
 
-/// Selects a single row of the `block_rewards` table corresponding to a given `slot_query`.
-pub fn get_block_reward_by_slot(
+/// Selects the max(`slot`) and `proposer_index` of each unique index in the
+/// `proposer_info` table and returns them formatted as a `HashMap`.
+/// Only returns rows which have `slot <= target_slot`.
+///
+/// Ideally, this would return the full row, but I have not found a way to do that without using
+/// a much more expensive SQL query.
+pub fn get_all_validators_latest_proposer_info_at_slot(
     conn: &mut PgConn,
-    slot_query: WatchSlot,
-) -> Result<Option<WatchBlockRewards>, Error> {
-    use self::block_rewards::dsl::*;
-    let timer = Instant::now();
+    target_slot: WatchSlot,
+) -> Result<HashMap<WatchSlot, i32>, Error> {
+    use self::proposer_info::dsl::*;
 
-    let result = block_rewards
-        .filter(slot.eq(slot_query))
-        .first::<WatchBlockRewards>(conn)
-        .optional()?;
+    let latest_proposals: Vec<(i32, Option<WatchSlot>)> = proposer_info
+        .group_by(proposer_index)
+        .select((proposer_index, max(slot)))
+        .filter(slot.le(target_slot))
+        .load::<(i32, Option<WatchSlot>)>(conn)?;
 
-    let time_taken = timer.elapsed();
-    debug!("Block rewards requested: {slot_query}, time_taken: {time_taken:?}");
-    Ok(result)
-}
+    let mut result = HashMap::new();
 
-/// Selects `slot` from all rows of the `beacon_blocks` table which do not have a corresponding
-/// row in `block_rewards`.
-pub fn get_unknown_block_rewards(conn: &mut PgConn) -> Result<Vec<Option<WatchSlot>>, Error> {
-    use self::beacon_blocks::dsl::{beacon_blocks, root, slot};
-    use self::block_rewards::dsl::block_rewards;
-
-    let join = beacon_blocks.left_join(block_rewards);
-
-    let result = join
-        .select(slot)
-        .filter(root.is_null())
-        // Block rewards cannot be retrieved for `slot == 0` so we need to exclude it.
-        .filter(slot.ne(0))
-        .order_by(slot.desc())
-        .nullable()
-        .load::<Option<WatchSlot>>(conn)?;
+    for proposal in latest_proposals {
+        if let Some(latest_slot) = proposal.1 {
+            result.insert(latest_slot, proposal.0);
+        }
+    }
 
     Ok(result)
 }
 
-/// Selects the row from the `block_packing` table where `slot` is minimum.
-pub fn get_lowest_block_packing(conn: &mut PgConn) -> Result<Option<WatchBlockPacking>, Error> {
-    use self::block_packing::dsl::*;
-    let timer = Instant::now();
-
-    let result = block_packing
-        .order_by(slot.asc())
-        .limit(1)
-        .first::<WatchBlockPacking>(conn)
-        .optional()?;
-
-    let time_taken = timer.elapsed();
-    debug!("Block packing requested: lowest, time_taken: {time_taken:?}");
-    Ok(result)
-}
-
-/// Selects the row from the `block_packing` table where `slot` is maximum.
-pub fn get_highest_block_packing(conn: &mut PgConn) -> Result<Option<WatchBlockPacking>, Error> {
-    use self::block_packing::dsl::*;
-    let timer = Instant::now();
-
-    let result = block_packing
-        .order_by(slot.desc())
-        .limit(1)
-        .first::<WatchBlockPacking>(conn)
-        .optional()?;
-
-    let time_taken = timer.elapsed();
-    debug!("Block packing requested: highest, time_taken: {time_taken:?}");
-    Ok(result)
-}
-
-/// Selects a single row of the `block_packing` table corresponding to a given `root_query`.
-pub fn get_block_packing_by_root(
+/// Selects a single row from the `validators` table corresponding to a given
+/// `validator_index_query`.
+pub fn get_validator_by_index(
     conn: &mut PgConn,
-    root_query: WatchHash,
-) -> Result<Option<WatchBlockPacking>, Error> {
-    use self::beacon_blocks::dsl::{beacon_blocks, root};
-    use self::block_packing::dsl::*;
+    validator_index_query: i32,
+) -> Result<Option<WatchValidator>, Error> {
+    use self::validators::dsl::*;
     let timer = Instant::now();
 
-    let join = beacon_blocks.inner_join(block_packing);
-
-    let result = join
-        .select((slot, available, included, prior_skip_slots))
-        .filter(root.eq(root_query))
-        .first::<WatchBlockPacking>(conn)
+    let result = validators
+        .filter(index.eq(validator_index_query))
+        .first::<WatchValidator>(conn)
         .optional()?;
 
     let time_taken = timer.elapsed();
-    debug!("Block packing requested: {root_query}, time_taken: {time_taken:?}");
+    debug!("Validator requested: {validator_index_query}, time taken: {time_taken:?}");
     Ok(result)
 }
 
-/// Selects a single row of the `block_packing` table corresponding to a given `slot_query`.
-pub fn get_block_packing_by_slot(
+/// Selects a single row from the `validators` table corresponding to a given
+/// `public_key_query`.
+pub fn get_validator_by_public_key(
     conn: &mut PgConn,
-    slot_query: WatchSlot,
-) -> Result<Option<WatchBlockPacking>, Error> {
-    use self::block_packing::dsl::*;
+    public_key_query: WatchPK,
+) -> Result<Option<WatchValidator>, Error> {
+    use self::validators::dsl::*;
     let timer = Instant::now();
 
-    let result = block_packing
-        .filter(slot.eq(slot_query))
-        .first::<WatchBlockPacking>(conn)
+    let result = validators
+        .filter(public_key.eq(public_key_query))
+        .first::<WatchValidator>(conn)
         .optional()?;
 
     let time_taken = timer.elapsed();
-    debug!("Block packing requested: {slot_query}, time_taken: {time_taken:?}");
+    debug!("Validator requested: {public_key_query}, time taken: {time_taken:?}");
     Ok(result)
 }
 
-/// Selects `slot` from all rows of the `beacon_blocks` table which do not have a corresponding
-/// row in `block_packing`.
-pub fn get_unknown_block_packing(
+/// Selects all rows from the `validators` table which have an `index` contained in
+/// the `indices_query`.
+#[allow(dead_code)]
+pub fn get_validators_by_indices(
     conn: &mut PgConn,
-    slots_per_epoch: i32,
-) -> Result<Vec<Option<WatchSlot>>, Error> {
-    use self::beacon_blocks::dsl::{beacon_blocks, root, slot};
-    use self::block_packing::dsl::block_packing;
+    indices_query: Vec<i32>,
+) -> Result<Vec<WatchValidator>, Error> {
+    use self::validators::dsl::*;
+    let timer = Instant::now();
 
-    let join = beacon_blocks.left_join(block_packing);
+    let query_len = indices_query.len();
+    let result = validators
+        .filter(index.eq_any(indices_query))
+        .load::<WatchValidator>(conn)?;
 
-    let result = join
-        .select(slot)
-        .filter(root.is_null())
-        // Block packing cannot be retrieved for epoch 0 so we need to exclude them.
-        .filter(slot.ge(slots_per_epoch))
-        .order_by(slot.desc())
-        .nullable()
-        .load::<Option<WatchSlot>>(conn)?;
-
+    let time_taken = timer.elapsed();
+    debug!("{query_len} validators requested, time taken: {time_taken:?}");
     Ok(result)
+}
+
+// Selects all rows from the `validators` table.
+pub fn get_all_validators(conn: &mut PgConn) -> Result<Vec<WatchValidator>, Error> {
+    use self::validators::dsl::*;
+    let timer = Instant::now();
+
+    let result = validators.load::<WatchValidator>(conn)?;
+
+    let time_taken = timer.elapsed();
+    debug!("All validators requested, time taken: {time_taken:?}");
+    Ok(result)
+}
+
+/// Counts the number of rows in the `validators` table.
+#[allow(dead_code)]
+pub fn count_validators(conn: &mut PgConn) -> Result<i64, Error> {
+    use self::validators::dsl::*;
+
+    validators.count().get_result(conn).map_err(Error::Database)
+}
+
+/// Counts the number of rows in the `validators` table where
+/// `activation_epoch <= target_slot.epoch()`.
+pub fn count_validators_activated_before_slot(
+    conn: &mut PgConn,
+    target_slot: WatchSlot,
+    slots_per_epoch: u64,
+) -> Result<i64, Error> {
+    use self::validators::dsl::*;
+
+    let target_epoch = target_slot.epoch(slots_per_epoch);
+
+    validators
+        .count()
+        .filter(activation_epoch.le(target_epoch.as_u64() as i32))
+        .get_result(conn)
+        .map_err(Error::Database)
 }
 
 ///
