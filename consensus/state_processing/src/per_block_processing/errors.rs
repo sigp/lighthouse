@@ -78,6 +78,10 @@ pub enum BlockProcessingError {
     },
     ExecutionInvalid,
     ConsensusContext(ContextError),
+    WithdrawalsRootMismatch {
+        expected: Hash256,
+        found: Hash256,
+    },
     BlobVersionHashMismatch,
     /// The number of commitments in blob transactions in the payload does not match the number
     /// of commitments in the block.

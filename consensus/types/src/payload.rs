@@ -38,7 +38,7 @@ pub trait ExecPayload<T: EthSpec>: Debug + Clone + PartialEq + Hash + TreeHash +
     fn transactions(&self) -> Option<&Transactions<T>>;
     /// fork-specific fields
     #[cfg(feature = "withdrawals")]
-    fn withdrawals(&self) -> Option<Result<&Withdrawals<T>, Error>>;
+    fn withdrawals_root(&self) -> Result<Hash256, Error>;
 
     /// Is this a default payload? (pre-merge)
     fn is_default(&self) -> bool;
@@ -229,11 +229,15 @@ impl<T: EthSpec> ExecPayload<T> for FullPayload<T> {
     }
 
     #[cfg(feature = "withdrawals")]
-    fn withdrawals(&self) -> Option<Result<&Withdrawals<T>, Error>> {
+    fn withdrawals_root(&self) -> Result<Hash256, Error> {
         match self {
-            FullPayload::Merge(_) => Some(Err(Error::IncorrectStateVariant)),
-            FullPayload::Capella(ref inner) => Some(Ok(&inner.execution_payload.withdrawals)),
-            FullPayload::Eip4844(ref inner) => Some(Ok(&inner.execution_payload.withdrawals)),
+            FullPayload::Merge(_) => Err(Error::IncorrectStateVariant),
+            FullPayload::Capella(ref inner) => {
+                Ok(inner.execution_payload.withdrawals.tree_hash_root())
+            }
+            FullPayload::Eip4844(ref inner) => {
+                Ok(inner.execution_payload.withdrawals.tree_hash_root())
+            }
         }
     }
 
@@ -322,11 +326,15 @@ impl<'b, T: EthSpec> ExecPayload<T> for FullPayloadRef<'b, T> {
     }
 
     #[cfg(feature = "withdrawals")]
-    fn withdrawals(&self) -> Option<Result<&Withdrawals<T>, Error>> {
+    fn withdrawals_root(&self) -> Result<Hash256, Error> {
         match self {
-            FullPayloadRef::Merge(_inner) => Some(Err(Error::IncorrectStateVariant)),
-            FullPayloadRef::Capella(inner) => Some(Ok(&inner.execution_payload.withdrawals)),
-            FullPayloadRef::Eip4844(inner) => Some(Ok(&inner.execution_payload.withdrawals)),
+            FullPayloadRef::Merge(_) => Err(Error::IncorrectStateVariant),
+            FullPayloadRef::Capella(inner) => {
+                Ok(inner.execution_payload.withdrawals.tree_hash_root())
+            }
+            FullPayloadRef::Eip4844(inner) => {
+                Ok(inner.execution_payload.withdrawals.tree_hash_root())
+            }
         }
     }
 
@@ -485,8 +493,16 @@ impl<T: EthSpec> ExecPayload<T> for BlindedPayload<T> {
     }
 
     #[cfg(feature = "withdrawals")]
-    fn withdrawals(&self) -> Option<Result<&Withdrawals<T>, Error>> {
-        None
+    fn withdrawals_root(&self) -> Result<Hash256, Error> {
+        match self {
+            BlindedPayload::Merge(_) => Err(Error::IncorrectStateVariant),
+            BlindedPayload::Capella(ref inner) => {
+                Ok(inner.execution_payload_header.withdrawals_root)
+            }
+            BlindedPayload::Eip4844(ref inner) => {
+                Ok(inner.execution_payload_header.withdrawals_root)
+            }
+        }
     }
 
     fn is_default<'a>(&'a self) -> bool {
@@ -563,8 +579,16 @@ impl<'b, T: EthSpec> ExecPayload<T> for BlindedPayloadRef<'b, T> {
     }
 
     #[cfg(feature = "withdrawals")]
-    fn withdrawals<'a>(&'a self) -> Option<Result<&Withdrawals<T>, Error>> {
-        None
+    fn withdrawals_root(&self) -> Result<Hash256, Error> {
+        match self {
+            BlindedPayloadRef::Merge(_) => Err(Error::IncorrectStateVariant),
+            BlindedPayloadRef::Capella(inner) => {
+                Ok(inner.execution_payload_header.withdrawals_root)
+            }
+            BlindedPayloadRef::Eip4844(inner) => {
+                Ok(inner.execution_payload_header.withdrawals_root)
+            }
+        }
     }
 
     // TODO: can this function be optimized?
@@ -627,7 +651,7 @@ macro_rules! impl_exec_payload_common {
             }
 
             #[cfg(feature = "withdrawals")]
-            fn withdrawals(&self) -> Option<Result<&Withdrawals<T>, Error>> {
+            fn withdrawals_root(&self) -> Result<Hash256, Error> {
                 let g = $g;
                 g(self)
             }
@@ -642,7 +666,7 @@ macro_rules! impl_exec_payload_common {
 }
 
 macro_rules! impl_exec_payload_for_fork {
-    ($wrapper_type_header:ident, $wrapper_type_full:ident, $wrapped_type_header:ident, $wrapped_type_full:ident, $fork_variant:ident, $withdrawal_fn:block) => {
+    ($wrapper_type_header:ident, $wrapper_type_full:ident, $wrapped_type_header:ident, $wrapped_type_full:ident, $fork_variant:ident) => {
         //*************** Blinded payload implementations ******************//
 
         impl_exec_payload_common!(
@@ -653,7 +677,14 @@ macro_rules! impl_exec_payload_for_fork {
             $fork_variant,
             Blinded,
             { |_| { None } },
-            { |_| { None } }
+            {
+                let c: for<'a> fn(&'a $wrapper_type_header<T>) -> Result<Hash256, Error> =
+                    |payload: &$wrapper_type_header<T>| {
+                        let wrapper_ref_type = BlindedPayloadRef::$fork_variant(&payload);
+                        wrapper_ref_type.withdrawals_root()
+                    };
+                c
+            }
         );
 
         impl<T: EthSpec> TryInto<$wrapper_type_header<T>> for BlindedPayload<T> {
@@ -719,7 +750,14 @@ macro_rules! impl_exec_payload_for_fork {
                     |payload: &$wrapper_type_full<T>| Some(&payload.execution_payload.transactions);
                 c
             },
-            $withdrawal_fn
+            {
+                let c: for<'a> fn(&'a $wrapper_type_full<T>) -> Result<Hash256, Error> =
+                    |payload: &$wrapper_type_full<T>| {
+                        let wrapper_ref_type = FullPayloadRef::$fork_variant(&payload);
+                        wrapper_ref_type.withdrawals_root()
+                    };
+                c
+            }
         );
 
         impl<T: EthSpec> Default for $wrapper_type_full<T> {
@@ -762,36 +800,21 @@ impl_exec_payload_for_fork!(
     FullPayloadMerge,
     ExecutionPayloadHeaderMerge,
     ExecutionPayloadMerge,
-    Merge,
-    {
-        let c: for<'a> fn(&'a FullPayloadMerge<T>) -> Option<Result<&'a Withdrawals<T>, Error>> =
-            |_| Some(Err(Error::IncorrectStateVariant));
-        c
-    }
+    Merge
 );
 impl_exec_payload_for_fork!(
     BlindedPayloadCapella,
     FullPayloadCapella,
     ExecutionPayloadHeaderCapella,
     ExecutionPayloadCapella,
-    Capella,
-    {
-        let c: for<'a> fn(&'a FullPayloadCapella<T>) -> Option<Result<&Withdrawals<T>, Error>> =
-            |payload: &FullPayloadCapella<T>| Some(Ok(&payload.execution_payload.withdrawals));
-        c
-    }
+    Capella
 );
 impl_exec_payload_for_fork!(
     BlindedPayloadEip4844,
     FullPayloadEip4844,
     ExecutionPayloadHeaderEip4844,
     ExecutionPayloadEip4844,
-    Eip4844,
-    {
-        let c: for<'a> fn(&'a FullPayloadEip4844<T>) -> Option<Result<&Withdrawals<T>, Error>> =
-            |payload: &FullPayloadEip4844<T>| Some(Ok(&payload.execution_payload.withdrawals));
-        c
-    }
+    Eip4844
 );
 
 impl<T: EthSpec> AbstractExecPayload<T> for BlindedPayload<T> {
