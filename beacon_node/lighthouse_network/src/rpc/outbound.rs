@@ -49,7 +49,14 @@ impl<TSpec: EthSpec> UpgradeInfo for OutboundRequestContainer<TSpec> {
 
     // add further protocols as we support more encodings/versions
     fn protocol_info(&self) -> Self::InfoIter {
-        match self.req {
+        self.req.supported_protocols()
+    }
+}
+
+/// Implements the encoding per supported protocol for `RPCRequest`.
+impl<TSpec: EthSpec> OutboundRequest<TSpec> {
+    pub fn supported_protocols(&self) -> Vec<ProtocolId> {
+        match self {
             // add more protocols when versions/encodings are supported
             OutboundRequest::Status(_) => vec![ProtocolId::new(
                 Protocol::Status,
@@ -84,10 +91,6 @@ impl<TSpec: EthSpec> UpgradeInfo for OutboundRequestContainer<TSpec> {
             OutboundRequest::LightClientBootstrap(_) => vec![],
         }
     }
-}
-
-/// Implements the encoding per supported protocol for `RPCRequest`.
-impl<TSpec: EthSpec> OutboundRequest<TSpec> {
     /* These functions are used in the handler for stream management */
 
     /// Number of responses expected for this request.
