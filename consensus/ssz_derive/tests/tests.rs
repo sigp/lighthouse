@@ -213,3 +213,24 @@ fn transparent_struct_newtype_skipped_field() {
         &vec![42_u8].as_ssz_bytes(),
     );
 }
+
+#[derive(PartialEq, Debug, Encode, Decode)]
+#[ssz(struct_behaviour = "transparent")]
+struct TransparentStructNewTypeSkippedFieldReverse(
+    #[ssz(skip_serializing, skip_deserializing)] PhantomData<u64>,
+    Vec<u8>,
+);
+
+impl TransparentStructNewTypeSkippedFieldReverse {
+    fn new(inner: Vec<u8>) -> Self {
+        Self(PhantomData, inner)
+    }
+}
+
+#[test]
+fn transparent_struct_newtype_skipped_field_reverse() {
+    assert_encode_decode(
+        &TransparentStructNewTypeSkippedFieldReverse::new(vec![42_u8]),
+        &vec![42_u8].as_ssz_bytes(),
+    );
+}
