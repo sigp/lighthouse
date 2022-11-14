@@ -20,7 +20,10 @@ use futures::StreamExt;
 use libp2p::{
     core::either::EitherError,
     swarm::SwarmEvent,
-    swarm::{dummy::ConnectionHandler, DummyBehaviour, KeepAlive, Swarm},
+    swarm::{
+        keep_alive::Behaviour as DummyBehaviour,
+        keep_alive::ConnectionHandler as DummyConnectionHandler, Swarm,
+    },
     NetworkBehaviour,
 };
 
@@ -77,11 +80,7 @@ impl Behaviour {
     fn new(pm: PeerManager<E>) -> Self {
         Behaviour {
             pm_call_trace: CallTraceBehaviour::new(pm),
-            sibling: MockBehaviour::new(DummyConnectionHandler {
-                // The peer manager votes No, so we make sure the combined handler stays alive this
-                // way.
-                keep_alive: KeepAlive::Yes,
-            }),
+            sibling: MockBehaviour::new(DummyConnectionHandler),
         }
     }
 }
@@ -114,8 +113,7 @@ async fn banned_peers_consistency() {
         let mut pool = swarm::SwarmPool::with_capacity(peers_to_ban);
         let mut peers = HashSet::with_capacity(peers_to_ban);
         for _ in 0..peers_to_ban {
-            let mut peer_swarm =
-                swarm::new_test_swarm(DummyBehaviour::with_keep_alive(KeepAlive::Yes));
+            let mut peer_swarm = swarm::new_test_swarm(DummyBehaviour::default());
             let _peer_addr = swarm::bind_listener(&mut peer_swarm).await;
             // It is ok to dial all at the same time since the swarm handles an event at a time.
             peer_swarm.dial(pm_addr.clone()).unwrap();
