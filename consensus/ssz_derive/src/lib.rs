@@ -790,15 +790,10 @@ fn ssz_decode_derive_struct_transparent(
         );
     }
 
-    let mut field_names = vec![];
     let mut fields = vec![];
     let mut wrapped_type = None;
 
     for (ty, ident, field_opts) in ssz_fields {
-        field_names.push(quote! {
-            #ident
-        });
-
         if field_opts.skip_deserializing {
             fields.push(quote! {
                 #ident: <_>::default(),
