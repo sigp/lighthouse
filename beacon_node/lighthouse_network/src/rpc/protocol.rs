@@ -210,6 +210,7 @@ impl std::fmt::Display for Version {
 pub struct RPCProtocol<TSpec: EthSpec> {
     pub fork_context: Arc<ForkContext>,
     pub max_rpc_size: usize,
+    pub enable_light_client_server: bool,
     pub phantom: PhantomData<TSpec>,
 }
 
@@ -219,7 +220,7 @@ impl<TSpec: EthSpec> UpgradeInfo for RPCProtocol<TSpec> {
 
     /// The list of supported RPC protocols for Lighthouse.
     fn protocol_info(&self) -> Self::InfoIter {
-        vec![
+        let mut supported_protocols = vec![
             ProtocolId::new(Protocol::Status, Version::V1, Encoding::SSZSnappy),
             ProtocolId::new(Protocol::Goodbye, Version::V1, Encoding::SSZSnappy),
             // V2 variants have higher preference then V1
@@ -230,7 +231,15 @@ impl<TSpec: EthSpec> UpgradeInfo for RPCProtocol<TSpec> {
             ProtocolId::new(Protocol::Ping, Version::V1, Encoding::SSZSnappy),
             ProtocolId::new(Protocol::MetaData, Version::V2, Encoding::SSZSnappy),
             ProtocolId::new(Protocol::MetaData, Version::V1, Encoding::SSZSnappy),
-        ]
+        ];
+        if self.enable_light_client_server {
+            supported_protocols.push(ProtocolId::new(
+                Protocol::LightClientBootstrap,
+                Version::V1,
+                Encoding::SSZSnappy,
+            ));
+        }
+        supported_protocols
     }
 }
 

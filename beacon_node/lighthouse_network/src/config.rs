@@ -130,6 +130,9 @@ pub struct Config {
 
     /// Whether metrics are enabled.
     pub metrics_enabled: bool,
+
+    /// Whether light client protocols should be enabled.
+    pub enable_light_client_server: bool,
 }
 
 impl Default for Config {
@@ -207,6 +210,7 @@ impl Default for Config {
             shutdown_after_sync: false,
             topics: Vec::new(),
             metrics_enabled: false,
+            enable_light_client_server: false,
         }
     }
 }

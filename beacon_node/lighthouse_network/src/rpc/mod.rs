@@ -108,12 +108,17 @@ pub struct RPC<Id: ReqId, TSpec: EthSpec> {
     /// Queue of events to be processed.
     events: Vec<NetworkBehaviourAction<RPCMessage<Id, TSpec>, RPCHandler<Id, TSpec>>>,
     fork_context: Arc<ForkContext>,
+    enable_light_client_server: bool,
     /// Slog logger for RPC behaviour.
     log: slog::Logger,
 }
 
 impl<Id: ReqId, TSpec: EthSpec> RPC<Id, TSpec> {
-    pub fn new(fork_context: Arc<ForkContext>, log: slog::Logger) -> Self {
+    pub fn new(
+        fork_context: Arc<ForkContext>,
+        enable_light_client_server: bool,
+        log: slog::Logger,
+    ) -> Self {
         let log = log.new(o!("service" => "libp2p_rpc"));
         let limiter = RPCRateLimiterBuilder::new()
             .n_every(Protocol::MetaData, 2, Duration::from_secs(5))
@@ -133,6 +138,7 @@ impl<Id: ReqId, TSpec: EthSpec> RPC<Id, TSpec> {
             limiter,
             events: Vec::new(),
             fork_context,
+            enable_light_client_server,
             log,
         }
     }
@@ -189,6 +195,7 @@ where
                 RPCProtocol {
                     fork_context: self.fork_context.clone(),
                     max_rpc_size: max_rpc_size(&self.fork_context),
+                    enable_light_client_server: self.enable_light_client_server,
                     phantom: PhantomData,
                 },
                 (),

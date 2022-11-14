@@ -49,14 +49,7 @@ impl<TSpec: EthSpec> UpgradeInfo for OutboundRequestContainer<TSpec> {
 
     // add further protocols as we support more encodings/versions
     fn protocol_info(&self) -> Self::InfoIter {
-        self.req.supported_protocols()
-    }
-}
-
-/// Implements the encoding per supported protocol for `RPCRequest`.
-impl<TSpec: EthSpec> OutboundRequest<TSpec> {
-    pub fn supported_protocols(&self) -> Vec<ProtocolId> {
-        match self {
+        match self.req {
             // add more protocols when versions/encodings are supported
             OutboundRequest::Status(_) => vec![ProtocolId::new(
                 Protocol::Status,
@@ -85,14 +78,16 @@ impl<TSpec: EthSpec> OutboundRequest<TSpec> {
                 ProtocolId::new(Protocol::MetaData, Version::V2, Encoding::SSZSnappy),
                 ProtocolId::new(Protocol::MetaData, Version::V1, Encoding::SSZSnappy),
             ],
-            OutboundRequest::LightClientBootstrap(_) => vec![ProtocolId::new(
-                Protocol::LightClientBootstrap,
-                Version::V1,
-                Encoding::SSZSnappy,
-            )],
+            // Note: This match arm is technically unreachable as we only respond to light client requests
+            // that we generate from the beacon state.
+            // We do not make light client rpc requests from the beacon node
+            OutboundRequest::LightClientBootstrap(_) => vec![],
         }
     }
+}
 
+/// Implements the encoding per supported protocol for `RPCRequest`.
+impl<TSpec: EthSpec> OutboundRequest<TSpec> {
     /* These functions are used in the handler for stream management */
 
     /// Number of responses expected for this request.

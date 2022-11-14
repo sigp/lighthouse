@@ -259,7 +259,11 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
             (gossipsub, update_gossipsub_scores)
         };
 
-        let eth2_rpc = RPC::new(ctx.fork_context.clone(), log.clone());
+        let eth2_rpc = RPC::new(
+            ctx.fork_context.clone(),
+            config.enable_light_client_server,
+            log.clone(),
+        );
 
         let discovery = {
             // Build and start the discovery sub-behaviour
@@ -1257,7 +1261,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                             Request::LightClientBootstrap(req),
                         );
                         Some(event)
-                    },
+                    }
                 }
             }
             Ok(RPCReceived::Response(id, resp)) => {
