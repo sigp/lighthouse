@@ -12,7 +12,7 @@ use types::{
     Attestation, AttesterSlashing, EthSpec, ForkContext, ForkName, ProposerSlashing,
     SignedAggregateAndProof, SignedBeaconBlock, SignedBeaconBlockAltair, SignedBeaconBlockBase,
     SignedBeaconBlockMerge, SignedContributionAndProof, SignedVoluntaryExit, SubnetId,
-    SyncCommitteeMessage, SyncSubnetId,
+    SyncCommitteeMessage, SyncSubnetId, LightClientFinalityUpdate,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -33,6 +33,8 @@ pub enum PubsubMessage<T: EthSpec> {
     SignedContributionAndProof(Box<SignedContributionAndProof<T>>),
     /// Gossipsub message providing notification of unaggregated sync committee signatures with its subnet id.
     SyncCommitteeMessage(Box<(SyncSubnetId, SyncCommitteeMessage)>),
+    /// Gossipsub message providing notification of a light client finality update.
+    LightClientFinalityUpdate(Box<LightClientFinalityUpdate<T>>),
 }
 
 // Implements the `DataTransform` trait of gossipsub to employ snappy compression
@@ -115,6 +117,7 @@ impl<T: EthSpec> PubsubMessage<T> {
             PubsubMessage::AttesterSlashing(_) => GossipKind::AttesterSlashing,
             PubsubMessage::SignedContributionAndProof(_) => GossipKind::SignedContributionAndProof,
             PubsubMessage::SyncCommitteeMessage(data) => GossipKind::SyncCommitteeMessage(data.0),
+            PubsubMessage::LightClientFinalityUpdate(_) => GossipKind::LightClientFinalityUpdate,
         }
     }
 
@@ -206,6 +209,14 @@ impl<T: EthSpec> PubsubMessage<T> {
                             sync_committee,
                         ))))
                     }
+                    GossipKind::LightClientFinalityUpdate => {
+                        let light_client_finality_update =
+                            LightClientFinalityUpdate::from_ssz_bytes(data)
+                                .map_err(|e| format!("{:?}", e))?;
+                        Ok(PubsubMessage::LightClientFinalityUpdate(Box::new(
+                            light_client_finality_update,
+                        )))
+                    }
                 }
             }
         }
@@ -227,6 +238,7 @@ impl<T: EthSpec> PubsubMessage<T> {
             PubsubMessage::Attestation(data) => data.1.as_ssz_bytes(),
             PubsubMessage::SignedContributionAndProof(data) => data.as_ssz_bytes(),
             PubsubMessage::SyncCommitteeMessage(data) => data.1.as_ssz_bytes(),
+            PubsubMessage::LightClientFinalityUpdate(data) => data.as_ssz_bytes(),
         }
     }
 }
@@ -260,6 +272,9 @@ impl<T: EthSpec> std::fmt::Display for PubsubMessage<T> {
             }
             PubsubMessage::SyncCommitteeMessage(data) => {
                 write!(f, "Sync committee message: subnet_id: {}", *data.0)
+            }
+            PubsubMessage::LightClientFinalityUpdate(_data) => {
+                write!(f, "Light CLient Finality Update")
             }
         }
     }

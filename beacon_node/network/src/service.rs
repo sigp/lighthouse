@@ -679,11 +679,28 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                     }
                     return;
                 }
+                
                 let mut subscribed_topics: Vec<GossipTopic> = vec![];
                 for topic_kind in lighthouse_network::types::CORE_TOPICS.iter() {
                     for fork_digest in self.required_gossip_fork_digests() {
                         let topic = GossipTopic::new(
                             topic_kind.clone(),
+                            GossipEncoding::default(),
+                            fork_digest,
+                        );
+                        if self.libp2p.subscribe(topic.clone()) {
+                            subscribed_topics.push(topic);
+                        } else {
+                            warn!(self.log, "Could not subscribe to topic"; "topic" => %topic);
+                        }
+                    }
+                }
+
+                // chain_config.enable_light_client_server
+                if self.beacon_chain.config.enable_light_client_server {
+                    for fork_digest in self.required_gossip_fork_digests() {
+                        let topic = GossipTopic::new(
+                            lighthouse_network::types::GossipKind::LightClientFinalityUpdate,
                             GossipEncoding::default(),
                             fork_digest,
                         );

@@ -22,6 +22,9 @@ use crate::execution_payload::{get_execution_payload, PreparePayloadHandle};
 use crate::fork_choice_signal::{ForkChoiceSignalRx, ForkChoiceSignalTx, ForkChoiceWaitResult};
 use crate::head_tracker::HeadTracker;
 use crate::historical_blocks::HistoricalBlockError;
+use crate::light_client_finality_update_verification::{
+    Error as LightClientFinalityUpdateError, VerifiedLightClientFinalityUpdate,
+};
 use crate::migrate::BackgroundMigrator;
 use crate::naive_aggregation_pool::{
     AggregatedAttestationMap, Error as NaiveAggregationError, NaiveAggregationPool,
@@ -359,6 +362,8 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub event_handler: Option<ServerSentEventHandler<T::EthSpec>>,
     /// Used to track the heads of the beacon chain.
     pub(crate) head_tracker: Arc<HeadTracker>,
+    /// The latest seen LightClientFinalityUpdate
+    pub latest_seen_finality_update: Mutex<LightClientFinalityUpdate<T::EthSpec>>,
     /// A cache dedicated to block processing.
     pub(crate) snapshot_cache: TimeoutRwLock<SnapshotCache<T::EthSpec>>,
     /// Caches the attester shuffling for a given epoch and shuffling key root.
@@ -1815,6 +1820,23 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 }
             }
             metrics::inc_counter(&metrics::SYNC_CONTRIBUTION_PROCESSING_SUCCESSES);
+            v
+        })
+    }
+
+    /// Accepts some 'LightClientFinalityUpdate' from the network and attempts to verify it
+    pub fn verify_finality_update_for_gossip(
+        self: &Arc<Self>,
+        light_client_finality_update: LightClientFinalityUpdate<T::EthSpec>,
+        seen_timestamp: Duration,
+    ) -> Result<VerifiedLightClientFinalityUpdate<T>, LightClientFinalityUpdateError> {
+        VerifiedLightClientFinalityUpdate::verify(
+            light_client_finality_update,
+            self,
+            seen_timestamp,
+        )
+        .map(|v| {
+            metrics::inc_counter(&metrics::FINALITY_UPDATE_PROCESSING_SUCCESSES);
             v
         })
     }

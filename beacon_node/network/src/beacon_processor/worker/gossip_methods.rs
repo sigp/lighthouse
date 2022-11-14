@@ -3,6 +3,7 @@ use crate::{metrics, service::NetworkMessage, sync::SyncMessage};
 use beacon_chain::store::Error;
 use beacon_chain::{
     attestation_verification::{self, Error as AttnError, VerifiedAttestation},
+    light_client_finality_update_verification::Error as LightClientFinalityUpdateError,
     observed_operations::ObservationOutcome,
     sync_committee_verification::{self, Error as SyncCommitteeError},
     validator_monitor::get_block_delay_ms,
@@ -20,7 +21,7 @@ use tokio::sync::mpsc;
 use types::{
     Attestation, AttesterSlashing, EthSpec, Hash256, IndexedAttestation, ProposerSlashing,
     SignedAggregateAndProof, SignedBeaconBlock, SignedContributionAndProof, SignedVoluntaryExit,
-    Slot, SubnetId, SyncCommitteeMessage, SyncSubnetId,
+    Slot, SubnetId, SyncCommitteeMessage, SyncSubnetId, LightClientFinalityUpdate,
 };
 
 use super::{
@@ -1296,6 +1297,105 @@ impl<T: BeaconChainTypes> Worker<T> {
             )
         }
         metrics::inc_counter(&metrics::BEACON_PROCESSOR_SYNC_CONTRIBUTION_IMPORTED_TOTAL);
+    }
+
+    pub fn process_gossip_finality_update(
+        self,
+        message_id: MessageId,
+        peer_id: PeerId,
+        light_client_finality_update: LightClientFinalityUpdate<T::EthSpec>,
+        seen_timestamp: Duration,
+    ) {
+        match self
+            .chain
+            .verify_finality_update_for_gossip(light_client_finality_update, seen_timestamp)
+        {
+            Ok(_verified_light_client_finality_update) => {
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
+            }
+            Err(e) => {
+                // Report the failure to gossipsub
+                self.handle_light_client_finality_update_message_failure(
+                    peer_id,
+                    message_id,
+                    e,
+                );
+                return;
+            }
+        };
+    }
+
+    /// Handle an error whilst verifying an `LightClientFinalityUpdate` from the network.
+    fn handle_light_client_finality_update_message_failure(
+        &self,
+        peer_id: PeerId,
+        message_id: MessageId,
+        error: LightClientFinalityUpdateError,
+    ) {
+        metrics::register_finality_update_error(&error);
+        match &error {
+            LightClientFinalityUpdateError::FinalityUpdateAlreadySeen => {
+                /*
+                 * The following check failed: [IGNORE] The finalized_header.slot is greater 
+                 * than that of all previously forwarded finality_updates.
+                 */
+                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+            }
+            LightClientFinalityUpdateError::TooEarly => {
+                /*
+                 * The following check failed: [IGNORE] The finality_update is received after 
+                 * the block at signature_slot was given enough time to propagate through 
+                 * the network -- i.e. validate that one-third of finality_update.signature_slot has transpired
+                 */
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::HighToleranceError,
+                    "finality_update_early",
+                );
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+            }
+            LightClientFinalityUpdateError::InvalidLightClientFinalityUpdate => {
+                /*
+                 * The following check failed: [IGNORE] The received finality_update matches 
+                 * the locally computed one exactly
+                 */
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::HighToleranceError,
+                    "invalid_finality_update",
+                );
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+            }
+            LightClientFinalityUpdateError::SigSlotStartIsNone => {
+                /*
+                 * Failed to find the start time of the signature slot of the update.
+                 */
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+            }
+            LightClientFinalityUpdateError::FailedConstructingUpdate => {
+                /*
+                 * Could not construct the local light client finality update from the BeaconState.
+                 *
+                 */
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+            }
+            LightClientFinalityUpdateError::BeaconChainError(e) => {
+                /*
+                 * Lighthouse hit an unexpected error whilst processing the finality update. It
+                 * should be impossible to trigger a `BeaconChainError` from the network,
+                 * so we have a bug.
+                 *
+                 * It's not clear if the message is invalid/malicious.
+                 */
+                error!(
+                    self.log,
+                    "Unable to validate light client finality update";
+                    "peer_id" => %peer_id,
+                    "error" => ?e,
+                );
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+            }
+        }
     }
 
     /// Handle an error whilst verifying an `Attestation` or `SignedAggregateAndProof` from the

@@ -1,10 +1,7 @@
-use super::{BeaconBlockHeader, EthSpec, FixedVector, Hash256, Slot, SyncAggregate, SyncCommittee};
+use super::{BeaconBlockHeader, EthSpec, FixedVector, Hash256, Slot, SyncAggregate};
 use crate::{light_client_update::*, test_utils::TestRandom, BeaconBlock, BeaconState, ChainSpec};
-use safe_arith::ArithError;
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
-use ssz_types::typenum::{U5, U6};
-use std::sync::Arc;
 use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
 
@@ -69,6 +66,22 @@ impl<T: EthSpec> LightClientFinalityUpdate<T> {
             sync_aggregate: sync_aggregate.clone(),
             signature_slot: block.slot(),
         })
+    }
+
+    pub fn from_state(_state: &BeaconState<T>) -> Self {
+        todo!();
+    }
+}
+
+impl<T: EthSpec> Default for LightClientFinalityUpdate<T> {
+    fn default() -> Self {
+        LightClientFinalityUpdate {
+            attested_header: <_>::default(),
+            finalized_header: <_>::default(),
+            finality_branch: <_>::default(),
+            sync_aggregate: SyncAggregate::new(),
+            signature_slot: Slot::new(0),
+        }
     }
 }
 
