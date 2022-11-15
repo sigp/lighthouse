@@ -56,7 +56,9 @@ impl CommandLineTestExec for CommandLineTest {
 fn datadir_flag() {
     CommandLineTest::new()
         .run_with_zero_port()
-        .with_config_and_dir(|config, dir| assert_eq!(config.data_dir, dir.path().join("beacon")));
+        .with_config_and_dir(|config, dir| {
+            assert_eq!(*config.data_dir(), dir.path().join("beacon"))
+        });
 }
 
 #[test]

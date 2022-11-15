@@ -34,13 +34,13 @@ pub fn get_config<E: EthSpec>(
     let spec = &context.eth2_config.spec;
     let log = context.log();
 
-    let mut client_config = ClientConfig {
-        data_dir: get_data_dir(cli_args),
-        ..Default::default()
-    };
+    let mut client_config = ClientConfig::default();
+
+    // Update the client's data directory
+    client_config.set_data_dir(get_data_dir(cli_args));
 
     // If necessary, remove any existing database and configuration
-    if client_config.data_dir.exists() && cli_args.is_present("purge-db") {
+    if client_config.data_dir().exists() && cli_args.is_present("purge-db") {
         // Remove the chain_db.
         let chain_db = client_config.get_db_path();
         if chain_db.exists() {
@@ -57,11 +57,11 @@ pub fn get_config<E: EthSpec>(
     }
 
     // Create `datadir` and any non-existing parent directories.
-    fs::create_dir_all(&client_config.data_dir)
+    fs::create_dir_all(client_config.data_dir())
         .map_err(|e| format!("Failed to create data dir: {}", e))?;
 
     // logs the chosen data directory
-    let mut log_dir = client_config.data_dir.clone();
+    let mut log_dir = client_config.data_dir().clone();
     // remove /beacon from the end
     log_dir.pop();
     info!(log, "Data directory initialised"; "datadir" => log_dir.into_os_string().into_string().expect("Datadir should be a valid os string"));
@@ -69,10 +69,13 @@ pub fn get_config<E: EthSpec>(
     /*
      * Networking
      */
+
+    let data_dir_ref = client_config.data_dir().clone();
+
     set_network_config(
         &mut client_config.network,
         cli_args,
-        &client_config.data_dir,
+        &data_dir_ref,
         log,
         false,
     )?;
@@ -303,7 +306,7 @@ pub fn get_config<E: EthSpec>(
         } else if let Some(jwt_secret_key) = cli_args.value_of("execution-jwt-secret-key") {
             use std::fs::File;
             use std::io::Write;
-            secret_file = client_config.data_dir.join(DEFAULT_JWT_FILE);
+            secret_file = client_config.data_dir().join(DEFAULT_JWT_FILE);
             let mut jwt_secret_key_file = File::create(secret_file.clone())
                 .map_err(|e| format!("Error while creating jwt_secret_key file: {:?}", e))?;
             jwt_secret_key_file
@@ -332,7 +335,7 @@ pub fn get_config<E: EthSpec>(
             clap_utils::parse_optional(cli_args, "suggested-fee-recipient")?;
         el_config.jwt_id = clap_utils::parse_optional(cli_args, "execution-jwt-id")?;
         el_config.jwt_version = clap_utils::parse_optional(cli_args, "execution-jwt-version")?;
-        el_config.default_datadir = client_config.data_dir.clone();
+        el_config.default_datadir = client_config.data_dir().clone();
         el_config.builder_profit_threshold =
             clap_utils::parse_required(cli_args, "builder-profit-threshold")?;
         let execution_timeout_multiplier =
@@ -573,7 +576,7 @@ pub fn get_config<E: EthSpec>(
         let slasher_dir = if let Some(slasher_dir) = cli_args.value_of("slasher-dir") {
             PathBuf::from(slasher_dir)
         } else {
-            client_config.data_dir.join("slasher_db")
+            client_config.data_dir().join("slasher_db")
         };
 
         let mut slasher_config = slasher::Config::new(slasher_dir);
