@@ -614,24 +614,21 @@ impl<T: EthSpec> ExecutionLayer<T> {
 
                     // Wait for the build *and* relay to produce a payload (or return an error).
                     let ((relay_result, relay_duration), (local_result, local_duration)) = tokio::join!(
-                        timed_future(
-                            metrics::GET_BLINDED_PAYLOAD_BUILDER,
-                            async {
-                                builder.get_builder_header::<T, Payload>(slot, parent_hash, &pubkey).await
-                            }
-                        ),
-                        timed_future(
-                            metrics::GET_BLINDED_PAYLOAD_LOCAL,
-                            async {
-                                self.get_full_payload_caching::<Payload>(
-                                    parent_hash,
-                                    timestamp,
-                                    prev_randao,
-                                    suggested_fee_recipient,
-                                    forkchoice_update_params,
-                                ).await
-                            }
-                        )
+                        timed_future(metrics::GET_BLINDED_PAYLOAD_BUILDER, async {
+                            builder
+                                .get_builder_header::<T, Payload>(slot, parent_hash, &pubkey)
+                                .await
+                        }),
+                        timed_future(metrics::GET_BLINDED_PAYLOAD_LOCAL, async {
+                            self.get_full_payload_caching::<Payload>(
+                                parent_hash,
+                                timestamp,
+                                prev_randao,
+                                suggested_fee_recipient,
+                                forkchoice_update_params,
+                            )
+                            .await
+                        })
                     );
 
                     info!(
@@ -691,7 +688,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                                 timestamp,
                                 Some(local.block_number()),
                                 self.inner.builder_profit_threshold,
-                                spec
+                                spec,
                             ) {
                                 Ok(()) => Ok(relay.data.message.header),
                                 Err(reason) => {
@@ -725,7 +722,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                                 timestamp,
                                 None,
                                 self.inner.builder_profit_threshold,
-                                spec
+                                spec,
                             ) {
                                 Ok(()) => Ok(relay.data.message.header),
                                 Err(reason) => {
@@ -781,7 +778,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                     "Chain is optimistic; can't build payload";
                     "info" => "the local execution engine is syncing and the builder network \
                         cannot safely be used - unable to propose block"
-                )
+                ),
             }
         }
         self.get_full_payload_caching(
@@ -1456,16 +1453,15 @@ impl<T: EthSpec> ExecutionLayer<T> {
         );
 
         if let Some(builder) = self.builder() {
-            let (payload_result, duration) = timed_future(
-                metrics::POST_BLINDED_PAYLOAD_BUILDER,
-                async {
+            let (payload_result, duration) =
+                timed_future(metrics::POST_BLINDED_PAYLOAD_BUILDER, async {
                     builder
                         .post_builder_blinded_blocks(block)
                         .await
                         .map_err(Error::Builder)
                         .map(|d| d.data)
-                }
-            ).await;
+                })
+                .await;
 
             match &payload_result {
                 Ok(payload) => info!(
@@ -1489,7 +1485,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                         .execution_payload()
                         .map(|payload| format!("{}", payload.parent_hash()))
                         .unwrap_or_else(|_| "unknown".to_string())
-                )
+                ),
             }
 
             payload_result
@@ -1628,11 +1624,7 @@ async fn timed_future<F: Future<Output = T>, T>(metric: &str, future: F) -> (T, 
     let start = Instant::now();
     let result = future.await;
     let duration = Instant::now().duration_since(start);
-    metrics::observe_timer_vec(
-        &metrics::EXECUTION_LAYER_REQUEST_TIMES,
-        &[metric],
-        duration
-    );
+    metrics::observe_timer_vec(&metrics::EXECUTION_LAYER_REQUEST_TIMES, &[metric], duration);
     (result, duration)
 }
 
