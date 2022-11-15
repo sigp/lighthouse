@@ -777,7 +777,7 @@ impl ChainSpec {
             domain_sync_committee_selection_proof: 8,
             domain_contribution_and_proof: 9,
             altair_fork_version: [0x01, 0x00, 0x00, 0x64],
-            altair_fork_epoch: Some(Epoch::new(256)),
+            altair_fork_epoch: Some(Epoch::new(512)),
 
             /*
              * Merge hard fork params
@@ -788,14 +788,11 @@ impl ChainSpec {
                 .expect("pow does not overflow"),
             proportional_slashing_multiplier_bellatrix: 3,
             bellatrix_fork_version: [0x02, 0x00, 0x00, 0x64],
-            bellatrix_fork_epoch: None,
-            terminal_total_difficulty: Uint256::MAX
-                .checked_sub(Uint256::from(2u64.pow(10)))
-                .expect("subtraction does not overflow")
-                // Add 1 since the spec declares `2**256 - 2**10` and we use
-                // `Uint256::MAX` which is `2*256- 1`.
-                .checked_add(Uint256::one())
-                .expect("addition does not overflow"),
+            bellatrix_fork_epoch: Some(Epoch::new(385536)),
+            terminal_total_difficulty: Uint256::from_dec_str(
+                "8626000000000000000000058750000000000000000000",
+            )
+            .expect("terminal_total_difficulty is a valid integer"),
             terminal_block_hash: ExecutionBlockHash::zero(),
             terminal_block_hash_activation_epoch: Epoch::new(u64::MAX),
             safe_slots_to_import_optimistically: 128u64,
