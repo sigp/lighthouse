@@ -12,6 +12,7 @@ pub use engine_api::*;
 pub use engine_api::{http, http::deposit_methods, http::HttpJsonRpc};
 use engines::{Engine, EngineError};
 pub use engines::{EngineState, ForkChoiceState};
+use eth2::types::{builder_bid::SignedBuilderBid, ForkVersionedResponse};
 use fork_choice::ForkchoiceUpdateParameters;
 use lru::LruCache;
 use payload_status::process_payload_status;
@@ -21,11 +22,12 @@ use serde::{Deserialize, Serialize};
 use slog::{crit, debug, error, info, trace, warn, Logger};
 use slot_clock::SlotClock;
 use std::collections::HashMap;
+use std::fmt;
 use std::future::Future;
 use std::io::Write;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use task_executor::TaskExecutor;
 use tokio::{
     sync::{Mutex, MutexGuard, RwLock},
@@ -34,7 +36,7 @@ use tokio::{
 use tokio_stream::wrappers::WatchStream;
 use types::{
     BlindedPayload, BlockType, ChainSpec, Epoch, ExecPayload, ExecutionBlockHash, ForkName,
-    ProposerPreparationData, PublicKeyBytes, SignedBeaconBlock, Slot,
+    ProposerPreparationData, PublicKeyBytes, Signature, SignedBeaconBlock, Slot, Uint256,
 };
 
 mod engine_api;
@@ -73,6 +75,7 @@ pub enum Error {
     ApiError(ApiError),
     Builder(builder_client::Error),
     NoHeaderFromBuilder,
+    CannotProduceHeader,
     EngineError(Box<EngineError>),
     NotSynced,
     ShuttingDown,
@@ -608,130 +611,190 @@ impl<T: EthSpec> ExecutionLayer<T> {
                         "pubkey" => ?pubkey,
                         "parent_hash" => ?parent_hash,
                     );
-                    let (relay_result, local_result) = tokio::join!(
-                        builder.get_builder_header::<T, Payload>(slot, parent_hash, &pubkey),
-                        self.get_full_payload_caching(
-                            parent_hash,
-                            timestamp,
-                            prev_randao,
-                            suggested_fee_recipient,
-                            forkchoice_update_params,
+
+                    // A helper function to record the time it takes to execute a future.
+                    async fn timed_future<F: Future<Output = T>, T>(metric: &str, future: F) -> (T, Duration) {
+                        let start = Instant::now();
+                        let result = future.await;
+                        let duration = Instant::now().duration_since(start);
+                        let _timer = metrics::observe_timer_vec(
+                            &metrics::EXECUTION_LAYER_REQUEST_TIMES,
+                            &[metric],
+                            duration
+                        );
+                        (result, duration)
+                    }
+
+                    // Wait for the build *and* relay to produce a payload (or return an error).
+                    let ((relay_result, relay_duration), (local_result, local_duration)) = tokio::join!(
+                        timed_future(
+                            metrics::GET_BLINDED_PAYLOAD_BUILDER,
+                            async {
+                                builder.get_builder_header::<T, Payload>(slot, parent_hash, &pubkey).await
+                            }
+                        ),
+                        timed_future(
+                            metrics::GET_BLINDED_PAYLOAD_LOCAL,
+                            async {
+                                self.get_full_payload_caching::<Payload>(
+                                    parent_hash,
+                                    timestamp,
+                                    prev_randao,
+                                    suggested_fee_recipient,
+                                    forkchoice_update_params,
+                                ).await
+                            }
                         )
+                    );
+
+                    info!(
+                        self.log(),
+                        "Requested blinded execution payload";
+                        "relay_fee_recipient" => match &relay_result {
+                            Ok(Some(r)) => format!("{}", r.data.message.header.fee_recipient()),
+                            Ok(None) => "empty response".to_string(),
+                            Err(_) => "request failed".to_string(),
+                        },
+                        "relay_response_ms" => relay_duration.as_millis(),
+                        "local_fee_recipient" => match &local_result {
+                            Ok(header) => format!("{}", header.fee_recipient()),
+                            Err(_) => "request failed".to_string()
+                        },
+                        "local_response_ms" => local_duration.as_millis(),
+                        "parent_hash" => %parent_hash,
                     );
 
                     return match (relay_result, local_result) {
                         (Err(e), Ok(local)) => {
                             warn!(
                                 self.log(),
-                                "Unable to retrieve a payload from a connected \
-                                builder, falling back to the local execution client: {e:?}"
+                                "Builder error when requesting payload";
+                                "info" => "falling back to local execution client",
+                                "relay_error" => ?e,
+                                "local_block_hash" => %local.block_hash(),
+                                "parent_hash" => %parent_hash,
                             );
                             Ok(local)
                         }
                         (Ok(None), Ok(local)) => {
                             info!(
                                 self.log(),
-                                "No payload provided by connected builder. \
-                                Attempting to propose through local execution engine"
+                                "Builder did not return a payload";
+                                "info" => "falling back to local execution client",
+                                "local_block_hash" => %local.block_hash(),
+                                "parent_hash" => %parent_hash,
                             );
                             Ok(local)
                         }
                         (Ok(Some(relay)), Ok(local)) => {
-                            let is_signature_valid = relay.data.verify_signature(spec);
-                            let header = relay.data.message.header;
+                            let header = &relay.data.message.header;
 
                             info!(
                                 self.log(),
-                                "Received a payload header from the connected builder";
-                                "block_hash" => ?header.block_hash(),
+                                "Received local and builder payloads";
+                                "relay_block_hash" => ?header.block_hash(),
+                                "local_block_hash" => %local.block_hash(),
+                                "parent_hash" => %parent_hash,
                             );
 
-                            let relay_value = relay.data.message.value;
-                            let configured_value = self.inner.builder_profit_threshold;
-                            if relay_value < configured_value {
-                                info!(
+                            match verify_builder_bid(
+                                &relay,
+                                parent_hash,
+                                prev_randao,
+                                timestamp,
+                                Some(local.block_number()),
+                                self.inner.builder_profit_threshold,
+                                spec
+                            ) {
+                                Ok(()) => Ok(relay.data.message.header),
+                                Err(reason) => {
+                                    warn!(
                                         self.log(),
-                                        "The value offered by the connected builder does not meet \
-                                        the configured profit threshold. Using local payload.";
-                                        "configured_value" => ?configured_value, "relay_value" => ?relay_value
+                                        "Builder returned invalid payload";
+                                        "info" => "using local payload",
+                                        "reason" => %reason,
+                                        "relay_block_hash" => ?header.block_hash(),
+                                        "parent_hash" => %parent_hash,
                                     );
-                                Ok(local)
-                            } else if header.parent_hash() != parent_hash {
-                                warn!(
-                                    self.log(),
-                                    "Invalid parent hash from connected builder, \
-                                    falling back to local execution engine."
-                                );
-                                Ok(local)
-                            } else if header.prev_randao() != prev_randao {
-                                warn!(
-                                    self.log(),
-                                    "Invalid prev randao from connected builder, \
-                                    falling back to local execution engine."
-                                );
-                                Ok(local)
-                            } else if header.timestamp() != local.timestamp() {
-                                warn!(
-                                    self.log(),
-                                    "Invalid timestamp from connected builder, \
-                                    falling back to local execution engine."
-                                );
-                                Ok(local)
-                            } else if header.block_number() != local.block_number() {
-                                warn!(
-                                    self.log(),
-                                    "Invalid block number from connected builder, \
-                                    falling back to local execution engine."
-                                );
-                                Ok(local)
-                            } else if !matches!(relay.version, Some(ForkName::Merge)) {
-                                // Once fork information is added to the payload, we will need to
-                                // check that the local and relay payloads match. At this point, if
-                                // we are requesting a payload at all, we have to assume this is
-                                // the Bellatrix fork.
-                                warn!(
-                                    self.log(),
-                                    "Invalid fork from connected builder, falling \
-                                    back to local execution engine."
-                                );
-                                Ok(local)
-                            } else if !is_signature_valid {
-                                let pubkey_bytes = relay.data.message.pubkey;
-                                warn!(self.log(), "Invalid signature for pubkey {pubkey_bytes} on \
-                                    bid from connected builder, falling back to local execution engine.");
-                                Ok(local)
-                            } else {
-                                if header.fee_recipient() != suggested_fee_recipient {
-                                    info!(
-                                        self.log(),
-                                        "Fee recipient from connected builder does \
-                                        not match, using it anyways."
-                                    );
+                                    Ok(local)
                                 }
-                                Ok(header)
                             }
                         }
-                        (relay_result, Err(local_error)) => {
-                            warn!(self.log(), "Failure from local execution engine. Attempting to \
-                                propose through connected builder"; "error" => ?local_error);
-                            relay_result
-                                .map_err(Error::Builder)?
-                                .ok_or(Error::NoHeaderFromBuilder)
-                                .map(|d| d.data.message.header)
+                        (Ok(Some(relay)), Err(local_error)) => {
+                            let header = &relay.data.message.header;
+
+                            info!(
+                                self.log(),
+                                "Received builder payload with local error";
+                                "relay_block_hash" => ?header.block_hash(),
+                                "local_error" => ?local_error,
+                                "parent_hash" => %parent_hash,
+                            );
+
+                            match verify_builder_bid(
+                                &relay,
+                                parent_hash,
+                                prev_randao,
+                                timestamp,
+                                None,
+                                self.inner.builder_profit_threshold,
+                                spec
+                            ) {
+                                Ok(()) => Ok(relay.data.message.header),
+                                Err(reason) => {
+                                    crit!(
+                                        self.log(),
+                                        "Builder returned invalid payload";
+                                        "info" => "no local payload either - unable to propose block",
+                                        "reason" => %reason,
+                                        "relay_block_hash" => ?header.block_hash(),
+                                        "parent_hash" => %parent_hash,
+                                    );
+                                    Err(Error::CannotProduceHeader)
+                                }
+                            }
+                        }
+                        (Err(relay_error), Err(local_error)) => {
+                            crit!(
+                                self.log(),
+                                "Unable to produce execution payload";
+                                "info" => "the local EL and builder both failed - unable to propose block",
+                                "relay_error" => ?relay_error,
+                                "local_error" => ?local_error,
+                                "parent_hash" => %parent_hash,
+                            );
+
+                            Err(Error::CannotProduceHeader)
+                        }
+                        (Ok(None), Err(local_error)) => {
+                            crit!(
+                                self.log(),
+                                "Unable to produce execution payload";
+                                "info" => "the local EL failed and the builder returned nothing - \
+                                    the block proposal will be missed",
+                                "local_error" => ?local_error,
+                                "parent_hash" => %parent_hash,
+                            );
+
+                            Err(Error::CannotProduceHeader)
                         }
                     };
                 }
-                ChainHealth::Unhealthy(condition) => {
-                    info!(self.log(), "Due to poor chain health the local execution engine will be used \
-                                        for payload construction. To adjust chain health conditions \
-                                        Use `builder-fallback` prefixed flags";
-                        "failed_condition" => ?condition)
-                }
+                ChainHealth::Unhealthy(condition) => info!(
+                    self.log(),
+                    "Chain is unhealthy, using local payload";
+                    "info" => "this helps protect the network. the --builder-fallback flags \
+                        can adjust the expected health conditions.",
+                    "failed_condition" => ?condition
+                ),
                 // Intentional no-op, so we never attempt builder API proposals pre-merge.
                 ChainHealth::PreMerge => (),
-                ChainHealth::Optimistic => info!(self.log(), "The local execution engine is syncing \
-                                            so the builder network cannot safely be used. Attempting \
-                                            to build a block with the local execution engine"),
+                ChainHealth::Optimistic => info!(
+                    self.log(),
+                    "Chain is optimistic; can't build payload";
+                    "info" => "the local execution engine is syncing and the builder network \
+                        cannot safely be used - unable to propose block"
+                )
             }
         }
         self.get_full_payload_caching(
@@ -1413,6 +1476,130 @@ impl<T: EthSpec> ExecutionLayer<T> {
         } else {
             Err(Error::NoPayloadBuilder)
         }
+    }
+}
+
+enum InvalidBuilderPayload {
+    LowValue {
+        profit_threshold: Uint256,
+        payload_value: Uint256,
+    },
+    ParentHash {
+        payload: ExecutionBlockHash,
+        expected: ExecutionBlockHash,
+    },
+    PrevRandao {
+        payload: Hash256,
+        expected: Hash256,
+    },
+    Timestamp {
+        payload: u64,
+        expected: u64,
+    },
+    BlockNumber {
+        payload: u64,
+        expected: Option<u64>,
+    },
+    Fork {
+        payload: Option<ForkName>,
+        expected: ForkName,
+    },
+    Signature {
+        signature: Signature,
+        pubkey: PublicKeyBytes,
+    },
+}
+
+impl fmt::Display for InvalidBuilderPayload {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            InvalidBuilderPayload::LowValue {
+                profit_threshold,
+                payload_value,
+            } => write!(
+                f,
+                "payload value of {} does not meet user-configured profit-threshold of {}",
+                payload_value, profit_threshold
+            ),
+            InvalidBuilderPayload::ParentHash { payload, expected } => {
+                write!(f, "payload block hash was {} not {}", payload, expected)
+            }
+            InvalidBuilderPayload::PrevRandao { payload, expected } => {
+                write!(f, "payload prev randao was {} not {}", payload, expected)
+            }
+            InvalidBuilderPayload::Timestamp { payload, expected } => {
+                write!(f, "payload timestamp was {} not {}", payload, expected)
+            }
+            InvalidBuilderPayload::BlockNumber { payload, expected } => {
+                write!(f, "payload block number was {} not {:?}", payload, expected)
+            }
+            InvalidBuilderPayload::Fork { payload, expected } => {
+                write!(f, "payload fork was {:?} not {}", payload, expected)
+            }
+            InvalidBuilderPayload::Signature { signature, pubkey } => write!(
+                f,
+                "invalid payload signature {} for pubkey {}",
+                signature, pubkey
+            ),
+        }
+    }
+}
+
+/// Perform some cursory, non-exhaustive validation of the bid returned from the builder.
+fn verify_builder_bid<T: EthSpec, Payload: ExecPayload<T>>(
+    bid: &ForkVersionedResponse<SignedBuilderBid<T, Payload>>,
+    parent_hash: ExecutionBlockHash,
+    prev_randao: Hash256,
+    timestamp: u64,
+    block_number: Option<u64>,
+    profit_threshold: Uint256,
+    spec: &ChainSpec,
+) -> Result<(), Box<InvalidBuilderPayload>> {
+    let is_signature_valid = bid.data.verify_signature(spec);
+    let header = &bid.data.message.header;
+
+    let payload_value = bid.data.message.value;
+    if payload_value < profit_threshold {
+        Err(Box::new(InvalidBuilderPayload::LowValue {
+            profit_threshold,
+            payload_value,
+        }))
+    } else if header.parent_hash() != parent_hash {
+        Err(Box::new(InvalidBuilderPayload::ParentHash {
+            payload: header.parent_hash(),
+            expected: parent_hash,
+        }))
+    } else if header.prev_randao() != prev_randao {
+        Err(Box::new(InvalidBuilderPayload::PrevRandao {
+            payload: header.prev_randao(),
+            expected: prev_randao,
+        }))
+    } else if header.timestamp() != timestamp {
+        Err(Box::new(InvalidBuilderPayload::Timestamp {
+            payload: header.timestamp(),
+            expected: timestamp,
+        }))
+    } else if block_number.map_or(false, |n| n != header.block_number()) {
+        Err(Box::new(InvalidBuilderPayload::BlockNumber {
+            payload: header.block_number(),
+            expected: block_number,
+        }))
+    } else if !matches!(bid.version, Some(ForkName::Merge)) {
+        // Once fork information is added to the payload, we will need to
+        // check that the local and relay payloads match. At this point, if
+        // we are requesting a payload at all, we have to assume this is
+        // the Bellatrix fork.
+        Err(Box::new(InvalidBuilderPayload::Fork {
+            payload: bid.version,
+            expected: ForkName::Merge,
+        }))
+    } else if !is_signature_valid {
+        Err(Box::new(InvalidBuilderPayload::Signature {
+            signature: bid.data.signature.clone(),
+            pubkey: bid.data.message.pubkey,
+        }))
+    } else {
+        Ok(())
     }
 }
 
