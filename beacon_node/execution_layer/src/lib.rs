@@ -612,19 +612,6 @@ impl<T: EthSpec> ExecutionLayer<T> {
                         "parent_hash" => ?parent_hash,
                     );
 
-                    // A helper function to record the time it takes to execute a future.
-                    async fn timed_future<F: Future<Output = T>, T>(metric: &str, future: F) -> (T, Duration) {
-                        let start = Instant::now();
-                        let result = future.await;
-                        let duration = Instant::now().duration_since(start);
-                        let _timer = metrics::observe_timer_vec(
-                            &metrics::EXECUTION_LAYER_REQUEST_TIMES,
-                            &[metric],
-                            duration
-                        );
-                        (result, duration)
-                    }
-
                     // Wait for the build *and* relay to produce a payload (or return an error).
                     let ((relay_result, relay_duration), (local_result, local_duration)) = tokio::join!(
                         timed_future(
@@ -1467,12 +1454,45 @@ impl<T: EthSpec> ExecutionLayer<T> {
             "Sending block to builder";
             "root" => ?block_root,
         );
+
         if let Some(builder) = self.builder() {
-            builder
-                .post_builder_blinded_blocks(block)
-                .await
-                .map_err(Error::Builder)
-                .map(|d| d.data)
+            let (payload_result, duration) = timed_future(
+                metrics::POST_BLINDED_PAYLOAD_BUILDER,
+                async {
+                    builder
+                        .post_builder_blinded_blocks(block)
+                        .await
+                        .map_err(Error::Builder)
+                        .map(|d| d.data)
+                }
+            ).await;
+
+            match &payload_result {
+                Ok(payload) => info!(
+                    self.log(),
+                    "Builder successfully revealed payload";
+                    "relay_response_ms" => duration.as_millis(),
+                    "block_root" => %block_root,
+                    "fee_recipient" => %payload.fee_recipient,
+                    "block_hash" => %payload.block_hash,
+                    "parent_hash" => %payload.parent_hash
+                ),
+                Err(e) => crit!(
+                    self.log(),
+                    "Builder failed to reveal payload";
+                    "info" => "this relay failure has caused a missed proposal",
+                    "error" => ?e,
+                    "relay_response_ms" => duration.as_millis(),
+                    "block_root" => %block_root,
+                    "parent_hash" => %block
+                        .message()
+                        .execution_payload()
+                        .map(|payload| format!("{}", payload.parent_hash()))
+                        .unwrap_or_else(|_| "unknown".to_string())
+                )
+            }
+
+            payload_result
         } else {
             Err(Error::NoPayloadBuilder)
         }
@@ -1601,6 +1621,19 @@ fn verify_builder_bid<T: EthSpec, Payload: ExecPayload<T>>(
     } else {
         Ok(())
     }
+}
+
+/// A helper function to record the time it takes to execute a future.
+async fn timed_future<F: Future<Output = T>, T>(metric: &str, future: F) -> (T, Duration) {
+    let start = Instant::now();
+    let result = future.await;
+    let duration = Instant::now().duration_since(start);
+    metrics::observe_timer_vec(
+        &metrics::EXECUTION_LAYER_REQUEST_TIMES,
+        &[metric],
+        duration
+    );
+    (result, duration)
 }
 
 #[cfg(test)]
