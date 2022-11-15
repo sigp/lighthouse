@@ -15,7 +15,8 @@ use types::{
     Attestation, AttesterSlashing, BlobsSidecar, EthSpec, ForkContext, ForkName, ProposerSlashing,
     SignedAggregateAndProof, SignedBeaconBlock, SignedBeaconBlockAltair, SignedBeaconBlockBase,
     SignedBeaconBlockCapella, SignedBeaconBlockEip4844, SignedBeaconBlockMerge,
-    SignedContributionAndProof, SignedVoluntaryExit, SubnetId, SyncCommitteeMessage, SyncSubnetId,
+    SignedBlsToExecutionChange, SignedContributionAndProof, SignedVoluntaryExit, SubnetId,
+    SyncCommitteeMessage, SyncSubnetId,
 };
 
 /// TODO(pawan): move this to consensus/types? strictly not a consensus type
@@ -48,6 +49,8 @@ pub enum PubsubMessage<T: EthSpec> {
     SignedContributionAndProof(Box<SignedContributionAndProof<T>>),
     /// Gossipsub message providing notification of unaggregated sync committee signatures with its subnet id.
     SyncCommitteeMessage(Box<(SyncSubnetId, SyncCommitteeMessage)>),
+    /// Gossipsub message for BLS to execution change messages.
+    BlsToExecutionChange(Box<SignedBlsToExecutionChange>),
 }
 
 // Implements the `DataTransform` trait of gossipsub to employ snappy compression
@@ -133,6 +136,7 @@ impl<T: EthSpec> PubsubMessage<T> {
             PubsubMessage::AttesterSlashing(_) => GossipKind::AttesterSlashing,
             PubsubMessage::SignedContributionAndProof(_) => GossipKind::SignedContributionAndProof,
             PubsubMessage::SyncCommitteeMessage(data) => GossipKind::SyncCommitteeMessage(data.0),
+            PubsubMessage::BlsToExecutionChange(_) => GossipKind::BlsToExecutionChange,
         }
     }
 
@@ -258,6 +262,14 @@ impl<T: EthSpec> PubsubMessage<T> {
                             sync_committee,
                         ))))
                     }
+                    GossipKind::BlsToExecutionChange => {
+                        let bls_to_execution_change =
+                            SignedBlsToExecutionChange::from_ssz_bytes(data)
+                                .map_err(|e| format!("{:?}", e))?;
+                        Ok(PubsubMessage::BlsToExecutionChange(Box::new(
+                            bls_to_execution_change,
+                        )))
+                    }
                 }
             }
         }
@@ -280,6 +292,7 @@ impl<T: EthSpec> PubsubMessage<T> {
             PubsubMessage::Attestation(data) => data.1.as_ssz_bytes(),
             PubsubMessage::SignedContributionAndProof(data) => data.as_ssz_bytes(),
             PubsubMessage::SyncCommitteeMessage(data) => data.1.as_ssz_bytes(),
+            PubsubMessage::BlsToExecutionChange(data) => data.as_ssz_bytes(),
         }
     }
 }
@@ -319,6 +332,13 @@ impl<T: EthSpec> std::fmt::Display for PubsubMessage<T> {
             }
             PubsubMessage::SyncCommitteeMessage(data) => {
                 write!(f, "Sync committee message: subnet_id: {}", *data.0)
+            }
+            PubsubMessage::BlsToExecutionChange(data) => {
+                write!(
+                    f,
+                    "Signed BLS to execution change: validator_index: {}, address: {:?}",
+                    data.message.validator_index, data.message.to_execution_address
+                )
             }
         }
     }

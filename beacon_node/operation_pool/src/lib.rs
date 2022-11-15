@@ -30,10 +30,10 @@ use std::collections::{hash_map::Entry, HashMap, HashSet};
 use std::marker::PhantomData;
 use std::ptr;
 use types::{
-    sync_aggregate::Error as SyncAggregateError, typenum::Unsigned, Attestation, AttestationData,
-    AttesterSlashing, BeaconState, BeaconStateError, ChainSpec, Epoch, EthSpec, ProposerSlashing,
-    SignedBlsToExecutionChange, SignedVoluntaryExit, Slot, SyncAggregate,
-    SyncCommitteeContribution, Validator,
+    sync_aggregate::Error as SyncAggregateError, typenum::Unsigned, AbstractExecPayload,
+    Attestation, AttestationData, AttesterSlashing, BeaconState, BeaconStateError, ChainSpec,
+    Epoch, EthSpec, ProposerSlashing, SignedBeaconBlock, SignedBlsToExecutionChange,
+    SignedVoluntaryExit, Slot, SyncAggregate, SyncCommitteeContribution, Validator,
 };
 
 type SyncContributions<T> = RwLock<HashMap<SyncAggregateId, Vec<SyncCommitteeContribution<T>>>>;
@@ -432,7 +432,7 @@ impl<T: EthSpec> OperationPool<T> {
     pub fn prune_proposer_slashings(&self, head_state: &BeaconState<T>) {
         prune_validator_hash_map(
             &mut self.proposer_slashings.write(),
-            |validator| validator.exit_epoch <= head_state.finalized_checkpoint().epoch,
+            |_, validator| validator.exit_epoch <= head_state.finalized_checkpoint().epoch,
             head_state,
         );
     }
@@ -507,28 +507,89 @@ impl<T: EthSpec> OperationPool<T> {
             //
             // We choose simplicity over the gain of pruning more exits since they are small and
             // should not be seen frequently.
-            |validator| validator.exit_epoch <= head_state.finalized_checkpoint().epoch,
+            |_, validator| validator.exit_epoch <= head_state.finalized_checkpoint().epoch,
             head_state,
         );
     }
 
+    /// Insert a BLS to execution change into the pool.
+    pub fn insert_bls_to_execution_change(
+        &self,
+        verified_change: SigVerifiedOp<SignedBlsToExecutionChange, T>,
+    ) {
+        self.bls_to_execution_changes.write().insert(
+            verified_change.as_inner().message.validator_index,
+            verified_change,
+        );
+    }
+
     /// Get a list of execution changes for inclusion in a block.
+    ///
+    /// They're in random `HashMap` order, which isn't exactly fair, but isn't unfair either.
     pub fn get_bls_to_execution_changes(
         &self,
         state: &BeaconState<T>,
         spec: &ChainSpec,
     ) -> Vec<SignedBlsToExecutionChange> {
-        // FIXME: actually implement this
-        return vec![];
+        filter_limit_operations(
+            self.bls_to_execution_changes.read().values(),
+            |address_change| {
+                address_change.signature_is_still_valid(&state.fork())
+                    && state
+                        .get_validator(address_change.as_inner().message.validator_index as usize)
+                        .map_or(false, |validator| {
+                            !validator.has_eth1_withdrawal_credential(spec)
+                        })
+            },
+            |address_change| address_change.as_inner().clone(),
+            T::MaxBlsToExecutionChanges::to_usize(),
+        )
+    }
+
+    /// Prune BLS to execution changes that have been applied to the state more than 1 block ago.
+    ///
+    /// The block check is necessary to avoid pruning too eagerly and losing the ability to include
+    /// address changes during re-orgs. This is isn't *perfect* so some address changes could
+    /// still get stuck if there are gnarly re-orgs and the changes can't be widely republished
+    /// due to the gossip duplicate rules.
+    pub fn prune_bls_to_execution_changes<Payload: AbstractExecPayload<T>>(
+        &self,
+        head_block: &SignedBeaconBlock<T, Payload>,
+        head_state: &BeaconState<T>,
+        spec: &ChainSpec,
+    ) {
+        prune_validator_hash_map(
+            &mut self.bls_to_execution_changes.write(),
+            |validator_index, validator| {
+                validator.has_eth1_withdrawal_credential(spec)
+                    && head_block
+                        .message()
+                        .body()
+                        .bls_to_execution_changes()
+                        .map_or(true, |recent_changes| {
+                            !recent_changes
+                                .iter()
+                                .any(|c| c.message.validator_index == validator_index)
+                        })
+            },
+            head_state,
+        );
     }
 
     /// Prune all types of transactions given the latest head state and head fork.
-    pub fn prune_all(&self, head_state: &BeaconState<T>, current_epoch: Epoch) {
+    pub fn prune_all<Payload: AbstractExecPayload<T>>(
+        &self,
+        head_block: &SignedBeaconBlock<T, Payload>,
+        head_state: &BeaconState<T>,
+        current_epoch: Epoch,
+        spec: &ChainSpec,
+    ) {
         self.prune_attestations(current_epoch);
         self.prune_sync_contributions(head_state.slot());
         self.prune_proposer_slashings(head_state);
         self.prune_attester_slashings(head_state);
         self.prune_voluntary_exits(head_state);
+        self.prune_bls_to_execution_changes(head_block, head_state, spec);
     }
 
     /// Total number of voluntary exits in the pool.
@@ -627,7 +688,7 @@ fn prune_validator_hash_map<T, F, E: EthSpec>(
     prune_if: F,
     head_state: &BeaconState<E>,
 ) where
-    F: Fn(&Validator) -> bool,
+    F: Fn(u64, &Validator) -> bool,
     T: VerifyOperation<E>,
 {
     map.retain(|&validator_index, op| {
@@ -635,7 +696,7 @@ fn prune_validator_hash_map<T, F, E: EthSpec>(
             && head_state
                 .validators()
                 .get(validator_index as usize)
-                .map_or(true, |validator| !prune_if(validator))
+                .map_or(true, |validator| !prune_if(validator_index, validator))
     });
 }
 

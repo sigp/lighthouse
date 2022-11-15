@@ -36,6 +36,8 @@ pub struct GossipCache {
     signed_contribution_and_proof: Option<Duration>,
     /// Timeout for sync committee messages.
     sync_committee_message: Option<Duration>,
+    /// Timeout for signed BLS to execution changes.
+    bls_to_execution_change: Option<Duration>,
 }
 
 #[derive(Default)]
@@ -59,6 +61,8 @@ pub struct GossipCacheBuilder {
     signed_contribution_and_proof: Option<Duration>,
     /// Timeout for sync committee messages.
     sync_committee_message: Option<Duration>,
+    /// Timeout for signed BLS to execution changes.
+    bls_to_execution_change: Option<Duration>,
 }
 
 #[allow(dead_code)]
@@ -117,6 +121,12 @@ impl GossipCacheBuilder {
         self
     }
 
+    /// Timeout for BLS to execution change messages.
+    pub fn bls_to_execution_change_timeout(mut self, timeout: Duration) -> Self {
+        self.bls_to_execution_change = Some(timeout);
+        self
+    }
+
     pub fn build(self) -> GossipCache {
         let GossipCacheBuilder {
             default_timeout,
@@ -129,6 +139,7 @@ impl GossipCacheBuilder {
             attester_slashing,
             signed_contribution_and_proof,
             sync_committee_message,
+            bls_to_execution_change,
         } = self;
         GossipCache {
             expirations: DelayQueue::default(),
@@ -142,6 +153,7 @@ impl GossipCacheBuilder {
             attester_slashing: attester_slashing.or(default_timeout),
             signed_contribution_and_proof: signed_contribution_and_proof.or(default_timeout),
             sync_committee_message: sync_committee_message.or(default_timeout),
+            bls_to_execution_change: bls_to_execution_change.or(default_timeout),
         }
     }
 }
@@ -165,6 +177,7 @@ impl GossipCache {
             GossipKind::AttesterSlashing => self.attester_slashing,
             GossipKind::SignedContributionAndProof => self.signed_contribution_and_proof,
             GossipKind::SyncCommitteeMessage(_) => self.sync_committee_message,
+            GossipKind::BlsToExecutionChange => self.bls_to_execution_change,
         };
         let expire_timeout = match expire_timeout {
             Some(expire_timeout) => expire_timeout,

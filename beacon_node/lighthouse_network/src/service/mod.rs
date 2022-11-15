@@ -199,6 +199,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                 .attester_slashing_timeout(half_epoch * 2)
                 // .signed_contribution_and_proof_timeout(timeout) // Do not retry
                 // .sync_committee_message_timeout(timeout) // Do not retry
+                .bls_to_execution_change_timeout(half_epoch * 2)
                 .build()
         };
 
@@ -461,6 +462,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
 
         let mut subscribed_topics: Vec<GossipKind> = vec![];
 
+        // FIXME(sproul): inject bls to execution topic here as appropriate
         for topic_kind in &config.topics {
             if self.subscribe_kind(topic_kind.clone()) {
                 subscribed_topics.push(topic_kind.clone());

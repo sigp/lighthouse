@@ -341,6 +341,9 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     /// Maintains a record of which validators we've seen attester slashings for.
     pub(crate) observed_attester_slashings:
         Mutex<ObservedOperations<AttesterSlashing<T::EthSpec>, T::EthSpec>>,
+    /// Maintains a record of which validators we've seen BLS to execution changes for.
+    pub(crate) observed_bls_to_execution_changes:
+        Mutex<ObservedOperations<SignedBlsToExecutionChange, T::EthSpec>>,
     /// Provides information from the Ethereum 1 (PoW) chain.
     pub eth1_chain: Option<Eth1Chain<T::Eth1Chain, T::EthSpec>>,
     /// Interfaces with the execution client.
@@ -2178,6 +2181,29 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Add to the op pool (if we have the ability to propose blocks).
         if self.eth1_chain.is_some() {
             self.op_pool.insert_attester_slashing(attester_slashing)
+        }
+    }
+
+    /// Verify a signed BLS to exection change before allowing it to propagate on the gossip network.
+    pub fn verify_bls_to_execution_change_for_gossip(
+        &self,
+        bls_to_execution_change: SignedBlsToExecutionChange,
+    ) -> Result<ObservationOutcome<SignedBlsToExecutionChange, T::EthSpec>, Error> {
+        let wall_clock_state = self.wall_clock_state()?;
+        Ok(self
+            .observed_bls_to_execution_changes
+            .lock()
+            .verify_and_observe(bls_to_execution_change, &wall_clock_state, &self.spec)?)
+    }
+
+    /// Import a BLS to execution change to the op pool.
+    pub fn import_bls_to_execution_change(
+        &self,
+        bls_to_execution_change: SigVerifiedOp<SignedBlsToExecutionChange, T::EthSpec>,
+    ) {
+        if self.eth1_chain.is_some() {
+            self.op_pool
+                .insert_bls_to_execution_change(bls_to_execution_change);
         }
     }
 
