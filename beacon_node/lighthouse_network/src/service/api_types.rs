@@ -3,7 +3,7 @@ use std::sync::Arc;
 use libp2p::core::connection::ConnectionId;
 use types::{BlobsSidecar, EthSpec, SignedBeaconBlock};
 
-use crate::rpc::methods::BlobsByRangeRequest;
+use crate::rpc::methods::{BlobsByRangeRequest, BlobsByRootRequest};
 use crate::rpc::{
     methods::{
         BlocksByRangeRequest, BlocksByRootRequest, OldBlocksByRangeRequest, RPCCodedResponse,
@@ -11,7 +11,7 @@ use crate::rpc::{
     },
     OutboundRequest, SubstreamId,
 };
-use crate::SignedBeaconBlockAndBlobsSidecar;
+use types::SignedBeaconBlockAndBlobsSidecar;
 
 /// Identifier of requests sent by a peer.
 pub type PeerRequestId = (ConnectionId, SubstreamId);
@@ -38,6 +38,8 @@ pub enum Request {
     BlobsByRange(BlobsByRangeRequest),
     /// A request blocks root request.
     BlocksByRoot(BlocksByRootRequest),
+    /// A request blobs root request.
+    BlobsByRoot(BlobsByRootRequest),
 }
 
 impl<TSpec: EthSpec> std::convert::From<Request> for OutboundRequest<TSpec> {
@@ -52,6 +54,7 @@ impl<TSpec: EthSpec> std::convert::From<Request> for OutboundRequest<TSpec> {
                 })
             }
             Request::BlobsByRange(r) => OutboundRequest::BlobsByRange(r),
+            Request::BlobsByRoot(r) => OutboundRequest::BlobsByRoot(r),
             Request::Status(s) => OutboundRequest::Status(s),
         }
     }
@@ -73,6 +76,8 @@ pub enum Response<TSpec: EthSpec> {
     BlobsByRange(Option<Arc<SignedBeaconBlockAndBlobsSidecar<TSpec>>>),
     /// A response to a get BLOCKS_BY_ROOT request.
     BlocksByRoot(Option<Arc<SignedBeaconBlock<TSpec>>>),
+    /// A response to a get BLOBS_BY_ROOT request.
+    BlobsByRoot(Option<Arc<SignedBeaconBlockAndBlobsSidecar<TSpec>>>),
 }
 
 impl<TSpec: EthSpec> std::convert::From<Response<TSpec>> for RPCCodedResponse<TSpec> {
@@ -85,6 +90,10 @@ impl<TSpec: EthSpec> std::convert::From<Response<TSpec>> for RPCCodedResponse<TS
             Response::BlocksByRange(r) => match r {
                 Some(b) => RPCCodedResponse::Success(RPCResponse::BlocksByRange(b)),
                 None => RPCCodedResponse::StreamTermination(ResponseTermination::BlocksByRange),
+            },
+            Response::BlobsByRoot(r) => match r {
+                Some(b) => RPCCodedResponse::Success(RPCResponse::BlobsByRoot(b)),
+                None => RPCCodedResponse::StreamTermination(ResponseTermination::BlobsByRoot),
             },
             Response::BlobsByRange(r) => match r {
                 Some(b) => RPCCodedResponse::Success(RPCResponse::BlobsByRange(b)),

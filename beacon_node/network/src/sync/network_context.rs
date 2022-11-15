@@ -181,6 +181,9 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         peer_id: PeerId,
         request: BlocksByRootRequest,
     ) -> Result<Id, &'static str> {
+
+        //FIXME(sean) add prune depth logic here?
+
         trace!(
             self.log,
             "Sending BlocksByRoot Request";

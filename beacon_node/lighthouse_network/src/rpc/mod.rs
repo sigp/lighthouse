@@ -300,6 +300,7 @@ where
                         ResponseTermination::BlocksByRange => Protocol::BlocksByRange,
                         ResponseTermination::BlocksByRoot => Protocol::BlocksByRoot,
                         ResponseTermination::BlobsByRange => Protocol::BlobsByRange,
+                        ResponseTermination::BlobsByRoot => Protocol::BlobsByRoot,
                     },
                 ),
             },

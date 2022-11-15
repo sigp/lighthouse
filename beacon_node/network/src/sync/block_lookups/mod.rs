@@ -9,6 +9,7 @@ use slog::{debug, error, trace, warn, Logger};
 use smallvec::SmallVec;
 use std::sync::Arc;
 use store::{Hash256, SignedBeaconBlock};
+use types::signed_block_and_blobs::BlockMaybeBlobs;
 
 use crate::beacon_processor::{ChainSegmentProcessId, WorkEvent};
 use crate::metrics;
@@ -30,7 +31,7 @@ mod single_block_lookup;
 #[cfg(test)]
 mod tests;
 
-pub type RootBlockTuple<T> = (Hash256, Arc<SignedBeaconBlock<T>>);
+pub type RootBlockTuple<T> = (Hash256, BlockMaybeBlobs<T>);
 
 const FAILED_CHAINS_CACHE_EXPIRY_SECONDS: u64 = 60;
 const SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS: u8 = 3;
@@ -87,6 +88,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
 
         let mut single_block_request = SingleBlockRequest::new(hash, peer_id);
 
+        //FIXME(sean) remove unwrap?
         let (peer_id, request) = single_block_request.request_block().unwrap();
         if let Ok(request_id) = cx.single_block_lookup_request(peer_id, request) {
             self.single_block_lookups

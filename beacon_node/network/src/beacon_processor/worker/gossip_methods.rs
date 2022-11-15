@@ -12,7 +12,6 @@ use beacon_chain::{
 };
 use lighthouse_network::{
     Client, MessageAcceptance, MessageId, PeerAction, PeerId, ReportSource,
-    SignedBeaconBlockAndBlobsSidecar,
 };
 use slog::{crit, debug, error, info, trace, warn};
 use slot_clock::SlotClock;
@@ -21,11 +20,8 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use store::hot_cold_store::HotColdDBError;
 use tokio::sync::mpsc;
-use types::{
-    Attestation, AttesterSlashing, BlobsSidecar, EthSpec, Hash256, IndexedAttestation,
-    ProposerSlashing, SignedAggregateAndProof, SignedBeaconBlock, SignedContributionAndProof,
-    SignedVoluntaryExit, Slot, SubnetId, SyncCommitteeMessage, SyncSubnetId,
-};
+use types::{Attestation, AttesterSlashing, BlobsSidecar, EthSpec, Hash256, IndexedAttestation, ProposerSlashing, SignedAggregateAndProof, SignedBeaconBlock, SignedBeaconBlockAndBlobsSidecar, SignedContributionAndProof, SignedVoluntaryExit, Slot, SubnetId, SyncCommitteeMessage, SyncSubnetId};
+use types::signed_block_and_blobs::BlockMaybeBlobs;
 
 use super::{
     super::work_reprocessing_queue::{
@@ -659,7 +655,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         message_id: MessageId,
         peer_id: PeerId,
         peer_client: Client,
-        block: Arc<SignedBeaconBlock<T::EthSpec>>,
+        block: BlockMaybeBlobs<T::EthSpec>,
         reprocess_tx: mpsc::Sender<ReprocessQueueMessage<T>>,
         duplicate_cache: DuplicateCache,
         seen_duration: Duration,
@@ -697,19 +693,6 @@ impl<T: BeaconChainTypes> Worker<T> {
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
-    pub async fn process_gossip_block_and_blobs_sidecar(
-        self,
-        message_id: MessageId,
-        peer_id: PeerId,
-        peer_client: Client,
-        block_and_blob: Arc<SignedBeaconBlockAndBlobsSidecar<T::EthSpec>>,
-        seen_timestamp: Duration,
-    ) {
-        //FIXME
-        unimplemented!()
-    }
-
     /// Process the beacon block received from the gossip network and
     /// if it passes gossip propagation criteria, tell the network thread to forward it.
     ///
@@ -719,7 +702,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         message_id: MessageId,
         peer_id: PeerId,
         peer_client: Client,
-        block: Arc<SignedBeaconBlock<T::EthSpec>>,
+        block: BlockMaybeBlobs<T::EthSpec>,
         reprocess_tx: mpsc::Sender<ReprocessQueueMessage<T>>,
         seen_duration: Duration,
     ) -> Option<GossipVerifiedBlock<T>> {

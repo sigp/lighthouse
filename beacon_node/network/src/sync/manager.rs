@@ -45,7 +45,7 @@ use beacon_chain::{BeaconChain, BeaconChainTypes, BlockError, EngineState};
 use futures::StreamExt;
 use lighthouse_network::rpc::methods::MAX_REQUEST_BLOCKS;
 use lighthouse_network::types::{NetworkGlobals, SyncState};
-use lighthouse_network::{SignedBeaconBlockAndBlobsSidecar, SyncInfo};
+use lighthouse_network::SyncInfo;
 use lighthouse_network::{PeerAction, PeerId};
 use slog::{crit, debug, error, info, trace, Logger};
 use std::boxed::Box;
@@ -53,7 +53,8 @@ use std::ops::Sub;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
-use types::{BlobsSidecar, EthSpec, Hash256, SignedBeaconBlock, Slot};
+use types::{BlobsSidecar, EthSpec, Hash256, SignedBeaconBlock, SignedBeaconBlockAndBlobsSidecar, Slot};
+use types::signed_block_and_blobs::BlockMaybeBlobs;
 
 /// The number of slots ahead of us that is allowed before requesting a long-range (batch)  Sync
 /// from a peer. If a peer is within this tolerance (forwards or backwards), it is treated as a
@@ -80,7 +81,7 @@ pub enum RequestId {
 }
 
 #[derive(Debug)]
-/// A message than can be sent to the sync manager thread.
+/// A message that can be sent to the sync manager thread.
 pub enum SyncMessage<T: EthSpec> {
     /// A useful peer has been discovered.
     AddPeer(PeerId, SyncInfo),
@@ -89,20 +90,12 @@ pub enum SyncMessage<T: EthSpec> {
     RpcBlock {
         request_id: RequestId,
         peer_id: PeerId,
-        beacon_block: Option<Arc<SignedBeaconBlock<T>>>,
-        seen_timestamp: Duration,
-    },
-
-    /// A blob has been received from RPC.
-    RpcBlob {
-        peer_id: PeerId,
-        request_id: RequestId,
-        blob_sidecar: Option<Arc<SignedBeaconBlockAndBlobsSidecar<T>>>,
+        beacon_block: Option<BlockMaybeBlobs<T>>,
         seen_timestamp: Duration,
     },
 
     /// A block with an unknown parent has been received.
-    UnknownBlock(PeerId, Arc<SignedBeaconBlock<T>>, Hash256),
+    UnknownBlock(PeerId, BlockMaybeBlobs<T>, Hash256),
 
     /// A peer has sent an object that references a block that is unknown. This triggers the
     /// manager to attempt to find the block matching the unknown hash.
@@ -591,14 +584,6 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 ChainSegmentProcessId::ParentLookup(chain_hash) => self
                     .block_lookups
                     .parent_chain_processed(chain_hash, result, &mut self.network),
-            },
-            SyncMessage::RpcBlob {
-                peer_id,
-                request_id,
-                blob_sidecar,
-                seen_timestamp,
-            } => {
-            self.rpc_block_received(request_id, peer_id, beacon_block, seen_timestamp);
             },
         }
     }

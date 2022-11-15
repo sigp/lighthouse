@@ -8,6 +8,7 @@ use rand::seq::IteratorRandom;
 use ssz_types::VariableList;
 use store::{EthSpec, Hash256, SignedBeaconBlock};
 use strum::IntoStaticStr;
+use types::signed_block_and_blobs::BlockMaybeBlobs;
 
 /// Object representing a single block lookup request.
 #[derive(PartialEq, Eq)]
@@ -105,7 +106,7 @@ impl<const MAX_ATTEMPTS: u8> SingleBlockRequest<MAX_ATTEMPTS> {
     /// Returns the block for processing if the response is what we expected.
     pub fn verify_block<T: EthSpec>(
         &mut self,
-        block: Option<Arc<SignedBeaconBlock<T>>>,
+        block: Option<BlockMaybeBlobs<T>>,
     ) -> Result<Option<RootBlockTuple<T>>, VerifyError> {
         match self.state {
             State::AwaitingDownload => {

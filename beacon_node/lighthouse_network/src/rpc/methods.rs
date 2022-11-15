@@ -14,7 +14,7 @@ use strum::IntoStaticStr;
 use superstruct::superstruct;
 use types::blobs_sidecar::BlobsSidecar;
 use types::{Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot};
-use crate::SignedBeaconBlockAndBlobsSidecar;
+use types::SignedBeaconBlockAndBlobsSidecar;
 
 /// Maximum number of blocks in a single request.
 pub type MaxRequestBlocks = U1024;
@@ -243,6 +243,13 @@ pub struct BlocksByRootRequest {
     pub block_roots: VariableList<Hash256, MaxRequestBlocks>,
 }
 
+/// Request a number of beacon blocks and blobs from a peer.
+#[derive(Clone, Debug, PartialEq)]
+pub struct BlobsByRootRequest {
+    /// The list of beacon block roots being requested.
+    pub block_roots: VariableList<Hash256, MaxRequestBlocks>,
+}
+
 /* RPC Handling and Grouping */
 // Collection of enums and structs used by the Codecs to encode/decode RPC messages
 
@@ -260,6 +267,9 @@ pub enum RPCResponse<T: EthSpec> {
 
     /// A response to a get BLOBS_BY_RANGE request
     BlobsByRange(Arc<SignedBeaconBlockAndBlobsSidecar<T>>),
+
+    /// A response to a get BLOBS_BY_ROOT request.
+    BlobsByRoot(Arc<SignedBeaconBlockAndBlobsSidecar<T>>),
 
     /// A PONG response to a PING request.
     Pong(Ping),
@@ -279,6 +289,9 @@ pub enum ResponseTermination {
 
     /// Blobs by range stream termination.
     BlobsByRange,
+
+    /// Blobs by root stream termination.
+    BlobsByRoot,
 }
 
 /// The structured response containing a result/code indicating success or failure
@@ -341,6 +354,7 @@ impl<T: EthSpec> RPCCodedResponse<T> {
                 RPCResponse::BlocksByRange(_) => true,
                 RPCResponse::BlocksByRoot(_) => true,
                 RPCResponse::BlobsByRange(_) => true,
+                RPCResponse::BlobsByRoot(_) => true,
                 RPCResponse::Pong(_) => false,
                 RPCResponse::MetaData(_) => false,
             },
@@ -376,6 +390,7 @@ impl<T: EthSpec> RPCResponse<T> {
             RPCResponse::BlocksByRange(_) => Protocol::BlocksByRange,
             RPCResponse::BlocksByRoot(_) => Protocol::BlocksByRoot,
             RPCResponse::BlobsByRange(_) => Protocol::BlobsByRange,
+            RPCResponse::BlobsByRoot(_) => Protocol::BlobsByRoot,
             RPCResponse::Pong(_) => Protocol::Ping,
             RPCResponse::MetaData(_) => Protocol::MetaData,
         }
@@ -412,7 +427,10 @@ impl<T: EthSpec> std::fmt::Display for RPCResponse<T> {
                 write!(f, "BlocksByRoot: Block slot: {}", block.slot())
             }
             RPCResponse::BlobsByRange(blob) => {
-                write!(f, "BlobsByRange: Blob slot: {}", blob.beacon_block_slot)
+                write!(f, "BlobsByRange: Blob slot: {}", blob.blobs_sidecar.beacon_block_slot)
+            }
+            RPCResponse::BlobsByRoot(blob) => {
+                write!(f, "BlobsByRoot: Blob slot: {}", blob.blobs_sidecar.beacon_block_slot)
             }
             RPCResponse::Pong(ping) => write!(f, "Pong: {}", ping.data),
             RPCResponse::MetaData(metadata) => write!(f, "Metadata: {}", metadata.seq_number()),

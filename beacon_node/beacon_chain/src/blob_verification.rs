@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use derivative::Derivative;
 use slot_clock::SlotClock;
 
@@ -79,58 +80,45 @@ impl From<BeaconStateError> for BlobError {
     }
 }
 
-/// A wrapper around a `BlobsSidecar` that indicates it has been verified w.r.t the corresponding
-/// `SignedBeaconBlock`.
-#[derive(Derivative)]
-#[derivative(Debug(bound = "T: BeaconChainTypes"))]
-pub struct VerifiedBlobsSidecar<'a, T: BeaconChainTypes> {
-    pub blob_sidecar: &'a BlobsSidecar<T::EthSpec>,
-}
-
-impl<'a, T: BeaconChainTypes> VerifiedBlobsSidecar<'a, T> {
-    pub fn verify(
-        blob_sidecar: &'a BlobsSidecar<T::EthSpec>,
-        chain: &BeaconChain<T>,
-    ) -> Result<Self, BlobError> {
-        let blob_slot = blob_sidecar.beacon_block_slot;
-        // Do not gossip or process blobs from future or past slots.
-        let latest_permissible_slot = chain
-            .slot_clock
-            .now_with_future_tolerance(MAXIMUM_GOSSIP_CLOCK_DISPARITY)
-            .ok_or(BeaconChainError::UnableToReadSlot)?;
-        if blob_slot > latest_permissible_slot {
-            return Err(BlobError::FutureSlot {
-                message_slot: latest_permissible_slot,
-                latest_permissible_slot: blob_slot,
-            });
-        }
-
-        let earliest_permissible_slot = chain
-            .slot_clock
-            .now_with_past_tolerance(MAXIMUM_GOSSIP_CLOCK_DISPARITY)
-            .ok_or(BeaconChainError::UnableToReadSlot)?;
-        if blob_slot > earliest_permissible_slot {
-            return Err(BlobError::PastSlot {
-                message_slot: earliest_permissible_slot,
-                earliest_permissible_slot: blob_slot,
-            });
-        }
-
-        // Verify that blobs are properly formatted
-        //TODO: add the check while constructing a Blob type from bytes instead of after
-        for (i, blob) in blob_sidecar.blobs.iter().enumerate() {
-            if blob.iter().any(|b| *b >= *BLS_MODULUS) {
-                return Err(BlobError::BlobOutOfRange { blob_index: i });
-            }
-        }
-
-        // Verify that the KZG proof is a valid G1 point
-        if PublicKey::deserialize(&blob_sidecar.kzg_aggregate_proof.0).is_err() {
-            return Err(BlobError::InvalidKZGCommitment);
-        }
-
-        // TODO: Check that we have not already received a sidecar with a valid signature for this slot.
-
-        Ok(Self { blob_sidecar })
+pub fn validate_blob_for_gossip<T: BeaconChainTypes>(blob_sidecar: &BlobsSidecar<T::EthSpec>, chain: &Arc<BeaconChain<T>>) -> Result<(), BlobError>{
+    let blob_slot = blob_sidecar.beacon_block_slot;
+    // Do not gossip or process blobs from future or past slots.
+    let latest_permissible_slot = chain
+        .slot_clock
+        .now_with_future_tolerance(MAXIMUM_GOSSIP_CLOCK_DISPARITY)
+        .ok_or(BeaconChainError::UnableToReadSlot)?;
+    if blob_slot > latest_permissible_slot {
+        return Err(BlobError::FutureSlot {
+            message_slot: latest_permissible_slot,
+            latest_permissible_slot: blob_slot,
+        });
     }
+
+    let earliest_permissible_slot = chain
+        .slot_clock
+        .now_with_past_tolerance(MAXIMUM_GOSSIP_CLOCK_DISPARITY)
+        .ok_or(BeaconChainError::UnableToReadSlot)?;
+    if blob_slot > earliest_permissible_slot {
+        return Err(BlobError::PastSlot {
+            message_slot: earliest_permissible_slot,
+            earliest_permissible_slot: blob_slot,
+        });
+    }
+
+    // Verify that blobs are properly formatted
+    //TODO: add the check while constructing a Blob type from bytes instead of after
+    for (i, blob) in blob_sidecar.blobs.iter().enumerate() {
+        if blob.iter().any(|b| *b >= *BLS_MODULUS) {
+            return Err(BlobError::BlobOutOfRange { blob_index: i });
+        }
+    }
+
+    // Verify that the KZG proof is a valid G1 point
+    if PublicKey::deserialize(&blob_sidecar.kzg_aggregate_proof.0).is_err() {
+        return Err(BlobError::InvalidKZGCommitment);
+    }
+
+    // TODO: `validate_blobs_sidecar`
+    Ok(())
 }
+
