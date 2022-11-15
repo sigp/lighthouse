@@ -21,6 +21,9 @@ use types::{
     SignedContributionAndProof, Slot, SyncCommitteeMessage, VoluntaryExit,
 };
 
+/// Used for Prometheus labels.
+const ALL_VALIDATORS: &str = "all_validators";
+
 /// The validator monitor collects per-epoch data about each monitored validator. Historical data
 /// will be kept around for `HISTORIC_EPOCHS` before it is pruned.
 pub const HISTORIC_EPOCHS: usize = 4;
@@ -258,6 +261,9 @@ pub struct ValidatorMonitor<T> {
     indices: HashMap<u64, PublicKeyBytes>,
     /// If true, allow the automatic registration of validators.
     auto_register: bool,
+    /// Track validator metrics for each individual validator. Whilst the granular information is
+    /// nice, the Prometheus cardinality can get out of hand for high validator counts.
+    individual_metrics: bool,
     log: Logger,
     _phantom: PhantomData<T>,
 }
@@ -268,6 +274,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
             validators: <_>::default(),
             indices: <_>::default(),
             auto_register,
+            individual_metrics: true,
             log,
             _phantom: PhantomData,
         };
@@ -317,6 +324,12 @@ impl<T: EthSpec> ValidatorMonitor<T> {
         for monitored_validator in self.validators.values() {
             if let Some(i) = monitored_validator.index {
                 monitored_validator.touch_epoch_summary(current_epoch);
+
+                // Only log the per-validator metrics if it's enabled.
+                if !self.individual_metrics {
+                    continue;
+                }
+
                 let i = i as usize;
                 let id = &monitored_validator.id;
 
@@ -401,6 +414,11 @@ impl<T: EthSpec> ValidatorMonitor<T> {
             if let Some(i) = monitored_validator.index {
                 let i = i as usize;
                 let id = &monitored_validator.id;
+                let metrics_id = if self.individual_metrics {
+                    id
+                } else {
+                    ALL_VALIDATORS
+                };
 
                 /*
                  * These metrics are reflected differently between Base and Altair.
@@ -433,7 +451,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                 if previous_epoch_matched_any {
                     metrics::inc_counter_vec(
                         &metrics::VALIDATOR_MONITOR_PREV_EPOCH_ON_CHAIN_ATTESTER_HIT,
-                        &[id],
+                        &[metrics_id],
                     );
                     attestation_success.push(id);
                     debug!(
@@ -448,7 +466,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                 } else {
                     metrics::inc_counter_vec(
                         &metrics::VALIDATOR_MONITOR_PREV_EPOCH_ON_CHAIN_ATTESTER_MISS,
-                        &[id],
+                        &[metrics_id],
                     );
                     attestation_miss.push(id);
                     debug!(
@@ -463,12 +481,12 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                 if previous_epoch_matched_head {
                     metrics::inc_counter_vec(
                         &metrics::VALIDATOR_MONITOR_PREV_EPOCH_ON_CHAIN_HEAD_ATTESTER_HIT,
-                        &[id],
+                        &[metrics_id],
                     );
                 } else {
                     metrics::inc_counter_vec(
                         &metrics::VALIDATOR_MONITOR_PREV_EPOCH_ON_CHAIN_HEAD_ATTESTER_MISS,
-                        &[id],
+                        &[metrics_id],
                     );
                     head_miss.push(id);
                     debug!(
@@ -483,12 +501,12 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                 if previous_epoch_matched_target {
                     metrics::inc_counter_vec(
                         &metrics::VALIDATOR_MONITOR_PREV_EPOCH_ON_CHAIN_TARGET_ATTESTER_HIT,
-                        &[id],
+                        &[metrics_id],
                     );
                 } else {
                     metrics::inc_counter_vec(
                         &metrics::VALIDATOR_MONITOR_PREV_EPOCH_ON_CHAIN_TARGET_ATTESTER_MISS,
-                        &[id],
+                        &[metrics_id],
                     );
                     target_miss.push(id);
                     debug!(
@@ -523,7 +541,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
 
                     metrics::set_int_gauge(
                         &metrics::VALIDATOR_MONITOR_PREV_EPOCH_ON_CHAIN_INCLUSION_DISTANCE,
-                        &[id],
+                        &[metrics_id],
                         inclusion_delay as i64,
                     );
                 }
@@ -538,7 +556,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                     if sync_committee.contains(pubkey) {
                         metrics::set_int_gauge(
                             &metrics::VALIDATOR_MONITOR_VALIDATOR_IN_CURRENT_SYNC_COMMITTEE,
-                            &[id],
+                            &[metrics_id],
                             1,
                         );
                         let epoch_summary = monitored_validator.summaries.read();
@@ -555,7 +573,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                     } else {
                         metrics::set_int_gauge(
                             &metrics::VALIDATOR_MONITOR_VALIDATOR_IN_CURRENT_SYNC_COMMITTEE,
-                            &[id],
+                            &[metrics_id],
                             0,
                         );
                         debug!(
@@ -1336,6 +1354,11 @@ impl<T: EthSpec> ValidatorMonitor<T> {
 
             for (_, validator) in self.validators.iter() {
                 let id = &validator.id;
+                let metrics_id = if self.individual_metrics {
+                    id
+                } else {
+                    ALL_VALIDATORS
+                };
                 let summaries = validator.summaries.read();
 
                 if let Some(summary) = summaries.get(&previous_epoch) {
@@ -1344,56 +1367,62 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                      */
                     metrics::set_gauge_vec(
                         &metrics::VALIDATOR_MONITOR_PREV_EPOCH_ATTESTATIONS_TOTAL,
-                        &[id],
+                        &[metrics_id],
                         summary.attestations as i64,
                     );
                     if let Some(delay) = summary.attestation_min_delay {
-                        metrics::observe_timer_vec(
-                            &metrics::VALIDATOR_MONITOR_PREV_EPOCH_ATTESTATIONS_MIN_DELAY_SECONDS,
-                            &[id],
-                            delay,
-                        );
+                        if self.individual_metrics {
+                            metrics::observe_timer_vec(
+                                &metrics::VALIDATOR_MONITOR_PREV_EPOCH_ATTESTATIONS_MIN_DELAY_SECONDS,
+                                &[metrics_id],
+                                delay,
+                            );
+                        }
                     }
                     metrics::set_gauge_vec(
                         &metrics::VALIDATOR_MONITOR_PREV_EPOCH_ATTESTATION_AGGREGATE_INCLUSIONS,
-                        &[id],
+                        &[metrics_id],
                         summary.attestation_aggregate_inclusions as i64,
                     );
                     metrics::set_gauge_vec(
                         &metrics::VALIDATOR_MONITOR_PREV_EPOCH_ATTESTATION_BLOCK_INCLUSIONS,
-                        &[id],
+                        &[metrics_id],
                         summary.attestation_block_inclusions as i64,
                     );
                     if let Some(distance) = summary.attestation_min_block_inclusion_distance {
-                        metrics::set_gauge_vec(
-                            &metrics::VALIDATOR_MONITOR_PREV_EPOCH_ATTESTATION_BLOCK_MIN_INCLUSION_DISTANCE,
-                            &[id],
-                            distance.as_u64() as i64,
-                        );
+                        if self.individual_metrics {
+                            metrics::set_gauge_vec(
+                                &metrics::VALIDATOR_MONITOR_PREV_EPOCH_ATTESTATION_BLOCK_MIN_INCLUSION_DISTANCE,
+                                &[metrics_id],
+                                distance.as_u64() as i64,
+                            );
+                        }
                     }
                     /*
                      * Sync committee messages
                      */
                     metrics::set_gauge_vec(
                         &metrics::VALIDATOR_MONITOR_PREV_EPOCH_SYNC_COMMITTEE_MESSAGES_TOTAL,
-                        &[id],
+                        &[metrics_id],
                         summary.sync_committee_messages as i64,
                     );
                     if let Some(delay) = summary.sync_committee_message_min_delay {
-                        metrics::observe_timer_vec(
+                        if self.individual_metrics {
+                            metrics::observe_timer_vec(
                             &metrics::VALIDATOR_MONITOR_PREV_EPOCH_SYNC_COMMITTEE_MESSAGES_MIN_DELAY_SECONDS,
-                            &[id],
+                            &[metrics_id],
                             delay,
                         );
+                        }
                     }
                     metrics::set_gauge_vec(
                         &metrics::VALIDATOR_MONITOR_PREV_EPOCH_SYNC_CONTRIBUTION_INCLUSIONS,
-                        &[id],
+                        &[metrics_id],
                         summary.sync_signature_contribution_inclusions as i64,
                     );
                     metrics::set_gauge_vec(
                         &metrics::VALIDATOR_MONITOR_PREV_EPOCH_SYNC_SIGNATURE_BLOCK_INCLUSIONS,
-                        &[id],
+                        &[metrics_id],
                         summary.sync_signature_block_inclusions as i64,
                     );
 
@@ -1402,15 +1431,17 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                      */
                     metrics::set_gauge_vec(
                         &metrics::VALIDATOR_MONITOR_PREV_EPOCH_SYNC_CONTRIBUTIONS_TOTAL,
-                        &[id],
+                        &[metrics_id],
                         summary.sync_contributions as i64,
                     );
                     if let Some(delay) = summary.sync_contribution_min_delay {
-                        metrics::observe_timer_vec(
+                        if self.individual_metrics {
+                            metrics::observe_timer_vec(
                             &metrics::VALIDATOR_MONITOR_PREV_EPOCH_SYNC_CONTRIBUTION_MIN_DELAY_SECONDS,
-                            &[id],
+                            &[metrics_id],
                             delay,
                         );
+                        }
                     }
 
                     /*
@@ -1418,47 +1449,51 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                      */
                     metrics::set_gauge_vec(
                         &metrics::VALIDATOR_MONITOR_PREV_EPOCH_BEACON_BLOCKS_TOTAL,
-                        &[id],
+                        &[metrics_id],
                         summary.blocks as i64,
                     );
                     if let Some(delay) = summary.block_min_delay {
-                        metrics::observe_timer_vec(
+                        if self.individual_metrics {
+                            metrics::observe_timer_vec(
                             &metrics::VALIDATOR_MONITOR_PREV_EPOCH_BEACON_BLOCKS_MIN_DELAY_SECONDS,
-                            &[id],
+                            &[metrics_id],
                             delay,
                         );
+                        }
                     }
                     /*
                      * Aggregates
                      */
                     metrics::set_gauge_vec(
                         &metrics::VALIDATOR_MONITOR_PREV_EPOCH_AGGREGATES_TOTAL,
-                        &[id],
+                        &[metrics_id],
                         summary.aggregates as i64,
                     );
                     if let Some(delay) = summary.aggregate_min_delay {
-                        metrics::observe_timer_vec(
-                            &metrics::VALIDATOR_MONITOR_PREV_EPOCH_AGGREGATES_MIN_DELAY_SECONDS,
-                            &[id],
-                            delay,
-                        );
+                        if self.individual_metrics {
+                            metrics::observe_timer_vec(
+                                &metrics::VALIDATOR_MONITOR_PREV_EPOCH_AGGREGATES_MIN_DELAY_SECONDS,
+                                &[metrics_id],
+                                delay,
+                            );
+                        }
                     }
                     /*
                      * Other
                      */
                     metrics::set_gauge_vec(
                         &metrics::VALIDATOR_MONITOR_PREV_EPOCH_EXITS_TOTAL,
-                        &[id],
+                        &[metrics_id],
                         summary.exits as i64,
                     );
                     metrics::set_gauge_vec(
                         &metrics::VALIDATOR_MONITOR_PREV_EPOCH_PROPOSER_SLASHINGS_TOTAL,
-                        &[id],
+                        &[metrics_id],
                         summary.proposer_slashings as i64,
                     );
                     metrics::set_gauge_vec(
                         &metrics::VALIDATOR_MONITOR_PREV_EPOCH_ATTESTER_SLASHINGS_TOTAL,
-                        &[id],
+                        &[metrics_id],
                         summary.attester_slashings as i64,
                     );
                 }
