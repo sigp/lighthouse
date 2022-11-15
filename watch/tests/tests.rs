@@ -5,11 +5,11 @@ use beacon_chain::test_utils::{
 };
 use eth2::{types::BlockId, BeaconNodeHttpClient, SensitiveUrl, Timeouts};
 use http_api::test_utils::{create_api_server, ApiServer};
-use network::NetworkMessage;
+use network::NetworkReceivers;
 
 use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::oneshot;
 use types::{Hash256, MainnetEthSpec, Slot};
 use url::Url;
 use watch::{
@@ -73,7 +73,7 @@ pub async fn create_test_database(config: &DatabaseConfig) {
 struct TesterBuilder {
     pub harness: BeaconChainHarness<EphemeralHarnessType<E>>,
     pub config: Config,
-    _bn_network_rx: mpsc::UnboundedReceiver<NetworkMessage<E>>,
+    _bn_network_rx: NetworkReceivers<E>,
     _bn_api_shutdown_tx: oneshot::Sender<()>,
 }
 
@@ -191,7 +191,7 @@ struct Tester {
     pub client: WatchHttpClient,
     pub config: Config,
     pub updater: UpdateHandler<E>,
-    _bn_network_rx: mpsc::UnboundedReceiver<NetworkMessage<E>>,
+    _bn_network_rx: NetworkReceivers<E>,
     _bn_api_shutdown_tx: oneshot::Sender<()>,
     _watch_shutdown_tx: oneshot::Sender<()>,
 }
