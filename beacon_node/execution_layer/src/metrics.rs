@@ -21,9 +21,11 @@ lazy_static::lazy_static! {
         "execution_layer_proposer_data_updated",
         "Count of times new proposer data is supplied",
     );
-    pub static ref EXECUTION_LAYER_REQUEST_TIMES: Result<HistogramVec> = try_create_histogram_vec(
+    pub static ref EXECUTION_LAYER_REQUEST_TIMES: Result<HistogramVec> =
+        try_create_histogram_vec_with_buckets(
         "execution_layer_request_times",
         "Duration of calls to ELs",
+        decimal_buckets(-2, 1),
         &["method"]
     );
     pub static ref EXECUTION_LAYER_PAYLOAD_ATTRIBUTES_LOOKAHEAD: Result<Histogram> = try_create_histogram(

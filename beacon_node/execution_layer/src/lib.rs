@@ -612,7 +612,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                         "parent_hash" => ?parent_hash,
                     );
 
-                    // Wait for the build *and* relay to produce a payload (or return an error).
+                    // Wait for the builder *and* relay to produce a payload (or return an error).
                     let ((relay_result, relay_duration), (local_result, local_duration)) = tokio::join!(
                         timed_future(metrics::GET_BLINDED_PAYLOAD_BUILDER, async {
                             builder
