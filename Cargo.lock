@@ -709,6 +709,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "c-kzg"
+version = "0.1.0"
+source = "git+https://github.com/pawanjay176/c-kzg-4844?rev=f4b0c2a84e7a90fa2e0e4e04e5d777be146c6e94#f4b0c2a84e7a90fa2e0e4e04e5d777be146c6e94"
+dependencies = [
+ "hex",
+ "libc",
+]
+
+[[package]]
 name = "cached_tree_hash"
 version = "0.1.0"
 dependencies = [
@@ -3070,6 +3079,25 @@ name = "keccak"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f9b7d56ba4a8344d6be9729995e6b06f928af29998cdf79fe390cbf6b1fee838"
+
+[[package]]
+name = "kzg"
+version = "0.1.0"
+dependencies = [
+ "c-kzg",
+ "derivative",
+ "eth2_hashing",
+ "eth2_serde_utils",
+ "eth2_ssz",
+ "eth2_ssz_derive",
+ "ethereum-types 0.12.1",
+ "hex",
+ "rand 0.7.3",
+ "serde",
+ "serde-big-array",
+ "serde_derive",
+ "tree_hash",
+]
 
 [[package]]
 name = "lazy_static"
@@ -6933,6 +6961,7 @@ dependencies = [
  "hex",
  "int_to_bytes",
  "itertools",
+ "kzg",
  "lazy_static",
  "log",
  "maplit",
@@ -6944,7 +6973,6 @@ dependencies = [
  "rusqlite",
  "safe_arith",
  "serde",
- "serde-big-array",
  "serde_derive",
  "serde_json",
  "serde_with",

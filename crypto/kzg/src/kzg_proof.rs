@@ -1,4 +1,3 @@
-use crate::test_utils::{RngCore, TestRandom};
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
 use ssz_derive::{Decode, Encode};
@@ -51,13 +50,5 @@ impl TreeHash for KzgProof {
 
     fn tree_hash_root(&self) -> tree_hash::Hash256 {
         self.0.tree_hash_root()
-    }
-}
-
-impl TestRandom for KzgProof {
-    fn random_for_test(rng: &mut impl RngCore) -> Self {
-        let mut bytes = [0; KZG_PROOF_BYTES_LEN];
-        rng.fill_bytes(&mut bytes);
-        Self(bytes)
     }
 }

@@ -9,8 +9,8 @@ name = "benches"
 harness = false
 
 [dependencies]
-serde-big-array = {version = "0.3.2", features = ["const-generics"]}
 bls = { path = "../../crypto/bls" }
+kzg = { path = "../../crypto/kzg" }
 compare_fields = { path = "../../common/compare_fields" }
 compare_fields_derive = { path = "../../common/compare_fields_derive" }
 eth2_interop_keypairs = { path = "../../common/eth2_interop_keypairs" }

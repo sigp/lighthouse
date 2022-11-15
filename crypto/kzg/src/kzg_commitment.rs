@@ -1,6 +1,5 @@
-use crate::test_utils::TestRandom;
-use crate::*;
 use derivative::Derivative;
+use serde_big_array::BigArray;
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use std::fmt;
@@ -33,11 +32,5 @@ impl TreeHash for KzgCommitment {
 
     fn tree_hash_root(&self) -> tree_hash::Hash256 {
         self.0.tree_hash_root()
-    }
-}
-
-impl TestRandom for KzgCommitment {
-    fn random_for_test(rng: &mut impl rand::RngCore) -> Self {
-        KzgCommitment(<[u8; 48] as TestRandom>::random_for_test(rng))
     }
 }
