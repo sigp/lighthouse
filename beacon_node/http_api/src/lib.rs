@@ -1,3 +1,4 @@
+#![recursion_limit = "256"]
 //! This crate contains a HTTP server which serves the endpoints listed here:
 //!
 //! https://github.com/ethereum/beacon-APIs
@@ -3175,6 +3176,7 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(get_lighthouse_merge_readiness.boxed())
                 .or(get_events.boxed()),
         )
+        .boxed()
         .or(warp::post().and(
             post_beacon_blocks
                 .boxed()
