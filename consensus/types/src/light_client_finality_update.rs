@@ -61,8 +61,8 @@ impl<T: EthSpec> LightClientFinalityUpdate<T> {
 
         let finality_branch = attested_state.compute_merkle_proof(FINALIZED_ROOT_INDEX)?;
         Ok(Self {
-            attested_header: attested_header,
-            finalized_header: finalized_header,
+            attested_header,
+            finalized_header,
             finality_branch: FixedVector::new(finality_branch)?,
             sync_aggregate: sync_aggregate.clone(),
             signature_slot: block.slot(),
@@ -97,8 +97,8 @@ impl<T: EthSpec> LightClientFinalityUpdate<T> {
 
         let finality_branch = beacon_state.compute_merkle_proof(FINALIZED_ROOT_INDEX)?;
         Ok(Self {
-            attested_header: attested_header,
-            finalized_header: finalized_header,
+            attested_header,
+            finalized_header,
             finality_branch: FixedVector::new(finality_branch)?,
             sync_aggregate: sync_aggregate.clone(),
             signature_slot: block.slot(),
