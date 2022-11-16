@@ -39,7 +39,7 @@ use super::network_context::SyncNetworkContext;
 use super::peer_sync_info::{remote_sync_type, PeerSyncType};
 use super::range_sync::{RangeSync, RangeSyncType, EPOCHS_PER_BATCH};
 use crate::beacon_processor::{ChainSegmentProcessId, WorkEvent as BeaconWorkEvent};
-use crate::service::NetworkMessage;
+use crate::service::{NetworkMessage, RequestId};
 use crate::status::ToStatusMessage;
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockError, EngineState};
 use futures::StreamExt;
@@ -53,8 +53,10 @@ use std::ops::Sub;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
-use types::{BlobsSidecar, EthSpec, Hash256, SignedBeaconBlock, SignedBeaconBlockAndBlobsSidecar, Slot};
 use types::signed_block_and_blobs::BlockMaybeBlobs;
+use types::{
+    BlobsSidecar, EthSpec, Hash256, SignedBeaconBlock, SignedBeaconBlockAndBlobsSidecar, Slot,
+};
 
 /// The number of slots ahead of us that is allowed before requesting a long-range (batch)  Sync
 /// from a peer. If a peer is within this tolerance (forwards or backwards), it is treated as a
@@ -67,6 +69,16 @@ pub const SLOT_IMPORT_TOLERANCE: usize = 32;
 
 pub type Id = u32;
 
+pub struct SeansBlock {}
+
+pub struct SeansBlob {}
+
+/// This is the one that has them both and goes to range.
+pub struct SeansBlockBlob {
+    block: SeansBlock,
+    blob: SeansBlob,
+}
+
 /// Id of rpc requests sent by sync to the network.
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum RequestId {
@@ -78,6 +90,8 @@ pub enum RequestId {
     BackFillSync { id: Id },
     /// The request was from a chain in the range sync algorithm.
     RangeSync { id: Id },
+    /// The request was from a chain in range, asking for ranges of blocks and blobs.
+    RangeBlockBlob { id: Id },
 }
 
 #[derive(Debug)]
@@ -282,6 +296,19 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             }
             RequestId::RangeSync { id } => {
                 if let Some((chain_id, batch_id)) = self.network.range_sync_response(id, true) {
+                    self.range_sync.inject_error(
+                        &mut self.network,
+                        peer_id,
+                        batch_id,
+                        chain_id,
+                        id,
+                    );
+                    self.update_sync_state()
+                }
+            }
+            RequestId::RangeBlockBlob { id } => {
+                if let Some((chain_id, batch_id)) = self.network.fail_block_bob_request(request_id)
+                {
                     self.range_sync.inject_error(
                         &mut self.network,
                         peer_id,
@@ -702,7 +729,25 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     self.update_sync_state();
                 }
             }
+            RequestId::RangeBlockBlob { id } => {
+                // do stuff
+                self.network.block_blob_block_response(id, block);
+            }
         }
+    }
+
+    fn rpc_blob_received(
+        &mut self,
+        request_id: RequestId,
+        peer_id: PeerId,
+        beacon_block: Option<SeansBlob>,
+        seen_timestamp: Duration,
+    ) {
+        let RequestId::RangeBlockBlob { id } = request_id else {
+            return error!("bad stuff");
+        };
+        // get the paired block blob from the network context and send it to range
+        self.network.block_blob_blob_response(request_id, blob)
     }
 }
 
