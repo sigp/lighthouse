@@ -875,4 +875,12 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                        [experimental]")
                 .takes_value(false)
         )
+        .arg(
+            Arg::with_name("gui")
+                .long("gui")
+                .hidden(true)
+                .help("Enable the graphical user interface and all its requirements. \
+                      This is equivalent to --http and --validator-monitor-auto.")
+                .takes_value(false)
+        )
 }

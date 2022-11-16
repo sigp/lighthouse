@@ -708,6 +708,12 @@ pub fn get_config<E: EthSpec>(
     client_config.chain.builder_fallback_disable_checks =
         cli_args.is_present("builder-fallback-disable-checks");
 
+    // Graphical user interface config.
+    if cli_args.is_present("gui") {
+        client_config.http_api.enabled = true;
+        client_config.validator_monitor_auto = true;
+    }
+
     Ok(client_config)
 }
 
