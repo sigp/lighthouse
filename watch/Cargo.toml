@@ -28,8 +28,8 @@ serde_json = "1.0.58"
 reqwest = { version = "0.11.0", features = ["json","stream"] }
 url = "2.2.2"
 rand = "0.7.3"
-diesel = { git = "https://github.com/diesel-rs/diesel", branch = "master", features = ["postgres", "r2d2"] }
-diesel_migrations = { git = "https://github.com/diesel-rs/diesel", branch = "master", features = ["postgres"] }
+diesel = { version = "2.0.2", features = ["postgres", "r2d2"] }
+diesel_migrations = { version = "2.0.0", features = ["postgres"] }
 byteorder = "1.4.3"
 bls = { path = "../crypto/bls" }
 hex = "0.4.2"

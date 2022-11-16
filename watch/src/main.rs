@@ -1,5 +1,3 @@
-#![cfg(unix)]
-
 use std::process;
 
 mod block_packing;
@@ -13,6 +11,7 @@ mod server;
 mod suboptimal_attestations;
 mod updater;
 
+#[cfg(unix)]
 #[tokio::main]
 async fn main() {
     match cli::run().await {
@@ -24,3 +23,6 @@ async fn main() {
         }
     }
 }
+
+#[cfg(windows)]
+fn main() {}

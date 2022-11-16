@@ -1,3 +1,4 @@
+#![cfg(unix)]
 pub mod block_packing;
 pub mod block_rewards;
 pub mod blockprint;

@@ -1,4 +1,5 @@
 #![recursion_limit = "256"]
+#![cfg(unix)]
 
 use beacon_chain::test_utils::{
     AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
