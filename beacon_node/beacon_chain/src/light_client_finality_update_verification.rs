@@ -1,14 +1,13 @@
 use crate::{
-    beacon_chain::MAXIMUM_GOSSIP_CLOCK_DISPARITY,
-    BeaconChain, BeaconChainError, BeaconChainTypes,
+    beacon_chain::MAXIMUM_GOSSIP_CLOCK_DISPARITY, BeaconChain, BeaconChainError, BeaconChainTypes,
 };
 use derivative::Derivative;
+use slog::debug;
 use slot_clock::SlotClock;
+use ssz::Encode;
 use std::time::Duration;
 use strum::AsRefStr;
-use types::LightClientFinalityUpdate;
-use ssz::Encode;
-use slog::debug;
+use types::{light_client_update::Error as LightClientUpdateError, LightClientFinalityUpdate};
 
 /// Returned when a light client finality update was not successfully verified. It might not have been verified for
 /// two reasons:
@@ -36,11 +35,18 @@ pub enum Error {
     FailedConstructingUpdate,
     // Beacon chain error occured.
     BeaconChainError(BeaconChainError),
+    LightClientUpdateError(LightClientUpdateError),
 }
 
 impl From<BeaconChainError> for Error {
     fn from(e: BeaconChainError) -> Self {
         Error::BeaconChainError(e)
+    }
+}
+
+impl From<LightClientUpdateError> for Error {
+    fn from(e: LightClientUpdateError) -> Self {
+        Error::LightClientUpdateError(e)
     }
 }
 
@@ -85,6 +91,13 @@ impl<T: BeaconChainTypes> VerifiedLightClientFinalityUpdate<T> {
         }
 
         let head = chain.head_snapshot();
+        let finalized_checkpoint = chain.canonical_head.cached_head().finalized_checkpoint();
+        let finalized_block =
+            if let Some(finalized_block) = chain.get_blinded_block(&finalized_checkpoint.root)? {
+                finalized_block
+            } else {
+                return Err(Error::FailedConstructingUpdate);
+            };
         if let Ok(Some(update)) = chain.with_mutable_state_for_block(
             &head.beacon_block,
             head.beacon_block_root,
@@ -95,18 +108,23 @@ impl<T: BeaconChainTypes> VerifiedLightClientFinalityUpdate<T> {
                     "Is the block in cache";
                     "cache_hit" => cache_hit,
                 );
-                
-                // TODO: This method is not implemented. Quite frankly I don't know how to implement it.
-                Ok(LightClientFinalityUpdate::from_state(state))
-            }
+
+                Ok(LightClientFinalityUpdate::from_state(
+                    &chain.spec,
+                    state,
+                    &head.beacon_block,
+                    finalized_block.message().block_header(),
+                ))
+            },
         ) {
-            *latest_seen_finality_update = update;
+            *latest_seen_finality_update = update?;
         } else {
             return Err(Error::FailedConstructingUpdate);
         }
 
         // verify that the gossiped finality update is the same as the locally constructed one.
-        if latest_seen_finality_update.as_ssz_bytes() != light_client_finality_update.as_ssz_bytes() {
+        if latest_seen_finality_update.as_ssz_bytes() != light_client_finality_update.as_ssz_bytes()
+        {
             return Err(Error::InvalidLightClientFinalityUpdate);
         }
 

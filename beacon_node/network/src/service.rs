@@ -679,7 +679,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                     }
                     return;
                 }
-                
+
                 let mut subscribed_topics: Vec<GossipTopic> = vec![];
                 for topic_kind in lighthouse_network::types::CORE_TOPICS.iter() {
                     for fork_digest in self.required_gossip_fork_digests() {
@@ -696,7 +696,6 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                     }
                 }
 
-                // chain_config.enable_light_client_server
                 if self.beacon_chain.config.enable_light_client_server {
                     for fork_digest in self.required_gossip_fork_digests() {
                         let topic = GossipTopic::new(

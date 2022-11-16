@@ -19,9 +19,9 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use store::hot_cold_store::HotColdDBError;
 use tokio::sync::mpsc;
 use types::{
-    Attestation, AttesterSlashing, EthSpec, Hash256, IndexedAttestation, ProposerSlashing,
-    SignedAggregateAndProof, SignedBeaconBlock, SignedContributionAndProof, SignedVoluntaryExit,
-    Slot, SubnetId, SyncCommitteeMessage, SyncSubnetId, LightClientFinalityUpdate,
+    Attestation, AttesterSlashing, EthSpec, Hash256, IndexedAttestation, LightClientFinalityUpdate,
+    ProposerSlashing, SignedAggregateAndProof, SignedBeaconBlock, SignedContributionAndProof,
+    SignedVoluntaryExit, Slot, SubnetId, SyncCommitteeMessage, SyncSubnetId,
 };
 
 use super::{
@@ -1315,11 +1315,7 @@ impl<T: BeaconChainTypes> Worker<T> {
             }
             Err(e) => {
                 // Report the failure to gossipsub
-                self.handle_light_client_finality_update_message_failure(
-                    peer_id,
-                    message_id,
-                    e,
-                );
+                self.handle_light_client_finality_update_message_failure(peer_id, message_id, e);
                 return;
             }
         };
@@ -1336,47 +1332,46 @@ impl<T: BeaconChainTypes> Worker<T> {
         match &error {
             LightClientFinalityUpdateError::FinalityUpdateAlreadySeen => {
                 /*
-                 * The following check failed: [IGNORE] The finalized_header.slot is greater 
+                 * The following check failed: [IGNORE] The finalized_header.slot is greater
                  * than that of all previously forwarded finality_updates.
                  */
-                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
             }
             LightClientFinalityUpdateError::TooEarly => {
                 /*
-                 * The following check failed: [IGNORE] The finality_update is received after 
-                 * the block at signature_slot was given enough time to propagate through 
+                 * The following check failed: [IGNORE] The finality_update is received after
+                 * the block at signature_slot was given enough time to propagate through
                  * the network -- i.e. validate that one-third of finality_update.signature_slot has transpired
                  */
                 self.gossip_penalize_peer(
                     peer_id,
                     PeerAction::HighToleranceError,
-                    "finality_update_early",
+                    "light_client_gossip_error",
                 );
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
             }
             LightClientFinalityUpdateError::InvalidLightClientFinalityUpdate => {
                 /*
-                 * The following check failed: [IGNORE] The received finality_update matches 
+                 * The following check failed: [IGNORE] The received finality_update matches
                  * the locally computed one exactly
                  */
                 self.gossip_penalize_peer(
                     peer_id,
                     PeerAction::HighToleranceError,
-                    "invalid_finality_update",
+                    "light_client_gossip_error",
                 );
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
             }
-            LightClientFinalityUpdateError::SigSlotStartIsNone => {
+            LightClientFinalityUpdateError::LightClientUpdateError(e) => {
                 /*
-                 * Failed to find the start time of the signature slot of the update.
+                 * Failed to construct the light client update.
                  */
-                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
-            }
-            LightClientFinalityUpdateError::FailedConstructingUpdate => {
-                /*
-                 * Could not construct the local light client finality update from the BeaconState.
-                 *
-                 */
+                error!(
+                    self.log,
+                    "Unable to locally construct light client finality update";
+                    "peer_id" => %peer_id,
+                    "error" => ?e,
+                );
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
             }
             LightClientFinalityUpdateError::BeaconChainError(e) => {
@@ -1393,6 +1388,9 @@ impl<T: BeaconChainTypes> Worker<T> {
                     "peer_id" => %peer_id,
                     "error" => ?e,
                 );
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+            }
+            _ => {
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
             }
         }

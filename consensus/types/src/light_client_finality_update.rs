@@ -1,4 +1,5 @@
 use super::{BeaconBlockHeader, EthSpec, FixedVector, Hash256, Slot, SyncAggregate};
+use crate::SignedBeaconBlock;
 use crate::{light_client_update::*, test_utils::TestRandom, BeaconBlock, BeaconState, ChainSpec};
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
@@ -68,8 +69,40 @@ impl<T: EthSpec> LightClientFinalityUpdate<T> {
         })
     }
 
-    pub fn from_state(_state: &BeaconState<T>) -> Self {
-        todo!();
+    pub fn from_state(
+        chain_spec: &ChainSpec,
+        beacon_state: &mut BeaconState<T>,
+        block: &SignedBeaconBlock<T>,
+        finalized_header: BeaconBlockHeader,
+    ) -> Result<Self, Error> {
+        let altair_fork_epoch = chain_spec
+            .altair_fork_epoch
+            .ok_or(Error::AltairForkNotActive)?;
+        if beacon_state.slot().epoch(T::slots_per_epoch()) < altair_fork_epoch {
+            return Err(Error::AltairForkNotActive);
+        }
+
+        let sync_aggregate = block.message().body().sync_aggregate()?;
+        if sync_aggregate.num_set_bits() < chain_spec.min_sync_committee_participants as usize {
+            return Err(Error::NotEnoughSyncCommitteeParticipants);
+        }
+
+        // Compute and validate attested header.
+        let mut attested_header = beacon_state.latest_block_header().clone();
+        attested_header.state_root = beacon_state.tree_hash_root();
+        // Build finalized header from finalized block
+        if finalized_header.tree_hash_root() != beacon_state.finalized_checkpoint().root {
+            return Err(Error::InvalidFinalizedBlock);
+        }
+
+        let finality_branch = beacon_state.compute_merkle_proof(FINALIZED_ROOT_INDEX)?;
+        Ok(Self {
+            attested_header: attested_header,
+            finalized_header: finalized_header,
+            finality_branch: FixedVector::new(finality_branch)?,
+            sync_aggregate: sync_aggregate.clone(),
+            signature_slot: block.slot(),
+        })
     }
 }
 

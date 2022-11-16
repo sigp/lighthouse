@@ -62,9 +62,9 @@ use std::{cmp, collections::HashSet};
 use task_executor::TaskExecutor;
 use tokio::sync::mpsc;
 use types::{
-    Attestation, AttesterSlashing, Hash256, ProposerSlashing, SignedAggregateAndProof,
-    SignedBeaconBlock, SignedContributionAndProof, SignedVoluntaryExit, SubnetId,
-    SyncCommitteeMessage, SyncSubnetId, LightClientFinalityUpdate
+    Attestation, AttesterSlashing, Hash256, LightClientFinalityUpdate, ProposerSlashing,
+    SignedAggregateAndProof, SignedBeaconBlock, SignedContributionAndProof, SignedVoluntaryExit,
+    SubnetId, SyncCommitteeMessage, SyncSubnetId,
 };
 use work_reprocessing_queue::{
     spawn_reprocess_scheduler, QueuedAggregate, QueuedRpcBlock, QueuedUnaggregate, ReadyWork,
@@ -1605,7 +1605,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
             /*
              * Light client finality update verification.
              */
-             Work::GossipLightClientFinalityUpdate {
+            Work::GossipLightClientFinalityUpdate {
                 message_id,
                 peer_id,
                 light_client_finality_update,

@@ -1,7 +1,7 @@
 use beacon_chain::{
     attestation_verification::Error as AttnError,
-    sync_committee_verification::Error as SyncCommitteeError,
     light_client_finality_update_verification::Error as LightClientFinalityUpdateError,
+    sync_committee_verification::Error as SyncCommitteeError,
 };
 use fnv::FnvHashMap;
 pub use lighthouse_metrics::*;
