@@ -2,9 +2,7 @@ use crate::{
     beacon_chain::MAXIMUM_GOSSIP_CLOCK_DISPARITY, BeaconChain, BeaconChainError, BeaconChainTypes,
 };
 use derivative::Derivative;
-use slog::debug;
 use slot_clock::SlotClock;
-use ssz::Encode;
 use std::time::Duration;
 use strum::AsRefStr;
 use types::{light_client_update::Error as LightClientUpdateError, LightClientFinalityUpdate};
@@ -69,13 +67,30 @@ impl<T: BeaconChainTypes> VerifiedLightClientFinalityUpdate<T> {
         let gossiped_finality_slot = light_client_finality_update.finalized_header.slot;
         let one_third_slot_duration = Duration::new(chain.spec.seconds_per_slot / 3, 0);
         let signature_slot = light_client_finality_update.signature_slot;
-        let mut latest_seen_finality_update = chain.latest_seen_finality_update.lock();
         let start_time = chain.slot_clock.start_of(signature_slot);
+
+        let head = chain.canonical_head.cached_head();
+        let head_block = &head.snapshot.beacon_block;
+        let attested_block_root = head_block.message().parent_root();
+        let attested_block = match chain.get_blinded_block(&attested_block_root)? {
+            Some(block) => block,
+            None => {
+                return Err(Error::FailedConstructingUpdate);
+            }
+        };
+        let mut attested_state =
+            match chain.get_state(&attested_block_root, Some(attested_block.slot()))? {
+                Some(state) => state,
+                None => {
+                    return Err(Error::FailedConstructingUpdate);
+                }
+            };
+        let finalized_block_root = attested_state.finalized_checkpoint().root;
+        let finalized_block = chain.get_blinded_block(&finalized_block_root)?.unwrap();
 
         // verify that no other finality_update with a lower or equal
         // finalized_header.slot was already forwarded on the network
-        // if gossiped_finality_slot <= latest_seen_update.finalized_head.slot {
-        if gossiped_finality_slot <= latest_seen_finality_update.finalized_header.slot {
+        if gossiped_finality_slot <= finalized_block.slot() {
             return Err(Error::FinalityUpdateAlreadySeen);
         }
 
@@ -90,41 +105,17 @@ impl<T: BeaconChainTypes> VerifiedLightClientFinalityUpdate<T> {
             None => return Err(Error::SigSlotStartIsNone),
         }
 
-        let head = chain.head_snapshot();
-        let finalized_checkpoint = chain.canonical_head.cached_head().finalized_checkpoint();
-        let finalized_block =
-            if let Some(finalized_block) = chain.get_blinded_block(&finalized_checkpoint.root)? {
-                finalized_block
-            } else {
-                return Err(Error::FailedConstructingUpdate);
-            };
-        if let Ok(Some(update)) = chain.with_mutable_state_for_block(
-            &head.beacon_block,
-            head.beacon_block_root,
-            |state, cache_hit| {
-                state.initialize_tree_hash_cache();
-                debug!(
-                    chain.log,
-                    "Is the block in cache";
-                    "cache_hit" => cache_hit,
-                );
-
-                Ok(LightClientFinalityUpdate::from_state(
-                    &chain.spec,
-                    state,
-                    &head.beacon_block,
-                    finalized_block.message().block_header(),
-                ))
-            },
-        ) {
-            *latest_seen_finality_update = update?;
-        } else {
-            return Err(Error::FailedConstructingUpdate);
-        }
+        let head_state = chain.head_beacon_state_cloned();
+        let finality_update = LightClientFinalityUpdate::from_state(
+            &chain.spec,
+            &head_state,
+            head_block,
+            &mut attested_state,
+            &finalized_block,
+        )?;
 
         // verify that the gossiped finality update is the same as the locally constructed one.
-        if latest_seen_finality_update.as_ssz_bytes() != light_client_finality_update.as_ssz_bytes()
-        {
+        if finality_update != light_client_finality_update {
             return Err(Error::InvalidLightClientFinalityUpdate);
         }
 

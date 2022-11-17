@@ -1,5 +1,7 @@
-use super::{BeaconBlockHeader, EthSpec, FixedVector, Hash256, Slot, SyncAggregate};
-use crate::SignedBeaconBlock;
+use super::{
+    BeaconBlockHeader, EthSpec, FixedVector, Hash256, SignedBeaconBlock, SignedBlindedBeaconBlock,
+    Slot, SyncAggregate,
+};
 use crate::{light_client_update::*, test_utils::TestRandom, BeaconBlock, BeaconState, ChainSpec};
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
@@ -71,9 +73,10 @@ impl<T: EthSpec> LightClientFinalityUpdate<T> {
 
     pub fn from_state(
         chain_spec: &ChainSpec,
-        beacon_state: &mut BeaconState<T>,
+        beacon_state: &BeaconState<T>,
         block: &SignedBeaconBlock<T>,
-        finalized_header: BeaconBlockHeader,
+        attested_state: &mut BeaconState<T>,
+        finalized_block: &SignedBlindedBeaconBlock<T>,
     ) -> Result<Self, Error> {
         let altair_fork_epoch = chain_spec
             .altair_fork_epoch
@@ -88,14 +91,16 @@ impl<T: EthSpec> LightClientFinalityUpdate<T> {
         }
 
         // Compute and validate attested header.
-        let mut attested_header = beacon_state.latest_block_header().clone();
+        let mut attested_header = attested_state.latest_block_header().clone();
         attested_header.state_root = beacon_state.tree_hash_root();
         // Build finalized header from finalized block
+        let finalized_header = finalized_block.message().block_header();
+
         if finalized_header.tree_hash_root() != beacon_state.finalized_checkpoint().root {
             return Err(Error::InvalidFinalizedBlock);
         }
 
-        let finality_branch = beacon_state.compute_merkle_proof(FINALIZED_ROOT_INDEX)?;
+        let finality_branch = attested_state.compute_merkle_proof(FINALIZED_ROOT_INDEX)?;
         Ok(Self {
             attested_header,
             finalized_header,
@@ -103,18 +108,6 @@ impl<T: EthSpec> LightClientFinalityUpdate<T> {
             sync_aggregate: sync_aggregate.clone(),
             signature_slot: block.slot(),
         })
-    }
-}
-
-impl<T: EthSpec> Default for LightClientFinalityUpdate<T> {
-    fn default() -> Self {
-        LightClientFinalityUpdate {
-            attested_header: <_>::default(),
-            finalized_header: <_>::default(),
-            finality_branch: <_>::default(),
-            sync_aggregate: SyncAggregate::new(),
-            signature_slot: Slot::new(0),
-        }
     }
 }
 
