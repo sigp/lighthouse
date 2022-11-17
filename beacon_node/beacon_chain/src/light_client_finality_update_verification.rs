@@ -5,7 +5,9 @@ use derivative::Derivative;
 use slot_clock::SlotClock;
 use std::time::Duration;
 use strum::AsRefStr;
-use types::{light_client_update::Error as LightClientUpdateError, LightClientFinalityUpdate};
+use types::{
+    light_client_update::Error as LightClientUpdateError, LightClientFinalityUpdate, Slot,
+};
 
 /// Returned when a light client finality update was not successfully verified. It might not have been verified for
 /// two reasons:
@@ -68,6 +70,7 @@ impl<T: BeaconChainTypes> VerifiedLightClientFinalityUpdate<T> {
         let one_third_slot_duration = Duration::new(chain.spec.seconds_per_slot / 3, 0);
         let signature_slot = light_client_finality_update.signature_slot;
         let start_time = chain.slot_clock.start_of(signature_slot);
+        let mut latest_seen_finality_update = chain.latest_seen_finality_update.lock();
 
         let head = chain.canonical_head.cached_head();
         let head_block = &head.snapshot.beacon_block;
@@ -87,10 +90,14 @@ impl<T: BeaconChainTypes> VerifiedLightClientFinalityUpdate<T> {
             };
         let finalized_block_root = attested_state.finalized_checkpoint().root;
         let finalized_block = chain.get_blinded_block(&finalized_block_root)?.unwrap();
+        let latest_seen_finality_update_slot = match &*latest_seen_finality_update {
+            Some(update) => update.finalized_header.slot,
+            None => Slot::new(0),
+        };
 
         // verify that no other finality_update with a lower or equal
         // finalized_header.slot was already forwarded on the network
-        if gossiped_finality_slot <= finalized_block.slot() {
+        if gossiped_finality_slot <= latest_seen_finality_update_slot {
             return Err(Error::FinalityUpdateAlreadySeen);
         }
 
@@ -118,6 +125,8 @@ impl<T: BeaconChainTypes> VerifiedLightClientFinalityUpdate<T> {
         if finality_update != light_client_finality_update {
             return Err(Error::InvalidLightClientFinalityUpdate);
         }
+
+        *latest_seen_finality_update = Some(light_client_finality_update.clone());
 
         Ok(Self {
             light_client_finality_update,
