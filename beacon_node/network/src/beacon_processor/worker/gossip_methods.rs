@@ -1316,7 +1316,6 @@ impl<T: BeaconChainTypes> Worker<T> {
             Err(e) => {
                 // Report the failure to gossipsub
                 self.handle_light_client_finality_update_message_failure(peer_id, message_id, e);
-                return;
             }
         };
     }
