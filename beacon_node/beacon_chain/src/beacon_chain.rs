@@ -2638,10 +2638,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // If there are new validators in this block, update our pubkey cache.
         //
-        // We perform this _before_ adding the block to fork choice because the pubkey cache is
-        // used by attestation processing which will only process an attestation if the block is
-        // known to fork choice. This ordering ensure that the pubkey cache is always up-to-date.
-        self.validator_pubkey_cache
+        // The only keys imported here will be ones for validators deposited in this block, because
+        // the cache *must* already have been updated for the parent block when it was imported.
+        // Newly deposited validators are not active and their keys are not required by other parts
+        // of block processing. The reason we do this here and not after making the block attestable
+        // is so we don't have to think about lock ordering with respect to the fork choice lock.
+        // There are a bunch of places where we lock both fork choice and the pubkey cache and it
+        // would be difficult to check that they all lock fork choice first.
+        let mut kv_store_ops = self
+            .validator_pubkey_cache
             .try_write_for(VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT)
             .ok_or(Error::ValidatorPubkeyCacheLockTimeout)?
             .import_new_pubkeys(&state)?;
@@ -2773,7 +2778,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         ops.push(StoreOp::PutState(block.state_root(), &state));
         let txn_lock = self.store.hot_db.begin_rw_transaction();
 
-        if let Err(e) = self.store.do_atomically(ops) {
+        kv_store_ops.extend(self.store.convert_to_kv_batch(ops)?);
+
+        if let Err(e) = self.store.hot_db.do_atomically(kv_store_ops) {
             error!(
                 self.log,
                 "Database write failed!";
