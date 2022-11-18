@@ -28,12 +28,15 @@ pub enum Error {
     /// Assuming the local clock is correct, the peer has sent an invalid message.
     TooEarly,
     /// Light client finality update message does not match the locally constructed one.
+    ///
+    /// ## Peer Scoring
+    ///
     InvalidLightClientFinalityUpdate,
-    // Signature slot start time is none.
+    /// Signature slot start time is none.
     SigSlotStartIsNone,
-    // Failed to construct a LightClientFinalityUpdate from state.
+    /// Failed to construct a LightClientFinalityUpdate from state.
     FailedConstructingUpdate,
-    // Beacon chain error occured.
+    /// Beacon chain error occured.
     BeaconChainError(BeaconChainError),
     LightClientUpdateError(LightClientUpdateError),
 }
