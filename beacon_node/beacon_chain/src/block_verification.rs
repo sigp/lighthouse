@@ -1156,9 +1156,6 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
             // The specification declares that this should be run *inside* `per_block_processing`,
             // however we run it here to keep `per_block_processing` pure (i.e., no calls to external
             // servers).
-            //
-            // It is important that this function is called *after* `per_slot_processing`, since the
-            // `randao` may change.
             let payload_verification_status = payload_notifier.notify_new_payload().await?;
 
             // If the payload did not validate or invalidate the block, check to see if this block is
