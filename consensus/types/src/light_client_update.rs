@@ -77,7 +77,7 @@ impl<T: EthSpec> LightClientUpdate<T> {
         chain_spec: ChainSpec,
         beacon_state: BeaconState<T>,
         block: BeaconBlock<T>,
-        attested_state: BeaconState<T>,
+        attested_state: &mut BeaconState<T>,
         finalized_block: BeaconBlock<T>,
     ) -> Result<Self, Error> {
         let altair_fork_epoch = chain_spec
@@ -114,16 +114,15 @@ impl<T: EthSpec> LightClientUpdate<T> {
         if finalized_header.tree_hash_root() != beacon_state.finalized_checkpoint().root {
             return Err(Error::InvalidFinalizedBlock);
         }
-        // TODO(Giulio2002): compute proper merkle proofs.
+        let next_sync_committee_branch =
+            attested_state.compute_merkle_proof(NEXT_SYNC_COMMITTEE_INDEX)?;
+        let finality_branch = attested_state.compute_merkle_proof(FINALIZED_ROOT_INDEX)?;
         Ok(Self {
             attested_header,
             next_sync_committee: attested_state.next_sync_committee()?.clone(),
-            next_sync_committee_branch: FixedVector::new(vec![
-                Hash256::zero();
-                NEXT_SYNC_COMMITTEE_PROOF_LEN
-            ])?,
+            next_sync_committee_branch: FixedVector::new(next_sync_committee_branch)?,
             finalized_header,
-            finality_branch: FixedVector::new(vec![Hash256::zero(); FINALIZED_ROOT_PROOF_LEN])?,
+            finality_branch: FixedVector::new(finality_branch)?,
             sync_aggregate: sync_aggregate.clone(),
             signature_slot: block.slot(),
         })
