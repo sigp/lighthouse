@@ -61,7 +61,11 @@ use std::time::Duration;
 use std::{cmp, collections::HashSet};
 use task_executor::TaskExecutor;
 use tokio::sync::mpsc;
-use types::{Attestation, AttesterSlashing, Hash256, ProposerSlashing, SignedAggregateAndProof, SignedBeaconBlock, SignedBeaconBlockAndBlobsSidecar, SignedContributionAndProof, SignedVoluntaryExit, SubnetId, SyncCommitteeMessage, SyncSubnetId};
+use types::{
+    Attestation, AttesterSlashing, Hash256, ProposerSlashing, SignedAggregateAndProof,
+    SignedBeaconBlock, SignedBeaconBlockAndBlobsSidecar, SignedContributionAndProof,
+    SignedVoluntaryExit, SubnetId, SyncCommitteeMessage, SyncSubnetId,
+};
 use work_reprocessing_queue::{
     spawn_reprocess_scheduler, QueuedAggregate, QueuedRpcBlock, QueuedUnaggregate, ReadyWork,
 };

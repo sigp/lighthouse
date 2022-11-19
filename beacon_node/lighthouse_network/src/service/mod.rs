@@ -1264,11 +1264,8 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                         Some(event)
                     }
                     InboundRequest::BlobsByRoot(req) => {
-                        let event = self.build_request(
-                            peer_request_id,
-                            peer_id,
-                            Request::BlobsByRoot(req),
-                        );
+                        let event =
+                            self.build_request(peer_request_id, peer_id, Request::BlobsByRoot(req));
                         Some(event)
                     }
                 }

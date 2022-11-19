@@ -4,7 +4,6 @@ use lighthouse_network::PeerId;
 use std::sync::Arc;
 use store::{Hash256, SignedBeaconBlock};
 use strum::IntoStaticStr;
-use types::signed_block_and_blobs::BlockMaybeBlobs;
 
 use crate::sync::{
     manager::{Id, SLOT_IMPORT_TOLERANCE},
@@ -25,7 +24,7 @@ pub(crate) struct ParentLookup<T: BeaconChainTypes> {
     /// The root of the block triggering this parent request.
     chain_hash: Hash256,
     /// The blocks that have currently been downloaded.
-    downloaded_blocks: Vec<BlockMaybeBlobs<T::EthSpec>>,
+    downloaded_blocks: Vec<Arc<SignedBeaconBlock<T::EthSpec>>>,
     /// Request of the last parent.
     current_parent_request: SingleBlockRequest<PARENT_FAIL_TOLERANCE>,
     /// Id of the last parent request.
@@ -62,7 +61,7 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
 
     pub fn new(
         block_root: Hash256,
-        block: BlockMaybeBlobs<T::EthSpec>,
+        block: Arc<SignedBeaconBlock<T::EthSpec>>,
         peer_id: PeerId,
     ) -> Self {
         let current_parent_request = SingleBlockRequest::new(block.parent_root(), peer_id);
@@ -99,7 +98,7 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
         self.current_parent_request.check_peer_disconnected(peer_id)
     }
 
-    pub fn add_block(&mut self, block: BlockMaybeBlobs<T::EthSpec>) {
+    pub fn add_block(&mut self, block: Arc<SignedBeaconBlock<T::EthSpec>>) {
         let next_parent = block.parent_root();
         self.downloaded_blocks.push(block);
         self.current_parent_request.hash = next_parent;
@@ -126,7 +125,7 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
         self.current_parent_request_id = None;
     }
 
-    pub fn chain_blocks(&mut self) -> Vec<BlockMaybeBlobs<T::EthSpec>> {
+    pub fn chain_blocks(&mut self) -> Vec<Arc<SignedBeaconBlock<T::EthSpec>>> {
         std::mem::take(&mut self.downloaded_blocks)
     }
 
@@ -134,7 +133,7 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
     /// the processing result of the block.
     pub fn verify_block(
         &mut self,
-        block: Option<BlockMaybeBlobs<T::EthSpec>>,
+        block: Option<Arc<SignedBeaconBlock<T::EthSpec>>>,
         failed_chains: &mut lru_cache::LRUTimeCache<Hash256>,
     ) -> Result<Option<RootBlockTuple<T::EthSpec>>, VerifyError> {
         let root_and_block = self.current_parent_request.verify_block(block)?;

@@ -150,7 +150,6 @@ pub use crate::historical_batch::HistoricalBatch;
 pub use crate::indexed_attestation::IndexedAttestation;
 pub use crate::kzg_commitment::KzgCommitment;
 pub use crate::kzg_proof::KzgProof;
-pub use crate::signed_block_and_blobs::SignedBeaconBlockAndBlobsSidecar;
 pub use crate::participation_flags::ParticipationFlags;
 pub use crate::participation_list::ParticipationList;
 pub use crate::payload::{
@@ -172,6 +171,7 @@ pub use crate::signed_beacon_block::{
     SignedBlindedBeaconBlock,
 };
 pub use crate::signed_beacon_block_header::SignedBeaconBlockHeader;
+pub use crate::signed_block_and_blobs::SignedBeaconBlockAndBlobsSidecar;
 pub use crate::signed_contribution_and_proof::SignedContributionAndProof;
 pub use crate::signed_voluntary_exit::SignedVoluntaryExit;
 pub use crate::signing_data::{SignedRoot, SigningData};

@@ -11,7 +11,7 @@ pub fn upgrade_to_eip4844<E: EthSpec>(
 
     // FIXME(sean) This is a hack to let us participate in testnets where capella doesn't exist.
     // if we are disabling withdrawals, assume we should fork off of bellatrix.
-    let previous_fork_version = if cfg!(feature ="withdrawals") {
+    let previous_fork_version = if cfg!(feature = "withdrawals") {
         pre.fork.current_version
     } else {
         spec.bellatrix_fork_version

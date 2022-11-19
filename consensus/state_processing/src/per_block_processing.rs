@@ -180,6 +180,9 @@ pub fn per_block_processing<T: EthSpec, Payload: AbstractExecPayload<T>>(
 
     process_blob_kzg_commitments(block.body())?;
 
+    //FIXME(sean) add `validate_blobs_sidecar` (is_data_available) and only run it if the consensus
+    // context tells us it wasnt already run
+
     Ok(())
 }
 

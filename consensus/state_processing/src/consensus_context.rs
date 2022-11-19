@@ -1,8 +1,8 @@
 use std::marker::PhantomData;
 use tree_hash::TreeHash;
 use types::{
-    AbstractExecPayload, BeaconState, BeaconStateError, ChainSpec, EthSpec, ExecPayload, Hash256,
-    SignedBeaconBlock, Slot,
+    AbstractExecPayload, BeaconState, BeaconStateError, BlobsSidecar, ChainSpec, EthSpec,
+    ExecPayload, Hash256, SignedBeaconBlock, Slot,
 };
 
 #[derive(Debug)]
@@ -13,6 +13,12 @@ pub struct ConsensusContext<T: EthSpec> {
     proposer_index: Option<u64>,
     /// Block root of the block at `slot`.
     current_block_root: Option<Hash256>,
+    /// Should only be populated if the sidecar has not been validated.
+    blobs_sidecar: Option<Box<BlobsSidecar<T>>>,
+    /// Whether `validate_blobs_sidecar` has successfully passed.
+    blobs_sidecar_validated: bool,
+    /// Whether `verify_kzg_commitments_against_transactions` has successfully passed.
+    blobs_verified_vs_txs: bool,
     _phantom: PhantomData<T>,
 }
 
@@ -34,6 +40,9 @@ impl<T: EthSpec> ConsensusContext<T> {
             slot,
             proposer_index: None,
             current_block_root: None,
+            blobs_sidecar: None,
+            blobs_sidecar_validated: false,
+            blobs_verified_vs_txs: false,
             _phantom: PhantomData,
         }
     }
@@ -88,5 +97,23 @@ impl<T: EthSpec> ConsensusContext<T> {
                 expected: self.slot,
             })
         }
+    }
+
+    pub fn set_blobs_sidecar_validated(mut self, blobs_sidecar_validated: bool) -> Self {
+        self.blobs_sidecar_validated = blobs_sidecar_validated;
+        self
+    }
+
+    pub fn set_blobs_verified_vs_txs(mut self, blobs_verified_vs_txs: bool) -> Self {
+        self.blobs_verified_vs_txs = blobs_verified_vs_txs;
+        self
+    }
+
+    pub fn blobs_sidecar_validated(&self) -> bool {
+        self.blobs_sidecar_validated
+    }
+
+    pub fn blobs_verified_vs_txs(&self) -> bool {
+        self.blobs_verified_vs_txs
     }
 }

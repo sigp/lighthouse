@@ -18,6 +18,7 @@ pub fn process_blob_kzg_commitments<T: EthSpec, Payload: AbstractExecPayload<T>>
         block_body.blob_kzg_commitments(),
     ) {
         if let Some(transactions) = payload.transactions() {
+            //FIXME(sean) only run if this wasn't run in gossip (use consensus context)
             if !verify_kzg_commitments_against_transactions::<T>(transactions, kzg_commitments)? {
                 return Err(BlockProcessingError::BlobVersionHashMismatch);
             }

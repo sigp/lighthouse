@@ -13,8 +13,8 @@ use std::sync::Arc;
 use strum::IntoStaticStr;
 use superstruct::superstruct;
 use types::blobs_sidecar::BlobsSidecar;
-use types::{Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot};
 use types::SignedBeaconBlockAndBlobsSidecar;
+use types::{Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot};
 
 /// Maximum number of blocks in a single request.
 pub type MaxRequestBlocks = U1024;
@@ -427,10 +427,18 @@ impl<T: EthSpec> std::fmt::Display for RPCResponse<T> {
                 write!(f, "BlocksByRoot: Block slot: {}", block.slot())
             }
             RPCResponse::BlobsByRange(blob) => {
-                write!(f, "BlobsByRange: Blob slot: {}", blob.blobs_sidecar.beacon_block_slot)
+                write!(
+                    f,
+                    "BlobsByRange: Blob slot: {}",
+                    blob.blobs_sidecar.beacon_block_slot
+                )
             }
             RPCResponse::BlobsByRoot(blob) => {
-                write!(f, "BlobsByRoot: Blob slot: {}", blob.blobs_sidecar.beacon_block_slot)
+                write!(
+                    f,
+                    "BlobsByRoot: Blob slot: {}",
+                    blob.blobs_sidecar.beacon_block_slot
+                )
             }
             RPCResponse::Pong(ping) => write!(f, "Pong: {}", ping.data),
             RPCResponse::MetaData(metadata) => write!(f, "Metadata: {}", metadata.seq_number()),

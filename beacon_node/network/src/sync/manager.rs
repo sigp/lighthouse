@@ -53,7 +53,6 @@ use std::ops::Sub;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
-use types::signed_block_and_blobs::BlockMaybeBlobs;
 use types::{
     BlobsSidecar, EthSpec, Hash256, SignedBeaconBlock, SignedBeaconBlockAndBlobsSidecar, Slot,
 };
@@ -104,12 +103,12 @@ pub enum SyncMessage<T: EthSpec> {
     RpcBlock {
         request_id: RequestId,
         peer_id: PeerId,
-        beacon_block: Option<BlockMaybeBlobs<T>>,
+        beacon_block: Option<Arc<SignedBeaconBlock<T>>>,
         seen_timestamp: Duration,
     },
 
     /// A block with an unknown parent has been received.
-    UnknownBlock(PeerId, BlockMaybeBlobs<T>, Hash256),
+    UnknownBlock(PeerId, Arc<SignedBeaconBlock<T>>, Hash256),
 
     /// A peer has sent an object that references a block that is unknown. This triggers the
     /// manager to attempt to find the block matching the unknown hash.

@@ -82,9 +82,11 @@ impl<TSpec: EthSpec> OutboundRequest<TSpec> {
                 Version::V1,
                 Encoding::SSZSnappy,
             )],
-            OutboundRequest::BlobsByRoot(_) => vec![
-                ProtocolId::new(Protocol::BlobsByRoot, Version::V1, Encoding::SSZSnappy),
-            ],
+            OutboundRequest::BlobsByRoot(_) => vec![ProtocolId::new(
+                Protocol::BlobsByRoot,
+                Version::V1,
+                Encoding::SSZSnappy,
+            )],
             OutboundRequest::Ping(_) => vec![ProtocolId::new(
                 Protocol::Ping,
                 Version::V1,

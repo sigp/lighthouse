@@ -102,12 +102,11 @@ use task_executor::{ShutdownReason, TaskExecutor};
 use tree_hash::TreeHash;
 use types::beacon_state::CloneConfig;
 use types::*;
-use types::signed_block_and_blobs::BlockMaybeBlobs;
 
 pub type ForkChoiceError = fork_choice::Error<crate::ForkChoiceStoreError>;
 
 /// Alias to appease clippy.
-type HashBlockTuple<E> = (Hash256, BlockMaybeBlobs<E>);
+type HashBlockTuple<E> = (Hash256, Arc<SignedBeaconBlock<E>>);
 
 /// The time-out before failure during an operation to take a read/write RwLock on the block
 /// processing cache.
@@ -924,7 +923,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub async fn get_block(
         &self,
         block_root: &Hash256,
-    ) -> Result<Option<SignedBeaconBlock<T::EthSpec>>, Error> {
+    ) -> Result<Option<Arc<SignedBeaconBlock<T::EthSpec>>>, Error> {
         // Load block from database, returning immediately if we have the full block w payload
         // stored.
         let blinded_block = match self.store.try_get_full_block(block_root)? {
@@ -2198,7 +2197,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// This method is potentially long-running and should not run on the core executor.
     pub fn filter_chain_segment(
         self: &Arc<Self>,
-        chain_segment: Vec<BlockMaybeBlobs<T::EthSpec>>,
+        chain_segment: Vec<Arc<SignedBeaconBlock<T::EthSpec>>>,
     ) -> Result<Vec<HashBlockTuple<T::EthSpec>>, ChainSegmentResult<T::EthSpec>> {
         // This function will never import any blocks.
         let imported_blocks = 0;
@@ -2304,7 +2303,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// `Self::process_block`.
     pub async fn process_chain_segment(
         self: &Arc<Self>,
-        chain_segment: Vec<BlockMaybeBlobs<T::EthSpec>>,
+        chain_segment: Vec<Arc<SignedBeaconBlock<T::EthSpec>>>,
         count_unrealized: CountUnrealized,
     ) -> ChainSegmentResult<T::EthSpec> {
         let mut imported_blocks = 0;
@@ -2326,9 +2325,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
         };
 
-        while let Some((_root, block_wrapper)) = filtered_chain_segment.first() {
-
-            let block: &SignedBeaconBlock<T::EthSpec> = block_wrapper.block();
+        while let Some((_root, block)) = filtered_chain_segment.first() {
+            let block: &SignedBeaconBlock<T::EthSpec> = block.block();
 
             // Determine the epoch of the first block in the remaining segment.
             let start_epoch = block.slot().epoch(T::EthSpec::slots_per_epoch());
@@ -2406,17 +2404,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Returns an `Err` if the given block was invalid, or an error was encountered during
     pub async fn verify_block_for_gossip(
         self: &Arc<Self>,
-        block_wrapper: BlockMaybeBlobs<T::EthSpec>,
+        block: Arc<SignedBeaconBlock<T::EthSpec>>,
     ) -> Result<GossipVerifiedBlock<T>, BlockError<T::EthSpec>> {
         let chain = self.clone();
         self.task_executor
             .clone()
             .spawn_blocking_handle(
                 move || {
-                    let slot = block_wrapper.block().slot();
-                    let graffiti_string = block_wrapper.block().message().body().graffiti().as_utf8_lossy();
+                    let slot = block.block().slot();
+                    let graffiti_string = block.block().message().body().graffiti().as_utf8_lossy();
 
-                    match GossipVerifiedBlock::new(block_wrapper, &chain) {
+                    match GossipVerifiedBlock::new(block, &chain) {
                         Ok(verified) => {
                             debug!(
                                 chain.log,
@@ -2618,7 +2616,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     #[allow(clippy::too_many_arguments)]
     fn import_block(
         &self,
-        block_wrapper: BlockMaybeBlobs<T::EthSpec>,
+        block: Arc<SignedBeaconBlock<T::EthSpec>>,
         block_root: Hash256,
         mut state: BeaconState<T::EthSpec>,
         confirmed_state_roots: Vec<Hash256>,
@@ -2627,7 +2625,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         parent_block: SignedBlindedBeaconBlock<T::EthSpec>,
         parent_eth1_finalization_data: Eth1FinalizationData,
     ) -> Result<Hash256, BlockError<T::EthSpec>> {
-        let signed_block = block_wrapper.block();
+        let signed_block = block.block();
         let current_slot = self.slot()?;
         let current_epoch = current_slot.epoch(T::EthSpec::slots_per_epoch());
 
@@ -2960,6 +2958,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .collect();
         ops.push(StoreOp::PutBlock(block_root, signed_block.clone()));
         ops.push(StoreOp::PutState(block.state_root(), &state));
+
+        if let Some(blobs) = block.blobs() {
+            ops.push(StoreOp::PutBlobs(block_root, blobs));
+        };
         let txn_lock = self.store.hot_db.begin_rw_transaction();
 
         if let Err(e) = self.store.do_atomically(ops) {
@@ -3366,7 +3368,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         //
         // Wait for the execution layer to return an execution payload (if one is required).
         let prepare_payload_handle = partial_beacon_block.prepare_payload_handle.take();
-        let execution_payload = if let Some(prepare_payload_handle) = prepare_payload_handle {
+        let block_contents = if let Some(prepare_payload_handle) = prepare_payload_handle {
             prepare_payload_handle
                 .await
                 .map_err(BlockProductionError::TokioJoin)?
@@ -3374,9 +3376,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         } else {
             return Err(BlockProductionError::MissingExecutionPayload);
         };
-
-        //FIXME(sean) waiting for the BN<>EE api for this to stabilize
-        let kzg_commitments = vec![];
 
         // Part 3/3 (blocking)
         //
@@ -3387,8 +3386,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 move || {
                     chain.complete_partial_beacon_block(
                         partial_beacon_block,
-                        execution_payload,
-                        kzg_commitments,
+                        block_contents,
                         verification,
                     )
                 },
@@ -3635,7 +3633,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         partial_beacon_block: PartialBeaconBlock<T::EthSpec, Payload>,
         block_contents: BlockProposalContents<T::EthSpec, Payload>,
-        kzg_commitments: Vec<KzgCommitment>,
         verification: ProduceBlockVerification,
     ) -> Result<BeaconBlockAndState<T::EthSpec, Payload>, BlockProductionError> {
         let PartialBeaconBlock {
@@ -3739,30 +3736,34 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         .map_err(|_| BlockProductionError::InvalidPayloadFork)?,
                 },
             }),
-            BeaconState::Eip4844(_) => BeaconBlock::Eip4844(BeaconBlockEip4844 {
-                slot,
-                proposer_index,
-                parent_root,
-                state_root: Hash256::zero(),
-                body: BeaconBlockBodyEip4844 {
-                    randao_reveal,
-                    eth1_data,
-                    graffiti,
-                    proposer_slashings: proposer_slashings.into(),
-                    attester_slashings: attester_slashings.into(),
-                    attestations: attestations.into(),
-                    deposits: deposits.into(),
-                    voluntary_exits: voluntary_exits.into(),
-                    sync_aggregate: sync_aggregate
-                        .ok_or(BlockProductionError::MissingSyncAggregate)?,
-                    execution_payload: block_contents
-                        .to_payload()
-                        .try_into()
-                        .map_err(|_| BlockProductionError::InvalidPayloadFork)?,
-                    //FIXME(sean) get blobs
-                    blob_kzg_commitments: VariableList::from(kzg_commitments),
-                },
-            }),
+            BeaconState::Eip4844(_) => {
+                let kzg_commitments = block_contents
+                    .kzg_commitments()
+                    .ok_or(BlockProductionError::InvalidPayloadFork)?;
+                BeaconBlock::Eip4844(BeaconBlockEip4844 {
+                    slot,
+                    proposer_index,
+                    parent_root,
+                    state_root: Hash256::zero(),
+                    body: BeaconBlockBodyEip4844 {
+                        randao_reveal,
+                        eth1_data,
+                        graffiti,
+                        proposer_slashings: proposer_slashings.into(),
+                        attester_slashings: attester_slashings.into(),
+                        attestations: attestations.into(),
+                        deposits: deposits.into(),
+                        voluntary_exits: voluntary_exits.into(),
+                        sync_aggregate: sync_aggregate
+                            .ok_or(BlockProductionError::MissingSyncAggregate)?,
+                        execution_payload: block_contents
+                            .to_payload()
+                            .try_into()
+                            .map_err(|_| BlockProductionError::InvalidPayloadFork)?,
+                        blob_kzg_commitments: VariableList::from(kzg_commitments.to_vec()),
+                    },
+                })
+            }
         };
 
         let block = SignedBeaconBlock::from_block(

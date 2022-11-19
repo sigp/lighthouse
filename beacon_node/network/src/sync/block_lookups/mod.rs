@@ -9,7 +9,6 @@ use slog::{debug, error, trace, warn, Logger};
 use smallvec::SmallVec;
 use std::sync::Arc;
 use store::{Hash256, SignedBeaconBlock};
-use types::signed_block_and_blobs::BlockMaybeBlobs;
 
 use crate::beacon_processor::{ChainSegmentProcessId, WorkEvent};
 use crate::metrics;
@@ -31,7 +30,7 @@ mod single_block_lookup;
 #[cfg(test)]
 mod tests;
 
-pub type RootBlockTuple<T> = (Hash256, BlockMaybeBlobs<T>);
+pub type RootBlockTuple<T> = (Hash256, Arc<SignedBeaconBlock<T>>);
 
 const FAILED_CHAINS_CACHE_EXPIRY_SECONDS: u64 = 60;
 const SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS: u8 = 3;

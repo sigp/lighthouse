@@ -1,6 +1,6 @@
-use std::sync::Arc;
 use derivative::Derivative;
 use slot_clock::SlotClock;
+use std::sync::Arc;
 
 use crate::beacon_chain::{BeaconChain, BeaconChainTypes, MAXIMUM_GOSSIP_CLOCK_DISPARITY};
 use crate::BeaconChainError;
@@ -80,7 +80,10 @@ impl From<BeaconStateError> for BlobError {
     }
 }
 
-pub fn validate_blob_for_gossip<T: BeaconChainTypes>(blob_sidecar: &BlobsSidecar<T::EthSpec>, chain: &Arc<BeaconChain<T>>) -> Result<(), BlobError>{
+pub fn validate_blob_for_gossip<T: BeaconChainTypes>(
+    blob_sidecar: &BlobsSidecar<T::EthSpec>,
+    chain: &Arc<BeaconChain<T>>,
+) -> Result<(), BlobError> {
     let blob_slot = blob_sidecar.beacon_block_slot;
     // Do not gossip or process blobs from future or past slots.
     let latest_permissible_slot = chain
@@ -121,4 +124,3 @@ pub fn validate_blob_for_gossip<T: BeaconChainTypes>(blob_sidecar: &BlobsSidecar
     // TODO: `validate_blobs_sidecar`
     Ok(())
 }
-

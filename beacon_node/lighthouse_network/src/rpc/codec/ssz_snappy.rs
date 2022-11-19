@@ -15,7 +15,11 @@ use std::io::{Read, Write};
 use std::marker::PhantomData;
 use std::sync::Arc;
 use tokio_util::codec::{Decoder, Encoder};
-use types::{BlobsSidecar, EthSpec, ForkContext, ForkName, SignedBeaconBlock, SignedBeaconBlockAltair, SignedBeaconBlockAndBlobsSidecar, SignedBeaconBlockBase, SignedBeaconBlockCapella, SignedBeaconBlockEip4844, SignedBeaconBlockMerge};
+use types::{
+    BlobsSidecar, EthSpec, ForkContext, ForkName, SignedBeaconBlock, SignedBeaconBlockAltair,
+    SignedBeaconBlockAndBlobsSidecar, SignedBeaconBlockBase, SignedBeaconBlockCapella,
+    SignedBeaconBlockEip4844, SignedBeaconBlockMerge,
+};
 use unsigned_varint::codec::Uvi;
 
 const CONTEXT_BYTES_LEN: usize = 4;
@@ -311,8 +315,11 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyOutboundCodec<TSpec> {
                 let _read_bytes = src.split_to(n as usize);
 
                 match self.protocol.version {
-                    Version::V1 => handle_v1_response(self.protocol.message_name, &decoded_buffer,
-                                                      &mut self.fork_name, ),
+                    Version::V1 => handle_v1_response(
+                        self.protocol.message_name,
+                        &decoded_buffer,
+                        &mut self.fork_name,
+                    ),
                     Version::V2 => handle_v2_response(
                         self.protocol.message_name,
                         &decoded_buffer,
@@ -482,11 +489,9 @@ fn handle_v1_request<T: EthSpec>(
         Protocol::BlobsByRange => Ok(Some(InboundRequest::BlobsByRange(
             BlobsByRangeRequest::from_ssz_bytes(decoded_buffer)?,
         ))),
-        Protocol::BlobsByRoot => Ok(Some(InboundRequest::BlobsByRoot(
-            BlobsByRootRequest{
-                block_roots: VariableList::from_ssz_bytes(decoded_buffer)?,
-            },
-        ))),
+        Protocol::BlobsByRoot => Ok(Some(InboundRequest::BlobsByRoot(BlobsByRootRequest {
+            block_roots: VariableList::from_ssz_bytes(decoded_buffer)?,
+        }))),
         Protocol::Ping => Ok(Some(InboundRequest::Ping(Ping {
             data: u64::from_ssz_bytes(decoded_buffer)?,
         }))),
@@ -576,7 +581,7 @@ fn handle_v1_response<T: EthSpec>(
                     "Invalid forkname for blobsbyrange".to_string(),
                 )),
             }
-        },
+        }
         Protocol::BlobsByRoot => {
             let fork_name = fork_name.take().ok_or_else(|| {
                 RPCError::ErrorResponse(
@@ -593,7 +598,7 @@ fn handle_v1_response<T: EthSpec>(
                     "Invalid forkname for blobsbyroot".to_string(),
                 )),
             }
-        },
+        }
         Protocol::Ping => Ok(Some(RPCResponse::Pong(Ping {
             data: u64::from_ssz_bytes(decoded_buffer)?,
         }))),
@@ -678,8 +683,12 @@ fn handle_v2_response<T: EthSpec>(
                     )?),
                 )))),
             },
-            Protocol::BlobsByRange => Err(RPCError::InvalidData("blobs by range via v2".to_string())),
-            Protocol::BlobsByRoot => Err(RPCError::InvalidData("blobs by range via v2".to_string())),
+            Protocol::BlobsByRange => {
+                Err(RPCError::InvalidData("blobs by range via v2".to_string()))
+            }
+            Protocol::BlobsByRoot => {
+                Err(RPCError::InvalidData("blobs by range via v2".to_string()))
+            }
             _ => Err(RPCError::ErrorResponse(
                 RPCResponseErrorCode::InvalidRequest,
                 "Invalid v2 request".to_string(),
