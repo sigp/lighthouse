@@ -793,7 +793,7 @@ impl<T: BeaconChainTypes> Worker<T> {
             | Err(e @ BlockError::BlockIsAlreadyKnown)
             | Err(e @ BlockError::RepeatProposal { .. })
             | Err(e @ BlockError::NotFinalizedDescendant { .. }) => {
-                debug!(self.log, "Could not verify block for gossip, ignoring the block";
+                debug!(self.log, "Could not verify block for gossip. Ignoring the block";
                             "error" => %e);
                 // Prevent recurring behaviour by penalizing the peer slightly.
                 self.gossip_penalize_peer(
@@ -805,7 +805,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                 return None;
             }
             Err(ref e @ BlockError::ExecutionPayloadError(ref epe)) if !epe.penalize_peer() => {
-                debug!(self.log, "Could not verify block for gossip, ignoring the block";
+                debug!(self.log, "Could not verify block for gossip. Ignoring the block";
                             "error" => %e);
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
                 return None;
@@ -827,7 +827,7 @@ impl<T: BeaconChainTypes> Worker<T> {
             // TODO(merge): reconsider peer scoring for this event.
             | Err(e @ BlockError::ParentExecutionPayloadInvalid { .. })
             | Err(e @ BlockError::GenesisBlock) => {
-                warn!(self.log, "Could not verify block for gossip, rejecting the block";
+                warn!(self.log, "Could not verify block for gossip. Rejecting the block";
                             "error" => %e);
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
                 self.gossip_penalize_peer(
