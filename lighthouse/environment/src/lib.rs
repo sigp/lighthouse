@@ -380,7 +380,7 @@ impl<E: EthSpec> Environment<E> {
     }
 
     /// Returns a `Context` where no "service" has been added to the logger output.
-    pub fn core_context(&mut self) -> RuntimeContext<E> {
+    pub fn core_context(&self) -> RuntimeContext<E> {
         RuntimeContext {
             executor: TaskExecutor::new(
                 Arc::downgrade(self.runtime()),
@@ -395,7 +395,7 @@ impl<E: EthSpec> Environment<E> {
     }
 
     /// Returns a `Context` where the `service_name` is added to the logger output.
-    pub fn service_context(&mut self, service_name: String) -> RuntimeContext<E> {
+    pub fn service_context(&self, service_name: String) -> RuntimeContext<E> {
         RuntimeContext {
             executor: TaskExecutor::new(
                 Arc::downgrade(self.runtime()),
