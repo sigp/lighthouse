@@ -16,8 +16,8 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use task_executor::TaskExecutor;
 use tokio::time::sleep;
 use types::{
-    Address, ChainSpec, EthSpec, ExecutionBlockHash, ExecutionPayload, FullPayload, Hash256,
-    MainnetEthSpec, PublicKeyBytes, Slot, Uint256,
+    Address, ChainSpec, EthSpec, ExecutionBlockHash, ExecutionPayload, ForkName, FullPayload,
+    Hash256, MainnetEthSpec, PublicKeyBytes, Slot, Uint256,
 };
 const EXECUTION_ENGINE_START_TIMEOUT: Duration = Duration::from_secs(20);
 
@@ -326,6 +326,10 @@ impl<E: GenericExecutionEngine> TestRig<E> {
                 proposer_index,
                 forkchoice_update_params,
                 builder_params,
+                // FIXME: think about how to test other forks
+                ForkName::Merge,
+                #[cfg(feature = "withdrawals")]
+                None,
                 &self.spec,
             )
             .await
@@ -450,6 +454,10 @@ impl<E: GenericExecutionEngine> TestRig<E> {
                 proposer_index,
                 forkchoice_update_params,
                 builder_params,
+                // FIXME: think about how to test other forks
+                ForkName::Merge,
+                #[cfg(feature = "withdrawals")]
+                None,
                 &self.spec,
             )
             .await

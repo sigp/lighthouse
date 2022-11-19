@@ -462,7 +462,7 @@ pub fn compute_timestamp_at_slot<T: EthSpec>(
 }
 
 /// FIXME: add link to this function once the spec is stable
-#[cfg(all(feature = "withdrawals", feature = "withdrawals-processing"))]
+#[cfg(feature = "withdrawals")]
 pub fn get_expected_withdrawals<T: EthSpec>(
     state: &BeaconState<T>,
     spec: &ChainSpec,
@@ -471,6 +471,10 @@ pub fn get_expected_withdrawals<T: EthSpec>(
     let mut withdrawal_index = state.next_withdrawal_index()?;
     let mut validator_index = state.next_withdrawal_validator_index()?;
     let mut withdrawals = vec![];
+
+    if cfg!(not(feature = "withdrawals-processing")) {
+        return Ok(withdrawals.into());
+    }
 
     for _ in 0..state.validators().len() {
         let validator = state.get_validator(validator_index as usize)?;

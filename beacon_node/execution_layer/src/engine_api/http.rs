@@ -7,6 +7,7 @@ use reqwest::header::CONTENT_TYPE;
 use sensitive_url::SensitiveUrl;
 use serde::de::DeserializeOwned;
 use serde_json::json;
+use tokio::sync::RwLock;
 
 use std::time::Duration;
 use types::EthSpec;
@@ -29,15 +30,18 @@ pub const ETH_SYNCING: &str = "eth_syncing";
 pub const ETH_SYNCING_TIMEOUT: Duration = Duration::from_secs(1);
 
 pub const ENGINE_NEW_PAYLOAD_V1: &str = "engine_newPayloadV1";
+pub const ENGINE_NEW_PAYLOAD_V2: &str = "engine_newPayloadV2";
 pub const ENGINE_NEW_PAYLOAD_TIMEOUT: Duration = Duration::from_secs(8);
 
 pub const ENGINE_GET_PAYLOAD_V1: &str = "engine_getPayloadV1";
+pub const ENGINE_GET_PAYLOAD_V2: &str = "engine_getPayloadV2";
 pub const ENGINE_GET_PAYLOAD_TIMEOUT: Duration = Duration::from_secs(2);
 
 pub const ENGINE_GET_BLOBS_BUNDLE_V1: &str = "engine_getBlobsBundleV1";
 pub const ENGINE_GET_BLOBS_BUNDLE_TIMEOUT: Duration = Duration::from_secs(2);
 
 pub const ENGINE_FORKCHOICE_UPDATED_V1: &str = "engine_forkchoiceUpdatedV1";
+pub const ENGINE_FORKCHOICE_UPDATED_V2: &str = "engine_forkchoiceUpdatedV2";
 pub const ENGINE_FORKCHOICE_UPDATED_TIMEOUT: Duration = Duration::from_secs(8);
 
 pub const ENGINE_EXCHANGE_TRANSITION_CONFIGURATION_V1: &str =
@@ -526,6 +530,7 @@ pub struct HttpJsonRpc {
     pub client: Client,
     pub url: SensitiveUrl,
     pub execution_timeout_multiplier: u32,
+    pub cached_supported_apis: RwLock<Option<SupportedApis>>,
     auth: Option<Auth>,
 }
 
@@ -538,6 +543,7 @@ impl HttpJsonRpc {
             client: Client::builder().build()?,
             url,
             execution_timeout_multiplier: execution_timeout_multiplier.unwrap_or(1),
+            cached_supported_apis: Default::default(),
             auth: None,
         })
     }
@@ -551,6 +557,7 @@ impl HttpJsonRpc {
             client: Client::builder().build()?,
             url,
             execution_timeout_multiplier: execution_timeout_multiplier.unwrap_or(1),
+            cached_supported_apis: Default::default(),
             auth: Some(auth),
         })
     }
@@ -671,7 +678,7 @@ impl HttpJsonRpc {
         &self,
         execution_payload: ExecutionPayload<T>,
     ) -> Result<PayloadStatusV1, Error> {
-        let params = json!([JsonExecutionPayload::from(execution_payload)]);
+        let params = json!([JsonExecutionPayloadV1::try_from(execution_payload)?]);
 
         let response: JsonPayloadStatusV1 = self
             .rpc_request(
@@ -684,13 +691,31 @@ impl HttpJsonRpc {
         Ok(response.into())
     }
 
+    pub async fn new_payload_v2<T: EthSpec>(
+        &self,
+        execution_payload: ExecutionPayload<T>,
+    ) -> Result<PayloadStatusV1, Error> {
+        let params = json!([JsonExecutionPayloadV2::try_from(execution_payload)?]);
+
+        let response: JsonPayloadStatusV1 = self
+            .rpc_request(
+                ENGINE_NEW_PAYLOAD_V2,
+                params,
+                ENGINE_NEW_PAYLOAD_TIMEOUT * self.execution_timeout_multiplier,
+            )
+            .await?;
+
+        Ok(response.into())
+    }
+
     pub async fn get_payload_v1<T: EthSpec>(
         &self,
+        fork_name: ForkName,
         payload_id: PayloadId,
     ) -> Result<ExecutionPayload<T>, Error> {
         let params = json!([JsonPayloadIdRequest::from(payload_id)]);
 
-        let response: JsonExecutionPayload<T> = self
+        let payload_v1: JsonExecutionPayloadV1<T> = self
             .rpc_request(
                 ENGINE_GET_PAYLOAD_V1,
                 params,
@@ -698,7 +723,25 @@ impl HttpJsonRpc {
             )
             .await?;
 
-        Ok(response.into())
+        JsonExecutionPayload::V1(payload_v1).try_into_execution_payload(fork_name)
+    }
+
+    pub async fn get_payload_v2<T: EthSpec>(
+        &self,
+        fork_name: ForkName,
+        payload_id: PayloadId,
+    ) -> Result<ExecutionPayload<T>, Error> {
+        let params = json!([JsonPayloadIdRequest::from(payload_id)]);
+
+        let payload_v2: JsonExecutionPayloadV2<T> = self
+            .rpc_request(
+                ENGINE_GET_PAYLOAD_V2,
+                params,
+                ENGINE_GET_PAYLOAD_TIMEOUT * self.execution_timeout_multiplier,
+            )
+            .await?;
+
+        JsonExecutionPayload::V2(payload_v2).try_into_execution_payload(fork_name)
     }
 
     pub async fn get_blobs_bundle_v1<T: EthSpec>(
@@ -720,17 +763,38 @@ impl HttpJsonRpc {
 
     pub async fn forkchoice_updated_v1(
         &self,
-        forkchoice_state: ForkChoiceState,
+        forkchoice_state: ForkchoiceState,
         payload_attributes: Option<PayloadAttributes>,
     ) -> Result<ForkchoiceUpdatedResponse, Error> {
         let params = json!([
-            JsonForkChoiceStateV1::from(forkchoice_state),
+            JsonForkchoiceStateV1::from(forkchoice_state),
             payload_attributes.map(JsonPayloadAttributes::from)
         ]);
 
         let response: JsonForkchoiceUpdatedV1Response = self
             .rpc_request(
                 ENGINE_FORKCHOICE_UPDATED_V1,
+                params,
+                ENGINE_FORKCHOICE_UPDATED_TIMEOUT * self.execution_timeout_multiplier,
+            )
+            .await?;
+
+        Ok(response.into())
+    }
+
+    pub async fn forkchoice_updated_v2(
+        &self,
+        forkchoice_state: ForkchoiceState,
+        payload_attributes: Option<PayloadAttributes>,
+    ) -> Result<ForkchoiceUpdatedResponse, Error> {
+        let params = json!([
+            JsonForkchoiceStateV1::from(forkchoice_state),
+            payload_attributes.map(JsonPayloadAttributes::from)
+        ]);
+
+        let response: JsonForkchoiceUpdatedV1Response = self
+            .rpc_request(
+                ENGINE_FORKCHOICE_UPDATED_V2,
                 params,
                 ENGINE_FORKCHOICE_UPDATED_TIMEOUT * self.execution_timeout_multiplier,
             )
@@ -756,6 +820,94 @@ impl HttpJsonRpc {
 
         Ok(response)
     }
+
+    // this is a stub as this method hasn't been defined yet
+    pub async fn supported_apis_v1(&self) -> Result<SupportedApis, Error> {
+        Ok(SupportedApis {
+            new_payload_v1: true,
+            new_payload_v2: cfg!(all(feature = "withdrawals", not(test))),
+            forkchoice_updated_v1: true,
+            forkchoice_updated_v2: cfg!(all(feature = "withdrawals", not(test))),
+            get_payload_v1: true,
+            get_payload_v2: cfg!(all(feature = "withdrawals", not(test))),
+            exchange_transition_configuration_v1: true,
+        })
+    }
+
+    pub async fn set_cached_supported_apis(&self, supported_apis: SupportedApis) {
+        *self.cached_supported_apis.write().await = Some(supported_apis);
+    }
+
+    pub async fn get_cached_supported_apis(&self) -> Result<SupportedApis, Error> {
+        let cached_opt = *self.cached_supported_apis.read().await;
+        if let Some(supported_apis) = cached_opt {
+            Ok(supported_apis)
+        } else {
+            let supported_apis = self.supported_apis_v1().await?;
+            self.set_cached_supported_apis(supported_apis).await;
+            Ok(supported_apis)
+        }
+    }
+
+    // automatically selects the latest version of
+    // new_payload that the execution engine supports
+    pub async fn new_payload<T: EthSpec>(
+        &self,
+        execution_payload: ExecutionPayload<T>,
+    ) -> Result<PayloadStatusV1, Error> {
+        let supported_apis = self.get_cached_supported_apis().await?;
+        if supported_apis.new_payload_v2 {
+            // FIXME: I haven't thought at all about how to handle 4844..
+            self.new_payload_v2(execution_payload).await
+        } else if supported_apis.new_payload_v1 {
+            self.new_payload_v1(execution_payload).await
+        } else {
+            Err(Error::RequiredMethodUnsupported("engine_newPayload"))
+        }
+    }
+
+    // automatically selects the latest version of
+    // get_payload that the execution engine supports
+    pub async fn get_payload<T: EthSpec>(
+        &self,
+        fork_name: ForkName,
+        payload_id: PayloadId,
+    ) -> Result<ExecutionPayload<T>, Error> {
+        let supported_apis = self.get_cached_supported_apis().await?;
+        if supported_apis.get_payload_v2 {
+            // FIXME: I haven't thought at all about how to handle 4844..
+            self.get_payload_v2(fork_name, payload_id).await
+        } else if supported_apis.new_payload_v1 {
+            self.get_payload_v1(fork_name, payload_id).await
+        } else {
+            Err(Error::RequiredMethodUnsupported("engine_getPayload"))
+        }
+    }
+
+    // automatically selects the latest version of
+    // forkchoice_updated that the execution engine supports
+    pub async fn forkchoice_updated(
+        &self,
+        forkchoice_state: ForkchoiceState,
+        payload_attributes: Option<PayloadAttributes>,
+    ) -> Result<ForkchoiceUpdatedResponse, Error> {
+        let supported_apis = self.get_cached_supported_apis().await?;
+        if supported_apis.forkchoice_updated_v2 {
+            // FIXME: I haven't thought at all about how to handle 4844..
+            self.forkchoice_updated_v2(forkchoice_state, payload_attributes)
+                .await
+        } else if supported_apis.forkchoice_updated_v1 {
+            self.forkchoice_updated_v1(
+                forkchoice_state,
+                payload_attributes
+                    .map(|pa| pa.downgrade_to_v1())
+                    .transpose()?,
+            )
+            .await
+        } else {
+            Err(Error::RequiredMethodUnsupported("engine_forkchoiceUpdated"))
+        }
+    }
 }
 
 #[cfg(test)]
@@ -767,8 +919,8 @@ mod test {
     use std::str::FromStr;
     use std::sync::Arc;
     use types::{
-        AbstractExecPayload, ExecutionPayloadMerge, ForkName, FullPayload, MainnetEthSpec,
-        Transactions, Unsigned, VariableList,
+        ExecutionPayloadMerge, ForkName, FullPayload, MainnetEthSpec, Transactions, Unsigned,
+        VariableList,
     };
 
     struct Tester {
@@ -1052,7 +1204,7 @@ mod test {
                 |client| async move {
                     let _ = client
                         .forkchoice_updated_v1(
-                            ForkChoiceState {
+                            ForkchoiceState {
                                 head_block_hash: ExecutionBlockHash::repeat_byte(1),
                                 safe_block_hash: ExecutionBlockHash::repeat_byte(1),
                                 finalized_block_hash: ExecutionBlockHash::zero(),
@@ -1087,7 +1239,7 @@ mod test {
             .assert_auth_failure(|client| async move {
                 client
                     .forkchoice_updated_v1(
-                        ForkChoiceState {
+                        ForkchoiceState {
                             head_block_hash: ExecutionBlockHash::repeat_byte(1),
                             safe_block_hash: ExecutionBlockHash::repeat_byte(1),
                             finalized_block_hash: ExecutionBlockHash::zero(),
@@ -1108,7 +1260,9 @@ mod test {
         Tester::new(true)
             .assert_request_equals(
                 |client| async move {
-                    let _ = client.get_payload_v1::<MainnetEthSpec>([42; 8]).await;
+                    let _ = client
+                        .get_payload_v1::<MainnetEthSpec>(ForkName::Merge, [42; 8])
+                        .await;
                 },
                 json!({
                     "id": STATIC_ID,
@@ -1121,7 +1275,9 @@ mod test {
 
         Tester::new(false)
             .assert_auth_failure(|client| async move {
-                client.get_payload_v1::<MainnetEthSpec>([42; 8]).await
+                client
+                    .get_payload_v1::<MainnetEthSpec>(ForkName::Merge, [42; 8])
+                    .await
             })
             .await;
     }
@@ -1209,7 +1365,7 @@ mod test {
                 |client| async move {
                     let _ = client
                         .forkchoice_updated_v1(
-                            ForkChoiceState {
+                            ForkchoiceState {
                                 head_block_hash: ExecutionBlockHash::repeat_byte(0),
                                 safe_block_hash: ExecutionBlockHash::repeat_byte(0),
                                 finalized_block_hash: ExecutionBlockHash::repeat_byte(1),
@@ -1235,7 +1391,7 @@ mod test {
             .assert_auth_failure(|client| async move {
                 client
                     .forkchoice_updated_v1(
-                        ForkChoiceState {
+                        ForkchoiceState {
                             head_block_hash: ExecutionBlockHash::repeat_byte(0),
                             safe_block_hash: ExecutionBlockHash::repeat_byte(0),
                             finalized_block_hash: ExecutionBlockHash::repeat_byte(1),
@@ -1274,7 +1430,7 @@ mod test {
                 |client| async move {
                     let _ = client
                         .forkchoice_updated_v1(
-                            ForkChoiceState {
+                            ForkchoiceState {
                                 head_block_hash: ExecutionBlockHash::from_str("0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a").unwrap(),
                                 safe_block_hash: ExecutionBlockHash::from_str("0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a").unwrap(),
                                 finalized_block_hash: ExecutionBlockHash::zero(),
@@ -1321,7 +1477,7 @@ mod test {
                 |client| async move {
                     let response = client
                         .forkchoice_updated_v1(
-                            ForkChoiceState {
+                            ForkchoiceState {
                                 head_block_hash: ExecutionBlockHash::from_str("0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a").unwrap(),
                                 safe_block_hash: ExecutionBlockHash::from_str("0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a").unwrap(),
                                 finalized_block_hash: ExecutionBlockHash::zero(),
@@ -1350,7 +1506,7 @@ mod test {
                 // engine_getPayloadV1 REQUEST validation
                 |client| async move {
                     let _ = client
-                        .get_payload_v1::<MainnetEthSpec>(str_to_payload_id("0xa247243752eb10b4"))
+                        .get_payload_v1::<MainnetEthSpec>(ForkName::Merge,str_to_payload_id("0xa247243752eb10b4"))
                         .await;
                 },
                 json!({
@@ -1385,7 +1541,7 @@ mod test {
                 })],
                 |client| async move {
                     let payload = client
-                        .get_payload_v1::<MainnetEthSpec>(str_to_payload_id("0xa247243752eb10b4"))
+                        .get_payload_v1::<MainnetEthSpec>(ForkName::Merge,str_to_payload_id("0xa247243752eb10b4"))
                         .await
                         .unwrap();
 
@@ -1468,7 +1624,7 @@ mod test {
                 })],
                 |client| async move {
                     let response = client
-                        .new_payload_v1::<MainnetEthSpec>(FullPayload::default_at_fork(ForkName::Merge).into())
+                        .new_payload_v1::<MainnetEthSpec>(ExecutionPayload::Merge(ExecutionPayloadMerge::default()))
                         .await
                         .unwrap();
 
@@ -1487,7 +1643,7 @@ mod test {
                 |client| async move {
                     let _ = client
                         .forkchoice_updated_v1(
-                            ForkChoiceState {
+                            ForkchoiceState {
                                 head_block_hash: ExecutionBlockHash::from_str("0x3559e851470f6e7bbed1db474980683e8c315bfce99b2a6ef47c057c04de7858").unwrap(),
                                 safe_block_hash: ExecutionBlockHash::from_str("0x3559e851470f6e7bbed1db474980683e8c315bfce99b2a6ef47c057c04de7858").unwrap(),
                                 finalized_block_hash: ExecutionBlockHash::from_str("0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a").unwrap(),
@@ -1526,7 +1682,7 @@ mod test {
                 |client| async move {
                     let response = client
                         .forkchoice_updated_v1(
-                            ForkChoiceState {
+                            ForkchoiceState {
                                 head_block_hash: ExecutionBlockHash::from_str("0x3559e851470f6e7bbed1db474980683e8c315bfce99b2a6ef47c057c04de7858").unwrap(),
                                 safe_block_hash: ExecutionBlockHash::from_str("0x3559e851470f6e7bbed1db474980683e8c315bfce99b2a6ef47c057c04de7858").unwrap(),
                                 finalized_block_hash: ExecutionBlockHash::from_str("0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a").unwrap(),
