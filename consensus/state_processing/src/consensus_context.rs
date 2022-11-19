@@ -1,4 +1,5 @@
 use std::marker::PhantomData;
+use std::sync::Arc;
 use tree_hash::TreeHash;
 use types::{
     AbstractExecPayload, BeaconState, BeaconStateError, BlobsSidecar, ChainSpec, EthSpec,
@@ -14,12 +15,11 @@ pub struct ConsensusContext<T: EthSpec> {
     /// Block root of the block at `slot`.
     current_block_root: Option<Hash256>,
     /// Should only be populated if the sidecar has not been validated.
-    blobs_sidecar: Option<Box<BlobsSidecar<T>>>,
+    blobs_sidecar: Option<Arc<BlobsSidecar<T>>>,
     /// Whether `validate_blobs_sidecar` has successfully passed.
     blobs_sidecar_validated: bool,
     /// Whether `verify_kzg_commitments_against_transactions` has successfully passed.
     blobs_verified_vs_txs: bool,
-    _phantom: PhantomData<T>,
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -43,7 +43,6 @@ impl<T: EthSpec> ConsensusContext<T> {
             blobs_sidecar: None,
             blobs_sidecar_validated: false,
             blobs_verified_vs_txs: false,
-            _phantom: PhantomData,
         }
     }
 
@@ -115,5 +114,10 @@ impl<T: EthSpec> ConsensusContext<T> {
 
     pub fn blobs_verified_vs_txs(&self) -> bool {
         self.blobs_verified_vs_txs
+    }
+
+    pub fn set_blobs_sidecar(mut self, blobs_sidecar: Option<Arc<BlobsSidecar<T>>>) -> Self {
+        self.blobs_sidecar = blobs_sidecar;
+        self
     }
 }

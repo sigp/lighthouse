@@ -625,6 +625,7 @@ type PayloadVerificationHandle<E> =
 /// `BeaconChain` immediately after it is instantiated.
 pub struct ExecutionPendingBlock<T: BeaconChainTypes> {
     pub block: Arc<SignedBeaconBlock<T::EthSpec>>,
+    pub blobs: Option<Box<BlobsSidecar<T::EthSpec>>>,
     pub block_root: Hash256,
     pub state: BeaconState<T::EthSpec>,
     pub parent_block: SignedBeaconBlock<T::EthSpec, BlindedPayload<T::EthSpec>>,
@@ -670,6 +671,7 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
     /// Returns an error if the block is invalid, or if the block was unable to be verified.
     pub fn new(
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
+        blobs: Option<Arc<BlobsSidecar<T::EthSpec>>>,
         chain: &BeaconChain<T>,
     ) -> Result<Self, BlockError<T::EthSpec>> {
         // If the block is valid for gossip we don't supply it to the slasher here because
@@ -677,7 +679,7 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         // it to the slasher if an error occurs, because that's the end of this block's journey,
         // and it could be a repeat proposal (a likely cause for slashing!).
         let header = block.signed_block_header();
-        Self::new_without_slasher_checks(block, chain).map_err(|e| {
+        Self::new_without_slasher_checks(block, blobs, chain).map_err(|e| {
             process_block_slash_info(chain, BlockSlashInfo::from_early_error(header, e))
         })
     }
@@ -685,9 +687,9 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
     /// As for new, but doesn't pass the block to the slasher.
     fn new_without_slasher_checks(
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
+        blobs: Option<Arc<BlobsSidecar<T::EthSpec>>>,
         chain: &BeaconChain<T>,
     ) -> Result<Self, BlockError<T::EthSpec>> {
-        let block = block.block();
         // Ensure the block is the correct structure for the fork at `block.slot()`.
         block
             .fork_name(&chain.spec)
@@ -881,18 +883,20 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         // Validate the block's execution_payload (if any).
         validate_execution_payload_for_gossip(&parent_block, block.message(), chain)?;
 
-        //FIXME(sean)
-        // if let Some(blobs_sidecar) = block.blobs() {
-        //     validate_blob_for_gossip(blobs_sidecar, chain)?;
-        // }
+        if let Some(blobs_sidecar) = blobs.as_ref() {
+            validate_blob_for_gossip(blobs_sidecar, chain)?;
+            //FIXME(sean) validate blobs sidecar
+        }
 
         // Having checked the proposer index and the block root we can cache them.
         let consensus_context = ConsensusContext::new(block.slot())
             .set_current_block_root(block_root)
-            .set_proposer_index(block.message().proposer_index());
+            .set_proposer_index(block.message().proposer_index())
+            //FIXME(sean) set blobs sidecar validation results
+            .set_blobs_sidecar(blobs);
 
         Ok(Self {
-            block: block,
+            block,
             block_root,
             parent,
             consensus_context,
@@ -1054,6 +1058,7 @@ impl<T: BeaconChainTypes> IntoExecutionPendingBlock<T> for SignatureVerifiedBloc
 
         ExecutionPendingBlock::from_signature_verified_components(
             block,
+            self.consensus_context.blobs(),
             block_root,
             parent,
             self.consensus_context,
@@ -1084,10 +1089,7 @@ impl<T: BeaconChainTypes> IntoExecutionPendingBlock<T> for Arc<SignedBeaconBlock
     }
 
     fn block(&self) -> &SignedBeaconBlock<T::EthSpec> {
-        match self {
-            Self::Block(block) => block,
-            Self::BlockAndBlobs(block) => &block.beacon_block,
-        }
+        self
     }
 }
 
@@ -1101,13 +1103,12 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
     /// Returns an error if the block is invalid, or if the block was unable to be verified.
     pub fn from_signature_verified_components(
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
+        blobs: Option<Box<BlobsSidecar<T::EthSpec>>>,
         block_root: Hash256,
         parent: PreProcessingSnapshot<T::EthSpec>,
         mut consensus_context: ConsensusContext<T::EthSpec>,
         chain: &Arc<BeaconChain<T>>,
     ) -> Result<Self, BlockError<T::EthSpec>> {
-        let block = block.block();
-
         if let Some(parent) = chain
             .canonical_head
             .fork_choice_read_lock()
@@ -1437,8 +1438,11 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
             });
         }
 
+        //FIXME(sean) validate blobs sidecar
+
         Ok(Self {
             block,
+            blobs,
             block_root,
             state,
             parent_block: parent.beacon_block,
@@ -1752,7 +1756,7 @@ fn load_parent<T: BeaconChainTypes>(
                 pre_state: parent_state,
                 beacon_state_root: Some(parent_state_root),
             },
-            beacon_block,
+            block,
         ))
     };
 

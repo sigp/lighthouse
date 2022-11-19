@@ -658,6 +658,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         peer_id: PeerId,
         peer_client: Client,
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
+        blobs: Option<Arc<BlobsSidecar<T::EthSpec>>>,
         reprocess_tx: mpsc::Sender<ReprocessQueueMessage<T>>,
         duplicate_cache: DuplicateCache,
         seen_duration: Duration,
@@ -668,6 +669,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                 peer_id,
                 peer_client,
                 block,
+                blobs,
                 reprocess_tx.clone(),
                 seen_duration,
             )
@@ -705,6 +707,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         peer_id: PeerId,
         peer_client: Client,
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
+        blobs: Option<Arc<BlobsSidecar<T::EthSpec>>>,
         reprocess_tx: mpsc::Sender<ReprocessQueueMessage<T>>,
         seen_duration: Duration,
     ) -> Option<GossipVerifiedBlock<T>> {
@@ -719,7 +722,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         let verification_result = self
             .chain
             .clone()
-            .verify_block_for_gossip(block.clone())
+            .verify_block_for_gossip(block.clone(), blobs)
             .await;
 
         let block_root = if let Ok(verified_block) = &verification_result {

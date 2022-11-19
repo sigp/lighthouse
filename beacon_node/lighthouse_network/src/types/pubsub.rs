@@ -287,7 +287,7 @@ impl<T: EthSpec> std::fmt::Display for PubsubMessage<T> {
             PubsubMessage::BeaconBlockAndBlobsSidecars(block_and_blob) => write!(
                 f,
                 "Beacon block and Blobs Sidecar: slot: {}, blobs: {}",
-                block_and_blob.beacon_block.message.slot,
+                block_and_blob.beacon_block.message().slot(),
                 block_and_blob.blobs_sidecar.blobs.len(),
             ),
             PubsubMessage::AggregateAndProofAttestation(att) => write!(

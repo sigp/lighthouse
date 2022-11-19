@@ -4,7 +4,9 @@ use crate::status::ToStatusMessage;
 use crate::sync::SyncMessage;
 use beacon_chain::{BeaconChainError, BeaconChainTypes, HistoricalBlockError, WhenSlotSkipped};
 use itertools::process_results;
-use lighthouse_network::rpc::methods::{BlobsByRangeRequest, MAX_REQUEST_BLOBS_SIDECARS};
+use lighthouse_network::rpc::methods::{
+    BlobsByRangeRequest, BlobsByRootRequest, MAX_REQUEST_BLOBS_SIDECARS,
+};
 use lighthouse_network::rpc::StatusMessage;
 use lighthouse_network::rpc::*;
 use lighthouse_network::{PeerId, PeerRequestId, ReportSource, Response, SyncInfo};
@@ -12,7 +14,7 @@ use slog::{debug, error};
 use slot_clock::SlotClock;
 use std::sync::Arc;
 use task_executor::TaskExecutor;
-use types::{Epoch, EthSpec, Hash256, Slot};
+use types::{Epoch, EthSpec, Hash256, SignedBeaconBlockAndBlobsSidecar, Slot};
 
 use super::Worker;
 
@@ -202,6 +204,106 @@ impl<T: BeaconChainTypes> Worker<T> {
                 drop(send_on_drop);
             },
             "load_blocks_by_root_blocks",
+        )
+    }
+    /// Handle a `BlobsByRoot` request from the peer.
+    pub fn handle_blobs_by_root_request(
+        self,
+        executor: TaskExecutor,
+        send_on_drop: SendOnDrop,
+        peer_id: PeerId,
+        request_id: PeerRequestId,
+        request: BlobsByRootRequest,
+    ) {
+        // Fetching blocks is async because it may have to hit the execution layer for payloads.
+        executor.spawn(
+            async move {
+                let mut send_block_count = 0;
+                let mut send_response = true;
+                for root in request.block_roots.iter() {
+                    match self
+                        .chain
+                        .get_block_and_blobs_checking_early_attester_cache(root)
+                        .await
+                    {
+                        Ok((Some(block), Some(blobs))) => {
+                            self.send_response(
+                                peer_id,
+                                Response::BlobsByRoot(Some(Arc::new(SignedBeaconBlockAndBlobsSidecar {
+                                    beacon_block: block,
+                                    blobs_sidecar: blobs,
+                                }))),
+                                request_id,
+                            );
+                            send_block_count += 1;
+                        }
+                        Ok((None, None)) => {
+                            debug!(
+                                self.log,
+                                "Peer requested unknown block and blobs";
+                                "peer" => %peer_id,
+                                "request_root" => ?root
+                            );
+                        }
+                        Ok((Some(_), None)) => {
+                            debug!(
+                                self.log,
+                                "Peer requested block and blob, but no blob found";
+                                "peer" => %peer_id,
+                                "request_root" => ?root
+                            );
+                        }
+                        Ok((None, Some(_))) => {
+                            debug!(
+                                self.log,
+                                "Peer requested block and blob, but no block found";
+                                "peer" => %peer_id,
+                                "request_root" => ?root
+                            );
+                        }
+                        Err(BeaconChainError::BlockHashMissingFromExecutionLayer(_)) => {
+                            debug!(
+                                self.log,
+                                "Failed to fetch execution payload for block and blobs by root request";
+                                "block_root" => ?root,
+                                "reason" => "execution layer not synced",
+                            );
+                            // send the stream terminator
+                            self.send_error_response(
+                                peer_id,
+                                RPCResponseErrorCode::ResourceUnavailable,
+                                "Execution layer not synced".into(),
+                                request_id,
+                            );
+                            send_response = false;
+                            break;
+                        }
+                        Err(e) => {
+                            debug!(
+                                self.log,
+                                "Error fetching block for peer";
+                                "peer" => %peer_id,
+                                "request_root" => ?root,
+                                "error" => ?e,
+                            );
+                        }
+                    }
+                }
+                debug!(
+                    self.log,
+                    "Received BlobsByRoot Request";
+                    "peer" => %peer_id,
+                    "requested" => request.block_roots.len(),
+                    "returned" => %send_block_count
+                );
+
+                // send stream termination
+                if send_response {
+                    self.send_response(peer_id, Response::BlocksByRoot(None), request_id);
+                }
+                drop(send_on_drop);
+            },
+            "load_blobs_by_root_blocks",
         )
     }
 

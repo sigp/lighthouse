@@ -915,6 +915,28 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(self.get_block(block_root).await?.map(Arc::new))
     }
 
+    pub async fn get_block_and_blobs_checking_early_attester_cache(
+        &self,
+        block_root: &Hash256,
+    ) -> Result<
+        (
+            Option<Arc<SignedBeaconBlock<T::EthSpec>>>,
+            Option<Arc<BlobsSidecar<T::EthSpec>>>,
+        ),
+        Error,
+    > {
+        if let (Some(block), Some(blobs)) = (
+            self.early_attester_cache.get_block(*block_root),
+            self.early_attester_cache.get_blobs(*block_root),
+        ) {
+            return Ok((Some(block), Some(blobs)));
+        }
+        Ok((
+            self.get_block(block_root).await?.map(Arc::new),
+            self.get_blobs(block_root).await?.map(Arc::new),
+        ))
+    }
+
     /// Returns the block at the given root, if any.
     ///
     /// ## Errors
@@ -923,7 +945,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub async fn get_block(
         &self,
         block_root: &Hash256,
-    ) -> Result<Option<Arc<SignedBeaconBlock<T::EthSpec>>>, Error> {
+    ) -> Result<Option<SignedBeaconBlock<T::EthSpec>>, Error> {
         // Load block from database, returning immediately if we have the full block w payload
         // stored.
         let blinded_block = match self.store.try_get_full_block(block_root)? {
@@ -979,6 +1001,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .try_into_full_block(Some(execution_payload))
             .ok_or(Error::AddPayloadLogicError)
             .map(Some)
+    }
+
+    /// Returns the blobs at the given root, if any.
+    ///
+    /// ## Errors
+    ///
+    /// May return a database error.
+    pub async fn get_blobs(
+        &self,
+        block_root: &Hash256,
+    ) -> Result<Option<BlobsSidecar<T::EthSpec>>, Error> {
+        Ok(self.store.get_blobs(block_root)?)
     }
 
     pub fn get_blinded_block(
@@ -2338,7 +2372,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             let last_index = filtered_chain_segment
                 .iter()
                 .position(|(_root, block)| {
-                    block.block().slot().epoch(T::EthSpec::slots_per_epoch()) > start_epoch
+                    block.slot().epoch(T::EthSpec::slots_per_epoch()) > start_epoch
                 })
                 .unwrap_or(filtered_chain_segment.len());
 
@@ -2405,14 +2439,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub async fn verify_block_for_gossip(
         self: &Arc<Self>,
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
+        blobs: Option<Arc<BlobsSidecar<T::EthSpec>>>,
     ) -> Result<GossipVerifiedBlock<T>, BlockError<T::EthSpec>> {
         let chain = self.clone();
         self.task_executor
             .clone()
             .spawn_blocking_handle(
                 move || {
-                    let slot = block.block().slot();
-                    let graffiti_string = block.block().message().body().graffiti().as_utf8_lossy();
+                    let slot = block.slot();
+                    let graffiti_string = block.message().body().graffiti().as_utf8_lossy();
 
                     match GossipVerifiedBlock::new(block, &chain) {
                         Ok(verified) => {
@@ -2490,7 +2525,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     self.log,
                     "Beacon block imported";
                     "block_root" => ?block_root,
-                    "block_slot" => slot,
+                     "block_slot" => %block.slot(),
                 );
 
                 // Increment the Prometheus counter for block processing successes.
@@ -2540,6 +2575,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ) -> Result<Hash256, BlockError<T::EthSpec>> {
         let ExecutionPendingBlock {
             block,
+            blobs,
             block_root,
             state,
             parent_block,
@@ -2592,6 +2628,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 move || {
                     chain.import_block(
                         block,
+                        blobs,
                         block_root,
                         state,
                         confirmed_state_roots,
@@ -2616,7 +2653,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     #[allow(clippy::too_many_arguments)]
     fn import_block(
         &self,
-        block: Arc<SignedBeaconBlock<T::EthSpec>>,
+        signed_block: Arc<SignedBeaconBlock<T::EthSpec>>,
+        blobs: Option<Arc<BlobsSidecar<T::EthSpec>>>,
         block_root: Hash256,
         mut state: BeaconState<T::EthSpec>,
         confirmed_state_roots: Vec<Hash256>,
@@ -2625,7 +2663,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         parent_block: SignedBlindedBeaconBlock<T::EthSpec>,
         parent_eth1_finalization_data: Eth1FinalizationData,
     ) -> Result<Hash256, BlockError<T::EthSpec>> {
-        let signed_block = block.block();
         let current_slot = self.slot()?;
         let current_epoch = current_slot.epoch(T::EthSpec::slots_per_epoch());
 
@@ -2867,6 +2904,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         if let Err(e) = self.early_attester_cache.add_head_block(
                             block_root,
                             signed_block.clone(),
+                            blobs.clone(),
                             proto_block,
                             &state,
                             &self.spec,
@@ -2959,7 +2997,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         ops.push(StoreOp::PutBlock(block_root, signed_block.clone()));
         ops.push(StoreOp::PutState(block.state_root(), &state));
 
-        if let Some(blobs) = block.blobs() {
+        if let Some(blobs) = blobs {
             ops.push(StoreOp::PutBlobs(block_root, blobs));
         };
         let txn_lock = self.store.hot_db.begin_rw_transaction();

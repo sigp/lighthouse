@@ -1541,6 +1541,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                         peer_id,
                         peer_client,
                         block,
+                        None,
                         work_reprocessing_tx,
                         duplicate_cache,
                         seen_timestamp,
@@ -1558,11 +1559,14 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                 seen_timestamp,
             } => task_spawner.spawn_async(async move {
                 worker
-                    .process_gossip_block_and_blobs_sidecar(
+                    .process_gossip_block(
                         message_id,
                         peer_id,
                         peer_client,
-                        block_and_blobs,
+                        block_and_blobs.beacon_block.clone(),
+                        Some(block_and_blobs.blobs_sidecar.clone()),
+                        work_reprocessing_tx,
+                        duplicate_cache,
                         seen_timestamp,
                     )
                     .await
@@ -1712,6 +1716,20 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                 request,
             } => task_spawner.spawn_blocking_with_manual_send_idle(move |send_idle_on_drop| {
                 worker.handle_blobs_by_range_request(
+                    sub_executor,
+                    send_idle_on_drop,
+                    peer_id,
+                    request_id,
+                    request,
+                )
+            }),
+
+            Work::BlobsByRootsRequest {
+                peer_id,
+                request_id,
+                request,
+            } => task_spawner.spawn_blocking_with_manual_send_idle(move |send_idle_on_drop| {
+                worker.handle_blocks_by_root_request(
                     sub_executor,
                     send_idle_on_drop,
                     peer_id,

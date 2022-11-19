@@ -68,16 +68,6 @@ pub const SLOT_IMPORT_TOLERANCE: usize = 32;
 
 pub type Id = u32;
 
-pub struct SeansBlock {}
-
-pub struct SeansBlob {}
-
-/// This is the one that has them both and goes to range.
-pub struct SeansBlockBlob {
-    block: SeansBlock,
-    blob: SeansBlob,
-}
-
 /// Id of rpc requests sent by sync to the network.
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum RequestId {
