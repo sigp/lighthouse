@@ -2148,7 +2148,7 @@ async fn weak_subjectivity_sync() {
                 full_block.canonical_root(),
                 Arc::new(full_block),
                 CountUnrealized::True,
-                false
+                false,
             )
             .await
             .unwrap();
