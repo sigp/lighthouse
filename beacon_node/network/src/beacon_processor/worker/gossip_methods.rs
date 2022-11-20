@@ -659,6 +659,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         reprocess_tx: mpsc::Sender<ReprocessQueueMessage<T>>,
         duplicate_cache: DuplicateCache,
         seen_duration: Duration,
+        is_syncing_finalized: bool,
     ) {
         if let Some(gossip_verified_block) = self
             .process_gossip_unverified_block(
@@ -678,6 +679,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     gossip_verified_block,
                     reprocess_tx,
                     seen_duration,
+                    is_syncing_finalized,
                 )
                 .await;
                 // Drop the handle to remove the entry from the cache
@@ -928,13 +930,19 @@ impl<T: BeaconChainTypes> Worker<T> {
         reprocess_tx: mpsc::Sender<ReprocessQueueMessage<T>>,
         // This value is not used presently, but it might come in handy for debugging.
         _seen_duration: Duration,
+        is_syncing_finalized: bool,
     ) {
         let block: Arc<_> = verified_block.block.clone();
         let block_root = verified_block.block_root;
 
         match self
             .chain
-            .process_block(block_root, verified_block, CountUnrealized::True)
+            .process_block(
+                block_root,
+                verified_block,
+                CountUnrealized::True,
+                is_syncing_finalized,
+            )
             .await
         {
             Ok(block_root) => {

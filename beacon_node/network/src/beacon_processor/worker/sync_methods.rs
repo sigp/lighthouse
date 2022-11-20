@@ -48,6 +48,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         reprocess_tx: mpsc::Sender<ReprocessQueueMessage<T>>,
         duplicate_cache: DuplicateCache,
         should_process: bool,
+        is_syncing_finalized: bool,
     ) {
         if !should_process {
             // Sync handles these results
@@ -85,7 +86,12 @@ impl<T: BeaconChainTypes> Worker<T> {
         let slot = block.slot();
         let result = self
             .chain
-            .process_block(block_root, block, CountUnrealized::True)
+            .process_block(
+                block_root,
+                block,
+                CountUnrealized::True,
+                is_syncing_finalized,
+            )
             .await;
 
         metrics::inc_counter(&metrics::BEACON_PROCESSOR_RPC_BLOCK_IMPORTED_TOTAL);
@@ -127,6 +133,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         &self,
         sync_type: ChainSegmentProcessId,
         downloaded_blocks: Vec<Arc<SignedBeaconBlock<T::EthSpec>>>,
+        is_syncing_finalized: bool,
     ) {
         let result = match sync_type {
             // this a request from the range sync
@@ -136,7 +143,11 @@ impl<T: BeaconChainTypes> Worker<T> {
                 let sent_blocks = downloaded_blocks.len();
 
                 match self
-                    .process_blocks(downloaded_blocks.iter(), count_unrealized)
+                    .process_blocks(
+                        downloaded_blocks.iter(),
+                        count_unrealized,
+                        is_syncing_finalized,
+                    )
                     .await
                 {
                     (_, Ok(_)) => {
@@ -215,7 +226,11 @@ impl<T: BeaconChainTypes> Worker<T> {
                 // parent blocks are ordered from highest slot to lowest, so we need to process in
                 // reverse
                 match self
-                    .process_blocks(downloaded_blocks.iter().rev(), CountUnrealized::True)
+                    .process_blocks(
+                        downloaded_blocks.iter().rev(),
+                        CountUnrealized::True,
+                        is_syncing_finalized,
+                    )
                     .await
                 {
                     (imported_blocks, Err(e)) => {
@@ -246,11 +261,12 @@ impl<T: BeaconChainTypes> Worker<T> {
         &self,
         downloaded_blocks: impl Iterator<Item = &'a Arc<SignedBeaconBlock<T::EthSpec>>>,
         count_unrealized: CountUnrealized,
+        is_syncing_finalized: bool,
     ) -> (usize, Result<(), ChainSegmentFailed>) {
         let blocks: Vec<Arc<_>> = downloaded_blocks.cloned().collect();
         match self
             .chain
-            .process_chain_segment(blocks, count_unrealized)
+            .process_chain_segment(blocks, count_unrealized, is_syncing_finalized)
             .await
         {
             ChainSegmentResult::Successful { imported_blocks } => {

@@ -1336,6 +1336,12 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
             &[work.str_id()],
         );
 
+        let is_syncing_finalized = self
+            .network_globals
+            .sync_state
+            .read()
+            .is_syncing_finalized();
+
         // Wrap the `idle_tx` in a struct that will fire the idle message whenever it is dropped.
         //
         // This helps ensure that the worker is always freed in the case of an early exit or panic.
@@ -1453,6 +1459,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                         work_reprocessing_tx,
                         duplicate_cache,
                         seen_timestamp,
+                        is_syncing_finalized,
                     )
                     .await
             }),
@@ -1468,6 +1475,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                 *block,
                 work_reprocessing_tx,
                 seen_timestamp,
+                is_syncing_finalized,
             )),
             /*
              * Voluntary exits received on gossip.
@@ -1550,12 +1558,16 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                 work_reprocessing_tx,
                 duplicate_cache,
                 should_process,
+                is_syncing_finalized,
             )),
             /*
              * Verification for a chain segment (multiple blocks).
              */
-            Work::ChainSegment { process_id, blocks } => task_spawner
-                .spawn_async(async move { worker.process_chain_segment(process_id, blocks).await }),
+            Work::ChainSegment { process_id, blocks } => task_spawner.spawn_async(async move {
+                worker
+                    .process_chain_segment(process_id, blocks, is_syncing_finalized)
+                    .await
+            }),
             /*
              * Processing of Status Messages.
              */

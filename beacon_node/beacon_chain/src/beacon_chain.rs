@@ -2341,6 +2341,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self: &Arc<Self>,
         chain_segment: Vec<Arc<SignedBeaconBlock<T::EthSpec>>>,
         count_unrealized: CountUnrealized,
+        is_syncing_finalized: bool,
     ) -> ChainSegmentResult<T::EthSpec> {
         let mut imported_blocks = 0;
 
@@ -2409,6 +2410,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         signature_verified_block.block_root(),
                         signature_verified_block,
                         count_unrealized,
+                        is_syncing_finalized,
                     )
                     .await
                 {
@@ -2497,6 +2499,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         block_root: Hash256,
         unverified_block: B,
         count_unrealized: CountUnrealized,
+        is_syncing_finalized: bool,
     ) -> Result<Hash256, BlockError<T::EthSpec>> {
         // Start the Prometheus timer.
         let _full_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_TIMES);
@@ -2510,8 +2513,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // A small closure to group the verification and import errors.
         let chain = self.clone();
         let import_block = async move {
-            let execution_pending =
-                unverified_block.into_execution_pending_block(block_root, &chain)?;
+            let execution_pending = unverified_block.into_execution_pending_block(
+                block_root,
+                &chain,
+                is_syncing_finalized,
+            )?;
             chain
                 .import_execution_pending_block(execution_pending, count_unrealized)
                 .await

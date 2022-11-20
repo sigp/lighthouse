@@ -47,8 +47,10 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
         chain: Arc<BeaconChain<T>>,
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
         state: &BeaconState<T::EthSpec>,
+        is_syncing_finalized: bool,
     ) -> Result<Self, BlockError<T::EthSpec>> {
-        let payload_verification_status = if is_execution_enabled(state, block.message().body()) {
+        let mut payload_verification_status = if is_execution_enabled(state, block.message().body())
+        {
             // Perform the initial stages of payload verification.
             //
             // We will duplicate these checks again during `per_block_processing`, however these checks
@@ -63,6 +65,10 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
         } else {
             Some(PayloadVerificationStatus::Irrelevant)
         };
+
+        if is_syncing_finalized {
+            payload_verification_status = Some(PayloadVerificationStatus::Optimistic);
+        }
 
         Ok(Self {
             chain,

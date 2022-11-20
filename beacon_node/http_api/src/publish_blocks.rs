@@ -21,6 +21,7 @@ pub async fn publish_block<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
     network_tx: &UnboundedSender<NetworkMessage<T::EthSpec>>,
     log: Logger,
+    is_syncing_finalized: bool,
 ) -> Result<(), Rejection> {
     let seen_timestamp = timestamp_now();
 
@@ -35,7 +36,12 @@ pub async fn publish_block<T: BeaconChainTypes>(
     let block_root = block_root.unwrap_or_else(|| block.canonical_root());
 
     match chain
-        .process_block(block_root, block.clone(), CountUnrealized::True)
+        .process_block(
+            block_root,
+            block.clone(),
+            CountUnrealized::True,
+            is_syncing_finalized,
+        )
         .await
     {
         Ok(root) => {
@@ -129,6 +135,7 @@ pub async fn publish_blinded_block<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
     network_tx: &UnboundedSender<NetworkMessage<T::EthSpec>>,
     log: Logger,
+    is_syncing_finalized: bool,
 ) -> Result<(), Rejection> {
     let block_root = block.canonical_root();
     let full_block = reconstruct_block(chain.clone(), block_root, block, log.clone()).await?;
@@ -138,6 +145,7 @@ pub async fn publish_blinded_block<T: BeaconChainTypes>(
         chain,
         network_tx,
         log,
+        is_syncing_finalized,
     )
     .await
 }
