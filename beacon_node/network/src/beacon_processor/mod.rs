@@ -41,7 +41,7 @@
 use crate::sync::manager::BlockProcessType;
 use crate::{metrics, service::NetworkMessage, sync::SyncMessage};
 use beacon_chain::parking_lot::Mutex;
-use beacon_chain::{BeaconChain, BeaconChainTypes, GossipVerifiedBlock};
+use beacon_chain::{BeaconChain, BeaconChainTypes, GossipVerifiedBlock, NotifyExecutionLayer};
 use derivative::Derivative;
 use futures::stream::{Stream, StreamExt};
 use futures::task::Poll;
@@ -1336,11 +1336,16 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
             &[work.str_id()],
         );
 
-        let is_syncing_finalized = self
+        let notify_execution_layer = if self
             .network_globals
             .sync_state
             .read()
-            .is_syncing_finalized();
+            .is_syncing_finalized()
+        {
+            NotifyExecutionLayer::No
+        } else {
+            NotifyExecutionLayer::Yes
+        };
 
         // Wrap the `idle_tx` in a struct that will fire the idle message whenever it is dropped.
         //
@@ -1459,7 +1464,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                         work_reprocessing_tx,
                         duplicate_cache,
                         seen_timestamp,
-                        is_syncing_finalized,
+                        notify_execution_layer,
                     )
                     .await
             }),
@@ -1475,7 +1480,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                 *block,
                 work_reprocessing_tx,
                 seen_timestamp,
-                is_syncing_finalized,
+                notify_execution_layer,
             )),
             /*
              * Voluntary exits received on gossip.
@@ -1558,14 +1563,14 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                 work_reprocessing_tx,
                 duplicate_cache,
                 should_process,
-                is_syncing_finalized,
+                notify_execution_layer,
             )),
             /*
              * Verification for a chain segment (multiple blocks).
              */
             Work::ChainSegment { process_id, blocks } => task_spawner.spawn_async(async move {
                 worker
-                    .process_chain_segment(process_id, blocks, is_syncing_finalized)
+                    .process_chain_segment(process_id, blocks, notify_execution_layer)
                     .await
             }),
             /*

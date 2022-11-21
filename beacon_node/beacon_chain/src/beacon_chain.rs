@@ -18,7 +18,7 @@ use crate::errors::{BeaconChainError as Error, BlockProductionError};
 use crate::eth1_chain::{Eth1Chain, Eth1ChainBackend};
 use crate::eth1_finalization_cache::{Eth1FinalizationCache, Eth1FinalizationData};
 use crate::events::ServerSentEventHandler;
-use crate::execution_payload::{get_execution_payload, PreparePayloadHandle};
+use crate::execution_payload::{get_execution_payload, NotifyExecutionLayer, PreparePayloadHandle};
 use crate::fork_choice_signal::{ForkChoiceSignalRx, ForkChoiceSignalTx, ForkChoiceWaitResult};
 use crate::head_tracker::HeadTracker;
 use crate::historical_blocks::HistoricalBlockError;
@@ -2341,7 +2341,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self: &Arc<Self>,
         chain_segment: Vec<Arc<SignedBeaconBlock<T::EthSpec>>>,
         count_unrealized: CountUnrealized,
-        is_syncing_finalized: bool,
+        notify_execution_layer: NotifyExecutionLayer,
     ) -> ChainSegmentResult<T::EthSpec> {
         let mut imported_blocks = 0;
 
@@ -2410,7 +2410,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         signature_verified_block.block_root(),
                         signature_verified_block,
                         count_unrealized,
-                        is_syncing_finalized,
+                        notify_execution_layer,
                     )
                     .await
                 {
@@ -2499,7 +2499,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         block_root: Hash256,
         unverified_block: B,
         count_unrealized: CountUnrealized,
-        is_syncing_finalized: bool,
+        notify_execution_layer: NotifyExecutionLayer,
     ) -> Result<Hash256, BlockError<T::EthSpec>> {
         // Start the Prometheus timer.
         let _full_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_TIMES);
@@ -2516,7 +2516,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             let execution_pending = unverified_block.into_execution_pending_block(
                 block_root,
                 &chain,
-                is_syncing_finalized,
+                notify_execution_layer,
             )?;
             chain
                 .import_execution_pending_block(execution_pending, count_unrealized)

@@ -318,11 +318,6 @@ pub fn serve<T: BeaconChainTypes>(
 
     // Create a `warp` filter that provides access to the network globals.
     let inner_network_globals = ctx.network_globals.clone();
-    let is_syncing_finalized = if let Some(network_globals) = &ctx.network_globals {
-        network_globals.sync_state.read().is_syncing_finalized()
-    } else {
-        false
-    };
 
     let network_globals = warp::any()
         .map(move || inner_network_globals.clone())
@@ -1125,16 +1120,9 @@ pub fn serve<T: BeaconChainTypes>(
                   chain: Arc<BeaconChain<T>>,
                   network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
                   log: Logger| async move {
-                publish_blocks::publish_block(
-                    None,
-                    block,
-                    chain,
-                    &network_tx,
-                    log,
-                    is_syncing_finalized,
-                )
-                .await
-                .map(|()| warp::reply())
+                publish_blocks::publish_block(None, block, chain, &network_tx, log)
+                    .await
+                    .map(|()| warp::reply())
             },
         );
 
@@ -1156,15 +1144,9 @@ pub fn serve<T: BeaconChainTypes>(
                   chain: Arc<BeaconChain<T>>,
                   network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
                   log: Logger| async move {
-                publish_blocks::publish_blinded_block(
-                    block,
-                    chain,
-                    &network_tx,
-                    log,
-                    is_syncing_finalized,
-                )
-                .await
-                .map(|()| warp::reply())
+                publish_blocks::publish_blinded_block(block, chain, &network_tx, log)
+                    .await
+                    .map(|()| warp::reply())
             },
         );
 

@@ -10,6 +10,7 @@ use crate::sync::{BatchProcessResult, ChainId};
 use beacon_chain::CountUnrealized;
 use beacon_chain::{
     BeaconChainError, BeaconChainTypes, BlockError, ChainSegmentResult, HistoricalBlockError,
+    NotifyExecutionLayer,
 };
 use lighthouse_network::PeerAction;
 use slog::{debug, error, info, warn};
@@ -48,7 +49,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         reprocess_tx: mpsc::Sender<ReprocessQueueMessage<T>>,
         duplicate_cache: DuplicateCache,
         should_process: bool,
-        is_syncing_finalized: bool,
+        notify_execution_layer: NotifyExecutionLayer,
     ) {
         if !should_process {
             // Sync handles these results
@@ -90,7 +91,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                 block_root,
                 block,
                 CountUnrealized::True,
-                is_syncing_finalized,
+                notify_execution_layer,
             )
             .await;
 
@@ -133,7 +134,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         &self,
         sync_type: ChainSegmentProcessId,
         downloaded_blocks: Vec<Arc<SignedBeaconBlock<T::EthSpec>>>,
-        is_syncing_finalized: bool,
+        notify_execution_layer: NotifyExecutionLayer,
     ) {
         let result = match sync_type {
             // this a request from the range sync
@@ -146,7 +147,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     .process_blocks(
                         downloaded_blocks.iter(),
                         count_unrealized,
-                        is_syncing_finalized,
+                        notify_execution_layer,
                     )
                     .await
                 {
@@ -229,7 +230,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     .process_blocks(
                         downloaded_blocks.iter().rev(),
                         CountUnrealized::True,
-                        is_syncing_finalized,
+                        notify_execution_layer,
                     )
                     .await
                 {
@@ -261,12 +262,12 @@ impl<T: BeaconChainTypes> Worker<T> {
         &self,
         downloaded_blocks: impl Iterator<Item = &'a Arc<SignedBeaconBlock<T::EthSpec>>>,
         count_unrealized: CountUnrealized,
-        is_syncing_finalized: bool,
+        notify_execution_layer: NotifyExecutionLayer,
     ) -> (usize, Result<(), ChainSegmentFailed>) {
         let blocks: Vec<Arc<_>> = downloaded_blocks.cloned().collect();
         match self
             .chain
-            .process_chain_segment(blocks, count_unrealized, is_syncing_finalized)
+            .process_chain_segment(blocks, count_unrealized, notify_execution_layer)
             .await
         {
             ChainSegmentResult::Successful { imported_blocks } => {

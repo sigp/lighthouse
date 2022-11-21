@@ -1,6 +1,8 @@
 use crate::metrics;
 use beacon_chain::validator_monitor::{get_block_delay_ms, timestamp_now};
-use beacon_chain::{BeaconChain, BeaconChainTypes, BlockError, CountUnrealized};
+use beacon_chain::{
+    BeaconChain, BeaconChainTypes, BlockError, CountUnrealized, NotifyExecutionLayer,
+};
 use lighthouse_network::PubsubMessage;
 use network::NetworkMessage;
 use slog::{crit, error, info, warn, Logger};
@@ -21,7 +23,6 @@ pub async fn publish_block<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
     network_tx: &UnboundedSender<NetworkMessage<T::EthSpec>>,
     log: Logger,
-    is_syncing_finalized: bool,
 ) -> Result<(), Rejection> {
     let seen_timestamp = timestamp_now();
 
@@ -40,7 +41,7 @@ pub async fn publish_block<T: BeaconChainTypes>(
             block_root,
             block.clone(),
             CountUnrealized::True,
-            is_syncing_finalized,
+            NotifyExecutionLayer::Yes,
         )
         .await
     {
@@ -135,7 +136,6 @@ pub async fn publish_blinded_block<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
     network_tx: &UnboundedSender<NetworkMessage<T::EthSpec>>,
     log: Logger,
-    is_syncing_finalized: bool,
 ) -> Result<(), Rejection> {
     let block_root = block.canonical_root();
     let full_block = reconstruct_block(chain.clone(), block_root, block, log.clone()).await?;
@@ -145,7 +145,6 @@ pub async fn publish_blinded_block<T: BeaconChainTypes>(
         chain,
         network_tx,
         log,
-        is_syncing_finalized,
     )
     .await
 }

@@ -688,7 +688,7 @@ async fn run_skip_slot_test(skip_slots: u64) {
                 harness_a.chain.head_snapshot().beacon_block_root,
                 harness_a.chain.head_snapshot().beacon_block.clone(),
                 CountUnrealized::True,
-                false
+                NotifyExecutionLayer::Yes,
             )
             .await
             .unwrap(),
