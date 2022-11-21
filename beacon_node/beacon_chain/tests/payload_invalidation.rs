@@ -7,10 +7,9 @@ use beacon_chain::otb_verification_service::{
 use beacon_chain::{
     canonical_head::{CachedHead, CanonicalHead},
     test_utils::{BeaconChainHarness, EphemeralHarnessType},
-    BeaconChainError, BlockError, ExecutionPayloadError, StateSkipConfig, WhenSlotSkipped,
-    INVALID_FINALIZED_MERGE_TRANSITION_BLOCK_SHUTDOWN_REASON,
+    BeaconChainError, BlockError, ExecutionPayloadError, NotifyExecutionLayer, StateSkipConfig,
+    WhenSlotSkipped, INVALID_FINALIZED_MERGE_TRANSITION_BLOCK_SHUTDOWN_REASON,
     INVALID_JUSTIFIED_PAYLOAD_SHUTDOWN_REASON,
-    NotifyExecutionLayer,
 };
 use execution_layer::{
     json_structures::{JsonForkChoiceStateV1, JsonPayloadAttributesV1},

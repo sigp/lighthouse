@@ -6,7 +6,7 @@ use beacon_chain::{
         AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
         OP_POOL_DB_KEY,
     },
-    BeaconChain, StateSkipConfig, WhenSlotSkipped, NotifyExecutionLayer,
+    BeaconChain, NotifyExecutionLayer, StateSkipConfig, WhenSlotSkipped,
 };
 use fork_choice::CountUnrealized;
 use lazy_static::lazy_static;
