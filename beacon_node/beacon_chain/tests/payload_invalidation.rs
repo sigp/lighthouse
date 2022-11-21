@@ -322,12 +322,7 @@ impl InvalidPayloadRig {
 
                 match self
                     .harness
-                    .process_block(
-                        slot,
-                        block.canonical_root(),
-                        block,
-                        NotifyExecutionLayer::Yes,
-                    )
+                    .process_block(slot, block.canonical_root(), block)
                     .await
                 {
                     Err(error) if evaluate_error(&error) => (),
