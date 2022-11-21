@@ -413,7 +413,11 @@ async fn invalid_signature_gossip_block() {
             .collect();
         harness
             .chain
-            .process_chain_segment(ancestor_blocks, CountUnrealized::True, false)
+            .process_chain_segment(
+                ancestor_blocks,
+                CountUnrealized::True,
+                NotifyExecutionLayer::Yes,
+            )
             .await
             .into_block_error()
             .expect("should import all blocks prior to the one being tested");
@@ -1216,7 +1220,7 @@ async fn add_base_block_to_altair_chain() {
             .process_chain_segment(
                 vec![Arc::new(base_block)],
                 CountUnrealized::True,
-                NotifyExecutionLayer::Yes
+                NotifyExecutionLayer::Yes,
             )
             .await,
         ChainSegmentResult::Failed {

@@ -281,12 +281,7 @@ impl InvalidPayloadRig {
                 }
                 let root = self
                     .harness
-                    .process_block(
-                        slot,
-                        block.canonical_root(),
-                        block.clone(),
-                        NotifyExecutionLayer::Yes,
-                    )
+                    .process_block(slot, block.canonical_root(), block.clone())
                     .await
                     .unwrap();
 

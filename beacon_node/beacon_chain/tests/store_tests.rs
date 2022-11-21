@@ -2407,21 +2407,11 @@ async fn revert_minority_fork_on_resume() {
         let (block, new_state) = harness1.make_block(state, slot).await;
 
         harness1
-            .process_block(
-                slot,
-                block.canonical_root(),
-                block.clone(),
-                NotifyExecutionLayer::Yes,
-            )
+            .process_block(slot, block.canonical_root(), block.clone())
             .await
             .unwrap();
         harness2
-            .process_block(
-                slot,
-                block.canonical_root(),
-                block.clone(),
-                NotifyExecutionLayer::Yes,
-            )
+            .process_block(slot, block.canonical_root(), block.clone())
             .await
             .unwrap();
 
@@ -2457,12 +2447,7 @@ async fn revert_minority_fork_on_resume() {
         // Minority chain block (no attesters).
         let (block1, new_state1) = harness1.make_block(state1, slot).await;
         harness1
-            .process_block(
-                slot,
-                block1.canonical_root(),
-                block1,
-                NotifyExecutionLayer::Yes,
-            )
+            .process_block(slot, block1.canonical_root(), block1)
             .await
             .unwrap();
         state1 = new_state1;
@@ -2470,12 +2455,7 @@ async fn revert_minority_fork_on_resume() {
         // Majority chain block (all attesters).
         let (block2, new_state2) = harness2.make_block(state2, slot).await;
         harness2
-            .process_block(
-                slot,
-                block2.canonical_root(),
-                block2.clone(),
-                NotifyExecutionLayer::Yes,
-            )
+            .process_block(slot, block2.canonical_root(), block2.clone())
             .await
             .unwrap();
 
