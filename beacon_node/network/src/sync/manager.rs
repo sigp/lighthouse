@@ -39,7 +39,7 @@ use super::network_context::SyncNetworkContext;
 use super::peer_sync_info::{remote_sync_type, PeerSyncType};
 use super::range_sync::{RangeSync, RangeSyncType, EPOCHS_PER_BATCH};
 use crate::beacon_processor::{ChainSegmentProcessId, WorkEvent as BeaconWorkEvent};
-use crate::service::{NetworkMessage, RequestId};
+use crate::service::NetworkMessage;
 use crate::status::ToStatusMessage;
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockError, EngineState};
 use futures::StreamExt;
@@ -68,6 +68,17 @@ pub const SLOT_IMPORT_TOLERANCE: usize = 32;
 
 pub type Id = u32;
 
+#[derive(Debug)]
+pub struct SeansBlob {}
+
+#[derive(Debug)]
+pub struct SeansBlock {}
+
+#[derive(Debug)]
+pub struct SeansBlockBlob {
+    blob: SeansBlob,
+    block: SeansBlock,
+}
 /// Id of rpc requests sent by sync to the network.
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum RequestId {
@@ -312,8 +323,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 }
             }
             RequestId::RangeBlockBlob { id } => {
-                if let Some((chain_id, batch_id)) = self.network.fail_block_bob_request(request_id)
-                {
+                if let Some((chain_id, batch_id)) = self.network.fail_block_bob_request(id) {
                     self.range_sync.inject_error(
                         &mut self.network,
                         peer_id,
@@ -617,6 +627,18 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     .block_lookups
                     .parent_chain_processed(chain_hash, result, &mut self.network),
             },
+            SyncMessage::RpcBlob {
+                request_id,
+                peer_id,
+                blob_sidecar,
+                seen_timestamp,
+            } => todo!(),
+            SyncMessage::RpcBlockAndBlob {
+                request_id,
+                peer_id,
+                block_and_blobs,
+                seen_timestamp,
+            } => todo!(),
         }
     }
 
@@ -736,7 +758,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             }
             RequestId::RangeBlockBlob { id } => {
                 // do stuff
-                self.network.block_blob_block_response(id, block);
+                // self.network.block_blob_block_response(id, block);
             }
         }
     }
@@ -749,10 +771,9 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         seen_timestamp: Duration,
     ) {
         let RequestId::RangeBlockBlob { id } = request_id else {
-            return error!("bad stuff");
+            panic!("Wrong things going on ");
         };
         // get the paired block blob from the network context and send it to range
-        self.network.block_blob_blob_response(request_id, blob)
     }
 }
 

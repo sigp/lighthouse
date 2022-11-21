@@ -499,6 +499,7 @@ impl<T: BeaconChainTypes> Worker<T> {
 
         //FIXME(sean) create the blobs iter
 
+        /*
         let forwards_blob_root_iter = match self
             .chain
             .forwards_iter_block_roots(Slot::from(req.start_slot))
@@ -511,12 +512,13 @@ impl<T: BeaconChainTypes> Worker<T> {
                 },
             )) => {
                 debug!(self.log, "Range request failed during backfill"; "requested_slot" => slot, "oldest_known_slot" => oldest_block_slot);
-                return self.send_error_response(
-                    peer_id,
-                    RPCResponseErrorCode::ResourceUnavailable,
-                    "Backfilling".into(),
-                    request_id,
-                );
+                // return self.send_error_response(
+                //     peer_id,
+                //     RPCResponseErrorCode::ResourceUnavailable,
+                //     "Backfilling".into(),
+                //     request_id,
+                // );
+                todo!("stuff")
             }
             Err(e) => return error!(self.log, "Unable to obtain root iter"; "error" => ?e),
         };
@@ -546,7 +548,9 @@ impl<T: BeaconChainTypes> Worker<T> {
         // remove all skip slots
         let block_roots = block_roots.into_iter().flatten().collect::<Vec<_>>();
 
+        */
         // Fetching blocks is async because it may have to hit the execution layer for payloads.
+        /*
         executor.spawn(
             async move {
                 let mut blocks_sent = 0;
@@ -623,5 +627,7 @@ impl<T: BeaconChainTypes> Worker<T> {
             },
             "load_blocks_by_range_blocks",
         );
+        */
+        unimplemented!("")
     }
 }
