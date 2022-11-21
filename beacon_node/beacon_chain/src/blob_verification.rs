@@ -111,11 +111,11 @@ pub fn validate_blob_for_gossip<T: BeaconChainTypes>(
 
     // Verify that blobs are properly formatted
     //TODO: add the check while constructing a Blob type from bytes instead of after
-    for (i, blob) in blob_sidecar.blobs.iter().enumerate() {
-        if blob.iter().any(|b| *b >= *BLS_MODULUS) {
-            return Err(BlobError::BlobOutOfRange { blob_index: i });
-        }
-    }
+    // for (i, blob) in blob_sidecar.blobs.iter().enumerate() {
+    //     if blob.iter().any(|b| *b >= *BLS_MODULUS) {
+    //         return Err(BlobError::BlobOutOfRange { blob_index: i });
+    //     }
+    // }
 
     // Verify that the KZG proof is a valid G1 point
     if PublicKey::deserialize(&blob_sidecar.kzg_aggregate_proof.0).is_err() {

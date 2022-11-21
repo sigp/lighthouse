@@ -198,7 +198,7 @@ pub type Uint256 = ethereum_types::U256;
 pub type Address = H160;
 pub type ForkVersion = [u8; 4];
 pub type BLSFieldElement = Uint256;
-pub type Blob<T> = FixedVector<BLSFieldElement, <T as EthSpec>::FieldElementsPerBlob>;
+pub type Blob<T> = FixedVector<u8, <T as EthSpec>::BytesPerBlob>;
 pub type VersionedHash = Hash256;
 
 pub use bls::{

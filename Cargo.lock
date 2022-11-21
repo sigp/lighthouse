@@ -711,7 +711,7 @@ dependencies = [
 [[package]]
 name = "c-kzg"
 version = "0.1.0"
-source = "git+https://github.com/pawanjay176/c-kzg-4844?rev=f4b0c2a84e7a90fa2e0e4e04e5d777be146c6e94#f4b0c2a84e7a90fa2e0e4e04e5d777be146c6e94"
+source = "git+https://github.com/pawanjay176/c-kzg-4844?rev=cb3745d26b728ee526dc41912e3e1bc6f17a5eeb#cb3745d26b728ee526dc41912e3e1bc6f17a5eeb"
 dependencies = [
  "hex",
  "libc",
