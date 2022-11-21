@@ -957,7 +957,7 @@ mod tests {
                 OutboundRequest::BlobsByRange(blbrange) => {
                     assert_eq!(decoded, InboundRequest::BlobsByRange(blbrange))
                 }
-                OutboundRequest::BlobsByRoot(blbroot) => {
+                OutboundRequest::BlobsByRoot(bbroot) => {
                     assert_eq!(decoded, InboundRequest::BlobsByRoot(bbroot))
                 }
                 OutboundRequest::Ping(ping) => {

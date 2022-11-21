@@ -178,10 +178,10 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             request: blocks_request,
             request_id,
         })
-        .and_then(|| {
+        .and_then(|_| {
             self.send_network_msg(NetworkMessage::SendRequest {
                 peer_id,
-                request: blocks_request,
+                request: blobs_request,
                 request_id,
             })
         })?;
@@ -247,55 +247,57 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         request_id: Id,
         block: Option<SeansBlock>,
     ) -> Option<(ChainId, BatchId, Option<SeansBlockBlob>)> {
-        let (chain_id, batch_id, info) = self.block_blob_requests.get_mut(&request_id)?;
-        let response = match block {
-            Some(block) => match info.accumulated_blobs.pop_front() {
-                Some(blob) => Some(SeansBlockBlob { block, blob }),
-                None => {
-                    // accumulate the block
-                    info.accumulated_blocks.push_back(block);
-                    None
-                }
-            },
-            None => {
-                info.is_blocks_rpc_finished = true;
-
-                if info.is_blobs_rpc_finished && info.is_blocks_rpc_finished {
-                    // this is the coupled stream termination
-                    Some((chain_id, batch_id, None))
-                } else {
-                    None
-                }
-            }
-        };
+        unimplemented!()
+        // let (chain_id, batch_id, info) = self.block_blob_requests.get_mut(&request_id)?;
+        // match block {
+        //     Some(block) => match info.accumulated_blobs.pop_front() {
+        //         Some(blob) => Some(SeansBlockBlob { block, blob }),
+        //         None => {
+        //             // accumulate the block
+        //             info.accumulated_blocks.push_back(block);
+        //             None
+        //         }
+        //     },
+        //     None => {
+        //         info.is_blocks_rpc_finished = true;
+        //
+        //         if info.is_blobs_rpc_finished && info.is_blocks_rpc_finished {
+        //             // this is the coupled stream termination
+        //             Some((chain_id, batch_id, None))
+        //         } else {
+        //             None
+        //         }
+        //     }
+        // }
     }
 
     pub fn block_blob_blob_response(
         &mut self,
         request_id: Id,
         blob: Option<SeansBlob>,
-    ) -> Option<(ChainId, Option<SeansBlockBlob>)> {
-        let (chain_id, info) = self.block_blob_requests.get_mut(&request_id)?;
-        let response = match blob {
-            Some(blob) => match info.accumulated_blocks.pop_front() {
-                Some(block) => Some(SeansBlockBlob { block, blob }),
-                None => {
-                    // accumulate the blob
-                    info.accumulated_blobs.push_back(blob);
-                    None
-                }
-            },
-            None => {
-                info.is_blobs_rpc_finished = true;
-
-                if info.is_blobs_rpc_finished && info.is_blocks_rpc_finished {
-                    // this is the coupled stream termination
-                    Some((chain_id, batch_id, None))
-                } else {
-                    None
-                }
-            }
-        };
+    ) -> Option<(ChainId, BatchId, Option<SeansBlockBlob>)> {
+        // let (batch_id, chain_id, info) = self.block_blob_requests.get_mut(&request_id)?;
+        // match blob {
+        //     Some(blob) => match info.accumulated_blocks.pop_front() {
+        //         Some(block) => Some(SeansBlockBlob { block, blob }),
+        //         None => {
+        //             // accumulate the blob
+        //             info.accumulated_blobs.push_back(blob);
+        //             None
+        //         }
+        //     },
+        //     None => {
+        //         info.is_blobs_rpc_finished = true;
+        //
+        //         if info.is_blobs_rpc_finished && info.is_blocks_rpc_finished {
+        //             // this is the coupled stream termination
+        //             Some((chain_id, batch_id, None))
+        //         } else {
+        //             None
+        //         }
+        //     }
+        // }
+        unimplemented!("do it")
     }
 
     /// Received a blocks by range response.

@@ -1,7 +1,7 @@
 use crate::metrics;
 use beacon_chain::validator_monitor::{get_block_delay_ms, timestamp_now};
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockError, CountUnrealized};
-use lighthouse_network::{PubsubMessage, SignedBeaconBlockAndBlobsSidecar};
+use lighthouse_network::PubsubMessage;
 use network::NetworkMessage;
 use slog::{crit, error, info, warn, Logger};
 use slot_clock::SlotClock;
@@ -31,6 +31,8 @@ pub async fn publish_block<T: BeaconChainTypes>(
 
     // Send the block, regardless of whether or not it is valid. The API
     // specification is very clear that this is the desired behaviour.
+    let message = todo!("");
+    /*
     let message = if matches!(block, SignedBeaconBlock::Eip4844(_)) {
         if let Some(sidecar) = chain.blob_cache.pop(&block_root) {
             PubsubMessage::BeaconBlockAndBlobsSidecars(Arc::new(SignedBeaconBlockAndBlobsSidecar {
@@ -44,6 +46,7 @@ pub async fn publish_block<T: BeaconChainTypes>(
     } else {
         PubsubMessage::BeaconBlock(block.clone())
     };
+    */
     crate::publish_pubsub_message(network_tx, message)?;
 
     // Determine the delay after the start of the slot, register it with metrics.
