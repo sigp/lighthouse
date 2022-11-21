@@ -574,7 +574,7 @@ fn handle_v1_response<T: EthSpec>(
             })?;
             match fork_name {
                 ForkName::Eip4844 => Ok(Some(RPCResponse::BlobsByRange(Arc::new(
-                    SignedBeaconBlockAndBlobsSidecar::from_ssz_bytes(decoded_buffer)?,
+                    BlobsSidecar::from_ssz_bytes(decoded_buffer)?,
                 )))),
                 _ => Err(RPCError::ErrorResponse(
                     RPCResponseErrorCode::InvalidRequest,

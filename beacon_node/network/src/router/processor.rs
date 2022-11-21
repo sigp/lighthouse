@@ -232,7 +232,7 @@ impl<T: BeaconChainTypes> Processor<T> {
         &mut self,
         peer_id: PeerId,
         request_id: RequestId,
-        blob_wrapper: Option<Arc<SignedBeaconBlockAndBlobsSidecar<T::EthSpec>>>,
+        blob_sidecar: Option<Arc<BlobsSidecar<T::EthSpec>>>,
     ) {
         trace!(
             self.log,
@@ -244,7 +244,7 @@ impl<T: BeaconChainTypes> Processor<T> {
             self.send_to_sync(SyncMessage::RpcBlob {
                 peer_id,
                 request_id: id,
-                blob_sidecar: blob_wrapper,
+                blob_sidecar,
                 seen_timestamp: timestamp_now(),
             });
         } else {
@@ -281,6 +281,36 @@ impl<T: BeaconChainTypes> Processor<T> {
             peer_id,
             request_id,
             beacon_block,
+            seen_timestamp: timestamp_now(),
+        });
+    }
+
+    /// Handle a `BlobsByRoot` response from the peer.
+    pub fn on_blobs_by_root_response(
+        &mut self,
+        peer_id: PeerId,
+        request_id: RequestId,
+        block_and_blobs: Option<Arc<SignedBeaconBlockAndBlobsSidecar<T::EthSpec>>>,
+    ) {
+        let request_id = match request_id {
+            RequestId::Sync(sync_id) => match sync_id {
+                id @ (SyncId::SingleBlock { .. } | SyncId::ParentLookup { .. }) => id,
+                SyncId::BackFillSync { .. } | SyncId::RangeSync { .. } => {
+                    unreachable!("Batch syncing do not request BBRoot requests")
+                }
+            },
+            RequestId::Router => unreachable!("All BBRoot requests belong to sync"),
+        };
+
+        trace!(
+            self.log,
+            "Received BlockAndBlobssByRoot Response";
+            "peer" => %peer_id,
+        );
+        self.send_to_sync(SyncMessage::RpcBlockAndBlob {
+            peer_id,
+            request_id,
+            block_and_blobs,
             seen_timestamp: timestamp_now(),
         });
     }

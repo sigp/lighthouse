@@ -6,6 +6,7 @@ use crate::attestation_verification::{
 use crate::attester_cache::{AttesterCache, AttesterCacheKey};
 use crate::beacon_proposer_cache::compute_proposer_duties_from_head;
 use crate::beacon_proposer_cache::BeaconProposerCache;
+use crate::blob_cache::BlobCache;
 use crate::block_times_cache::BlockTimesCache;
 use crate::block_verification::{
     check_block_is_finalized_descendant, check_block_relevancy, get_block_root,
@@ -389,6 +390,7 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub slasher: Option<Arc<Slasher<T::EthSpec>>>,
     /// Provides monitoring of a set of explicitly defined validators.
     pub validator_monitor: RwLock<ValidatorMonitor<T::EthSpec>>,
+    pub blob_cache: BlobCache<T::EthSpec>,
 }
 
 type BeaconBlockAndState<T, Payload> = (BeaconBlock<T, Payload>, BeaconState<T>);
@@ -2360,8 +2362,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         };
 
         while let Some((_root, block)) = filtered_chain_segment.first() {
-            let block: &SignedBeaconBlock<T::EthSpec> = block.block();
-
             // Determine the epoch of the first block in the remaining segment.
             let start_epoch = block.slot().epoch(T::EthSpec::slots_per_epoch());
 
@@ -2449,7 +2449,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     let slot = block.slot();
                     let graffiti_string = block.message().body().graffiti().as_utf8_lossy();
 
-                    match GossipVerifiedBlock::new(block, &chain) {
+                    match GossipVerifiedBlock::new(block, blobs, &chain) {
                         Ok(verified) => {
                             debug!(
                                 chain.log,
@@ -2505,6 +2505,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Increment the Prometheus counter for block processing requests.
         metrics::inc_counter(&metrics::BLOCK_PROCESSING_REQUESTS);
 
+        let slot = unverified_block.block().slot();
+
         // A small closure to group the verification and import errors.
         let chain = self.clone();
         let import_block = async move {
@@ -2515,8 +2517,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .await
         };
 
-        let slot = unverified_block.block().slot();
-
         // Verify and import the block.
         match import_block.await {
             // The block was successfully verified and imported. Yay.
@@ -2525,7 +2525,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     self.log,
                     "Beacon block imported";
                     "block_root" => ?block_root,
-                     "block_slot" => %block.slot(),
+                     "block_slot" => slot,
                 );
 
                 // Increment the Prometheus counter for block processing successes.
@@ -3693,6 +3693,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             prepare_payload_handle: _,
         } = partial_beacon_block;
 
+        let (payload, kzg_commitments_opt, blobs) = block_contents.deconstruct();
+
         let inner_block = match &state {
             BeaconState::Base(_) => BeaconBlock::Base(BeaconBlockBase {
                 slot,
@@ -3746,8 +3748,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     voluntary_exits: voluntary_exits.into(),
                     sync_aggregate: sync_aggregate
                         .ok_or(BlockProductionError::MissingSyncAggregate)?,
-                    execution_payload: block_contents
-                        .to_payload()
+                    execution_payload: payload
                         .try_into()
                         .map_err(|_| BlockProductionError::InvalidPayloadFork)?,
                 },
@@ -3768,16 +3769,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     voluntary_exits: voluntary_exits.into(),
                     sync_aggregate: sync_aggregate
                         .ok_or(BlockProductionError::MissingSyncAggregate)?,
-                    execution_payload: block_contents
-                        .to_payload()
+                    execution_payload: payload
                         .try_into()
                         .map_err(|_| BlockProductionError::InvalidPayloadFork)?,
                 },
             }),
             BeaconState::Eip4844(_) => {
-                let kzg_commitments = block_contents
-                    .kzg_commitments()
-                    .ok_or(BlockProductionError::InvalidPayloadFork)?;
+                let kzg_commitments =
+                    kzg_commitments_opt.ok_or(BlockProductionError::InvalidPayloadFork)?;
                 BeaconBlock::Eip4844(BeaconBlockEip4844 {
                     slot,
                     proposer_index,
@@ -3794,11 +3793,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         voluntary_exits: voluntary_exits.into(),
                         sync_aggregate: sync_aggregate
                             .ok_or(BlockProductionError::MissingSyncAggregate)?,
-                        execution_payload: block_contents
-                            .to_payload()
+                        execution_payload: payload
                             .try_into()
                             .map_err(|_| BlockProductionError::InvalidPayloadFork)?,
-                        blob_kzg_commitments: VariableList::from(kzg_commitments.to_vec()),
+                        blob_kzg_commitments: VariableList::from(kzg_commitments),
                     },
                 })
             }
@@ -3828,8 +3826,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             ProduceBlockVerification::VerifyRandao => BlockSignatureStrategy::VerifyRandao,
             ProduceBlockVerification::NoVerification => BlockSignatureStrategy::NoVerification,
         };
+
         // Use a context without block root or proposer index so that both are checked.
-        let mut ctxt = ConsensusContext::new(block.slot());
+        let mut ctxt = ConsensusContext::new(block.slot())
+            //FIXME(sean) This is a hack beacuse `valdiate blobs sidecar requires the block root`
+            // which we won't have until after the state root is calculated.
+            .set_blobs_sidecar_validated(true);
+
         per_block_processing(
             &mut state,
             &block,
@@ -3846,6 +3849,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let (mut block, _) = block.deconstruct();
         *block.state_root_mut() = state_root;
+
+        //FIXME(sean)
+        // - generate kzg proof
+        // - validate blobs then cache them
+        if let Some(blobs) = blobs {
+            let beacon_block_root = block.canonical_root();
+            let blobs_sidecar = BlobsSidecar {
+                beacon_block_slot: slot,
+                beacon_block_root,
+                blobs: VariableList::from(blobs),
+                kzg_aggregate_proof: KzgProof::default(),
+            };
+            self.blob_cache.put(beacon_block_root, blobs_sidecar);
+        }
 
         metrics::inc_counter(&metrics::BLOCK_PRODUCTION_SUCCESSES);
 

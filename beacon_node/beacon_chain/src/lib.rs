@@ -5,6 +5,7 @@ mod beacon_chain;
 mod beacon_fork_choice_store;
 pub mod beacon_proposer_cache;
 mod beacon_snapshot;
+pub mod blob_cache;
 pub mod blob_verification;
 pub mod block_reward;
 mod block_times_cache;

@@ -4,7 +4,6 @@
 //! This crate only provides useful functionality for "The Merge", it does not provide any of the
 //! deposit-contract functionality that the `beacon_node/eth1` crate already provides.
 
-use crate::json_structures::JsonBlobBundles;
 use crate::payload_cache::PayloadCache;
 use auth::{strip_prefix, Auth, JwtKey};
 use builder_client::BuilderHttpClient;
@@ -100,6 +99,17 @@ pub enum BlockProposalContents<T: EthSpec, Payload: AbstractExecPayload<T>> {
 }
 
 impl<T: EthSpec, Payload: AbstractExecPayload<T>> BlockProposalContents<T, Payload> {
+    pub fn deconstruct(self) -> (Payload, Option<Vec<KzgCommitment>>, Option<Vec<Blob<T>>>) {
+        match self {
+            Self::Payload(payload) => (payload, None, None),
+            Self::PayloadAndBlobs {
+                payload,
+                kzg_commitments,
+                blobs,
+            } => (payload, Some(kzg_commitments), Some(blobs)),
+        }
+    }
+
     pub fn payload(&self) -> &Payload {
         match self {
             Self::Payload(payload) => payload,

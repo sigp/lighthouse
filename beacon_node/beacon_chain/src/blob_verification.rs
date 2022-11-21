@@ -7,6 +7,7 @@ use crate::BeaconChainError;
 use bls::PublicKey;
 use types::{consts::eip4844::BLS_MODULUS, BeaconStateError, BlobsSidecar, Hash256, Slot};
 
+#[derive(Debug)]
 pub enum BlobError {
     /// The blob sidecar is from a slot that is later than the current slot (with respect to the
     /// gossip clock disparity).
@@ -82,7 +83,7 @@ impl From<BeaconStateError> for BlobError {
 
 pub fn validate_blob_for_gossip<T: BeaconChainTypes>(
     blob_sidecar: &BlobsSidecar<T::EthSpec>,
-    chain: &Arc<BeaconChain<T>>,
+    chain: &BeaconChain<T>,
 ) -> Result<(), BlobError> {
     let blob_slot = blob_sidecar.beacon_block_slot;
     // Do not gossip or process blobs from future or past slots.

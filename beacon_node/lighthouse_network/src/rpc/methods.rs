@@ -266,7 +266,7 @@ pub enum RPCResponse<T: EthSpec> {
     BlocksByRoot(Arc<SignedBeaconBlock<T>>),
 
     /// A response to a get BLOBS_BY_RANGE request
-    BlobsByRange(Arc<SignedBeaconBlockAndBlobsSidecar<T>>),
+    BlobsByRange(Arc<BlobsSidecar<T>>),
 
     /// A response to a get BLOBS_BY_ROOT request.
     BlobsByRoot(Arc<SignedBeaconBlockAndBlobsSidecar<T>>),
@@ -427,11 +427,7 @@ impl<T: EthSpec> std::fmt::Display for RPCResponse<T> {
                 write!(f, "BlocksByRoot: Block slot: {}", block.slot())
             }
             RPCResponse::BlobsByRange(blob) => {
-                write!(
-                    f,
-                    "BlobsByRange: Blob slot: {}",
-                    blob.blobs_sidecar.beacon_block_slot
-                )
+                write!(f, "BlobsByRange: Blob slot: {}", blob.beacon_block_slot)
             }
             RPCResponse::BlobsByRoot(blob) => {
                 write!(

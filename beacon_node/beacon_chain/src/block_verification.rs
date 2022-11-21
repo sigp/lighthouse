@@ -42,7 +42,7 @@
 //!            END
 //!
 //! ```
-use crate::blob_verification::validate_blob_for_gossip;
+use crate::blob_verification::{validate_blob_for_gossip, BlobError};
 use crate::eth1_finalization_cache::Eth1FinalizationData;
 use crate::execution_payload::{
     is_optimistic_candidate_block, validate_execution_payload_for_gossip, validate_merge_block,
@@ -51,6 +51,7 @@ use crate::execution_payload::{
 use crate::snapshot_cache::PreProcessingSnapshot;
 use crate::validator_monitor::HISTORIC_EPOCHS as VALIDATOR_MONITOR_HISTORIC_EPOCHS;
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
+use crate::BlockError::BlobValidation;
 use crate::{
     beacon_chain::{
         BeaconForkChoice, BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT, MAXIMUM_GOSSIP_CLOCK_DISPARITY,
@@ -138,7 +139,10 @@ pub enum BlockError<T: EthSpec> {
     /// its parent.
     ParentUnknown(Arc<SignedBeaconBlock<T>>),
     /// The block skips too many slots and is a DoS risk.
-    TooManySkippedSlots { parent_slot: Slot, block_slot: Slot },
+    TooManySkippedSlots {
+        parent_slot: Slot,
+        block_slot: Slot,
+    },
     /// The block slot is greater than the present slot.
     ///
     /// ## Peer scoring
@@ -153,7 +157,10 @@ pub enum BlockError<T: EthSpec> {
     /// ## Peer scoring
     ///
     /// The peer has incompatible state transition logic and is faulty.
-    StateRootMismatch { block: Hash256, local: Hash256 },
+    StateRootMismatch {
+        block: Hash256,
+        local: Hash256,
+    },
     /// The block was a genesis block, these blocks cannot be re-imported.
     GenesisBlock,
     /// The slot is finalized, no need to import.
@@ -172,7 +179,9 @@ pub enum BlockError<T: EthSpec> {
     ///
     /// It's unclear if this block is valid, but it conflicts with finality and shouldn't be
     /// imported.
-    NotFinalizedDescendant { block_parent_root: Hash256 },
+    NotFinalizedDescendant {
+        block_parent_root: Hash256,
+    },
     /// Block is already known, no need to re-import.
     ///
     /// ## Peer scoring
@@ -185,7 +194,10 @@ pub enum BlockError<T: EthSpec> {
     ///
     /// The `proposer` has already proposed a block at this slot. The existing block may or may not
     /// be equal to the given block.
-    RepeatProposal { proposer: u64, slot: Slot },
+    RepeatProposal {
+        proposer: u64,
+        slot: Slot,
+    },
     /// The block slot exceeds the MAXIMUM_BLOCK_SLOT_NUMBER.
     ///
     /// ## Peer scoring
@@ -200,7 +212,10 @@ pub enum BlockError<T: EthSpec> {
     /// ## Peer scoring
     ///
     /// The block is invalid and the peer is faulty.
-    IncorrectBlockProposer { block: u64, local_shuffling: u64 },
+    IncorrectBlockProposer {
+        block: u64,
+        local_shuffling: u64,
+    },
     /// The proposal signature in invalid.
     ///
     /// ## Peer scoring
@@ -224,7 +239,10 @@ pub enum BlockError<T: EthSpec> {
     /// ## Peer scoring
     ///
     /// The block is invalid and the peer is faulty.
-    BlockIsNotLaterThanParent { block_slot: Slot, parent_slot: Slot },
+    BlockIsNotLaterThanParent {
+        block_slot: Slot,
+        parent_slot: Slot,
+    },
     /// At least one block in the chain segment did not have it's parent root set to the root of
     /// the prior block.
     ///
@@ -280,7 +298,10 @@ pub enum BlockError<T: EthSpec> {
     ///
     /// The peer sent us an invalid block, but I'm not really sure how to score this in an
     /// "optimistic" sync world.
-    ParentExecutionPayloadInvalid { parent_root: Hash256 },
+    ParentExecutionPayloadInvalid {
+        parent_root: Hash256,
+    },
+    BlobValidation(BlobError),
 }
 
 /// Returned when block validation failed due to some issue verifying
@@ -625,7 +646,7 @@ type PayloadVerificationHandle<E> =
 /// `BeaconChain` immediately after it is instantiated.
 pub struct ExecutionPendingBlock<T: BeaconChainTypes> {
     pub block: Arc<SignedBeaconBlock<T::EthSpec>>,
-    pub blobs: Option<Box<BlobsSidecar<T::EthSpec>>>,
+    pub blobs: Option<Arc<BlobsSidecar<T::EthSpec>>>,
     pub block_root: Hash256,
     pub state: BeaconState<T::EthSpec>,
     pub parent_block: SignedBeaconBlock<T::EthSpec, BlindedPayload<T::EthSpec>>,
@@ -884,7 +905,7 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         validate_execution_payload_for_gossip(&parent_block, block.message(), chain)?;
 
         if let Some(blobs_sidecar) = blobs.as_ref() {
-            validate_blob_for_gossip(blobs_sidecar, chain)?;
+            validate_blob_for_gossip(blobs_sidecar, chain).map_err(BlobValidation)?;
             //FIXME(sean) validate blobs sidecar
         }
 
@@ -1058,7 +1079,7 @@ impl<T: BeaconChainTypes> IntoExecutionPendingBlock<T> for SignatureVerifiedBloc
 
         ExecutionPendingBlock::from_signature_verified_components(
             block,
-            self.consensus_context.blobs(),
+            self.consensus_context.blobs_sidecar(),
             block_root,
             parent,
             self.consensus_context,
@@ -1103,7 +1124,7 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
     /// Returns an error if the block is invalid, or if the block was unable to be verified.
     pub fn from_signature_verified_components(
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
-        blobs: Option<Box<BlobsSidecar<T::EthSpec>>>,
+        blobs: Option<Arc<BlobsSidecar<T::EthSpec>>>,
         block_root: Hash256,
         parent: PreProcessingSnapshot<T::EthSpec>,
         mut consensus_context: ConsensusContext<T::EthSpec>,

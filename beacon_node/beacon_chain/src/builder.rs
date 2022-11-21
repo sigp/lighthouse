@@ -1,4 +1,5 @@
 use crate::beacon_chain::{CanonicalHead, BEACON_CHAIN_DB_KEY, ETH1_CACHE_DB_KEY, OP_POOL_DB_KEY};
+use crate::blob_cache::BlobCache;
 use crate::eth1_chain::{CachingEth1Backend, SszEth1};
 use crate::eth1_finalization_cache::Eth1FinalizationCache;
 use crate::fork_choice_signal::ForkChoiceSignalTx;
@@ -810,6 +811,7 @@ where
             graffiti: self.graffiti,
             slasher: self.slasher.clone(),
             validator_monitor: RwLock::new(validator_monitor),
+            blob_cache: BlobCache::default(),
         };
 
         let head = beacon_chain.head_snapshot();

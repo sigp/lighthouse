@@ -97,6 +97,22 @@ pub enum SyncMessage<T: EthSpec> {
         seen_timestamp: Duration,
     },
 
+    /// A blob has been received from the RPC.
+    RpcBlob {
+        request_id: RequestId,
+        peer_id: PeerId,
+        blob_sidecar: Option<Arc<BlobsSidecar<T>>>,
+        seen_timestamp: Duration,
+    },
+
+    /// A block and blobs have been received from the RPC.
+    RpcBlockAndBlob {
+        request_id: RequestId,
+        peer_id: PeerId,
+        block_and_blobs: Option<Arc<SignedBeaconBlockAndBlobsSidecar<T>>>,
+        seen_timestamp: Duration,
+    },
+
     /// A block with an unknown parent has been received.
     UnknownBlock(PeerId, Arc<SignedBeaconBlock<T>>, Hash256),
 
@@ -729,7 +745,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         &mut self,
         request_id: RequestId,
         peer_id: PeerId,
-        beacon_block: Option<SeansBlob>,
+        beacon_block: Option<Arc<BlobsSidecar<T::EthSpec>>>,
         seen_timestamp: Duration,
     ) {
         let RequestId::RangeBlockBlob { id } = request_id else {

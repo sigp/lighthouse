@@ -10,7 +10,8 @@ use tokio::sync::mpsc::UnboundedSender;
 use tree_hash::TreeHash;
 use types::{
     AbstractExecPayload, BlindedPayload, BlobsSidecar, EthSpec, ExecPayload, ExecutionBlockHash,
-    FullPayload, Hash256, SignedBeaconBlock, SignedBeaconBlockEip4844,
+    FullPayload, Hash256, SignedBeaconBlock, SignedBeaconBlockAndBlobsSidecar,
+    SignedBeaconBlockEip4844,
 };
 use warp::Rejection;
 
@@ -18,39 +19,36 @@ use warp::Rejection;
 pub async fn publish_block<T: BeaconChainTypes>(
     block_root: Option<Hash256>,
     block: Arc<SignedBeaconBlock<T::EthSpec>>,
-    blobs_sidecar: Option<Arc<BlobsSidecar<T::EthSpec>>>,
     chain: Arc<BeaconChain<T>>,
     network_tx: &UnboundedSender<NetworkMessage<T::EthSpec>>,
     log: Logger,
 ) -> Result<(), Rejection> {
     let seen_timestamp = timestamp_now();
 
+    //FIXME(sean) have to move this to prior to publishing because it's included in the blobs sidecar message.
+    //this may skew metrics
+    let block_root = block_root.unwrap_or_else(|| block.canonical_root());
+
     // Send the block, regardless of whether or not it is valid. The API
     // specification is very clear that this is the desired behaviour.
-
-    let message = match &*block {
-        SignedBeaconBlock::Eip4844(block) => {
-            if let Some(sidecar) = blobs_sidecar {
-                PubsubMessage::BeaconBlockAndBlobsSidecars(Arc::new(
-                    SignedBeaconBlockAndBlobsSidecar {
-                        beacon_block: block.clone(),
-                        blobs_sidecar: (*sidecar).clone(),
-                    },
-                ))
-            } else {
-                //TODO(pawan): return an empty sidecar instead
-                return Err(warp_utils::reject::broadcast_without_import(format!("")));
-            }
+    let message = if matches!(block, SignedBeaconBlock::Eip4844(_)) {
+        if let Some(sidecar) = chain.blob_cache.pop(&block_root) {
+            PubsubMessage::BeaconBlockAndBlobsSidecars(Arc::new(SignedBeaconBlockAndBlobsSidecar {
+                beacon_block: block,
+                blobs_sidecar: Arc::new(sidecar),
+            }))
+        } else {
+            //FIXME(sean): This should probably return a specific no - blob cached error code, beacon API coordination required
+            return Err(warp_utils::reject::broadcast_without_import(format!("")));
         }
-        _ => PubsubMessage::BeaconBlock(block.clone()),
+    } else {
+        PubsubMessage::BeaconBlock(block.clone())
     };
     crate::publish_pubsub_message(network_tx, message)?;
 
     // Determine the delay after the start of the slot, register it with metrics.
     let delay = get_block_delay_ms(seen_timestamp, block.message(), &chain.slot_clock);
     metrics::observe_duration(&metrics::HTTP_API_BLOCK_BROADCAST_DELAY_TIMES, delay);
-
-    let block_root = block_root.unwrap_or_else(|| block.canonical_root());
 
     match chain
         .process_block(block_root, block.clone(), CountUnrealized::True)
@@ -153,7 +151,6 @@ pub async fn publish_blinded_block<T: BeaconChainTypes>(
     publish_block::<T>(
         Some(block_root),
         Arc::new(full_block),
-        None,
         chain,
         network_tx,
         log,

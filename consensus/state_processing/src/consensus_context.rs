@@ -120,4 +120,8 @@ impl<T: EthSpec> ConsensusContext<T> {
         self.blobs_sidecar = blobs_sidecar;
         self
     }
+
+    pub fn blobs_sidecar(&self) -> Option<Arc<BlobsSidecar<T>>> {
+        self.blobs_sidecar.clone()
+    }
 }

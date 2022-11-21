@@ -73,7 +73,7 @@ pub enum Response<TSpec: EthSpec> {
     /// A response to a get BLOCKS_BY_RANGE request. A None response signals the end of the batch.
     BlocksByRange(Option<Arc<SignedBeaconBlock<TSpec>>>),
     /// A response to a get BLOBS_BY_RANGE request. A None response signals the end of the batch.
-    BlobsByRange(Option<Arc<SignedBeaconBlockAndBlobsSidecar<TSpec>>>),
+    BlobsByRange(Option<Arc<BlobsSidecar<TSpec>>>),
     /// A response to a get BLOCKS_BY_ROOT request.
     BlocksByRoot(Option<Arc<SignedBeaconBlock<TSpec>>>),
     /// A response to a get BLOBS_BY_ROOT request.
