@@ -8,7 +8,7 @@ use beacon_chain::test_utils::{
 use beacon_chain::{
     historical_blocks::HistoricalBlockError, migrate::MigratorConfig, BeaconChain,
     BeaconChainError, BeaconChainTypes, BeaconSnapshot, ChainConfig, ServerSentEventHandler,
-    WhenSlotSkipped,
+    WhenSlotSkipped, NotifyExecutionLayer,
 };
 use fork_choice::CountUnrealized;
 use lazy_static::lazy_static;

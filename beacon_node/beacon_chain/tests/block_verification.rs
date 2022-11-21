@@ -3,7 +3,7 @@
 use beacon_chain::test_utils::{
     AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
 };
-use beacon_chain::{BeaconSnapshot, BlockError, ChainSegmentResult};
+use beacon_chain::{BeaconSnapshot, BlockError, ChainSegmentResult, NotifyExecutionLayer};
 use fork_choice::CountUnrealized;
 use lazy_static::lazy_static;
 use logging::test_logger;
