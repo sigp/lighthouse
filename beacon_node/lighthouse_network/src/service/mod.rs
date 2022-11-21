@@ -462,7 +462,6 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
 
         let mut subscribed_topics: Vec<GossipKind> = vec![];
 
-        // FIXME(sproul): inject bls to execution topic here as appropriate
         for topic_kind in &config.topics {
             if self.subscribe_kind(topic_kind.clone()) {
                 subscribed_topics.push(topic_kind.clone());

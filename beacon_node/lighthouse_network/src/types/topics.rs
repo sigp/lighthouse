@@ -21,7 +21,7 @@ pub const SIGNED_CONTRIBUTION_AND_PROOF_TOPIC: &str = "sync_committee_contributi
 pub const SYNC_COMMITTEE_PREFIX_TOPIC: &str = "sync_committee_";
 pub const BLS_TO_EXECUTION_CHANGE_TOPIC: &str = "bls_to_execution_change";
 
-pub const CORE_TOPICS: [GossipKind; 7] = [
+pub const CORE_TOPICS: [GossipKind; 8] = [
     GossipKind::BeaconBlock,
     GossipKind::BeaconBlocksAndBlobsSidecar,
     GossipKind::BeaconAggregateAndProof,
@@ -29,6 +29,7 @@ pub const CORE_TOPICS: [GossipKind; 7] = [
     GossipKind::ProposerSlashing,
     GossipKind::AttesterSlashing,
     GossipKind::SignedContributionAndProof,
+    GossipKind::BlsToExecutionChange,
 ];
 
 /// A gossipsub topic which encapsulates the type of messages that should be sent and received over
