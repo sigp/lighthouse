@@ -24,6 +24,7 @@ pub enum Error {
     KzgProofComputationFailed(CKzgError),
 }
 
+/// A wrapper over a kzg library that holds the trusted setup parameters.
 pub struct Kzg {
     trusted_setup: KZGSettings,
 }

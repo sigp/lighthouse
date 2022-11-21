@@ -50,6 +50,7 @@ lru = "0.7.1"
 tempfile = "3.1.0"
 bitvec = "0.20.4"
 bls = { path = "../../crypto/bls" }
+kzg = { path = "../../crypto/kzg" }
 safe_arith = { path = "../../consensus/safe_arith" }
 fork_choice = { path = "../../consensus/fork_choice" }
 task_executor = { path = "../../common/task_executor" }
