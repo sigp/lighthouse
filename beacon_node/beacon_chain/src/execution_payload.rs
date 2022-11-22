@@ -370,7 +370,7 @@ pub fn get_execution_payload<
             Some(get_expected_withdrawals(state, spec)?.into())
         }
         &BeaconState::Merge(_) => None,
-        // These should happen but they're here to make the pattern irrefutable
+        // These shouldn't happen but they're here to make the pattern irrefutable
         &BeaconState::Base(_) | &BeaconState::Altair(_) => None,
     };
 
