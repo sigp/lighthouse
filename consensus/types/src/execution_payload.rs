@@ -74,9 +74,9 @@ pub struct ExecutionPayload<T: EthSpec> {
     #[superstruct(getter(copy))]
     pub base_fee_per_gas: Uint256,
     #[superstruct(only(Eip4844))]
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "eth2_serde_utils::quoted_u256")]
     #[superstruct(getter(copy))]
-    pub excess_blobs: u64,
+    pub excess_data_gas: Uint256,
     #[superstruct(getter(copy))]
     pub block_hash: ExecutionBlockHash,
     #[serde(with = "ssz_types::serde_utils::list_of_hex_var_list")]
