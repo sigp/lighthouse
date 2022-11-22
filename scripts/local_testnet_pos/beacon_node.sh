@@ -59,7 +59,7 @@ exec lighthouse \
 	--target-peers $((BN_COUNT - 1)) \
   --eth1 \
   --merge \
-  --terminal-total-difficulty-override=60000000 \
+  --terminal-total-difficulty-override=50 \
   --eth1-endpoints http://127.0.0.1:$eth1_port \
   --execution-endpoints http://127.0.0.1:$el_port \
   --jwt-secrets ./config/jwtsecret \

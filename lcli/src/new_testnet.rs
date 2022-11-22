@@ -72,6 +72,10 @@ pub fn run<T: EthSpec>(testnet_dir_path: PathBuf, matches: &ArgMatches) -> Resul
         spec.bellatrix_fork_epoch = Some(fork_epoch);
     }
 
+    if let Some(fork_epoch) = parse_optional(matches, "capella-fork-epoch")? {
+        spec.capella_fork_epoch = Some(fork_epoch);
+    }
+
     let genesis_state_bytes = if matches.is_present("interop-genesis-state") {
         let execution_payload_header: Option<ExecutionPayloadHeader<T>> =
             parse_optional(matches, "execution-payload-header")?

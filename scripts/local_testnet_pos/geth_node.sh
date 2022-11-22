@@ -11,7 +11,7 @@ source ./vars.env
 
 rm -rf $1 || true
 
-$GETH_BIN_DIR/geth --datadir $1 init ./config/geth.json 
+$GETH_BIN_DIR/geth --datadir $1 init ./config/geth.json
 
 cp ./config/be733bb2629b84d29570a5ff64569d1aa8f97f86 $1/keystore/
 
@@ -32,4 +32,5 @@ exec $GETH_BIN_DIR/geth \
   --miner.gaslimit 1000000000  \
   --unlock 0xbe733bb2629B84D29570A5fF64569d1Aa8f97f86 \
   --password ./config/password \
-  --allow-insecure-unlock
+  --allow-insecure-unlock \
+  --syncmode full

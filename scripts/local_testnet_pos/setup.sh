@@ -19,8 +19,7 @@ lcli \
 	--validator-count $VALIDATOR_COUNT \
 	--deposit-contract-address $DEPOSIT_CONTRACT_ADDRESS
 
-NOW=`date +%s`
-GENESIS_TIME=`expr $NOW + $GENESIS_DELAY`
+GENESIS_TIME=$1
 
 lcli \
 	new-testnet \
@@ -37,6 +36,7 @@ lcli \
 	--seconds-per-slot $SECONDS_PER_SLOT \
 	--seconds-per-eth1-block $SECONDS_PER_ETH1_BLOCK \
 	--merge-fork-epoch $MERGE_FORK_EPOCH \
+    --capella-fork-epoch $CAPELLA_FORK_EPOCH \
 	--force
 
 echo Specification generated at $TESTNET_DIR.

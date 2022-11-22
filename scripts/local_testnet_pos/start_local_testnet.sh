@@ -86,6 +86,9 @@ execute_command_add_PID() {
     echo "$!" >> $PID_FILE
 }
 
+NOW=`date +%s`
+GENESIS_TIME=`expr $NOW + $GENESIS_DELAY`
+
 # Setaup and start geth bootnode.
 $GETH_BIN_DIR/bootnode -genkey $DATADIR/geth_bootnode.key -writeaddress > $DATADIR/geth_bootnode.addr
 execute_command_add_PID geth_bootnode.log $GETH_BIN_DIR/bootnode --nodekey $DATADIR/geth_bootnode.key
@@ -94,16 +97,26 @@ GETH_base=30303
 GETH_http_base=8545
 GETH_el_base=8645
 
+# Make Geth config with genesis time.
+# XXX: DO NOT ADD SPACES TO THIS EXPRESSION OR IT WILL BREAK.
+# Multiplication in Bash is incredibly cursed due to the "*" glob expanding into a list of files.
+SHANGHAI_TIME_EXPR="$GENESIS_TIME + $CAPELLA_FORK_EPOCH*$SECONDS_PER_SLOT*32"
+SHANGHAI_TIME=`echo $SHANGHAI_TIME_EXPR | bc`
+echo "Shangai time = $SHANGHAI_TIME"
+cat ./config/geth.json.template | sed "s/SHANGHAI_BLOCK_TEMPLATE/$SHANGHAI_TIME/" > ./config/geth.json
+
 # Setup and start geth.
+echo "Starting Geth nodes"
 for (( gn=1; gn<=$BN_COUNT; gn++ )); do
     execute_command_add_PID geth_node_$gn.log ./geth_node.sh $DATADIR/geth_$gn $((GETH_base + $gn)) $((GETH_http_base + $gn)) $((GETH_el_base + $gn))
 done
+echo "Started Geth nodes"
 
-sleeping 20
+sleeping 5
 
 # Setup data
 echo "executing: ./setup.sh >> $LOG_DIR/setup.log"
-./setup.sh >> $LOG_DIR/setup.log 2>&1
+./setup.sh $GENESIS_TIME >> $LOG_DIR/setup.log 2>&1
 
 # Delay to let boot_enr.yaml to be created
 execute_command_add_PID bootnode.log ./bootnode.sh
