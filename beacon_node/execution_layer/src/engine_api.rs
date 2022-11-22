@@ -309,9 +309,6 @@ pub struct ProposeBlindedBlockResponse {
 // but I'm writing this as it has been described
 #[derive(Clone, Copy)]
 pub struct SupportedApis {
-    // I wonder if it would be better to use a bitmask here..
-    // It would be 8x more space efficient but I do remember
-    // Mac saying something about the performance being bad..
     pub new_payload_v1: bool,
     pub new_payload_v2: bool,
     pub forkchoice_updated_v1: bool,
