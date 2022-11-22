@@ -5,6 +5,7 @@ mod change_genesis_time;
 mod check_deposit_data;
 mod create_payload_header;
 mod deploy_deposit_contract;
+mod deposit;
 mod eth1_genesis;
 mod generate_bootnode_enr;
 mod indexed_attestations;
@@ -260,6 +261,38 @@ fn main() {
                         .help("If present, makes `validator_count` number of INSECURE deterministic deposits after \
                                 deploying the deposit contract."
                         ),
+                )
+        )
+        .subcommand(
+            SubCommand::with_name("deposit")
+                .about(
+                    "Makes `validator_count` number of INSECURE deterministic deposits to `deposit-contract-address` \
+                      deposit contract.",
+                )
+                .arg(
+                    Arg::with_name("eth1-http")
+                        .long("eth1-http")
+                        .short("e")
+                        .value_name("ETH1_HTTP_PATH")
+                        .help("Eth1 JSON-RPC address or path to IPC endpoint.")
+                        .takes_value(true)
+                        .required(true)
+                )
+                .arg(
+                    Arg::with_name("validator-count")
+                        .value_name("VALIDATOR_COUNT")
+                        .long("validator-count")
+                        .help("Number of deposits to make.")
+                        .takes_value(true)
+                        .required(true)
+                )
+                .arg(
+                    Arg::with_name("deposit-contract-address")
+                        .long("deposit-contract-address")
+                        .value_name("ETH1_ADDRESS")
+                        .help("Address of the deposit contract to deposit to.")
+                        .takes_value(true)
+                        .required(true)
                 )
         )
         .subcommand(
@@ -830,6 +863,8 @@ fn run<T: EthSpec>(
             deploy_deposit_contract::run::<T>(env, matches)
                 .map_err(|e| format!("Failed to run deploy-deposit-contract command: {}", e))
         }
+        ("deposit", Some(matches)) => deposit::run::<T>(env, matches)
+            .map_err(|e| format!("Failed to run deposit command: {}", e)),
         ("eth1-genesis", Some(matches)) => eth1_genesis::run::<T>(env, testnet_dir, matches)
             .map_err(|e| format!("Failed to run eth1-genesis command: {}", e)),
         ("interop-genesis", Some(matches)) => interop_genesis::run::<T>(testnet_dir, matches)
