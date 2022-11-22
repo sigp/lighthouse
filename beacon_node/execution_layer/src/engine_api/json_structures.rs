@@ -327,7 +327,7 @@ impl<T: EthSpec> TryFrom<ExecutionPayload<T>> for JsonExecutionPayloadV2<T> {
                 transactions: capella.transactions,
                 #[cfg(feature = "withdrawals")]
                 withdrawals: Some(
-                    Into::<Vec<_>>::into(capella.withdrawals)
+                    Vec::from(capella.withdrawals)
                         .into_iter()
                         .map(Into::into)
                         .collect::<Vec<_>>()
