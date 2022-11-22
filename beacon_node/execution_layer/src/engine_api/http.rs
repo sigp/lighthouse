@@ -857,7 +857,6 @@ impl HttpJsonRpc {
     ) -> Result<PayloadStatusV1, Error> {
         let supported_apis = self.get_cached_supported_apis().await?;
         if supported_apis.new_payload_v2 {
-            // FIXME: I haven't thought at all about how to handle 4844..
             self.new_payload_v2(execution_payload).await
         } else if supported_apis.new_payload_v1 {
             self.new_payload_v1(execution_payload).await
@@ -875,7 +874,6 @@ impl HttpJsonRpc {
     ) -> Result<ExecutionPayload<T>, Error> {
         let supported_apis = self.get_cached_supported_apis().await?;
         if supported_apis.get_payload_v2 {
-            // FIXME: I haven't thought at all about how to handle 4844..
             self.get_payload_v2(fork_name, payload_id).await
         } else if supported_apis.new_payload_v1 {
             self.get_payload_v1(fork_name, payload_id).await
@@ -893,7 +891,6 @@ impl HttpJsonRpc {
     ) -> Result<ForkchoiceUpdatedResponse, Error> {
         let supported_apis = self.get_cached_supported_apis().await?;
         if supported_apis.forkchoice_updated_v2 {
-            // FIXME: I haven't thought at all about how to handle 4844..
             self.forkchoice_updated_v2(forkchoice_state, payload_attributes)
                 .await
         } else if supported_apis.forkchoice_updated_v1 {
