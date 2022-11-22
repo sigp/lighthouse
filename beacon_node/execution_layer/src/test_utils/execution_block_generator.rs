@@ -1,4 +1,4 @@
-use crate::engines::ForkChoiceState;
+use crate::engines::ForkchoiceState;
 use crate::{
     engine_api::{
         json_structures::{
@@ -13,8 +13,7 @@ use std::collections::HashMap;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 use types::{
-    EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadCapella, ExecutionPayloadMerge,
-    Hash256, Uint256,
+    EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadMerge, Hash256, Uint256,
 };
 
 const GAS_LIMIT: u64 = 16384;
@@ -315,7 +314,7 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
 
     pub fn forkchoice_updated_v1(
         &mut self,
-        forkchoice_state: ForkChoiceState,
+        forkchoice_state: ForkchoiceState,
         payload_attributes: Option<PayloadAttributes>,
     ) -> Result<JsonForkchoiceUpdatedV1Response, String> {
         if let Some(payload) = self
@@ -369,7 +368,6 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
                 let id = payload_id_from_u64(self.next_payload_id);
                 self.next_payload_id += 1;
 
-                // FIXME: think about how to test different forks
                 let mut execution_payload = match &attributes {
                     PayloadAttributes::V1(pa) => ExecutionPayload::Merge(ExecutionPayloadMerge {
                         parent_hash: forkchoice_state.head_block_hash,
@@ -388,7 +386,8 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
                         transactions: vec![].into(),
                     }),
                     PayloadAttributes::V2(pa) => {
-                        ExecutionPayload::Capella(ExecutionPayloadCapella {
+                        // FIXME: think about how to test different forks
+                        ExecutionPayload::Merge(ExecutionPayloadMerge {
                             parent_hash: forkchoice_state.head_block_hash,
                             fee_recipient: pa.suggested_fee_recipient,
                             receipts_root: Hash256::repeat_byte(42),
@@ -403,14 +402,6 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
                             base_fee_per_gas: Uint256::one(),
                             block_hash: ExecutionBlockHash::zero(),
                             transactions: vec![].into(),
-                            #[cfg(feature = "withdrawals")]
-                            withdrawals: pa
-                                .withdrawals
-                                .iter()
-                                .cloned()
-                                .map(Into::into)
-                                .collect::<Vec<_>>()
-                                .into(),
                         })
                     }
                 };

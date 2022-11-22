@@ -1,4 +1,4 @@
-use crate::engines::ForkChoiceState;
+use crate::engines::ForkchoiceState;
 pub use ethers_core::types::Transaction;
 use ethers_core::utils::rlp::{Decodable, Rlp};
 use http::deposit_methods::RpcError;
@@ -7,10 +7,11 @@ use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 use strum::IntoStaticStr;
 use superstruct::superstruct;
+#[cfg(feature = "withdrawals")]
 use types::Withdrawal;
 pub use types::{
     Address, EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadHeader, FixedVector,
-    Hash256, Uint256, VariableList,
+    ForkName, Hash256, Uint256, VariableList,
 };
 
 pub mod auth;
@@ -44,6 +45,9 @@ pub enum Error {
     DeserializeWithdrawals(ssz_types::Error),
     BuilderApi(builder_client::Error),
     IncorrectStateVariant,
+    RequiredMethodUnsupported(&'static str),
+    UnsupportedForkVariant(String),
+    BadConversion(String),
 }
 
 impl From<reqwest::Error> for Error {
@@ -255,7 +259,29 @@ pub struct PayloadAttributes {
     pub suggested_fee_recipient: Address,
     #[cfg(feature = "withdrawals")]
     #[superstruct(only(V2))]
-    pub withdrawals: Vec<Withdrawal>,
+    pub withdrawals: Option<Vec<Withdrawal>>,
+}
+
+impl PayloadAttributes {
+    pub fn downgrade_to_v1(self) -> Result<Self, Error> {
+        match self {
+            PayloadAttributes::V1(_) => Ok(self),
+            PayloadAttributes::V2(v2) => {
+                #[cfg(features = "withdrawals")]
+                if v2.withdrawals.is_some() {
+                    return Err(Error::BadConversion(
+                        "Downgrading from PayloadAttributesV2 with non-null withdrawaals"
+                            .to_string(),
+                    ));
+                }
+                Ok(PayloadAttributes::V1(PayloadAttributesV1 {
+                    timestamp: v2.timestamp,
+                    prev_randao: v2.prev_randao,
+                    suggested_fee_recipient: v2.suggested_fee_recipient,
+                }))
+            }
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -276,4 +302,18 @@ pub struct ProposeBlindedBlockResponse {
     pub status: ProposeBlindedBlockResponseStatus,
     pub latest_valid_hash: Option<Hash256>,
     pub validation_error: Option<String>,
+}
+
+// This name is work in progress, it could
+// change when this method is actually proposed
+// but I'm writing this as it has been described
+#[derive(Clone, Copy)]
+pub struct SupportedApis {
+    pub new_payload_v1: bool,
+    pub new_payload_v2: bool,
+    pub forkchoice_updated_v1: bool,
+    pub forkchoice_updated_v2: bool,
+    pub get_payload_v1: bool,
+    pub get_payload_v2: bool,
+    pub exchange_transition_configuration_v1: bool,
 }

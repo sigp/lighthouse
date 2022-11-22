@@ -12,7 +12,7 @@ use engine_api::Error as ApiError;
 pub use engine_api::*;
 pub use engine_api::{http, http::deposit_methods, http::HttpJsonRpc};
 use engines::{Engine, EngineError};
-pub use engines::{EngineState, ForkChoiceState};
+pub use engines::{EngineState, ForkchoiceState};
 use fork_choice::ForkchoiceUpdateParameters;
 use lru::LruCache;
 use payload_status::process_payload_status;
@@ -33,6 +33,8 @@ use tokio::{
     time::sleep,
 };
 use tokio_stream::wrappers::WatchStream;
+#[cfg(feature = "withdrawals")]
+use types::Withdrawal;
 use types::{AbstractExecPayload, Blob, ExecPayload, ExecutionPayloadEip4844, KzgCommitment};
 use types::{
     BlindedPayload, BlockType, ChainSpec, Epoch, ExecutionBlockHash, ForkName,
@@ -613,6 +615,8 @@ impl<T: EthSpec> ExecutionLayer<T> {
         proposer_index: u64,
         forkchoice_update_params: ForkchoiceUpdateParameters,
         builder_params: BuilderParams,
+        current_fork: ForkName,
+        #[cfg(feature = "withdrawals")] withdrawals: Option<Vec<Withdrawal>>,
         spec: &ChainSpec,
     ) -> Result<BlockProposalContents<T, Payload>, Error> {
         let suggested_fee_recipient = self.get_suggested_fee_recipient(proposer_index).await;
@@ -630,6 +634,9 @@ impl<T: EthSpec> ExecutionLayer<T> {
                     suggested_fee_recipient,
                     forkchoice_update_params,
                     builder_params,
+                    current_fork,
+                    #[cfg(feature = "withdrawals")]
+                    withdrawals,
                     spec,
                 )
                 .await
@@ -645,6 +652,9 @@ impl<T: EthSpec> ExecutionLayer<T> {
                     prev_randao,
                     suggested_fee_recipient,
                     forkchoice_update_params,
+                    current_fork,
+                    #[cfg(feature = "withdrawals")]
+                    withdrawals,
                 )
                 .await
             }
@@ -660,6 +670,8 @@ impl<T: EthSpec> ExecutionLayer<T> {
         suggested_fee_recipient: Address,
         forkchoice_update_params: ForkchoiceUpdateParameters,
         builder_params: BuilderParams,
+        current_fork: ForkName,
+        #[cfg(feature = "withdrawals")] withdrawals: Option<Vec<Withdrawal>>,
         spec: &ChainSpec,
     ) -> Result<BlockProposalContents<T, Payload>, Error> {
         if let Some(builder) = self.builder() {
@@ -683,6 +695,9 @@ impl<T: EthSpec> ExecutionLayer<T> {
                             prev_randao,
                             suggested_fee_recipient,
                             forkchoice_update_params,
+                            current_fork,
+                            #[cfg(feature = "withdrawals")]
+                            withdrawals,
                         )
                     );
 
@@ -812,6 +827,9 @@ impl<T: EthSpec> ExecutionLayer<T> {
             prev_randao,
             suggested_fee_recipient,
             forkchoice_update_params,
+            current_fork,
+            #[cfg(feature = "withdrawals")]
+            withdrawals,
         )
         .await
     }
@@ -824,6 +842,8 @@ impl<T: EthSpec> ExecutionLayer<T> {
         prev_randao: Hash256,
         suggested_fee_recipient: Address,
         forkchoice_update_params: ForkchoiceUpdateParameters,
+        current_fork: ForkName,
+        #[cfg(feature = "withdrawals")] withdrawals: Option<Vec<Withdrawal>>,
     ) -> Result<BlockProposalContents<T, Payload>, Error> {
         self.get_full_payload_with(
             parent_hash,
@@ -831,6 +851,9 @@ impl<T: EthSpec> ExecutionLayer<T> {
             prev_randao,
             suggested_fee_recipient,
             forkchoice_update_params,
+            current_fork,
+            #[cfg(feature = "withdrawals")]
+            withdrawals,
             noop,
         )
         .await
@@ -844,6 +867,8 @@ impl<T: EthSpec> ExecutionLayer<T> {
         prev_randao: Hash256,
         suggested_fee_recipient: Address,
         forkchoice_update_params: ForkchoiceUpdateParameters,
+        current_fork: ForkName,
+        #[cfg(feature = "withdrawals")] withdrawals: Option<Vec<Withdrawal>>,
     ) -> Result<BlockProposalContents<T, Payload>, Error> {
         self.get_full_payload_with(
             parent_hash,
@@ -851,6 +876,9 @@ impl<T: EthSpec> ExecutionLayer<T> {
             prev_randao,
             suggested_fee_recipient,
             forkchoice_update_params,
+            current_fork,
+            #[cfg(feature = "withdrawals")]
+            withdrawals,
             Self::cache_payload,
         )
         .await
@@ -863,10 +891,14 @@ impl<T: EthSpec> ExecutionLayer<T> {
         prev_randao: Hash256,
         suggested_fee_recipient: Address,
         forkchoice_update_params: ForkchoiceUpdateParameters,
+        current_fork: ForkName,
+        #[cfg(feature = "withdrawals")] withdrawals: Option<Vec<Withdrawal>>,
         f: fn(&ExecutionLayer<T>, &ExecutionPayload<T>) -> Option<ExecutionPayload<T>>,
     ) -> Result<BlockProposalContents<T, Payload>, Error> {
+        #[cfg(feature = "withdrawals")]
+        let withdrawals_ref = &withdrawals;
         self.engine()
-            .request(|engine| async move {
+            .request(move |engine| async move {
                 let payload_id = if let Some(id) = engine
                     .get_payload_id(parent_hash, timestamp, prev_randao, suggested_fee_recipient)
                     .await
@@ -884,7 +916,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                         &metrics::EXECUTION_LAYER_PRE_PREPARED_PAYLOAD_ID,
                         &[metrics::MISS],
                     );
-                    let fork_choice_state = ForkChoiceState {
+                    let fork_choice_state = ForkchoiceState {
                         head_block_hash: parent_hash,
                         safe_block_hash: forkchoice_update_params
                             .justified_hash
@@ -893,12 +925,14 @@ impl<T: EthSpec> ExecutionLayer<T> {
                             .finalized_hash
                             .unwrap_or_else(ExecutionBlockHash::zero),
                     };
-                    // FIXME: This will have to properly handle forks. To do that,
-                    //        withdrawals will need to be passed into this function
-                    let payload_attributes = PayloadAttributes::V1(PayloadAttributesV1 {
+                    // This must always be the latest PayloadAttributes
+                    // FIXME: How to non-capella EIP4844 testnets handle this?
+                    let payload_attributes = PayloadAttributes::V2(PayloadAttributesV2 {
                         timestamp,
                         prev_randao,
                         suggested_fee_recipient,
+                        #[cfg(feature = "withdrawals")]
+                        withdrawals: withdrawals_ref.clone(),
                     });
 
                     let response = engine
@@ -925,7 +959,11 @@ impl<T: EthSpec> ExecutionLayer<T> {
                 };
 
                 let blob_fut = async {
-                    //FIXME(sean) do a fork check here and return None otherwise
+                    //FIXME(sean)   do a fork check here and return None otherwise
+                    //              ^
+                    //              well now we have the fork in this function so
+                    //              it should be easier to do that now
+                    //               - Mark
                     debug!(
                         self.log(),
                         "Issuing engine_getBlobsBundle";
@@ -945,9 +983,8 @@ impl<T: EthSpec> ExecutionLayer<T> {
                         "timestamp" => timestamp,
                         "parent_hash" => ?parent_hash,
                     );
-                    engine.api.get_payload_v1::<T>(payload_id).await
+                    engine.api.get_payload::<T>(current_fork, payload_id).await
                 };
-
                 let (blob, payload) = tokio::join!(blob_fut, payload_fut);
                 let payload = payload.map(|full_payload| {
                     if full_payload.fee_recipient() != suggested_fee_recipient {
@@ -1020,7 +1057,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
 
         let result = self
             .engine()
-            .request(|engine| engine.api.new_payload_v1(execution_payload.clone()))
+            .request(|engine| engine.api.new_payload(execution_payload.clone()))
             .await;
 
         if let Ok(status) = &result {
@@ -1150,7 +1187,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
             }
         }
 
-        let forkchoice_state = ForkChoiceState {
+        let forkchoice_state = ForkchoiceState {
             head_block_hash,
             safe_block_hash: justified_block_hash,
             finalized_block_hash,

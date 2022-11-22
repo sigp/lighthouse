@@ -4,7 +4,7 @@ use crate::json_structures::*;
 use serde::de::DeserializeOwned;
 use serde_json::Value as JsonValue;
 use std::sync::Arc;
-use types::EthSpec;
+use types::{EthSpec, ForkName};
 
 pub async fn handle_rpc<T: EthSpec>(
     body: JsonValue,
@@ -97,7 +97,8 @@ pub async fn handle_rpc<T: EthSpec>(
                 Some(
                     ctx.execution_block_generator
                         .write()
-                        .new_payload(request.into()),
+                        // FIXME: should this worry about other forks?
+                        .new_payload(request.try_into_execution_payload(ForkName::Merge).unwrap()),
                 )
             } else {
                 None
@@ -117,10 +118,10 @@ pub async fn handle_rpc<T: EthSpec>(
                 .get_payload(&id)
                 .ok_or_else(|| format!("no payload for id {:?}", id))?;
 
-            Ok(serde_json::to_value(JsonExecutionPayload::from(response)).unwrap())
+            Ok(serde_json::to_value(JsonExecutionPayloadV1::try_from(response).unwrap()).unwrap())
         }
         ENGINE_FORKCHOICE_UPDATED_V1 => {
-            let forkchoice_state: JsonForkChoiceStateV1 = get_param(params, 0)?;
+            let forkchoice_state: JsonForkchoiceStateV1 = get_param(params, 0)?;
             let payload_attributes: Option<JsonPayloadAttributes> = get_param(params, 1)?;
 
             let head_block_hash = forkchoice_state.head_block_hash;

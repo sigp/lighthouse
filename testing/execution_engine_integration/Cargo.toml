@@ -21,3 +21,7 @@ deposit_contract = { path = "../../common/deposit_contract" }
 reqwest = { version = "0.11.0", features = ["json"] }
 hex = "0.4.2"
 fork_choice = { path = "../../consensus/fork_choice" }
+
+[features]
+default = []
+withdrawals = []

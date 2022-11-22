@@ -77,6 +77,8 @@ use slasher::Slasher;
 use slog::{crit, debug, error, info, trace, warn, Logger};
 use slot_clock::SlotClock;
 use ssz::Encode;
+#[cfg(feature = "withdrawals")]
+use state_processing::per_block_processing::get_expected_withdrawals;
 use state_processing::{
     common::{get_attesting_indices_from_state, get_indexed_attestation},
     per_block_processing,
@@ -4105,35 +4107,52 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Ok(());
         }
 
-        let payload_attributes = match self.spec.fork_name_at_epoch(prepare_epoch) {
+        #[cfg(feature = "withdrawals")]
+        let head_state = &self.canonical_head.cached_head().snapshot.beacon_state;
+        #[cfg(feature = "withdrawals")]
+        let withdrawals = match self.spec.fork_name_at_epoch(prepare_epoch) {
             ForkName::Base | ForkName::Altair | ForkName::Merge => {
-                PayloadAttributes::V1(PayloadAttributesV1 {
-                    timestamp: self
-                        .slot_clock
-                        .start_of(prepare_slot)
-                        .ok_or(Error::InvalidSlot(prepare_slot))?
-                        .as_secs(),
-                    prev_randao: head_random,
-                    suggested_fee_recipient: execution_layer
-                        .get_suggested_fee_recipient(proposer as u64)
-                        .await,
-                })
-            }
-            ForkName::Capella | ForkName::Eip4844 => PayloadAttributes::V2(PayloadAttributesV2 {
-                timestamp: self
-                    .slot_clock
-                    .start_of(prepare_slot)
-                    .ok_or(Error::InvalidSlot(prepare_slot))?
-                    .as_secs(),
-                prev_randao: head_random,
-                suggested_fee_recipient: execution_layer
-                    .get_suggested_fee_recipient(proposer as u64)
-                    .await,
-                //FIXME(sean)
-                #[cfg(feature = "withdrawals")]
-                withdrawals: vec![],
-            }),
-        };
+                None
+            },
+            ForkName::Capella | ForkName::Eip4844 => match &head_state {
+                &BeaconState::Capella(_) | &BeaconState::Eip4844(_) => {
+                    // The head_state is already BeaconState::Capella or later
+                    // FIXME(mark)
+                    //   Might implement caching here in the future..
+                    Some(get_expected_withdrawals(head_state, &self.spec))
+                }
+                &BeaconState::Base(_) | &BeaconState::Altair(_) | &BeaconState::Merge(_) => {
+                    // We are the Capella transition block proposer, need advanced state
+                    let mut prepare_state = self
+                        .state_at_slot(prepare_slot, StateSkipConfig::WithoutStateRoots)
+                        .or_else(|e| {
+                            error!(self.log, "Capella Transition Proposer"; "Error Advancing State: " => ?e);
+                            Err(e)
+                        })?;
+                    // FIXME(mark)
+                    //   Might implement caching here in the future..
+                    Some(get_expected_withdrawals(&prepare_state, &self.spec))
+                }
+            },
+        }.transpose().or_else(|e| {
+            error!(self.log, "Error preparing beacon proposer"; "while calculating expected withdrawals" => ?e);
+            Err(e)
+        }).map(|withdrawals_opt| withdrawals_opt.map(|w| w.into()))
+            .map_err(Error::PrepareProposerFailed)?;
+
+        let payload_attributes = PayloadAttributes::V2(PayloadAttributesV2 {
+            timestamp: self
+                .slot_clock
+                .start_of(prepare_slot)
+                .ok_or(Error::InvalidSlot(prepare_slot))?
+                .as_secs(),
+            prev_randao: head_random,
+            suggested_fee_recipient: execution_layer
+                .get_suggested_fee_recipient(proposer as u64)
+                .await,
+            #[cfg(feature = "withdrawals")]
+            withdrawals,
+        });
 
         debug!(
             self.log,
