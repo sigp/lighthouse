@@ -243,7 +243,7 @@ impl<T: EthSpec> JsonExecutionPayload<T> {
                     withdrawals: v3
                         .withdrawals
                         .map(|v| {
-                            Into::<Vec<_>>::into(v)
+                            Vec::from(v)
                                 .into_iter()
                                 .map(Into::into)
                                 .collect::<Vec<_>>()
