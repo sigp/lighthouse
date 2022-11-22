@@ -32,7 +32,8 @@ use std::ptr;
 use types::{
     sync_aggregate::Error as SyncAggregateError, typenum::Unsigned, Attestation, AttestationData,
     AttesterSlashing, BeaconState, BeaconStateError, ChainSpec, Epoch, EthSpec, ProposerSlashing,
-    SignedVoluntaryExit, Slot, SyncAggregate, SyncCommitteeContribution, Validator,
+    SignedBlsToExecutionChange, SignedVoluntaryExit, Slot, SyncAggregate,
+    SyncCommitteeContribution, Validator,
 };
 
 type SyncContributions<T> = RwLock<HashMap<SyncAggregateId, Vec<SyncCommitteeContribution<T>>>>;
@@ -49,6 +50,8 @@ pub struct OperationPool<T: EthSpec + Default> {
     proposer_slashings: RwLock<HashMap<u64, SigVerifiedOp<ProposerSlashing, T>>>,
     /// Map from exiting validator to their exit data.
     voluntary_exits: RwLock<HashMap<u64, SigVerifiedOp<SignedVoluntaryExit, T>>>,
+    /// Map from credential changing validator to their execution change data.
+    bls_to_execution_changes: RwLock<HashMap<u64, SigVerifiedOp<SignedBlsToExecutionChange, T>>>,
     /// Reward cache for accelerating attestation packing.
     reward_cache: RwLock<RewardCache>,
     _phantom: PhantomData<T>,
@@ -507,6 +510,16 @@ impl<T: EthSpec> OperationPool<T> {
             |validator| validator.exit_epoch <= head_state.finalized_checkpoint().epoch,
             head_state,
         );
+    }
+
+    /// Get a list of execution changes for inclusion in a block.
+    pub fn get_bls_to_execution_changes(
+        &self,
+        state: &BeaconState<T>,
+        spec: &ChainSpec,
+    ) -> Vec<SignedBlsToExecutionChange> {
+        // FIXME: actually implement this
+        return vec![];
     }
 
     /// Prune all types of transactions given the latest head state and head fork.

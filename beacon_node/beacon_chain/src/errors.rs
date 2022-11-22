@@ -153,7 +153,7 @@ pub enum BeaconChainError {
     },
     AddPayloadLogicError,
     ExecutionForkChoiceUpdateFailed(execution_layer::Error),
-    PrepareProposerBlockingFailed(execution_layer::Error),
+    PrepareProposerFailed(BlockProcessingError),
     ExecutionForkChoiceUpdateInvalid {
         status: PayloadStatus,
     },

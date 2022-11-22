@@ -1,6 +1,7 @@
 use crate::{test_utils::TestRandom, *};
 use derivative::Derivative;
 use serde_derive::{Deserialize, Serialize};
+use ssz::Decode;
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
@@ -84,31 +85,34 @@ impl<T: EthSpec> ExecutionPayloadHeader<T> {
     pub fn transactions(&self) -> Option<&Transactions<T>> {
         None
     }
-}
 
-impl<'a, T: EthSpec> ExecutionPayloadHeaderRef<'a, T> {
-    // FIXME: maybe this could be a derived trait..
-    pub fn is_default(self) -> bool {
-        match self {
-            ExecutionPayloadHeaderRef::Merge(header) => {
-                *header == ExecutionPayloadHeaderMerge::default()
+    pub fn from_ssz_bytes(bytes: &[u8], fork_name: ForkName) -> Result<Self, ssz::DecodeError> {
+        match fork_name {
+            ForkName::Base | ForkName::Altair => Err(ssz::DecodeError::BytesInvalid(format!(
+                "unsupported fork for ExecutionPayloadHeader: {fork_name}",
+            ))),
+            ForkName::Merge => ExecutionPayloadHeaderMerge::from_ssz_bytes(bytes).map(Self::Merge),
+            ForkName::Capella => {
+                ExecutionPayloadHeaderCapella::from_ssz_bytes(bytes).map(Self::Capella)
             }
-            ExecutionPayloadHeaderRef::Capella(header) => {
-                *header == ExecutionPayloadHeaderCapella::default()
-            }
-            ExecutionPayloadHeaderRef::Eip4844(header) => {
-                *header == ExecutionPayloadHeaderEip4844::default()
+            ForkName::Eip4844 => {
+                ExecutionPayloadHeaderEip4844::from_ssz_bytes(bytes).map(Self::Eip4844)
             }
         }
     }
 }
 
+impl<'a, T: EthSpec> ExecutionPayloadHeaderRef<'a, T> {
+    pub fn is_default(self) -> bool {
+        map_execution_payload_header_ref!(&'a _, self, |inner, cons| {
+            let _ = cons(inner);
+            *inner == Default::default()
+        })
+    }
+}
+
 impl<T: EthSpec> ExecutionPayloadHeaderMerge<T> {
     pub fn upgrade_to_capella(&self) -> ExecutionPayloadHeaderCapella<T> {
-        #[cfg(feature = "withdrawals")]
-        // TODO: if this is correct we should calculate and hardcode this..
-        let empty_withdrawals_root =
-            VariableList::<Withdrawal, T::MaxWithdrawalsPerPayload>::empty().tree_hash_root();
         ExecutionPayloadHeaderCapella {
             parent_hash: self.parent_hash,
             fee_recipient: self.fee_recipient,
@@ -125,8 +129,7 @@ impl<T: EthSpec> ExecutionPayloadHeaderMerge<T> {
             block_hash: self.block_hash,
             transactions_root: self.transactions_root,
             #[cfg(feature = "withdrawals")]
-            // FIXME: the spec doesn't seem to define what to do here..
-            withdrawals_root: empty_withdrawals_root,
+            withdrawals_root: Hash256::zero(),
         }
     }
 }

@@ -6,8 +6,8 @@ use ssz::Decode;
 use ssz_types::VariableList;
 use types::consts::eip4844::{BLOB_TX_TYPE, VERSIONED_HASH_VERSION_KZG};
 use types::{
-    AbstractExecPayload, BeaconBlockBodyRef, EthSpec, ExecPayload, FullPayload, FullPayloadRef,
-    KzgCommitment, Transaction, Transactions, VersionedHash,
+    AbstractExecPayload, BeaconBlockBodyRef, EthSpec, ExecPayload, KzgCommitment, Transaction,
+    Transactions, VersionedHash,
 };
 
 pub fn process_blob_kzg_commitments<T: EthSpec, Payload: AbstractExecPayload<T>>(
@@ -35,7 +35,7 @@ pub fn verify_kzg_commitments_against_transactions<T: EthSpec>(
     let nested_iter = transactions
         .into_iter()
         .filter(|tx| {
-            tx.get(0)
+            tx.first()
                 .map(|tx_type| *tx_type == BLOB_TX_TYPE)
                 .unwrap_or(false)
         })

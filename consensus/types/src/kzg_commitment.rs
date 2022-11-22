@@ -14,7 +14,7 @@ pub struct KzgCommitment(#[serde(with = "BigArray")] pub [u8; 48]);
 
 impl Display for KzgCommitment {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", eth2_serde_utils::hex::encode(&self.0))
+        write!(f, "{}", eth2_serde_utils::hex::encode(self.0))
     }
 }
 

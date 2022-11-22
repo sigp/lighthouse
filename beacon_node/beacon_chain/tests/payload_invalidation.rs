@@ -12,9 +12,9 @@ use beacon_chain::{
     INVALID_JUSTIFIED_PAYLOAD_SHUTDOWN_REASON,
 };
 use execution_layer::{
-    json_structures::{JsonForkChoiceStateV1, JsonPayloadAttributesV1},
+    json_structures::{JsonForkchoiceStateV1, JsonPayloadAttributesV1},
     test_utils::ExecutionBlockGenerator,
-    ExecutionLayer, ForkChoiceState, PayloadAttributes,
+    ExecutionLayer, ForkchoiceState, PayloadAttributes,
 };
 use fork_choice::{
     CountUnrealized, Error as ForkChoiceError, InvalidationOperation, PayloadVerificationStatus,
@@ -117,7 +117,7 @@ impl InvalidPayloadRig {
         &self.harness.chain.canonical_head
     }
 
-    fn previous_forkchoice_update_params(&self) -> (ForkChoiceState, PayloadAttributes) {
+    fn previous_forkchoice_update_params(&self) -> (ForkchoiceState, PayloadAttributes) {
         let mock_execution_layer = self.harness.mock_execution_layer.as_ref().unwrap();
         let json = mock_execution_layer
             .server
@@ -126,7 +126,7 @@ impl InvalidPayloadRig {
         let params = json.get("params").expect("no params");
 
         let fork_choice_state_json = params.get(0).expect("no payload param");
-        let fork_choice_state: JsonForkChoiceStateV1 =
+        let fork_choice_state: JsonForkchoiceStateV1 =
             serde_json::from_value(fork_choice_state_json.clone()).unwrap();
 
         let payload_param_json = params.get(1).expect("no payload param");

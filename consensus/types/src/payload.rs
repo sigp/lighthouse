@@ -36,6 +36,9 @@ pub trait ExecPayload<T: EthSpec>: Debug + Clone + PartialEq + Hash + TreeHash +
     fn fee_recipient(&self) -> Address;
     fn gas_limit(&self) -> u64;
     fn transactions(&self) -> Option<&Transactions<T>>;
+    /// fork-specific fields
+    #[cfg(feature = "withdrawals")]
+    fn withdrawals_root(&self) -> Result<Hash256, Error>;
 
     /// Is this a default payload? (pre-merge)
     fn is_default(&self) -> bool;
@@ -218,11 +221,24 @@ impl<T: EthSpec> ExecPayload<T> for FullPayload<T> {
         })
     }
 
-    fn transactions<'a>(&'a self) -> Option<&Transactions<T>> {
+    fn transactions<'a>(&'a self) -> Option<&'a Transactions<T>> {
         map_full_payload_ref!(&'a _, self.to_ref(), move |payload, cons| {
             cons(payload);
             Some(&payload.execution_payload.transactions)
         })
+    }
+
+    #[cfg(feature = "withdrawals")]
+    fn withdrawals_root(&self) -> Result<Hash256, Error> {
+        match self {
+            FullPayload::Merge(_) => Err(Error::IncorrectStateVariant),
+            FullPayload::Capella(ref inner) => {
+                Ok(inner.execution_payload.withdrawals.tree_hash_root())
+            }
+            FullPayload::Eip4844(ref inner) => {
+                Ok(inner.execution_payload.withdrawals.tree_hash_root())
+            }
+        }
     }
 
     fn is_default<'a>(&'a self) -> bool {
@@ -249,7 +265,7 @@ impl<'b, T: EthSpec> ExecPayload<T> for FullPayloadRef<'b, T> {
     fn to_execution_payload_header<'a>(&'a self) -> ExecutionPayloadHeader<T> {
         map_full_payload_ref!(&'a _, self, move |payload, cons| {
             cons(payload);
-            ExecutionPayloadHeader::from(payload.to_execution_payload_header())
+            payload.to_execution_payload_header()
         })
     }
 
@@ -302,11 +318,24 @@ impl<'b, T: EthSpec> ExecPayload<T> for FullPayloadRef<'b, T> {
         })
     }
 
-    fn transactions<'a>(&'a self) -> Option<&Transactions<T>> {
+    fn transactions<'a>(&'a self) -> Option<&'a Transactions<T>> {
         map_full_payload_ref!(&'a _, self, move |payload, cons| {
             cons(payload);
             Some(&payload.execution_payload.transactions)
         })
+    }
+
+    #[cfg(feature = "withdrawals")]
+    fn withdrawals_root(&self) -> Result<Hash256, Error> {
+        match self {
+            FullPayloadRef::Merge(_) => Err(Error::IncorrectStateVariant),
+            FullPayloadRef::Capella(inner) => {
+                Ok(inner.execution_payload.withdrawals.tree_hash_root())
+            }
+            FullPayloadRef::Eip4844(inner) => {
+                Ok(inner.execution_payload.withdrawals.tree_hash_root())
+            }
+        }
     }
 
     // TODO: can this function be optimized?
@@ -459,8 +488,21 @@ impl<T: EthSpec> ExecPayload<T> for BlindedPayload<T> {
         })
     }
 
-    fn transactions<'a>(&'a self) -> Option<&Transactions<T>> {
+    fn transactions(&self) -> Option<&Transactions<T>> {
         None
+    }
+
+    #[cfg(feature = "withdrawals")]
+    fn withdrawals_root(&self) -> Result<Hash256, Error> {
+        match self {
+            BlindedPayload::Merge(_) => Err(Error::IncorrectStateVariant),
+            BlindedPayload::Capella(ref inner) => {
+                Ok(inner.execution_payload_header.withdrawals_root)
+            }
+            BlindedPayload::Eip4844(ref inner) => {
+                Ok(inner.execution_payload_header.withdrawals_root)
+            }
+        }
     }
 
     fn is_default<'a>(&'a self) -> bool {
@@ -532,8 +574,21 @@ impl<'b, T: EthSpec> ExecPayload<T> for BlindedPayloadRef<'b, T> {
         })
     }
 
-    fn transactions<'a>(&'a self) -> Option<&Transactions<T>> {
+    fn transactions(&self) -> Option<&Transactions<T>> {
         None
+    }
+
+    #[cfg(feature = "withdrawals")]
+    fn withdrawals_root(&self) -> Result<Hash256, Error> {
+        match self {
+            BlindedPayloadRef::Merge(_) => Err(Error::IncorrectStateVariant),
+            BlindedPayloadRef::Capella(inner) => {
+                Ok(inner.execution_payload_header.withdrawals_root)
+            }
+            BlindedPayloadRef::Eip4844(inner) => {
+                Ok(inner.execution_payload_header.withdrawals_root)
+            }
+        }
     }
 
     // TODO: can this function be optimized?
@@ -546,7 +601,7 @@ impl<'b, T: EthSpec> ExecPayload<T> for BlindedPayloadRef<'b, T> {
 }
 
 macro_rules! impl_exec_payload_common {
-    ($wrapper_type:ident, $wrapped_type_full:ident, $wrapped_header_type:ident, $wrapped_field:ident, $fork_variant:ident, $block_type_variant:ident, $f:block) => {
+    ($wrapper_type:ident, $wrapped_type_full:ident, $wrapped_header_type:ident, $wrapped_field:ident, $fork_variant:ident, $block_type_variant:ident, $f:block, $g:block) => {
         impl<T: EthSpec> ExecPayload<T> for $wrapper_type<T> {
             fn block_type() -> BlockType {
                 BlockType::$block_type_variant
@@ -594,6 +649,12 @@ macro_rules! impl_exec_payload_common {
                 let f = $f;
                 f(self)
             }
+
+            #[cfg(feature = "withdrawals")]
+            fn withdrawals_root(&self) -> Result<Hash256, Error> {
+                let g = $g;
+                g(self)
+            }
         }
 
         impl<T: EthSpec> From<$wrapped_type_full<T>> for $wrapper_type<T> {
@@ -615,7 +676,15 @@ macro_rules! impl_exec_payload_for_fork {
             execution_payload_header,
             $fork_variant,
             Blinded,
-            { |_| { None } }
+            { |_| { None } },
+            {
+                let c: for<'a> fn(&'a $wrapper_type_header<T>) -> Result<Hash256, Error> =
+                    |payload: &$wrapper_type_header<T>| {
+                        let wrapper_ref_type = BlindedPayloadRef::$fork_variant(&payload);
+                        wrapper_ref_type.withdrawals_root()
+                    };
+                c
+            }
         );
 
         impl<T: EthSpec> TryInto<$wrapper_type_header<T>> for BlindedPayload<T> {
@@ -679,6 +748,14 @@ macro_rules! impl_exec_payload_for_fork {
             {
                 let c: for<'a> fn(&'a $wrapper_type_full<T>) -> Option<&'a Transactions<T>> =
                     |payload: &$wrapper_type_full<T>| Some(&payload.execution_payload.transactions);
+                c
+            },
+            {
+                let c: for<'a> fn(&'a $wrapper_type_full<T>) -> Result<Hash256, Error> =
+                    |payload: &$wrapper_type_full<T>| {
+                        let wrapper_ref_type = FullPayloadRef::$fork_variant(&payload);
+                        wrapper_ref_type.withdrawals_root()
+                    };
                 c
             }
         );

@@ -114,7 +114,7 @@ impl<T: EthSpec> MockExecutionLayer<T> {
                         suggested_fee_recipient: Address::repeat_byte(42),
                         // FIXME: think about adding withdrawals here..
                         #[cfg(feature = "withdrawals")]
-                        withdrawals: vec![],
+                        withdrawals: Some(vec![]),
                     })
                 }
             },
@@ -159,6 +159,10 @@ impl<T: EthSpec> MockExecutionLayer<T> {
                 validator_index,
                 forkchoice_update_params,
                 builder_params,
+                // FIXME: do we need to consider other forks somehow? What about withdrawals?
+                ForkName::Merge,
+                #[cfg(feature = "withdrawals")]
+                Some(vec![]),
                 &self.spec,
             )
             .await
@@ -191,6 +195,10 @@ impl<T: EthSpec> MockExecutionLayer<T> {
                 validator_index,
                 forkchoice_update_params,
                 builder_params,
+                // FIXME: do we need to consider other forks somehow? What about withdrawals?
+                ForkName::Merge,
+                #[cfg(feature = "withdrawals")]
+                Some(vec![]),
                 &self.spec,
             )
             .await

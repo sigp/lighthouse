@@ -88,7 +88,7 @@ impl State {
 }
 
 #[derive(Copy, Clone, PartialEq, Debug)]
-pub struct ForkChoiceState {
+pub struct ForkchoiceState {
     pub head_block_hash: ExecutionBlockHash,
     pub safe_block_hash: ExecutionBlockHash,
     pub finalized_block_hash: ExecutionBlockHash,
@@ -115,7 +115,7 @@ pub struct Engine {
     pub api: HttpJsonRpc,
     payload_id_cache: Mutex<LruCache<PayloadIdCacheKey, PayloadId>>,
     state: RwLock<State>,
-    latest_forkchoice_state: RwLock<Option<ForkChoiceState>>,
+    latest_forkchoice_state: RwLock<Option<ForkchoiceState>>,
     executor: TaskExecutor,
     log: Logger,
 }
@@ -161,13 +161,13 @@ impl Engine {
 
     pub async fn notify_forkchoice_updated(
         &self,
-        forkchoice_state: ForkChoiceState,
+        forkchoice_state: ForkchoiceState,
         payload_attributes: Option<PayloadAttributes>,
         log: &Logger,
     ) -> Result<ForkchoiceUpdatedResponse, EngineApiError> {
         let response = self
             .api
-            .forkchoice_updated_v1(forkchoice_state, payload_attributes.clone())
+            .forkchoice_updated(forkchoice_state, payload_attributes.clone())
             .await?;
 
         if let Some(payload_id) = response.payload_id {
@@ -187,11 +187,11 @@ impl Engine {
         Ok(response)
     }
 
-    async fn get_latest_forkchoice_state(&self) -> Option<ForkChoiceState> {
+    async fn get_latest_forkchoice_state(&self) -> Option<ForkchoiceState> {
         *self.latest_forkchoice_state.read().await
     }
 
-    pub async fn set_latest_forkchoice_state(&self, state: ForkChoiceState) {
+    pub async fn set_latest_forkchoice_state(&self, state: ForkchoiceState) {
         *self.latest_forkchoice_state.write().await = Some(state);
     }
 
@@ -216,7 +216,7 @@ impl Engine {
 
             // For simplicity, payload attributes are never included in this call. It may be
             // reasonable to include them in the future.
-            if let Err(e) = self.api.forkchoice_updated_v1(forkchoice_state, None).await {
+            if let Err(e) = self.api.forkchoice_updated(forkchoice_state, None).await {
                 debug!(
                     self.log,
                     "Failed to issue latest head to engine";
@@ -349,7 +349,7 @@ impl Engine {
 
 // TODO: revisit this - do we need to key on withdrawals as well here?
 impl PayloadIdCacheKey {
-    fn new(state: &ForkChoiceState, attributes: &PayloadAttributes) -> Self {
+    fn new(state: &ForkchoiceState, attributes: &PayloadAttributes) -> Self {
         Self {
             head_block_hash: state.head_block_hash,
             timestamp: attributes.timestamp(),

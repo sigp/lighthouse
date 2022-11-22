@@ -77,6 +77,8 @@ use slasher::Slasher;
 use slog::{crit, debug, error, info, trace, warn, Logger};
 use slot_clock::SlotClock;
 use ssz::Encode;
+#[cfg(feature = "withdrawals")]
+use state_processing::per_block_processing::get_expected_withdrawals;
 use state_processing::{
     common::{get_attesting_indices_from_state, get_indexed_attestation},
     per_block_processing,
@@ -261,6 +263,8 @@ struct PartialBeaconBlock<E: EthSpec, Payload: AbstractExecPayload<E>> {
     voluntary_exits: Vec<SignedVoluntaryExit>,
     sync_aggregate: Option<SyncAggregate<E>>,
     prepare_payload_handle: Option<PreparePayloadHandle<E, Payload>>,
+    #[cfg(feature = "withdrawals")]
+    bls_to_execution_changes: Vec<SignedBlsToExecutionChange>,
 }
 
 pub type BeaconForkChoice<T> = ForkChoice<
@@ -3407,12 +3411,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Wait for the execution layer to return an execution payload (if one is required).
         let prepare_payload_handle = partial_beacon_block.prepare_payload_handle.take();
         let block_contents = if let Some(prepare_payload_handle) = prepare_payload_handle {
-            prepare_payload_handle
-                .await
-                .map_err(BlockProductionError::TokioJoin)?
-                .ok_or(BlockProductionError::ShuttingDown)??
+            Some(
+                prepare_payload_handle
+                    .await
+                    .map_err(BlockProductionError::TokioJoin)?
+                    .ok_or(BlockProductionError::ShuttingDown)??,
+            )
         } else {
-            return Err(BlockProductionError::MissingExecutionPayload);
+            None
         };
 
         // Part 3/3 (blocking)
@@ -3507,6 +3513,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let eth1_data = eth1_chain.eth1_data_for_block_production(&state, &self.spec)?;
         let deposits = eth1_chain.deposits_for_block_inclusion(&state, &eth1_data, &self.spec)?;
+        let bls_to_execution_changes = self
+            .op_pool
+            .get_bls_to_execution_changes(&state, &self.spec);
 
         // Iterate through the naive aggregation pool and ensure all the attestations from there
         // are included in the operation pool.
@@ -3664,13 +3673,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             voluntary_exits,
             sync_aggregate,
             prepare_payload_handle,
+            #[cfg(feature = "withdrawals")]
+            bls_to_execution_changes,
         })
     }
 
     fn complete_partial_beacon_block<Payload: AbstractExecPayload<T::EthSpec>>(
         &self,
         partial_beacon_block: PartialBeaconBlock<T::EthSpec, Payload>,
-        block_contents: BlockProposalContents<T::EthSpec, Payload>,
+        block_contents: Option<BlockProposalContents<T::EthSpec, Payload>>,
         verification: ProduceBlockVerification,
     ) -> Result<BeaconBlockAndState<T::EthSpec, Payload>, BlockProductionError> {
         let PartialBeaconBlock {
@@ -3691,6 +3702,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             // this function. We can assume that the handle has already been consumed in order to
             // produce said `execution_payload`.
             prepare_payload_handle: _,
+            #[cfg(feature = "withdrawals")]
+            bls_to_execution_changes,
         } = partial_beacon_block;
 
         let (payload, kzg_commitments_opt, blobs) = block_contents.deconstruct();
@@ -3749,6 +3762,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     sync_aggregate: sync_aggregate
                         .ok_or(BlockProductionError::MissingSyncAggregate)?,
                     execution_payload: payload
+                        .ok_or(BlockProductionError::MissingExecutionPayload)?
                         .try_into()
                         .map_err(|_| BlockProductionError::InvalidPayloadFork)?,
                 },
@@ -3770,8 +3784,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     sync_aggregate: sync_aggregate
                         .ok_or(BlockProductionError::MissingSyncAggregate)?,
                     execution_payload: payload
+                        .ok_or(BlockProductionError::MissingExecutionPayload)?
                         .try_into()
                         .map_err(|_| BlockProductionError::InvalidPayloadFork)?,
+                    #[cfg(feature = "withdrawals")]
+                    bls_to_execution_changes: bls_to_execution_changes.into(),
                 },
             }),
             BeaconState::Eip4844(_) => {
@@ -3794,8 +3811,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         sync_aggregate: sync_aggregate
                             .ok_or(BlockProductionError::MissingSyncAggregate)?,
                         execution_payload: payload
+                            .ok_or(BlockProductionError::MissingExecutionPayload)?
                             .try_into()
                             .map_err(|_| BlockProductionError::InvalidPayloadFork)?,
+                        #[cfg(feature = "withdrawals")]
+                        bls_to_execution_changes: bls_to_execution_changes.into(),
                         blob_kzg_commitments: VariableList::from(kzg_commitments),
                     },
                 })
@@ -4134,35 +4154,52 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Ok(());
         }
 
-        let payload_attributes = match self.spec.fork_name_at_epoch(prepare_epoch) {
+        #[cfg(feature = "withdrawals")]
+        let head_state = &self.canonical_head.cached_head().snapshot.beacon_state;
+        #[cfg(feature = "withdrawals")]
+        let withdrawals = match self.spec.fork_name_at_epoch(prepare_epoch) {
             ForkName::Base | ForkName::Altair | ForkName::Merge => {
-                PayloadAttributes::V1(PayloadAttributesV1 {
-                    timestamp: self
-                        .slot_clock
-                        .start_of(prepare_slot)
-                        .ok_or(Error::InvalidSlot(prepare_slot))?
-                        .as_secs(),
-                    prev_randao: head_random,
-                    suggested_fee_recipient: execution_layer
-                        .get_suggested_fee_recipient(proposer as u64)
-                        .await,
-                })
-            }
-            ForkName::Capella | ForkName::Eip4844 => PayloadAttributes::V2(PayloadAttributesV2 {
-                timestamp: self
-                    .slot_clock
-                    .start_of(prepare_slot)
-                    .ok_or(Error::InvalidSlot(prepare_slot))?
-                    .as_secs(),
-                prev_randao: head_random,
-                suggested_fee_recipient: execution_layer
-                    .get_suggested_fee_recipient(proposer as u64)
-                    .await,
-                //FIXME(sean)
-                #[cfg(feature = "withdrawals")]
-                withdrawals: vec![],
-            }),
-        };
+                None
+            },
+            ForkName::Capella | ForkName::Eip4844 => match &head_state {
+                &BeaconState::Capella(_) | &BeaconState::Eip4844(_) => {
+                    // The head_state is already BeaconState::Capella or later
+                    // FIXME(mark)
+                    //   Might implement caching here in the future..
+                    Some(get_expected_withdrawals(head_state, &self.spec))
+                }
+                &BeaconState::Base(_) | &BeaconState::Altair(_) | &BeaconState::Merge(_) => {
+                    // We are the Capella transition block proposer, need advanced state
+                    let mut prepare_state = self
+                        .state_at_slot(prepare_slot, StateSkipConfig::WithoutStateRoots)
+                        .or_else(|e| {
+                            error!(self.log, "Capella Transition Proposer"; "Error Advancing State: " => ?e);
+                            Err(e)
+                        })?;
+                    // FIXME(mark)
+                    //   Might implement caching here in the future..
+                    Some(get_expected_withdrawals(&prepare_state, &self.spec))
+                }
+            },
+        }.transpose().or_else(|e| {
+            error!(self.log, "Error preparing beacon proposer"; "while calculating expected withdrawals" => ?e);
+            Err(e)
+        }).map(|withdrawals_opt| withdrawals_opt.map(|w| w.into()))
+            .map_err(Error::PrepareProposerFailed)?;
+
+        let payload_attributes = PayloadAttributes::V2(PayloadAttributesV2 {
+            timestamp: self
+                .slot_clock
+                .start_of(prepare_slot)
+                .ok_or(Error::InvalidSlot(prepare_slot))?
+                .as_secs(),
+            prev_randao: head_random,
+            suggested_fee_recipient: execution_layer
+                .get_suggested_fee_recipient(proposer as u64)
+                .await,
+            #[cfg(feature = "withdrawals")]
+            withdrawals,
+        });
 
         debug!(
             self.log,

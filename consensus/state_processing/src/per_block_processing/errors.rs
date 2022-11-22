@@ -49,6 +49,10 @@ pub enum BlockProcessingError {
         index: usize,
         reason: ExitInvalid,
     },
+    BlsExecutionChangeInvalid {
+        index: usize,
+        reason: BlsExecutionChangeInvalid,
+    },
     SyncAggregateInvalid {
         reason: SyncAggregateInvalid,
     },
@@ -74,6 +78,10 @@ pub enum BlockProcessingError {
     },
     ExecutionInvalid,
     ConsensusContext(ContextError),
+    WithdrawalsRootMismatch {
+        expected: Hash256,
+        found: Hash256,
+    },
     BlobVersionHashMismatch,
     /// The number of commitments in blob transactions in the payload does not match the number
     /// of commitments in the block.
@@ -86,6 +94,7 @@ pub enum BlockProcessingError {
         index: usize,
         length: usize,
     },
+    WithdrawalCredentialsInvalid,
 }
 
 impl From<BeaconStateError> for BlockProcessingError {
@@ -180,7 +189,8 @@ impl_into_block_processing_error_with_index!(
     IndexedAttestationInvalid,
     AttestationInvalid,
     DepositInvalid,
-    ExitInvalid
+    ExitInvalid,
+    BlsExecutionChangeInvalid
 );
 
 pub type HeaderValidationError = BlockOperationError<HeaderInvalid>;
@@ -190,6 +200,7 @@ pub type AttestationValidationError = BlockOperationError<AttestationInvalid>;
 pub type SyncCommitteeMessageValidationError = BlockOperationError<SyncAggregateInvalid>;
 pub type DepositValidationError = BlockOperationError<DepositInvalid>;
 pub type ExitValidationError = BlockOperationError<ExitInvalid>;
+pub type BlsExecutionChangeValidationError = BlockOperationError<BlsExecutionChangeInvalid>;
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum BlockOperationError<T> {
@@ -403,6 +414,18 @@ pub enum ExitInvalid {
     /// There was an error whilst attempting to get a set of signatures. The signatures may have
     /// been invalid or an internal error occurred.
     SignatureSetError(SignatureSetError),
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub enum BlsExecutionChangeInvalid {
+    /// The specified validator is not in the state's validator registry.
+    ValidatorUnknown(u64),
+    /// Validator does not have BLS Withdrawal credentials before this change
+    NonBlsWithdrawalCredentials,
+    /// Provided BLS pubkey does not match withdrawal credentials
+    WithdrawalCredentialsMismatch,
+    /// The signature is invalid
+    BadSignature,
 }
 
 #[derive(Debug, PartialEq, Clone)]

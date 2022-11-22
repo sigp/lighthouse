@@ -672,12 +672,12 @@ fn handle_v2_response<T: EthSpec>(
                         decoded_buffer,
                     )?),
                 )))),
-                ForkName::Capella => Ok(Some(RPCResponse::BlocksByRange(Arc::new(
+                ForkName::Capella => Ok(Some(RPCResponse::BlocksByRoot(Arc::new(
                     SignedBeaconBlock::Capella(SignedBeaconBlockCapella::from_ssz_bytes(
                         decoded_buffer,
                     )?),
                 )))),
-                ForkName::Eip4844 => Ok(Some(RPCResponse::BlocksByRange(Arc::new(
+                ForkName::Eip4844 => Ok(Some(RPCResponse::BlocksByRoot(Arc::new(
                     SignedBeaconBlock::Eip4844(SignedBeaconBlockEip4844::from_ssz_bytes(
                         decoded_buffer,
                     )?),
@@ -723,8 +723,8 @@ mod tests {
     };
     use std::sync::Arc;
     use types::{
-        BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockMerge, Epoch, ForkContext,
-        FullPayload, Hash256, Signature, SignedBeaconBlock, Slot,
+        BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockMerge, EmptyBlock, Epoch,
+        ForkContext, FullPayload, Hash256, Signature, SignedBeaconBlock, Slot,
     };
 
     use snap::write::FrameEncoder;

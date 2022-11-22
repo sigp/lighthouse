@@ -62,6 +62,10 @@ pub struct BeaconBlockBody<T: EthSpec, Payload: AbstractExecPayload<T> = FullPay
     #[superstruct(only(Eip4844), partial_getter(rename = "execution_payload_eip4844"))]
     #[serde(flatten)]
     pub execution_payload: Payload::Eip4844,
+    #[cfg(feature = "withdrawals")]
+    #[superstruct(only(Capella, Eip4844))]
+    pub bls_to_execution_changes:
+        VariableList<SignedBlsToExecutionChange, T::MaxBlsToExecutionChanges>,
     #[superstruct(only(Eip4844))]
     pub blob_kzg_commitments: VariableList<KzgCommitment, T::MaxBlobsPerBlock>,
     #[superstruct(only(Base, Altair))]
@@ -72,7 +76,7 @@ pub struct BeaconBlockBody<T: EthSpec, Payload: AbstractExecPayload<T> = FullPay
 }
 
 impl<T: EthSpec, Payload: AbstractExecPayload<T>> BeaconBlockBody<T, Payload> {
-    pub fn execution_payload<'a>(&'a self) -> Result<Payload::Ref<'a>, Error> {
+    pub fn execution_payload(&self) -> Result<Payload::Ref<'_>, Error> {
         self.to_ref().execution_payload()
     }
 }
@@ -297,6 +301,8 @@ impl<E: EthSpec> From<BeaconBlockBodyCapella<E, FullPayload<E>>>
             voluntary_exits,
             sync_aggregate,
             execution_payload: FullPayloadCapella { execution_payload },
+            #[cfg(feature = "withdrawals")]
+            bls_to_execution_changes,
         } = body;
 
         (
@@ -313,6 +319,8 @@ impl<E: EthSpec> From<BeaconBlockBodyCapella<E, FullPayload<E>>>
                 execution_payload: BlindedPayloadCapella {
                     execution_payload_header: From::from(execution_payload.clone()),
                 },
+                #[cfg(feature = "withdrawals")]
+                bls_to_execution_changes,
             },
             Some(execution_payload),
         )
@@ -337,6 +345,8 @@ impl<E: EthSpec> From<BeaconBlockBodyEip4844<E, FullPayload<E>>>
             voluntary_exits,
             sync_aggregate,
             execution_payload: FullPayloadEip4844 { execution_payload },
+            #[cfg(feature = "withdrawals")]
+            bls_to_execution_changes,
             blob_kzg_commitments,
         } = body;
 
@@ -354,6 +364,8 @@ impl<E: EthSpec> From<BeaconBlockBodyEip4844<E, FullPayload<E>>>
                 execution_payload: BlindedPayloadEip4844 {
                     execution_payload_header: From::from(execution_payload.clone()),
                 },
+                #[cfg(feature = "withdrawals")]
+                bls_to_execution_changes,
                 blob_kzg_commitments,
             },
             Some(execution_payload),
@@ -421,6 +433,8 @@ impl<E: EthSpec> BeaconBlockBodyCapella<E, FullPayload<E>> {
             voluntary_exits,
             sync_aggregate,
             execution_payload: FullPayloadCapella { execution_payload },
+            #[cfg(feature = "withdrawals")]
+            bls_to_execution_changes,
         } = self;
 
         BeaconBlockBodyCapella {
@@ -436,6 +450,8 @@ impl<E: EthSpec> BeaconBlockBodyCapella<E, FullPayload<E>> {
             execution_payload: BlindedPayloadCapella {
                 execution_payload_header: From::from(execution_payload.clone()),
             },
+            #[cfg(feature = "withdrawals")]
+            bls_to_execution_changes: bls_to_execution_changes.clone(),
         }
     }
 }
@@ -453,6 +469,8 @@ impl<E: EthSpec> BeaconBlockBodyEip4844<E, FullPayload<E>> {
             voluntary_exits,
             sync_aggregate,
             execution_payload: FullPayloadEip4844 { execution_payload },
+            #[cfg(feature = "withdrawals")]
+            bls_to_execution_changes,
             blob_kzg_commitments,
         } = self;
 
@@ -469,6 +487,8 @@ impl<E: EthSpec> BeaconBlockBodyEip4844<E, FullPayload<E>> {
             execution_payload: BlindedPayloadEip4844 {
                 execution_payload_header: From::from(execution_payload.clone()),
             },
+            #[cfg(feature = "withdrawals")]
+            bls_to_execution_changes: bls_to_execution_changes.clone(),
             blob_kzg_commitments: blob_kzg_commitments.clone(),
         }
     }
