@@ -629,12 +629,12 @@ fn handle_v2_response<T: EthSpec>(
                         decoded_buffer,
                     )?),
                 )))),
-                ForkName::Capella => Ok(Some(RPCResponse::BlocksByRange(Arc::new(
+                ForkName::Capella => Ok(Some(RPCResponse::BlocksByRoot(Arc::new(
                     SignedBeaconBlock::Capella(SignedBeaconBlockCapella::from_ssz_bytes(
                         decoded_buffer,
                     )?),
                 )))),
-                ForkName::Eip4844 => Ok(Some(RPCResponse::BlocksByRange(Arc::new(
+                ForkName::Eip4844 => Ok(Some(RPCResponse::BlocksByRoot(Arc::new(
                     SignedBeaconBlock::Eip4844(SignedBeaconBlockEip4844::from_ssz_bytes(
                         decoded_buffer,
                     )?),
