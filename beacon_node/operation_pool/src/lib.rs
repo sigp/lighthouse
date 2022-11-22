@@ -51,6 +51,7 @@ pub struct OperationPool<T: EthSpec + Default> {
     /// Map from exiting validator to their exit data.
     voluntary_exits: RwLock<HashMap<u64, SigVerifiedOp<SignedVoluntaryExit, T>>>,
     /// Map from credential changing validator to their execution change data.
+    #[cfg(feature = "withdrawals-processing")]
     bls_to_execution_changes: RwLock<HashMap<u64, SigVerifiedOp<SignedBlsToExecutionChange, T>>>,
     /// Reward cache for accelerating attestation packing.
     reward_cache: RwLock<RewardCache>,
@@ -517,10 +518,17 @@ impl<T: EthSpec> OperationPool<T> {
         &self,
         verified_change: SigVerifiedOp<SignedBlsToExecutionChange, T>,
     ) {
-        self.bls_to_execution_changes.write().insert(
-            verified_change.as_inner().message.validator_index,
-            verified_change,
-        );
+        #[cfg(feature = "withdrawals-processing")]
+        {
+            self.bls_to_execution_changes.write().insert(
+                verified_change.as_inner().message.validator_index,
+                verified_change,
+            );
+        }
+        #[cfg(not(feature = "withdrawals-processing"))]
+        {
+            drop(verified_change);
+        }
     }
 
     /// Get a list of execution changes for inclusion in a block.
@@ -531,19 +539,30 @@ impl<T: EthSpec> OperationPool<T> {
         state: &BeaconState<T>,
         spec: &ChainSpec,
     ) -> Vec<SignedBlsToExecutionChange> {
-        filter_limit_operations(
-            self.bls_to_execution_changes.read().values(),
-            |address_change| {
-                address_change.signature_is_still_valid(&state.fork())
-                    && state
-                        .get_validator(address_change.as_inner().message.validator_index as usize)
-                        .map_or(false, |validator| {
-                            !validator.has_eth1_withdrawal_credential(spec)
-                        })
-            },
-            |address_change| address_change.as_inner().clone(),
-            T::MaxBlsToExecutionChanges::to_usize(),
-        )
+        #[cfg(feature = "withdrawals-processing")]
+        {
+            filter_limit_operations(
+                self.bls_to_execution_changes.read().values(),
+                |address_change| {
+                    address_change.signature_is_still_valid(&state.fork())
+                        && state
+                            .get_validator(
+                                address_change.as_inner().message.validator_index as usize,
+                            )
+                            .map_or(false, |validator| {
+                                !validator.has_eth1_withdrawal_credential(spec)
+                            })
+                },
+                |address_change| address_change.as_inner().clone(),
+                T::MaxBlsToExecutionChanges::to_usize(),
+            )
+        }
+
+        #[cfg(not(feature = "withdrawals-processing"))]
+        {
+            drop((state, spec));
+            vec![]
+        }
     }
 
     /// Prune BLS to execution changes that have been applied to the state more than 1 block ago.
@@ -558,22 +577,30 @@ impl<T: EthSpec> OperationPool<T> {
         head_state: &BeaconState<T>,
         spec: &ChainSpec,
     ) {
-        prune_validator_hash_map(
-            &mut self.bls_to_execution_changes.write(),
-            |validator_index, validator| {
-                validator.has_eth1_withdrawal_credential(spec)
-                    && head_block
-                        .message()
-                        .body()
-                        .bls_to_execution_changes()
-                        .map_or(true, |recent_changes| {
-                            !recent_changes
-                                .iter()
-                                .any(|c| c.message.validator_index == validator_index)
-                        })
-            },
-            head_state,
-        );
+        #[cfg(feature = "withdrawals-processing")]
+        {
+            prune_validator_hash_map(
+                &mut self.bls_to_execution_changes.write(),
+                |validator_index, validator| {
+                    validator.has_eth1_withdrawal_credential(spec)
+                        && head_block
+                            .message()
+                            .body()
+                            .bls_to_execution_changes()
+                            .map_or(true, |recent_changes| {
+                                !recent_changes
+                                    .iter()
+                                    .any(|c| c.message.validator_index == validator_index)
+                            })
+                },
+                head_state,
+            );
+        }
+
+        #[cfg(not(feature = "withdrawals-processing"))]
+        {
+            drop((head_block, head_state, spec));
+        }
     }
 
     /// Prune all types of transactions given the latest head state and head fork.

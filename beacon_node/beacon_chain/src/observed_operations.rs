@@ -6,8 +6,11 @@ use std::collections::HashSet;
 use std::marker::PhantomData;
 use types::{
     AttesterSlashing, BeaconState, ChainSpec, EthSpec, ForkName, ProposerSlashing,
-    SignedBlsToExecutionChange, SignedVoluntaryExit, Slot,
+    SignedVoluntaryExit, Slot,
 };
+
+#[cfg(feature = "withdrawals-processing")]
+use types::SignedBlsToExecutionChange;
 
 /// Number of validator indices to store on the stack in `observed_validators`.
 pub const SMALL_VEC_SIZE: usize = 8;
@@ -49,13 +52,13 @@ pub trait ObservableOperation<E: EthSpec>: VerifyOperation<E> + Sized {
 
 impl<E: EthSpec> ObservableOperation<E> for SignedVoluntaryExit {
     fn observed_validators(&self) -> SmallVec<[u64; SMALL_VEC_SIZE]> {
-        std::iter::once(self.message.validator_index).collect()
+        smallvec![self.message.validator_index]
     }
 }
 
 impl<E: EthSpec> ObservableOperation<E> for ProposerSlashing {
     fn observed_validators(&self) -> SmallVec<[u64; SMALL_VEC_SIZE]> {
-        std::iter::once(self.signed_header_1.message.proposer_index).collect()
+        smallvec![self.signed_header_1.message.proposer_index]
     }
 }
 
@@ -80,6 +83,7 @@ impl<E: EthSpec> ObservableOperation<E> for AttesterSlashing<E> {
     }
 }
 
+#[cfg(feature = "withdrawals-processing")]
 impl<E: EthSpec> ObservableOperation<E> for SignedBlsToExecutionChange {
     fn observed_validators(&self) -> SmallVec<[u64; SMALL_VEC_SIZE]> {
         smallvec![self.message.validator_index]

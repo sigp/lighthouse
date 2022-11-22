@@ -1558,12 +1558,16 @@ pub fn serve<T: BeaconChainTypes>(
                         })?;
 
                     if let ObservationOutcome::New(address_change) = outcome {
-                        publish_pubsub_message(
-                            &network_tx,
-                            PubsubMessage::BlsToExecutionChange(Box::new(
-                                address_change.as_inner().clone(),
-                            )),
-                        )?;
+                        #[cfg(feature = "withdrawals-processing")]
+                        {
+                            publish_pubsub_message(
+                                &network_tx,
+                                PubsubMessage::BlsToExecutionChange(Box::new(
+                                    address_change.as_inner().clone(),
+                                )),
+                            )?;
+                        }
+                        drop(network_tx);
 
                         chain.import_bls_to_execution_change(address_change);
                     }

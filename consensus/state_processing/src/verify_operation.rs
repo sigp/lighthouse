@@ -1,7 +1,6 @@
 use crate::per_block_processing::{
     errors::{
-        AttesterSlashingValidationError, BlsExecutionChangeValidationError, ExitValidationError,
-        ProposerSlashingValidationError,
+        AttesterSlashingValidationError, ExitValidationError, ProposerSlashingValidationError,
     },
     verify_attester_slashing, verify_exit, verify_proposer_slashing,
 };
@@ -18,7 +17,10 @@ use types::{
 
 #[cfg(feature = "withdrawals-processing")]
 use {
-    crate::per_block_processing::verify_bls_to_execution_change, types::SignedBlsToExecutionChange,
+    crate::per_block_processing::{
+        errors::BlsExecutionChangeValidationError, verify_bls_to_execution_change,
+    },
+    types::SignedBlsToExecutionChange,
 };
 
 const MAX_FORKS_VERIFIED_AGAINST: usize = 2;
@@ -200,6 +202,7 @@ impl<E: EthSpec> VerifyOperation<E> for ProposerSlashing {
     }
 }
 
+#[cfg(feature = "withdrawals-processing")]
 impl<E: EthSpec> VerifyOperation<E> for SignedBlsToExecutionChange {
     type Error = BlsExecutionChangeValidationError;
 
