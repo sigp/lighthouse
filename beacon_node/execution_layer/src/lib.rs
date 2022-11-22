@@ -959,20 +959,22 @@ impl<T: EthSpec> ExecutionLayer<T> {
                 };
 
                 let blob_fut = async {
-                    //FIXME(sean)   do a fork check here and return None otherwise
-                    //              ^
-                    //              well now we have the fork in this function so
-                    //              it should be easier to do that now
-                    //               - Mark
-                    debug!(
-                        self.log(),
-                        "Issuing engine_getBlobsBundle";
-                        "suggested_fee_recipient" => ?suggested_fee_recipient,
-                        "prev_randao" => ?prev_randao,
-                        "timestamp" => timestamp,
-                        "parent_hash" => ?parent_hash,
-                    );
-                    Some(engine.api.get_blobs_bundle_v1::<T>(payload_id).await)
+                    match current_fork {
+                        ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {
+                            None
+                        }
+                        ForkName::Eip4844 => {
+                            debug!(
+                                self.log(),
+                                "Issuing engine_getBlobsBundle";
+                                "suggested_fee_recipient" => ?suggested_fee_recipient,
+                                "prev_randao" => ?prev_randao,
+                                "timestamp" => timestamp,
+                                "parent_hash" => ?parent_hash,
+                            );
+                            Some(engine.api.get_blobs_bundle_v1::<T>(payload_id).await)
+                        }
+                    }
                 };
                 let payload_fut = async {
                     debug!(

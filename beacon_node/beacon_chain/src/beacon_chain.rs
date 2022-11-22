@@ -3384,13 +3384,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         //
         // Wait for the execution layer to return an execution payload (if one is required).
         let prepare_payload_handle = partial_beacon_block.prepare_payload_handle.take();
-        let execution_payload = if let Some(prepare_payload_handle) = prepare_payload_handle {
-            prepare_payload_handle
-                .await
-                .map_err(BlockProductionError::TokioJoin)?
-                .ok_or(BlockProductionError::ShuttingDown)??
+        let block_contents = if let Some(prepare_payload_handle) = prepare_payload_handle {
+            Some(
+                prepare_payload_handle
+                    .await
+                    .map_err(BlockProductionError::TokioJoin)?
+                    .ok_or(BlockProductionError::ShuttingDown)??,
+            )
         } else {
-            return Err(BlockProductionError::MissingExecutionPayload);
+            None
         };
 
         //FIXME(sean) waiting for the BN<>EE api for this to stabilize
@@ -3405,7 +3407,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 move || {
                     chain.complete_partial_beacon_block(
                         partial_beacon_block,
-                        execution_payload,
+                        block_contents,
                         kzg_commitments,
                         verification,
                     )
@@ -3657,7 +3659,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     fn complete_partial_beacon_block<Payload: AbstractExecPayload<T::EthSpec>>(
         &self,
         partial_beacon_block: PartialBeaconBlock<T::EthSpec, Payload>,
-        block_contents: BlockProposalContents<T::EthSpec, Payload>,
+        block_contents: Option<BlockProposalContents<T::EthSpec, Payload>>,
         kzg_commitments: Vec<KzgCommitment>,
         verification: ProduceBlockVerification,
     ) -> Result<BeaconBlockAndState<T::EthSpec, Payload>, BlockProductionError> {
@@ -3737,6 +3739,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     sync_aggregate: sync_aggregate
                         .ok_or(BlockProductionError::MissingSyncAggregate)?,
                     execution_payload: block_contents
+                        .ok_or(BlockProductionError::MissingExecutionPayload)?
                         .to_payload()
                         .try_into()
                         .map_err(|_| BlockProductionError::InvalidPayloadFork)?,
@@ -3759,6 +3762,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     sync_aggregate: sync_aggregate
                         .ok_or(BlockProductionError::MissingSyncAggregate)?,
                     execution_payload: block_contents
+                        .ok_or(BlockProductionError::MissingExecutionPayload)?
                         .to_payload()
                         .try_into()
                         .map_err(|_| BlockProductionError::InvalidPayloadFork)?,
@@ -3783,6 +3787,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     sync_aggregate: sync_aggregate
                         .ok_or(BlockProductionError::MissingSyncAggregate)?,
                     execution_payload: block_contents
+                        .ok_or(BlockProductionError::MissingExecutionPayload)?
                         .to_payload()
                         .try_into()
                         .map_err(|_| BlockProductionError::InvalidPayloadFork)?,
