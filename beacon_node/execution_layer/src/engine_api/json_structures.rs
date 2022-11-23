@@ -64,7 +64,7 @@ pub struct JsonPayloadIdResponse {
 }
 
 #[superstruct(
-    variants(V1, V2, V3),
+    variants(V1, V2),
     variant_attributes(
         derive(Debug, PartialEq, Default, Serialize, Deserialize,),
         serde(bound = "T: EthSpec", rename_all = "camelCase"),
@@ -94,15 +94,18 @@ pub struct JsonExecutionPayload<T: EthSpec> {
     pub extra_data: VariableList<u8, T::MaxExtraDataBytes>,
     #[serde(with = "eth2_serde_utils::u256_hex_be")]
     pub base_fee_per_gas: Uint256,
-    #[superstruct(only(V3))]
-    // FIXME: can't easily make this an option because of custom deserialization..
-    #[serde(with = "eth2_serde_utils::u64_hex_be")]
-    pub excess_blobs: u64,
+    #[superstruct(only(V2))]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
+    #[serde(with = "eth2_serde_utils::u256_hex_be_opt")]
+    pub excess_data_gas: Option<Uint256>,
     pub block_hash: ExecutionBlockHash,
     #[serde(with = "ssz_types::serde_utils::list_of_hex_var_list")]
     pub transactions:
         VariableList<Transaction<T::MaxBytesPerTransaction>, T::MaxTransactionsPerPayload>,
-    #[superstruct(only(V2, V3))]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
+    #[superstruct(only(V2))]
     pub withdrawals: Option<VariableList<JsonWithdrawal, T::MaxWithdrawalsPerPayload>>,
 }
 
@@ -175,43 +178,24 @@ impl<T: EthSpec> JsonExecutionPayload<T> {
                         })
                         .ok_or(Error::BadConversion("Null withdrawal field converting JsonExecutionPayloadV2 -> ExecutionPayloadCapella".to_string()))?
                 })),
-                ForkName::Eip4844 => Err(Error::UnsupportedForkVariant("JsonExecutionPayloadV2 -> ExecutionPayloadEip4844 not implemented yet as it might never be".to_string())),
-                _ => Err(Error::UnsupportedForkVariant(format!("Unsupported conversion from JsonExecutionPayloadV2 for {}", fork_name))),
-            }
-            JsonExecutionPayload::V3(v3) => match fork_name {
-                ForkName::Merge => Ok(ExecutionPayload::Merge(ExecutionPayloadMerge {
-                    parent_hash: v3.parent_hash,
-                    fee_recipient: v3.fee_recipient,
-                    state_root: v3.state_root,
-                    receipts_root: v3.receipts_root,
-                    logs_bloom: v3.logs_bloom,
-                    prev_randao: v3.prev_randao,
-                    block_number: v3.block_number,
-                    gas_limit: v3.gas_limit,
-                    gas_used: v3.gas_used,
-                    timestamp: v3.timestamp,
-                    extra_data: v3.extra_data,
-                    base_fee_per_gas: v3.base_fee_per_gas,
-                    block_hash: v3.block_hash,
-                    transactions: v3.transactions,
-                })),
-                ForkName::Capella => Ok(ExecutionPayload::Capella(ExecutionPayloadCapella {
-                    parent_hash: v3.parent_hash,
-                    fee_recipient: v3.fee_recipient,
-                    state_root: v3.state_root,
-                    receipts_root: v3.receipts_root,
-                    logs_bloom: v3.logs_bloom,
-                    prev_randao: v3.prev_randao,
-                    block_number: v3.block_number,
-                    gas_limit: v3.gas_limit,
-                    gas_used: v3.gas_used,
-                    timestamp: v3.timestamp,
-                    extra_data: v3.extra_data,
-                    base_fee_per_gas: v3.base_fee_per_gas,
-                    block_hash: v3.block_hash,
-                    transactions: v3.transactions,
+                ForkName::Eip4844 => Ok(ExecutionPayload::Eip4844(ExecutionPayloadEip4844 {
+                    parent_hash: v2.parent_hash,
+                    fee_recipient: v2.fee_recipient,
+                    state_root: v2.state_root,
+                    receipts_root: v2.receipts_root,
+                    logs_bloom: v2.logs_bloom,
+                    prev_randao: v2.prev_randao,
+                    block_number: v2.block_number,
+                    gas_limit: v2.gas_limit,
+                    gas_used: v2.gas_used,
+                    timestamp: v2.timestamp,
+                    extra_data: v2.extra_data,
+                    base_fee_per_gas: v2.base_fee_per_gas,
+                    excess_data_gas: v2.excess_data_gas.ok_or(Error::BadConversion("Null `excess_data_gas` field converting JsonExecutionPayloadV2 -> ExecutionPayloadEip4844".to_string()))?,
+                    block_hash: v2.block_hash,
+                    transactions: v2.transactions,
                     #[cfg(feature = "withdrawals")]
-                    withdrawals: v3
+                    withdrawals: v2
                         .withdrawals
                         .map(|v| {
                             Into::<Vec<_>>::into(v)
@@ -220,36 +204,7 @@ impl<T: EthSpec> JsonExecutionPayload<T> {
                                 .collect::<Vec<_>>()
                                 .into()
                         })
-                        .ok_or(Error::BadConversion("Null withdrawal field converting JsonExecutionPayloadV3 -> ExecutionPayloadCapella".to_string()))?
-                })),
-                ForkName::Eip4844 => Ok(ExecutionPayload::Eip4844(ExecutionPayloadEip4844 {
-                    parent_hash: v3.parent_hash,
-                    fee_recipient: v3.fee_recipient,
-                    state_root: v3.state_root,
-                    receipts_root: v3.receipts_root,
-                    logs_bloom: v3.logs_bloom,
-                    prev_randao: v3.prev_randao,
-                    block_number: v3.block_number,
-                    gas_limit: v3.gas_limit,
-                    gas_used: v3.gas_used,
-                    timestamp: v3.timestamp,
-                    extra_data: v3.extra_data,
-                    base_fee_per_gas: v3.base_fee_per_gas,
-                    // FIXME: excess_blobs probably will be an option whenever the engine API is finalized
-                    excess_blobs: v3.excess_blobs,
-                    block_hash: v3.block_hash,
-                    transactions: v3.transactions,
-                    #[cfg(feature = "withdrawals")]
-                    withdrawals: v3
-                        .withdrawals
-                        .map(|v| {
-                            Vec::from(v)
-                                .into_iter()
-                                .map(Into::into)
-                                .collect::<Vec<_>>()
-                                .into()
-                        })
-                        .ok_or(Error::BadConversion("Null withdrawal field converting JsonExecutionPayloadV3 -> ExecutionPayloadEip4844".to_string()))?,
+                        .ok_or(Error::BadConversion("Null withdrawal field converting JsonExecutionPayloadV2 -> ExecutionPayloadEip4844".to_string()))?
                 })),
                 _ => Err(Error::UnsupportedForkVariant(format!("Unsupported conversion from JsonExecutionPayloadV2 for {}", fork_name))),
             }
@@ -306,6 +261,7 @@ impl<T: EthSpec> TryFrom<ExecutionPayload<T>> for JsonExecutionPayloadV2<T> {
                 timestamp: merge.timestamp,
                 extra_data: merge.extra_data,
                 base_fee_per_gas: merge.base_fee_per_gas,
+                excess_data_gas: None,
                 block_hash: merge.block_hash,
                 transactions: merge.transactions,
                 withdrawals: None,
@@ -323,6 +279,7 @@ impl<T: EthSpec> TryFrom<ExecutionPayload<T>> for JsonExecutionPayloadV2<T> {
                 timestamp: capella.timestamp,
                 extra_data: capella.extra_data,
                 base_fee_per_gas: capella.base_fee_per_gas,
+                excess_data_gas: None,
                 block_hash: capella.block_hash,
                 transactions: capella.transactions,
                 #[cfg(feature = "withdrawals")]
@@ -336,10 +293,33 @@ impl<T: EthSpec> TryFrom<ExecutionPayload<T>> for JsonExecutionPayloadV2<T> {
                 #[cfg(not(feature = "withdrawals"))]
                 withdrawals: None,
             }),
-            ExecutionPayload::Eip4844(_) => Err(Error::UnsupportedForkVariant(format!(
-                "Unsupported conversion to JsonExecutionPayloadV1 for {}",
-                ForkName::Eip4844
-            ))),
+            ExecutionPayload::Eip4844(eip4844) => Ok(JsonExecutionPayloadV2 {
+                parent_hash: eip4844.parent_hash,
+                fee_recipient: eip4844.fee_recipient,
+                state_root: eip4844.state_root,
+                receipts_root: eip4844.receipts_root,
+                logs_bloom: eip4844.logs_bloom,
+                prev_randao: eip4844.prev_randao,
+                block_number: eip4844.block_number,
+                gas_limit: eip4844.gas_limit,
+                gas_used: eip4844.gas_used,
+                timestamp: eip4844.timestamp,
+                extra_data: eip4844.extra_data,
+                base_fee_per_gas: eip4844.base_fee_per_gas,
+                excess_data_gas: Some(eip4844.excess_data_gas),
+                block_hash: eip4844.block_hash,
+                transactions: eip4844.transactions,
+                #[cfg(feature = "withdrawals")]
+                withdrawals: Some(
+                    Vec::from(eip4844.withdrawals)
+                        .into_iter()
+                        .map(Into::into)
+                        .collect::<Vec<_>>()
+                        .into(),
+                ),
+                #[cfg(not(feature = "withdrawals"))]
+                withdrawals: None,
+            }),
         }
     }
 }
