@@ -345,6 +345,7 @@ impl<T: EthSpec> TryFrom<ExecutionPayload<T>> for JsonExecutionPayloadV2<T> {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct JsonWithdrawal {
     #[serde(with = "eth2_serde_utils::u64_hex_be")]
     pub index: u64,
