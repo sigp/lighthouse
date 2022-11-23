@@ -55,6 +55,7 @@ pub struct LoggerConfig {
     pub max_log_size: u64,
     pub max_log_number: usize,
     pub compression: bool,
+    pub is_restricted: bool,
 }
 impl Default for LoggerConfig {
     fn default() -> Self {
@@ -68,6 +69,7 @@ impl Default for LoggerConfig {
             max_log_size: 200,
             max_log_number: 5,
             compression: false,
+            is_restricted: true,
         }
     }
 }
@@ -257,7 +259,7 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
             .rotate_size(config.max_log_size)
             .rotate_keep(config.max_log_number)
             .rotate_compress(config.compression)
-            .restrict_permissions(true)
+            .restrict_permissions(config.is_restricted)
             .build()
             .map_err(|e| format!("Unable to build file logger: {}", e))?;
 
