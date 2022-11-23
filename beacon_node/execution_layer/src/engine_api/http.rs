@@ -747,10 +747,10 @@ impl HttpJsonRpc {
     pub async fn get_blobs_bundle_v1<T: EthSpec>(
         &self,
         payload_id: PayloadId,
-    ) -> Result<JsonBlobBundles<T>, Error> {
+    ) -> Result<JsonBlobsBundle<T>, Error> {
         let params = json!([JsonPayloadIdRequest::from(payload_id)]);
 
-        let response: JsonBlobBundles<T> = self
+        let response: JsonBlobsBundle<T> = self
             .rpc_request(
                 ENGINE_GET_BLOBS_BUNDLE_V1,
                 params,

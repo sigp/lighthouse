@@ -95,13 +95,19 @@ pub enum BlockProposalContents<T: EthSpec, Payload: AbstractExecPayload<T>> {
     Payload(Payload),
     PayloadAndBlobs {
         payload: Payload,
-        kzg_commitments: Vec<KzgCommitment>,
-        blobs: Vec<Blob<T>>,
+        kzg_commitments: VariableList<KzgCommitment, T::MaxBlobsPerBlock>,
+        blobs: VariableList<Blob<T>, T::MaxBlobsPerBlock>,
     },
 }
 
 impl<T: EthSpec, Payload: AbstractExecPayload<T>> BlockProposalContents<T, Payload> {
-    pub fn deconstruct(self) -> (Payload, Option<Vec<KzgCommitment>>, Option<Vec<Blob<T>>>) {
+    pub fn deconstruct(
+        self,
+    ) -> (
+        Payload,
+        Option<VariableList<KzgCommitment, T::MaxBlobsPerBlock>>,
+        Option<VariableList<Blob<T>, T::MaxBlobsPerBlock>>,
+    ) {
         match self {
             Self::Payload(payload) => (payload, None, None),
             Self::PayloadAndBlobs {
@@ -132,26 +138,6 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> BlockProposalContents<T, Paylo
             } => payload,
         }
     }
-    pub fn kzg_commitments(&self) -> Option<&[KzgCommitment]> {
-        match self {
-            Self::Payload(_) => None,
-            Self::PayloadAndBlobs {
-                payload: _,
-                kzg_commitments,
-                blobs: _,
-            } => Some(kzg_commitments),
-        }
-    }
-    pub fn blobs(&self) -> Option<&[Blob<T>]> {
-        match self {
-            Self::Payload(_) => None,
-            Self::PayloadAndBlobs {
-                payload: _,
-                kzg_commitments: _,
-                blobs,
-            } => Some(blobs),
-        }
-    }
     pub fn default_at_fork(fork_name: ForkName) -> Self {
         match fork_name {
             ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {
@@ -159,8 +145,8 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> BlockProposalContents<T, Paylo
             }
             ForkName::Eip4844 => BlockProposalContents::PayloadAndBlobs {
                 payload: Payload::default_at_fork(fork_name),
-                blobs: vec![],
-                kzg_commitments: vec![],
+                blobs: VariableList::default(),
+                kzg_commitments: VariableList::default(),
             },
         }
     }

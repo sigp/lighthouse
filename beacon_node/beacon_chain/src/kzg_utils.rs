@@ -36,7 +36,7 @@ pub fn validate_blobs_sidecar<T: EthSpec>(
     kzg.verify_aggregate_kzg_proof(
         &blobs,
         expected_kzg_commitments,
-        blobs_sidecar.kzg_aggregate_proof,
+        blobs_sidecar.kzg_aggregated_proof,
     )
     .map_err(|e| format!("Failed to verify kzg proof: {:?}", e))
 }

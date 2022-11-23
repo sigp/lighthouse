@@ -3,7 +3,9 @@ use crate::case_result::compare_beacon_state_results_without_caches;
 use crate::cases::common::previous_fork;
 use crate::decode::{ssz_decode_state, yaml_decode_file};
 use serde_derive::Deserialize;
-use state_processing::upgrade::{upgrade_to_altair, upgrade_to_bellatrix, upgrade_to_capella, upgrade_to_eip4844};
+use state_processing::upgrade::{
+    upgrade_to_altair, upgrade_to_bellatrix, upgrade_to_capella, upgrade_to_eip4844,
+};
 use types::{BeaconState, ForkName};
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -62,7 +64,8 @@ impl<E: EthSpec> Case for ForkTest<E> {
             ForkName::Altair => upgrade_to_altair(&mut result_state, spec).map(|_| result_state),
             ForkName::Merge => upgrade_to_bellatrix(&mut result_state, spec).map(|_| result_state),
             ForkName::Capella => upgrade_to_capella(&mut result_state, spec).map(|_| result_state),
-            ForkName::Eip4844 => upgrade_to_eip4844(&mut result_state, spec).map(|_| result_state),        };
+            ForkName::Eip4844 => upgrade_to_eip4844(&mut result_state, spec).map(|_| result_state),
+        };
 
         compare_beacon_state_results_without_caches(&mut result, &mut expected)
     }

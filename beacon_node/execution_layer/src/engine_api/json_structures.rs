@@ -424,10 +424,11 @@ impl From<JsonPayloadAttributes> for PayloadAttributes {
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[serde(bound = "T: EthSpec", rename_all = "camelCase")]
-pub struct JsonBlobBundles<T: EthSpec> {
+pub struct JsonBlobsBundle<T: EthSpec> {
     pub block_hash: ExecutionBlockHash,
-    pub kzgs: Vec<KzgCommitment>,
-    pub blobs: Vec<Blob<T>>,
+    pub kzgs: VariableList<KzgCommitment, T::MaxBlobsPerBlock>,
+    #[serde(with = "ssz_types::serde_utils::list_of_hex_fixed_vec")]
+    pub blobs: VariableList<Blob<T>, T::MaxBlobsPerBlock>,
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]

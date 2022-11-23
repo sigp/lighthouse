@@ -74,7 +74,7 @@ pub async fn handle_rpc<T: EthSpec>(
                 .unwrap())
             }
         }
-        ENGINE_NEW_PAYLOAD_V1 => {
+        ENGINE_NEW_PAYLOAD_V1 | ENGINE_NEW_PAYLOAD_V2 => {
             let request: JsonExecutionPayload<T> = get_param(params, 0)?;
 
             // Canned responses set by block hash take priority.
@@ -120,7 +120,7 @@ pub async fn handle_rpc<T: EthSpec>(
 
             Ok(serde_json::to_value(JsonExecutionPayloadV1::try_from(response).unwrap()).unwrap())
         }
-        ENGINE_FORKCHOICE_UPDATED_V1 => {
+        ENGINE_FORKCHOICE_UPDATED_V1 | ENGINE_FORKCHOICE_UPDATED_V2 => {
             let forkchoice_state: JsonForkchoiceStateV1 = get_param(params, 0)?;
             let payload_attributes: Option<JsonPayloadAttributes> = get_param(params, 1)?;
 
@@ -152,6 +152,19 @@ pub async fn handle_rpc<T: EthSpec>(
             }
 
             Ok(serde_json::to_value(response).unwrap())
+        }
+
+        ENGINE_GET_PAYLOAD_V2 => {
+            let request: JsonPayloadIdRequest = get_param(params, 0)?;
+            let id = request.into();
+
+            let response = ctx
+                .execution_block_generator
+                .write()
+                .get_payload(&id)
+                .ok_or_else(|| format!("no payload for id {:?}", id))?;
+
+            Ok(serde_json::to_value(JsonExecutionPayloadV2::try_from(response).unwrap()).unwrap())
         }
         ENGINE_EXCHANGE_TRANSITION_CONFIGURATION_V1 => {
             let block_generator = ctx.execution_block_generator.read();

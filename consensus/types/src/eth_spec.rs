@@ -254,11 +254,6 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq +
         Self::MaxBlobsPerBlock::to_usize()
     }
 
-    /// FIXME: why is this called chunks_per_blob??
-    fn chunks_per_blob() -> usize {
-        Self::FieldElementsPerBlob::to_usize()
-    }
-
     /// Returns the `BYTES_PER_BLOB` constant for the specification.
     fn bytes_per_blob() -> usize {
         Self::BytesPerBlob::to_usize()
@@ -339,6 +334,7 @@ impl EthSpec for MinimalEthSpec {
     type SlotsPerEth1VotingPeriod = U32; // 4 epochs * 8 slots per epoch
     type MaxWithdrawalsPerPayload = U4;
     type FieldElementsPerBlob = U4; //FIXME(sean) this is spec'd out currently but will likely change
+    type BytesPerBlob = U128; //FIXME(sean) this is spec'd out currently but will likely change
 
     params_from_eth_spec!(MainnetEthSpec {
         JustificationBitsLength,
@@ -361,8 +357,7 @@ impl EthSpec for MinimalEthSpec {
         MaxExtraDataBytes,
         MaxBlsToExecutionChanges,
         MaxBlobsPerBlock,
-        BytesPerFieldElement,
-        BytesPerBlob
+        BytesPerFieldElement
     });
 
     fn default_spec() -> ChainSpec {

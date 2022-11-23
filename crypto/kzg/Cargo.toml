@@ -14,7 +14,6 @@ derivative = "2.1.1"
 rand = "0.7.3"
 serde = "1.0.116"
 serde_derive = "1.0.116"
-serde-big-array = {version = "0.3.2", features = ["const-generics"]}
 eth2_serde_utils = "0.1.1"
 hex = "0.4.2"
 eth2_hashing = "0.3.0"

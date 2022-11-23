@@ -44,8 +44,8 @@ pub fn run_parse_ssz<T: EthSpec>(matches: &ArgMatches) -> Result<(), String> {
         bytes
     };
 
-    println!("Using {} spec", T::spec_name());
-    println!("Type: {:?}", type_str);
+    info!("Using {} spec", T::spec_name());
+    info!("Type: {:?}", type_str);
 
     match type_str {
         "signed_block_base" => decode_and_print::<SignedBeaconBlockBase<T>>(&bytes, format)?,
@@ -57,7 +57,7 @@ pub fn run_parse_ssz<T: EthSpec>(matches: &ArgMatches) -> Result<(), String> {
         "block_altair" => decode_and_print::<BeaconBlockAltair<T>>(&bytes, format)?,
         "block_merge" => decode_and_print::<BeaconBlockMerge<T>>(&bytes, format)?,
         "block_capella" => decode_and_print::<BeaconBlockCapella<T>>(&bytes, format)?,
-        "block_eip4844" => decode_and_print::<SignedBeaconBlockEip4844<T>>(&bytes, format)?,
+        "block_eip4844" => decode_and_print::<BeaconBlockEip4844<T>>(&bytes, format)?,
         "state_base" => decode_and_print::<BeaconStateBase<T>>(&bytes, format)?,
         "state_altair" => decode_and_print::<BeaconStateAltair<T>>(&bytes, format)?,
         "state_merge" => decode_and_print::<BeaconStateMerge<T>>(&bytes, format)?,

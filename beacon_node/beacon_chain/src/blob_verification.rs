@@ -118,7 +118,7 @@ pub fn validate_blob_for_gossip<T: BeaconChainTypes>(
     // }
 
     // Verify that the KZG proof is a valid G1 point
-    if PublicKey::deserialize(&blob_sidecar.kzg_aggregate_proof.0).is_err() {
+    if PublicKey::deserialize(&blob_sidecar.kzg_aggregated_proof.0).is_err() {
         return Err(BlobError::InvalidKZGCommitment);
     }
 
