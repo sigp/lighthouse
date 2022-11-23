@@ -103,9 +103,9 @@ impl<T: EthSpec> ExecutionPayloadHeader<T> {
 }
 
 impl<'a, T: EthSpec> ExecutionPayloadHeaderRef<'a, T> {
-    pub fn is_default(self) -> bool {
+    pub fn is_default_with_zero_roots(self) -> bool {
         map_execution_payload_header_ref!(&'a _, self, |inner, cons| {
-            let _ = cons(inner);
+            cons(inner);
             *inner == Default::default()
         })
     }

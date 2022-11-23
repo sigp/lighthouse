@@ -431,9 +431,11 @@ pub fn process_execution_payload<'payload, T: EthSpec, Payload: AbstractExecPayl
 /// repeaetedly write code to treat these errors as false.
 /// https://github.com/ethereum/consensus-specs/blob/dev/specs/bellatrix/beacon-chain.md#is_merge_transition_complete
 pub fn is_merge_transition_complete<T: EthSpec>(state: &BeaconState<T>) -> bool {
+    // We must check defaultness against the payload header with 0x0 roots, as that's what's meant
+    // by `ExecutionPayloadHeader()` in the spec.
     state
         .latest_execution_payload_header()
-        .map(|header| !header.is_default())
+        .map(|header| !header.is_default_with_zero_roots())
         .unwrap_or(false)
 }
 /// https://github.com/ethereum/consensus-specs/blob/dev/specs/bellatrix/beacon-chain.md#is_merge_transition_block
@@ -441,8 +443,12 @@ pub fn is_merge_transition_block<T: EthSpec, Payload: AbstractExecPayload<T>>(
     state: &BeaconState<T>,
     body: BeaconBlockBodyRef<T, Payload>,
 ) -> bool {
+    // For execution payloads in blocks (which may be headers) we must check defaultness against
+    // the payload with `transactions_root` equal to the tree hash of the empty list.
     body.execution_payload()
-        .map(|payload| !is_merge_transition_complete(state) && !payload.is_default())
+        .map(|payload| {
+            !is_merge_transition_complete(state) && !payload.is_default_with_empty_roots()
+        })
         .unwrap_or(false)
 }
 /// https://github.com/ethereum/consensus-specs/blob/dev/specs/bellatrix/beacon-chain.md#is_execution_enabled
