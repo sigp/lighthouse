@@ -3706,10 +3706,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             bls_to_execution_changes,
         } = partial_beacon_block;
 
-        let (payload, kzg_commitments_opt, blobs) = block_contents.deconstruct();
-
-        let inner_block = match &state {
-            BeaconState::Base(_) => BeaconBlock::Base(BeaconBlockBase {
+        let (inner_block, blobs_opt) = match &state {
+            BeaconState::Base(_) => (BeaconBlock::Base(BeaconBlockBase {
                 slot,
                 proposer_index,
                 parent_root,
@@ -3725,8 +3723,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     voluntary_exits: voluntary_exits.into(),
                     _phantom: PhantomData,
                 },
-            }),
-            BeaconState::Altair(_) => BeaconBlock::Altair(BeaconBlockAltair {
+            }), None),
+            BeaconState::Altair(_) => (BeaconBlock::Altair(BeaconBlockAltair {
                 slot,
                 proposer_index,
                 parent_root,
@@ -3744,57 +3742,62 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         .ok_or(BlockProductionError::MissingSyncAggregate)?,
                     _phantom: PhantomData,
                 },
-            }),
-            BeaconState::Merge(_) => BeaconBlock::Merge(BeaconBlockMerge {
-                slot,
-                proposer_index,
-                parent_root,
-                state_root: Hash256::zero(),
-                body: BeaconBlockBodyMerge {
-                    randao_reveal,
-                    eth1_data,
-                    graffiti,
-                    proposer_slashings: proposer_slashings.into(),
-                    attester_slashings: attester_slashings.into(),
-                    attestations: attestations.into(),
-                    deposits: deposits.into(),
-                    voluntary_exits: voluntary_exits.into(),
-                    sync_aggregate: sync_aggregate
-                        .ok_or(BlockProductionError::MissingSyncAggregate)?,
-                    execution_payload: payload
-                        .ok_or(BlockProductionError::MissingExecutionPayload)?
-                        .try_into()
-                        .map_err(|_| BlockProductionError::InvalidPayloadFork)?,
-                },
-            }),
-            BeaconState::Capella(_) => BeaconBlock::Capella(BeaconBlockCapella {
-                slot,
-                proposer_index,
-                parent_root,
-                state_root: Hash256::zero(),
-                body: BeaconBlockBodyCapella {
-                    randao_reveal,
-                    eth1_data,
-                    graffiti,
-                    proposer_slashings: proposer_slashings.into(),
-                    attester_slashings: attester_slashings.into(),
-                    attestations: attestations.into(),
-                    deposits: deposits.into(),
-                    voluntary_exits: voluntary_exits.into(),
-                    sync_aggregate: sync_aggregate
-                        .ok_or(BlockProductionError::MissingSyncAggregate)?,
-                    execution_payload: payload
-                        .ok_or(BlockProductionError::MissingExecutionPayload)?
-                        .try_into()
-                        .map_err(|_| BlockProductionError::InvalidPayloadFork)?,
-                    #[cfg(feature = "withdrawals")]
-                    bls_to_execution_changes: bls_to_execution_changes.into(),
-                },
-            }),
+            }), None),
+            BeaconState::Merge(_) => {
+                let (payload, _, _) = block_contents.ok_or(BlockProductionError::MissingExecutionPayload)?.deconstruct();
+                (BeaconBlock::Merge(BeaconBlockMerge {
+                    slot,
+                    proposer_index,
+                    parent_root,
+                    state_root: Hash256::zero(),
+                    body: BeaconBlockBodyMerge {
+                        randao_reveal,
+                        eth1_data,
+                        graffiti,
+                        proposer_slashings: proposer_slashings.into(),
+                        attester_slashings: attester_slashings.into(),
+                        attestations: attestations.into(),
+                        deposits: deposits.into(),
+                        voluntary_exits: voluntary_exits.into(),
+                        sync_aggregate: sync_aggregate
+                            .ok_or(BlockProductionError::MissingSyncAggregate)?,
+                        execution_payload: payload
+                            .try_into()
+                            .map_err(|_| BlockProductionError::InvalidPayloadFork)?,
+                    },
+                }), None)
+            },
+            BeaconState::Capella(_) => {
+                let (payload, _, _) = block_contents.ok_or(BlockProductionError::MissingExecutionPayload)?.deconstruct();
+
+                (BeaconBlock::Capella(BeaconBlockCapella {
+                    slot,
+                    proposer_index,
+                    parent_root,
+                    state_root: Hash256::zero(),
+                    body: BeaconBlockBodyCapella {
+                        randao_reveal,
+                        eth1_data,
+                        graffiti,
+                        proposer_slashings: proposer_slashings.into(),
+                        attester_slashings: attester_slashings.into(),
+                        attestations: attestations.into(),
+                        deposits: deposits.into(),
+                        voluntary_exits: voluntary_exits.into(),
+                        sync_aggregate: sync_aggregate
+                            .ok_or(BlockProductionError::MissingSyncAggregate)?,
+                        execution_payload: payload
+                            .try_into()
+                            .map_err(|_| BlockProductionError::InvalidPayloadFork)?,
+                        #[cfg(feature = "withdrawals")]
+                        bls_to_execution_changes: bls_to_execution_changes.into(),
+                    },
+                }), None)
+            },
             BeaconState::Eip4844(_) => {
-                let kzg_commitments =
-                    kzg_commitments_opt.ok_or(BlockProductionError::InvalidPayloadFork)?;
-                BeaconBlock::Eip4844(BeaconBlockEip4844 {
+                let (payload, kzg_commitments, blobs) = block_contents.ok_or(BlockProductionError::MissingExecutionPayload)?.deconstruct();
+
+                (BeaconBlock::Eip4844(BeaconBlockEip4844 {
                     slot,
                     proposer_index,
                     parent_root,
@@ -3811,14 +3814,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         sync_aggregate: sync_aggregate
                             .ok_or(BlockProductionError::MissingSyncAggregate)?,
                         execution_payload: payload
-                            .ok_or(BlockProductionError::MissingExecutionPayload)?
                             .try_into()
                             .map_err(|_| BlockProductionError::InvalidPayloadFork)?,
                         #[cfg(feature = "withdrawals")]
                         bls_to_execution_changes: bls_to_execution_changes.into(),
-                        blob_kzg_commitments: VariableList::from(kzg_commitments),
+                        blob_kzg_commitments: VariableList::from(kzg_commitments.ok_or(BlockProductionError::InvalidPayloadFork)?),
                     },
-                })
+                }), blobs)
             }
         };
 
@@ -3873,7 +3875,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         //FIXME(sean)
         // - generate kzg proof
         // - validate blobs then cache them
-        if let Some(blobs) = blobs {
+        // - add a new timer for processing here
+        if let Some(blobs) = blobs_opt {
             let beacon_block_root = block.canonical_root();
             let blobs_sidecar = BlobsSidecar {
                 beacon_block_slot: slot,

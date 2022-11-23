@@ -403,6 +403,7 @@ dependencies = [
  "hex",
  "int_to_bytes",
  "itertools",
+ "kzg",
  "lazy_static",
  "lighthouse_metrics",
  "logging",

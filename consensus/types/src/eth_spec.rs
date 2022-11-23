@@ -338,6 +338,7 @@ impl EthSpec for MinimalEthSpec {
     type MaxPendingAttestations = U1024; // 128 max attestations * 8 slots per epoch
     type SlotsPerEth1VotingPeriod = U32; // 4 epochs * 8 slots per epoch
     type MaxWithdrawalsPerPayload = U4;
+    type FieldElementsPerBlob = U4; //FIXME(sean) this is spec'd out currently but will likely change
 
     params_from_eth_spec!(MainnetEthSpec {
         JustificationBitsLength,
@@ -360,7 +361,6 @@ impl EthSpec for MinimalEthSpec {
         MaxExtraDataBytes,
         MaxBlsToExecutionChanges,
         MaxBlobsPerBlock,
-        FieldElementsPerBlob,
         BytesPerFieldElement,
         BytesPerBlob
     });
