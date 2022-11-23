@@ -402,7 +402,7 @@ where
             |()| ExecutionStatus::irrelevant(),
             |message| {
                 let execution_payload = &message.body.execution_payload;
-                if execution_payload == &<_>::default() {
+                if execution_payload.is_default_with_zero_roots() {
                     // A default payload does not have execution enabled.
                     ExecutionStatus::irrelevant()
                 } else {
