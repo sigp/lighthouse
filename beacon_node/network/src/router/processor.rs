@@ -209,8 +209,10 @@ impl<T: BeaconChainTypes> Processor<T> {
                 SyncId::SingleBlock { .. } | SyncId::ParentLookup { .. } => {
                     unreachable!("Block lookups do not request BBRange requests")
                 }
-                id @ (SyncId::BackFillSync { .. } | SyncId::RangeSync { .. }) => id,
-                SyncId::RangeBlockBlob { id } => unimplemented!("do it"),
+                id @ (SyncId::BackFillSync { .. }
+                | SyncId::RangeSync { .. }
+                | SyncId::BackFillSidecarPair { .. }
+                | SyncId::RangeSidecarPair { .. }) => id,
             },
             RequestId::Router => unreachable!("All BBRange requests belong to sync"),
         };
@@ -266,11 +268,12 @@ impl<T: BeaconChainTypes> Processor<T> {
         let request_id = match request_id {
             RequestId::Sync(sync_id) => match sync_id {
                 id @ (SyncId::SingleBlock { .. } | SyncId::ParentLookup { .. }) => id,
-                SyncId::BackFillSync { .. } | SyncId::RangeSync { .. } => {
+                SyncId::BackFillSync { .. }
+                | SyncId::RangeSync { .. }
+                | SyncId::RangeSidecarPair { .. }
+                | SyncId::BackFillSidecarPair { .. } => {
                     unreachable!("Batch syncing do not request BBRoot requests")
                 }
-
-                SyncId::RangeBlockBlob { id } => unimplemented!("do it"),
             },
             RequestId::Router => unreachable!("All BBRoot requests belong to sync"),
         };
@@ -298,11 +301,12 @@ impl<T: BeaconChainTypes> Processor<T> {
         let request_id = match request_id {
             RequestId::Sync(sync_id) => match sync_id {
                 id @ (SyncId::SingleBlock { .. } | SyncId::ParentLookup { .. }) => id,
-                SyncId::BackFillSync { .. } | SyncId::RangeSync { .. } => {
-                    unreachable!("Batch syncing do not request BBRoot requests")
+                SyncId::BackFillSync { .. }
+                | SyncId::RangeSync { .. }
+                | SyncId::RangeSidecarPair { .. }
+                | SyncId::BackFillSidecarPair { .. } => {
+                    unreachable!("Batch syncing does not request BBRoot requests")
                 }
-
-                SyncId::RangeBlockBlob { id } => unimplemented!("do it"),
             },
             RequestId::Router => unreachable!("All BBRoot requests belong to sync"),
         };

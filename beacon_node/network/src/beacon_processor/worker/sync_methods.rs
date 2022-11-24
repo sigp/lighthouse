@@ -15,7 +15,7 @@ use lighthouse_network::PeerAction;
 use slog::{debug, error, info, warn};
 use std::sync::Arc;
 use tokio::sync::mpsc;
-use types::{Epoch, Hash256, SignedBeaconBlock};
+use types::{Epoch, Hash256, SignedBeaconBlock, SignedBeaconBlockAndBlobsSidecar};
 
 /// Id associated to a batch processing request, either a sync batch or a parent lookup.
 #[derive(Clone, Debug, PartialEq)]
@@ -241,6 +241,17 @@ impl<T: BeaconChainTypes> Worker<T> {
         self.send_sync_message(SyncMessage::BatchProcessed { sync_type, result });
     }
 
+    pub async fn process_blob_chain_segment(
+        &self,
+        sync_type: ChainSegmentProcessId,
+        downloaded_blocks: Vec<SignedBeaconBlockAndBlobsSidecar<T::EthSpec>>,
+    ) {
+        warn!(self.log, "FAKE PROCESSING A BLOBS SEGMENT!!!");
+        let result = BatchProcessResult::Success {
+            was_non_empty: !downloaded_blocks.is_empty(),
+        };
+        self.send_sync_message(SyncMessage::BatchProcessed { sync_type, result });
+    }
     /// Helper function to process blocks batches which only consumes the chain and blocks to process.
     async fn process_blocks<'a>(
         &self,

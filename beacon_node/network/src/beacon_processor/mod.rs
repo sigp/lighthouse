@@ -148,6 +148,10 @@ const MAX_RPC_BLOCK_QUEUE_LEN: usize = 1_024;
 /// be stored before we start dropping them.
 const MAX_CHAIN_SEGMENT_QUEUE_LEN: usize = 64;
 
+/// The maximum number of queued `Vec<[`SignedBeaconBlockAndBlobsSidecar`]>` objects received during syncing that will
+/// be stored before we start dropping them.
+const MAX_BLOB_CHAIN_SEGMENT_QUEUE_LEN: usize = 64;
+
 /// The maximum number of queued `StatusMessage` objects received from the network RPC that will be
 /// stored before we start dropping them.
 const MAX_STATUS_QUEUE_LEN: usize = 1_024;
@@ -206,6 +210,7 @@ pub const BLOBS_BY_RANGE_REQUEST: &str = "blobs_by_range_request";
 pub const BLOBS_BY_ROOTS_REQUEST: &str = "blobs_by_roots_request";
 pub const UNKNOWN_BLOCK_ATTESTATION: &str = "unknown_block_attestation";
 pub const UNKNOWN_BLOCK_AGGREGATE: &str = "unknown_block_aggregate";
+pub const BLOB_CHAIN_SEGMENT: &str = "blob_chain_segment";
 
 /// A simple first-in-first-out queue with a maximum length.
 struct FifoQueue<T> {
@@ -546,6 +551,19 @@ impl<T: BeaconChainTypes> WorkEvent<T> {
         }
     }
 
+    pub fn blob_chain_segment(
+        process_id: ChainSegmentProcessId,
+        blocks_and_blobs: Vec<SignedBeaconBlockAndBlobsSidecar<T::EthSpec>>,
+    ) -> Self {
+        Self {
+            drop_during_sync: false,
+            work: Work::BlobChainSegment {
+                process_id,
+                blocks_and_blobs,
+            },
+        }
+    }
+
     /// Create a new work event to process `StatusMessage`s from the RPC network.
     pub fn status_message(peer_id: PeerId, message: StatusMessage) -> Self {
         Self {
@@ -809,6 +827,10 @@ pub enum Work<T: BeaconChainTypes> {
         request_id: PeerRequestId,
         request: BlobsByRootRequest,
     },
+    BlobChainSegment {
+        process_id: ChainSegmentProcessId,
+        blocks_and_blobs: Vec<SignedBeaconBlockAndBlobsSidecar<T::EthSpec>>,
+    },
 }
 
 impl<T: BeaconChainTypes> Work<T> {
@@ -836,6 +858,7 @@ impl<T: BeaconChainTypes> Work<T> {
             Work::BlobsByRootsRequest { .. } => BLOBS_BY_ROOTS_REQUEST,
             Work::UnknownBlockAttestation { .. } => UNKNOWN_BLOCK_ATTESTATION,
             Work::UnknownBlockAggregate { .. } => UNKNOWN_BLOCK_AGGREGATE,
+            Work::BlobChainSegment { .. } => BLOB_CHAIN_SEGMENT,
         }
     }
 }
@@ -971,6 +994,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
         let mut rpc_block_queue = FifoQueue::new(MAX_RPC_BLOCK_QUEUE_LEN);
         let mut chain_segment_queue = FifoQueue::new(MAX_CHAIN_SEGMENT_QUEUE_LEN);
         let mut backfill_chain_segment = FifoQueue::new(MAX_CHAIN_SEGMENT_QUEUE_LEN);
+        let mut blob_chain_segment_queue = FifoQueue::new(MAX_BLOB_CHAIN_SEGMENT_QUEUE_LEN);
         let mut gossip_block_queue = FifoQueue::new(MAX_GOSSIP_BLOCK_QUEUE_LEN);
         let mut gossip_block_and_blobs_sidecar_queue =
             FifoQueue::new(MAX_GOSSIP_BLOCK_AND_BLOB_QUEUE_LEN);
@@ -1072,6 +1096,11 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                             self.spawn_worker(item, toolbox);
                         // Check sync blocks before gossip blocks, since we've already explicitly
                         // requested these blocks.
+                        } else if let Some(item) = blob_chain_segment_queue.pop() {
+                            self.spawn_worker(item, toolbox);
+                        // Sync block and blob segments have the same priority as normal chain
+                        // segments. This here might change depending on how batch processing
+                        // evolves.
                         } else if let Some(item) = rpc_block_queue.pop() {
                             self.spawn_worker(item, toolbox);
                         // Check delayed blocks before gossip blocks, the gossip blocks might rely
@@ -1339,6 +1368,9 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                                 request_id,
                                 request,
                             } => todo!(),
+                            Work::BlobChainSegment { .. } => {
+                                blob_chain_segment_queue.push(work, work_id, &self.log)
+                            }
                         }
                     }
                 }
@@ -1774,6 +1806,14 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                     None,
                     seen_timestamp,
                 )
+            }),
+            Work::BlobChainSegment {
+                process_id,
+                blocks_and_blobs,
+            } => task_spawner.spawn_async(async move {
+                worker
+                    .process_blob_chain_segment(process_id, blocks_and_blobs)
+                    .await
             }),
         };
     }
