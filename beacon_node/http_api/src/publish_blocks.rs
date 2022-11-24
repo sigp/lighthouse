@@ -31,22 +31,19 @@ pub async fn publish_block<T: BeaconChainTypes>(
 
     // Send the block, regardless of whether or not it is valid. The API
     // specification is very clear that this is the desired behaviour.
-    let message = todo!("");
-    /*
-    let message = if matches!(block, SignedBeaconBlock::Eip4844(_)) {
+    let message = if matches!(block.as_ref(), &SignedBeaconBlock::Eip4844(_)) {
         if let Some(sidecar) = chain.blob_cache.pop(&block_root) {
             PubsubMessage::BeaconBlockAndBlobsSidecars(Arc::new(SignedBeaconBlockAndBlobsSidecar {
-                beacon_block: block,
+                beacon_block: block.clone(),
                 blobs_sidecar: Arc::new(sidecar),
             }))
         } else {
-            //FIXME(sean): This should probably return a specific no - blob cached error code, beacon API coordination required
-            return Err(warp_utils::reject::broadcast_without_import(format!("")));
+            //FIXME(sean): This should probably return a specific no-blob-cached error code, beacon API coordination required
+            return Err(warp_utils::reject::broadcast_without_import(format!("no blob cached for block")));
         }
     } else {
         PubsubMessage::BeaconBlock(block.clone())
     };
-    */
     crate::publish_pubsub_message(network_tx, message)?;
 
     // Determine the delay after the start of the slot, register it with metrics.
