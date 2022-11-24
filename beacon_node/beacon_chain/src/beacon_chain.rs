@@ -4113,37 +4113,29 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         #[cfg(feature = "withdrawals")]
-        let head_state = &self.canonical_head.cached_head().snapshot.beacon_state;
-        #[cfg(feature = "withdrawals")]
         let withdrawals = match self.spec.fork_name_at_epoch(prepare_epoch) {
-            ForkName::Base | ForkName::Altair | ForkName::Merge => {
-                None
-            },
-            ForkName::Capella | ForkName::Eip4844 => match &head_state {
-                &BeaconState::Capella(_) | &BeaconState::Eip4844(_) => {
-                    // The head_state is already BeaconState::Capella or later
-                    // FIXME(mark)
-                    //   Might implement caching here in the future..
-                    Some(get_expected_withdrawals(head_state, &self.spec))
-                }
-                &BeaconState::Base(_) | &BeaconState::Altair(_) | &BeaconState::Merge(_) => {
-                    // We are the Capella transition block proposer, need advanced state
-                    let mut prepare_state = self
-                        .state_at_slot(prepare_slot, StateSkipConfig::WithoutStateRoots)
-                        .or_else(|e| {
-                            error!(self.log, "Capella Transition Proposer"; "Error Advancing State: " => ?e);
-                            Err(e)
-                        })?;
-                    // FIXME(mark)
-                    //   Might implement caching here in the future..
-                    Some(get_expected_withdrawals(&prepare_state, &self.spec))
-                }
-            },
-        }.transpose().or_else(|e| {
-            error!(self.log, "Error preparing beacon proposer"; "while calculating expected withdrawals" => ?e);
+            ForkName::Base | ForkName::Altair | ForkName::Merge => None,
+            ForkName::Capella | ForkName::Eip4844 => {
+                // We must use the advanced state because balances can change at epoch boundaries
+                // and balances affect withdrawals.
+                // FIXME(mark)
+                //   Might implement caching here in the future..
+                let prepare_state = self
+                    .state_at_slot(prepare_slot, StateSkipConfig::WithoutStateRoots)
+                    .or_else(|e| {
+                        error!(self.log, "State advance for withdrawals failed"; "error" => ?e);
+                        Err(e)
+                    })?;
+                Some(get_expected_withdrawals(&prepare_state, &self.spec))
+            }
+        }
+        .transpose()
+        .or_else(|e| {
+            error!(self.log, "Error preparing beacon proposer"; "error" => ?e);
             Err(e)
-        }).map(|withdrawals_opt| withdrawals_opt.map(|w| w.into()))
-            .map_err(Error::PrepareProposerFailed)?;
+        })
+        .map(|withdrawals_opt| withdrawals_opt.map(|w| w.into()))
+        .map_err(Error::PrepareProposerFailed)?;
 
         let payload_attributes = PayloadAttributes::V2(PayloadAttributesV2 {
             timestamp: self

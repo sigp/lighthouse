@@ -310,7 +310,7 @@ pub fn validate_execution_payload_for_gossip<T: BeaconChainTypes>(
             }
         };
 
-        if is_merge_transition_complete || !execution_payload.is_default() {
+        if is_merge_transition_complete || !execution_payload.is_default_with_empty_roots() {
             let expected_timestamp = chain
                 .slot_clock
                 .start_of(block.slot())

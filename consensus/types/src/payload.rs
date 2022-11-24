@@ -40,8 +40,11 @@ pub trait ExecPayload<T: EthSpec>: Debug + Clone + PartialEq + Hash + TreeHash +
     #[cfg(feature = "withdrawals")]
     fn withdrawals_root(&self) -> Result<Hash256, Error>;
 
-    /// Is this a default payload? (pre-merge)
-    fn is_default(&self) -> bool;
+    /// Is this a default payload with 0x0 roots for transactions and withdrawals?
+    fn is_default_with_zero_roots(&self) -> bool;
+
+    /// Is this a default payload with the hash of the empty list for transactions and withdrawals?
+    fn is_default_with_empty_roots(&self) -> bool;
 }
 
 /// `ExecPayload` functionality the requires ownership.
@@ -241,11 +244,16 @@ impl<T: EthSpec> ExecPayload<T> for FullPayload<T> {
         }
     }
 
-    fn is_default<'a>(&'a self) -> bool {
+    fn is_default_with_zero_roots<'a>(&'a self) -> bool {
         map_full_payload_ref!(&'a _, self.to_ref(), move |payload, cons| {
             cons(payload);
             payload.execution_payload == <_>::default()
         })
+    }
+
+    fn is_default_with_empty_roots<'a>(&'a self) -> bool {
+        // For full payloads the empty/zero distinction does not exist.
+        self.is_default_with_zero_roots()
     }
 }
 
@@ -338,12 +346,16 @@ impl<'b, T: EthSpec> ExecPayload<T> for FullPayloadRef<'b, T> {
         }
     }
 
-    // TODO: can this function be optimized?
-    fn is_default<'a>(&'a self) -> bool {
+    fn is_default_with_zero_roots<'a>(&'a self) -> bool {
         map_full_payload_ref!(&'a _, self, move |payload, cons| {
             cons(payload);
             payload.execution_payload == <_>::default()
         })
+    }
+
+    fn is_default_with_empty_roots(&self) -> bool {
+        // For full payloads the empty/zero distinction does not exist.
+        self.is_default_with_zero_roots()
     }
 }
 
@@ -505,11 +517,16 @@ impl<T: EthSpec> ExecPayload<T> for BlindedPayload<T> {
         }
     }
 
-    fn is_default<'a>(&'a self) -> bool {
-        map_blinded_payload_ref!(&'a _, self.to_ref(), move |payload, cons| {
-            cons(payload);
-            payload.execution_payload_header == <_>::default()
-        })
+    fn is_default_with_zero_roots<'a>(&'a self) -> bool {
+        self.to_ref().is_default_with_zero_roots()
+    }
+
+    // For blinded payloads we must check "defaultness" against the default `ExecutionPayload`
+    // which has been blinded into an `ExecutionPayloadHeader`, NOT against the default
+    // `ExecutionPayloadHeader` which has a zeroed out `transactions_root`. The transactions root
+    // should be the root of the empty list.
+    fn is_default_with_empty_roots(&self) -> bool {
+        self.to_ref().is_default_with_empty_roots()
     }
 }
 
@@ -591,24 +608,38 @@ impl<'b, T: EthSpec> ExecPayload<T> for BlindedPayloadRef<'b, T> {
         }
     }
 
-    // TODO: can this function be optimized?
-    fn is_default<'a>(&'a self) -> bool {
-        map_blinded_payload_ref!(&'a _, self, move |payload, cons| {
+    fn is_default_with_zero_roots<'a>(&'a self) -> bool {
+        map_blinded_payload_ref!(&'b _, self, move |payload, cons| {
             cons(payload);
             payload.execution_payload_header == <_>::default()
+        })
+    }
+
+    fn is_default_with_empty_roots<'a>(&'a self) -> bool {
+        map_blinded_payload_ref!(&'b _, self, move |payload, cons| {
+            cons(payload);
+            payload.is_default_with_empty_roots()
         })
     }
 }
 
 macro_rules! impl_exec_payload_common {
-    ($wrapper_type:ident, $wrapped_type_full:ident, $wrapped_header_type:ident, $wrapped_field:ident, $fork_variant:ident, $block_type_variant:ident, $f:block, $g:block) => {
+    ($wrapper_type:ident,
+     $wrapped_type:ident,
+     $wrapped_type_full:ident,
+     $wrapped_type_header:ident,
+     $wrapped_field:ident,
+     $fork_variant:ident,
+     $block_type_variant:ident,
+     $f:block,
+     $g:block) => {
         impl<T: EthSpec> ExecPayload<T> for $wrapper_type<T> {
             fn block_type() -> BlockType {
                 BlockType::$block_type_variant
             }
 
             fn to_execution_payload_header(&self) -> ExecutionPayloadHeader<T> {
-                ExecutionPayloadHeader::$fork_variant($wrapped_header_type::from(
+                ExecutionPayloadHeader::$fork_variant($wrapped_type_header::from(
                     self.$wrapped_field.clone(),
                 ))
             }
@@ -641,8 +672,12 @@ macro_rules! impl_exec_payload_common {
                 self.$wrapped_field.gas_limit
             }
 
-            fn is_default(&self) -> bool {
-                self.$wrapped_field == $wrapped_type_full::default()
+            fn is_default_with_zero_roots(&self) -> bool {
+                self.$wrapped_field == $wrapped_type::default()
+            }
+
+            fn is_default_with_empty_roots(&self) -> bool {
+                self.$wrapped_field == $wrapped_type::from($wrapped_type_full::default())
             }
 
             fn transactions(&self) -> Option<&Transactions<T>> {
@@ -657,8 +692,8 @@ macro_rules! impl_exec_payload_common {
             }
         }
 
-        impl<T: EthSpec> From<$wrapped_type_full<T>> for $wrapper_type<T> {
-            fn from($wrapped_field: $wrapped_type_full<T>) -> Self {
+        impl<T: EthSpec> From<$wrapped_type<T>> for $wrapper_type<T> {
+            fn from($wrapped_field: $wrapped_type<T>) -> Self {
                 Self { $wrapped_field }
             }
         }
@@ -672,6 +707,7 @@ macro_rules! impl_exec_payload_for_fork {
         impl_exec_payload_common!(
             $wrapper_type_header,
             $wrapped_type_header,
+            $wrapped_type_full,
             $wrapped_type_header,
             execution_payload_header,
             $fork_variant,
@@ -740,6 +776,7 @@ macro_rules! impl_exec_payload_for_fork {
 
         impl_exec_payload_common!(
             $wrapper_type_full,
+            $wrapped_type_full,
             $wrapped_type_full,
             $wrapped_type_header,
             execution_payload,
