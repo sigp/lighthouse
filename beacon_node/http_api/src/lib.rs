@@ -318,7 +318,6 @@ pub fn serve<T: BeaconChainTypes>(
 
     // Create a `warp` filter that provides access to the network globals.
     let inner_network_globals = ctx.network_globals.clone();
-
     let network_globals = warp::any()
         .map(move || inner_network_globals.clone())
         .and_then(|network_globals| async move {
@@ -1116,10 +1115,10 @@ pub fn serve<T: BeaconChainTypes>(
         .and(network_tx_filter.clone())
         .and(log_filter.clone())
         .and_then(
-            move |block: Arc<SignedBeaconBlock<T::EthSpec>>,
-                  chain: Arc<BeaconChain<T>>,
-                  network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
-                  log: Logger| async move {
+            |block: Arc<SignedBeaconBlock<T::EthSpec>>,
+             chain: Arc<BeaconChain<T>>,
+             network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
+             log: Logger| async move {
                 publish_blocks::publish_block(None, block, chain, &network_tx, log)
                     .await
                     .map(|()| warp::reply())
@@ -1140,10 +1139,10 @@ pub fn serve<T: BeaconChainTypes>(
         .and(network_tx_filter.clone())
         .and(log_filter.clone())
         .and_then(
-            move |block: SignedBeaconBlock<T::EthSpec, BlindedPayload<_>>,
-                  chain: Arc<BeaconChain<T>>,
-                  network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
-                  log: Logger| async move {
+            |block: SignedBeaconBlock<T::EthSpec, BlindedPayload<_>>,
+             chain: Arc<BeaconChain<T>>,
+             network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
+             log: Logger| async move {
                 publish_blocks::publish_blinded_block(block, chain, &network_tx, log)
                     .await
                     .map(|()| warp::reply())

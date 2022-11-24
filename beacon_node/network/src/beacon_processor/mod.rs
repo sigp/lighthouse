@@ -1336,16 +1336,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
             &[work.str_id()],
         );
 
-        let notify_execution_layer = if self
-            .network_globals
-            .sync_state
-            .read()
-            .is_syncing_finalized()
-        {
-            NotifyExecutionLayer::No
-        } else {
-            NotifyExecutionLayer::Yes
-        };
+        let mut notify_execution_layer = NotifyExecutionLayer::Yes;
 
         // Wrap the `idle_tx` in a struct that will fire the idle message whenever it is dropped.
         //
@@ -1568,11 +1559,21 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
             /*
              * Verification for a chain segment (multiple blocks).
              */
-            Work::ChainSegment { process_id, blocks } => task_spawner.spawn_async(async move {
-                worker
-                    .process_chain_segment(process_id, blocks, notify_execution_layer)
-                    .await
-            }),
+            Work::ChainSegment { process_id, blocks } => {
+                if self
+                    .network_globals
+                    .sync_state
+                    .read()
+                    .is_syncing_finalized()
+                {
+                    notify_execution_layer = NotifyExecutionLayer::No;
+                }
+                task_spawner.spawn_async(async move {
+                    worker
+                        .process_chain_segment(process_id, blocks, notify_execution_layer)
+                        .await
+                })
+            }
             /*
              * Processing of Status Messages.
              */
