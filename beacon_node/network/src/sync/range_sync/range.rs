@@ -44,7 +44,7 @@ use super::chain::{BatchId, ChainId, RemoveChain, SyncingChain};
 use super::chain_collection::ChainCollection;
 use super::sync_type::RangeSyncType;
 use crate::status::ToStatusMessage;
-use crate::sync::manager::Id;
+use crate::sync::manager::{BlockTy, Id};
 use crate::sync::network_context::SyncNetworkContext;
 use crate::sync::BatchProcessResult;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
@@ -55,7 +55,7 @@ use lru_cache::LRUTimeCache;
 use slog::{crit, debug, trace, warn};
 use std::collections::HashMap;
 use std::sync::Arc;
-use types::{Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot};
+use types::{Epoch, EthSpec, Hash256, Slot};
 
 /// For how long we store failed finalized chains to prevent retries.
 const FAILED_CHAINS_EXPIRY_SECONDS: u64 = 30;
@@ -202,7 +202,7 @@ where
         chain_id: ChainId,
         batch_id: BatchId,
         request_id: Id,
-        beacon_block: Option<Arc<SignedBeaconBlock<T::EthSpec>>>,
+        beacon_block: Option<BlockTy<T::EthSpec>>,
     ) {
         // check if this chunk removes the chain
         match self.chains.call_by_id(chain_id, |chain| {
@@ -372,6 +372,7 @@ where
 #[cfg(test)]
 mod tests {
     use crate::service::RequestId;
+    use crate::sync::range_sync::ExpectedBatchTy;
     use crate::NetworkMessage;
 
     use super::*;
@@ -682,10 +683,13 @@ mod tests {
         // add some peers
         let (peer1, local_info, head_info) = rig.head_peer();
         range.add_peer(&mut rig.cx, local_info, peer1, head_info);
-        let ((chain1, batch1), id1) = match rig.grab_request(&peer1).0 {
-            RequestId::Sync(crate::sync::manager::RequestId::RangeSync { id }) => {
-                (rig.cx.range_sync_response(id, true).unwrap(), id)
-            }
+        let ((chain1, batch1, _), id1) = match rig.grab_request(&peer1).0 {
+            RequestId::Sync(crate::sync::manager::RequestId::RangeSync { id }) => (
+                rig.cx
+                    .range_sync_block_response(id, None, ExpectedBatchTy::OnlyBlock)
+                    .unwrap(),
+                id,
+            ),
             other => panic!("unexpected request {:?}", other),
         };
 
@@ -701,10 +705,13 @@ mod tests {
         // while the ee is offline, more peers might arrive. Add a new finalized peer.
         let (peer2, local_info, finalized_info) = rig.finalized_peer();
         range.add_peer(&mut rig.cx, local_info, peer2, finalized_info);
-        let ((chain2, batch2), id2) = match rig.grab_request(&peer2).0 {
-            RequestId::Sync(crate::sync::manager::RequestId::RangeSync { id }) => {
-                (rig.cx.range_sync_response(id, true).unwrap(), id)
-            }
+        let ((chain2, batch2, _), id2) = match rig.grab_request(&peer2).0 {
+            RequestId::Sync(crate::sync::manager::RequestId::RangeSync { id }) => (
+                rig.cx
+                    .range_sync_block_response(id, None, ExpectedBatchTy::OnlyBlock)
+                    .unwrap(),
+                id,
+            ),
             other => panic!("unexpected request {:?}", other),
         };
 
