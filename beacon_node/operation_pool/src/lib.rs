@@ -682,6 +682,23 @@ impl<T: EthSpec> OperationPool<T> {
             .map(|(_, exit)| exit.as_inner().clone())
             .collect()
     }
+
+    /// Returns all known `SignedBlsToExecutionChange` objects.
+    ///
+    /// This method may return objects that are invalid for block inclusion.
+    pub fn get_all_bls_to_execution_changes(&self) -> Vec<SignedBlsToExecutionChange> {
+        #[cfg(feature = "withdrawals-processing")]
+        {
+            self.bls_to_execution_changes
+                .read()
+                .iter()
+                .map(|(_, address_change)| address_change.as_inner().clone())
+                .collect()
+        }
+
+        #[cfg(not(feature = "withdrawals-processing"))]
+        vec![]
+    }
 }
 
 /// Filter up to a maximum number of operations out of an iterator.

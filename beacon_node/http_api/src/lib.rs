@@ -1536,6 +1536,18 @@ pub fn serve<T: BeaconChainTypes>(
             },
         );
 
+    // GET beacon/pool/bls_to_execution_changes
+    let get_beacon_pool_bls_to_execution_changes = beacon_pool_path
+        .clone()
+        .and(warp::path("bls_to_execution_changes"))
+        .and(warp::path::end())
+        .and_then(|chain: Arc<BeaconChain<T>>| {
+            blocking_json_task(move || {
+                let address_changes = chain.op_pool.get_all_bls_to_execution_changes();
+                Ok(api_types::GenericResponse::from(address_changes))
+            })
+        });
+
     // POST beacon/pool/bls_to_execution_changes
     let post_beacon_pool_bls_to_execution_changes = beacon_pool_path
         .clone()
@@ -3211,6 +3223,7 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(get_beacon_pool_attester_slashings.boxed())
                 .or(get_beacon_pool_proposer_slashings.boxed())
                 .or(get_beacon_pool_voluntary_exits.boxed())
+                .or(get_beacon_pool_bls_to_execution_changes.boxed())
                 .or(get_beacon_deposit_snapshot.boxed())
                 .or(get_config_fork_schedule.boxed())
                 .or(get_config_spec.boxed())
