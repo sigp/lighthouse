@@ -68,9 +68,9 @@ pub struct ExecutionPayloadHeader<T: EthSpec> {
     #[superstruct(getter(copy))]
     pub base_fee_per_gas: Uint256,
     #[superstruct(only(Eip4844))]
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "eth2_serde_utils::quoted_u256")]
     #[superstruct(getter(copy))]
-    pub excess_blobs: u64,
+    pub excess_data_gas: Uint256,
     #[superstruct(getter(copy))]
     pub block_hash: ExecutionBlockHash,
     #[superstruct(getter(copy))]
@@ -150,7 +150,7 @@ impl<T: EthSpec> ExecutionPayloadHeaderCapella<T> {
             extra_data: self.extra_data.clone(),
             base_fee_per_gas: self.base_fee_per_gas,
             // TODO: verify if this is correct
-            excess_blobs: 0,
+            excess_data_gas: Uint256::zero(),
             block_hash: self.block_hash,
             transactions_root: self.transactions_root,
             #[cfg(feature = "withdrawals")]
@@ -216,7 +216,7 @@ impl<T: EthSpec> From<ExecutionPayloadEip4844<T>> for ExecutionPayloadHeaderEip4
             timestamp: payload.timestamp,
             extra_data: payload.extra_data,
             base_fee_per_gas: payload.base_fee_per_gas,
-            excess_blobs: payload.excess_blobs,
+            excess_data_gas: payload.excess_data_gas,
             block_hash: payload.block_hash,
             transactions_root: payload.transactions.tree_hash_root(),
             #[cfg(feature = "withdrawals")]

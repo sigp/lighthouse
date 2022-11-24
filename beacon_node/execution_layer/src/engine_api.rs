@@ -154,8 +154,8 @@ pub struct ExecutionBlockWithTransactions<T: EthSpec> {
     pub extra_data: VariableList<u8, T::MaxExtraDataBytes>,
     pub base_fee_per_gas: Uint256,
     #[superstruct(only(Eip4844))]
-    #[serde(with = "eth2_serde_utils::u64_hex_be")]
-    pub excess_blobs: u64,
+    #[serde(with = "eth2_serde_utils::u256_hex_be")]
+    pub excess_data_gas: Uint256,
     #[serde(rename = "hash")]
     pub block_hash: ExecutionBlockHash,
     pub transactions: Vec<Transaction>,
@@ -227,7 +227,7 @@ impl<T: EthSpec> From<ExecutionPayload<T>> for ExecutionBlockWithTransactions<T>
                     timestamp: block.timestamp,
                     extra_data: block.extra_data,
                     base_fee_per_gas: block.base_fee_per_gas,
-                    excess_blobs: block.excess_blobs,
+                    excess_data_gas: block.excess_data_gas,
                     block_hash: block.block_hash,
                     transactions: block
                         .transactions

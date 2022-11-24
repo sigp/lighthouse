@@ -1579,7 +1579,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                     timestamp: eip4844_block.timestamp,
                     extra_data: eip4844_block.extra_data,
                     base_fee_per_gas: eip4844_block.base_fee_per_gas,
-                    excess_blobs: eip4844_block.excess_blobs,
+                    excess_data_gas: eip4844_block.excess_data_gas,
                     block_hash: eip4844_block.block_hash,
                     transactions,
                     #[cfg(feature = "withdrawals")]
