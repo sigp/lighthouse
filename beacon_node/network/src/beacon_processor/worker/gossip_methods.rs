@@ -1236,7 +1236,7 @@ impl<T: BeaconChainTypes> Worker<T> {
             }
         };
 
-        // metrics::inc_counter(&metrics::BEACON_PROCESSOR_EXIT_VERIFIED_TOTAL);
+        metrics::inc_counter(&metrics::BEACON_PROCESSOR_BLS_TO_EXECUTION_CHANGE_VERIFIED_TOTAL);
 
         self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
 
@@ -1249,8 +1249,7 @@ impl<T: BeaconChainTypes> Worker<T> {
             "address" => ?address,
         );
 
-        // FIXME(sproul): metrics
-        // metrics::inc_counter(&metrics::BEACON_PROCESSOR_EXIT_IMPORTED_TOTAL);
+        metrics::inc_counter(&metrics::BEACON_PROCESSOR_BLS_TO_EXECUTION_CHANGE_IMPORTED_TOTAL);
     }
 
     /// Process the sync committee signature received from the gossip network and:

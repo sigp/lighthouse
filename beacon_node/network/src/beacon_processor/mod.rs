@@ -1403,6 +1403,10 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                     &metrics::BEACON_PROCESSOR_ATTESTER_SLASHING_QUEUE_TOTAL,
                     gossip_attester_slashing_queue.len() as i64,
                 );
+                metrics::set_gauge(
+                    &metrics::BEACON_PROCESSOR_BLS_TO_EXECUTION_CHANGE_QUEUE_TOTAL,
+                    gossip_bls_to_execution_change_queue.len() as i64,
+                );
 
                 if aggregate_queue.is_full() && aggregate_debounce.elapsed() {
                     error!(
