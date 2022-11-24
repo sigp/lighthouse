@@ -19,8 +19,9 @@ pub const PROPOSER_SLASHING_TOPIC: &str = "proposer_slashing";
 pub const ATTESTER_SLASHING_TOPIC: &str = "attester_slashing";
 pub const SIGNED_CONTRIBUTION_AND_PROOF_TOPIC: &str = "sync_committee_contribution_and_proof";
 pub const SYNC_COMMITTEE_PREFIX_TOPIC: &str = "sync_committee_";
+pub const BLS_TO_EXECUTION_CHANGE_TOPIC: &str = "bls_to_execution_change";
 
-pub const CORE_TOPICS: [GossipKind; 7] = [
+pub const CORE_TOPICS: [GossipKind; 8] = [
     GossipKind::BeaconBlock,
     GossipKind::BeaconBlocksAndBlobsSidecar,
     GossipKind::BeaconAggregateAndProof,
@@ -28,6 +29,7 @@ pub const CORE_TOPICS: [GossipKind; 7] = [
     GossipKind::ProposerSlashing,
     GossipKind::AttesterSlashing,
     GossipKind::SignedContributionAndProof,
+    GossipKind::BlsToExecutionChange,
 ];
 
 /// A gossipsub topic which encapsulates the type of messages that should be sent and received over
@@ -67,6 +69,8 @@ pub enum GossipKind {
     /// Topic for publishing unaggregated sync committee signatures on a particular subnet.
     #[strum(serialize = "sync_committee")]
     SyncCommitteeMessage(SyncSubnetId),
+    /// Topic for validator messages which change their withdrawal address.
+    BlsToExecutionChange,
 }
 
 impl std::fmt::Display for GossipKind {
@@ -141,6 +145,7 @@ impl GossipTopic {
                 VOLUNTARY_EXIT_TOPIC => GossipKind::VoluntaryExit,
                 PROPOSER_SLASHING_TOPIC => GossipKind::ProposerSlashing,
                 ATTESTER_SLASHING_TOPIC => GossipKind::AttesterSlashing,
+                BLS_TO_EXECUTION_CHANGE_TOPIC => GossipKind::BlsToExecutionChange,
                 topic => match committee_topic_index(topic) {
                     Some(subnet) => match subnet {
                         Subnet::Attestation(s) => GossipKind::Attestation(s),
@@ -177,30 +182,8 @@ impl From<GossipTopic> for Topic {
 
 impl From<GossipTopic> for String {
     fn from(topic: GossipTopic) -> String {
-        let encoding = match topic.encoding {
-            GossipEncoding::SSZSnappy => SSZ_SNAPPY_ENCODING_POSTFIX,
-        };
-
-        let kind = match topic.kind {
-            GossipKind::BeaconBlock => BEACON_BLOCK_TOPIC.into(),
-            GossipKind::BeaconBlocksAndBlobsSidecar => BEACON_BLOCK_AND_BLOBS_SIDECAR_TOPIC.into(),
-            GossipKind::BeaconAggregateAndProof => BEACON_AGGREGATE_AND_PROOF_TOPIC.into(),
-            GossipKind::VoluntaryExit => VOLUNTARY_EXIT_TOPIC.into(),
-            GossipKind::ProposerSlashing => PROPOSER_SLASHING_TOPIC.into(),
-            GossipKind::AttesterSlashing => ATTESTER_SLASHING_TOPIC.into(),
-            GossipKind::Attestation(index) => format!("{}{}", BEACON_ATTESTATION_PREFIX, *index,),
-            GossipKind::SignedContributionAndProof => SIGNED_CONTRIBUTION_AND_PROOF_TOPIC.into(),
-            GossipKind::SyncCommitteeMessage(index) => {
-                format!("{}{}", SYNC_COMMITTEE_PREFIX_TOPIC, *index)
-            }
-        };
-        format!(
-            "/{}/{}/{}/{}",
-            TOPIC_PREFIX,
-            hex::encode(topic.fork_digest),
-            kind,
-            encoding
-        )
+        // Use the `Display` implementation below.
+        topic.to_string()
     }
 }
 
@@ -222,6 +205,7 @@ impl std::fmt::Display for GossipTopic {
             GossipKind::SyncCommitteeMessage(index) => {
                 format!("{}{}", SYNC_COMMITTEE_PREFIX_TOPIC, *index)
             }
+            GossipKind::BlsToExecutionChange => BLS_TO_EXECUTION_CHANGE_TOPIC.into(),
         };
         write!(
             f,

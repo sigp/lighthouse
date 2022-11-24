@@ -143,6 +143,19 @@ lazy_static! {
         "beacon_processor_attester_slashing_imported_total",
         "Total number of attester slashings imported to the op pool."
     );
+    // Gossip BLS to execution changes.
+    pub static ref BEACON_PROCESSOR_BLS_TO_EXECUTION_CHANGE_QUEUE_TOTAL: Result<IntGauge> = try_create_int_gauge(
+        "beacon_processor_bls_to_execution_change_queue_total",
+        "Count of address changes from gossip waiting to be verified."
+    );
+    pub static ref BEACON_PROCESSOR_BLS_TO_EXECUTION_CHANGE_VERIFIED_TOTAL: Result<IntCounter> = try_create_int_counter(
+        "beacon_processor_bls_to_execution_change_verified_total",
+        "Total number of address changes verified for propagation."
+    );
+    pub static ref BEACON_PROCESSOR_BLS_TO_EXECUTION_CHANGE_IMPORTED_TOTAL: Result<IntCounter> = try_create_int_counter(
+        "beacon_processor_bls_to_execution_change_imported_total",
+        "Total number of address changes imported to the op pool."
+    );
     // Rpc blocks.
     pub static ref BEACON_PROCESSOR_RPC_BLOCK_QUEUE_TOTAL: Result<IntGauge> = try_create_int_gauge(
         "beacon_processor_rpc_block_queue_total",

@@ -23,8 +23,9 @@ use store::hot_cold_store::HotColdDBError;
 use tokio::sync::mpsc;
 use types::{
     Attestation, AttesterSlashing, BlobsSidecar, EthSpec, Hash256, IndexedAttestation,
-    ProposerSlashing, SignedAggregateAndProof, SignedBeaconBlock, SignedContributionAndProof,
-    SignedVoluntaryExit, Slot, SubnetId, SyncCommitteeMessage, SyncSubnetId,
+    ProposerSlashing, SignedAggregateAndProof, SignedBeaconBlock, SignedBlsToExecutionChange,
+    SignedContributionAndProof, SignedVoluntaryExit, Slot, SubnetId, SyncCommitteeMessage,
+    SyncSubnetId,
 };
 
 use super::{
@@ -1190,6 +1191,65 @@ impl<T: BeaconChainTypes> Worker<T> {
         self.chain.import_attester_slashing(slashing);
         debug!(self.log, "Successfully imported attester slashing");
         metrics::inc_counter(&metrics::BEACON_PROCESSOR_ATTESTER_SLASHING_IMPORTED_TOTAL);
+    }
+
+    pub fn process_gossip_bls_to_execution_change(
+        self,
+        message_id: MessageId,
+        peer_id: PeerId,
+        bls_to_execution_change: SignedBlsToExecutionChange,
+    ) {
+        let validator_index = bls_to_execution_change.message.validator_index;
+        let address = bls_to_execution_change.message.to_execution_address;
+
+        let change = match self
+            .chain
+            .verify_bls_to_execution_change_for_gossip(bls_to_execution_change)
+        {
+            Ok(ObservationOutcome::New(change)) => change,
+            Ok(ObservationOutcome::AlreadyKnown) => {
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+                debug!(
+                    self.log,
+                    "Dropping BLS to execution change";
+                    "validator_index" => validator_index,
+                    "peer" => %peer_id
+                );
+                return;
+            }
+            Err(e) => {
+                debug!(
+                    self.log,
+                    "Dropping invalid BLS to execution change";
+                    "validator_index" => validator_index,
+                    "peer" => %peer_id,
+                    "error" => ?e
+                );
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
+                // We penalize the peer slightly to prevent overuse of invalids.
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::HighToleranceError,
+                    "invalid_bls_to_execution_change",
+                );
+                return;
+            }
+        };
+
+        metrics::inc_counter(&metrics::BEACON_PROCESSOR_BLS_TO_EXECUTION_CHANGE_VERIFIED_TOTAL);
+
+        self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
+
+        self.chain.import_bls_to_execution_change(change);
+
+        debug!(
+            self.log,
+            "Successfully imported BLS to execution change";
+            "validator_index" => validator_index,
+            "address" => ?address,
+        );
+
+        metrics::inc_counter(&metrics::BEACON_PROCESSOR_BLS_TO_EXECUTION_CHANGE_IMPORTED_TOTAL);
     }
 
     /// Process the sync committee signature received from the gossip network and:

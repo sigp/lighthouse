@@ -19,8 +19,8 @@ use store::SyncCommitteeMessage;
 use tokio::sync::mpsc;
 use types::{
     Attestation, AttesterSlashing, BlobsSidecar, EthSpec, ProposerSlashing,
-    SignedAggregateAndProof, SignedBeaconBlock, SignedContributionAndProof, SignedVoluntaryExit,
-    SubnetId, SyncSubnetId,
+    SignedAggregateAndProof, SignedBeaconBlock, SignedBlsToExecutionChange,
+    SignedContributionAndProof, SignedVoluntaryExit, SubnetId, SyncSubnetId,
 };
 
 /// Processes validated messages from the network. It relays necessary data to the syncing thread
@@ -408,6 +408,19 @@ impl<T: BeaconChainTypes> Processor<T> {
             peer_id,
             sync_contribution,
             timestamp_now(),
+        ))
+    }
+
+    pub fn on_bls_to_execution_change_gossip(
+        &mut self,
+        message_id: MessageId,
+        peer_id: PeerId,
+        bls_to_execution_change: Box<SignedBlsToExecutionChange>,
+    ) {
+        self.send_beacon_processor_work(BeaconWorkEvent::gossip_bls_to_execution_change(
+            message_id,
+            peer_id,
+            bls_to_execution_change,
         ))
     }
 

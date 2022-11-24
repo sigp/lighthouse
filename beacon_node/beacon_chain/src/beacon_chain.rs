@@ -341,6 +341,10 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     /// Maintains a record of which validators we've seen attester slashings for.
     pub(crate) observed_attester_slashings:
         Mutex<ObservedOperations<AttesterSlashing<T::EthSpec>, T::EthSpec>>,
+    /// Maintains a record of which validators we've seen BLS to execution changes for.
+    #[cfg(feature = "withdrawals-processing")]
+    pub(crate) observed_bls_to_execution_changes:
+        Mutex<ObservedOperations<SignedBlsToExecutionChange, T::EthSpec>>,
     /// Provides information from the Ethereum 1 (PoW) chain.
     pub eth1_chain: Option<Eth1Chain<T::Eth1Chain, T::EthSpec>>,
     /// Interfaces with the execution client.
@@ -2181,6 +2185,42 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
     }
 
+    /// Verify a signed BLS to exection change before allowing it to propagate on the gossip network.
+    pub fn verify_bls_to_execution_change_for_gossip(
+        &self,
+        bls_to_execution_change: SignedBlsToExecutionChange,
+    ) -> Result<ObservationOutcome<SignedBlsToExecutionChange, T::EthSpec>, Error> {
+        #[cfg(feature = "withdrawals-processing")]
+        {
+            let wall_clock_state = self.wall_clock_state()?;
+            Ok(self
+                .observed_bls_to_execution_changes
+                .lock()
+                .verify_and_observe(bls_to_execution_change, &wall_clock_state, &self.spec)?)
+        }
+
+        #[cfg(not(feature = "withdrawals-processing"))]
+        {
+            drop(bls_to_execution_change);
+            Ok(ObservationOutcome::AlreadyKnown)
+        }
+    }
+
+    /// Import a BLS to execution change to the op pool.
+    pub fn import_bls_to_execution_change(
+        &self,
+        bls_to_execution_change: SigVerifiedOp<SignedBlsToExecutionChange, T::EthSpec>,
+    ) {
+        if self.eth1_chain.is_some() {
+            #[cfg(feature = "withdrawals-processing")]
+            self.op_pool
+                .insert_bls_to_execution_change(bls_to_execution_change);
+
+            #[cfg(not(feature = "withdrawals-processing"))]
+            drop(bls_to_execution_change);
+        }
+    }
+
     /// Attempt to obtain sync committee duties from the head.
     pub fn sync_committee_duties_from_head(
         &self,
@@ -3491,6 +3531,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let eth1_data = eth1_chain.eth1_data_for_block_production(&state, &self.spec)?;
         let deposits = eth1_chain.deposits_for_block_inclusion(&state, &eth1_data, &self.spec)?;
+
+        #[cfg(feature = "withdrawals")]
         let bls_to_execution_changes = self
             .op_pool
             .get_bls_to_execution_changes(&state, &self.spec);

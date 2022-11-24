@@ -199,6 +199,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                 .attester_slashing_timeout(half_epoch * 2)
                 // .signed_contribution_and_proof_timeout(timeout) // Do not retry
                 // .sync_committee_message_timeout(timeout) // Do not retry
+                .bls_to_execution_change_timeout(half_epoch * 2)
                 .build()
         };
 
