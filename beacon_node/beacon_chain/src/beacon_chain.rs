@@ -25,6 +25,9 @@ use crate::historical_blocks::HistoricalBlockError;
 use crate::light_client_finality_update_verification::{
     Error as LightClientFinalityUpdateError, VerifiedLightClientFinalityUpdate,
 };
+use crate::light_client_optimistic_update_verification::{
+    Error as LightClientOptimisticUpdateError, VerifiedLightClientOptimisticUpdate,
+};
 use crate::migrate::BackgroundMigrator;
 use crate::naive_aggregation_pool::{
     AggregatedAttestationMap, Error as NaiveAggregationError, NaiveAggregationPool,
@@ -340,6 +343,8 @@ pub struct BeaconChain<T: BeaconChainTypes> {
         Mutex<ObservedOperations<AttesterSlashing<T::EthSpec>, T::EthSpec>>,
     /// The most recently validated light client finality update received on gossip.
     pub latest_seen_finality_update: Mutex<Option<LightClientFinalityUpdate<T::EthSpec>>>,
+    /// The most recently validated light client optimistic update received on gossip.
+    pub latest_seen_optimistic_update: Mutex<Option<LightClientOptimisticUpdate<T::EthSpec>>>,
     /// Provides information from the Ethereum 1 (PoW) chain.
     pub eth1_chain: Option<Eth1Chain<T::Eth1Chain, T::EthSpec>>,
     /// Interfaces with the execution client.
@@ -1837,6 +1842,23 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         )
         .map(|v| {
             metrics::inc_counter(&metrics::FINALITY_UPDATE_PROCESSING_SUCCESSES);
+            v
+        })
+    }
+
+    /// Accepts some 'LightClientOptimisticUpdate' from the network and attempts to verify it
+    pub fn verify_optimistic_update_for_gossip(
+        self: &Arc<Self>,
+        light_client_optimistic_update: LightClientOptimisticUpdate<T::EthSpec>,
+        seen_timestamp: Duration,
+    ) -> Result<VerifiedLightClientOptimisticUpdate<T>, LightClientOptimisticUpdateError> {
+        VerifiedLightClientOptimisticUpdate::verify(
+            light_client_optimistic_update,
+            self,
+            seen_timestamp,
+        )
+        .map(|v| {
+            metrics::inc_counter(&metrics::OPTIMISTIC_UPDATE_PROCESSING_SUCCESSES);
             v
         })
     }

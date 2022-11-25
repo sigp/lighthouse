@@ -4,6 +4,7 @@ use beacon_chain::store::Error;
 use beacon_chain::{
     attestation_verification::{self, Error as AttnError, VerifiedAttestation},
     light_client_finality_update_verification::Error as LightClientFinalityUpdateError,
+    light_client_optimistic_update_verification::Error as LightClientOptimisticUpdateError,
     observed_operations::ObservationOutcome,
     sync_committee_verification::{self, Error as SyncCommitteeError},
     validator_monitor::get_block_delay_ms,
@@ -20,8 +21,9 @@ use store::hot_cold_store::HotColdDBError;
 use tokio::sync::mpsc;
 use types::{
     Attestation, AttesterSlashing, EthSpec, Hash256, IndexedAttestation, LightClientFinalityUpdate,
-    ProposerSlashing, SignedAggregateAndProof, SignedBeaconBlock, SignedContributionAndProof,
-    SignedVoluntaryExit, Slot, SubnetId, SyncCommitteeMessage, SyncSubnetId,
+    LightClientOptimisticUpdate, ProposerSlashing, SignedAggregateAndProof, SignedBeaconBlock,
+    SignedContributionAndProof, SignedVoluntaryExit, Slot, SubnetId, SyncCommitteeMessage,
+    SyncSubnetId,
 };
 
 use super::{
@@ -1327,6 +1329,40 @@ impl<T: BeaconChainTypes> Worker<T> {
                     | LightClientFinalityUpdateError::FinalityUpdateAlreadySeen
                     | LightClientFinalityUpdateError::SigSlotStartIsNone
                     | LightClientFinalityUpdateError::FailedConstructingUpdate => {}
+                }
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+            }
+        };
+    }
+
+    pub fn process_gossip_optimistic_update(
+        self,
+        message_id: MessageId,
+        peer_id: PeerId,
+        light_client_optimistic_update: LightClientOptimisticUpdate<T::EthSpec>,
+        seen_timestamp: Duration,
+    ) {
+        match self
+            .chain
+            .verify_optimistic_update_for_gossip(light_client_optimistic_update, seen_timestamp)
+        {
+            Ok(_verified_light_client_optimistic_update) => {
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
+            }
+            Err(e) => {
+                metrics::register_optimistic_update_error(&e);
+                match e {
+                    LightClientOptimisticUpdateError::InvalidLightClientOptimisticUpdate
+                    | LightClientOptimisticUpdateError::TooEarly => self.gossip_penalize_peer(
+                        peer_id,
+                        PeerAction::HighToleranceError,
+                        "light_client_gossip_error",
+                    ),
+                    LightClientOptimisticUpdateError::BeaconChainError(_)
+                    | LightClientOptimisticUpdateError::LightClientUpdateError(_)
+                    | LightClientOptimisticUpdateError::OptimisticUpdateAlreadySeen
+                    | LightClientOptimisticUpdateError::SigSlotStartIsNone
+                    | LightClientOptimisticUpdateError::FailedConstructingUpdate => {}
                 }
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
             }

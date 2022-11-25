@@ -17,9 +17,9 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use store::SyncCommitteeMessage;
 use tokio::sync::mpsc;
 use types::{
-    Attestation, AttesterSlashing, EthSpec, LightClientFinalityUpdate, ProposerSlashing,
-    SignedAggregateAndProof, SignedBeaconBlock, SignedContributionAndProof, SignedVoluntaryExit,
-    SubnetId, SyncSubnetId,
+    Attestation, AttesterSlashing, EthSpec, LightClientFinalityUpdate, LightClientOptimisticUpdate,
+    ProposerSlashing, SignedAggregateAndProof, SignedBeaconBlock, SignedContributionAndProof,
+    SignedVoluntaryExit, SubnetId, SyncSubnetId,
 };
 
 /// Processes validated messages from the network. It relays necessary data to the syncing thread
@@ -379,6 +379,20 @@ impl<T: BeaconChainTypes> Processor<T> {
             message_id,
             peer_id,
             light_client_finality_update,
+            timestamp_now(),
+        ))
+    }
+
+    pub fn on_light_client_optimistic_update_gossip(
+        &mut self,
+        message_id: MessageId,
+        peer_id: PeerId,
+        light_client_optimistic_update: Box<LightClientOptimisticUpdate<T::EthSpec>>,
+    ) {
+        self.send_beacon_processor_work(BeaconWorkEvent::gossip_light_client_optimistic_update(
+            message_id,
+            peer_id,
+            light_client_optimistic_update,
             timestamp_now(),
         ))
     }

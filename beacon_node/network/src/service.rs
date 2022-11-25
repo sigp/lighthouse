@@ -697,16 +697,20 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                 }
 
                 if self.beacon_chain.config.enable_light_client_server {
-                    for fork_digest in self.required_gossip_fork_digests() {
-                        let topic = GossipTopic::new(
-                            lighthouse_network::types::GossipKind::LightClientFinalityUpdate,
-                            GossipEncoding::default(),
-                            fork_digest,
-                        );
-                        if self.libp2p.subscribe(topic.clone()) {
-                            subscribed_topics.push(topic);
-                        } else {
-                            warn!(self.log, "Could not subscribe to topic"; "topic" => %topic);
+                    for light_client_topic_kind in
+                        lighthouse_network::types::LIGHT_CLIENT_GOSSIP_TOPICS.iter()
+                    {
+                        for fork_digest in self.required_gossip_fork_digests() {
+                            let light_client_topic = GossipTopic::new(
+                                light_client_topic_kind.clone(),
+                                GossipEncoding::default(),
+                                fork_digest,
+                            );
+                            if self.libp2p.subscribe(light_client_topic.clone()) {
+                                subscribed_topics.push(light_client_topic);
+                            } else {
+                                warn!(self.log, "Could not subscribe to topic"; "topic" => %light_client_topic);
+                            }
                         }
                     }
                 }
