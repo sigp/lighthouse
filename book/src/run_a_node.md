@@ -3,8 +3,8 @@
 This document provides detail for users who want to run a Lighthouse beacon node.
 You should be finished with one [Installation](./installation.md) of your choice to continue with the following steps:
 
-1. Enable [checkpoint sync](#step-1-checkpoint-sync);
-1. Set up an [execution node](#step-2-set-up-an-execution-node);
+1. Set up an [execution node](#step-1-set-up-an-execution-node);
+1. Enable [checkpoint sync](#step-2-choose-a-checkpoint-sync-provider);
 1. Run [Lighthouse](#step-3-run-lighthouse);
 1. [Check logs](#step-4-check-logs); and
 1. [Further readings](#step-5-further-readings).
@@ -12,24 +12,7 @@ You should be finished with one [Installation](./installation.md) of your choice
 Checkpoint sync is *optional*; however, we recommend it since it is substantially faster
 than syncing from genesis while still providing all the same features.
 
-## Step 1: Choose a checkpoint sync provider
-
-Lighthouse supports fast sync from a recent finalized checkpoint.
-The checkpoint sync is done using a [public endpoint](#use-a-community-checkpoint-sync-endpoint)
-provided by the Ethereum community.
-
-In [step 3](#step-3-run-lighthouse), when running Lighthouse,
-we will enable checkpoint sync by providing the URL to the `--checkpoint-sync-url` flag.
-For now, we will copy the URL to the clipboard.
-
-### Use a community checkpoint sync endpoint
-
-The Ethereum community provides various [public endpoints](https://eth-clients.github.io/checkpoint-sync-endpoints/) for you to choose from for your initial checkpoint state. Select one for your network and use it as the URL.
-
-For example, the URL for Sigma Prime's checkpoint sync server for mainnet is `https://mainnet.checkpoint.sigp.io`,
-which we will use in [step 3](#step-3-run-lighthouse).
-
-## Step 2: Set up an execution node
+## Step 1: Set up an execution node
 
 The Lighthouse beacon node *must* connect to an execution engine in order to validate the transactions
 present in blocks. Two flags are used to configure this connection:
@@ -51,12 +34,28 @@ Please consult the relevant page of your execution engine for the required flags
 The execution engine connection must be *exclusive*, i.e. you must have one execution node
 per beacon node. The reason for this is that the beacon node _controls_ the execution node.
 
+## Step 2: Choose a checkpoint sync provider
+
+Lighthouse supports fast sync from a recent finalized checkpoint.
+The checkpoint sync is done using a [public endpoint](#use-a-community-checkpoint-sync-endpoint)
+provided by the Ethereum community.
+
+In [step 3](#step-3-run-lighthouse), when running Lighthouse,
+we will enable checkpoint sync by providing the URL to the `--checkpoint-sync-url` flag.
+
+### Use a community checkpoint sync endpoint
+
+The Ethereum community provides various [public endpoints](https://eth-clients.github.io/checkpoint-sync-endpoints/) for you to choose from for your initial checkpoint state. Select one for your network and use it as the URL.
+
+For example, the URL for Sigma Prime's checkpoint sync server for mainnet is `https://mainnet.checkpoint.sigp.io`,
+which we will use in [step 3](#step-3-run-lighthouse).
+
 ## Step 3: Run Lighthouse
 
 To run Lighthouse, we use the three flags from the steps above:
-- `--checkpoint-sync-url`;
-- `--execution-endpoint`; and
-- `--execution-jwt`.
+- `--execution-endpoint`;
+- `--execution-jwt`; and
+- `--checkpoint-sync-url`.
 
 Additionally, we run Lighthouse with the `--network` flag, which selects a network:
 
@@ -79,9 +78,9 @@ In the following, we will provide examples of what a Lighthouse setup could look
 ```
 lighthouse bn \
   --network mainnet \
-  --checkpoint-sync-url https://mainnet.checkpoint.sigp.io \
   --execution-endpoint http://localhost:8551 \
   --execution-jwt /secrets/jwt.hex \
+  --checkpoint-sync-url https://mainnet.checkpoint.sigp.io \
   --http
 ```
 
@@ -94,9 +93,9 @@ The HTTP API is required for the beacon node to accept connections from the *val
 ``` 
 lighthouse bn \
   --network mainnet \
-  --checkpoint-sync-url https://mainnet.checkpoint.sigp.io \
   --execution-endpoint http://localhost:8551 \
   --execution-jwt /secrets/jwt.hex \
+  --checkpoint-sync-url https://mainnet.checkpoint.sigp.io \
   --disable-deposit-contract-sync
 ```
 
