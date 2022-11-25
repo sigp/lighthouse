@@ -9,17 +9,17 @@ You should be finished with one [Installation](./installation.md) of your choice
 1. [Check logs](#step-4-check-logs); and
 1. [Further readings](#step-5-further-readings).
 
-Checkpoint sync is *optional*; however,  we recommend it since it is substantially faster
+Checkpoint sync is *optional*; however, we recommend it since it is substantially faster
 than syncing from genesis while still providing all the same features.
 
 ## Step 1: Choose a checkpoint sync provider
 
-Since version 2.0.0 Lighthouse supports syncing from a recent finalized checkpoint.
+Lighthouse supports fast sync from a recent finalized checkpoint.
 The checkpoint sync can be done using [another synced beacon node](#automatic-checkpoint-sync) or a [public endpoint](#use-a-community-checkpoint-sync-endpoint) provided by the Ethereum community.
 
 In [step 3](#step-3-run-lighthouse), when running Lighthouse,
 we will enable checkpoint sync by providing the URL to the `--checkpoint-sync-url` flag.
-For now, we will copy the URL to the clipboard, selected in one of the following ways.
+For now, we will copy the URL to the clipboard.
 
 ### Automatic checkpoint sync
 
@@ -33,7 +33,7 @@ In this case, the URL could look like this: `http://remote-bn:5052`.
 
 The Ethereum community provides various [public endpoints](https://eth-clients.github.io/checkpoint-sync-endpoints/) for you to choose from for your initial checkpoint state. Select one for your network and use it as the URL.
 
-For example, the URL for the checkpoint sync of the mainnet from Sigma Prime is `https://mainnet.checkpoint.sigp.io`,
+For example, the URL for Sigma Prime's checkpoint sync server for mainnet is `https://mainnet.checkpoint.sigp.io`,
 which we will use in [step 3](#step-3-run-lighthouse).
 
 ## Step 2: Set up an execution node
@@ -143,7 +143,7 @@ INFO Downloading historical blocks  est_time: 5 hrs 0 mins, speed: 111.96 slots/
 
 Once backfill is complete, a `INFO Historical block download complete` log will be emitted.
 
-Check out the [FAQ](./checkpoint-sync.md#faq) for more information on the checkpoint sync.
+Check out the [FAQ](./checkpoint-sync.md#faq) for more information on checkpoint sync.
 
 ### Logs - Syncing
 
