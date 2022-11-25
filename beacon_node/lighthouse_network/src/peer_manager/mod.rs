@@ -405,7 +405,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                 debug!(self.log, "Identified Peer"; "peer" => %peer_id,
                     "protocol_version" => &info.protocol_version,
                     "agent_version" => &info.agent_version,
-                    "listening_ addresses" => ?info.listen_addrs,
+                    "listening_addresses" => ?info.listen_addrs,
                     "observed_address" => ?info.observed_addr,
                     "protocols" => ?info.protocols
                 );
