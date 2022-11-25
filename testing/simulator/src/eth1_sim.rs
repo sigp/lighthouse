@@ -67,6 +67,7 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
             max_log_size: 0,
             max_log_number: 0,
             compression: false,
+            is_restricted: true,
         })?
         .multi_threaded_tokio_runtime()?
         .build()?;

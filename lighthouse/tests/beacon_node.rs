@@ -1548,6 +1548,23 @@ fn enabled_disable_log_timestamp_flag() {
             assert!(config.logger_config.disable_log_timestamp);
         });
 }
+#[test]
+fn logfile_restricted_perms_default() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert!(config.logger_config.is_restricted);
+        });
+}
+#[test]
+fn logfile_no_restricted_perms_flag() {
+    CommandLineTest::new()
+        .flag("logfile-no-restricted-perms", None)
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert!(config.logger_config.is_restricted == false);
+        });
+}
 
 #[test]
 fn sync_eth1_chain_default() {
