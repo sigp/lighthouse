@@ -1558,7 +1558,7 @@ fn logfile_restricted_perms_default() {
 }
 #[test]
 fn logfile_no_restricted_perms_flag() {
-        CommandLineTest::new()
+    CommandLineTest::new()
         .flag("logfile-no-restricted-perms", None)
         .run_with_zero_port()
         .with_config(|config| {
