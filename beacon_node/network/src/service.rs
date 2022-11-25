@@ -208,6 +208,8 @@ pub struct NetworkService<T: BeaconChainTypes> {
     metrics_update: tokio::time::Interval,
     /// gossipsub_parameter_update timer
     gossipsub_parameter_update: tokio::time::Interval,
+    /// enable_light_client_server indicator
+    enable_light_client_server: bool,
     /// The logger for the network service.
     fork_context: Arc<ForkContext>,
     log: slog::Logger,
@@ -345,6 +347,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             gossipsub_parameter_update,
             fork_context,
             log: network_log,
+            enable_light_client_server: config.enable_light_client_server,
         };
 
         network_service.spawn_service(executor);
@@ -696,7 +699,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                     }
                 }
 
-                if self.beacon_chain.config.enable_light_client_server {
+                if self.enable_light_client_server {
                     for light_client_topic_kind in
                         lighthouse_network::types::LIGHT_CLIENT_GOSSIP_TOPICS.iter()
                     {
