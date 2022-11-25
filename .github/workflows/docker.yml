@@ -22,7 +22,7 @@ jobs:
     # `unstable`, but for now we keep the two parts of the version separate for backwards
     # compatibility.
     extract-version:
-        runs-on: ubuntu-18.04
+        runs-on: ubuntu-22.04
         steps:
             - name: Extract version (if stable)
               if: github.event.ref == 'refs/heads/stable'
@@ -44,7 +44,7 @@ jobs:
             VERSION_SUFFIX: ${{ env.VERSION_SUFFIX }}
     build-docker-single-arch:
         name: build-docker-${{ matrix.binary }}
-        runs-on: ubuntu-18.04
+        runs-on: ubuntu-22.04
         strategy:
             matrix:
                 binary: [aarch64,
@@ -61,7 +61,7 @@ jobs:
             VERSION: ${{ needs.extract-version.outputs.VERSION }}
             VERSION_SUFFIX: ${{ needs.extract-version.outputs.VERSION_SUFFIX }}
         steps:
-            - uses: actions/checkout@v2
+            - uses: actions/checkout@v3
             - name: Update Rust
               run: rustup update stable
             - name: Dockerhub login
@@ -102,7 +102,7 @@ jobs:
                       --push
     build-docker-multiarch:
         name: build-docker-multiarch${{ matrix.modernity }}
-        runs-on: ubuntu-18.04
+        runs-on: ubuntu-22.04
         needs: [build-docker-single-arch, extract-version]
         strategy:
             matrix:
@@ -123,13 +123,13 @@ jobs:
                       --amend ${IMAGE_NAME}:${VERSION}-amd64${VERSION_SUFFIX}${{ matrix.modernity }};
                   docker manifest push ${IMAGE_NAME}:${VERSION}${VERSION_SUFFIX}${{ matrix.modernity }}
     build-docker-lcli:
-        runs-on: ubuntu-18.04
+        runs-on: ubuntu-22.04
         needs: [extract-version]
         env:
             VERSION: ${{ needs.extract-version.outputs.VERSION }}
             VERSION_SUFFIX: ${{ needs.extract-version.outputs.VERSION_SUFFIX }}
         steps:
-            - uses: actions/checkout@v2
+            - uses: actions/checkout@v3
             - name: Dockerhub login
               run: |
                   echo "${DOCKER_PASSWORD}" | docker login --username ${DOCKER_USERNAME} --password-stdin

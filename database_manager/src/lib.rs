@@ -98,10 +98,9 @@ fn parse_client_config<E: EthSpec>(
     cli_args: &ArgMatches,
     _env: &Environment<E>,
 ) -> Result<ClientConfig, String> {
-    let mut client_config = ClientConfig {
-        data_dir: get_data_dir(cli_args),
-        ..Default::default()
-    };
+    let mut client_config = ClientConfig::default();
+
+    client_config.set_data_dir(get_data_dir(cli_args));
 
     if let Some(freezer_dir) = clap_utils::parse_optional(cli_args, "freezer-dir")? {
         client_config.freezer_db_path = Some(freezer_dir);
@@ -289,7 +288,7 @@ pub fn prune_payloads<E: EthSpec>(
 }
 
 /// Run the database manager, returning an error string if the operation did not succeed.
-pub fn run<T: EthSpec>(cli_args: &ArgMatches<'_>, mut env: Environment<T>) -> Result<(), String> {
+pub fn run<T: EthSpec>(cli_args: &ArgMatches<'_>, env: Environment<T>) -> Result<(), String> {
     let client_config = parse_client_config(cli_args, &env)?;
     let context = env.core_context();
     let log = context.log().clone();

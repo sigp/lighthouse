@@ -26,12 +26,12 @@ jobs:
   extract-msrv:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v1
+    - uses: actions/checkout@v3
     - name: Extract Minimum Supported Rust Version (MSRV)
       run: |
         metadata=$(cargo metadata --no-deps --format-version 1)
         msrv=$(echo $metadata | jq -r '.packages | map(select(.name == "lighthouse")) | .[0].rust_version')
-        echo "::set-output name=MSRV::$msrv"
+        echo "MSRV=$msrv" >> $GITHUB_OUTPUT
       id: extract_msrv
     outputs:
       MSRV: ${{ steps.extract_msrv.outputs.MSRV }}
@@ -39,7 +39,7 @@ jobs:
     name: cargo-fmt
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v1
+    - uses: actions/checkout@v3
     - name: Get latest version of stable Rust
       run: rustup update stable
     - name: Check formatting with cargo fmt
@@ -49,11 +49,13 @@ jobs:
     runs-on: ubuntu-latest
     needs: cargo-fmt
     steps:
-    - uses: actions/checkout@v1
+    - uses: actions/checkout@v3
     - name: Get latest version of stable Rust
       run: rustup update stable
     - name: Install Protoc
       uses: arduino/setup-protoc@v1
+      with:
+        repo-token: ${{ secrets.GITHUB_TOKEN }}
     - name: Install ganache
       run: sudo npm install -g ganache
     - name: Run tests in release
@@ -63,7 +65,7 @@ jobs:
     runs-on: windows-2019
     needs: cargo-fmt
     steps:
-    - uses: actions/checkout@v1
+    - uses: actions/checkout@v3
     - name: Get latest version of stable Rust
       run: rustup update stable
     - name: Use Node.js
@@ -91,11 +93,13 @@ jobs:
     runs-on: ubuntu-latest
     needs: cargo-fmt
     steps:
-    - uses: actions/checkout@v1
+    - uses: actions/checkout@v3
     - name: Get latest version of stable Rust
       run: rustup update stable
     - name: Install Protoc
       uses: arduino/setup-protoc@v1
+      with:
+        repo-token: ${{ secrets.GITHUB_TOKEN }}
     - name: Run beacon_chain tests for all known forks
       run: make test-beacon-chain
   op-pool-tests:
@@ -103,11 +107,13 @@ jobs:
     runs-on: ubuntu-latest
     needs: cargo-fmt
     steps:
-    - uses: actions/checkout@v1
+    - uses: actions/checkout@v3
     - name: Get latest version of stable Rust
       run: rustup update stable
     - name: Install Protoc
       uses: arduino/setup-protoc@v1
+      with:
+        repo-token: ${{ secrets.GITHUB_TOKEN }}
     - name: Run operation_pool tests for all known forks
       run: make test-op-pool
   slasher-tests:
@@ -115,7 +121,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: cargo-fmt
     steps:
-    - uses: actions/checkout@v1
+    - uses: actions/checkout@v3
     - name: Get latest version of stable Rust
       run: rustup update stable
     - name: Run slasher tests for all supported backends
@@ -125,11 +131,13 @@ jobs:
     runs-on: ubuntu-22.04
     needs: cargo-fmt
     steps:
-    - uses: actions/checkout@v1
+    - uses: actions/checkout@v3
     - name: Get latest version of stable Rust
       run: rustup update stable
     - name: Install Protoc
       uses: arduino/setup-protoc@v1
+      with:
+        repo-token: ${{ secrets.GITHUB_TOKEN }}
     - name: Install ganache
       run: sudo npm install -g ganache
     - name: Run tests in debug
@@ -139,11 +147,13 @@ jobs:
     runs-on: ubuntu-latest
     needs: cargo-fmt
     steps:
-    - uses: actions/checkout@v1
+    - uses: actions/checkout@v3
     - name: Get latest version of stable Rust
       run: rustup update stable
     - name: Install Protoc
       uses: arduino/setup-protoc@v1
+      with:
+        repo-token: ${{ secrets.GITHUB_TOKEN }}
     - name: Run state_transition_vectors in release.
       run: make run-state-transition-tests
   ef-tests-ubuntu:
@@ -151,11 +161,13 @@ jobs:
     runs-on: ubuntu-latest
     needs: cargo-fmt
     steps:
-    - uses: actions/checkout@v1
+    - uses: actions/checkout@v3
     - name: Get latest version of stable Rust
       run: rustup update stable
     - name: Install Protoc
       uses: arduino/setup-protoc@v1
+      with:
+        repo-token: ${{ secrets.GITHUB_TOKEN }}
     - name: Run consensus-spec-tests with blst, milagro and fake_crypto
       run: make test-ef
   dockerfile-ubuntu:
@@ -163,7 +175,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: cargo-fmt
     steps:
-    - uses: actions/checkout@v1
+    - uses: actions/checkout@v3
     - name: Get latest version of stable Rust
       run: rustup update stable
     - name: Build the root Dockerfile
@@ -175,11 +187,13 @@ jobs:
     runs-on: ubuntu-latest
     needs: cargo-fmt
     steps:
-    - uses: actions/checkout@v1
+    - uses: actions/checkout@v3
     - name: Get latest version of stable Rust
       run: rustup update stable
     - name: Install Protoc
       uses: arduino/setup-protoc@v1
+      with:
+        repo-token: ${{ secrets.GITHUB_TOKEN }}
     - name: Install ganache
       run: sudo npm install -g ganache
     - name: Run the beacon chain sim that starts from an eth1 contract
@@ -189,11 +203,13 @@ jobs:
     runs-on: ubuntu-latest
     needs: cargo-fmt
     steps:
-    - uses: actions/checkout@v1
+    - uses: actions/checkout@v3
     - name: Get latest version of stable Rust
       run: rustup update stable
     - name: Install Protoc
       uses: arduino/setup-protoc@v1
+      with:
+        repo-token: ${{ secrets.GITHUB_TOKEN }}
     - name: Install ganache
       run: sudo npm install -g ganache
     - name: Run the beacon chain sim and go through the merge transition
@@ -203,11 +219,13 @@ jobs:
     runs-on: ubuntu-latest
     needs: cargo-fmt
     steps:
-    - uses: actions/checkout@v1
+    - uses: actions/checkout@v3
     - name: Get latest version of stable Rust
       run: rustup update stable
     - name: Install Protoc
       uses: arduino/setup-protoc@v1
+      with:
+        repo-token: ${{ secrets.GITHUB_TOKEN }}
     - name: Install ganache
       run: sudo npm install -g ganache
     - name: Run the beacon chain sim without an eth1 connection
@@ -217,11 +235,13 @@ jobs:
     runs-on: ubuntu-latest
     needs: cargo-fmt
     steps:
-    - uses: actions/checkout@v1
+    - uses: actions/checkout@v3
     - name: Get latest version of stable Rust
       run: rustup update stable
     - name: Install Protoc
       uses: arduino/setup-protoc@v1
+      with:
+        repo-token: ${{ secrets.GITHUB_TOKEN }}
     - name: Install ganache
       run: sudo npm install -g ganache
     - name: Run the syncing simulator
@@ -231,11 +251,13 @@ jobs:
     runs-on: ubuntu-latest
     needs: cargo-fmt
     steps:
-    - uses: actions/checkout@v1
+    - uses: actions/checkout@v3
     - name: Get latest version of stable Rust
       run: rustup update stable
     - name: Install Protoc
       uses: arduino/setup-protoc@v1
+      with:
+        repo-token: ${{ secrets.GITHUB_TOKEN }}
     - name: Install ganache
       run: sudo npm install -g ganache
     - name: Install lighthouse and lcli
@@ -255,17 +277,19 @@ jobs:
     runs-on: ubuntu-latest
     needs: cargo-fmt
     steps:
-    - uses: actions/checkout@v1
-    - uses: actions/setup-go@v2
+    - uses: actions/checkout@v3
+    - uses: actions/setup-go@v3
       with:
         go-version: '1.17'
-    - uses: actions/setup-dotnet@v1
+    - uses: actions/setup-dotnet@v3
       with:
         dotnet-version: '6.0.201'
     - name: Get latest version of stable Rust
       run: rustup update stable
     - name: Install Protoc
       uses: arduino/setup-protoc@v1
+      with:
+        repo-token: ${{ secrets.GITHUB_TOKEN }}
     - name: Run exec engine integration tests in release
       run: make test-exec-engine
   check-benchmarks:
@@ -273,11 +297,13 @@ jobs:
     runs-on: ubuntu-latest
     needs: cargo-fmt
     steps:
-    - uses: actions/checkout@v1
+    - uses: actions/checkout@v3
     - name: Get latest version of stable Rust
       run: rustup update stable
     - name: Install Protoc
       uses: arduino/setup-protoc@v1
+      with:
+        repo-token: ${{ secrets.GITHUB_TOKEN }}
     - name: Typecheck benchmark code without running it
       run: make check-benches
   clippy:
@@ -285,11 +311,13 @@ jobs:
     runs-on: ubuntu-latest
     needs: cargo-fmt
     steps:
-    - uses: actions/checkout@v1
+    - uses: actions/checkout@v3
     - name: Get latest version of stable Rust
       run: rustup update stable
     - name: Install Protoc
       uses: arduino/setup-protoc@v1
+      with:
+        repo-token: ${{ secrets.GITHUB_TOKEN }}
     - name: Lint code for quality and style with Clippy
       run: make lint
     - name: Certify Cargo.lock freshness
@@ -300,7 +328,7 @@ jobs:
     needs: cargo-fmt
     continue-on-error: true
     steps:
-    - uses: actions/checkout@v1
+    - uses: actions/checkout@v3
     - name: Install SigP Clippy fork
       run: |
         cd ..
@@ -311,6 +339,8 @@ jobs:
         cargo build --release --bin cargo-clippy --bin clippy-driver -Zunstable-options --out-dir $(rustc --print=sysroot)/bin
     - name: Install Protoc
       uses: arduino/setup-protoc@v1
+      with:
+        repo-token: ${{ secrets.GITHUB_TOKEN }}
     - name: Run Clippy with the disallowed-from-async lint
       run: make nightly-lint
   check-msrv:
@@ -318,11 +348,13 @@ jobs:
     runs-on: ubuntu-latest
     needs: [cargo-fmt, extract-msrv]
     steps:
-    - uses: actions/checkout@v1
+    - uses: actions/checkout@v3
     - name: Install Rust @ MSRV (${{ needs.extract-msrv.outputs.MSRV }})
       run: rustup override set ${{ needs.extract-msrv.outputs.MSRV }}
     - name: Install Protoc
       uses: arduino/setup-protoc@v1
+      with:
+        repo-token: ${{ secrets.GITHUB_TOKEN }}
     - name: Run cargo check
       run: cargo check --workspace
   arbitrary-check:
@@ -330,7 +362,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: cargo-fmt
     steps:
-    - uses: actions/checkout@v1
+    - uses: actions/checkout@v3
     - name: Get latest version of stable Rust
       run: rustup update stable
     - name: Validate state_processing feature arbitrary-fuzz
@@ -340,7 +372,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: cargo-fmt
     steps:
-    - uses: actions/checkout@v1
+    - uses: actions/checkout@v3
     - name: Get latest version of stable Rust
       run: rustup update stable
     - name: Run cargo audit to identify known security vulnerabilities reported to the RustSec Advisory Database
@@ -350,7 +382,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: cargo-fmt
     steps:
-    - uses: actions/checkout@v1
+    - uses: actions/checkout@v3
     - name: Run cargo vendor to make sure dependencies can be vendored for packaging, reproducibility and archival purpose
       run:  CARGO_HOME=$(readlink -f $HOME) make vendor
   cargo-udeps:
@@ -358,11 +390,13 @@ jobs:
     runs-on: ubuntu-latest
     needs: cargo-fmt
     steps:
-    - uses: actions/checkout@v1
+    - uses: actions/checkout@v3
     - name: Install Rust (${{ env.PINNED_NIGHTLY }})
       run: rustup toolchain install $PINNED_NIGHTLY
     - name: Install Protoc
       uses: arduino/setup-protoc@v1
+      with:
+        repo-token: ${{ secrets.GITHUB_TOKEN }}
     - name: Install cargo-udeps
       run: cargo install cargo-udeps --locked --force --version $CARGO_UDEPS_VERSION
     - name: Create Cargo config dir
@@ -374,3 +408,14 @@ jobs:
     env:
       # Allow warnings on Nightly
       RUSTFLAGS: ""
+  compile-with-beta-compiler:
+    name: compile-with-beta-compiler
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - name: Install dependencies
+      run: sudo apt install -y git gcc g++ make cmake pkg-config llvm-dev libclang-dev clang protobuf-compiler
+    - name: Use Rust beta
+      run: rustup override set beta
+    - name: Run make
+      run: make

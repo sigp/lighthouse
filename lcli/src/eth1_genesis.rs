@@ -13,7 +13,7 @@ use types::EthSpec;
 pub const ETH1_GENESIS_UPDATE_INTERVAL: Duration = Duration::from_millis(7_000);
 
 pub fn run<T: EthSpec>(
-    mut env: Environment<T>,
+    env: Environment<T>,
     testnet_dir: PathBuf,
     matches: &ArgMatches<'_>,
 ) -> Result<(), String> {
