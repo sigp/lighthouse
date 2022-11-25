@@ -2828,6 +2828,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 "error" => ?e,
             );
 
+            // Clear the early attester cache to prevent attestations which would later be unable
+            // to verify due to the failure.
+            self.early_attester_cache.clear();
+
             // Since the write failed, try to revert the canonical head back to what was stored
             // in the database. This attempts to prevent inconsistency between the database and
             // fork choice.
