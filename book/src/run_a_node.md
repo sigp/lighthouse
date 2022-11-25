@@ -15,19 +15,12 @@ than syncing from genesis while still providing all the same features.
 ## Step 1: Choose a checkpoint sync provider
 
 Lighthouse supports fast sync from a recent finalized checkpoint.
-The checkpoint sync can be done using [another synced beacon node](#automatic-checkpoint-sync) or a [public endpoint](#use-a-community-checkpoint-sync-endpoint) provided by the Ethereum community.
+The checkpoint sync is done using a [public endpoint](#use-a-community-checkpoint-sync-endpoint)
+provided by the Ethereum community.
 
 In [step 3](#step-3-run-lighthouse), when running Lighthouse,
 we will enable checkpoint sync by providing the URL to the `--checkpoint-sync-url` flag.
 For now, we will copy the URL to the clipboard.
-
-### Automatic checkpoint sync
-
-To begin automatic checkpoint sync you will need HTTP API access to another synced beacon node.
-In this case, the URL could look like this: `http://remote-bn:5052`.
-
-> **Security Note**: You should cross-reference the `block_root` and `slot` of the loaded checkpoint
-> against a trusted source like a friend's node, or a block explorer.
 
 ### Use a community checkpoint sync endpoint
 
@@ -53,6 +46,7 @@ Please consult the relevant page of your execution engine for the required flags
 - [Geth: Connecting to Consensus Clients](https://geth.ethereum.org/docs/interface/consensus-clients)
 - [Nethermind: Running Nethermind & CL](https://docs.nethermind.io/nethermind/first-steps-with-nethermind/running-nethermind-post-merge)
 - [Besu: Connect to Mainnet](https://besu.hyperledger.org/en/stable/public-networks/get-started/connect/mainnet/)
+- [Erigon: Beacon Chain (Consensus Layer)](https://github.com/ledgerwatch/erigon#beacon-chain-consensus-layer)
 
 The execution engine connection must be *exclusive*, i.e. you must have one execution node
 per beacon node. The reason for this is that the beacon node _controls_ the execution node.
@@ -68,11 +62,14 @@ Additionally, we run Lighthouse with the `--network` flag, which selects a netwo
 
 - `lighthouse` (no flag): Mainnet.
 - `lighthouse --network mainnet`: Mainnet.
-- `lighthouse --network prater`: Prater (testnet).
+- `lighthouse --network goerli`: Goerli (testnet).
 
 Using the correct `--network` flag is very important; using the wrong flag can
 result in penalties, slashings or lost deposits. As a rule of thumb, *always*
 provide a `--network` flag instead of relying on the default.
+
+For the testnets we support [Goerli](https://goerli.net/) (`--network goerli`),
+[Sepolia](https://sepolia.dev/) (`--network sepolia`), and [Gnosis chain](https://www.gnosis.io/) (`--network gnosis`).
 
 Minor modifications depend on if you want to run your node while [staking](#staking) or [non-staking](#non-staking).
 In the following, we will provide examples of what a Lighthouse setup could look like.
@@ -88,7 +85,9 @@ lighthouse bn \
   --http
 ```
 
-A Lighthouse beacon node can be configured to expose an HTTP server by supplying the `--http` flag. The default listen address is `127.0.0.1:5052`.
+A Lighthouse beacon node can be configured to expose an HTTP server by supplying the `--http` flag.
+The default listen address is `127.0.0.1:5052`.
+The HTTP API is required for the beacon node to accept connections from the *validator client*, which manages keys.
 
 ### Non-staking
 
@@ -128,6 +127,10 @@ Once the checkpoint is loaded Lighthouse will sync forwards to the head of the c
 
 If a validator client is connected to the node then it will be able to start completing its duties
 as soon as forwards sync completes.
+
+> **Security Note**: You should cross-reference the `block_root` and `slot` of the loaded checkpoint
+> against a trusted source like another [public endpoint](#use-a-community-checkpoint-sync-endpoint),
+> a friend's node, or a block explorer.
 
 #### Backfilling Blocks
 
