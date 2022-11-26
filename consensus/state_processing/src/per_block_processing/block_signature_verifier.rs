@@ -158,6 +158,8 @@ where
         // Deposits are not included because they can legally have invalid signatures.
         self.include_exits(block)?;
         self.include_sync_aggregate(block)?;
+        #[cfg(feature = "withdrawals")]
+        self.include_bls_to_execution_changes(block)?;
 
         Ok(())
     }
@@ -334,6 +336,26 @@ where
                 self.spec,
             )? {
                 self.sets.push(signature_set);
+            }
+        }
+        Ok(())
+    }
+
+    /// Include the signature of the block's BLS to execution changes for verification.
+    #[cfg(feature = "withdrawals")]
+    pub fn include_bls_to_execution_changes<Payload: AbstractExecPayload<T>>(
+        &mut self,
+        block: &'a SignedBeaconBlock<T, Payload>,
+    ) -> Result<()> {
+        // FIXME(capella): to improve performance we might want to decompress the withdrawal pubkeys
+        // in parallel.
+        if let Ok(bls_to_execution_changes) = block.message().body().bls_to_execution_changes() {
+            for bls_to_execution_change in bls_to_execution_changes {
+                self.sets.push(bls_execution_change_signature_set(
+                    self.state,
+                    bls_to_execution_change,
+                    self.spec,
+                )?);
             }
         }
         Ok(())

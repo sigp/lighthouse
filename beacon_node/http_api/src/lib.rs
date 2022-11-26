@@ -49,9 +49,9 @@ use types::{
     Attestation, AttestationData, AttesterSlashing, BeaconStateError, BlindedPayload,
     CommitteeCache, ConfigAndPreset, Epoch, EthSpec, ForkName, FullPayload,
     ProposerPreparationData, ProposerSlashing, RelativeEpoch, SignedAggregateAndProof,
-    SignedBeaconBlock, SignedBlindedBeaconBlock, SignedContributionAndProof,
-    SignedValidatorRegistrationData, SignedVoluntaryExit, Slot, SyncCommitteeMessage,
-    SyncContributionData,
+    SignedBeaconBlock, SignedBlindedBeaconBlock, SignedBlsToExecutionChange,
+    SignedContributionAndProof, SignedValidatorRegistrationData, SignedVoluntaryExit, Slot,
+    SyncCommitteeMessage, SyncContributionData,
 };
 use version::{
     add_consensus_version_header, execution_optimistic_fork_versioned_response,
@@ -1531,6 +1531,59 @@ pub fn serve<T: BeaconChainTypes>(
                         signatures, network_tx, &chain, log,
                     )?;
                     Ok(api_types::GenericResponse::from(()))
+                })
+            },
+        );
+
+    // GET beacon/pool/bls_to_execution_changes
+    let get_beacon_pool_bls_to_execution_changes = beacon_pool_path
+        .clone()
+        .and(warp::path("bls_to_execution_changes"))
+        .and(warp::path::end())
+        .and_then(|chain: Arc<BeaconChain<T>>| {
+            blocking_json_task(move || {
+                let address_changes = chain.op_pool.get_all_bls_to_execution_changes();
+                Ok(api_types::GenericResponse::from(address_changes))
+            })
+        });
+
+    // POST beacon/pool/bls_to_execution_changes
+    let post_beacon_pool_bls_to_execution_changes = beacon_pool_path
+        .clone()
+        .and(warp::path("bls_to_execution_changes"))
+        .and(warp::path::end())
+        .and(warp::body::json())
+        .and(network_tx_filter.clone())
+        .and_then(
+            |chain: Arc<BeaconChain<T>>,
+             address_change: SignedBlsToExecutionChange,
+             network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
+                blocking_json_task(move || {
+                    let outcome = chain
+                        .verify_bls_to_execution_change_for_gossip(address_change)
+                        .map_err(|e| {
+                            warp_utils::reject::object_invalid(format!(
+                                "gossip verification failed: {:?}",
+                                e
+                            ))
+                        })?;
+
+                    if let ObservationOutcome::New(address_change) = outcome {
+                        #[cfg(feature = "withdrawals-processing")]
+                        {
+                            publish_pubsub_message(
+                                &network_tx,
+                                PubsubMessage::BlsToExecutionChange(Box::new(
+                                    address_change.as_inner().clone(),
+                                )),
+                            )?;
+                        }
+                        drop(network_tx);
+
+                        chain.import_bls_to_execution_change(address_change);
+                    }
+
+                    Ok(())
                 })
             },
         );
@@ -3169,6 +3222,7 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(get_beacon_pool_attester_slashings.boxed())
                 .or(get_beacon_pool_proposer_slashings.boxed())
                 .or(get_beacon_pool_voluntary_exits.boxed())
+                .or(get_beacon_pool_bls_to_execution_changes.boxed())
                 .or(get_beacon_deposit_snapshot.boxed())
                 .or(get_config_fork_schedule.boxed())
                 .or(get_config_spec.boxed())
@@ -3217,6 +3271,7 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(post_beacon_pool_proposer_slashings.boxed())
                 .or(post_beacon_pool_voluntary_exits.boxed())
                 .or(post_beacon_pool_sync_committees.boxed())
+                .or(post_beacon_pool_bls_to_execution_changes.boxed())
                 .or(post_validator_duties_attester.boxed())
                 .or(post_validator_duties_sync.boxed())
                 .or(post_validator_aggregate_and_proofs.boxed())

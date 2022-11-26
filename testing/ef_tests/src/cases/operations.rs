@@ -5,6 +5,7 @@ use crate::decode::{ssz_decode_file, ssz_decode_file_with, ssz_decode_state, yam
 use crate::testing_spec;
 use serde_derive::Deserialize;
 use state_processing::per_block_processing::process_operations::process_bls_to_execution_changes;
+#[cfg(feature = "withdrawals")]
 use state_processing::per_block_processing::process_withdrawals;
 use state_processing::{
     per_block_processing::{
@@ -356,6 +357,10 @@ impl<E: EthSpec> Operation<E> for WithdrawalsPayload<E> {
             return false;
         }
 
+        if !cfg!(feature = "withdrawals") {
+            return false;
+        }
+
         fork_name != ForkName::Base && fork_name != ForkName::Altair && fork_name != ForkName::Merge
     }
 
@@ -368,6 +373,7 @@ impl<E: EthSpec> Operation<E> for WithdrawalsPayload<E> {
         })
     }
 
+    #[cfg(feature = "withdrawals")]
     fn apply_to(
         &self,
         state: &mut BeaconState<E>,
@@ -380,6 +386,16 @@ impl<E: EthSpec> Operation<E> for WithdrawalsPayload<E> {
         } else {
             process_withdrawals::<_, FullPayload<_>>(state, self.payload.to_ref(), spec)
         }
+    }
+
+    #[cfg(not(feature = "withdrawals"))]
+    fn apply_to(
+        &self,
+        state: &mut BeaconState<E>,
+        spec: &ChainSpec,
+        _: &Operations<E, Self>,
+    ) -> Result<(), BlockProcessingError> {
+        Ok(())
     }
 }
 

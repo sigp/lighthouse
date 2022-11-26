@@ -907,8 +907,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .execution_status
             .is_optimistic_or_invalid();
 
-        self.op_pool
-            .prune_all(&new_snapshot.beacon_state, self.epoch()?);
+        self.op_pool.prune_all(
+            &new_snapshot.beacon_block,
+            &new_snapshot.beacon_state,
+            self.epoch()?,
+            &self.spec,
+        );
 
         self.observed_block_producers.write().prune(
             new_view

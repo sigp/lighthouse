@@ -5,6 +5,9 @@ authors = ["Paul Hauner <paul@paulhauner.com>"]
 edition = "2021"
 autotests = false # using a single test binary compiles faster
 
+[features]
+withdrawals-processing = []
+
 [dependencies]
 warp = { version = "0.3.2", features = ["tls"] }
 serde = { version = "1.0.116", features = ["derive"] }

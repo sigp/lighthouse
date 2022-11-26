@@ -520,6 +520,7 @@ pub fn get_expected_withdrawals<T: EthSpec>(
 }
 
 /// FIXME: add link to this function once the spec is stable
+#[cfg(feature = "withdrawals")]
 pub fn process_withdrawals<'payload, T: EthSpec, Payload: AbstractExecPayload<T>>(
     state: &mut BeaconState<T>,
     payload: Payload::Ref<'payload>,

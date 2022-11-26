@@ -1,5 +1,5 @@
 use derivative::Derivative;
-use smallvec::SmallVec;
+use smallvec::{smallvec, SmallVec};
 use ssz::{Decode, Encode};
 use state_processing::{SigVerifiedOp, VerifyOperation};
 use std::collections::HashSet;
@@ -8,6 +8,9 @@ use types::{
     AttesterSlashing, BeaconState, ChainSpec, EthSpec, ForkName, ProposerSlashing,
     SignedVoluntaryExit, Slot,
 };
+
+#[cfg(feature = "withdrawals-processing")]
+use types::SignedBlsToExecutionChange;
 
 /// Number of validator indices to store on the stack in `observed_validators`.
 pub const SMALL_VEC_SIZE: usize = 8;
@@ -39,7 +42,7 @@ pub enum ObservationOutcome<T: Encode + Decode, E: EthSpec> {
     AlreadyKnown,
 }
 
-/// Trait for exits and slashings which can be observed using `ObservedOperations`.
+/// Trait for operations which can be observed using `ObservedOperations`.
 pub trait ObservableOperation<E: EthSpec>: VerifyOperation<E> + Sized {
     /// The set of validator indices involved in this operation.
     ///
@@ -49,13 +52,13 @@ pub trait ObservableOperation<E: EthSpec>: VerifyOperation<E> + Sized {
 
 impl<E: EthSpec> ObservableOperation<E> for SignedVoluntaryExit {
     fn observed_validators(&self) -> SmallVec<[u64; SMALL_VEC_SIZE]> {
-        std::iter::once(self.message.validator_index).collect()
+        smallvec![self.message.validator_index]
     }
 }
 
 impl<E: EthSpec> ObservableOperation<E> for ProposerSlashing {
     fn observed_validators(&self) -> SmallVec<[u64; SMALL_VEC_SIZE]> {
-        std::iter::once(self.signed_header_1.message.proposer_index).collect()
+        smallvec![self.signed_header_1.message.proposer_index]
     }
 }
 
@@ -77,6 +80,13 @@ impl<E: EthSpec> ObservableOperation<E> for AttesterSlashing<E> {
             .intersection(&attestation_2_indices)
             .copied()
             .collect()
+    }
+}
+
+#[cfg(feature = "withdrawals-processing")]
+impl<E: EthSpec> ObservableOperation<E> for SignedBlsToExecutionChange {
+    fn observed_validators(&self) -> SmallVec<[u64; SMALL_VEC_SIZE]> {
+        smallvec![self.message.validator_index]
     }
 }
 
