@@ -128,7 +128,7 @@ If a validator client is connected to the node then it will be able to start com
 as soon as forwards sync completes.
 
 > **Security Note**: You should cross-reference the `block_root` and `slot` of the loaded checkpoint
-> against a trusted source like another [public endpoint](#use-a-community-checkpoint-sync-endpoint),
+> against a trusted source like another [public endpoint](https://eth-clients.github.io/checkpoint-sync-endpoints/),
 > a friend's node, or a block explorer.
 
 #### Backfilling Blocks
