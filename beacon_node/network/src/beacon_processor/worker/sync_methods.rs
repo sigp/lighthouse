@@ -49,7 +49,6 @@ impl<T: BeaconChainTypes> Worker<T> {
         reprocess_tx: mpsc::Sender<ReprocessQueueMessage<T>>,
         duplicate_cache: DuplicateCache,
         should_process: bool,
-        notify_execution_layer: NotifyExecutionLayer,
     ) {
         if !should_process {
             // Sync handles these results
@@ -91,7 +90,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                 block_root,
                 block,
                 CountUnrealized::True,
-                notify_execution_layer,
+                NotifyExecutionLayer::Yes,
             )
             .await;
 
