@@ -9,53 +9,52 @@ use slog::info;
 use types::EthSpec;
 
 pub async fn run<T: EthSpec>(config: BootNodeConfig<T>, log: slog::Logger) {
+    let BootNodeConfig {
+        listen_socket,
+        boot_nodes,
+        local_enr,
+        local_key,
+        discv5_config,
+        ..
+    } = config;
     // Print out useful information about the generated ENR
 
-    let enr_socket = config
-        .local_enr
-        .udp4_socket()
-        .expect("Enr has a UDP socket");
-    let eth2_field = config
-        .local_enr
+    let enr_socket = local_enr.udp4_socket().expect("Enr has a UDP socket");
+    let eth2_field = local_enr
         .eth2()
         .map(|fork_id| hex::encode(fork_id.fork_digest))
         .unwrap_or_default();
 
-    info!(log, "Configuration parameters"; "listening_address" => format!("{}:{}", config.listen_socket.ip(), config.listen_socket.port()), "broadcast_address" => format!("{}:{}",enr_socket.ip(), enr_socket.port()), "eth2" => eth2_field);
+    info!(log, "Configuration parameters"; "listening_address" => %listen_socket, "broadcast_address" => %enr_socket, "eth2" => eth2_field);
 
-    info!(log, "Identity established"; "peer_id" => config.local_enr.peer_id().to_string(), "node_id" => config.local_enr.node_id().to_string());
+    info!(log, "Identity established"; "peer_id" => %local_enr.peer_id(), "node_id" => %local_enr.node_id());
 
     // build the contactable multiaddr list, adding the p2p protocol
-    info!(log, "Contact information"; "enr" => config.local_enr.to_base64());
-    info!(log, "Contact information"; "multiaddrs" => format!("{:?}", config.local_enr.multiaddr_p2p()));
+    info!(log, "Contact information"; "enr" => local_enr.to_base64());
+    info!(log, "Contact information"; "multiaddrs" => ?local_enr.multiaddr_p2p());
 
     // construct the discv5 server
-    let mut discv5 = Discv5::new(
-        config.local_enr.clone(),
-        config.local_key,
-        config.discv5_config,
-    )
-    .unwrap();
+    let mut discv5 = Discv5::new(local_enr.clone(), local_key, discv5_config).unwrap();
 
     // If there are any bootnodes add them to the routing table
-    for enr in config.boot_nodes {
+    for enr in boot_nodes {
         info!(
             log,
             "Adding bootnode";
             "address" => ?enr.udp4_socket(),
-            "peer_id" => enr.peer_id().to_string(),
-            "node_id" => enr.node_id().to_string()
+            "peer_id" => ?enr.peer_id(),
+            "node_id" => ?enr.node_id()
         );
-        if enr != config.local_enr {
+        if enr != local_enr {
             if let Err(e) = discv5.add_enr(enr) {
-                slog::warn!(log, "Failed adding ENR"; "error" => e.to_string());
+                slog::warn!(log, "Failed adding ENR"; "error" => ?e);
             }
         }
     }
 
     // start the server
-    if let Err(e) = discv5.start(config.listen_socket).await {
-        slog::crit!(log, "Could not start discv5 server"; "error" => e.to_string());
+    if let Err(e) = discv5.start(listen_socket).await {
+        slog::crit!(log, "Could not start discv5 server"; "error" => %e);
         return;
     }
 
@@ -72,7 +71,7 @@ pub async fn run<T: EthSpec>(config: BootNodeConfig<T>, log: slog::Logger) {
     let mut event_stream = match discv5.event_stream().await {
         Ok(stream) => stream,
         Err(e) => {
-            slog::crit!(log, "Failed to obtain event stream"; "error" => e.to_string());
+            slog::crit!(log, "Failed to obtain event stream"; "error" => %e);
             return;
         }
     };
@@ -83,7 +82,7 @@ pub async fn run<T: EthSpec>(config: BootNodeConfig<T>, log: slog::Logger) {
             _ = metric_interval.tick() => {
                 // display server metrics
                 let metrics = discv5.metrics();
-                info!(log, "Server metrics"; "connected_peers" => discv5.connected_peers(), "active_sessions" => metrics.active_sessions, "requests/s" => format!("{:.2}", metrics.unsolicited_requests_per_second));
+                info!(log, "Server metrics"; "connected_peers" => discv5.connected_peers(), "active_sessions" => metrics.active_sessions, "requests/s" => format_args!("{:.2}", metrics.unsolicited_requests_per_second));
             }
             Some(event) = event_stream.recv() => {
                 match event {
@@ -95,7 +94,7 @@ pub async fn run<T: EthSpec>(config: BootNodeConfig<T>, log: slog::Logger) {
                     Discv5Event::TalkRequest(_) => {}     // Ignore
                     Discv5Event::NodeInserted { .. } => {} // Ignore
                     Discv5Event::SocketUpdated(socket_addr) => {
-                        info!(log, "External socket address updated"; "socket_addr" => format!("{:?}", socket_addr));
+                        info!(log, "Advertised socket address updated"; "socket_addr" => %socket_addr);
                     }
                     Discv5Event::SessionEstablished{ .. } => {} // Ignore
                 }
