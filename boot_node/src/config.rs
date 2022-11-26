@@ -1,6 +1,7 @@
 use beacon_node::{get_data_dir, set_network_config};
 use clap::ArgMatches;
 use eth2_network_config::Eth2NetworkConfig;
+use lighthouse_network::discv5::IpMode;
 use lighthouse_network::discv5::{enr::CombinedKey, Discv5Config, Enr};
 use lighthouse_network::{
     discovery::{create_enr_builder_from_config, load_enr_from_disk, use_or_load_enr},
@@ -52,6 +53,10 @@ impl<T: EthSpec> BootNodeConfig<T> {
         };
 
         let mut network_config = NetworkConfig::default();
+        // create ipv6 sockets and enable ipv4 mapped addresses.
+        network_config.discv5_config.ip_mode = IpMode::Ip6 {
+            enable_mapped_addresses: true,
+        };
 
         let logger = slog_scope::logger();
 
@@ -105,6 +110,12 @@ impl<T: EthSpec> BootNodeConfig<T> {
 
             let mut local_enr = {
                 let mut builder = create_enr_builder_from_config(&network_config, false);
+                // Include the ipv6 ports too.
+                // NOTE: we do this explicitely to be able to upgrade the bootnodes to ipv6 without
+                // upgrading the beacon node yet.
+                if let Some(udp_port) = network_config.enr_udp_port {
+                    builder.udp6(udp_port);
+                }
 
                 // If we know of the ENR field, add it to the initial construction
                 if let Some(enr_fork_bytes) = enr_fork {

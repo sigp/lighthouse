@@ -17,15 +17,23 @@ pub async fn run<T: EthSpec>(config: BootNodeConfig<T>, log: slog::Logger) {
         discv5_config,
         ..
     } = config;
+
     // Print out useful information about the generated ENR
 
-    let enr_socket = local_enr.udp4_socket().expect("Enr has a UDP socket");
+    let enr_v4_socket = local_enr.udp4_socket().expect("Enr has a ipv4 UDP socket");
+    let enr_v6_socket = local_enr.udp6_socket().expect("Enr has a ipv6 UDP socket");
     let eth2_field = local_enr
         .eth2()
         .map(|fork_id| hex::encode(fork_id.fork_digest))
         .unwrap_or_default();
 
-    info!(log, "Configuration parameters"; "listening_address" => %listen_socket, "broadcast_address" => %enr_socket, "eth2" => eth2_field);
+    info!(
+        log, "Configuration parameters";
+        "listening_address" => %listen_socket,
+        "advertised_v4_address" => %enr_v4_socket,
+        "advertised_v6_address" => %enr_v6_socket,
+        "eth2" => eth2_field
+    );
 
     info!(log, "Identity established"; "peer_id" => %local_enr.peer_id(), "node_id" => %local_enr.node_id());
 
@@ -80,9 +88,35 @@ pub async fn run<T: EthSpec>(config: BootNodeConfig<T>, log: slog::Logger) {
     loop {
         tokio::select! {
             _ = metric_interval.tick() => {
+                // Get some ipv4/ipv6 stats to add in the metrics.
+                let mut ipv4_only_reachable: usize = 0;
+                let mut ipv6_only_reachable: usize= 0;
+                let mut ipv4_ipv6_reachable: usize = 0;
+                let mut unreachable_nodes: usize = 0;
+                for enr in discv5.kbuckets().iter_ref().filter_map(|entry| entry.status.is_connected().then_some(entry.node.value)) {
+                    let declares_ipv4 = enr.udp4_socket().is_some();
+                    let declares_ipv6 = enr.udp6_socket().is_some();
+                    match (declares_ipv4, declares_ipv6) {
+                        (true, true) => ipv4_ipv6_reachable += 1,
+                        (true, false) => ipv4_only_reachable += 1,
+                        (false, true) => ipv6_only_reachable += 1,
+                        (false, false) => unreachable_nodes += 1,
+                    }
+                }
+
                 // display server metrics
                 let metrics = discv5.metrics();
-                info!(log, "Server metrics"; "connected_peers" => discv5.connected_peers(), "active_sessions" => metrics.active_sessions, "requests/s" => format_args!("{:.2}", metrics.unsolicited_requests_per_second));
+                info!(
+                    log, "Server metrics";
+                    "connected_peers" => discv5.connected_peers(),
+                    "active_sessions" => metrics.active_sessions,
+                    "requests/s" => format_args!("{:.2}", metrics.unsolicited_requests_per_second),
+                    "ipv4_nodes" => ipv4_only_reachable,
+                    "ipv6_nodes" => ipv6_only_reachable,
+                    "ipv6_and_ipv4_nodes" => ipv4_ipv6_reachable,
+                    "unreachable_nodes" => unreachable_nodes,
+                );
+
             }
             Some(event) = event_stream.recv() => {
                 match event {
