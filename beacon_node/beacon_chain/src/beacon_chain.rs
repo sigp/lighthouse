@@ -2828,7 +2828,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 "error" => ?e,
             );
 
-            // Clear the early attester cache to prevent attestations which would later be unable
+            // Clear the early attester cache to prevent attestations which we would later be unable
             // to verify due to the failure.
             self.early_attester_cache.clear();
 
