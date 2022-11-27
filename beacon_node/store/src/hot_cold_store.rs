@@ -601,10 +601,14 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             .map(|payload| payload.is_some())
     }
 
-    /// Determine whether a block exists in the database.
+    /// Determine whether a block exists in the database (hot *or* cold).
     pub fn block_exists(&self, block_root: &Hash256) -> Result<bool, Error> {
-        self.hot_db
-            .key_exists(DBColumn::BeaconBlock.into(), block_root.as_bytes())
+        Ok(self
+            .hot_db
+            .key_exists(DBColumn::BeaconBlock.into(), block_root.as_bytes())?
+            || self
+                .cold_db
+                .key_exists(DBColumn::BeaconBlock.into(), block_root.as_bytes())?)
     }
 
     /// Delete a block from the store and the block cache.
