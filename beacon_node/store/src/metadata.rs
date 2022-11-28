@@ -15,6 +15,7 @@ pub const SPLIT_KEY: Hash256 = Hash256::repeat_byte(2);
 pub const PRUNING_CHECKPOINT_KEY: Hash256 = Hash256::repeat_byte(3);
 pub const COMPACTION_TIMESTAMP_KEY: Hash256 = Hash256::repeat_byte(4);
 pub const ANCHOR_INFO_KEY: Hash256 = Hash256::repeat_byte(5);
+pub const BLOB_INFO_KEY: Hash256 = Hash256::repeat_byte(6);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct SchemaVersion(pub u64);
@@ -102,6 +103,31 @@ impl AnchorInfo {
     pub fn block_backfill_complete(&self) -> bool {
         self.oldest_block_slot == 0
     }
+}
+
+impl StoreItem for AnchorInfo {
+    fn db_column() -> DBColumn {
+        DBColumn::BeaconMeta
+    }
+
+    fn as_store_bytes(&self) -> Vec<u8> {
+        self.as_ssz_bytes()
+    }
+
+    fn from_store_bytes(bytes: &[u8]) -> Result<Self, Error> {
+        Ok(Self::from_ssz_bytes(bytes)?)
+    }
+}
+
+/// Database parameters relevant to blob sync.
+#[derive(Debug, PartialEq, Eq, Clone, Encode, Decode, Serialize, Deserialize)]
+pub struct BlobInfo {
+    /// The block root of the next blob that needs to be added to fill in the history.
+    pub oldest_blob_parent: Hash256,
+    /// The slot before which blobs are available.
+    pub oldest_blob_slot: Slot,
+    /// The slot from which blobs are available.
+    pub latest_blob_slot: Slot,
 }
 
 impl StoreItem for AnchorInfo {

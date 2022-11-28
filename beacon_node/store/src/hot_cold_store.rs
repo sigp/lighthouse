@@ -12,9 +12,9 @@ use crate::leveldb_store::BytesKey;
 use crate::leveldb_store::LevelDB;
 use crate::memory_store::MemoryStore;
 use crate::metadata::{
-    AnchorInfo, CompactionTimestamp, PruningCheckpoint, SchemaVersion, ANCHOR_INFO_KEY,
-    COMPACTION_TIMESTAMP_KEY, CONFIG_KEY, CURRENT_SCHEMA_VERSION, PRUNING_CHECKPOINT_KEY,
-    SCHEMA_VERSION_KEY, SPLIT_KEY,
+    AnchorInfo, BlobInfo, CompactionTimestamp, PruningCheckpoint, SchemaVersion, ANCHOR_INFO_KEY,
+    BLOB_INFO_KEY, COMPACTION_TIMESTAMP_KEY, CONFIG_KEY, CURRENT_SCHEMA_VERSION,
+    PRUNING_CHECKPOINT_KEY, SCHEMA_VERSION_KEY, SPLIT_KEY,
 };
 use crate::metrics;
 use crate::{
@@ -53,6 +53,8 @@ pub struct HotColdDB<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> {
     pub(crate) split: RwLock<Split>,
     /// The starting slots for the range of blocks & states stored in the database.
     anchor_info: RwLock<Option<AnchorInfo>>,
+    /// The starting slots for the range of blobs stored in the database.
+    blob_info: RwLock<Option<BlobInfo>>,
     pub(crate) config: StoreConfig,
     /// Cold database containing compact historical data.
     pub cold_db: Cold,
@@ -1291,6 +1293,65 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             .read_recursive()
             .as_ref()
             .map(|a| a.anchor_slot)
+    }
+
+    /// Get a clone of the store's blob info.
+    ///
+    /// To do mutations, use `compare_and_set_blob_info`.
+    pub fn get_blob_info(&self) -> Option<BlobInfo> {
+        self.blob_info.read_recursive().clone()
+    }
+
+    /// Atomically update the blob info from `prev_value` to `new_value`.
+    ///
+    /// Return a `KeyValueStoreOp` which should be written to disk, possibly atomically with other
+    /// values.
+    ///
+    /// Return an `BlobInfoConcurrentMutation` error if the `prev_value` provided
+    /// is not correct.
+    pub fn compare_and_set_blob_info(
+        &self,
+        prev_value: Option<BlobInfo>,
+        new_value: Option<BlobInfo>,
+    ) -> Result<KeyValueStoreOp, Error> {
+        let mut blob_info = self.blob_info.write();
+        if *blob_info == prev_value {
+            let kv_op = self.store_blob_info_in_batch(&new_value);
+            *blob_info = new_value;
+            Ok(kv_op)
+        } else {
+            Err(Error::AnchorInfoConcurrentMutation)
+        }
+    }
+
+    /// As for `compare_and_set_blob_info`, but also writes the blob info to disk immediately.
+    pub fn compare_and_set_blob_info_with_write(
+        &self,
+        prev_value: Option<BlobInfo>,
+        new_value: Option<BlobInfo>,
+    ) -> Result<(), Error> {
+        let kv_store_op = self.compare_and_set_blob_info(prev_value, new_value)?;
+        self.hot_db.do_atomically(vec![kv_store_op])
+    }
+
+    /// Load the blob info from disk, but do not set `self.blob_info`.
+    fn load_blob_info(&self) -> Result<Option<BlobInfo>, Error> {
+        self.hot_db.get(&BLOB_INFO_KEY)
+    }
+
+    /// Store the given `blob_info` to disk.
+    ///
+    /// The argument is intended to be `self.blob_info`, but is passed manually to avoid issues
+    /// with recursive locking.
+    fn store_blob_info_in_batch(&self, blob_info: &Option<BlobInfo>) -> KeyValueStoreOp {
+        if let Some(ref blob_info) = blob_info {
+            blob_info.as_kv_store_op(BLOB_INFO_KEY)
+        } else {
+            KeyValueStoreOp::DeleteKey(get_key_for_col(
+                DBColumn::BeaconMeta.into(),
+                BLOB_INFO_KEY.as_bytes(),
+            ))
+        }
     }
 
     /// Return the slot-window describing the available historic states.
