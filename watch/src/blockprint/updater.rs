@@ -58,9 +58,18 @@ impl<T: EthSpec> UpdateHandler<T> {
                     end_slot = start_slot + MAX_SIZE_SINGLE_REQUEST_BLOCKPRINT
                 }
 
-                let prints = blockprint_client
+                let mut prints = blockprint_client
                     .get_blockprint(start_slot, end_slot)
                     .await?;
+
+                // Ensure the prints returned from blockprint are for slots which exist in the
+                // `beacon_blocks` table.
+                prints.retain(|print| {
+                    database::get_beacon_block_by_slot(&mut conn, print.slot)
+                        .ok()
+                        .flatten()
+                        .is_some()
+                });
 
                 database::insert_batch_blockprint(&mut conn, prints)?;
             } else {
@@ -136,9 +145,18 @@ impl<T: EthSpec> UpdateHandler<T> {
                     start_slot += 1
                 }
 
-                let prints = blockprint_client
+                let mut prints = blockprint_client
                     .get_blockprint(start_slot, end_slot)
                     .await?;
+
+                // Ensure the prints returned from blockprint are for slots which exist in the
+                // `beacon_blocks` table.
+                prints.retain(|print| {
+                    database::get_beacon_block_by_slot(&mut conn, print.slot)
+                        .ok()
+                        .flatten()
+                        .is_some()
+                });
 
                 database::insert_batch_blockprint(&mut conn, prints)?;
             } else {
