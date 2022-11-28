@@ -97,7 +97,8 @@ pub struct JsonExecutionPayload<T: EthSpec> {
     #[superstruct(only(V2))]
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(default)]
-    #[serde(with = "eth2_serde_utils::u256_hex_be_opt")]
+    // #[serde(with = "eth2_serde_utils::u256_hex_be_opt")]
+    #[serde(with = "remove_this")]
     pub excess_data_gas: Option<Uint256>,
     pub block_hash: ExecutionBlockHash,
     #[serde(with = "ssz_types::serde_utils::list_of_hex_var_list")]
@@ -107,6 +108,67 @@ pub struct JsonExecutionPayload<T: EthSpec> {
     #[serde(default)]
     #[superstruct(only(V2))]
     pub withdrawals: Option<VariableList<JsonWithdrawal, T::MaxWithdrawalsPerPayload>>,
+}
+
+pub mod remove_this {
+    use super::Uint256 as U256;
+
+    use serde::de::Visitor;
+    use serde::{de, Deserializer, Serialize, Serializer};
+    use std::fmt;
+    use std::str::FromStr;
+
+    pub fn serialize<S>(num: &Option<U256>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        num.serialize(serializer)
+    }
+
+    pub struct U256Visitor;
+
+    impl<'de> Visitor<'de> for U256Visitor {
+        type Value = String;
+
+        fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+            formatter.write_str("a well formatted hex string")
+        }
+
+        fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            if !value.starts_with("0x") {
+                return Err(de::Error::custom("must start with 0x"));
+            }
+            let stripped = &value[2..];
+            if stripped.is_empty() {
+                Err(de::Error::custom(format!(
+                    "quantity cannot be {:?}",
+                    stripped
+                )))
+            } else if stripped == "0" {
+                Ok(value.to_string())
+            } else if stripped.starts_with('0') {
+                Err(de::Error::custom("cannot have leading zero"))
+            } else {
+                Ok(value.to_string())
+            }
+        }
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Option<U256>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let decoded = deserializer.deserialize_string(U256Visitor)?;
+
+        Some(
+            U256::from_str(&decoded)
+                .map_err(|e| de::Error::custom(format!("Invalid U256 string: {}", e))),
+        )
+        .transpose()
+    }
 }
 
 impl<T: EthSpec> JsonExecutionPayload<T> {
