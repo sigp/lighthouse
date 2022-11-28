@@ -399,6 +399,7 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     /// Provides monitoring of a set of explicitly defined validators.
     pub validator_monitor: RwLock<ValidatorMonitor<T::EthSpec>>,
     pub blob_cache: BlobCache<T::EthSpec>,
+    pub kzg: Option<Arc<kzg::Kzg>>,
 }
 
 type BeaconBlockAndState<T, Payload> = (BeaconBlock<T, Payload>, BeaconState<T>);

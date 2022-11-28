@@ -188,6 +188,12 @@ where
             builder
         };
 
+        let builder = if let Some(trusted_setup_file) = config.trusted_setup_file {
+            builder.trusted_setup(trusted_setup_file)
+        } else {
+            builder
+        };
+
         let chain_exists = builder.store_contains_beacon_chain().unwrap_or(false);
 
         // If the client is expect to resume but there's no beacon chain in the database,
