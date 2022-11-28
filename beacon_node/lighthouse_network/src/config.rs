@@ -288,9 +288,11 @@ impl From<u8> for NetworkLoad {
 /// Return a Lighthouse specific `GossipsubConfig` where the `message_id_fn` depends on the current fork.
 pub fn gossipsub_config(network_load: u8, fork_context: Arc<ForkContext>) -> GossipsubConfig {
     // The function used to generate a gossipsub message id
-    // We use the first 8 bytes of SHA256(data) for content addressing
-    let fast_gossip_message_id =
-        |message: &RawGossipsubMessage| FastMessageId::from(&Sha256::digest(&message.data)[..8]);
+    // We use the first 8 bytes of SHA256(topic, data) for content addressing
+    let fast_gossip_message_id = |message: &RawGossipsubMessage| {
+        let data = [message.topic.as_str().as_bytes(), &message.data].concat();
+        FastMessageId::from(&Sha256::digest(data)[..8])
+    };
     fn prefix(
         prefix: [u8; 4],
         message: &GossipsubMessage,
