@@ -1,7 +1,7 @@
 # Run a Node
 
 This document provides detail for users who want to run a Lighthouse beacon node.
-You should be finished with one [Installation](./installation.md) of your choice to continue with the following steps:
+You should be finished with one [Installation](./installation.md) method of your choice to continue with the following steps:
 
 1. Set up an [execution node](#step-1-set-up-an-execution-node);
 1. Enable [checkpoint sync](#step-2-choose-a-checkpoint-sync-provider);
@@ -10,7 +10,7 @@ You should be finished with one [Installation](./installation.md) of your choice
 1. [Further readings](#step-5-further-readings).
 
 Checkpoint sync is *optional*; however, we recommend it since it is substantially faster
-than syncing from genesis while still providing all the same features.
+than syncing from genesis while still providing the same functionality.
 
 ## Step 1: Set up an execution node
 
