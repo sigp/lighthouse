@@ -244,7 +244,7 @@ impl<T: BeaconChainTypes> Processor<T> {
         );
 
         if let RequestId::Sync(id) = request_id {
-            self.send_to_sync(SyncMessage::RpcBlob {
+            self.send_to_sync(SyncMessage::RpcGlob {
                 peer_id,
                 request_id: id,
                 blob_sidecar,
@@ -316,7 +316,7 @@ impl<T: BeaconChainTypes> Processor<T> {
             "Received BlockAndBlobssByRoot Response";
             "peer" => %peer_id,
         );
-        self.send_to_sync(SyncMessage::RpcBlockAndBlob {
+        self.send_to_sync(SyncMessage::RpcBlockAndGlob {
             peer_id,
             request_id,
             block_and_blobs,

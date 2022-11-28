@@ -79,6 +79,35 @@ pub enum BlockTy<T: EthSpec> {
     },
 }
 
+#[cfg(test)]
+impl<T: EthSpec> From<SignedBeaconBlock<T>> for BlockTy<T> {
+    fn from(block: SignedBeaconBlock<T>) -> Self {
+        BlockTy::Block {
+            block: Arc::new(block),
+        }
+    }
+}
+
+#[cfg(test)]
+impl<T: EthSpec> From<Arc<SignedBeaconBlock<T>>> for BlockTy<T> {
+    fn from(block: Arc<SignedBeaconBlock<T>>) -> Self {
+        BlockTy::Block { block }
+    }
+}
+
+impl<T: EthSpec> BlockTy<T> {
+    pub fn block(&self) -> &SignedBeaconBlock<T> {
+        match &self {
+            BlockTy::Block { block } => block,
+            BlockTy::BlockAndBlob { block_sidecar_pair } => &block_sidecar_pair.beacon_block,
+        }
+    }
+
+    pub fn parent_root(&self) -> Hash256 {
+        self.block().parent_root()
+    }
+}
+
 // TODO: probably needes to be changed. This is needed because SignedBeaconBlockAndBlobsSidecar
 // does not implement Hash
 impl<T: EthSpec> std::hash::Hash for BlockTy<T> {
@@ -132,7 +161,7 @@ pub enum SyncMessage<T: EthSpec> {
     },
 
     /// A blob has been received from the RPC.
-    RpcBlob {
+    RpcGlob {
         request_id: RequestId,
         peer_id: PeerId,
         blob_sidecar: Option<Arc<BlobsSidecar<T>>>,
@@ -140,7 +169,7 @@ pub enum SyncMessage<T: EthSpec> {
     },
 
     /// A block and blobs have been received from the RPC.
-    RpcBlockAndBlob {
+    RpcBlockAndGlob {
         request_id: RequestId,
         peer_id: PeerId,
         block_and_blobs: Option<Arc<SignedBeaconBlockAndBlobsSidecar<T>>>,
@@ -612,8 +641,14 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 if self.network_globals.peers.read().is_connected(&peer_id)
                     && self.network.is_execution_engine_online()
                 {
-                    self.block_lookups
-                        .search_parent(block_root, block, peer_id, &mut self.network);
+                    // TODO: here it would be ideal if unknown block carried either the block or
+                    // the block and blob since for block lookups we don't care.
+                    self.block_lookups.search_parent(
+                        block_root,
+                        BlockTy::Block { block },
+                        peer_id,
+                        &mut self.network,
+                    );
                 }
             }
             SyncMessage::UnknownBlockHash(peer_id, block_hash) => {
@@ -674,18 +709,23 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     .block_lookups
                     .parent_chain_processed(chain_hash, result, &mut self.network),
             },
-            SyncMessage::RpcBlob {
+            SyncMessage::RpcGlob {
                 request_id,
                 peer_id,
                 blob_sidecar,
                 seen_timestamp,
             } => self.rpc_sidecar_received(request_id, peer_id, blob_sidecar, seen_timestamp),
-            SyncMessage::RpcBlockAndBlob {
+            SyncMessage::RpcBlockAndGlob {
                 request_id,
                 peer_id,
                 block_and_blobs,
                 seen_timestamp,
-            } => todo!(),
+            } => self.rpc_block_sidecar_pair_received(
+                request_id,
+                peer_id,
+                block_and_blobs,
+                seen_timestamp,
+            ),
         }
     }
 
@@ -755,14 +795,14 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             RequestId::SingleBlock { id } => self.block_lookups.single_block_lookup_response(
                 id,
                 peer_id,
-                beacon_block,
+                beacon_block.map(|block| BlockTy::Block { block }),
                 seen_timestamp,
                 &mut self.network,
             ),
             RequestId::ParentLookup { id } => self.block_lookups.parent_lookup_response(
                 id,
                 peer_id,
-                beacon_block,
+                beacon_block.map(|block| BlockTy::Block { block }),
                 seen_timestamp,
                 &mut self.network,
             ),
@@ -858,8 +898,9 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         seen_timestamp: Duration,
     ) {
         match request_id {
-            RequestId::SingleBlock { id } => todo!("do we request individual sidecars?"),
-            RequestId::ParentLookup { id } => todo!(),
+            RequestId::SingleBlock { id } | RequestId::ParentLookup { id } => {
+                unreachable!("There is no such thing as a singular 'by root' glob request that is not accompanied by the block")
+            }
             RequestId::BackFillSync { .. } => {
                 unreachable!("An only blocks request does not receive sidecars")
             }
@@ -903,6 +944,43 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     self.update_sync_state();
                 }
             }
+        }
+    }
+
+    fn rpc_block_sidecar_pair_received(
+        &mut self,
+        request_id: RequestId,
+        peer_id: PeerId,
+        block_sidecar_pair: Option<Arc<SignedBeaconBlockAndBlobsSidecar<T::EthSpec>>>,
+        seen_timestamp: Duration,
+    ) {
+        match request_id {
+            RequestId::SingleBlock { id } => self.block_lookups.single_block_lookup_response(
+                id,
+                peer_id,
+                block_sidecar_pair.map(|block_sidecar_pair| BlockTy::BlockAndBlob {
+                    // TODO: why is this in an arc
+                    block_sidecar_pair: (*block_sidecar_pair).clone(),
+                }),
+                seen_timestamp,
+                &mut self.network,
+            ),
+            RequestId::ParentLookup { id } => self.block_lookups.parent_lookup_response(
+                id,
+                peer_id,
+                block_sidecar_pair.map(|block_sidecar_pair| BlockTy::BlockAndBlob {
+                    // TODO: why is this in an arc
+                    block_sidecar_pair: (*block_sidecar_pair).clone(),
+                }),
+                seen_timestamp,
+                &mut self.network,
+            ),
+            RequestId::BackFillSync { .. }
+            | RequestId::BackFillSidecarPair { .. }
+            | RequestId::RangeSync { .. }
+            | RequestId::RangeSidecarPair { .. } => unreachable!(
+                "since range requests are not block-glob coupled, this should never be reachable"
+            ),
         }
     }
 }
