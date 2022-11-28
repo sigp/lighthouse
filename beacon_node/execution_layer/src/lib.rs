@@ -612,7 +612,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                         "parent_hash" => ?parent_hash,
                     );
 
-                    // Wait for the builder *and* relay to produce a payload (or return an error).
+                    // Wait for the builder *and* local EL to produce a payload (or return an error).
                     let ((relay_result, relay_duration), (local_result, local_duration)) = tokio::join!(
                         timed_future(metrics::GET_BLINDED_PAYLOAD_BUILDER, async {
                             builder
@@ -1476,7 +1476,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                 Err(e) => crit!(
                     self.log(),
                     "Builder failed to reveal payload";
-                    "info" => "this relay failure has caused a missed proposal",
+                    "info" => "this relay failure may cause a missed proposal",
                     "error" => ?e,
                     "relay_response_ms" => duration.as_millis(),
                     "block_root" => %block_root,
@@ -1623,7 +1623,7 @@ fn verify_builder_bid<T: EthSpec, Payload: ExecPayload<T>>(
 async fn timed_future<F: Future<Output = T>, T>(metric: &str, future: F) -> (T, Duration) {
     let start = Instant::now();
     let result = future.await;
-    let duration = Instant::now().duration_since(start);
+    let duration = start.elapsed();
     metrics::observe_timer_vec(&metrics::EXECUTION_LAYER_REQUEST_TIMES, &[metric], duration);
     (result, duration)
 }
