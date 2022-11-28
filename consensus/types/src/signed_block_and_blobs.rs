@@ -1,6 +1,6 @@
 use crate::{BlobsSidecar, EthSpec, SignedBeaconBlock, SignedBeaconBlockEip4844};
 use serde_derive::{Deserialize, Serialize};
-use ssz::{Decode, DecodeError, Encode};
+use ssz::{Decode, DecodeError};
 use ssz_derive::{Decode, Encode};
 use std::sync::Arc;
 use tree_hash_derive::TreeHash;
@@ -29,5 +29,24 @@ impl<T: EthSpec> SignedBeaconBlockAndBlobsSidecar<T> {
             beacon_block: Arc::new(SignedBeaconBlock::Eip4844(beacon_block)),
             blobs_sidecar: Arc::new(blobs_sidecar),
         })
+    }
+}
+
+/// A wrapper over a [`SignedBeaconBlock`] or a [`SignedBeaconBlockAndBlobsSidecar`].
+pub enum BlockWrapper<T: EthSpec> {
+    Block {
+        block: Arc<SignedBeaconBlock<T>>,
+    },
+    BlockAndBlob {
+        block_sidecar_pair: SignedBeaconBlockAndBlobsSidecar<T>,
+    },
+}
+
+impl<T: EthSpec> BlockWrapper<T> {
+    pub fn block(&self) -> &SignedBeaconBlock<T> {
+        match self {
+            BlockWrapper::Block { block } => &block,
+            BlockWrapper::BlockAndBlob { block_sidecar_pair } => &block_sidecar_pair.beacon_block,
+        }
     }
 }
