@@ -11,6 +11,10 @@ pub const NEW_PAYLOAD: &str = "new_payload";
 pub const FORKCHOICE_UPDATED: &str = "forkchoice_updated";
 pub const GET_TERMINAL_POW_BLOCK_HASH: &str = "get_terminal_pow_block_hash";
 pub const IS_VALID_TERMINAL_POW_BLOCK_HASH: &str = "is_valid_terminal_pow_block_hash";
+pub const LOCAL: &str = "local";
+pub const BUILDER: &str = "builder";
+pub const SUCCESS: &str = "success";
+pub const FAILURE: &str = "failure";
 
 lazy_static::lazy_static! {
     pub static ref EXECUTION_LAYER_PROPOSER_INSERTED: Result<IntCounter> = try_create_int_counter(
@@ -45,5 +49,30 @@ lazy_static::lazy_static! {
         "execution_layer_payload_status",
         "Indicates the payload status returned for a particular method",
         &["method", "status"]
+    );
+    pub static ref EXECUTION_LAYER_GET_PAYLOAD_OUTCOME: Result<IntCounterVec> = try_create_int_counter_vec(
+        "execution_layer_get_payload_outcome",
+        "The success/failure outcomes from calling get_payload",
+        &["outcome"]
+    );
+    pub static ref EXECUTION_LAYER_BUILDER_REVEAL_PAYLOAD_OUTCOME: Result<IntCounterVec> = try_create_int_counter_vec(
+        "execution_layer_builder_reveal_payload_outcome",
+        "The success/failure outcomes from a builder un-blinding a payload",
+        &["outcome"]
+    );
+    pub static ref EXECUTION_LAYER_GET_PAYLOAD_SOURCE: Result<IntCounterVec> = try_create_int_counter_vec(
+        "execution_layer_get_payload_source",
+        "The source of each payload returned from get_payload",
+        &["source"]
+    );
+    pub static ref EXECUTION_LAYER_GET_PAYLOAD_BUILDER_REJECTIONS: Result<IntCounterVec> = try_create_int_counter_vec(
+        "execution_layer_get_payload_builder_rejections",
+        "The reasons why a payload from a builder was rejected",
+        &["reason"]
+    );
+    pub static ref EXECUTION_LAYER_PAYLOAD_BIDS: Result<IntGaugeVec> = try_create_int_gauge_vec(
+        "execution_layer_payload_bids",
+        "The bid value of payloads received by local EEs or builders. Only shows values up to i64::max_value.",
+        &["source"]
     );
 }

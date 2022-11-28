@@ -28,6 +28,7 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use strum::AsRefStr;
 use task_executor::TaskExecutor;
 use tokio::{
     sync::{Mutex, MutexGuard, RwLock},
@@ -67,6 +68,14 @@ const DEFAULT_SUGGESTED_FEE_RECIPIENT: [u8; 20] =
     [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1];
 
 const CONFIG_POLL_INTERVAL: Duration = Duration::from_secs(60);
+
+/// A payload alongside some information about where it came from.
+enum ProvenancedPayload<P> {
+    /// A good ol' fashioned farm-to-table payload from your local EE.
+    Local(P),
+    /// A payload from a builder (e.g. mev-boost).
+    Builder(P),
+}
 
 #[derive(Debug)]
 pub enum Error {
@@ -553,38 +562,75 @@ impl<T: EthSpec> ExecutionLayer<T> {
     ) -> Result<Payload, Error> {
         let suggested_fee_recipient = self.get_suggested_fee_recipient(proposer_index).await;
 
-        match Payload::block_type() {
+        let payload_result = match Payload::block_type() {
             BlockType::Blinded => {
                 let _timer = metrics::start_timer_vec(
                     &metrics::EXECUTION_LAYER_REQUEST_TIMES,
                     &[metrics::GET_BLINDED_PAYLOAD],
                 );
-                self.get_blinded_payload(
-                    parent_hash,
-                    timestamp,
-                    prev_randao,
-                    suggested_fee_recipient,
-                    forkchoice_update_params,
-                    builder_params,
-                    spec,
-                )
-                .await
+                match self
+                    .get_blinded_payload(
+                        parent_hash,
+                        timestamp,
+                        prev_randao,
+                        suggested_fee_recipient,
+                        forkchoice_update_params,
+                        builder_params,
+                        spec,
+                    )
+                    .await?
+                {
+                    ProvenancedPayload::Local(payload) => {
+                        metrics::inc_counter_vec(
+                            &metrics::EXECUTION_LAYER_GET_PAYLOAD_SOURCE,
+                            &[metrics::LOCAL],
+                        );
+                        Ok(payload)
+                    }
+                    ProvenancedPayload::Builder(payload) => {
+                        metrics::inc_counter_vec(
+                            &metrics::EXECUTION_LAYER_GET_PAYLOAD_SOURCE,
+                            &[metrics::BUILDER],
+                        );
+                        Ok(payload)
+                    }
+                }
             }
             BlockType::Full => {
                 let _timer = metrics::start_timer_vec(
                     &metrics::EXECUTION_LAYER_REQUEST_TIMES,
                     &[metrics::GET_PAYLOAD],
                 );
-                self.get_full_payload(
-                    parent_hash,
-                    timestamp,
-                    prev_randao,
-                    suggested_fee_recipient,
-                    forkchoice_update_params,
-                )
-                .await
+                let payload = self
+                    .get_full_payload(
+                        parent_hash,
+                        timestamp,
+                        prev_randao,
+                        suggested_fee_recipient,
+                        forkchoice_update_params,
+                    )
+                    .await?;
+                metrics::inc_counter_vec(
+                    &metrics::EXECUTION_LAYER_GET_PAYLOAD_SOURCE,
+                    &[metrics::LOCAL],
+                );
+                Ok(payload)
             }
+        };
+
+        if payload_result.is_ok() {
+            metrics::inc_counter_vec(
+                &metrics::EXECUTION_LAYER_GET_PAYLOAD_OUTCOME,
+                &[metrics::SUCCESS],
+            )
+        } else {
+            metrics::inc_counter_vec(
+                &metrics::EXECUTION_LAYER_GET_PAYLOAD_OUTCOME,
+                &[metrics::FAILURE],
+            )
         }
+
+        payload_result
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -597,7 +643,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
         forkchoice_update_params: ForkchoiceUpdateParameters,
         builder_params: BuilderParams,
         spec: &ChainSpec,
-    ) -> Result<Payload, Error> {
+    ) -> Result<ProvenancedPayload<Payload>, Error> {
         if let Some(builder) = self.builder() {
             let slot = builder_params.slot;
             let pubkey = builder_params.pubkey;
@@ -658,7 +704,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                                 "local_block_hash" => %local.block_hash(),
                                 "parent_hash" => %parent_hash,
                             );
-                            Ok(local)
+                            Ok(ProvenancedPayload::Local(local))
                         }
                         (Ok(None), Ok(local)) => {
                             info!(
@@ -668,7 +714,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                                 "local_block_hash" => %local.block_hash(),
                                 "parent_hash" => %parent_hash,
                             );
-                            Ok(local)
+                            Ok(ProvenancedPayload::Local(local))
                         }
                         (Ok(Some(relay)), Ok(local)) => {
                             let header = &relay.data.message.header;
@@ -690,8 +736,14 @@ impl<T: EthSpec> ExecutionLayer<T> {
                                 self.inner.builder_profit_threshold,
                                 spec,
                             ) {
-                                Ok(()) => Ok(relay.data.message.header),
+                                Ok(()) => {
+                                    Ok(ProvenancedPayload::Builder(relay.data.message.header))
+                                }
                                 Err(reason) => {
+                                    metrics::inc_counter_vec(
+                                        &metrics::EXECUTION_LAYER_GET_PAYLOAD_BUILDER_REJECTIONS,
+                                        &[reason.as_ref().as_ref()],
+                                    );
                                     warn!(
                                         self.log(),
                                         "Builder returned invalid payload";
@@ -700,7 +752,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                                         "relay_block_hash" => %header.block_hash(),
                                         "parent_hash" => %parent_hash,
                                     );
-                                    Ok(local)
+                                    Ok(ProvenancedPayload::Local(local))
                                 }
                             }
                         }
@@ -724,11 +776,19 @@ impl<T: EthSpec> ExecutionLayer<T> {
                                 self.inner.builder_profit_threshold,
                                 spec,
                             ) {
-                                Ok(()) => Ok(relay.data.message.header),
+                                Ok(()) => {
+                                    Ok(ProvenancedPayload::Builder(relay.data.message.header))
+                                }
                                 // If the payload is valid then use it. The local EE failed
                                 // to produce a payload so we have no alternative.
-                                Err(e) if !e.payload_invalid() => Ok(relay.data.message.header),
+                                Err(e) if !e.payload_invalid() => {
+                                    Ok(ProvenancedPayload::Builder(relay.data.message.header))
+                                }
                                 Err(reason) => {
+                                    metrics::inc_counter_vec(
+                                        &metrics::EXECUTION_LAYER_GET_PAYLOAD_BUILDER_REJECTIONS,
+                                        &[reason.as_ref().as_ref()],
+                                    );
                                     crit!(
                                         self.log(),
                                         "Builder returned invalid payload";
@@ -792,6 +852,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
             forkchoice_update_params,
         )
         .await
+        .map(ProvenancedPayload::Local)
     }
 
     /// Get a full payload without caching its result in the execution layer's payload cache.
@@ -1467,28 +1528,40 @@ impl<T: EthSpec> ExecutionLayer<T> {
                 .await;
 
             match &payload_result {
-                Ok(payload) => info!(
-                    self.log(),
-                    "Builder successfully revealed payload";
-                    "relay_response_ms" => duration.as_millis(),
-                    "block_root" => %block_root,
-                    "fee_recipient" => %payload.fee_recipient,
-                    "block_hash" => %payload.block_hash,
-                    "parent_hash" => %payload.parent_hash
-                ),
-                Err(e) => crit!(
-                    self.log(),
-                    "Builder failed to reveal payload";
-                    "info" => "this relay failure may cause a missed proposal",
-                    "error" => ?e,
-                    "relay_response_ms" => duration.as_millis(),
-                    "block_root" => %block_root,
-                    "parent_hash" => %block
-                        .message()
-                        .execution_payload()
-                        .map(|payload| format!("{}", payload.parent_hash()))
-                        .unwrap_or_else(|_| "unknown".to_string())
-                ),
+                Ok(payload) => {
+                    metrics::inc_counter_vec(
+                        &metrics::EXECUTION_LAYER_BUILDER_REVEAL_PAYLOAD_OUTCOME,
+                        &[metrics::SUCCESS],
+                    );
+                    info!(
+                        self.log(),
+                        "Builder successfully revealed payload";
+                        "relay_response_ms" => duration.as_millis(),
+                        "block_root" => %block_root,
+                        "fee_recipient" => %payload.fee_recipient,
+                        "block_hash" => %payload.block_hash,
+                        "parent_hash" => %payload.parent_hash
+                    )
+                }
+                Err(e) => {
+                    metrics::inc_counter_vec(
+                        &metrics::EXECUTION_LAYER_BUILDER_REVEAL_PAYLOAD_OUTCOME,
+                        &[metrics::FAILURE],
+                    );
+                    crit!(
+                        self.log(),
+                        "Builder failed to reveal payload";
+                        "info" => "this relay failure may cause a missed proposal",
+                        "error" => ?e,
+                        "relay_response_ms" => duration.as_millis(),
+                        "block_root" => %block_root,
+                        "parent_hash" => %block
+                            .message()
+                            .execution_payload()
+                            .map(|payload| format!("{}", payload.parent_hash()))
+                            .unwrap_or_else(|_| "unknown".to_string())
+                    )
+                }
             }
 
             payload_result
@@ -1498,6 +1571,8 @@ impl<T: EthSpec> ExecutionLayer<T> {
     }
 }
 
+#[derive(AsRefStr)]
+#[strum(serialize_all = "snake_case")]
 enum InvalidBuilderPayload {
     LowValue {
         profit_threshold: Uint256,
@@ -1592,8 +1667,17 @@ fn verify_builder_bid<T: EthSpec, Payload: ExecPayload<T>>(
 ) -> Result<(), Box<InvalidBuilderPayload>> {
     let is_signature_valid = bid.data.verify_signature(spec);
     let header = &bid.data.message.header;
-
     let payload_value = bid.data.message.value;
+
+    // Avoid logging values that we can't represent with our Prometheus library.
+    if payload_value <= Uint256::from(i64::max_value()) {
+        metrics::set_gauge_vec(
+            &metrics::EXECUTION_LAYER_PAYLOAD_BIDS,
+            &[metrics::BUILDER],
+            payload_value.low_u64() as i64,
+        );
+    }
+
     if payload_value < profit_threshold {
         Err(Box::new(InvalidBuilderPayload::LowValue {
             profit_threshold,
