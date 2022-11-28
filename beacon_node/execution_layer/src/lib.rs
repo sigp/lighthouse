@@ -725,6 +725,9 @@ impl<T: EthSpec> ExecutionLayer<T> {
                                 spec,
                             ) {
                                 Ok(()) => Ok(relay.data.message.header),
+                                // If the payload is valid then use it. The local EE failed
+                                // to produce a payload so we have no alternative.
+                                Err(e) if !e.payload_invalid() => Ok(relay.data.message.header),
                                 Err(reason) => {
                                     crit!(
                                         self.log(),
@@ -1524,6 +1527,22 @@ enum InvalidBuilderPayload {
         signature: Signature,
         pubkey: PublicKeyBytes,
     },
+}
+
+impl InvalidBuilderPayload {
+    /// Returns `true` if a payload is objectively invalid and should never be included on chain.
+    fn payload_invalid(&self) -> bool {
+        match self {
+            // A low-value payload isn't invalid, it should just be avoided if possible.
+            InvalidBuilderPayload::LowValue { .. } => false,
+            InvalidBuilderPayload::ParentHash { .. } => true,
+            InvalidBuilderPayload::PrevRandao { .. } => true,
+            InvalidBuilderPayload::Timestamp { .. } => true,
+            InvalidBuilderPayload::BlockNumber { .. } => true,
+            InvalidBuilderPayload::Fork { .. } => true,
+            InvalidBuilderPayload::Signature { .. } => true,
+        }
+    }
 }
 
 impl fmt::Display for InvalidBuilderPayload {
