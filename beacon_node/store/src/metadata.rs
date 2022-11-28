@@ -130,7 +130,7 @@ pub struct BlobInfo {
     pub latest_blob_slot: Slot,
 }
 
-impl StoreItem for AnchorInfo {
+impl StoreItem for BlobInfo {
     fn db_column() -> DBColumn {
         DBColumn::BeaconMeta
     }

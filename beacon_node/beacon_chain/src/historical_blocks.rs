@@ -68,7 +68,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Take all blocks with slots less than the oldest block slot.
         let num_relevant =
-            blocks.partition_point(|block| block.slot() < anchor_info.oldest_block_slot);
+            blocks.partition_point(|block| block.slot() < acompare_and_set_anchor_infonchor_info.oldest_block_slot);
         let blocks_to_import = &blocks
             .get(..num_relevant)
             .ok_or(HistoricalBlockError::IndexOutOfBounds)?;
