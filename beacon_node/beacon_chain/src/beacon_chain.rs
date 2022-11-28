@@ -3706,7 +3706,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             bls_to_execution_changes,
         } = partial_beacon_block;
 
-        let (payload, kzg_commitments_opt, blobs) = block_contents.deconstruct();
+        let (payload, kzg_commitments_opt, blobs): (
+            Option<Payload>,
+            Option<Vec<KzgCommitment>>,
+            Option<Vec<Blob<T::EthSpec>>>,
+        ) = todo!("Im getting a compile error here @Sean"); //block_contents.deconstruct();
 
         let inner_block = match &state {
             BeaconState::Base(_) => BeaconBlock::Base(BeaconBlockBase {
