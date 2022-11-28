@@ -609,7 +609,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                         "Requesting blinded header from connected builder";
                         "slot" => ?slot,
                         "pubkey" => ?pubkey,
-                        "parent_hash" => ?parent_hash,
+                        "parent_hash" => %parent_hash,
                     );
 
                     // Wait for the builder *and* local EL to produce a payload (or return an error).
@@ -676,7 +676,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                             info!(
                                 self.log(),
                                 "Received local and builder payloads";
-                                "relay_block_hash" => ?header.block_hash(),
+                                "relay_block_hash" => %header.block_hash(),
                                 "local_block_hash" => %local.block_hash(),
                                 "parent_hash" => %parent_hash,
                             );
@@ -697,7 +697,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                                         "Builder returned invalid payload";
                                         "info" => "using local payload",
                                         "reason" => %reason,
-                                        "relay_block_hash" => ?header.block_hash(),
+                                        "relay_block_hash" => %header.block_hash(),
                                         "parent_hash" => %parent_hash,
                                     );
                                     Ok(local)
@@ -710,7 +710,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                             info!(
                                 self.log(),
                                 "Received builder payload with local error";
-                                "relay_block_hash" => ?header.block_hash(),
+                                "relay_block_hash" => %header.block_hash(),
                                 "local_error" => ?local_error,
                                 "parent_hash" => %parent_hash,
                             );
@@ -731,7 +731,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                                         "Builder returned invalid payload";
                                         "info" => "no local payload either - unable to propose block",
                                         "reason" => %reason,
-                                        "relay_block_hash" => ?header.block_hash(),
+                                        "relay_block_hash" => %header.block_hash(),
                                         "parent_hash" => %parent_hash,
                                     );
                                     Err(Error::CannotProduceHeader)
@@ -846,7 +846,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
             "suggested_fee_recipient" => ?suggested_fee_recipient,
             "prev_randao" => ?prev_randao,
             "timestamp" => timestamp,
-            "parent_hash" => ?parent_hash,
+            "parent_hash" => %parent_hash,
         );
         self.engine()
             .request(|engine| async move {
@@ -963,8 +963,8 @@ impl<T: EthSpec> ExecutionLayer<T> {
         trace!(
             self.log(),
             "Issuing engine_newPayload";
-            "parent_hash" => ?execution_payload.parent_hash,
-            "block_hash" => ?execution_payload.block_hash,
+            "parent_hash" => %execution_payload.parent_hash,
+            "block_hash" => %execution_payload.block_hash,
             "block_number" => execution_payload.block_number,
         );
 
@@ -1035,7 +1035,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
             self.log(),
             "Beacon proposer found";
             "payload_attributes" => ?proposer.payload_attributes,
-            "head_block_root" => ?head_block_root,
+            "head_block_root" => %head_block_root,
             "slot" => current_slot,
             "validator_index" => proposer.validator_index,
         );
@@ -1072,9 +1072,9 @@ impl<T: EthSpec> ExecutionLayer<T> {
         trace!(
             self.log(),
             "Issuing engine_forkchoiceUpdated";
-            "finalized_block_hash" => ?finalized_block_hash,
-            "justified_block_hash" => ?justified_block_hash,
-            "head_block_hash" => ?head_block_hash,
+            "finalized_block_hash" => %finalized_block_hash,
+            "justified_block_hash" => %justified_block_hash,
+            "head_block_hash" => %head_block_hash,
         );
 
         let next_slot = current_slot + 1;
@@ -1237,9 +1237,9 @@ impl<T: EthSpec> ExecutionLayer<T> {
             info!(
                 self.log(),
                 "Found terminal block hash";
-                "terminal_block_hash_override" => ?spec.terminal_block_hash,
+                "terminal_block_hash_override" => %spec.terminal_block_hash,
                 "terminal_total_difficulty" => ?spec.terminal_total_difficulty,
-                "block_hash" => ?hash,
+                "block_hash" => %hash,
             );
         }
 
@@ -1449,7 +1449,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
         debug!(
             self.log(),
             "Sending block to builder";
-            "root" => ?block_root,
+            "root" => %block_root,
         );
 
         if let Some(builder) = self.builder() {
