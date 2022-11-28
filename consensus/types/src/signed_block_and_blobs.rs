@@ -33,6 +33,7 @@ impl<T: EthSpec> SignedBeaconBlockAndBlobsSidecar<T> {
 }
 
 /// A wrapper over a [`SignedBeaconBlock`] or a [`SignedBeaconBlockAndBlobsSidecar`].
+#[derive(Debug)]
 pub enum BlockWrapper<T: EthSpec> {
     Block {
         block: Arc<SignedBeaconBlock<T>>,
