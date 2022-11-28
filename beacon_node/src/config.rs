@@ -360,6 +360,11 @@ pub fn get_config<E: EthSpec>(
         client_config.execution_layer = Some(el_config);
     }
 
+    // 4844 params
+    if let Some(trusted_setup_file) = cli_args.value_of("trusted-setup-file") {
+        client_config.trusted_setup_file = Some(PathBuf::from(trusted_setup_file));
+    }
+
     if let Some(freezer_dir) = cli_args.value_of("freezer-dir") {
         client_config.freezer_db_path = Some(PathBuf::from(freezer_dir));
     }

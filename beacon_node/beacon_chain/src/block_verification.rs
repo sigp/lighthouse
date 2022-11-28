@@ -90,7 +90,7 @@ use types::{
     EthSpec, ExecutionBlockHash, Hash256, InconsistentFork, PublicKey, PublicKeyBytes,
     RelativeEpoch, SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
 };
-use types::{BlobsSidecar, ExecPayload, SignedBeaconBlockAndBlobsSidecar};
+use types::{BlobsSidecar, ExecPayload};
 
 pub const POS_PANDA_BANNER: &str = r#"
     ,,,         ,,,                                               ,,,         ,,,
@@ -905,7 +905,27 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         validate_execution_payload_for_gossip(&parent_block, block.message(), chain)?;
 
         if let Some(blobs_sidecar) = blobs.as_ref() {
-            validate_blob_for_gossip(blobs_sidecar, chain).map_err(BlobValidation)?;
+            let kzg_commitments = block
+                .message()
+                .body()
+                .blob_kzg_commitments()
+                .map_err(|_| BlockError::BlobValidation(BlobError::KzgCommitmentMissing))?;
+            let transactions = block
+                .message()
+                .body()
+                .execution_payload_eip4844()
+                .map(|payload| payload.transactions())
+                .map_err(|_| BlockError::BlobValidation(BlobError::TransactionsMissing))?
+                .ok_or(BlockError::BlobValidation(BlobError::TransactionsMissing))?;
+            validate_blob_for_gossip(
+                blobs_sidecar,
+                kzg_commitments,
+                transactions,
+                block.slot(),
+                block_root,
+                chain,
+            )
+            .map_err(BlobValidation)?;
             //FIXME(sean) validate blobs sidecar
         }
 
