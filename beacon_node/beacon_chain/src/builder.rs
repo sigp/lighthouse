@@ -22,7 +22,7 @@ use fork_choice::{ForkChoice, ResetPayloadStatuses};
 use futures::channel::mpsc::Sender;
 use operation_pool::{OperationPool, PersistedOperationPool};
 use parking_lot::RwLock;
-use proto_array::{ParticipationThreshold, ReOrgThreshold};
+use proto_array::ReOrgThreshold;
 use slasher::Slasher;
 use slog::{crit, error, info, Logger};
 use slot_clock::{SlotClock, TestingSlotClock};
@@ -32,8 +32,8 @@ use std::time::Duration;
 use store::{Error as StoreError, HotColdDB, ItemStore, KeyValueStoreOp};
 use task_executor::{ShutdownReason, TaskExecutor};
 use types::{
-    BeaconBlock, BeaconState, ChainSpec, Checkpoint, EthSpec, Graffiti, Hash256, PublicKeyBytes,
-    Signature, SignedBeaconBlock, Slot,
+    BeaconBlock, BeaconState, ChainSpec, Checkpoint, Epoch, EthSpec, Graffiti, Hash256,
+    PublicKeyBytes, Signature, SignedBeaconBlock, Slot,
 };
 
 /// An empty struct used to "witness" all the `BeaconChainTypes` traits. It has no user-facing
@@ -166,12 +166,12 @@ where
         self
     }
 
-    /// Sets the proposer re-org participation threshold.
-    pub fn proposer_re_org_participation_threshold(
+    /// Sets the proposer re-org max epochs since finalization.
+    pub fn proposer_re_org_max_epochs_since_finalization(
         mut self,
-        threshold: ParticipationThreshold,
+        epochs_since_finalization: Epoch,
     ) -> Self {
-        self.chain_config.re_org_participation_threshold = threshold;
+        self.chain_config.re_org_max_epochs_since_finalization = epochs_since_finalization;
         self
     }
 

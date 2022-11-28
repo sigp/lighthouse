@@ -1,7 +1,7 @@
 //! Generic tests that make use of the (newer) `InteractiveApiTester`
 use crate::common::*;
 use beacon_chain::{
-    chain_config::{ParticipationThreshold, ReOrgThreshold},
+    chain_config::ReOrgThreshold,
     test_utils::{AttestationStrategy, BlockStrategy},
 };
 use eth2::types::DepositContractData;
@@ -14,8 +14,8 @@ use std::sync::Arc;
 use std::time::Duration;
 use tree_hash::TreeHash;
 use types::{
-    Address, EthSpec, ExecPayload, ExecutionBlockHash, ForkName, FullPayload, MainnetEthSpec,
-    ProposerPreparationData, Slot,
+    Address, Epoch, EthSpec, ExecPayload, ExecutionBlockHash, ForkName, FullPayload,
+    MainnetEthSpec, ProposerPreparationData, Slot,
 };
 
 type E = MainnetEthSpec;
@@ -100,7 +100,7 @@ pub struct ReOrgTest {
     /// Number of slots between head block and block proposal slot.
     head_distance: u64,
     re_org_threshold: u64,
-    participation_threshold: u64,
+    max_epochs_since_finalization: u64,
     percent_parent_votes: usize,
     percent_empty_votes: usize,
     percent_head_votes: usize,
@@ -116,7 +116,7 @@ impl Default for ReOrgTest {
             parent_distance: 1,
             head_distance: 1,
             re_org_threshold: 20,
-            participation_threshold: 70,
+            max_epochs_since_finalization: 2,
             percent_parent_votes: 100,
             percent_empty_votes: 100,
             percent_head_votes: 0,
@@ -153,6 +153,7 @@ pub async fn proposer_boost_re_org_bad_ffg() {
     .await;
 }
 
+/* FIXME(sproul): write finality test
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 pub async fn proposer_boost_re_org_low_total_participation() {
     proposer_boost_re_org_test(ReOrgTest {
@@ -166,6 +167,7 @@ pub async fn proposer_boost_re_org_low_total_participation() {
     })
     .await;
 }
+*/
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 pub async fn proposer_boost_re_org_parent_distance() {
@@ -204,23 +206,6 @@ pub async fn proposer_boost_re_org_very_unhealthy() {
     .await;
 }
 
-/// Participation initially appears high at 80%, but drops off to 80+50/2 = 65% after the head
-/// block. This results in a misprediction.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-pub async fn proposer_boost_re_org_participation_misprediction() {
-    proposer_boost_re_org_test(ReOrgTest {
-        head_slot: Slot::new(30),
-        percent_parent_votes: 80,
-        percent_empty_votes: 50,
-        percent_head_votes: 0,
-        participation_threshold: 70,
-        should_re_org: false,
-        misprediction: true,
-        ..Default::default()
-    })
-    .await;
-}
-
 /// The head block is late but still receives 30% of the committee vote, leading to a misprediction.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 pub async fn proposer_boost_re_org_weight_misprediction() {
@@ -248,7 +233,7 @@ pub async fn proposer_boost_re_org_test(
         parent_distance,
         head_distance,
         re_org_threshold,
-        participation_threshold,
+        max_epochs_since_finalization,
         percent_parent_votes,
         percent_empty_votes,
         percent_head_votes,
@@ -284,8 +269,8 @@ pub async fn proposer_boost_re_org_test(
         Some(Box::new(move |builder| {
             builder
                 .proposer_re_org_threshold(Some(ReOrgThreshold(re_org_threshold)))
-                .proposer_re_org_participation_threshold(ParticipationThreshold(
-                    participation_threshold,
+                .proposer_re_org_max_epochs_since_finalization(Epoch::new(
+                    max_epochs_since_finalization,
                 ))
         })),
     )

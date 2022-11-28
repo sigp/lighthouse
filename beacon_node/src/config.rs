@@ -1,6 +1,6 @@
 use beacon_chain::chain_config::{
-    ParticipationThreshold, ReOrgThreshold, DEFAULT_PREPARE_PAYLOAD_LOOKAHEAD_FACTOR,
-    DEFAULT_RE_ORG_PARTICIPATION_THRESHOLD, DEFAULT_RE_ORG_THRESHOLD,
+    ReOrgThreshold, DEFAULT_PREPARE_PAYLOAD_LOOKAHEAD_FACTOR,
+    DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION, DEFAULT_RE_ORG_THRESHOLD,
 };
 use clap::ArgMatches;
 use clap_utils::flags::DISABLE_MALLOC_TUNING_FLAG;
@@ -686,10 +686,9 @@ pub fn get_config<E: EthSpec>(
                 .map(ReOrgThreshold)
                 .unwrap_or(DEFAULT_RE_ORG_THRESHOLD),
         );
-        client_config.chain.re_org_participation_threshold =
-            clap_utils::parse_optional(cli_args, "proposer-reorg-participation-threshold")?
-                .map(ParticipationThreshold)
-                .unwrap_or(DEFAULT_RE_ORG_PARTICIPATION_THRESHOLD);
+        client_config.chain.re_org_max_epochs_since_finalization =
+            clap_utils::parse_optional(cli_args, "proposer-reorg-epochs-since-finalization")?
+                .unwrap_or(DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION);
     }
 
     // Note: This overrides any previous flags that enable this option.

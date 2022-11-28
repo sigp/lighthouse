@@ -3449,7 +3449,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 slot,
                 canonical_head,
                 re_org_threshold,
-                self.config.re_org_participation_threshold,
+                self.config.re_org_max_epochs_since_finalization,
             )
             .map_err(|e| match e {
                 ProposerHeadError::DoNotReOrg(reason) => {
@@ -3653,7 +3653,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .get_preliminary_proposer_head(
                 head_block_root,
                 re_org_threshold,
-                self.config.re_org_participation_threshold,
+                self.config.re_org_max_epochs_since_finalization,
             )
             .map_err(|e| e.map_inner_error(Error::ProposerHeadForkChoiceError))?;
 
@@ -3712,24 +3712,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         };
         if !proposing_at_re_org_slot {
             return Err(DoNotReOrg::NotProposing.into());
-        }
-
-        // Check that the parent's weight is greater than the participation threshold.
-        // If we are still in the slot of the canonical head block then only check against
-        // a 1x threshold as all attestations may not have arrived yet.
-        let participation_multiplier = fork_choice_slot
-            .saturating_sub(info.parent_node.slot)
-            .as_u64();
-        let participation_weight_threshold = info
-            .participation_weight_threshold
-            .saturating_mul(participation_multiplier);
-        let participation_ok = info.parent_node.weight >= participation_weight_threshold;
-        if !participation_ok {
-            return Err(DoNotReOrg::ParticipationTooLow {
-                parent_weight: info.parent_node.weight,
-                participation_weight_threshold,
-            }
-            .into());
         }
 
         // If the current slot is already equal to the proposal slot (or we are in the tail end of

@@ -776,11 +776,11 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .conflicts_with("disable-proposer-reorgs")
         )
         .arg(
-            Arg::with_name("proposer-reorg-participation-threshold")
-                .long("proposer-reorg-participation-threshold")
-                .value_name("PERCENT")
-                .help("Minimum participation percentage at proposer reorgs are allowed. \
-                       Default: 70%")
+            Arg::with_name("proposer-reorg-epochs-since-finalization")
+                .long("proposer-reorg-epochs-since-finalization")
+                .value_name("EPOCHS")
+                .help("Maximum number of epochs since finalization at which proposer reorgs are \
+                       allowed. Default: 2")
                 .conflicts_with("disable-proposer-reorgs")
         )
         .arg(

@@ -183,10 +183,6 @@ pub struct ProposerHeadInfo {
     pub parent_node: ProtoNode,
     /// The computed fraction of the active committee balance below which we can re-org.
     pub re_org_weight_threshold: u64,
-    /// The computed fraction of the active committee balance which participation must exceed.
-    ///
-    /// This value requires an additional 1-2x multiplier depending on the current slot.
-    pub participation_weight_threshold: u64,
     /// The current slot from fork choice's point of view, may lead the wall-clock slot by upto
     /// 500ms.
     pub current_slot: Slot,
@@ -236,13 +232,13 @@ impl<E1> ProposerHeadError<E1> {
 #[derive(Clone, PartialEq)]
 pub enum DoNotReOrg {
     MissingHeadOrParentNode,
+    MissingHeadFinalizedCheckpoint,
     ParentDistance,
     HeadDistance,
     ShufflingUnstable,
     JustificationAndFinalizationNotCompetitive,
-    ParticipationTooLow {
-        parent_weight: u64,
-        participation_weight_threshold: u64,
+    ChainNotFinalizing {
+        epochs_since_finalization: u64,
     },
     HeadNotWeak {
         head_weight: u64,
@@ -257,18 +253,18 @@ impl std::fmt::Display for DoNotReOrg {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
             Self::MissingHeadOrParentNode => write!(f, "unknown head or parent"),
+            Self::MissingHeadFinalizedCheckpoint => write!(f, "finalized checkpoint missing"),
             Self::ParentDistance => write!(f, "parent too far from head"),
             Self::HeadDistance => write!(f, "head too far from current slot"),
             Self::ShufflingUnstable => write!(f, "shuffling unstable at epoch boundary"),
             Self::JustificationAndFinalizationNotCompetitive => {
                 write!(f, "justification or finalization not competitive")
             }
-            Self::ParticipationTooLow {
-                parent_weight,
-                participation_weight_threshold,
+            Self::ChainNotFinalizing {
+                epochs_since_finalization,
             } => write!(
                 f,
-                "participation too low ({parent_weight}/{participation_weight_threshold})"
+                "chain not finalizing ({epochs_since_finalization} epochs since finalization)"
             ),
             Self::HeadNotWeak {
                 head_weight,
@@ -293,11 +289,6 @@ impl std::fmt::Display for DoNotReOrg {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct ReOrgThreshold(pub u64);
-
-/// New-type for the re-org participation threshold percentage.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(transparent)]
-pub struct ParticipationThreshold(pub u64);
 
 #[derive(PartialEq)]
 pub struct ProtoArrayForkChoice {
@@ -457,33 +448,20 @@ impl ProtoArrayForkChoice {
         canonical_head: Hash256,
         justified_balances: &JustifiedBalances,
         re_org_threshold: ReOrgThreshold,
-        participation_threshold: ParticipationThreshold,
+        max_epochs_since_finalization: Epoch,
     ) -> Result<ProposerHeadInfo, ProposerHeadError<Error>> {
         let info = self.get_proposer_head_info::<E>(
             current_slot,
             canonical_head,
             justified_balances,
             re_org_threshold,
-            participation_threshold,
+            max_epochs_since_finalization,
         )?;
 
         // Only re-org a single slot. This prevents cascading failures during asynchrony.
         let head_slot_ok = info.head_node.slot + 1 == current_slot;
         if !head_slot_ok {
             return Err(DoNotReOrg::HeadDistance.into());
-        }
-
-        // To prevent excessive re-orgs when the chain is struggling, only re-org when participation
-        // is above the configured threshold.
-        let parent_weight = info.parent_node.weight;
-        let participation_weight_threshold = info.participation_weight_threshold.saturating_mul(2);
-        let participation_ok = parent_weight >= participation_weight_threshold;
-        if !participation_ok {
-            return Err(DoNotReOrg::ParticipationTooLow {
-                parent_weight,
-                participation_weight_threshold,
-            }
-            .into());
         }
 
         // Only re-org if the head's weight is less than the configured committee fraction.
@@ -511,7 +489,7 @@ impl ProtoArrayForkChoice {
         canonical_head: Hash256,
         justified_balances: &JustifiedBalances,
         re_org_threshold: ReOrgThreshold,
-        participation_threshold: ParticipationThreshold,
+        max_epochs_since_finalization: Epoch,
     ) -> Result<ProposerHeadInfo, ProposerHeadError<Error>> {
         let mut nodes = self
             .proto_array
@@ -526,6 +504,20 @@ impl ProtoArrayForkChoice {
         let parent_slot = parent_node.slot;
         let head_slot = head_node.slot;
         let re_org_block_slot = head_slot + 1;
+
+        // Check finalization distance.
+        let proposal_epoch = re_org_block_slot.epoch(E::slots_per_epoch());
+        let finalized_epoch = head_node
+            .unrealized_finalized_checkpoint
+            .ok_or(DoNotReOrg::MissingHeadFinalizedCheckpoint)?
+            .epoch;
+        let epochs_since_finalization = proposal_epoch.saturating_sub(finalized_epoch).as_u64();
+        if epochs_since_finalization > max_epochs_since_finalization.as_u64() {
+            return Err(DoNotReOrg::ChainNotFinalizing {
+                epochs_since_finalization,
+            }
+            .into());
+        }
 
         // Check parent distance from head.
         // Do not check head distance from current slot, as that condition needs to be
@@ -555,16 +547,10 @@ impl ProtoArrayForkChoice {
             calculate_committee_fraction::<E>(justified_balances, re_org_threshold.0)
                 .ok_or(Error::ReOrgThresholdOverflow)?;
 
-        // Compute participation threshold.
-        let participation_weight_threshold =
-            calculate_committee_fraction::<E>(justified_balances, participation_threshold.0)
-                .ok_or(Error::ReOrgParticipationThresholdOverflow)?;
-
         Ok(ProposerHeadInfo {
             head_node,
             parent_node,
             re_org_weight_threshold,
-            participation_weight_threshold,
             current_slot,
         })
     }

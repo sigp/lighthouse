@@ -2,7 +2,7 @@ use beacon_node::{beacon_chain::CountUnrealizedFull, ClientConfig as Config};
 
 use crate::exec::{CommandLineTestExec, CompletedTest};
 use beacon_node::beacon_chain::chain_config::{
-    DEFAULT_RE_ORG_PARTICIPATION_THRESHOLD, DEFAULT_RE_ORG_THRESHOLD,
+    DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION, DEFAULT_RE_ORG_THRESHOLD,
 };
 use eth1::Eth1Endpoint;
 use lighthouse_network::PeerId;
@@ -1537,8 +1537,8 @@ fn enable_proposer_re_orgs_default() {
             Some(DEFAULT_RE_ORG_THRESHOLD)
         );
         assert_eq!(
-            config.chain.re_org_participation_threshold,
-            DEFAULT_RE_ORG_PARTICIPATION_THRESHOLD,
+            config.chain.re_org_max_epochs_since_finalization,
+            DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION,
         );
     });
 }
@@ -1560,11 +1560,16 @@ fn proposer_re_org_threshold() {
 }
 
 #[test]
-fn proposer_re_org_participation_threshold() {
+fn proposer_re_org_max_epochs_since_finalization() {
     CommandLineTest::new()
-        .flag("proposer-reorg-participation-threshold", Some("20"))
+        .flag("proposer-reorg-epochs-since-finalization", Some("8"))
         .run()
-        .with_config(|config| assert_eq!(config.chain.re_org_participation_threshold.0, 20));
+        .with_config(|config| {
+            assert_eq!(
+                config.chain.re_org_max_epochs_since_finalization.as_u64(),
+                8
+            )
+        });
 }
 
 #[test]

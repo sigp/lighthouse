@@ -12,7 +12,8 @@ There are three flags which control the re-orging behaviour:
 
 * `--disable-proposer-reorgs`: turn re-orging off (it's on by default).
 * `--proposer-reorg-threshold N`: attempt to orphan blocks with less than N% of the committee vote. If this parameter isn't set then N defaults to 20% when the feature is enabled.
-* `--proposer-reorg-participation-threshold N`: only attempt to re-org late blocks when the on-chain participation is approximately N% or greater. Default is 70%.
+* `--proposer-reorg-epochs-since-finalization N`: only attempt to re-org late blocks when the number of epochs since finalization is less than or equal to N. The default is 2 epochs,
+  meaning re-orgs will only be attempted when the chain is finalizing optimally.
 
 All flags should be applied to `lighthouse bn`. The default configuration is recommended as it
 balances the chance of the re-org succeeding against the chance of failure due to attestations

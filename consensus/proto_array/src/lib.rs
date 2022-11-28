@@ -10,8 +10,8 @@ pub use crate::proto_array::{
     calculate_committee_fraction, CountUnrealizedFull, InvalidationOperation,
 };
 pub use crate::proto_array_fork_choice::{
-    Block, DoNotReOrg, ExecutionStatus, ParticipationThreshold, ProposerHeadError,
-    ProposerHeadInfo, ProtoArrayForkChoice, ReOrgThreshold,
+    Block, DoNotReOrg, ExecutionStatus, ProposerHeadError, ProposerHeadInfo, ProtoArrayForkChoice,
+    ReOrgThreshold,
 };
 pub use error::Error;
 
