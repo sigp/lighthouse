@@ -2,6 +2,7 @@ mod kzg_commitment;
 mod kzg_proof;
 
 pub use crate::{kzg_commitment::KzgCommitment, kzg_proof::KzgProof};
+pub use c_kzg::bytes_to_g1;
 use c_kzg::{Error as CKzgError, KZGSettings, BYTES_PER_FIELD_ELEMENT, FIELD_ELEMENTS_PER_BLOB};
 use std::path::PathBuf;
 

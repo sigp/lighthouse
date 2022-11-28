@@ -3967,7 +3967,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 slot,
                 beacon_block_root,
                 expected_kzg_commitments,
-                blobs_sidecar.clone(),
+                &blobs_sidecar,
             )
             .map_err(BlockProductionError::KzgError)?;
             self.blob_cache.put(beacon_block_root, blobs_sidecar);
