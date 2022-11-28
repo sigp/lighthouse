@@ -1667,7 +1667,8 @@ fn verify_builder_bid<T: EthSpec, Payload: ExecPayload<T>>(
     let payload_value = bid.data.message.value;
 
     // Avoid logging values that we can't represent with our Prometheus library.
-    if payload_value <= Uint256::from(i64::max_value()) {
+    let payload_value_gwei = bid.data.message.value / 1_000_000_000;
+    if payload_value_gwei <= Uint256::from(i64::max_value()) {
         metrics::set_gauge_vec(
             &metrics::EXECUTION_LAYER_PAYLOAD_BIDS,
             &[metrics::BUILDER],
