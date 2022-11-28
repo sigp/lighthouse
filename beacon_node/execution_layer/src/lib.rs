@@ -568,69 +568,66 @@ impl<T: EthSpec> ExecutionLayer<T> {
                     &metrics::EXECUTION_LAYER_REQUEST_TIMES,
                     &[metrics::GET_BLINDED_PAYLOAD],
                 );
-                match self
-                    .get_blinded_payload(
-                        parent_hash,
-                        timestamp,
-                        prev_randao,
-                        suggested_fee_recipient,
-                        forkchoice_update_params,
-                        builder_params,
-                        spec,
-                    )
-                    .await?
-                {
-                    ProvenancedPayload::Local(payload) => {
-                        metrics::inc_counter_vec(
-                            &metrics::EXECUTION_LAYER_GET_PAYLOAD_SOURCE,
-                            &[metrics::LOCAL],
-                        );
-                        Ok(payload)
-                    }
-                    ProvenancedPayload::Builder(payload) => {
-                        metrics::inc_counter_vec(
-                            &metrics::EXECUTION_LAYER_GET_PAYLOAD_SOURCE,
-                            &[metrics::BUILDER],
-                        );
-                        Ok(payload)
-                    }
-                }
+                self.get_blinded_payload(
+                    parent_hash,
+                    timestamp,
+                    prev_randao,
+                    suggested_fee_recipient,
+                    forkchoice_update_params,
+                    builder_params,
+                    spec,
+                )
+                .await
             }
             BlockType::Full => {
                 let _timer = metrics::start_timer_vec(
                     &metrics::EXECUTION_LAYER_REQUEST_TIMES,
                     &[metrics::GET_PAYLOAD],
                 );
-                let payload = self
-                    .get_full_payload(
-                        parent_hash,
-                        timestamp,
-                        prev_randao,
-                        suggested_fee_recipient,
-                        forkchoice_update_params,
-                    )
-                    .await?;
+                self.get_full_payload(
+                    parent_hash,
+                    timestamp,
+                    prev_randao,
+                    suggested_fee_recipient,
+                    forkchoice_update_params,
+                )
+                .await
+                .map(ProvenancedPayload::Local)
+            }
+        };
+
+        // Track some metrics and return the result.
+        match payload_result {
+            Ok(ProvenancedPayload::Local(payload)) => {
+                metrics::inc_counter_vec(
+                    &metrics::EXECUTION_LAYER_GET_PAYLOAD_OUTCOME,
+                    &[metrics::SUCCESS],
+                );
                 metrics::inc_counter_vec(
                     &metrics::EXECUTION_LAYER_GET_PAYLOAD_SOURCE,
                     &[metrics::LOCAL],
                 );
                 Ok(payload)
             }
-        };
-
-        if payload_result.is_ok() {
-            metrics::inc_counter_vec(
-                &metrics::EXECUTION_LAYER_GET_PAYLOAD_OUTCOME,
-                &[metrics::SUCCESS],
-            )
-        } else {
-            metrics::inc_counter_vec(
-                &metrics::EXECUTION_LAYER_GET_PAYLOAD_OUTCOME,
-                &[metrics::FAILURE],
-            )
+            Ok(ProvenancedPayload::Builder(payload)) => {
+                metrics::inc_counter_vec(
+                    &metrics::EXECUTION_LAYER_GET_PAYLOAD_OUTCOME,
+                    &[metrics::SUCCESS],
+                );
+                metrics::inc_counter_vec(
+                    &metrics::EXECUTION_LAYER_GET_PAYLOAD_SOURCE,
+                    &[metrics::LOCAL],
+                );
+                Ok(payload)
+            }
+            Err(e) => {
+                metrics::inc_counter_vec(
+                    &metrics::EXECUTION_LAYER_GET_PAYLOAD_OUTCOME,
+                    &[metrics::FAILURE],
+                );
+                Err(e)
+            }
         }
-
-        payload_result
     }
 
     #[allow(clippy::too_many_arguments)]
