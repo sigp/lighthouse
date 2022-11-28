@@ -4191,6 +4191,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .await,
             #[cfg(feature = "withdrawals")]
             withdrawals,
+            #[cfg(not(feature = "withdrawals"))]
+            withdrawals: None,
         });
 
         debug!(

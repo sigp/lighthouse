@@ -7,11 +7,9 @@ use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 use strum::IntoStaticStr;
 use superstruct::superstruct;
-#[cfg(feature = "withdrawals")]
-use types::Withdrawal;
 pub use types::{
     Address, EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadHeader, FixedVector,
-    ForkName, Hash256, Uint256, VariableList,
+    ForkName, Hash256, Uint256, VariableList, Withdrawal,
 };
 
 pub mod auth;
@@ -257,7 +255,6 @@ pub struct PayloadAttributes {
     pub prev_randao: Hash256,
     #[superstruct(getter(copy))]
     pub suggested_fee_recipient: Address,
-    #[cfg(feature = "withdrawals")]
     #[superstruct(only(V2))]
     pub withdrawals: Option<Vec<Withdrawal>>,
 }

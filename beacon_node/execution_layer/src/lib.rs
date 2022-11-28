@@ -933,6 +933,8 @@ impl<T: EthSpec> ExecutionLayer<T> {
                         suggested_fee_recipient,
                         #[cfg(feature = "withdrawals")]
                         withdrawals: withdrawals_ref.clone(),
+                        #[cfg(not(feature = "withdrawals"))]
+                        withdrawals: None,
                     });
 
                     let response = engine

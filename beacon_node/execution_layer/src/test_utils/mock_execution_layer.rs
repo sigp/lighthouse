@@ -115,6 +115,8 @@ impl<T: EthSpec> MockExecutionLayer<T> {
                         // FIXME: think about adding withdrawals here..
                         #[cfg(feature = "withdrawals")]
                         withdrawals: Some(vec![]),
+                        #[cfg(not(feature = "withdrawals"))]
+                        withdrawals: None,
                     })
                 }
             },
