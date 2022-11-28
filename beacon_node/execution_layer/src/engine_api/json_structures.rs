@@ -97,7 +97,7 @@ pub struct JsonExecutionPayload<T: EthSpec> {
     #[superstruct(only(V2))]
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(default)]
-    // #[serde(with = "eth2_serde_utils::u256_hex_be_opt")]
+    #[serde(with = "eth2_serde_utils::u256_hex_be_opt")]
     pub excess_data_gas: Option<Uint256>,
     pub block_hash: ExecutionBlockHash,
     #[serde(with = "ssz_types::serde_utils::list_of_hex_var_list")]
@@ -427,7 +427,7 @@ impl From<JsonPayloadAttributes> for PayloadAttributes {
 pub struct JsonBlobsBundle<T: EthSpec> {
     pub block_hash: ExecutionBlockHash,
     pub kzgs: VariableList<KzgCommitment, T::MaxBlobsPerBlock>,
-    // #[serde(with = "ssz_types::serde_utils::list_of_hex_fixed_vec")]
+    #[serde(with = "ssz_types::serde_utils::list_of_hex_fixed_vec")]
     pub blobs: VariableList<Blob<T>, T::MaxBlobsPerBlock>,
 }
 

@@ -12,7 +12,7 @@ use tree_hash_derive::TreeHash;
 pub struct BlobsSidecar<T: EthSpec> {
     pub beacon_block_root: Hash256,
     pub beacon_block_slot: Slot,
-    // #[serde(with = "ssz_types::serde_utils::list_of_hex_fixed_vec")]
+    #[serde(with = "ssz_types::serde_utils::list_of_hex_fixed_vec")]
     pub blobs: VariableList<Blob<T>, T::MaxBlobsPerBlock>,
     pub kzg_aggregated_proof: KzgProof,
 }
