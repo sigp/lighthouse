@@ -59,6 +59,8 @@ pub struct ChainConfig {
     pub paranoid_block_proposal: bool,
     /// Whether to strictly count unrealized justified votes.
     pub count_unrealized_full: CountUnrealizedFull,
+    /// Optionally set timeout for calls to checkpoint sync endpoint.
+    pub checkpoint_sync_url_timeout: u64,
     /// The offset before the start of a proposal slot at which payload attributes should be sent.
     ///
     /// Low values are useful for execution engines which don't improve their payload after the
@@ -86,6 +88,7 @@ impl Default for ChainConfig {
             always_reset_payload_statuses: false,
             paranoid_block_proposal: false,
             count_unrealized_full: CountUnrealizedFull::default(),
+            checkpoint_sync_url_timeout: 60,
             prepare_payload_lookahead: Duration::from_secs(4),
         }
     }

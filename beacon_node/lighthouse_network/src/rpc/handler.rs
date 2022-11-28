@@ -285,7 +285,7 @@ where
         } else {
             if !matches!(response, RPCCodedResponse::StreamTermination(..)) {
                 // the stream is closed after sending the expected number of responses
-                trace!(self.log, "Inbound stream has expired, response not sent";
+                trace!(self.log, "Inbound stream has expired. Response not sent";
                     "response" => %response, "id" => inbound_id);
             }
             return;
