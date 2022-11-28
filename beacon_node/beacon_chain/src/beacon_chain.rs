@@ -53,13 +53,13 @@ use crate::validator_monitor::{
     HISTORIC_EPOCHS as VALIDATOR_MONITOR_HISTORIC_EPOCHS,
 };
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
-use crate::BeaconForkChoiceStore;
 use crate::BeaconSnapshot;
+use crate::{kzg_utils, BeaconForkChoiceStore};
 use crate::{metrics, BeaconChainError};
 use eth2::types::{EventKind, SseBlock, SyncDuty};
 use execution_layer::{
     BlockProposalContents, BuilderParams, ChainHealth, ExecutionLayer, FailedCondition,
-    PayloadAttributes, PayloadAttributesV1, PayloadAttributesV2, PayloadStatus,
+    PayloadAttributes, PayloadAttributesV2, PayloadStatus,
 };
 pub use fork_choice::CountUnrealized;
 use fork_choice::{
@@ -3938,17 +3938,38 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         *block.state_root_mut() = state_root;
 
         //FIXME(sean)
-        // - generate kzg proof
-        // - validate blobs then cache them
         // - add a new timer for processing here
         if let Some(blobs) = blobs_opt {
+            let kzg = if let Some(kzg) = &self.kzg {
+                kzg
+            } else {
+                return Err(BlockProductionError::KzgError(
+                    "Trusted setup not initialized".to_string(),
+                ));
+            };
+            let kzg_aggregated_proof =
+                kzg_utils::compute_aggregate_kzg_proof::<T::EthSpec>(&kzg, &blobs)
+                    .map_err(|e| BlockProductionError::KzgError(e))?;
             let beacon_block_root = block.canonical_root();
+            let expected_kzg_commitments = block.body().blob_kzg_commitments().map_err(|_| {
+                BlockProductionError::KzgError(
+                    "EIP4844 block does not contain kzg commitments".to_string(),
+                )
+            })?;
             let blobs_sidecar = BlobsSidecar {
                 beacon_block_slot: slot,
                 beacon_block_root,
                 blobs,
-                kzg_aggregated_proof: KzgProof::default(),
+                kzg_aggregated_proof,
             };
+            kzg_utils::validate_blobs_sidecar(
+                &kzg,
+                slot,
+                beacon_block_root,
+                expected_kzg_commitments,
+                blobs_sidecar.clone(),
+            )
+            .map_err(BlockProductionError::KzgError)?;
             self.blob_cache.put(beacon_block_root, blobs_sidecar);
         }
 

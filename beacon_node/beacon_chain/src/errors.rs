@@ -267,6 +267,7 @@ pub enum BlockProductionError {
     TokioJoin(tokio::task::JoinError),
     BeaconChain(BeaconChainError),
     InvalidPayloadFork,
+    KzgError(String),
 }
 
 easy_from_to!(BlockProcessingError, BlockProductionError);
