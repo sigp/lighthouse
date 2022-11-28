@@ -148,8 +148,8 @@ impl<T: EthSpec> From<FullPayload<T>> for ExecutionPayload<T> {
 }
 
 impl<'a, T: EthSpec> From<FullPayloadRef<'a, T>> for ExecutionPayload<T> {
-    fn from(full_payload: FullPayloadRef<'a, T>) -> Self {
-        match full_payload {
+    fn from(full_payload_ref: FullPayloadRef<'a, T>) -> Self {
+        match full_payload_ref {
             FullPayloadRef::Merge(payload) => {
                 ExecutionPayload::Merge(payload.execution_payload.clone())
             }
@@ -158,6 +158,23 @@ impl<'a, T: EthSpec> From<FullPayloadRef<'a, T>> for ExecutionPayload<T> {
             }
             FullPayloadRef::Eip4844(payload) => {
                 ExecutionPayload::Eip4844(payload.execution_payload.clone())
+            }
+        }
+    }
+}
+
+// FIXME: can this be implemented as Deref or Clone somehow?
+impl<'a, T: EthSpec> From<FullPayloadRef<'a, T>> for FullPayload<T> {
+    fn from(full_payload_ref: FullPayloadRef<'a, T>) -> Self {
+        match full_payload_ref {
+            FullPayloadRef::Merge(payload_ref) => {
+                FullPayload::Merge(payload_ref.clone())
+            }
+            FullPayloadRef::Capella(payload_ref) => {
+                FullPayload::Capella(payload_ref.clone())
+            }
+            FullPayloadRef::Eip4844(payload_ref) => {
+                FullPayload::Eip4844(payload_ref.clone())
             }
         }
     }
