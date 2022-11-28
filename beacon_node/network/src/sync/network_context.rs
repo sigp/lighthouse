@@ -460,6 +460,8 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
     ) -> Result<Id, &'static str> {
         //FIXME(sean) add prune depth logic here?
         // D: YES
+        // MOREINFO: here depending of the boundaries we decide what kind of request we send, if we
+        // request just a block or if we request a block, glob pair.
 
         trace!(
             self.log,
