@@ -1218,11 +1218,11 @@ pub fn serve<T: BeaconChainTypes>(
         .and_then(|block_id: BlockId, chain: Arc<BeaconChain<T>>| {
             blocking_json_task(move || {
                 let (block, execution_optimistic) = block_id.blinded_block(&chain)?;
-
+                let finalized = block_id.is_finalized(&chain);
                 Ok(api_types::GenericResponse::from(api_types::RootData::from(
                     block.canonical_root(),
                 ))
-                .add_execution_optimistic(execution_optimistic))
+                .add_execution_optimistic_finalized(execution_optimistic, finalized))
             })
         });
 
