@@ -83,8 +83,8 @@ pub struct PeerManager<TSpec: EthSpec> {
     // NOTE: This just prevents re-connections. The state of the peer is otherwise unaffected. A
     // peer can be in a disconnected state and new connections will be refused and logged as if the
     // peer is banned without it being reflected in the peer's state.
-    // Also the banned state can out-last the peer's reference in this db. So peers that are
-    // unknown to us can still be temporarily banned. This fundamentally a relationship with
+    // Also the banned state can out-last the peer's reference in the peer db. So peers that are
+    // unknown to us can still be temporarily banned. This is fundamentally a relationship with
     // the swarm. Regardless of our knowledge of the peer in the db, it will be temporarily banned
     // at the swarm layer.
     temporary_banned_peers: LRUTimeCache<PeerId>,
