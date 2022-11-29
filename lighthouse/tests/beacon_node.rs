@@ -1614,3 +1614,14 @@ fn light_client_server_enabled() {
         .run_with_zero_port()
         .with_config(|config| assert_eq!(config.network.enable_light_client_server, true));
 }
+
+#[test]
+fn gui_flag() {
+    CommandLineTest::new()
+        .flag("gui", None)
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert!(config.http_api.enabled);
+            assert!(config.validator_monitor_auto);
+        });
+}
