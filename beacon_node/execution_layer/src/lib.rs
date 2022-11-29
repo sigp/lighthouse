@@ -616,7 +616,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                 );
                 metrics::inc_counter_vec(
                     &metrics::EXECUTION_LAYER_GET_PAYLOAD_SOURCE,
-                    &[metrics::LOCAL],
+                    &[metrics::BUILDER],
                 );
                 Ok(payload)
             }
