@@ -173,7 +173,7 @@ impl BlockId {
             CoreBlockId::Slot(slot) => {
                 let (root, execution_optimistic) = self.root(chain)?;
                 chain
-                    .get_block(&root)
+                    .get_block(root)
                     .await
                     .map_err(warp_utils::reject::beacon_chain_error)
                     .and_then(|block_opt| match block_opt {
@@ -195,7 +195,7 @@ impl BlockId {
             _ => {
                 let (root, execution_optimistic) = self.root(chain)?;
                 chain
-                    .get_block(&root)
+                    .get_block(root)
                     .await
                     .map_err(warp_utils::reject::beacon_chain_error)
                     .and_then(|block_opt| {

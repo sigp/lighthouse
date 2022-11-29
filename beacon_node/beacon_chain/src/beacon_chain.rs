@@ -911,7 +911,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         if let Some(block) = self.early_attester_cache.get_block(*block_root) {
             return Ok(Some(block));
         }
-        Ok(self.get_block(block_root).await?.map(Arc::new))
+        Ok(self.get_block(*block_root).await?.map(Arc::new))
     }
 
     /// Returns the block at the given root, if any.
@@ -921,11 +921,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// May return a database error.
     pub async fn get_block(
         &self,
-        block_root: &Hash256,
+        block_root: Hash256,
     ) -> Result<Option<SignedBeaconBlock<T::EthSpec>>, Error> {
         // Load block from database, returning immediately if we have the full block w payload
         // stored.
-        let blinded_block = match self.store.try_get_full_block(block_root)? {
+        let db = self.store.clone();
+        let database_block = self
+            .spawn_blocking_handle(
+                move || db.try_get_full_block(&block_root),
+                "beacon_chain_get_block_from_db",
+            )
+            .await??;
+        let blinded_block = match database_block {
             Some(DatabaseBlock::Full(block)) => return Ok(Some(block)),
             Some(DatabaseBlock::Blinded(block)) => block,
             None => return Ok(None),
@@ -935,7 +942,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let block_message = blinded_block.message();
         let execution_payload_header = &block_message
             .execution_payload()
-            .map_err(|_| Error::BlockVariantLacksExecutionPayload(*block_root))?
+            .map_err(|_| Error::BlockVariantLacksExecutionPayload(block_root))?
             .execution_payload_header;
 
         let exec_block_hash = execution_payload_header.block_hash;
@@ -968,6 +975,25 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 canonical_transactions_root: execution_payload_header.transactions_root,
                 reconstructed_transactions_root: header_from_payload.transactions_root,
             });
+        }
+
+        // If payload pruning is disabled, store this payload so we don't need to re-load it
+        // in future.
+        if !self.store.get_config().prune_payloads {
+            debug!(
+                self.log,
+                "Caching execution payload";
+                "block_root" => %block_root,
+                "slot" => blinded_block.slot(),
+            );
+
+            let db = self.store.clone();
+            let db_payload = execution_payload.clone();
+            self.spawn_blocking_handle(
+                move || db.put_execution_payload(&block_root, &db_payload),
+                "beacon_chain_store_downloaded_payload",
+            )
+            .await??;
         }
 
         // Add the payload to the block to form a full block.

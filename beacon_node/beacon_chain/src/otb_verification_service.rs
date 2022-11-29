@@ -179,7 +179,7 @@ pub async fn validate_optimistic_transition_blocks<T: BeaconChainTypes>(
 
     // ensure finalized canonical otb are valid, otherwise kill client
     for otb in finalized_canonical_otbs {
-        match chain.get_block(otb.root()).await {
+        match chain.get_block(*otb.root()).await {
             Ok(Some(block)) => {
                 match validate_merge_block(chain, block.message(), AllowOptimisticImport::No).await
                 {
@@ -236,7 +236,7 @@ pub async fn validate_optimistic_transition_blocks<T: BeaconChainTypes>(
 
     // attempt to validate any non-finalized canonical otb blocks
     for otb in unfinalized_canonical_otbs {
-        match chain.get_block(otb.root()).await {
+        match chain.get_block(*otb.root()).await {
             Ok(Some(block)) => {
                 match validate_merge_block(chain, block.message(), AllowOptimisticImport::No).await
                 {

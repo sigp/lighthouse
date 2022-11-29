@@ -454,6 +454,18 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         self.get_item(block_root)
     }
 
+    /// Store the execution payload for a block to disk.
+    ///
+    /// This will commit immediately, usually you'll want to use a transaction.
+    pub fn put_execution_payload(
+        &self,
+        block_root: &Hash256,
+        execution_payload: &ExecutionPayload<E>,
+    ) -> Result<(), Error> {
+        let ops = vec![execution_payload.as_kv_store_op(*block_root)];
+        self.hot_db.do_atomically(ops)
+    }
+
     /// Check if the execution payload for a block exists on disk.
     pub fn execution_payload_exists(&self, block_root: &Hash256) -> Result<bool, Error> {
         self.get_item::<ExecutionPayload<E>>(block_root)

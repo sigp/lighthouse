@@ -351,7 +351,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                 let mut send_response = true;
 
                 for root in block_roots {
-                    match self.chain.get_block(&root).await {
+                    match self.chain.get_block(root).await {
                         Ok(Some(block)) => {
                             // Due to skip slots, blocks could be out of the range, we ensure they
                             // are in the range before sending
