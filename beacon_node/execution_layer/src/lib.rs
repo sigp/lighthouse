@@ -1683,7 +1683,7 @@ fn verify_builder_bid<T: EthSpec, Payload: ExecPayload<T>>(
         metrics::set_gauge_vec(
             &metrics::EXECUTION_LAYER_PAYLOAD_BIDS,
             &[metrics::BUILDER],
-            payload_value.low_u64() as i64,
+            payload_value_gwei.low_u64() as i64,
         );
     }
 
