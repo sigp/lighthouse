@@ -2,7 +2,7 @@ pub use crate::persisted_beacon_chain::PersistedBeaconChain;
 pub use crate::{
     beacon_chain::{BEACON_CHAIN_DB_KEY, ETH1_CACHE_DB_KEY, FORK_CHOICE_DB_KEY, OP_POOL_DB_KEY},
     migrate::MigratorConfig,
-    BeaconChainError, ProduceBlockVerification,
+    BeaconChainError, NotifyExecutionLayer, ProduceBlockVerification,
 };
 use crate::{
     builder::{BeaconChainBuilder, Witness},
@@ -1460,7 +1460,12 @@ where
         self.set_current_slot(slot);
         let block_hash: SignedBeaconBlockHash = self
             .chain
-            .process_block(block_root, Arc::new(block), CountUnrealized::True)
+            .process_block(
+                block_root,
+                Arc::new(block),
+                CountUnrealized::True,
+                NotifyExecutionLayer::Yes,
+            )
             .await?
             .into();
         self.chain.recompute_head_at_current_slot().await;
@@ -1477,6 +1482,7 @@ where
                 block.canonical_root(),
                 Arc::new(block),
                 CountUnrealized::True,
+                NotifyExecutionLayer::Yes,
             )
             .await?
             .into();

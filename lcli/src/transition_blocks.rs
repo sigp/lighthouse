@@ -94,7 +94,7 @@ struct Config {
     exclude_post_block_thc: bool,
 }
 
-pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<(), String> {
+pub fn run<T: EthSpec>(env: Environment<T>, matches: &ArgMatches) -> Result<(), String> {
     let spec = &T::default_spec();
     let executor = env.core_context().executor;
 

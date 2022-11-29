@@ -1548,6 +1548,23 @@ fn enabled_disable_log_timestamp_flag() {
             assert!(config.logger_config.disable_log_timestamp);
         });
 }
+#[test]
+fn logfile_restricted_perms_default() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert!(config.logger_config.is_restricted);
+        });
+}
+#[test]
+fn logfile_no_restricted_perms_flag() {
+    CommandLineTest::new()
+        .flag("logfile-no-restricted-perms", None)
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert!(config.logger_config.is_restricted == false);
+        });
+}
 
 #[test]
 fn sync_eth1_chain_default() {
@@ -1587,7 +1604,7 @@ fn sync_eth1_chain_disable_deposit_contract_sync_flag() {
 fn light_client_server_default() {
     CommandLineTest::new()
         .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.chain.enable_light_client_server, false));
+        .with_config(|config| assert_eq!(config.network.enable_light_client_server, false));
 }
 
 #[test]
@@ -1595,5 +1612,16 @@ fn light_client_server_enabled() {
     CommandLineTest::new()
         .flag("light-client-server", None)
         .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.chain.enable_light_client_server, true));
+        .with_config(|config| assert_eq!(config.network.enable_light_client_server, true));
+}
+
+#[test]
+fn gui_flag() {
+    CommandLineTest::new()
+        .flag("gui", None)
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert!(config.http_api.enabled);
+            assert!(config.validator_monitor_auto);
+        });
 }

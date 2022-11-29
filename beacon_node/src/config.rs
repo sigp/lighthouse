@@ -708,8 +708,11 @@ pub fn get_config<E: EthSpec>(
     client_config.chain.builder_fallback_disable_checks =
         cli_args.is_present("builder-fallback-disable-checks");
 
-    // Light client server config.
-    client_config.chain.enable_light_client_server = cli_args.is_present("light-client-server");
+    // Graphical user interface config.
+    if cli_args.is_present("gui") {
+        client_config.http_api.enabled = true;
+        client_config.validator_monitor_auto = true;
+    }
 
     Ok(client_config)
 }
@@ -921,6 +924,9 @@ pub fn set_network_config(
     if cli_args.is_present("enable-private-discovery") {
         config.discv5_config.table_filter = |_| true;
     }
+
+    // Light client server config.
+    config.enable_light_client_server = cli_args.is_present("light-client-server");
 
     Ok(())
 }
