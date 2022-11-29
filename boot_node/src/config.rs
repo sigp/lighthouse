@@ -78,7 +78,7 @@ impl<T: EthSpec> BootNodeConfig<T> {
                 enable_mapped_addresses: true,
             };
         } else {
-            // Set explicitely as ipv4 otherwise
+            // Set explicitly as ipv4 otherwise
             network_config.discv5_config.ip_mode = IpMode::Ip4;
         }
 
@@ -131,6 +131,9 @@ impl<T: EthSpec> BootNodeConfig<T> {
                             builder.ip6(ipv6_addr);
                             if let Some(port) = network_config.enr_udp_port {
                                 builder.udp6(port);
+                                // We are enabling mapped addresses in the boot node in this case,
+                                // so advertise an udp4 port as well.
+                                builder.udp4(port);
                             }
                         }
                     }
