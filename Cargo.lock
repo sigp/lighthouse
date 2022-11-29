@@ -3718,6 +3718,7 @@ dependencies = [
  "lighthouse_metrics",
  "lighthouse_version",
  "lru",
+ "lru_cache",
  "parking_lot 0.12.1",
  "prometheus-client",
  "quickcheck",
