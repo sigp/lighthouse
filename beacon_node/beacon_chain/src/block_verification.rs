@@ -48,6 +48,7 @@ use crate::execution_payload::{
     is_optimistic_candidate_block, validate_execution_payload_for_gossip, validate_merge_block,
     AllowOptimisticImport, PayloadNotifier,
 };
+use crate::kzg_utils;
 use crate::snapshot_cache::PreProcessingSnapshot;
 use crate::validator_monitor::HISTORIC_EPOCHS as VALIDATOR_MONITOR_HISTORIC_EPOCHS;
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
@@ -69,6 +70,7 @@ use safe_arith::ArithError;
 use slog::{debug, error, warn, Logger};
 use slot_clock::SlotClock;
 use ssz::Encode;
+use state_processing::per_block_processing::eip4844::eip4844::verify_kzg_commitments_against_transactions;
 use state_processing::per_block_processing::is_merge_transition_block;
 use state_processing::{
     block_signature_verifier::{BlockSignatureVerifier, Error as BlockSignatureVerifierError},
@@ -584,6 +586,8 @@ pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
     drop(pubkey_cache);
 
     //FIXME(sean) batch verify kzg blobs
+    // TODO(pawan): do not have the sidecar here, maybe validate kzg proofs in a different function
+    // with relevant block params?
 
     let mut signature_verified_blocks = chain_segment
         .into_iter()
@@ -926,14 +930,14 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
                 chain,
             )
             .map_err(BlobValidation)?;
-            //FIXME(sean) validate blobs sidecar
         }
 
         // Having checked the proposer index and the block root we can cache them.
         let consensus_context = ConsensusContext::new(block.slot())
             .set_current_block_root(block_root)
             .set_proposer_index(block.message().proposer_index())
-            //FIXME(sean) set blobs sidecar validation results
+            .set_blobs_sidecar_validated(true) // Validated in `validate_blob_for_gossip`
+            .set_blobs_verified_vs_txs(true) // Validated in `validate_blob_for_gossip`
             .set_blobs_sidecar(blobs);
 
         Ok(Self {
@@ -1479,7 +1483,54 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
             });
         }
 
-        //FIXME(sean) validate blobs sidecar
+        // TODO: are we guaranteed that consensus_context.blobs_sidecar == blobs ?
+        /* Verify kzg proofs and kzg commitments against transactions if required */
+        if let Some(ref sidecar) = blobs {
+            let kzg = chain.kzg.as_ref().ok_or(BlockError::BlobValidation(
+                BlobError::TrustedSetupNotInitialized,
+            ))?;
+            let transactions = block
+                .message()
+                .body()
+                .execution_payload_eip4844()
+                .map(|payload| payload.transactions())
+                .map_err(|_| BlockError::BlobValidation(BlobError::TransactionsMissing))?
+                .ok_or(BlockError::BlobValidation(BlobError::TransactionsMissing))?;
+            let kzg_commitments = block
+                .message()
+                .body()
+                .blob_kzg_commitments()
+                .map_err(|_| BlockError::BlobValidation(BlobError::KzgCommitmentMissing))?;
+            if !consensus_context.blobs_sidecar_validated() {
+                if !kzg_utils::validate_blobs_sidecar(
+                    &kzg,
+                    block.slot(),
+                    block_root,
+                    kzg_commitments,
+                    sidecar,
+                )
+                .map_err(|e| BlockError::BlobValidation(BlobError::KzgError(e)))?
+                {
+                    return Err(BlockError::BlobValidation(BlobError::InvalidKzgProof));
+                }
+            }
+            if !consensus_context.blobs_verified_vs_txs()
+                && verify_kzg_commitments_against_transactions::<T::EthSpec>(
+                    transactions,
+                    kzg_commitments,
+                )
+                .is_err()
+            {
+                return Err(BlockError::BlobValidation(
+                    BlobError::TransactionCommitmentMismatch,
+                ));
+            }
+            // TODO(pawan): confirm with sean. are we expected to set the context here? because the ConsensusContext
+            // setters don't take mutable references.
+            // Set the consensus context after completing the required kzg valdiations
+            // consensus_context.set_blobs_sidecar_validated(true);
+            // consensus_context.set_blobs_verified_vs_txs(true);
+        }
 
         Ok(Self {
             block,

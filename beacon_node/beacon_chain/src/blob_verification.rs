@@ -65,7 +65,7 @@ pub enum BlobError {
 
     InvalidKzgProof,
 
-    KzgError(String),
+    KzgError(kzg::Error),
 
     /// A blob sidecar for this proposer and slot has already been observed.
     ///

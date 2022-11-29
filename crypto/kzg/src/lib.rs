@@ -21,6 +21,7 @@ pub enum Error {
     KzgVerificationFailed(CKzgError),
     InvalidLength(String),
     KzgProofComputationFailed(CKzgError),
+    InvalidBlob(String),
 }
 
 /// A wrapper over a kzg library that holds the trusted setup parameters.

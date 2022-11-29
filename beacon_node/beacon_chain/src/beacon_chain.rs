@@ -3943,16 +3943,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             let kzg = if let Some(kzg) = &self.kzg {
                 kzg
             } else {
-                return Err(BlockProductionError::KzgError(
-                    "Trusted setup not initialized".to_string(),
-                ));
+                return Err(BlockProductionError::TrustedSetupNotInitialized);
             };
             let kzg_aggregated_proof =
                 kzg_utils::compute_aggregate_kzg_proof::<T::EthSpec>(&kzg, &blobs)
                     .map_err(|e| BlockProductionError::KzgError(e))?;
             let beacon_block_root = block.canonical_root();
             let expected_kzg_commitments = block.body().blob_kzg_commitments().map_err(|_| {
-                BlockProductionError::KzgError(
+                BlockProductionError::InvalidBlockVariant(
                     "EIP4844 block does not contain kzg commitments".to_string(),
                 )
             })?;
