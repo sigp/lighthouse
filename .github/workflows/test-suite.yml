@@ -418,3 +418,14 @@ jobs:
     env:
       # Allow warnings on Nightly
       RUSTFLAGS: ""
+  compile-with-beta-compiler:
+    name: compile-with-beta-compiler
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - name: Install dependencies
+      run: sudo apt install -y git gcc g++ make cmake pkg-config llvm-dev libclang-dev clang protobuf-compiler
+    - name: Use Rust beta
+      run: rustup override set beta
+    - name: Run make
+      run: make

@@ -751,10 +751,11 @@ impl Service {
             let deposit_count_to_finalize = eth1data_to_finalize.deposit_count;
             if deposit_count_to_finalize > already_finalized {
                 match self.finalize_deposits(eth1data_to_finalize) {
-                    Err(e) => error!(
+                    Err(e) => warn!(
                         self.log,
                         "Failed to finalize deposit cache";
                         "error" => ?e,
+                        "info" => "this should resolve on its own"
                     ),
                     Ok(()) => info!(
                         self.log,
@@ -814,9 +815,10 @@ impl Service {
             .block_by_hash(&eth1_data.block_hash)
             .cloned()
             .ok_or_else(|| {
-                Error::FailedToFinalizeDeposit(
-                    "Finalized block not found in block cache".to_string(),
-                )
+                Error::FailedToFinalizeDeposit(format!(
+                    "Finalized block not found in block cache: {:?}",
+                    eth1_data.block_hash
+                ))
             })?;
         self.inner
             .deposit_cache

@@ -26,12 +26,14 @@ use beacon_chain::{
     BeaconChainTypes, ProduceBlockVerification, WhenSlotSkipped,
 };
 pub use block_id::BlockId;
+use directory::DEFAULT_ROOT_DIR;
 use eth2::types::{
     self as api_types, EndpointVersion, SkipRandaoVerification, ValidatorId, ValidatorStatus,
 };
 use lighthouse_network::{types::SyncState, EnrExt, NetworkGlobals, PeerId, PubsubMessage};
 use lighthouse_version::version_with_platform;
 use network::{NetworkMessage, NetworkSenders, ValidatorSubscriptionMessage};
+use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use slog::{crit, debug, error, info, warn, Logger};
 use slot_clock::SlotClock;
@@ -43,6 +45,8 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::Arc;
+use sysinfo::{System, SystemExt};
+use system_health::observe_system_health_bn;
 use tokio::sync::mpsc::{Sender, UnboundedSender};
 use tokio_stream::{wrappers::BroadcastStream, StreamExt};
 use types::{
@@ -110,6 +114,7 @@ pub struct Config {
     pub tls_config: Option<TlsConfig>,
     pub allow_sync_stalled: bool,
     pub spec_fork_name: Option<ForkName>,
+    pub data_dir: PathBuf,
 }
 
 impl Default for Config {
@@ -122,6 +127,7 @@ impl Default for Config {
             tls_config: None,
             allow_sync_stalled: false,
             spec_fork_name: None,
+            data_dir: PathBuf::from(DEFAULT_ROOT_DIR),
         }
     }
 }
@@ -323,6 +329,10 @@ pub fn serve<T: BeaconChainTypes>(
             }
         });
 
+    // Create a `warp` filter for the data_dir.
+    let inner_data_dir = ctx.config.data_dir.clone();
+    let data_dir_filter = warp::any().map(move || inner_data_dir.clone());
+
     // Create a `warp` filter that provides access to the beacon chain.
     let inner_ctx = ctx.clone();
     let chain_filter =
@@ -430,6 +440,37 @@ pub fn serve<T: BeaconChainTypes>(
     // Create a `warp` filter that provides access to the logger.
     let inner_ctx = ctx.clone();
     let log_filter = warp::any().map(move || inner_ctx.log.clone());
+
+    // Create a `warp` filter that provides access to local system information.
+    let system_info = Arc::new(RwLock::new(sysinfo::System::new()));
+    {
+        // grab write access for initialisation
+        let mut system_info = system_info.write();
+        system_info.refresh_disks_list();
+        system_info.refresh_networks_list();
+        system_info.refresh_cpu_specifics(sysinfo::CpuRefreshKind::everything());
+        system_info.refresh_cpu();
+    } // end lock
+
+    let system_info_filter =
+        warp::any()
+            .map(move || system_info.clone())
+            .map(|sysinfo: Arc<RwLock<System>>| {
+                {
+                    // refresh stats
+                    let mut sysinfo_lock = sysinfo.write();
+                    sysinfo_lock.refresh_memory();
+                    sysinfo_lock.refresh_cpu_specifics(sysinfo::CpuRefreshKind::everything());
+                    sysinfo_lock.refresh_cpu();
+                    sysinfo_lock.refresh_system();
+                    sysinfo_lock.refresh_networks();
+                    sysinfo_lock.refresh_disks();
+                } // end lock
+                sysinfo
+            });
+
+    let app_start = std::time::Instant::now();
+    let app_start_filter = warp::any().map(move || app_start);
 
     /*
      *
@@ -2822,6 +2863,29 @@ pub fn serve<T: BeaconChainTypes>(
             })
         });
 
+    // GET lighthouse/ui/health
+    let get_lighthouse_ui_health = warp::path("lighthouse")
+        .and(warp::path("ui"))
+        .and(warp::path("health"))
+        .and(warp::path::end())
+        .and(system_info_filter)
+        .and(app_start_filter)
+        .and(data_dir_filter)
+        .and(network_globals.clone())
+        .and_then(
+            |sysinfo, app_start: std::time::Instant, data_dir, network_globals| {
+                blocking_json_task(move || {
+                    let app_uptime = app_start.elapsed().as_secs() as u64;
+                    Ok(api_types::GenericResponse::from(observe_system_health_bn(
+                        sysinfo,
+                        data_dir,
+                        app_uptime,
+                        network_globals,
+                    )))
+                })
+            },
+        );
+
     // GET lighthouse/syncing
     let get_lighthouse_syncing = warp::path("lighthouse")
         .and(warp::path("syncing"))
@@ -3271,6 +3335,7 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(get_validator_aggregate_attestation.boxed())
                 .or(get_validator_sync_committee_contribution.boxed())
                 .or(get_lighthouse_health.boxed())
+                .or(get_lighthouse_ui_health.boxed())
                 .or(get_lighthouse_syncing.boxed())
                 .or(get_lighthouse_nat.boxed())
                 .or(get_lighthouse_peers.boxed())

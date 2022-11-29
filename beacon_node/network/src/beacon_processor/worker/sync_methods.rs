@@ -428,7 +428,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                 } else {
                     // The block is in the future, but not too far.
                     debug!(
-                        self.log, "Block is slightly ahead of our slot clock, ignoring.";
+                        self.log, "Block is slightly ahead of our slot clock. Ignoring.";
                         "present_slot" => present_slot,
                         "block_slot" => block_slot,
                         "FUTURE_SLOT_TOLERANCE" => FUTURE_SLOT_TOLERANCE,
