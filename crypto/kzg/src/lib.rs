@@ -19,8 +19,6 @@ pub enum Error {
     InvalidKzgCommitment(CKzgError),
     InvalidKzgProof(CKzgError),
     KzgVerificationFailed(CKzgError),
-    EmptyBlobs,
-    EmptyKzgCommitments,
     InvalidLength(String),
     KzgProofComputationFailed(CKzgError),
 }
@@ -39,9 +37,6 @@ impl Kzg {
     }
 
     pub fn compute_aggregate_kzg_proof(&self, blobs: &[Blob]) -> Result<KzgProof, Error> {
-        if blobs.len() == 0 {
-            return Err(Error::EmptyBlobs);
-        }
         c_kzg::KZGProof::compute_aggregate_kzg_proof(blobs, &self.trusted_setup)
             .map_err(Error::KzgProofComputationFailed)
             .map(|proof| KzgProof(proof.to_bytes()))
@@ -53,12 +48,6 @@ impl Kzg {
         expected_kzg_commitments: &[KzgCommitment],
         kzg_aggregated_proof: KzgProof,
     ) -> Result<bool, Error> {
-        if blobs.len() == 0 {
-            return Err(Error::EmptyBlobs);
-        }
-        if expected_kzg_commitments.len() == 0 {
-            return Err(Error::EmptyBlobs);
-        }
         if blobs.len() != expected_kzg_commitments.len() {
             return Err(Error::InvalidLength(
                 "blobs and expected_kzg_commitments should be of same size".to_string(),
