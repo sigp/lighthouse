@@ -16,9 +16,9 @@ data which is:
 - `git`
 - `rust` : https://rustup.rs/
 - `libpg` : https://www.postgresql.org/download/
-- `diesel_cli` v2.0.0 :
+- `diesel_cli` :
 ```
-cargo install diesel_cli --git https://github.com/diesel-rs/diesel/ --branch master --no-default-features --features postgres
+cargo install diesel_cli --no-default-features --features postgres
 ```
 - `docker` : https://docs.docker.com/engine/install/
 - `docker-compose` : https://docs.docker.com/compose/install/
@@ -47,7 +47,7 @@ will be able to sync to the beacon node.
 
 1. Run the updater daemon:
 ```
-cargo run --release -- start-daemon
+cargo run --release -- run-updater
 ```
 
 1. Start the HTTP API server:
@@ -60,7 +60,7 @@ cargo run --release -- serve
 curl "http://localhost:5059/v1/slots/highest"
 ```
 
-> Functionality on Windows or MacOS has not been tested.
+> Functionality on MacOS has not been tested. Windows is not supported.
 
 
 ### Configuration
@@ -70,6 +70,7 @@ Available options can be seen in `config.yaml.default`.
 You can specify a config file during runtime:
 ```
 cargo run -- run-updater --config path/to/config.yaml
+cargo run -- serve --config path/to/config.yaml
 ```
 
 You can specify only the parts of the config file which you need changed.
@@ -442,7 +443,8 @@ curl "http://localhost:5059/v1/clients/percentages"
 
 
 - More API endpoints
-  - E.g. `/v1/proposers?start_epoch={}&end_epoch={}`
+  - `/v1/proposers?start_epoch={}&end_epoch={}` and similar
+  - `/v1/validators/{status}/count`
 
 
 - Concurrently backfill and forwards fill, so forwards fill is not bottlenecked by large backfills.

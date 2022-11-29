@@ -65,7 +65,7 @@ pub fn start_server(
     pool: PgPool,
     shutdown: impl Future<Output = ()> + Send + Sync + 'static,
 ) -> Result<impl Future<Output = Result<(), hyper::Error>> + 'static, Error> {
-    let mut app = Router::new()
+    let mut routes = Router::new()
         .route("/v1/slots", get(handler::get_slots_by_range))
         .route("/v1/slots/:slot", get(handler::get_slot))
         .route("/v1/slots/lowest", get(handler::get_slot_lowest))
@@ -92,17 +92,18 @@ pub fn start_server(
             get(handler::get_client_breakdown_percentages),
         )
         .merge(attestation_routes())
-        //.merge(blockprint_attestation_routes())
         .merge(blockprint_routes())
         .merge(block_packing_routes())
-        .merge(block_rewards_routes())
+        .merge(block_rewards_routes());
+
+    if config.blockprint.enabled && config.updater.attestations {
+        routes = routes.merge(blockprint_attestation_routes())
+    }
+
+    let app = routes
         .fallback(route_not_found.into_service())
         .layer(Extension(pool))
         .layer(Extension(slots_per_epoch));
-
-    if config.blockprint.enabled && config.updater.attestations {
-        app = app.merge(blockprint_attestation_routes())
-    }
 
     let addr = SocketAddr::new(config.server.listen_addr, config.server.listen_port);
 
