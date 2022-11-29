@@ -1,10 +1,11 @@
 use beacon_node::{get_data_dir, set_network_config};
 use clap::ArgMatches;
 use eth2_network_config::Eth2NetworkConfig;
+use lighthouse_network::discv5::enr::EnrBuilder;
 use lighthouse_network::discv5::IpMode;
 use lighthouse_network::discv5::{enr::CombinedKey, Discv5Config, Enr};
 use lighthouse_network::{
-    discovery::{create_enr_builder_from_config, load_enr_from_disk, use_or_load_enr},
+    discovery::{load_enr_from_disk, use_or_load_enr},
     load_private_key, CombinedKeyExt, NetworkConfig,
 };
 use serde_derive::{Deserialize, Serialize};
@@ -53,10 +54,6 @@ impl<T: EthSpec> BootNodeConfig<T> {
         };
 
         let mut network_config = NetworkConfig::default();
-        // create ipv6 sockets and enable ipv4 mapped addresses.
-        network_config.discv5_config.ip_mode = IpMode::Ip6 {
-            enable_mapped_addresses: true,
-        };
 
         let logger = slog_scope::logger();
 
@@ -75,6 +72,15 @@ impl<T: EthSpec> BootNodeConfig<T> {
         // the address to listen on
         let listen_socket =
             SocketAddr::new(network_config.listen_address, network_config.discovery_port);
+        if listen_socket.is_ipv6() {
+            // create ipv6 sockets and enable ipv4 mapped addresses.
+            network_config.discv5_config.ip_mode = IpMode::Ip6 {
+                enable_mapped_addresses: true,
+            };
+        } else {
+            // Set explicitely as ipv4 otherwise
+            network_config.discv5_config.ip_mode = IpMode::Ip4;
+        }
 
         let private_key = load_private_key(&network_config, &logger);
         let local_key = CombinedKey::from_libp2p(&private_key)?;
@@ -109,13 +115,26 @@ impl<T: EthSpec> BootNodeConfig<T> {
             // Build the local ENR
 
             let mut local_enr = {
-                let mut builder = create_enr_builder_from_config(&network_config, false);
-                // Include the ipv6 ports too.
-                // NOTE: we do this explicitely to be able to upgrade the bootnodes to ipv6 without
-                // upgrading the beacon node yet.
-                if let Some(udp_port) = network_config.enr_udp_port {
-                    builder.udp6(udp_port);
-                }
+                let mut builder = EnrBuilder::new("v4");
+                // Set the enr address if specified. Set also the port.
+                // NOTE: if the port is specified but the the address is not, the port won't be
+                // set since it can't be known if it's an ipv6 or ipv4 udp port.
+                if let Some(enr_address) = network_config.enr_address {
+                    match enr_address {
+                        std::net::IpAddr::V4(ipv4_addr) => {
+                            builder.ip4(ipv4_addr);
+                            if let Some(port) = network_config.enr_udp_port {
+                                builder.udp4(port);
+                            }
+                        }
+                        std::net::IpAddr::V6(ipv6_addr) => {
+                            builder.ip6(ipv6_addr);
+                            if let Some(port) = network_config.enr_udp_port {
+                                builder.udp6(port);
+                            }
+                        }
+                    }
+                };
 
                 // If we know of the ENR field, add it to the initial construction
                 if let Some(enr_fork_bytes) = enr_fork {

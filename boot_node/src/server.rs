@@ -20,18 +20,20 @@ pub async fn run<T: EthSpec>(config: BootNodeConfig<T>, log: slog::Logger) {
 
     // Print out useful information about the generated ENR
 
-    let enr_v4_socket = local_enr.udp4_socket().expect("Enr has a ipv4 UDP socket");
-    let enr_v6_socket = local_enr.udp6_socket().expect("Enr has a ipv6 UDP socket");
+    let enr_v4_socket = local_enr.udp4_socket();
+    let enr_v6_socket = local_enr.udp6_socket();
     let eth2_field = local_enr
         .eth2()
         .map(|fork_id| hex::encode(fork_id.fork_digest))
         .unwrap_or_default();
 
+    let pretty_v4_socket = enr_v4_socket.as_ref().map(|addr| addr.to_string());
+    let pretty_v6_socket = enr_v6_socket.as_ref().map(|addr| addr.to_string());
     info!(
         log, "Configuration parameters";
         "listening_address" => %listen_socket,
-        "advertised_v4_address" => %enr_v4_socket,
-        "advertised_v6_address" => %enr_v6_socket,
+        "advertised_v4_address" => ?pretty_v4_socket,
+        "advertised_v6_address" => ?pretty_v6_socket,
         "eth2" => eth2_field
     );
 
@@ -49,7 +51,8 @@ pub async fn run<T: EthSpec>(config: BootNodeConfig<T>, log: slog::Logger) {
         info!(
             log,
             "Adding bootnode";
-            "address" => ?enr.udp4_socket(),
+            "ipv4_address" => ?enr.udp4_socket(),
+            "ipv6_address" => ?enr.udp6_socket(),
             "peer_id" => ?enr.peer_id(),
             "node_id" => ?enr.node_id()
         );
