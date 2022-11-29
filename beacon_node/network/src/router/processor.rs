@@ -160,6 +160,18 @@ impl<T: BeaconChainTypes> Processor<T> {
         ))
     }
 
+    /// Handle a `LightClientBootstrap` request from the peer.
+    pub fn on_lightclient_bootstrap(
+        &mut self,
+        peer_id: PeerId,
+        request_id: PeerRequestId,
+        request: LightClientBootstrapRequest,
+    ) {
+        self.send_beacon_processor_work(BeaconWorkEvent::lightclient_bootstrap_request(
+            peer_id, request_id, request,
+        ))
+    }
+
     /// Handle a `BlocksByRange` request from the peer.
     pub fn on_blocks_by_range_request(
         &mut self,
