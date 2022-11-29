@@ -736,6 +736,17 @@ impl<T: EthSpec> ExecutionLayer<T> {
                                 Ok(()) => {
                                     Ok(ProvenancedPayload::Builder(relay.data.message.header))
                                 }
+                                Err(reason) if !reason.payload_invalid() => {
+                                    info!(
+                                        self.log(),
+                                        "Builder payload ignored";
+                                        "info" => "using local payload",
+                                        "reason" => %reason,
+                                        "relay_block_hash" => %header.block_hash(),
+                                        "parent_hash" => %parent_hash,
+                                    );
+                                    Ok(ProvenancedPayload::Local(local))
+                                }
                                 Err(reason) => {
                                     metrics::inc_counter_vec(
                                         &metrics::EXECUTION_LAYER_GET_PAYLOAD_BUILDER_REJECTIONS,
