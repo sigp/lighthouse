@@ -245,6 +245,15 @@ pub struct ExecutionOptimisticForkVersionedResponse<T> {
 }
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+pub struct ExecutionOptimisticFinalizedForkVersionedResponse<T> {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub version: Option<ForkName>,
+    pub execution_optimistic: Option<bool>,
+    pub finalized: Option<bool>,
+    pub data: T,
+}
+
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct ForkVersionedResponse<T> {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub version: Option<ForkName>,

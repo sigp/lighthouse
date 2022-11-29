@@ -58,8 +58,9 @@ use types::{
     SyncContributionData,
 };
 use version::{
-    add_consensus_version_header, execution_optimistic_fork_versioned_response,
-    fork_versioned_response, inconsistent_fork_rejection, unsupported_version_rejection, V1, V2,
+    add_consensus_version_header, execution_optimistic_finalized_fork_versioned_response,
+    execution_optimistic_fork_versioned_response, fork_versioned_response,
+    inconsistent_fork_rejection, unsupported_version_rejection, V1, V2,
 };
 use warp::http::StatusCode;
 use warp::sse::Event;
@@ -1179,6 +1180,7 @@ pub fn serve<T: BeaconChainTypes>(
              accept_header: Option<api_types::Accept>| {
                 async move {
                     let (block, execution_optimistic) = block_id.full_block(&chain).await?;
+                    let finalized = block_id.is_finalized(&chain);
                     let fork_name = block
                         .fork_name(&chain.spec)
                         .map_err(inconsistent_fork_rejection)?;
@@ -1194,10 +1196,11 @@ pub fn serve<T: BeaconChainTypes>(
                                     e
                                 ))
                             }),
-                        _ => execution_optimistic_fork_versioned_response(
+                        _ => execution_optimistic_finalized_fork_versioned_response(
                             endpoint_version,
                             fork_name,
                             execution_optimistic,
+                            finalized,
                             block,
                         )
                         .map(|res| warp::reply::json(&res).into_response()),

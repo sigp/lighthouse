@@ -4,7 +4,7 @@ use eth2::types::BlockId as CoreBlockId;
 use std::fmt;
 use std::str::FromStr;
 use std::sync::Arc;
-use types::{Hash256, SignedBeaconBlock, SignedBlindedBeaconBlock, Slot};
+use types::{EthSpec, Hash256, SignedBeaconBlock, SignedBlindedBeaconBlock, Slot};
 
 /// Wraps `eth2::types::BlockId` and provides a simple way to obtain a block or root for a given
 /// `BlockId`.
@@ -208,6 +208,38 @@ impl BlockId {
                                 ))
                             })
                     })
+            }
+        }
+    }
+
+    pub fn is_finalized<T: BeaconChainTypes>(&self, chain: &BeaconChain<T>) -> bool {
+        match &self.0 {
+            CoreBlockId::Head => false,
+            CoreBlockId::Genesis => true,
+            CoreBlockId::Finalized => true,
+            CoreBlockId::Justified => false,
+            CoreBlockId::Slot(slot) => {
+                let finalized_epoch = chain
+                    .canonical_head
+                    .cached_head()
+                    .finalized_checkpoint()
+                    .epoch;
+                let block_epoch = slot.epoch(T::EthSpec::slots_per_epoch());
+                block_epoch <= finalized_epoch
+            }
+            CoreBlockId::Root(root) => {
+                let finalized_epoch = chain
+                    .canonical_head
+                    .cached_head()
+                    .finalized_checkpoint()
+                    .epoch;
+                let block_epoch = chain
+                    .get_blinded_block(root)
+                    .unwrap()
+                    .unwrap()
+                    .slot()
+                    .epoch(T::EthSpec::slots_per_epoch());
+                block_epoch <= finalized_epoch
             }
         }
     }
