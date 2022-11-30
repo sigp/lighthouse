@@ -1222,7 +1222,7 @@ fn validator_monitor_metrics_threshold_default() {
         });
 }
 #[test]
-fn validator_monitor_metrics_threshold_default() {
+fn validator_monitor_metrics_threshold_custom() {
     CommandLineTest::new()
         .flag(
             "validator-monitor-individual-tracking-threshold",
