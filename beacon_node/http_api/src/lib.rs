@@ -1259,6 +1259,8 @@ pub fn serve<T: BeaconChainTypes>(
              accept_header: Option<api_types::Accept>| {
                 blocking_task(move || {
                     let (block, execution_optimistic) = block_id.blinded_block(&chain)?;
+                    let (block_root, _) = block_id.root(&chain)?;
+                    let finalized = chain.is_finalized_block(&block_root, block.slot()).unwrap();
                     let fork_name = block
                         .fork_name(&chain.spec)
                         .map_err(inconsistent_fork_rejection)?;
@@ -1276,10 +1278,11 @@ pub fn serve<T: BeaconChainTypes>(
                             }),
                         _ => {
                             // Post as a V2 endpoint so we return the fork version.
-                            execution_optimistic_fork_versioned_response(
+                            execution_optimistic_finalized_fork_versioned_response(
                                 V2,
                                 fork_name,
                                 execution_optimistic,
+                                finalized,
                                 block,
                             )
                             .map(|res| warp::reply::json(&res).into_response())
