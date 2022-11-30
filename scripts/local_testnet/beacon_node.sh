@@ -30,6 +30,8 @@ while getopts "d:sh" flag; do
        echo "  DATADIR       Value for --datadir parameter"
        echo "  NETWORK-PORT  Value for --enr-udp-port, --enr-tcp-port and --port"
        echo "  HTTP-PORT     Value for --http-port"
+       echo "  EXECUTION-ENDPOINT     Value for --execution-endpoint"
+       echo "  EXECUTION-JWT     Value for --execution-jwt"
        exit
        ;;
   esac
@@ -39,6 +41,8 @@ done
 data_dir=${@:$OPTIND+0:1}
 network_port=${@:$OPTIND+1:1}
 http_port=${@:$OPTIND+2:1}
+execution_endpoint=${@:$OPTIND+3:1}
+execution_jwt=${@:$OPTIND+4:1}
 
 exec lighthouse \
 	--debug-level $DEBUG_LEVEL \
@@ -54,4 +58,6 @@ exec lighthouse \
 	--port $network_port \
 	--http-port $http_port \
 	--disable-packet-filter \
-	--target-peers $((BN_COUNT - 1))
+	--target-peers $((BN_COUNT - 1)) \
+  --execution-endpoint $execution_endpoint \
+  --execution-jwt $execution_jwt

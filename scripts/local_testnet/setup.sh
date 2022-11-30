@@ -13,11 +13,11 @@ set -o nounset -o errexit -o pipefail
 
 source ./vars.env
 
-lcli \
-	deploy-deposit-contract \
-	--eth1-http http://localhost:8545 \
-	--confirmations 1 \
-	--validator-count $VALIDATOR_COUNT
+# lcli \
+# 	deploy-deposit-contract \
+# 	--eth1-http http://localhost:8545 \
+# 	--confirmations 1 \
+# 	--validator-count $VALIDATOR_COUNT
 
 NOW=`date +%s`
 GENESIS_TIME=`expr $NOW + $GENESIS_DELAY`
@@ -32,10 +32,16 @@ lcli \
 	--genesis-delay $GENESIS_DELAY \
 	--genesis-fork-version $GENESIS_FORK_VERSION \
 	--altair-fork-epoch $ALTAIR_FORK_EPOCH \
+	--bellatrix-fork-epoch $ALTAIR_FORK_EPOCH \
+	--capella-fork-epoch $ALTAIR_FORK_EPOCH \
+	--eip4844-fork-epoch $ALTAIR_FORK_EPOCH \
+	--eth1-block-hash 0000000000000000000000000000000000000000000000000000000000000000 \
 	--eth1-id $CHAIN_ID \
 	--eth1-follow-distance 1 \
 	--seconds-per-slot $SECONDS_PER_SLOT \
 	--seconds-per-eth1-block $SECONDS_PER_ETH1_BLOCK \
+	--validator-count $GENESIS_VALIDATOR_COUNT \
+	--interop-genesis-state \
 	--force
 
 echo Specification generated at $TESTNET_DIR.
