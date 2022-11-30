@@ -14,6 +14,7 @@ use std::cmp::max;
 use std::fmt::Debug;
 use std::fmt::Write;
 use std::fs;
+use std::net::Ipv6Addr;
 use std::net::{IpAddr, Ipv4Addr, ToSocketAddrs};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
@@ -34,13 +35,13 @@ pub fn get_config<E: EthSpec>(
     let spec = &context.eth2_config.spec;
     let log = context.log();
 
-    let mut client_config = ClientConfig {
-        data_dir: get_data_dir(cli_args),
-        ..Default::default()
-    };
+    let mut client_config = ClientConfig::default();
+
+    // Update the client's data directory
+    client_config.set_data_dir(get_data_dir(cli_args));
 
     // If necessary, remove any existing database and configuration
-    if client_config.data_dir.exists() && cli_args.is_present("purge-db") {
+    if client_config.data_dir().exists() && cli_args.is_present("purge-db") {
         // Remove the chain_db.
         let chain_db = client_config.get_db_path();
         if chain_db.exists() {
@@ -57,11 +58,11 @@ pub fn get_config<E: EthSpec>(
     }
 
     // Create `datadir` and any non-existing parent directories.
-    fs::create_dir_all(&client_config.data_dir)
+    fs::create_dir_all(client_config.data_dir())
         .map_err(|e| format!("Failed to create data dir: {}", e))?;
 
     // logs the chosen data directory
-    let mut log_dir = client_config.data_dir.clone();
+    let mut log_dir = client_config.data_dir().clone();
     // remove /beacon from the end
     log_dir.pop();
     info!(log, "Data directory initialised"; "datadir" => log_dir.into_os_string().into_string().expect("Datadir should be a valid os string"));
@@ -69,10 +70,13 @@ pub fn get_config<E: EthSpec>(
     /*
      * Networking
      */
+
+    let data_dir_ref = client_config.data_dir().clone();
+
     set_network_config(
         &mut client_config.network,
         cli_args,
-        &client_config.data_dir,
+        &data_dir_ref,
         log,
         false,
     )?;
@@ -303,7 +307,7 @@ pub fn get_config<E: EthSpec>(
         } else if let Some(jwt_secret_key) = cli_args.value_of("execution-jwt-secret-key") {
             use std::fs::File;
             use std::io::Write;
-            secret_file = client_config.data_dir.join(DEFAULT_JWT_FILE);
+            secret_file = client_config.data_dir().join(DEFAULT_JWT_FILE);
             let mut jwt_secret_key_file = File::create(secret_file.clone())
                 .map_err(|e| format!("Error while creating jwt_secret_key file: {:?}", e))?;
             jwt_secret_key_file
@@ -332,7 +336,7 @@ pub fn get_config<E: EthSpec>(
             clap_utils::parse_optional(cli_args, "suggested-fee-recipient")?;
         el_config.jwt_id = clap_utils::parse_optional(cli_args, "execution-jwt-id")?;
         el_config.jwt_version = clap_utils::parse_optional(cli_args, "execution-jwt-version")?;
-        el_config.default_datadir = client_config.data_dir.clone();
+        el_config.default_datadir = client_config.data_dir().clone();
         el_config.builder_profit_threshold =
             clap_utils::parse_required(cli_args, "builder-profit-threshold")?;
         let execution_timeout_multiplier =
@@ -441,6 +445,8 @@ pub fn get_config<E: EthSpec>(
                 .extend_from_slice(boot_nodes)
         }
     }
+    client_config.chain.checkpoint_sync_url_timeout =
+        clap_utils::parse_required::<u64>(cli_args, "checkpoint-sync-url-timeout")?;
 
     client_config.genesis = if let Some(genesis_state_bytes) =
         eth2_network_config.genesis_state_bytes.clone()
@@ -571,7 +577,7 @@ pub fn get_config<E: EthSpec>(
         let slasher_dir = if let Some(slasher_dir) = cli_args.value_of("slasher-dir") {
             PathBuf::from(slasher_dir)
         } else {
-            client_config.data_dir.join("slasher_db")
+            client_config.data_dir().join("slasher_db")
         };
 
         let mut slasher_config = slasher::Config::new(slasher_dir);
@@ -703,6 +709,12 @@ pub fn get_config<E: EthSpec>(
     client_config.chain.builder_fallback_disable_checks =
         cli_args.is_present("builder-fallback-disable-checks");
 
+    // Graphical user interface config.
+    if cli_args.is_present("gui") {
+        client_config.http_api.enabled = true;
+        client_config.validator_monitor_auto = true;
+    }
+
     Ok(client_config)
 }
 
@@ -832,9 +844,11 @@ pub fn set_network_config(
     }
 
     if cli_args.is_present("enr-match") {
-        // set the enr address to localhost if the address is 0.0.0.0
-        if config.listen_address == "0.0.0.0".parse::<IpAddr>().expect("valid ip addr") {
-            config.enr_address = Some("127.0.0.1".parse::<IpAddr>().expect("valid ip addr"));
+        // set the enr address to localhost if the address is unspecified
+        if config.listen_address == IpAddr::V4(Ipv4Addr::UNSPECIFIED) {
+            config.enr_address = Some(IpAddr::V4(Ipv4Addr::LOCALHOST));
+        } else if config.listen_address == IpAddr::V6(Ipv6Addr::UNSPECIFIED) {
+            config.enr_address = Some(IpAddr::V6(Ipv6Addr::LOCALHOST));
         } else {
             config.enr_address = Some(config.listen_address);
         }
@@ -913,6 +927,9 @@ pub fn set_network_config(
     if cli_args.is_present("enable-private-discovery") {
         config.discv5_config.table_filter = |_| true;
     }
+
+    // Light client server config.
+    config.enable_light_client_server = cli_args.is_present("light-client-server");
 
     Ok(())
 }

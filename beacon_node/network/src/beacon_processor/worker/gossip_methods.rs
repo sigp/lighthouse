@@ -8,7 +8,7 @@ use beacon_chain::{
     sync_committee_verification::{self, Error as SyncCommitteeError},
     validator_monitor::get_block_delay_ms,
     BeaconChainError, BeaconChainTypes, BlockError, CountUnrealized, ForkChoiceError,
-    GossipVerifiedBlock,
+    GossipVerifiedBlock, NotifyExecutionLayer,
 };
 use lighthouse_network::{
     Client, MessageAcceptance, MessageId, PeerAction, PeerId, ReportSource,
@@ -812,7 +812,7 @@ impl<T: BeaconChainTypes> Worker<T> {
             | Err(e @ BlockError::BlockIsAlreadyKnown)
             | Err(e @ BlockError::RepeatProposal { .. })
             | Err(e @ BlockError::NotFinalizedDescendant { .. }) => {
-                debug!(self.log, "Could not verify block for gossip, ignoring the block";
+                debug!(self.log, "Could not verify block for gossip. Ignoring the block";
                             "error" => %e);
                 // Prevent recurring behaviour by penalizing the peer slightly.
                 self.gossip_penalize_peer(
@@ -824,7 +824,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                 return None;
             }
             Err(ref e @ BlockError::ExecutionPayloadError(ref epe)) if !epe.penalize_peer() => {
-                debug!(self.log, "Could not verify block for gossip, ignoring the block";
+                debug!(self.log, "Could not verify block for gossip. Ignoring the block";
                             "error" => %e);
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
                 return None;
@@ -846,7 +846,7 @@ impl<T: BeaconChainTypes> Worker<T> {
             // TODO(merge): reconsider peer scoring for this event.
             | Err(e @ BlockError::ParentExecutionPayloadInvalid { .. })
             | Err(e @ BlockError::GenesisBlock) => {
-                warn!(self.log, "Could not verify block for gossip, rejecting the block";
+                warn!(self.log, "Could not verify block for gossip. Rejecting the block";
                             "error" => %e);
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
                 self.gossip_penalize_peer(
@@ -953,7 +953,12 @@ impl<T: BeaconChainTypes> Worker<T> {
 
         match self
             .chain
-            .process_block(block_root, verified_block, CountUnrealized::True)
+            .process_block(
+                block_root,
+                verified_block,
+                CountUnrealized::True,
+                NotifyExecutionLayer::Yes,
+            )
             .await
         {
             Ok(block_root) => {

@@ -12,8 +12,10 @@ use std::ops::Deref;
 use std::sync::Arc;
 use strum::IntoStaticStr;
 use superstruct::superstruct;
-use types::blobs_sidecar::BlobsSidecar;
-use types::{Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot};
+use types::{
+    blobs_sidecar::BlobsSidecar, light_client_bootstrap::LightClientBootstrap, Epoch, EthSpec,
+    Hash256, SignedBeaconBlock, Slot,
+};
 
 /// Maximum number of blocks in a single request.
 pub type MaxRequestBlocks = U1024;
@@ -260,6 +262,9 @@ pub enum RPCResponse<T: EthSpec> {
     /// A response to a get BLOBS_BY_RANGE request
     BlobsByRange(Arc<BlobsSidecar<T>>),
 
+    /// A response to a get LIGHTCLIENT_BOOTSTRAP request.
+    LightClientBootstrap(LightClientBootstrap<T>),
+
     /// A PONG response to a PING request.
     Pong(Ping),
 
@@ -291,6 +296,12 @@ pub enum RPCCodedResponse<T: EthSpec> {
 
     /// Received a stream termination indicating which response is being terminated.
     StreamTermination(ResponseTermination),
+}
+
+/// Request a light_client_bootstrap for lightclients peers.
+#[derive(Encode, Decode, Clone, Debug, PartialEq)]
+pub struct LightClientBootstrapRequest {
+    pub root: Hash256,
 }
 
 /// The code assigned to an erroneous `RPCResponse`.
@@ -342,6 +353,7 @@ impl<T: EthSpec> RPCCodedResponse<T> {
                 RPCResponse::BlobsByRange(_) => true,
                 RPCResponse::Pong(_) => false,
                 RPCResponse::MetaData(_) => false,
+                RPCResponse::LightClientBootstrap(_) => false,
             },
             RPCCodedResponse::Error(_, _) => true,
             // Stream terminations are part of responses that have chunks
@@ -377,6 +389,7 @@ impl<T: EthSpec> RPCResponse<T> {
             RPCResponse::BlobsByRange(_) => Protocol::BlobsByRange,
             RPCResponse::Pong(_) => Protocol::Ping,
             RPCResponse::MetaData(_) => Protocol::MetaData,
+            RPCResponse::LightClientBootstrap(_) => Protocol::LightClientBootstrap,
         }
     }
 }
@@ -415,6 +428,9 @@ impl<T: EthSpec> std::fmt::Display for RPCResponse<T> {
             }
             RPCResponse::Pong(ping) => write!(f, "Pong: {}", ping.data),
             RPCResponse::MetaData(metadata) => write!(f, "Metadata: {}", metadata.seq_number()),
+            RPCResponse::LightClientBootstrap(bootstrap) => {
+                write!(f, "LightClientBootstrap Slot: {}", bootstrap.header.slot)
+            }
         }
     }
 }

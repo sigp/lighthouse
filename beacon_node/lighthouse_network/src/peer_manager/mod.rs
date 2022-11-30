@@ -405,7 +405,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                 debug!(self.log, "Identified Peer"; "peer" => %peer_id,
                     "protocol_version" => &info.protocol_version,
                     "agent_version" => &info.agent_version,
-                    "listening_ addresses" => ?info.listen_addrs,
+                    "listening_addresses" => ?info.listen_addrs,
                     "observed_address" => ?info.observed_addr,
                     "protocols" => ?info.protocols
                 );
@@ -502,6 +502,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                     Protocol::BlocksByRange => PeerAction::MidToleranceError,
                     Protocol::BlocksByRoot => PeerAction::MidToleranceError,
                     Protocol::BlobsByRange => PeerAction::MidToleranceError,
+                    Protocol::LightClientBootstrap => PeerAction::LowToleranceError,
                     Protocol::Goodbye => PeerAction::LowToleranceError,
                     Protocol::MetaData => PeerAction::LowToleranceError,
                     Protocol::Status => PeerAction::LowToleranceError,
@@ -519,6 +520,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                     Protocol::BlocksByRoot => return,
                     Protocol::BlobsByRange => return,
                     Protocol::Goodbye => return,
+                    Protocol::LightClientBootstrap => return,
                     Protocol::MetaData => PeerAction::LowToleranceError,
                     Protocol::Status => PeerAction::LowToleranceError,
                 }
@@ -534,6 +536,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                     Protocol::BlocksByRange => PeerAction::MidToleranceError,
                     Protocol::BlocksByRoot => PeerAction::MidToleranceError,
                     Protocol::BlobsByRange => PeerAction::MidToleranceError,
+                    Protocol::LightClientBootstrap => return,
                     Protocol::Goodbye => return,
                     Protocol::MetaData => return,
                     Protocol::Status => return,

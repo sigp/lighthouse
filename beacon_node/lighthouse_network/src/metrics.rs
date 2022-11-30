@@ -112,6 +112,19 @@ lazy_static! {
             &["client"]
         );
 
+    pub static ref SUBNET_PEERS_FOUND: Result<IntCounterVec> =
+        try_create_int_counter_vec(
+            "discovery_query_peers_found",
+            "Total number of peers found in attestation subnets and sync subnets",
+            &["type"]
+        );
+    pub static ref TOTAL_SUBNET_QUERIES: Result<IntCounterVec> =
+        try_create_int_counter_vec(
+            "discovery_total_queries",
+            "Total number of discovery subnet queries",
+            &["type"]
+        );
+
     /*
      * Inbound/Outbound peers
      */

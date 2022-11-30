@@ -6,6 +6,7 @@ HTTP Path | Description |
 | --- | -- |
 [`GET /lighthouse/version`](#get-lighthouseversion) | Get the Lighthouse software version.
 [`GET /lighthouse/health`](#get-lighthousehealth) | Get information about the host machine.
+[`GET /lighthouse/ui/health`](#get-lighthouseuihealth) | Get information about the host machine. Focused for UI applications.
 [`GET /lighthouse/spec`](#get-lighthousespec) | Get the Ethereum proof-of-stake consensus specification used by the validator.
 [`GET /lighthouse/auth`](#get-lighthouseauth) | Get the location of the authorization token.
 [`GET /lighthouse/validators`](#get-lighthousevalidators) | List all validators.
@@ -74,6 +75,45 @@ Returns information regarding the health of the host machine.
         "sys_loadavg_5": 0.98,
         "sys_loadavg_15": 1.01
     }
+}
+```
+
+## `GET /lighthouse/ui/health`
+
+Returns information regarding the health of the host machine.
+
+### HTTP Specification
+
+| Property          | Specification                              |
+|-------------------|--------------------------------------------|
+| Path              | `/lighthouse/ui/health`                       |
+| Method            | GET                                        |
+| Required Headers  | [`Authorization`](./api-vc-auth-header.md) |
+| Typical Responses | 200                                        |
+
+### Example Response Body
+
+```json
+{
+  "data": {
+    "total_memory": 16443219968,
+    "free_memory": 1283739648,
+    "used_memory": 5586264064,
+    "sys_loadavg_1": 0.59,
+    "sys_loadavg_5": 1.13,
+    "sys_loadavg_15": 2.41,
+    "cpu_cores": 4,
+    "cpu_threads": 8,
+    "global_cpu_frequency": 3.4,
+    "disk_bytes_total": 502390845440,
+    "disk_bytes_free": 9981386752,
+    "system_uptime": 660706,
+    "app_uptime": 105,
+    "system_name": "Arch Linux",
+    "kernel_version": "5.19.13-arch1-1",
+    "os_version": "Linux rolling Arch Linux",
+    "host_name": "Computer1"
+  }
 }
 ```
 

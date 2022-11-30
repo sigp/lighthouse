@@ -1,9 +1,6 @@
 # Summary
 
 * [Introduction](./intro.md)
-* [Become a Validator](./mainnet-validator.md)
-    * [Become a Testnet Validator](./testnet-validator.md)
-* [Merge Migration](./merge-migration.md)
 * [Installation](./installation.md)
     * [System Requirements](./system-requirements.md)
     * [Pre-Built Binaries](./installation-binaries.md)
@@ -13,6 +10,9 @@
     * [Cross-Compiling](./cross-compiling.md)
     * [Homebrew](./homebrew.md)
     * [Update Priorities](./installation-priorities.md)
+* [Run a Node](./run_a_node.md)
+* [Become a Validator](./mainnet-validator.md)
+    * [Become a Testnet Validator](./testnet-validator.md)
 * [Key Management](./key-management.md)
     * [Create a wallet](./wallet-create.md)
     * [Create a validator](./validator-create.md)
@@ -46,6 +46,7 @@
     * [Pre-Releases](./advanced-pre-releases.md)
     * [Release Candidates](./advanced-release-candidates.md)
     * [MEV and Lighthouse](./builders.md)
+    * [Merge Migration](./merge-migration.md)
 * [Contributing](./contributing.md)
     * [Development Environment](./setup.md)
 * [FAQs](./faq.md)

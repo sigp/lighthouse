@@ -63,8 +63,14 @@ pub mod base {
 
         // Verify and apply each attestation.
         for (i, attestation) in attestations.iter().enumerate() {
-            verify_attestation_for_block_inclusion(state, attestation, verify_signatures, spec)
-                .map_err(|e| e.into_with_index(i))?;
+            verify_attestation_for_block_inclusion(
+                state,
+                attestation,
+                ctxt,
+                verify_signatures,
+                spec,
+            )
+            .map_err(|e| e.into_with_index(i))?;
 
             let pending_attestation = PendingAttestation {
                 aggregation_bits: attestation.aggregation_bits.clone(),
@@ -100,19 +106,11 @@ pub mod altair {
         ctxt: &mut ConsensusContext<T>,
         spec: &ChainSpec,
     ) -> Result<(), BlockProcessingError> {
-        let proposer_index = ctxt.get_proposer_index(state, spec)?;
         attestations
             .iter()
             .enumerate()
             .try_for_each(|(i, attestation)| {
-                process_attestation(
-                    state,
-                    attestation,
-                    i,
-                    proposer_index,
-                    verify_signatures,
-                    spec,
-                )
+                process_attestation(state, attestation, i, ctxt, verify_signatures, spec)
             })
     }
 
@@ -120,16 +118,24 @@ pub mod altair {
         state: &mut BeaconState<T>,
         attestation: &Attestation<T>,
         att_index: usize,
-        proposer_index: u64,
+        ctxt: &mut ConsensusContext<T>,
         verify_signatures: VerifySignatures,
         spec: &ChainSpec,
     ) -> Result<(), BlockProcessingError> {
         state.build_committee_cache(RelativeEpoch::Previous, spec)?;
         state.build_committee_cache(RelativeEpoch::Current, spec)?;
 
-        let indexed_attestation =
-            verify_attestation_for_block_inclusion(state, attestation, verify_signatures, spec)
-                .map_err(|e| e.into_with_index(att_index))?;
+        let proposer_index = ctxt.get_proposer_index(state, spec)?;
+
+        let attesting_indices = &verify_attestation_for_block_inclusion(
+            state,
+            attestation,
+            ctxt,
+            verify_signatures,
+            spec,
+        )
+        .map_err(|e| e.into_with_index(att_index))?
+        .attesting_indices;
 
         // Matching roots, participation flag indices
         let data = &attestation.data;
@@ -141,7 +147,7 @@ pub mod altair {
         let total_active_balance = state.get_total_active_balance()?;
         let base_reward_per_increment = BaseRewardPerIncrement::new(total_active_balance, spec)?;
         let mut proposer_reward_numerator = 0;
-        for index in &indexed_attestation.attesting_indices {
+        for index in attesting_indices {
             let index = *index as usize;
 
             for (flag_index, &weight) in PARTICIPATION_FLAG_WEIGHTS.iter().enumerate() {

@@ -62,6 +62,43 @@ curl -X GET "http://localhost:5052/lighthouse/health" -H  "accept: application/j
 
 ```
 
+### `/lighthouse/ui/health`
+
+
+```bash
+curl -X GET "http://localhost:5052/lighthouse/ui/health" -H  "accept: application/json" | jq
+```
+
+```json
+{
+  "data": {
+    "total_memory": 16443219968,
+    "free_memory": 1283739648,
+    "used_memory": 5586264064,
+    "sys_loadavg_1": 0.59,
+    "sys_loadavg_5": 1.13,
+    "sys_loadavg_15": 2.41,
+    "cpu_cores": 4,
+    "cpu_threads": 8,
+    "global_cpu_frequency": 3.4,
+    "disk_bytes_total": 502390845440,
+    "disk_bytes_free": 9981386752,
+    "network_name": "wlp0s20f3",
+    "network_bytes_total_received": 14105556611,
+    "network_bytes_total_transmit": 3649489389,
+    "nat_open": true,
+    "connected_peers": 80,
+    "sync_state": "Synced",
+    "system_uptime": 660706,
+    "app_uptime": 105,
+    "system_name": "Arch Linux",
+    "kernel_version": "5.19.13-arch1-1",
+    "os_version": "Linux rolling Arch Linux",
+    "host_name": "Computer1"
+  }
+}
+```
+
 ### `/lighthouse/syncing`
 
 ```bash

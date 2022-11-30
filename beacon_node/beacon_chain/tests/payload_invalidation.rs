@@ -7,8 +7,8 @@ use beacon_chain::otb_verification_service::{
 use beacon_chain::{
     canonical_head::{CachedHead, CanonicalHead},
     test_utils::{BeaconChainHarness, EphemeralHarnessType},
-    BeaconChainError, BlockError, ExecutionPayloadError, StateSkipConfig, WhenSlotSkipped,
-    INVALID_FINALIZED_MERGE_TRANSITION_BLOCK_SHUTDOWN_REASON,
+    BeaconChainError, BlockError, ExecutionPayloadError, NotifyExecutionLayer, StateSkipConfig,
+    WhenSlotSkipped, INVALID_FINALIZED_MERGE_TRANSITION_BLOCK_SHUTDOWN_REASON,
     INVALID_JUSTIFIED_PAYLOAD_SHUTDOWN_REASON,
 };
 use execution_layer::{
@@ -696,6 +696,7 @@ async fn invalidates_all_descendants() {
             fork_block.canonical_root(),
             Arc::new(fork_block),
             CountUnrealized::True,
+            NotifyExecutionLayer::Yes,
         )
         .await
         .unwrap();
@@ -792,6 +793,7 @@ async fn switches_heads() {
             fork_block.canonical_root(),
             Arc::new(fork_block),
             CountUnrealized::True,
+            NotifyExecutionLayer::Yes,
         )
         .await
         .unwrap();
@@ -1040,7 +1042,7 @@ async fn invalid_parent() {
 
     // Ensure the block built atop an invalid payload is invalid for import.
     assert!(matches!(
-        rig.harness.chain.process_block(block.canonical_root(), block.clone(), CountUnrealized::True).await,
+        rig.harness.chain.process_block(block.canonical_root(), block.clone(), CountUnrealized::True, NotifyExecutionLayer::Yes).await,
         Err(BlockError::ParentExecutionPayloadInvalid { parent_root: invalid_root })
         if invalid_root == parent_root
     ));
@@ -1322,7 +1324,12 @@ async fn build_optimistic_chain(
     for block in blocks {
         rig.harness
             .chain
-            .process_block(block.canonical_root(), block, CountUnrealized::True)
+            .process_block(
+                block.canonical_root(),
+                block,
+                CountUnrealized::True,
+                NotifyExecutionLayer::Yes,
+            )
             .await
             .unwrap();
     }
@@ -1882,6 +1889,7 @@ async fn recover_from_invalid_head_by_importing_blocks() {
             fork_block.canonical_root(),
             fork_block.clone(),
             CountUnrealized::True,
+            NotifyExecutionLayer::Yes,
         )
         .await
         .unwrap();

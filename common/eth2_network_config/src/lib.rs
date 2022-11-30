@@ -226,7 +226,7 @@ mod tests {
     use super::*;
     use ssz::Encode;
     use tempfile::Builder as TempBuilder;
-    use types::{Config, Eth1Data, GnosisEthSpec, Hash256, MainnetEthSpec, GNOSIS};
+    use types::{Config, Eth1Data, GnosisEthSpec, Hash256, MainnetEthSpec};
 
     type E = MainnetEthSpec;
 
@@ -251,6 +251,13 @@ mod tests {
     }
 
     #[test]
+    fn gnosis_config_eq_chain_spec() {
+        let config = Eth2NetworkConfig::from_hardcoded_net(&GNOSIS).unwrap();
+        let spec = ChainSpec::gnosis();
+        assert_eq!(spec, config.chain_spec::<GnosisEthSpec>().unwrap());
+    }
+
+    #[test]
     fn mainnet_genesis_state() {
         let config = Eth2NetworkConfig::from_hardcoded_net(&MAINNET).unwrap();
         config.beacon_state::<E>().expect("beacon state can decode");
@@ -270,7 +277,7 @@ mod tests {
                 .unwrap_or_else(|_| panic!("{:?}", net.name));
 
             // Ensure we can parse the YAML config to a chain spec.
-            if net.name == GNOSIS {
+            if net.name == types::GNOSIS {
                 config.chain_spec::<GnosisEthSpec>().unwrap();
             } else {
                 config.chain_spec::<MainnetEthSpec>().unwrap();
