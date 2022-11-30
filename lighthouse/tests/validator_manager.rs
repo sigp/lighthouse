@@ -7,7 +7,7 @@ use std::process::{Command, Stdio};
 use std::str::FromStr;
 use tempfile::{tempdir, TempDir};
 use types::*;
-use validator_manager::validators::{
+use validator_manager::{
     create_validators::CreateConfig,
     import_validators::ImportConfig,
     move_validators::{MoveConfig, Validators},
@@ -84,23 +84,19 @@ impl<T: DeserializeOwned> CommandLineTest<T> {
 
 impl CommandLineTest<CreateConfig> {
     fn validators_create() -> Self {
-        Self::default()
-            .flag("validators", None)
-            .flag("create", None)
+        Self::default().flag("create", None)
     }
 }
 
 impl CommandLineTest<ImportConfig> {
     fn validators_import() -> Self {
-        Self::default()
-            .flag("validators", None)
-            .flag("import", None)
+        Self::default().flag("import", None)
     }
 }
 
 impl CommandLineTest<MoveConfig> {
     fn validators_move() -> Self {
-        Self::default().flag("validators", None).flag("move", None)
+        Self::default().flag("move", None)
     }
 }
 
