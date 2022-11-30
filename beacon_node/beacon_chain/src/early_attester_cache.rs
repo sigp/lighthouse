@@ -5,6 +5,7 @@ use crate::{
 use parking_lot::RwLock;
 use proto_array::Block as ProtoBlock;
 use std::sync::Arc;
+use store::signed_block_and_blobs::BlockWrapper;
 use types::*;
 
 pub struct CacheItem<E: EthSpec> {
@@ -50,8 +51,7 @@ impl<E: EthSpec> EarlyAttesterCache<E> {
     pub fn add_head_block(
         &self,
         beacon_block_root: Hash256,
-        block: Arc<SignedBeaconBlock<E>>,
-        blobs: Option<Arc<BlobsSidecar<E>>>,
+        block: BlockWrapper<E>,
         proto_block: ProtoBlock,
         state: &BeaconState<E>,
         spec: &ChainSpec,
@@ -69,6 +69,7 @@ impl<E: EthSpec> EarlyAttesterCache<E> {
             },
         };
 
+        let (block, blobs) = block.deconstruct();
         let item = CacheItem {
             epoch,
             committee_lengths,

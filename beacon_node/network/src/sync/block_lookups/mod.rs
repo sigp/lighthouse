@@ -429,7 +429,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                         error!(self.log, "Beacon chain error processing single block"; "block_root" => %root, "error" => ?e);
                     }
                     BlockError::ParentUnknown(block) => {
-                        self.search_parent(root, BlockWrapper::Block { block }, peer_id, cx);
+                        self.search_parent(root, block, peer_id, cx);
                     }
                     ref e @ BlockError::ExecutionPayloadError(ref epe) if !epe.penalize_peer() => {
                         // These errors indicate that the execution layer is offline
@@ -509,7 +509,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             BlockProcessResult::Err(BlockError::ParentUnknown(block)) => {
                 // need to keep looking for parents
                 // add the block back to the queue and continue the search
-                parent_lookup.add_block(BlockWrapper::Block { block });
+                parent_lookup.add_block(block);
                 self.request_parent(parent_lookup, cx);
             }
             BlockProcessResult::Ok

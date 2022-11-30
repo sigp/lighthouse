@@ -424,7 +424,7 @@ impl<T: BeaconChainTypes> WorkEvent<T> {
         message_id: MessageId,
         peer_id: PeerId,
         peer_client: Client,
-        block_and_blobs: Arc<SignedBeaconBlockAndBlobsSidecar<T::EthSpec>>,
+        block_and_blobs: SignedBeaconBlockAndBlobsSidecar<T::EthSpec>,
         seen_timestamp: Duration,
     ) -> Self {
         Self {
@@ -764,7 +764,7 @@ pub enum Work<T: BeaconChainTypes> {
         message_id: MessageId,
         peer_id: PeerId,
         peer_client: Client,
-        block_and_blobs: Arc<SignedBeaconBlockAndBlobsSidecar<T::EthSpec>>,
+        block_and_blobs: SignedBeaconBlockAndBlobsSidecar<T::EthSpec>,
         seen_timestamp: Duration,
     },
     DelayedImportBlock {
@@ -1594,8 +1594,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                         message_id,
                         peer_id,
                         peer_client,
-                        block,
-                        None,
+                        BlockWrapper::Block { block },
                         work_reprocessing_tx,
                         duplicate_cache,
                         seen_timestamp,
@@ -1609,7 +1608,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                 message_id,
                 peer_id,
                 peer_client,
-                block_and_blobs,
+                block_and_blobs: block_sidecar_pair,
                 seen_timestamp,
             } => task_spawner.spawn_async(async move {
                 worker
@@ -1617,8 +1616,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                         message_id,
                         peer_id,
                         peer_client,
-                        block_and_blobs.beacon_block.clone(),
-                        Some(block_and_blobs.blobs_sidecar.clone()),
+                        BlockWrapper::BlockAndBlob { block_sidecar_pair },
                         work_reprocessing_tx,
                         duplicate_cache,
                         seen_timestamp,

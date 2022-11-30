@@ -33,10 +33,10 @@ pub async fn publish_block<T: BeaconChainTypes>(
     // specification is very clear that this is the desired behaviour.
     let message = if matches!(block.as_ref(), &SignedBeaconBlock::Eip4844(_)) {
         if let Some(sidecar) = chain.blob_cache.pop(&block_root) {
-            PubsubMessage::BeaconBlockAndBlobsSidecars(Arc::new(SignedBeaconBlockAndBlobsSidecar {
+            PubsubMessage::BeaconBlockAndBlobsSidecars(SignedBeaconBlockAndBlobsSidecar {
                 beacon_block: block.clone(),
                 blobs_sidecar: Arc::new(sidecar),
-            }))
+            })
         } else {
             //FIXME(sean): This should probably return a specific no-blob-cached error code, beacon API coordination required
             return Err(warp_utils::reject::broadcast_without_import(format!(

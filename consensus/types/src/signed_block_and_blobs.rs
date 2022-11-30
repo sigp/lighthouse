@@ -66,11 +66,29 @@ impl<T: EthSpec> BlockWrapper<T> {
             }
         }
     }
-    pub fn blocks_sidecar(&self) -> Option<Arc<BlobsSidecar<T>>> {
+    pub fn blobs_sidecar(&self) -> Option<Arc<BlobsSidecar<T>>> {
         match self {
             BlockWrapper::Block { block: _ } => None,
             BlockWrapper::BlockAndBlob { block_sidecar_pair } => {
                 Some(block_sidecar_pair.blobs_sidecar.clone())
+            }
+        }
+    }
+
+    pub fn blobs(&self) -> Option<&BlobsSidecar<T>> {
+        match self {
+            BlockWrapper::Block { .. } => None,
+            BlockWrapper::BlockAndBlob { block_sidecar_pair } => {
+                Some(&block_sidecar_pair.blobs_sidecar)
+            }
+        }
+    }
+
+    pub fn message(&self) -> crate::BeaconBlockRef<T> {
+        match self {
+            BlockWrapper::Block { block } => block.message(),
+            BlockWrapper::BlockAndBlob { block_sidecar_pair } => {
+                block_sidecar_pair.beacon_block.message()
             }
         }
     }

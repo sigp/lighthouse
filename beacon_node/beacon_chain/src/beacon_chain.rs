@@ -2484,8 +2484,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Returns an `Err` if the given block was invalid, or an error was encountered during
     pub async fn verify_block_for_gossip(
         self: &Arc<Self>,
-        block: Arc<SignedBeaconBlock<T::EthSpec>>,
-        blobs: Option<Arc<BlobsSidecar<T::EthSpec>>>,
+        block: BlockWrapper<T::EthSpec>,
     ) -> Result<GossipVerifiedBlock<T>, BlockError<T::EthSpec>> {
         let chain = self.clone();
         self.task_executor
@@ -2495,7 +2494,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     let slot = block.slot();
                     let graffiti_string = block.message().body().graffiti().as_utf8_lossy();
 
-                    match GossipVerifiedBlock::new(block, blobs, &chain) {
+                    match GossipVerifiedBlock::new(block, &chain) {
                         Ok(verified) => {
                             debug!(
                                 chain.log,
@@ -2621,7 +2620,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ) -> Result<Hash256, BlockError<T::EthSpec>> {
         let ExecutionPendingBlock {
             block,
-            blobs,
             block_root,
             state,
             parent_block,
@@ -2674,7 +2672,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 move || {
                     chain.import_block(
                         block,
-                        blobs,
                         block_root,
                         state,
                         confirmed_state_roots,
@@ -2699,8 +2696,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     #[allow(clippy::too_many_arguments)]
     fn import_block(
         &self,
-        signed_block: Arc<SignedBeaconBlock<T::EthSpec>>,
-        blobs: Option<Arc<BlobsSidecar<T::EthSpec>>>,
+        signed_block: BlockWrapper<T::EthSpec>,
         block_root: Hash256,
         mut state: BeaconState<T::EthSpec>,
         confirmed_state_roots: Vec<Hash256>,
@@ -2833,7 +2829,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let mut fork_choice = self.canonical_head.fork_choice_write_lock();
 
         // Do not import a block that doesn't descend from the finalized root.
-        check_block_is_finalized_descendant(self, &fork_choice, &signed_block)?;
+        let signed_block = check_block_is_finalized_descendant(self, &fork_choice, signed_block)?;
+        let block = signed_block.message();
 
         // Register the new block with the fork choice service.
         {
@@ -2950,7 +2947,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         if let Err(e) = self.early_attester_cache.add_head_block(
                             block_root,
                             signed_block.clone(),
-                            blobs.clone(),
                             proto_block,
                             &state,
                             &self.spec,
@@ -3036,6 +3032,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // If the write fails, revert fork choice to the version from disk, else we can
         // end up with blocks in fork choice that are missing from disk.
         // See https://github.com/sigp/lighthouse/issues/2028
+        let (signed_block, blobs) = signed_block.deconstruct();
+        let block = signed_block.message();
         let mut ops: Vec<_> = confirmed_state_roots
             .into_iter()
             .map(StoreOp::DeleteStateTemporaryFlag)

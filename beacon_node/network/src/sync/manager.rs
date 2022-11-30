@@ -118,7 +118,7 @@ pub enum SyncMessage<T: EthSpec> {
     },
 
     /// A block with an unknown parent has been received.
-    UnknownBlock(PeerId, Arc<SignedBeaconBlock<T>>, Hash256),
+    UnknownBlock(PeerId, BlockWrapper<T>, Hash256),
 
     /// A peer has sent an object that references a block that is unknown. This triggers the
     /// manager to attempt to find the block matching the unknown hash.
@@ -582,14 +582,8 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 if self.network_globals.peers.read().is_connected(&peer_id)
                     && self.network.is_execution_engine_online()
                 {
-                    // TODO: here it would be ideal if unknown block carried either the block or
-                    // the block and blob since for block lookups we don't care.
-                    self.block_lookups.search_parent(
-                        block_root,
-                        BlockWrapper::Block { block },
-                        peer_id,
-                        &mut self.network,
-                    );
+                    self.block_lookups
+                        .search_parent(block_root, block, peer_id, &mut self.network);
                 }
             }
             SyncMessage::UnknownBlockHash(peer_id, block_hash) => {

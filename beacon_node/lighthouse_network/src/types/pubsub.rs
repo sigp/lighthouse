@@ -24,7 +24,7 @@ pub enum PubsubMessage<T: EthSpec> {
     /// Gossipsub message providing notification of a new block.
     BeaconBlock(Arc<SignedBeaconBlock<T>>),
     /// Gossipsub message providing notification of a new SignedBeaconBlock coupled with a blobs sidecar.
-    BeaconBlockAndBlobsSidecars(Arc<SignedBeaconBlockAndBlobsSidecar<T>>),
+    BeaconBlockAndBlobsSidecars(SignedBeaconBlockAndBlobsSidecar<T>),
     /// Gossipsub message providing notification of a Aggregate attestation and associated proof.
     AggregateAndProofAttestation(Box<SignedAggregateAndProof<T>>),
     /// Gossipsub message providing notification of a raw un-aggregated attestation with its shard id.
@@ -204,9 +204,9 @@ impl<T: EthSpec> PubsubMessage<T> {
                                 let block_and_blobs_sidecar =
                                     SignedBeaconBlockAndBlobsSidecar::from_ssz_bytes(data)
                                         .map_err(|e| format!("{:?}", e))?;
-                                Ok(PubsubMessage::BeaconBlockAndBlobsSidecars(Arc::new(
+                                Ok(PubsubMessage::BeaconBlockAndBlobsSidecars(
                                     block_and_blobs_sidecar,
-                                )))
+                                ))
                             }
                             Some(
                                 ForkName::Base

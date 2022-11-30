@@ -351,7 +351,7 @@ impl<T: BeaconChainTypes> Processor<T> {
         message_id: MessageId,
         peer_id: PeerId,
         peer_client: Client,
-        block_and_blobs: Arc<SignedBeaconBlockAndBlobsSidecar<T::EthSpec>>,
+        block_and_blobs: SignedBeaconBlockAndBlobsSidecar<T::EthSpec>,
     ) {
         self.send_beacon_processor_work(BeaconWorkEvent::gossip_block_and_blobs_sidecar(
             message_id,

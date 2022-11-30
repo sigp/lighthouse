@@ -18,6 +18,7 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use store::hot_cold_store::HotColdDBError;
 use tokio::sync::mpsc;
+use types::signed_block_and_blobs::BlockWrapper;
 use types::{
     Attestation, AttesterSlashing, BlobsSidecar, EthSpec, Hash256, IndexedAttestation,
     ProposerSlashing, SignedAggregateAndProof, SignedBeaconBlock, SignedBeaconBlockAndBlobsSidecar,
@@ -657,8 +658,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         message_id: MessageId,
         peer_id: PeerId,
         peer_client: Client,
-        block: Arc<SignedBeaconBlock<T::EthSpec>>,
-        blobs: Option<Arc<BlobsSidecar<T::EthSpec>>>,
+        block: BlockWrapper<T::EthSpec>,
         reprocess_tx: mpsc::Sender<ReprocessQueueMessage<T>>,
         duplicate_cache: DuplicateCache,
         seen_duration: Duration,
@@ -669,7 +669,6 @@ impl<T: BeaconChainTypes> Worker<T> {
                 peer_id,
                 peer_client,
                 block,
-                blobs,
                 reprocess_tx.clone(),
                 seen_duration,
             )
@@ -706,8 +705,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         message_id: MessageId,
         peer_id: PeerId,
         peer_client: Client,
-        block: Arc<SignedBeaconBlock<T::EthSpec>>,
-        blobs: Option<Arc<BlobsSidecar<T::EthSpec>>>,
+        block: BlockWrapper<T::EthSpec>,
         reprocess_tx: mpsc::Sender<ReprocessQueueMessage<T>>,
         seen_duration: Duration,
     ) -> Option<GossipVerifiedBlock<T>> {
@@ -722,13 +720,13 @@ impl<T: BeaconChainTypes> Worker<T> {
         let verification_result = self
             .chain
             .clone()
-            .verify_block_for_gossip(block.clone(), blobs)
+            .verify_block_for_gossip(block.clone())
             .await;
 
         let block_root = if let Ok(verified_block) = &verification_result {
             verified_block.block_root
         } else {
-            block.canonical_root()
+            block.block().canonical_root()
         };
 
         // Write the time the block was observed into delay cache.
@@ -936,7 +934,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         // This value is not used presently, but it might come in handy for debugging.
         _seen_duration: Duration,
     ) {
-        let block: Arc<_> = verified_block.block.clone();
+        let block = verified_block.block.block_cloned();
         let block_root = verified_block.block_root;
 
         match self
@@ -968,7 +966,7 @@ impl<T: BeaconChainTypes> Worker<T> {
 
                 self.chain.recompute_head_at_current_slot().await;
             }
-            Err(BlockError::ParentUnknown { .. }) => {
+            Err(BlockError::ParentUnknown(block)) => {
                 // Inform the sync manager to find parents for this block
                 // This should not occur. It should be checked by `should_forward_block`
                 error!(
