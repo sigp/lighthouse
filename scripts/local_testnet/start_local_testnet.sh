@@ -40,6 +40,8 @@ if (( $VC_COUNT > $BN_COUNT )); then
     exit
 fi
 
+genesis_file=${@:$OPTIND+0:1}
+
 # Init some constants
 PID_FILE=$TESTNET_DIR/PIDS.pid
 LOG_DIR=$TESTNET_DIR
@@ -54,6 +56,9 @@ LOG_DIR=$TESTNET_DIR
 mkdir -p $LOG_DIR
 for (( bn=1; bn<=$BN_COUNT; bn++ )); do
     touch $LOG_DIR/beacon_node_$bn.log
+done
+for (( el=1; el<=$BN_COUNT; el++ )); do
+    touch $LOG_DIR/geth_$el.log
 done
 for (( vc=1; vc<=$VC_COUNT; vc++ )); do
     touch $LOG_DIR/validator_node_$vc.log
@@ -107,14 +112,25 @@ echo "executing: ./setup.sh >> $LOG_DIR/setup.log"
 execute_command_add_PID bootnode.log ./bootnode.sh
 sleeping 1
 
+execute_command_add_PID el_bootnode.log ./el_bootnode.sh
+sleeping 1
+
 # Start beacon nodes
 BN_udp_tcp_base=9000
 BN_http_port_base=8000
 
+EL_base_network=7000
+EL_base_http=6000
+EL_base_auth_http=6000
+
 (( $VC_COUNT < $BN_COUNT )) && SAS=-s || SAS=
 
+for (( el=1; el<=$BN_COUNT; el++ )); do
+    execute_command_add_PID geth_$el.log ./geth.sh $DATADIR/geth_datadir$el $((EL_base_network + $el)) $((EL_base_http + $el)) $((EL_base_auth_http + $el)) $genesis_file
+done
+
 for (( bn=1; bn<=$BN_COUNT; bn++ )); do
-    execute_command_add_PID beacon_node_$bn.log ./beacon_node.sh $SAS -d $DEBUG_LEVEL $DATADIR/node_$bn $((BN_udp_tcp_base + $bn)) $((BN_http_port_base + $bn))
+    execute_command_add_PID beacon_node_$bn.log ./beacon_node.sh $SAS -d $DEBUG_LEVEL $DATADIR/node_$bn $((BN_udp_tcp_base + $bn)) $((BN_http_port_base + $bn)) http://localhost:$((EL_base_auth_http + $bn)) $DATADIR/geth_datadir$el/geth/jwt.hex
 done
 
 # Start requested number of validator clients
