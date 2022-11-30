@@ -14,7 +14,7 @@ use beacon_chain::{
 use execution_layer::{
     json_structures::{JsonForkchoiceStateV1, JsonPayloadAttributes, JsonPayloadAttributesV1},
     test_utils::ExecutionBlockGenerator,
-    ExecutionLayer, ForkchoiceState, PayloadAttributes, PayloadAttributesV1,
+    ExecutionLayer, ForkchoiceState, PayloadAttributes,
 };
 use fork_choice::{
     CountUnrealized, Error as ForkChoiceError, InvalidationOperation, PayloadVerificationStatus,
@@ -985,20 +985,22 @@ async fn payload_preparation() {
         .await
         .unwrap();
 
-    let payload_attributes = PayloadAttributes::V1(PayloadAttributesV1 {
-        timestamp: rig
-            .harness
+    let payload_attributes = PayloadAttributes::new(
+        rig.harness
             .chain
             .slot_clock
             .start_of(next_slot)
             .unwrap()
             .as_secs(),
-        prev_randao: *head
+        *head
             .beacon_state
             .get_randao_mix(head.beacon_state.current_epoch())
             .unwrap(),
-        suggested_fee_recipient: fee_recipient,
-    });
+        fee_recipient,
+        None,
+    )
+    .downgrade_to_v1()
+    .unwrap();
     assert_eq!(rig.previous_payload_attributes(), payload_attributes);
 }
 

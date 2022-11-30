@@ -4,8 +4,7 @@ use crate::execution_engine::{
 use crate::transactions::transactions;
 use ethers_providers::Middleware;
 use execution_layer::{
-    BuilderParams, ChainHealth, ExecutionLayer, PayloadAttributes, PayloadAttributesV1,
-    PayloadStatus,
+    BuilderParams, ChainHealth, ExecutionLayer, PayloadAttributes, PayloadStatus,
 };
 use fork_choice::ForkchoiceUpdateParameters;
 use reqwest::{header::CONTENT_TYPE, Client};
@@ -279,11 +278,8 @@ impl<E: GenericExecutionEngine> TestRig<E> {
                 Slot::new(1), // Insert proposer for the next slot
                 head_root,
                 proposer_index,
-                PayloadAttributes::V1(PayloadAttributesV1 {
-                    timestamp,
-                    prev_randao,
-                    suggested_fee_recipient: Address::zero(),
-                }),
+                // TODO: think about how to test different forks
+                PayloadAttributes::new(timestamp, prev_randao, Address::zero(), None),
             )
             .await;
 
@@ -316,20 +312,23 @@ impl<E: GenericExecutionEngine> TestRig<E> {
             slot: Slot::new(0),
             chain_health: ChainHealth::Healthy,
         };
+        let suggested_fee_recipient = self
+            .ee_a
+            .execution_layer
+            .get_suggested_fee_recipient(proposer_index)
+            .await;
+        let payload_attributes =
+            PayloadAttributes::new(timestamp, prev_randao, suggested_fee_recipient, None);
         let valid_payload = self
             .ee_a
             .execution_layer
             .get_payload::<FullPayload<MainnetEthSpec>>(
                 parent_hash,
-                timestamp,
-                prev_randao,
-                proposer_index,
+                &payload_attributes,
                 forkchoice_update_params,
                 builder_params,
                 // FIXME: think about how to test other forks
                 ForkName::Merge,
-                #[cfg(feature = "withdrawals")]
-                None,
                 &self.spec,
             )
             .await
@@ -444,20 +443,23 @@ impl<E: GenericExecutionEngine> TestRig<E> {
             slot: Slot::new(0),
             chain_health: ChainHealth::Healthy,
         };
+        let suggested_fee_recipient = self
+            .ee_a
+            .execution_layer
+            .get_suggested_fee_recipient(proposer_index)
+            .await;
+        let payload_attributes =
+            PayloadAttributes::new(timestamp, prev_randao, suggested_fee_recipient, None);
         let second_payload = self
             .ee_a
             .execution_layer
             .get_payload::<FullPayload<MainnetEthSpec>>(
                 parent_hash,
-                timestamp,
-                prev_randao,
-                proposer_index,
+                &payload_attributes,
                 forkchoice_update_params,
                 builder_params,
                 // FIXME: think about how to test other forks
                 ForkName::Merge,
-                #[cfg(feature = "withdrawals")]
-                None,
                 &self.spec,
             )
             .await
@@ -487,11 +489,9 @@ impl<E: GenericExecutionEngine> TestRig<E> {
          */
         let head_block_hash = valid_payload.block_hash();
         let finalized_block_hash = ExecutionBlockHash::zero();
-        let payload_attributes = PayloadAttributes::V1(PayloadAttributesV1 {
-            timestamp: second_payload.timestamp() + 1,
-            prev_randao: Hash256::zero(),
-            suggested_fee_recipient: Address::zero(),
-        });
+        // TODO: think about how to handle different forks
+        let payload_attributes =
+            PayloadAttributes::new(timestamp, prev_randao, Address::zero(), None);
         let slot = Slot::new(42);
         let head_block_root = Hash256::repeat_byte(100);
         let validator_index = 0;

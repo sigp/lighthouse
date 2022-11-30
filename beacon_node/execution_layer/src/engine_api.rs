@@ -243,11 +243,11 @@ impl<T: EthSpec> From<ExecutionPayload<T>> for ExecutionBlockWithTransactions<T>
 
 #[superstruct(
     variants(V1, V2),
-    variant_attributes(derive(Clone, Debug, PartialEq),),
+    variant_attributes(derive(Clone, Debug, Eq, Hash, PartialEq),),
     cast_error(ty = "Error", expr = "Error::IncorrectStateVariant"),
     partial_getter_error(ty = "Error", expr = "Error::IncorrectStateVariant")
 )]
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct PayloadAttributes {
     #[superstruct(getter(copy))]
     pub timestamp: u64,
@@ -260,14 +260,28 @@ pub struct PayloadAttributes {
 }
 
 impl PayloadAttributes {
+    pub fn new(
+        timestamp: u64,
+        prev_randao: Hash256,
+        suggested_fee_recipient: Address,
+        withdrawals: Option<Vec<Withdrawal>>,
+    ) -> Self {
+        // this should always return the highest version
+        PayloadAttributes::V2(PayloadAttributesV2 {
+            timestamp,
+            prev_randao,
+            suggested_fee_recipient,
+            withdrawals,
+        })
+    }
+
     pub fn downgrade_to_v1(self) -> Result<Self, Error> {
         match self {
             PayloadAttributes::V1(_) => Ok(self),
             PayloadAttributes::V2(v2) => {
-                #[cfg(features = "withdrawals")]
                 if v2.withdrawals.is_some() {
                     return Err(Error::BadConversion(
-                        "Downgrading from PayloadAttributesV2 with non-null withdrawaals"
+                        "Downgrading from PayloadAttributesV2 with non-null withdrawals"
                             .to_string(),
                     ));
                 }

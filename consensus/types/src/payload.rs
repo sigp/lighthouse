@@ -167,15 +167,9 @@ impl<'a, T: EthSpec> From<FullPayloadRef<'a, T>> for ExecutionPayload<T> {
 impl<'a, T: EthSpec> From<FullPayloadRef<'a, T>> for FullPayload<T> {
     fn from(full_payload_ref: FullPayloadRef<'a, T>) -> Self {
         match full_payload_ref {
-            FullPayloadRef::Merge(payload_ref) => {
-                FullPayload::Merge(payload_ref.clone())
-            }
-            FullPayloadRef::Capella(payload_ref) => {
-                FullPayload::Capella(payload_ref.clone())
-            }
-            FullPayloadRef::Eip4844(payload_ref) => {
-                FullPayload::Eip4844(payload_ref.clone())
-            }
+            FullPayloadRef::Merge(payload_ref) => FullPayload::Merge(payload_ref.clone()),
+            FullPayloadRef::Capella(payload_ref) => FullPayload::Capella(payload_ref.clone()),
+            FullPayloadRef::Eip4844(payload_ref) => FullPayload::Eip4844(payload_ref.clone()),
         }
     }
 }

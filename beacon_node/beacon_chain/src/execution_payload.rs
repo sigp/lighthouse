@@ -12,7 +12,7 @@ use crate::{
     BeaconChain, BeaconChainError, BeaconChainTypes, BlockError, BlockProductionError,
     ExecutionPayloadError,
 };
-use execution_layer::{BlockProposalContents, BuilderParams, PayloadStatus};
+use execution_layer::{BlockProposalContents, BuilderParams, PayloadAttributes, PayloadStatus};
 use fork_choice::{InvalidationOperation, PayloadVerificationStatus};
 use proto_array::{Block as ProtoBlock, ExecutionStatus};
 use slog::debug;
@@ -483,20 +483,29 @@ where
         .await
         .map_err(BlockProductionError::BeaconChain)?;
 
+    let suggested_fee_recipient = execution_layer
+        .get_suggested_fee_recipient(proposer_index)
+        .await;
+    let payload_attributes = PayloadAttributes::new(
+        timestamp,
+        random,
+        suggested_fee_recipient,
+        #[cfg(feature = "withdrawals")]
+        withdrawals,
+        #[cfg(not(feature = "withdrawals"))]
+        None,
+    );
+
     // Note: the suggested_fee_recipient is stored in the `execution_layer`, it will add this parameter.
     //
     // This future is not executed here, it's up to the caller to await it.
     let block_contents = execution_layer
         .get_payload::<Payload>(
             parent_hash,
-            timestamp,
-            random,
-            proposer_index,
+            &payload_attributes,
             forkchoice_update_params,
             builder_params,
             fork,
-            #[cfg(feature = "withdrawals")]
-            withdrawals,
             &chain.spec,
         )
         .await

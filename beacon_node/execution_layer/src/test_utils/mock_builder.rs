@@ -1,5 +1,5 @@
 use crate::test_utils::DEFAULT_JWT_SECRET;
-use crate::{Config, ExecutionLayer, PayloadAttributes, PayloadAttributesV1};
+use crate::{Config, ExecutionLayer, PayloadAttributes};
 use async_trait::async_trait;
 use eth2::types::{BlockId, StateId, ValidatorId};
 use eth2::{BeaconNodeHttpClient, Timeouts};
@@ -289,11 +289,8 @@ impl<E: EthSpec> mev_build_rs::BlindedBlockProvider for MockBuilder<E> {
             .map_err(convert_err)?;
 
         // FIXME: think about proper fork here
-        let payload_attributes = PayloadAttributes::V1(PayloadAttributesV1 {
-            timestamp,
-            prev_randao: *prev_randao,
-            suggested_fee_recipient: fee_recipient,
-        });
+        let payload_attributes =
+            PayloadAttributes::new(timestamp, *prev_randao, fee_recipient, None);
 
         self.el
             .insert_proposer(slot, head_block_root, val_index, payload_attributes)
@@ -306,18 +303,17 @@ impl<E: EthSpec> mev_build_rs::BlindedBlockProvider for MockBuilder<E> {
             finalized_hash: Some(finalized_execution_hash),
         };
 
+        let payload_attributes =
+            PayloadAttributes::new(timestamp, *prev_randao, fee_recipient, None);
+
         let payload = self
             .el
             .get_full_payload_caching::<BlindedPayload<E>>(
                 head_execution_hash,
-                timestamp,
-                *prev_randao,
-                fee_recipient,
+                &payload_attributes,
                 forkchoice_update_params,
                 // TODO: do we need to write a test for this if this is Capella fork?
                 ForkName::Merge,
-                #[cfg(feature = "withdrawals")]
-                None,
             )
             .await
             .map_err(convert_err)?

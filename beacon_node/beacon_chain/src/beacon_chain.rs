@@ -59,7 +59,7 @@ use crate::{metrics, BeaconChainError};
 use eth2::types::{EventKind, SseBlock, SyncDuty};
 use execution_layer::{
     BlockProposalContents, BuilderParams, ChainHealth, ExecutionLayer, FailedCondition,
-    PayloadAttributes, PayloadAttributesV1, PayloadAttributesV2, PayloadStatus,
+    PayloadAttributes, PayloadStatus,
 };
 pub use fork_choice::CountUnrealized;
 use fork_choice::{
@@ -4179,21 +4179,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         .map(|withdrawals_opt| withdrawals_opt.map(|w| w.into()))
         .map_err(Error::PrepareProposerFailed)?;
 
-        let payload_attributes = PayloadAttributes::V2(PayloadAttributesV2 {
-            timestamp: self
-                .slot_clock
+        let payload_attributes = PayloadAttributes::new(
+            self.slot_clock
                 .start_of(prepare_slot)
                 .ok_or(Error::InvalidSlot(prepare_slot))?
                 .as_secs(),
-            prev_randao: head_random,
-            suggested_fee_recipient: execution_layer
+            head_random,
+            execution_layer
                 .get_suggested_fee_recipient(proposer as u64)
                 .await,
             #[cfg(feature = "withdrawals")]
             withdrawals,
             #[cfg(not(feature = "withdrawals"))]
-            withdrawals: None,
-        });
+            None,
+        );
 
         debug!(
             self.log,

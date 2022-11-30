@@ -98,35 +98,16 @@ impl<T: EthSpec> MockExecutionLayer<T> {
             justified_hash: None,
             finalized_hash: None,
         };
-
-        // FIXME: this is just best guess for how to deal with forks here..
-        let payload_attributes = match &latest_execution_block {
-            &Block::PoS(ref pos_block) => match pos_block {
-                &ExecutionPayload::Merge(_) => PayloadAttributes::V1(PayloadAttributesV1 {
-                    timestamp,
-                    prev_randao,
-                    suggested_fee_recipient: Address::repeat_byte(42),
-                }),
-                &ExecutionPayload::Capella(_) | &ExecutionPayload::Eip4844(_) => {
-                    PayloadAttributes::V2(PayloadAttributesV2 {
-                        timestamp,
-                        prev_randao,
-                        suggested_fee_recipient: Address::repeat_byte(42),
-                        // FIXME: think about adding withdrawals here..
-                        #[cfg(feature = "withdrawals")]
-                        withdrawals: Some(vec![]),
-                        #[cfg(not(feature = "withdrawals"))]
-                        withdrawals: None,
-                    })
-                }
-            },
-            // I guess a PoW blocks means we should use Merge?
-            &Block::PoW(_) => PayloadAttributes::V1(PayloadAttributesV1 {
-                timestamp,
-                prev_randao,
-                suggested_fee_recipient: Address::repeat_byte(42),
-            }),
-        };
+        let payload_attributes = PayloadAttributes::new(
+            timestamp,
+            prev_randao,
+            Address::repeat_byte(42),
+            // FIXME: think about how to handle different forks / withdrawals here..
+            #[cfg(feature = "withdrawals")]
+            Some(vec![]),
+            #[cfg(not(feature = "withdrawals"))]
+            None,
+        );
 
         // Insert a proposer to ensure the fork choice updated command works.
         let slot = Slot::new(0);
@@ -152,19 +133,18 @@ impl<T: EthSpec> MockExecutionLayer<T> {
             slot,
             chain_health: ChainHealth::Healthy,
         };
+        let suggested_fee_recipient = self.el.get_suggested_fee_recipient(validator_index).await;
+        let payload_attributes =
+            PayloadAttributes::new(timestamp, prev_randao, suggested_fee_recipient, None);
         let payload: ExecutionPayload<T> = self
             .el
             .get_payload::<FullPayload<T>>(
                 parent_hash,
-                timestamp,
-                prev_randao,
-                validator_index,
+                &payload_attributes,
                 forkchoice_update_params,
                 builder_params,
                 // FIXME: do we need to consider other forks somehow? What about withdrawals?
                 ForkName::Merge,
-                #[cfg(feature = "withdrawals")]
-                Some(vec![]),
                 &self.spec,
             )
             .await
@@ -188,19 +168,18 @@ impl<T: EthSpec> MockExecutionLayer<T> {
             slot,
             chain_health: ChainHealth::Healthy,
         };
+        let suggested_fee_recipient = self.el.get_suggested_fee_recipient(validator_index).await;
+        let payload_attributes =
+            PayloadAttributes::new(timestamp, prev_randao, suggested_fee_recipient, None);
         let payload_header = self
             .el
             .get_payload::<BlindedPayload<T>>(
                 parent_hash,
-                timestamp,
-                prev_randao,
-                validator_index,
+                &payload_attributes,
                 forkchoice_update_params,
                 builder_params,
                 // FIXME: do we need to consider other forks somehow? What about withdrawals?
                 ForkName::Merge,
-                #[cfg(feature = "withdrawals")]
-                Some(vec![]),
                 &self.spec,
             )
             .await
