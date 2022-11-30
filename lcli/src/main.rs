@@ -559,12 +559,21 @@ fn main() {
                         ),
                 )
                 .arg(
-                    Arg::with_name("merge-fork-epoch")
-                        .long("merge-fork-epoch")
+                    Arg::with_name("bellatrix-fork-epoch")
+                        .long("bellatrix-fork-epoch")
                         .value_name("EPOCH")
                         .takes_value(true)
                         .help(
                             "The epoch at which to enable the Merge hard fork",
+                        ),
+                )
+                .arg(
+                    Arg::with_name("ttd")
+                        .long("ttd")
+                        .value_name("TTD")
+                        .takes_value(true)
+                        .help(
+                            "The terminal total difficulty",
                         ),
                 )
                 .arg(
