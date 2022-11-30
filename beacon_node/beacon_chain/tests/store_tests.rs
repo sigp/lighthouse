@@ -5,6 +5,7 @@ use beacon_chain::builder::BeaconChainBuilder;
 use beacon_chain::test_utils::{
     test_spec, AttestationStrategy, BeaconChainHarness, BlockStrategy, DiskHarnessType,
 };
+use beacon_chain::validator_monitor::DEFAULT_INDIVIDUAL_TRACKING_THRESHOLD;
 use beacon_chain::{
     historical_blocks::HistoricalBlockError, migrate::MigratorConfig, BeaconChain,
     BeaconChainError, BeaconChainTypes, BeaconSnapshot, ChainConfig, NotifyExecutionLayer,
@@ -2121,7 +2122,7 @@ async fn weak_subjectivity_sync() {
                 log.clone(),
                 1,
             )))
-            .monitor_validators(true, vec![], log)
+            .monitor_validators(true, vec![], DEFAULT_INDIVIDUAL_TRACKING_THRESHOLD, log)
             .build()
             .expect("should build"),
     );
