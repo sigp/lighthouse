@@ -12,6 +12,7 @@ use store::metadata::{SchemaVersion, CURRENT_SCHEMA_VERSION};
 use store::{Error as StoreError, StoreItem};
 
 /// Migrate the database from one schema version to another, applying all requisite mutations.
+#[allow(clippy::only_used_in_recursion)] // spec is not used but likely to be used in future
 pub fn migrate_schema<T: BeaconChainTypes>(
     db: Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>,
     deposit_contract_deploy_block: u64,
