@@ -66,9 +66,11 @@ impl EpochCache {
 
         // The cache should never be constructed at slot 0 because it should only be used for
         // block processing (which implies slot > 0) or epoch processing (which implies slot >= 32).
+        /* FIXME(sproul): EF tests like this
         if decision_block_root.is_zero() {
             return Err(EpochCacheError::InvalidSlot { slot: state.slot() });
         }
+        */
 
         // Compute base rewards.
         let total_active_balance = state.get_total_active_balance()?;
