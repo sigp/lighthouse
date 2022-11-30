@@ -43,10 +43,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
 }
 
 /// Run the account manager, returning an error if the operation did not succeed.
-pub fn run<'a, T: EthSpec>(
-    matches: &'a ArgMatches<'a>,
-    mut env: Environment<T>,
-) -> Result<(), String> {
+pub fn run<'a, T: EthSpec>(matches: &'a ArgMatches<'a>, env: Environment<T>) -> Result<(), String> {
     let context = env.core_context();
     let spec = context.eth2_config.spec.clone();
     let dump_config = clap_utils::parse_optional(matches, DUMP_CONFIGS_FLAG)?
