@@ -1,5 +1,5 @@
 use beacon_node::{
-    beacon_chain::{validator_monitor::DEFAULT_INDIVIDUAL_METRICS_THRESHOLD, CountUnrealizedFull},
+    beacon_chain::{validator_monitor::DEFAULT_INDIVIDUAL_TRACKING_THRESHOLD, CountUnrealizedFull},
     ClientConfig as Config,
 };
 
@@ -1217,18 +1217,21 @@ fn validator_monitor_metrics_threshold_default() {
         .run_with_zero_port()
         .with_config(|config| {
             assert_eq!(
-                config.validator_monitor_individual_metrics_threshold,
-                DEFAULT_INDIVIDUAL_METRICS_THRESHOLD
+                config.validator_monitor_individual_tracking_threshold,
+                DEFAULT_INDIVIDUAL_TRACKING_THRESHOLD
             )
         });
 }
 #[test]
 fn validator_monitor_metrics_threshold_default() {
     CommandLineTest::new()
-        .flag("validator-monitor-individual-metrics-threshold", Some("42"))
+        .flag(
+            "validator-monitor-individual-tracking-threshold",
+            Some("42"),
+        )
         .run_with_zero_port()
         .with_config(|config| {
-            assert_eq!(config.validator_monitor_individual_metrics_threshold, 42)
+            assert_eq!(config.validator_monitor_individual_tracking_threshold, 42)
         });
 }
 

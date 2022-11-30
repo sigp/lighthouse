@@ -2,7 +2,7 @@ pub use crate::persisted_beacon_chain::PersistedBeaconChain;
 pub use crate::{
     beacon_chain::{BEACON_CHAIN_DB_KEY, ETH1_CACHE_DB_KEY, FORK_CHOICE_DB_KEY, OP_POOL_DB_KEY},
     migrate::MigratorConfig,
-    validator_monitor::DEFAULT_INDIVIDUAL_METRICS_THRESHOLD,
+    validator_monitor::DEFAULT_INDIVIDUAL_TRACKING_THRESHOLD,
     BeaconChainError, NotifyExecutionLayer, ProduceBlockVerification,
 };
 use crate::{
@@ -467,7 +467,7 @@ where
                 log.clone(),
                 5,
             )))
-            .monitor_validators(true, vec![], DEFAULT_INDIVIDUAL_METRICS_THRESHOLD, log);
+            .monitor_validators(true, vec![], DEFAULT_INDIVIDUAL_TRACKING_THRESHOLD, log);
 
         builder = if let Some(mutator) = self.initial_mutator {
             mutator(builder)

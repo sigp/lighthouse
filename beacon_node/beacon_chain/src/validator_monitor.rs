@@ -31,7 +31,7 @@ pub const HISTORIC_EPOCHS: usize = 4;
 /// Once the validator monitor reaches this number of validators it will stop
 /// tracking their metrics individually in an effort to reduce Prometheus
 /// cardinality.
-pub const DEFAULT_INDIVIDUAL_METRICS_THRESHOLD: usize = 64;
+pub const DEFAULT_INDIVIDUAL_TRACKING_THRESHOLD: usize = 64;
 
 #[derive(Debug)]
 pub enum Error {
@@ -268,8 +268,9 @@ pub struct ValidatorMonitor<T> {
     auto_register: bool,
     /// Once the number of monitored validators goes above this threshold, we
     /// will stop tracking metrics on a per-validator basis. This prevents large
-    /// validator counts causing infeasibly high cardinailty for Prometheus.
-    individual_metrics_threshold: usize,
+    /// validator counts causing infeasibly high cardinailty for Prometheus and
+    /// high log volumes.
+    individual_tracking_threshold: usize,
     log: Logger,
     _phantom: PhantomData<T>,
 }
@@ -278,14 +279,14 @@ impl<T: EthSpec> ValidatorMonitor<T> {
     pub fn new(
         pubkeys: Vec<PublicKeyBytes>,
         auto_register: bool,
-        individual_metrics_threshold: usize,
+        individual_tracking_threshold: usize,
         log: Logger,
     ) -> Self {
         let mut s = Self {
             validators: <_>::default(),
             indices: <_>::default(),
             auto_register,
-            individual_metrics_threshold,
+            individual_tracking_threshold,
             log,
             _phantom: PhantomData,
         };
@@ -295,8 +296,8 @@ impl<T: EthSpec> ValidatorMonitor<T> {
         s
     }
 
-    fn individual_metrics(&self) -> bool {
-        self.validators.len() <= self.individual_metrics_threshold
+    fn individual_tracking(&self) -> bool {
+        self.validators.len() <= self.individual_tracking_threshold
     }
 
     /// Add some validators to `self` for additional monitoring.
@@ -341,7 +342,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                 monitored_validator.touch_epoch_summary(current_epoch);
 
                 // Only log the per-validator metrics if it's enabled.
-                if !self.individual_metrics() {
+                if !self.individual_tracking() {
                     continue;
                 }
 
@@ -423,7 +424,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
     fn aggregatable_metric<F: Fn(&str)>(&self, individual_id: &str, func: F) {
         func(ALL_VALIDATORS);
 
-        if self.individual_metrics() {
+        if self.individual_tracking() {
             func(individual_id);
         }
     }
@@ -487,7 +488,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                         )
                     });
                     attestation_success.push(id);
-                    if self.individual_metrics() {
+                    if self.individual_tracking() {
                         debug!(
                             self.log,
                             "Previous epoch attestation success";
@@ -506,7 +507,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                         );
                     });
                     attestation_miss.push(id);
-                    if self.individual_metrics() {
+                    if self.individual_tracking() {
                         debug!(
                             self.log,
                             "Previous epoch attestation missing";
@@ -532,7 +533,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                         );
                     });
                     head_miss.push(id);
-                    if self.individual_metrics() {
+                    if self.individual_tracking() {
                         debug!(
                             self.log,
                             "Attestation failed to match head";
@@ -558,7 +559,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                         );
                     });
                     target_miss.push(id);
-                    if self.individual_metrics() {
+                    if self.individual_tracking() {
                         debug!(
                             self.log,
                             "Attestation failed to match target";
@@ -580,7 +581,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                 if let Some(inclusion_delay) = min_inclusion_distance {
                     if inclusion_delay > spec.min_attestation_inclusion_delay {
                         suboptimal_inclusion.push(id);
-                        if self.individual_metrics() {
+                        if self.individual_tracking() {
                             debug!(
                                 self.log,
                                 "Potential sub-optimal inclusion delay";
@@ -619,7 +620,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                         let epoch_summary = monitored_validator.summaries.read();
                         if let Some(summary) = epoch_summary.get(&current_epoch) {
                             // This log is not gated by
-                            // `self.individual_metrics()` since the number of
+                            // `self.individual_tracking()` since the number of
                             // logs that can be generated is capped by the size
                             // of sync committee.
                             info!(
@@ -639,7 +640,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                                 0,
                             );
                         });
-                        if self.individual_metrics() {
+                        if self.individual_tracking() {
                             debug!(
                                 self.log,
                                 "Validator isn't part of the current sync committee";
@@ -852,7 +853,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                     delay,
                 );
 
-                if self.individual_metrics() {
+                if self.individual_tracking() {
                     info!(
                         self.log,
                         "Unaggregated attestation";
@@ -938,7 +939,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                 delay,
             );
 
-            if self.individual_metrics() {
+            if self.individual_tracking() {
                 info!(
                     self.log,
                     "Aggregated attestation";
@@ -971,7 +972,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                     delay,
                 );
 
-                if self.individual_metrics() {
+                if self.individual_tracking() {
                     info!(
                         self.log,
                         "Attestation included in aggregate";
@@ -1027,7 +1028,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                     delay.as_u64() as i64,
                 );
 
-                if self.individual_metrics() {
+                if self.individual_tracking() {
                     info!(
                         self.log,
                         "Attestation included in block";
@@ -1106,7 +1107,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                 delay,
             );
 
-            // Not gated behind `self.individual_metrics()` since the number of
+            // Not gated behind `self.individual_tracking()` since the number of
             // logs is capped by the sync committee size.
             info!(
                 self.log,
@@ -1192,7 +1193,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                 delay,
             );
 
-            // Not gated behind `self.individual_metrics()` since the number of
+            // Not gated behind `self.individual_tracking()` since the number of
             // logs is capped by the sync committee size.
             info!(
                 self.log,
@@ -1219,7 +1220,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                     &[src, id],
                 );
 
-                // Not gated behind `self.individual_metrics()` since the number of
+                // Not gated behind `self.individual_tracking()` since the number of
                 // logs is capped by the sync committee size.
                 info!(
                     self.log,
@@ -1257,7 +1258,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                     &["block", id],
                 );
 
-                // Not gated behind `self.individual_metrics()` since the number of
+                // Not gated behind `self.individual_tracking()` since the number of
                 // logs is capped by the sync committee size.
                 info!(
                     self.log,
@@ -1297,7 +1298,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
 
             metrics::inc_counter_vec(&metrics::VALIDATOR_MONITOR_EXIT_TOTAL, &[src, id]);
 
-            // Not gated behind `self.individual_metrics()` since it's an
+            // Not gated behind `self.individual_tracking()` since it's an
             // infrequent and interesting message.
             info!(
                 self.log,
@@ -1341,7 +1342,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                 &[src, id],
             );
 
-            // Not gated behind `self.individual_metrics()` since it's an
+            // Not gated behind `self.individual_tracking()` since it's an
             // infrequent and interesting message.
             crit!(
                 self.log,
@@ -1396,7 +1397,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                     &[src, id],
                 );
 
-                // Not gated behind `self.individual_metrics()` since it's an
+                // Not gated behind `self.individual_tracking()` since it's an
                 // infrequent and interesting message.
                 crit!(
                     self.log,
@@ -1554,7 +1555,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                         self.aggregatable_metric(id, |tag| {
                             metrics::observe_timer_vec(
                                 &metrics::VALIDATOR_MONITOR_PREV_EPOCH_BEACON_BLOCKS_MIN_DELAY_SECONDS,
-                                &[id],
+                                &[tag],
                                 delay,
                             );
                         });
@@ -1573,7 +1574,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                         self.aggregatable_metric(id, |tag| {
                             metrics::observe_timer_vec(
                                 &metrics::VALIDATOR_MONITOR_PREV_EPOCH_AGGREGATES_MIN_DELAY_SECONDS,
-                                &[id],
+                                &[tag],
                                 delay,
                             );
                         });
