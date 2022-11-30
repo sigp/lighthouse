@@ -28,6 +28,11 @@ const ALL_VALIDATORS: &str = "all_validators";
 /// will be kept around for `HISTORIC_EPOCHS` before it is pruned.
 pub const HISTORIC_EPOCHS: usize = 4;
 
+/// Once the validator monitor reaches this number of validators it will stop
+/// tracking their metrics individually in an effort to reduce Prometheus
+/// cardinality.
+pub const DEFAULT_INDIVIDUAL_METRICS_THRESHOLD: usize = 64;
+
 #[derive(Debug)]
 pub enum Error {
     InvalidPubkey(String),
@@ -261,20 +266,26 @@ pub struct ValidatorMonitor<T> {
     indices: HashMap<u64, PublicKeyBytes>,
     /// If true, allow the automatic registration of validators.
     auto_register: bool,
-    /// Track validator metrics for each individual validator. Whilst the granular information is
-    /// nice, the Prometheus cardinality can get out of hand for high validator counts.
-    individual_metrics: bool,
+    /// Once the number of monitored validators goes above this threshold, we
+    /// will stop tracking metrics on a per-validator basis. This prevents large
+    /// validator counts causing infeasibly high cardinailty for Prometheus.
+    individual_metrics_threshold: usize,
     log: Logger,
     _phantom: PhantomData<T>,
 }
 
 impl<T: EthSpec> ValidatorMonitor<T> {
-    pub fn new(pubkeys: Vec<PublicKeyBytes>, auto_register: bool, log: Logger) -> Self {
+    pub fn new(
+        pubkeys: Vec<PublicKeyBytes>,
+        auto_register: bool,
+        individual_metrics_threshold: usize,
+        log: Logger,
+    ) -> Self {
         let mut s = Self {
             validators: <_>::default(),
             indices: <_>::default(),
             auto_register,
-            individual_metrics: true,
+            individual_metrics_threshold,
             log,
             _phantom: PhantomData,
         };
@@ -282,6 +293,10 @@ impl<T: EthSpec> ValidatorMonitor<T> {
             s.add_validator_pubkey(pubkey)
         }
         s
+    }
+
+    fn individual_metrics(&self) -> bool {
+        self.validators.len() <= self.individual_metrics_threshold
     }
 
     /// Add some validators to `self` for additional monitoring.
@@ -326,7 +341,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                 monitored_validator.touch_epoch_summary(current_epoch);
 
                 // Only log the per-validator metrics if it's enabled.
-                if !self.individual_metrics {
+                if !self.individual_metrics() {
                     continue;
                 }
 
@@ -407,7 +422,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
     fn aggregatable_metric<F: Fn(&str)>(&self, individual_id: &str, func: F) {
         func(ALL_VALIDATORS);
 
-        if self.individual_metrics {
+        if self.individual_metrics() {
             func(individual_id);
         }
     }
@@ -1401,7 +1416,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                         );
                     });
                     if let Some(delay) = summary.attestation_min_delay {
-                        if self.individual_metrics {
+                        if self.individual_metrics() {
                             metrics::observe_timer_vec(
                                 &metrics::VALIDATOR_MONITOR_PREV_EPOCH_ATTESTATIONS_MIN_DELAY_SECONDS,
                                 &[id],
@@ -1424,7 +1439,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                         );
                     });
                     if let Some(distance) = summary.attestation_min_block_inclusion_distance {
-                        if self.individual_metrics {
+                        if self.individual_metrics() {
                             metrics::set_gauge_vec(
                                 &metrics::VALIDATOR_MONITOR_PREV_EPOCH_ATTESTATION_BLOCK_MIN_INCLUSION_DISTANCE,
                                 &[id],
@@ -1443,7 +1458,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                         );
                     });
                     if let Some(delay) = summary.sync_committee_message_min_delay {
-                        if self.individual_metrics {
+                        if self.individual_metrics() {
                             metrics::observe_timer_vec(
                             &metrics::VALIDATOR_MONITOR_PREV_EPOCH_SYNC_COMMITTEE_MESSAGES_MIN_DELAY_SECONDS,
                             &[id],
@@ -1477,7 +1492,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                         );
                     });
                     if let Some(delay) = summary.sync_contribution_min_delay {
-                        if self.individual_metrics {
+                        if self.individual_metrics() {
                             metrics::observe_timer_vec(
                             &metrics::VALIDATOR_MONITOR_PREV_EPOCH_SYNC_CONTRIBUTION_MIN_DELAY_SECONDS,
                             &[id],
@@ -1497,7 +1512,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                         );
                     });
                     if let Some(delay) = summary.block_min_delay {
-                        if self.individual_metrics {
+                        if self.individual_metrics() {
                             metrics::observe_timer_vec(
                             &metrics::VALIDATOR_MONITOR_PREV_EPOCH_BEACON_BLOCKS_MIN_DELAY_SECONDS,
                             &[id],
@@ -1516,7 +1531,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                         );
                     });
                     if let Some(delay) = summary.aggregate_min_delay {
-                        if self.individual_metrics {
+                        if self.individual_metrics() {
                             metrics::observe_timer_vec(
                                 &metrics::VALIDATOR_MONITOR_PREV_EPOCH_AGGREGATES_MIN_DELAY_SECONDS,
                                 &[id],

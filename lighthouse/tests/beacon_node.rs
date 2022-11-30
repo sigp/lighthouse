@@ -1,4 +1,7 @@
-use beacon_node::{beacon_chain::CountUnrealizedFull, ClientConfig as Config};
+use beacon_node::{
+    beacon_chain::{validator_monitor::DEFAULT_INDIVIDUAL_METRICS_THRESHOLD, CountUnrealizedFull},
+    ClientConfig as Config,
+};
 
 use crate::exec::{CommandLineTestExec, CompletedTest};
 use eth1::Eth1Endpoint;
@@ -1206,6 +1209,26 @@ fn validator_monitor_file_flag() {
         .with_config(|config| {
             assert_eq!(config.validator_monitor_pubkeys[0].to_string(), "0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef");
             assert_eq!(config.validator_monitor_pubkeys[1].to_string(), "0xbeefdeadbeefdeaddeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef");
+        });
+}
+#[test]
+fn validator_monitor_metrics_threshold_default() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config.validator_monitor_individual_metrics_threshold,
+                DEFAULT_INDIVIDUAL_METRICS_THRESHOLD
+            )
+        });
+}
+#[test]
+fn validator_monitor_metrics_threshold_default() {
+    CommandLineTest::new()
+        .flag("validator-monitor-individual-metrics-threshold", Some("42"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(config.validator_monitor_individual_metrics_threshold, 42)
         });
 }
 

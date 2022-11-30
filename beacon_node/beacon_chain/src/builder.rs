@@ -561,11 +561,13 @@ where
         mut self,
         auto_register: bool,
         validators: Vec<PublicKeyBytes>,
+        individual_metrics_threshold: usize,
         log: Logger,
     ) -> Self {
         self.validator_monitor = Some(ValidatorMonitor::new(
             validators,
             auto_register,
+            individual_metrics_threshold,
             log.clone(),
         ));
         self
