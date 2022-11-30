@@ -1180,7 +1180,8 @@ pub fn serve<T: BeaconChainTypes>(
              accept_header: Option<api_types::Accept>| {
                 async move {
                     let (block, execution_optimistic) = block_id.full_block(&chain).await?;
-                    let finalized = block_id.is_finalized(&chain);
+                    let (block_root, _) = block_id.root(&chain)?;
+                    let finalized = chain.is_finalized_block(&block_root, block.slot()).unwrap();
                     let fork_name = block
                         .fork_name(&chain.spec)
                         .map_err(inconsistent_fork_rejection)?;
@@ -1218,7 +1219,8 @@ pub fn serve<T: BeaconChainTypes>(
         .and_then(|block_id: BlockId, chain: Arc<BeaconChain<T>>| {
             blocking_json_task(move || {
                 let (block, execution_optimistic) = block_id.blinded_block(&chain)?;
-                let finalized = block_id.is_finalized(&chain);
+                let (block_root, _) = block_id.root(&chain)?;
+                let finalized = chain.is_finalized_block(&block_root, block.slot()).unwrap();
                 Ok(api_types::GenericResponse::from(api_types::RootData::from(
                     block.canonical_root(),
                 ))
