@@ -63,14 +63,39 @@ impl<T: EthSpec> ConsensusContext<T> {
         self
     }
 
-    // FIXME(sproul): extra safety checks?
+    /// Strict method for fetching the proposer index.
+    ///
+    /// Gets the proposer index for `self.slot` while ensuring that it matches `state.slot()`. This
+    /// method should be used in block processing and almost everywhere the proposer index is
+    /// required. If the slot check is too restrictive, see `get_proposer_index_from_epoch_state`.
     pub fn get_proposer_index(
         &mut self,
         state: &BeaconState<T>,
         spec: &ChainSpec,
     ) -> Result<u64, ContextError> {
-        self.check_epoch(state.current_epoch())?;
+        self.check_slot(state.slot())?;
+        self.get_proposer_index_no_checks(state, spec)
+    }
 
+    /// More liberal method for fetching the proposer index.
+    ///
+    /// Fetches the proposer index for `self.slot` but does not require the state to be from an
+    /// exactly matching slot (merely a matching epoch). This is useful in batch verification where
+    /// we want to extract the proposer index from a single state for every slot in the epoch.
+    pub fn get_proposer_index_from_epoch_state(
+        &mut self,
+        state: &BeaconState<T>,
+        spec: &ChainSpec,
+    ) -> Result<u64, ContextError> {
+        self.check_epoch(state.current_epoch())?;
+        self.get_proposer_index_no_checks(state, spec)
+    }
+
+    fn get_proposer_index_no_checks(
+        &mut self,
+        state: &BeaconState<T>,
+        spec: &ChainSpec,
+    ) -> Result<u64, ContextError> {
         if let Some(proposer_index) = self.proposer_index {
             return Ok(proposer_index);
         }

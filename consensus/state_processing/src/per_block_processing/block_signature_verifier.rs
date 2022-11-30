@@ -144,7 +144,8 @@ where
         ctxt: &mut ConsensusContext<T>,
     ) -> Result<()> {
         let block_root = Some(ctxt.get_current_block_root(block)?);
-        let verified_proposer_index = Some(ctxt.get_proposer_index(self.state, self.spec)?);
+        let verified_proposer_index =
+            Some(ctxt.get_proposer_index_from_epoch_state(self.state, self.spec)?);
 
         self.include_block_proposal(block, block_root, verified_proposer_index)?;
         self.include_all_signatures_except_proposal(block, ctxt)?;
@@ -159,7 +160,8 @@ where
         block: &'a SignedBeaconBlock<T, Payload>,
         ctxt: &mut ConsensusContext<T>,
     ) -> Result<()> {
-        let verified_proposer_index = Some(ctxt.get_proposer_index(self.state, self.spec)?);
+        let verified_proposer_index =
+            Some(ctxt.get_proposer_index_from_epoch_state(self.state, self.spec)?);
         self.include_randao_reveal(block, verified_proposer_index)?;
         self.include_proposer_slashings(block)?;
         self.include_attester_slashings(block)?;
@@ -281,7 +283,7 @@ where
             .attestations()
             .iter()
             .try_for_each(|attestation| {
-                let indexed_attestation = ctxt.get_indexed_attestation(&self.state, attestation)?;
+                let indexed_attestation = ctxt.get_indexed_attestation(self.state, attestation)?;
 
                 self.sets.push(indexed_attestation_signature_set(
                     self.state,

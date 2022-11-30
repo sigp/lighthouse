@@ -1,4 +1,4 @@
-use crate::{DBColumn, Error, HotColdDB, ItemStore, StoreItem};
+use crate::{DBColumn, Error, HotColdDB, ItemStore, KeyValueStoreOp, StoreItem};
 use bls::PUBLIC_KEY_UNCOMPRESSED_BYTES_LEN;
 use smallvec::SmallVec;
 use ssz::{Decode, Encode};
@@ -45,8 +45,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> Default
 impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> ValidatorPubkeyCache<E, Hot, Cold> {
     /// Create a new public key cache using the keys in `state.validators`.
     ///
-    /// Also creates a new persistence file, returning an error if there is already a file at
-    /// `persistence_path`.
+    /// The new cache will be updated with the keys from `state` and immediately written to disk.
     pub fn new(state: &BeaconState<E>, store: &HotColdDB<E, Hot, Cold>) -> Result<Self, Error> {
         let mut cache = Self {
             pubkeys: vec![],
@@ -55,7 +54,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> ValidatorPubkeyCache<E, 
             _phantom: PhantomData,
         };
 
-        cache.import_new_pubkeys(state, store)?;
+        let store_ops = cache.import_new_pubkeys(state)?;
+        store.hot_db.do_atomically(store_ops)?;
 
         Ok(cache)
     }
@@ -91,26 +91,26 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> ValidatorPubkeyCache<E, 
     /// Scan the given `state` and add any new validator public keys.
     ///
     /// Does not delete any keys from `self` if they don't appear in `state`.
+    ///
+    /// NOTE: The caller *must* commit the returned I/O batch as part of the block import process.
     pub fn import_new_pubkeys(
         &mut self,
         state: &BeaconState<E>,
-        store: &HotColdDB<E, Hot, Cold>,
-    ) -> Result<(), Error> {
+    ) -> Result<Vec<KeyValueStoreOp>, Error> {
         if state.validators().len() > self.validators.len() {
             self.import(
                 state
                     .validators()
                     .iter_from(self.pubkeys.len())?
                     .map(|v| v.immutable.clone()),
-                store,
             )
         } else {
-            Ok(())
+            Ok(vec![])
         }
     }
 
     /// Adds zero or more validators to `self`.
-    fn import<I>(&mut self, validator_keys: I, store: &HotColdDB<E, Hot, Cold>) -> Result<(), Error>
+    fn import<I>(&mut self, validator_keys: I) -> Result<Vec<KeyValueStoreOp>, Error>
     where
         I: Iterator<Item = Arc<ValidatorImmutable>> + ExactSizeIterator,
     {
@@ -118,6 +118,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> ValidatorPubkeyCache<E, 
         self.pubkeys.reserve(validator_keys.len());
         self.indices.reserve(validator_keys.len());
 
+        let mut store_ops = Vec::with_capacity(validator_keys.len());
         for validator in validator_keys {
             let i = self.pubkeys.len();
 
@@ -129,26 +130,21 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> ValidatorPubkeyCache<E, 
                 .try_into()
                 .map_err(Error::InvalidValidatorPubkeyBytes)?;
 
-            // The item is written to disk _before_ it is written into
-            // the local struct.
-            //
-            // This means that a pubkey cache read from disk will always be equivalent to or
-            // _later than_ the cache that was running in the previous instance of Lighthouse.
-            //
-            // The motivation behind this ordering is that we do not want to have states that
-            // reference a pubkey that is not in our cache. However, it's fine to have pubkeys
-            // that are never referenced in a state.
-            store.put_item(
-                &DatabaseValidator::key_for_index(i),
-                &DatabaseValidator::from_immutable_validator(&pubkey, &validator),
-            )?;
+            // Stage the new validator key for writing to disk.
+            // It will be committed atomically when the block that introduced it is written to disk.
+            // Notably it is NOT written while the write lock on the cache is held.
+            // See: https://github.com/sigp/lighthouse/issues/2327
+            store_ops.push(
+                DatabaseValidator::from_immutable_validator(&pubkey, &validator)
+                    .as_kv_store_op(DatabaseValidator::key_for_index(i))?,
+            );
 
             self.pubkeys.push(pubkey);
             self.indices.insert(validator.pubkey, i);
             self.validators.push(validator);
         }
 
-        Ok(())
+        Ok(store_ops)
     }
 
     /// Get the public key for a validator with index `i`.
@@ -345,9 +341,10 @@ mod test {
 
         // Add some more keypairs.
         let (state, keypairs) = get_state(12);
-        cache
+        let ops = cache
             .import_new_pubkeys(&state)
             .expect("should import pubkeys");
+        store.hot_db.do_atomically(ops).unwrap();
         check_cache_get(&cache, &keypairs[..]);
         drop(cache);
 

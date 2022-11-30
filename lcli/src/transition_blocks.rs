@@ -398,7 +398,6 @@ fn do_transition<T: EthSpec>(
     }
 
     let t = Instant::now();
-
     per_block_processing(
         &mut pre_state,
         &block,

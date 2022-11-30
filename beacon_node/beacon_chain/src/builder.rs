@@ -711,10 +711,14 @@ where
         let validator_pubkey_cache = store.immutable_validators.clone();
 
         // Update pubkey cache on first start in case we have started from genesis.
-        validator_pubkey_cache
+        let kv_store_ops = validator_pubkey_cache
             .write()
-            .import_new_pubkeys(&head_snapshot.beacon_state, &store)
+            .import_new_pubkeys(&head_snapshot.beacon_state)
             .map_err(|e| format!("error initializing pubkey cache: {e:?}"))?;
+        store
+            .hot_db
+            .do_atomically(kv_store_ops)
+            .map_err(|e| format!("error writing validator store: {e:?}"))?;
 
         let migrator_config = self.store_migrator_config.unwrap_or_default();
         let store_migrator = BackgroundMigrator::new(
