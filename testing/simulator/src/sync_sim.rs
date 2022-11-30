@@ -56,6 +56,7 @@ fn syncing_sim(
             max_log_size: 0,
             max_log_number: 0,
             compression: false,
+            is_restricted: true,
         })?
         .multi_threaded_tokio_runtime()?
         .build()?;

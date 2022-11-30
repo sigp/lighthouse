@@ -172,29 +172,8 @@ impl From<GossipTopic> for Topic {
 
 impl From<GossipTopic> for String {
     fn from(topic: GossipTopic) -> String {
-        let encoding = match topic.encoding {
-            GossipEncoding::SSZSnappy => SSZ_SNAPPY_ENCODING_POSTFIX,
-        };
-
-        let kind = match topic.kind {
-            GossipKind::BeaconBlock => BEACON_BLOCK_TOPIC.into(),
-            GossipKind::BeaconAggregateAndProof => BEACON_AGGREGATE_AND_PROOF_TOPIC.into(),
-            GossipKind::VoluntaryExit => VOLUNTARY_EXIT_TOPIC.into(),
-            GossipKind::ProposerSlashing => PROPOSER_SLASHING_TOPIC.into(),
-            GossipKind::AttesterSlashing => ATTESTER_SLASHING_TOPIC.into(),
-            GossipKind::Attestation(index) => format!("{}{}", BEACON_ATTESTATION_PREFIX, *index,),
-            GossipKind::SignedContributionAndProof => SIGNED_CONTRIBUTION_AND_PROOF_TOPIC.into(),
-            GossipKind::SyncCommitteeMessage(index) => {
-                format!("{}{}", SYNC_COMMITTEE_PREFIX_TOPIC, *index)
-            }
-        };
-        format!(
-            "/{}/{}/{}/{}",
-            TOPIC_PREFIX,
-            hex::encode(topic.fork_digest),
-            kind,
-            encoding
-        )
+        // Use the `Display` implementation below.
+        topic.to_string()
     }
 }
 
