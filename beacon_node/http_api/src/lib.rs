@@ -2899,6 +2899,18 @@ pub fn serve<T: BeaconChainTypes>(
             })
         });
 
+    // POST lighthouse/ui/validator_metrics
+    let get_lighthouse_ui_validator_metrics = warp::path("lighthouse")
+        .and(warp::path("ui"))
+        .and(warp::path("validator_metrics"))
+        .and(warp::path::end())
+        .and(chain_filter.clone())
+        .and_then(|chain: Arc<BeaconChain<T>>| {
+            blocking_json_task(move || {
+                ui::get_validator_monitor_metrics(chain).map(api_types::GenericResponse::from)
+            })
+        });
+
     // GET lighthouse/syncing
     let get_lighthouse_syncing = warp::path("lighthouse")
         .and(warp::path("syncing"))
@@ -3349,6 +3361,8 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(get_validator_sync_committee_contribution.boxed())
                 .or(get_lighthouse_health.boxed())
                 .or(get_lighthouse_ui_health.boxed())
+                .or(get_lighthouse_ui_validator_count.boxed())
+                .or(get_lighthouse_ui_validator_metrics.boxed())
                 .or(get_lighthouse_syncing.boxed())
                 .or(get_lighthouse_nat.boxed())
                 .or(get_lighthouse_peers.boxed())
@@ -3366,7 +3380,6 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(get_lighthouse_attestation_performance.boxed())
                 .or(get_lighthouse_block_packing_efficiency.boxed())
                 .or(get_lighthouse_merge_readiness.boxed())
-                .or(get_lighthouse_ui_validator_count.boxed())
                 .or(get_events.boxed()),
         )
         .boxed()

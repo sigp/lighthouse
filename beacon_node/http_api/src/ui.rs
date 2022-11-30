@@ -1,10 +1,11 @@
-use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes};
+use beacon_chain::{metrics, BeaconChain, BeaconChainError, BeaconChainTypes};
 use eth2::types::ValidatorStatus;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::sync::Arc;
 use warp_utils::reject::beacon_chain_error;
 
-#[derive(Debug, Default, PartialEq, Clone, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ValidatorCountResponse {
     pub active_ongoing: u64,
     pub active_exiting: u64,
@@ -68,4 +69,56 @@ pub fn get_validator_count<T: BeaconChainTypes>(
         exited_unslashed,
         exited_slashed,
     })
+}
+
+#[derive(PartialEq, Serialize, Deserialize)]
+pub struct ValidatorMetrics {
+    attestation_hits: u64,
+    attestation_misses: u64,
+    head_hit_percentage: f64,
+}
+
+#[derive(PartialEq, Serialize, Deserialize)]
+pub struct ValidatorMetricsResponse {
+    validators: HashMap<String, ValidatorMetrics>,
+}
+
+pub fn get_validator_monitor_metrics<T: BeaconChainTypes>(
+    chain: Arc<BeaconChain<T>>,
+) -> Result<ValidatorMetricsResponse, warp::Rejection> {
+    let ids = chain
+        .validator_monitor
+        .read()
+        .get_all_monitored_validators();
+    let mut validators = HashMap::new();
+
+    for id in ids {
+        let hits = metrics::get_int_counter(
+            &metrics::VALIDATOR_MONITOR_PREV_EPOCH_ON_CHAIN_ATTESTER_HIT,
+            &[&id],
+        )
+        .map(|counter| counter.get())
+        .unwrap_or(0);
+        let misses = metrics::get_int_counter(
+            &metrics::VALIDATOR_MONITOR_PREV_EPOCH_ON_CHAIN_ATTESTER_MISS,
+            &[&id],
+        )
+        .map(|counter| counter.get())
+        .unwrap_or(0);
+        let attestations = hits + misses;
+        let head_hit_percentage: f64 = if attestations == 0 {
+            0.0
+        } else {
+            (100 * hits / attestations) as f64
+        };
+
+        let metrics = ValidatorMetrics {
+            attestation_hits: hits,
+            attestation_misses: misses,
+            head_hit_percentage,
+        };
+        validators.insert(id, metrics);
+    }
+
+    Ok(ValidatorMetricsResponse { validators })
 }
