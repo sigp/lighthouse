@@ -213,33 +213,21 @@ impl BlockId {
     }
 
     pub fn is_finalized<T: BeaconChainTypes>(&self, chain: &BeaconChain<T>) -> bool {
+        let finalized_slot = chain
+            .canonical_head
+            .cached_head()
+            .finalized_checkpoint()
+            .epoch
+            .start_slot(T::EthSpec::slots_per_epoch());
         match &self.0 {
             CoreBlockId::Head => false,
             CoreBlockId::Genesis => true,
             CoreBlockId::Finalized => true,
             CoreBlockId::Justified => false,
-            CoreBlockId::Slot(slot) => {
-                let finalized_epoch = chain
-                    .canonical_head
-                    .cached_head()
-                    .finalized_checkpoint()
-                    .epoch;
-                let block_epoch = slot.epoch(T::EthSpec::slots_per_epoch());
-                block_epoch <= finalized_epoch
-            }
+            CoreBlockId::Slot(slot) => slot <= &finalized_slot,
             CoreBlockId::Root(root) => {
-                let finalized_epoch = chain
-                    .canonical_head
-                    .cached_head()
-                    .finalized_checkpoint()
-                    .epoch;
-                let block_epoch = chain
-                    .get_blinded_block(root)
-                    .unwrap()
-                    .unwrap()
-                    .slot()
-                    .epoch(T::EthSpec::slots_per_epoch());
-                block_epoch <= finalized_epoch
+                let block_slot = chain.get_blinded_block(root).unwrap().unwrap().slot();
+                block_slot <= finalized_slot
             }
         }
     }
