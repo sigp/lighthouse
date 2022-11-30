@@ -234,7 +234,7 @@ async fn run<'a>(config: MoveConfig) -> Result<(), String> {
                 .filter(|v| !v.readonly.unwrap_or(true))
                 .map(|v| v.validating_pubkey)
                 .collect();
-            viable_pubkeys.sort_unstable_by_key(|pubkey| pubkey.serialize());
+            viable_pubkeys.sort_unstable_by_key(PublicKeyBytes::serialize);
             viable_pubkeys
                 .get(0..count)
                 .ok_or_else(|| {
