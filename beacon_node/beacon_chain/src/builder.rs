@@ -10,6 +10,7 @@ use crate::shuffling_cache::ShufflingCache;
 use crate::snapshot_cache::{SnapshotCache, DEFAULT_SNAPSHOT_CACHE_SIZE};
 use crate::timeout_rw_lock::TimeoutRwLock;
 use crate::validator_monitor::ValidatorMonitor;
+use crate::validator_monitor::DEFAULT_INDIVIDUAL_TRACKING_THRESHOLD;
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use crate::ChainConfig;
 use crate::{
@@ -1027,7 +1028,12 @@ mod test {
             .testing_slot_clock(Duration::from_secs(1))
             .expect("should configure testing slot clock")
             .shutdown_sender(shutdown_tx)
-            .monitor_validators(true, vec![], log.clone())
+            .monitor_validators(
+                true,
+                vec![],
+                DEFAULT_INDIVIDUAL_TRACKING_THRESHOLD,
+                log.clone(),
+            )
             .build()
             .expect("should build");
 
