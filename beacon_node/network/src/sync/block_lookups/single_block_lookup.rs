@@ -108,7 +108,7 @@ impl<const MAX_ATTEMPTS: u8> SingleBlockRequest<MAX_ATTEMPTS> {
     pub fn verify_block<T: EthSpec>(
         &mut self,
         block: Option<BlockTy<T>>,
-    ) -> Result<Option<(RootBlockTuple<T>)>, VerifyError> {
+    ) -> Result<Option<RootBlockTuple<T>>, VerifyError> {
         match self.state {
             State::AwaitingDownload => {
                 self.register_failure_downloading();

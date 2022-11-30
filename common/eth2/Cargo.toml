@@ -35,5 +35,5 @@ procinfo = { version = "0.4.2", optional = true }
 [features]
 default = ["lighthouse"]
 lighthouse = ["proto_array", "psutil", "procinfo", "store", "slashing_protection"]
-withdrawals = ["store/withdrawals"]
+withdrawals = ["store/withdrawals", "types/withdrawals"]
 withdrawals-processing = ["store/withdrawals-processing"]

@@ -104,12 +104,13 @@ use store::{
 use task_executor::{ShutdownReason, TaskExecutor};
 use tree_hash::TreeHash;
 use types::beacon_state::CloneConfig;
+use types::signed_block_and_blobs::BlockWrapper;
 use types::*;
 
 pub type ForkChoiceError = fork_choice::Error<crate::ForkChoiceStoreError>;
 
 /// Alias to appease clippy.
-type HashBlockTuple<E> = (Hash256, Arc<SignedBeaconBlock<E>>);
+type HashBlockTuple<E> = (Hash256, BlockWrapper<E>);
 
 /// The time-out before failure during an operation to take a read/write RwLock on the block
 /// processing cache.
@@ -2278,7 +2279,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// This method is potentially long-running and should not run on the core executor.
     pub fn filter_chain_segment(
         self: &Arc<Self>,
-        chain_segment: Vec<Arc<SignedBeaconBlock<T::EthSpec>>>,
+        chain_segment: Vec<BlockWrapper<T::EthSpec>>,
     ) -> Result<Vec<HashBlockTuple<T::EthSpec>>, ChainSegmentResult<T::EthSpec>> {
         // This function will never import any blocks.
         let imported_blocks = 0;
@@ -2290,19 +2291,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let children = chain_segment
             .iter()
             .skip(1)
-            .map(|block| (block.parent_root(), block.slot()))
+            .map(|block| (block.block().parent_root(), block.slot()))
             .collect::<Vec<_>>();
 
         for (i, block) in chain_segment.into_iter().enumerate() {
             // Ensure the block is the correct structure for the fork at `block.slot()`.
-            if let Err(e) = block.fork_name(&self.spec) {
+            if let Err(e) = block.block().fork_name(&self.spec) {
                 return Err(ChainSegmentResult::Failed {
                     imported_blocks,
                     error: BlockError::InconsistentFork(e),
                 });
             }
 
-            let block_root = get_block_root(&block);
+            let block_root = get_block_root(block.block());
 
             if let Some((child_parent_root, child_slot)) = children.get(i) {
                 // If this block has a child in this chain segment, ensure that its parent root matches
@@ -2326,7 +2327,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 }
             }
 
-            match check_block_relevancy(&block, block_root, self) {
+            match check_block_relevancy(block.block(), block_root, self) {
                 // If the block is relevant, add it to the filtered chain segment.
                 Ok(_) => filtered_chain_segment.push((block_root, block)),
                 // If the block is already known, simply ignore this block.
@@ -2384,7 +2385,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// `Self::process_block`.
     pub async fn process_chain_segment(
         self: &Arc<Self>,
-        chain_segment: Vec<Arc<SignedBeaconBlock<T::EthSpec>>>,
+        chain_segment: Vec<BlockWrapper<T::EthSpec>>,
         count_unrealized: CountUnrealized,
     ) -> ChainSegmentResult<T::EthSpec> {
         let mut imported_blocks = 0;
@@ -5245,6 +5246,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .index_seen_at_epoch(validator_index as u64, epoch);
 
         gossip_attested || block_attested || aggregated || produced_block
+    }
+
+    /// The epoch at which we require a data availability check in block processing.
+    /// `None` if the `Eip4844` fork is disabled.
+    pub fn data_availability_boundary(&self) -> Option<Epoch> {
+        self.spec
+            .eip4844_fork_epoch
+            .map(|e| std::cmp::max(e, self.head().finalized_checkpoint().epoch))
     }
 }
 

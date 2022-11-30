@@ -647,6 +647,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                         WorkEvent::rpc_beacon_block(block_root, block, duration, process_type)
                     }
                     BlockTy::BlockAndBlob { block_sidecar_pair } => {
+                        //FIXME(sean)
                         // WorkEvent::rpc_block_and_glob(block_sidecar_pair)
                         todo!("we also need to process block-glob pairs for rpc")
                     }

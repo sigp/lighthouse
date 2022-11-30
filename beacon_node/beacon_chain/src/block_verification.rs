@@ -87,6 +87,7 @@ use std::time::Duration;
 use store::{Error as DBError, HotStateSummary, KeyValueStore, StoreOp};
 use task_executor::JoinHandle;
 use tree_hash::TreeHash;
+use types::signed_block_and_blobs::BlockWrapper;
 use types::{
     BeaconBlockRef, BeaconState, BeaconStateError, BlindedPayload, ChainSpec, CloneConfig, Epoch,
     EthSpec, ExecutionBlockHash, Hash256, InconsistentFork, PublicKey, PublicKeyBytes,
@@ -548,17 +549,18 @@ fn process_block_slash_info<T: BeaconChainTypes>(
 /// The given `chain_segment` must contain only blocks from the same epoch, otherwise an error
 /// will be returned.
 pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
-    mut chain_segment: Vec<(Hash256, Arc<SignedBeaconBlock<T::EthSpec>>)>,
+    mut chain_segment: Vec<(Hash256, BlockWrapper<T::EthSpec>)>,
     chain: &BeaconChain<T>,
 ) -> Result<Vec<SignatureVerifiedBlock<T>>, BlockError<T::EthSpec>> {
     if chain_segment.is_empty() {
         return Ok(vec![]);
     }
 
-    let (first_root, first_block) = chain_segment.remove(0);
-    let (mut parent, first_block) = load_parent(first_root, first_block, chain)?;
+    let (first_root, first_block_wrapper) = chain_segment.remove(0);
+    let (mut parent, first_block) =
+        load_parent(first_root, first_block_wrapper.block_cloned(), chain)?;
     let slot = first_block.slot();
-    chain_segment.insert(0, (first_root, first_block));
+    chain_segment.insert(0, (first_root, first_block_wrapper));
 
     let highest_slot = chain_segment
         .last()
@@ -576,7 +578,7 @@ pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
     let mut signature_verifier = get_signature_verifier(&state, &pubkey_cache, &chain.spec);
 
     for (block_root, block) in &chain_segment {
-        signature_verifier.include_all_signatures(block, Some(*block_root), None)?;
+        signature_verifier.include_all_signatures(block.block(), Some(*block_root), None)?;
     }
 
     if signature_verifier.verify().is_err() {
@@ -585,19 +587,16 @@ pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
 
     drop(pubkey_cache);
 
-    //FIXME(sean) batch verify kzg blobs
-    // TODO(pawan): do not have the sidecar here, maybe validate kzg proofs in a different function
-    // with relevant block params?
-
     let mut signature_verified_blocks = chain_segment
         .into_iter()
         .map(|(block_root, block)| {
             // Proposer index has already been verified above during signature verification.
             let consensus_context = ConsensusContext::new(block.slot())
                 .set_current_block_root(block_root)
-                .set_proposer_index(block.message().proposer_index());
+                .set_proposer_index(block.block().message().proposer_index())
+                .set_blobs_sidecar(block.blocks_sidecar());
             SignatureVerifiedBlock {
-                block,
+                block: block.block_cloned(),
                 block_root,
                 parent: None,
                 consensus_context,
@@ -1103,7 +1102,6 @@ impl<T: BeaconChainTypes> IntoExecutionPendingBlock<T> for SignatureVerifiedBloc
 
         ExecutionPendingBlock::from_signature_verified_components(
             block,
-            self.consensus_context.blobs_sidecar(),
             block_root,
             parent,
             self.consensus_context,
@@ -1148,7 +1146,6 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
     /// Returns an error if the block is invalid, or if the block was unable to be verified.
     pub fn from_signature_verified_components(
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
-        blobs: Option<Arc<BlobsSidecar<T::EthSpec>>>,
         block_root: Hash256,
         parent: PreProcessingSnapshot<T::EthSpec>,
         mut consensus_context: ConsensusContext<T::EthSpec>,
@@ -1483,58 +1480,58 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
             });
         }
 
-        // TODO: are we guaranteed that consensus_context.blobs_sidecar == blobs ?
-        /* Verify kzg proofs and kzg commitments against transactions if required */
-        if let Some(ref sidecar) = blobs {
-            let kzg = chain.kzg.as_ref().ok_or(BlockError::BlobValidation(
-                BlobError::TrustedSetupNotInitialized,
-            ))?;
-            let transactions = block
-                .message()
-                .body()
-                .execution_payload_eip4844()
-                .map(|payload| payload.transactions())
-                .map_err(|_| BlockError::BlobValidation(BlobError::TransactionsMissing))?
-                .ok_or(BlockError::BlobValidation(BlobError::TransactionsMissing))?;
-            let kzg_commitments = block
-                .message()
-                .body()
-                .blob_kzg_commitments()
-                .map_err(|_| BlockError::BlobValidation(BlobError::KzgCommitmentMissing))?;
-            if !consensus_context.blobs_sidecar_validated() {
-                if !kzg_utils::validate_blobs_sidecar(
-                    &kzg,
-                    block.slot(),
-                    block_root,
-                    kzg_commitments,
-                    sidecar,
-                )
-                .map_err(|e| BlockError::BlobValidation(BlobError::KzgError(e)))?
-                {
-                    return Err(BlockError::BlobValidation(BlobError::InvalidKzgProof));
+        /*
+         * Verify kzg proofs and kzg commitments against transactions if required
+         */
+        if let Some(ref sidecar) = consensus_context.blobs_sidecar() {
+            if let Some(data_availability_boundary) = chain.data_availability_boundary() {
+                if block_slot.epoch(T::EthSpec::slots_per_epoch()) > data_availability_boundary {
+                    let kzg = chain.kzg.as_ref().ok_or(BlockError::BlobValidation(
+                        BlobError::TrustedSetupNotInitialized,
+                    ))?;
+                    let transactions = block
+                        .message()
+                        .body()
+                        .execution_payload_eip4844()
+                        .map(|payload| payload.transactions())
+                        .map_err(|_| BlockError::BlobValidation(BlobError::TransactionsMissing))?
+                        .ok_or(BlockError::BlobValidation(BlobError::TransactionsMissing))?;
+                    let kzg_commitments =
+                        block.message().body().blob_kzg_commitments().map_err(|_| {
+                            BlockError::BlobValidation(BlobError::KzgCommitmentMissing)
+                        })?;
+                    if !consensus_context.blobs_sidecar_validated() {
+                        if !kzg_utils::validate_blobs_sidecar(
+                            &kzg,
+                            block.slot(),
+                            block_root,
+                            kzg_commitments,
+                            sidecar,
+                        )
+                        .map_err(|e| BlockError::BlobValidation(BlobError::KzgError(e)))?
+                        {
+                            return Err(BlockError::BlobValidation(BlobError::InvalidKzgProof));
+                        }
+                    }
+                    if !consensus_context.blobs_verified_vs_txs()
+                        && verify_kzg_commitments_against_transactions::<T::EthSpec>(
+                            transactions,
+                            kzg_commitments,
+                        )
+                        //FIXME(sean) we should maybe just map this error so we have more info about the mismatch
+                        .is_err()
+                    {
+                        return Err(BlockError::BlobValidation(
+                            BlobError::TransactionCommitmentMismatch,
+                        ));
+                    }
                 }
             }
-            if !consensus_context.blobs_verified_vs_txs()
-                && verify_kzg_commitments_against_transactions::<T::EthSpec>(
-                    transactions,
-                    kzg_commitments,
-                )
-                .is_err()
-            {
-                return Err(BlockError::BlobValidation(
-                    BlobError::TransactionCommitmentMismatch,
-                ));
-            }
-            // TODO(pawan): confirm with sean. are we expected to set the context here? because the ConsensusContext
-            // setters don't take mutable references.
-            // Set the consensus context after completing the required kzg valdiations
-            // consensus_context.set_blobs_sidecar_validated(true);
-            // consensus_context.set_blobs_verified_vs_txs(true);
         }
 
         Ok(Self {
             block,
-            blobs,
+            blobs: consensus_context.blobs_sidecar(),
             block_root,
             state,
             parent_block: parent.beacon_block,

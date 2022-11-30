@@ -1,4 +1,4 @@
-use crate::{BlobsSidecar, EthSpec, SignedBeaconBlock, SignedBeaconBlockEip4844};
+use crate::{BlobsSidecar, EthSpec, SignedBeaconBlock, SignedBeaconBlockEip4844, Slot};
 use serde_derive::{Deserialize, Serialize};
 use ssz::{Decode, DecodeError};
 use ssz_derive::{Decode, Encode};
@@ -33,7 +33,7 @@ impl<T: EthSpec> SignedBeaconBlockAndBlobsSidecar<T> {
 }
 
 /// A wrapper over a [`SignedBeaconBlock`] or a [`SignedBeaconBlockAndBlobsSidecar`].
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum BlockWrapper<T: EthSpec> {
     Block {
         block: Arc<SignedBeaconBlock<T>>,
@@ -44,10 +44,34 @@ pub enum BlockWrapper<T: EthSpec> {
 }
 
 impl<T: EthSpec> BlockWrapper<T> {
+    pub fn slot(&self) -> Slot {
+        match self {
+            BlockWrapper::Block { block } => block.slot(),
+            BlockWrapper::BlockAndBlob { block_sidecar_pair } => {
+                block_sidecar_pair.beacon_block.slot()
+            }
+        }
+    }
     pub fn block(&self) -> &SignedBeaconBlock<T> {
         match self {
             BlockWrapper::Block { block } => &block,
             BlockWrapper::BlockAndBlob { block_sidecar_pair } => &block_sidecar_pair.beacon_block,
+        }
+    }
+    pub fn block_cloned(&self) -> Arc<SignedBeaconBlock<T>> {
+        match self {
+            BlockWrapper::Block { block } => block.clone(),
+            BlockWrapper::BlockAndBlob { block_sidecar_pair } => {
+                block_sidecar_pair.beacon_block.clone()
+            }
+        }
+    }
+    pub fn blocks_sidecar(&self) -> Option<Arc<BlobsSidecar<T>>> {
+        match self {
+            BlockWrapper::Block { block: _ } => None,
+            BlockWrapper::BlockAndBlob { block_sidecar_pair } => {
+                Some(block_sidecar_pair.blobs_sidecar.clone())
+            }
         }
     }
 }

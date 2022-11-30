@@ -61,6 +61,7 @@ use std::time::Duration;
 use std::{cmp, collections::HashSet};
 use task_executor::TaskExecutor;
 use tokio::sync::mpsc;
+use types::signed_block_and_blobs::BlockWrapper;
 use types::{
     Attestation, AttesterSlashing, Hash256, ProposerSlashing, SignedAggregateAndProof,
     SignedBeaconBlock, SignedBeaconBlockAndBlobsSidecar, SignedBlsToExecutionChange,
@@ -1762,8 +1763,13 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
             /*
              * Verification for a chain segment (multiple blocks).
              */
-            Work::ChainSegment { process_id, blocks } => task_spawner
-                .spawn_async(async move { worker.process_chain_segment(process_id, blocks).await }),
+            Work::ChainSegment { process_id, blocks } => task_spawner.spawn_async(async move {
+                let wrapped = blocks
+                    .into_iter()
+                    .map(|block| BlockWrapper::Block { block })
+                    .collect();
+                worker.process_chain_segment(process_id, wrapped).await
+            }),
             /*
              * Processing of Status Messages.
              */
@@ -1867,9 +1873,13 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                 process_id,
                 blocks_and_blobs,
             } => task_spawner.spawn_async(async move {
-                worker
-                    .process_blob_chain_segment(process_id, blocks_and_blobs)
-                    .await
+                let wrapped = blocks_and_blobs
+                    .into_iter()
+                    .map(|b| BlockWrapper::BlockAndBlob {
+                        block_sidecar_pair: b,
+                    })
+                    .collect();
+                worker.process_chain_segment(process_id, wrapped).await
             }),
         };
     }
