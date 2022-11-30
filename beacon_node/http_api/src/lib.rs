@@ -1236,10 +1236,11 @@ pub fn serve<T: BeaconChainTypes>(
         .and_then(|block_id: BlockId, chain: Arc<BeaconChain<T>>| {
             blocking_json_task(move || {
                 let (block, execution_optimistic) = block_id.blinded_block(&chain)?;
-
+                let (block_root, _) = block_id.root(&chain)?;
+                let finalized = chain.is_finalized_block(&block_root, block.slot()).unwrap();
                 Ok(
                     api_types::GenericResponse::from(block.message().body().attestations().clone())
-                        .add_execution_optimistic(execution_optimistic),
+                        .add_execution_optimistic_finalized(execution_optimistic, finalized),
                 )
             })
         });
