@@ -111,16 +111,13 @@ pub fn per_block_processing<T: EthSpec, Payload: ExecPayload<T>>(
     let verify_signatures = match block_signature_strategy {
         BlockSignatureStrategy::VerifyBulk => {
             // Verify all signatures in the block at once.
-            let block_root = Some(ctxt.get_current_block_root(signed_block)?);
-            let proposer_index = Some(ctxt.get_proposer_index(state, spec)?);
             block_verify!(
                 BlockSignatureVerifier::verify_entire_block(
                     state,
                     |i| get_pubkey_from_state(state, i),
                     |pk_bytes| pk_bytes.decompress().ok().map(Cow::Owned),
                     signed_block,
-                    block_root,
-                    proposer_index,
+                    ctxt,
                     spec
                 )
                 .is_ok(),
@@ -339,6 +336,7 @@ pub fn get_new_eth1_data<T: EthSpec>(
 /// https://github.com/ethereum/consensus-specs/blob/v1.1.5/specs/merge/beacon-chain.md#process_execution_payload
 pub fn partially_verify_execution_payload<T: EthSpec, Payload: ExecPayload<T>>(
     state: &BeaconState<T>,
+    block_slot: Slot,
     payload: &Payload,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
@@ -359,7 +357,7 @@ pub fn partially_verify_execution_payload<T: EthSpec, Payload: ExecPayload<T>>(
         }
     );
 
-    let timestamp = compute_timestamp_at_slot(state, spec)?;
+    let timestamp = compute_timestamp_at_slot(state, block_slot, spec)?;
     block_verify!(
         payload.timestamp() == timestamp,
         BlockProcessingError::ExecutionInvalidTimestamp {
@@ -383,7 +381,7 @@ pub fn process_execution_payload<T: EthSpec, Payload: ExecPayload<T>>(
     payload: &Payload,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
-    partially_verify_execution_payload(state, payload, spec)?;
+    partially_verify_execution_payload(state, state.slot(), payload, spec)?;
 
     *state.latest_execution_payload_header_mut()? = payload.to_execution_payload_header();
 
@@ -420,9 +418,10 @@ pub fn is_execution_enabled<T: EthSpec, Payload: ExecPayload<T>>(
 /// https://github.com/ethereum/consensus-specs/blob/dev/specs/merge/beacon-chain.md#compute_timestamp_at_slot
 pub fn compute_timestamp_at_slot<T: EthSpec>(
     state: &BeaconState<T>,
+    block_slot: Slot,
     spec: &ChainSpec,
 ) -> Result<u64, ArithError> {
-    let slots_since_genesis = state.slot().as_u64().safe_sub(spec.genesis_slot.as_u64())?;
+    let slots_since_genesis = block_slot.as_u64().safe_sub(spec.genesis_slot.as_u64())?;
     slots_since_genesis
         .safe_mul(spec.seconds_per_slot)
         .and_then(|since_genesis| state.genesis_time().safe_add(since_genesis))

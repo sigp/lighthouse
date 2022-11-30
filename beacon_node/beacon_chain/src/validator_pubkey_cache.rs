@@ -3,7 +3,8 @@ use crate::{BeaconChainTypes, BeaconStore};
 use ssz::{Decode, Encode};
 use std::collections::HashMap;
 use std::convert::TryInto;
-use store::{DBColumn, Error as StoreError, StoreItem};
+use std::marker::PhantomData;
+use store::{DBColumn, Error as StoreError, KeyValueStore, KeyValueStoreOp, StoreItem};
 use types::{BeaconState, Hash256, PublicKey, PublicKeyBytes};
 
 /// Provides a mapping of `validator_index -> validator_publickey`.
@@ -14,21 +15,17 @@ use types::{BeaconState, Hash256, PublicKey, PublicKeyBytes};
 /// 2. To reduce the amount of public key _decompression_ required. A `BeaconState` stores public
 ///    keys in compressed form and they are needed in decompressed form for signature verification.
 ///    Decompression is expensive when many keys are involved.
-///
-/// The cache has a `backing` that it uses to maintain a persistent, on-disk
-/// copy of itself. This allows it to be restored between process invocations.
 pub struct ValidatorPubkeyCache<T: BeaconChainTypes> {
     pubkeys: Vec<PublicKey>,
     indices: HashMap<PublicKeyBytes, usize>,
     pubkey_bytes: Vec<PublicKeyBytes>,
-    store: BeaconStore<T>,
+    _phantom: PhantomData<T>,
 }
 
 impl<T: BeaconChainTypes> ValidatorPubkeyCache<T> {
     /// Create a new public key cache using the keys in `state.validators`.
     ///
-    /// Also creates a new persistence file, returning an error if there is already a file at
-    /// `persistence_path`.
+    /// The new cache will be updated with the keys from `state` and immediately written to disk.
     pub fn new(
         state: &BeaconState<T::EthSpec>,
         store: BeaconStore<T>,
@@ -37,10 +34,11 @@ impl<T: BeaconChainTypes> ValidatorPubkeyCache<T> {
             pubkeys: vec![],
             indices: HashMap::new(),
             pubkey_bytes: vec![],
-            store,
+            _phantom: PhantomData,
         };
 
-        cache.import_new_pubkeys(state)?;
+        let store_ops = cache.import_new_pubkeys(state)?;
+        store.hot_db.do_atomically(store_ops)?;
 
         Ok(cache)
     }
@@ -69,17 +67,19 @@ impl<T: BeaconChainTypes> ValidatorPubkeyCache<T> {
             pubkeys,
             indices,
             pubkey_bytes,
-            store,
+            _phantom: PhantomData,
         })
     }
 
     /// Scan the given `state` and add any new validator public keys.
     ///
     /// Does not delete any keys from `self` if they don't appear in `state`.
+    ///
+    /// NOTE: The caller *must* commit the returned I/O batch as part of the block import process.
     pub fn import_new_pubkeys(
         &mut self,
         state: &BeaconState<T::EthSpec>,
-    ) -> Result<(), BeaconChainError> {
+    ) -> Result<Vec<KeyValueStoreOp>, BeaconChainError> {
         if state.validators().len() > self.pubkeys.len() {
             self.import(
                 state.validators()[self.pubkeys.len()..]
@@ -87,12 +87,12 @@ impl<T: BeaconChainTypes> ValidatorPubkeyCache<T> {
                     .map(|v| v.pubkey),
             )
         } else {
-            Ok(())
+            Ok(vec![])
         }
     }
 
     /// Adds zero or more validators to `self`.
-    fn import<I>(&mut self, validator_keys: I) -> Result<(), BeaconChainError>
+    fn import<I>(&mut self, validator_keys: I) -> Result<Vec<KeyValueStoreOp>, BeaconChainError>
     where
         I: Iterator<Item = PublicKeyBytes> + ExactSizeIterator,
     {
@@ -100,6 +100,7 @@ impl<T: BeaconChainTypes> ValidatorPubkeyCache<T> {
         self.pubkeys.reserve(validator_keys.len());
         self.indices.reserve(validator_keys.len());
 
+        let mut store_ops = Vec::with_capacity(validator_keys.len());
         for pubkey in validator_keys {
             let i = self.pubkeys.len();
 
@@ -107,17 +108,11 @@ impl<T: BeaconChainTypes> ValidatorPubkeyCache<T> {
                 return Err(BeaconChainError::DuplicateValidatorPublicKey);
             }
 
-            // The item is written to disk _before_ it is written into
-            // the local struct.
-            //
-            // This means that a pubkey cache read from disk will always be equivalent to or
-            // _later than_ the cache that was running in the previous instance of Lighthouse.
-            //
-            // The motivation behind this ordering is that we do not want to have states that
-            // reference a pubkey that is not in our cache. However, it's fine to have pubkeys
-            // that are never referenced in a state.
-            self.store
-                .put_item(&DatabasePubkey::key_for_index(i), &DatabasePubkey(pubkey))?;
+            // Stage the new validator key for writing to disk.
+            // It will be committed atomically when the block that introduced it is written to disk.
+            // Notably it is NOT written while the write lock on the cache is held.
+            // See: https://github.com/sigp/lighthouse/issues/2327
+            store_ops.push(DatabasePubkey(pubkey).as_kv_store_op(DatabasePubkey::key_for_index(i)));
 
             self.pubkeys.push(
                 (&pubkey)
@@ -129,7 +124,7 @@ impl<T: BeaconChainTypes> ValidatorPubkeyCache<T> {
             self.indices.insert(pubkey, i);
         }
 
-        Ok(())
+        Ok(store_ops)
     }
 
     /// Get the public key for a validator with index `i`.
@@ -296,9 +291,10 @@ mod test {
 
         // Add some more keypairs.
         let (state, keypairs) = get_state(12);
-        cache
+        let ops = cache
             .import_new_pubkeys(&state)
             .expect("should import pubkeys");
+        store.hot_db.do_atomically(ops).unwrap();
         check_cache_get(&cache, &keypairs[..]);
         drop(cache);
 

@@ -586,7 +586,7 @@ where
 
     pub fn get_timestamp_at_slot(&self) -> u64 {
         let state = self.get_current_state();
-        compute_timestamp_at_slot(&state, &self.spec).unwrap()
+        compute_timestamp_at_slot(&state, state.slot(), &self.spec).unwrap()
     }
 
     pub fn get_current_state_and_root(&self) -> (BeaconState<E>, Hash256) {
