@@ -46,7 +46,7 @@ impl<T: BeaconChainTypes> Worker<T> {
     pub async fn process_rpc_block(
         self,
         block_root: Hash256,
-        block: Arc<SignedBeaconBlock<T::EthSpec>>,
+        block: BlockWrapper<T::EthSpec>,
         seen_timestamp: Duration,
         process_type: BlockProcessType,
         reprocess_tx: mpsc::Sender<ReprocessQueueMessage<T>>,

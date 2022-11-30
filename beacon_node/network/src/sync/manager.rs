@@ -54,6 +54,7 @@ use std::ops::Sub;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
+use types::signed_block_and_blobs::BlockWrapper;
 use types::{
     BlobsSidecar, EthSpec, Hash256, SignedBeaconBlock, SignedBeaconBlockAndBlobsSidecar, Slot,
 };
@@ -69,66 +70,6 @@ pub const SLOT_IMPORT_TOLERANCE: usize = 32;
 
 pub type Id = u32;
 
-#[derive(Debug)]
-pub enum BlockTy<T: EthSpec> {
-    Block {
-        block: Arc<SignedBeaconBlock<T>>,
-    },
-    BlockAndBlob {
-        block_sidecar_pair: SignedBeaconBlockAndBlobsSidecar<T>,
-    },
-}
-
-#[cfg(test)]
-impl<T: EthSpec> From<SignedBeaconBlock<T>> for BlockTy<T> {
-    fn from(block: SignedBeaconBlock<T>) -> Self {
-        BlockTy::Block {
-            block: Arc::new(block),
-        }
-    }
-}
-
-#[cfg(test)]
-impl<T: EthSpec> From<Arc<SignedBeaconBlock<T>>> for BlockTy<T> {
-    fn from(block: Arc<SignedBeaconBlock<T>>) -> Self {
-        BlockTy::Block { block }
-    }
-}
-
-impl<T: EthSpec> BlockTy<T> {
-    pub fn block(&self) -> &SignedBeaconBlock<T> {
-        match &self {
-            BlockTy::Block { block } => block,
-            BlockTy::BlockAndBlob { block_sidecar_pair } => &block_sidecar_pair.beacon_block,
-        }
-    }
-
-    pub fn parent_root(&self) -> Hash256 {
-        self.block().parent_root()
-    }
-}
-
-// TODO: probably needes to be changed. This is needed because SignedBeaconBlockAndBlobsSidecar
-// does not implement Hash
-impl<T: EthSpec> std::hash::Hash for BlockTy<T> {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        match self {
-            BlockTy::Block { block } => block.hash(state),
-            BlockTy::BlockAndBlob {
-                block_sidecar_pair: block_and_blob,
-            } => block_and_blob.beacon_block.hash(state),
-        }
-    }
-}
-
-impl<T: EthSpec> BlockTy<T> {
-    pub fn slot(&self) -> Slot {
-        match self {
-            BlockTy::Block { block } => block.slot(),
-            BlockTy::BlockAndBlob { block_sidecar_pair } => block_sidecar_pair.beacon_block.slot(),
-        }
-    }
-}
 /// Id of rpc requests sent by sync to the network.
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum RequestId {
@@ -645,7 +586,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     // the block and blob since for block lookups we don't care.
                     self.block_lookups.search_parent(
                         block_root,
-                        BlockTy::Block { block },
+                        BlockWrapper::Block { block },
                         peer_id,
                         &mut self.network,
                     );
@@ -795,14 +736,14 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             RequestId::SingleBlock { id } => self.block_lookups.single_block_lookup_response(
                 id,
                 peer_id,
-                beacon_block.map(|block| BlockTy::Block { block }),
+                beacon_block.map(|block| BlockWrapper::Block { block }),
                 seen_timestamp,
                 &mut self.network,
             ),
             RequestId::ParentLookup { id } => self.block_lookups.parent_lookup_response(
                 id,
                 peer_id,
-                beacon_block.map(|block| BlockTy::Block { block }),
+                beacon_block.map(|block| BlockWrapper::Block { block }),
                 seen_timestamp,
                 &mut self.network,
             ),
@@ -958,7 +899,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             RequestId::SingleBlock { id } => self.block_lookups.single_block_lookup_response(
                 id,
                 peer_id,
-                block_sidecar_pair.map(|block_sidecar_pair| BlockTy::BlockAndBlob {
+                block_sidecar_pair.map(|block_sidecar_pair| BlockWrapper::BlockAndBlob {
                     // TODO: why is this in an arc
                     block_sidecar_pair: (*block_sidecar_pair).clone(),
                 }),
@@ -968,7 +909,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             RequestId::ParentLookup { id } => self.block_lookups.parent_lookup_response(
                 id,
                 peer_id,
-                block_sidecar_pair.map(|block_sidecar_pair| BlockTy::BlockAndBlob {
+                block_sidecar_pair.map(|block_sidecar_pair| BlockWrapper::BlockAndBlob {
                     // TODO: why is this in an arc
                     block_sidecar_pair: (*block_sidecar_pair).clone(),
                 }),

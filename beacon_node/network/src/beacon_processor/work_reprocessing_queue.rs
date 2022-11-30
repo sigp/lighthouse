@@ -30,6 +30,7 @@ use task_executor::TaskExecutor;
 use tokio::sync::mpsc::{self, Receiver, Sender};
 use tokio::time::error::Error as TimeError;
 use tokio_util::time::delay_queue::{DelayQueue, Key as DelayKey};
+use types::signed_block_and_blobs::BlockWrapper;
 use types::{Attestation, EthSpec, Hash256, SignedAggregateAndProof, SignedBeaconBlock, SubnetId};
 
 const TASK_NAME: &str = "beacon_processor_reprocess_queue";
@@ -110,7 +111,7 @@ pub struct QueuedGossipBlock<T: BeaconChainTypes> {
 /// It is queued for later import.
 pub struct QueuedRpcBlock<T: EthSpec> {
     pub block_root: Hash256,
-    pub block: Arc<SignedBeaconBlock<T>>,
+    pub block: BlockWrapper<T>,
     pub process_type: BlockProcessType,
     pub seen_timestamp: Duration,
     /// Indicates if the beacon chain should process this block or not.
@@ -394,7 +395,7 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
                 debug!(
                     log,
                     "Sending rpc block for reprocessing";
-                    "block_root" => %queued_rpc_block.block.canonical_root()
+                    "block_root" => %queued_rpc_block.block_root
                 );
                 if self
                     .ready_work_tx

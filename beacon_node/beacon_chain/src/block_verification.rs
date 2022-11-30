@@ -975,10 +975,11 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
     ///
     /// Returns an error if the block is invalid, or if the block was unable to be verified.
     pub fn new(
-        block: Arc<SignedBeaconBlock<T::EthSpec>>,
+        block_wrapper: BlockWrapper<T::EthSpec>,
         block_root: Hash256,
         chain: &BeaconChain<T>,
     ) -> Result<Self, BlockError<T::EthSpec>> {
+        let (block, blobs_sidecar) = block_wrapper.deconstruct();
         // Ensure the block is the correct structure for the fork at `block.slot()`.
         block
             .fork_name(&chain.spec)
@@ -1009,7 +1010,8 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
             Ok(Self {
                 consensus_context: ConsensusContext::new(block.slot())
                     .set_current_block_root(block_root)
-                    .set_proposer_index(block.message().proposer_index()),
+                    .set_proposer_index(block.message().proposer_index())
+                    .set_blobs_sidecar(blobs_sidecar),
                 block,
                 block_root,
                 parent: Some(parent),
@@ -1021,11 +1023,11 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
 
     /// As for `new` above but producing `BlockSlashInfo`.
     pub fn check_slashable(
-        block: Arc<SignedBeaconBlock<T::EthSpec>>,
+        block: BlockWrapper<T::EthSpec>,
         block_root: Hash256,
         chain: &BeaconChain<T>,
     ) -> Result<Self, BlockSlashInfo<BlockError<T::EthSpec>>> {
-        let header = block.signed_block_header();
+        let header = block.block().signed_block_header();
         Self::new(block, block_root, chain).map_err(|e| BlockSlashInfo::from_early_error(header, e))
     }
 
@@ -1127,12 +1129,38 @@ impl<T: BeaconChainTypes> IntoExecutionPendingBlock<T> for Arc<SignedBeaconBlock
         let block_root = check_block_relevancy(&self, block_root, chain)
             .map_err(|e| BlockSlashInfo::SignatureNotChecked(self.signed_block_header(), e))?;
 
+        SignatureVerifiedBlock::check_slashable(
+            BlockWrapper::Block { block: self },
+            block_root,
+            chain,
+        )?
+        .into_execution_pending_block_slashable(block_root, chain)
+    }
+
+    fn block(&self) -> &SignedBeaconBlock<T::EthSpec> {
+        self
+    }
+}
+
+impl<T: BeaconChainTypes> IntoExecutionPendingBlock<T> for BlockWrapper<T::EthSpec> {
+    /// Verifies the `SignedBeaconBlock` by first transforming it into a `SignatureVerifiedBlock`
+    /// and then using that implementation of `IntoExecutionPendingBlock` to complete verification.
+    fn into_execution_pending_block_slashable(
+        self,
+        block_root: Hash256,
+        chain: &Arc<BeaconChain<T>>,
+    ) -> Result<ExecutionPendingBlock<T>, BlockSlashInfo<BlockError<T::EthSpec>>> {
+        // Perform an early check to prevent wasting time on irrelevant blocks.
+        let block_root = check_block_relevancy(self.block(), block_root, chain).map_err(|e| {
+            BlockSlashInfo::SignatureNotChecked(self.block().signed_block_header(), e)
+        })?;
+
         SignatureVerifiedBlock::check_slashable(self, block_root, chain)?
             .into_execution_pending_block_slashable(block_root, chain)
     }
 
     fn block(&self) -> &SignedBeaconBlock<T::EthSpec> {
-        self
+        self.block()
     }
 }
 

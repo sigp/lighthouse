@@ -3,12 +3,15 @@ use std::time::Duration;
 
 use beacon_chain::{BeaconChainTypes, BlockError};
 use fnv::FnvHashMap;
+use futures::StreamExt;
+use itertools::{Either, Itertools};
 use lighthouse_network::{PeerAction, PeerId};
 use lru_cache::LRUTimeCache;
 use slog::{debug, error, trace, warn, Logger};
 use smallvec::SmallVec;
 use std::sync::Arc;
 use store::{Hash256, SignedBeaconBlock};
+use types::signed_block_and_blobs::BlockWrapper;
 
 use crate::beacon_processor::{ChainSegmentProcessId, WorkEvent};
 use crate::metrics;
@@ -18,7 +21,7 @@ use self::{
     single_block_lookup::SingleBlockRequest,
 };
 
-use super::manager::{BlockProcessResult, BlockTy};
+use super::manager::BlockProcessResult;
 use super::BatchProcessResult;
 use super::{
     manager::{BlockProcessType, Id},
@@ -30,7 +33,7 @@ mod single_block_lookup;
 #[cfg(test)]
 mod tests;
 
-pub type RootBlockTuple<T> = (Hash256, BlockTy<T>);
+pub type RootBlockTuple<T> = (Hash256, BlockWrapper<T>);
 
 const FAILED_CHAINS_CACHE_EXPIRY_SECONDS: u64 = 60;
 const SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS: u8 = 3;
@@ -106,7 +109,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     pub fn search_parent(
         &mut self,
         block_root: Hash256,
-        block: BlockTy<T::EthSpec>,
+        block: BlockWrapper<T::EthSpec>,
         peer_id: PeerId,
         cx: &mut SyncNetworkContext<T>,
     ) {
@@ -139,7 +142,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         &mut self,
         id: Id,
         peer_id: PeerId,
-        block: Option<BlockTy<T::EthSpec>>,
+        block: Option<BlockWrapper<T::EthSpec>>,
         seen_timestamp: Duration,
         cx: &mut SyncNetworkContext<T>,
     ) {
@@ -204,7 +207,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         &mut self,
         id: Id,
         peer_id: PeerId,
-        block: Option<BlockTy<T::EthSpec>>,
+        block: Option<BlockWrapper<T::EthSpec>>,
         seen_timestamp: Duration,
         cx: &mut SyncNetworkContext<T>,
     ) {
@@ -426,7 +429,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                         error!(self.log, "Beacon chain error processing single block"; "block_root" => %root, "error" => ?e);
                     }
                     BlockError::ParentUnknown(block) => {
-                        self.search_parent(root, BlockTy::Block { block }, peer_id, cx);
+                        self.search_parent(root, BlockWrapper::Block { block }, peer_id, cx);
                     }
                     ref e @ BlockError::ExecutionPayloadError(ref epe) if !epe.penalize_peer() => {
                         // These errors indicate that the execution layer is offline
@@ -506,7 +509,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             BlockProcessResult::Err(BlockError::ParentUnknown(block)) => {
                 // need to keep looking for parents
                 // add the block back to the queue and continue the search
-                parent_lookup.add_block(BlockTy::Block { block });
+                parent_lookup.add_block(BlockWrapper::Block { block });
                 self.request_parent(parent_lookup, cx);
             }
             BlockProcessResult::Ok
@@ -525,8 +528,8 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 let chain_hash = parent_lookup.chain_hash();
                 let blocks = parent_lookup.chain_blocks();
                 let process_id = ChainSegmentProcessId::ParentLookup(chain_hash);
-                // let work = WorkEvent::chain_segment(process_id, blocks);
-                let work = todo!("this means we can have batches of mixed type");
+
+                let work = WorkEvent::chain_segment(process_id, blocks);
 
                 match beacon_processor_send.try_send(work) {
                     Ok(_) => {
@@ -634,7 +637,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     fn send_block_for_processing(
         &mut self,
         block_root: Hash256,
-        block: BlockTy<T::EthSpec>,
+        block: BlockWrapper<T::EthSpec>,
         duration: Duration,
         process_type: BlockProcessType,
         cx: &mut SyncNetworkContext<T>,
@@ -642,16 +645,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         match cx.processor_channel_if_enabled() {
             Some(beacon_processor_send) => {
                 trace!(self.log, "Sending block for processing"; "block" => ?block_root, "process" => ?process_type);
-                let event = match block {
-                    BlockTy::Block { block } => {
-                        WorkEvent::rpc_beacon_block(block_root, block, duration, process_type)
-                    }
-                    BlockTy::BlockAndBlob { block_sidecar_pair } => {
-                        //FIXME(sean)
-                        // WorkEvent::rpc_block_and_glob(block_sidecar_pair)
-                        todo!("we also need to process block-glob pairs for rpc")
-                    }
-                };
+                let event = WorkEvent::rpc_beacon_block(block_root, block, duration, process_type);
                 if let Err(e) = beacon_processor_send.try_send(event) {
                     error!(
                         self.log,

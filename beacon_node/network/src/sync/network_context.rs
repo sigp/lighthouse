@@ -1,7 +1,7 @@
 //! Provides network functionality for the Syncing thread. This fundamentally wraps a network
 //! channel and stores a global RPC ID to perform requests.
 
-use super::manager::{BlockTy, Id, RequestId as SyncRequestId};
+use super::manager::{Id, RequestId as SyncRequestId};
 use super::range_sync::{BatchId, ChainId, ExpectedBatchTy};
 use crate::beacon_processor::WorkEvent;
 use crate::service::{NetworkMessage, RequestId};
@@ -16,6 +16,7 @@ use std::collections::hash_map::Entry;
 use std::collections::VecDeque;
 use std::sync::Arc;
 use tokio::sync::mpsc;
+use types::signed_block_and_blobs::BlockWrapper;
 use types::{BlobsSidecar, EthSpec, SignedBeaconBlock, SignedBeaconBlockAndBlobsSidecar};
 
 #[derive(Debug, Default)]
@@ -297,7 +298,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         request_id: Id,
         maybe_block: Option<Arc<SignedBeaconBlock<T::EthSpec>>>,
         batch_type: ExpectedBatchTy,
-    ) -> Option<(ChainId, BatchId, Option<BlockTy<T::EthSpec>>)> {
+    ) -> Option<(ChainId, BatchId, Option<BlockWrapper<T::EthSpec>>)> {
         match batch_type {
             ExpectedBatchTy::OnlyBlockBlobs => {
                 match self.range_sidecar_pair_requests.entry(request_id) {
@@ -306,9 +307,9 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                         let chain_id = chain_id.clone();
                         let batch_id = batch_id.clone();
                         info.add_block_response(maybe_block);
-                        let maybe_block = info
-                            .pop_response()
-                            .map(|block_sidecar_pair| BlockTy::BlockAndBlob { block_sidecar_pair });
+                        let maybe_block = info.pop_response().map(|block_sidecar_pair| {
+                            BlockWrapper::BlockAndBlob { block_sidecar_pair }
+                        });
                         if info.is_finished() {
                             entry.remove();
                         }
@@ -325,7 +326,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                             .get(&request_id)
                             .cloned()
                             .map(|(chain_id, batch_id)| {
-                                (chain_id, batch_id, Some(BlockTy::Block { block }))
+                                (chain_id, batch_id, Some(BlockWrapper::Block { block }))
                             })
                     }
                     None => self
@@ -341,7 +342,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         &mut self,
         request_id: Id,
         maybe_sidecar: Option<Arc<BlobsSidecar<T::EthSpec>>>,
-    ) -> Option<(ChainId, BatchId, Option<BlockTy<T::EthSpec>>)> {
+    ) -> Option<(ChainId, BatchId, Option<BlockWrapper<T::EthSpec>>)> {
         match self.range_sidecar_pair_requests.entry(request_id) {
             Entry::Occupied(mut entry) => {
                 let (chain_id, batch_id, info) = entry.get_mut();
@@ -350,7 +351,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 info.add_sidecar_response(maybe_sidecar);
                 let maybe_block = info
                     .pop_response()
-                    .map(|block_sidecar_pair| BlockTy::BlockAndBlob { block_sidecar_pair });
+                    .map(|block_sidecar_pair| BlockWrapper::BlockAndBlob { block_sidecar_pair });
                 if info.is_finished() {
                     entry.remove();
                 }
@@ -394,7 +395,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         request_id: Id,
         maybe_block: Option<Arc<SignedBeaconBlock<T::EthSpec>>>,
         batch_type: ExpectedBatchTy,
-    ) -> Option<(BatchId, Option<BlockTy<T::EthSpec>>)> {
+    ) -> Option<(BatchId, Option<BlockWrapper<T::EthSpec>>)> {
         match batch_type {
             ExpectedBatchTy::OnlyBlockBlobs => {
                 match self.backfill_sidecar_pair_requests.entry(request_id) {
@@ -402,9 +403,9 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                         let (batch_id, info) = entry.get_mut();
                         let batch_id = batch_id.clone();
                         info.add_block_response(maybe_block);
-                        let maybe_block = info
-                            .pop_response()
-                            .map(|block_sidecar_pair| BlockTy::BlockAndBlob { block_sidecar_pair });
+                        let maybe_block = info.pop_response().map(|block_sidecar_pair| {
+                            BlockWrapper::BlockAndBlob { block_sidecar_pair }
+                        });
                         if info.is_finished() {
                             entry.remove();
                         }
@@ -420,7 +421,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                         .backfill_requests
                         .get(&request_id)
                         .cloned()
-                        .map(|batch_id| (batch_id, Some(BlockTy::Block { block }))),
+                        .map(|batch_id| (batch_id, Some(BlockWrapper::Block { block }))),
                     None => self
                         .backfill_requests
                         .remove(&request_id)
@@ -434,7 +435,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         &mut self,
         request_id: Id,
         maybe_sidecar: Option<Arc<BlobsSidecar<T::EthSpec>>>,
-    ) -> Option<(BatchId, Option<BlockTy<T::EthSpec>>)> {
+    ) -> Option<(BatchId, Option<BlockWrapper<T::EthSpec>>)> {
         match self.backfill_sidecar_pair_requests.entry(request_id) {
             Entry::Occupied(mut entry) => {
                 let (batch_id, info) = entry.get_mut();
@@ -442,7 +443,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 info.add_sidecar_response(maybe_sidecar);
                 let maybe_block = info
                     .pop_response()
-                    .map(|block_sidecar_pair| BlockTy::BlockAndBlob { block_sidecar_pair });
+                    .map(|block_sidecar_pair| BlockWrapper::BlockAndBlob { block_sidecar_pair });
                 if info.is_finished() {
                     entry.remove();
                 }

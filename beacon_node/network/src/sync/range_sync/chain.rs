@@ -1,7 +1,6 @@
 use super::batch::{BatchInfo, BatchProcessingResult, BatchState};
 use super::BatchTy;
 use crate::beacon_processor::{ChainSegmentProcessId, WorkEvent as BeaconWorkEvent};
-use crate::sync::manager::BlockTy;
 use crate::sync::{
     manager::Id, network_context::SyncNetworkContext, BatchOperationOutcome, BatchProcessResult,
 };
@@ -12,6 +11,7 @@ use rand::seq::SliceRandom;
 use slog::{crit, debug, o, warn};
 use std::collections::{btree_map::Entry, BTreeMap, HashSet};
 use std::hash::{Hash, Hasher};
+use types::signed_block_and_blobs::BlockWrapper;
 use types::{Epoch, EthSpec, Hash256, Slot};
 
 /// Blocks are downloaded in batches from peers. This constant specifies how many epochs worth of
@@ -226,7 +226,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         batch_id: BatchId,
         peer_id: &PeerId,
         request_id: Id,
-        beacon_block: Option<BlockTy<T::EthSpec>>,
+        beacon_block: Option<BlockWrapper<T::EthSpec>>,
     ) -> ProcessingResult {
         // check if we have this batch
         let batch = match self.batches.get_mut(&batch_id) {
@@ -327,12 +327,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         let process_id = ChainSegmentProcessId::RangeBatchId(self.id, batch_id, count_unrealized);
         self.current_processing_batch = Some(batch_id);
 
-        let work_event = match blocks {
-            BatchTy::Blocks(blocks) => BeaconWorkEvent::chain_segment(process_id, blocks),
-            BatchTy::BlocksAndBlobs(blocks_and_blobs) => {
-                BeaconWorkEvent::blob_chain_segment(process_id, blocks_and_blobs)
-            }
-        };
+        let work_event = BeaconWorkEvent::chain_segment(process_id, blocks.into_wrapped_blocks());
 
         if let Err(e) = beacon_processor_send.try_send(work_event) {
             crit!(self.log, "Failed to send chain segment to processor."; "msg" => "process_batch",

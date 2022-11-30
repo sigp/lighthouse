@@ -1,15 +1,13 @@
-use std::collections::HashSet;
-use std::sync::Arc;
-
-use crate::sync::manager::BlockTy;
-
 use super::RootBlockTuple;
 use beacon_chain::get_block_root;
 use lighthouse_network::{rpc::BlocksByRootRequest, PeerId};
 use rand::seq::IteratorRandom;
 use ssz_types::VariableList;
+use std::collections::HashSet;
+use std::sync::Arc;
 use store::{EthSpec, Hash256, SignedBeaconBlock};
 use strum::IntoStaticStr;
+use types::signed_block_and_blobs::BlockWrapper;
 
 /// Object representing a single block lookup request.
 #[derive(PartialEq, Eq)]
@@ -107,7 +105,7 @@ impl<const MAX_ATTEMPTS: u8> SingleBlockRequest<MAX_ATTEMPTS> {
     /// Returns the block for processing if the response is what we expected.
     pub fn verify_block<T: EthSpec>(
         &mut self,
-        block: Option<BlockTy<T>>,
+        block: Option<BlockWrapper<T>>,
     ) -> Result<Option<RootBlockTuple<T>>, VerifyError> {
         match self.state {
             State::AwaitingDownload => {

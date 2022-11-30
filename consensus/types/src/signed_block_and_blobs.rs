@@ -1,4 +1,4 @@
-use crate::{BlobsSidecar, EthSpec, SignedBeaconBlock, SignedBeaconBlockEip4844, Slot};
+use crate::{BlobsSidecar, EthSpec, Hash256, SignedBeaconBlock, SignedBeaconBlockEip4844, Slot};
 use serde_derive::{Deserialize, Serialize};
 use ssz::{Decode, DecodeError};
 use ssz_derive::{Decode, Encode};
@@ -73,5 +73,49 @@ impl<T: EthSpec> BlockWrapper<T> {
                 Some(block_sidecar_pair.blobs_sidecar.clone())
             }
         }
+    }
+
+    pub fn parent_root(&self) -> Hash256 {
+        self.block().parent_root()
+    }
+
+    pub fn deconstruct(self) -> (Arc<SignedBeaconBlock<T>>, Option<Arc<BlobsSidecar<T>>>) {
+        match self {
+            BlockWrapper::Block { block } => (block, None),
+            BlockWrapper::BlockAndBlob { block_sidecar_pair } => {
+                let SignedBeaconBlockAndBlobsSidecar {
+                    beacon_block,
+                    blobs_sidecar,
+                } = block_sidecar_pair;
+                (beacon_block, Some(blobs_sidecar))
+            }
+        }
+    }
+}
+
+// TODO: probably needes to be changed. This is needed because SignedBeaconBlockAndBlobsSidecar
+// does not implement Hash
+impl<T: EthSpec> std::hash::Hash for BlockWrapper<T> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        match self {
+            BlockWrapper::Block { block } => block.hash(state),
+            BlockWrapper::BlockAndBlob {
+                block_sidecar_pair: block_and_blob,
+            } => block_and_blob.beacon_block.hash(state),
+        }
+    }
+}
+
+impl<T: EthSpec> From<SignedBeaconBlock<T>> for BlockWrapper<T> {
+    fn from(block: SignedBeaconBlock<T>) -> Self {
+        BlockWrapper::Block {
+            block: Arc::new(block),
+        }
+    }
+}
+
+impl<T: EthSpec> From<Arc<SignedBeaconBlock<T>>> for BlockWrapper<T> {
+    fn from(block: Arc<SignedBeaconBlock<T>>) -> Self {
+        BlockWrapper::Block { block }
     }
 }
