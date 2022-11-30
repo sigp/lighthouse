@@ -237,7 +237,7 @@ async fn run<'a>(config: ImportConfig) -> Result<(), String> {
 #[cfg(test)]
 pub mod tests {
     use super::*;
-    use crate::validators::create_validators::tests::TestBuilder as CreateTestBuilder;
+    use crate::create_validators::tests::TestBuilder as CreateTestBuilder;
     use std::fs;
     use tempfile::{tempdir, TempDir};
     use validator_client::http_api::test_utils::ApiTester;

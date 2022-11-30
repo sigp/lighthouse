@@ -548,7 +548,7 @@ async fn sleep_with_retry_message(pubkey: &PublicKeyBytes, path: Option<&str>) {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::validators::import_validators::tests::TestBuilder as ImportTestBuilder;
+    use crate::import_validators::tests::TestBuilder as ImportTestBuilder;
     use std::fs;
     use tempfile::{tempdir, TempDir};
     use validator_client::http_api::test_utils::ApiTester;
