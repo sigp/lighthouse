@@ -1455,13 +1455,13 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                         );
                     });
                     if let Some(delay) = summary.attestation_min_delay {
-                        if self.individual_metrics() {
+                        self.aggregatable_metric(id, |tag| {
                             metrics::observe_timer_vec(
                                 &metrics::VALIDATOR_MONITOR_PREV_EPOCH_ATTESTATIONS_MIN_DELAY_SECONDS,
-                                &[id],
+                                &[tag],
                                 delay,
                             );
-                        }
+                    });
                     }
                     self.aggregatable_metric(id, |label| {
                         metrics::set_gauge_vec(
@@ -1478,13 +1478,13 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                         );
                     });
                     if let Some(distance) = summary.attestation_min_block_inclusion_distance {
-                        if self.individual_metrics() {
+                        self.aggregatable_metric(id, |tag| {
                             metrics::set_gauge_vec(
                                 &metrics::VALIDATOR_MONITOR_PREV_EPOCH_ATTESTATION_BLOCK_MIN_INCLUSION_DISTANCE,
-                                &[id],
+                                &[tag],
                                 distance.as_u64() as i64,
                             );
-                        }
+                    });
                     }
                     /*
                      * Sync committee messages
@@ -1497,13 +1497,13 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                         );
                     });
                     if let Some(delay) = summary.sync_committee_message_min_delay {
-                        if self.individual_metrics() {
+                        self.aggregatable_metric(id, |tag| {
                             metrics::observe_timer_vec(
                             &metrics::VALIDATOR_MONITOR_PREV_EPOCH_SYNC_COMMITTEE_MESSAGES_MIN_DELAY_SECONDS,
-                            &[id],
+                            &[tag],
                             delay,
                         );
-                        }
+                    });
                     }
                     self.aggregatable_metric(id, |label| {
                         metrics::set_gauge_vec(
@@ -1531,13 +1531,13 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                         );
                     });
                     if let Some(delay) = summary.sync_contribution_min_delay {
-                        if self.individual_metrics() {
+                        self.aggregatable_metric(id, |tag| {
                             metrics::observe_timer_vec(
                             &metrics::VALIDATOR_MONITOR_PREV_EPOCH_SYNC_CONTRIBUTION_MIN_DELAY_SECONDS,
-                            &[id],
+                            &[tag],
                             delay,
                         );
-                        }
+                    });
                     }
 
                     /*
@@ -1551,13 +1551,13 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                         );
                     });
                     if let Some(delay) = summary.block_min_delay {
-                        if self.individual_metrics() {
+                        self.aggregatable_metric(id, |tag| {
                             metrics::observe_timer_vec(
-                            &metrics::VALIDATOR_MONITOR_PREV_EPOCH_BEACON_BLOCKS_MIN_DELAY_SECONDS,
-                            &[id],
-                            delay,
-                        );
-                        }
+                                &metrics::VALIDATOR_MONITOR_PREV_EPOCH_BEACON_BLOCKS_MIN_DELAY_SECONDS,
+                                &[id],
+                                delay,
+                            );
+                        });
                     }
                     /*
                      * Aggregates
@@ -1570,13 +1570,13 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                         );
                     });
                     if let Some(delay) = summary.aggregate_min_delay {
-                        if self.individual_metrics() {
+                        self.aggregatable_metric(id, |tag| {
                             metrics::observe_timer_vec(
                                 &metrics::VALIDATOR_MONITOR_PREV_EPOCH_AGGREGATES_MIN_DELAY_SECONDS,
                                 &[id],
                                 delay,
                             );
-                        }
+                        });
                     }
                     /*
                      * Other
