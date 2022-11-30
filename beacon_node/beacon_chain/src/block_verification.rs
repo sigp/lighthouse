@@ -43,9 +43,10 @@
 //!
 //! ```
 use crate::beacon_snapshot::PreProcessingSnapshot;
+use crate::eth1_finalization_cache::Eth1FinalizationData;
 use crate::execution_payload::{
     is_optimistic_candidate_block, validate_execution_payload_for_gossip, validate_merge_block,
-    AllowOptimisticImport, PayloadNotifier,
+    AllowOptimisticImport, NotifyExecutionLayer, PayloadNotifier,
 };
 use crate::validator_monitor::HISTORIC_EPOCHS as VALIDATOR_MONITOR_HISTORIC_EPOCHS;
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
@@ -618,6 +619,7 @@ pub struct ExecutionPendingBlock<T: BeaconChainTypes> {
     pub block_root: Hash256,
     pub state: BeaconState<T::EthSpec>,
     pub parent_block: SignedBeaconBlock<T::EthSpec, BlindedPayload<T::EthSpec>>,
+    pub parent_eth1_finalization_data: Eth1FinalizationData,
     pub confirmed_state_roots: Vec<Hash256>,
     pub payload_verification_handle: PayloadVerificationHandle<T::EthSpec>,
 }
@@ -630,8 +632,9 @@ pub trait IntoExecutionPendingBlock<T: BeaconChainTypes>: Sized {
         self,
         block_root: Hash256,
         chain: &Arc<BeaconChain<T>>,
+        notify_execution_layer: NotifyExecutionLayer,
     ) -> Result<ExecutionPendingBlock<T>, BlockError<T::EthSpec>> {
-        self.into_execution_pending_block_slashable(block_root, chain)
+        self.into_execution_pending_block_slashable(block_root, chain, notify_execution_layer)
             .map(|execution_pending| {
                 // Supply valid block to slasher.
                 if let Some(slasher) = chain.slasher.as_ref() {
@@ -647,6 +650,7 @@ pub trait IntoExecutionPendingBlock<T: BeaconChainTypes>: Sized {
         self,
         block_root: Hash256,
         chain: &Arc<BeaconChain<T>>,
+        notify_execution_layer: NotifyExecutionLayer,
     ) -> Result<ExecutionPendingBlock<T>, BlockSlashInfo<BlockError<T::EthSpec>>>;
 
     fn block(&self) -> &SignedBeaconBlock<T::EthSpec>;
@@ -893,10 +897,15 @@ impl<T: BeaconChainTypes> IntoExecutionPendingBlock<T> for GossipVerifiedBlock<T
         self,
         block_root: Hash256,
         chain: &Arc<BeaconChain<T>>,
+        notify_execution_layer: NotifyExecutionLayer,
     ) -> Result<ExecutionPendingBlock<T>, BlockSlashInfo<BlockError<T::EthSpec>>> {
         let execution_pending =
             SignatureVerifiedBlock::from_gossip_verified_block_check_slashable(self, chain)?;
-        execution_pending.into_execution_pending_block_slashable(block_root, chain)
+        execution_pending.into_execution_pending_block_slashable(
+            block_root,
+            chain,
+            notify_execution_layer,
+        )
     }
 
     fn block(&self) -> &SignedBeaconBlock<T::EthSpec> {
@@ -1029,6 +1038,7 @@ impl<T: BeaconChainTypes> IntoExecutionPendingBlock<T> for SignatureVerifiedBloc
         self,
         block_root: Hash256,
         chain: &Arc<BeaconChain<T>>,
+        notify_execution_layer: NotifyExecutionLayer,
     ) -> Result<ExecutionPendingBlock<T>, BlockSlashInfo<BlockError<T::EthSpec>>> {
         let header = self.block.signed_block_header();
         let (parent, block) = if let Some(parent) = self.parent {
@@ -1044,6 +1054,7 @@ impl<T: BeaconChainTypes> IntoExecutionPendingBlock<T> for SignatureVerifiedBloc
             parent,
             self.consensus_context,
             chain,
+            notify_execution_layer,
         )
         .map_err(|e| BlockSlashInfo::SignatureValid(header, e))
     }
@@ -1060,13 +1071,14 @@ impl<T: BeaconChainTypes> IntoExecutionPendingBlock<T> for Arc<SignedBeaconBlock
         self,
         block_root: Hash256,
         chain: &Arc<BeaconChain<T>>,
+        notify_execution_layer: NotifyExecutionLayer,
     ) -> Result<ExecutionPendingBlock<T>, BlockSlashInfo<BlockError<T::EthSpec>>> {
         // Perform an early check to prevent wasting time on irrelevant blocks.
         let block_root = check_block_relevancy(&self, block_root, chain)
             .map_err(|e| BlockSlashInfo::SignatureNotChecked(self.signed_block_header(), e))?;
 
         SignatureVerifiedBlock::check_slashable(self, block_root, chain)?
-            .into_execution_pending_block_slashable(block_root, chain)
+            .into_execution_pending_block_slashable(block_root, chain, notify_execution_layer)
     }
 
     fn block(&self) -> &SignedBeaconBlock<T::EthSpec> {
@@ -1088,6 +1100,7 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
         parent: PreProcessingSnapshot<T::EthSpec>,
         mut consensus_context: ConsensusContext<T::EthSpec>,
         chain: &Arc<BeaconChain<T>>,
+        notify_execution_layer: NotifyExecutionLayer,
     ) -> Result<Self, BlockError<T::EthSpec>> {
         if let Some(parent) = chain
             .canonical_head
@@ -1163,6 +1176,11 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
             .into());
         }
 
+        let parent_eth1_finalization_data = Eth1FinalizationData {
+            eth1_data: state.eth1_data().clone(),
+            eth1_deposit_index: state.eth1_deposit_index(),
+        };
+
         let distance = block.slot().as_u64().saturating_sub(state.slot().as_u64());
         for _ in 0..distance {
             let state_root = if parent.beacon_block.slot() == state.slot() {
@@ -1209,7 +1227,8 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
 
         // Define a future that will verify the execution payload with an execution engine (but
         // don't execute it yet).
-        let payload_notifier = PayloadNotifier::new(chain.clone(), block.clone(), &state)?;
+        let payload_notifier =
+            PayloadNotifier::new(chain.clone(), block.clone(), &state, notify_execution_layer)?;
         let is_valid_merge_transition_block =
             is_merge_transition_block(&state, block.message().body());
         let payload_verification_future = async move {
@@ -1397,6 +1416,7 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
             block_root,
             state,
             parent_block: parent.beacon_block,
+            parent_eth1_finalization_data,
             confirmed_state_roots,
             payload_verification_handle,
         })

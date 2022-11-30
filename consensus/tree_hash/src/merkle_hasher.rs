@@ -368,7 +368,7 @@ mod test {
     fn context_size() {
         assert_eq!(
             mem::size_of::<HalfNode>(),
-            232,
+            224,
             "Halfnode size should be as expected"
         );
     }

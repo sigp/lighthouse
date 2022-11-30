@@ -642,7 +642,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
         let persisted_head = PersistedBeaconChain {
             _canonical_head_block_root: DUMMY_CANONICAL_HEAD_BLOCK_ROOT,
             genesis_block_root,
-            ssz_head_tracker: SszHeadTracker::from_map(&*head_tracker_lock),
+            ssz_head_tracker: SszHeadTracker::from_map(&head_tracker_lock),
         };
         drop(head_tracker_lock);
         batch.push(StoreOp::KeyValueOp(

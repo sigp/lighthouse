@@ -16,7 +16,6 @@ use store::{DBColumn, Error as StoreError, StoreItem};
 use task_executor::TaskExecutor;
 use types::{
     BeaconState, BeaconStateError, ChainSpec, Deposit, Eth1Data, EthSpec, Hash256, Slot, Unsigned,
-    DEPOSIT_TREE_DEPTH,
 };
 
 type BlockNumber = u64;
@@ -170,8 +169,8 @@ fn get_sync_status<T: EthSpec>(
 
 #[derive(Encode, Decode, Clone)]
 pub struct SszEth1 {
-    use_dummy_backend: bool,
-    backend_bytes: Vec<u8>,
+    pub use_dummy_backend: bool,
+    pub backend_bytes: Vec<u8>,
 }
 
 impl StoreItem for SszEth1 {
@@ -305,6 +304,12 @@ where
         }
     }
 
+    /// Set in motion the finalization of `Eth1Data`. This method is called during block import
+    /// so it should be fast.
+    pub fn finalize_eth1_data(&self, eth1_data: Eth1Data) {
+        self.backend.finalize_eth1_data(eth1_data);
+    }
+
     /// Consumes `self`, returning the backend.
     pub fn into_backend(self) -> T {
         self.backend
@@ -334,6 +339,10 @@ pub trait Eth1ChainBackend<T: EthSpec>: Sized + Send + Sync {
     /// Returns the latest block stored in the cache. Used to obtain an idea of how up-to-date the
     /// beacon node eth1 cache is.
     fn latest_cached_block(&self) -> Option<Eth1Block>;
+
+    /// Set in motion the finalization of `Eth1Data`. This method is called during block import
+    /// so it should be fast.
+    fn finalize_eth1_data(&self, eth1_data: Eth1Data);
 
     /// Returns the block at the head of the chain (ignoring follow distance, etc). Used to obtain
     /// an idea of how up-to-date the remote eth1 node is.
@@ -388,6 +397,8 @@ impl<T: EthSpec> Eth1ChainBackend<T> for DummyEth1ChainBackend<T> {
     fn latest_cached_block(&self) -> Option<Eth1Block> {
         None
     }
+
+    fn finalize_eth1_data(&self, _eth1_data: Eth1Data) {}
 
     fn head_block(&self) -> Option<Eth1Block> {
         None
@@ -547,7 +558,7 @@ impl<T: EthSpec> Eth1ChainBackend<T> for CachingEth1Backend<T> {
                     .deposits()
                     .read()
                     .cache
-                    .get_deposits(next, last, deposit_count, DEPOSIT_TREE_DEPTH)
+                    .get_deposits(next, last, deposit_count)
                     .map_err(|e| Error::BackendError(format!("Failed to get deposits: {:?}", e)))
                     .map(|(_deposit_root, deposits)| deposits)
             }
@@ -556,6 +567,12 @@ impl<T: EthSpec> Eth1ChainBackend<T> for CachingEth1Backend<T> {
 
     fn latest_cached_block(&self) -> Option<Eth1Block> {
         self.core.latest_cached_block()
+    }
+
+    /// This only writes the eth1_data to a temporary cache so that the service
+    /// thread can later do the actual finalizing of the deposit tree.
+    fn finalize_eth1_data(&self, eth1_data: Eth1Data) {
+        self.core.set_to_finalize(Some(eth1_data));
     }
 
     fn head_block(&self) -> Option<Eth1Block> {

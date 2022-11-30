@@ -203,6 +203,34 @@ impl_encode_for_tuples! {
     }
 }
 
+impl<T: Encode> Encode for Option<T> {
+    fn is_ssz_fixed_len() -> bool {
+        false
+    }
+    fn ssz_append(&self, buf: &mut Vec<u8>) {
+        match self {
+            Option::None => {
+                let union_selector: u8 = 0u8;
+                buf.push(union_selector);
+            }
+            Option::Some(ref inner) => {
+                let union_selector: u8 = 1u8;
+                buf.push(union_selector);
+                inner.ssz_append(buf);
+            }
+        }
+    }
+    fn ssz_bytes_len(&self) -> usize {
+        match self {
+            Option::None => 1usize,
+            Option::Some(ref inner) => inner
+                .ssz_bytes_len()
+                .checked_add(1)
+                .expect("encoded length must be less than usize::max_value"),
+        }
+    }
+}
+
 impl<T: Encode> Encode for Arc<T> {
     fn is_ssz_fixed_len() -> bool {
         T::is_ssz_fixed_len()
@@ -560,6 +588,14 @@ mod tests {
             (!0_usize).as_ssz_bytes(),
             vec![255, 255, 255, 255, 255, 255, 255, 255]
         );
+    }
+
+    #[test]
+    fn ssz_encode_option_u8() {
+        let opt: Option<u8> = None;
+        assert_eq!(opt.as_ssz_bytes(), vec![0]);
+        let opt: Option<u8> = Some(2);
+        assert_eq!(opt.as_ssz_bytes(), vec![1, 2]);
     }
 
     #[test]

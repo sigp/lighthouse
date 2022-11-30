@@ -23,7 +23,9 @@ pub fn genesis_deposits(
             return Err(String::from("Failed to push leaf"));
         }
 
-        let (_, mut proof) = tree.generate_proof(i, depth);
+        let (_, mut proof) = tree
+            .generate_proof(i, depth)
+            .map_err(|e| format!("Error generating merkle proof: {:?}", e))?;
         proof.push(Hash256::from_slice(&int_to_fixed_bytes32((i + 1) as u64)));
 
         assert_eq!(

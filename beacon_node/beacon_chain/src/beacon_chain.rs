@@ -16,8 +16,9 @@ use crate::chain_config::ChainConfig;
 use crate::early_attester_cache::EarlyAttesterCache;
 use crate::errors::{BeaconChainError as Error, BlockProductionError};
 use crate::eth1_chain::{Eth1Chain, Eth1ChainBackend};
+use crate::eth1_finalization_cache::{Eth1FinalizationCache, Eth1FinalizationData};
 use crate::events::ServerSentEventHandler;
-use crate::execution_payload::{get_execution_payload, PreparePayloadHandle};
+use crate::execution_payload::{get_execution_payload, NotifyExecutionLayer, PreparePayloadHandle};
 use crate::fork_choice_signal::{ForkChoiceSignalRx, ForkChoiceSignalTx, ForkChoiceWaitResult};
 use crate::head_tracker::HeadTracker;
 use crate::historical_blocks::HistoricalBlockError;
@@ -111,6 +112,9 @@ pub const ATTESTATION_CACHE_LOCK_TIMEOUT: Duration = Duration::from_secs(1);
 /// The time-out before failure during an operation to take a read/write RwLock on the
 /// validator pubkey cache.
 pub const VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT: Duration = Duration::from_secs(1);
+
+/// The timeout for the eth1 finalization cache
+pub const ETH1_FINALIZATION_CACHE_LOCK_TIMEOUT: Duration = Duration::from_millis(200);
 
 // These keys are all zero because they get stored in different columns, see `DBColumn` type.
 pub const BEACON_CHAIN_DB_KEY: Hash256 = Hash256::zero();
@@ -352,6 +356,8 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub(crate) head_tracker: Arc<HeadTracker>,
     /// Caches the attester shuffling for a given epoch and shuffling key root.
     pub shuffling_cache: TimeoutRwLock<ShufflingCache>,
+    /// A cache of eth1 deposit data at epoch boundaries for deposit finalization
+    pub eth1_finalization_cache: TimeoutRwLock<Eth1FinalizationCache>,
     /// Caches the beacon block proposer shuffling for a given epoch and shuffling key root.
     pub beacon_proposer_cache: Mutex<BeaconProposerCache>,
     /// Caches a map of `validator_index -> validator_pubkey`.
@@ -2264,6 +2270,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self: &Arc<Self>,
         chain_segment: Vec<Arc<SignedBeaconBlock<T::EthSpec>>>,
         count_unrealized: CountUnrealized,
+        notify_execution_layer: NotifyExecutionLayer,
     ) -> ChainSegmentResult<T::EthSpec> {
         let mut imported_blocks = 0;
 
@@ -2332,6 +2339,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         signature_verified_block.block_root(),
                         signature_verified_block,
                         count_unrealized,
+                        notify_execution_layer,
                     )
                     .await
                 {
@@ -2420,6 +2428,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         block_root: Hash256,
         unverified_block: B,
         count_unrealized: CountUnrealized,
+        notify_execution_layer: NotifyExecutionLayer,
     ) -> Result<Hash256, BlockError<T::EthSpec>> {
         // Start the Prometheus timer.
         let _full_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_TIMES);
@@ -2433,8 +2442,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // A small closure to group the verification and import errors.
         let chain = self.clone();
         let import_block = async move {
-            let execution_pending =
-                unverified_block.into_execution_pending_block(block_root, &chain)?;
+            let execution_pending = unverified_block.into_execution_pending_block(
+                block_root,
+                &chain,
+                notify_execution_layer,
+            )?;
             chain
                 .import_execution_pending_block(execution_pending, count_unrealized)
                 .await
@@ -2500,9 +2512,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             block,
             block_root,
             state,
-            parent_block: _,
+            parent_block,
             confirmed_state_roots,
             payload_verification_handle,
+            parent_eth1_finalization_data,
         } = execution_pending_block;
 
         let PayloadVerificationOutcome {
@@ -2554,6 +2567,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         confirmed_state_roots,
                         payload_verification_status,
                         count_unrealized,
+                        parent_block,
+                        parent_eth1_finalization_data,
                     )
                 },
                 "payload_verification_handle",
@@ -2568,6 +2583,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// An error is returned if the block was unable to be imported. It may be partially imported
     /// (i.e., this function is not atomic).
+    #[allow(clippy::too_many_arguments)]
     fn import_block(
         &self,
         signed_block: Arc<SignedBeaconBlock<T::EthSpec>>,
@@ -2576,6 +2592,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         confirmed_state_roots: Vec<Hash256>,
         payload_verification_status: PayloadVerificationStatus,
         count_unrealized: CountUnrealized,
+        parent_block: SignedBlindedBeaconBlock<T::EthSpec>,
+        parent_eth1_finalization_data: Eth1FinalizationData,
     ) -> Result<Hash256, BlockError<T::EthSpec>> {
         let current_slot = self.slot()?;
         let current_epoch = current_slot.epoch(T::EthSpec::slots_per_epoch());
@@ -2962,6 +2980,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let parent_root = block.parent_root();
         let slot = block.slot();
 
+        let current_eth1_finalization_data = Eth1FinalizationData {
+            eth1_data: state.eth1_data().clone(),
+            eth1_deposit_index: state.eth1_deposit_index(),
+        };
+        let current_finalized_checkpoint = state.finalized_checkpoint();
+
         self.head_tracker
             .register_block(block_root, parent_root, slot);
 
@@ -2991,6 +3015,76 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 current_slot,
                 block_time_imported,
             );
+        }
+
+        // Do not store metrics if the block was > 4 slots old, this helps prevent noise during
+        // sync.
+        if block_delay_total < self.slot_clock.slot_duration() * 4 {
+            // Observe the delay between when we observed the block and when we imported it.
+            let block_delays = self.block_times_cache.read().get_block_delays(
+                block_root,
+                self.slot_clock
+                    .start_of(current_slot)
+                    .unwrap_or_else(|| Duration::from_secs(0)),
+            );
+
+            metrics::observe_duration(
+                &metrics::BEACON_BLOCK_IMPORTED_OBSERVED_DELAY_TIME,
+                block_delays
+                    .imported
+                    .unwrap_or_else(|| Duration::from_secs(0)),
+            );
+        }
+
+        // Do not write to eth1 finalization cache for blocks older than 5 epochs
+        // this helps reduce noise during sync
+        if block_delay_total
+            < self.slot_clock.slot_duration() * 5 * (T::EthSpec::slots_per_epoch() as u32)
+        {
+            let parent_block_epoch = parent_block.slot().epoch(T::EthSpec::slots_per_epoch());
+            if parent_block_epoch < current_epoch {
+                // we've crossed epoch boundary, store Eth1FinalizationData
+                let (checkpoint, eth1_finalization_data) =
+                    if current_slot % T::EthSpec::slots_per_epoch() == 0 {
+                        // current block is the checkpoint
+                        (
+                            Checkpoint {
+                                epoch: current_epoch,
+                                root: block_root,
+                            },
+                            current_eth1_finalization_data,
+                        )
+                    } else {
+                        // parent block is the checkpoint
+                        (
+                            Checkpoint {
+                                epoch: current_epoch,
+                                root: parent_block.canonical_root(),
+                            },
+                            parent_eth1_finalization_data,
+                        )
+                    };
+
+                if let Some(finalized_eth1_data) = self
+                    .eth1_finalization_cache
+                    .try_write_for(ETH1_FINALIZATION_CACHE_LOCK_TIMEOUT)
+                    .and_then(|mut cache| {
+                        cache.insert(checkpoint, eth1_finalization_data);
+                        cache.finalize(&current_finalized_checkpoint)
+                    })
+                {
+                    if let Some(eth1_chain) = self.eth1_chain.as_ref() {
+                        let finalized_deposit_count = finalized_eth1_data.deposit_count;
+                        eth1_chain.finalize_eth1_data(finalized_eth1_data);
+                        debug!(
+                            self.log,
+                            "called eth1_chain.finalize_eth1_data()";
+                            "epoch" => current_finalized_checkpoint.epoch,
+                            "deposit count" => finalized_deposit_count,
+                        );
+                    }
+                }
+            }
         }
 
         // Inform the unknown block cache, in case it was waiting on this block.

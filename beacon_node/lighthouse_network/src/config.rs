@@ -130,6 +130,9 @@ pub struct Config {
 
     /// Whether metrics are enabled.
     pub metrics_enabled: bool,
+
+    /// Whether light client protocols should be enabled.
+    pub enable_light_client_server: bool,
 }
 
 impl Default for Config {
@@ -176,7 +179,7 @@ impl Default for Config {
             .filter_rate_limiter(filter_rate_limiter)
             .filter_max_bans_per_ip(Some(5))
             .filter_max_nodes_per_ip(Some(10))
-            .table_filter(|enr| enr.ip().map_or(false, |ip| is_global(&ip))) // Filter non-global IPs
+            .table_filter(|enr| enr.ip4().map_or(false, |ip| is_global(&ip))) // Filter non-global IPs
             .ban_duration(Some(Duration::from_secs(3600)))
             .ping_interval(Duration::from_secs(300))
             .build();
@@ -207,6 +210,7 @@ impl Default for Config {
             shutdown_after_sync: false,
             topics: Vec::new(),
             metrics_enabled: false,
+            enable_light_client_server: false,
         }
     }
 }
@@ -284,9 +288,11 @@ impl From<u8> for NetworkLoad {
 /// Return a Lighthouse specific `GossipsubConfig` where the `message_id_fn` depends on the current fork.
 pub fn gossipsub_config(network_load: u8, fork_context: Arc<ForkContext>) -> GossipsubConfig {
     // The function used to generate a gossipsub message id
-    // We use the first 8 bytes of SHA256(data) for content addressing
-    let fast_gossip_message_id =
-        |message: &RawGossipsubMessage| FastMessageId::from(&Sha256::digest(&message.data)[..8]);
+    // We use the first 8 bytes of SHA256(topic, data) for content addressing
+    let fast_gossip_message_id = |message: &RawGossipsubMessage| {
+        let data = [message.topic.as_str().as_bytes(), &message.data].concat();
+        FastMessageId::from(&Sha256::digest(data)[..8])
+    };
     fn prefix(
         prefix: [u8; 4],
         message: &GossipsubMessage,

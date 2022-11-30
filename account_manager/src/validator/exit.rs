@@ -349,7 +349,7 @@ fn load_voting_keypair(
     password_file_path: Option<&PathBuf>,
     stdin_inputs: bool,
 ) -> Result<Keypair, String> {
-    let keystore = Keystore::from_json_file(&voting_keystore_path).map_err(|e| {
+    let keystore = Keystore::from_json_file(voting_keystore_path).map_err(|e| {
         format!(
             "Unable to read keystore JSON {:?}: {:?}",
             voting_keystore_path, e
