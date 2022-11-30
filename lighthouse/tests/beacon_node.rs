@@ -1,7 +1,4 @@
-use beacon_node::{
-    beacon_chain::{validator_monitor::DEFAULT_INDIVIDUAL_TRACKING_THRESHOLD, CountUnrealizedFull},
-    ClientConfig as Config,
-};
+use beacon_node::{beacon_chain::CountUnrealizedFull, ClientConfig as Config};
 
 use crate::exec::{CommandLineTestExec, CompletedTest};
 use eth1::Eth1Endpoint;
@@ -1218,7 +1215,9 @@ fn validator_monitor_metrics_threshold_default() {
         .with_config(|config| {
             assert_eq!(
                 config.validator_monitor_individual_tracking_threshold,
-                DEFAULT_INDIVIDUAL_TRACKING_THRESHOLD
+                // If this value changes make sure to update the help text for
+                // the CLI command.
+                64
             )
         });
 }

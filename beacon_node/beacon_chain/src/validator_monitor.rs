@@ -29,8 +29,8 @@ const ALL_VALIDATORS: &str = "all_validators";
 pub const HISTORIC_EPOCHS: usize = 4;
 
 /// Once the validator monitor reaches this number of validators it will stop
-/// tracking their metrics individually in an effort to reduce Prometheus
-/// cardinality.
+/// tracking their metrics/logging individually in an effort to reduce
+/// Prometheus cardinality and log volume.
 pub const DEFAULT_INDIVIDUAL_TRACKING_THRESHOLD: usize = 64;
 
 #[derive(Debug)]
@@ -267,9 +267,9 @@ pub struct ValidatorMonitor<T> {
     /// If true, allow the automatic registration of validators.
     auto_register: bool,
     /// Once the number of monitored validators goes above this threshold, we
-    /// will stop tracking metrics on a per-validator basis. This prevents large
-    /// validator counts causing infeasibly high cardinailty for Prometheus and
-    /// high log volumes.
+    /// will stop tracking metrics/logs on a per-validator basis. This prevents
+    /// large validator counts causing infeasibly high cardinailty for
+    /// Prometheus and high log volumes.
     individual_tracking_threshold: usize,
     log: Logger,
     _phantom: PhantomData<T>,
@@ -296,6 +296,9 @@ impl<T: EthSpec> ValidatorMonitor<T> {
         s
     }
 
+    /// Returns `true` when the validator count is sufficiently low enough to
+    /// emit metrics and logs on a per-validator basis (rather than just an
+    /// aggregated basis).
     fn individual_tracking(&self) -> bool {
         self.validators.len() <= self.individual_tracking_threshold
     }
@@ -414,10 +417,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
     /// This function is used for registering metrics that can be applied to
     /// both all validators and an indivdual validator. For example, the count
     /// of missed head votes can be aggregated across all validators in a single
-    /// metric and also tracked on a per-validator basis. However, it makes less
-    /// sense to track metrics like "minimum inclusion distance per validator"
-    /// as an aggregate metric, so we don't run those metrics through this
-    /// function.
+    /// metric and also tracked on a per-validator basis.
     ///
     /// We allow disabling tracking metrics on an individual validator basis
     /// since it can result in untenable cardinality with high validator counts.
@@ -622,7 +622,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                             // This log is not gated by
                             // `self.individual_tracking()` since the number of
                             // logs that can be generated is capped by the size
-                            // of sync committee.
+                            // of the sync committee.
                             info!(
                                 self.log,
                                 "Current epoch sync signatures";
