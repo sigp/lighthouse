@@ -4,7 +4,7 @@ use eth2::types::BlockId as CoreBlockId;
 use std::fmt;
 use std::str::FromStr;
 use std::sync::Arc;
-use types::{EthSpec, Hash256, SignedBeaconBlock, SignedBlindedBeaconBlock, Slot};
+use types::{Hash256, SignedBeaconBlock, SignedBlindedBeaconBlock, Slot};
 
 /// Wraps `eth2::types::BlockId` and provides a simple way to obtain a block or root for a given
 /// `BlockId`.
@@ -208,26 +208,6 @@ impl BlockId {
                                 ))
                             })
                     })
-            }
-        }
-    }
-
-    pub fn is_finalized<T: BeaconChainTypes>(&self, chain: &BeaconChain<T>) -> bool {
-        let finalized_slot = chain
-            .canonical_head
-            .cached_head()
-            .finalized_checkpoint()
-            .epoch
-            .start_slot(T::EthSpec::slots_per_epoch());
-        match &self.0 {
-            CoreBlockId::Head => false,
-            CoreBlockId::Genesis => true,
-            CoreBlockId::Finalized => true,
-            CoreBlockId::Justified => false,
-            CoreBlockId::Slot(slot) => slot <= &finalized_slot,
-            CoreBlockId::Root(root) => {
-                let block_slot = chain.get_blinded_block(root).unwrap().unwrap().slot();
-                block_slot <= finalized_slot
             }
         }
     }
