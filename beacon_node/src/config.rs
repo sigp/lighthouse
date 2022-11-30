@@ -14,6 +14,7 @@ use std::cmp::max;
 use std::fmt::Debug;
 use std::fmt::Write;
 use std::fs;
+use std::net::Ipv6Addr;
 use std::net::{IpAddr, Ipv4Addr, ToSocketAddrs};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
@@ -843,9 +844,11 @@ pub fn set_network_config(
     }
 
     if cli_args.is_present("enr-match") {
-        // set the enr address to localhost if the address is 0.0.0.0
-        if config.listen_address == "0.0.0.0".parse::<IpAddr>().expect("valid ip addr") {
-            config.enr_address = Some("127.0.0.1".parse::<IpAddr>().expect("valid ip addr"));
+        // set the enr address to localhost if the address is unspecified
+        if config.listen_address == IpAddr::V4(Ipv4Addr::UNSPECIFIED) {
+            config.enr_address = Some(IpAddr::V4(Ipv4Addr::LOCALHOST));
+        } else if config.listen_address == IpAddr::V6(Ipv6Addr::UNSPECIFIED) {
+            config.enr_address = Some(IpAddr::V6(Ipv6Addr::LOCALHOST));
         } else {
             config.enr_address = Some(config.listen_address);
         }
