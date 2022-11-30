@@ -41,7 +41,7 @@
 use crate::sync::manager::BlockProcessType;
 use crate::{metrics, service::NetworkMessage, sync::SyncMessage};
 use beacon_chain::parking_lot::Mutex;
-use beacon_chain::{BeaconChain, BeaconChainTypes, GossipVerifiedBlock};
+use beacon_chain::{BeaconChain, BeaconChainTypes, GossipVerifiedBlock, NotifyExecutionLayer};
 use derivative::Derivative;
 use futures::stream::{Stream, StreamExt};
 use futures::task::Poll;
@@ -1587,8 +1587,24 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
             /*
              * Verification for a chain segment (multiple blocks).
              */
-            Work::ChainSegment { process_id, blocks } => task_spawner
-                .spawn_async(async move { worker.process_chain_segment(process_id, blocks).await }),
+            Work::ChainSegment { process_id, blocks } => {
+                let notify_execution_layer = if self
+                    .network_globals
+                    .sync_state
+                    .read()
+                    .is_syncing_finalized()
+                {
+                    NotifyExecutionLayer::No
+                } else {
+                    NotifyExecutionLayer::Yes
+                };
+
+                task_spawner.spawn_async(async move {
+                    worker
+                        .process_chain_segment(process_id, blocks, notify_execution_layer)
+                        .await
+                })
+            }
             /*
              * Processing of Status Messages.
              */
