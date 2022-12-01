@@ -17,6 +17,7 @@ mod proposer_duties;
 mod publish_blocks;
 mod state_id;
 mod sync_committees;
+mod sync_committee_rewards;
 mod validator_inclusion;
 mod version;
 
@@ -3391,6 +3392,8 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(post_beacon_pool_proposer_slashings.boxed())
                 .or(post_beacon_pool_voluntary_exits.boxed())
                 .or(post_beacon_pool_sync_committees.boxed())
+                //Right place for it?
+                .or(post_beacon_rewards_sync_committee.boxed())
                 .or(post_validator_duties_attester.boxed())
                 .or(post_validator_duties_sync.boxed())
                 .or(post_validator_aggregate_and_proofs.boxed())
