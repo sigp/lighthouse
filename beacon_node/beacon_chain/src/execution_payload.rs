@@ -69,6 +69,7 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
                     // are cheap and doing them here ensures we protect the execution engine from junk.
                     partially_verify_execution_payload(
                         state,
+                        block.slot(),
                         block.message().execution_payload()?,
                         &chain.spec,
                     )
@@ -373,7 +374,8 @@ pub fn get_execution_payload<
     let spec = &chain.spec;
     let current_epoch = state.current_epoch();
     let is_merge_transition_complete = is_merge_transition_complete(state);
-    let timestamp = compute_timestamp_at_slot(state, spec).map_err(BeaconStateError::from)?;
+    let timestamp =
+        compute_timestamp_at_slot(state, state.slot(), spec).map_err(BeaconStateError::from)?;
     let random = *state.get_randao_mix(current_epoch)?;
     let latest_execution_payload_header_block_hash =
         state.latest_execution_payload_header()?.block_hash;
