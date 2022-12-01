@@ -133,14 +133,15 @@ curl -X GET "http://localhost:5052/lighthouse/ui/validator_metrics" -H "accept: 
   "data": {
     "validators": {
       "12345": {
-        "attestation_hits": 50,
+        "attestation_hits": 10,
         "attestation_misses": 0,
-        "head_hit_percentage": 100
-      },
-      "678910": {
-        "attestation_hits": 25,
-        "attestation_misses": 25,
-        "head_hit_percentage": 50
+        "attestation_hit_percentage": 100,
+        "attestation_head_hits": 10,
+        "attestation_head_misses": 0,
+        "attestation_head_hit_percentage": 100,
+        "attestation_target_hits": 5,
+        "attestation_target_misses": 5,
+        "attestation_target_hit_percentage": 50 
       }
     }
   }
