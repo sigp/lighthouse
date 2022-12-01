@@ -19,9 +19,12 @@ use types::MinimalEthSpec as E;
 use futures::StreamExt;
 use libp2p::{
     core::either::EitherError,
-    swarm::SwarmEvent,
-    swarm::{dummy::{ConnectionHandler as DummyConnectionHandler, Behaviour as  DummyBehaviour}, Swarm},
     swarm::NetworkBehaviour,
+    swarm::SwarmEvent,
+    swarm::{
+        dummy::{Behaviour as DummyBehaviour, ConnectionHandler as DummyConnectionHandler},
+        Swarm,
+    },
 };
 
 use slog::debug;

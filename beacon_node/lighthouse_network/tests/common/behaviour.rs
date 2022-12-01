@@ -370,7 +370,7 @@ where
     fn on_swarm_event(&mut self, event: FromSwarm<Self::ConnectionHandler>) {
         match event {
             FromSwarm::ConnectionEstablished(connection_established) => {
-                self.on_connection_established(connection_established.clone())
+                self.on_connection_established(connection_established)
             }
             FromSwarm::ConnectionClosed(connection_closed) => {
                 self.on_connection_closed(connection_closed)

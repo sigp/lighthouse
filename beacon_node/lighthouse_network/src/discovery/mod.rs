@@ -26,8 +26,8 @@ use libp2p::swarm::AddressScore;
 pub use libp2p::{
     core::{connection::ConnectionId, ConnectedPoint, Multiaddr, PeerId},
     swarm::{
-        dummy::ConnectionHandler, DialError, NetworkBehaviour,
-        NetworkBehaviourAction as NBAction, NotifyHandler, PollParameters, SubstreamProtocol,
+        dummy::ConnectionHandler, DialError, NetworkBehaviour, NetworkBehaviourAction as NBAction,
+        NotifyHandler, PollParameters, SubstreamProtocol,
     },
 };
 use lru::LruCache;
@@ -947,13 +947,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
         }
     }
 
-    fn inject_event(
-        &mut self,
-        _: PeerId,
-        _: ConnectionId,
-        _: void::Void,
-    ) {
-    }
+    fn inject_event(&mut self, _: PeerId, _: ConnectionId, _: void::Void) {}
 
     fn inject_dial_failure(
         &mut self,

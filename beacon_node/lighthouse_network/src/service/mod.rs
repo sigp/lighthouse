@@ -341,11 +341,16 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                 .with_max_established_per_peer(Some(MAX_CONNECTIONS_PER_PEER));
 
             (
-                SwarmBuilder::with_executor(transport, behaviour, local_peer_id, Executor(executor))
-                    .notify_handler_buffer_size(std::num::NonZeroUsize::new(7).expect("Not zero"))
-                    .connection_event_buffer_size(64)
-                    .connection_limits(limits)
-                    .build(),
+                SwarmBuilder::with_executor(
+                    transport,
+                    behaviour,
+                    local_peer_id,
+                    Executor(executor),
+                )
+                .notify_handler_buffer_size(std::num::NonZeroUsize::new(7).expect("Not zero"))
+                .connection_event_buffer_size(64)
+                .connection_limits(limits)
+                .build(),
                 bandwidth,
             )
         };
