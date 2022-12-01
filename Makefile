@@ -12,7 +12,7 @@ AARCH64_TAG = "aarch64-unknown-linux-gnu"
 BUILD_PATH_AARCH64 = "target/$(AARCH64_TAG)/release"
 
 PINNED_NIGHTLY ?= nightly
-CLIPPY_PINNED_NIGHTLY=nightly-2022-05-19
+CLIPPY_PINNED_NIGHTLY=nightly-2022-11-30
 
 # List of features to use when cross-compiling. Can be overridden via the environment.
 CROSS_FEATURES ?= gnosis,slasher-lmdb,slasher-mdbx
