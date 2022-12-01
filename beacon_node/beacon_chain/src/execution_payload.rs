@@ -38,6 +38,16 @@ pub enum AllowOptimisticImport {
     No,
 }
 
+/// Signal whether the execution payloads of new blocks should be
+/// immediately verified with the EL or imported optimistically without
+/// any EL communication.
+#[derive(Default, Clone, Copy)]
+pub enum NotifyExecutionLayer {
+    #[default]
+    Yes,
+    No,
+}
+
 /// Used to await the result of executing payload with a remote EE.
 pub struct PayloadNotifier<T: BeaconChainTypes> {
     pub chain: Arc<BeaconChain<T>>,
@@ -50,21 +60,28 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
         chain: Arc<BeaconChain<T>>,
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
         state: &BeaconState<T::EthSpec>,
+        notify_execution_layer: NotifyExecutionLayer,
     ) -> Result<Self, BlockError<T::EthSpec>> {
-        let payload_verification_status = if is_execution_enabled(state, block.message().body()) {
-            // Perform the initial stages of payload verification.
-            //
-            // We will duplicate these checks again during `per_block_processing`, however these checks
-            // are cheap and doing them here ensures we protect the execution engine from junk.
-            partially_verify_execution_payload::<T::EthSpec, FullPayload<T::EthSpec>>(
-                state,
-                block.message().execution_payload()?,
-                &chain.spec,
-            )
-            .map_err(BlockError::PerBlockProcessingError)?;
-            None
-        } else {
-            Some(PayloadVerificationStatus::Irrelevant)
+        let payload_verification_status = match notify_execution_layer {
+            NotifyExecutionLayer::No => Some(PayloadVerificationStatus::Optimistic),
+            NotifyExecutionLayer::Yes => {
+                if is_execution_enabled(state, block.message().body()) {
+                    // Perform the initial stages of payload verification.
+                    //
+                    // We will duplicate these checks again during `per_block_processing`, however these checks
+                    // are cheap and doing them here ensures we protect the execution engine from junk.
+                    partially_verify_execution_payload::<T::EthSpec, FullPayload<T::EthSpec>>(
+                        state,
+                        block.slot(),
+                        block.message().execution_payload()?,
+                        &chain.spec,
+                    )
+                    .map_err(BlockError::PerBlockProcessingError)?;
+                    None
+                } else {
+                    Some(PayloadVerificationStatus::Irrelevant)
+                }
+            }
         };
 
         Ok(Self {
@@ -360,7 +377,8 @@ pub fn get_execution_payload<
     let spec = &chain.spec;
     let current_epoch = state.current_epoch();
     let is_merge_transition_complete = is_merge_transition_complete(state);
-    let timestamp = compute_timestamp_at_slot(state, spec).map_err(BeaconStateError::from)?;
+    let timestamp =
+        compute_timestamp_at_slot(state, state.slot(), spec).map_err(BeaconStateError::from)?;
     let random = *state.get_randao_mix(current_epoch)?;
     let latest_execution_payload_header_block_hash =
         state.latest_execution_payload_header()?.block_hash();

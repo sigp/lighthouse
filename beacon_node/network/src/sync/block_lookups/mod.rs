@@ -1,4 +1,5 @@
 use std::collections::hash_map::Entry;
+use std::collections::HashMap;
 use std::time::Duration;
 
 use beacon_chain::{BeaconChainTypes, BlockError};
@@ -13,6 +14,7 @@ use store::{Hash256, SignedBeaconBlock};
 use crate::beacon_processor::{ChainSegmentProcessId, WorkEvent};
 use crate::metrics;
 
+use self::parent_lookup::PARENT_FAIL_TOLERANCE;
 use self::{
     parent_lookup::{ParentLookup, VerifyError},
     single_block_lookup::SingleBlockRequest,
@@ -36,8 +38,11 @@ const FAILED_CHAINS_CACHE_EXPIRY_SECONDS: u64 = 60;
 const SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS: u8 = 3;
 
 pub(crate) struct BlockLookups<T: BeaconChainTypes> {
-    /// A collection of parent block lookups.
-    parent_queue: SmallVec<[ParentLookup<T>; 3]>,
+    /// Parent chain lookups being downloaded.
+    parent_lookups: SmallVec<[ParentLookup<T>; 3]>,
+
+    processing_parent_lookups:
+        HashMap<Hash256, (Vec<Hash256>, SingleBlockRequest<PARENT_FAIL_TOLERANCE>)>,
 
     /// A cache of failed chain lookups to prevent duplicate searches.
     failed_chains: LRUTimeCache<Hash256>,
@@ -55,7 +60,8 @@ pub(crate) struct BlockLookups<T: BeaconChainTypes> {
 impl<T: BeaconChainTypes> BlockLookups<T> {
     pub fn new(log: Logger) -> Self {
         Self {
-            parent_queue: Default::default(),
+            parent_lookups: Default::default(),
+            processing_parent_lookups: Default::default(),
             failed_chains: LRUTimeCache::new(Duration::from_secs(
                 FAILED_CHAINS_CACHE_EXPIRY_SECONDS,
             )),
@@ -75,6 +81,23 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             .values_mut()
             .any(|single_block_request| single_block_request.add_peer(&hash, &peer_id))
         {
+            return;
+        }
+
+        if self.parent_lookups.iter_mut().any(|parent_req| {
+            parent_req.add_peer(&hash, &peer_id) || parent_req.contains_block(&hash)
+        }) {
+            // If the block was already downloaded, or is being downloaded in this moment, do not
+            // request it.
+            return;
+        }
+
+        if self
+            .processing_parent_lookups
+            .values()
+            .any(|(hashes, _last_parent_request)| hashes.contains(&hash))
+        {
+            // we are already processing this block, ignore it.
             return;
         }
 
@@ -118,12 +141,21 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
 
         // Make sure this block is not already downloaded, and that neither it or its parent is
         // being searched for.
-        if self.parent_queue.iter_mut().any(|parent_req| {
-            parent_req.contains_block(&block)
+        if self.parent_lookups.iter_mut().any(|parent_req| {
+            parent_req.contains_block(&block_root)
                 || parent_req.add_peer(&block_root, &peer_id)
                 || parent_req.add_peer(&parent_root, &peer_id)
         }) {
             // we are already searching for this block, ignore it
+            return;
+        }
+
+        if self
+            .processing_parent_lookups
+            .values()
+            .any(|(hashes, _peers)| hashes.contains(&block_root) || hashes.contains(&parent_root))
+        {
+            // we are already processing this block, ignore it.
             return;
         }
 
@@ -207,11 +239,11 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         cx: &mut SyncNetworkContext<T>,
     ) {
         let mut parent_lookup = if let Some(pos) = self
-            .parent_queue
+            .parent_lookups
             .iter()
             .position(|request| request.pending_response(id))
         {
-            self.parent_queue.remove(pos)
+            self.parent_lookups.remove(pos)
         } else {
             if block.is_some() {
                 debug!(self.log, "Response for a parent lookup request that was not found"; "peer_id" => %peer_id);
@@ -233,13 +265,13 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                     )
                     .is_ok()
                 {
-                    self.parent_queue.push(parent_lookup)
+                    self.parent_lookups.push(parent_lookup)
                 }
             }
             Ok(None) => {
                 // Request finished successfully, nothing else to do. It will be removed after the
                 // processing result arrives.
-                self.parent_queue.push(parent_lookup);
+                self.parent_lookups.push(parent_lookup);
             }
             Err(e) => match e {
                 VerifyError::RootMismatch
@@ -276,7 +308,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
 
         metrics::set_gauge(
             &metrics::SYNC_PARENT_BLOCK_LOOKUPS,
-            self.parent_queue.len() as i64,
+            self.parent_lookups.len() as i64,
         );
     }
 
@@ -324,11 +356,11 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
 
         /* Check disconnection for parent lookups */
         while let Some(pos) = self
-            .parent_queue
+            .parent_lookups
             .iter_mut()
             .position(|req| req.check_peer_disconnected(peer_id).is_err())
         {
-            let parent_lookup = self.parent_queue.remove(pos);
+            let parent_lookup = self.parent_lookups.remove(pos);
             trace!(self.log, "Parent lookup's peer disconnected"; &parent_lookup);
             self.request_parent(parent_lookup, cx);
         }
@@ -342,11 +374,11 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         cx: &mut SyncNetworkContext<T>,
     ) {
         if let Some(pos) = self
-            .parent_queue
+            .parent_lookups
             .iter()
             .position(|request| request.pending_response(id))
         {
-            let mut parent_lookup = self.parent_queue.remove(pos);
+            let mut parent_lookup = self.parent_lookups.remove(pos);
             parent_lookup.download_failed();
             trace!(self.log, "Parent lookup request failed"; &parent_lookup);
             self.request_parent(parent_lookup, cx);
@@ -355,7 +387,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         };
         metrics::set_gauge(
             &metrics::SYNC_PARENT_BLOCK_LOOKUPS,
-            self.parent_queue.len() as i64,
+            self.parent_lookups.len() as i64,
         );
     }
 
@@ -470,7 +502,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         cx: &mut SyncNetworkContext<T>,
     ) {
         let (mut parent_lookup, peer_id) = if let Some((pos, peer)) = self
-            .parent_queue
+            .parent_lookups
             .iter()
             .enumerate()
             .find_map(|(pos, request)| {
@@ -478,7 +510,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                     .get_processing_peer(chain_hash)
                     .map(|peer| (pos, peer))
             }) {
-            (self.parent_queue.remove(pos), peer)
+            (self.parent_lookups.remove(pos), peer)
         } else {
             return debug!(self.log, "Process response for a parent lookup request that was not found"; "chain_hash" => %chain_hash);
         };
@@ -520,13 +552,13 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                         );
                     }
                 };
-                let chain_hash = parent_lookup.chain_hash();
-                let blocks = parent_lookup.chain_blocks();
+                let (chain_hash, blocks, hashes, request) = parent_lookup.parts_for_processing();
                 let process_id = ChainSegmentProcessId::ParentLookup(chain_hash);
 
                 match beacon_processor_send.try_send(WorkEvent::chain_segment(process_id, blocks)) {
                     Ok(_) => {
-                        self.parent_queue.push(parent_lookup);
+                        self.processing_parent_lookups
+                            .insert(chain_hash, (hashes, request));
                     }
                     Err(e) => {
                         error!(
@@ -580,7 +612,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
 
         metrics::set_gauge(
             &metrics::SYNC_PARENT_BLOCK_LOOKUPS,
-            self.parent_queue.len() as i64,
+            self.parent_lookups.len() as i64,
         );
     }
 
@@ -590,14 +622,11 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         result: BatchProcessResult,
         cx: &mut SyncNetworkContext<T>,
     ) {
-        let parent_lookup = if let Some(pos) = self
-            .parent_queue
-            .iter()
-            .position(|request| request.chain_hash() == chain_hash)
-        {
-            self.parent_queue.remove(pos)
-        } else {
-            return debug!(self.log, "Chain process response for a parent lookup request that was not found"; "chain_hash" => %chain_hash);
+        let request = match self.processing_parent_lookups.remove(&chain_hash) {
+            Some((_hashes, request)) => request,
+            None => {
+                return debug!(self.log, "Chain process response for a parent lookup request that was not found"; "chain_hash" => %chain_hash, "result" => ?result)
+            }
         };
 
         debug!(self.log, "Parent chain processed"; "chain_hash" => %chain_hash, "result" => ?result);
@@ -609,8 +638,8 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 imported_blocks: _,
                 penalty,
             } => {
-                self.failed_chains.insert(parent_lookup.chain_hash());
-                for &peer_id in parent_lookup.used_peers() {
+                self.failed_chains.insert(chain_hash);
+                for peer_id in request.used_peers {
                     cx.report_peer(peer_id, penalty, "parent_chain_failure")
                 }
             }
@@ -621,7 +650,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
 
         metrics::set_gauge(
             &metrics::SYNC_PARENT_BLOCK_LOOKUPS,
-            self.parent_queue.len() as i64,
+            self.parent_lookups.len() as i64,
         );
     }
 
@@ -697,14 +726,14 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             }
             Ok(_) => {
                 debug!(self.log, "Requesting parent"; &parent_lookup);
-                self.parent_queue.push(parent_lookup)
+                self.parent_lookups.push(parent_lookup)
             }
         }
 
         // We remove and add back again requests so we want this updated regardless of outcome.
         metrics::set_gauge(
             &metrics::SYNC_PARENT_BLOCK_LOOKUPS,
-            self.parent_queue.len() as i64,
+            self.parent_lookups.len() as i64,
         );
     }
 
@@ -715,6 +744,6 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
 
     /// Drops all the parent chain requests and returns how many requests were dropped.
     pub fn drop_parent_chain_requests(&mut self) -> usize {
-        self.parent_queue.drain(..).len()
+        self.parent_lookups.drain(..).len()
     }
 }

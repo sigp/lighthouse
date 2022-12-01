@@ -518,6 +518,29 @@ impl BeaconNodeHttpClient {
         self.get(path).await
     }
 
+    /// `GET beacon/states/{state_id}/randao?epoch`
+    pub async fn get_beacon_states_randao(
+        &self,
+        state_id: StateId,
+        epoch: Option<Epoch>,
+    ) -> Result<Option<ExecutionOptimisticResponse<RandaoMix>>, Error> {
+        let mut path = self.eth_path(V1)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("beacon")
+            .push("states")
+            .push(&state_id.to_string())
+            .push("randao");
+
+        if let Some(epoch) = epoch {
+            path.query_pairs_mut()
+                .append_pair("epoch", &epoch.to_string());
+        }
+
+        self.get_opt(path).await
+    }
+
     /// `GET beacon/states/{state_id}/validators/{validator_id}`
     ///
     /// Returns `Ok(None)` on a 404 error.
@@ -657,6 +680,17 @@ impl BeaconNodeHttpClient {
         Ok(path)
     }
 
+    /// Path for `v1/beacon/blinded_blocks/{block_id}`
+    pub fn get_beacon_blinded_blocks_path(&self, block_id: BlockId) -> Result<Url, Error> {
+        let mut path = self.eth_path(V1)?;
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("beacon")
+            .push("blinded_blocks")
+            .push(&block_id.to_string());
+        Ok(path)
+    }
+
     /// `GET v2/beacon/blocks`
     ///
     /// Returns `Ok(None)` on a 404 error.
@@ -676,6 +710,51 @@ impl BeaconNodeHttpClient {
             Ok(Some(fork_name)) => {
                 let (data, (version, execution_optimistic)) =
                     map_fork_name_with!(fork_name, SignedBeaconBlock, {
+                        let ExecutionOptimisticForkVersionedResponse {
+                            version,
+                            execution_optimistic,
+                            data,
+                        } = response.json().await?;
+                        (data, (version, execution_optimistic))
+                    });
+                (data, version, execution_optimistic)
+            }
+            Ok(None) | Err(_) => {
+                let ExecutionOptimisticForkVersionedResponse {
+                    version,
+                    execution_optimistic,
+                    data,
+                } = response.json().await?;
+                (data, version, execution_optimistic)
+            }
+        };
+        Ok(Some(ExecutionOptimisticForkVersionedResponse {
+            version,
+            execution_optimistic,
+            data: block,
+        }))
+    }
+
+    /// `GET v1/beacon/blinded_blocks/{block_id}`
+    ///
+    /// Returns `Ok(None)` on a 404 error.
+    pub async fn get_beacon_blinded_blocks<T: EthSpec>(
+        &self,
+        block_id: BlockId,
+    ) -> Result<Option<ExecutionOptimisticForkVersionedResponse<SignedBlindedBeaconBlock<T>>>, Error>
+    {
+        let path = self.get_beacon_blinded_blocks_path(block_id)?;
+        let response = match self.get_response(path, |b| b).await.optional()? {
+            Some(res) => res,
+            None => return Ok(None),
+        };
+
+        // If present, use the fork provided in the headers to decode the block. Gracefully handle
+        // missing and malformed fork names by falling back to regular deserialisation.
+        let (block, version, execution_optimistic) = match response.fork_name_from_header() {
+            Ok(Some(fork_name)) => {
+                let (data, (version, execution_optimistic)) =
+                    map_fork_name_with!(fork_name, SignedBlindedBeaconBlock, {
                         let ExecutionOptimisticForkVersionedResponse {
                             version,
                             execution_optimistic,
@@ -732,6 +811,24 @@ impl BeaconNodeHttpClient {
         self.get_bytes_opt_accept_header(path, Accept::Ssz, self.timeouts.get_beacon_blocks_ssz)
             .await?
             .map(|bytes| SignedBeaconBlock::from_ssz_bytes(&bytes, spec).map_err(Error::InvalidSsz))
+            .transpose()
+    }
+
+    /// `GET beacon/blinded_blocks/{block_id}` as SSZ
+    ///
+    /// Returns `Ok(None)` on a 404 error.
+    pub async fn get_beacon_blinded_blocks_ssz<T: EthSpec>(
+        &self,
+        block_id: BlockId,
+        spec: &ChainSpec,
+    ) -> Result<Option<SignedBlindedBeaconBlock<T>>, Error> {
+        let path = self.get_beacon_blinded_blocks_path(block_id)?;
+
+        self.get_bytes_opt_accept_header(path, Accept::Ssz, self.timeouts.get_beacon_blocks_ssz)
+            .await?
+            .map(|bytes| {
+                SignedBlindedBeaconBlock::from_ssz_bytes(&bytes, spec).map_err(Error::InvalidSsz)
+            })
             .transpose()
     }
 

@@ -18,7 +18,7 @@ use types::{
     Address, ChainSpec, EthSpec, ExecutionBlockHash, ExecutionPayload, ForkName, FullPayload,
     Hash256, MainnetEthSpec, PublicKeyBytes, Slot, Uint256,
 };
-const EXECUTION_ENGINE_START_TIMEOUT: Duration = Duration::from_secs(20);
+const EXECUTION_ENGINE_START_TIMEOUT: Duration = Duration::from_secs(30);
 
 struct ExecutionPair<E, T: EthSpec> {
     /// The Lighthouse `ExecutionLayer` struct, connected to the `execution_engine` via HTTP.

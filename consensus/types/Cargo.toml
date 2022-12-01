@@ -10,6 +10,7 @@ harness = false
 
 [dependencies]
 serde-big-array = {version = "0.3.2", features = ["const-generics"]}
+merkle_proof = { path = "../../consensus/merkle_proof" }
 bls = { path = "../../crypto/bls" }
 compare_fields = { path = "../../common/compare_fields" }
 compare_fields_derive = { path = "../../common/compare_fields_derive" }

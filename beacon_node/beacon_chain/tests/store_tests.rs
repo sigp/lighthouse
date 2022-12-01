@@ -7,8 +7,8 @@ use beacon_chain::test_utils::{
 };
 use beacon_chain::{
     historical_blocks::HistoricalBlockError, migrate::MigratorConfig, BeaconChain,
-    BeaconChainError, BeaconChainTypes, BeaconSnapshot, ChainConfig, ServerSentEventHandler,
-    WhenSlotSkipped,
+    BeaconChainError, BeaconChainTypes, BeaconSnapshot, ChainConfig, NotifyExecutionLayer,
+    ServerSentEventHandler, WhenSlotSkipped,
 };
 use fork_choice::CountUnrealized;
 use lazy_static::lazy_static;
@@ -2148,6 +2148,7 @@ async fn weak_subjectivity_sync() {
                 full_block.canonical_root(),
                 Arc::new(full_block),
                 CountUnrealized::True,
+                NotifyExecutionLayer::Yes,
             )
             .await
             .unwrap();

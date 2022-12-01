@@ -56,7 +56,9 @@ impl CommandLineTestExec for CommandLineTest {
 fn datadir_flag() {
     CommandLineTest::new()
         .run_with_zero_port()
-        .with_config_and_dir(|config, dir| assert_eq!(config.data_dir, dir.path().join("beacon")));
+        .with_config_and_dir(|config, dir| {
+            assert_eq!(*config.data_dir(), dir.path().join("beacon"))
+        });
 }
 
 #[test]
@@ -130,6 +132,25 @@ fn fork_choice_before_proposal_timeout_zero() {
         .flag("fork-choice-before-proposal-timeout", Some("0"))
         .run_with_zero_port()
         .with_config(|config| assert_eq!(config.chain.fork_choice_before_proposal_timeout_ms, 0));
+}
+
+#[test]
+fn checkpoint_sync_url_timeout_flag() {
+    CommandLineTest::new()
+        .flag("checkpoint-sync-url-timeout", Some("300"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(config.chain.checkpoint_sync_url_timeout, 300);
+        });
+}
+
+#[test]
+fn checkpoint_sync_url_timeout_default() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(config.chain.checkpoint_sync_url_timeout, 60);
+        });
 }
 
 #[test]
@@ -1527,6 +1548,23 @@ fn enabled_disable_log_timestamp_flag() {
             assert!(config.logger_config.disable_log_timestamp);
         });
 }
+#[test]
+fn logfile_restricted_perms_default() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert!(config.logger_config.is_restricted);
+        });
+}
+#[test]
+fn logfile_no_restricted_perms_flag() {
+    CommandLineTest::new()
+        .flag("logfile-no-restricted-perms", None)
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert!(config.logger_config.is_restricted == false);
+        });
+}
 
 #[test]
 fn sync_eth1_chain_default() {
@@ -1560,4 +1598,30 @@ fn sync_eth1_chain_disable_deposit_contract_sync_flag() {
         )
         .run_with_zero_port()
         .with_config(|config| assert_eq!(config.sync_eth1_chain, false));
+}
+
+#[test]
+fn light_client_server_default() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| assert_eq!(config.network.enable_light_client_server, false));
+}
+
+#[test]
+fn light_client_server_enabled() {
+    CommandLineTest::new()
+        .flag("light-client-server", None)
+        .run_with_zero_port()
+        .with_config(|config| assert_eq!(config.network.enable_light_client_server, true));
+}
+
+#[test]
+fn gui_flag() {
+    CommandLineTest::new()
+        .flag("gui", None)
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert!(config.http_api.enabled);
+            assert!(config.validator_monitor_auto);
+        });
 }

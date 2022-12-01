@@ -36,6 +36,9 @@ safe_arith = {path = "../../consensus/safe_arith"}
 task_executor = { path = "../../common/task_executor" }
 lru = "0.7.7"
 tree_hash = "0.4.1"
+sysinfo = "0.26.5"
+system_health = { path = "../../common/system_health" }
+directory = { path = "../../common/directory" }
 
 [dev-dependencies]
 store = { path = "../store" }

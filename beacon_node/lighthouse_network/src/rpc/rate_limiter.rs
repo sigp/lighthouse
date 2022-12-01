@@ -75,6 +75,8 @@ pub struct RPCRateLimiter {
     bbroots_rl: Limiter<PeerId>,
     /// BlobsByRange rate limiter.
     blbrange_rl: Limiter<PeerId>,
+    /// LightClientBootstrap rate limiter.
+    lcbootstrap_rl: Limiter<PeerId>,
 }
 
 /// Error type for non conformant requests
@@ -102,6 +104,8 @@ pub struct RPCRateLimiterBuilder {
     bbroots_quota: Option<Quota>,
     /// Quota for the BlobsByRange protocol.
     blbrange_quota: Option<Quota>,
+    /// Quota for the LightClientBootstrap protocol.
+    lcbootstrap_quota: Option<Quota>,
 }
 
 impl RPCRateLimiterBuilder {
@@ -121,6 +125,7 @@ impl RPCRateLimiterBuilder {
             Protocol::BlocksByRange => self.bbrange_quota = q,
             Protocol::BlocksByRoot => self.bbroots_quota = q,
             Protocol::BlobsByRange => self.blbrange_quota = q,
+            Protocol::LightClientBootstrap => self.lcbootstrap_quota = q,
         }
         self
     }
@@ -160,6 +165,9 @@ impl RPCRateLimiterBuilder {
         let bbrange_quota = self
             .bbrange_quota
             .ok_or("BlocksByRange quota not specified")?;
+        let lcbootstrap_quote = self
+            .lcbootstrap_quota
+            .ok_or("LightClientBootstrap quota not specified")?;
 
         let blbrange_quota = self
             .blbrange_quota
@@ -173,6 +181,7 @@ impl RPCRateLimiterBuilder {
         let bbroots_rl = Limiter::from_quota(bbroots_quota)?;
         let bbrange_rl = Limiter::from_quota(bbrange_quota)?;
         let blbrange_rl = Limiter::from_quota(blbrange_quota)?;
+        let lcbootstrap_rl = Limiter::from_quota(lcbootstrap_quote)?;
 
         // check for peers to prune every 30 seconds, starting in 30 seconds
         let prune_every = tokio::time::Duration::from_secs(30);
@@ -187,6 +196,7 @@ impl RPCRateLimiterBuilder {
             bbroots_rl,
             bbrange_rl,
             blbrange_rl,
+            lcbootstrap_rl,
             init_time: Instant::now(),
         })
     }
@@ -211,6 +221,7 @@ impl RPCRateLimiter {
             Protocol::BlocksByRange => &mut self.bbrange_rl,
             Protocol::BlocksByRoot => &mut self.bbroots_rl,
             Protocol::BlobsByRange => &mut self.blbrange_rl,
+            Protocol::LightClientBootstrap => &mut self.lcbootstrap_rl,
         };
         check(limiter)
     }
