@@ -561,6 +561,7 @@ mod test {
         dest_import_builder: Option<ImportTestBuilder>,
         duplicates: usize,
         dir: TempDir,
+        move_back_again: bool,
     }
 
     impl TestBuilder {
@@ -571,7 +572,13 @@ mod test {
                 dest_import_builder: None,
                 duplicates: 0,
                 dir,
+                move_back_again: false,
             }
+        }
+
+        fn move_back_again(mut self) -> Self {
+            self.move_back_again = true;
+            self
         }
 
         async fn with_src_validators(mut self, count: u32, first_index: u32) -> Self {
@@ -597,18 +604,15 @@ mod test {
             self
         }
 
-        async fn run_test<F>(self, gen_validators_enum: F) -> TestResult
+        async fn move_validators<F>(
+            &self,
+            gen_validators_enum: F,
+            src_vc: &ApiTester,
+            dest_vc: &ApiTester,
+        ) -> Result<(), String>
         where
             F: Fn(&[PublicKeyBytes]) -> Validators,
         {
-            let src_vc = if let Some(import_builder) = self.src_import_builder {
-                let import_test_result = import_builder.run_test().await;
-                assert!(import_test_result.result.is_ok());
-                import_test_result.vc
-            } else {
-                ApiTester::new().await
-            };
-
             let src_vc_token_path = self.dir.path().join(SRC_VC_TOKEN_FILE_NAME);
             fs::write(&src_vc_token_path, &src_vc.api_token).unwrap();
             let (src_vc_client, src_vc_initial_keystores) =
@@ -622,13 +626,6 @@ mod test {
                 .collect();
             let validators = gen_validators_enum(&src_vc_initial_pubkeys);
 
-            let dest_vc = if let Some(import_builder) = self.dest_import_builder {
-                let import_test_result = import_builder.run_test().await;
-                assert!(import_test_result.result.is_ok());
-                import_test_result.vc
-            } else {
-                ApiTester::new().await
-            };
             let dest_vc_token_path = self.dir.path().join(DEST_VC_TOKEN_FILE_NAME);
             fs::write(&dest_vc_token_path, &dest_vc.api_token).unwrap();
 
@@ -727,6 +724,39 @@ mod test {
                         }
                     }
                 }
+            }
+
+            result
+        }
+
+        async fn run_test<F>(mut self, gen_validators_enum: F) -> TestResult
+        where
+            F: Fn(&[PublicKeyBytes]) -> Validators + Copy,
+        {
+            let src_vc = if let Some(import_builder) = self.src_import_builder.take() {
+                let import_test_result = import_builder.run_test().await;
+                assert!(import_test_result.result.is_ok());
+                import_test_result.vc
+            } else {
+                ApiTester::new().await
+            };
+
+            let dest_vc = if let Some(import_builder) = self.dest_import_builder.take() {
+                let import_test_result = import_builder.run_test().await;
+                assert!(import_test_result.result.is_ok());
+                import_test_result.vc
+            } else {
+                ApiTester::new().await
+            };
+
+            let result = self
+                .move_validators(gen_validators_enum, &src_vc, &dest_vc)
+                .await;
+
+            if self.move_back_again {
+                self.move_validators(gen_validators_enum, &dest_vc, &src_vc)
+                    .await
+                    .unwrap();
             }
 
             TestResult { result }
@@ -899,5 +929,17 @@ mod test {
             .run_test(|_| Validators::Count(2))
             .await
             .assert_err();
+    }
+
+    #[tokio::test]
+    async fn two_validator_move_all_and_back_again() {
+        TestBuilder::new()
+            .await
+            .with_src_validators(2, 0)
+            .await
+            .move_back_again()
+            .run_test(|_| Validators::All)
+            .await
+            .assert_ok();
     }
 }
