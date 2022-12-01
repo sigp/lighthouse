@@ -1699,6 +1699,32 @@ pub fn serve<T: BeaconChainTypes>(
         );
 
     /*
+     * beacon/rewards
+     */
+
+    let beacon_rewards_path = eth_v1
+        .and(warp::path("beacon"))
+        .and(warp::path("rewards"))
+        .and(chain_filter.clone());
+
+    // TODO: POST beacon/rewards/sync_committee/{block_id}
+    let post_beacon_rewards_sync_committee = beacon_rewards_path
+        .clone()
+        .and(warp::path("sync_committee"))
+        .and(block_id_or_err)
+        .and(warp::path::end())
+        .and(warp::body::json())
+        .and(log_filter.clone())
+        .and_then(
+            |chain: Arc<BeaconChain<T>>,
+             block_id: BlockId,
+             validators: Vec<ValidatorId>,
+             log: Logger| {
+            // Do something here
+            blocking_json_task(move)
+        });
+
+    /*
      * config
      */
 

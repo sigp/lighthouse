@@ -1,0 +1,9 @@
+<component name="libraryTable">
+  <library name="genesis.ssz5">
+    <CLASSES>
+      <root url="jar://$PROJECT_DIR$/common/eth2_network_config/built_in_network_configs/mainnet/genesis.ssz.zip!/" />
+    </CLASSES>
+    <JAVADOC />
+    <SOURCES />
+  </library>
+</component>
