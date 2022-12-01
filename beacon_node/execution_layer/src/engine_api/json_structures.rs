@@ -95,8 +95,6 @@ pub struct JsonExecutionPayload<T: EthSpec> {
     #[serde(with = "eth2_serde_utils::u256_hex_be")]
     pub base_fee_per_gas: Uint256,
     #[superstruct(only(V2))]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[serde(default)]
     #[serde(with = "eth2_serde_utils::u256_hex_be_opt")]
     pub excess_data_gas: Option<Uint256>,
     pub block_hash: ExecutionBlockHash,
