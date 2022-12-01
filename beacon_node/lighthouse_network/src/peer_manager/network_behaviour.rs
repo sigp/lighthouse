@@ -4,10 +4,8 @@ use futures::StreamExt;
 use libp2p::core::connection::ConnectionId;
 use libp2p::core::ConnectedPoint;
 use libp2p::swarm::dial_opts::{DialOpts, PeerCondition};
-use libp2p::swarm::handler::DummyConnectionHandler;
-use libp2p::swarm::{
-    ConnectionHandler, DialError, NetworkBehaviour, NetworkBehaviourAction, PollParameters,
-};
+use libp2p::swarm::dummy::ConnectionHandler;
+use libp2p::swarm::{DialError, NetworkBehaviour, NetworkBehaviourAction, PollParameters};
 use libp2p::{Multiaddr, PeerId};
 use slog::{debug, error};
 use types::EthSpec;
@@ -20,23 +18,18 @@ use super::peerdb::BanResult;
 use super::{ConnectingType, PeerManager, PeerManagerEvent, ReportSource};
 
 impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
-    type ConnectionHandler = DummyConnectionHandler;
+    type ConnectionHandler = ConnectionHandler;
 
     type OutEvent = PeerManagerEvent;
 
     /* Required trait members */
 
     fn new_handler(&mut self) -> Self::ConnectionHandler {
-        DummyConnectionHandler::default()
+        ConnectionHandler
     }
 
-    fn inject_event(
-        &mut self,
-        _: PeerId,
-        _: ConnectionId,
-        _: <DummyConnectionHandler as ConnectionHandler>::OutEvent,
-    ) {
-        unreachable!("Dummy handler does not emit events")
+    fn on_connection_handler_event(&mut self, _: PeerId, _: ConnectionId, _event: void::Void) {
+        unreachable!("Connection handler doesn't emit events");
     }
 
     fn poll(
@@ -194,7 +187,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
         peer_id: &PeerId,
         _: &ConnectionId,
         _: &ConnectedPoint,
-        _: DummyConnectionHandler,
+        _: ConnectionHandler,
         remaining_established: usize,
     ) {
         if remaining_established > 0 {
@@ -259,7 +252,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
     fn inject_dial_failure(
         &mut self,
         peer_id: Option<PeerId>,
-        _handler: DummyConnectionHandler,
+        _handler: ConnectionHandler,
         _error: &DialError,
     ) {
         if let Some(peer_id) = peer_id {

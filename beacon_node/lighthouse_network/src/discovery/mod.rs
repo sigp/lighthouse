@@ -26,7 +26,7 @@ use libp2p::swarm::AddressScore;
 pub use libp2p::{
     core::{connection::ConnectionId, ConnectedPoint, Multiaddr, PeerId},
     swarm::{
-        handler::ConnectionHandler, DialError, NetworkBehaviour,
+        dummy::ConnectionHandler, DialError, NetworkBehaviour,
         NetworkBehaviourAction as NBAction, NotifyHandler, PollParameters, SubstreamProtocol,
     },
 };
@@ -927,11 +927,11 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
 
 impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
     // Discovery is not a real NetworkBehaviour...
-    type ConnectionHandler = libp2p::swarm::handler::DummyConnectionHandler;
+    type ConnectionHandler = ConnectionHandler;
     type OutEvent = DiscoveredPeers;
 
     fn new_handler(&mut self) -> Self::ConnectionHandler {
-        libp2p::swarm::handler::DummyConnectionHandler::default()
+        ConnectionHandler
     }
 
     // Handles the libp2p request to obtain multiaddrs for peer_id's in order to dial them.
@@ -951,7 +951,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
         &mut self,
         _: PeerId,
         _: ConnectionId,
-        _: <Self::ConnectionHandler as ConnectionHandler>::OutEvent,
+        _: void::Void,
     ) {
     }
 
