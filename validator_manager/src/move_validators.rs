@@ -31,6 +31,7 @@ pub const VALIDATORS_FLAG: &str = "validators";
 pub const GAS_LIMIT_FLAG: &str = "gas-limit";
 pub const FEE_RECIPIENT_FLAG: &str = "suggested-fee-recipient";
 pub const BUILDER_PROPOSALS_FLAG: &str = "builder-proposals";
+pub const SKIP_WARNING_PROMPTS: &str = "skip-warning-prompts";
 
 const NO_VALIDATORS_MSG: &str = "No validators present on source validator client";
 
@@ -128,6 +129,17 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .possible_values(&["true", "false"])
                 .takes_value(true),
         )
+        .arg(
+            Arg::with_name(SKIP_WARNING_PROMPTS)
+                .long(SKIP_WARNING_PROMPTS)
+                .help(
+                    "Don't display interactive warning prompts. Only provide \
+                    this flag if you know what the prompts say and you know \
+                    what you're doing.",
+                )
+                .required(false)
+                .takes_value(false),
+        )
 }
 
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
@@ -167,6 +179,7 @@ pub struct MoveConfig {
     pub builder_proposals: Option<bool>,
     pub fee_recipient: Option<Address>,
     pub gas_limit: Option<u64>,
+    pub skip_warning_prompts: bool,
 }
 
 impl MoveConfig {
@@ -180,6 +193,7 @@ impl MoveConfig {
             builder_proposals: clap_utils::parse_optional(matches, BUILDER_PROPOSALS_FLAG)?,
             fee_recipient: clap_utils::parse_optional(matches, FEE_RECIPIENT_FLAG)?,
             gas_limit: clap_utils::parse_optional(matches, GAS_LIMIT_FLAG)?,
+            skip_warning_prompts: matches.is_present(SKIP_WARNING_PROMPTS),
         })
     }
 }
@@ -206,6 +220,7 @@ async fn run<'a>(config: MoveConfig) -> Result<(), String> {
         builder_proposals,
         fee_recipient,
         gas_limit,
+        skip_warning_prompts
     } = config;
 
     // Moving validators between the same VC is unlikely to be useful and probably indicates a user

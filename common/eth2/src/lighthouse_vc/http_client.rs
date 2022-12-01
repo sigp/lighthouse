@@ -487,7 +487,7 @@ impl ValidatorClientHttpClient {
         .await
     }
 
-    /// `DELETE eth/v1/keystores`
+    /// `DELETE lighthouse/keystores`
     pub async fn delete_lighthouse_keystores(
         &self,
         req: &DeleteKeystoresRequest,
