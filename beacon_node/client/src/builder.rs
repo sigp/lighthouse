@@ -40,9 +40,6 @@ use types::{
 /// Interval between polling the eth1 node for genesis information.
 pub const ETH1_GENESIS_UPDATE_INTERVAL_MILLIS: u64 = 7_000;
 
-/// Timeout for checkpoint sync HTTP requests.
-pub const CHECKPOINT_SYNC_HTTP_TIMEOUT: Duration = Duration::from_secs(60);
-
 /// Builds a `Client` instance.
 ///
 /// ## Notes
@@ -279,8 +276,12 @@ where
                     "remote_url" => %url,
                 );
 
-                let remote =
-                    BeaconNodeHttpClient::new(url, Timeouts::set_all(CHECKPOINT_SYNC_HTTP_TIMEOUT));
+                let remote = BeaconNodeHttpClient::new(
+                    url,
+                    Timeouts::set_all(Duration::from_secs(
+                        config.chain.checkpoint_sync_url_timeout,
+                    )),
+                );
                 let slots_per_epoch = TEthSpec::slots_per_epoch();
 
                 let deposit_snapshot = if config.sync_eth1_chain {

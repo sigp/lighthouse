@@ -710,7 +710,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
 
                 // Some logs.
                 if dropped_single_blocks_requests > 0 || dropped_parent_chain_requests > 0 {
-                    debug!(self.log, "Execution engine not online, dropping active requests.";
+                    debug!(self.log, "Execution engine not online. Dropping active requests.";
                         "dropped_single_blocks_requests" => dropped_single_blocks_requests,
                         "dropped_parent_chain_requests" => dropped_parent_chain_requests,
                     );

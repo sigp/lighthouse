@@ -7,12 +7,12 @@ use beacon_chain::otb_verification_service::{
 use beacon_chain::{
     canonical_head::{CachedHead, CanonicalHead},
     test_utils::{BeaconChainHarness, EphemeralHarnessType},
-    BeaconChainError, BlockError, ExecutionPayloadError, StateSkipConfig, WhenSlotSkipped,
-    INVALID_FINALIZED_MERGE_TRANSITION_BLOCK_SHUTDOWN_REASON,
+    BeaconChainError, BlockError, ExecutionPayloadError, NotifyExecutionLayer, StateSkipConfig,
+    WhenSlotSkipped, INVALID_FINALIZED_MERGE_TRANSITION_BLOCK_SHUTDOWN_REASON,
     INVALID_JUSTIFIED_PAYLOAD_SHUTDOWN_REASON,
 };
 use execution_layer::{
-    json_structures::{JsonForkchoiceStateV1, JsonPayloadAttributesV1},
+    json_structures::{JsonForkchoiceStateV1, JsonPayloadAttributes, JsonPayloadAttributesV1},
     test_utils::ExecutionBlockGenerator,
     ExecutionLayer, ForkchoiceState, PayloadAttributes,
 };
@@ -133,7 +133,10 @@ impl InvalidPayloadRig {
         let attributes: JsonPayloadAttributesV1 =
             serde_json::from_value(payload_param_json.clone()).unwrap();
 
-        (fork_choice_state.into(), attributes.into())
+        (
+            fork_choice_state.into(),
+            JsonPayloadAttributes::V1(attributes).into(),
+        )
     }
 
     fn previous_payload_attributes(&self) -> PayloadAttributes {
@@ -693,6 +696,7 @@ async fn invalidates_all_descendants() {
             fork_block.canonical_root(),
             Arc::new(fork_block),
             CountUnrealized::True,
+            NotifyExecutionLayer::Yes,
         )
         .await
         .unwrap();
@@ -789,6 +793,7 @@ async fn switches_heads() {
             fork_block.canonical_root(),
             Arc::new(fork_block),
             CountUnrealized::True,
+            NotifyExecutionLayer::Yes,
         )
         .await
         .unwrap();
@@ -982,20 +987,22 @@ async fn payload_preparation() {
         .await
         .unwrap();
 
-    let payload_attributes = PayloadAttributes {
-        timestamp: rig
-            .harness
+    let payload_attributes = PayloadAttributes::new(
+        rig.harness
             .chain
             .slot_clock
             .start_of(next_slot)
             .unwrap()
             .as_secs(),
-        prev_randao: *head
+        *head
             .beacon_state
             .get_randao_mix(head.beacon_state.current_epoch())
             .unwrap(),
-        suggested_fee_recipient: fee_recipient,
-    };
+        fee_recipient,
+        None,
+    )
+    .downgrade_to_v1()
+    .unwrap();
     assert_eq!(rig.previous_payload_attributes(), payload_attributes);
 }
 
@@ -1035,7 +1042,7 @@ async fn invalid_parent() {
 
     // Ensure the block built atop an invalid payload is invalid for import.
     assert!(matches!(
-        rig.harness.chain.process_block(block.canonical_root(), block.clone(), CountUnrealized::True).await,
+        rig.harness.chain.process_block(block.canonical_root(), block.clone(), CountUnrealized::True, NotifyExecutionLayer::Yes).await,
         Err(BlockError::ParentExecutionPayloadInvalid { parent_root: invalid_root })
         if invalid_root == parent_root
     ));
@@ -1125,7 +1132,7 @@ async fn payload_preparation_before_transition_block() {
 
     let (fork_choice_state, payload_attributes) = rig.previous_forkchoice_update_params();
     let latest_block_hash = rig.latest_execution_block_hash();
-    assert_eq!(payload_attributes.suggested_fee_recipient, fee_recipient);
+    assert_eq!(payload_attributes.suggested_fee_recipient(), fee_recipient);
     assert_eq!(fork_choice_state.head_block_hash, latest_block_hash);
 }
 
@@ -1317,7 +1324,12 @@ async fn build_optimistic_chain(
     for block in blocks {
         rig.harness
             .chain
-            .process_block(block.canonical_root(), block, CountUnrealized::True)
+            .process_block(
+                block.canonical_root(),
+                block,
+                CountUnrealized::True,
+                NotifyExecutionLayer::Yes,
+            )
             .await
             .unwrap();
     }
@@ -1367,18 +1379,16 @@ async fn build_optimistic_chain(
             .body()
             .execution_payload()
             .unwrap()
-            .execution_payload
-            == <_>::default(),
+            .is_default_with_empty_roots(),
         "the block *has not* undergone the merge transition"
     );
     assert!(
-        post_transition_block
+        !post_transition_block
             .message()
             .body()
             .execution_payload()
             .unwrap()
-            .execution_payload
-            != <_>::default(),
+            .is_default_with_empty_roots(),
         "the block *has* undergone the merge transition"
     );
 
@@ -1879,6 +1889,7 @@ async fn recover_from_invalid_head_by_importing_blocks() {
             fork_block.canonical_root(),
             fork_block.clone(),
             CountUnrealized::True,
+            NotifyExecutionLayer::Yes,
         )
         .await
         .unwrap();

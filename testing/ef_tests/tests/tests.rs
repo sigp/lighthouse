@@ -533,6 +533,11 @@ fn genesis_validity() {
 }
 
 #[test]
+fn merkle_proof_validity() {
+    MerkleProofValidityHandler::<MainnetEthSpec>::default().run();
+}
+
+#[test]
 fn rewards() {
     for handler in &["basic", "leak", "random"] {
         RewardsHandler::<MinimalEthSpec>::new(handler).run();

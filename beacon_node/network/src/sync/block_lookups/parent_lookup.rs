@@ -25,7 +25,7 @@ pub(crate) struct ParentLookup<T: BeaconChainTypes> {
     /// The root of the block triggering this parent request.
     chain_hash: Hash256,
     /// The blocks that have currently been downloaded.
-    downloaded_blocks: Vec<BlockWrapper<T::EthSpec>>,
+    downloaded_blocks: Vec<RootBlockTuple<T::EthSpec>>,
     /// Request of the last parent.
     current_parent_request: SingleBlockRequest<PARENT_FAIL_TOLERANCE>,
     /// Id of the last parent request.
@@ -54,10 +54,10 @@ pub enum RequestError {
 }
 
 impl<T: BeaconChainTypes> ParentLookup<T> {
-    pub fn contains_block(&self, block: &SignedBeaconBlock<T::EthSpec>) -> bool {
+    pub fn contains_block(&self, block_root: &Hash256) -> bool {
         self.downloaded_blocks
             .iter()
-            .any(|d_block| d_block.block() == block)
+            .any(|(root, _d_block)| root == block_root)
     }
 
     pub fn new(block_root: Hash256, block: BlockWrapper<T::EthSpec>, peer_id: PeerId) -> Self {
@@ -65,7 +65,7 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
 
         Self {
             chain_hash: block_root,
-            downloaded_blocks: vec![block],
+            downloaded_blocks: vec![(block_root, block)],
             current_parent_request,
             current_parent_request_id: None,
         }
@@ -97,7 +97,8 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
 
     pub fn add_block(&mut self, block: BlockWrapper<T::EthSpec>) {
         let next_parent = block.parent_root();
-        self.downloaded_blocks.push(block);
+        let current_root = self.current_parent_request.hash;
+        self.downloaded_blocks.push((current_root, block));
         self.current_parent_request.hash = next_parent;
         self.current_parent_request.state = single_block_lookup::State::AwaitingDownload;
         self.current_parent_request_id = None;
@@ -105,6 +106,32 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
 
     pub fn pending_response(&self, req_id: Id) -> bool {
         self.current_parent_request_id == Some(req_id)
+    }
+
+    /// Consumes the parent request and destructures it into it's parts.
+    #[allow(clippy::type_complexity)]
+    pub fn parts_for_processing(
+        self,
+    ) -> (
+        Hash256,
+        Vec<BlockWrapper<T::EthSpec>>,
+        Vec<Hash256>,
+        SingleBlockRequest<PARENT_FAIL_TOLERANCE>,
+    ) {
+        let ParentLookup {
+            chain_hash,
+            downloaded_blocks,
+            current_parent_request,
+            current_parent_request_id: _,
+        } = self;
+        let block_count = downloaded_blocks.len();
+        let mut blocks = Vec::with_capacity(block_count);
+        let mut hashes = Vec::with_capacity(block_count);
+        for (hash, block) in downloaded_blocks {
+            blocks.push(block);
+            hashes.push(hash);
+        }
+        (chain_hash, blocks, hashes, current_parent_request)
     }
 
     /// Get the parent lookup's chain hash.
@@ -120,10 +147,6 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
     pub fn processing_failed(&mut self) {
         self.current_parent_request.register_failure_processing();
         self.current_parent_request_id = None;
-    }
-
-    pub fn chain_blocks(&mut self) -> Vec<BlockWrapper<T::EthSpec>> {
-        std::mem::take(&mut self.downloaded_blocks)
     }
 
     /// Verifies that the received block is what we requested. If so, parent lookup now waits for

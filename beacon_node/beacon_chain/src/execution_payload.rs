@@ -12,7 +12,7 @@ use crate::{
     BeaconChain, BeaconChainError, BeaconChainTypes, BlockError, BlockProductionError,
     ExecutionPayloadError,
 };
-use execution_layer::{BlockProposalContents, BuilderParams, PayloadStatus};
+use execution_layer::{BlockProposalContents, BuilderParams, PayloadAttributes, PayloadStatus};
 use fork_choice::{InvalidationOperation, PayloadVerificationStatus};
 use proto_array::{Block as ProtoBlock, ExecutionStatus};
 use slog::debug;
@@ -38,6 +38,16 @@ pub enum AllowOptimisticImport {
     No,
 }
 
+/// Signal whether the execution payloads of new blocks should be
+/// immediately verified with the EL or imported optimistically without
+/// any EL communication.
+#[derive(Default, Clone, Copy)]
+pub enum NotifyExecutionLayer {
+    #[default]
+    Yes,
+    No,
+}
+
 /// Used to await the result of executing payload with a remote EE.
 pub struct PayloadNotifier<T: BeaconChainTypes> {
     pub chain: Arc<BeaconChain<T>>,
@@ -50,21 +60,28 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
         chain: Arc<BeaconChain<T>>,
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
         state: &BeaconState<T::EthSpec>,
+        notify_execution_layer: NotifyExecutionLayer,
     ) -> Result<Self, BlockError<T::EthSpec>> {
-        let payload_verification_status = if is_execution_enabled(state, block.message().body()) {
-            // Perform the initial stages of payload verification.
-            //
-            // We will duplicate these checks again during `per_block_processing`, however these checks
-            // are cheap and doing them here ensures we protect the execution engine from junk.
-            partially_verify_execution_payload::<T::EthSpec, FullPayload<T::EthSpec>>(
-                state,
-                block.message().execution_payload()?,
-                &chain.spec,
-            )
-            .map_err(BlockError::PerBlockProcessingError)?;
-            None
-        } else {
-            Some(PayloadVerificationStatus::Irrelevant)
+        let payload_verification_status = match notify_execution_layer {
+            NotifyExecutionLayer::No => Some(PayloadVerificationStatus::Optimistic),
+            NotifyExecutionLayer::Yes => {
+                if is_execution_enabled(state, block.message().body()) {
+                    // Perform the initial stages of payload verification.
+                    //
+                    // We will duplicate these checks again during `per_block_processing`, however these checks
+                    // are cheap and doing them here ensures we protect the execution engine from junk.
+                    partially_verify_execution_payload::<T::EthSpec, FullPayload<T::EthSpec>>(
+                        state,
+                        block.slot(),
+                        block.message().execution_payload()?,
+                        &chain.spec,
+                    )
+                    .map_err(BlockError::PerBlockProcessingError)?;
+                    None
+                } else {
+                    Some(PayloadVerificationStatus::Irrelevant)
+                }
+            }
         };
 
         Ok(Self {
@@ -360,7 +377,8 @@ pub fn get_execution_payload<
     let spec = &chain.spec;
     let current_epoch = state.current_epoch();
     let is_merge_transition_complete = is_merge_transition_complete(state);
-    let timestamp = compute_timestamp_at_slot(state, spec).map_err(BeaconStateError::from)?;
+    let timestamp =
+        compute_timestamp_at_slot(state, state.slot(), spec).map_err(BeaconStateError::from)?;
     let random = *state.get_randao_mix(current_epoch)?;
     let latest_execution_payload_header_block_hash =
         state.latest_execution_payload_header()?.block_hash();
@@ -483,20 +501,29 @@ where
         .await
         .map_err(BlockProductionError::BeaconChain)?;
 
+    let suggested_fee_recipient = execution_layer
+        .get_suggested_fee_recipient(proposer_index)
+        .await;
+    let payload_attributes = PayloadAttributes::new(
+        timestamp,
+        random,
+        suggested_fee_recipient,
+        #[cfg(feature = "withdrawals")]
+        withdrawals,
+        #[cfg(not(feature = "withdrawals"))]
+        None,
+    );
+
     // Note: the suggested_fee_recipient is stored in the `execution_layer`, it will add this parameter.
     //
     // This future is not executed here, it's up to the caller to await it.
     let block_contents = execution_layer
         .get_payload::<Payload>(
             parent_hash,
-            timestamp,
-            random,
-            proposer_index,
+            &payload_attributes,
             forkchoice_update_params,
             builder_params,
             fork,
-            #[cfg(feature = "withdrawals")]
-            withdrawals,
             &chain.spec,
         )
         .await

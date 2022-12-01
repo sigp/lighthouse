@@ -181,6 +181,8 @@ pub enum Protocol {
     Ping,
     /// The `MetaData` protocol name.
     MetaData,
+    /// The `LightClientBootstrap` protocol name.
+    LightClientBootstrap,
 }
 
 /// RPC Versions
@@ -209,6 +211,7 @@ impl std::fmt::Display for Protocol {
             Protocol::BlobsByRoot => "beacon_block_and_blobs_sidecar_by_root",
             Protocol::Ping => "ping",
             Protocol::MetaData => "metadata",
+            Protocol::LightClientBootstrap => "light_client_bootstrap",
         };
         f.write_str(repr)
     }
@@ -237,6 +240,7 @@ impl std::fmt::Display for Version {
 pub struct RPCProtocol<TSpec: EthSpec> {
     pub fork_context: Arc<ForkContext>,
     pub max_rpc_size: usize,
+    pub enable_light_client_server: bool,
     pub phantom: PhantomData<TSpec>,
 }
 
@@ -246,7 +250,7 @@ impl<TSpec: EthSpec> UpgradeInfo for RPCProtocol<TSpec> {
 
     /// The list of supported RPC protocols for Lighthouse.
     fn protocol_info(&self) -> Self::InfoIter {
-        vec![
+        let mut supported_protocols = vec![
             ProtocolId::new(Protocol::Status, Version::V1, Encoding::SSZSnappy),
             ProtocolId::new(Protocol::Goodbye, Version::V1, Encoding::SSZSnappy),
             // V2 variants have higher preference then V1
@@ -257,7 +261,15 @@ impl<TSpec: EthSpec> UpgradeInfo for RPCProtocol<TSpec> {
             ProtocolId::new(Protocol::Ping, Version::V1, Encoding::SSZSnappy),
             ProtocolId::new(Protocol::MetaData, Version::V2, Encoding::SSZSnappy),
             ProtocolId::new(Protocol::MetaData, Version::V1, Encoding::SSZSnappy),
-        ]
+        ];
+        if self.enable_light_client_server {
+            supported_protocols.push(ProtocolId::new(
+                Protocol::LightClientBootstrap,
+                Version::V1,
+                Encoding::SSZSnappy,
+            ));
+        }
+        supported_protocols
     }
 }
 
@@ -326,6 +338,10 @@ impl ProtocolId {
                 <Ping as Encode>::ssz_fixed_len(),
                 <Ping as Encode>::ssz_fixed_len(),
             ),
+            Protocol::LightClientBootstrap => RpcLimits::new(
+                <LightClientBootstrapRequest as Encode>::ssz_fixed_len(),
+                <LightClientBootstrapRequest as Encode>::ssz_fixed_len(),
+            ),
             Protocol::MetaData => RpcLimits::new(0, 0), // Metadata requests are empty
         }
     }
@@ -352,6 +368,10 @@ impl ProtocolId {
             Protocol::MetaData => RpcLimits::new(
                 <MetaDataV1<T> as Encode>::ssz_fixed_len(),
                 <MetaDataV2<T> as Encode>::ssz_fixed_len(),
+            ),
+            Protocol::LightClientBootstrap => RpcLimits::new(
+                <LightClientBootstrapRequest as Encode>::ssz_fixed_len(),
+                <LightClientBootstrapRequest as Encode>::ssz_fixed_len(),
             ),
         }
     }
@@ -460,67 +480,13 @@ pub enum InboundRequest<TSpec: EthSpec> {
     BlocksByRoot(BlocksByRootRequest),
     BlobsByRange(BlobsByRangeRequest),
     BlobsByRoot(BlobsByRootRequest),
+    LightClientBootstrap(LightClientBootstrapRequest),
     Ping(Ping),
     MetaData(PhantomData<TSpec>),
 }
 
-impl<TSpec: EthSpec> UpgradeInfo for InboundRequest<TSpec> {
-    type Info = ProtocolId;
-    type InfoIter = Vec<Self::Info>;
-
-    // add further protocols as we support more encodings/versions
-    fn protocol_info(&self) -> Self::InfoIter {
-        self.supported_protocols()
-    }
-}
-
 /// Implements the encoding per supported protocol for `RPCRequest`.
 impl<TSpec: EthSpec> InboundRequest<TSpec> {
-    pub fn supported_protocols(&self) -> Vec<ProtocolId> {
-        match self {
-            // add more protocols when versions/encodings are supported
-            InboundRequest::Status(_) => vec![ProtocolId::new(
-                Protocol::Status,
-                Version::V1,
-                Encoding::SSZSnappy,
-            )],
-            InboundRequest::Goodbye(_) => vec![ProtocolId::new(
-                Protocol::Goodbye,
-                Version::V1,
-                Encoding::SSZSnappy,
-            )],
-            InboundRequest::BlocksByRange(_) => vec![
-                // V2 has higher preference when negotiating a stream
-                ProtocolId::new(Protocol::BlocksByRange, Version::V2, Encoding::SSZSnappy),
-                ProtocolId::new(Protocol::BlocksByRange, Version::V1, Encoding::SSZSnappy),
-            ],
-            InboundRequest::BlocksByRoot(_) => vec![
-                // V2 has higher preference when negotiating a stream
-                ProtocolId::new(Protocol::BlocksByRoot, Version::V2, Encoding::SSZSnappy),
-                ProtocolId::new(Protocol::BlocksByRoot, Version::V1, Encoding::SSZSnappy),
-            ],
-            InboundRequest::BlobsByRange(_) => vec![ProtocolId::new(
-                Protocol::BlobsByRange,
-                Version::V1,
-                Encoding::SSZSnappy,
-            )],
-            InboundRequest::BlobsByRoot(_) => vec![ProtocolId::new(
-                Protocol::BlobsByRoot,
-                Version::V1,
-                Encoding::SSZSnappy,
-            )],
-            InboundRequest::Ping(_) => vec![ProtocolId::new(
-                Protocol::Ping,
-                Version::V1,
-                Encoding::SSZSnappy,
-            )],
-            InboundRequest::MetaData(_) => vec![
-                ProtocolId::new(Protocol::MetaData, Version::V2, Encoding::SSZSnappy),
-                ProtocolId::new(Protocol::MetaData, Version::V1, Encoding::SSZSnappy),
-            ],
-        }
-    }
-
     /* These functions are used in the handler for stream management */
 
     /// Number of responses expected for this request.
@@ -534,6 +500,7 @@ impl<TSpec: EthSpec> InboundRequest<TSpec> {
             InboundRequest::BlobsByRoot(req) => req.block_roots.len() as u64,
             InboundRequest::Ping(_) => 1,
             InboundRequest::MetaData(_) => 1,
+            InboundRequest::LightClientBootstrap(_) => 1,
         }
     }
 
@@ -548,6 +515,7 @@ impl<TSpec: EthSpec> InboundRequest<TSpec> {
             InboundRequest::BlobsByRoot(_) => Protocol::BlobsByRoot,
             InboundRequest::Ping(_) => Protocol::Ping,
             InboundRequest::MetaData(_) => Protocol::MetaData,
+            InboundRequest::LightClientBootstrap(_) => Protocol::LightClientBootstrap,
         }
     }
 
@@ -565,6 +533,7 @@ impl<TSpec: EthSpec> InboundRequest<TSpec> {
             InboundRequest::Goodbye(_) => unreachable!(),
             InboundRequest::Ping(_) => unreachable!(),
             InboundRequest::MetaData(_) => unreachable!(),
+            InboundRequest::LightClientBootstrap(_) => unreachable!(),
         }
     }
 }
@@ -670,6 +639,9 @@ impl<TSpec: EthSpec> std::fmt::Display for InboundRequest<TSpec> {
             InboundRequest::BlobsByRoot(req) => write!(f, "Blobs by root: {:?}", req),
             InboundRequest::Ping(ping) => write!(f, "Ping: {}", ping.data),
             InboundRequest::MetaData(_) => write!(f, "MetaData request"),
+            InboundRequest::LightClientBootstrap(bootstrap) => {
+                write!(f, "LightClientBootstrap: {}", bootstrap.root)
+            }
         }
     }
 }

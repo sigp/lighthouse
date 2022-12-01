@@ -262,7 +262,11 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
             (gossipsub, update_gossipsub_scores)
         };
 
-        let eth2_rpc = RPC::new(ctx.fork_context.clone(), log.clone());
+        let eth2_rpc = RPC::new(
+            ctx.fork_context.clone(),
+            config.enable_light_client_server,
+            log.clone(),
+        );
 
         let discovery = {
             // Build and start the discovery sub-behaviour
@@ -981,6 +985,9 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
             Request::Status(_) => {
                 metrics::inc_counter_vec(&metrics::TOTAL_RPC_REQUESTS, &["status"])
             }
+            Request::LightClientBootstrap(_) => {
+                metrics::inc_counter_vec(&metrics::TOTAL_RPC_REQUESTS, &["light_client_bootstrap"])
+            }
             Request::BlocksByRange { .. } => {
                 metrics::inc_counter_vec(&metrics::TOTAL_RPC_REQUESTS, &["blocks_by_range"])
             }
@@ -1269,6 +1276,14 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                             self.build_request(peer_request_id, peer_id, Request::BlobsByRoot(req));
                         Some(event)
                     }
+                    InboundRequest::LightClientBootstrap(req) => {
+                        let event = self.build_request(
+                            peer_request_id,
+                            peer_id,
+                            Request::LightClientBootstrap(req),
+                        );
+                        Some(event)
+                    }
                 }
             }
             Ok(RPCReceived::Response(id, resp)) => {
@@ -1301,6 +1316,10 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                     }
                     RPCResponse::BlobsByRoot(resp) => {
                         self.build_response(id, peer_id, Response::BlobsByRoot(Some(resp)))
+                    }
+                    // Should never be reached
+                    RPCResponse::LightClientBootstrap(bootstrap) => {
+                        self.build_response(id, peer_id, Response::LightClientBootstrap(bootstrap))
                     }
                 }
             }

@@ -16,6 +16,7 @@ use types::{Address, ExecutionBlockHash, Hash256};
 /// The number of payload IDs that will be stored for each `Engine`.
 ///
 /// Since the size of each value is small (~100 bytes) a large number is used for safety.
+/// FIXME: check this assumption now that the key includes entire payload attributes which now includes withdrawals
 const PAYLOAD_ID_LRU_CACHE_SIZE: usize = 512;
 
 /// Stores the remembered state of a engine.
@@ -97,9 +98,7 @@ pub struct ForkchoiceState {
 #[derive(Hash, PartialEq, std::cmp::Eq)]
 struct PayloadIdCacheKey {
     pub head_block_hash: ExecutionBlockHash,
-    pub timestamp: u64,
-    pub prev_randao: Hash256,
-    pub suggested_fee_recipient: Address,
+    pub payload_attributes: PayloadAttributes,
 }
 
 #[derive(Debug)]
@@ -142,20 +141,13 @@ impl Engine {
 
     pub async fn get_payload_id(
         &self,
-        head_block_hash: ExecutionBlockHash,
-        timestamp: u64,
-        prev_randao: Hash256,
-        suggested_fee_recipient: Address,
+        head_block_hash: &ExecutionBlockHash,
+        payload_attributes: &PayloadAttributes,
     ) -> Option<PayloadId> {
         self.payload_id_cache
             .lock()
             .await
-            .get(&PayloadIdCacheKey {
-                head_block_hash,
-                timestamp,
-                prev_randao,
-                suggested_fee_recipient,
-            })
+            .get(&PayloadIdCacheKey::new(head_block_hash, payload_attributes))
             .cloned()
     }
 
@@ -171,8 +163,8 @@ impl Engine {
             .await?;
 
         if let Some(payload_id) = response.payload_id {
-            if let Some(key) =
-                payload_attributes.map(|pa| PayloadIdCacheKey::new(&forkchoice_state, &pa))
+            if let Some(key) = payload_attributes
+                .map(|pa| PayloadIdCacheKey::new(&forkchoice_state.head_block_hash, &pa))
             {
                 self.payload_id_cache.lock().await.put(key, payload_id);
             } else {
@@ -347,14 +339,11 @@ impl Engine {
     }
 }
 
-// TODO: revisit this - do we need to key on withdrawals as well here?
 impl PayloadIdCacheKey {
-    fn new(state: &ForkchoiceState, attributes: &PayloadAttributes) -> Self {
+    fn new(head_block_hash: &ExecutionBlockHash, attributes: &PayloadAttributes) -> Self {
         Self {
-            head_block_hash: state.head_block_hash,
-            timestamp: attributes.timestamp(),
-            prev_randao: attributes.prev_randao(),
-            suggested_fee_recipient: attributes.suggested_fee_recipient(),
+            head_block_hash: head_block_hash.clone(),
+            payload_attributes: attributes.clone(),
         }
     }
 }

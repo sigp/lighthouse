@@ -174,6 +174,9 @@ impl<T: BeaconChainTypes> Router<T> {
             Request::BlobsByRoot(request) => self
                 .processor
                 .on_blobs_by_root_request(peer_id, id, request),
+            Request::LightClientBootstrap(request) => self
+                .processor
+                .on_lightclient_bootstrap(peer_id, id, request),
         }
     }
 
@@ -206,6 +209,7 @@ impl<T: BeaconChainTypes> Router<T> {
                 self.processor
                     .on_blobs_by_root_response(peer_id, request_id, beacon_blob);
             }
+            Response::LightClientBootstrap(_) => unreachable!(),
         }
     }
 

@@ -64,6 +64,11 @@ lazy_static! {
         "beacon_block_processing_state_root_seconds",
         "Time spent calculating the state root when processing a block."
     );
+    pub static ref BLOCK_PROCESSING_POST_EXEC_PROCESSING: Result<Histogram> = try_create_histogram_with_buckets(
+        "beacon_block_processing_post_exec_pre_attestable_seconds",
+        "Time between finishing execution processing and the block becoming attestable",
+        linear_buckets(5e-3, 5e-3, 10)
+    );
     pub static ref BLOCK_PROCESSING_DB_WRITE: Result<Histogram> = try_create_histogram(
         "beacon_block_processing_db_write_seconds",
         "Time spent writing a newly processed block and state to DB"

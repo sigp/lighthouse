@@ -362,7 +362,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         } else if !self.config.prune_payloads {
             // If payload pruning is disabled there's a chance we may have the payload of
             // this finalized block. Attempt to load it but don't error in case it's missing.
-            if let Some(payload) = self.get_execution_payload(block_root)? {
+            let fork_name = blinded_block.fork_name(&self.spec)?;
+            if let Some(payload) = self.get_execution_payload(block_root, fork_name)? {
                 DatabaseBlock::Full(
                     blinded_block
                         .try_into_full_block(Some(payload))
@@ -411,8 +412,9 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         blinded_block: SignedBeaconBlock<E, BlindedPayload<E>>,
     ) -> Result<SignedBeaconBlock<E>, Error> {
         if blinded_block.message().execution_payload().is_ok() {
+            let fork_name = blinded_block.fork_name(&self.spec)?;
             let execution_payload = self
-                .get_execution_payload(block_root)?
+                .get_execution_payload(block_root, fork_name)?
                 .ok_or(HotColdDBError::MissingExecutionPayload(*block_root))?;
             blinded_block.try_into_full_block(Some(execution_payload))
         } else {
@@ -455,7 +457,24 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     }
 
     /// Load the execution payload for a block from disk.
+    /// This method deserializes with the proper fork.
     pub fn get_execution_payload(
+        &self,
+        block_root: &Hash256,
+        fork_name: ForkName,
+    ) -> Result<Option<ExecutionPayload<E>>, Error> {
+        let column = ExecutionPayload::<E>::db_column().into();
+        let key = block_root.as_bytes();
+
+        match self.hot_db.get_bytes(column, key)? {
+            Some(bytes) => Ok(Some(ExecutionPayload::from_ssz_bytes(&bytes, fork_name)?)),
+            None => Ok(None),
+        }
+    }
+
+    /// Load the execution payload for a block from disk.
+    /// DANGEROUS: this method just guesses the fork.
+    pub fn get_execution_payload_dangerous_fork_agnostic(
         &self,
         block_root: &Hash256,
     ) -> Result<Option<ExecutionPayload<E>>, Error> {

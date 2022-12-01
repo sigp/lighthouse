@@ -3,7 +3,7 @@ use crate::config::StoreConfigError;
 use crate::hot_cold_store::HotColdDBError;
 use ssz::DecodeError;
 use state_processing::BlockReplayError;
-use types::{BeaconStateError, Hash256, Slot};
+use types::{BeaconStateError, Hash256, InconsistentFork, Slot};
 
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -47,6 +47,7 @@ pub enum Error {
     ResyncRequiredForExecutionPayloadSeparation,
     SlotClockUnavailableForMigration,
     V9MigrationFailure(Hash256),
+    InconsistentFork(InconsistentFork),
 }
 
 pub trait HandleUnavailable<T> {
@@ -102,6 +103,12 @@ impl From<StoreConfigError> for Error {
 impl From<BlockReplayError> for Error {
     fn from(e: BlockReplayError) -> Error {
         Error::BlockReplayError(e)
+    }
+}
+
+impl From<InconsistentFork> for Error {
+    fn from(e: InconsistentFork) -> Error {
+        Error::InconsistentFork(e)
     }
 }
 

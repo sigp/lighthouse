@@ -37,6 +37,7 @@ members = [
     "common/oneshot_broadcast",
     "common/sensitive_url",
     "common/slot_clock",
+    "common/system_health",
     "common/task_executor",
     "common/target_check",
     "common/test_random_derive",

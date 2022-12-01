@@ -27,8 +27,8 @@ pub(crate) use protocol::{InboundRequest, RPCProtocol};
 use crate::rpc::methods::MAX_REQUEST_BLOBS_SIDECARS;
 pub use handler::SubstreamId;
 pub use methods::{
-    BlocksByRangeRequest, BlocksByRootRequest, GoodbyeReason, MaxRequestBlocks,
-    RPCResponseErrorCode, ResponseTermination, StatusMessage, MAX_REQUEST_BLOCKS,
+    BlocksByRangeRequest, BlocksByRootRequest, GoodbyeReason, LightClientBootstrapRequest,
+    MaxRequestBlocks, RPCResponseErrorCode, ResponseTermination, StatusMessage, MAX_REQUEST_BLOCKS,
 };
 pub(crate) use outbound::OutboundRequest;
 pub use protocol::{max_rpc_size, Protocol, RPCError};
@@ -109,18 +109,24 @@ pub struct RPC<Id: ReqId, TSpec: EthSpec> {
     /// Queue of events to be processed.
     events: Vec<NetworkBehaviourAction<RPCMessage<Id, TSpec>, RPCHandler<Id, TSpec>>>,
     fork_context: Arc<ForkContext>,
+    enable_light_client_server: bool,
     /// Slog logger for RPC behaviour.
     log: slog::Logger,
 }
 
 impl<Id: ReqId, TSpec: EthSpec> RPC<Id, TSpec> {
-    pub fn new(fork_context: Arc<ForkContext>, log: slog::Logger) -> Self {
+    pub fn new(
+        fork_context: Arc<ForkContext>,
+        enable_light_client_server: bool,
+        log: slog::Logger,
+    ) -> Self {
         let log = log.new(o!("service" => "libp2p_rpc"));
         let limiter = RPCRateLimiterBuilder::new()
             .n_every(Protocol::MetaData, 2, Duration::from_secs(5))
             .n_every(Protocol::Ping, 2, Duration::from_secs(10))
             .n_every(Protocol::Status, 5, Duration::from_secs(15))
             .one_every(Protocol::Goodbye, Duration::from_secs(10))
+            .one_every(Protocol::LightClientBootstrap, Duration::from_secs(10))
             .n_every(
                 Protocol::BlocksByRange,
                 methods::MAX_REQUEST_BLOCKS,
@@ -139,6 +145,7 @@ impl<Id: ReqId, TSpec: EthSpec> RPC<Id, TSpec> {
             limiter,
             events: Vec::new(),
             fork_context,
+            enable_light_client_server,
             log,
         }
     }
@@ -195,6 +202,7 @@ where
                 RPCProtocol {
                     fork_context: self.fork_context.clone(),
                     max_rpc_size: max_rpc_size(&self.fork_context),
+                    enable_light_client_server: self.enable_light_client_server,
                     phantom: PhantomData,
                 },
                 (),

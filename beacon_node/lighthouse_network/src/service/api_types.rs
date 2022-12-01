@@ -1,13 +1,14 @@
 use std::sync::Arc;
 
 use libp2p::core::connection::ConnectionId;
+use types::light_client_bootstrap::LightClientBootstrap;
 use types::{BlobsSidecar, EthSpec, SignedBeaconBlock};
 
 use crate::rpc::methods::{BlobsByRangeRequest, BlobsByRootRequest};
 use crate::rpc::{
     methods::{
-        BlocksByRangeRequest, BlocksByRootRequest, OldBlocksByRangeRequest, RPCCodedResponse,
-        RPCResponse, ResponseTermination, StatusMessage,
+        BlocksByRangeRequest, BlocksByRootRequest, LightClientBootstrapRequest,
+        OldBlocksByRangeRequest, RPCCodedResponse, RPCResponse, ResponseTermination, StatusMessage,
     },
     OutboundRequest, SubstreamId,
 };
@@ -38,6 +39,8 @@ pub enum Request {
     BlobsByRange(BlobsByRangeRequest),
     /// A request blocks root request.
     BlocksByRoot(BlocksByRootRequest),
+    // light client bootstrap request
+    LightClientBootstrap(LightClientBootstrapRequest),
     /// A request blobs root request.
     BlobsByRoot(BlobsByRootRequest),
 }
@@ -54,6 +57,7 @@ impl<TSpec: EthSpec> std::convert::From<Request> for OutboundRequest<TSpec> {
                 })
             }
             Request::BlobsByRange(r) => OutboundRequest::BlobsByRange(r),
+            Request::LightClientBootstrap(b) => OutboundRequest::LightClientBootstrap(b),
             Request::BlobsByRoot(r) => OutboundRequest::BlobsByRoot(r),
             Request::Status(s) => OutboundRequest::Status(s),
         }
@@ -76,6 +80,8 @@ pub enum Response<TSpec: EthSpec> {
     BlobsByRange(Option<Arc<BlobsSidecar<TSpec>>>),
     /// A response to a get BLOCKS_BY_ROOT request.
     BlocksByRoot(Option<Arc<SignedBeaconBlock<TSpec>>>),
+    /// A response to a LightClientUpdate request.
+    LightClientBootstrap(LightClientBootstrap<TSpec>),
     /// A response to a get BLOBS_BY_ROOT request.
     BlobsByRoot(Option<Arc<SignedBeaconBlockAndBlobsSidecar<TSpec>>>),
 }
@@ -100,6 +106,9 @@ impl<TSpec: EthSpec> std::convert::From<Response<TSpec>> for RPCCodedResponse<TS
                 None => RPCCodedResponse::StreamTermination(ResponseTermination::BlobsByRange),
             },
             Response::Status(s) => RPCCodedResponse::Success(RPCResponse::Status(s)),
+            Response::LightClientBootstrap(b) => {
+                RPCCodedResponse::Success(RPCResponse::LightClientBootstrap(b))
+            }
         }
     }
 }
