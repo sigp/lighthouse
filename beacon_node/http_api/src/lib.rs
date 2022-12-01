@@ -16,8 +16,8 @@ mod metrics;
 mod proposer_duties;
 mod publish_blocks;
 mod state_id;
-mod sync_committees;
 mod sync_committee_rewards;
+mod sync_committees;
 mod validator_inclusion;
 mod version;
 
