@@ -139,7 +139,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
             // TODO: directly emit the ban event?
             BanResult::BadScore => {
                 // This is a faulty state
-                error!(self.log, "Connected to a banned peer, re-banning"; "peer_id" => %peer_id);
+                error!(self.log, "Connected to a banned peer. Re-banning"; "peer_id" => %peer_id);
                 // Reban the peer
                 self.goodbye_peer(peer_id, GoodbyeReason::Banned, ReportSource::PeerManager);
                 return;

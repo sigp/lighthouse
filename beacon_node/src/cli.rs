@@ -715,6 +715,14 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .conflicts_with("checkpoint-state")
         )
         .arg(
+            Arg::with_name("checkpoint-sync-url-timeout")
+                .long("checkpoint-sync-url-timeout")
+                .help("Set the timeout for checkpoint sync calls to remote beacon node HTTP endpoint.")
+                .value_name("SECONDS")
+                .takes_value(true)
+                .default_value("60")
+        )
+        .arg(
             Arg::with_name("reconstruct-historic-states")
                 .long("reconstruct-historic-states")
                 .help("After a checkpoint sync, reconstruct historic states in the database.")
@@ -858,6 +866,21 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .help("Explictly disables syncing of deposit logs from the execution node. \
                       This overrides any previous option that depends on it. \
                       Useful if you intend to run a non-validating beacon node.")
+                .takes_value(false)
+        )
+        .arg(
+            Arg::with_name("light-client-server")
+                .long("light-client-server")
+                .help("Act as a full node supporting light clients on the p2p network \
+                       [experimental]")
+                .takes_value(false)
+        )
+        .arg(
+            Arg::with_name("gui")
+                .long("gui")
+                .hidden(true)
+                .help("Enable the graphical user interface and all its requirements. \
+                      This is equivalent to --http and --validator-monitor-auto.")
                 .takes_value(false)
         )
 }

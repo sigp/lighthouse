@@ -1,12 +1,12 @@
 use std::sync::Arc;
 
 use libp2p::core::connection::ConnectionId;
-use types::{EthSpec, SignedBeaconBlock};
+use types::{light_client_bootstrap::LightClientBootstrap, EthSpec, SignedBeaconBlock};
 
 use crate::rpc::{
     methods::{
-        BlocksByRangeRequest, BlocksByRootRequest, OldBlocksByRangeRequest, RPCCodedResponse,
-        RPCResponse, ResponseTermination, StatusMessage,
+        BlocksByRangeRequest, BlocksByRootRequest, LightClientBootstrapRequest,
+        OldBlocksByRangeRequest, RPCCodedResponse, RPCResponse, ResponseTermination, StatusMessage,
     },
     OutboundRequest, SubstreamId,
 };
@@ -34,6 +34,8 @@ pub enum Request {
     BlocksByRange(BlocksByRangeRequest),
     /// A request blocks root request.
     BlocksByRoot(BlocksByRootRequest),
+    // light client bootstrap request
+    LightClientBootstrap(LightClientBootstrapRequest),
 }
 
 impl<TSpec: EthSpec> std::convert::From<Request> for OutboundRequest<TSpec> {
@@ -47,6 +49,7 @@ impl<TSpec: EthSpec> std::convert::From<Request> for OutboundRequest<TSpec> {
                     step: 1,
                 })
             }
+            Request::LightClientBootstrap(b) => OutboundRequest::LightClientBootstrap(b),
             Request::Status(s) => OutboundRequest::Status(s),
         }
     }
@@ -66,6 +69,8 @@ pub enum Response<TSpec: EthSpec> {
     BlocksByRange(Option<Arc<SignedBeaconBlock<TSpec>>>),
     /// A response to a get BLOCKS_BY_ROOT request.
     BlocksByRoot(Option<Arc<SignedBeaconBlock<TSpec>>>),
+    /// A response to a LightClientUpdate request.
+    LightClientBootstrap(LightClientBootstrap<TSpec>),
 }
 
 impl<TSpec: EthSpec> std::convert::From<Response<TSpec>> for RPCCodedResponse<TSpec> {
@@ -80,6 +85,9 @@ impl<TSpec: EthSpec> std::convert::From<Response<TSpec>> for RPCCodedResponse<TS
                 None => RPCCodedResponse::StreamTermination(ResponseTermination::BlocksByRange),
             },
             Response::Status(s) => RPCCodedResponse::Success(RPCResponse::Status(s)),
+            Response::LightClientBootstrap(b) => {
+                RPCCodedResponse::Success(RPCResponse::LightClientBootstrap(b))
+            }
         }
     }
 }

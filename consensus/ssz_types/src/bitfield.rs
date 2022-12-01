@@ -22,7 +22,7 @@ pub trait BitfieldBehaviour: Clone {}
 /// A marker struct used to declare SSZ `Variable` behaviour on a `Bitfield`.
 ///
 /// See the [`Bitfield`](struct.Bitfield.html) docs for usage.
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub struct Variable<N> {
     _phantom: PhantomData<N>,
 }
@@ -30,7 +30,7 @@ pub struct Variable<N> {
 /// A marker struct used to declare SSZ `Fixed` behaviour on a `Bitfield`.
 ///
 /// See the [`Bitfield`](struct.Bitfield.html) docs for usage.
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub struct Fixed<N> {
     _phantom: PhantomData<N>,
 }
@@ -96,7 +96,7 @@ pub type BitVector<N> = Bitfield<Fixed<N>>;
 /// byte (by `Vec` index) stores the lowest bit-indices and the right-most bit stores the lowest
 /// bit-index. E.g., `smallvec![0b0000_0001, 0b0000_0010]` has bits `0, 9` set.
 #[derive(Clone, Debug, Derivative)]
-#[derivative(PartialEq, Hash(bound = ""))]
+#[derivative(PartialEq, Eq, Hash(bound = ""))]
 pub struct Bitfield<T> {
     bytes: SmallVec<[u8; SMALLVEC_LEN]>,
     len: usize,

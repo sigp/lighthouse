@@ -21,17 +21,15 @@ pub struct LightClientBootstrap<T: EthSpec> {
 }
 
 impl<T: EthSpec> LightClientBootstrap<T> {
-    pub fn from_beacon_state(beacon_state: BeaconState<T>) -> Result<Self, Error> {
+    pub fn from_beacon_state(beacon_state: &mut BeaconState<T>) -> Result<Self, Error> {
         let mut header = beacon_state.latest_block_header().clone();
         header.state_root = beacon_state.tree_hash_root();
+        let current_sync_committee_branch =
+            beacon_state.compute_merkle_proof(CURRENT_SYNC_COMMITTEE_INDEX)?;
         Ok(LightClientBootstrap {
             header,
             current_sync_committee: beacon_state.current_sync_committee()?.clone(),
-            /// TODO(Giulio2002): Generate Merkle Proof, this is just empty hashes
-            current_sync_committee_branch: FixedVector::new(vec![
-                Hash256::zero();
-                CURRENT_SYNC_COMMITTEE_PROOF_LEN
-            ])?,
+            current_sync_committee_branch: FixedVector::new(current_sync_committee_branch)?,
         })
     }
 }

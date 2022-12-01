@@ -789,6 +789,7 @@ fn run<T: EthSpec>(
             max_log_size: 0,
             max_log_number: 0,
             compression: false,
+            is_restricted: true,
         })
         .map_err(|e| format!("should start logger: {:?}", e))?
         .build()

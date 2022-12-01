@@ -2,6 +2,7 @@ use beacon_chain::{
     test_utils::{BeaconChainHarness, EphemeralHarnessType},
     BeaconChain, BeaconChainTypes,
 };
+use directory::DEFAULT_ROOT_DIR;
 use eth2::{BeaconNodeHttpClient, Timeouts};
 use http_api::{Config, Context};
 use lighthouse_network::{
@@ -142,6 +143,7 @@ pub async fn create_api_server_on_port<T: BeaconChainTypes>(
             allow_origin: None,
             tls_config: None,
             allow_sync_stalled: false,
+            data_dir: std::path::PathBuf::from(DEFAULT_ROOT_DIR),
             spec_fork_name: None,
         },
         chain: Some(chain.clone()),

@@ -834,6 +834,17 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
 
                         // Map each subnet query's min_ttl to the set of ENR's returned for that subnet.
                         queries.iter().for_each(|query| {
+                            let query_str = match query.subnet {
+                                Subnet::Attestation(_) => "attestation",
+                                Subnet::SyncCommittee(_) => "sync_committee",
+                            };
+
+                            if let Some(v) = metrics::get_int_counter(
+                                &metrics::TOTAL_SUBNET_QUERIES,
+                                &[query_str],
+                            ) {
+                                v.inc();
+                            }
                             // A subnet query has completed. Add back to the queue, incrementing retries.
                             self.add_subnet_query(query.subnet, query.min_ttl, query.retries + 1);
 
@@ -845,6 +856,12 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                                 .filter(|enr| subnet_predicate(enr))
                                 .map(|enr| enr.peer_id())
                                 .for_each(|peer_id| {
+                                    if let Some(v) = metrics::get_int_counter(
+                                        &metrics::SUBNET_PEERS_FOUND,
+                                        &[query_str],
+                                    ) {
+                                        v.inc();
+                                    }
                                     let other_min_ttl = mapped_results.get_mut(&peer_id);
 
                                     // map peer IDs to the min_ttl furthest in the future

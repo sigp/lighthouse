@@ -74,6 +74,17 @@ impl SyncState {
         }
     }
 
+    pub fn is_syncing_finalized(&self) -> bool {
+        match self {
+            SyncState::SyncingFinalized { .. } => true,
+            SyncState::SyncingHead { .. } => false,
+            SyncState::SyncTransition => false,
+            SyncState::BackFillSyncing { .. } => false,
+            SyncState::Synced => false,
+            SyncState::Stalled => false,
+        }
+    }
+
     /// Returns true if the node is synced.
     ///
     /// NOTE: We consider the node synced if it is fetching old historical blocks.

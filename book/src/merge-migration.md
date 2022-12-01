@@ -1,9 +1,8 @@
 # Merge Migration
 
-This document provides detail for users who want to run a merge-ready Lighthouse node.
+This document provides detail for users who want to run a Lighthouse node on post-merge Ethereum.
 
-> The merge is occurring on mainnet in September. You _must_ have a merge-ready setup by September 6
-> 2022.
+> The merge occurred on mainnet in September 2022.
 
 ## Necessary Configuration
 
@@ -27,12 +26,9 @@ engine to a merge-ready version.
 You must configure your node to be merge-ready before the Bellatrix fork occurs on the network
 on which your node is operating.
 
-* **Mainnet**: the Bellatrix fork is scheduled for epoch 144896, September 6 2022 11:34 UTC.
-  You must ensure your node configuration is updated before then in order to continue following
-  the chain. We recommend updating your configuration now.
-
-* **Goerli (Prater)**, **Ropsten**, **Sepolia**, **Kiln**: the Bellatrix fork has already occurred.
-  You must have a merge-ready configuration right now.
+* **Gnosis**: the Bellatrix fork has not yet been scheduled.
+* **Mainnet**, **Goerli (Prater)**, **Ropsten**, **Sepolia**, **Kiln**: the Bellatrix fork has
+  already occurred. You must have a merge-ready configuration right now.
 
 ## Connecting to an execution engine
 
@@ -65,6 +61,7 @@ the relevant page for your execution engine for the required flags:
 - [Geth: Connecting to Consensus Clients](https://geth.ethereum.org/docs/interface/consensus-clients)
 - [Nethermind: Running Nethermind Post Merge](https://docs.nethermind.io/nethermind/first-steps-with-nethermind/running-nethermind-post-merge)
 - [Besu: Prepare For The Merge](https://besu.hyperledger.org/en/stable/HowTo/Upgrade/Prepare-for-The-Merge/)
+- [Erigon: Beacon Chain (Consensus Layer)](https://github.com/ledgerwatch/erigon#beacon-chain-consensus-layer)
 
 Once you have configured your execution engine to open up the engine API (usually on port 8551) you
 should add the URL to your `lighthouse bn` flags with `--execution-endpoint <URL>`, as well as
