@@ -34,7 +34,6 @@ use libp2p::multiaddr::{Multiaddr, Protocol as MProtocol};
 use libp2p::swarm::{ConnectionLimits, Swarm, SwarmBuilder, SwarmEvent};
 use libp2p::PeerId;
 use slog::{crit, debug, info, o, trace, warn};
-use std::io::Write;
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::{
