@@ -3,7 +3,6 @@ use crate::{metrics, service::NetworkMessage, sync::SyncMessage};
 use beacon_chain::store::Error;
 use beacon_chain::{
     attestation_verification::{self, Error as AttnError, VerifiedAttestation},
-    blob_verification::BlobError,
     observed_operations::ObservationOutcome,
     sync_committee_verification::{self, Error as SyncCommitteeError},
     validator_monitor::get_block_delay_ms,
@@ -22,8 +21,8 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use store::hot_cold_store::HotColdDBError;
 use tokio::sync::mpsc;
 use types::{
-    Attestation, AttesterSlashing, BlobsSidecar, EthSpec, Hash256, IndexedAttestation,
-    ProposerSlashing, SignedAggregateAndProof, SignedBeaconBlock, SignedBlsToExecutionChange,
+    Attestation, AttesterSlashing, EthSpec, Hash256, IndexedAttestation, ProposerSlashing,
+    SignedAggregateAndProof, SignedBeaconBlock, SignedBlsToExecutionChange,
     SignedContributionAndProof, SignedVoluntaryExit, Slot, SubnetId, SyncCommitteeMessage,
     SyncSubnetId,
 };
@@ -701,11 +700,11 @@ impl<T: BeaconChainTypes> Worker<T> {
     #[allow(clippy::too_many_arguments)]
     pub async fn process_gossip_block_and_blobs_sidecar(
         self,
-        message_id: MessageId,
-        peer_id: PeerId,
-        peer_client: Client,
-        block_and_blob: Arc<SignedBeaconBlockAndBlobsSidecar<T::EthSpec>>,
-        seen_timestamp: Duration,
+        _message_id: MessageId,
+        _peer_id: PeerId,
+        _peer_client: Client,
+        _block_and_blob: Arc<SignedBeaconBlockAndBlobsSidecar<T::EthSpec>>,
+        _seen_timestamp: Duration,
     ) {
         //FIXME
         unimplemented!()

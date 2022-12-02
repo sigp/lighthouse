@@ -11,7 +11,7 @@ use std::sync::Arc;
 use task_executor::TaskExecutor;
 use tokio::sync::{watch, Mutex, RwLock};
 use tokio_stream::wrappers::WatchStream;
-use types::{Address, ExecutionBlockHash, Hash256};
+use types::ExecutionBlockHash;
 
 /// The number of payload IDs that will be stored for each `Engine`.
 ///

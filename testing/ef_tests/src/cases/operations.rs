@@ -21,11 +21,15 @@ use state_processing::{
     ConsensusContext,
 };
 use std::fmt::Debug;
+#[cfg(not(all(feature = "withdrawals", feature = "withdrawals-processing")))]
+use std::marker::PhantomData;
 use std::path::Path;
+#[cfg(all(feature = "withdrawals", feature = "withdrawals-processing"))]
+use types::SignedBlsToExecutionChange;
 use types::{
     Attestation, AttesterSlashing, BeaconBlock, BeaconState, BlindedPayload, ChainSpec, Deposit,
-    EthSpec, ExecutionPayload, ForkName, FullPayload, ProposerSlashing, SignedBlsToExecutionChange,
-    SignedVoluntaryExit, SyncAggregate,
+    EthSpec, ExecutionPayload, ForkName, FullPayload, ProposerSlashing, SignedVoluntaryExit,
+    SyncAggregate,
 };
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -42,7 +46,10 @@ struct ExecutionMetadata {
 /// Newtype for testing withdrawals.
 #[derive(Debug, Clone, Deserialize)]
 pub struct WithdrawalsPayload<T: EthSpec> {
+    #[cfg(all(feature = "withdrawals", feature = "withdrawals-processing"))]
     payload: FullPayload<T>,
+    #[cfg(not(all(feature = "withdrawals", feature = "withdrawals-processing")))]
+    _phantom_data: PhantomData<T>,
 }
 
 #[derive(Debug, Clone)]

@@ -4,7 +4,6 @@
 //! This crate only provides useful functionality for "The Merge", it does not provide any of the
 //! deposit-contract functionality that the `beacon_node/eth1` crate already provides.
 
-use crate::json_structures::JsonBlobBundles;
 use crate::payload_cache::PayloadCache;
 use auth::{strip_prefix, Auth, JwtKey};
 use builder_client::BuilderHttpClient;
@@ -36,8 +35,6 @@ use tokio::{
     time::sleep,
 };
 use tokio_stream::wrappers::WatchStream;
-#[cfg(feature = "withdrawals")]
-use types::Withdrawal;
 use types::{AbstractExecPayload, Blob, ExecPayload, KzgCommitment};
 use types::{
     BlindedPayload, BlockType, ChainSpec, Epoch, ExecutionBlockHash, ForkName,

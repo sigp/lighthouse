@@ -4,7 +4,7 @@ use slot_clock::SlotClock;
 use crate::beacon_chain::{BeaconChain, BeaconChainTypes, MAXIMUM_GOSSIP_CLOCK_DISPARITY};
 use crate::BeaconChainError;
 use bls::PublicKey;
-use types::{consts::eip4844::BLS_MODULUS, BeaconStateError, BlobsSidecar, Hash256, Slot};
+use types::{consts::eip4844::BLS_MODULUS, BeaconStateError, BlobsSidecar, Slot};
 
 pub enum BlobError {
     /// The blob sidecar is from a slot that is later than the current slot (with respect to the

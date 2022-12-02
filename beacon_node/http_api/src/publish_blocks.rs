@@ -12,7 +12,7 @@ use tokio::sync::mpsc::UnboundedSender;
 use tree_hash::TreeHash;
 use types::{
     AbstractExecPayload, BlindedPayload, BlobsSidecar, EthSpec, ExecPayload, ExecutionBlockHash,
-    FullPayload, Hash256, SignedBeaconBlock, SignedBeaconBlockEip4844,
+    FullPayload, Hash256, SignedBeaconBlock,
 };
 use warp::Rejection;
 
