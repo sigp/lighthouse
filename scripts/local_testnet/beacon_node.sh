@@ -44,7 +44,9 @@ http_port=${@:$OPTIND+2:1}
 execution_endpoint=${@:$OPTIND+3:1}
 execution_jwt=${@:$OPTIND+4:1}
 
-exec lighthouse \
+lighthouse_binary=lighthouse-4844
+
+exec $lighthouse_binary \
 	--debug-level $DEBUG_LEVEL \
 	bn \
 	$SUBSCRIBE_ALL_SUBNETS \
