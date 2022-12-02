@@ -14,6 +14,7 @@ use std::io::Read;
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
+use types::ExecutionBlockHash;
 use types::{
     test_utils::generate_deterministic_keypairs, Address, BeaconState, ChainSpec, Config, Eth1Data,
     EthSpec, ExecutionPayloadHeader, ExecutionPayloadHeaderMerge, Hash256, Keypair, PublicKey,
@@ -70,7 +71,7 @@ pub fn run<T: EthSpec>(testnet_dir_path: PathBuf, matches: &ArgMatches) -> Resul
         spec.altair_fork_epoch = Some(fork_epoch);
     }
 
-    if let Some(fork_epoch) = parse_optional(matches, "merge-fork-epoch")? {
+    if let Some(fork_epoch) = parse_optional(matches, "bellatrix-fork-epoch")? {
         spec.bellatrix_fork_epoch = Some(fork_epoch);
     }
 
@@ -80,6 +81,10 @@ pub fn run<T: EthSpec>(testnet_dir_path: PathBuf, matches: &ArgMatches) -> Resul
 
     if let Some(fork_epoch) = parse_optional(matches, "eip4844-fork-epoch")? {
         spec.eip4844_fork_epoch = Some(fork_epoch);
+    }
+
+    if let Some(ttd) = parse_optional(matches, "ttd")? {
+        spec.terminal_total_difficulty = ttd;
     }
 
     let genesis_state_bytes = if matches.is_present("interop-genesis-state") {
@@ -153,6 +158,18 @@ fn initialize_state_with_validators<T: EthSpec>(
     execution_payload_header: Option<ExecutionPayloadHeader<T>>,
     spec: &ChainSpec,
 ) -> Result<BeaconState<T>, String> {
+    let default_header = ExecutionPayloadHeaderMerge {
+        gas_limit: 10,
+        base_fee_per_gas: 10.into(),
+        timestamp: genesis_time,
+        block_hash: ExecutionBlockHash(eth1_block_hash),
+        prev_randao: Hash256::random(),
+        parent_hash: ExecutionBlockHash::zero(),
+        transactions_root: Hash256::random(),
+        ..ExecutionPayloadHeaderMerge::default()
+    };
+    let execution_payload_header =
+        execution_payload_header.or(Some(ExecutionPayloadHeader::Merge(default_header)));
     // Empty eth1 data
     let eth1_data = Eth1Data {
         block_hash: eth1_block_hash,
@@ -215,7 +232,14 @@ fn initialize_state_with_validators<T: EthSpec>(
 
         // Override latest execution payload header.
         // See https://github.com/ethereum/consensus-specs/blob/v1.1.0/specs/merge/beacon-chain.md#testing
-        *state.latest_execution_payload_header_mut() = execution_payload_header.unwrap_or_default();
+
+        if let Some(ExecutionPayloadHeader::Merge(ref header)) = execution_payload_header {
+            *state
+                .latest_execution_payload_header_merge_mut()
+                .map_err(|_| {
+                    "State must contain bellatrix execution payload header".to_string()
+                })? = header.clone();
+        }
     }
 
     // Now that we have our validators, initialize the caches (including the committees)
