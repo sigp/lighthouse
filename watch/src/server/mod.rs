@@ -86,6 +86,8 @@ pub fn start_server(
         )
         .route("/v1/validators/:validator", get(handler::get_validator))
         .route("/v1/validators/all", get(handler::get_all_validators))
+        .route("/v1/validators/:validator/latest_proposal", get(handler::get_validator_latest_proposal))
+        //.route("/v1/validators/:validator/proposals", get(handler::get_validator_proposals))
         .route("/v1/clients", get(handler::get_client_breakdown))
         .route(
             "/v1/clients/percentages",

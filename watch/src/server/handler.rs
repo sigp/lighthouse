@@ -200,6 +200,21 @@ pub async fn get_all_validators(
     Ok(Json(database::get_all_validators(&mut conn)?))
 }
 
+pub async fn get_validator_latest_proposal(
+    Path(validator_query): Path<String>,
+    Extension(pool): Extension<PgPool>,
+) -> Result<Json<HashMap<i32, WatchProposerInfo>>, Error> {
+    let mut conn = database::get_connection(&pool).map_err(Error::Database)?;
+    if validator_query.starts_with("0x") {
+        let pubkey = WatchPK::from_str(&validator_query).map_err(|_| Error::BadRequest)?;
+        let validator = database::get_validator_by_public_key(&mut conn, pubkey)?.ok_or(Error::NotFound)?;
+        Ok(Json(database::get_validators_latest_proposer_info(&mut conn, vec![validator.index])?))
+    } else {
+        let index = i32::from_str(&validator_query).map_err(|_| Error::BadRequest)?;
+        Ok(Json(database::get_validators_latest_proposer_info(&mut conn, vec![index])?))
+    }
+}
+
 pub async fn get_client_breakdown(
     Extension(pool): Extension<PgPool>,
     Extension(slots_per_epoch): Extension<u64>,
