@@ -61,7 +61,7 @@ pub fn get_effective_balances<T: EthSpec>(state: &BeaconState<T>) -> Vec<u64> {
 }
 
 #[superstruct(
-    variants(V1, V8),
+    variants(V8),
     variant_attributes(derive(PartialEq, Clone, Debug, Encode, Decode)),
     no_enum
 )]
@@ -75,13 +75,11 @@ pub(crate) struct CacheItem {
 pub(crate) type CacheItem = CacheItemV8;
 
 #[superstruct(
-    variants(V1, V8),
+    variants(V8),
     variant_attributes(derive(PartialEq, Clone, Default, Debug, Encode, Decode)),
     no_enum
 )]
 pub struct BalancesCache {
-    #[superstruct(only(V1))]
-    pub(crate) items: Vec<CacheItemV1>,
     #[superstruct(only(V8))]
     pub(crate) items: Vec<CacheItemV8>,
 }
@@ -366,26 +364,20 @@ where
 }
 
 /// A container which allows persisting the `BeaconForkChoiceStore` to the on-disk database.
-#[superstruct(
-    variants(V1, V7, V8, V10, V11),
-    variant_attributes(derive(Encode, Decode)),
-    no_enum
-)]
+#[superstruct(variants(V11), variant_attributes(derive(Encode, Decode)), no_enum)]
 pub struct PersistedForkChoiceStore {
-    #[superstruct(only(V1, V7))]
-    pub balances_cache: BalancesCacheV1,
-    #[superstruct(only(V8, V10, V11))]
+    #[superstruct(only(V11))]
     pub balances_cache: BalancesCacheV8,
     pub time: Slot,
     pub finalized_checkpoint: Checkpoint,
     pub justified_checkpoint: Checkpoint,
     pub justified_balances: Vec<u64>,
     pub best_justified_checkpoint: Checkpoint,
-    #[superstruct(only(V10, V11))]
+    #[superstruct(only(V11))]
     pub unrealized_justified_checkpoint: Checkpoint,
-    #[superstruct(only(V10, V11))]
+    #[superstruct(only(V11))]
     pub unrealized_finalized_checkpoint: Checkpoint,
-    #[superstruct(only(V7, V8, V10, V11))]
+    #[superstruct(only(V11))]
     pub proposer_boost_root: Hash256,
     #[superstruct(only(V11))]
     pub equivocating_indices: BTreeSet<u64>,

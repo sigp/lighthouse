@@ -298,27 +298,6 @@ impl<T: EthSpec> SnapshotCache<T> {
             })
     }
 
-    /// Borrow the state corresponding to `block_root` if it exists in the cache *unadvanced*.
-    ///
-    /// Care must be taken not to mutate the state in an invalid way. This function should only
-    /// be used to mutate the *caches* of the state, for example the tree hash cache when
-    /// calculating a light client merkle proof.
-    pub fn borrow_unadvanced_state_mut(
-        &mut self,
-        block_root: Hash256,
-    ) -> Option<&mut BeaconState<T>> {
-        self.snapshots
-            .iter_mut()
-            .find(|snapshot| {
-                // If the pre-state exists then state advance has already taken the state for
-                // `block_root` and mutated its tree hash cache. Rather than re-building it while
-                // holding the snapshot cache lock (>1 second), prefer to return `None` from this
-                // function and force the caller to load it from disk.
-                snapshot.beacon_block_root == block_root && snapshot.pre_state.is_none()
-            })
-            .map(|snapshot| &mut snapshot.beacon_state)
-    }
-
     /// If there is a snapshot with `block_root`, clone it and return the clone.
     pub fn get_cloned(
         &self,
