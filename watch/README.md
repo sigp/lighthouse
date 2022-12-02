@@ -2,9 +2,6 @@
 
 >beacon.watch is pre-MVP and still under active development and subject to change.
 
-> beacon.watch will be experimental at least until
-[Diesel](https://github.com/diesel-rs/diesel/) stabilizes on v2.0.0.
-
 beacon.watch is an Ethereum Beacon Chain monitoring platform whose goal is to provide fast access to
 data which is:
 1. Not already stored natively in the Beacon Chain
