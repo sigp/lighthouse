@@ -1,7 +1,8 @@
 use std::sync::Arc;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
-use eth2::{types::{ValidatorId}, Error};
-use slog::{Logger};
+use eth2::{types::ValidatorId, Error};
+use eth2::lighthouse::SyncCommitteeAttestationRewards;
+use slog::Logger;
 use crate::BlockId;
 
 pub fn compute_sync_committee_rewards<T: BeaconChainTypes>(
@@ -9,7 +10,7 @@ pub fn compute_sync_committee_rewards<T: BeaconChainTypes>(
     block_id: BlockId,
     validators: Vec<ValidatorId>,
     log: Logger
-) -> Result<SyncCommitteeRewards, Error> Ok({
+) -> Result<SyncCommitteeAttestationRewards, Error> {
 
     // Get block_id with full_block()
     let block = chain
@@ -29,8 +30,10 @@ pub fn compute_sync_committee_rewards<T: BeaconChainTypes>(
     let rewards = state.compute_sync_aggregate_reward(&block_root, &validators, &log)?;
     
     // Create SyncCommitteeRewards with calculated rewards
-    Ok(SyncCommitteeRewards {
-        rewards,
+    Ok(SyncCommitteeAttestationRewards{
+        execution_optimistic: false,
+        finalized: false,
+        data: Vec::new(),
     })
     
-});
+}
