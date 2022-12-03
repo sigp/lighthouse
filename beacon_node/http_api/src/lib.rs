@@ -1722,8 +1722,8 @@ pub fn serve<T: BeaconChainTypes>(
              validators: Vec<ValidatorId>,
              log: Logger| {
             // Do something here
-            blocking_json_task(move || sync_committee_rewards::compute_sync_committee_rewards(
-                chain, block_id, validators, log))
+            blocking_json_task(move || Ok(sync_committee_rewards::compute_sync_committee_rewards(
+                chain, block_id, validators, log)))
         });
 
     /*
