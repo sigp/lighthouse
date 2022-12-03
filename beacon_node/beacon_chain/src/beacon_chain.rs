@@ -1009,46 +1009,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(self.store.get_state(state_root, slot)?)
     }
 
-    /// Run a function with mutable access to a state for `block_root`.
-    ///
-    /// The primary purpose of this function is to borrow a state with its tree hash cache
-    /// from the snapshot cache *without moving it*. This means that calls to this function should
-    /// be kept to an absolute minimum, because holding the snapshot cache lock has the ability
-    /// to delay block import.
-    ///
-    /// If there is no appropriate state in the snapshot cache then one will be loaded from disk.
-    /// If no state is found on disk then `Ok(None)` will be returned.
-    ///
-    /// The 2nd parameter to the closure is a bool indicating whether the snapshot cache was used,
-    /// which can inform logging/metrics.
-    ///
-    /// NOTE: the medium-term plan is to delete this function and the snapshot cache in favour
-    /// of `tree-states`, where all caches are CoW and everything is good in the world.
-    pub fn with_mutable_state_for_block<F, V, Payload: AbstractExecPayload<T::EthSpec>>(
-        &self,
-        block: &SignedBeaconBlock<T::EthSpec, Payload>,
-        block_root: Hash256,
-        f: F,
-    ) -> Result<Option<V>, Error>
-    where
-        F: FnOnce(&mut BeaconState<T::EthSpec>, bool) -> Result<V, Error>,
-    {
-        if let Some(state) = self
-            .snapshot_cache
-            .try_write_for(BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT)
-            .ok_or(Error::SnapshotCacheLockTimeout)?
-            .borrow_unadvanced_state_mut(block_root)
-        {
-            let cache_hit = true;
-            f(state, cache_hit).map(Some)
-        } else if let Some(mut state) = self.get_state(&block.state_root(), Some(block.slot()))? {
-            let cache_hit = false;
-            f(&mut state, cache_hit).map(Some)
-        } else {
-            Ok(None)
-        }
-    }
-
     /// Return the sync committee at `slot + 1` from the canonical chain.
     ///
     /// This is useful when dealing with sync committee messages, because messages are signed
