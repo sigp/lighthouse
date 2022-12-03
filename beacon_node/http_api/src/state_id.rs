@@ -108,6 +108,19 @@ impl StateId {
         })
     }
 
+    /// Return the `fork` field of the state identified by `self`.
+    /// Also returns the `execution_optimistic` value of the state.
+    /// Also returns the `finalized` value of the state.
+    pub fn fork_and_execution_optimistic_and_finalized<T: BeaconChainTypes>(
+        &self,
+        chain: &BeaconChain<T>,
+    ) -> Result<(Fork, bool, bool), warp::Rejection> {
+        let (state, execution_optimistic) = self.state(chain)?;
+        let (state_root, _) = self.root(chain)?;
+        let finalized = chain.is_finalized_state(&state_root, state.slot()).unwrap();
+        Ok((state.fork(), execution_optimistic, finalized))
+    }
+
     /// Convenience function to compute `fork` when `execution_optimistic` isn't desired.
     pub fn fork<T: BeaconChainTypes>(
         &self,
