@@ -19,13 +19,13 @@ validator client or the slasher**.
 | v2.0.0             | Oct 2021     | v5             | no                   |
 | v2.1.0             | Jan 2022     | v8             | no                   |
 | v2.2.0             | Apr 2022     | v8             | no                   |
-| v2.3.0             | May 2022     | v9             | yes (pre Bellatrix)  |
-| v2.4.0             | Jul 2022     | v9             | yes (pre Bellatrix)  |
+| v2.3.0             | May 2022     | v9             | yes from <= v3.3.0   |
+| v2.4.0             | Jul 2022     | v9             | yes from <= v3.3.0   |
 | v2.5.0             | Aug 2022     | v11            | yes                  |
 | v3.0.0             | Aug 2022     | v11            | yes                  |
 | v3.1.0             | Sep 2022     | v12            | yes                  |
 | v3.2.0             | Oct 2022     | v12            | yes                  |
-| v3.3.0             | TBD          | v13            | yes                  |
+| v3.3.0             | Nov 2022     | v13            | yes                  |
 
 > **Note**: All point releases (e.g. v2.3.1) are schema-compatible with the prior minor release
 > (e.g. v2.3.0).
