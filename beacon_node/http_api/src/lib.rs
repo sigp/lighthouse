@@ -1113,8 +1113,10 @@ pub fn serve<T: BeaconChainTypes>(
                         },
                     };
 
+                    let finalized = chain.is_finalized_block(&root, block.slot()).unwrap();
+
                     Ok(api_types::GenericResponse::from(vec![data])
-                        .add_execution_optimistic(execution_optimistic))
+                        .add_execution_optimistic_finalized(execution_optimistic, finalized))
                 })
             },
         );
@@ -1152,8 +1154,11 @@ pub fn serve<T: BeaconChainTypes>(
                     },
                 };
 
-                Ok(api_types::ExecutionOptimisticResponse {
+                let finalized = chain.is_finalized_block(&root, block.slot()).unwrap();
+
+                Ok(api_types::ExecutionOptimisticFinalizedResponse {
                     execution_optimistic: Some(execution_optimistic),
+                    finalized: Some(finalized),
                     data,
                 })
             })
