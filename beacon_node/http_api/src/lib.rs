@@ -1869,10 +1869,15 @@ pub fn serve<T: BeaconChainTypes>(
                             let fork_name = state
                                 .fork_name(&chain.spec)
                                 .map_err(inconsistent_fork_rejection)?;
-                            let res = execution_optimistic_fork_versioned_response(
+                            let (state_root, _) = state_id.root(&chain)?;
+                            let state_slot = state.slot();
+                            let finalized =
+                                chain.is_finalized_state(&state_root, state_slot).unwrap();
+                            let res = execution_optimistic_finalized_fork_versioned_response(
                                 endpoint_version,
                                 fork_name,
                                 execution_optimistic,
+                                finalized,
                                 &state,
                             )?;
                             Ok(add_consensus_version_header(
