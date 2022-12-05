@@ -7,6 +7,7 @@
 //! used for development.
 
 mod attestation_performance;
+mod attestation_rewards;
 mod attester_duties;
 mod block_id;
 mod block_packing_efficiency;
@@ -1698,6 +1699,10 @@ pub fn serve<T: BeaconChainTypes>(
             },
         );
 
+    // TODO: POST beacon/rewards/attestations/{epoch}
+
+    let post_beacon_rewards_attestation = beacon_rewards_path;
+
     /*
      * config
      */
@@ -3365,6 +3370,7 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(post_beacon_pool_proposer_slashings.boxed())
                 .or(post_beacon_pool_voluntary_exits.boxed())
                 .or(post_beacon_pool_sync_committees.boxed())
+                .or(post_beacon_rewards_attestation.boxed())
                 .or(post_validator_duties_attester.boxed())
                 .or(post_validator_duties_sync.boxed())
                 .or(post_validator_aggregate_and_proofs.boxed())
