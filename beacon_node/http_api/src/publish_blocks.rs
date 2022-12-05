@@ -5,7 +5,7 @@ use beacon_chain::{
 };
 use lighthouse_network::PubsubMessage;
 use network::NetworkMessage;
-use slog::{crit, error, info, warn, Logger};
+use slog::{error, info, warn, Logger};
 use slot_clock::SlotClock;
 use std::sync::Arc;
 use tokio::sync::mpsc::UnboundedSender;
@@ -72,10 +72,10 @@ pub async fn publish_block<T: BeaconChainTypes>(
             //
             // Check to see the thresholds are non-zero to avoid logging errors with small
             // slot times (e.g., during testing)
-            let crit_threshold = chain.slot_clock.unagg_attestation_production_delay();
-            let error_threshold = crit_threshold / 2;
-            if delay >= crit_threshold {
-                crit!(
+            let too_late_threshold = chain.slot_clock.unagg_attestation_production_delay();
+            let delayed_threshold = too_late_threshold / 2;
+            if delay >= too_late_threshold {
+                error!(
                     log,
                     "Block was broadcast too late";
                     "msg" => "system may be overloaded, block likely to be orphaned",
@@ -83,7 +83,7 @@ pub async fn publish_block<T: BeaconChainTypes>(
                     "slot" => block.slot(),
                     "root" => ?root,
                 )
-            } else if delay >= error_threshold {
+            } else if delay >= delayed_threshold {
                 error!(
                     log,
                     "Block broadcast was delayed";
