@@ -1,8 +1,10 @@
 use std::sync::Arc;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
-use eth2::{types::ValidatorId, Error};
+use eth2::types::ValidatorId;
 use eth2::lighthouse::SyncCommitteeAttestationRewards;
 use slog::Logger;
+use state_processing::per_block_processing::altair::sync_committee::compute_sync_aggregate_rewards;
+use types::{ChainSpec, Slot};
 use crate::BlockId;
 
 pub fn compute_sync_committee_rewards<T: BeaconChainTypes>(
@@ -10,24 +12,20 @@ pub fn compute_sync_committee_rewards<T: BeaconChainTypes>(
     block_id: BlockId,
     validators: Vec<ValidatorId>,
     log: Logger
-) -> Result<SyncCommitteeAttestationRewards, Error> {
+) -> Result<T, E> {
 
-    // Get block_id with full_block()
-    let block = chain
-        .get_block(block_id)?
-        .ok_or(Error::UnknownBlock(block_id))?
-        .full_block()?;
-        
-    // Get state from chain
-    let state = chain
-        .get_state(&block.state_root(), Some(block.slot()))?
-        .ok_or(Error::UnknownState(block.state_root()))?;
+    let spec: ChainSpec = chain.spec;
 
-    // Convert a slot into the canonical block root from that slot: block_id.root(&chain).
-    let block_root = block_id.root(&chain)?;
-    
-    // Call compute_sync_aggregate_reward
-    let rewards = state.compute_sync_aggregate_reward(&block_root, &validators, &log)?;
+    let (block, execution_optimistic) = block_id.blinded_block(&chain)?;
+
+    let slot: Slot = block.message().slot();
+
+    let state_root = chain.state_root_at_slot(slot)?.unwrap();
+
+    let state = chain.get_state(&state_root, Some(slot))?.unwrap();
+
+    let (_, rewards) = compute_sync_aggregate_rewards(&state, &spec)?;
+
     
     // Create SyncCommitteeRewards with calculated rewards
     Ok(SyncCommitteeAttestationRewards{
