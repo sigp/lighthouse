@@ -20,7 +20,11 @@ status = [
     "doppelganger-protection-test",
     "execution-engine-integration-ubuntu",
     "cargo-vendor",
-    "check-msrv"
+    "check-msrv",
+    "slasher-tests",
+    "syncing-simulator-ubuntu",
+    "disallowed-from-async-lint",
+    "compile-with-beta-compiler"
 ]
 use_squash_merge = true
 timeout_sec = 10800

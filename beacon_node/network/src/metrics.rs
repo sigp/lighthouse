@@ -390,7 +390,7 @@ pub fn update_gossip_metrics<T: EthSpec>(
             match topic.kind() {
                 GossipKind::Attestation(_subnet_id) => {}
                 GossipKind::BeaconBlock => {
-                    for peer_id in gossipsub.mesh_peers(topic_hash) {
+                    for (peer_id, _) in gossipsub.mesh_peers(topic_hash) {
                         let client = network_globals
                             .peers
                             .read()
@@ -405,7 +405,7 @@ pub fn update_gossip_metrics<T: EthSpec>(
                     }
                 }
                 GossipKind::BeaconAggregateAndProof => {
-                    for peer_id in gossipsub.mesh_peers(topic_hash) {
+                    for (peer_id, _) in gossipsub.mesh_peers(topic_hash) {
                         let client = network_globals
                             .peers
                             .read()

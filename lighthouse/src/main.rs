@@ -130,6 +130,15 @@ fn main() {
                 .global(true),
         )
         .arg(
+            Arg::with_name("logfile-no-restricted-perms")
+                .long("logfile-no-restricted-perms")
+                .help(
+                    "If present, log files will be generated as world-readable meaning they can be read by \
+                    any user on the machine. Note that logs can often contain sensitive information \
+                    about your validator and so this flag should be used with caution.")
+                .global(true),
+        )
+        .arg(
             Arg::with_name("log-format")
                 .long("log-format")
                 .value_name("FORMAT")
@@ -407,6 +416,8 @@ fn run<E: EthSpec>(
 
     let logfile_compress = matches.is_present("logfile-compress");
 
+    let logfile_restricted = !matches.is_present("logfile-no-restricted-perms");
+
     // Construct the path to the log file.
     let mut log_path: Option<PathBuf> = clap_utils::parse_optional(matches, "logfile")?;
     if log_path.is_none() {
@@ -438,17 +449,18 @@ fn run<E: EthSpec>(
 
     let logger_config = LoggerConfig {
         path: log_path,
-        debug_level,
-        logfile_debug_level,
-        log_format,
+        debug_level: String::from(debug_level),
+        logfile_debug_level: String::from(logfile_debug_level),
+        log_format: log_format.map(String::from),
         log_color,
         disable_log_timestamp,
         max_log_size: logfile_max_size * 1_024 * 1_024,
         max_log_number: logfile_max_number,
         compression: logfile_compress,
+        is_restricted: logfile_restricted,
     };
 
-    let builder = environment_builder.initialize_logger(logger_config)?;
+    let builder = environment_builder.initialize_logger(logger_config.clone())?;
 
     let mut environment = builder
         .multi_threaded_tokio_runtime()?
@@ -528,7 +540,8 @@ fn run<E: EthSpec>(
             let context = environment.core_context();
             let log = context.log().clone();
             let executor = context.executor.clone();
-            let config = beacon_node::get_config::<E>(matches, &context)?;
+            let mut config = beacon_node::get_config::<E>(matches, &context)?;
+            config.logger_config = logger_config;
             let shutdown_flag = matches.is_present("immediate-shutdown");
             // Dump configs if `dump-config` or `dump-chain-config` flags are set
             clap_utils::check_dump_configs::<_, E>(matches, &config, &context.eth2_config.spec)?;

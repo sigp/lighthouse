@@ -120,6 +120,12 @@ fn bls_verify() {
 
 #[test]
 #[cfg(not(feature = "fake_crypto"))]
+fn bls_batch_verify() {
+    BlsBatchVerifyHandler::default().run();
+}
+
+#[test]
+#[cfg(not(feature = "fake_crypto"))]
 fn bls_aggregate_verify() {
     BlsAggregateVerifyHandler::default().run();
 }
@@ -443,6 +449,12 @@ fn fork_choice_ex_ante() {
 }
 
 #[test]
+fn optimistic_sync() {
+    OptimisticSyncHandler::<MinimalEthSpec>::default().run();
+    OptimisticSyncHandler::<MainnetEthSpec>::default().run();
+}
+
+#[test]
 fn genesis_initialization() {
     GenesisInitializationHandler::<MinimalEthSpec>::default().run();
 }
@@ -451,6 +463,11 @@ fn genesis_initialization() {
 fn genesis_validity() {
     GenesisValidityHandler::<MinimalEthSpec>::default().run();
     // Note: there are no genesis validity tests for mainnet
+}
+
+#[test]
+fn merkle_proof_validity() {
+    MerkleProofValidityHandler::<MainnetEthSpec>::default().run();
 }
 
 #[test]

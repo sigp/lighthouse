@@ -59,7 +59,7 @@ use types::{BeaconState, CloneConfig, EthSpec, Hash256};
 
 const HTTP_TIMEOUT: Duration = Duration::from_secs(10);
 
-pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<(), String> {
+pub fn run<T: EthSpec>(env: Environment<T>, matches: &ArgMatches) -> Result<(), String> {
     let spec = &T::default_spec();
     let executor = env.core_context().executor;
 
@@ -121,7 +121,7 @@ pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<
     };
 
     for i in 0..runs {
-        let mut state = state.clone_with(CloneConfig::committee_caches_only());
+        let mut state = state.clone_with(CloneConfig::all());
 
         let start = Instant::now();
 

@@ -161,6 +161,9 @@ pub struct ChainSpec {
     pub attestation_subnet_count: u64,
     pub random_subnets_per_validator: u64,
     pub epochs_per_random_subnet_subscription: u64,
+    pub subnets_per_node: u8,
+    pub epochs_per_subnet_subscription: u64,
+    attestation_subnet_extra_bits: u8,
 
     /*
      * Application params
@@ -427,6 +430,22 @@ impl ChainSpec {
         Hash256::from(domain)
     }
 
+    #[allow(clippy::integer_arithmetic)]
+    pub const fn attestation_subnet_prefix_bits(&self) -> u32 {
+        // maybe use log2 when stable https://github.com/rust-lang/rust/issues/70887
+
+        // NOTE: this line is here simply to guarantee that if self.attestation_subnet_count type
+        // is changed, a compiler warning will be raised. This code depends on the type being u64.
+        let attestation_subnet_count: u64 = self.attestation_subnet_count;
+        let attestation_subnet_count_bits = if attestation_subnet_count == 0 {
+            0
+        } else {
+            63 - attestation_subnet_count.leading_zeros()
+        };
+
+        self.attestation_subnet_extra_bits as u32 + attestation_subnet_count_bits
+    }
+
     /// Returns a `ChainSpec` compatible with the Ethereum Foundation specification.
     pub fn mainnet() -> Self {
         Self {
@@ -576,9 +595,12 @@ impl ChainSpec {
             attestation_propagation_slot_range: 32,
             attestation_subnet_count: 64,
             random_subnets_per_validator: 1,
+            subnets_per_node: 1,
             maximum_gossip_clock_disparity_millis: 500,
             target_aggregators_per_committee: 16,
             epochs_per_random_subnet_subscription: 256,
+            epochs_per_subnet_subscription: 256,
+            attestation_subnet_extra_bits: 6,
 
             /*
              * Application specific
@@ -755,7 +777,7 @@ impl ChainSpec {
             domain_sync_committee_selection_proof: 8,
             domain_contribution_and_proof: 9,
             altair_fork_version: [0x01, 0x00, 0x00, 0x64],
-            altair_fork_epoch: Some(Epoch::new(256)),
+            altair_fork_epoch: Some(Epoch::new(512)),
 
             /*
              * Merge hard fork params
@@ -766,14 +788,11 @@ impl ChainSpec {
                 .expect("pow does not overflow"),
             proportional_slashing_multiplier_bellatrix: 3,
             bellatrix_fork_version: [0x02, 0x00, 0x00, 0x64],
-            bellatrix_fork_epoch: None,
-            terminal_total_difficulty: Uint256::MAX
-                .checked_sub(Uint256::from(2u64.pow(10)))
-                .expect("subtraction does not overflow")
-                // Add 1 since the spec declares `2**256 - 2**10` and we use
-                // `Uint256::MAX` which is `2*256- 1`.
-                .checked_add(Uint256::one())
-                .expect("addition does not overflow"),
+            bellatrix_fork_epoch: Some(Epoch::new(385536)),
+            terminal_total_difficulty: Uint256::from_dec_str(
+                "8626000000000000000000058750000000000000000000",
+            )
+            .expect("terminal_total_difficulty is a valid integer"),
             terminal_block_hash: ExecutionBlockHash::zero(),
             terminal_block_hash_activation_epoch: Epoch::new(u64::MAX),
             safe_slots_to_import_optimistically: 128u64,
@@ -786,9 +805,12 @@ impl ChainSpec {
             attestation_propagation_slot_range: 32,
             attestation_subnet_count: 64,
             random_subnets_per_validator: 1,
+            subnets_per_node: 1,
             maximum_gossip_clock_disparity_millis: 500,
             target_aggregators_per_committee: 16,
             epochs_per_random_subnet_subscription: 256,
+            epochs_per_subnet_subscription: 256,
+            attestation_subnet_extra_bits: 6,
 
             /*
              * Application specific

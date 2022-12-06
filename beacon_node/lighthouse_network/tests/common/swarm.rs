@@ -24,7 +24,7 @@ where
         })
         .multiplex(libp2p::yamux::YamuxConfig::default())
         .boxed();
-    SwarmBuilder::new(transport, behaviour, local_public_key.into()).build()
+    SwarmBuilder::without_executor(transport, behaviour, local_public_key.into()).build()
 }
 
 pub fn random_multiaddr() -> libp2p::multiaddr::Multiaddr {

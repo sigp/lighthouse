@@ -18,7 +18,7 @@ use types::{
     Address, ChainSpec, EthSpec, ExecutionBlockHash, ExecutionPayload, FullPayload, Hash256,
     MainnetEthSpec, PublicKeyBytes, Slot, Uint256,
 };
-const EXECUTION_ENGINE_START_TIMEOUT: Duration = Duration::from_secs(20);
+const EXECUTION_ENGINE_START_TIMEOUT: Duration = Duration::from_secs(30);
 
 struct ExecutionPair<E, T: EthSpec> {
     /// The Lighthouse `ExecutionLayer` struct, connected to the `execution_engine` via HTTP.
@@ -202,8 +202,8 @@ impl<E: GenericExecutionEngine> TestRig<E> {
         .await;
 
         // We hardcode the accounts here since some EEs start with a default unlocked account
-        let account1 = ethers_core::types::Address::from_slice(&hex::decode(&ACCOUNT1).unwrap());
-        let account2 = ethers_core::types::Address::from_slice(&hex::decode(&ACCOUNT2).unwrap());
+        let account1 = ethers_core::types::Address::from_slice(&hex::decode(ACCOUNT1).unwrap());
+        let account2 = ethers_core::types::Address::from_slice(&hex::decode(ACCOUNT2).unwrap());
 
         /*
          * Check the transition config endpoint.

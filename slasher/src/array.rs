@@ -188,7 +188,7 @@ pub trait TargetArrayChunk: Sized + serde::Serialize + serde::de::DeserializeOwn
 
         txn.put(
             Self::select_db(db),
-            &disk_key.to_be_bytes(),
+            disk_key.to_be_bytes(),
             &compressed_value,
         )?;
         Ok(())

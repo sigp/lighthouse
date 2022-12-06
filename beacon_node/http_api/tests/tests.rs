@@ -745,6 +745,36 @@ impl ApiTester {
         self
     }
 
+    pub async fn test_beacon_states_randao(self) -> Self {
+        for state_id in self.interesting_state_ids() {
+            let mut state_opt = state_id
+                .state(&self.chain)
+                .ok()
+                .map(|(state, _execution_optimistic)| state);
+
+            let epoch_opt = state_opt.as_ref().map(|state| state.current_epoch());
+            let result = self
+                .client
+                .get_beacon_states_randao(state_id.0, epoch_opt)
+                .await
+                .unwrap()
+                .map(|res| res.data);
+
+            if result.is_none() && state_opt.is_none() {
+                continue;
+            }
+
+            let state = state_opt.as_mut().expect("result should be none");
+            let randao_mix = state
+                .get_randao_mix(state.slot().epoch(E::slots_per_epoch()))
+                .unwrap();
+
+            assert_eq!(result.unwrap().randao, *randao_mix);
+        }
+
+        self
+    }
+
     pub async fn test_beacon_headers_all_slots(self) -> Self {
         for slot in 0..CHAIN_LENGTH {
             let slot = Slot::from(slot);
@@ -986,6 +1016,82 @@ impl ApiTester {
 
             // Check that version headers are provided.
             let url = self.client.get_beacon_blocks_path(block_id.0).unwrap();
+
+            let builders: Vec<fn(RequestBuilder) -> RequestBuilder> = vec![
+                |b| b,
+                |b| b.accept(Accept::Ssz),
+                |b| b.accept(Accept::Json),
+                |b| b.accept(Accept::Any),
+            ];
+
+            for req_builder in builders {
+                let raw_res = self
+                    .client
+                    .get_response(url.clone(), req_builder)
+                    .await
+                    .optional()
+                    .unwrap();
+                if let (Some(raw_res), Some(expected)) = (&raw_res, &expected) {
+                    assert_eq!(
+                        raw_res.fork_name_from_header().unwrap(),
+                        Some(expected.fork_name(&self.chain.spec).unwrap())
+                    );
+                } else {
+                    assert!(raw_res.is_none());
+                    assert_eq!(expected, None);
+                }
+            }
+        }
+
+        self
+    }
+
+    pub async fn test_beacon_blinded_blocks(self) -> Self {
+        for block_id in self.interesting_block_ids() {
+            let expected = block_id
+                .blinded_block(&self.chain)
+                .ok()
+                .map(|(block, _execution_optimistic)| block);
+
+            if let CoreBlockId::Slot(slot) = block_id.0 {
+                if expected.is_none() {
+                    assert!(SKIPPED_SLOTS.contains(&slot.as_u64()));
+                } else {
+                    assert!(!SKIPPED_SLOTS.contains(&slot.as_u64()));
+                }
+            }
+
+            // Check the JSON endpoint.
+            let json_result = self
+                .client
+                .get_beacon_blinded_blocks(block_id.0)
+                .await
+                .unwrap();
+
+            if let (Some(json), Some(expected)) = (&json_result, &expected) {
+                assert_eq!(&json.data, expected, "{:?}", block_id);
+                assert_eq!(
+                    json.version,
+                    Some(expected.fork_name(&self.chain.spec).unwrap())
+                );
+            } else {
+                assert_eq!(json_result, None);
+                assert_eq!(expected, None);
+            }
+
+            // Check the SSZ endpoint.
+            let ssz_result = self
+                .client
+                .get_beacon_blinded_blocks_ssz(block_id.0, &self.chain.spec)
+                .await
+                .unwrap();
+            assert_eq!(ssz_result.as_ref(), expected.as_ref(), "{:?}", block_id);
+
+            // Check that version headers are provided.
+            let url = self
+                .client
+                .get_beacon_blinded_blocks_path(block_id.0)
+                .unwrap();
 
             let builders: Vec<fn(RequestBuilder) -> RequestBuilder> = vec![
                 |b| b,
@@ -3696,6 +3802,8 @@ async fn beacon_get() {
         .await
         .test_beacon_states_validator_id()
         .await
+        .test_beacon_states_randao()
+        .await
         .test_beacon_headers_all_slots()
         .await
         .test_beacon_headers_all_parents()
@@ -3703,6 +3811,8 @@ async fn beacon_get() {
         .test_beacon_headers_block_id()
         .await
         .test_beacon_blocks()
+        .await
+        .test_beacon_blinded_blocks()
         .await
         .test_beacon_blocks_attestations()
         .await

@@ -26,8 +26,8 @@ use libp2p::swarm::AddressScore;
 pub use libp2p::{
     core::{connection::ConnectionId, ConnectedPoint, Multiaddr, PeerId},
     swarm::{
-        handler::ConnectionHandler, DialError, NetworkBehaviour,
-        NetworkBehaviourAction as NBAction, NotifyHandler, PollParameters, SubstreamProtocol,
+        dummy::ConnectionHandler, DialError, NetworkBehaviour, NetworkBehaviourAction as NBAction,
+        NotifyHandler, PollParameters, SubstreamProtocol,
     },
 };
 use lru::LruCache;
@@ -197,7 +197,9 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
 
         let local_enr = network_globals.local_enr.read().clone();
 
-        info!(log, "ENR Initialised"; "enr" => local_enr.to_base64(), "seq" => local_enr.seq(), "id"=> %local_enr.node_id(), "ip" => ?local_enr.ip(), "udp"=> ?local_enr.udp(), "tcp" => ?local_enr.tcp());
+        info!(log, "ENR Initialised"; "enr" => local_enr.to_base64(), "seq" => local_enr.seq(), "id"=> %local_enr.node_id(),
+              "ip4" => ?local_enr.ip4(), "udp4"=> ?local_enr.udp4(), "tcp4" => ?local_enr.tcp6()
+        );
 
         let listen_socket = SocketAddr::new(config.listen_address, config.discovery_port);
 
@@ -214,9 +216,9 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                 "Adding node to routing table";
                 "node_id" => %bootnode_enr.node_id(),
                 "peer_id" => %bootnode_enr.peer_id(),
-                "ip" => ?bootnode_enr.ip(),
-                "udp" => ?bootnode_enr.udp(),
-                "tcp" => ?bootnode_enr.tcp()
+                "ip" => ?bootnode_enr.ip4(),
+                "udp" => ?bootnode_enr.udp4(),
+                "tcp" => ?bootnode_enr.tcp4()
             );
             let repr = bootnode_enr.to_string();
             let _ = discv5.add_enr(bootnode_enr).map_err(|e| {
@@ -268,9 +270,9 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                         "Adding node to routing table";
                         "node_id" => %enr.node_id(),
                         "peer_id" => %enr.peer_id(),
-                        "ip" => ?enr.ip(),
-                        "udp" => ?enr.udp(),
-                        "tcp" => ?enr.tcp()
+                        "ip" => ?enr.ip4(),
+                        "udp" => ?enr.udp4(),
+                        "tcp" => ?enr.tcp4()
                     );
                     let _ = discv5.add_enr(enr).map_err(|e| {
                         error!(
@@ -763,7 +765,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
             // we can connect to peers who aren't compatible with an upcoming fork.
             // `fork_digest` **must** be same.
             enr.eth2().map(|e| e.fork_digest) == Ok(enr_fork_id.fork_digest)
-                && (enr.tcp().is_some() || enr.tcp6().is_some())
+                && (enr.tcp4().is_some() || enr.tcp6().is_some())
         };
 
         // General predicate
@@ -832,6 +834,17 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
 
                         // Map each subnet query's min_ttl to the set of ENR's returned for that subnet.
                         queries.iter().for_each(|query| {
+                            let query_str = match query.subnet {
+                                Subnet::Attestation(_) => "attestation",
+                                Subnet::SyncCommittee(_) => "sync_committee",
+                            };
+
+                            if let Some(v) = metrics::get_int_counter(
+                                &metrics::TOTAL_SUBNET_QUERIES,
+                                &[query_str],
+                            ) {
+                                v.inc();
+                            }
                             // A subnet query has completed. Add back to the queue, incrementing retries.
                             self.add_subnet_query(query.subnet, query.min_ttl, query.retries + 1);
 
@@ -843,6 +856,12 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                                 .filter(|enr| subnet_predicate(enr))
                                 .map(|enr| enr.peer_id())
                                 .for_each(|peer_id| {
+                                    if let Some(v) = metrics::get_int_counter(
+                                        &metrics::SUBNET_PEERS_FOUND,
+                                        &[query_str],
+                                    ) {
+                                        v.inc();
+                                    }
                                     let other_min_ttl = mapped_results.get_mut(&peer_id);
 
                                     // map peer IDs to the min_ttl furthest in the future
@@ -908,11 +927,11 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
 
 impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
     // Discovery is not a real NetworkBehaviour...
-    type ConnectionHandler = libp2p::swarm::handler::DummyConnectionHandler;
+    type ConnectionHandler = ConnectionHandler;
     type OutEvent = DiscoveredPeers;
 
     fn new_handler(&mut self) -> Self::ConnectionHandler {
-        libp2p::swarm::handler::DummyConnectionHandler::default()
+        ConnectionHandler
     }
 
     // Handles the libp2p request to obtain multiaddrs for peer_id's in order to dial them.
@@ -928,13 +947,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
         }
     }
 
-    fn inject_event(
-        &mut self,
-        _: PeerId,
-        _: ConnectionId,
-        _: <Self::ConnectionHandler as ConnectionHandler>::OutEvent,
-    ) {
-    }
+    fn inject_event(&mut self, _: PeerId, _: ConnectionId, _: void::Void) {}
 
     fn inject_dial_failure(
         &mut self,
@@ -1040,7 +1053,8 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
                         }
                         Discv5Event::EnrAdded { .. }
                         | Discv5Event::TalkRequest(_)
-                        | Discv5Event::NodeInserted { .. } => {} // Ignore all other discv5 server events
+                        | Discv5Event::NodeInserted { .. }
+                        | Discv5Event::SessionEstablished { .. } => {} // Ignore all other discv5 server events
                     }
                 }
             }
