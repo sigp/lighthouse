@@ -11,6 +11,7 @@ mod attester_duties;
 mod block_id;
 mod block_packing_efficiency;
 mod block_rewards;
+mod block_rewards_v2;
 mod database;
 mod metrics;
 mod proposer_duties;
@@ -1700,6 +1701,10 @@ pub fn serve<T: BeaconChainTypes>(
             },
         );
 
+    // TODO: GET beacon/rewards/blocks/{block_id}
+
+    let get_beacon_rewards_block = beacon_rewards_path;
+
     /*
      * beacon/rewards
      */
@@ -3381,6 +3386,7 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(get_beacon_pool_proposer_slashings.boxed())
                 .or(get_beacon_pool_voluntary_exits.boxed())
                 .or(get_beacon_deposit_snapshot.boxed())
+                .or(get_beacon_rewards_block.boxed())
                 .or(get_config_fork_schedule.boxed())
                 .or(get_config_spec.boxed())
                 .or(get_config_deposit_contract.boxed())
