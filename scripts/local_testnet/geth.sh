@@ -33,7 +33,7 @@ http_port=${@:$OPTIND+2:1}
 auth_port=${@:$OPTIND+3:1}
 genesis_file=${@:$OPTIND+4:1}
 
-geth_binary=geth-merge
+geth_binary=/home/sean/CLionProjects/eip4844-interop/geth/go-ethereum/build/bin/geth
 
 # Init
 $geth_binary init \
@@ -51,5 +51,4 @@ exec $geth_binary \
     --syncmode=full \
     --bootnodes $EL_BOOTNODE_ENODE \
     --port $network_port \
-    --http.port $http_port \
-    --authrpc.port $auth_port
+    --http.port $auth_port

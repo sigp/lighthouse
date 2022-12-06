@@ -11,8 +11,9 @@
     "istanbulBlock": 0,
     "berlinBlock": 0,
     "londonBlock": 0,
-    "mergeForkBlock": 0,
-    "shardingForkBlock": 64,
+    "mergeNetsplitBlock": 0,
+    "shanghaiBlock": 0,
+    "shardingForkBlock": 32,
     "terminalTotalDifficulty": 0
   },
   "alloc": {
