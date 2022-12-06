@@ -8,15 +8,15 @@ description = "Efficient Merkle-hashing as used in Ethereum 2.0"
 
 [dev-dependencies]
 rand = "0.8.5"
-tree_hash_derive = "0.4.0"
+tree_hash_derive = { version = "0.4.0", path = "../tree_hash_derive" }
 types = { path = "../types" }
 beacon_chain = { path = "../../beacon_node/beacon_chain" }
-eth2_ssz = "0.4.1"
-eth2_ssz_derive = "0.3.0"
+eth2_ssz = { version = "0.4.1", path = "../ssz" }
+eth2_ssz_derive = { version = "0.3.0", path = "../ssz_derive" }
 
 [dependencies]
 ethereum-types = "0.12.1"
-eth2_hashing = "0.3.0"
+eth2_hashing = { version = "0.3.0", path = "../../crypto/eth2_hashing" }
 smallvec = "1.6.1"
 
 [features]

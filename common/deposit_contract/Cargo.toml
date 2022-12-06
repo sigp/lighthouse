@@ -14,6 +14,6 @@ hex = "0.4.2"
 
 [dependencies]
 types = { path = "../../consensus/types"}
-eth2_ssz = "0.4.1"
-tree_hash = "0.4.1"
+eth2_ssz = { version = "0.4.1", path = "../../consensus/ssz" }
+tree_hash = { version = "0.4.1", path = "../../consensus/tree_hash" }
 ethabi = "16.0.0"

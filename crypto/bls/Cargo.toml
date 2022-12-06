@@ -5,15 +5,15 @@ authors = ["Paul Hauner <paul@paulhauner.com>"]
 edition = "2021"
 
 [dependencies]
-eth2_ssz = "0.4.1"
-tree_hash = "0.4.1"
+eth2_ssz = { version = "0.4.1", path = "../../consensus/ssz" }
+tree_hash = { version = "0.4.1", path = "../../consensus/tree_hash" }
 milagro_bls = { git = "https://github.com/sigp/milagro_bls", tag = "v1.4.2", optional = true }
 rand = "0.7.3"
 serde = "1.0.116"
 serde_derive = "1.0.116"
-eth2_serde_utils = "0.1.1"
+eth2_serde_utils = { version = "0.1.1", path = "../../consensus/serde_utils" }
 hex = "0.4.2"
-eth2_hashing = "0.3.0"
+eth2_hashing = { version = "0.3.0", path = "../eth2_hashing" }
 ethereum-types = "0.12.1"
 arbitrary = { version = "1.0", features = ["derive"], optional = true }
 zeroize = { version = "1.4.2", features = ["zeroize_derive"] }
