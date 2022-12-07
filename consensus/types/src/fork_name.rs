@@ -199,7 +199,7 @@ mod test {
 
     #[test]
     fn previous_and_next_fork_consistent() {
-        assert_eq!(ForkName::Merge.next_fork(), None);
+        assert_eq!(ForkName::Eip4844.next_fork(), None);
         assert_eq!(ForkName::Base.previous_fork(), None);
 
         for (prev_fork, fork) in ForkName::list_all().into_iter().tuple_windows() {

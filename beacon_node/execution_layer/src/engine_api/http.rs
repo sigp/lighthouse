@@ -916,8 +916,7 @@ mod test {
     use std::str::FromStr;
     use std::sync::Arc;
     use types::{
-        ExecutionPayloadMerge, ForkName, FullPayload, MainnetEthSpec, Transactions, Unsigned,
-        VariableList,
+        ExecutionPayloadMerge, ForkName, MainnetEthSpec, Transactions, Unsigned, VariableList,
     };
 
     struct Tester {

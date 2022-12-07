@@ -35,8 +35,6 @@ use tokio::{
     time::sleep,
 };
 use tokio_stream::wrappers::WatchStream;
-#[cfg(feature = "withdrawals")]
-use types::Withdrawal;
 use types::{AbstractExecPayload, Blob, ExecPayload, KzgCommitment};
 use types::{
     BlindedPayload, BlockType, ChainSpec, Epoch, ExecutionBlockHash, ForkName,

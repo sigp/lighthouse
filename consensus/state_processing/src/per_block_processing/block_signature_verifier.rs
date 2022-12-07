@@ -8,7 +8,7 @@ use rayon::prelude::*;
 use std::borrow::Cow;
 use types::{
     AbstractExecPayload, BeaconState, BeaconStateError, ChainSpec, EthSpec, Hash256,
-    IndexedAttestation, SignedBeaconBlock,
+    SignedBeaconBlock,
 };
 
 pub type Result<T> = std::result::Result<T, Error>;

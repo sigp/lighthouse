@@ -6,15 +6,14 @@ use crate::{
 };
 use crate::{http_metrics::metrics, validator_store::ValidatorStore};
 use environment::RuntimeContext;
-use eth2::types::{Graffiti, VariableList};
 use slog::{crit, debug, error, info, trace, warn};
 use slot_clock::SlotClock;
 use std::ops::Deref;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use types::{
-    AbstractExecPayload, BlindedPayload, BlobsSidecar, BlockType, EthSpec, ExecPayload, ForkName,
-    FullPayload, PublicKeyBytes, Slot,
+    AbstractExecPayload, BlindedPayload, BlockType, EthSpec, FullPayload, Graffiti, PublicKeyBytes,
+    Slot,
 };
 
 #[derive(Debug)]

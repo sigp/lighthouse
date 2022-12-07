@@ -3,7 +3,6 @@ use crate::{metrics, service::NetworkMessage, sync::SyncMessage};
 use beacon_chain::store::Error;
 use beacon_chain::{
     attestation_verification::{self, Error as AttnError, VerifiedAttestation},
-    blob_verification::BlobError,
     observed_operations::ObservationOutcome,
     sync_committee_verification::{self, Error as SyncCommitteeError},
     validator_monitor::get_block_delay_ms,
