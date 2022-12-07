@@ -23,7 +23,7 @@ use std::fmt::Debug;
 #[cfg(not(all(feature = "withdrawals", feature = "withdrawals-processing")))]
 use std::marker::PhantomData;
 use std::path::Path;
-#[cfg(all(feature = "withdrawals", feature = "withdrawals-processing"))]
+#[cfg(all(feature = "withdrawals"))]
 use types::SignedBlsToExecutionChange;
 use types::{
     Attestation, AttesterSlashing, BeaconBlock, BeaconState, BlindedPayload, ChainSpec, Deposit,
@@ -45,10 +45,7 @@ struct ExecutionMetadata {
 /// Newtype for testing withdrawals.
 #[derive(Debug, Clone, Deserialize)]
 pub struct WithdrawalsPayload<T: EthSpec> {
-    #[cfg(all(feature = "withdrawals", feature = "withdrawals-processing"))]
     payload: FullPayload<T>,
-    #[cfg(not(all(feature = "withdrawals", feature = "withdrawals-processing")))]
-    _phantom_data: PhantomData<T>,
 }
 
 #[derive(Debug, Clone)]

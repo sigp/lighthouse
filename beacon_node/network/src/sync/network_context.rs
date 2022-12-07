@@ -6,18 +6,21 @@ use super::range_sync::{BatchId, ChainId, ExpectedBatchTy};
 use crate::beacon_processor::WorkEvent;
 use crate::service::{NetworkMessage, RequestId};
 use crate::status::ToStatusMessage;
-use beacon_chain::{BeaconChainTypes, EngineState};
+use beacon_chain::{BeaconChain, BeaconChainTypes, EngineState};
 use fnv::FnvHashMap;
 use lighthouse_network::rpc::methods::BlobsByRangeRequest;
 use lighthouse_network::rpc::{BlocksByRangeRequest, BlocksByRootRequest, GoodbyeReason};
 use lighthouse_network::{Client, NetworkGlobals, PeerAction, PeerId, ReportSource, Request};
 use slog::{debug, trace, warn};
+use slot_clock::SlotClock;
 use std::collections::hash_map::Entry;
 use std::collections::VecDeque;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use types::signed_block_and_blobs::BlockWrapper;
-use types::{BlobsSidecar, EthSpec, SignedBeaconBlock, SignedBeaconBlockAndBlobsSidecar};
+use types::{
+    BlobsSidecar, ChainSpec, EthSpec, SignedBeaconBlock, SignedBeaconBlockAndBlobsSidecar,
+};
 
 #[derive(Debug, Default)]
 struct BlockBlobRequestInfo<T: EthSpec> {
@@ -94,6 +97,8 @@ pub struct SyncNetworkContext<T: BeaconChainTypes> {
     /// Channel to send work to the beacon processor.
     beacon_processor_send: mpsc::Sender<WorkEvent<T>>,
 
+    chain: Arc<BeaconChain<T>>,
+
     /// Logger for the `SyncNetworkContext`.
     log: slog::Logger,
 }
@@ -103,6 +108,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         network_send: mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
         network_globals: Arc<NetworkGlobals<T::EthSpec>>,
         beacon_processor_send: mpsc::Sender<WorkEvent<T>>,
+        chain: Arc<BeaconChain<T>>,
         log: slog::Logger,
     ) -> Self {
         SyncNetworkContext {
@@ -115,6 +121,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             backfill_sidecar_pair_requests: Default::default(),
             execution_engine_state: EngineState::Online, // always assume `Online` at the start
             beacon_processor_send,
+            chain,
             log,
         }
     }
@@ -459,19 +466,25 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         peer_id: PeerId,
         request: BlocksByRootRequest,
     ) -> Result<Id, &'static str> {
-        //FIXME(sean) add prune depth logic here?
-        // D: YES
-        // MOREINFO: here depending of the boundaries we decide what kind of request we send, if we
-        // request just a block or if we request a block, glob pair.
-
-        trace!(
-            self.log,
-            "Sending BlocksByRoot Request";
-            "method" => "BlocksByRoot",
-            "count" => request.block_roots.len(),
-            "peer" => %peer_id
-        );
-        let request = Request::BlocksByRoot(request);
+        let request = if self.chain.is_data_availability_check_required().map_err(|_|"Unable to read slot clock")?  {
+            trace!(
+                self.log,
+                "Sending BlobsByRoot Request";
+                "method" => "BlobsByRoot",
+                "count" => request.block_roots.len(),
+                "peer" => %peer_id
+            );
+            Request::BlobsByRoot(request.into())
+        } else {
+            trace!(
+                self.log,
+                "Sending BlocksByRoot Request";
+                "method" => "BlocksByRoot",
+                "count" => request.block_roots.len(),
+                "peer" => %peer_id
+            );
+            Request::BlocksByRoot(request)
+        };
         let id = self.next_id();
         let request_id = RequestId::Sync(SyncRequestId::SingleBlock { id });
         self.send_network_msg(NetworkMessage::SendRequest {
@@ -488,14 +501,25 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         peer_id: PeerId,
         request: BlocksByRootRequest,
     ) -> Result<Id, &'static str> {
-        trace!(
-            self.log,
-            "Sending BlocksByRoot Request";
-            "method" => "BlocksByRoot",
-            "count" => request.block_roots.len(),
-            "peer" => %peer_id
-        );
-        let request = Request::BlocksByRoot(request);
+        let request = if self.chain.is_data_availability_check_required().map_err(|_|"Unable to read slot clock")? {
+            trace!(
+                self.log,
+                "Sending BlobsByRoot Request";
+                "method" => "BlobsByRoot",
+                "count" => request.block_roots.len(),
+                "peer" => %peer_id
+            );
+            Request::BlobsByRoot(request.into())
+        } else {
+            trace!(
+                self.log,
+                "Sending BlocksByRoot Request";
+                "method" => "BlocksByRoot",
+                "count" => request.block_roots.len(),
+                "peer" => %peer_id
+            );
+            Request::BlocksByRoot(request)
+        };
         let id = self.next_id();
         let request_id = RequestId::Sync(SyncRequestId::ParentLookup { id });
         self.send_network_msg(NetworkMessage::SendRequest {

@@ -10,11 +10,11 @@ use beacon_chain::builder::Witness;
 use beacon_chain::eth1_chain::CachingEth1Backend;
 use lighthouse_network::{NetworkGlobals, Request};
 use slog::{Drain, Level};
-use slot_clock::SystemTimeSlotClock;
+use slot_clock::{SlotClock, SystemTimeSlotClock};
 use store::MemoryStore;
 use tokio::sync::mpsc;
 use types::test_utils::{SeedableRng, TestRandom, XorShiftRng};
-use types::MinimalEthSpec as E;
+use types::{EthSpec, MainnetEthSpec, MinimalEthSpec as E, Slot};
 
 type T = Witness<SystemTimeSlotClock, CachingEth1Backend<E>, E, MemoryStore<E>, MemoryStore<E>>;
 
@@ -55,6 +55,7 @@ impl TestRig {
                 network_tx,
                 globals,
                 beacon_processor_tx,
+                chain,
                 log.new(slog::o!("component" => "network_context")),
             )
         };
