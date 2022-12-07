@@ -1,6 +1,7 @@
 use crate::beacon_node_fallback::{Error as FallbackError, Errors};
 use crate::{
     beacon_node_fallback::{BeaconNodeFallback, RequireSynced},
+    determine_graffiti,
     graffiti_file::GraffitiFile,
     OfflineOnFailure,
 };
@@ -298,18 +299,13 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
             })?
             .into();
 
-        let graffiti = self
-            .graffiti_file
-            .clone()
-            .and_then(|mut g| match g.load_graffiti(&validator_pubkey) {
-                Ok(g) => g,
-                Err(e) => {
-                    warn!(log, "Failed to read graffiti file"; "error" => ?e);
-                    None
-                }
-            })
-            .or_else(|| self.validator_store.graffiti(&validator_pubkey))
-            .or(self.graffiti);
+        let graffiti = determine_graffiti(
+            &validator_pubkey,
+            log,
+            self.graffiti_file.clone(),
+            self.validator_store.graffiti(&validator_pubkey),
+            self.graffiti,
+        );
 
         let randao_reveal_ref = &randao_reveal;
         let self_ref = &self;
