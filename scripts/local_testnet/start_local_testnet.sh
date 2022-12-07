@@ -125,6 +125,10 @@ done
 
 sleeping 20
 
+# Reset the `genesis.json` config file fork times.
+sed -i 's/"shanghaiTime".*$/"shanghaiTime": 0,/g' genesis.json
+sed -i 's/"shardingForkTime".*$/"shardingForkTime": 0,/g' genesis.json
+
 for (( bn=1; bn<=$BN_COUNT; bn++ )); do
 
     execute_command_add_PID json_snoop_$bn.log json_rpc_snoop -p $((EL_base_auth_http + $bn)) -b 0.0.0.0 http://localhost:$((EL_base_auth_http + $bn + 10))
