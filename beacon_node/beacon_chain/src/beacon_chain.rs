@@ -5428,7 +5428,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 self.epoch().ok().map(|current_epoch| {
                     std::cmp::max(
                         fork_epoch,
-                        current_epoch - *MIN_EPOCHS_FOR_BLOBS_SIDECARS_REQUESTS,
+                        current_epoch.saturating_sub(*MIN_EPOCHS_FOR_BLOBS_SIDECARS_REQUESTS),
                     )
                 })
             })
