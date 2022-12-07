@@ -17,6 +17,7 @@ mod proposer_duties;
 mod publish_blocks;
 mod state_id;
 mod sync_committees;
+mod ui;
 mod validator_inclusion;
 mod version;
 
@@ -2940,6 +2941,18 @@ pub fn serve<T: BeaconChainTypes>(
             },
         );
 
+    // GET lighthouse/ui/validator_count
+    let get_lighthouse_ui_validator_count = warp::path("lighthouse")
+        .and(warp::path("ui"))
+        .and(warp::path("validator_count"))
+        .and(warp::path::end())
+        .and(chain_filter.clone())
+        .and_then(|chain: Arc<BeaconChain<T>>| {
+            blocking_json_task(move || {
+                ui::get_validator_count(chain).map(api_types::GenericResponse::from)
+            })
+        });
+
     // GET lighthouse/syncing
     let get_lighthouse_syncing = warp::path("lighthouse")
         .and(warp::path("syncing"))
@@ -3408,6 +3421,7 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(get_lighthouse_attestation_performance.boxed())
                 .or(get_lighthouse_block_packing_efficiency.boxed())
                 .or(get_lighthouse_merge_readiness.boxed())
+                .or(get_lighthouse_ui_validator_count.boxed())
                 .or(get_events.boxed()),
         )
         .boxed()

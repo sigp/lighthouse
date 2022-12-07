@@ -633,7 +633,7 @@ impl ChainSpec {
              * Capella hard fork params
              */
             capella_fork_version: [0x03, 00, 00, 00],
-            capella_fork_epoch: Some(Epoch::new(18446744073709551615)),
+            capella_fork_epoch: None,
 
             /*
              * Eip4844 hard fork params
@@ -970,6 +970,7 @@ pub struct Config {
     #[serde(default = "default_eip4844_fork_version")]
     #[serde(with = "eth2_serde_utils::bytes_4_hex")]
     eip4844_fork_version: [u8; 4],
+    #[serde(default)]
     #[serde(serialize_with = "serialize_fork_epoch")]
     #[serde(deserialize_with = "deserialize_fork_epoch")]
     pub eip4844_fork_epoch: Option<MaybeQuoted<Epoch>>,

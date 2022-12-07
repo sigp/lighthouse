@@ -33,7 +33,7 @@ use BeaconStateError;
 )]
 #[derive(Debug, Clone, Serialize, Deserialize, Encode, TreeHash, Derivative)]
 #[derivative(PartialEq, Hash(bound = "T: EthSpec"))]
-#[serde(bound = "T: EthSpec")]
+#[serde(bound = "T: EthSpec", untagged)]
 #[tree_hash(enum_behaviour = "transparent")]
 #[ssz(enum_behaviour = "transparent")]
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]

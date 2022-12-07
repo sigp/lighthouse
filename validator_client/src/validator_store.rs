@@ -19,12 +19,11 @@ use std::sync::Arc;
 use task_executor::TaskExecutor;
 use types::{
     attestation::Error as AttestationError, graffiti::GraffitiString, AbstractExecPayload, Address,
-    AggregateAndProof, Attestation, BeaconBlock, BlindedPayload, BlobsSidecar, ChainSpec,
-    ContributionAndProof, Domain, Epoch, EthSpec, ExecPayload, Fork, FullPayload, Graffiti,
-    Hash256, Keypair, PublicKeyBytes, SelectionProof, Signature, SignedAggregateAndProof,
-    SignedBeaconBlock, SignedContributionAndProof, SignedRoot, SignedValidatorRegistrationData,
-    Slot, SyncAggregatorSelectionData, SyncCommitteeContribution, SyncCommitteeMessage,
-    SyncSelectionProof, SyncSubnetId, ValidatorRegistrationData,
+    AggregateAndProof, Attestation, BeaconBlock, BlindedPayload, ChainSpec, ContributionAndProof,
+    Domain, Epoch, EthSpec, Fork, Graffiti, Hash256, Keypair, PublicKeyBytes, SelectionProof,
+    Signature, SignedAggregateAndProof, SignedBeaconBlock, SignedContributionAndProof, SignedRoot,
+    SignedValidatorRegistrationData, Slot, SyncAggregatorSelectionData, SyncCommitteeContribution,
+    SyncCommitteeMessage, SyncSelectionProof, SyncSubnetId, ValidatorRegistrationData,
 };
 use validator_dir::ValidatorDir;
 

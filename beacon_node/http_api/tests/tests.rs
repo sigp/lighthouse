@@ -2122,7 +2122,7 @@ impl ApiTester {
         self
     }
 
-    pub async fn test_blinded_block_production<Payload: ExecPayload<E>>(&self) {
+    pub async fn test_blinded_block_production<Payload: AbstractExecPayload<E>>(&self) {
         let fork = self.chain.canonical_head.cached_head().head_fork();
         let genesis_validators_root = self.chain.genesis_validators_root;
 
@@ -2182,7 +2182,7 @@ impl ApiTester {
         }
     }
 
-    pub async fn test_blinded_block_production_no_verify_randao<Payload: ExecPayload<E>>(
+    pub async fn test_blinded_block_production_no_verify_randao<Payload: AbstractExecPayload<E>>(
         self,
     ) -> Self {
         for _ in 0..E::slots_per_epoch() {
@@ -2206,7 +2206,9 @@ impl ApiTester {
         self
     }
 
-    pub async fn test_blinded_block_production_verify_randao_invalid<Payload: ExecPayload<E>>(
+    pub async fn test_blinded_block_production_verify_randao_invalid<
+        Payload: AbstractExecPayload<E>,
+    >(
         self,
     ) -> Self {
         let fork = self.chain.canonical_head.cached_head().head_fork();
@@ -2664,7 +2666,7 @@ impl ApiTester {
 
         let (proposer_index, randao_reveal) = self.get_test_randao(slot, epoch).await;
 
-        let payload = self
+        let payload: BlindedPayload<E> = self
             .client
             .get_validator_blinded_blocks::<E, BlindedPayload<E>>(slot, &randao_reveal, None)
             .await
@@ -2673,14 +2675,11 @@ impl ApiTester {
             .body()
             .execution_payload()
             .unwrap()
-            .clone();
+            .into();
 
         let expected_fee_recipient = Address::from_low_u64_be(proposer_index as u64);
-        assert_eq!(
-            payload.execution_payload_header.fee_recipient,
-            expected_fee_recipient
-        );
-        assert_eq!(payload.execution_payload_header.gas_limit, 11_111_111);
+        assert_eq!(payload.fee_recipient(), expected_fee_recipient);
+        assert_eq!(payload.gas_limit(), 11_111_111);
 
         // If this cache is empty, it indicates fallback was not used, so the payload came from the
         // mock builder.
@@ -2707,7 +2706,7 @@ impl ApiTester {
 
         let (proposer_index, randao_reveal) = self.get_test_randao(slot, epoch).await;
 
-        let payload = self
+        let payload: BlindedPayload<E> = self
             .client
             .get_validator_blinded_blocks::<E, BlindedPayload<E>>(slot, &randao_reveal, None)
             .await
@@ -2716,14 +2715,11 @@ impl ApiTester {
             .body()
             .execution_payload()
             .unwrap()
-            .clone();
+            .into();
 
         let expected_fee_recipient = Address::from_low_u64_be(proposer_index as u64);
-        assert_eq!(
-            payload.execution_payload_header.fee_recipient,
-            expected_fee_recipient
-        );
-        assert_eq!(payload.execution_payload_header.gas_limit, 30_000_000);
+        assert_eq!(payload.fee_recipient(), expected_fee_recipient);
+        assert_eq!(payload.gas_limit(), 30_000_000);
 
         // This cache should not be populated because fallback should not have been used.
         assert!(self
@@ -2753,7 +2749,7 @@ impl ApiTester {
 
         let (_, randao_reveal) = self.get_test_randao(slot, epoch).await;
 
-        let payload = self
+        let payload: BlindedPayload<E> = self
             .client
             .get_validator_blinded_blocks::<E, BlindedPayload<E>>(slot, &randao_reveal, None)
             .await
@@ -2762,12 +2758,9 @@ impl ApiTester {
             .body()
             .execution_payload()
             .unwrap()
-            .clone();
+            .into();
 
-        assert_eq!(
-            payload.execution_payload_header.fee_recipient,
-            test_fee_recipient
-        );
+        assert_eq!(payload.fee_recipient(), test_fee_recipient);
 
         // This cache should not be populated because fallback should not have been used.
         assert!(self
@@ -2801,11 +2794,11 @@ impl ApiTester {
             .beacon_state
             .latest_execution_payload_header()
             .unwrap()
-            .block_hash;
+            .block_hash();
 
         let (_, randao_reveal) = self.get_test_randao(slot, epoch).await;
 
-        let payload = self
+        let payload: BlindedPayload<E> = self
             .client
             .get_validator_blinded_blocks::<E, BlindedPayload<E>>(slot, &randao_reveal, None)
             .await
@@ -2814,12 +2807,9 @@ impl ApiTester {
             .body()
             .execution_payload()
             .unwrap()
-            .clone();
+            .into();
 
-        assert_eq!(
-            payload.execution_payload_header.parent_hash,
-            expected_parent_hash
-        );
+        assert_eq!(payload.parent_hash(), expected_parent_hash);
 
         // If this cache is populated, it indicates fallback to the local EE was correctly used.
         assert!(self
@@ -2856,7 +2846,7 @@ impl ApiTester {
 
         let (_, randao_reveal) = self.get_test_randao(slot, epoch).await;
 
-        let payload = self
+        let payload: BlindedPayload<E> = self
             .client
             .get_validator_blinded_blocks::<E, BlindedPayload<E>>(slot, &randao_reveal, None)
             .await
@@ -2865,12 +2855,9 @@ impl ApiTester {
             .body()
             .execution_payload()
             .unwrap()
-            .clone();
+            .into();
 
-        assert_eq!(
-            payload.execution_payload_header.prev_randao,
-            expected_prev_randao
-        );
+        assert_eq!(payload.prev_randao(), expected_prev_randao);
 
         // If this cache is populated, it indicates fallback to the local EE was correctly used.
         assert!(self
@@ -2901,12 +2888,12 @@ impl ApiTester {
             .beacon_state
             .latest_execution_payload_header()
             .unwrap()
-            .block_number
+            .block_number()
             + 1;
 
         let (_, randao_reveal) = self.get_test_randao(slot, epoch).await;
 
-        let payload = self
+        let payload: BlindedPayload<E> = self
             .client
             .get_validator_blinded_blocks::<E, BlindedPayload<E>>(slot, &randao_reveal, None)
             .await
@@ -2915,12 +2902,9 @@ impl ApiTester {
             .body()
             .execution_payload()
             .unwrap()
-            .clone();
+            .into();
 
-        assert_eq!(
-            payload.execution_payload_header.block_number,
-            expected_block_number
-        );
+        assert_eq!(payload.block_number(), expected_block_number);
 
         // If this cache is populated, it indicates fallback to the local EE was correctly used.
         assert!(self
@@ -2951,11 +2935,11 @@ impl ApiTester {
             .beacon_state
             .latest_execution_payload_header()
             .unwrap()
-            .timestamp;
+            .timestamp();
 
         let (_, randao_reveal) = self.get_test_randao(slot, epoch).await;
 
-        let payload = self
+        let payload: BlindedPayload<E> = self
             .client
             .get_validator_blinded_blocks::<E, BlindedPayload<E>>(slot, &randao_reveal, None)
             .await
@@ -2964,9 +2948,9 @@ impl ApiTester {
             .body()
             .execution_payload()
             .unwrap()
-            .clone();
+            .into();
 
-        assert!(payload.execution_payload_header.timestamp > min_expected_timestamp);
+        assert!(payload.timestamp() > min_expected_timestamp);
 
         // If this cache is populated, it indicates fallback to the local EE was correctly used.
         assert!(self
@@ -2991,7 +2975,7 @@ impl ApiTester {
 
         let (_, randao_reveal) = self.get_test_randao(slot, epoch).await;
 
-        let payload = self
+        let payload: BlindedPayload<E> = self
             .client
             .get_validator_blinded_blocks::<E, BlindedPayload<E>>(slot, &randao_reveal, None)
             .await
@@ -3000,7 +2984,7 @@ impl ApiTester {
             .body()
             .execution_payload()
             .unwrap()
-            .clone();
+            .into();
 
         // If this cache is populated, it indicates fallback to the local EE was correctly used.
         assert!(self
@@ -3028,7 +3012,7 @@ impl ApiTester {
 
         let (_, randao_reveal) = self.get_test_randao(slot, epoch).await;
 
-        let payload = self
+        let payload: BlindedPayload<E> = self
             .client
             .get_validator_blinded_blocks::<E, BlindedPayload<E>>(slot, &randao_reveal, None)
             .await
@@ -3037,7 +3021,7 @@ impl ApiTester {
             .body()
             .execution_payload()
             .unwrap()
-            .clone();
+            .into();
 
         // If this cache is populated, it indicates fallback to the local EE was correctly used.
         assert!(self
@@ -3071,7 +3055,7 @@ impl ApiTester {
             .get_test_randao(next_slot, next_slot.epoch(E::slots_per_epoch()))
             .await;
 
-        let payload = self
+        let payload: BlindedPayload<E> = self
             .client
             .get_validator_blinded_blocks::<E, BlindedPayload<E>>(next_slot, &randao_reveal, None)
             .await
@@ -3080,7 +3064,7 @@ impl ApiTester {
             .body()
             .execution_payload()
             .unwrap()
-            .clone();
+            .into();
 
         // This cache should not be populated because fallback should not have been used.
         assert!(self
@@ -3100,7 +3084,7 @@ impl ApiTester {
             .get_test_randao(next_slot, next_slot.epoch(E::slots_per_epoch()))
             .await;
 
-        let payload = self
+        let payload: BlindedPayload<E> = self
             .client
             .get_validator_blinded_blocks::<E, BlindedPayload<E>>(next_slot, &randao_reveal, None)
             .await
@@ -3109,7 +3093,7 @@ impl ApiTester {
             .body()
             .execution_payload()
             .unwrap()
-            .clone();
+            .into();
 
         // If this cache is populated, it indicates fallback to the local EE was correctly used.
         assert!(self
@@ -3149,7 +3133,7 @@ impl ApiTester {
             .get_test_randao(next_slot, next_slot.epoch(E::slots_per_epoch()))
             .await;
 
-        let payload = self
+        let payload: BlindedPayload<E> = self
             .client
             .get_validator_blinded_blocks::<E, BlindedPayload<E>>(next_slot, &randao_reveal, None)
             .await
@@ -3158,7 +3142,7 @@ impl ApiTester {
             .body()
             .execution_payload()
             .unwrap()
-            .clone();
+            .into();
 
         // If this cache is populated, it indicates fallback to the local EE was correctly used.
         assert!(self
@@ -3188,7 +3172,7 @@ impl ApiTester {
             .get_test_randao(next_slot, next_slot.epoch(E::slots_per_epoch()))
             .await;
 
-        let payload = self
+        let payload: BlindedPayload<E> = self
             .client
             .get_validator_blinded_blocks::<E, BlindedPayload<E>>(next_slot, &randao_reveal, None)
             .await
@@ -3197,7 +3181,7 @@ impl ApiTester {
             .body()
             .execution_payload()
             .unwrap()
-            .clone();
+            .into();
 
         // This cache should not be populated because fallback should not have been used.
         assert!(self
@@ -3231,7 +3215,7 @@ impl ApiTester {
 
         let (proposer_index, randao_reveal) = self.get_test_randao(slot, epoch).await;
 
-        let payload = self
+        let payload: BlindedPayload<E> = self
             .client
             .get_validator_blinded_blocks::<E, BlindedPayload<E>>(slot, &randao_reveal, None)
             .await
@@ -3240,13 +3224,10 @@ impl ApiTester {
             .body()
             .execution_payload()
             .unwrap()
-            .clone();
+            .into();
 
         let expected_fee_recipient = Address::from_low_u64_be(proposer_index as u64);
-        assert_eq!(
-            payload.execution_payload_header.fee_recipient,
-            expected_fee_recipient
-        );
+        assert_eq!(payload.fee_recipient(), expected_fee_recipient);
 
         // If this cache is populated, it indicates fallback to the local EE was correctly used.
         assert!(self
@@ -3275,7 +3256,7 @@ impl ApiTester {
 
         let (_, randao_reveal) = self.get_test_randao(slot, epoch).await;
 
-        let payload = self
+        let payload: BlindedPayload<E> = self
             .client
             .get_validator_blinded_blocks::<E, BlindedPayload<E>>(slot, &randao_reveal, None)
             .await
@@ -3284,7 +3265,7 @@ impl ApiTester {
             .body()
             .execution_payload()
             .unwrap()
-            .clone();
+            .into();
 
         // If this cache is populated, it indicates fallback to the local EE was correctly used.
         assert!(self

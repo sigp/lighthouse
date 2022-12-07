@@ -166,11 +166,10 @@ impl<'a, T: EthSpec> From<FullPayloadRef<'a, T>> for ExecutionPayload<T> {
 // FIXME: can this be implemented as Deref or Clone somehow?
 impl<'a, T: EthSpec> From<FullPayloadRef<'a, T>> for FullPayload<T> {
     fn from(full_payload_ref: FullPayloadRef<'a, T>) -> Self {
-        match full_payload_ref {
-            FullPayloadRef::Merge(payload_ref) => FullPayload::Merge(payload_ref.clone()),
-            FullPayloadRef::Capella(payload_ref) => FullPayload::Capella(payload_ref.clone()),
-            FullPayloadRef::Eip4844(payload_ref) => FullPayload::Eip4844(payload_ref.clone()),
-        }
+        map_full_payload_ref!(&'a _, full_payload_ref, move |payload, cons| {
+            cons(payload);
+            payload.clone().into()
+        })
     }
 }
 
@@ -449,6 +448,15 @@ pub struct BlindedPayload<T: EthSpec> {
     pub execution_payload_header: ExecutionPayloadHeaderCapella<T>,
     #[superstruct(only(Eip4844), partial_getter(rename = "execution_payload_eip4844"))]
     pub execution_payload_header: ExecutionPayloadHeaderEip4844<T>,
+}
+
+impl<'a, T: EthSpec> From<BlindedPayloadRef<'a, T>> for BlindedPayload<T> {
+    fn from(blinded_payload_ref: BlindedPayloadRef<'a, T>) -> Self {
+        map_blinded_payload_ref!(&'a _, blinded_payload_ref, move |payload, cons| {
+            cons(payload);
+            payload.clone().into()
+        })
+    }
 }
 
 impl<T: EthSpec> ExecPayload<T> for BlindedPayload<T> {

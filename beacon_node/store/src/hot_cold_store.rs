@@ -395,16 +395,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         }
     }
 
-    /// Get a schema V8 or earlier full block by reading it and its payload from disk.
-    pub fn get_full_block_prior_to_v9(
-        &self,
-        block_root: &Hash256,
-    ) -> Result<Option<SignedBeaconBlock<E>>, Error> {
-        self.get_block_with(block_root, |bytes| {
-            SignedBeaconBlock::from_ssz_bytes(bytes, &self.spec)
-        })
-    }
-
     /// Convert a blinded block into a full block by loading its execution payload if necessary.
     pub fn make_full_block(
         &self,
