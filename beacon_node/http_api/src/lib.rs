@@ -1702,8 +1702,27 @@ pub fn serve<T: BeaconChainTypes>(
         );
 
     // TODO: GET beacon/rewards/blocks/{block_id}
+    let beacon_rewards_path = eth_v1
+    .and(warp::path("beacon"))
+    .and(warp::path("rewards"))
+    .and(chain_filter.clone());
 
-    let get_beacon_rewards_block = beacon_rewards_path;
+    let get_beacon_rewards_block = beacon_rewards_path
+        .clone()
+        .and(warp::path("blocks"))
+        .and(block_id_or_err)
+        .and(warp::path::end())
+        .and(warp::body::json())
+        .and(log_filter.clone())
+        .and_then(
+            |chain: Arc<BeaconChain<T>>,
+            block_id: BlockId,
+            validators: Vec<ValidatorId>,
+            log: Logger| {
+            // Do something here
+            blocking_json_task(move || Ok(block_rewards_v2::compute_block_rewards(
+                chain, block_id, validators, log)))
+        });
 
     /*
      * beacon/rewards
