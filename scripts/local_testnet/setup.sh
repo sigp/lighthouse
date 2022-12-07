@@ -50,3 +50,10 @@ lcli \
 	--node-count $BN_COUNT
 
 echo Validators generated with keystore passwords at $DATADIR.
+
+GENESIS_TIME=$(lcli pretty-ssz state_merge ~/.lighthouse/local-testnet/testnet/genesis.ssz  | jq | grep -Po 'genesis_time": "\K.*\d')
+CAPELLA_TIME=$((GENESIS_TIME + (CAPELLA_FORK_EPOCH * 32 * SECONDS_PER_SLOT)))
+EIP4844_TIME=$((GENESIS_TIME + (EIP4844_FORK_EPOCH * 32 * SECONDS_PER_SLOT)))
+
+sed -i 's/"shanghaiTime".*$/"shanghaiTime": '"$CAPELLA_TIME"',/g' genesis.json
+sed -i 's/"shardingForkTime".*$/"shardingForkTime": '"$EIP4844_TIME"',/g' genesis.json

@@ -12,8 +12,8 @@
     "berlinBlock": 0,
     "londonBlock": 0,
     "mergeNetsplitBlock": 0,
-    "shanghaiBlock": 0,
-    "shardingForkBlock": 32,
+    "shanghaiTime": 1670428733,
+    "shardingForkTime": 1670428829,
     "terminalTotalDifficulty": 0
   },
   "alloc": {

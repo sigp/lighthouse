@@ -216,10 +216,11 @@ struct Inner<E: EthSpec> {
     executor: TaskExecutor,
     payload_cache: PayloadCache<E>,
     builder_profit_threshold: Uint256,
+    spec: ChainSpec,
     log: Logger,
 }
 
-#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone)]
 pub struct Config {
     /// Endpoint urls for EL nodes that are running the engine api.
     pub execution_endpoints: Vec<SensitiveUrl>,
@@ -239,6 +240,7 @@ pub struct Config {
     /// The minimum value of an external payload for it to be considered in a proposal.
     pub builder_profit_threshold: u128,
     pub execution_timeout_multiplier: Option<u32>,
+    pub spec: ChainSpec,
 }
 
 /// Provides access to one execution engine and provides a neat interface for consumption by the
@@ -261,6 +263,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
             default_datadir,
             builder_profit_threshold,
             execution_timeout_multiplier,
+            spec,
         } = config;
 
         if urls.len() > 1 {
@@ -332,6 +335,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
             executor,
             payload_cache: PayloadCache::default(),
             builder_profit_threshold: Uint256::from(builder_profit_threshold),
+            spec,
             log,
         };
 
@@ -1007,6 +1011,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
 
                     let response = engine
                         .notify_forkchoice_updated(
+                            current_fork,
                             fork_choice_state,
                             Some(payload_attributes.clone()),
                             self.log(),
@@ -1265,8 +1270,42 @@ impl<T: EthSpec> ExecutionLayer<T> {
             finalized_block_hash,
         };
 
+        let fork_name = self
+            .inner
+            .spec
+            .fork_name_at_epoch(next_slot.epoch(T::slots_per_epoch()));
+
+        let epoch = next_slot.epoch(T::slots_per_epoch());
+
+        let eip4844_fork_epoch = self.inner.spec.eip4844_fork_epoch;
+        let capella_fork_epoch = self.inner.spec.capella_fork_epoch;
+        let bellatrix_fork_epoch = self.inner.spec.bellatrix_fork_epoch;
+        let altair_fork_epoch = self.inner.spec.altair_fork_epoch;
+        let genesis_slot = self.inner.spec.genesis_slot;
+
+        info!(
+                    self.log(),
+                    "fork name at slot";
+                    "fork_name" => ?fork_name,
+                    "next_slot" => ?next_slot,
+                    "epoch" => ?epoch,
+        "eip4844_fork_epoch" => ?eip4844_fork_epoch,
+        "capella_fork_epoch" => ?capella_fork_epoch,
+        "bellatrix_fork_epoch" => ?bellatrix_fork_epoch,
+        "altair_fork_epoch" => ?altair_fork_epoch,
+        "genesis_slot" => ?genesis_slot,
+                );
+
+        //        Dec 06 16:47:39.049 INFO fork name at slot
+        // genesis_slot: Slot(0),
+        // altair_fork_epoch: Some(Epoch(74240)),
+        // bellatrix_fork_epoch: Some(Epoch(144896)),
+        // capella_fork_epoch: Some(Epoch(18446744073709551615)),
+        // eip4844_fork_epoch: None, epoch: Epoch(0),
+        // next_slot: Slot(12), fork_name: Base, service: exec
+
         self.engine()
-            .set_latest_forkchoice_state(forkchoice_state)
+            .set_latest_forkchoice_state(fork_name, forkchoice_state)
             .await;
 
         let payload_attributes_ref = &payload_attributes;
@@ -1275,6 +1314,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
             .request(|engine| async move {
                 engine
                     .notify_forkchoice_updated(
+                        fork_name,
                         forkchoice_state,
                         payload_attributes_ref.clone(),
                         self.log(),

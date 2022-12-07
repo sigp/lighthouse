@@ -14,12 +14,12 @@ use std::io::Read;
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
-use types::{BeaconStateMerge, ExecutionBlockHash};
 use types::{
     test_utils::generate_deterministic_keypairs, Address, BeaconState, ChainSpec, Config, Eth1Data,
     EthSpec, ExecutionPayloadHeader, ExecutionPayloadHeaderMerge, Hash256, Keypair, PublicKey,
     Validator,
 };
+use types::{BeaconStateMerge, ExecutionBlockHash};
 
 pub fn run<T: EthSpec>(testnet_dir_path: PathBuf, matches: &ArgMatches) -> Result<(), String> {
     let deposit_contract_address: Address = parse_required(matches, "deposit-contract-address")?;
@@ -141,13 +141,10 @@ pub fn run<T: EthSpec>(testnet_dir_path: PathBuf, matches: &ArgMatches) -> Resul
         None
     };
 
-    let mut merge_state : types::BeaconState<T>=BeaconState::Merge(BeaconStateMerge::from_ssz_bytes(genesis_state_bytes.unwrap().as_ref()).unwrap());
-    upgrade_to_capella(&mut merge_state, &spec).unwrap();
-
     let testnet = Eth2NetworkConfig {
         deposit_contract_deploy_block,
         boot_enr: Some(vec![]),
-        genesis_state_bytes: Some(merge_state.as_ssz_bytes()),
+        genesis_state_bytes,
         config: Config::from_chain_spec::<T>(&spec),
     };
 

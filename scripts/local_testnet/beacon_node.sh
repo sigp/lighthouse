@@ -62,4 +62,5 @@ exec $lighthouse_binary \
 	--disable-packet-filter \
 	--target-peers $((BN_COUNT - 1)) \
   --execution-endpoint $execution_endpoint \
+  --trusted-setup-file ./trusted_setup.txt \
   --execution-jwt $execution_jwt

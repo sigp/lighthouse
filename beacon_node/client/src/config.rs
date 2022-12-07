@@ -67,6 +67,8 @@ pub struct Config {
     pub network: network::NetworkConfig,
     pub chain: beacon_chain::ChainConfig,
     pub eth1: eth1::Config,
+    //FIXME(sean)
+    #[serde(skip)]
     pub execution_layer: Option<execution_layer::Config>,
     pub trusted_setup_file: Option<PathBuf>,
     pub http_api: http_api::Config,
