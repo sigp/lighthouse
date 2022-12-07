@@ -19,15 +19,15 @@ pub enum BlobError {
         message_slot: Slot,
         latest_permissible_slot: Slot,
     },
-    /// The blob sidecar is from a slot that is prior to the earliest permissible slot (with
-    /// respect to the gossip clock disparity).
+
+    /// The blob sidecar has a different slot than the block.
     ///
     /// ## Peer scoring
     ///
     /// Assuming the local clock is correct, the peer has sent an invalid message.
-    PastSlot {
-        message_slot: Slot,
-        earliest_permissible_slot: Slot,
+    SlotMismatch {
+        blob_slot: Slot,
+        block_slot: Slot,
     },
 
     /// The blob sidecar contains an incorrectly formatted `BLSFieldElement` > `BLS_MODULUS`.
@@ -122,14 +122,10 @@ pub fn validate_blob_for_gossip<T: BeaconChainTypes>(
         });
     }
 
-    let earliest_permissible_slot = chain
-        .slot_clock
-        .now_with_past_tolerance(MAXIMUM_GOSSIP_CLOCK_DISPARITY)
-        .ok_or(BeaconChainError::UnableToReadSlot)?;
-    if blob_slot > earliest_permissible_slot {
-        return Err(BlobError::PastSlot {
-            message_slot: earliest_permissible_slot,
-            earliest_permissible_slot: blob_slot,
+    if blob_slot != block_slot {
+        return Err(BlobError::SlotMismatch {
+            blob_slot,
+            block_slot,
         });
     }
 
