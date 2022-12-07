@@ -30,6 +30,7 @@ use crate::beacon_node_fallback::{
     RequireSynced,
 };
 use crate::doppelganger_service::DoppelgangerService;
+use crate::initialized_validators::Error::UnableToOpenVotingKeystore;
 use account_utils::validator_definitions::ValidatorDefinitions;
 use attestation_service::{AttestationService, AttestationServiceBuilder};
 use block_service::{BlockService, BlockServiceBuilder};
@@ -183,7 +184,16 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             log.clone(),
         )
         .await
-        .map_err(|e| format!("Unable to initialize validators: {:?}", e))?;
+        .map_err(|e| {
+            match e {
+                UnableToOpenVotingKeystore(err) => {
+                    format!("Unable to initialize validators: {:?}, If you have recently moved the location of your data directory \
+                    make sure to update the location of voting_keystore_path in your validator_definitions.yml", err)
+                },
+                err => {
+                    format!("Unable to initialize validators: {:?}", err)}
+                }
+            })?;
 
         let voting_pubkeys: Vec<_> = validators.iter_voting_pubkeys().collect();
 
