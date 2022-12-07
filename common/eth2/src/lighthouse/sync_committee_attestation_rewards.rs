@@ -1,13 +1,8 @@
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use types::{AttestationData, Hash256, Slot};
 
-/// Details about the rewards paid to sync committee members for attesting headers
-///
-/// All rewards in GWei.
-///
-/// Presently this only counts attestation rewards, but in future should be expanded
-/// to include information on slashings and sync committee aggregates too.
+// Details about the rewards paid to sync committee members for attesting headers
+// All rewards in GWei
+
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct SyncCommitteeAttestationRewards {
 
@@ -22,7 +17,7 @@ pub struct SyncCommitteeAttestationRewards {
 pub struct SyncCommitteeAttestationReward {
 
     pub validator_index: u8,
-
+    // sync committee reward in gwei for the validator
     pub reward: u64,
 
 }
