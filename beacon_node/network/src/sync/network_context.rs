@@ -466,7 +466,11 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         peer_id: PeerId,
         request: BlocksByRootRequest,
     ) -> Result<Id, &'static str> {
-        let request = if self.chain.is_data_availability_check_required().map_err(|_|"Unable to read slot clock")?  {
+        let request = if self
+            .chain
+            .is_data_availability_check_required()
+            .map_err(|_| "Unable to read slot clock")?
+        {
             trace!(
                 self.log,
                 "Sending BlobsByRoot Request";
@@ -501,7 +505,11 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         peer_id: PeerId,
         request: BlocksByRootRequest,
     ) -> Result<Id, &'static str> {
-        let request = if self.chain.is_data_availability_check_required().map_err(|_|"Unable to read slot clock")? {
+        let request = if self
+            .chain
+            .is_data_availability_check_required()
+            .map_err(|_| "Unable to read slot clock")?
+        {
             trace!(
                 self.log,
                 "Sending BlobsByRoot Request";
@@ -613,15 +621,21 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 EPOCHS_PER_BATCH, 1,
                 "If this is not one, everything will fail horribly"
             );
-            warn!(
-            self.log,
-            "Missing fork boundary and prunning boundary comparison to decide request type. EVERYTHING IS A BLOB, BOB."
-        );
+
             // Here we need access to the beacon chain, check the fork boundary, the current epoch, the
             // blob period to serve and check with that if the batch is a blob batch or not.
             // NOTE: This would carelessly assume batch sizes are always 1 epoch, to avoid needing to
             // align with the batch boundary.
-            ExpectedBatchTy::OnlyBlockBlobs
+
+            if let Some(data_availability_boundary) = self.chain.data_availability_boundary() {
+                if epoch >= data_availability_boundary {
+                    ExpectedBatchTy::OnlyBlockBlobs
+                } else {
+                    ExpectedBatchTy::OnlyBlock
+                }
+            } else {
+                ExpectedBatchTy::OnlyBlock
+            }
         }
     }
 }
