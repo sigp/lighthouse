@@ -355,7 +355,6 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
              log| {
                 blocking_signed_json_task(signer, move || {
                     let mut result = HashMap::new();
-                    //let graffiti_map = validator_store.initialized_validators().read().get_all_validators_graffiti();
                     for (key, graffiti_definition) in validator_store
                         .initialized_validators()
                         .read()
