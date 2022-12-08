@@ -107,12 +107,6 @@ lazy_static! {
     .as_ssz_bytes()
     .len();
 
-    pub static ref BLOBS_SIDECAR_MIN: usize = BlobsSidecar::<MainnetEthSpec>::empty()
-    .as_ssz_bytes()
-    .len();
-
-    pub static ref BLOBS_SIDECAR_MAX: usize = *BLOBS_SIDECAR_MIN // Max size of variable length `blobs` field
-            + (MainnetEthSpec::max_blobs_per_block() * <Blob<MainnetEthSpec> as Encode>::ssz_fixed_len());
 }
 
 /// The maximum bytes that can be sent across the RPC pre-merge.
@@ -181,6 +175,8 @@ pub enum Protocol {
     BlocksByRoot,
     /// The `BlobsByRange` protocol name.
     BlobsByRange,
+    /// The `BlobsByRoot` protocol name.
+    BlobsByRoot,
     /// The `Ping` protocol name.
     Ping,
     /// The `MetaData` protocol name.
@@ -212,6 +208,7 @@ impl std::fmt::Display for Protocol {
             Protocol::BlocksByRange => "beacon_blocks_by_range",
             Protocol::BlocksByRoot => "beacon_blocks_by_root",
             Protocol::BlobsByRange => "blobs_sidecars_by_range",
+            Protocol::BlobsByRoot => "beacon_block_and_blobs_sidecar_by_root",
             Protocol::Ping => "ping",
             Protocol::MetaData => "metadata",
             Protocol::LightClientBootstrap => "light_client_bootstrap",
@@ -334,6 +331,9 @@ impl ProtocolId {
                 <BlobsByRangeRequest as Encode>::ssz_fixed_len(),
                 <BlobsByRangeRequest as Encode>::ssz_fixed_len(),
             ),
+            Protocol::BlobsByRoot => {
+                RpcLimits::new(*BLOCKS_BY_ROOT_REQUEST_MIN, *BLOCKS_BY_ROOT_REQUEST_MAX)
+            }
             Protocol::Ping => RpcLimits::new(
                 <Ping as Encode>::ssz_fixed_len(),
                 <Ping as Encode>::ssz_fixed_len(),
@@ -356,7 +356,11 @@ impl ProtocolId {
             Protocol::Goodbye => RpcLimits::new(0, 0), // Goodbye request has no response
             Protocol::BlocksByRange => rpc_block_limits_by_fork(fork_context.current_fork()),
             Protocol::BlocksByRoot => rpc_block_limits_by_fork(fork_context.current_fork()),
-            Protocol::BlobsByRange => RpcLimits::new(*BLOBS_SIDECAR_MIN, *BLOBS_SIDECAR_MAX),
+
+            //FIXME(sean) add blob sizes
+            Protocol::BlobsByRange => rpc_block_limits_by_fork(fork_context.current_fork()),
+            Protocol::BlobsByRoot => rpc_block_limits_by_fork(fork_context.current_fork()),
+
             Protocol::Ping => RpcLimits::new(
                 <Ping as Encode>::ssz_fixed_len(),
                 <Ping as Encode>::ssz_fixed_len(),
@@ -475,6 +479,7 @@ pub enum InboundRequest<TSpec: EthSpec> {
     BlocksByRange(OldBlocksByRangeRequest),
     BlocksByRoot(BlocksByRootRequest),
     BlobsByRange(BlobsByRangeRequest),
+    BlobsByRoot(BlobsByRootRequest),
     LightClientBootstrap(LightClientBootstrapRequest),
     Ping(Ping),
     MetaData(PhantomData<TSpec>),
@@ -492,6 +497,7 @@ impl<TSpec: EthSpec> InboundRequest<TSpec> {
             InboundRequest::BlocksByRange(req) => req.count,
             InboundRequest::BlocksByRoot(req) => req.block_roots.len() as u64,
             InboundRequest::BlobsByRange(req) => req.count,
+            InboundRequest::BlobsByRoot(req) => req.block_roots.len() as u64,
             InboundRequest::Ping(_) => 1,
             InboundRequest::MetaData(_) => 1,
             InboundRequest::LightClientBootstrap(_) => 1,
@@ -506,6 +512,7 @@ impl<TSpec: EthSpec> InboundRequest<TSpec> {
             InboundRequest::BlocksByRange(_) => Protocol::BlocksByRange,
             InboundRequest::BlocksByRoot(_) => Protocol::BlocksByRoot,
             InboundRequest::BlobsByRange(_) => Protocol::BlobsByRange,
+            InboundRequest::BlobsByRoot(_) => Protocol::BlobsByRoot,
             InboundRequest::Ping(_) => Protocol::Ping,
             InboundRequest::MetaData(_) => Protocol::MetaData,
             InboundRequest::LightClientBootstrap(_) => Protocol::LightClientBootstrap,
@@ -521,6 +528,7 @@ impl<TSpec: EthSpec> InboundRequest<TSpec> {
             InboundRequest::BlocksByRange(_) => ResponseTermination::BlocksByRange,
             InboundRequest::BlocksByRoot(_) => ResponseTermination::BlocksByRoot,
             InboundRequest::BlobsByRange(_) => ResponseTermination::BlobsByRange,
+            InboundRequest::BlobsByRoot(_) => ResponseTermination::BlobsByRoot,
             InboundRequest::Status(_) => unreachable!(),
             InboundRequest::Goodbye(_) => unreachable!(),
             InboundRequest::Ping(_) => unreachable!(),
@@ -628,6 +636,7 @@ impl<TSpec: EthSpec> std::fmt::Display for InboundRequest<TSpec> {
             InboundRequest::BlocksByRange(req) => write!(f, "Blocks by range: {}", req),
             InboundRequest::BlocksByRoot(req) => write!(f, "Blocks by root: {:?}", req),
             InboundRequest::BlobsByRange(req) => write!(f, "Blobs by range: {:?}", req),
+            InboundRequest::BlobsByRoot(req) => write!(f, "Blobs by root: {:?}", req),
             InboundRequest::Ping(ping) => write!(f, "Ping: {}", ping.data),
             InboundRequest::MetaData(_) => write!(f, "MetaData request"),
             InboundRequest::LightClientBootstrap(bootstrap) => {

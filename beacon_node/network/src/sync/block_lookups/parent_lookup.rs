@@ -4,6 +4,7 @@ use lighthouse_network::PeerId;
 use std::sync::Arc;
 use store::{Hash256, SignedBeaconBlock};
 use strum::IntoStaticStr;
+use types::signed_block_and_blobs::BlockWrapper;
 
 use crate::sync::{
     manager::{Id, SLOT_IMPORT_TOLERANCE},
@@ -59,11 +60,7 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
             .any(|(root, _d_block)| root == block_root)
     }
 
-    pub fn new(
-        block_root: Hash256,
-        block: Arc<SignedBeaconBlock<T::EthSpec>>,
-        peer_id: PeerId,
-    ) -> Self {
+    pub fn new(block_root: Hash256, block: BlockWrapper<T::EthSpec>, peer_id: PeerId) -> Self {
         let current_parent_request = SingleBlockRequest::new(block.parent_root(), peer_id);
 
         Self {
@@ -98,7 +95,7 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
         self.current_parent_request.check_peer_disconnected(peer_id)
     }
 
-    pub fn add_block(&mut self, block: Arc<SignedBeaconBlock<T::EthSpec>>) {
+    pub fn add_block(&mut self, block: BlockWrapper<T::EthSpec>) {
         let next_parent = block.parent_root();
         let current_root = self.current_parent_request.hash;
         self.downloaded_blocks.push((current_root, block));
@@ -117,7 +114,7 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
         self,
     ) -> (
         Hash256,
-        Vec<Arc<SignedBeaconBlock<T::EthSpec>>>,
+        Vec<BlockWrapper<T::EthSpec>>,
         Vec<Hash256>,
         SingleBlockRequest<PARENT_FAIL_TOLERANCE>,
     ) {
@@ -156,7 +153,7 @@ impl<T: BeaconChainTypes> ParentLookup<T> {
     /// the processing result of the block.
     pub fn verify_block(
         &mut self,
-        block: Option<Arc<SignedBeaconBlock<T::EthSpec>>>,
+        block: Option<BlockWrapper<T::EthSpec>>,
         failed_chains: &mut lru_cache::LRUTimeCache<Hash256>,
     ) -> Result<Option<RootBlockTuple<T::EthSpec>>, VerifyError> {
         let root_and_block = self.current_parent_request.verify_block(block)?;

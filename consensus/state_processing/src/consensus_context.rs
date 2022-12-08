@@ -2,10 +2,12 @@ use crate::common::get_indexed_attestation;
 use crate::per_block_processing::errors::{AttestationInvalid, BlockOperationError};
 use std::collections::{hash_map::Entry, HashMap};
 use std::marker::PhantomData;
+use std::sync::Arc;
 use tree_hash::TreeHash;
 use types::{
     AbstractExecPayload, Attestation, AttestationData, BeaconState, BeaconStateError, BitList,
-    ChainSpec, Epoch, EthSpec, Hash256, IndexedAttestation, SignedBeaconBlock, Slot,
+    BlobsSidecar, ChainSpec, Epoch, EthSpec, ExecPayload, Hash256, IndexedAttestation,
+    SignedBeaconBlock, Slot,
 };
 
 #[derive(Debug)]
@@ -19,7 +21,12 @@ pub struct ConsensusContext<T: EthSpec> {
     /// Cache of indexed attestations constructed during block processing.
     indexed_attestations:
         HashMap<(AttestationData, BitList<T::MaxValidatorsPerCommittee>), IndexedAttestation<T>>,
-    _phantom: PhantomData<T>,
+    /// Should only be populated if the sidecar has not been validated.
+    blobs_sidecar: Option<Arc<BlobsSidecar<T>>>,
+    /// Whether `validate_blobs_sidecar` has successfully passed.
+    blobs_sidecar_validated: bool,
+    /// Whether `verify_kzg_commitments_against_transactions` has successfully passed.
+    blobs_verified_vs_txs: bool,
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -42,7 +49,9 @@ impl<T: EthSpec> ConsensusContext<T> {
             proposer_index: None,
             current_block_root: None,
             indexed_attestations: HashMap::new(),
-            _phantom: PhantomData,
+            blobs_sidecar: None,
+            blobs_sidecar_validated: false,
+            blobs_verified_vs_txs: false,
         }
     }
 
@@ -157,5 +166,32 @@ impl<T: EthSpec> ConsensusContext<T> {
 
     pub fn num_cached_indexed_attestations(&self) -> usize {
         self.indexed_attestations.len()
+    }
+
+    pub fn set_blobs_sidecar_validated(mut self, blobs_sidecar_validated: bool) -> Self {
+        self.blobs_sidecar_validated = blobs_sidecar_validated;
+        self
+    }
+
+    pub fn set_blobs_verified_vs_txs(mut self, blobs_verified_vs_txs: bool) -> Self {
+        self.blobs_verified_vs_txs = blobs_verified_vs_txs;
+        self
+    }
+
+    pub fn blobs_sidecar_validated(&self) -> bool {
+        self.blobs_sidecar_validated
+    }
+
+    pub fn blobs_verified_vs_txs(&self) -> bool {
+        self.blobs_verified_vs_txs
+    }
+
+    pub fn set_blobs_sidecar(mut self, blobs_sidecar: Option<Arc<BlobsSidecar<T>>>) -> Self {
+        self.blobs_sidecar = blobs_sidecar;
+        self
+    }
+
+    pub fn blobs_sidecar(&self) -> Option<Arc<BlobsSidecar<T>>> {
+        self.blobs_sidecar.clone()
     }
 }

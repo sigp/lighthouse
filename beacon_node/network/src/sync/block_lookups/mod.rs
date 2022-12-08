@@ -4,12 +4,15 @@ use std::time::Duration;
 
 use beacon_chain::{BeaconChainTypes, BlockError};
 use fnv::FnvHashMap;
+use futures::StreamExt;
+use itertools::{Either, Itertools};
 use lighthouse_network::{PeerAction, PeerId};
 use lru_cache::LRUTimeCache;
 use slog::{debug, error, trace, warn, Logger};
 use smallvec::SmallVec;
 use std::sync::Arc;
 use store::{Hash256, SignedBeaconBlock};
+use types::signed_block_and_blobs::BlockWrapper;
 
 use crate::beacon_processor::{ChainSegmentProcessId, WorkEvent};
 use crate::metrics;
@@ -32,7 +35,7 @@ mod single_block_lookup;
 #[cfg(test)]
 mod tests;
 
-pub type RootBlockTuple<T> = (Hash256, Arc<SignedBeaconBlock<T>>);
+pub type RootBlockTuple<T> = (Hash256, BlockWrapper<T>);
 
 const FAILED_CHAINS_CACHE_EXPIRY_SECONDS: u64 = 60;
 const SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS: u8 = 3;
@@ -110,7 +113,9 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
 
         let mut single_block_request = SingleBlockRequest::new(hash, peer_id);
 
-        let (peer_id, request) = single_block_request.request_block().unwrap();
+        let (peer_id, request) = single_block_request
+            .request_block()
+            .expect("none of the possible failure cases apply for a newly created block lookup");
         if let Ok(request_id) = cx.single_block_lookup_request(peer_id, request) {
             self.single_block_lookups
                 .insert(request_id, single_block_request);
@@ -127,7 +132,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     pub fn search_parent(
         &mut self,
         block_root: Hash256,
-        block: Arc<SignedBeaconBlock<T::EthSpec>>,
+        block: BlockWrapper<T::EthSpec>,
         peer_id: PeerId,
         cx: &mut SyncNetworkContext<T>,
     ) {
@@ -169,7 +174,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         &mut self,
         id: Id,
         peer_id: PeerId,
-        block: Option<Arc<SignedBeaconBlock<T::EthSpec>>>,
+        block: Option<BlockWrapper<T::EthSpec>>,
         seen_timestamp: Duration,
         cx: &mut SyncNetworkContext<T>,
     ) {
@@ -234,7 +239,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         &mut self,
         id: Id,
         peer_id: PeerId,
-        block: Option<Arc<SignedBeaconBlock<T::EthSpec>>>,
+        block: Option<BlockWrapper<T::EthSpec>>,
         seen_timestamp: Duration,
         cx: &mut SyncNetworkContext<T>,
     ) {
@@ -555,7 +560,9 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 let (chain_hash, blocks, hashes, request) = parent_lookup.parts_for_processing();
                 let process_id = ChainSegmentProcessId::ParentLookup(chain_hash);
 
-                match beacon_processor_send.try_send(WorkEvent::chain_segment(process_id, blocks)) {
+                let work = WorkEvent::chain_segment(process_id, blocks);
+
+                match beacon_processor_send.try_send(work) {
                     Ok(_) => {
                         self.processing_parent_lookups
                             .insert(chain_hash, (hashes, request));
@@ -659,7 +666,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     fn send_block_for_processing(
         &mut self,
         block_root: Hash256,
-        block: Arc<SignedBeaconBlock<T::EthSpec>>,
+        block: BlockWrapper<T::EthSpec>,
         duration: Duration,
         process_type: BlockProcessType,
         cx: &mut SyncNetworkContext<T>,

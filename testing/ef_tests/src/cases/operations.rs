@@ -4,10 +4,9 @@ use crate::case_result::compare_beacon_state_results_without_caches;
 use crate::decode::{ssz_decode_file, ssz_decode_file_with, ssz_decode_state, yaml_decode_file};
 use crate::testing_spec;
 use serde_derive::Deserialize;
-#[cfg(all(feature = "withdrawals", feature = "withdrawals-processing"))]
-use state_processing::per_block_processing::process_operations::{
-    process_bls_to_execution_changes, process_bls_to_execution_changes,
-};
+use state_processing::per_block_processing::process_operations::process_bls_to_execution_changes;
+#[cfg(feature = "withdrawals")]
+use state_processing::per_block_processing::process_withdrawals;
 use state_processing::{
     per_block_processing::{
         errors::BlockProcessingError,
@@ -24,7 +23,7 @@ use std::fmt::Debug;
 #[cfg(not(all(feature = "withdrawals", feature = "withdrawals-processing")))]
 use std::marker::PhantomData;
 use std::path::Path;
-#[cfg(all(feature = "withdrawals", feature = "withdrawals-processing"))]
+#[cfg(feature = "withdrawals")]
 use types::SignedBlsToExecutionChange;
 use types::{
     Attestation, AttesterSlashing, BeaconBlock, BeaconState, BlindedPayload, ChainSpec, Deposit,
@@ -46,10 +45,7 @@ struct ExecutionMetadata {
 /// Newtype for testing withdrawals.
 #[derive(Debug, Clone, Deserialize)]
 pub struct WithdrawalsPayload<T: EthSpec> {
-    #[cfg(all(feature = "withdrawals", feature = "withdrawals-processing"))]
     payload: FullPayload<T>,
-    #[cfg(not(all(feature = "withdrawals", feature = "withdrawals-processing")))]
-    _phantom_data: PhantomData<T>,
 }
 
 #[derive(Debug, Clone)]
@@ -345,7 +341,6 @@ impl<E: EthSpec> Operation<E> for BlindedPayload<E> {
     }
 }
 
-#[cfg(all(feature = "withdrawals", feature = "withdrawals-processing"))]
 impl<E: EthSpec> Operation<E> for WithdrawalsPayload<E> {
     fn handler_name() -> String {
         "withdrawals".into()
@@ -356,6 +351,14 @@ impl<E: EthSpec> Operation<E> for WithdrawalsPayload<E> {
     }
 
     fn is_enabled_for_fork(fork_name: ForkName) -> bool {
+        if fork_name == ForkName::Capella && !cfg!(feature = "withdrawals-processing") {
+            return false;
+        }
+
+        if !cfg!(feature = "withdrawals") {
+            return false;
+        }
+
         fork_name != ForkName::Base && fork_name != ForkName::Altair && fork_name != ForkName::Merge
     }
 
@@ -368,17 +371,33 @@ impl<E: EthSpec> Operation<E> for WithdrawalsPayload<E> {
         })
     }
 
+    #[cfg(feature = "withdrawals")]
     fn apply_to(
         &self,
         state: &mut BeaconState<E>,
         spec: &ChainSpec,
         _: &Operations<E, Self>,
     ) -> Result<(), BlockProcessingError> {
-        process_withdrawals::<_, FullPayload<_>>(state, self.payload.to_ref(), spec)
+        //FIXME(sean) remove this once the spec tests sort this out
+        if matches!(state, BeaconState::Eip4844(_)) {
+            Ok(())
+        } else {
+            process_withdrawals::<_, FullPayload<_>>(state, self.payload.to_ref(), spec)
+        }
+    }
+
+    #[cfg(not(feature = "withdrawals"))]
+    fn apply_to(
+        &self,
+        state: &mut BeaconState<E>,
+        spec: &ChainSpec,
+        _: &Operations<E, Self>,
+    ) -> Result<(), BlockProcessingError> {
+        Ok(())
     }
 }
 
-#[cfg(all(feature = "withdrawals", feature = "withdrawals-processing"))]
+#[cfg(feature = "withdrawals")]
 impl<E: EthSpec> Operation<E> for SignedBlsToExecutionChange {
     fn handler_name() -> String {
         "bls_to_execution_change".into()
@@ -389,6 +408,9 @@ impl<E: EthSpec> Operation<E> for SignedBlsToExecutionChange {
     }
 
     fn is_enabled_for_fork(fork_name: ForkName) -> bool {
+        if fork_name == ForkName::Capella && !cfg!(feature = "withdrawals-processing") {
+            return false;
+        }
         fork_name != ForkName::Base && fork_name != ForkName::Altair && fork_name != ForkName::Merge
     }
 
@@ -402,7 +424,12 @@ impl<E: EthSpec> Operation<E> for SignedBlsToExecutionChange {
         spec: &ChainSpec,
         _extra: &Operations<E, Self>,
     ) -> Result<(), BlockProcessingError> {
-        process_bls_to_execution_changes(state, &[self.clone()], VerifySignatures::True, spec)
+        //FIXME(sean) remove this once the spec tests sort this out
+        if matches!(state, BeaconState::Eip4844(_)) {
+            Ok(())
+        } else {
+            process_bls_to_execution_changes(state, &[self.clone()], VerifySignatures::True, spec)
+        }
     }
 }
 

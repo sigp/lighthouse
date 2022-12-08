@@ -13,28 +13,18 @@ use std::sync::Arc;
 use tree_hash_derive::TreeHash;
 use types::{
     Attestation, AttesterSlashing, BlobsSidecar, EthSpec, ForkContext, ForkName, ProposerSlashing,
-    SignedAggregateAndProof, SignedBeaconBlock, SignedBeaconBlockAltair, SignedBeaconBlockBase,
-    SignedBeaconBlockCapella, SignedBeaconBlockEip4844, SignedBeaconBlockMerge,
-    SignedBlsToExecutionChange, SignedContributionAndProof, SignedVoluntaryExit, SubnetId,
-    SyncCommitteeMessage, SyncSubnetId,
+    SignedAggregateAndProof, SignedBeaconBlock, SignedBeaconBlockAltair,
+    SignedBeaconBlockAndBlobsSidecar, SignedBeaconBlockBase, SignedBeaconBlockCapella,
+    SignedBeaconBlockEip4844, SignedBeaconBlockMerge, SignedBlsToExecutionChange,
+    SignedContributionAndProof, SignedVoluntaryExit, SubnetId, SyncCommitteeMessage, SyncSubnetId,
 };
-
-/// TODO(pawan): move this to consensus/types? strictly not a consensus type
-#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, PartialEq)]
-#[serde(bound = "T: EthSpec")]
-pub struct SignedBeaconBlockAndBlobsSidecar<T: EthSpec> {
-    // TODO(pawan): switch to a SignedBeaconBlock and use ssz offsets for decoding to make this
-    // future proof?
-    pub beacon_block: SignedBeaconBlockEip4844<T>,
-    pub blobs_sidecar: BlobsSidecar<T>,
-}
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum PubsubMessage<T: EthSpec> {
     /// Gossipsub message providing notification of a new block.
     BeaconBlock(Arc<SignedBeaconBlock<T>>),
     /// Gossipsub message providing notification of a new SignedBeaconBlock coupled with a blobs sidecar.
-    BeaconBlockAndBlobsSidecars(Arc<SignedBeaconBlockAndBlobsSidecar<T>>),
+    BeaconBlockAndBlobsSidecars(SignedBeaconBlockAndBlobsSidecar<T>),
     /// Gossipsub message providing notification of a Aggregate attestation and associated proof.
     AggregateAndProofAttestation(Box<SignedAggregateAndProof<T>>),
     /// Gossipsub message providing notification of a raw un-aggregated attestation with its shard id.
@@ -214,9 +204,9 @@ impl<T: EthSpec> PubsubMessage<T> {
                                 let block_and_blobs_sidecar =
                                     SignedBeaconBlockAndBlobsSidecar::from_ssz_bytes(data)
                                         .map_err(|e| format!("{:?}", e))?;
-                                Ok(PubsubMessage::BeaconBlockAndBlobsSidecars(Arc::new(
+                                Ok(PubsubMessage::BeaconBlockAndBlobsSidecars(
                                     block_and_blobs_sidecar,
-                                )))
+                                ))
                             }
                             Some(
                                 ForkName::Base
@@ -309,7 +299,7 @@ impl<T: EthSpec> std::fmt::Display for PubsubMessage<T> {
             PubsubMessage::BeaconBlockAndBlobsSidecars(block_and_blob) => write!(
                 f,
                 "Beacon block and Blobs Sidecar: slot: {}, blobs: {}",
-                block_and_blob.beacon_block.message.slot,
+                block_and_blob.beacon_block.message().slot(),
                 block_and_blob.blobs_sidecar.blobs.len(),
             ),
             PubsubMessage::AggregateAndProofAttestation(att) => write!(

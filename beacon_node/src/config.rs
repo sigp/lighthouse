@@ -342,6 +342,7 @@ pub fn get_config<E: EthSpec>(
         let execution_timeout_multiplier =
             clap_utils::parse_required(cli_args, "execution-timeout-multiplier")?;
         el_config.execution_timeout_multiplier = Some(execution_timeout_multiplier);
+        el_config.spec = spec.clone();
 
         // If `--execution-endpoint` is provided, we should ignore any `--eth1-endpoints` values and
         // use `--execution-endpoint` instead. Also, log a deprecation warning.
@@ -362,6 +363,11 @@ pub fn get_config<E: EthSpec>(
 
         // Store the EL config in the client config.
         client_config.execution_layer = Some(el_config);
+    }
+
+    // 4844 params
+    if let Some(trusted_setup_file) = cli_args.value_of("trusted-setup-file") {
+        client_config.trusted_setup_file = Some(PathBuf::from(trusted_setup_file));
     }
 
     if let Some(freezer_dir) = cli_args.value_of("freezer-dir") {

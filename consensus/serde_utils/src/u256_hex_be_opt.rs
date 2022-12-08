@@ -1,6 +1,6 @@
 use ethereum_types::U256;
 
-use serde::de::Visitor;
+use serde::de::{Error, Visitor};
 use serde::{de, Deserializer, Serialize, Serializer};
 use std::fmt;
 use std::str::FromStr;
@@ -15,10 +15,24 @@ where
 pub struct U256Visitor;
 
 impl<'de> Visitor<'de> for U256Visitor {
-    type Value = String;
+    type Value = Option<String>;
 
     fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
         formatter.write_str("a well formatted hex string")
+    }
+
+    fn visit_some<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        deserializer.deserialize_string(U256Visitor)
+    }
+
+    fn visit_none<E>(self) -> Result<Self::Value, E>
+    where
+        E: Error,
+    {
+        Ok(None)
     }
 
     fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
@@ -35,11 +49,11 @@ impl<'de> Visitor<'de> for U256Visitor {
                 stripped
             )))
         } else if stripped == "0" {
-            Ok(value.to_string())
+            Ok(Some(value.to_string()))
         } else if stripped.starts_with('0') {
             Err(de::Error::custom("cannot have leading zero"))
         } else {
-            Ok(value.to_string())
+            Ok(Some(value.to_string()))
         }
     }
 }
@@ -48,13 +62,14 @@ pub fn deserialize<'de, D>(deserializer: D) -> Result<Option<U256>, D::Error>
 where
     D: Deserializer<'de>,
 {
-    let decoded = deserializer.deserialize_string(U256Visitor)?;
+    let decoded = deserializer.deserialize_option(U256Visitor)?;
 
-    Some(
-        U256::from_str(&decoded)
-            .map_err(|e| de::Error::custom(format!("Invalid U256 string: {}", e))),
-    )
-    .transpose()
+    decoded
+        .map(|decoded| {
+            U256::from_str(&decoded)
+                .map_err(|e| de::Error::custom(format!("Invalid U256 string: {}", e)))
+        })
+        .transpose()
 }
 
 #[cfg(test)]
@@ -160,6 +175,10 @@ mod test {
             Wrapper {
                 val: Some(U256::max_value())
             },
+        );
+        assert_eq!(
+            serde_json::from_str::<Wrapper>("null").unwrap(),
+            Wrapper { val: None },
         );
         serde_json::from_str::<Wrapper>("\"0x\"").unwrap_err();
         serde_json::from_str::<Wrapper>("\"0x0400\"").unwrap_err();

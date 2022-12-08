@@ -97,8 +97,7 @@ pub mod slot_data;
 pub mod sqlite;
 
 pub mod blobs_sidecar;
-pub mod kzg_commitment;
-pub mod kzg_proof;
+pub mod signed_block_and_blobs;
 
 use ethereum_types::{H160, H256};
 
@@ -150,8 +149,6 @@ pub use crate::free_attestation::FreeAttestation;
 pub use crate::graffiti::{Graffiti, GRAFFITI_BYTES_LEN};
 pub use crate::historical_batch::HistoricalBatch;
 pub use crate::indexed_attestation::IndexedAttestation;
-pub use crate::kzg_commitment::KzgCommitment;
-pub use crate::kzg_proof::KzgProof;
 pub use crate::participation_flags::ParticipationFlags;
 pub use crate::participation_list::ParticipationList;
 pub use crate::payload::{
@@ -173,6 +170,8 @@ pub use crate::signed_beacon_block::{
     SignedBlindedBeaconBlock,
 };
 pub use crate::signed_beacon_block_header::SignedBeaconBlockHeader;
+pub use crate::signed_block_and_blobs::SignedBeaconBlockAndBlobsSidecar;
+pub use crate::signed_block_and_blobs::SignedBeaconBlockAndBlobsSidecarDecode;
 pub use crate::signed_bls_to_execution_change::SignedBlsToExecutionChange;
 pub use crate::signed_contribution_and_proof::SignedContributionAndProof;
 pub use crate::signed_voluntary_exit::SignedVoluntaryExit;
@@ -193,7 +192,6 @@ pub use crate::validator_registration_data::*;
 pub use crate::validator_subscription::ValidatorSubscription;
 pub use crate::voluntary_exit::VoluntaryExit;
 pub use crate::withdrawal::Withdrawal;
-use serde_big_array::BigArray;
 
 pub type CommitteeIndex = u64;
 pub type Hash256 = H256;
@@ -201,12 +199,15 @@ pub type Uint256 = ethereum_types::U256;
 pub type Address = H160;
 pub type ForkVersion = [u8; 4];
 pub type BLSFieldElement = Uint256;
-pub type Blob<T> = FixedVector<BLSFieldElement, <T as EthSpec>::FieldElementsPerBlob>;
+pub type Blob<T> = FixedVector<u8, <T as EthSpec>::BytesPerBlob>;
 pub type VersionedHash = Hash256;
 
 pub use bls::{
     AggregatePublicKey, AggregateSignature, Keypair, PublicKey, PublicKeyBytes, SecretKey,
     Signature, SignatureBytes,
 };
+
+pub use kzg::{KzgCommitment, KzgProof};
+
 pub use ssz_types::{typenum, typenum::Unsigned, BitList, BitVector, FixedVector, VariableList};
 pub use superstruct::superstruct;

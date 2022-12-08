@@ -21,7 +21,7 @@ CROSS_FEATURES ?= gnosis,slasher-lmdb,slasher-mdbx
 CROSS_PROFILE ?= release
 
 # List of features to use when running EF tests.
-EF_TEST_FEATURES ?= beacon_chain/withdrawals,beacon_chain/withdrawals-processing
+EF_TEST_FEATURES ?= withdrawals,withdrawals-processing
 
 # Cargo profile for regular builds.
 PROFILE ?= release
@@ -38,7 +38,7 @@ install:
 
 # Builds the lcli binary in release (optimized).
 install-lcli:
-	cargo install --path lcli --force --locked --features "$(FEATURES)" --profile "$(PROFILE)"
+	cargo install --path lcli --force --locked --features "$(FEATURES),$(EF_TEST_FEATURES)" --profile "$(PROFILE)"
 
 # The following commands use `cross` to build a cross-compile.
 #

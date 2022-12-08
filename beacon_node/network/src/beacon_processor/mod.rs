@@ -45,9 +45,8 @@ use beacon_chain::{BeaconChain, BeaconChainTypes, GossipVerifiedBlock, NotifyExe
 use derivative::Derivative;
 use futures::stream::{Stream, StreamExt};
 use futures::task::Poll;
-use lighthouse_network::rpc::methods::BlobsByRangeRequest;
+use lighthouse_network::rpc::methods::{BlobsByRangeRequest, BlobsByRootRequest};
 use lighthouse_network::rpc::LightClientBootstrapRequest;
-use lighthouse_network::SignedBeaconBlockAndBlobsSidecar;
 use lighthouse_network::{
     rpc::{BlocksByRangeRequest, BlocksByRootRequest, StatusMessage},
     Client, MessageId, NetworkGlobals, PeerId, PeerRequestId,
@@ -63,10 +62,11 @@ use std::time::Duration;
 use std::{cmp, collections::HashSet};
 use task_executor::TaskExecutor;
 use tokio::sync::mpsc;
+use types::signed_block_and_blobs::BlockWrapper;
 use types::{
     Attestation, AttesterSlashing, Hash256, ProposerSlashing, SignedAggregateAndProof,
-    SignedBeaconBlock, SignedBlsToExecutionChange, SignedContributionAndProof, SignedVoluntaryExit,
-    SubnetId, SyncCommitteeMessage, SyncSubnetId,
+    SignedBeaconBlock, SignedBeaconBlockAndBlobsSidecar, SignedBlsToExecutionChange,
+    SignedContributionAndProof, SignedVoluntaryExit, SubnetId, SyncCommitteeMessage, SyncSubnetId,
 };
 use work_reprocessing_queue::{
     spawn_reprocess_scheduler, QueuedAggregate, QueuedRpcBlock, QueuedUnaggregate, ReadyWork,
@@ -164,6 +164,8 @@ const MAX_BLOBS_BY_RANGE_QUEUE_LEN: usize = 1_024;
 /// will be stored before we start dropping them.
 const MAX_BLOCKS_BY_ROOTS_QUEUE_LEN: usize = 1_024;
 
+const MAX_BLOCK_AND_BLOBS_BY_ROOTS_QUEUE_LEN: usize = 1_024;
+
 /// Maximum number of `SignedBlsToExecutionChange` messages to queue before dropping them.
 ///
 /// This value is set high to accommodate the large spike that is expected immediately after Capella
@@ -215,6 +217,7 @@ pub const STATUS_PROCESSING: &str = "status_processing";
 pub const BLOCKS_BY_RANGE_REQUEST: &str = "blocks_by_range_request";
 pub const BLOCKS_BY_ROOTS_REQUEST: &str = "blocks_by_roots_request";
 pub const BLOBS_BY_RANGE_REQUEST: &str = "blobs_by_range_request";
+pub const BLOBS_BY_ROOTS_REQUEST: &str = "blobs_by_roots_request";
 pub const LIGHT_CLIENT_BOOTSTRAP_REQUEST: &str = "light_client_bootstrap";
 pub const UNKNOWN_BLOCK_ATTESTATION: &str = "unknown_block_attestation";
 pub const UNKNOWN_BLOCK_AGGREGATE: &str = "unknown_block_aggregate";
@@ -427,7 +430,7 @@ impl<T: BeaconChainTypes> WorkEvent<T> {
         message_id: MessageId,
         peer_id: PeerId,
         peer_client: Client,
-        block_and_blobs: Arc<SignedBeaconBlockAndBlobsSidecar<T::EthSpec>>,
+        block_and_blobs: SignedBeaconBlockAndBlobsSidecar<T::EthSpec>,
         seen_timestamp: Duration,
     ) -> Self {
         Self {
@@ -548,7 +551,7 @@ impl<T: BeaconChainTypes> WorkEvent<T> {
     /// sent to the other side of `result_tx`.
     pub fn rpc_beacon_block(
         block_root: Hash256,
-        block: Arc<SignedBeaconBlock<T::EthSpec>>,
+        block: BlockWrapper<T::EthSpec>,
         seen_timestamp: Duration,
         process_type: BlockProcessType,
     ) -> Self {
@@ -567,7 +570,7 @@ impl<T: BeaconChainTypes> WorkEvent<T> {
     /// Create a new work event to import `blocks` as a beacon chain segment.
     pub fn chain_segment(
         process_id: ChainSegmentProcessId,
-        blocks: Vec<Arc<SignedBeaconBlock<T::EthSpec>>>,
+        blocks: Vec<BlockWrapper<T::EthSpec>>,
     ) -> Self {
         Self {
             drop_during_sync: false,
@@ -639,6 +642,21 @@ impl<T: BeaconChainTypes> WorkEvent<T> {
         Self {
             drop_during_sync: true,
             work: Work::LightClientBootstrapRequest {
+                peer_id,
+                request_id,
+                request,
+            },
+        }
+    }
+
+    pub fn blobs_by_root_request(
+        peer_id: PeerId,
+        request_id: PeerRequestId,
+        request: BlobsByRootRequest,
+    ) -> Self {
+        Self {
+            drop_during_sync: false,
+            work: Work::BlobsByRootsRequest {
                 peer_id,
                 request_id,
                 request,
@@ -768,7 +786,7 @@ pub enum Work<T: BeaconChainTypes> {
         message_id: MessageId,
         peer_id: PeerId,
         peer_client: Client,
-        block_and_blobs: Arc<SignedBeaconBlockAndBlobsSidecar<T::EthSpec>>,
+        block_and_blobs: SignedBeaconBlockAndBlobsSidecar<T::EthSpec>,
         seen_timestamp: Duration,
     },
     DelayedImportBlock {
@@ -806,14 +824,14 @@ pub enum Work<T: BeaconChainTypes> {
     },
     RpcBlock {
         block_root: Hash256,
-        block: Arc<SignedBeaconBlock<T::EthSpec>>,
+        block: BlockWrapper<T::EthSpec>,
         seen_timestamp: Duration,
         process_type: BlockProcessType,
         should_process: bool,
     },
     ChainSegment {
         process_id: ChainSegmentProcessId,
-        blocks: Vec<Arc<SignedBeaconBlock<T::EthSpec>>>,
+        blocks: Vec<BlockWrapper<T::EthSpec>>,
     },
     Status {
         peer_id: PeerId,
@@ -844,6 +862,11 @@ pub enum Work<T: BeaconChainTypes> {
         request_id: PeerRequestId,
         request: LightClientBootstrapRequest,
     },
+    BlobsByRootsRequest {
+        peer_id: PeerId,
+        request_id: PeerRequestId,
+        request: BlobsByRootRequest,
+    },
 }
 
 impl<T: BeaconChainTypes> Work<T> {
@@ -868,6 +891,7 @@ impl<T: BeaconChainTypes> Work<T> {
             Work::BlocksByRangeRequest { .. } => BLOCKS_BY_RANGE_REQUEST,
             Work::BlocksByRootsRequest { .. } => BLOCKS_BY_ROOTS_REQUEST,
             Work::BlobsByRangeRequest { .. } => BLOBS_BY_RANGE_REQUEST,
+            Work::BlobsByRootsRequest { .. } => BLOBS_BY_ROOTS_REQUEST,
             Work::LightClientBootstrapRequest { .. } => LIGHT_CLIENT_BOOTSTRAP_REQUEST,
             Work::UnknownBlockAttestation { .. } => UNKNOWN_BLOCK_ATTESTATION,
             Work::UnknownBlockAggregate { .. } => UNKNOWN_BLOCK_AGGREGATE,
@@ -1015,6 +1039,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
         let mut status_queue = FifoQueue::new(MAX_STATUS_QUEUE_LEN);
         let mut bbrange_queue = FifoQueue::new(MAX_BLOCKS_BY_RANGE_QUEUE_LEN);
         let mut bbroots_queue = FifoQueue::new(MAX_BLOCKS_BY_ROOTS_QUEUE_LEN);
+        let mut blbroots_queue = FifoQueue::new(MAX_BLOCK_AND_BLOBS_BY_ROOTS_QUEUE_LEN);
         let mut blbrange_queue = FifoQueue::new(MAX_BLOBS_BY_RANGE_QUEUE_LEN);
 
         let mut gossip_bls_to_execution_change_queue =
@@ -1110,8 +1135,9 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                         // blocks into the system.
                         if let Some(item) = chain_segment_queue.pop() {
                             self.spawn_worker(item, toolbox);
-                        // Check sync blocks before gossip blocks, since we've already explicitly
-                        // requested these blocks.
+                        // Sync block and blob segments have the same priority as normal chain
+                        // segments. This here might change depending on how batch processing
+                        // evolves.
                         } else if let Some(item) = rpc_block_queue.pop() {
                             self.spawn_worker(item, toolbox);
                         // Check delayed blocks before gossip blocks, the gossip blocks might rely
@@ -1245,6 +1271,10 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                         } else if let Some(item) = bbrange_queue.pop() {
                             self.spawn_worker(item, toolbox);
                         } else if let Some(item) = bbroots_queue.pop() {
+                            self.spawn_worker(item, toolbox);
+                        } else if let Some(item) = blbrange_queue.pop() {
+                            self.spawn_worker(item, toolbox);
+                        } else if let Some(item) = blbroots_queue.pop() {
                             self.spawn_worker(item, toolbox);
                         // Check slashings after all other consensus messages so we prioritize
                         // following head.
@@ -1384,6 +1414,9 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                             }
                             Work::GossipBlsToExecutionChange { .. } => {
                                 gossip_bls_to_execution_change_queue.push(work, work_id, &self.log)
+                            }
+                            Work::BlobsByRootsRequest { .. } => {
+                                blbroots_queue.push(work, work_id, &self.log)
                             }
                         }
                     }
@@ -1595,7 +1628,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                         message_id,
                         peer_id,
                         peer_client,
-                        block,
+                        BlockWrapper::Block { block },
                         work_reprocessing_tx,
                         duplicate_cache,
                         seen_timestamp,
@@ -1609,15 +1642,17 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                 message_id,
                 peer_id,
                 peer_client,
-                block_and_blobs,
+                block_and_blobs: block_sidecar_pair,
                 seen_timestamp,
             } => task_spawner.spawn_async(async move {
                 worker
-                    .process_gossip_block_and_blobs_sidecar(
+                    .process_gossip_block(
                         message_id,
                         peer_id,
                         peer_client,
-                        block_and_blobs,
+                        BlockWrapper::BlockAndBlob { block_sidecar_pair },
+                        work_reprocessing_tx,
+                        duplicate_cache,
                         seen_timestamp,
                     )
                     .await
@@ -1803,6 +1838,21 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                     request,
                 )
             }),
+
+            Work::BlobsByRootsRequest {
+                peer_id,
+                request_id,
+                request,
+            } => task_spawner.spawn_blocking_with_manual_send_idle(move |send_idle_on_drop| {
+                worker.handle_blobs_by_root_request(
+                    sub_executor,
+                    send_idle_on_drop,
+                    peer_id,
+                    request_id,
+                    request,
+                )
+            }),
+
             /*
              * Processing of lightclient bootstrap requests from other peers.
              */

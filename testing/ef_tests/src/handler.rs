@@ -24,11 +24,6 @@ pub trait Handler {
 
     fn run(&self) {
         for fork_name in ForkName::list_all() {
-            // FIXME(eip4844): enable eip4844
-            if fork_name == ForkName::Eip4844 {
-                continue;
-            }
-
             if self.is_enabled_for_fork(fork_name) {
                 self.run_for_fork(fork_name)
             }
@@ -215,10 +210,6 @@ impl<T, E> SszStaticHandler<T, E> {
         Self::for_forks(vec![ForkName::Altair])
     }
 
-    pub fn altair_and_later() -> Self {
-        Self::for_forks(ForkName::list_all()[1..].to_vec())
-    }
-
     pub fn merge_only() -> Self {
         Self::for_forks(vec![ForkName::Merge])
     }
@@ -227,8 +218,20 @@ impl<T, E> SszStaticHandler<T, E> {
         Self::for_forks(vec![ForkName::Capella])
     }
 
+    pub fn eip4844_only() -> Self {
+        Self::for_forks(vec![ForkName::Eip4844])
+    }
+
+    pub fn altair_and_later() -> Self {
+        Self::for_forks(ForkName::list_all()[1..].to_vec())
+    }
+
     pub fn merge_and_later() -> Self {
         Self::for_forks(ForkName::list_all()[2..].to_vec())
+    }
+
+    pub fn capella_and_later() -> Self {
+        Self::for_forks(ForkName::list_all()[3..].to_vec())
     }
 }
 

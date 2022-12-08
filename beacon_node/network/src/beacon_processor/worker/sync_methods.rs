@@ -16,7 +16,11 @@ use lighthouse_network::PeerAction;
 use slog::{debug, error, info, warn};
 use std::sync::Arc;
 use tokio::sync::mpsc;
-use types::{Epoch, Hash256, SignedBeaconBlock};
+use types::signed_block_and_blobs::BlockWrapper;
+use types::{
+    Epoch, Hash256, SignedBeaconBlock, SignedBeaconBlockAndBlobsSidecar,
+    SignedBeaconBlockAndBlobsSidecarDecode,
+};
 
 /// Id associated to a batch processing request, either a sync batch or a parent lookup.
 #[derive(Clone, Debug, PartialEq)]
@@ -43,7 +47,7 @@ impl<T: BeaconChainTypes> Worker<T> {
     pub async fn process_rpc_block(
         self,
         block_root: Hash256,
-        block: Arc<SignedBeaconBlock<T::EthSpec>>,
+        block: BlockWrapper<T::EthSpec>,
         seen_timestamp: Duration,
         process_type: BlockProcessType,
         reprocess_tx: mpsc::Sender<ReprocessQueueMessage<T>>,
@@ -132,7 +136,7 @@ impl<T: BeaconChainTypes> Worker<T> {
     pub async fn process_chain_segment(
         &self,
         sync_type: ChainSegmentProcessId,
-        downloaded_blocks: Vec<Arc<SignedBeaconBlock<T::EthSpec>>>,
+        downloaded_blocks: Vec<BlockWrapper<T::EthSpec>>,
         notify_execution_layer: NotifyExecutionLayer,
     ) {
         let result = match sync_type {
@@ -187,7 +191,18 @@ impl<T: BeaconChainTypes> Worker<T> {
                 let end_slot = downloaded_blocks.last().map(|b| b.slot().as_u64());
                 let sent_blocks = downloaded_blocks.len();
 
-                match self.process_backfill_blocks(downloaded_blocks) {
+                let unwrapped = downloaded_blocks
+                    .into_iter()
+                    .map(|block| match block {
+                        BlockWrapper::Block { block } => block,
+                        //FIXME(sean) handle blobs in backfill
+                        BlockWrapper::BlockAndBlob {
+                            block_sidecar_pair: _,
+                        } => todo!(),
+                    })
+                    .collect();
+
+                match self.process_backfill_blocks(unwrapped) {
                     (_, Ok(_)) => {
                         debug!(self.log, "Backfill batch processed";
                             "batch_epoch" => epoch,
@@ -259,11 +274,11 @@ impl<T: BeaconChainTypes> Worker<T> {
     /// Helper function to process blocks batches which only consumes the chain and blocks to process.
     async fn process_blocks<'a>(
         &self,
-        downloaded_blocks: impl Iterator<Item = &'a Arc<SignedBeaconBlock<T::EthSpec>>>,
+        downloaded_blocks: impl Iterator<Item = &'a BlockWrapper<T::EthSpec>>,
         count_unrealized: CountUnrealized,
         notify_execution_layer: NotifyExecutionLayer,
     ) -> (usize, Result<(), ChainSegmentFailed>) {
-        let blocks: Vec<Arc<_>> = downloaded_blocks.cloned().collect();
+        let blocks: Vec<_> = downloaded_blocks.cloned().collect();
         match self
             .chain
             .process_chain_segment(blocks, count_unrealized, notify_execution_layer)

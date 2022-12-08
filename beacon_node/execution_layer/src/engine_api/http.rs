@@ -31,10 +31,12 @@ pub const ETH_SYNCING_TIMEOUT: Duration = Duration::from_secs(1);
 
 pub const ENGINE_NEW_PAYLOAD_V1: &str = "engine_newPayloadV1";
 pub const ENGINE_NEW_PAYLOAD_V2: &str = "engine_newPayloadV2";
+pub const ENGINE_NEW_PAYLOAD_V3: &str = "engine_newPayloadV3";
 pub const ENGINE_NEW_PAYLOAD_TIMEOUT: Duration = Duration::from_secs(8);
 
 pub const ENGINE_GET_PAYLOAD_V1: &str = "engine_getPayloadV1";
 pub const ENGINE_GET_PAYLOAD_V2: &str = "engine_getPayloadV2";
+pub const ENGINE_GET_PAYLOAD_V3: &str = "engine_getPayloadV3";
 pub const ENGINE_GET_PAYLOAD_TIMEOUT: Duration = Duration::from_secs(2);
 
 pub const ENGINE_GET_BLOBS_BUNDLE_V1: &str = "engine_getBlobsBundleV1";
@@ -708,6 +710,23 @@ impl HttpJsonRpc {
         Ok(response.into())
     }
 
+    pub async fn new_payload_v3<T: EthSpec>(
+        &self,
+        execution_payload: ExecutionPayload<T>,
+    ) -> Result<PayloadStatusV1, Error> {
+        let params = json!([JsonExecutionPayloadV2::try_from(execution_payload)?]);
+
+        let response: JsonPayloadStatusV1 = self
+            .rpc_request(
+                ENGINE_NEW_PAYLOAD_V3,
+                params,
+                ENGINE_NEW_PAYLOAD_TIMEOUT * self.execution_timeout_multiplier,
+            )
+            .await?;
+
+        Ok(response.into())
+    }
+
     pub async fn get_payload_v1<T: EthSpec>(
         &self,
         fork_name: ForkName,
@@ -744,13 +763,31 @@ impl HttpJsonRpc {
         JsonExecutionPayload::V2(payload_v2).try_into_execution_payload(fork_name)
     }
 
+    pub async fn get_payload_v3<T: EthSpec>(
+        &self,
+        fork_name: ForkName,
+        payload_id: PayloadId,
+    ) -> Result<ExecutionPayload<T>, Error> {
+        let params = json!([JsonPayloadIdRequest::from(payload_id)]);
+
+        let payload_v2: JsonExecutionPayloadV2<T> = self
+            .rpc_request(
+                ENGINE_GET_PAYLOAD_V3,
+                params,
+                ENGINE_GET_PAYLOAD_TIMEOUT * self.execution_timeout_multiplier,
+            )
+            .await?;
+
+        JsonExecutionPayload::V2(payload_v2).try_into_execution_payload(fork_name)
+    }
+
     pub async fn get_blobs_bundle_v1<T: EthSpec>(
         &self,
         payload_id: PayloadId,
-    ) -> Result<JsonBlobBundles<T>, Error> {
+    ) -> Result<JsonBlobsBundle<T>, Error> {
         let params = json!([JsonPayloadIdRequest::from(payload_id)]);
 
-        let response: JsonBlobBundles<T> = self
+        let response: JsonBlobsBundle<T> = self
             .rpc_request(
                 ENGINE_GET_BLOBS_BUNDLE_V1,
                 params,
@@ -855,13 +892,10 @@ impl HttpJsonRpc {
         &self,
         execution_payload: ExecutionPayload<T>,
     ) -> Result<PayloadStatusV1, Error> {
-        let supported_apis = self.get_cached_supported_apis().await?;
-        if supported_apis.new_payload_v2 {
-            self.new_payload_v2(execution_payload).await
-        } else if supported_apis.new_payload_v1 {
-            self.new_payload_v1(execution_payload).await
-        } else {
-            Err(Error::RequiredMethodUnsupported("engine_newPayload"))
+        match execution_payload {
+            ExecutionPayload::Eip4844(_) => self.new_payload_v3(execution_payload).await,
+            ExecutionPayload::Capella(_) => self.new_payload_v2(execution_payload).await,
+            ExecutionPayload::Merge(_) => self.new_payload_v1(execution_payload).await,
         }
     }
 
@@ -872,13 +906,11 @@ impl HttpJsonRpc {
         fork_name: ForkName,
         payload_id: PayloadId,
     ) -> Result<ExecutionPayload<T>, Error> {
-        let supported_apis = self.get_cached_supported_apis().await?;
-        if supported_apis.get_payload_v2 {
-            self.get_payload_v2(fork_name, payload_id).await
-        } else if supported_apis.new_payload_v1 {
-            self.get_payload_v1(fork_name, payload_id).await
-        } else {
-            Err(Error::RequiredMethodUnsupported("engine_getPayload"))
+        match fork_name {
+            ForkName::Eip4844 => self.get_payload_v3(fork_name, payload_id).await,
+            ForkName::Capella => self.get_payload_v2(fork_name, payload_id).await,
+            ForkName::Merge => self.get_payload_v1(fork_name, payload_id).await,
+            _ => Err(Error::RequiredMethodUnsupported("engine_getPayload")),
         }
     }
 
@@ -886,23 +918,25 @@ impl HttpJsonRpc {
     // forkchoice_updated that the execution engine supports
     pub async fn forkchoice_updated(
         &self,
+        fork_name: ForkName,
         forkchoice_state: ForkchoiceState,
         payload_attributes: Option<PayloadAttributes>,
     ) -> Result<ForkchoiceUpdatedResponse, Error> {
-        let supported_apis = self.get_cached_supported_apis().await?;
-        if supported_apis.forkchoice_updated_v2 {
-            self.forkchoice_updated_v2(forkchoice_state, payload_attributes)
+        match fork_name {
+            ForkName::Capella | ForkName::Eip4844 => {
+                self.forkchoice_updated_v2(forkchoice_state, payload_attributes)
+                    .await
+            }
+            ForkName::Merge => {
+                self.forkchoice_updated_v1(
+                    forkchoice_state,
+                    payload_attributes
+                        .map(|pa| pa.downgrade_to_v1())
+                        .transpose()?,
+                )
                 .await
-        } else if supported_apis.forkchoice_updated_v1 {
-            self.forkchoice_updated_v1(
-                forkchoice_state,
-                payload_attributes
-                    .map(|pa| pa.downgrade_to_v1())
-                    .transpose()?,
-            )
-            .await
-        } else {
-            Err(Error::RequiredMethodUnsupported("engine_forkchoiceUpdated"))
+            }
+            _ => Err(Error::RequiredMethodUnsupported("engine_forkchoiceUpdated")),
         }
     }
 }

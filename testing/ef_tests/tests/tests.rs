@@ -215,6 +215,7 @@ macro_rules! ssz_static_test_no_run {
 #[cfg(feature = "fake_crypto")]
 mod ssz_static {
     use ef_tests::{Handler, SszStaticHandler, SszStaticTHCHandler, SszStaticWithSpecHandler};
+    use types::signed_block_and_blobs::SignedBeaconBlockAndBlobsSidecarDecode;
     use types::*;
 
     ssz_static_test!(aggregate_and_proof, AggregateAndProof<_>);
@@ -265,6 +266,10 @@ mod ssz_static {
         SszStaticHandler::<BeaconBlockBodyCapella<MinimalEthSpec>, MinimalEthSpec>::capella_only()
             .run();
         SszStaticHandler::<BeaconBlockBodyCapella<MainnetEthSpec>, MainnetEthSpec>::capella_only()
+            .run();
+        SszStaticHandler::<BeaconBlockBodyEip4844<MinimalEthSpec>, MinimalEthSpec>::eip4844_only()
+            .run();
+        SszStaticHandler::<BeaconBlockBodyEip4844<MainnetEthSpec>, MainnetEthSpec>::eip4844_only()
             .run();
     }
 
@@ -326,6 +331,10 @@ mod ssz_static {
             .run();
         SszStaticHandler::<ExecutionPayloadCapella<MainnetEthSpec>, MainnetEthSpec>::capella_only()
             .run();
+        SszStaticHandler::<ExecutionPayloadEip4844<MinimalEthSpec>, MinimalEthSpec>::eip4844_only()
+            .run();
+        SszStaticHandler::<ExecutionPayloadEip4844<MainnetEthSpec>, MainnetEthSpec>::eip4844_only()
+            .run();
     }
 
     #[test]
@@ -338,24 +347,40 @@ mod ssz_static {
             ::capella_only().run();
         SszStaticHandler::<ExecutionPayloadHeaderCapella<MainnetEthSpec>, MainnetEthSpec>
             ::capella_only().run();
+        SszStaticHandler::<ExecutionPayloadHeaderEip4844<MinimalEthSpec>, MinimalEthSpec>
+            ::eip4844_only().run();
+        SszStaticHandler::<ExecutionPayloadHeaderEip4844<MainnetEthSpec>, MainnetEthSpec>
+            ::eip4844_only().run();
     }
 
     #[test]
     fn withdrawal() {
-        SszStaticHandler::<Withdrawal, MinimalEthSpec>::capella_only().run();
-        SszStaticHandler::<Withdrawal, MainnetEthSpec>::capella_only().run();
+        SszStaticHandler::<Withdrawal, MinimalEthSpec>::capella_and_later().run();
+        SszStaticHandler::<Withdrawal, MainnetEthSpec>::capella_and_later().run();
     }
 
     #[test]
     fn bls_to_execution_change() {
-        SszStaticHandler::<BlsToExecutionChange, MinimalEthSpec>::capella_only().run();
-        SszStaticHandler::<BlsToExecutionChange, MainnetEthSpec>::capella_only().run();
+        SszStaticHandler::<BlsToExecutionChange, MinimalEthSpec>::capella_and_later().run();
+        SszStaticHandler::<BlsToExecutionChange, MainnetEthSpec>::capella_and_later().run();
     }
 
     #[test]
     fn signed_bls_to_execution_change() {
-        SszStaticHandler::<SignedBlsToExecutionChange, MinimalEthSpec>::capella_only().run();
-        SszStaticHandler::<SignedBlsToExecutionChange, MainnetEthSpec>::capella_only().run();
+        SszStaticHandler::<SignedBlsToExecutionChange, MinimalEthSpec>::capella_and_later().run();
+        SszStaticHandler::<SignedBlsToExecutionChange, MainnetEthSpec>::capella_and_later().run();
+    }
+
+    #[test]
+    fn blobs_sidecar() {
+        SszStaticHandler::<BlobsSidecar<MinimalEthSpec>, MinimalEthSpec>::eip4844_only().run();
+        SszStaticHandler::<BlobsSidecar<MainnetEthSpec>, MainnetEthSpec>::eip4844_only().run();
+    }
+
+    #[test]
+    fn signed_blobs_sidecar() {
+        SszStaticHandler::<SignedBeaconBlockAndBlobsSidecarDecode<MinimalEthSpec>, MinimalEthSpec>::eip4844_only().run();
+        SszStaticHandler::<SignedBeaconBlockAndBlobsSidecarDecode<MainnetEthSpec>, MainnetEthSpec>::eip4844_only().run();
     }
 }
 

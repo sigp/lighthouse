@@ -1,4 +1,5 @@
 use crate::beacon_chain::{CanonicalHead, BEACON_CHAIN_DB_KEY, ETH1_CACHE_DB_KEY, OP_POOL_DB_KEY};
+use crate::blob_cache::BlobCache;
 use crate::eth1_chain::{CachingEth1Backend, SszEth1};
 use crate::eth1_finalization_cache::Eth1FinalizationCache;
 use crate::fork_choice_signal::ForkChoiceSignalTx;
@@ -20,12 +21,14 @@ use eth1::Config as Eth1Config;
 use execution_layer::ExecutionLayer;
 use fork_choice::{ForkChoice, ResetPayloadStatuses};
 use futures::channel::mpsc::Sender;
+use kzg::Kzg;
 use operation_pool::{OperationPool, PersistedOperationPool};
 use parking_lot::RwLock;
 use slasher::Slasher;
 use slog::{crit, error, info, Logger};
 use slot_clock::{SlotClock, TestingSlotClock};
 use std::marker::PhantomData;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 use store::{Error as StoreError, HotColdDB, ItemStore, KeyValueStoreOp};
@@ -93,6 +96,7 @@ pub struct BeaconChainBuilder<T: BeaconChainTypes> {
     // Pending I/O batch that is constructed during building and should be executed atomically
     // alongside `PersistedBeaconChain` storage when `BeaconChainBuilder::build` is called.
     pending_io_batch: Vec<KeyValueStoreOp>,
+    trusted_setup_path: Option<PathBuf>,
     task_executor: Option<TaskExecutor>,
 }
 
@@ -132,6 +136,7 @@ where
             slasher: None,
             validator_monitor: None,
             pending_io_batch: vec![],
+            trusted_setup_path: None,
             task_executor: None,
         }
     }
@@ -571,6 +576,11 @@ where
         self
     }
 
+    pub fn trusted_setup(mut self, trusted_setup_file_path: PathBuf) -> Self {
+        self.trusted_setup_path = Some(trusted_setup_file_path);
+        self
+    }
+
     /// Consumes `self`, returning a `BeaconChain` if all required parameters have been supplied.
     ///
     /// An error will be returned at runtime if all required parameters have not been configured.
@@ -610,6 +620,14 @@ where
             self.spec.genesis_slot
         } else {
             slot_clock.now().ok_or("Unable to read slot")?
+        };
+
+        let kzg = if let Some(trusted_setup_file) = self.trusted_setup_path {
+            let kzg = Kzg::new_from_file(trusted_setup_file)
+                .map_err(|e| format!("Failed to load trusted setup: {:?}", e))?;
+            Some(Arc::new(kzg))
+        } else {
+            None
         };
 
         let initial_head_block_root = fork_choice
@@ -812,6 +830,8 @@ where
             graffiti: self.graffiti,
             slasher: self.slasher.clone(),
             validator_monitor: RwLock::new(validator_monitor),
+            blob_cache: BlobCache::default(),
+            kzg,
         };
 
         let head = beacon_chain.head_snapshot();

@@ -171,6 +171,9 @@ impl<T: BeaconChainTypes> Router<T> {
             Request::BlobsByRange(request) => self
                 .processor
                 .on_blobs_by_range_request(peer_id, id, request),
+            Request::BlobsByRoot(request) => self
+                .processor
+                .on_blobs_by_root_request(peer_id, id, request),
             Request::LightClientBootstrap(request) => self
                 .processor
                 .on_lightclient_bootstrap(peer_id, id, request),
@@ -201,6 +204,10 @@ impl<T: BeaconChainTypes> Router<T> {
             Response::BlobsByRange(beacon_blob) => {
                 self.processor
                     .on_blobs_by_range_response(peer_id, request_id, beacon_blob);
+            }
+            Response::BlobsByRoot(beacon_blob) => {
+                self.processor
+                    .on_blobs_by_root_response(peer_id, request_id, beacon_blob);
             }
             Response::LightClientBootstrap(_) => unreachable!(),
         }

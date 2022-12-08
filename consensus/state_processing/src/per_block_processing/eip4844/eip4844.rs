@@ -3,7 +3,6 @@ use eth2_hashing::hash_fixed;
 use itertools::{EitherOrBoth, Itertools};
 use safe_arith::SafeArith;
 use ssz::Decode;
-use ssz_types::VariableList;
 use types::consts::eip4844::{BLOB_TX_TYPE, VERSIONED_HASH_VERSION_KZG};
 use types::{
     AbstractExecPayload, BeaconBlockBodyRef, EthSpec, ExecPayload, KzgCommitment, Transaction,
@@ -18,6 +17,7 @@ pub fn process_blob_kzg_commitments<T: EthSpec, Payload: AbstractExecPayload<T>>
         block_body.blob_kzg_commitments(),
     ) {
         if let Some(transactions) = payload.transactions() {
+            //FIXME(sean) only run if this wasn't run in gossip (use consensus context)
             if !verify_kzg_commitments_against_transactions::<T>(transactions, kzg_commitments)? {
                 return Err(BlockProcessingError::BlobVersionHashMismatch);
             }
@@ -29,7 +29,7 @@ pub fn process_blob_kzg_commitments<T: EthSpec, Payload: AbstractExecPayload<T>>
 
 pub fn verify_kzg_commitments_against_transactions<T: EthSpec>(
     transactions: &Transactions<T>,
-    kzg_commitments: &VariableList<KzgCommitment, T::MaxBlobsPerBlock>,
+    kzg_commitments: &[KzgCommitment],
 ) -> Result<bool, BlockProcessingError> {
     let nested_iter = transactions
         .into_iter()

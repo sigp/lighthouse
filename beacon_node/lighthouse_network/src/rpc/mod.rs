@@ -133,6 +133,7 @@ impl<Id: ReqId, TSpec: EthSpec> RPC<Id, TSpec> {
                 Duration::from_secs(10),
             )
             .n_every(Protocol::BlocksByRoot, 128, Duration::from_secs(10))
+            .n_every(Protocol::BlobsByRoot, 128, Duration::from_secs(10))
             .n_every(
                 Protocol::BlobsByRange,
                 MAX_REQUEST_BLOBS_SIDECARS,
@@ -308,6 +309,7 @@ where
                         ResponseTermination::BlocksByRange => Protocol::BlocksByRange,
                         ResponseTermination::BlocksByRoot => Protocol::BlocksByRoot,
                         ResponseTermination::BlobsByRange => Protocol::BlobsByRange,
+                        ResponseTermination::BlobsByRoot => Protocol::BlobsByRoot,
                     },
                 ),
             },

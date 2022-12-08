@@ -10,7 +10,7 @@ use std::fmt;
 #[derive(Default, Clone, Copy, Serialize, Deserialize, Eq, PartialEq, Hash, Derivative)]
 #[derivative(Debug = "transparent")]
 #[serde(transparent)]
-pub struct ExecutionBlockHash(Hash256);
+pub struct ExecutionBlockHash(pub Hash256);
 
 impl ExecutionBlockHash {
     pub fn zero() -> Self {

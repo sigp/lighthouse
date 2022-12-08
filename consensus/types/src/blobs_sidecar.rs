@@ -1,5 +1,5 @@
-use crate::kzg_proof::KzgProof;
 use crate::{Blob, EthSpec, Hash256, SignedRoot, Slot};
+use kzg::KzgProof;
 use serde_derive::{Deserialize, Serialize};
 use ssz::Encode;
 use ssz_derive::{Decode, Encode};
@@ -12,8 +12,9 @@ use tree_hash_derive::TreeHash;
 pub struct BlobsSidecar<T: EthSpec> {
     pub beacon_block_root: Hash256,
     pub beacon_block_slot: Slot,
+    #[serde(with = "ssz_types::serde_utils::list_of_hex_fixed_vec")]
     pub blobs: VariableList<Blob<T>, T::MaxBlobsPerBlock>,
-    pub kzg_aggregate_proof: KzgProof,
+    pub kzg_aggregated_proof: KzgProof,
 }
 
 impl<T: EthSpec> SignedRoot for BlobsSidecar<T> {}

@@ -511,6 +511,17 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .default_value("1")
                 .takes_value(true)
         )
+        /* 4844 settings */
+        .arg(
+            Arg::with_name("trusted-setup-file")
+                .long("trusted-setup-file")
+                .value_name("FILE")
+                .help("File containing the trusted setup parameters. \
+                      NOTE: This is only for the devnet, the trusted setup params \
+                      must be embedded into the ethspec once parameter loading \
+                      is supported in the ckzg library")
+                .takes_value(true)
+        )
         /*
          * Database purging and compaction.
          */

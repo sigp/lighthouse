@@ -51,12 +51,18 @@ pub fn run_parse_ssz<T: EthSpec>(matches: &ArgMatches) -> Result<(), String> {
         "signed_block_base" => decode_and_print::<SignedBeaconBlockBase<T>>(&bytes, format)?,
         "signed_block_altair" => decode_and_print::<SignedBeaconBlockAltair<T>>(&bytes, format)?,
         "signed_block_merge" => decode_and_print::<SignedBeaconBlockMerge<T>>(&bytes, format)?,
+        "signed_block_capella" => decode_and_print::<SignedBeaconBlockCapella<T>>(&bytes, format)?,
+        "signed_block_eip4844" => decode_and_print::<SignedBeaconBlockEip4844<T>>(&bytes, format)?,
         "block_base" => decode_and_print::<BeaconBlockBase<T>>(&bytes, format)?,
         "block_altair" => decode_and_print::<BeaconBlockAltair<T>>(&bytes, format)?,
         "block_merge" => decode_and_print::<BeaconBlockMerge<T>>(&bytes, format)?,
+        "block_capella" => decode_and_print::<BeaconBlockCapella<T>>(&bytes, format)?,
+        "block_eip4844" => decode_and_print::<BeaconBlockEip4844<T>>(&bytes, format)?,
         "state_base" => decode_and_print::<BeaconStateBase<T>>(&bytes, format)?,
         "state_altair" => decode_and_print::<BeaconStateAltair<T>>(&bytes, format)?,
         "state_merge" => decode_and_print::<BeaconStateMerge<T>>(&bytes, format)?,
+        "state_capella" => decode_and_print::<BeaconStateCapella<T>>(&bytes, format)?,
+        "state_eip4844" => decode_and_print::<BeaconStateEip4844<T>>(&bytes, format)?,
         other => return Err(format!("Unknown type: {}", other)),
     };
 

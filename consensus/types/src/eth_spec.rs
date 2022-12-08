@@ -3,7 +3,7 @@ use crate::*;
 use safe_arith::SafeArith;
 use serde_derive::{Deserialize, Serialize};
 use ssz_types::typenum::{
-    bit::B0, UInt, Unsigned, U0, U1024, U1048576, U1073741824, U1099511627776, U128, U16,
+    bit::B0, UInt, Unsigned, U0, U1024, U1048576, U1073741824, U1099511627776, U128, U131072, U16,
     U16777216, U2, U2048, U256, U32, U4, U4096, U512, U625, U64, U65536, U8, U8192,
 };
 use std::fmt::{self, Debug};
@@ -105,6 +105,7 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq +
      */
     type MaxBlobsPerBlock: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type FieldElementsPerBlob: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+    type BytesPerFieldElement: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     /*
      * Derived values (set these CAREFULLY)
      */
@@ -122,6 +123,11 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq +
     ///
     /// Must be set to `SyncCommitteeSize / SyncCommitteeSubnetCount`.
     type SyncSubcommitteeSize: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+
+    /// The total length of a blob in bytes.
+    ///
+    /// Must be set to `BytesPerFieldElement * FieldElementsPerBlob`.
+    type BytesPerBlob: Unsigned + Clone + Sync + Send + Debug + PartialEq;
 
     fn default_spec() -> ChainSpec;
 
@@ -248,9 +254,9 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq +
         Self::MaxBlobsPerBlock::to_usize()
     }
 
-    /// FIXME: why is this called chunks_per_blob??
-    fn chunks_per_blob() -> usize {
-        Self::FieldElementsPerBlob::to_usize()
+    /// Returns the `BYTES_PER_BLOB` constant for the specification.
+    fn bytes_per_blob() -> usize {
+        Self::BytesPerBlob::to_usize()
     }
 }
 
@@ -293,7 +299,9 @@ impl EthSpec for MainnetEthSpec {
     type MinGasLimit = U5000;
     type MaxExtraDataBytes = U32;
     type MaxBlobsPerBlock = U16; // 2**4 = 16
+    type BytesPerFieldElement = U32;
     type FieldElementsPerBlob = U4096;
+    type BytesPerBlob = U131072;
     type SyncSubcommitteeSize = U128; // 512 committee size / 4 sync committee subnet count
     type MaxPendingAttestations = U4096; // 128 max attestations * 32 slots per epoch
     type SlotsPerEth1VotingPeriod = U2048; // 64 epochs * 32 slots per epoch
@@ -325,6 +333,8 @@ impl EthSpec for MinimalEthSpec {
     type MaxPendingAttestations = U1024; // 128 max attestations * 8 slots per epoch
     type SlotsPerEth1VotingPeriod = U32; // 4 epochs * 8 slots per epoch
     type MaxWithdrawalsPerPayload = U4;
+    type FieldElementsPerBlob = U4; //FIXME(sean) this is spec'd out currently but will likely change
+    type BytesPerBlob = U128; //FIXME(sean) this is spec'd out currently but will likely change
 
     params_from_eth_spec!(MainnetEthSpec {
         JustificationBitsLength,
@@ -347,7 +357,7 @@ impl EthSpec for MinimalEthSpec {
         MaxExtraDataBytes,
         MaxBlsToExecutionChanges,
         MaxBlobsPerBlock,
-        FieldElementsPerBlob
+        BytesPerFieldElement
     });
 
     fn default_spec() -> ChainSpec {
@@ -396,6 +406,8 @@ impl EthSpec for GnosisEthSpec {
     type MaxWithdrawalsPerPayload = U16;
     type MaxBlobsPerBlock = U16; // 2**4 = 16
     type FieldElementsPerBlob = U4096;
+    type BytesPerFieldElement = U32;
+    type BytesPerBlob = U131072;
 
     fn default_spec() -> ChainSpec {
         ChainSpec::gnosis()

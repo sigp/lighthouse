@@ -1,11 +1,13 @@
-use derivative::Derivative;
 use slot_clock::SlotClock;
 
 use crate::beacon_chain::{BeaconChain, BeaconChainTypes, MAXIMUM_GOSSIP_CLOCK_DISPARITY};
-use crate::BeaconChainError;
+use crate::{kzg_utils, BeaconChainError};
 use bls::PublicKey;
-use types::{consts::eip4844::BLS_MODULUS, BeaconStateError, BlobsSidecar, Slot};
+use state_processing::per_block_processing::eip4844::eip4844::verify_kzg_commitments_against_transactions;
+use types::consts::eip4844::BLS_MODULUS;
+use types::{BeaconStateError, BlobsSidecar, Hash256, KzgCommitment, Slot, Transactions};
 
+#[derive(Debug)]
 pub enum BlobError {
     /// The blob sidecar is from a slot that is later than the current slot (with respect to the
     /// gossip clock disparity).
@@ -17,15 +19,15 @@ pub enum BlobError {
         message_slot: Slot,
         latest_permissible_slot: Slot,
     },
-    /// The blob sidecar is from a slot that is prior to the earliest permissible slot (with
-    /// respect to the gossip clock disparity).
+
+    /// The blob sidecar has a different slot than the block.
     ///
     /// ## Peer scoring
     ///
     /// Assuming the local clock is correct, the peer has sent an invalid message.
-    PastSlot {
-        message_slot: Slot,
-        earliest_permissible_slot: Slot,
+    SlotMismatch {
+        blob_slot: Slot,
+        block_slot: Slot,
     },
 
     /// The blob sidecar contains an incorrectly formatted `BLSFieldElement` > `BLS_MODULUS`.
@@ -34,7 +36,9 @@ pub enum BlobError {
     /// ## Peer scoring
     ///
     /// The peer has sent an invalid message.
-    BlobOutOfRange { blob_index: usize },
+    BlobOutOfRange {
+        blob_index: usize,
+    },
 
     /// The blob sidecar contains a KZGCommitment that is not a valid G1 point on
     /// the bls curve.
@@ -50,13 +54,31 @@ pub enum BlobError {
     /// The signature on the blob sidecar invalid and the peer is faulty.
     ProposalSignatureInvalid,
 
+    /// No kzg ccommitment associated with blob sidecar.
+    KzgCommitmentMissing,
+
+    /// No transactions in block
+    TransactionsMissing,
+
+    /// Blob transactions in the block do not correspond to the kzg commitments.
+    TransactionCommitmentMismatch,
+
+    TrustedSetupNotInitialized,
+
+    InvalidKzgProof,
+
+    KzgError(kzg::Error),
+
     /// A blob sidecar for this proposer and slot has already been observed.
     ///
     /// ## Peer scoring
     ///
     /// The `proposer` has already proposed a sidecar at this slot. The existing sidecar may or may not
     /// be equal to the given sidecar.
-    RepeatSidecar { proposer: u64, slot: Slot },
+    RepeatSidecar {
+        proposer: u64,
+        slot: Slot,
+    },
 
     /// There was an error whilst processing the sync contribution. It is not known if it is valid or invalid.
     ///
@@ -79,58 +101,74 @@ impl From<BeaconStateError> for BlobError {
     }
 }
 
-/// A wrapper around a `BlobsSidecar` that indicates it has been verified w.r.t the corresponding
-/// `SignedBeaconBlock`.
-#[derive(Derivative)]
-#[derivative(Debug(bound = "T: BeaconChainTypes"))]
-pub struct VerifiedBlobsSidecar<'a, T: BeaconChainTypes> {
-    pub blob_sidecar: &'a BlobsSidecar<T::EthSpec>,
-}
+pub fn validate_blob_for_gossip<T: BeaconChainTypes>(
+    blob_sidecar: &BlobsSidecar<T::EthSpec>,
+    kzg_commitments: &[KzgCommitment],
+    transactions: &Transactions<T::EthSpec>,
+    block_slot: Slot,
+    block_root: Hash256,
+    chain: &BeaconChain<T>,
+) -> Result<(), BlobError> {
+    let blob_slot = blob_sidecar.beacon_block_slot;
+    // Do not gossip or process blobs from future or past slots.
+    let latest_permissible_slot = chain
+        .slot_clock
+        .now_with_future_tolerance(MAXIMUM_GOSSIP_CLOCK_DISPARITY)
+        .ok_or(BeaconChainError::UnableToReadSlot)?;
+    if blob_slot > latest_permissible_slot {
+        return Err(BlobError::FutureSlot {
+            message_slot: latest_permissible_slot,
+            latest_permissible_slot: blob_slot,
+        });
+    }
 
-impl<'a, T: BeaconChainTypes> VerifiedBlobsSidecar<'a, T> {
-    pub fn verify(
-        blob_sidecar: &'a BlobsSidecar<T::EthSpec>,
-        chain: &BeaconChain<T>,
-    ) -> Result<Self, BlobError> {
-        let blob_slot = blob_sidecar.beacon_block_slot;
-        // Do not gossip or process blobs from future or past slots.
-        let latest_permissible_slot = chain
-            .slot_clock
-            .now_with_future_tolerance(MAXIMUM_GOSSIP_CLOCK_DISPARITY)
-            .ok_or(BeaconChainError::UnableToReadSlot)?;
-        if blob_slot > latest_permissible_slot {
-            return Err(BlobError::FutureSlot {
-                message_slot: latest_permissible_slot,
-                latest_permissible_slot: blob_slot,
-            });
-        }
+    if blob_slot != block_slot {
+        return Err(BlobError::SlotMismatch {
+            blob_slot,
+            block_slot,
+        });
+    }
 
-        let earliest_permissible_slot = chain
-            .slot_clock
-            .now_with_past_tolerance(MAXIMUM_GOSSIP_CLOCK_DISPARITY)
-            .ok_or(BeaconChainError::UnableToReadSlot)?;
-        if blob_slot > earliest_permissible_slot {
-            return Err(BlobError::PastSlot {
-                message_slot: earliest_permissible_slot,
-                earliest_permissible_slot: blob_slot,
-            });
-        }
-
-        // Verify that blobs are properly formatted
-        //TODO: add the check while constructing a Blob type from bytes instead of after
-        for (i, blob) in blob_sidecar.blobs.iter().enumerate() {
-            if blob.iter().any(|b| *b >= *BLS_MODULUS) {
-                return Err(BlobError::BlobOutOfRange { blob_index: i });
-            }
-        }
-
-        // Verify that the KZG proof is a valid G1 point
-        if PublicKey::deserialize(&blob_sidecar.kzg_aggregate_proof.0).is_err() {
+    // Verify that kzg commitments in the block are valid BLS g1 points
+    for commitment in kzg_commitments {
+        if kzg::bytes_to_g1(&commitment.0).is_err() {
             return Err(BlobError::InvalidKZGCommitment);
         }
-
-        // TODO: Check that we have not already received a sidecar with a valid signature for this slot.
-
-        Ok(Self { blob_sidecar })
     }
+
+    // Validate commitments agains transactions in the block.
+    if verify_kzg_commitments_against_transactions::<T::EthSpec>(transactions, kzg_commitments)
+        .is_err()
+    {
+        return Err(BlobError::TransactionCommitmentMismatch);
+    }
+
+    // Check that blobs are < BLS_MODULUS
+    // TODO(pawan): Add this check after there's some resolution of this
+    // issue https://github.com/ethereum/c-kzg-4844/issues/11
+    // As of now, `bytes_to_bls_field` does not fail in the c-kzg library if blob >= BLS_MODULUS
+
+    // Validate that kzg proof is a valid g1 point
+    if kzg::bytes_to_g1(&blob_sidecar.kzg_aggregated_proof.0).is_err() {
+        return Err(BlobError::InvalidKzgProof);
+    }
+
+    // Validatate that the kzg proof is valid against the commitments and blobs
+    let kzg = chain
+        .kzg
+        .as_ref()
+        .ok_or(BlobError::TrustedSetupNotInitialized)?;
+
+    if !kzg_utils::validate_blobs_sidecar(
+        kzg,
+        block_slot,
+        block_root,
+        kzg_commitments,
+        blob_sidecar,
+    )
+    .map_err(BlobError::KzgError)?
+    {
+        return Err(BlobError::InvalidKzgProof);
+    }
+    Ok(())
 }

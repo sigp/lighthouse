@@ -1,13 +1,13 @@
-use std::collections::HashSet;
-use std::sync::Arc;
-
 use super::RootBlockTuple;
 use beacon_chain::get_block_root;
 use lighthouse_network::{rpc::BlocksByRootRequest, PeerId};
 use rand::seq::IteratorRandom;
 use ssz_types::VariableList;
+use std::collections::HashSet;
+use std::sync::Arc;
 use store::{EthSpec, Hash256, SignedBeaconBlock};
 use strum::IntoStaticStr;
+use types::signed_block_and_blobs::BlockWrapper;
 
 /// Object representing a single block lookup request.
 #[derive(PartialEq, Eq)]
@@ -105,7 +105,7 @@ impl<const MAX_ATTEMPTS: u8> SingleBlockRequest<MAX_ATTEMPTS> {
     /// Returns the block for processing if the response is what we expected.
     pub fn verify_block<T: EthSpec>(
         &mut self,
-        block: Option<Arc<SignedBeaconBlock<T>>>,
+        block: Option<BlockWrapper<T>>,
     ) -> Result<Option<RootBlockTuple<T>>, VerifyError> {
         match self.state {
             State::AwaitingDownload => {
@@ -116,7 +116,7 @@ impl<const MAX_ATTEMPTS: u8> SingleBlockRequest<MAX_ATTEMPTS> {
                 Some(block) => {
                     // Compute the block root using this specific function so that we can get timing
                     // metrics.
-                    let block_root = get_block_root(&block);
+                    let block_root = get_block_root(block.block());
                     if block_root != self.hash {
                         // return an error and drop the block
                         // NOTE: we take this is as a download failure to prevent counting the
@@ -225,7 +225,7 @@ mod tests {
 
         let mut sl = SingleBlockRequest::<4>::new(block.canonical_root(), peer_id);
         sl.request_block().unwrap();
-        sl.verify_block(Some(Arc::new(block))).unwrap().unwrap();
+        sl.verify_block(Some(block.into())).unwrap().unwrap();
     }
 
     #[test]
@@ -242,7 +242,7 @@ mod tests {
 
         // Now we receive the block and send it for processing
         sl.request_block().unwrap();
-        sl.verify_block(Some(Arc::new(block))).unwrap().unwrap();
+        sl.verify_block(Some(block.into())).unwrap().unwrap();
 
         // One processing failure maxes the available attempts
         sl.register_failure_processing();

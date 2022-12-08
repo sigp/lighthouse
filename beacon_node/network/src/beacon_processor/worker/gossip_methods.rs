@@ -9,10 +9,7 @@ use beacon_chain::{
     BeaconChainError, BeaconChainTypes, BlockError, CountUnrealized, ForkChoiceError,
     GossipVerifiedBlock, NotifyExecutionLayer,
 };
-use lighthouse_network::{
-    Client, MessageAcceptance, MessageId, PeerAction, PeerId, ReportSource,
-    SignedBeaconBlockAndBlobsSidecar,
-};
+use lighthouse_network::{Client, MessageAcceptance, MessageId, PeerAction, PeerId, ReportSource};
 use slog::{crit, debug, error, info, trace, warn};
 use slot_clock::SlotClock;
 use ssz::Encode;
@@ -20,11 +17,12 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use store::hot_cold_store::HotColdDBError;
 use tokio::sync::mpsc;
+use types::signed_block_and_blobs::BlockWrapper;
 use types::{
-    Attestation, AttesterSlashing, EthSpec, Hash256, IndexedAttestation, ProposerSlashing,
-    SignedAggregateAndProof, SignedBeaconBlock, SignedBlsToExecutionChange,
-    SignedContributionAndProof, SignedVoluntaryExit, Slot, SubnetId, SyncCommitteeMessage,
-    SyncSubnetId,
+    Attestation, AttesterSlashing, BlobsSidecar, EthSpec, Hash256, IndexedAttestation,
+    ProposerSlashing, SignedAggregateAndProof, SignedBeaconBlock, SignedBeaconBlockAndBlobsSidecar,
+    SignedBlsToExecutionChange, SignedContributionAndProof, SignedVoluntaryExit, Slot, SubnetId,
+    SyncCommitteeMessage, SyncSubnetId,
 };
 
 use super::{
@@ -659,7 +657,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         message_id: MessageId,
         peer_id: PeerId,
         peer_client: Client,
-        block: Arc<SignedBeaconBlock<T::EthSpec>>,
+        block: BlockWrapper<T::EthSpec>,
         reprocess_tx: mpsc::Sender<ReprocessQueueMessage<T>>,
         duplicate_cache: DuplicateCache,
         seen_duration: Duration,
@@ -697,19 +695,6 @@ impl<T: BeaconChainTypes> Worker<T> {
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
-    pub async fn process_gossip_block_and_blobs_sidecar(
-        self,
-        _message_id: MessageId,
-        _peer_id: PeerId,
-        _peer_client: Client,
-        _block_and_blob: Arc<SignedBeaconBlockAndBlobsSidecar<T::EthSpec>>,
-        _seen_timestamp: Duration,
-    ) {
-        //FIXME
-        unimplemented!()
-    }
-
     /// Process the beacon block received from the gossip network and
     /// if it passes gossip propagation criteria, tell the network thread to forward it.
     ///
@@ -719,7 +704,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         message_id: MessageId,
         peer_id: PeerId,
         peer_client: Client,
-        block: Arc<SignedBeaconBlock<T::EthSpec>>,
+        block: BlockWrapper<T::EthSpec>,
         reprocess_tx: mpsc::Sender<ReprocessQueueMessage<T>>,
         seen_duration: Duration,
     ) -> Option<GossipVerifiedBlock<T>> {
@@ -740,7 +725,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         let block_root = if let Ok(verified_block) = &verification_result {
             verified_block.block_root
         } else {
-            block.canonical_root()
+            block.block().canonical_root()
         };
 
         // Write the time the block was observed into delay cache.
@@ -855,6 +840,17 @@ impl<T: BeaconChainTypes> Worker<T> {
                 );
                 return None;
             }
+            Err(e@ BlockError::BlobValidation(_)) => {
+                warn!(self.log, "Could not verify blob for gossip. Rejecting the block and blob";
+                            "error" => %e);
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::LowToleranceError,
+                    "gossip_blob_low",
+                );
+                return None;
+            }
         };
 
         metrics::inc_counter(&metrics::BEACON_PROCESSOR_GOSSIP_BLOCK_VERIFIED_TOTAL);
@@ -947,7 +943,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         // This value is not used presently, but it might come in handy for debugging.
         _seen_duration: Duration,
     ) {
-        let block: Arc<_> = verified_block.block.clone();
+        let block = verified_block.block.block_cloned();
         let block_root = verified_block.block_root;
 
         match self
@@ -984,7 +980,7 @@ impl<T: BeaconChainTypes> Worker<T> {
 
                 self.chain.recompute_head_at_current_slot().await;
             }
-            Err(BlockError::ParentUnknown { .. }) => {
+            Err(BlockError::ParentUnknown(block)) => {
                 // Inform the sync manager to find parents for this block
                 // This should not occur. It should be checked by `should_forward_block`
                 error!(

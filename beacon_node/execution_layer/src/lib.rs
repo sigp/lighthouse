@@ -107,12 +107,29 @@ pub enum BlockProposalContents<T: EthSpec, Payload: AbstractExecPayload<T>> {
     Payload(Payload),
     PayloadAndBlobs {
         payload: Payload,
-        kzg_commitments: Vec<KzgCommitment>,
-        blobs: Vec<Blob<T>>,
+        kzg_commitments: VariableList<KzgCommitment, T::MaxBlobsPerBlock>,
+        blobs: VariableList<Blob<T>, T::MaxBlobsPerBlock>,
     },
 }
 
 impl<T: EthSpec, Payload: AbstractExecPayload<T>> BlockProposalContents<T, Payload> {
+    pub fn deconstruct(
+        self,
+    ) -> (
+        Payload,
+        Option<VariableList<KzgCommitment, T::MaxBlobsPerBlock>>,
+        Option<VariableList<Blob<T>, T::MaxBlobsPerBlock>>,
+    ) {
+        match self {
+            Self::Payload(payload) => (payload, None, None),
+            Self::PayloadAndBlobs {
+                payload,
+                kzg_commitments,
+                blobs,
+            } => (payload, Some(kzg_commitments), Some(blobs)),
+        }
+    }
+
     pub fn payload(&self) -> &Payload {
         match self {
             Self::Payload(payload) => payload,
@@ -133,26 +150,6 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> BlockProposalContents<T, Paylo
             } => payload,
         }
     }
-    pub fn kzg_commitments(&self) -> Option<&[KzgCommitment]> {
-        match self {
-            Self::Payload(_) => None,
-            Self::PayloadAndBlobs {
-                payload: _,
-                kzg_commitments,
-                blobs: _,
-            } => Some(kzg_commitments),
-        }
-    }
-    pub fn blobs(&self) -> Option<&[Blob<T>]> {
-        match self {
-            Self::Payload(_) => None,
-            Self::PayloadAndBlobs {
-                payload: _,
-                kzg_commitments: _,
-                blobs,
-            } => Some(blobs),
-        }
-    }
     pub fn default_at_fork(fork_name: ForkName) -> Self {
         match fork_name {
             ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {
@@ -160,8 +157,8 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> BlockProposalContents<T, Paylo
             }
             ForkName::Eip4844 => BlockProposalContents::PayloadAndBlobs {
                 payload: Payload::default_at_fork(fork_name),
-                blobs: vec![],
-                kzg_commitments: vec![],
+                blobs: VariableList::default(),
+                kzg_commitments: VariableList::default(),
             },
         }
     }
@@ -217,6 +214,7 @@ struct Inner<E: EthSpec> {
     executor: TaskExecutor,
     payload_cache: PayloadCache<E>,
     builder_profit_threshold: Uint256,
+    spec: ChainSpec,
     log: Logger,
 }
 
@@ -240,6 +238,8 @@ pub struct Config {
     /// The minimum value of an external payload for it to be considered in a proposal.
     pub builder_profit_threshold: u128,
     pub execution_timeout_multiplier: Option<u32>,
+    #[serde(skip)]
+    pub spec: ChainSpec,
 }
 
 /// Provides access to one execution engine and provides a neat interface for consumption by the
@@ -262,6 +262,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
             default_datadir,
             builder_profit_threshold,
             execution_timeout_multiplier,
+            spec,
         } = config;
 
         if urls.len() > 1 {
@@ -333,6 +334,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
             executor,
             payload_cache: PayloadCache::default(),
             builder_profit_threshold: Uint256::from(builder_profit_threshold),
+            spec,
             log,
         };
 
@@ -1008,6 +1010,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
 
                     let response = engine
                         .notify_forkchoice_updated(
+                            current_fork,
                             fork_choice_state,
                             Some(payload_attributes.clone()),
                             self.log(),
@@ -1266,8 +1269,13 @@ impl<T: EthSpec> ExecutionLayer<T> {
             finalized_block_hash,
         };
 
+        let fork_name = self
+            .inner
+            .spec
+            .fork_name_at_epoch(next_slot.epoch(T::slots_per_epoch()));
+
         self.engine()
-            .set_latest_forkchoice_state(forkchoice_state)
+            .set_latest_forkchoice_state(fork_name, forkchoice_state)
             .await;
 
         let payload_attributes_ref = &payload_attributes;
@@ -1276,6 +1284,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
             .request(|engine| async move {
                 engine
                     .notify_forkchoice_updated(
+                        fork_name,
                         forkchoice_state,
                         payload_attributes_ref.clone(),
                         self.log(),

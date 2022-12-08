@@ -412,6 +412,7 @@ dependencies = [
  "hex",
  "int_to_bytes",
  "itertools",
+ "kzg",
  "lazy_static",
  "lighthouse_metrics",
  "logging",
@@ -715,6 +716,15 @@ dependencies = [
  "cc",
  "libc",
  "pkg-config",
+]
+
+[[package]]
+name = "c-kzg"
+version = "0.1.0"
+source = "git+https://github.com/pawanjay176/c-kzg-4844?rev=669a13800a8a0d094c5387db58e06936ef194a25#669a13800a8a0d094c5387db58e06936ef194a25"
+dependencies = [
+ "hex",
+ "libc",
 ]
 
 [[package]]
@@ -3171,6 +3181,24 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f9b7d56ba4a8344d6be9729995e6b06f928af29998cdf79fe390cbf6b1fee838"
 
 [[package]]
+name = "kzg"
+version = "0.1.0"
+dependencies = [
+ "c-kzg",
+ "derivative",
+ "eth2_hashing",
+ "eth2_serde_utils",
+ "eth2_ssz",
+ "eth2_ssz_derive",
+ "ethereum-types 0.12.1",
+ "hex",
+ "rand 0.7.3",
+ "serde",
+ "serde_derive",
+ "tree_hash",
+]
+
+[[package]]
 name = "lazy_static"
 version = "1.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3200,6 +3228,7 @@ dependencies = [
  "environment",
  "eth1_test_rig",
  "eth2",
+ "eth2_hashing",
  "eth2_network_config",
  "eth2_ssz",
  "eth2_wallet",
@@ -5701,12 +5730,11 @@ dependencies = [
 
 [[package]]
 name = "serde-big-array"
-version = "0.3.2"
+version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "18b20e7752957bbe9661cff4e0bb04d183d0948cdab2ea58cdb9df36a61dfe62"
+checksum = "cd31f59f6fe2b0c055371bb2f16d7f0aa7d8881676c04a55b1596d1a17cd10a4"
 dependencies = [
  "serde",
- "serde_derive",
 ]
 
 [[package]]
@@ -7123,6 +7151,7 @@ dependencies = [
  "hex",
  "int_to_bytes",
  "itertools",
+ "kzg",
  "lazy_static",
  "log",
  "maplit",

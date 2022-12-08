@@ -25,6 +25,8 @@ pub enum Error {
     SchemaMigrationError(String),
     /// The store's `anchor_info` was mutated concurrently, the latest modification wasn't applied.
     AnchorInfoConcurrentMutation,
+    /// The store's `blob_info` was mutated concurrently, the latest modification wasn't applied.
+    BlobInfoConcurrentMutation,
     /// The block or state is unavailable due to weak subjectivity sync.
     HistoryUnavailable,
     /// State reconstruction cannot commence because not all historic blocks are known.
