@@ -1107,8 +1107,6 @@ pub fn serve<T: BeaconChainTypes>(
      */
 
     // POST beacon/blocks
-
-    // TODO: THIS IS NOT THE RIGHT CODE
     let post_beacon_blocks = eth_v1
         .and(warp::path("beacon"))
         .and(warp::path("blocks"))

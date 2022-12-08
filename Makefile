@@ -38,7 +38,7 @@ install:
 
 # Builds the lcli binary in release (optimized).
 install-lcli:
-	cargo install --path lcli --force --locked --features "$(FEATURES),$(EF_TEST_FEATURES)" --profile "$(PROFILE)"
+	cargo install --path lcli --force --locked --features "$(FEATURES)" --profile "$(PROFILE)"
 
 # The following commands use `cross` to build a cross-compile.
 #
