@@ -4022,6 +4022,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "metastruct"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "734788dec2091fe9afa39530ca2ea7994f4a2c9aff3dbfebb63f2c1945c6f10b"
+dependencies = [
+ "metastruct_macro",
+]
+
+[[package]]
+name = "metastruct_macro"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "42ded15e7570c2a507a23e6c3a1c8d74507b779476e43afe93ddfc261d44173d"
+dependencies = [
+ "darling",
+ "itertools",
+ "proc-macro2",
+ "quote",
+ "smallvec",
+ "syn",
+]
+
+[[package]]
 name = "mev-build-rs"
 version = "0.2.1"
 source = "git+https://github.com/ralexstokes/mev-rs?rev=6c99b0fbdc0427b1625469d2e575303ce08de5b8#6c99b0fbdc0427b1625469d2e575303ce08de5b8"
@@ -6453,9 +6476,9 @@ checksum = "6bdef32e8150c2a081110b42772ffe7d7c9032b606bc226c8260fd97e0976601"
 
 [[package]]
 name = "superstruct"
-version = "0.5.0"
+version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "95a99807a055ff4ff5d249bb84c80d9eabb55ca3c452187daae43fd5b51ef695"
+checksum = "6f4e1f478a7728f8855d7e620e9a152cf8932c6614f86564c886f9b8141f3201"
 dependencies = [
  "darling",
  "itertools",
@@ -7235,6 +7258,7 @@ dependencies = [
  "log",
  "maplit",
  "merkle_proof",
+ "metastruct",
  "milhouse",
  "parking_lot 0.12.1",
  "rand 0.8.5",

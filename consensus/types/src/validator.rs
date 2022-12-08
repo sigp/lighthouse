@@ -12,7 +12,7 @@ const NUM_FIELDS: usize = 8;
 
 /// Information about a `BeaconChain` validator.
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TestRandom)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TestRandom, Default)]
 #[serde(deny_unknown_fields)]
 pub struct Validator {
     #[serde(flatten)]
@@ -176,22 +176,25 @@ impl Validator {
     }
 }
 
-impl Default for Validator {
-    /// Yields a "default" `Validator`. Primarily used for testing.
+/// Yields a "default" `Validator`. Primarily used for testing.
+impl Default for ValidatorImmutable {
     fn default() -> Self {
-        Self {
-            immutable: Arc::new(ValidatorImmutable {
-                pubkey: PublicKeyBytes::empty(),
-                withdrawal_credentials: Hash256::default(),
-            }),
-            mutable: ValidatorMutable {
-                activation_eligibility_epoch: Epoch::from(std::u64::MAX),
-                activation_epoch: Epoch::from(std::u64::MAX),
-                exit_epoch: Epoch::from(std::u64::MAX),
-                withdrawable_epoch: Epoch::from(std::u64::MAX),
-                slashed: false,
-                effective_balance: std::u64::MAX,
-            },
+        ValidatorImmutable {
+            pubkey: PublicKeyBytes::empty(),
+            withdrawal_credentials: Hash256::default(),
+        }
+    }
+}
+
+impl Default for ValidatorMutable {
+    fn default() -> Self {
+        ValidatorMutable {
+            activation_eligibility_epoch: Epoch::from(std::u64::MAX),
+            activation_epoch: Epoch::from(std::u64::MAX),
+            exit_epoch: Epoch::from(std::u64::MAX),
+            withdrawable_epoch: Epoch::from(std::u64::MAX),
+            slashed: false,
+            effective_balance: std::u64::MAX,
         }
     }
 }
@@ -236,7 +239,10 @@ mod tests {
         let epoch = Epoch::new(10);
 
         let v = Validator {
-            activation_epoch: epoch,
+            mutable: ValidatorMutable {
+                activation_epoch: epoch,
+                ..Default::default()
+            },
             ..Validator::default()
         };
 
@@ -250,7 +256,10 @@ mod tests {
         let epoch = Epoch::new(10);
 
         let v = Validator {
-            exit_epoch: epoch,
+            mutable: ValidatorMutable {
+                exit_epoch: epoch,
+                ..ValidatorMutable::default()
+            },
             ..Validator::default()
         };
 
@@ -264,7 +273,10 @@ mod tests {
         let epoch = Epoch::new(10);
 
         let v = Validator {
-            withdrawable_epoch: epoch,
+            mutable: ValidatorMutable {
+                withdrawable_epoch: epoch,
+                ..ValidatorMutable::default()
+            },
             ..Validator::default()
         };
 

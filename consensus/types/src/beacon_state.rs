@@ -7,6 +7,7 @@ use compare_fields::CompareFields;
 use compare_fields_derive::CompareFields;
 use eth2_hashing::hash;
 use int_to_bytes::{int_to_bytes4, int_to_bytes8};
+use metastruct::{metastruct, NumFields};
 pub use pubkey_cache::PubkeyCache;
 use safe_arith::{ArithError, SafeArith};
 use serde_derive::{Deserialize, Serialize};
@@ -208,6 +209,29 @@ impl From<BeaconStateHash> for Hash256 {
         serde(bound = "T: EthSpec", deny_unknown_fields),
         cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))
     ),
+    specific_variant_attributes(
+        Base(metastruct(
+            mappings(
+                map_beacon_state_base_fields(),
+                map_beacon_state_base_tree_list_fields(mutable, fallible, groups(tree_lists)),
+            ),
+            num_fields(all()),
+        )),
+        Altair(metastruct(
+            mappings(
+                map_beacon_state_altair_fields(),
+                map_beacon_state_altair_tree_list_fields(mutable, fallible, groups(tree_lists)),
+            ),
+            num_fields(all()),
+        )),
+        Merge(metastruct(
+            mappings(
+                map_beacon_state_bellatrix_fields(),
+                map_beacon_state_bellatrix_tree_list_fields(mutable, fallible, groups(tree_lists)),
+            ),
+            num_fields(all()),
+        )),
+    ),
     cast_error(ty = "Error", expr = "Error::IncorrectStateVariant"),
     partial_getter_error(ty = "Error", expr = "Error::IncorrectStateVariant")
 )]
@@ -223,16 +247,21 @@ where
 {
     // Versioning
     #[superstruct(getter(copy))]
+    #[metastruct(exclude_from(tree_lists))]
     #[serde(with = "eth2_serde_utils::quoted_u64")]
     pub genesis_time: u64,
     #[superstruct(getter(copy))]
+    #[metastruct(exclude_from(tree_lists))]
     pub genesis_validators_root: Hash256,
     #[superstruct(getter(copy))]
+    #[metastruct(exclude_from(tree_lists))]
     pub slot: Slot,
     #[superstruct(getter(copy))]
+    #[metastruct(exclude_from(tree_lists))]
     pub fork: Fork,
 
     // History
+    #[metastruct(exclude_from(tree_lists))]
     pub latest_block_header: BeaconBlockHeader,
     #[test_random(default)]
     pub block_roots: FixedVector<Hash256, T::SlotsPerHistoricalRoot>,
@@ -242,10 +271,12 @@ where
     pub historical_roots: VList<Hash256, T::HistoricalRootsLimit>,
 
     // Ethereum 1.0 chain data
+    #[metastruct(exclude_from(tree_lists))]
     pub eth1_data: Eth1Data,
     #[test_random(default)]
     pub eth1_data_votes: VList<Eth1Data, T::SlotsPerEth1VotingPeriod>,
     #[superstruct(getter(copy))]
+    #[metastruct(exclude_from(tree_lists))]
     #[serde(with = "eth2_serde_utils::quoted_u64")]
     pub eth1_deposit_index: u64,
 
@@ -285,12 +316,16 @@ where
 
     // Finality
     #[test_random(default)]
+    #[metastruct(exclude_from(tree_lists))]
     pub justification_bits: BitVector<T::JustificationBitsLength>,
     #[superstruct(getter(copy))]
+    #[metastruct(exclude_from(tree_lists))]
     pub previous_justified_checkpoint: Checkpoint,
     #[superstruct(getter(copy))]
+    #[metastruct(exclude_from(tree_lists))]
     pub current_justified_checkpoint: Checkpoint,
     #[superstruct(getter(copy))]
+    #[metastruct(exclude_from(tree_lists))]
     pub finalized_checkpoint: Checkpoint,
 
     // Inactivity
@@ -302,12 +337,15 @@ where
 
     // Light-client sync committees
     #[superstruct(only(Altair, Merge))]
+    #[metastruct(exclude_from(tree_lists))]
     pub current_sync_committee: Arc<SyncCommittee<T>>,
     #[superstruct(only(Altair, Merge))]
+    #[metastruct(exclude_from(tree_lists))]
     pub next_sync_committee: Arc<SyncCommittee<T>>,
 
     // Execution
     #[superstruct(only(Merge))]
+    #[metastruct(exclude_from(tree_lists))]
     pub latest_execution_payload_header: ExecutionPayloadHeader<T>,
 
     // Caching (not in the spec)
@@ -315,21 +353,25 @@ where
     #[ssz(skip_serializing, skip_deserializing)]
     #[tree_hash(skip_hashing)]
     #[test_random(default)]
+    #[metastruct(exclude)]
     pub total_active_balance: Option<(Epoch, u64)>,
     #[serde(skip_serializing, skip_deserializing)]
     #[ssz(skip_serializing, skip_deserializing)]
     #[tree_hash(skip_hashing)]
     #[test_random(default)]
+    #[metastruct(exclude)]
     pub committee_caches: [Arc<CommitteeCache>; CACHED_EPOCHS],
     #[serde(skip_serializing, skip_deserializing)]
     #[ssz(skip_serializing, skip_deserializing)]
     #[tree_hash(skip_hashing)]
     #[test_random(default)]
+    #[metastruct(exclude)]
     pub pubkey_cache: PubkeyCache,
     #[serde(skip_serializing, skip_deserializing)]
     #[ssz(skip_serializing, skip_deserializing)]
     #[tree_hash(skip_hashing)]
     #[test_random(default)]
+    #[metastruct(exclude)]
     pub exit_cache: ExitCache,
 }
 
@@ -1583,35 +1625,6 @@ impl<T: EthSpec> BeaconState<T> {
                 .map_or(false, VList::has_pending_updates)
     }
 
-    // FIXME(sproul): automate this somehow
-    pub fn apply_pending_mutations(&mut self) -> Result<(), Error> {
-        self.block_roots_mut().apply_updates()?;
-        self.state_roots_mut().apply_updates()?;
-        self.historical_roots_mut().apply_updates()?;
-        self.eth1_data_votes_mut().apply_updates()?;
-        self.validators_mut().apply_updates()?;
-        self.balances_mut().apply_updates()?;
-        self.randao_mixes_mut().apply_updates()?;
-        self.slashings_mut().apply_updates()?;
-
-        if let Ok(previous_epoch_attestations) = self.previous_epoch_attestations_mut() {
-            previous_epoch_attestations.apply_updates()?;
-        }
-        if let Ok(current_epoch_attestations) = self.current_epoch_attestations_mut() {
-            current_epoch_attestations.apply_updates()?;
-        }
-        if let Ok(inactivity_scores) = self.inactivity_scores_mut() {
-            inactivity_scores.apply_updates()?;
-        }
-        if let Ok(previous_epoch_participation) = self.previous_epoch_participation_mut() {
-            previous_epoch_participation.apply_updates()?;
-        }
-        if let Ok(current_epoch_participation) = self.current_epoch_participation_mut() {
-            current_epoch_participation.apply_updates()?;
-        }
-        Ok(())
-    }
-
     /// Compute the tree hash root of the state using the tree hash cache.
     ///
     /// Initialize the tree hash cache if it isn't already initialized.
@@ -1662,63 +1675,17 @@ impl<T: EthSpec> BeaconState<T> {
         };
         Ok(sync_committee)
     }
-
-    pub fn compute_merkle_proof(
-        &mut self,
-        generalized_index: usize,
-    ) -> Result<Vec<Hash256>, Error> {
-        /* FIXME(sproul): re-enable merkle proofs
-        // 1. Convert generalized index to field index.
-        let field_index = match generalized_index {
-            light_client_update::CURRENT_SYNC_COMMITTEE_INDEX
-            | light_client_update::NEXT_SYNC_COMMITTEE_INDEX => {
-                // Sync committees are top-level fields, subtract off the generalized indices
-                // for the internal nodes. Result should be 22 or 23, the field offset of the committee
-                // in the `BeaconState`:
-                // https://github.com/ethereum/consensus-specs/blob/dev/specs/altair/beacon-chain.md#beaconstate
-                generalized_index
-                    .checked_sub(tree_hash_cache::NUM_BEACON_STATE_HASH_TREE_ROOT_LEAVES)
-                    .ok_or(Error::IndexNotSupported(generalized_index))?
-            }
-            light_client_update::FINALIZED_ROOT_INDEX => {
-                // Finalized root is the right child of `finalized_checkpoint`, divide by two to get
-                // the generalized index of `state.finalized_checkpoint`.
-                let finalized_checkpoint_generalized_index = generalized_index / 2;
-                // Subtract off the internal nodes. Result should be 105/2 - 32 = 20 which matches
-                // position of `finalized_checkpoint` in `BeaconState`.
-                finalized_checkpoint_generalized_index
-                    .checked_sub(tree_hash_cache::NUM_BEACON_STATE_HASH_TREE_ROOT_LEAVES)
-                    .ok_or(Error::IndexNotSupported(generalized_index))?
-            }
-            _ => return Err(Error::IndexNotSupported(generalized_index)),
-        };
-
-        // 2. Get all `BeaconState` leaves.
-        let mut cache = self
-            .tree_hash_cache_mut()
-            .take()
-            .ok_or(Error::TreeHashCacheNotInitialized)?;
-        let leaves = cache.recalculate_tree_hash_leaves(self)?;
-        self.tree_hash_cache_mut().restore(cache);
-
-        // 3. Make deposit tree.
-        // Use the depth of the `BeaconState` fields (i.e. `log2(32) = 5`).
-        let depth = light_client_update::CURRENT_SYNC_COMMITTEE_PROOF_LEN;
-        let tree = merkle_proof::MerkleTree::create(&leaves, depth);
-        let (_, mut proof) = tree.generate_proof(field_index, depth)?;
-
-        // 4. If we're proving the finalized root, patch in the finalized epoch to complete the proof.
-        if generalized_index == light_client_update::FINALIZED_ROOT_INDEX {
-            proof.insert(0, self.finalized_checkpoint().epoch.tree_hash_root());
-        }
-
-        Ok(proof)
-        */
-        unimplemented!()
-    }
 }
 
-impl<T: EthSpec, V: ValidatorTrait> BeaconState<T, V> {
+impl<T: EthSpec, GenericValidator: ValidatorTrait> BeaconState<T, GenericValidator> {
+    /// The number of fields of the `BeaconState` rounded up to the nearest power of two.
+    ///
+    /// This is relevant to tree-hashing of the `BeaconState`.
+    ///
+    /// We assume this value is stable across forks. This assumption is checked in the
+    /// `check_num_fields_pow2` test.
+    pub const NUM_FIELDS_POW2: usize = BeaconStateMerge::<T>::NUM_FIELDS.next_power_of_two();
+
     /// Specialised deserialisation method that uses the `ChainSpec` as context.
     #[allow(clippy::integer_arithmetic)]
     pub fn from_ssz_bytes(bytes: &[u8], spec: &ChainSpec) -> Result<Self, ssz::DecodeError> {
@@ -1741,6 +1708,81 @@ impl<T: EthSpec, V: ValidatorTrait> BeaconState<T, V> {
             Self,
             <_>::from_ssz_bytes(bytes)?
         ))
+    }
+
+    pub fn apply_pending_mutations(&mut self) -> Result<(), Error> {
+        match self {
+            Self::Base(inner) => {
+                map_beacon_state_base_tree_list_fields!(inner, |_, x| { x.apply_updates() })
+            }
+            Self::Altair(inner) => {
+                map_beacon_state_altair_tree_list_fields!(inner, |_, x| { x.apply_updates() })
+            }
+            Self::Merge(inner) => {
+                map_beacon_state_bellatrix_tree_list_fields!(inner, |_, x| { x.apply_updates() })
+            }
+        }
+        Ok(())
+    }
+
+    pub fn compute_merkle_proof(&self, generalized_index: usize) -> Result<Vec<Hash256>, Error> {
+        // 1. Convert generalized index to field index.
+        let field_index = match generalized_index {
+            light_client_update::CURRENT_SYNC_COMMITTEE_INDEX
+            | light_client_update::NEXT_SYNC_COMMITTEE_INDEX => {
+                // Sync committees are top-level fields, subtract off the generalized indices
+                // for the internal nodes. Result should be 22 or 23, the field offset of the committee
+                // in the `BeaconState`:
+                // https://github.com/ethereum/consensus-specs/blob/dev/specs/altair/beacon-chain.md#beaconstate
+                generalized_index
+                    .checked_sub(Self::NUM_FIELDS_POW2)
+                    .ok_or(Error::IndexNotSupported(generalized_index))?
+            }
+            light_client_update::FINALIZED_ROOT_INDEX => {
+                // Finalized root is the right child of `finalized_checkpoint`, divide by two to get
+                // the generalized index of `state.finalized_checkpoint`.
+                let finalized_checkpoint_generalized_index = generalized_index / 2;
+                // Subtract off the internal nodes. Result should be 105/2 - 32 = 20 which matches
+                // position of `finalized_checkpoint` in `BeaconState`.
+                finalized_checkpoint_generalized_index
+                    .checked_sub(Self::NUM_FIELDS_POW2)
+                    .ok_or(Error::IndexNotSupported(generalized_index))?
+            }
+            _ => return Err(Error::IndexNotSupported(generalized_index)),
+        };
+
+        // 2. Get all `BeaconState` leaves.
+        let mut leaves = vec![];
+        match self {
+            BeaconState::Base(state) => {
+                map_beacon_state_base_fields!(state, |_, field| {
+                    leaves.push(field.tree_hash_root());
+                });
+            }
+            BeaconState::Altair(state) => {
+                map_beacon_state_altair_fields!(state, |_, field| {
+                    leaves.push(field.tree_hash_root());
+                });
+            }
+            BeaconState::Merge(state) => {
+                map_beacon_state_bellatrix_fields!(state, |_, field| {
+                    leaves.push(field.tree_hash_root());
+                });
+            }
+        };
+
+        // 3. Make deposit tree.
+        // Use the depth of the `BeaconState` fields (i.e. `log2(32) = 5`).
+        let depth = light_client_update::CURRENT_SYNC_COMMITTEE_PROOF_LEN;
+        let tree = merkle_proof::MerkleTree::create(&leaves, depth);
+        let (_, mut proof) = tree.generate_proof(field_index, depth)?;
+
+        // 4. If we're proving the finalized root, patch in the finalized epoch to complete the proof.
+        if generalized_index == light_client_update::FINALIZED_ROOT_INDEX {
+            proof.insert(0, self.finalized_checkpoint().epoch.tree_hash_root());
+        }
+
+        Ok(proof)
     }
 }
 

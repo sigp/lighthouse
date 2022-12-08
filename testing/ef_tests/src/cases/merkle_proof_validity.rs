@@ -49,9 +49,8 @@ impl<E: EthSpec> LoadCase for MerkleProofValidity<E> {
 
 impl<E: EthSpec> Case for MerkleProofValidity<E> {
     fn result(&self, _case_index: usize, _fork_name: ForkName) -> Result<(), Error> {
-        // FIXME(sproul): re-enable merkle proofs
-        /*
         let mut state = self.state.clone();
+        state.update_tree_hash_cache().unwrap();
         let proof = match state.compute_merkle_proof(self.merkle_proof.leaf_index) {
             Ok(proof) => proof,
             Err(_) => {
@@ -79,10 +78,6 @@ impl<E: EthSpec> Case for MerkleProofValidity<E> {
                 )));
             }
         }
-
-        // Tree hash cache should still be initialized (not dropped).
-        assert!(state.tree_hash_cache().is_initialized());
-        */
 
         Ok(())
     }

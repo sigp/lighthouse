@@ -1,11 +1,10 @@
 #![cfg(test)]
-use crate::test_utils::*;
-use crate::test_utils::{SeedableRng, XorShiftRng};
+use crate::{test_utils::*, ForkName};
 use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
 use beacon_chain::types::{
     test_utils::TestRandom, BeaconState, BeaconStateAltair, BeaconStateBase, BeaconStateError,
-    ChainSpec, Domain, Epoch, EthSpec, FixedVector, Hash256, Keypair, MainnetEthSpec,
-    MinimalEthSpec, RelativeEpoch, Slot,
+    BeaconStateMerge, ChainSpec, Domain, Epoch, EthSpec, FixedVector, Hash256, Keypair,
+    MainnetEthSpec, MinimalEthSpec, RelativeEpoch, Slot,
 };
 use safe_arith::SafeArith;
 use ssz::{Decode, Encode};
@@ -103,6 +102,7 @@ async fn test_beacon_proposer_index<T: EthSpec>() {
         .validators_mut()
         .get_mut(slot0_candidate0)
         .unwrap()
+        .mutable
         .effective_balance = 0;
     test(&state, Slot::new(0), 1);
     for i in 1..T::slots_per_epoch() {
@@ -419,57 +419,19 @@ fn decode_base_and_altair() {
 }
 
 #[test]
-fn tree_hash_cache_linear_history() {
-    let mut rng = XorShiftRng::from_seed([42; 16]);
+fn check_num_fields_pow2() {
+    use metastruct::NumFields;
+    pub type E = MainnetEthSpec;
 
-    let mut state: BeaconState<MainnetEthSpec> =
-        BeaconState::Base(BeaconStateBase::random_for_test(&mut rng));
-
-    let root = state.update_tree_hash_cache().unwrap();
-
-    assert_eq!(root.as_bytes(), &state.tree_hash_root()[..]);
-
-    /*
-     * A cache should hash twice without updating the slot.
-     */
-
-    assert_eq!(
-        state.update_tree_hash_cache().unwrap(),
-        root,
-        "tree hash result should be identical on the same slot"
-    );
-
-    /*
-     * A cache should not hash after updating the slot but not updating the state roots.
-     */
-
-    // The tree hash cache needs to be rebuilt since it was dropped when it failed.
-    state
-        .update_tree_hash_cache()
-        .expect("should rebuild cache");
-
-    *state.slot_mut() += 1;
-
-    assert_eq!(
-        state.update_tree_hash_cache(),
-        Err(BeaconStateError::NonLinearTreeHashCacheHistory),
-        "should not build hash without updating the state root"
-    );
-
-    /*
-     * The cache should update if the slot and state root are updated.
-     */
-
-    // The tree hash cache needs to be rebuilt since it was dropped when it failed.
-    let root = state
-        .update_tree_hash_cache()
-        .expect("should rebuild cache");
-
-    *state.slot_mut() += 1;
-    state
-        .set_state_root(state.slot() - 1, root)
-        .expect("should set state root");
-
-    let root = state.update_tree_hash_cache().unwrap();
-    assert_eq!(root.as_bytes(), &state.tree_hash_root()[..]);
+    for fork_name in ForkName::list_all() {
+        let num_fields = match fork_name {
+            ForkName::Base => BeaconStateBase::<E>::NUM_FIELDS,
+            ForkName::Altair => BeaconStateAltair::<E>::NUM_FIELDS,
+            ForkName::Merge => BeaconStateMerge::<E>::NUM_FIELDS,
+        };
+        assert_eq!(
+            num_fields.next_power_of_two(),
+            BeaconState::<E>::NUM_FIELDS_POW2
+        );
+    }
 }
