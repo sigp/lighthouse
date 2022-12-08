@@ -23,7 +23,7 @@ use std::fmt::Debug;
 #[cfg(not(all(feature = "withdrawals", feature = "withdrawals-processing")))]
 use std::marker::PhantomData;
 use std::path::Path;
-#[cfg(all(feature = "withdrawals"))]
+#[cfg(feature = "withdrawals")]
 use types::SignedBlsToExecutionChange;
 use types::{
     Attestation, AttesterSlashing, BeaconBlock, BeaconState, BlindedPayload, ChainSpec, Deposit,
@@ -397,6 +397,7 @@ impl<E: EthSpec> Operation<E> for WithdrawalsPayload<E> {
     }
 }
 
+#[cfg(feature = "withdrawals")]
 impl<E: EthSpec> Operation<E> for SignedBlsToExecutionChange {
     fn handler_name() -> String {
         "bls_to_execution_change".into()

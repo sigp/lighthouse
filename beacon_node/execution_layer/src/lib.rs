@@ -218,7 +218,7 @@ struct Inner<E: EthSpec> {
     log: Logger,
 }
 
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct Config {
     /// Endpoint urls for EL nodes that are running the engine api.
     pub execution_endpoints: Vec<SensitiveUrl>,
@@ -238,6 +238,7 @@ pub struct Config {
     /// The minimum value of an external payload for it to be considered in a proposal.
     pub builder_profit_threshold: u128,
     pub execution_timeout_multiplier: Option<u32>,
+    #[serde(skip)]
     pub spec: ChainSpec,
 }
 
@@ -1272,35 +1273,6 @@ impl<T: EthSpec> ExecutionLayer<T> {
             .inner
             .spec
             .fork_name_at_epoch(next_slot.epoch(T::slots_per_epoch()));
-
-        let epoch = next_slot.epoch(T::slots_per_epoch());
-
-        let eip4844_fork_epoch = self.inner.spec.eip4844_fork_epoch;
-        let capella_fork_epoch = self.inner.spec.capella_fork_epoch;
-        let bellatrix_fork_epoch = self.inner.spec.bellatrix_fork_epoch;
-        let altair_fork_epoch = self.inner.spec.altair_fork_epoch;
-        let genesis_slot = self.inner.spec.genesis_slot;
-
-        info!(
-                    self.log(),
-                    "fork name at slot";
-                    "fork_name" => ?fork_name,
-                    "next_slot" => ?next_slot,
-                    "epoch" => ?epoch,
-        "eip4844_fork_epoch" => ?eip4844_fork_epoch,
-        "capella_fork_epoch" => ?capella_fork_epoch,
-        "bellatrix_fork_epoch" => ?bellatrix_fork_epoch,
-        "altair_fork_epoch" => ?altair_fork_epoch,
-        "genesis_slot" => ?genesis_slot,
-                );
-
-        //        Dec 06 16:47:39.049 INFO fork name at slot
-        // genesis_slot: Slot(0),
-        // altair_fork_epoch: Some(Epoch(74240)),
-        // bellatrix_fork_epoch: Some(Epoch(144896)),
-        // capella_fork_epoch: Some(Epoch(18446744073709551615)),
-        // eip4844_fork_epoch: None, epoch: Epoch(0),
-        // next_slot: Slot(12), fork_name: Base, service: exec
 
         self.engine()
             .set_latest_forkchoice_state(fork_name, forkchoice_state)
