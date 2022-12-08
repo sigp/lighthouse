@@ -56,7 +56,6 @@ pub struct BeaconStateDiff<T: EthSpec> {
     slashings: VectorDiff<u64, T::EpochsPerSlashingsVector>,
 
     // Attestations (genesis fork only)
-    // FIXME(sproul): do some clever diffing of prev against former current
     previous_epoch_attestations:
         Maybe<ResetListDiff<PendingAttestation<T>, T::MaxPendingAttestations>>,
     current_epoch_attestations:

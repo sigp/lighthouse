@@ -32,6 +32,7 @@ pub enum Error {
     BeaconState(BeaconStateError),
     Arith(ArithError),
     InvalidValidatorIndex(usize),
+    InconsistentTotalActiveBalance { cached: u64, computed: u64 },
 }
 
 impl From<BeaconStateError> for Error {
@@ -103,21 +104,18 @@ impl SingleEpochParticipationCache {
             .ok_or(Error::InvalidFlagIndex(flag_index))
     }
 
-    /// Process an **active** validator, reading from the `state` with respect to the
+    /// Process an **active** validator, reading from the `epoch_participation` with respect to the
     /// `relative_epoch`.
     ///
     /// ## Errors
     ///
-    /// - The provided `state` **must** be Altair. An error will be returned otherwise.
     /// - An error will be returned if the `val_index` validator is inactive at the given
     ///     `relative_epoch`.
-    fn process_active_validator<T: EthSpec>(
+    fn process_active_validator(
         &mut self,
         val_index: usize,
         validator: &Validator,
         epoch_participation: &ParticipationFlags,
-        // FIXME(sproul): remove state argument
-        _state: &BeaconState<T>,
         current_epoch: Epoch,
         relative_epoch: RelativeEpoch,
     ) -> Result<(), BeaconStateError> {
@@ -269,7 +267,6 @@ impl ParticipationCache {
                     val_index,
                     val,
                     curr_epoch_flags,
-                    state,
                     current_epoch,
                     RelativeEpoch::Current,
                 )?;
@@ -282,7 +279,6 @@ impl ParticipationCache {
                     val_index,
                     val,
                     prev_epoch_flags,
-                    state,
                     current_epoch,
                     RelativeEpoch::Previous,
                 )?;
@@ -341,11 +337,14 @@ impl ParticipationCache {
         }
 
         // Sanity check total active balance.
-        // FIXME(sproul): assert
-        assert_eq!(
-            current_epoch_participation.total_active_balance.get(),
-            current_epoch_total_active_balance
-        );
+        if current_epoch_participation.total_active_balance.get()
+            != current_epoch_total_active_balance
+        {
+            return Err(Error::InconsistentTotalActiveBalance {
+                cached: current_epoch_total_active_balance,
+                computed: current_epoch_participation.total_active_balance.get(),
+            });
+        }
 
         Ok(Self {
             current_epoch,
