@@ -473,7 +473,7 @@ impl<T: EthSpec> BeaconState<T> {
     }
 
     pub fn historical_batch(&mut self) -> Result<HistoricalBatch<T>, Error> {
-        // FIXME(sproul): work out how to clean this up (internal mutability?)
+        // Updating before cloning makes the clone cheap and saves repeated hashing.
         self.block_roots_mut().apply_updates()?;
         self.state_roots_mut().apply_updates()?;
 
