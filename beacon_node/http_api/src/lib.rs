@@ -1714,12 +1714,12 @@ pub fn serve<T: BeaconChainTypes>(
         .and(log_filter.clone())
         .and_then(
             |chain: Arc<BeaconChain<T>>,
-            block_id: BlockId,
+            epoch: Epoch,
             validators: Vec<ValidatorId>,
             log: Logger| {
             // Do something here
             blocking_json_task(move || Ok(attestation_rewards::compute_attestation_rewards(
-                chain, block_id, validators, log)))
+                chain, epoch, validators, log)))
         });
     /*
      * config
