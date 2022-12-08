@@ -44,8 +44,6 @@ pub const ENGINE_GET_BLOBS_BUNDLE_TIMEOUT: Duration = Duration::from_secs(2);
 
 pub const ENGINE_FORKCHOICE_UPDATED_V1: &str = "engine_forkchoiceUpdatedV1";
 pub const ENGINE_FORKCHOICE_UPDATED_V2: &str = "engine_forkchoiceUpdatedV2";
-//FIXME(sean)
-pub const ENGINE_FORKCHOICE_UPDATED_V3: &str = "engine_forkchoiceUpdatedV2";
 pub const ENGINE_FORKCHOICE_UPDATED_TIMEOUT: Duration = Duration::from_secs(8);
 
 pub const ENGINE_EXCHANGE_TRANSITION_CONFIGURATION_V1: &str =
@@ -842,27 +840,6 @@ impl HttpJsonRpc {
         Ok(response.into())
     }
 
-    pub async fn forkchoice_updated_v3(
-        &self,
-        forkchoice_state: ForkchoiceState,
-        payload_attributes: Option<PayloadAttributes>,
-    ) -> Result<ForkchoiceUpdatedResponse, Error> {
-        let params = json!([
-            JsonForkchoiceStateV1::from(forkchoice_state),
-            payload_attributes.map(JsonPayloadAttributes::from)
-        ]);
-
-        let response: JsonForkchoiceUpdatedV1Response = self
-            .rpc_request(
-                ENGINE_FORKCHOICE_UPDATED_V3,
-                params,
-                ENGINE_FORKCHOICE_UPDATED_TIMEOUT * self.execution_timeout_multiplier,
-            )
-            .await?;
-
-        Ok(response.into())
-    }
-
     pub async fn exchange_transition_configuration_v1(
         &self,
         transition_configuration: TransitionConfigurationV1,
@@ -946,11 +923,7 @@ impl HttpJsonRpc {
         payload_attributes: Option<PayloadAttributes>,
     ) -> Result<ForkchoiceUpdatedResponse, Error> {
         match fork_name {
-            ForkName::Eip4844 => {
-                self.forkchoice_updated_v3(forkchoice_state, payload_attributes)
-                    .await
-            }
-            ForkName::Capella => {
+            ForkName::Capella | ForkName::Eip4844 => {
                 self.forkchoice_updated_v2(forkchoice_state, payload_attributes)
                     .await
             }
