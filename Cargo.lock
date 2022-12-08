@@ -3228,6 +3228,7 @@ dependencies = [
  "environment",
  "eth1_test_rig",
  "eth2",
+ "eth2_hashing",
  "eth2_network_config",
  "eth2_ssz",
  "eth2_wallet",

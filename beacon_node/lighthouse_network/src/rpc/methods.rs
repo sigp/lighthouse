@@ -252,6 +252,13 @@ pub struct BlobsByRootRequest {
     pub block_roots: VariableList<Hash256, MaxRequestBlocks>,
 }
 
+impl From<BlocksByRootRequest> for BlobsByRootRequest {
+    fn from(r: BlocksByRootRequest) -> Self {
+        let BlocksByRootRequest { block_roots } = r;
+        Self { block_roots }
+    }
+}
+
 /* RPC Handling and Grouping */
 // Collection of enums and structs used by the Codecs to encode/decode RPC messages
 

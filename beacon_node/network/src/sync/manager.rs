@@ -231,6 +231,7 @@ pub fn spawn<T: BeaconChainTypes>(
             network_send,
             network_globals.clone(),
             beacon_processor_send,
+            beacon_chain.clone(),
             log.clone(),
         ),
         range_sync: RangeSync::new(beacon_chain.clone(), log.clone()),

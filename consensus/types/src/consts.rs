@@ -23,7 +23,7 @@ pub mod merge {
     pub const INTERVALS_PER_SLOT: u64 = 3;
 }
 pub mod eip4844 {
-    use crate::Uint256;
+    use crate::{Epoch, Uint256};
 
     use lazy_static::lazy_static;
 
@@ -32,6 +32,7 @@ pub mod eip4844 {
             "52435875175126190479447740508185965837690552500527637822603658699938581184513"
         )
         .expect("should initialize BLS_MODULUS");
+        pub static ref MIN_EPOCHS_FOR_BLOBS_SIDECARS_REQUESTS: Epoch = Epoch::from(4096_u64);
     }
     pub const BLOB_TX_TYPE: u8 = 5;
     pub const VERSIONED_HASH_VERSION_KZG: u8 = 1;

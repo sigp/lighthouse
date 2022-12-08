@@ -103,6 +103,7 @@ use store::{
 use task_executor::{ShutdownReason, TaskExecutor};
 use tree_hash::TreeHash;
 use types::beacon_state::CloneConfig;
+use types::consts::eip4844::MIN_EPOCHS_FOR_BLOBS_SIDECARS_REQUESTS;
 use types::signed_block_and_blobs::BlockWrapper;
 use types::*;
 
@@ -5423,7 +5424,26 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn data_availability_boundary(&self) -> Option<Epoch> {
         self.spec
             .eip4844_fork_epoch
-            .map(|e| std::cmp::max(e, self.head().finalized_checkpoint().epoch))
+            .map(|fork_epoch| {
+                self.epoch().ok().map(|current_epoch| {
+                    std::cmp::max(
+                        fork_epoch,
+                        current_epoch.saturating_sub(*MIN_EPOCHS_FOR_BLOBS_SIDECARS_REQUESTS),
+                    )
+                })
+            })
+            .flatten()
+    }
+
+    /// Returns `true` if we are at or past the `Eip4844` fork. This will always return `false` if
+    /// the `Eip4844` fork is disabled.
+    pub fn is_data_availability_check_required(&self) -> Result<bool, Error> {
+        let current_epoch = self.epoch()?;
+        Ok(self
+            .spec
+            .eip4844_fork_epoch
+            .map(|fork_epoch| fork_epoch <= current_epoch)
+            .unwrap_or(false))
     }
 }
 

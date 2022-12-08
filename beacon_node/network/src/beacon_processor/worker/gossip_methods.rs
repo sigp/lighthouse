@@ -840,7 +840,17 @@ impl<T: BeaconChainTypes> Worker<T> {
                 );
                 return None;
             }
-            Err(blob_errors) => unimplemented!("handle")
+            Err(e@ BlockError::BlobValidation(_)) => {
+                warn!(self.log, "Could not verify blob for gossip. Rejecting the block and blob";
+                            "error" => %e);
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::LowToleranceError,
+                    "gossip_blob_low",
+                );
+                return None;
+            }
         };
 
         metrics::inc_counter(&metrics::BEACON_PROCESSOR_GOSSIP_BLOCK_VERIFIED_TOTAL);

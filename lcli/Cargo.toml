@@ -23,6 +23,7 @@ types = { path = "../consensus/types" }
 state_processing = { path = "../consensus/state_processing" }
 int_to_bytes = { path = "../consensus/int_to_bytes" }
 eth2_ssz = "0.4.1"
+eth2_hashing = "0.3.0"
 environment = { path = "../lighthouse/environment" }
 eth2_network_config = { path = "../common/eth2_network_config" }
 genesis = { path = "../beacon_node/genesis" }
