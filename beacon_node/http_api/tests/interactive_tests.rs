@@ -153,21 +153,27 @@ pub async fn proposer_boost_re_org_bad_ffg() {
     .await;
 }
 
-/* FIXME(sproul): write finality test
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-pub async fn proposer_boost_re_org_low_total_participation() {
+pub async fn proposer_boost_re_org_no_finality() {
     proposer_boost_re_org_test(ReOrgTest {
-        head_slot: Slot::new(30),
-        percent_parent_votes: 70,
-        percent_empty_votes: 60,
-        percent_head_votes: 10,
-        participation_threshold: 71,
+        head_slot: Slot::new(96),
+        percent_parent_votes: 100,
+        percent_empty_votes: 0,
+        percent_head_votes: 100,
         should_re_org: false,
         ..Default::default()
     })
     .await;
 }
-*/
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+pub async fn proposer_boost_re_org_finality() {
+    proposer_boost_re_org_test(ReOrgTest {
+        head_slot: Slot::new(129),
+        ..Default::default()
+    })
+    .await;
+}
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 pub async fn proposer_boost_re_org_parent_distance() {
