@@ -30,13 +30,14 @@ use crate::beacon_node_fallback::{
     RequireSynced,
 };
 use crate::doppelganger_service::DoppelgangerService;
+use crate::graffiti_file::GraffitiFile;
 use account_utils::validator_definitions::ValidatorDefinitions;
 use attestation_service::{AttestationService, AttestationServiceBuilder};
 use block_service::{BlockService, BlockServiceBuilder};
 use clap::ArgMatches;
 use duties_service::DutiesService;
 use environment::RuntimeContext;
-use eth2::{reqwest::ClientBuilder, BeaconNodeHttpClient, StatusCode, Timeouts};
+use eth2::{reqwest::ClientBuilder, types::Graffiti, BeaconNodeHttpClient, StatusCode, Timeouts};
 use http_api::ApiSecret;
 use notifier::spawn_notifier;
 use parking_lot::RwLock;
@@ -57,7 +58,7 @@ use tokio::{
     sync::mpsc,
     time::{sleep, Duration},
 };
-use types::{EthSpec, Hash256};
+use types::{EthSpec, Hash256, PublicKeyBytes};
 use validator_store::ValidatorStore;
 
 /// The interval between attempts to contact the beacon node during startup.
@@ -526,6 +527,8 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
                 api_secret,
                 validator_store: Some(self.validator_store.clone()),
                 validator_dir: Some(self.config.validator_dir.clone()),
+                graffiti_file: self.config.graffiti_file.clone(),
+                graffiti_flag: self.config.graffiti,
                 spec: self.context.eth2_config.spec.clone(),
                 config: self.config.http_api.clone(),
                 log: log.clone(),
@@ -725,4 +728,25 @@ pub fn load_pem_certificate<P: AsRef<Path>>(pem_path: P) -> Result<Certificate, 
         .read_to_end(&mut buf)
         .map_err(|e| format!("Unable to read certificate file: {}", e))?;
     Certificate::from_pem(&buf).map_err(|e| format!("Unable to parse certificate: {}", e))
+}
+
+// Given the various graffiti control methods, determine the graffiti that will be used for
+// the next block produced by the validator with the given public key.
+pub fn determine_graffiti(
+    validator_pubkey: &PublicKeyBytes,
+    log: &Logger,
+    graffiti_file: Option<GraffitiFile>,
+    validator_definition_graffiti: Option<Graffiti>,
+    graffiti_flag: Option<Graffiti>,
+) -> Option<Graffiti> {
+    graffiti_file
+        .and_then(|mut g| match g.load_graffiti(validator_pubkey) {
+            Ok(g) => g,
+            Err(e) => {
+                warn!(log, "Failed to read graffiti file"; "error" => ?e);
+                None
+            }
+        })
+        .or(validator_definition_graffiti)
+        .or(graffiti_flag)
 }

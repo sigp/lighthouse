@@ -4,7 +4,7 @@ mod keystores;
 mod remotekeys;
 mod tests;
 
-use crate::ValidatorStore;
+use crate::{determine_graffiti, GraffitiFile, ValidatorStore};
 use account_utils::{
     mnemonic_from_phrase,
     validator_definitions::{SigningDefinition, ValidatorDefinition, Web3SignerDefinition},
@@ -13,13 +13,14 @@ pub use api_secret::ApiSecret;
 use create_validator::{create_validators_mnemonic, create_validators_web3signer};
 use eth2::lighthouse_vc::{
     std_types::{AuthResponse, GetFeeRecipientResponse, GetGasLimitResponse},
-    types::{self as api_types, GenericResponse, PublicKey, PublicKeyBytes},
+    types::{self as api_types, GenericResponse, Graffiti, PublicKey, PublicKeyBytes},
 };
 use lighthouse_version::version_with_platform;
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use slog::{crit, info, warn, Logger};
 use slot_clock::SlotClock;
+use std::collections::HashMap;
 use std::future::Future;
 use std::marker::PhantomData;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
@@ -65,6 +66,8 @@ pub struct Context<T: SlotClock, E: EthSpec> {
     pub api_secret: ApiSecret,
     pub validator_store: Option<Arc<ValidatorStore<T, E>>>,
     pub validator_dir: Option<PathBuf>,
+    pub graffiti_file: Option<GraffitiFile>,
+    pub graffiti_flag: Option<Graffiti>,
     pub spec: ChainSpec,
     pub config: Config,
     pub log: Logger,
@@ -176,6 +179,12 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                 )
             })
         });
+
+    let inner_graffiti_file = ctx.graffiti_file.clone();
+    let graffiti_file_filter = warp::any().map(move || inner_graffiti_file.clone());
+
+    let inner_graffiti_flag = ctx.graffiti_flag;
+    let graffiti_flag_filter = warp::any().map(move || inner_graffiti_flag);
 
     let inner_ctx = ctx.clone();
     let log_filter = warp::any().map(move || inner_ctx.log.clone());
@@ -328,6 +337,42 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                 )))
             })
         });
+
+    let get_lighthouse_ui_graffiti = warp::path("lighthouse")
+        .and(warp::path("ui"))
+        .and(warp::path("graffiti"))
+        .and(warp::path::end())
+        .and(validator_store_filter.clone())
+        .and(graffiti_file_filter)
+        .and(graffiti_flag_filter)
+        .and(signer.clone())
+        .and(log_filter.clone())
+        .and_then(
+            |validator_store: Arc<ValidatorStore<T, E>>,
+             graffiti_file: Option<GraffitiFile>,
+             graffiti_flag: Option<Graffiti>,
+             signer,
+             log| {
+                blocking_signed_json_task(signer, move || {
+                    let mut result = HashMap::new();
+                    for (key, graffiti_definition) in validator_store
+                        .initialized_validators()
+                        .read()
+                        .get_all_validators_graffiti()
+                    {
+                        let graffiti = determine_graffiti(
+                            key,
+                            &log,
+                            graffiti_file.clone(),
+                            graffiti_definition,
+                            graffiti_flag,
+                        );
+                        result.insert(key.to_string(), graffiti.map(|g| g.as_utf8_lossy()));
+                    }
+                    Ok(api_types::GenericResponse::from(result))
+                })
+            },
+        );
 
     // POST lighthouse/validators/
     let post_validators = warp::path("lighthouse")
@@ -945,6 +990,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                         .or(get_lighthouse_validators)
                         .or(get_lighthouse_validators_pubkey)
                         .or(get_lighthouse_ui_health)
+                        .or(get_lighthouse_ui_graffiti)
                         .or(get_fee_recipient)
                         .or(get_gas_limit)
                         .or(get_std_keystores)
