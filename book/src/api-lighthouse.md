@@ -501,6 +501,102 @@ The endpoint will return immediately. See the beacon node logs for an indication
 Manually provide `SignedBeaconBlock`s to backfill the database. This is intended
 for use by Lighthouse developers during testing only.
 
+### `/lighthouse/merge_readiness`
+
+```bash
+curl -X GET "http://localhost:5052/lighthouse/merge_readiness" | jq
+```
+
+```
+{
+    "data":{
+       "type":"ready",
+       "config":{
+          "terminal_total_difficulty":"6400"
+       },
+       "current_difficulty":"4800"
+    }
+ }
+```
+
+### `/lighthouse/analysis/attestation_performance/{index}`
+
+Fetch information about the attestation performance of a validator index or all validators for a
+range of consecutive epochs.
+
+Two query parameters are required:
+
+* `start_epoch` (inclusive): the first epoch to compute attestation performance for.
+* `end_epoch` (inclusive): the final epoch to compute attestation performance for.
+
+Example:
+
+```bash
+curl -X GET "http://localhost:5052/lighthouse/analysis/attestation_performance/1?start_epoch=1&end_epoch=1" | jq
+```
+
+```json
+[
+  {
+    "index": 1,
+    "epochs": {
+      "1": {
+        "active": true,
+        "head": true,
+        "target": true,
+        "source": true,
+        "delay": 1
+      }
+    }
+  }
+]
+```
+
+Instead of specifying a validator index, you can specify the entire validator set by using `global`:
+
+```bash
+curl -X GET "http://localhost:5052/lighthouse/analysis/attestation_performance/global?start_epoch=1&end_epoch=1" | jq
+```
+
+```json
+[
+  {
+    "index": 0,
+    "epochs": {
+      "1": {
+        "active": true,
+        "head": true,
+        "target": true,
+        "source": true,
+        "delay": 1
+      }
+    }
+  },
+  {
+    "index": 1,
+    "epochs": {
+      "1": {
+        "active": true,
+        "head": true,
+        "target": true,
+        "source": true,
+        "delay": 1
+      }
+    }
+  },
+  {
+    ..
+  }
+]
+
+```
+
+Caveats:
+
+* For maximum efficiency the start_epoch should satisfy `(start_epoch * slots_per_epoch) % slots_per_restore_point == 1`.
+  This is because the state _prior_ to the `start_epoch` needs to be loaded from the database,
+  and loading a state on a boundary is most efficient.
+
 ### `/lighthouse/analysis/block_rewards`
 
 Fetch information about the block rewards paid to proposers for a range of consecutive blocks.
@@ -513,7 +609,7 @@ Two query parameters are required:
 Example:
 
 ```bash
-curl "http://localhost:5052/lighthouse/analysis/block_rewards?start_slot=1&end_slot=32" | jq
+curl -X GET "http://localhost:5052/lighthouse/analysis/block_rewards?start_slot=1&end_slot=32" | jq
 ```
 
 ```json
@@ -541,21 +637,43 @@ Caveats:
 [block_reward_src]:
 https://github.com/sigp/lighthouse/tree/unstable/common/eth2/src/lighthouse/block_rewards.rs
 
+### `/lighthouse/analysis/block_packing`
 
-### `/lighthouse/merge_readiness`
+Fetch information about the block packing efficiency of blocks for a range of consecutive
+epochs.
+
+Two query parameters are required:
+
+* `start_epoch` (inclusive): the epoch of the first block to compute packing efficiency for.
+* `end_epoch` (inclusive): the epoch of the last block to compute packing efficiency for.
 
 ```bash
-curl -X GET "http://localhost:5052/lighthouse/merge_readiness"
+curl -X GET "http://localhost:5052/lighthouse/analysis/block_packing_efficiency?start_epoch=1&end_epoch=1" | jq
 ```
 
+```json
+[
+  {
+    "slot": "33",
+    "block_hash": "0xb20970bb97c6c6de6b1e2b689d6381dd15b3d3518fbaee032229495f963bd5da",
+    "proposer_info": {
+      "validator_index": 855,
+      "graffiti": "poapZoJ7zWNfK7F3nWjEausWVBvKa6gA"
+    },
+    "available_attestations": 3805,
+    "included_attestations": 1143,
+    "prior_skip_slots": 1
+  },
+  {
+    ..
+  }
+]
 ```
-{
-    "data":{
-       "type":"ready",
-       "config":{
-          "terminal_total_difficulty":"6400"
-       },
-       "current_difficulty":"4800"
-    }
- }
-```
+
+Caveats:
+
+* `start_epoch` must not be `0`.
+* For maximum efficiency the `start_epoch` should satisfy `(start_epoch * slots_per_epoch) % slots_per_restore_point == 1`.
+  This is because the state _prior_ to the `start_epoch` needs to be loaded from the database, and
+  loading a state on a boundary is most efficient.
+
