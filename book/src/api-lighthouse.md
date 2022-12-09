@@ -99,6 +99,28 @@ curl -X GET "http://localhost:5052/lighthouse/ui/health" -H  "accept: applicatio
 }
 ```
 
+### `/lighthouse/ui/validator_count`
+
+```bash
+curl -X GET "http://localhost:5052/lighthouse/ui/validator_count" -H "accept: application/json" | jq
+```
+
+```json
+{
+  "data": {
+    "active_ongoing":479508,
+    "active_exiting":0,
+    "active_slashed":0,
+    "pending_initialized":28,
+    "pending_queued":0,
+    "withdrawal_possible":933,
+    "withdrawal_done":0,
+    "exited_unslashed":0,
+    "exited_slashed":3
+  }
+}
+```
+
 ### `/lighthouse/syncing`
 
 ```bash
