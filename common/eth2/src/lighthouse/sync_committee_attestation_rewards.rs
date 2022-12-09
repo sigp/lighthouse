@@ -6,11 +6,11 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct SyncCommitteeAttestationRewards {
 
-    pub execution_optimistic: bool,
+    pub execution_optimistic: Option<bool>,
 
-    pub finalized: bool,
+    pub finalized: Option<bool>,
 
-    pub data: Vec<SyncCommitteeAttestationReward>,
+    pub data: Option<Vec<SyncCommitteeAttestationReward>> 
 }
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
