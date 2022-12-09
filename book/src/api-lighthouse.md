@@ -121,6 +121,33 @@ curl -X GET "http://localhost:5052/lighthouse/ui/validator_count" -H "accept: ap
 }
 ```
 
+### `/lighthouse/ui/validator_metrics`
+Re-exposes certain metrics from the validator monitor to the HTTP API.
+Will only return metrics for the validators currently being monitored and are present in the POST data.
+```bash
+curl -X POST "http://localhost:5052/lighthouse/ui/validator_metrics" -d '{"indices": [12345]}' -H "Content-Type: application/json" | jq
+```
+
+```json
+{
+  "data": {
+    "validators": {
+      "12345": {
+        "attestation_hits": 10,
+        "attestation_misses": 0,
+        "attestation_hit_percentage": 100,
+        "attestation_head_hits": 10,
+        "attestation_head_misses": 0,
+        "attestation_head_hit_percentage": 100,
+        "attestation_target_hits": 5,
+        "attestation_target_misses": 5,
+        "attestation_target_hit_percentage": 50 
+      }
+    }
+  }
+}
+```
+
 ### `/lighthouse/syncing`
 
 ```bash
