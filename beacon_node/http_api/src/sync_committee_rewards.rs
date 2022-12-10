@@ -54,6 +54,8 @@ pub fn compute_sync_committee_rewards<T: BeaconChainTypes>(
                     (sync_committee_pubkey, sync_committee_validator_index)
                 })
                 .filter(|(sync_committee_pubkey, sync_committee_validator_index)| {
+                    validators.is_empty()
+                        ||
                     validators
                         .iter()
                         .any(|validator| match validator {
