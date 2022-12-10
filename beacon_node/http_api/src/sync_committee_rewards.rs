@@ -2,7 +2,7 @@ use std::sync::Arc;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use eth2::types::ValidatorId;
 use eth2::lighthouse::{SyncCommitteeAttestationRewards, SyncCommitteeAttestationReward};
-use slog::Logger;
+use slog::{debug, warn, Logger};
 use state_processing::{per_block_processing::altair::sync_committee::compute_sync_aggregate_rewards};
 use warp_utils::reject::{beacon_chain_error, custom_bad_request};
 use crate::BlockId;
@@ -30,8 +30,15 @@ pub fn compute_sync_committee_rewards<T: BeaconChainTypes>(
         .map_err(beacon_chain_error)?
         .ok_or_else(|| custom_bad_request(String::from("Unable to get state")))?;
 
+    debug!(
+        log,
+        "Retrieving sync committee attestation rewards";
+        "state_root" => ?state_root,
+        "slot" => slot,
+        );
+
     let (participant_reward_value, _) = compute_sync_aggregate_rewards(&state, spec)
-        .map_err(|_| custom_bad_request(String::from("Unable to get rewards")))?;
+        .map_err(|_| custom_bad_request(format!("Unable to get sync aggregate rewards at state root {:?}", state_root)))?;
 
 
     let current_sync_committee = state
@@ -39,6 +46,13 @@ pub fn compute_sync_committee_rewards<T: BeaconChainTypes>(
         .map_err(|_| custom_bad_request(String::from("Unable to get participants")))?
         .pubkeys
         .clone();
+
+    debug!(
+        log,
+        "Retrived sync committee attestation reward value";
+        "reward_value" => participant_reward_value,
+        "sync_committee_participant_size" => current_sync_committee.len()
+        );
     
     let data = if current_sync_committee.is_empty() { 
         None 
@@ -77,10 +91,6 @@ pub fn compute_sync_committee_rewards<T: BeaconChainTypes>(
             )
         };
 
-    
-
-    
-    // Create SyncCommitteeRewards with calculated rewards
     Ok(SyncCommitteeAttestationRewards{
         execution_optimistic: None,
         finalized: None,
