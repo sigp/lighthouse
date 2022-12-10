@@ -1556,7 +1556,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                         &metrics::EXECUTION_LAYER_BUILDER_REVEAL_PAYLOAD_OUTCOME,
                         &[metrics::FAILURE],
                     );
-                    crit!(
+                    error!(
                         self.log(),
                         "Builder failed to reveal payload";
                         "info" => "this relay failure may cause a missed proposal",
