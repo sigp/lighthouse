@@ -1318,17 +1318,49 @@ impl<T: BeaconChainTypes> Worker<T> {
             Err(e) => {
                 metrics::register_finality_update_error(&e);
                 match e {
-                    LightClientFinalityUpdateError::InvalidLightClientFinalityUpdate
-                    | LightClientFinalityUpdateError::TooEarly => self.gossip_penalize_peer(
-                        peer_id,
-                        PeerAction::HighToleranceError,
-                        "light_client_gossip_error",
+                    LightClientFinalityUpdateError::InvalidLightClientFinalityUpdate => {
+                        debug!(
+                            self.log,
+                            "LC invalid finality update";
+                            "peer" => %peer_id,
+                            "error" => ?e,
+                        );
+
+                        self.gossip_penalize_peer(
+                            peer_id,
+                            PeerAction::LowToleranceError,
+                            "light_client_gossip_error",
+                        );
+                    }
+                    LightClientFinalityUpdateError::TooEarly => {
+                        debug!(
+                            self.log,
+                            "LC finality update too early";
+                            "peer" => %peer_id,
+                            "error" => ?e,
+                        );
+
+                        self.gossip_penalize_peer(
+                            peer_id,
+                            PeerAction::HighToleranceError,
+                            "light_client_gossip_error",
+                        );
+                    }
+                    LightClientFinalityUpdateError::FinalityUpdateAlreadySeen => debug!(
+                        self.log,
+                        "LC finality update already seen";
+                        "peer" => %peer_id,
+                        "error" => ?e,
                     ),
                     LightClientFinalityUpdateError::BeaconChainError(_)
                     | LightClientFinalityUpdateError::LightClientUpdateError(_)
-                    | LightClientFinalityUpdateError::FinalityUpdateAlreadySeen
                     | LightClientFinalityUpdateError::SigSlotStartIsNone
-                    | LightClientFinalityUpdateError::FailedConstructingUpdate => {}
+                    | LightClientFinalityUpdateError::FailedConstructingUpdate => debug!(
+                        self.log,
+                        "LC error constructing finality update";
+                        "peer" => %peer_id,
+                        "error" => ?e,
+                    ),
                 }
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
             }
@@ -1352,17 +1384,49 @@ impl<T: BeaconChainTypes> Worker<T> {
             Err(e) => {
                 metrics::register_optimistic_update_error(&e);
                 match e {
-                    LightClientOptimisticUpdateError::InvalidLightClientOptimisticUpdate
-                    | LightClientOptimisticUpdateError::TooEarly => self.gossip_penalize_peer(
-                        peer_id,
-                        PeerAction::HighToleranceError,
-                        "light_client_gossip_error",
+                    LightClientOptimisticUpdateError::InvalidLightClientOptimisticUpdate => {
+                        debug!(
+                            self.log,
+                            "LC invalid optimistic update";
+                            "peer" => %peer_id,
+                            "error" => ?e,
+                        );
+
+                        self.gossip_penalize_peer(
+                            peer_id,
+                            PeerAction::HighToleranceError,
+                            "light_client_gossip_error",
+                        )
+                    }
+                    LightClientOptimisticUpdateError::TooEarly => {
+                        debug!(
+                            self.log,
+                            "LC optimistic update too early";
+                            "peer" => %peer_id,
+                            "error" => ?e,
+                        );
+
+                        self.gossip_penalize_peer(
+                            peer_id,
+                            PeerAction::HighToleranceError,
+                            "light_client_gossip_error",
+                        );
+                    }
+                    LightClientOptimisticUpdateError::OptimisticUpdateAlreadySeen => debug!(
+                        self.log,
+                        "LC optimistic update already seen";
+                        "peer" => %peer_id,
+                        "error" => ?e,
                     ),
                     LightClientOptimisticUpdateError::BeaconChainError(_)
                     | LightClientOptimisticUpdateError::LightClientUpdateError(_)
-                    | LightClientOptimisticUpdateError::OptimisticUpdateAlreadySeen
                     | LightClientOptimisticUpdateError::SigSlotStartIsNone
-                    | LightClientOptimisticUpdateError::FailedConstructingUpdate => {}
+                    | LightClientOptimisticUpdateError::FailedConstructingUpdate => debug!(
+                        self.log,
+                        "LC error constructing optimistic update";
+                        "peer" => %peer_id,
+                        "error" => ?e,
+                    ),
                 }
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
             }

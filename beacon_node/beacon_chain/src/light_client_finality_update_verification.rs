@@ -78,22 +78,18 @@ impl<T: BeaconChainTypes> VerifiedLightClientFinalityUpdate<T> {
         let head = chain.canonical_head.cached_head();
         let head_block = &head.snapshot.beacon_block;
         let attested_block_root = head_block.message().parent_root();
-        let attested_block = match chain.get_blinded_block(&attested_block_root)? {
-            Some(block) => block,
-            None => {
-                return Err(Error::FailedConstructingUpdate);
-            }
-        };
-        let mut attested_state =
-            match chain.get_state(&attested_block_root, Some(attested_block.slot()))? {
-                Some(state) => state,
-                None => {
-                    return Err(Error::FailedConstructingUpdate);
-                }
-            };
+        let attested_block = chain
+            .get_blinded_block(&attested_block_root)?
+            .ok_or(Error::FailedConstructingUpdate)?;
+        let mut attested_state = chain
+            .get_state(&attested_block.state_root(), Some(attested_block.slot()))?
+            .ok_or(Error::FailedConstructingUpdate)?;
+
         let finalized_block_root = attested_state.finalized_checkpoint().root;
-        let finalized_block = chain.get_blinded_block(&finalized_block_root)?.unwrap();
-        let latest_seen_finality_update_slot = match &*latest_seen_finality_update {
+        let finalized_block = chain
+            .get_blinded_block(&finalized_block_root)?
+            .ok_or(Error::FailedConstructingUpdate)?;
+        let latest_seen_finality_update_slot = match latest_seen_finality_update.as_ref() {
             Some(update) => update.finalized_header.slot,
             None => Slot::new(0),
         };
