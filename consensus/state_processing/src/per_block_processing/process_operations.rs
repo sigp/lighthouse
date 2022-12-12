@@ -293,7 +293,7 @@ pub fn process_exits<T: EthSpec>(
 
 /// Validates each `bls_to_execution_change` and updates the state
 ///
-/// Returns `Ok(())` if the validation and state updates completed successfully. Otherwise returs
+/// Returns `Ok(())` if the validation and state updates completed successfully. Otherwise returns
 /// an `Err` describing the invalid object or cause of failure.
 #[cfg(all(feature = "withdrawals", feature = "withdrawals-processing"))]
 pub fn process_bls_to_execution_changes<T: EthSpec>(

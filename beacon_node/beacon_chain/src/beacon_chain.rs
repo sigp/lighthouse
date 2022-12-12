@@ -2184,7 +2184,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
     }
 
-    /// Verify a signed BLS to exection change before allowing it to propagate on the gossip network.
+    /// Verify a signed BLS to execution change before allowing it to propagate on the gossip network.
     pub fn verify_bls_to_execution_change_for_gossip(
         &self,
         bls_to_execution_change: SignedBlsToExecutionChange,
