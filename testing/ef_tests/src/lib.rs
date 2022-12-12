@@ -1,9 +1,11 @@
 pub use case_result::CaseResult;
+#[cfg(all(feature = "withdrawals", feature = "withdrawals-processing"))]
+pub use cases::WithdrawalsPayload;
 pub use cases::{
     Case, EffectiveBalanceUpdates, Eth1DataReset, HistoricalRootsUpdate, InactivityUpdates,
     JustificationAndFinalization, ParticipationFlagUpdates, ParticipationRecordUpdates,
     RandaoMixesReset, RegistryUpdates, RewardsAndPenalties, Slashings, SlashingsReset,
-    SyncCommitteeUpdates, WithdrawalsPayload,
+    SyncCommitteeUpdates,
 };
 pub use decode::log_file_access;
 pub use error::Error;

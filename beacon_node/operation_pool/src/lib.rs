@@ -560,6 +560,9 @@ impl<T: EthSpec> OperationPool<T> {
 
         #[cfg(not(feature = "withdrawals-processing"))]
         {
+            // I assume this is just to avoid the unused variables warning
+            // when withdrawals-processing isn't enabled?
+            #[allow(clippy::drop_copy)]
             drop((state, spec));
             vec![]
         }
@@ -599,6 +602,9 @@ impl<T: EthSpec> OperationPool<T> {
 
         #[cfg(not(feature = "withdrawals-processing"))]
         {
+            // I assume this is just to avoid the unused variables warning
+            // when withdrawals-processing isn't enabled?
+            #[allow(clippy::drop_copy)]
             drop((head_block, head_state, spec));
         }
     }

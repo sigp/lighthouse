@@ -41,7 +41,7 @@ pub async fn publish_block<T: BeaconChainTypes>(
                 ))
             } else {
                 //TODO(pawan): return an empty sidecar instead
-                return Err(warp_utils::reject::broadcast_without_import(format!("")));
+                return Err(warp_utils::reject::broadcast_without_import(String::new()));
             }
         }
         _ => PubsubMessage::BeaconBlock(block.clone()),

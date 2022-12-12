@@ -2200,6 +2200,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         #[cfg(not(feature = "withdrawals-processing"))]
         {
+            // I assume this is just to avoid the unused variables warning
+            // when withdrawals-processing isn't enabled?
+            #[allow(clippy::drop_non_drop)]
             drop(bls_to_execution_change);
             Ok(ObservationOutcome::AlreadyKnown)
         }
@@ -4335,17 +4338,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 //   Might implement caching here in the future..
                 let prepare_state = self
                     .state_at_slot(prepare_slot, StateSkipConfig::WithoutStateRoots)
-                    .or_else(|e| {
+                    .map_err(|e| {
                         error!(self.log, "State advance for withdrawals failed"; "error" => ?e);
-                        Err(e)
+                        e
                     })?;
                 Some(get_expected_withdrawals(&prepare_state, &self.spec))
             }
         }
         .transpose()
-        .or_else(|e| {
+        .map_err(|e| {
             error!(self.log, "Error preparing beacon proposer"; "error" => ?e);
-            Err(e)
+            e
         })
         .map(|withdrawals_opt| withdrawals_opt.map(|w| w.into()))
         .map_err(Error::PrepareProposerFailed)?;
