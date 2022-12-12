@@ -1,6 +1,6 @@
 # Late Block Re-orgs
 
-Since v3.3.0 Lighthouse will opportunistically re-org late blocks when proposing.
+Since v3.4.0 Lighthouse will opportunistically re-org late blocks when proposing.
 
 This feature is intended to disincentivise late blocks and improve network health. Proposing a
 re-orging block is also more profitable for the proposer because it increases the number of
