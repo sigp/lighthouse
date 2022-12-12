@@ -144,6 +144,15 @@ pub async fn proposer_boost_re_org_epoch_boundary() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+pub async fn proposer_boost_re_org_slot_after_epoch_boundary() {
+    proposer_boost_re_org_test(ReOrgTest {
+        head_slot: Slot::new(33),
+        ..Default::default()
+    })
+    .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 pub async fn proposer_boost_re_org_bad_ffg() {
     proposer_boost_re_org_test(ReOrgTest {
         head_slot: Slot::new(64 + 22),
