@@ -305,7 +305,7 @@ pub enum AttesterSlashingInvalid {
 /// Describes why an object is invalid.
 #[derive(Debug, PartialEq, Clone)]
 pub enum AttestationInvalid {
-    /// Commmittee index exceeds number of committees in that slot.
+    /// Committee index exceeds number of committees in that slot.
     BadCommitteeIndex,
     /// Attestation included before the inclusion delay.
     IncludedTooEarly {
@@ -420,11 +420,11 @@ pub enum ExitInvalid {
 pub enum BlsExecutionChangeInvalid {
     /// The specified validator is not in the state's validator registry.
     ValidatorUnknown(u64),
-    /// Validator does not have BLS Withdrawal credentials before this change
+    /// Validator does not have BLS Withdrawal credentials before this change.
     NonBlsWithdrawalCredentials,
-    /// Provided BLS pubkey does not match withdrawal credentials
+    /// Provided BLS pubkey does not match withdrawal credentials.
     WithdrawalCredentialsMismatch,
-    /// The signature is invalid
+    /// The signature is invalid.
     BadSignature,
 }
 
