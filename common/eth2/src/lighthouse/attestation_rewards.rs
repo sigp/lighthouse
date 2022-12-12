@@ -28,13 +28,13 @@ pub struct AttestationRewardTBD {
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct IdealAttestationRewards {
     // Validator's effective balance in gwei
-    pub effective_balance: String,
+    pub effective_balance: u64,
     // Ideal attester's reward for head vote in gwei
-    pub head: u64,
+    pub head: i64,
     // Ideal attester's reward for target vote in gwei
-    pub target: u64,
+    pub target: i64,
     // Ideal attester's reward for source vote in gwei
-    pub source: u64,
+    pub source: i64,
 
 }
 
@@ -43,11 +43,11 @@ pub struct TotalAttestationRewards {
     // one entry for every validator based on their attestations in the epoch
     pub validaor_index: u64,
     // attester's reward for head vote in gwei
-    pub head: u64,
+    pub head: i64,
     // attester's reward for target vote in gwei
-    pub target: u64,
+    pub target: i64,
     // attester's reward for source vote in gwei
-    pub source: u64,
+    pub source: i64,
     // attester's inclusion_delay reward in gwei (phase0 only)
     pub inclusion_delay: u64,
 
