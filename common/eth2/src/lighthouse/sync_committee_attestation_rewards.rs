@@ -16,8 +16,8 @@ pub struct SyncCommitteeAttestationRewards {
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct SyncCommitteeAttestationReward {
 
-    pub validator_index: u8,
+    pub validator_index: u64,
     // sync committee reward in gwei for the validator
-    pub reward: u64,
+    pub reward: i64,
 
 }

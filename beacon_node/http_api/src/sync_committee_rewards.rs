@@ -83,8 +83,8 @@ pub fn compute_sync_committee_rewards<T: BeaconChainTypes>(
                 })
                 .map(|(_sync_committee_pubkey, sync_committee_validator_index)| {
                     SyncCommitteeAttestationReward {
-                        validator_index: sync_committee_validator_index as u8,
-                        reward: participant_reward_value
+                        validator_index: sync_committee_validator_index as u64,
+                        reward: participant_reward_value as i64
                     }
                 })
                 .collect::<Vec<_>>()
