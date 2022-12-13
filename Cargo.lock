@@ -4965,6 +4965,7 @@ version = "0.2.0"
 dependencies = [
  "eth2_ssz",
  "eth2_ssz_derive",
+ "safe_arith",
  "serde",
  "serde_derive",
  "serde_yaml",

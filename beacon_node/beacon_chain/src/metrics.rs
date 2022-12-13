@@ -77,6 +77,11 @@ lazy_static! {
         "beacon_block_processing_attestation_observation_seconds",
         "Time spent hashing and remembering all the attestations in the block"
     );
+    pub static ref BLOCK_PROCESSING_FORK_CHOICE: Result<Histogram> = try_create_histogram_with_buckets(
+        "beacon_block_processing_fork_choice_seconds",
+        "Time spent running fork choice's `get_head` during block import",
+        exponential_buckets(1e-3, 2.0, 8)
+    );
     pub static ref BLOCK_SYNC_AGGREGATE_SET_BITS: Result<IntGauge> = try_create_int_gauge(
         "block_sync_aggregate_set_bits",
         "The number of true bits in the last sync aggregate in a block"
@@ -98,6 +103,11 @@ lazy_static! {
     pub static ref BLOCK_PRODUCTION_FORK_CHOICE_TIMES: Result<Histogram> = try_create_histogram(
         "beacon_block_production_fork_choice_seconds",
         "Time taken to run fork choice before block production"
+    );
+    pub static ref BLOCK_PRODUCTION_GET_PROPOSER_HEAD_TIMES: Result<Histogram> = try_create_histogram_with_buckets(
+        "beacon_block_production_get_proposer_head_times",
+        "Time taken for fork choice to compute the proposer head before block production",
+        exponential_buckets(1e-3, 2.0, 8)
     );
     pub static ref BLOCK_PRODUCTION_STATE_LOAD_TIMES: Result<Histogram> = try_create_histogram(
         "beacon_block_production_state_load_seconds",
@@ -322,10 +332,26 @@ lazy_static! {
         "beacon_reorgs_total",
         "Count of occasions fork choice has switched to a different chain"
     );
-    pub static ref FORK_CHOICE_TIMES: Result<Histogram> =
-        try_create_histogram("beacon_fork_choice_seconds", "Full runtime of fork choice");
-    pub static ref FORK_CHOICE_FIND_HEAD_TIMES: Result<Histogram> =
-        try_create_histogram("beacon_fork_choice_find_head_seconds", "Full runtime of fork choice find_head function");
+    pub static ref FORK_CHOICE_TIMES: Result<Histogram> = try_create_histogram_with_buckets(
+        "beacon_fork_choice_seconds",
+        "Full runtime of fork choice",
+        linear_buckets(10e-3, 20e-3, 10)
+    );
+    pub static ref FORK_CHOICE_OVERRIDE_FCU_TIMES: Result<Histogram> = try_create_histogram_with_buckets(
+        "beacon_fork_choice_override_fcu_seconds",
+        "Time taken to compute the optional forkchoiceUpdated override",
+        exponential_buckets(1e-3, 2.0, 8)
+    );
+    pub static ref FORK_CHOICE_AFTER_NEW_HEAD_TIMES: Result<Histogram> = try_create_histogram_with_buckets(
+        "beacon_fork_choice_after_new_head_seconds",
+        "Time taken to run `after_new_head`",
+        exponential_buckets(1e-3, 2.0, 10)
+    );
+    pub static ref FORK_CHOICE_AFTER_FINALIZATION_TIMES: Result<Histogram> = try_create_histogram_with_buckets(
+        "beacon_fork_choice_after_finalization_seconds",
+        "Time taken to run `after_finalization`",
+        exponential_buckets(1e-3, 2.0, 10)
+    );
     pub static ref FORK_CHOICE_PROCESS_BLOCK_TIMES: Result<Histogram> = try_create_histogram(
         "beacon_fork_choice_process_block_seconds",
         "Time taken to add a block and all attestations to fork choice"

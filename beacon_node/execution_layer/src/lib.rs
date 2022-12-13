@@ -514,6 +514,16 @@ impl<T: EthSpec> ExecutionLayer<T> {
             .contains_key(&proposer_index)
     }
 
+    /// Check if a proposer is registered as a local validator, *from a synchronous context*.
+    ///
+    /// This method MUST NOT be called from an async task.
+    pub fn has_proposer_preparation_data_blocking(&self, proposer_index: u64) -> bool {
+        self.inner
+            .proposer_preparation_data
+            .blocking_lock()
+            .contains_key(&proposer_index)
+    }
+
     /// Returns the fee-recipient address that should be used to build a block
     pub async fn get_suggested_fee_recipient(&self, proposer_index: u64) -> Address {
         if let Some(preparation_data_entry) =
@@ -1141,12 +1151,14 @@ impl<T: EthSpec> ExecutionLayer<T> {
             &[metrics::FORKCHOICE_UPDATED],
         );
 
-        trace!(
+        debug!(
             self.log(),
             "Issuing engine_forkchoiceUpdated";
             "finalized_block_hash" => ?finalized_block_hash,
             "justified_block_hash" => ?justified_block_hash,
             "head_block_hash" => ?head_block_hash,
+            "head_block_root" => ?head_block_root,
+            "current_slot" => current_slot,
         );
 
         let next_slot = current_slot + 1;
@@ -1760,6 +1772,20 @@ mod test {
             .await
             .produce_valid_execution_payload_on_head()
             .await;
+    }
+
+    #[tokio::test]
+    async fn test_forked_terminal_block() {
+        let runtime = TestRuntime::default();
+        let (mock, block_hash) = MockExecutionLayer::default_params(runtime.task_executor.clone())
+            .move_to_terminal_block()
+            .produce_forked_pow_block();
+        assert!(mock
+            .el
+            .is_valid_terminal_pow_block_hash(block_hash, &mock.spec)
+            .await
+            .unwrap()
+            .unwrap());
     }
 
     #[tokio::test]

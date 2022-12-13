@@ -1,8 +1,17 @@
-pub use proto_array::CountUnrealizedFull;
+pub use proto_array::{CountUnrealizedFull, ReOrgThreshold};
 use serde_derive::{Deserialize, Serialize};
-use types::Checkpoint;
+use std::time::Duration;
+use types::{Checkpoint, Epoch};
 
+pub const DEFAULT_RE_ORG_THRESHOLD: ReOrgThreshold = ReOrgThreshold(20);
+pub const DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION: Epoch = Epoch::new(2);
 pub const DEFAULT_FORK_CHOICE_BEFORE_PROPOSAL_TIMEOUT: u64 = 250;
+
+/// Default fraction of a slot lookahead for payload preparation (12/3 = 4 seconds on mainnet).
+pub const DEFAULT_PREPARE_PAYLOAD_LOOKAHEAD_FACTOR: u32 = 3;
+
+/// Fraction of a slot lookahead for fork choice in the state advance timer (500ms on mainnet).
+pub const FORK_CHOICE_LOOKAHEAD_FACTOR: u32 = 24;
 
 #[derive(Debug, PartialEq, Eq, Clone, Deserialize, Serialize)]
 pub struct ChainConfig {
@@ -21,6 +30,10 @@ pub struct ChainConfig {
     pub enable_lock_timeouts: bool,
     /// The max size of a message that can be sent over the network.
     pub max_network_size: usize,
+    /// Maximum percentage of committee weight at which to attempt re-orging the canonical head.
+    pub re_org_threshold: Option<ReOrgThreshold>,
+    /// Maximum number of epochs since finalization for attempting a proposer re-org.
+    pub re_org_max_epochs_since_finalization: Epoch,
     /// Number of milliseconds to wait for fork choice before proposing a block.
     ///
     /// If set to 0 then block proposal will not wait for fork choice at all.
@@ -47,6 +60,11 @@ pub struct ChainConfig {
     pub count_unrealized_full: CountUnrealizedFull,
     /// Optionally set timeout for calls to checkpoint sync endpoint.
     pub checkpoint_sync_url_timeout: u64,
+    /// The offset before the start of a proposal slot at which payload attributes should be sent.
+    ///
+    /// Low values are useful for execution engines which don't improve their payload after the
+    /// first call, and high values are useful for ensuring the EL is given ample notice.
+    pub prepare_payload_lookahead: Duration,
 }
 
 impl Default for ChainConfig {
@@ -57,6 +75,8 @@ impl Default for ChainConfig {
             reconstruct_historic_states: false,
             enable_lock_timeouts: true,
             max_network_size: 10 * 1_048_576, // 10M
+            re_org_threshold: Some(DEFAULT_RE_ORG_THRESHOLD),
+            re_org_max_epochs_since_finalization: DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION,
             fork_choice_before_proposal_timeout_ms: DEFAULT_FORK_CHOICE_BEFORE_PROPOSAL_TIMEOUT,
             // Builder fallback configs that are set in `clap` will override these.
             builder_fallback_skips: 3,
@@ -68,6 +88,7 @@ impl Default for ChainConfig {
             paranoid_block_proposal: false,
             count_unrealized_full: CountUnrealizedFull::default(),
             checkpoint_sync_url_timeout: 60,
+            prepare_payload_lookahead: Duration::from_secs(4),
         }
     }
 }
