@@ -342,7 +342,7 @@ impl Engine {
 impl PayloadIdCacheKey {
     fn new(head_block_hash: &ExecutionBlockHash, attributes: &PayloadAttributes) -> Self {
         Self {
-            head_block_hash: head_block_hash.clone(),
+            head_block_hash: *head_block_hash,
             payload_attributes: attributes.clone(),
         }
     }

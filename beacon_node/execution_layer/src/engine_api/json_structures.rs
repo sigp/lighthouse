@@ -176,7 +176,7 @@ impl<T: EthSpec> JsonExecutionPayload<T> {
                                 .collect::<Vec<_>>()
                                 .into()
                         })
-                        .ok_or(Error::BadConversion("Null withdrawal field converting JsonExecutionPayloadV2 -> ExecutionPayloadCapella".to_string()))?
+                        .ok_or_else(|| Error::BadConversion("Null withdrawal field converting JsonExecutionPayloadV2 -> ExecutionPayloadCapella".to_string()))?
                 })),
                 ForkName::Eip4844 => Ok(ExecutionPayload::Eip4844(ExecutionPayloadEip4844 {
                     parent_hash: v2.parent_hash,
@@ -191,7 +191,7 @@ impl<T: EthSpec> JsonExecutionPayload<T> {
                     timestamp: v2.timestamp,
                     extra_data: v2.extra_data,
                     base_fee_per_gas: v2.base_fee_per_gas,
-                    excess_data_gas: v2.excess_data_gas.ok_or(Error::BadConversion("Null `excess_data_gas` field converting JsonExecutionPayloadV2 -> ExecutionPayloadEip4844".to_string()))?,
+                    excess_data_gas: v2.excess_data_gas.ok_or_else(|| Error::BadConversion("Null `excess_data_gas` field converting JsonExecutionPayloadV2 -> ExecutionPayloadEip4844".to_string()))?,
                     block_hash: v2.block_hash,
                     transactions: v2.transactions,
                     #[cfg(feature = "withdrawals")]
@@ -204,7 +204,7 @@ impl<T: EthSpec> JsonExecutionPayload<T> {
                                 .collect::<Vec<_>>()
                                 .into()
                         })
-                        .ok_or(Error::BadConversion("Null withdrawal field converting JsonExecutionPayloadV2 -> ExecutionPayloadEip4844".to_string()))?
+                        .ok_or_else(|| Error::BadConversion("Null withdrawal field converting JsonExecutionPayloadV2 -> ExecutionPayloadEip4844".to_string()))?
                 })),
                 _ => Err(Error::UnsupportedForkVariant(format!("Unsupported conversion from JsonExecutionPayloadV2 for {}", fork_name))),
             }

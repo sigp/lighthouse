@@ -74,11 +74,29 @@ pub async fn handle_rpc<T: EthSpec>(
                 .unwrap())
             }
         }
-        ENGINE_NEW_PAYLOAD_V1 => {
-            let request: JsonExecutionPayload<T> = get_param(params, 0)?;
+        ENGINE_NEW_PAYLOAD_V1 | ENGINE_NEW_PAYLOAD_V2 => {
+            let request = match method {
+                ENGINE_NEW_PAYLOAD_V1 => {
+                    JsonExecutionPayload::V1(get_param::<JsonExecutionPayloadV1<T>>(params, 0)?)
+                }
+                ENGINE_NEW_PAYLOAD_V2 => {
+                    JsonExecutionPayload::V2(get_param::<JsonExecutionPayloadV2<T>>(params, 0)?)
+                }
+                _ => unreachable!(),
+            };
+            let fork = match request {
+                JsonExecutionPayload::V1(_) => ForkName::Merge,
+                JsonExecutionPayload::V2(ref payload) => {
+                    if payload.withdrawals.is_none() {
+                        ForkName::Merge
+                    } else {
+                        ForkName::Capella
+                    }
+                }
+            };
 
             // Canned responses set by block hash take priority.
-            if let Some(status) = ctx.get_new_payload_status(&request.block_hash()) {
+            if let Some(status) = ctx.get_new_payload_status(request.block_hash()) {
                 return Ok(serde_json::to_value(JsonPayloadStatusV1::from(status)).unwrap());
             }
 
@@ -97,8 +115,7 @@ pub async fn handle_rpc<T: EthSpec>(
                 Some(
                     ctx.execution_block_generator
                         .write()
-                        // FIXME: should this worry about other forks?
-                        .new_payload(request.try_into_execution_payload(ForkName::Merge).unwrap()),
+                        .new_payload(request.try_into_execution_payload(fork).unwrap()),
                 )
             } else {
                 None

@@ -87,9 +87,9 @@ pub fn run<T: EthSpec>(testnet_dir_path: PathBuf, matches: &ArgMatches) -> Resul
             execution_payload_header.as_ref()
         {
             let eth1_block_hash =
-                parse_optional(matches, "eth1-block-hash")?.unwrap_or(payload.block_hash());
+                parse_optional(matches, "eth1-block-hash")?.unwrap_or_else(|| payload.block_hash());
             let genesis_time =
-                parse_optional(matches, "genesis-time")?.unwrap_or(payload.timestamp());
+                parse_optional(matches, "genesis-time")?.unwrap_or_else(|| payload.timestamp());
             (eth1_block_hash, genesis_time)
         } else {
             let eth1_block_hash = parse_required(matches, "eth1-block-hash").map_err(|_| {

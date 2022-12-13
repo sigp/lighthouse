@@ -224,12 +224,10 @@ impl<T: EthSpec> PubsubMessage<T> {
                                 | ForkName::Merge
                                 | ForkName::Capella,
                             )
-                            | None => {
-                                return Err(format!(
+                            | None => Err(format!(
                                 "beacon_blobs_and_sidecar topic invalid for given fork digest {:?}",
                                 gossip_topic.fork_digest
-                            ))
-                            }
+                            )),
                         }
                     }
                     GossipKind::VoluntaryExit => {
