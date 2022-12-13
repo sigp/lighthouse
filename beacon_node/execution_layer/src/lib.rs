@@ -739,7 +739,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                         self.log(),
                         "Requested blinded execution payload";
                         "relay_fee_recipient" => match &relay_result {
-                            Ok(Some(r)) => format!("{:?}", r.data.message.header.fee_recipient()),
+                            Ok(Some(r)) => format!("{:?}", r.data.message.header().fee_recipient()),
                             Ok(None) => "empty response".to_string(),
                             Err(_) => "request failed".to_string(),
                         },
@@ -775,7 +775,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                             Ok(ProvenancedPayload::Local(local))
                         }
                         (Ok(Some(relay)), Ok(local)) => {
-                            let header = &relay.data.message.header;
+                            let header = &relay.data.message.header();
 
                             info!(
                                 self.log(),
@@ -799,7 +799,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                                     // NOTE       the comment above was removed in the
                                     //            rebase with unstable.. I think it goes
                                     //            here now?
-                                    BlockProposalContents::Payload(relay.data.message.header),
+                                    BlockProposalContents::Payload(relay.data.message.header().clone()),
                                 )),
                                 Err(reason) if !reason.payload_invalid() => {
                                     info!(
@@ -830,7 +830,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                             }
                         }
                         (Ok(Some(relay)), Err(local_error)) => {
-                            let header = &relay.data.message.header;
+                            let header = &relay.data.message.header();
 
                             info!(
                                 self.log(),
@@ -854,7 +854,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                                     // NOTE       the comment above was removed in the
                                     //            rebase with unstable.. I think it goes
                                     //            here now?
-                                    BlockProposalContents::Payload(relay.data.message.header),
+                                    BlockProposalContents::Payload(relay.data.message.header().clone()),
                                 )),
                                 // If the payload is valid then use it. The local EE failed
                                 // to produce a payload so we have no alternative.
@@ -863,7 +863,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                                     // NOTE       the comment above was removed in the
                                     //            rebase with unstable.. I think it goes
                                     //            here now?
-                                    BlockProposalContents::Payload(relay.data.message.header),
+                                    BlockProposalContents::Payload(relay.data.message.header().clone()),
                                 )),
                                 Err(reason) => {
                                     metrics::inc_counter_vec(
@@ -1832,11 +1832,11 @@ fn verify_builder_bid<T: EthSpec, Payload: AbstractExecPayload<T>>(
     spec: &ChainSpec,
 ) -> Result<(), Box<InvalidBuilderPayload>> {
     let is_signature_valid = bid.data.verify_signature(spec);
-    let header = &bid.data.message.header;
-    let payload_value = bid.data.message.value;
+    let header = &bid.data.message.header();
+    let payload_value = bid.data.message.value().clone();
 
     // Avoid logging values that we can't represent with our Prometheus library.
-    let payload_value_gwei = bid.data.message.value / 1_000_000_000;
+    let payload_value_gwei = bid.data.message.value() / 1_000_000_000;
     if payload_value_gwei <= Uint256::from(i64::max_value()) {
         metrics::set_gauge_vec(
             &metrics::EXECUTION_LAYER_PAYLOAD_BIDS,
@@ -1882,7 +1882,7 @@ fn verify_builder_bid<T: EthSpec, Payload: AbstractExecPayload<T>>(
     } else if !is_signature_valid {
         Err(Box::new(InvalidBuilderPayload::Signature {
             signature: bid.data.signature.clone(),
-            pubkey: bid.data.message.pubkey,
+            pubkey: bid.data.message.pubkey().clone(),
         }))
     } else {
         Ok(())
