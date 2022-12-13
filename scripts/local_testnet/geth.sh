@@ -49,4 +49,5 @@ exec $GETH_BINARY \
     --syncmode=full \
     --bootnodes $EL_BOOTNODE_ENODE \
     --port $network_port \
-    --http.port $auth_port
+    --http.port $http_port \
+    --authrpc.port $auth_port
