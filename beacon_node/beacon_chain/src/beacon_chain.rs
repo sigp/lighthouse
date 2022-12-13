@@ -2191,7 +2191,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ) -> Result<ObservationOutcome<SignedBlsToExecutionChange, T::EthSpec>, Error> {
         #[cfg(feature = "withdrawals-processing")]
         {
+            let current_fork = self.spec.fork_name_at_slot::<T::EthSpec>(self.slot()?);
+            if let ForkName::Base | ForkName::Altair | ForkName::Merge = current_fork {
+                // Disallow BLS to execution changes prior to the Capella fork.
+                return Err(Error::BlsToExecutionChangeBadFork(current_fork));
+            }
+
             let wall_clock_state = self.wall_clock_state()?;
+
             Ok(self
                 .observed_bls_to_execution_changes
                 .lock()
