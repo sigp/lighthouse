@@ -1550,10 +1550,11 @@ impl<T: EthSpec> ExecutionLayer<T> {
     pub async fn get_payload_by_block_hash(
         &self,
         hash: ExecutionBlockHash,
+        fork: ForkName,
     ) -> Result<Option<ExecutionPayload<T>>, Error> {
         self.engine()
             .request(|engine| async move {
-                self.get_payload_by_block_hash_from_engine(engine, hash)
+                self.get_payload_by_block_hash_from_engine(engine, hash, fork)
                     .await
             })
             .await
@@ -1565,15 +1566,26 @@ impl<T: EthSpec> ExecutionLayer<T> {
         &self,
         engine: &Engine,
         hash: ExecutionBlockHash,
+        fork: ForkName,
     ) -> Result<Option<ExecutionPayload<T>>, ApiError> {
         let _timer = metrics::start_timer(&metrics::EXECUTION_LAYER_GET_PAYLOAD_BY_BLOCK_HASH);
 
         if hash == ExecutionBlockHash::zero() {
-            // FIXME: how to handle forks properly here?
-            return Ok(Some(ExecutionPayloadMerge::default().into()));
+            return match fork {
+                ForkName::Merge => Ok(Some(ExecutionPayloadMerge::default().into())),
+                ForkName::Capella => Ok(Some(ExecutionPayloadCapella::default().into())),
+                ForkName::Eip4844 => Ok(Some(ExecutionPayloadEip4844::default().into())),
+                ForkName::Base | ForkName::Altair => Err(ApiError::UnsupportedForkVariant(
+                    format!("called get_payload_by_block_hash_from_engine with {}", fork),
+                )),
+            };
         }
 
-        let block = if let Some(block) = engine.api.get_block_by_hash_with_txns::<T>(hash).await? {
+        let block = if let Some(block) = engine
+            .api
+            .get_block_by_hash_with_txns::<T>(hash, fork)
+            .await?
+        {
             block
         } else {
             return Ok(None);

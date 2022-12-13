@@ -664,14 +664,41 @@ impl HttpJsonRpc {
     pub async fn get_block_by_hash_with_txns<T: EthSpec>(
         &self,
         block_hash: ExecutionBlockHash,
+        fork: ForkName,
     ) -> Result<Option<ExecutionBlockWithTransactions<T>>, Error> {
         let params = json!([block_hash, true]);
-        self.rpc_request(
-            ETH_GET_BLOCK_BY_HASH,
-            params,
-            ETH_GET_BLOCK_BY_HASH_TIMEOUT * self.execution_timeout_multiplier,
-        )
-        .await
+        Ok(Some(match fork {
+            ForkName::Merge => ExecutionBlockWithTransactions::Merge(
+                self.rpc_request(
+                    ETH_GET_BLOCK_BY_HASH,
+                    params,
+                    ETH_GET_BLOCK_BY_HASH_TIMEOUT * self.execution_timeout_multiplier,
+                )
+                .await?,
+            ),
+            ForkName::Capella => ExecutionBlockWithTransactions::Capella(
+                self.rpc_request(
+                    ETH_GET_BLOCK_BY_HASH,
+                    params,
+                    ETH_GET_BLOCK_BY_HASH_TIMEOUT * self.execution_timeout_multiplier,
+                )
+                .await?,
+            ),
+            ForkName::Eip4844 => ExecutionBlockWithTransactions::Eip4844(
+                self.rpc_request(
+                    ETH_GET_BLOCK_BY_HASH,
+                    params,
+                    ETH_GET_BLOCK_BY_HASH_TIMEOUT * self.execution_timeout_multiplier,
+                )
+                .await?,
+            ),
+            ForkName::Base | ForkName::Altair => {
+                return Err(Error::UnsupportedForkVariant(format!(
+                    "called get_block_by_hash_with_txns with fork {:?}",
+                    fork
+                )))
+            }
+        }))
     }
 
     pub async fn new_payload_v1<T: EthSpec>(
