@@ -60,8 +60,11 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
         notify_execution_layer: NotifyExecutionLayer,
     ) -> Result<Self, BlockError<T::EthSpec>> {
         let payload_verification_status = match notify_execution_layer {
-            NotifyExecutionLayer::No => Some(PayloadVerificationStatus::Optimistic),
-            NotifyExecutionLayer::Yes => {
+            NotifyExecutionLayer::No if chain.optimistic_finalized_sync => {
+                // XXX: We should really check the `blockHash` before marking a block as optimistic.
+                Some(PayloadVerificationStatus::Optimistic)
+            }
+            _ => {
                 if is_execution_enabled(state, block.message().body()) {
                     // Perform the initial stages of payload verification.
                     //

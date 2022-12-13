@@ -47,6 +47,8 @@ pub struct ChainConfig {
     pub count_unrealized_full: CountUnrealizedFull,
     /// Optionally set timeout for calls to checkpoint sync endpoint.
     pub checkpoint_sync_url_timeout: u64,
+    /// Use EL-free optimistic sync for the finalized part of the chain (experimental).
+    pub optimistic_finalized_sync: bool,
 }
 
 impl Default for ChainConfig {
@@ -68,6 +70,7 @@ impl Default for ChainConfig {
             paranoid_block_proposal: false,
             count_unrealized_full: CountUnrealizedFull::default(),
             checkpoint_sync_url_timeout: 60,
+            optimistic_finalized_sync: false,
         }
     }
 }
