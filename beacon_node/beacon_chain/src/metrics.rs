@@ -948,6 +948,24 @@ lazy_static! {
         );
 }
 
+// Fifth lazy-static block is used to account for macro recursion limit.
+lazy_static! {
+    /*
+    * Light server message verification
+    */
+    pub static ref FINALITY_UPDATE_PROCESSING_SUCCESSES: Result<IntCounter> = try_create_int_counter(
+        "light_client_finality_update_verification_success_total",
+        "Number of light client finality updates verified for gossip"
+    );
+    /*
+    * Light server message verification
+    */
+    pub static ref OPTIMISTIC_UPDATE_PROCESSING_SUCCESSES: Result<IntCounter> = try_create_int_counter(
+        "light_client_optimistic_update_verification_success_total",
+        "Number of light client optimistic updates verified for gossip"
+    );
+}
+
 /// Scrape the `beacon_chain` for metrics that are not constantly updated (e.g., the present slot,
 /// head state info, etc) and update the Prometheus `DEFAULT_REGISTRY`.
 pub fn scrape_for_metrics<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>) {

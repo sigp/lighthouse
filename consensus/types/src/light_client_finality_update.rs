@@ -1,10 +1,10 @@
-use super::{BeaconBlockHeader, EthSpec, FixedVector, Hash256, Slot, SyncAggregate, SyncCommittee};
-use crate::{light_client_update::*, test_utils::TestRandom, BeaconBlock, BeaconState, ChainSpec};
-use safe_arith::ArithError;
+use super::{
+    BeaconBlockHeader, EthSpec, FixedVector, Hash256, SignedBeaconBlock, SignedBlindedBeaconBlock,
+    Slot, SyncAggregate,
+};
+use crate::{light_client_update::*, test_utils::TestRandom, BeaconState, ChainSpec};
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
-use ssz_types::typenum::{U5, U6};
-use std::sync::Arc;
 use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
 
@@ -28,43 +28,38 @@ pub struct LightClientFinalityUpdate<T: EthSpec> {
 
 impl<T: EthSpec> LightClientFinalityUpdate<T> {
     pub fn new(
-        chain_spec: ChainSpec,
-        beacon_state: BeaconState<T>,
-        block: BeaconBlock<T>,
+        chain_spec: &ChainSpec,
+        beacon_state: &BeaconState<T>,
+        block: &SignedBeaconBlock<T>,
         attested_state: &mut BeaconState<T>,
-        finalized_block: BeaconBlock<T>,
+        finalized_block: &SignedBlindedBeaconBlock<T>,
     ) -> Result<Self, Error> {
         let altair_fork_epoch = chain_spec
             .altair_fork_epoch
             .ok_or(Error::AltairForkNotActive)?;
-        if attested_state.slot().epoch(T::slots_per_epoch()) < altair_fork_epoch {
+        if beacon_state.slot().epoch(T::slots_per_epoch()) < altair_fork_epoch {
             return Err(Error::AltairForkNotActive);
         }
 
-        let sync_aggregate = block.body().sync_aggregate()?;
+        let sync_aggregate = block.message().body().sync_aggregate()?;
         if sync_aggregate.num_set_bits() < chain_spec.min_sync_committee_participants as usize {
             return Err(Error::NotEnoughSyncCommitteeParticipants);
         }
 
         // Compute and validate attested header.
         let mut attested_header = attested_state.latest_block_header().clone();
-        attested_header.state_root = attested_state.tree_hash_root();
+        attested_header.state_root = attested_state.update_tree_hash_cache()?;
         // Build finalized header from finalized block
-        let finalized_header = BeaconBlockHeader {
-            slot: finalized_block.slot(),
-            proposer_index: finalized_block.proposer_index(),
-            parent_root: finalized_block.parent_root(),
-            state_root: finalized_block.state_root(),
-            body_root: finalized_block.body_root(),
-        };
+        let finalized_header = finalized_block.message().block_header();
+
         if finalized_header.tree_hash_root() != beacon_state.finalized_checkpoint().root {
             return Err(Error::InvalidFinalizedBlock);
         }
 
         let finality_branch = attested_state.compute_merkle_proof(FINALIZED_ROOT_INDEX)?;
         Ok(Self {
-            attested_header: attested_header,
-            finalized_header: finalized_header,
+            attested_header,
+            finalized_header,
             finality_branch: FixedVector::new(finality_branch)?,
             sync_aggregate: sync_aggregate.clone(),
             signature_slot: block.slot(),
