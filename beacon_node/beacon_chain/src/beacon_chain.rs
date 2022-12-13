@@ -2198,10 +2198,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .verify_and_observe(bls_to_execution_change, &wall_clock_state, &self.spec)?)
         }
 
+        // TODO: remove this whole block once withdrawals-processing is removed
         #[cfg(not(feature = "withdrawals-processing"))]
         {
-            // I assume this is just to avoid the unused variables warning
-            // when withdrawals-processing isn't enabled?
             #[allow(clippy::drop_non_drop)]
             drop(bls_to_execution_change);
             Ok(ObservationOutcome::AlreadyKnown)
