@@ -67,7 +67,7 @@ pub fn upgrade_to_eip4844<E: EthSpec>(
         #[cfg(feature = "withdrawals")]
         next_withdrawal_index: pre.next_withdrawal_index,
         #[cfg(feature = "withdrawals")]
-        next_withdrawal_validator_index: 0,
+        next_withdrawal_validator_index: pre.next_withdrawal_validator_index,
         // Caches
         total_active_balance: pre.total_active_balance,
         committee_caches: mem::take(&mut pre.committee_caches),
