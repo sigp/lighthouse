@@ -316,7 +316,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
 
             // use the executor for libp2p
             struct Executor(task_executor::TaskExecutor);
-            impl libp2p::core::Executor for Executor {
+            impl libp2p::swarm::Executor for Executor {
                 fn exec(&self, f: Pin<Box<dyn futures::Future<Output = ()> + Send>>) {
                     self.0.spawn(f, "libp2p");
                 }

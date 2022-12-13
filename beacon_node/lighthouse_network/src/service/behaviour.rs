@@ -8,7 +8,7 @@ use libp2p::gossipsub::subscription_filter::{
 };
 use libp2p::gossipsub::Gossipsub as BaseGossipsub;
 use libp2p::identify::Behaviour as Identify;
-use libp2p::NetworkBehaviour;
+use libp2p::swarm::derive_prelude::NetworkBehaviour;
 use types::EthSpec;
 
 use super::api_types::RequestId;
