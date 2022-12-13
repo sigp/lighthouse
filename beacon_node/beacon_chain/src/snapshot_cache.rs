@@ -13,7 +13,10 @@ pub const DEFAULT_SNAPSHOT_CACHE_SIZE: usize = 4;
 
 /// The minimum block delay to clone the state in the cache instead of removing it.
 /// This helps keep block processing fast during re-orgs from late blocks.
-const MINIMUM_BLOCK_DELAY_FOR_CLONE: Duration = Duration::from_secs(6);
+fn minimum_block_delay_for_clone(seconds_per_slot: u64) -> Duration {
+    // If the block arrived at the attestation deadline or later, it might get re-orged.
+    Duration::from_secs(seconds_per_slot) / 3
+}
 
 /// This snapshot is to be used for verifying a child of `self.beacon_block`.
 #[derive(Debug)]
@@ -256,7 +259,7 @@ impl<T: EthSpec> SnapshotCache<T> {
                 if let Some(cache) = self.snapshots.get(i) {
                     // Avoid cloning the block during sync (when the `block_delay` is `None`).
                     if let Some(delay) = block_delay {
-                        if delay >= MINIMUM_BLOCK_DELAY_FOR_CLONE
+                        if delay >= minimum_block_delay_for_clone(spec.seconds_per_slot)
                             && delay <= Duration::from_secs(spec.seconds_per_slot) * 4
                             || block_slot > cache.beacon_block.slot() + 1
                         {
@@ -296,27 +299,6 @@ impl<T: EthSpec> SnapshotCache<T> {
                     }
                 }
             })
-    }
-
-    /// Borrow the state corresponding to `block_root` if it exists in the cache *unadvanced*.
-    ///
-    /// Care must be taken not to mutate the state in an invalid way. This function should only
-    /// be used to mutate the *caches* of the state, for example the tree hash cache when
-    /// calculating a light client merkle proof.
-    pub fn borrow_unadvanced_state_mut(
-        &mut self,
-        block_root: Hash256,
-    ) -> Option<&mut BeaconState<T>> {
-        self.snapshots
-            .iter_mut()
-            .find(|snapshot| {
-                // If the pre-state exists then state advance has already taken the state for
-                // `block_root` and mutated its tree hash cache. Rather than re-building it while
-                // holding the snapshot cache lock (>1 second), prefer to return `None` from this
-                // function and force the caller to load it from disk.
-                snapshot.beacon_block_root == block_root && snapshot.pre_state.is_none()
-            })
-            .map(|snapshot| &mut snapshot.beacon_state)
     }
 
     /// If there is a snapshot with `block_root`, clone it and return the clone.
