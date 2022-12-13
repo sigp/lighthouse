@@ -1,3 +1,4 @@
+use super::KzgCommitment;
 use crate::{
     AbstractExecPayload, ChainSpec, EthSpec, ExecPayload, ExecutionPayloadHeader, SignedRoot,
     Uint256,
@@ -7,9 +8,15 @@ use bls::Signature;
 use serde::{Deserialize as De, Deserializer, Serialize as Ser, Serializer};
 use serde_derive::{Deserialize, Serialize};
 use serde_with::{serde_as, DeserializeAs, SerializeAs};
+use ssz_types::VariableList;
 use std::marker::PhantomData;
+use superstruct::superstruct;
 use tree_hash_derive::TreeHash;
 
+#[superstruct(
+    variants(Bellatrix, Eip4844),
+    variant_attributes(derive(PartialEq, Debug, Serialize, Deserialize, TreeHash, Clone))
+)]
 #[serde_as]
 #[derive(PartialEq, Debug, Serialize, Deserialize, TreeHash, Clone)]
 #[serde(bound = "E: EthSpec, Payload: ExecPayload<E>")]
@@ -19,6 +26,8 @@ pub struct BuilderBid<E: EthSpec, Payload: AbstractExecPayload<E>> {
     #[serde(with = "eth2_serde_utils::quoted_u256")]
     pub value: Uint256,
     pub pubkey: PublicKeyBytes,
+    #[superstruct(only(Eip4844))]
+    pub blob_kzg_commitments: VariableList<KzgCommitment, E::MaxBlobsPerBlock>,
     #[serde(skip)]
     #[tree_hash(skip_hashing)]
     _phantom_data: PhantomData<E>,

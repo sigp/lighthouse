@@ -6,6 +6,7 @@ use lighthouse_network::PubsubMessage;
 use network::NetworkMessage;
 use slog::{crit, error, info, warn, Logger};
 use slot_clock::SlotClock;
+use types::signed_block_and_blobs::BlockWrapper;
 use std::sync::Arc;
 use tokio::sync::mpsc::UnboundedSender;
 use tree_hash::TreeHash;
@@ -158,7 +159,7 @@ pub async fn publish_blinded_block<T: BeaconChainTypes>(
     let full_block = reconstruct_block(chain.clone(), block_root, block, log.clone()).await?;
     publish_block::<T>(
         Some(block_root),
-        Arc::new(full_block),
+        Arc::new(full_block), // TODO: handle block wrapper
         chain,
         network_tx,
         log,
@@ -174,47 +175,72 @@ async fn reconstruct_block<T: BeaconChainTypes>(
     block_root: Hash256,
     block: SignedBeaconBlock<T::EthSpec, BlindedPayload<T::EthSpec>>,
     log: Logger,
-) -> Result<SignedBeaconBlock<T::EthSpec, FullPayload<T::EthSpec>>, Rejection> {
-    let full_payload = if let Ok(payload_header) = block.message().body().execution_payload() {
+) -> Result<BlockWrapper<T::EthSpec, FullPayload<T::EthSpec>>, Rejection> {
+    let full_block_wrapper = if let Ok(payload_header) = block.message().body().execution_payload() {
         let el = chain.execution_layer.as_ref().ok_or_else(|| {
             warp_utils::reject::custom_server_error("Missing execution layer".to_string())
         })?;
 
         // If the execution block hash is zero, use an empty payload.
-        let full_payload = if payload_header.block_hash() == ExecutionBlockHash::zero() {
-            FullPayload::default_at_fork(
+        let full_block_wrapper = if payload_header.block_hash() == ExecutionBlockHash::zero() {
+            let emptyPayload = FullPayload::default_at_fork(
                 chain
                     .spec
                     .fork_name_at_epoch(block.slot().epoch(T::EthSpec::slots_per_epoch())),
             )
-            .into()
+            .into();
+
+            block.try_into_full_block(emptyPayload)
+
             // If we already have an execution payload with this transactions root cached, use it.
         } else if let Some(cached_payload) =
             el.get_payload_by_root(&payload_header.tree_hash_root())
         {
             info!(log, "Reconstructing a full block using a local payload"; "block_hash" => ?cached_payload.block_hash());
-            cached_payload
+            block.try_into_full_block(Some(cached_payload))
+
             // Otherwise, this means we are attempting a blind block proposal.
         } else {
-            let full_payload = el
-                .propose_blinded_beacon_block(block_root, &block)
-                .await
-                .map_err(|e| {
-                    warp_utils::reject::custom_server_error(format!(
-                        "Blind block proposal failed: {:?}",
-                        e
-                    ))
-                })?;
-            info!(log, "Successfully published a block to the builder network"; "block_hash" => ?full_payload.block_hash());
-            full_payload
+            let fork_name = chain.spec.fork_name_at_epoch(block.slot().epoch(T::EthSpec::slots_per_epoch()));
+
+            match fork_name {
+                ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {
+                    let full_payload = el
+                        .propose_blinded_beacon_block(block_root, &block)
+                        .await
+                        .map_err(|e| {
+                            warp_utils::reject::custom_server_error(format!(
+                                "Blind block proposal failed: {:?}",
+                                e
+                            ))
+                        })?;
+                    info!(log, "Successfully published a block to the builder network"; "block_hash" => ?full_payload.block_hash());
+                    block.try_into_full_block(Some(full_payload))
+                }
+                ForkName::Eip4844 => {
+                    let full_block_and_blobs_sidecar = el
+                        .propose_blinded_beacon_block_v2(block_root, &block)
+                        .await
+                        .map_err(|e| {
+                            warp_utils::reject::custom_server_error(format!(
+                                "Blind block proposal failed: {:?}",
+                                e
+                            ))
+                        })?;
+                    let full_payload = full_block_and_blobs_sidecar.beacon_block.message().body().execution_payload().unwrap();
+                    info!(log, "Successfully published a block to the builder network"; "block_hash" => ?full_payload.block_hash());
+                    Some(full_block_and_blobs_sidecar)
+                }
+            }
+            
         };
 
-        Some(full_payload)
+        full_block_wrapper
     } else {
         None
     };
 
-    block.try_into_full_block(full_payload).ok_or_else(|| {
+    full_block_wrapper.ok_or_else(|| {
         warp_utils::reject::custom_server_error("Unable to add payload to block".to_string())
     })
 }

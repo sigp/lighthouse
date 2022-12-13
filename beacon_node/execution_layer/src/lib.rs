@@ -35,7 +35,7 @@ use tokio::{
     time::sleep,
 };
 use tokio_stream::wrappers::WatchStream;
-use types::{AbstractExecPayload, Blob, ExecPayload, KzgCommitment};
+use types::{AbstractExecPayload, Blob, ExecPayload, KzgCommitment, SignedBeaconBlockAndBlobsSidecar};
 use types::{
     BlindedPayload, BlockType, ChainSpec, Epoch, ExecutionBlockHash, ForkName,
     ProposerPreparationData, PublicKeyBytes, Signature, SignedBeaconBlock, Slot, Uint256,
@@ -795,11 +795,16 @@ impl<T: EthSpec> ExecutionLayer<T> {
                                 spec,
                             ) {
                                 Ok(()) => Ok(ProvenancedPayload::Builder(
-                                    //FIXME(sean) the builder API needs to be updated
-                                    // NOTE       the comment above was removed in the
-                                    //            rebase with unstable.. I think it goes
-                                    //            here now?
-                                    BlockProposalContents::Payload(relay.data.message.header),
+                                    match relay.version {
+                                        ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {
+                                            BlockProposalContents::Payload(relay.data.message.header)
+                                        }
+                                        ForkName::Eip4844 => BlockProposalContents::PayloadAndBlobs {
+                                            payload: relay.data.message.header,
+                                            blobs: VariableList::default(),
+                                            kzg_commitments: relay.data.message.blob_kzg_commitments,
+                                        },
+                                    }
                                 )),
                                 Err(reason) if !reason.payload_invalid() => {
                                     info!(
@@ -850,20 +855,30 @@ impl<T: EthSpec> ExecutionLayer<T> {
                                 spec,
                             ) {
                                 Ok(()) => Ok(ProvenancedPayload::Builder(
-                                    //FIXME(sean) the builder API needs to be updated
-                                    // NOTE       the comment above was removed in the
-                                    //            rebase with unstable.. I think it goes
-                                    //            here now?
-                                    BlockProposalContents::Payload(relay.data.message.header),
+                                    match relay.version {
+                                        ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {
+                                            BlockProposalContents::Payload(relay.data.message.header)
+                                        }
+                                        ForkName::Eip4844 => BlockProposalContents::PayloadAndBlobs {
+                                            payload: relay.data.message.header,
+                                            blobs: VariableList::default(),
+                                            kzg_commitments: relay.data.message.blob_kzg_commitments,
+                                        },
+                                    }
                                 )),
                                 // If the payload is valid then use it. The local EE failed
                                 // to produce a payload so we have no alternative.
                                 Err(e) if !e.payload_invalid() => Ok(ProvenancedPayload::Builder(
-                                    //FIXME(sean) the builder API needs to be updated
-                                    // NOTE       the comment above was removed in the
-                                    //            rebase with unstable.. I think it goes
-                                    //            here now?
-                                    BlockProposalContents::Payload(relay.data.message.header),
+                                    match relay.version {
+                                        ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {
+                                            BlockProposalContents::Payload(relay.data.message.header)
+                                        }
+                                        ForkName::Eip4844 => BlockProposalContents::PayloadAndBlobs {
+                                            payload: relay.data.message.header,
+                                            blobs: VariableList::default(),
+                                            kzg_commitments: relay.data.message.blob_kzg_commitments,
+                                        },
+                                    }
                                 )),
                                 Err(reason) => {
                                     metrics::inc_counter_vec(
@@ -1731,6 +1746,96 @@ impl<T: EthSpec> ExecutionLayer<T> {
             }
 
             payload_result
+        } else {
+            Err(Error::NoPayloadBuilder)
+        }
+    }
+
+    pub async fn propose_blinded_beacon_block_v2(
+        &self,
+        block_root: Hash256,
+        block: &SignedBeaconBlock<T, BlindedPayload<T>>
+    ) -> Result<SignedBeaconBlockAndBlobsSidecar<T>, Error> {
+        debug!(
+            self.log(),
+            "Sending block to builder";
+            "root" => ?block_root,
+        );
+
+        if let Some(builder) = self.builder() {
+
+            let (block_and_blobs_sidecar_result, duration) =
+                timed_future(metrics::POST_BLINDED_PAYLOAD_BUILDER, async {
+                    builder
+                        .post_builder_blinded_blocks_v2(block)
+                        .await
+                        .map_err(Error::Builder)
+                        .map(|d| d.data)
+                })
+                .await;
+
+            match &block_and_blobs_sidecar_result {
+                Ok(block_and_blobs_sidecar) => {
+                    match block_and_blobs_sidecar.beacon_block.message().body().execution_payload() {
+                        Ok(payload) => {
+                            metrics::inc_counter_vec(
+                                &metrics::EXECUTION_LAYER_BUILDER_REVEAL_PAYLOAD_OUTCOME,
+                                &[metrics::SUCCESS],
+                            );
+                            info!(
+                                self.log(),
+                                "Builder successfully revealed payload";
+                                "relay_response_ms" => duration.as_millis(),
+                                "block_root" => ?block_root,
+                                "fee_recipient" => ?payload.fee_recipient(),
+                                "block_hash" => ?payload.block_hash(),
+                                "parent_hash" => ?payload.parent_hash()
+                            )
+                        }
+                        Err(e) => {
+                            // [JC] how to avoid code duplication here?
+                            metrics::inc_counter_vec(
+                                &metrics::EXECUTION_LAYER_BUILDER_REVEAL_PAYLOAD_OUTCOME,
+                                &[metrics::FAILURE],
+                            );
+                            crit!(
+                                self.log(),
+                                "Builder failed to reveal payload";
+                                "info" => "this relay failure may cause a missed proposal",
+                                "error" => ?e,
+                                "relay_response_ms" => duration.as_millis(),
+                                "block_root" => ?block_root,
+                                "parent_hash" => ?block
+                                    .message()
+                                    .execution_payload()
+                                    .map(|payload| format!("{}", payload.parent_hash()))
+                                    .unwrap_or_else(|_| "unknown".to_string())
+                            )
+                        }
+                    }
+                }
+                Err(e) => {
+                    metrics::inc_counter_vec(
+                        &metrics::EXECUTION_LAYER_BUILDER_REVEAL_PAYLOAD_OUTCOME,
+                        &[metrics::FAILURE],
+                    );
+                    crit!(
+                        self.log(),
+                        "Builder failed to reveal payload";
+                        "info" => "this relay failure may cause a missed proposal",
+                        "error" => ?e,
+                        "relay_response_ms" => duration.as_millis(),
+                        "block_root" => ?block_root,
+                        "parent_hash" => ?block
+                            .message()
+                            .execution_payload()
+                            .map(|payload| format!("{}", payload.parent_hash()))
+                            .unwrap_or_else(|_| "unknown".to_string())
+                    )
+                }
+            }
+
+            block_and_blobs_sidecar_result
         } else {
             Err(Error::NoPayloadBuilder)
         }

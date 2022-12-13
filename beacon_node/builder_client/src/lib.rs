@@ -2,7 +2,7 @@ use eth2::types::builder_bid::SignedBuilderBid;
 use eth2::types::{
     AbstractExecPayload, BlindedPayload, EthSpec, ExecutionBlockHash, ExecutionPayload,
     ForkVersionedResponse, PublicKeyBytes, SignedBeaconBlock, SignedValidatorRegistrationData,
-    Slot,
+    Slot, SignedBeaconBlockAndBlobsSidecar,
 };
 pub use eth2::Error;
 use eth2::{ok_or_error, StatusCode};
@@ -145,6 +145,31 @@ impl BuilderHttpClient {
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
             .push("eth")
             .push("v1")
+            .push("builder")
+            .push("blinded_blocks");
+
+        Ok(self
+            .post_with_raw_response(
+                path,
+                &blinded_block,
+                Some(self.timeouts.post_blinded_blocks),
+            )
+            .await?
+            .json()
+            .await?)
+    }
+
+    /// `POST /eth/v2/builder/blinded_blocks`
+    pub async fn post_builder_blinded_blocks_v2<E: EthSpec>(
+        &self,
+        blinded_block: &SignedBeaconBlock<E, BlindedPayload<E>>,
+    ) -> Result<ForkVersionedResponse<SignedBeaconBlockAndBlobsSidecar<E>>, Error> {
+        let mut path = self.server.full.clone();
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("eth")
+            .push("v2")
             .push("builder")
             .push("blinded_blocks");
 
