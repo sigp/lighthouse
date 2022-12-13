@@ -111,10 +111,10 @@ impl<T: BeaconChainTypes> VerifiedLightClientFinalityUpdate<T> {
             None => return Err(Error::SigSlotStartIsNone),
         }
 
-        let head_state = chain.head_beacon_state_cloned();
+        let head_state = &head.snapshot.beacon_state;
         let finality_update = LightClientFinalityUpdate::new(
             &chain.spec,
-            &head_state,
+            head_state,
             head_block,
             &mut attested_state,
             &finalized_block,
