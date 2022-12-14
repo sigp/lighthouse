@@ -76,7 +76,7 @@ impl<T: EthSpec> Block<T> {
 
     pub fn as_execution_block_with_tx(&self) -> Option<ExecutionBlockWithTransactions<T>> {
         match self {
-            Block::PoS(payload) => Some(payload.clone().into()),
+            Block::PoS(payload) => Some(payload.clone().try_into().unwrap()),
             Block::PoW(_) => None,
         }
     }
