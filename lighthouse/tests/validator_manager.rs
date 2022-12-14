@@ -10,7 +10,7 @@ use types::*;
 use validator_manager::{
     create_validators::CreateConfig,
     import_validators::ImportConfig,
-    move_validators::{MoveConfig, Validators},
+    move_validators::{MoveConfig, PasswordSource, Validators},
 };
 
 const EXAMPLE_ETH1_ADDRESS: &str = "0x00000000219ab540356cBB839Cbe05303d7705Fa";
@@ -152,7 +152,7 @@ pub fn validator_create_misc_flags() {
                 count: 9,
                 deposit_gwei: 42,
                 mnemonic_path: Some(PathBuf::from("./woof")),
-                stdin_inputs: cfg!(windows) || true,
+                stdin_inputs: true,
                 disable_deposits: false,
                 specify_voting_keystore_password: true,
                 eth1_withdrawal_address: Some(Address::from_str(EXAMPLE_ETH1_ADDRESS).unwrap()),
@@ -243,6 +243,9 @@ pub fn validator_move_defaults() {
                 builder_proposals: None,
                 fee_recipient: None,
                 gas_limit: None,
+                password_source: PasswordSource::Interactive {
+                    stdin_inputs: cfg!(windows) || false,
+                },
             };
             assert_eq!(expected, config);
         });
@@ -262,6 +265,7 @@ pub fn validator_move_misc_flags_0() {
         .flag("--builder-proposals", Some("true"))
         .flag("--suggested-fee-recipient", Some(EXAMPLE_ETH1_ADDRESS))
         .flag("--gas-limit", Some("1337"))
+        .flag("--stdin-inputs", None)
         .assert_success(|config| {
             let expected = MoveConfig {
                 src_vc_url: SensitiveUrl::parse("http://localhost:1").unwrap(),
@@ -275,6 +279,7 @@ pub fn validator_move_misc_flags_0() {
                 builder_proposals: Some(true),
                 fee_recipient: Some(Address::from_str(EXAMPLE_ETH1_ADDRESS).unwrap()),
                 gas_limit: Some(1337),
+                password_source: PasswordSource::Interactive { stdin_inputs: true },
             };
             assert_eq!(expected, config);
         });
@@ -301,6 +306,9 @@ pub fn validator_move_misc_flags_1() {
                 builder_proposals: Some(false),
                 fee_recipient: None,
                 gas_limit: None,
+                password_source: PasswordSource::Interactive {
+                    stdin_inputs: cfg!(windows) || false,
+                },
             };
             assert_eq!(expected, config);
         });
@@ -324,6 +332,9 @@ pub fn validator_move_count() {
                 builder_proposals: None,
                 fee_recipient: None,
                 gas_limit: None,
+                password_source: PasswordSource::Interactive {
+                    stdin_inputs: cfg!(windows) || false,
+                },
             };
             assert_eq!(expected, config);
         });

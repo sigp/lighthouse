@@ -123,6 +123,8 @@ impl ApiTester {
             validator_dir: Some(validator_dir.path().into()),
             secrets_dir: Some(secrets_dir.path().into()),
             validator_store: Some(validator_store.clone()),
+            graffiti_file: None,
+            graffiti_flag: Some(Graffiti::default()),
             spec: E::default_spec(),
             config: HttpConfig {
                 enabled: true,
