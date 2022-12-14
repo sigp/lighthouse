@@ -17,7 +17,7 @@ modern = ["bls/supranational-force-adx"]
 # Uses the slower Milagro BLS library, which is written in native Rust.
 milagro = ["bls/milagro"]
 # Support minimal spec (used for testing only).
-spec-minimal = []
+spec-minimal = ["beacon_node/spec-minimal"]
 # Support Gnosis spec and Gnosis Beacon Chain.
 gnosis = []
 # Support slasher MDBX backend.
