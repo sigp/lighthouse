@@ -1,6 +1,6 @@
 use super::common::*;
 use crate::DumpConfig;
-use account_utils::read_password_from_user;
+use account_utils::{read_password_from_user, ZeroizeString};
 use clap::{App, Arg, ArgMatches};
 use eth2::{
     lighthouse_vc::{
@@ -36,6 +36,30 @@ pub const BUILDER_PROPOSALS_FLAG: &str = "builder-proposals";
 const NO_VALIDATORS_MSG: &str = "No validators present on source validator client";
 
 const UPLOAD_RETRY_WAIT: Duration = Duration::from_secs(5);
+
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
+pub enum PasswordSource {
+    /// Reads the password from the user via the terminal.
+    Interactive { stdin_inputs: bool },
+    /// This variant is panic-y and should only be used during testing.
+    Testing(HashMap<PublicKeyBytes, Vec<String>>),
+}
+
+impl PasswordSource {
+    fn read_password(&mut self, pubkey: &PublicKeyBytes) -> Result<ZeroizeString, String> {
+        match self {
+            PasswordSource::Interactive { stdin_inputs } => read_password_from_user(*stdin_inputs),
+            // This path with panic if the password list is empty. Since the
+            // password prompt will just keep retrying on a failed password, the
+            // panic helps us break the loop if we misconfigure the test.
+            PasswordSource::Testing(passwords) => Ok(passwords
+                .get_mut(pubkey)
+                .expect("pubkey should be known")
+                .remove(0)
+                .into()),
+        }
+    }
+}
 
 pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
     App::new(CMD)
@@ -168,7 +192,7 @@ pub struct MoveConfig {
     pub builder_proposals: Option<bool>,
     pub fee_recipient: Option<Address>,
     pub gas_limit: Option<u64>,
-    pub stdin_inputs: bool,
+    pub password_source: PasswordSource,
 }
 
 impl MoveConfig {
@@ -182,7 +206,9 @@ impl MoveConfig {
             builder_proposals: clap_utils::parse_optional(matches, BUILDER_PROPOSALS_FLAG)?,
             fee_recipient: clap_utils::parse_optional(matches, FEE_RECIPIENT_FLAG)?,
             gas_limit: clap_utils::parse_optional(matches, GAS_LIMIT_FLAG)?,
-            stdin_inputs: cfg!(windows) || matches.is_present(STDIN_INPUTS_FLAG),
+            password_source: PasswordSource::Interactive {
+                stdin_inputs: cfg!(windows) || matches.is_present(STDIN_INPUTS_FLAG),
+            },
         })
     }
 }
@@ -209,7 +235,7 @@ async fn run<'a>(config: MoveConfig) -> Result<(), String> {
         builder_proposals,
         fee_recipient,
         gas_limit,
-        stdin_inputs,
+        mut password_source,
     } = config;
 
     // Moving validators between the same VC is unlikely to be useful and probably indicates a user
@@ -366,7 +392,7 @@ async fn run<'a>(config: MoveConfig) -> Result<(), String> {
 
                     // Read the password from the user, retrying if the password is incorrect.
                     loop {
-                        match read_password_from_user(stdin_inputs) {
+                        match password_source.read_password(&pubkey_to_move) {
                             Ok(password) => {
                                 if let Err(e) = keystore.decrypt_keypair(password.as_ref()) {
                                     eprintln!("Failed to decrypt keystore: {:?}", e);
@@ -603,6 +629,7 @@ mod test {
         duplicates: usize,
         dir: TempDir,
         move_back_again: bool,
+        passwords: HashMap<PublicKeyBytes, Vec<String>>,
     }
 
     impl TestBuilder {
@@ -614,6 +641,7 @@ mod test {
                 duplicates: 0,
                 dir,
                 move_back_again: false,
+                passwords: <_>::default(),
             }
         }
 
@@ -642,6 +670,28 @@ mod test {
 
         fn register_duplicates(mut self, num_duplicates: usize) -> Self {
             self.duplicates = num_duplicates;
+            self
+        }
+
+        fn remove_passwords_from_src_vc(mut self) -> Self {
+            let passwords = self
+                .src_import_builder
+                .as_ref()
+                .expect("src validators must be created before passwords can be removed")
+                .vc
+                .initialized_validators
+                .write()
+                .delete_passwords_from_validator_definitions()
+                .unwrap();
+            self.passwords = passwords
+                .into_iter()
+                .map(|(pubkey, password)| {
+                    (
+                        PublicKeyBytes::from(&pubkey),
+                        vec![password.as_str().to_string()],
+                    )
+                })
+                .collect();
             self
         }
 
@@ -684,7 +734,7 @@ mod test {
                 builder_proposals: None,
                 fee_recipient: None,
                 gas_limit: None,
-                stdin_inputs: false,
+                password_source: PasswordSource::Testing(self.passwords.clone()),
             };
 
             let result = run(move_config).await;
@@ -980,6 +1030,18 @@ mod test {
             .with_src_validators(2, 0)
             .await
             .move_back_again()
+            .run_test(|_| Validators::All)
+            .await
+            .assert_ok();
+    }
+
+    #[tokio::test]
+    async fn one_validator_move_all_passwords_removed() {
+        TestBuilder::new()
+            .await
+            .with_src_validators(1, 0)
+            .await
+            .remove_passwords_from_src_vc()
             .run_test(|_| Validators::All)
             .await
             .assert_ok();

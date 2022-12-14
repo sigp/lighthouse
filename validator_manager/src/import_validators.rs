@@ -246,7 +246,7 @@ pub mod tests {
 
     pub struct TestBuilder {
         import_config: ImportConfig,
-        vc: ApiTester,
+        pub vc: ApiTester,
         /// Holds the temp directory owned by the `CreateTestBuilder` so it doesn't get cleaned-up
         /// before we can read it.
         create_dir: Option<TempDir>,

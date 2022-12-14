@@ -1177,4 +1177,33 @@ impl InitializedValidators {
             val.index = Some(index);
         }
     }
+
+    /// Deletes any passwords store in the validator definitions file and
+    /// returns a map of pubkey to deleted password.
+    pub fn delete_passwords_from_validator_definitions(
+        &mut self,
+    ) -> Result<HashMap<PublicKey, ZeroizeString>, Error> {
+        let mut passwords = HashMap::default();
+
+        for def in self.definitions.as_mut_slice() {
+            match &mut def.signing_definition {
+                SigningDefinition::LocalKeystore {
+                    ref mut voting_keystore_password,
+                    ..
+                } => {
+                    if let Some(password) = voting_keystore_password.take() {
+                        passwords.insert(def.voting_public_key.clone(), password);
+                    }
+                }
+                // Remote signers don't have passwords.
+                SigningDefinition::Web3Signer { .. } => (),
+            };
+        }
+
+        self.definitions
+            .save(&self.validators_dir)
+            .map_err(Error::UnableToSaveDefinitions)?;
+
+        Ok(passwords)
+    }
 }
