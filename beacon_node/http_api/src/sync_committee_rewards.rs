@@ -22,6 +22,12 @@ pub fn compute_sync_committee_rewards<T: BeaconChainTypes>(
 
     let state_root = block.state_root();
 
+    let sync_aggregate = block
+        .message()
+        .body()
+        .sync_aggregate()
+        .map_err(|_| custom_bad_request(String::from("Unable to get sync aggregate")))?;
+
     // Technically we should use the pre-block state, but it won't matter because
     // compute_sync_aggregate_rewards() only uses state.get_total_active_balance() which only changes on epoch boundaries.
     // So, the "wrong" state will still give the same result.
@@ -60,14 +66,15 @@ pub fn compute_sync_committee_rewards<T: BeaconChainTypes>(
             Some(
                 current_sync_committee
                 .iter()
-                .map(|sync_committee_pubkey| {
+                .zip(sync_aggregate.sync_committee_bits.iter())
+                .map(|(sync_committee_pubkey, participation_bit)| {
                     let sync_committee_validator_index = match state.get_validator_index(sync_committee_pubkey) {
                                     Ok(validator_index) => validator_index,
                                     _ => Some(0)
                                 }.unwrap();
-                    (sync_committee_pubkey, sync_committee_validator_index)
+                    (sync_committee_pubkey, sync_committee_validator_index, participation_bit)
                 })
-                .filter(|(sync_committee_pubkey, sync_committee_validator_index)| {
+                .filter(|(sync_committee_pubkey, sync_committee_validator_index, participation_bit)| {
                     validators.is_empty()
                         ||
                     validators
@@ -81,10 +88,11 @@ pub fn compute_sync_committee_rewards<T: BeaconChainTypes>(
                             }
                         })
                 })
-                .map(|(_sync_committee_pubkey, sync_committee_validator_index)| {
+                .map(|(_sync_committee_pubkey, sync_committee_validator_index, participation_bit)| {
                     SyncCommitteeAttestationReward {
                         validator_index: sync_committee_validator_index as u64,
-                        reward: participant_reward_value as i64
+                        reward: if participation_bit { participant_reward_value as i64 } 
+                                else { participant_reward_value as i64 * -1 }
                     }
                 })
                 .collect::<Vec<_>>()
