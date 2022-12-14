@@ -1,5 +1,6 @@
 use super::common::*;
 use crate::DumpConfig;
+use account_utils::read_password_from_user;
 use clap::{App, Arg, ArgMatches};
 use eth2::{
     lighthouse_vc::{
@@ -167,6 +168,7 @@ pub struct MoveConfig {
     pub builder_proposals: Option<bool>,
     pub fee_recipient: Option<Address>,
     pub gas_limit: Option<u64>,
+    pub stdin_inputs: bool,
 }
 
 impl MoveConfig {
@@ -180,6 +182,7 @@ impl MoveConfig {
             builder_proposals: clap_utils::parse_optional(matches, BUILDER_PROPOSALS_FLAG)?,
             fee_recipient: clap_utils::parse_optional(matches, FEE_RECIPIENT_FLAG)?,
             gas_limit: clap_utils::parse_optional(matches, GAS_LIMIT_FLAG)?,
+            stdin_inputs: cfg!(windows) || matches.is_present(STDIN_INPUTS_FLAG),
         })
     }
 }
@@ -206,6 +209,7 @@ async fn run<'a>(config: MoveConfig) -> Result<(), String> {
         builder_proposals,
         fee_recipient,
         gas_limit,
+        stdin_inputs,
     } = config;
 
     // Moving validators between the same VC is unlikely to be useful and probably indicates a user
@@ -346,10 +350,48 @@ async fn run<'a>(config: MoveConfig) -> Result<(), String> {
                 validating_keystore_password,
             } => match (validating_keystore, validating_keystore_password) {
                 (Some(keystore), Some(password)) => (keystore, password),
-                (keystore_opt, password_opt) => {
+                (Some(keystore), None) => {
+                    eprintln!(
+                        "Validator {:?} requires a password, please provide it to continue with \
+                            moving validators. If the provided password is incorrect the user will \
+                            be asked to provide another password. \
+                            Failing to provide the correct password now will \
+                            result in the keystore being deleted from the src VC \
+                            without being transfered to the dest VC. \
+                            The dest VC will store this password on its filesystem and it will not be \
+                            required next time the dest VC starts. \
+                            It is strongly recommend to provide a password now rather than exiting.",
+                        pubkey_to_move
+                    );
+
+                    // Read the password from the user, retrying if the password is incorrect.
+                    loop {
+                        match read_password_from_user(stdin_inputs) {
+                            Ok(password) => {
+                                if let Err(e) = keystore.decrypt_keypair(password.as_ref()) {
+                                    eprintln!("Failed to decrypt keystore: {:?}", e);
+                                } else {
+                                    break (keystore, password);
+                                }
+                            }
+                            Err(e) => {
+                                eprintln!(
+                                    "Retrying after error: {:?}. If this error persists the user will need to \
+                                        manually recover their keystore for validator {:?} from the mnemonic."
+                                    ,
+                                    e, pubkey_to_move
+                                );
+                            }
+                        }
+
+                        // Add a sleep here to prevent spamming the console.
+                        sleep(Duration::from_secs(1)).await;
+                    }
+                }
+                (None, password_opt) => {
                     eprintln!(
                         "Validator {:?} was not moved since the validator client did \
-                            not return both a keystore and password. It is likely that the \
+                            not return a keystore. It is likely that the \
                             validator has been deleted from the source validator client \
                             without being moved to the destination validator client. \
                             This validator will most likely need to be manually recovered \
@@ -357,8 +399,7 @@ async fn run<'a>(config: MoveConfig) -> Result<(), String> {
                         pubkey_to_move
                     );
                     return Err(format!(
-                        "VC returned deleted but keystore {}, password {}",
-                        keystore_opt.is_some(),
+                        "VC returned deleted but keystore not present (password {})",
                         password_opt.is_some()
                     ));
                 }
@@ -643,6 +684,7 @@ mod test {
                 builder_proposals: None,
                 fee_recipient: None,
                 gas_limit: None,
+                stdin_inputs: false,
             };
 
             let result = run(move_config).await;

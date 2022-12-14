@@ -19,7 +19,6 @@ pub const OUTPUT_PATH_FLAG: &str = "output-path";
 pub const DEPOSIT_GWEI_FLAG: &str = "deposit-gwei";
 pub const DISABLE_DEPOSITS_FLAG: &str = "disable-deposits";
 pub const COUNT_FLAG: &str = "count";
-pub const STDIN_INPUTS_FLAG: &str = "stdin-inputs";
 pub const FIRST_INDEX_FLAG: &str = "first-index";
 pub const MNEMONIC_FLAG: &str = "mnemonic-path";
 pub const SPECIFY_VOTING_KEYSTORE_PASSWORD_FLAG: &str = "specify-voting-keystore-password";

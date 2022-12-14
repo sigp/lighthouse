@@ -15,6 +15,7 @@ use tree_hash::TreeHash;
 use types::*;
 
 pub const IGNORE_DUPLICATES_FLAG: &str = "ignore-duplicates";
+pub const STDIN_INPUTS_FLAG: &str = "stdin-inputs";
 
 /// When the `ethereum/staking-deposit-cli` tool generates deposit data JSON, it adds a
 /// `deposit_cli_version` to protect the web-based "Launchpad" tool against a breaking change that
