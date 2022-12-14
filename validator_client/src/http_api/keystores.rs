@@ -333,7 +333,7 @@ fn delete_single_keystore(
             Ok(Some(keystore_and_password)) => Ok(SingleExportKeystoresResponse {
                 status: Status::ok(DeleteKeystoreStatus::Deleted),
                 validating_keystore: Some(KeystoreJsonStr(keystore_and_password.keystore)),
-                validating_keystore_password: Some(keystore_and_password.password),
+                validating_keystore_password: keystore_and_password.password,
             }),
             Ok(None) => Ok(SingleExportKeystoresResponse {
                 status: Status::ok(DeleteKeystoreStatus::Deleted),

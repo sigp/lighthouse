@@ -45,7 +45,7 @@ const USE_STDIN: bool = false;
 
 pub struct KeystoreAndPassword {
     pub keystore: Keystore,
-    pub password: ZeroizeString,
+    pub password: Option<ZeroizeString>,
 }
 
 #[derive(Debug)]
@@ -103,7 +103,6 @@ pub enum Error {
     /// Unable to apply an action to a validator.
     InvalidActionOnValidator,
     UnableToReadValidatorPassword(String),
-    MissingKeystorePassword,
     UnableToReadKeystoreFile(eth2_keystore::Error),
 }
 
@@ -561,10 +560,11 @@ impl InitializedValidators {
                     ..
                 } if is_local_keystore => {
                     let password = match (voting_keystore_password, voting_keystore_password_path) {
-                        (Some(password), _) => password.clone(),
+                        (Some(password), _) => Some(password.clone()),
                         (_, Some(path)) => read_password_string(path)
+                            .map(Option::Some)
                             .map_err(Error::UnableToReadValidatorPassword)?,
-                        (None, None) => return Err(Error::MissingKeystorePassword),
+                        (None, None) => None,
                     };
                     let keystore = Keystore::from_json_file(voting_keystore_path)
                         .map_err(Error::UnableToReadKeystoreFile)?;
