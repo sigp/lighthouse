@@ -27,6 +27,13 @@ jobs:
       - name: Install ganache
         run: npm install ganache@latest --global
 
+      - name: Install GNU sed & GNU grep
+        run: |
+          brew install gnu-sed grep
+          echo "$(brew --prefix)/opt/gnu-sed/libexec/gnubin" >> $GITHUB_PATH
+          echo "$(brew --prefix)/opt/grep/libexec/gnubin" >> $GITHUB_PATH
+        if: matrix.os == 'macos-12'
+
       # https://github.com/actions/cache/blob/main/examples.md#rust---cargo
       - uses: actions/cache@v3
         id: cache-cargo

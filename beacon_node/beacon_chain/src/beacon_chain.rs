@@ -2205,14 +2205,21 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
     }
 
-    /// Verify a signed BLS to exection change before allowing it to propagate on the gossip network.
+    /// Verify a signed BLS to execution change before allowing it to propagate on the gossip network.
     pub fn verify_bls_to_execution_change_for_gossip(
         &self,
         bls_to_execution_change: SignedBlsToExecutionChange,
     ) -> Result<ObservationOutcome<SignedBlsToExecutionChange, T::EthSpec>, Error> {
         #[cfg(feature = "withdrawals-processing")]
         {
+            let current_fork = self.spec.fork_name_at_slot::<T::EthSpec>(self.slot()?);
+            if let ForkName::Base | ForkName::Altair | ForkName::Merge = current_fork {
+                // Disallow BLS to execution changes prior to the Capella fork.
+                return Err(Error::BlsToExecutionChangeBadFork(current_fork));
+            }
+
             let wall_clock_state = self.wall_clock_state()?;
+
             Ok(self
                 .observed_bls_to_execution_changes
                 .lock()

@@ -67,7 +67,7 @@ impl Validator {
         && self.activation_epoch == spec.far_future_epoch
     }
 
-    /// Returns `true` if the validator has eth1 withdrawal credential
+    /// Returns `true` if the validator has eth1 withdrawal credential.
     pub fn has_eth1_withdrawal_credential(&self, spec: &ChainSpec) -> bool {
         self.withdrawal_credentials
             .as_bytes()
@@ -88,7 +88,7 @@ impl Validator {
             .flatten()
     }
 
-    /// Changes withdrawal credentials to  the provided eth1 execution address
+    /// Changes withdrawal credentials to  the provided eth1 execution address.
     ///
     /// WARNING: this function does NO VALIDATION - it just does it!
     pub fn change_withdrawal_credentials(&mut self, execution_address: &Address, spec: &ChainSpec) {
@@ -98,12 +98,12 @@ impl Validator {
         self.withdrawal_credentials = Hash256::from(bytes);
     }
 
-    /// Returns `true` if the validator is fully withdrawable at some epoch
+    /// Returns `true` if the validator is fully withdrawable at some epoch.
     pub fn is_fully_withdrawable_at(&self, balance: u64, epoch: Epoch, spec: &ChainSpec) -> bool {
         self.has_eth1_withdrawal_credential(spec) && self.withdrawable_epoch <= epoch && balance > 0
     }
 
-    /// Returns `true` if the validator is partially withdrawable
+    /// Returns `true` if the validator is partially withdrawable.
     pub fn is_partially_withdrawable_validator(&self, balance: u64, spec: &ChainSpec) -> bool {
         self.has_eth1_withdrawal_credential(spec)
             && self.effective_balance == spec.max_effective_balance
