@@ -48,7 +48,10 @@ pub enum PasswordSource {
 impl PasswordSource {
     fn read_password(&mut self, pubkey: &PublicKeyBytes) -> Result<ZeroizeString, String> {
         match self {
-            PasswordSource::Interactive { stdin_inputs } => read_password_from_user(*stdin_inputs),
+            PasswordSource::Interactive { stdin_inputs } => {
+                eprintln!("Please enter a password for keystore {:?}:", pubkey);
+                read_password_from_user(*stdin_inputs)
+            }
             // This path with panic if the password list is empty. Since the
             // password prompt will just keep retrying on a failed password, the
             // panic helps us break the loop if we misconfigure the test.
@@ -378,14 +381,15 @@ async fn run<'a>(config: MoveConfig) -> Result<(), String> {
                 (Some(keystore), Some(password)) => (keystore, password),
                 (Some(keystore), None) => {
                     eprintln!(
-                        "Validator {:?} requires a password, please provide it to continue with \
-                            moving validators. If the provided password is incorrect the user will \
+                        "Validator {:?} requires a password, please provide it to continue \
+                            moving validators. \
+                            The dest VC will store this password on its filesystem and the password \
+                            will not be required next time the dest VC starts. \
+                            If the provided password is incorrect the user will \
                             be asked to provide another password. \
                             Failing to provide the correct password now will \
                             result in the keystore being deleted from the src VC \
                             without being transfered to the dest VC. \
-                            The dest VC will store this password on its filesystem and it will not be \
-                            required next time the dest VC starts. \
                             It is strongly recommend to provide a password now rather than exiting.",
                         pubkey_to_move
                     );
@@ -629,6 +633,8 @@ mod test {
         duplicates: usize,
         dir: TempDir,
         move_back_again: bool,
+        remove_passwords_from_src_vc: bool,
+        mutate_passwords: Option<Box<dyn Fn(&mut HashMap<PublicKeyBytes, Vec<String>>)>>,
         passwords: HashMap<PublicKeyBytes, Vec<String>>,
     }
 
@@ -641,6 +647,8 @@ mod test {
                 duplicates: 0,
                 dir,
                 move_back_again: false,
+                remove_passwords_from_src_vc: false,
+                mutate_passwords: None,
                 passwords: <_>::default(),
             }
         }
@@ -674,24 +682,15 @@ mod test {
         }
 
         fn remove_passwords_from_src_vc(mut self) -> Self {
-            let passwords = self
-                .src_import_builder
-                .as_ref()
-                .expect("src validators must be created before passwords can be removed")
-                .vc
-                .initialized_validators
-                .write()
-                .delete_passwords_from_validator_definitions()
-                .unwrap();
-            self.passwords = passwords
-                .into_iter()
-                .map(|(pubkey, password)| {
-                    (
-                        PublicKeyBytes::from(&pubkey),
-                        vec![password.as_str().to_string()],
-                    )
-                })
-                .collect();
+            self.remove_passwords_from_src_vc = true;
+            self
+        }
+
+        fn mutate_passwords<F: Fn(&mut HashMap<PublicKeyBytes, Vec<String>>) + 'static>(
+            mut self,
+            func: F,
+        ) -> Self {
+            self.mutate_passwords = Some(Box::new(func));
             self
         }
 
@@ -840,6 +839,28 @@ mod test {
             } else {
                 ApiTester::new().await
             };
+
+            if self.remove_passwords_from_src_vc {
+                let passwords = src_vc
+                    .initialized_validators
+                    .write()
+                    .delete_passwords_from_validator_definitions()
+                    .unwrap();
+
+                self.passwords = passwords
+                    .into_iter()
+                    .map(|(pubkey, password)| {
+                        (
+                            PublicKeyBytes::from(&pubkey),
+                            vec![password.as_str().to_string()],
+                        )
+                    })
+                    .collect();
+
+                if let Some(func) = self.mutate_passwords.take() {
+                    func(&mut self.passwords)
+                }
+            }
 
             let result = self
                 .move_validators(gen_validators_enum, &src_vc, &dest_vc)
@@ -1036,12 +1057,52 @@ mod test {
     }
 
     #[tokio::test]
-    async fn one_validator_move_all_passwords_removed() {
+    async fn two_validator_move_all_passwords_removed() {
         TestBuilder::new()
             .await
-            .with_src_validators(1, 0)
+            .with_src_validators(2, 0)
             .await
             .remove_passwords_from_src_vc()
+            .run_test(|_| Validators::All)
+            .await
+            .assert_ok();
+    }
+
+    /// This test simulates a src VC that doesn't know the keystore passwords
+    /// and provide the wrong password before providing the correct password.
+    #[tokio::test]
+    async fn two_validator_move_all_passwords_removed_failed_password_attempt() {
+        TestBuilder::new()
+            .await
+            .with_src_validators(2, 0)
+            .await
+            .remove_passwords_from_src_vc()
+            .mutate_passwords(|passwords| {
+                passwords.iter_mut().for_each(|(_, passwords)| {
+                    passwords.insert(0, "wrong-password".to_string());
+                    passwords.push("wrong-password".to_string());
+                })
+            })
+            .run_test(|_| Validators::All)
+            .await
+            .assert_ok();
+    }
+
+    /// This test simulates a src VC that doesn't know the keystore passwords
+    /// and we have not provided the correct password.
+    #[should_panic]
+    #[tokio::test]
+    async fn two_validator_move_all_passwords_removed_without_correct_password() {
+        TestBuilder::new()
+            .await
+            .with_src_validators(2, 0)
+            .await
+            .remove_passwords_from_src_vc()
+            .mutate_passwords(|passwords| {
+                passwords
+                    .iter_mut()
+                    .for_each(|(_, passwords)| *passwords = vec!["wrong-password".to_string()])
+            })
             .run_test(|_| Validators::All)
             .await
             .assert_ok();
