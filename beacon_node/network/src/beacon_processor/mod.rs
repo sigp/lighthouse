@@ -64,9 +64,9 @@ use std::{cmp, collections::HashSet};
 use task_executor::TaskExecutor;
 use tokio::sync::mpsc;
 use types::{
-    Attestation, AttesterSlashing, Hash256, ProposerSlashing, SignedAggregateAndProof,
-    SignedBeaconBlock, SignedBlsToExecutionChange, SignedContributionAndProof, SignedVoluntaryExit,
-    SubnetId, SyncCommitteeMessage, SyncSubnetId,
+    Attestation, AttesterSlashing, Hash256, LightClientFinalityUpdate, LightClientOptimisticUpdate,
+    ProposerSlashing, SignedAggregateAndProof, SignedBeaconBlock, SignedBlsToExecutionChange,
+    SignedContributionAndProof, SignedVoluntaryExit, SubnetId, SyncCommitteeMessage, SyncSubnetId,
 };
 use work_reprocessing_queue::{
     spawn_reprocess_scheduler, QueuedAggregate, QueuedRpcBlock, QueuedUnaggregate, ReadyWork,
@@ -133,6 +133,14 @@ const MAX_GOSSIP_PROPOSER_SLASHING_QUEUE_LEN: usize = 4_096;
 /// The maximum number of queued `AttesterSlashing` objects received on gossip that will be stored
 /// before we start dropping them.
 const MAX_GOSSIP_ATTESTER_SLASHING_QUEUE_LEN: usize = 4_096;
+
+/// The maximum number of queued `LightClientFinalityUpdate` objects received on gossip that will be stored
+/// before we start dropping them.
+const MAX_GOSSIP_FINALITY_UPDATE_QUEUE_LEN: usize = 1_024;
+
+/// The maximum number of queued `LightClientOptimisticUpdate` objects received on gossip that will be stored
+/// before we start dropping them.
+const MAX_GOSSIP_OPTIMISTIC_UPDATE_QUEUE_LEN: usize = 1_024;
 
 /// The maximum number of queued `SyncCommitteeMessage` objects that will be stored before we start dropping
 /// them.
@@ -209,6 +217,8 @@ pub const GOSSIP_PROPOSER_SLASHING: &str = "gossip_proposer_slashing";
 pub const GOSSIP_ATTESTER_SLASHING: &str = "gossip_attester_slashing";
 pub const GOSSIP_SYNC_SIGNATURE: &str = "gossip_sync_signature";
 pub const GOSSIP_SYNC_CONTRIBUTION: &str = "gossip_sync_contribution";
+pub const GOSSIP_LIGHT_CLIENT_FINALITY_UPDATE: &str = "light_client_finality_update";
+pub const GOSSIP_LIGHT_CLIENT_OPTIMISTIC_UPDATE: &str = "light_client_optimistic_update";
 pub const RPC_BLOCK: &str = "rpc_block";
 pub const CHAIN_SEGMENT: &str = "chain_segment";
 pub const STATUS_PROCESSING: &str = "status_processing";
@@ -512,6 +522,42 @@ impl<T: BeaconChainTypes> WorkEvent<T> {
         }
     }
 
+    /// Create a new `Work` event for some light client finality update.
+    pub fn gossip_light_client_finality_update(
+        message_id: MessageId,
+        peer_id: PeerId,
+        light_client_finality_update: Box<LightClientFinalityUpdate<T::EthSpec>>,
+        seen_timestamp: Duration,
+    ) -> Self {
+        Self {
+            drop_during_sync: true,
+            work: Work::GossipLightClientFinalityUpdate {
+                message_id,
+                peer_id,
+                light_client_finality_update,
+                seen_timestamp,
+            },
+        }
+    }
+
+    /// Create a new `Work` event for some light client optimistic update.
+    pub fn gossip_light_client_optimistic_update(
+        message_id: MessageId,
+        peer_id: PeerId,
+        light_client_optimistic_update: Box<LightClientOptimisticUpdate<T::EthSpec>>,
+        seen_timestamp: Duration,
+    ) -> Self {
+        Self {
+            drop_during_sync: true,
+            work: Work::GossipLightClientOptimisticUpdate {
+                message_id,
+                peer_id,
+                light_client_optimistic_update,
+                seen_timestamp,
+            },
+        }
+    }
+
     /// Create a new `Work` event for some attester slashing.
     pub fn gossip_attester_slashing(
         message_id: MessageId,
@@ -804,6 +850,18 @@ pub enum Work<T: BeaconChainTypes> {
         sync_contribution: Box<SignedContributionAndProof<T::EthSpec>>,
         seen_timestamp: Duration,
     },
+    GossipLightClientFinalityUpdate {
+        message_id: MessageId,
+        peer_id: PeerId,
+        light_client_finality_update: Box<LightClientFinalityUpdate<T::EthSpec>>,
+        seen_timestamp: Duration,
+    },
+    GossipLightClientOptimisticUpdate {
+        message_id: MessageId,
+        peer_id: PeerId,
+        light_client_optimistic_update: Box<LightClientOptimisticUpdate<T::EthSpec>>,
+        seen_timestamp: Duration,
+    },
     RpcBlock {
         block_root: Hash256,
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
@@ -862,6 +920,8 @@ impl<T: BeaconChainTypes> Work<T> {
             Work::GossipAttesterSlashing { .. } => GOSSIP_ATTESTER_SLASHING,
             Work::GossipSyncSignature { .. } => GOSSIP_SYNC_SIGNATURE,
             Work::GossipSyncContribution { .. } => GOSSIP_SYNC_CONTRIBUTION,
+            Work::GossipLightClientFinalityUpdate { .. } => GOSSIP_LIGHT_CLIENT_FINALITY_UPDATE,
+            Work::GossipLightClientOptimisticUpdate { .. } => GOSSIP_LIGHT_CLIENT_OPTIMISTIC_UPDATE,
             Work::RpcBlock { .. } => RPC_BLOCK,
             Work::ChainSegment { .. } => CHAIN_SEGMENT,
             Work::Status { .. } => STATUS_PROCESSING,
@@ -1002,6 +1062,10 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
             FifoQueue::new(MAX_GOSSIP_PROPOSER_SLASHING_QUEUE_LEN);
         let mut gossip_attester_slashing_queue =
             FifoQueue::new(MAX_GOSSIP_ATTESTER_SLASHING_QUEUE_LEN);
+
+        // Using a FIFO queue for light client updates to maintain sequence order.
+        let mut finality_update_queue = FifoQueue::new(MAX_GOSSIP_FINALITY_UPDATE_QUEUE_LEN);
+        let mut optimistic_update_queue = FifoQueue::new(MAX_GOSSIP_OPTIMISTIC_UPDATE_QUEUE_LEN);
 
         // Using a FIFO queue since blocks need to be imported sequentially.
         let mut rpc_block_queue = FifoQueue::new(MAX_RPC_BLOCK_QUEUE_LEN);
@@ -1353,6 +1417,12 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                             Work::GossipSyncContribution { .. } => {
                                 sync_contribution_queue.push(work)
                             }
+                            Work::GossipLightClientFinalityUpdate { .. } => {
+                                finality_update_queue.push(work, work_id, &self.log)
+                            }
+                            Work::GossipLightClientOptimisticUpdate { .. } => {
+                                optimistic_update_queue.push(work, work_id, &self.log)
+                            }
                             Work::RpcBlock { .. } => rpc_block_queue.push(work, work_id, &self.log),
                             Work::ChainSegment { ref process_id, .. } => match process_id {
                                 ChainSegmentProcessId::RangeBatchId { .. }
@@ -1684,7 +1754,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                 )
             }),
             /*
-             * Syn contribution verification.
+             * Sync contribution verification.
              */
             Work::GossipSyncContribution {
                 message_id,
@@ -1711,6 +1781,38 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                     message_id,
                     peer_id,
                     *bls_to_execution_change,
+                )
+            }),
+            /*
+             * Light client finality update verification.
+             */
+            Work::GossipLightClientFinalityUpdate {
+                message_id,
+                peer_id,
+                light_client_finality_update,
+                seen_timestamp,
+            } => task_spawner.spawn_blocking(move || {
+                worker.process_gossip_finality_update(
+                    message_id,
+                    peer_id,
+                    *light_client_finality_update,
+                    seen_timestamp,
+                )
+            }),
+            /*
+             * Light client optimistic update verification.
+             */
+            Work::GossipLightClientOptimisticUpdate {
+                message_id,
+                peer_id,
+                light_client_optimistic_update,
+                seen_timestamp,
+            } => task_spawner.spawn_blocking(move || {
+                worker.process_gossip_optimistic_update(
+                    message_id,
+                    peer_id,
+                    *light_client_optimistic_update,
+                    seen_timestamp,
                 )
             }),
             /*

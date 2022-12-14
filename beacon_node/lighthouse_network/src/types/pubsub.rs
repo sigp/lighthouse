@@ -12,7 +12,8 @@ use std::io::{Error, ErrorKind};
 use std::sync::Arc;
 use tree_hash_derive::TreeHash;
 use types::{
-    Attestation, AttesterSlashing, BlobsSidecar, EthSpec, ForkContext, ForkName, ProposerSlashing,
+    Attestation, AttesterSlashing, BlobsSidecar, EthSpec, ForkContext, ForkName,
+    LightClientFinalityUpdate, LightClientOptimisticUpdate, ProposerSlashing,
     SignedAggregateAndProof, SignedBeaconBlock, SignedBeaconBlockAltair, SignedBeaconBlockBase,
     SignedBeaconBlockCapella, SignedBeaconBlockEip4844, SignedBeaconBlockMerge,
     SignedBlsToExecutionChange, SignedContributionAndProof, SignedVoluntaryExit, SubnetId,
@@ -51,6 +52,10 @@ pub enum PubsubMessage<T: EthSpec> {
     SyncCommitteeMessage(Box<(SyncSubnetId, SyncCommitteeMessage)>),
     /// Gossipsub message for BLS to execution change messages.
     BlsToExecutionChange(Box<SignedBlsToExecutionChange>),
+    /// Gossipsub message providing notification of a light client finality update.
+    LightClientFinalityUpdate(Box<LightClientFinalityUpdate<T>>),
+    /// Gossipsub message providing notification of a light client optimistic update.
+    LightClientOptimisticUpdate(Box<LightClientOptimisticUpdate<T>>),
 }
 
 // Implements the `DataTransform` trait of gossipsub to employ snappy compression
@@ -137,6 +142,10 @@ impl<T: EthSpec> PubsubMessage<T> {
             PubsubMessage::SignedContributionAndProof(_) => GossipKind::SignedContributionAndProof,
             PubsubMessage::SyncCommitteeMessage(data) => GossipKind::SyncCommitteeMessage(data.0),
             PubsubMessage::BlsToExecutionChange(_) => GossipKind::BlsToExecutionChange,
+            PubsubMessage::LightClientFinalityUpdate(_) => GossipKind::LightClientFinalityUpdate,
+            PubsubMessage::LightClientOptimisticUpdate(_) => {
+                GossipKind::LightClientOptimisticUpdate
+            }
         }
     }
 
@@ -268,6 +277,22 @@ impl<T: EthSpec> PubsubMessage<T> {
                             bls_to_execution_change,
                         )))
                     }
+                    GossipKind::LightClientFinalityUpdate => {
+                        let light_client_finality_update =
+                            LightClientFinalityUpdate::from_ssz_bytes(data)
+                                .map_err(|e| format!("{:?}", e))?;
+                        Ok(PubsubMessage::LightClientFinalityUpdate(Box::new(
+                            light_client_finality_update,
+                        )))
+                    }
+                    GossipKind::LightClientOptimisticUpdate => {
+                        let light_client_optimistic_update =
+                            LightClientOptimisticUpdate::from_ssz_bytes(data)
+                                .map_err(|e| format!("{:?}", e))?;
+                        Ok(PubsubMessage::LightClientOptimisticUpdate(Box::new(
+                            light_client_optimistic_update,
+                        )))
+                    }
                 }
             }
         }
@@ -291,6 +316,8 @@ impl<T: EthSpec> PubsubMessage<T> {
             PubsubMessage::SignedContributionAndProof(data) => data.as_ssz_bytes(),
             PubsubMessage::SyncCommitteeMessage(data) => data.1.as_ssz_bytes(),
             PubsubMessage::BlsToExecutionChange(data) => data.as_ssz_bytes(),
+            PubsubMessage::LightClientFinalityUpdate(data) => data.as_ssz_bytes(),
+            PubsubMessage::LightClientOptimisticUpdate(data) => data.as_ssz_bytes(),
         }
     }
 }
@@ -337,6 +364,12 @@ impl<T: EthSpec> std::fmt::Display for PubsubMessage<T> {
                     "Signed BLS to execution change: validator_index: {}, address: {:?}",
                     data.message.validator_index, data.message.to_execution_address
                 )
+            }
+            PubsubMessage::LightClientFinalityUpdate(_data) => {
+                write!(f, "Light CLient Finality Update")
+            }
+            PubsubMessage::LightClientOptimisticUpdate(_data) => {
+                write!(f, "Light CLient Optimistic Update")
             }
         }
     }

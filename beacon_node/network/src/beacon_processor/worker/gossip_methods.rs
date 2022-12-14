@@ -3,6 +3,8 @@ use crate::{metrics, service::NetworkMessage, sync::SyncMessage};
 use beacon_chain::store::Error;
 use beacon_chain::{
     attestation_verification::{self, Error as AttnError, VerifiedAttestation},
+    light_client_finality_update_verification::Error as LightClientFinalityUpdateError,
+    light_client_optimistic_update_verification::Error as LightClientOptimisticUpdateError,
     observed_operations::ObservationOutcome,
     sync_committee_verification::{self, Error as SyncCommitteeError},
     validator_monitor::get_block_delay_ms,
@@ -21,10 +23,10 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use store::hot_cold_store::HotColdDBError;
 use tokio::sync::mpsc;
 use types::{
-    Attestation, AttesterSlashing, EthSpec, Hash256, IndexedAttestation, ProposerSlashing,
-    SignedAggregateAndProof, SignedBeaconBlock, SignedBlsToExecutionChange,
-    SignedContributionAndProof, SignedVoluntaryExit, Slot, SubnetId, SyncCommitteeMessage,
-    SyncSubnetId,
+    Attestation, AttesterSlashing, EthSpec, Hash256, IndexedAttestation, LightClientFinalityUpdate,
+    LightClientOptimisticUpdate, ProposerSlashing, SignedAggregateAndProof, SignedBeaconBlock,
+    SignedBlsToExecutionChange, SignedContributionAndProof, SignedVoluntaryExit, Slot, SubnetId,
+    SyncCommitteeMessage, SyncSubnetId,
 };
 
 use super::{
@@ -1378,6 +1380,138 @@ impl<T: BeaconChainTypes> Worker<T> {
             )
         }
         metrics::inc_counter(&metrics::BEACON_PROCESSOR_SYNC_CONTRIBUTION_IMPORTED_TOTAL);
+    }
+
+    pub fn process_gossip_finality_update(
+        self,
+        message_id: MessageId,
+        peer_id: PeerId,
+        light_client_finality_update: LightClientFinalityUpdate<T::EthSpec>,
+        seen_timestamp: Duration,
+    ) {
+        match self
+            .chain
+            .verify_finality_update_for_gossip(light_client_finality_update, seen_timestamp)
+        {
+            Ok(_verified_light_client_finality_update) => {
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
+            }
+            Err(e) => {
+                metrics::register_finality_update_error(&e);
+                match e {
+                    LightClientFinalityUpdateError::InvalidLightClientFinalityUpdate => {
+                        debug!(
+                            self.log,
+                            "LC invalid finality update";
+                            "peer" => %peer_id,
+                            "error" => ?e,
+                        );
+
+                        self.gossip_penalize_peer(
+                            peer_id,
+                            PeerAction::LowToleranceError,
+                            "light_client_gossip_error",
+                        );
+                    }
+                    LightClientFinalityUpdateError::TooEarly => {
+                        debug!(
+                            self.log,
+                            "LC finality update too early";
+                            "peer" => %peer_id,
+                            "error" => ?e,
+                        );
+
+                        self.gossip_penalize_peer(
+                            peer_id,
+                            PeerAction::HighToleranceError,
+                            "light_client_gossip_error",
+                        );
+                    }
+                    LightClientFinalityUpdateError::FinalityUpdateAlreadySeen => debug!(
+                        self.log,
+                        "LC finality update already seen";
+                        "peer" => %peer_id,
+                        "error" => ?e,
+                    ),
+                    LightClientFinalityUpdateError::BeaconChainError(_)
+                    | LightClientFinalityUpdateError::LightClientUpdateError(_)
+                    | LightClientFinalityUpdateError::SigSlotStartIsNone
+                    | LightClientFinalityUpdateError::FailedConstructingUpdate => debug!(
+                        self.log,
+                        "LC error constructing finality update";
+                        "peer" => %peer_id,
+                        "error" => ?e,
+                    ),
+                }
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+            }
+        };
+    }
+
+    pub fn process_gossip_optimistic_update(
+        self,
+        message_id: MessageId,
+        peer_id: PeerId,
+        light_client_optimistic_update: LightClientOptimisticUpdate<T::EthSpec>,
+        seen_timestamp: Duration,
+    ) {
+        match self
+            .chain
+            .verify_optimistic_update_for_gossip(light_client_optimistic_update, seen_timestamp)
+        {
+            Ok(_verified_light_client_optimistic_update) => {
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
+            }
+            Err(e) => {
+                metrics::register_optimistic_update_error(&e);
+                match e {
+                    LightClientOptimisticUpdateError::InvalidLightClientOptimisticUpdate => {
+                        debug!(
+                            self.log,
+                            "LC invalid optimistic update";
+                            "peer" => %peer_id,
+                            "error" => ?e,
+                        );
+
+                        self.gossip_penalize_peer(
+                            peer_id,
+                            PeerAction::HighToleranceError,
+                            "light_client_gossip_error",
+                        )
+                    }
+                    LightClientOptimisticUpdateError::TooEarly => {
+                        debug!(
+                            self.log,
+                            "LC optimistic update too early";
+                            "peer" => %peer_id,
+                            "error" => ?e,
+                        );
+
+                        self.gossip_penalize_peer(
+                            peer_id,
+                            PeerAction::HighToleranceError,
+                            "light_client_gossip_error",
+                        );
+                    }
+                    LightClientOptimisticUpdateError::OptimisticUpdateAlreadySeen => debug!(
+                        self.log,
+                        "LC optimistic update already seen";
+                        "peer" => %peer_id,
+                        "error" => ?e,
+                    ),
+                    LightClientOptimisticUpdateError::BeaconChainError(_)
+                    | LightClientOptimisticUpdateError::LightClientUpdateError(_)
+                    | LightClientOptimisticUpdateError::SigSlotStartIsNone
+                    | LightClientOptimisticUpdateError::FailedConstructingUpdate => debug!(
+                        self.log,
+                        "LC error constructing optimistic update";
+                        "peer" => %peer_id,
+                        "error" => ?e,
+                    ),
+                }
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+            }
+        };
     }
 
     /// Handle an error whilst verifying an `Attestation` or `SignedAggregateAndProof` from the

@@ -36,7 +36,7 @@ pub struct JsonResponseBody {
     pub id: serde_json::Value,
 }
 
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct TransparentJsonPayloadId(#[serde(with = "eth2_serde_utils::bytes_8_hex")] pub PayloadId);
 
@@ -324,7 +324,7 @@ impl<T: EthSpec> TryFrom<ExecutionPayload<T>> for JsonExecutionPayloadV2<T> {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct JsonWithdrawal {
     #[serde(with = "eth2_serde_utils::u64_hex_be")]
@@ -362,13 +362,13 @@ impl From<JsonWithdrawal> for Withdrawal {
 #[superstruct(
     variants(V1, V2),
     variant_attributes(
-        derive(Clone, Debug, PartialEq, Serialize, Deserialize),
+        derive(Debug, Clone, PartialEq, Serialize, Deserialize),
         serde(rename_all = "camelCase")
     ),
     cast_error(ty = "Error", expr = "Error::IncorrectStateVariant"),
     partial_getter_error(ty = "Error", expr = "Error::IncorrectStateVariant")
 )]
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub struct JsonPayloadAttributes {
     #[serde(with = "eth2_serde_utils::u64_hex_be")]
@@ -429,7 +429,7 @@ pub struct JsonBlobBundles<T: EthSpec> {
     pub blobs: Vec<Blob<T>>,
 }
 
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct JsonForkchoiceStateV1 {
     pub head_block_hash: ExecutionBlockHash,
@@ -482,7 +482,7 @@ pub enum JsonPayloadStatusV1Status {
     InvalidBlockHash,
 }
 
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct JsonPayloadStatusV1 {
     pub status: JsonPayloadStatusV1Status,
@@ -547,7 +547,7 @@ impl From<JsonPayloadStatusV1> for PayloadStatusV1 {
     }
 }
 
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct JsonForkchoiceUpdatedV1Response {
     pub payload_status: JsonPayloadStatusV1,

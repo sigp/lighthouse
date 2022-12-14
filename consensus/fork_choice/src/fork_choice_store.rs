@@ -1,3 +1,4 @@
+use proto_array::JustifiedBalances;
 use std::collections::BTreeSet;
 use std::fmt::Debug;
 use types::{AbstractExecPayload, BeaconBlockRef, BeaconState, Checkpoint, EthSpec, Hash256, Slot};
@@ -44,7 +45,7 @@ pub trait ForkChoiceStore<T: EthSpec>: Sized {
     fn justified_checkpoint(&self) -> &Checkpoint;
 
     /// Returns balances from the `state` identified by `justified_checkpoint.root`.
-    fn justified_balances(&self) -> &[u64];
+    fn justified_balances(&self) -> &JustifiedBalances;
 
     /// Returns the `best_justified_checkpoint`.
     fn best_justified_checkpoint(&self) -> &Checkpoint;

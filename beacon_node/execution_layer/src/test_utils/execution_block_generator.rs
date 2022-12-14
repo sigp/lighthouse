@@ -92,13 +92,15 @@ pub struct PoWBlock {
     pub timestamp: u64,
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct ExecutionBlockGenerator<T: EthSpec> {
     /*
      * Common database
      */
+    head_block: Option<Block<T>>,
+    finalized_block_hash: Option<ExecutionBlockHash>,
     blocks: HashMap<ExecutionBlockHash, Block<T>>,
-    block_hashes: HashMap<u64, ExecutionBlockHash>,
+    block_hashes: HashMap<u64, Vec<ExecutionBlockHash>>,
     /*
      * PoW block parameters
      */
@@ -120,6 +122,8 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
         terminal_block_hash: ExecutionBlockHash,
     ) -> Self {
         let mut gen = Self {
+            head_block: <_>::default(),
+            finalized_block_hash: <_>::default(),
             blocks: <_>::default(),
             block_hashes: <_>::default(),
             terminal_total_difficulty,
@@ -136,13 +140,7 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
     }
 
     pub fn latest_block(&self) -> Option<Block<T>> {
-        let hash = *self
-            .block_hashes
-            .iter()
-            .max_by_key(|(number, _)| *number)
-            .map(|(_, hash)| hash)?;
-
-        self.block_by_hash(hash)
+        self.head_block.clone()
     }
 
     pub fn latest_execution_block(&self) -> Option<ExecutionBlock> {
@@ -151,8 +149,18 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
     }
 
     pub fn block_by_number(&self, number: u64) -> Option<Block<T>> {
-        let hash = *self.block_hashes.get(&number)?;
-        self.block_by_hash(hash)
+        // Get the latest canonical head block
+        let mut latest_block = self.latest_block()?;
+        loop {
+            let block_number = latest_block.block_number();
+            if block_number < number {
+                return None;
+            }
+            if block_number == number {
+                return Some(latest_block);
+            }
+            latest_block = self.block_by_hash(latest_block.parent_hash())?;
+        }
     }
 
     pub fn execution_block_by_number(&self, number: u64) -> Option<ExecutionBlock> {
@@ -213,10 +221,16 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
     }
 
     pub fn insert_pow_block(&mut self, block_number: u64) -> Result<(), String> {
+        if let Some(finalized_block_hash) = self.finalized_block_hash {
+            return Err(format!(
+                "terminal block {} has been finalized. PoW chain has stopped building",
+                finalized_block_hash
+            ));
+        }
         let parent_hash = if block_number == 0 {
             ExecutionBlockHash::zero()
-        } else if let Some(hash) = self.block_hashes.get(&(block_number - 1)) {
-            *hash
+        } else if let Some(block) = self.block_by_number(block_number - 1) {
+            block.block_hash()
         } else {
             return Err(format!(
                 "parent with block number {} not found",
@@ -231,42 +245,102 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
             parent_hash,
         )?;
 
-        self.insert_block(Block::PoW(block))
-    }
+        // Insert block into block tree
+        self.insert_block(Block::PoW(block))?;
 
-    pub fn insert_block(&mut self, block: Block<T>) -> Result<(), String> {
-        if self.blocks.contains_key(&block.block_hash()) {
-            return Err(format!("{:?} is already known", block.block_hash()));
-        } else if self.block_hashes.contains_key(&block.block_number()) {
-            return Err(format!(
-                "block {} is already known, forking is not supported",
-                block.block_number()
-            ));
-        } else if block.block_number() != 0 && !self.blocks.contains_key(&block.parent_hash()) {
-            return Err(format!("parent block {:?} is unknown", block.parent_hash()));
+        // Set head
+        if let Some(head_total_difficulty) =
+            self.head_block.as_ref().and_then(|b| b.total_difficulty())
+        {
+            if block.total_difficulty >= head_total_difficulty {
+                self.head_block = Some(Block::PoW(block));
+            }
+        } else {
+            self.head_block = Some(Block::PoW(block));
         }
-
-        self.insert_block_without_checks(block)
-    }
-
-    pub fn insert_block_without_checks(&mut self, block: Block<T>) -> Result<(), String> {
-        self.block_hashes
-            .insert(block.block_number(), block.block_hash());
-        self.blocks.insert(block.block_hash(), block);
-
         Ok(())
     }
 
+    /// Insert a PoW block given the parent hash.
+    ///
+    /// Returns `Ok(hash)` of the inserted block.
+    /// Returns an error if the `parent_hash` does not exist in the block tree or
+    /// if the parent block is the terminal block.
+    pub fn insert_pow_block_by_hash(
+        &mut self,
+        parent_hash: ExecutionBlockHash,
+        unique_id: u64,
+    ) -> Result<ExecutionBlockHash, String> {
+        let parent_block = self.block_by_hash(parent_hash).ok_or_else(|| {
+            format!(
+                "Block corresponding to parent hash does not exist: {}",
+                parent_hash
+            )
+        })?;
+
+        let mut block = generate_pow_block(
+            self.terminal_total_difficulty,
+            self.terminal_block_number,
+            parent_block.block_number() + 1,
+            parent_hash,
+        )?;
+
+        // Hack the block hash to make this block distinct from any other block with a different
+        // `unique_id` (the default is 0).
+        block.block_hash = ExecutionBlockHash::from_root(Hash256::from_low_u64_be(unique_id));
+        block.block_hash = ExecutionBlockHash::from_root(block.tree_hash_root());
+
+        let hash = self.insert_block(Block::PoW(block))?;
+
+        // Set head
+        if let Some(head_total_difficulty) =
+            self.head_block.as_ref().and_then(|b| b.total_difficulty())
+        {
+            if block.total_difficulty >= head_total_difficulty {
+                self.head_block = Some(Block::PoW(block));
+            }
+        } else {
+            self.head_block = Some(Block::PoW(block));
+        }
+        Ok(hash)
+    }
+
+    pub fn insert_block(&mut self, block: Block<T>) -> Result<ExecutionBlockHash, String> {
+        if self.blocks.contains_key(&block.block_hash()) {
+            return Err(format!("{:?} is already known", block.block_hash()));
+        } else if block.parent_hash() != ExecutionBlockHash::zero()
+            && !self.blocks.contains_key(&block.parent_hash())
+        {
+            return Err(format!("parent block {:?} is unknown", block.parent_hash()));
+        }
+
+        Ok(self.insert_block_without_checks(block))
+    }
+
+    pub fn insert_block_without_checks(&mut self, block: Block<T>) -> ExecutionBlockHash {
+        let block_hash = block.block_hash();
+        self.block_hashes
+            .entry(block.block_number())
+            .or_insert_with(Vec::new)
+            .push(block_hash);
+        self.blocks.insert(block_hash, block);
+
+        block_hash
+    }
+
     pub fn modify_last_block(&mut self, block_modifier: impl FnOnce(&mut Block<T>)) {
-        if let Some((last_block_hash, block_number)) =
-            self.block_hashes.keys().max().and_then(|block_number| {
-                self.block_hashes
-                    .get(block_number)
-                    .map(|block| (block, *block_number))
+        if let Some(last_block_hash) = self
+            .block_hashes
+            .iter_mut()
+            .max_by_key(|(block_number, _)| *block_number)
+            .and_then(|(_, block_hashes)| {
+                // Remove block hash, we will re-insert with the new block hash after modifying it.
+                block_hashes.pop()
             })
         {
-            let mut block = self.blocks.remove(last_block_hash).unwrap();
+            let mut block = self.blocks.remove(&last_block_hash).unwrap();
             block_modifier(&mut block);
+
             // Update the block hash after modifying the block
             match &mut block {
                 Block::PoW(b) => b.block_hash = ExecutionBlockHash::from_root(b.tree_hash_root()),
@@ -274,8 +348,17 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
                     *b.block_hash_mut() = ExecutionBlockHash::from_root(b.tree_hash_root())
                 }
             }
-            self.block_hashes.insert(block_number, block.block_hash());
-            self.blocks.insert(block.block_hash(), block);
+
+            // Update head.
+            if self
+                .head_block
+                .as_ref()
+                .map_or(true, |head| head.block_hash() == last_block_hash)
+            {
+                self.head_block = Some(block.clone());
+            }
+
+            self.insert_block_without_checks(block);
         }
     }
 
@@ -414,6 +497,17 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
                 Some(id)
             }
         };
+
+        self.head_block = Some(
+            self.blocks
+                .get(&forkchoice_state.head_block_hash)
+                .unwrap()
+                .clone(),
+        );
+
+        if forkchoice_state.finalized_block_hash != ExecutionBlockHash::zero() {
+            self.finalized_block_hash = Some(forkchoice_state.finalized_block_hash);
+        }
 
         Ok(JsonForkchoiceUpdatedV1Response {
             payload_status: JsonPayloadStatusV1 {

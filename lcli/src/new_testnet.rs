@@ -59,6 +59,10 @@ pub fn run<T: EthSpec>(testnet_dir_path: PathBuf, matches: &ArgMatches) -> Resul
         spec.genesis_fork_version = v;
     }
 
+    if let Some(proposer_score_boost) = parse_optional(matches, "proposer-score-boost")? {
+        spec.proposer_score_boost = Some(proposer_score_boost);
+    }
+
     if let Some(fork_epoch) = parse_optional(matches, "altair-fork-epoch")? {
         spec.altair_fork_epoch = Some(fork_epoch);
     }

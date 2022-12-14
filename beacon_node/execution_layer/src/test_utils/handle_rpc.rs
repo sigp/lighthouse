@@ -137,9 +137,18 @@ pub async fn handle_rpc<T: EthSpec>(
 
             Ok(serde_json::to_value(JsonExecutionPayloadV1::try_from(response).unwrap()).unwrap())
         }
+        // FIXME(capella): handle fcu version 2
         ENGINE_FORKCHOICE_UPDATED_V1 => {
             let forkchoice_state: JsonForkchoiceStateV1 = get_param(params, 0)?;
             let payload_attributes: Option<JsonPayloadAttributes> = get_param(params, 1)?;
+
+            if let Some(hook_response) = ctx
+                .hook
+                .lock()
+                .on_forkchoice_updated(forkchoice_state.clone(), payload_attributes.clone())
+            {
+                return Ok(serde_json::to_value(hook_response).unwrap());
+            }
 
             let head_block_hash = forkchoice_state.head_block_hash;
 

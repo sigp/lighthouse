@@ -22,8 +22,10 @@ pub mod fork_choice_signal;
 pub mod fork_revert;
 mod head_tracker;
 pub mod historical_blocks;
+pub mod light_client_finality_update_verification;
+pub mod light_client_optimistic_update_verification;
 pub mod merge_readiness;
-mod metrics;
+pub mod metrics;
 pub mod migrate;
 mod naive_aggregation_pool;
 mod observed_aggregates;
@@ -47,8 +49,8 @@ pub mod validator_pubkey_cache;
 
 pub use self::beacon_chain::{
     AttestationProcessingOutcome, BeaconChain, BeaconChainTypes, BeaconStore, ChainSegmentResult,
-    CountUnrealized, ForkChoiceError, ProduceBlockVerification, StateSkipConfig, WhenSlotSkipped,
-    INVALID_FINALIZED_MERGE_TRANSITION_BLOCK_SHUTDOWN_REASON,
+    CountUnrealized, ForkChoiceError, OverrideForkchoiceUpdate, ProduceBlockVerification,
+    StateSkipConfig, WhenSlotSkipped, INVALID_FINALIZED_MERGE_TRANSITION_BLOCK_SHUTDOWN_REASON,
     INVALID_JUSTIFIED_PAYLOAD_SHUTDOWN_REASON, MAXIMUM_GOSSIP_CLOCK_DISPARITY,
 };
 pub use self::beacon_snapshot::BeaconSnapshot;

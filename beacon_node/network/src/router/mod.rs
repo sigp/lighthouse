@@ -307,6 +307,30 @@ impl<T: BeaconChainTypes> Router<T> {
                     bls_to_execution_change,
                 );
             }
+            PubsubMessage::LightClientFinalityUpdate(light_client_finality_update) => {
+                trace!(
+                    self.log,
+                    "Received light client finality update";
+                    "peer_id" => %peer_id
+                );
+                self.processor.on_light_client_finality_update_gossip(
+                    id,
+                    peer_id,
+                    light_client_finality_update,
+                );
+            }
+            PubsubMessage::LightClientOptimisticUpdate(light_client_optimistic_update) => {
+                trace!(
+                    self.log,
+                    "Received light client optimistic update";
+                    "peer_id" => %peer_id
+                );
+                self.processor.on_light_client_optimistic_update_gossip(
+                    id,
+                    peer_id,
+                    light_client_optimistic_update,
+                );
+            }
         }
     }
 }

@@ -51,6 +51,7 @@ pub mod graffiti;
 pub mod historical_batch;
 pub mod indexed_attestation;
 pub mod light_client_bootstrap;
+pub mod light_client_finality_update;
 pub mod light_client_optimistic_update;
 pub mod light_client_update;
 pub mod pending_attestation;
@@ -152,6 +153,8 @@ pub use crate::historical_batch::HistoricalBatch;
 pub use crate::indexed_attestation::IndexedAttestation;
 pub use crate::kzg_commitment::KzgCommitment;
 pub use crate::kzg_proof::KzgProof;
+pub use crate::light_client_finality_update::LightClientFinalityUpdate;
+pub use crate::light_client_optimistic_update::LightClientOptimisticUpdate;
 pub use crate::participation_flags::ParticipationFlags;
 pub use crate::participation_list::ParticipationList;
 pub use crate::payload::{
