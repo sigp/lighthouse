@@ -1,4 +1,5 @@
 use super::KzgCommitment;
+use crate::{BlindedPayloadMerge, BlindedPayload};
 use crate::{
     AbstractExecPayload, ChainSpec, EthSpec, ExecPayload, ExecutionPayloadHeader, SignedRoot,
     Uint256, MainnetEthSpec,
@@ -7,27 +8,87 @@ use bls::PublicKeyBytes;
 use bls::Signature;
 use serde::{Deserialize as De, Deserializer, Serialize as Ser, Serializer};
 use serde_derive::{Deserialize, Serialize};
+use serde_with::As;
 use serde_json::Error;
 use serde_with::{serde_as, DeserializeAs, SerializeAs};
 use ssz_types::VariableList;
 use std::marker::PhantomData;
+use superstruct::superstruct;
 // use superstruct::superstruct;
 use tree_hash_derive::TreeHash;
 
-#[serde_as]
+#[superstruct(
+    variants(Merge, Capella, Eip4844),
+    variant_attributes(
+        derive(
+            PartialEq, Debug, Serialize, Deserialize, TreeHash, Clone
+        ),
+        serde(bound = "E: EthSpec, Payload: ExecPayload<E>", deny_unknown_fields)
+    )
+)]
 #[derive(PartialEq, Debug, Serialize, Deserialize, TreeHash, Clone)]
-#[serde(bound = "E: EthSpec, Payload: ExecPayload<E>", deny_unknown_fields)]
+#[serde(bound = "E: EthSpec, Payload: ExecPayload<E>", deny_unknown_fields, untagged)]
+#[tree_hash(enum_behaviour = "transparent")]
 pub struct BuilderBid<E: EthSpec, Payload: AbstractExecPayload<E>> {
-    #[serde_as(as = "BlindedPayloadAsHeader<E>")]
-    pub header: Payload,
+    // #[serde(with = "As::<BlindedPayloadAsHeader<E>>")]
+    #[superstruct(only(Merge), partial_getter(rename = "payload_merge"))]
+    pub header: Payload::Merge,
+
+    // #[serde(with = "As::<BlindedPayloadAsHeader<E>>")]
+    #[superstruct(only(Capella), partial_getter(rename = "payload_capella"))]
+    pub header: Payload::Capella,
+
+    // #[serde(with = "As::<BlindedPayloadAsHeader<E>>")]
+    #[superstruct(only(Eip4844), partial_getter(rename = "payload_eip4844"))]
+    pub header: Payload::Eip4844,
+
     #[serde(with = "eth2_serde_utils::quoted_u256")]
     pub value: Uint256,
     pub pubkey: PublicKeyBytes,
-    pub blob_kzg_commitments: VariableList<KzgCommitment, E::MaxBlobsPerBlock>,
+    // pub blob_kzg_commitments: VariableList<KzgCommitment, E::MaxBlobsPerBlock>,
     #[serde(skip)]
     #[tree_hash(skip_hashing)]
     _phantom_data: PhantomData<E>,
 }
+
+// impl<E: EthSpec, Payload: AbstractExecPayload<E>> BuilderBid<E, Payload> {
+//     fn header(&self) -> Payload {
+//         match self {
+//             Self::Merge(body) => Ok(Payload::Ref::from(&self.payload_merge())),
+//             Self::Capella(body) => Ok(Payload::Ref::from(&self.payload_capella())),
+//             Self::Eip4844(body) => Ok(Payload::Ref::from(&self.payload_eip4844())),
+//         }
+//     }
+// }
+
+impl<T: EthSpec, Payload: AbstractExecPayload<T>> BuilderBid<T, Payload> {
+    pub fn execution_payload(&self) -> Result<Payload::Ref<'_>, Error> {
+        self.to_ref().execution_payload()
+    }
+}
+
+impl<'a, T: EthSpec, Payload: AbstractExecPayload<T>> BuilderBidRef<'a, T, Payload> {
+    pub fn execution_payload(&self) -> Result<Payload::Ref<'a>, Error> {
+        match self {
+            Self::Merge(body) => Ok(Payload::Ref::from(&self.payload_merge())),
+            Self::Capella(body) => Ok(Payload::Ref::from(&self.payload_capella())),
+            Self::Eip4844(body) => Ok(Payload::Ref::from(&self.payload_eip4844())),
+        }
+    }
+}
+
+
+/*
+
+impl<E: EthSpec, Payload: ExecPayload<E>> SerializeAs<Payload> for BlindedPayloadAsHeader<E> {
+    fn serialize_as<S>(source: &Payload, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        source.to_execution_payload_header().serialize(serializer)
+    }
+}
+ */
 
 pub fn deserialize_bid<E: EthSpec, Payload: AbstractExecPayload<E>>(str: &str) -> Result<BuilderBid<E, Payload>, Error> {
     dbg!(str);
@@ -109,7 +170,7 @@ impl<'de, E: EthSpec, Payload: AbstractExecPayload<E>> DeserializeAs<'de, Payloa
 impl<E: EthSpec, Payload: AbstractExecPayload<E>> SignedBuilderBid<E, Payload> {
     pub fn verify_signature(&self, spec: &ChainSpec) -> bool {
         self.message
-            .pubkey
+            .pubkey()
             .decompress()
             .map(|pubkey| {
                 let domain = spec.get_builder_domain();
