@@ -207,6 +207,7 @@ pub enum BeaconChainError {
     CommitteePromiseFailed(oneshot_broadcast::Error),
     MaxCommitteePromises(usize),
     BlsToExecutionChangeBadFork(ForkName),
+    InconsistentFork(InconsistentFork),
 }
 
 easy_from_to!(SlotProcessingError, BeaconChainError);
@@ -230,6 +231,7 @@ easy_from_to!(ForkChoiceStoreError, BeaconChainError);
 easy_from_to!(HistoricalBlockError, BeaconChainError);
 easy_from_to!(StateAdvanceError, BeaconChainError);
 easy_from_to!(BlockReplayError, BeaconChainError);
+easy_from_to!(InconsistentFork, BeaconChainError);
 
 #[derive(Debug)]
 pub enum BlockProductionError {

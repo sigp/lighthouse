@@ -939,6 +939,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             Some(DatabaseBlock::Blinded(block)) => block,
             None => return Ok(None),
         };
+        let fork = blinded_block.fork_name(&self.spec)?;
 
         // If we only have a blinded block, load the execution payload from the EL.
         let block_message = blinded_block.message();
@@ -953,7 +954,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .execution_layer
             .as_ref()
             .ok_or(Error::ExecutionLayerMissing)?
-            .get_payload_by_block_hash(exec_block_hash)
+            .get_payload_by_block_hash(exec_block_hash, fork)
             .await
             .map_err(|e| Error::ExecutionLayerErrorPayloadReconstruction(exec_block_hash, e))?
             .ok_or(Error::BlockHashMissingFromExecutionLayer(exec_block_hash))?;
