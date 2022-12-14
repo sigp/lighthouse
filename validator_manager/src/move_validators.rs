@@ -156,6 +156,13 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .possible_values(&["true", "false"])
                 .takes_value(true),
         )
+        .arg(
+            Arg::with_name(STDIN_INPUTS_FLAG)
+                .takes_value(false)
+                .hidden(cfg!(windows))
+                .long(STDIN_INPUTS_FLAG)
+                .help("If present, read all user inputs from stdin instead of tty."),
+        )
 }
 
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
