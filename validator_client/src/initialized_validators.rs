@@ -1005,7 +1005,6 @@ impl InitializedValidators {
                         voting_keystore_path,
                         ..
                     } => {
-
                         if let Some(key_store) = key_stores.get(voting_keystore_path) {
                             disabled_uuids.remove(key_store.uuid());
                         }
