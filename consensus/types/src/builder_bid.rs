@@ -1,27 +1,75 @@
+use super::KzgCommitment;
 use crate::{
     AbstractExecPayload, ChainSpec, EthSpec, ExecPayload, ExecutionPayloadHeader, SignedRoot,
-    Uint256,
+    Uint256, MainnetEthSpec,
 };
 use bls::PublicKeyBytes;
 use bls::Signature;
 use serde::{Deserialize as De, Deserializer, Serialize as Ser, Serializer};
 use serde_derive::{Deserialize, Serialize};
+use serde_json::Error;
 use serde_with::{serde_as, DeserializeAs, SerializeAs};
+use ssz_types::VariableList;
 use std::marker::PhantomData;
+// use superstruct::superstruct;
 use tree_hash_derive::TreeHash;
 
 #[serde_as]
 #[derive(PartialEq, Debug, Serialize, Deserialize, TreeHash, Clone)]
-#[serde(bound = "E: EthSpec, Payload: ExecPayload<E>")]
+#[serde(bound = "E: EthSpec, Payload: ExecPayload<E>", deny_unknown_fields)]
 pub struct BuilderBid<E: EthSpec, Payload: AbstractExecPayload<E>> {
     #[serde_as(as = "BlindedPayloadAsHeader<E>")]
     pub header: Payload,
     #[serde(with = "eth2_serde_utils::quoted_u256")]
     pub value: Uint256,
     pub pubkey: PublicKeyBytes,
+    pub blob_kzg_commitments: VariableList<KzgCommitment, E::MaxBlobsPerBlock>,
     #[serde(skip)]
     #[tree_hash(skip_hashing)]
     _phantom_data: PhantomData<E>,
+}
+
+pub fn deserialize_bid<E: EthSpec, Payload: AbstractExecPayload<E>>(str: &str) -> Result<BuilderBid<E, Payload>, Error> {
+    dbg!(str);
+    let bid = serde_json::from_str(str)?;
+    Ok(bid)
+}
+
+#[cfg(test)]
+mod tests {
+    use log::debug;
+    use crate::{ExecutionPayload, BlindedPayload, ExecutionPayloadHeaderEip4844};
+    use super::*;
+
+    #[test]
+    fn test_deserialize_bid() {
+        let str = r#"{
+            "header": {
+              "parent_hash": "0xcf8e0d4e9587369b2301d0790347320302cc0943d5a1884560367e8208d920f2",
+              "fee_recipient": "0xabcf8e0d4e9587369b2301d0790347320302cc09",
+              "state_root": "0xcf8e0d4e9587369b2301d0790347320302cc0943d5a1884560367e8208d920f2",
+              "receipts_root": "0xcf8e0d4e9587369b2301d0790347320302cc0943d5a1884560367e8208d920f2",
+              "logs_bloom": "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+              "prev_randao": "0xcf8e0d4e9587369b2301d0790347320302cc0943d5a1884560367e8208d920f2",
+              "block_number": "1",
+              "gas_limit": "1",
+              "gas_used": "1",
+              "timestamp": "1",
+              "extra_data": "0xcf8e0d4e9587369b2301d0790347320302cc0943d5a1884560367e8208d920f2",
+              "base_fee_per_gas": "1",
+              "excess_data_gas": "1",
+              "block_hash": "0xcf8e0d4e9587369b2301d0790347320302cc0943d5a1884560367e8208d920f2",
+              "transactions_root": "0xcf8e0d4e9587369b2301d0790347320302cc0943d5a1884560367e8208d920f2"
+            },
+            "value": "1",
+            "pubkey": "0x93247f2209abcacf57b75a51dafae777f9dd38bc7053d1af526f220a7489a6d3a2753e5f3e8b1cfe39b56f43611df74a",
+            "blob_kzg_commitments": [
+        "0xa94170080872584e54a1cf092d845703b13907f2e6b3b1c0ad573b910530499e3bcd48c6378846b80d2bfa58c81cf3d5"
+            ]
+          }"#;
+        let result = deserialize_bid::<MainnetEthSpec, BlindedPayload<MainnetEthSpec>>(str);
+        dbg!(result);
+    }
 }
 
 impl<E: EthSpec, Payload: AbstractExecPayload<E>> SignedRoot for BuilderBid<E, Payload> {}
