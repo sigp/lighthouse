@@ -30,7 +30,10 @@ use task_executor::TaskExecutor;
 use tokio::sync::mpsc::{self, Receiver, Sender};
 use tokio::time::error::Error as TimeError;
 use tokio_util::time::delay_queue::{DelayQueue, Key as DelayKey};
-use types::{Attestation, EthSpec, Hash256, SignedAggregateAndProof, SignedBeaconBlock, SubnetId};
+use types::{
+    Attestation, EthSpec, Hash256, LightClientOptimisticUpdate, SignedAggregateAndProof,
+    SignedBeaconBlock, SubnetId,
+};
 
 const TASK_NAME: &str = "beacon_processor_reprocess_queue";
 const GOSSIP_BLOCKS: &str = "gossip_blocks";
@@ -62,9 +65,12 @@ pub enum ReprocessQueueMessage<T: BeaconChainTypes> {
     /// A gossip block for hash `X` is being imported, we should queue the rpc block for the same
     /// hash until the gossip block is imported.
     RpcBlock(QueuedRpcBlock<T::EthSpec>),
-    /// A block that was successfully processed. We use this to handle attestations for unknown
-    /// blocks.
-    BlockImported(Hash256),
+    /// A block that was successfully processed. We use this to handle attestations and light client updates
+    /// for unknown blocks.
+    BlockImported {
+        block_root: Hash256,
+        parent_root: Hash256,
+    },
     /// An unaggregated attestation that references an unknown block.
     UnknownBlockUnaggregate(QueuedUnaggregate<T::EthSpec>),
     /// An aggregated attestation that references an unknown block.
@@ -77,6 +83,7 @@ pub enum ReadyWork<T: BeaconChainTypes> {
     RpcBlock(QueuedRpcBlock<T::EthSpec>),
     Unaggregate(QueuedUnaggregate<T::EthSpec>),
     Aggregate(QueuedAggregate<T::EthSpec>),
+    LCUpdate(QueuedLCUpdate<T::EthSpec>),
 }
 
 /// An Attestation for which the corresponding block was not seen while processing, queued for
@@ -96,6 +103,15 @@ pub struct QueuedAggregate<T: EthSpec> {
     pub peer_id: PeerId,
     pub message_id: MessageId,
     pub attestation: Box<SignedAggregateAndProof<T>>,
+    pub seen_timestamp: Duration,
+}
+
+/// A light client update for which the corresponding parent block was not seen while processing,
+/// queued for later.
+pub struct QueuedLCUpdate<T: EthSpec> {
+    pub peer_id: PeerId,
+    pub message_id: MessageId,
+    pub light_client_optimistic_update: Box<LightClientOptimisticUpdate<T>>,
     pub seen_timestamp: Duration,
 }
 
@@ -147,6 +163,8 @@ struct ReprocessQueue<T: BeaconChainTypes> {
     rpc_block_delay_queue: DelayQueue<QueuedRpcBlock<T::EthSpec>>,
     /// Queue to manage scheduled attestations.
     attestations_delay_queue: DelayQueue<QueuedAttestationId>,
+    /// Queue to manage scheduled light client updates.
+    lc_updates_delay_queue: DelayQueue<QueuedLCUpdateId>,
 
     /* Queued items */
     /// Queued blocks.
@@ -157,6 +175,10 @@ struct ReprocessQueue<T: BeaconChainTypes> {
     queued_unaggregates: FnvHashMap<usize, (QueuedUnaggregate<T::EthSpec>, DelayKey)>,
     /// Attestations (aggregated and unaggregated) per root.
     awaiting_attestations_per_root: HashMap<Hash256, Vec<QueuedAttestationId>>,
+    /// Queued Light Client Updates.
+    queued_lc_updates: FnvHashMap<usize, (QueuedLCUpdate<T::EthSpec>, DelayKey)>,
+    /// Light Client Updates per parent_root.
+    awaiting_lc_updates_per_parent_root: HashMap<Hash256, Vec<QueuedLCUpdateId>>,
 
     /* Aux */
     /// Next attestation id, used for both aggregated and unaggregated attestations
@@ -165,6 +187,8 @@ struct ReprocessQueue<T: BeaconChainTypes> {
     rpc_block_debounce: TimeLatch,
     attestation_delay_debounce: TimeLatch,
 }
+
+pub type QueuedLCUpdateId = usize;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum QueuedAttestationId {
@@ -264,10 +288,13 @@ pub fn spawn_reprocess_scheduler<T: BeaconChainTypes>(
         gossip_block_delay_queue: DelayQueue::new(),
         rpc_block_delay_queue: DelayQueue::new(),
         attestations_delay_queue: DelayQueue::new(),
+        lc_updates_delay_queue: DelayQueue::new(),
         queued_gossip_block_roots: HashSet::new(),
+        queued_lc_updates: FnvHashMap::default(),
         queued_aggregates: FnvHashMap::default(),
         queued_unaggregates: FnvHashMap::default(),
         awaiting_attestations_per_root: HashMap::new(),
+        awaiting_lc_updates_per_parent_root: HashMap::new(),
         next_attestation: 0,
         early_block_debounce: TimeLatch::default(),
         rpc_block_debounce: TimeLatch::default(),
@@ -473,9 +500,12 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
 
                 self.next_attestation += 1;
             }
-            InboundEvent::Msg(BlockImported(root)) => {
+            InboundEvent::Msg(BlockImported {
+                block_root,
+                parent_root,
+            }) => {
                 // Unqueue the attestations we have for this root, if any.
-                if let Some(queued_ids) = self.awaiting_attestations_per_root.remove(&root) {
+                if let Some(queued_ids) = self.awaiting_attestations_per_root.remove(&block_root) {
                     for id in queued_ids {
                         metrics::inc_counter(
                             &metrics::BEACON_PROCESSOR_REPROCESSING_QUEUE_MATCHED_ATTESTATIONS,
@@ -511,8 +541,43 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
                             error!(
                                 log,
                                 "Unknown queued attestation for block root";
-                                "block_root" => ?root,
+                                "block_root" => ?block_root,
                                 "att_id" => ?id,
+                            );
+                        }
+                    }
+                }
+                if let Some(queued_lc_id) = self
+                    .awaiting_lc_updates_per_parent_root
+                    .remove(&parent_root)
+                {
+                    for lc_id in queued_lc_id {
+                        if let Some((work, delay_key)) = self.queued_lc_updates.remove(&lc_id).map(
+                            |(light_client_optimistic_update, delay_key)| {
+                                (
+                                    ReadyWork::LCUpdate(light_client_optimistic_update),
+                                    delay_key,
+                                )
+                            },
+                        ) {
+                            // Remove the delay
+                            self.lc_updates_delay_queue.remove(&delay_key);
+
+                            // Send the work
+                            if self.ready_work_tx.try_send(work).is_err() {
+                                error!(
+                                    log,
+                                    "Failed to send scheduled light client update";
+                                );
+                            }
+                        } else {
+                            // There is a mismatch between the light client update ids registered for this
+                            // root and the queued light client updates. This should never happen.
+                            error!(
+                                log,
+                                "Unknown queued light client update for parent root";
+                                "parent_root" => ?parent_root,
+                                "lc_id" => ?lc_id,
                             );
                         }
                     }

@@ -949,7 +949,10 @@ impl<T: BeaconChainTypes> Worker<T> {
                 metrics::inc_counter(&metrics::BEACON_PROCESSOR_GOSSIP_BLOCK_IMPORTED_TOTAL);
 
                 if reprocess_tx
-                    .try_send(ReprocessQueueMessage::BlockImported(block_root))
+                    .try_send(ReprocessQueueMessage::BlockImported {
+                        block_root,
+                        parent_root: block.parent_root(),
+                    })
                     .is_err()
                 {
                     error!(
@@ -1377,6 +1380,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         message_id: MessageId,
         peer_id: PeerId,
         light_client_optimistic_update: LightClientOptimisticUpdate<T::EthSpec>,
+        reprocess_tx: Option<mpsc::Sender<ReprocessQueueMessage<T>>>,
         seen_timestamp: Duration,
     ) {
         match self
@@ -1389,6 +1393,37 @@ impl<T: BeaconChainTypes> Worker<T> {
             Err(e) => {
                 metrics::register_optimistic_update_error(&e);
                 match e {
+                    LightClientOptimisticUpdateError::UnknownBlockParentRoot(
+                        block_root,
+                        parent_root,
+                    ) => {
+                        trace!(
+                            self.log,
+                            "Optimistic update for unknown block";
+                            "peer_id" => %peer_id,
+                            "parent_block" => ?parent_root
+                        );
+                        if let Some(sender) = reprocess_tx {
+                            let msg = ReprocessQueueMessage::BlockImported {
+                                block_root,
+                                parent_root,
+                            };
+
+                            if sender.try_send(msg).is_err() {
+                                error!(
+                                    self.log,
+                                    "Failed to send optimistic update for re-processing";
+                                )
+                            }
+                        } else {
+                            self.propagate_validation_result(
+                                message_id,
+                                peer_id,
+                                MessageAcceptance::Ignore,
+                            );
+                        }
+                        return;
+                    }
                     LightClientOptimisticUpdateError::InvalidLightClientOptimisticUpdate => {
                         debug!(
                             self.log,

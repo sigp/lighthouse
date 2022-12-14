@@ -2,6 +2,7 @@ use crate::{
     beacon_chain::MAXIMUM_GOSSIP_CLOCK_DISPARITY, BeaconChain, BeaconChainError, BeaconChainTypes,
 };
 use derivative::Derivative;
+use eth2::types::Hash256;
 use slot_clock::SlotClock;
 use std::time::Duration;
 use strum::AsRefStr;
@@ -36,6 +37,8 @@ pub enum Error {
     SigSlotStartIsNone,
     /// Failed to construct a LightClientOptimisticUpdate from state.
     FailedConstructingUpdate,
+    /// Unknown block with parent root.
+    UnknownBlockParentRoot(Hash256, Hash256),
     /// Beacon chain error occured.
     BeaconChainError(BeaconChainError),
     LightClientUpdateError(LightClientUpdateError),
@@ -89,6 +92,20 @@ impl<T: BeaconChainTypes> VerifiedLightClientOptimisticUpdate<T> {
             Some(update) => update.attested_header.slot,
             None => Slot::new(0),
         };
+
+        // check if we can process the optimistic update immediately
+        // otherwise queue
+
+        let canonical_root = light_client_optimistic_update
+            .attested_header
+            .canonical_root();
+
+        if canonical_root != head_block.message().parent_root() {
+            return Err(Error::UnknownBlockParentRoot(
+                light_client_optimistic_update.attested_header.body_root,
+                canonical_root,
+            ));
+        }
 
         // verify that no other optimistic_update with a lower or equal
         // optimistic_header.slot was already forwarded on the network

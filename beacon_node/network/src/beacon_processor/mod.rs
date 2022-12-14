@@ -67,7 +67,8 @@ use types::{
     SignedVoluntaryExit, SubnetId, SyncCommitteeMessage, SyncSubnetId,
 };
 use work_reprocessing_queue::{
-    spawn_reprocess_scheduler, QueuedAggregate, QueuedRpcBlock, QueuedUnaggregate, ReadyWork,
+    spawn_reprocess_scheduler, QueuedAggregate, QueuedLCUpdate, QueuedRpcBlock, QueuedUnaggregate,
+    ReadyWork,
 };
 
 use worker::{Toolbox, Worker};
@@ -691,6 +692,20 @@ impl<T: BeaconChainTypes> std::convert::From<ReadyWork<T>> for WorkEvent<T> {
                     message_id,
                     peer_id,
                     aggregate: attestation,
+                    seen_timestamp,
+                },
+            },
+            ReadyWork::LCUpdate(QueuedLCUpdate {
+                peer_id,
+                message_id,
+                light_client_optimistic_update,
+                seen_timestamp,
+            }) => Self {
+                drop_during_sync: true,
+                work: Work::GossipLightClientOptimisticUpdate {
+                    message_id,
+                    peer_id,
+                    light_client_optimistic_update,
                     seen_timestamp,
                 },
             },
@@ -1665,6 +1680,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                     message_id,
                     peer_id,
                     *light_client_optimistic_update,
+                    Some(work_reprocessing_tx),
                     seen_timestamp,
                 )
             }),
