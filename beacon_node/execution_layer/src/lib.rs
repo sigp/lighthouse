@@ -796,18 +796,28 @@ impl<T: EthSpec> ExecutionLayer<T> {
                                 self.inner.builder_profit_threshold,
                                 spec,
                             ) {
-                                Ok(()) => Ok(ProvenancedPayload::Builder(
-                                    match relay.version.unwrap() {
-                                        ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {
+                                Ok(()) => {
+                                    Ok(ProvenancedPayload::Builder(match relay.version.unwrap() {
+                                        ForkName::Base
+                                        | ForkName::Altair
+                                        | ForkName::Merge
+                                        | ForkName::Capella => {
                                             BlockProposalContents::Payload(header)
                                         }
-                                        ForkName::Eip4844 => BlockProposalContents::PayloadAndBlobs {
-                                            payload: header,
-                                            blobs: VariableList::default(),
-                                            kzg_commitments: relay.data.message.blob_kzg_commitments().unwrap().clone()
-                                        },
-                                    }
-                                )),
+                                        ForkName::Eip4844 => {
+                                            BlockProposalContents::PayloadAndBlobs {
+                                                payload: header,
+                                                blobs: VariableList::default(),
+                                                kzg_commitments: relay
+                                                    .data
+                                                    .message
+                                                    .blob_kzg_commitments()
+                                                    .unwrap()
+                                                    .clone(),
+                                            }
+                                        }
+                                    }))
+                                }
                                 Err(reason) if !reason.payload_invalid() => {
                                     info!(
                                         self.log(),
@@ -857,32 +867,52 @@ impl<T: EthSpec> ExecutionLayer<T> {
                                 self.inner.builder_profit_threshold,
                                 spec,
                             ) {
-                                Ok(()) => Ok(ProvenancedPayload::Builder(
-                                    match relay.version.unwrap() {
-                                        ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {
+                                Ok(()) => {
+                                    Ok(ProvenancedPayload::Builder(match relay.version.unwrap() {
+                                        ForkName::Base
+                                        | ForkName::Altair
+                                        | ForkName::Merge
+                                        | ForkName::Capella => {
                                             BlockProposalContents::Payload(header)
                                         }
-                                        ForkName::Eip4844 => BlockProposalContents::PayloadAndBlobs {
-                                            payload: header,
-                                            blobs: VariableList::default(),
-                                            kzg_commitments: relay.data.message.blob_kzg_commitments().unwrap().clone(),
-                                        },
-                                    }
-                                )),
+                                        ForkName::Eip4844 => {
+                                            BlockProposalContents::PayloadAndBlobs {
+                                                payload: header,
+                                                blobs: VariableList::default(),
+                                                kzg_commitments: relay
+                                                    .data
+                                                    .message
+                                                    .blob_kzg_commitments()
+                                                    .unwrap()
+                                                    .clone(),
+                                            }
+                                        }
+                                    }))
+                                }
                                 // If the payload is valid then use it. The local EE failed
                                 // to produce a payload so we have no alternative.
-                                Err(e) if !e.payload_invalid() => Ok(ProvenancedPayload::Builder(
-                                    match relay.version.unwrap() {
-                                        ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {
+                                Err(e) if !e.payload_invalid() => {
+                                    Ok(ProvenancedPayload::Builder(match relay.version.unwrap() {
+                                        ForkName::Base
+                                        | ForkName::Altair
+                                        | ForkName::Merge
+                                        | ForkName::Capella => {
                                             BlockProposalContents::Payload(header)
                                         }
-                                        ForkName::Eip4844 => BlockProposalContents::PayloadAndBlobs {
-                                            payload: header,
-                                            blobs: VariableList::default(),
-                                            kzg_commitments: relay.data.message.blob_kzg_commitments().unwrap().clone(),
-                                        },
-                                    }
-                                )),
+                                        ForkName::Eip4844 => {
+                                            BlockProposalContents::PayloadAndBlobs {
+                                                payload: header,
+                                                blobs: VariableList::default(),
+                                                kzg_commitments: relay
+                                                    .data
+                                                    .message
+                                                    .blob_kzg_commitments()
+                                                    .unwrap()
+                                                    .clone(),
+                                            }
+                                        }
+                                    }))
+                                }
                                 Err(reason) => {
                                     metrics::inc_counter_vec(
                                         &metrics::EXECUTION_LAYER_GET_PAYLOAD_BUILDER_REJECTIONS,

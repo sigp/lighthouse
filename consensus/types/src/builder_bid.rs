@@ -1,7 +1,7 @@
 use super::KzgCommitment;
 use crate::{
     AbstractExecPayload, ChainSpec, EthSpec, ExecPayload, ExecutionPayloadHeader, SignedRoot,
-    Uint256
+    Uint256,
 };
 use bls::PublicKeyBytes;
 use bls::Signature;
@@ -17,14 +17,16 @@ use tree_hash_derive::TreeHash;
 #[superstruct(
     variants(Merge, Capella, Eip4844),
     variant_attributes(
-        derive(
-            PartialEq, Debug, Serialize, Deserialize, TreeHash, Clone
-        ),
+        derive(PartialEq, Debug, Serialize, Deserialize, TreeHash, Clone),
         serde(bound = "E: EthSpec, Payload: ExecPayload<E>", deny_unknown_fields)
     )
 )]
 #[derive(PartialEq, Debug, Serialize, Deserialize, TreeHash, Clone)]
-#[serde(bound = "E: EthSpec, Payload: ExecPayload<E>", deny_unknown_fields, untagged)]
+#[serde(
+    bound = "E: EthSpec, Payload: ExecPayload<E>",
+    deny_unknown_fields,
+    untagged
+)]
 #[tree_hash(enum_behaviour = "transparent")]
 pub struct BuilderBid<E: EthSpec, Payload: AbstractExecPayload<E>> {
     #[superstruct(only(Merge), partial_getter(rename = "payload_merge"))]
@@ -106,17 +108,18 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> SignedBuilderBid<E, Payload> {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
-    use crate::{BlindedPayload, MainnetEthSpec};
     use super::*;
+    use crate::{BlindedPayload, MainnetEthSpec};
 
-    pub fn deserialize_bid<E: EthSpec, Payload: AbstractExecPayload<E>>(str: &str) -> Result<BuilderBid<E, Payload>, Error> {
+    pub fn deserialize_bid<E: EthSpec, Payload: AbstractExecPayload<E>>(
+        str: &str,
+    ) -> Result<BuilderBid<E, Payload>, Error> {
         let bid = serde_json::from_str(str)?;
         Ok(bid)
     }
-    
+
     #[test]
     fn test_deserialize_builder_bid_merge() {
         let str = r#"{
@@ -142,7 +145,6 @@ mod tests {
         let result = deserialize_bid::<MainnetEthSpec, BlindedPayload<MainnetEthSpec>>(str);
         assert!(result.is_ok());
     }
-
 
     #[test]
     #[cfg(feature = "withdrawals")]
