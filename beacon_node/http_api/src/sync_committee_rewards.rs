@@ -38,12 +38,12 @@ pub fn compute_sync_committee_rewards<T: BeaconChainTypes>(
         .ok_or_else(|| custom_bad_request(String::from("Unable to get state")))?;
 
     let sync_committee = state
-        .clone()
         .current_sync_committee()
-        .map_err(|_| custom_bad_request(String::from("Unable to get participants")))?;
+        .map_err(|_| custom_bad_request(String::from("Unable to get participants")))?
+        .clone();
 
-    let sync_committee_indices =  state
-        .get_sync_committee_indices(sync_committee)
+    let sync_committee_indices = state
+        .get_sync_committee_indices(&sync_committee)
         .map_err(|_| custom_bad_request(String::from("Unable to get participant indices")))?;
 
     debug!(
