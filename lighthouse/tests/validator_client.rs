@@ -389,6 +389,24 @@ fn no_doppelganger_protection_flag() {
         .with_config(|config| assert!(!config.enable_doppelganger_protection));
 }
 #[test]
+fn block_delay_ms() {
+    CommandLineTest::new()
+        .flag("block-delay-ms", Some("2000"))
+        .run()
+        .with_config(|config| {
+            assert_eq!(
+                config.block_delay,
+                Some(std::time::Duration::from_millis(2000))
+            )
+        });
+}
+#[test]
+fn no_block_delay_ms() {
+    CommandLineTest::new()
+        .run()
+        .with_config(|config| assert_eq!(config.block_delay, None));
+}
+#[test]
 fn no_gas_limit_flag() {
     CommandLineTest::new()
         .run()

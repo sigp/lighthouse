@@ -634,6 +634,15 @@ impl InitializedValidators {
         self.validators.get(public_key).and_then(|v| v.graffiti)
     }
 
+    /// Returns a `HashMap` of `public_key` -> `graffiti` for all initialized validators.
+    pub fn get_all_validators_graffiti(&self) -> HashMap<&PublicKeyBytes, Option<Graffiti>> {
+        let mut result = HashMap::new();
+        for public_key in self.validators.keys() {
+            result.insert(public_key, self.graffiti(public_key));
+        }
+        result
+    }
+
     /// Returns the `suggested_fee_recipient` for a given public key specified in the
     /// `ValidatorDefinitions`.
     pub fn suggested_fee_recipient(&self, public_key: &PublicKeyBytes) -> Option<Address> {
