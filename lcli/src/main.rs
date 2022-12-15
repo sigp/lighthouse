@@ -568,24 +568,6 @@ fn main() {
                         ),
                 )
                 .arg(
-                    Arg::with_name("capella-fork-epoch")
-                        .long("capella-fork-epoch")
-                        .value_name("EPOCH")
-                        .takes_value(true)
-                        .help(
-                            "The epoch at which to enable the Capella hard fork",
-                        ),
-                )
-                .arg(
-                    Arg::with_name("eip4844-fork-epoch")
-                        .long("eip4844-fork-epoch")
-                        .value_name("EPOCH")
-                        .takes_value(true)
-                        .help(
-                            "The epoch at which to enable the eip4844 hard fork",
-                        ),
-                )
-                .arg(
                     Arg::with_name("ttd")
                         .long("ttd")
                         .value_name("TTD")

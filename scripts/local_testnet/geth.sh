@@ -33,16 +33,15 @@ http_port=${@:$OPTIND+2:1}
 auth_port=${@:$OPTIND+3:1}
 genesis_file=${@:$OPTIND+4:1}
 
-geth_binary=geth-merge
 
 # Init
-$geth_binary init \
+$GETH_BINARY init \
     --datadir $data_dir \
     $genesis_file
 
 echo "Completed init"
 
-exec $geth_binary \
+exec $GETH_BINARY \
     --datadir $data_dir \
     --ipcdisable \
     --http \

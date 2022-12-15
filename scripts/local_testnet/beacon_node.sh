@@ -44,7 +44,7 @@ http_port=${@:$OPTIND+2:1}
 execution_endpoint=${@:$OPTIND+3:1}
 execution_jwt=${@:$OPTIND+4:1}
 
-lighthouse_binary=lighthouse-4844
+lighthouse_binary=lighthouse
 
 exec $lighthouse_binary \
 	--debug-level $DEBUG_LEVEL \

@@ -2,13 +2,10 @@ use clap::ArgMatches;
 use clap_utils::{parse_optional, parse_required, parse_ssz_optional};
 use eth2_hashing::hash;
 use eth2_network_config::Eth2NetworkConfig;
-use genesis::interop_genesis_state;
 use ssz::Decode;
 use ssz::Encode;
 use state_processing::process_activations;
-use state_processing::upgrade::{
-    upgrade_to_altair, upgrade_to_bellatrix, upgrade_to_capella, upgrade_to_eip4844,
-};
+use state_processing::upgrade::{upgrade_to_altair, upgrade_to_bellatrix};
 use std::fs::File;
 use std::io::Read;
 use std::path::PathBuf;
@@ -17,8 +14,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use types::ExecutionBlockHash;
 use types::{
     test_utils::generate_deterministic_keypairs, Address, BeaconState, ChainSpec, Config, Eth1Data,
-    EthSpec, ExecutionPayloadHeader, ExecutionPayloadHeaderMerge, Hash256, Keypair, PublicKey,
-    Validator,
+    EthSpec, ExecutionPayloadHeader, Hash256, Keypair, PublicKey, Validator,
 };
 
 pub fn run<T: EthSpec>(testnet_dir_path: PathBuf, matches: &ArgMatches) -> Result<(), String> {
@@ -77,14 +73,6 @@ pub fn run<T: EthSpec>(testnet_dir_path: PathBuf, matches: &ArgMatches) -> Resul
 
     if let Some(fork_epoch) = parse_optional(matches, "bellatrix-fork-epoch")? {
         spec.bellatrix_fork_epoch = Some(fork_epoch);
-    }
-
-    if let Some(fork_epoch) = parse_optional(matches, "capella-fork-epoch")? {
-        spec.capella_fork_epoch = Some(fork_epoch);
-    }
-
-    if let Some(fork_epoch) = parse_optional(matches, "eip4844-fork-epoch")? {
-        spec.eip4844_fork_epoch = Some(fork_epoch);
     }
 
     if let Some(ttd) = parse_optional(matches, "ttd")? {
@@ -153,6 +141,15 @@ pub fn run<T: EthSpec>(testnet_dir_path: PathBuf, matches: &ArgMatches) -> Resul
     testnet.write_to_file(testnet_dir_path, overwrite_files)
 }
 
+/// Returns a `BeaconState` with the given validator keypairs embedded into the
+/// genesis state. This allows us to start testnets without having to deposit validators
+/// manually.
+///
+/// The optional `execution_payload_header` allows us to start a network from the bellatrix
+/// fork without the need to transition to altair and bellatrix.
+///
+/// We need to ensure that `eth1_block_hash` is equal to the genesis block hash that is
+/// generated from the execution side `genesis.json`.
 fn initialize_state_with_validators<T: EthSpec>(
     keypairs: &[Keypair],
     genesis_time: u64,
@@ -160,18 +157,12 @@ fn initialize_state_with_validators<T: EthSpec>(
     execution_payload_header: Option<ExecutionPayloadHeader<T>>,
     spec: &ChainSpec,
 ) -> Result<BeaconState<T>, String> {
-    let default_header = ExecutionPayloadHeaderMerge {
-        gas_limit: 10,
-        base_fee_per_gas: 10.into(),
-        timestamp: genesis_time,
+    let default_header: ExecutionPayloadHeader<T> = ExecutionPayloadHeader {
         block_hash: ExecutionBlockHash(eth1_block_hash),
-        prev_randao: Hash256::random(),
         parent_hash: ExecutionBlockHash::zero(),
-        transactions_root: Hash256::random(),
-        ..ExecutionPayloadHeaderMerge::default()
+        ..ExecutionPayloadHeader::default()
     };
-    let execution_payload_header =
-        execution_payload_header.or(Some(ExecutionPayloadHeader::Merge(default_header)));
+    let execution_payload_header = execution_payload_header.or(Some(default_header));
     // Empty eth1 data
     let eth1_data = Eth1Data {
         block_hash: eth1_block_hash,
@@ -235,12 +226,10 @@ fn initialize_state_with_validators<T: EthSpec>(
         // Override latest execution payload header.
         // See https://github.com/ethereum/consensus-specs/blob/v1.1.0/specs/merge/beacon-chain.md#testing
 
-        if let Some(ExecutionPayloadHeader::Merge(ref header)) = execution_payload_header {
-            *state
-                .latest_execution_payload_header_merge_mut()
-                .map_err(|_| {
-                    "State must contain bellatrix execution payload header".to_string()
-                })? = header.clone();
+        if let Some(ref header) = execution_payload_header {
+            *state.latest_execution_payload_header_mut().map_err(|_| {
+                "State must contain bellatrix execution payload header".to_string()
+            })? = header.clone();
         }
     }
 

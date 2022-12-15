@@ -12,7 +12,6 @@
     "berlinBlock": 0,
     "londonBlock": 0,
     "mergeForkBlock": 0,
-    "shardingForkBlock": 64,
     "terminalTotalDifficulty": 0
   },
   "alloc": {

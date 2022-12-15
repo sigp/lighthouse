@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 
 #
-# Deploys the deposit contract and makes deposits for $VALIDATOR_COUNT insecure deterministic validators.
 # Produces a testnet specification and a genesis state where the genesis time
 # is now + $GENESIS_DELAY.
 #
@@ -28,8 +27,6 @@ lcli \
 	--genesis-fork-version $GENESIS_FORK_VERSION \
 	--altair-fork-epoch $ALTAIR_FORK_EPOCH \
 	--bellatrix-fork-epoch $BELLATRIX_FORK_EPOCH \
-	--capella-fork-epoch $CAPELLA_FORK_EPOCH \
-	--eip4844-fork-epoch $EIP4844_FORK_EPOCH \
 	--ttd $TTD \
 	--eth1-block-hash $ETH1_BLOCK_HASH \
 	--eth1-id $CHAIN_ID \
