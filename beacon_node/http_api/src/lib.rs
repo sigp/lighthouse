@@ -1126,10 +1126,10 @@ pub fn serve<T: BeaconChainTypes>(
             },
         );
     /*
-     * beacon/blocks
+     * beacon/blinded_blocks
      */
 
-    // POST beacon/blocks
+    // POST beacon/blinded_blocks
     let post_beacon_blinded_blocks = eth_v1
         .and(warp::path("beacon"))
         .and(warp::path("blinded_blocks"))
