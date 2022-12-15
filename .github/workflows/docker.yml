@@ -66,6 +66,7 @@ jobs:
             DOCKER_CLI_EXPERIMENTAL: enabled
             VERSION: ${{ needs.extract-version.outputs.VERSION }}
             VERSION_SUFFIX: ${{ needs.extract-version.outputs.VERSION_SUFFIX }}
+            CROSS_FEATURES: withdrawals,withdrawals-processing
         steps:
             - uses: actions/checkout@v3
             - name: Update Rust
