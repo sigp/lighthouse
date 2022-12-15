@@ -158,8 +158,9 @@ pub struct ChainSpec {
      * Capella hard fork params
      */
     pub capella_fork_version: [u8; 4],
-    /// The Capella fork epoch is optional, with `None` representing "Merge never happens".
+    /// The Capella fork epoch is optional, with `None` representing "Capella never happens".
     pub capella_fork_epoch: Option<Epoch>,
+    pub max_validators_per_withdrawals_sweep: u64,
 
     /*
      * Eip4844 hard fork params
@@ -634,6 +635,7 @@ impl ChainSpec {
              */
             capella_fork_version: [0x03, 00, 00, 00],
             capella_fork_epoch: None,
+            max_validators_per_withdrawals_sweep: 16384,
 
             /*
              * Eip4844 hard fork params
@@ -707,6 +709,7 @@ impl ChainSpec {
             // Capella
             capella_fork_version: [0x03, 0x00, 0x00, 0x01],
             capella_fork_epoch: None,
+            max_validators_per_withdrawals_sweep: 16,
             // Eip4844
             eip4844_fork_version: [0x04, 0x00, 0x00, 0x01],
             eip4844_fork_epoch: None,
@@ -869,6 +872,7 @@ impl ChainSpec {
              */
             capella_fork_version: [0x03, 0x00, 0x00, 0x64],
             capella_fork_epoch: None,
+            max_validators_per_withdrawals_sweep: 16384,
 
             /*
              * Eip4844 hard fork params

@@ -466,7 +466,9 @@ pub fn compute_timestamp_at_slot<T: EthSpec>(
         .and_then(|since_genesis| state.genesis_time().safe_add(since_genesis))
 }
 
-/// FIXME: add link to this function once the spec is stable
+/// Compute the next batch of withdrawals which should be included in a block.
+///
+/// https://github.com/ethereum/consensus-specs/blob/dev/specs/capella/beacon-chain.md#new-get_expected_withdrawals
 #[cfg(feature = "withdrawals")]
 pub fn get_expected_withdrawals<T: EthSpec>(
     state: &BeaconState<T>,
@@ -481,7 +483,11 @@ pub fn get_expected_withdrawals<T: EthSpec>(
         return Ok(withdrawals.into());
     }
 
-    for _ in 0..state.validators().len() {
+    let bound = std::cmp::min(
+        state.validators().len() as u64,
+        spec.max_validators_per_withdrawals_sweep,
+    );
+    for _ in 0..bound {
         let validator = state.get_validator(validator_index as usize)?;
         let balance = *state.balances().get(validator_index as usize).ok_or(
             BeaconStateError::BalancesOutOfBounds(validator_index as usize),
@@ -518,7 +524,7 @@ pub fn get_expected_withdrawals<T: EthSpec>(
     Ok(withdrawals.into())
 }
 
-/// FIXME: add link to this function once the spec is stable
+/// Apply withdrawals to the state.
 #[cfg(all(feature = "withdrawals", feature = "withdrawals-processing"))]
 pub fn process_withdrawals<'payload, T: EthSpec, Payload: AbstractExecPayload<T>>(
     state: &mut BeaconState<T>,
@@ -547,11 +553,26 @@ pub fn process_withdrawals<'payload, T: EthSpec, Payload: AbstractExecPayload<T>
                 )?;
             }
 
+            // Update the next withdrawal index if this block contained withdrawals
             if let Some(latest_withdrawal) = expected_withdrawals.last() {
                 *state.next_withdrawal_index_mut()? = latest_withdrawal.index.safe_add(1)?;
-                let next_validator_index = latest_withdrawal
-                    .validator_index
-                    .safe_add(1)?
+
+                // Update the next validator index to start the next withdrawal sweep
+                if expected_withdrawals.len() == T::max_withdrawals_per_payload() {
+                    // Next sweep starts after the latest withdrawal's validator index
+                    let next_validator_index = latest_withdrawal
+                        .validator_index
+                        .safe_add(1)?
+                        .safe_rem(state.validators().len() as u64)?;
+                    *state.next_withdrawal_validator_index_mut()? = next_validator_index;
+                }
+            }
+
+            // Advance sweep by the max length of the sweep if there was not a full set of withdrawals
+            if expected_withdrawals.len() != T::max_withdrawals_per_payload() {
+                let next_validator_index = state
+                    .next_withdrawal_validator_index()?
+                    .safe_add(spec.max_validators_per_withdrawals_sweep)?
                     .safe_rem(state.validators().len() as u64)?;
                 *state.next_withdrawal_validator_index_mut()? = next_validator_index;
             }
