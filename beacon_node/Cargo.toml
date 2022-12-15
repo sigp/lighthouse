@@ -20,6 +20,7 @@ withdrawals-processing = [
     "execution_layer/withdrawals-processing",
     "http_api/withdrawals-processing",
 ]
+spec-minimal = ["beacon_chain/spec-minimal"]
 
 [dependencies]
 eth2_config = { path = "../common/eth2_config" }

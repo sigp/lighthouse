@@ -1,13 +1,12 @@
-use kzg::{Error as KzgError, Kzg};
+use kzg::{Error as KzgError, Kzg, BYTES_PER_BLOB};
 use types::{Blob, BlobsSidecar, EthSpec, Hash256, KzgCommitment, KzgProof, Slot};
 
-// TODO(pawan): make this generic over blob size
-fn ssz_blob_to_crypto_blob<T: EthSpec>(blob: Blob<T>) -> Option<[u8; 131072]> {
-    if blob.len() != 131072 {
+fn ssz_blob_to_crypto_blob<T: EthSpec>(blob: Blob<T>) -> Option<[u8; BYTES_PER_BLOB]> {
+    if blob.len() != BYTES_PER_BLOB {
         return None;
     }
     let blob_vec: Vec<u8> = blob.into();
-    let mut arr = [0; 131072];
+    let mut arr = [0; BYTES_PER_BLOB];
     arr.copy_from_slice(&blob_vec);
     Some(arr)
 }

@@ -17,6 +17,7 @@ withdrawals-processing = [
     "execution_layer/withdrawals-processing",
     "operation_pool/withdrawals-processing"
 ]
+spec-minimal = ["kzg/minimal-spec"]
 
 [dev-dependencies]
 maplit = "1.0.2"

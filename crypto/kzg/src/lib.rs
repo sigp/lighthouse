@@ -3,10 +3,11 @@ mod kzg_proof;
 
 pub use crate::{kzg_commitment::KzgCommitment, kzg_proof::KzgProof};
 pub use c_kzg::bytes_to_g1;
-use c_kzg::{Error as CKzgError, KZGSettings, BYTES_PER_FIELD_ELEMENT, FIELD_ELEMENTS_PER_BLOB};
+pub use c_kzg::{
+    Error as CKzgError, KZGSettings, BYTES_PER_BLOB, BYTES_PER_FIELD_ELEMENT,
+    FIELD_ELEMENTS_PER_BLOB,
+};
 use std::path::PathBuf;
-
-const BYTES_PER_BLOB: usize = FIELD_ELEMENTS_PER_BLOB * BYTES_PER_FIELD_ELEMENT;
 
 /// The consensus type `Blob` is generic over EthSpec, so it cannot be imported
 /// in this crate without creating a cyclic dependency between the kzg and consensus/types crates.
@@ -32,7 +33,7 @@ pub struct Kzg {
 impl Kzg {
     pub fn new_from_file(file_path: PathBuf) -> Result<Self, Error> {
         Ok(Self {
-            trusted_setup: KZGSettings::load_trusted_setup(file_path)
+            trusted_setup: KZGSettings::load_trusted_setup_file(file_path)
                 .map_err(Error::InvalidTrustedSetup)?,
         })
     }
