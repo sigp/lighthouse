@@ -797,11 +797,16 @@ impl<T: EthSpec> ExecutionLayer<T> {
                                 spec,
                             ) {
                                 Ok(()) => Ok(ProvenancedPayload::Builder(
-                                    //FIXME(sean) the builder API needs to be updated
-                                    // NOTE       the comment above was removed in the
-                                    //            rebase with unstable.. I think it goes
-                                    //            here now?
-                                    BlockProposalContents::Payload(header),
+                                    match relay.version.unwrap() {
+                                        ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {
+                                            BlockProposalContents::Payload(header)
+                                        }
+                                        ForkName::Eip4844 => BlockProposalContents::PayloadAndBlobs {
+                                            payload: header,
+                                            blobs: VariableList::default(),
+                                            kzg_commitments: relay.data.message.blob_kzg_commitments().unwrap().clone()
+                                        },
+                                    }
                                 )),
                                 Err(reason) if !reason.payload_invalid() => {
                                     info!(
@@ -853,20 +858,30 @@ impl<T: EthSpec> ExecutionLayer<T> {
                                 spec,
                             ) {
                                 Ok(()) => Ok(ProvenancedPayload::Builder(
-                                    //FIXME(sean) the builder API needs to be updated
-                                    // NOTE       the comment above was removed in the
-                                    //            rebase with unstable.. I think it goes
-                                    //            here now?
-                                    BlockProposalContents::Payload(header),
+                                    match relay.version.unwrap() {
+                                        ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {
+                                            BlockProposalContents::Payload(header)
+                                        }
+                                        ForkName::Eip4844 => BlockProposalContents::PayloadAndBlobs {
+                                            payload: header,
+                                            blobs: VariableList::default(),
+                                            kzg_commitments: relay.data.message.blob_kzg_commitments().unwrap().clone(),
+                                        },
+                                    }
                                 )),
                                 // If the payload is valid then use it. The local EE failed
                                 // to produce a payload so we have no alternative.
                                 Err(e) if !e.payload_invalid() => Ok(ProvenancedPayload::Builder(
-                                    //FIXME(sean) the builder API needs to be updated
-                                    // NOTE       the comment above was removed in the
-                                    //            rebase with unstable.. I think it goes
-                                    //            here now?
-                                    BlockProposalContents::Payload(header),
+                                    match relay.version.unwrap() {
+                                        ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {
+                                            BlockProposalContents::Payload(header)
+                                        }
+                                        ForkName::Eip4844 => BlockProposalContents::PayloadAndBlobs {
+                                            payload: header,
+                                            blobs: VariableList::default(),
+                                            kzg_commitments: relay.data.message.blob_kzg_commitments().unwrap().clone(),
+                                        },
+                                    }
                                 )),
                                 Err(reason) => {
                                     metrics::inc_counter_vec(
