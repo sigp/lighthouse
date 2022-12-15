@@ -331,7 +331,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(signer.clone())
         .and_then(|sysinfo, app_start: std::time::Instant, val_dir, signer| {
             blocking_signed_json_task(signer, move || {
-                let app_uptime = app_start.elapsed().as_secs() as u64;
+                let app_uptime = app_start.elapsed().as_secs();
                 Ok(api_types::GenericResponse::from(observe_system_health_vc(
                     sysinfo, val_dir, app_uptime,
                 )))
