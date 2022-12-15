@@ -1,9 +1,10 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use eth2::types::ValidatorId;
 use eth2::lighthouse::{SyncCommitteeAttestationRewards, SyncCommitteeAttestationReward};
-use slog::{debug, warn, Logger};
-use state_processing::{per_block_processing::altair::sync_committee::compute_sync_aggregate_rewards};
+use slog::{debug, Logger};
+use state_processing::per_block_processing::altair::sync_committee::compute_sync_aggregate_rewards;
 use warp_utils::reject::{beacon_chain_error, custom_bad_request};
 use crate::BlockId;
 
@@ -36,6 +37,15 @@ pub fn compute_sync_committee_rewards<T: BeaconChainTypes>(
         .map_err(beacon_chain_error)?
         .ok_or_else(|| custom_bad_request(String::from("Unable to get state")))?;
 
+    let sync_committee = state
+        .clone()
+        .current_sync_committee()
+        .map_err(|_| custom_bad_request(String::from("Unable to get participants")))?;
+
+    let sync_committee_indices =  state
+        .get_sync_committee_indices(sync_committee)
+        .map_err(|_| custom_bad_request(String::from("Unable to get participant indices")))?;
+
     debug!(
         log,
         "Retrieving sync committee attestation rewards";
@@ -46,56 +56,42 @@ pub fn compute_sync_committee_rewards<T: BeaconChainTypes>(
     let (participant_reward_value, _) = compute_sync_aggregate_rewards(&state, spec)
         .map_err(|_| custom_bad_request(format!("Unable to get sync aggregate rewards at state root {:?}", state_root)))?;
 
-
-    let current_sync_committee = state
-        .current_sync_committee()
-        .map_err(|_| custom_bad_request(String::from("Unable to get participants")))?
-        .pubkeys
-        .clone();
-
     debug!(
         log,
         "Retrived sync committee attestation reward value";
-        "reward_value" => participant_reward_value,
-        "sync_committee_participant_size" => current_sync_committee.len()
+        "reward_value" => participant_reward_value
         );
-    
-    let data = if current_sync_committee.is_empty() { 
-        None 
+
+
+    let mut balances = sync_committee_indices
+        .iter()
+        .map(|i| (*i, state.balances()[*i]))
+        .collect::<HashMap<usize, u64>>();
+
+    let mut total_proposer_rewards = 0;
+
+    for (validator_index, participant_bit) in sync_committee_indices.iter().zip(sync_aggregate.sync_committee_bits.iter()) {
+        let mut participant_balance = balances.get_mut(validator_index);
+        if participant_bit {
+            participant_balance.get_or_insert(&mut 0).saturating_add(participant_reward_value);
+            // TODO: Update proposer reward at proposer_index
+        } else {
+            participant_balance.get_or_insert(&mut 0).saturating_sub(participant_reward_value);
+        }
+    }
+
+    let data = if sync_committee.pubkeys.is_empty() { 
+        None
         } else {
             Some(
-                current_sync_committee
-                .iter()
-                .zip(sync_aggregate.sync_committee_bits.iter())
-                .map(|(sync_committee_pubkey, participation_bit)| {
-                    let sync_committee_validator_index = match state.get_validator_index(sync_committee_pubkey) {
-                                    Ok(validator_index) => validator_index,
-                                    _ => Some(0)
-                                }.unwrap();
-                    (sync_committee_pubkey, sync_committee_validator_index, participation_bit)
-                })
-                .filter(|(sync_committee_pubkey, sync_committee_validator_index, participation_bit)| {
-                    validators.is_empty()
-                        ||
-                    validators
-                        .iter()
-                        .any(|validator| match validator {
-                            ValidatorId::PublicKey(pubkey) => {
-                                *sync_committee_pubkey == pubkey
-                            }
-                            ValidatorId::Index(i) => {
-                                *sync_committee_validator_index as u64 == *i
-                            }
-                        })
-                })
-                .map(|(_sync_committee_pubkey, sync_committee_validator_index, participation_bit)| {
+                balances.iter().map(|(i, new_balance)| {
+                    let reward = *new_balance as i64 - state.balances()[*i] as i64 - total_proposer_rewards;
                     SyncCommitteeAttestationReward {
-                        validator_index: sync_committee_validator_index as u64,
-                        reward: if participation_bit { participant_reward_value as i64 } 
-                                else { participant_reward_value as i64 * -1 }
+                        validator_index: *i as u64,
+                        reward
                     }
                 })
-                .collect::<Vec<_>>()
+                .collect()
             )
         };
 
