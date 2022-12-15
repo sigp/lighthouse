@@ -113,7 +113,6 @@ mod tests {
     use super::*;
 
     pub fn deserialize_bid<E: EthSpec, Payload: AbstractExecPayload<E>>(str: &str) -> Result<BuilderBid<E, Payload>, Error> {
-        dbg!(str);
         let bid = serde_json::from_str(str)?;
         Ok(bid)
     }
@@ -146,6 +145,7 @@ mod tests {
 
 
     #[test]
+    #[cfg(feature = "withdrawals")]
     fn test_deserialize_builder_bid_capella() {
         let str = r#"{
             "header": {
@@ -173,6 +173,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "withdrawals")]
     fn test_deserialize_builder_bid_eip4844() {
         let str = r#"{
             "header": {
