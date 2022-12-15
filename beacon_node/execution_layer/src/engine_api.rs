@@ -1,10 +1,11 @@
 use crate::engines::ForkchoiceState;
 pub use ethers_core::types::Transaction;
-use ethers_core::utils::rlp::{Decodable, Rlp};
+use ethers_core::utils::rlp::{self, Decodable, Rlp};
 use http::deposit_methods::RpcError;
-pub use json_structures::TransitionConfigurationV1;
+pub use json_structures::{JsonWithdrawal, TransitionConfigurationV1};
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
+use std::convert::TryFrom;
 use strum::IntoStaticStr;
 use superstruct::superstruct;
 pub use types::{
@@ -46,6 +47,7 @@ pub enum Error {
     RequiredMethodUnsupported(&'static str),
     UnsupportedForkVariant(String),
     BadConversion(String),
+    RlpDecoderError(rlp::DecoderError),
 }
 
 impl From<reqwest::Error> for Error {
@@ -76,6 +78,12 @@ impl From<auth::Error> for Error {
 impl From<builder_client::Error> for Error {
     fn from(e: builder_client::Error) -> Self {
         Error::BuilderApi(e)
+    }
+}
+
+impl From<rlp::DecoderError> for Error {
+    fn from(e: rlp::DecoderError) -> Self {
+        Error::RlpDecoderError(e)
     }
 }
 
@@ -159,12 +167,14 @@ pub struct ExecutionBlockWithTransactions<T: EthSpec> {
     pub transactions: Vec<Transaction>,
     #[cfg(feature = "withdrawals")]
     #[superstruct(only(Capella, Eip4844))]
-    pub withdrawals: Vec<Withdrawal>,
+    pub withdrawals: Vec<JsonWithdrawal>,
 }
 
-impl<T: EthSpec> From<ExecutionPayload<T>> for ExecutionBlockWithTransactions<T> {
-    fn from(payload: ExecutionPayload<T>) -> Self {
-        match payload {
+impl<T: EthSpec> TryFrom<ExecutionPayload<T>> for ExecutionBlockWithTransactions<T> {
+    type Error = Error;
+
+    fn try_from(payload: ExecutionPayload<T>) -> Result<Self, Error> {
+        let json_payload = match payload {
             ExecutionPayload::Merge(block) => Self::Merge(ExecutionBlockWithTransactionsMerge {
                 parent_hash: block.parent_hash,
                 fee_recipient: block.fee_recipient,
@@ -183,8 +193,7 @@ impl<T: EthSpec> From<ExecutionPayload<T>> for ExecutionBlockWithTransactions<T>
                     .transactions
                     .iter()
                     .map(|tx| Transaction::decode(&Rlp::new(tx)))
-                    .collect::<Result<Vec<_>, _>>()
-                    .unwrap_or_else(|_| Vec::new()),
+                    .collect::<Result<Vec<_>, _>>()?,
             }),
             ExecutionPayload::Capella(block) => {
                 Self::Capella(ExecutionBlockWithTransactionsCapella {
@@ -205,10 +214,12 @@ impl<T: EthSpec> From<ExecutionPayload<T>> for ExecutionBlockWithTransactions<T>
                         .transactions
                         .iter()
                         .map(|tx| Transaction::decode(&Rlp::new(tx)))
-                        .collect::<Result<Vec<_>, _>>()
-                        .unwrap_or_else(|_| Vec::new()),
+                        .collect::<Result<Vec<_>, _>>()?,
                     #[cfg(feature = "withdrawals")]
-                    withdrawals: block.withdrawals.into(),
+                    withdrawals: Vec::from(block.withdrawals)
+                        .into_iter()
+                        .map(|withdrawal| withdrawal.into())
+                        .collect(),
                 })
             }
             ExecutionPayload::Eip4844(block) => {
@@ -231,13 +242,16 @@ impl<T: EthSpec> From<ExecutionPayload<T>> for ExecutionBlockWithTransactions<T>
                         .transactions
                         .iter()
                         .map(|tx| Transaction::decode(&Rlp::new(tx)))
-                        .collect::<Result<Vec<_>, _>>()
-                        .unwrap_or_else(|_| Vec::new()),
+                        .collect::<Result<Vec<_>, _>>()?,
                     #[cfg(feature = "withdrawals")]
-                    withdrawals: block.withdrawals.into(),
+                    withdrawals: Vec::from(block.withdrawals)
+                        .into_iter()
+                        .map(|withdrawal| withdrawal.into())
+                        .collect(),
                 })
             }
-        }
+        };
+        Ok(json_payload)
     }
 }
 

@@ -20,8 +20,6 @@ use state_processing::{
     ConsensusContext,
 };
 use std::fmt::Debug;
-#[cfg(not(all(feature = "withdrawals", feature = "withdrawals-processing")))]
-use std::marker::PhantomData;
 use std::path::Path;
 #[cfg(feature = "withdrawals")]
 use types::SignedBlsToExecutionChange;
@@ -43,6 +41,7 @@ struct ExecutionMetadata {
 }
 
 /// Newtype for testing withdrawals.
+#[cfg(all(feature = "withdrawals", feature = "withdrawals-processing"))]
 #[derive(Debug, Clone, Deserialize)]
 pub struct WithdrawalsPayload<T: EthSpec> {
     payload: FullPayload<T>,

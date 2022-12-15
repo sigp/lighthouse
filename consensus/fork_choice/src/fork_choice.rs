@@ -1,6 +1,7 @@
 use crate::{ForkChoiceStore, InvalidationOperation};
 use proto_array::{
-    Block as ProtoBlock, CountUnrealizedFull, ExecutionStatus, ProtoArrayForkChoice,
+    Block as ProtoBlock, CountUnrealizedFull, ExecutionStatus, ProposerHeadError, ProposerHeadInfo,
+    ProtoArrayForkChoice, ReOrgThreshold,
 };
 use slog::{crit, debug, warn, Logger};
 use ssz_derive::{Decode, Encode};
@@ -23,7 +24,8 @@ pub enum Error<T> {
     InvalidAttestation(InvalidAttestation),
     InvalidAttesterSlashing(AttesterSlashingValidationError),
     InvalidBlock(InvalidBlock),
-    ProtoArrayError(String),
+    ProtoArrayStringError(String),
+    ProtoArrayError(proto_array::Error),
     InvalidProtoArrayBytes(String),
     InvalidLegacyProtoArrayBytes(String),
     FailedToProcessInvalidExecutionPayload(String),
@@ -45,6 +47,7 @@ pub enum Error<T> {
     ForkChoiceStoreError(T),
     UnableToSetJustifiedCheckpoint(T),
     AfterBlockFailed(T),
+    ProposerHeadError(T),
     InvalidAnchor {
         block_slot: Slot,
         state_slot: Slot,
@@ -59,6 +62,13 @@ pub enum Error<T> {
     },
     MissingFinalizedBlock {
         finalized_checkpoint: Checkpoint,
+    },
+    WrongSlotForGetProposerHead {
+        current_slot: Slot,
+        fc_store_slot: Slot,
+    },
+    ProposerBoostNotExpiredForGetProposerHead {
+        proposer_boost_root: Hash256,
     },
     UnrealizedVoteProcessing(state_processing::EpochProcessingError),
     ParticipationCacheBuild(BeaconStateError),
@@ -154,6 +164,12 @@ pub enum InvalidAttestation {
 
 impl<T> From<String> for Error<T> {
     fn from(e: String) -> Self {
+        Error::ProtoArrayStringError(e)
+    }
+}
+
+impl<T> From<proto_array::Error> for Error<T> {
+    fn from(e: proto_array::Error) -> Self {
         Error::ProtoArrayError(e)
     }
 }
@@ -553,6 +569,69 @@ where
         };
 
         Ok(head_root)
+    }
+
+    /// Get the block to build on as proposer, taking into account proposer re-orgs.
+    ///
+    /// You *must* call `get_head` for the proposal slot prior to calling this function and pass
+    /// in the result of `get_head` as `canonical_head`.
+    pub fn get_proposer_head(
+        &self,
+        current_slot: Slot,
+        canonical_head: Hash256,
+        re_org_threshold: ReOrgThreshold,
+        max_epochs_since_finalization: Epoch,
+    ) -> Result<ProposerHeadInfo, ProposerHeadError<Error<proto_array::Error>>> {
+        // Ensure that fork choice has already been updated for the current slot. This prevents
+        // us from having to take a write lock or do any dequeueing of attestations in this
+        // function.
+        let fc_store_slot = self.fc_store.get_current_slot();
+        if current_slot != fc_store_slot {
+            return Err(ProposerHeadError::Error(
+                Error::WrongSlotForGetProposerHead {
+                    current_slot,
+                    fc_store_slot,
+                },
+            ));
+        }
+
+        // Similarly, the proposer boost for the previous head should already have expired.
+        let proposer_boost_root = self.fc_store.proposer_boost_root();
+        if !proposer_boost_root.is_zero() {
+            return Err(ProposerHeadError::Error(
+                Error::ProposerBoostNotExpiredForGetProposerHead {
+                    proposer_boost_root,
+                },
+            ));
+        }
+
+        self.proto_array
+            .get_proposer_head::<E>(
+                current_slot,
+                canonical_head,
+                self.fc_store.justified_balances(),
+                re_org_threshold,
+                max_epochs_since_finalization,
+            )
+            .map_err(ProposerHeadError::convert_inner_error)
+    }
+
+    pub fn get_preliminary_proposer_head(
+        &self,
+        canonical_head: Hash256,
+        re_org_threshold: ReOrgThreshold,
+        max_epochs_since_finalization: Epoch,
+    ) -> Result<ProposerHeadInfo, ProposerHeadError<Error<proto_array::Error>>> {
+        let current_slot = self.fc_store.get_current_slot();
+        self.proto_array
+            .get_proposer_head_info::<E>(
+                current_slot,
+                canonical_head,
+                self.fc_store.justified_balances(),
+                re_org_threshold,
+                max_epochs_since_finalization,
+            )
+            .map_err(ProposerHeadError::convert_inner_error)
     }
 
     /// Return information about:

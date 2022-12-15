@@ -1,5 +1,7 @@
 use beacon_chain::{
     attestation_verification::Error as AttnError,
+    light_client_finality_update_verification::Error as LightClientFinalityUpdateError,
+    light_client_optimistic_update_verification::Error as LightClientOptimisticUpdateError,
     sync_committee_verification::Error as SyncCommitteeError,
 };
 use fnv::FnvHashMap;
@@ -274,6 +276,19 @@ lazy_static! {
             "Gossipsub sync_committee errors per error type",
             &["type"]
         );
+    pub static ref GOSSIP_FINALITY_UPDATE_ERRORS_PER_TYPE: Result<IntCounterVec> =
+        try_create_int_counter_vec(
+            "gossipsub_light_client_finality_update_errors_per_type",
+            "Gossipsub light_client_finality_update errors per error type",
+            &["type"]
+        );
+    pub static ref GOSSIP_OPTIMISTIC_UPDATE_ERRORS_PER_TYPE: Result<IntCounterVec> =
+        try_create_int_counter_vec(
+            "gossipsub_light_client_optimistic_update_errors_per_type",
+            "Gossipsub light_client_optimistic_update errors per error type",
+            &["type"]
+        );
+
 
     /*
      * Network queue metrics
@@ -378,6 +393,14 @@ pub fn update_bandwidth_metrics(bandwidth: Arc<BandwidthSinks>) {
         &TOTAL_LIBP2P_BANDWIDTH,
         (bandwidth.total_inbound() + bandwidth.total_outbound()) as i64,
     );
+}
+
+pub fn register_finality_update_error(error: &LightClientFinalityUpdateError) {
+    inc_counter_vec(&GOSSIP_FINALITY_UPDATE_ERRORS_PER_TYPE, &[error.as_ref()]);
+}
+
+pub fn register_optimistic_update_error(error: &LightClientOptimisticUpdateError) {
+    inc_counter_vec(&GOSSIP_OPTIMISTIC_UPDATE_ERRORS_PER_TYPE, &[error.as_ref()]);
 }
 
 pub fn register_attestation_error(error: &AttnError) {

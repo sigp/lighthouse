@@ -15,3 +15,4 @@ eth2_ssz_derive = "0.3.1"
 serde = "1.0.116"
 serde_derive = "1.0.116"
 serde_yaml = "0.8.13"
+safe_arith = { path = "../safe_arith" }

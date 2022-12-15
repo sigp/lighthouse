@@ -200,19 +200,23 @@ for `INFO` and `WARN` messages indicating why the builder was not used.
 Examples of messages indicating fallback to a locally produced block are:
 
 ```
-INFO No payload provided by connected builder.
+INFO Builder did not return a payload
 ```
 
 ```
-WARN Unable to retrieve a payload from a connected builder
+WARN Builder error when requesting payload
 ```
 
 ```
-INFO The value offered by the connected builder does not meet the configured profit threshold.
+WARN Builder returned invalid payload
 ```
 
 ```
-INFO Due to poor chain health the local execution engine will be used for payload construction.
+INFO Builder payload ignored
+```
+
+```
+INFO Chain is unhealthy, using local payload
 ```
 
 In case of fallback you should see a log indicating that the locally produced payload was

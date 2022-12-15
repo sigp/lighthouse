@@ -584,6 +584,16 @@ impl<T: EthSpec> ExecutionLayer<T> {
             .contains_key(&proposer_index)
     }
 
+    /// Check if a proposer is registered as a local validator, *from a synchronous context*.
+    ///
+    /// This method MUST NOT be called from an async task.
+    pub fn has_proposer_preparation_data_blocking(&self, proposer_index: u64) -> bool {
+        self.inner
+            .proposer_preparation_data
+            .blocking_lock()
+            .contains_key(&proposer_index)
+    }
+
     /// Returns the fee-recipient address that should be used to build a block
     pub async fn get_suggested_fee_recipient(&self, proposer_index: u64) -> Address {
         if let Some(preparation_data_entry) =
@@ -1232,12 +1242,14 @@ impl<T: EthSpec> ExecutionLayer<T> {
             &[metrics::FORKCHOICE_UPDATED],
         );
 
-        trace!(
+        debug!(
             self.log(),
             "Issuing engine_forkchoiceUpdated";
             "finalized_block_hash" => ?finalized_block_hash,
             "justified_block_hash" => ?justified_block_hash,
             "head_block_hash" => ?head_block_hash,
+            "head_block_root" => ?head_block_root,
+            "current_slot" => current_slot,
         );
 
         let next_slot = current_slot + 1;
@@ -1559,10 +1571,11 @@ impl<T: EthSpec> ExecutionLayer<T> {
     pub async fn get_payload_by_block_hash(
         &self,
         hash: ExecutionBlockHash,
+        fork: ForkName,
     ) -> Result<Option<ExecutionPayload<T>>, Error> {
         self.engine()
             .request(|engine| async move {
-                self.get_payload_by_block_hash_from_engine(engine, hash)
+                self.get_payload_by_block_hash_from_engine(engine, hash, fork)
                     .await
             })
             .await
@@ -1574,15 +1587,26 @@ impl<T: EthSpec> ExecutionLayer<T> {
         &self,
         engine: &Engine,
         hash: ExecutionBlockHash,
+        fork: ForkName,
     ) -> Result<Option<ExecutionPayload<T>>, ApiError> {
         let _timer = metrics::start_timer(&metrics::EXECUTION_LAYER_GET_PAYLOAD_BY_BLOCK_HASH);
 
         if hash == ExecutionBlockHash::zero() {
-            // FIXME: how to handle forks properly here?
-            return Ok(Some(ExecutionPayloadMerge::default().into()));
+            return match fork {
+                ForkName::Merge => Ok(Some(ExecutionPayloadMerge::default().into())),
+                ForkName::Capella => Ok(Some(ExecutionPayloadCapella::default().into())),
+                ForkName::Eip4844 => Ok(Some(ExecutionPayloadEip4844::default().into())),
+                ForkName::Base | ForkName::Altair => Err(ApiError::UnsupportedForkVariant(
+                    format!("called get_payload_by_block_hash_from_engine with {}", fork),
+                )),
+            };
         }
 
-        let block = if let Some(block) = engine.api.get_block_by_hash_with_txns::<T>(hash).await? {
+        let block = if let Some(block) = engine
+            .api
+            .get_block_by_hash_with_txns::<T>(hash, fork)
+            .await?
+        {
             block
         } else {
             return Ok(None);
@@ -1591,7 +1615,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
         let transactions = VariableList::new(
             block
                 .transactions()
-                .into_iter()
+                .iter()
                 .map(|transaction| VariableList::new(transaction.rlp().to_vec()))
                 .collect::<Result<_, _>>()
                 .map_err(ApiError::DeserializeTransaction)?,
@@ -1619,8 +1643,14 @@ impl<T: EthSpec> ExecutionLayer<T> {
             }
             ExecutionBlockWithTransactions::Capella(capella_block) => {
                 #[cfg(feature = "withdrawals")]
-                let withdrawals = VariableList::new(capella_block.withdrawals.clone())
-                    .map_err(ApiError::DeserializeWithdrawals)?;
+                let withdrawals = VariableList::new(
+                    capella_block
+                        .withdrawals
+                        .into_iter()
+                        .map(|w| w.into())
+                        .collect(),
+                )
+                .map_err(ApiError::DeserializeWithdrawals)?;
 
                 ExecutionPayload::Capella(ExecutionPayloadCapella {
                     parent_hash: capella_block.parent_hash,
@@ -1643,8 +1673,14 @@ impl<T: EthSpec> ExecutionLayer<T> {
             }
             ExecutionBlockWithTransactions::Eip4844(eip4844_block) => {
                 #[cfg(feature = "withdrawals")]
-                let withdrawals = VariableList::new(eip4844_block.withdrawals.clone())
-                    .map_err(ApiError::DeserializeWithdrawals)?;
+                let withdrawals = VariableList::new(
+                    eip4844_block
+                        .withdrawals
+                        .into_iter()
+                        .map(|w| w.into())
+                        .collect(),
+                )
+                .map_err(ApiError::DeserializeWithdrawals)?;
 
                 ExecutionPayload::Eip4844(ExecutionPayloadEip4844 {
                     parent_hash: eip4844_block.parent_hash,
@@ -1714,7 +1750,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                         &metrics::EXECUTION_LAYER_BUILDER_REVEAL_PAYLOAD_OUTCOME,
                         &[metrics::FAILURE],
                     );
-                    crit!(
+                    error!(
                         self.log(),
                         "Builder failed to reveal payload";
                         "info" => "this relay failure may cause a missed proposal",
@@ -1918,6 +1954,20 @@ mod test {
             .await
             .produce_valid_execution_payload_on_head()
             .await;
+    }
+
+    #[tokio::test]
+    async fn test_forked_terminal_block() {
+        let runtime = TestRuntime::default();
+        let (mock, block_hash) = MockExecutionLayer::default_params(runtime.task_executor.clone())
+            .move_to_terminal_block()
+            .produce_forked_pow_block();
+        assert!(mock
+            .el
+            .is_valid_terminal_pow_block_hash(block_hash, &mock.spec)
+            .await
+            .unwrap()
+            .unwrap());
     }
 
     #[tokio::test]

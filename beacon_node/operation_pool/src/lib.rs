@@ -558,8 +558,10 @@ impl<T: EthSpec> OperationPool<T> {
             )
         }
 
+        // TODO: remove this whole block once withdrwals-processing is removed
         #[cfg(not(feature = "withdrawals-processing"))]
         {
+            #[allow(clippy::drop_copy)]
             drop((state, spec));
             vec![]
         }
@@ -597,8 +599,10 @@ impl<T: EthSpec> OperationPool<T> {
             );
         }
 
+        // TODO: remove this whole block once withdrwals-processing is removed
         #[cfg(not(feature = "withdrawals-processing"))]
         {
+            #[allow(clippy::drop_copy)]
             drop((head_block, head_state, spec));
         }
     }

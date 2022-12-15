@@ -999,7 +999,7 @@ pub fn get_execution_status_test_definition_03() -> ForkChoiceTestDefinition {
     });
     ops.push(Operation::AssertWeight {
         block_root: get_root(3),
-        // This is a "magic number" generated from `calculate_proposer_boost`.
+        // This is a "magic number" generated from `calculate_committee_fraction`.
         weight: 31_000,
     });
 
