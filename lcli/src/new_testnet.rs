@@ -177,7 +177,7 @@ fn initialize_state_with_validators<T: EthSpec>(
     // Seed RANDAO with Eth1 entropy
     state.fill_randao_mixes_with(eth1_block_hash);
 
-    for keypair in keypairs.into_iter() {
+    for keypair in keypairs.iter() {
         let withdrawal_credentials = |pubkey: &PublicKey| {
             let mut credentials = hash(&pubkey.as_ssz_bytes());
             credentials[0] = spec.bls_withdrawal_prefix_byte;
