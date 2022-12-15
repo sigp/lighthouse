@@ -41,7 +41,7 @@ struct ExecutionMetadata {
 }
 
 /// Newtype for testing withdrawals.
-#[cfg(all(feature = "withdrawals", feature = "withdrawals-processing"))]
+#[cfg(feature = "withdrawals")]
 #[derive(Debug, Clone, Deserialize)]
 pub struct WithdrawalsPayload<T: EthSpec> {
     payload: FullPayload<T>,

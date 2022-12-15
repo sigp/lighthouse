@@ -1,4 +1,3 @@
-use super::KzgCommitment;
 use crate::test_utils::TestRandom;
 use crate::*;
 use derivative::Derivative;

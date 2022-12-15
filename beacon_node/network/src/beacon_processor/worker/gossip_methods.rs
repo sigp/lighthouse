@@ -21,11 +21,10 @@ use store::hot_cold_store::HotColdDBError;
 use tokio::sync::mpsc;
 use types::signed_block_and_blobs::BlockWrapper;
 use types::{
-    ightClientFinalityUpdate,
-    LightClientOptimisticUpdate,
-    SignedBlsToExecutionChange, SignedContributionAndProof, SignedVoluntaryExit, Slot, SubnetId,
     Attestation, AttesterSlashing, BlobsSidecar, EthSpec, Hash256, IndexedAttestation,
-    ProposerSlashing, SignedAggregateAndProof, SignedBeaconBlock, SignedBeaconBlockAndBlobsSidecar,
+    LightClientFinalityUpdate, LightClientOptimisticUpdate, ProposerSlashing,
+    SignedAggregateAndProof, SignedBeaconBlock, SignedBeaconBlockAndBlobsSidecar,
+    SignedBlsToExecutionChange, SignedContributionAndProof, SignedVoluntaryExit, Slot, SubnetId,
     SyncCommitteeMessage, SyncSubnetId,
 };
 

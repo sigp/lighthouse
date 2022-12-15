@@ -20,9 +20,8 @@ use tokio::sync::mpsc;
 use types::{
     Attestation, AttesterSlashing, BlobsSidecar, EthSpec, LightClientFinalityUpdate,
     LightClientOptimisticUpdate, ProposerSlashing, SignedAggregateAndProof, SignedBeaconBlock,
-    SignedBlsToExecutionChange, SignedContributionAndProof, SignedVoluntaryExit, SubnetId,
-    SyncSubnetId,
-    SignedBeaconBlockAndBlobsSidecar,
+    SignedBeaconBlockAndBlobsSidecar, SignedBlsToExecutionChange, SignedContributionAndProof,
+    SignedVoluntaryExit, SubnetId, SyncSubnetId,
 };
 
 /// Processes validated messages from the network. It relays necessary data to the syncing thread

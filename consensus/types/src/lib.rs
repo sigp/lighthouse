@@ -150,8 +150,6 @@ pub use crate::free_attestation::FreeAttestation;
 pub use crate::graffiti::{Graffiti, GRAFFITI_BYTES_LEN};
 pub use crate::historical_batch::HistoricalBatch;
 pub use crate::indexed_attestation::IndexedAttestation;
-pub use crate::kzg_commitment::KzgCommitment;
-pub use crate::kzg_proof::KzgProof;
 pub use crate::light_client_finality_update::LightClientFinalityUpdate;
 pub use crate::light_client_optimistic_update::LightClientOptimisticUpdate;
 pub use crate::participation_flags::ParticipationFlags;
