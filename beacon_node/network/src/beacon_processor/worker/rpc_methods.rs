@@ -399,6 +399,15 @@ impl<T: BeaconChainTypes> Worker<T> {
                                 "block_root" => ?root,
                                 "error" => ?e
                             );
+
+                            // send the stream terminator
+                            self.send_error_response(
+                                peer_id,
+                                RPCResponseErrorCode::ServerError,
+                                "Failed fetching blocks".into(),
+                                request_id,
+                            );
+                            send_response = false;
                             break;
                         }
                     }
