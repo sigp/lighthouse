@@ -1408,7 +1408,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                             self.log,
                             "Optimistic update for unknown block";
                             "peer_id" => %peer_id,
-                            "parent_block" => ?parent_root
+                            "parent_root" => ?parent_root
                         );
                         if let Some(sender) = reprocess_tx {
                             let msg = ReprocessQueueMessage::BlockImported {

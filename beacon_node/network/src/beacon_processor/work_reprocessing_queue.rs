@@ -547,6 +547,7 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
                         }
                     }
                 }
+                // Unqueue the lc optimistic updates we have for this root, if any.
                 if let Some(queued_lc_id) = self
                     .awaiting_lc_updates_per_parent_root
                     .remove(&parent_root)
@@ -564,11 +565,12 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
                             self.lc_updates_delay_queue.remove(&delay_key);
 
                             // Send the work
-                            if self.ready_work_tx.try_send(work).is_err() {
-                                error!(
+                            match self.ready_work_tx.try_send(work) {
+                                Ok(_) => debug!(log, "reprocessing lc update sent"),
+                                Err(_) => error!(
                                     log,
                                     "Failed to send scheduled light client update";
-                                );
+                                ),
                             }
                         } else {
                             // There is a mismatch between the light client update ids registered for this
