@@ -443,7 +443,7 @@ fn handle_length(
         // Note: length-prefix of > 10 bytes(uint64) would be a decoding error
         match uvi_codec.decode(bytes).map_err(RPCError::from)? {
             Some(length) => {
-                *len = Some(length as usize);
+                *len = Some(length);
                 Ok(Some(length))
             }
             None => Ok(None), // need more bytes to decode length

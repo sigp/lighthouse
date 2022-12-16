@@ -472,7 +472,7 @@ impl InitializedValidators {
 
     /// Iterate through all voting public keys in `self` that should be used when querying for duties.
     pub fn iter_voting_pubkeys(&self) -> impl Iterator<Item = &PublicKeyBytes> {
-        self.validators.iter().map(|(pubkey, _)| pubkey)
+        self.validators.keys()
     }
 
     /// Returns the voting `Keypair` for a given voting `PublicKey`, if all are true:
