@@ -1387,12 +1387,12 @@ impl<T: BeaconChainTypes> Worker<T> {
             .chain
             .verify_optimistic_update_for_gossip(light_client_optimistic_update, seen_timestamp)
         {
-            Ok(_verified_light_client_optimistic_update) => {
+            Ok(verified_light_client_optimistic_update) => {
                 debug!(
                     self.log,
                     "LC successful optimistic update";
                     "peer" => %peer_id,
-                    "error" => ?e,
+                    "parent_root" => %verified_light_client_optimistic_update.parent_root,
                 );
 
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);

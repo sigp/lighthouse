@@ -61,6 +61,7 @@ impl From<LightClientUpdateError> for Error {
 #[derivative(Clone(bound = "T: BeaconChainTypes"))]
 pub struct VerifiedLightClientOptimisticUpdate<T: BeaconChainTypes> {
     light_client_optimistic_update: LightClientOptimisticUpdate<T::EthSpec>,
+    pub parent_root: Hash256,
     seen_timestamp: Duration,
 }
 
@@ -136,6 +137,7 @@ impl<T: BeaconChainTypes> VerifiedLightClientOptimisticUpdate<T> {
 
         Ok(Self {
             light_client_optimistic_update,
+            parent_root: canonical_root,
             seen_timestamp,
         })
     }
