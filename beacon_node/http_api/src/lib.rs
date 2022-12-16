@@ -59,8 +59,7 @@ use types::{
 };
 use version::{
     add_consensus_version_header, execution_optimistic_finalized_fork_versioned_response,
-    execution_optimistic_fork_versioned_response, fork_versioned_response,
-    inconsistent_fork_rejection, unsupported_version_rejection, V1, V2,
+    fork_versioned_response, inconsistent_fork_rejection, unsupported_version_rejection, V1, V2,
 };
 use warp::http::StatusCode;
 use warp::sse::Event;

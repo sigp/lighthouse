@@ -1,6 +1,5 @@
 use crate::api_types::{
-    EndpointVersion, ExecutionOptimisticFinalizedForkVersionedResponse,
-    ExecutionOptimisticForkVersionedResponse, ForkVersionedResponse,
+    EndpointVersion, ExecutionOptimisticFinalizedForkVersionedResponse, ForkVersionedResponse,
 };
 use eth2::CONSENSUS_VERSION_HEADER;
 use serde::Serialize;
@@ -24,26 +23,6 @@ pub fn fork_versioned_response<T: Serialize>(
     };
     Ok(ForkVersionedResponse {
         version: fork_name,
-        data,
-    })
-}
-
-pub fn execution_optimistic_fork_versioned_response<T: Serialize>(
-    endpoint_version: EndpointVersion,
-    fork_name: ForkName,
-    execution_optimistic: bool,
-    data: T,
-) -> Result<ExecutionOptimisticForkVersionedResponse<T>, warp::reject::Rejection> {
-    let fork_name = if endpoint_version == V1 {
-        None
-    } else if endpoint_version == V2 {
-        Some(fork_name)
-    } else {
-        return Err(unsupported_version_rejection(endpoint_version));
-    };
-    Ok(ExecutionOptimisticForkVersionedResponse {
-        version: fork_name,
-        execution_optimistic: Some(execution_optimistic),
         data,
     })
 }
