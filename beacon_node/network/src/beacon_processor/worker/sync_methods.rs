@@ -84,7 +84,7 @@ impl<T: BeaconChainTypes> Worker<T> {
             }
         };
         let slot = block.slot();
-        let parent_root = block.parent_root();
+        let parent_root = block.message().parent_root();
         let result = self
             .chain
             .process_block(

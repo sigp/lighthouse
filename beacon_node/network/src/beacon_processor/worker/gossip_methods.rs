@@ -951,7 +951,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                 if reprocess_tx
                     .try_send(ReprocessQueueMessage::BlockImported {
                         block_root,
-                        parent_root: block.parent_root(),
+                        parent_root: block.message().parent_root(),
                     })
                     .is_err()
                 {
