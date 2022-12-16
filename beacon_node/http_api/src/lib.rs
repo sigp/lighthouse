@@ -519,7 +519,9 @@ pub fn serve<T: BeaconChainTypes>(
                 let (root, execution_optimistic) = state_id.root(&chain)?;
                 let (state, _) = state_id.state(&chain)?;
                 let state_slot = state.slot();
-                let finalized = chain.is_finalized_state(&root, state_slot).unwrap();
+                let finalized = chain
+                    .is_finalized_state(&root, state_slot)
+                    .map_err(warp_utils::reject::beacon_chain_error)?;
                 Ok(root)
                     .map(api_types::RootData::from)
                     .map(api_types::GenericResponse::from)
@@ -557,7 +559,9 @@ pub fn serve<T: BeaconChainTypes>(
                     .map_state_and_execution_optimistic(&chain, |state, execution_optimistic| {
                         let state_slot = state.slot();
                         let (state_root, _) = state_id.root(&chain)?;
-                        let finalized = chain.is_finalized_state(&state_root, state_slot).unwrap();
+                        let finalized = chain
+                            .is_finalized_state(&state_root, state_slot)
+                            .map_err(warp_utils::reject::beacon_chain_error)?;
                         Ok((
                             (
                                 api_types::FinalityCheckpointsData {
@@ -597,8 +601,9 @@ pub fn serve<T: BeaconChainTypes>(
                             |state, execution_optimistic| {
                                 let state_slot = state.slot();
                                 let (state_root, _) = state_id.root(&chain)?;
-                                let finalized =
-                                    chain.is_finalized_state(&state_root, state_slot).unwrap();
+                                let finalized = chain
+                                    .is_finalized_state(&state_root, state_slot)
+                                    .map_err(warp_utils::reject::beacon_chain_error)?;
                                 Ok((
                                     (
                                         state
@@ -660,8 +665,9 @@ pub fn serve<T: BeaconChainTypes>(
                             |state, execution_optimistic| {
                                 let state_slot = state.slot();
                                 let (state_root, _) = state_id.root(&chain)?;
-                                let finalized =
-                                    chain.is_finalized_state(&state_root, state_slot).unwrap();
+                                let finalized = chain
+                                    .is_finalized_state(&state_root, state_slot)
+                                    .map_err(warp_utils::reject::beacon_chain_error)?;
                                 let epoch = state.current_epoch();
                                 let far_future_epoch = chain.spec.far_future_epoch;
 
@@ -750,8 +756,9 @@ pub fn serve<T: BeaconChainTypes>(
                             |state, execution_optimistic| {
                                 let state_slot = state.slot();
                                 let (state_root, _) = state_id.root(&chain)?;
-                                let finalized =
-                                    chain.is_finalized_state(&state_root, state_slot).unwrap();
+                                let finalized = chain
+                                    .is_finalized_state(&state_root, state_slot)
+                                    .map_err(warp_utils::reject::beacon_chain_error)?;
                                 let index_opt = match &validator_id {
                                     ValidatorId::PublicKey(pubkey) => {
                                         state.validators().iter().position(|v| v.pubkey == *pubkey)
@@ -817,8 +824,9 @@ pub fn serve<T: BeaconChainTypes>(
                             |state, execution_optimistic| {
                                 let state_slot = state.slot();
                                 let (state_root, _) = state_id.root(&chain)?;
-                                let finalized =
-                                    chain.is_finalized_state(&state_root, state_slot).unwrap();
+                                let finalized = chain
+                                    .is_finalized_state(&state_root, state_slot)
+                                    .map_err(warp_utils::reject::beacon_chain_error)?;
                                 let current_epoch = state.current_epoch();
                                 let epoch = query.epoch.unwrap_or(current_epoch);
 
@@ -930,8 +938,9 @@ pub fn serve<T: BeaconChainTypes>(
                             |state, execution_optimistic| {
                                 let state_slot = state.slot();
                                 let (state_root, _) = state_id.root(&chain)?;
-                                let finalized =
-                                    chain.is_finalized_state(&state_root, state_slot).unwrap();
+                                let finalized = chain
+                                    .is_finalized_state(&state_root, state_slot)
+                                    .map_err(warp_utils::reject::beacon_chain_error)?;
                                 let current_epoch = state.current_epoch();
                                 let epoch = query.epoch.unwrap_or(current_epoch);
                                 Ok((
@@ -1000,8 +1009,9 @@ pub fn serve<T: BeaconChainTypes>(
                             |state, execution_optimistic| {
                                 let state_slot = state.slot();
                                 let (state_root, _) = state_id.root(&chain)?;
-                                let finalized =
-                                    chain.is_finalized_state(&state_root, state_slot).unwrap();
+                                let finalized = chain
+                                    .is_finalized_state(&state_root, state_slot)
+                                    .map_err(warp_utils::reject::beacon_chain_error)?;
                                 let epoch = query.epoch.unwrap_or_else(|| state.current_epoch());
                                 let randao = *state.get_randao_mix(epoch).map_err(|e| {
                                     warp_utils::reject::custom_bad_request(format!(
@@ -1112,7 +1122,9 @@ pub fn serve<T: BeaconChainTypes>(
                         },
                     };
 
-                    let finalized = chain.is_finalized_block(&root, block.slot()).unwrap();
+                    let finalized = chain
+                        .is_finalized_block(&root, block.slot())
+                        .map_err(warp_utils::reject::beacon_chain_error)?;
 
                     Ok(api_types::GenericResponse::from(vec![data])
                         .add_execution_optimistic_finalized(execution_optimistic, finalized))
@@ -1153,7 +1165,9 @@ pub fn serve<T: BeaconChainTypes>(
                     },
                 };
 
-                let finalized = chain.is_finalized_block(&root, block.slot()).unwrap();
+                let finalized = chain
+                    .is_finalized_block(&root, block.slot())
+                    .map_err(warp_utils::reject::beacon_chain_error)?;
 
                 Ok(api_types::ExecutionOptimisticFinalizedResponse {
                     execution_optimistic: Some(execution_optimistic),
@@ -1242,7 +1256,9 @@ pub fn serve<T: BeaconChainTypes>(
                 async move {
                     let (block, execution_optimistic) = block_id.full_block(&chain).await?;
                     let (block_root, _) = block_id.root(&chain)?;
-                    let finalized = chain.is_finalized_block(&block_root, block.slot()).unwrap();
+                    let finalized = chain
+                        .is_finalized_block(&block_root, block.slot())
+                        .map_err(warp_utils::reject::beacon_chain_error)?;
                     let fork_name = block
                         .fork_name(&chain.spec)
                         .map_err(inconsistent_fork_rejection)?;
@@ -1281,7 +1297,9 @@ pub fn serve<T: BeaconChainTypes>(
             blocking_json_task(move || {
                 let (block, execution_optimistic) = block_id.blinded_block(&chain)?;
                 let (block_root, _) = block_id.root(&chain)?;
-                let finalized = chain.is_finalized_block(&block_root, block.slot()).unwrap();
+                let finalized = chain
+                    .is_finalized_block(&block_root, block.slot())
+                    .map_err(warp_utils::reject::beacon_chain_error)?;
                 Ok(api_types::GenericResponse::from(api_types::RootData::from(
                     block.canonical_root(),
                 ))
@@ -1298,7 +1316,9 @@ pub fn serve<T: BeaconChainTypes>(
             blocking_json_task(move || {
                 let (block, execution_optimistic) = block_id.blinded_block(&chain)?;
                 let (block_root, _) = block_id.root(&chain)?;
-                let finalized = chain.is_finalized_block(&block_root, block.slot()).unwrap();
+                let finalized = chain
+                    .is_finalized_block(&block_root, block.slot())
+                    .map_err(warp_utils::reject::beacon_chain_error)?;
                 Ok(
                     api_types::GenericResponse::from(block.message().body().attestations().clone())
                         .add_execution_optimistic_finalized(execution_optimistic, finalized),
@@ -1321,7 +1341,9 @@ pub fn serve<T: BeaconChainTypes>(
                 blocking_task(move || {
                     let (block, execution_optimistic) = block_id.blinded_block(&chain)?;
                     let (block_root, _) = block_id.root(&chain)?;
-                    let finalized = chain.is_finalized_block(&block_root, block.slot()).unwrap();
+                    let finalized = chain
+                        .is_finalized_block(&block_root, block.slot())
+                        .map_err(warp_utils::reject::beacon_chain_error)?;
                     let fork_name = block
                         .fork_name(&chain.spec)
                         .map_err(inconsistent_fork_rejection)?;
@@ -1870,8 +1892,9 @@ pub fn serve<T: BeaconChainTypes>(
                                 .map_err(inconsistent_fork_rejection)?;
                             let (state_root, _) = state_id.root(&chain)?;
                             let state_slot = state.slot();
-                            let finalized =
-                                chain.is_finalized_state(&state_root, state_slot).unwrap();
+                            let finalized = chain
+                                .is_finalized_state(&state_root, state_slot)
+                                .map_err(warp_utils::reject::beacon_chain_error)?;
                             let res = execution_optimistic_finalized_fork_versioned_response(
                                 endpoint_version,
                                 fork_name,

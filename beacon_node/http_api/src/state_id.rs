@@ -117,7 +117,9 @@ impl StateId {
     ) -> Result<(Fork, bool, bool), warp::Rejection> {
         let (state, execution_optimistic) = self.state(chain)?;
         let (state_root, _) = self.root(chain)?;
-        let finalized = chain.is_finalized_state(&state_root, state.slot()).unwrap();
+        let finalized = chain
+            .is_finalized_state(&state_root, state.slot())
+            .map_err(warp_utils::reject::beacon_chain_error)?;
         Ok((state.fork(), execution_optimistic, finalized))
     }
 
