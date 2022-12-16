@@ -63,12 +63,8 @@ jobs:
         steps:
             - name: Checkout sources
               uses: actions/checkout@v3
-            - name: Build toolchain
-              uses: actions-rs/toolchain@v1
-              with:
-                  toolchain: stable
-                  profile:  minimal
-                  override: true
+            - name: Get latest version of stable Rust
+              run: rustup update stable
 
             # ==============================
             # Windows dependencies
