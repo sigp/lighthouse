@@ -11,21 +11,12 @@ pub fn compute_attestation_rewards<T: BeaconChainTypes>(
     epoch: Epoch,
     validators: Vec<ValidatorId>,
     log: Logger
-) -> Result<AttestationRewardsTBD, Error> {
+) -> Result<AttestationRewardsTBD, warp::Rejection> {
 
-    let spec: ChainSpec = chain.spec;
-
-    // Get which slot are part of the epoch
-
-    // Use BlockReplayer to get the state of the slots
-
-    // Calculate rewards
-
-    // Create AttestationRewards with calculated rewards
     Ok(AttestationRewardsTBD{
         execution_optimistic: false,
         finalized: false,
-        data: Vec::new(),
+        data: vec![],
     })
 
 }

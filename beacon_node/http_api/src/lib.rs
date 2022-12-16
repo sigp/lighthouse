@@ -1704,11 +1704,12 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path("beacon"))
         .and(warp::path("rewards"))
         .and(chain_filter.clone());
-    
+
+    // TODO: POST beacon/rewards/attestations/{epoch}  
     let post_beacon_rewards_attestation = beacon_rewards_path
         .clone()
         .and(warp::path("attestation"))
-        .and(block_id_or_err)
+        .and(warp::path::param::<Epoch>())
         .and(warp::path::end())
         .and(warp::body::json())
         .and(log_filter.clone())
@@ -1717,10 +1718,10 @@ pub fn serve<T: BeaconChainTypes>(
             epoch: Epoch,
             validators: Vec<ValidatorId>,
             log: Logger| {
-            // Do something here
-            blocking_json_task(move || Ok(attestation_rewards::compute_attestation_rewards(
-                chain, epoch, validators, log)))
+            blocking_json_task(move || attestation_rewards::compute_attestation_rewards(
+                chain, epoch, validators, log))
         });
+        
     /*
      * config
      */
