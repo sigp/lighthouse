@@ -760,7 +760,7 @@ impl HttpJsonRpc {
     ) -> Result<ExecutionPayload<T>, Error> {
         let params = json!([JsonPayloadIdRequest::from(payload_id)]);
 
-        let payload_v2: JsonExecutionPayloadV2<T> = self
+        let response: JsonGetPayloadResponse<T> = self
             .rpc_request(
                 ENGINE_GET_PAYLOAD_V2,
                 params,
@@ -768,7 +768,7 @@ impl HttpJsonRpc {
             )
             .await?;
 
-        JsonExecutionPayload::V2(payload_v2).try_into_execution_payload(fork_name)
+        JsonExecutionPayload::V2(response.execution_payload).try_into_execution_payload(fork_name)
     }
 
     pub async fn get_blobs_bundle_v1<T: EthSpec>(

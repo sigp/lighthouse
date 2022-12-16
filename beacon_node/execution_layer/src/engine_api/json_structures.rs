@@ -324,6 +324,15 @@ impl<T: EthSpec> TryFrom<ExecutionPayload<T>> for JsonExecutionPayloadV2<T> {
     }
 }
 
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[serde(bound = "T: EthSpec", rename_all = "camelCase")]
+pub struct JsonGetPayloadResponse<T: EthSpec> {
+    pub execution_payload: JsonExecutionPayloadV2<T>,
+    // uncomment this when geth fixes its serialization
+    //#[serde(with = "eth2_serde_utils::u256_hex_be")]
+    //pub block_value: Uint256,
+}
+
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct JsonWithdrawal {
