@@ -53,7 +53,7 @@ pub fn compute_sync_committee_rewards<T: BeaconChainTypes>(
         "slot" => slot,
         );
 
-    let (participant_reward_value, _) = compute_sync_aggregate_rewards(&state, spec)
+    let (participant_reward_value, proposer_reward_per_bit) = compute_sync_aggregate_rewards(&state, spec)
         .map_err(|_| custom_bad_request(format!("Unable to get sync aggregate rewards at state root {:?}", state_root)))?;
 
     debug!(
@@ -69,23 +69,36 @@ pub fn compute_sync_committee_rewards<T: BeaconChainTypes>(
         .collect::<HashMap<usize, u64>>();
 
     let mut total_proposer_rewards = 0;
+    let proposer_index = state.get_beacon_proposer_index(slot, spec)
+        .map_err(|_| custom_bad_request(String::from("placeholder")))?;
 
+    // Apply rewards to participant balances. Keep track of proposer rewards
     for (validator_index, participant_bit) in sync_committee_indices.iter().zip(sync_aggregate.sync_committee_bits.iter()) {
-        let mut participant_balance = balances.get_mut(validator_index);
+        let participant_balance = balances.get(validator_index);
+
         if participant_bit {
-            participant_balance.get_or_insert(&mut 0).saturating_add(participant_reward_value);
-            // TODO: Update proposer reward at proposer_index
+            if let Some(balance_value) = participant_balance {
+                balances.insert(*validator_index, balance_value + participant_reward_value);
+            }
+            total_proposer_rewards +=  proposer_reward_per_bit;
         } else {
-            participant_balance.get_or_insert(&mut 0).saturating_sub(participant_reward_value);
+            if let Some(balance_value) = participant_balance {
+                balances.insert(*validator_index, balance_value.saturating_sub(participant_reward_value));
+            }
         }
     }
+
+    // Update proposer balance
+    balances.insert(proposer_index, total_proposer_rewards + 
+                    if balances.contains_key(&proposer_index) { balances[&proposer_index] } 
+                    else { 0 });
 
     let data = if sync_committee.pubkeys.is_empty() { 
         None
         } else {
             Some(
                 balances.iter().map(|(i, new_balance)| {
-                    let reward = *new_balance as i64 - state.balances()[*i] as i64 - total_proposer_rewards;
+                    let reward = *new_balance as i64 - state.balances()[*i] as i64 - total_proposer_rewards as i64;
                     SyncCommitteeAttestationReward {
                         validator_index: *i as u64,
                         reward
