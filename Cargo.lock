@@ -721,7 +721,7 @@ dependencies = [
 [[package]]
 name = "c-kzg"
 version = "0.1.0"
-source = "git+https://github.com/pawanjay176/c-kzg-4844?rev=669a13800a8a0d094c5387db58e06936ef194a25#669a13800a8a0d094c5387db58e06936ef194a25"
+source = "git+https://github.com/pawanjay176/c-kzg-4844?rev=48c048b12a7d29ae3e7bf09000e07870da4cb701#48c048b12a7d29ae3e7bf09000e07870da4cb701"
 dependencies = [
  "hex",
  "libc",
@@ -4998,6 +4998,7 @@ version = "0.2.0"
 dependencies = [
  "eth2_ssz",
  "eth2_ssz_derive",
+ "safe_arith",
  "serde",
  "serde_derive",
  "serde_yaml",

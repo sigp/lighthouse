@@ -75,10 +75,28 @@ pub async fn handle_rpc<T: EthSpec>(
             }
         }
         ENGINE_NEW_PAYLOAD_V1 | ENGINE_NEW_PAYLOAD_V2 => {
-            let request: JsonExecutionPayload<T> = get_param(params, 0)?;
+            let request = match method {
+                ENGINE_NEW_PAYLOAD_V1 => {
+                    JsonExecutionPayload::V1(get_param::<JsonExecutionPayloadV1<T>>(params, 0)?)
+                }
+                ENGINE_NEW_PAYLOAD_V2 => {
+                    JsonExecutionPayload::V2(get_param::<JsonExecutionPayloadV2<T>>(params, 0)?)
+                }
+                _ => unreachable!(),
+            };
+            let fork = match request {
+                JsonExecutionPayload::V1(_) => ForkName::Merge,
+                JsonExecutionPayload::V2(ref payload) => {
+                    if payload.withdrawals.is_none() {
+                        ForkName::Merge
+                    } else {
+                        ForkName::Capella
+                    }
+                }
+            };
 
             // Canned responses set by block hash take priority.
-            if let Some(status) = ctx.get_new_payload_status(&request.block_hash()) {
+            if let Some(status) = ctx.get_new_payload_status(request.block_hash()) {
                 return Ok(serde_json::to_value(JsonPayloadStatusV1::from(status)).unwrap());
             }
 
@@ -97,8 +115,7 @@ pub async fn handle_rpc<T: EthSpec>(
                 Some(
                     ctx.execution_block_generator
                         .write()
-                        // FIXME: should this worry about other forks?
-                        .new_payload(request.try_into_execution_payload(ForkName::Merge).unwrap()),
+                        .new_payload(request.try_into_execution_payload(fork).unwrap()),
                 )
             } else {
                 None
@@ -120,9 +137,18 @@ pub async fn handle_rpc<T: EthSpec>(
 
             Ok(serde_json::to_value(JsonExecutionPayloadV1::try_from(response).unwrap()).unwrap())
         }
-        ENGINE_FORKCHOICE_UPDATED_V1 | ENGINE_FORKCHOICE_UPDATED_V2 => {
+        // FIXME(capella): handle fcu version 2
+        ENGINE_FORKCHOICE_UPDATED_V1 => {
             let forkchoice_state: JsonForkchoiceStateV1 = get_param(params, 0)?;
             let payload_attributes: Option<JsonPayloadAttributes> = get_param(params, 1)?;
+
+            if let Some(hook_response) = ctx
+                .hook
+                .lock()
+                .on_forkchoice_updated(forkchoice_state.clone(), payload_attributes.clone())
+            {
+                return Ok(serde_json::to_value(hook_response).unwrap());
+            }
 
             let head_block_hash = forkchoice_state.head_block_hash;
 
@@ -152,19 +178,6 @@ pub async fn handle_rpc<T: EthSpec>(
             }
 
             Ok(serde_json::to_value(response).unwrap())
-        }
-
-        ENGINE_GET_PAYLOAD_V2 => {
-            let request: JsonPayloadIdRequest = get_param(params, 0)?;
-            let id = request.into();
-
-            let response = ctx
-                .execution_block_generator
-                .write()
-                .get_payload(&id)
-                .ok_or_else(|| format!("no payload for id {:?}", id))?;
-
-            Ok(serde_json::to_value(JsonExecutionPayloadV2::try_from(response).unwrap()).unwrap())
         }
         ENGINE_EXCHANGE_TRANSITION_CONFIGURATION_V1 => {
             let block_generator = ctx.execution_block_generator.read();

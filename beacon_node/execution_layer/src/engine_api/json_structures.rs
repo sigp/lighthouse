@@ -36,7 +36,7 @@ pub struct JsonResponseBody {
     pub id: serde_json::Value,
 }
 
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct TransparentJsonPayloadId(#[serde(with = "eth2_serde_utils::bytes_8_hex")] pub PayloadId);
 
@@ -174,7 +174,7 @@ impl<T: EthSpec> JsonExecutionPayload<T> {
                                 .collect::<Vec<_>>()
                                 .into()
                         })
-                        .ok_or(Error::BadConversion("Null withdrawal field converting JsonExecutionPayloadV2 -> ExecutionPayloadCapella".to_string()))?
+                        .ok_or_else(|| Error::BadConversion("Null withdrawal field converting JsonExecutionPayloadV2 -> ExecutionPayloadCapella".to_string()))?
                 })),
                 ForkName::Eip4844 => Ok(ExecutionPayload::Eip4844(ExecutionPayloadEip4844 {
                     parent_hash: v2.parent_hash,
@@ -189,7 +189,7 @@ impl<T: EthSpec> JsonExecutionPayload<T> {
                     timestamp: v2.timestamp,
                     extra_data: v2.extra_data,
                     base_fee_per_gas: v2.base_fee_per_gas,
-                    excess_data_gas: v2.excess_data_gas.ok_or(Error::BadConversion("Null `excess_data_gas` field converting JsonExecutionPayloadV2 -> ExecutionPayloadEip4844".to_string()))?,
+                    excess_data_gas: v2.excess_data_gas.ok_or_else(|| Error::BadConversion("Null `excess_data_gas` field converting JsonExecutionPayloadV2 -> ExecutionPayloadEip4844".to_string()))?,
                     block_hash: v2.block_hash,
                     transactions: v2.transactions,
                     #[cfg(feature = "withdrawals")]
@@ -202,7 +202,7 @@ impl<T: EthSpec> JsonExecutionPayload<T> {
                                 .collect::<Vec<_>>()
                                 .into()
                         })
-                        .ok_or(Error::BadConversion("Null withdrawal field converting JsonExecutionPayloadV2 -> ExecutionPayloadEip4844".to_string()))?
+                        .ok_or_else(|| Error::BadConversion("Null withdrawal field converting JsonExecutionPayloadV2 -> ExecutionPayloadEip4844".to_string()))?
                 })),
                 _ => Err(Error::UnsupportedForkVariant(format!("Unsupported conversion from JsonExecutionPayloadV2 for {}", fork_name))),
             }
@@ -322,7 +322,7 @@ impl<T: EthSpec> TryFrom<ExecutionPayload<T>> for JsonExecutionPayloadV2<T> {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct JsonWithdrawal {
     #[serde(with = "eth2_serde_utils::u64_hex_be")]
@@ -360,13 +360,13 @@ impl From<JsonWithdrawal> for Withdrawal {
 #[superstruct(
     variants(V1, V2),
     variant_attributes(
-        derive(Clone, Debug, PartialEq, Serialize, Deserialize),
+        derive(Debug, Clone, PartialEq, Serialize, Deserialize),
         serde(rename_all = "camelCase")
     ),
     cast_error(ty = "Error", expr = "Error::IncorrectStateVariant"),
     partial_getter_error(ty = "Error", expr = "Error::IncorrectStateVariant")
 )]
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub struct JsonPayloadAttributes {
     #[serde(with = "eth2_serde_utils::u64_hex_be")]
@@ -428,7 +428,7 @@ pub struct JsonBlobsBundle<T: EthSpec> {
     pub blobs: VariableList<Blob<T>, T::MaxBlobsPerBlock>,
 }
 
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct JsonForkchoiceStateV1 {
     pub head_block_hash: ExecutionBlockHash,
@@ -481,7 +481,7 @@ pub enum JsonPayloadStatusV1Status {
     InvalidBlockHash,
 }
 
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct JsonPayloadStatusV1 {
     pub status: JsonPayloadStatusV1Status,
@@ -546,7 +546,7 @@ impl From<JsonPayloadStatusV1> for PayloadStatusV1 {
     }
 }
 
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct JsonForkchoiceUpdatedV1Response {
     pub payload_status: JsonPayloadStatusV1,

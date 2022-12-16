@@ -624,6 +624,14 @@ fn main() {
                         .takes_value(true)
                         .help("The genesis time when generating a genesis state."),
                 )
+                .arg(
+                    Arg::with_name("proposer-score-boost")
+                        .long("proposer-score-boost")
+                        .value_name("INTEGER")
+                        .takes_value(true)
+                        .help("The proposer score boost to apply as a percentage, e.g. 70 = 70%"),
+                )
+
         )
         .subcommand(
             SubCommand::with_name("check-deposit-data")

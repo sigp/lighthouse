@@ -244,6 +244,21 @@ impl<T: EthSpec> MockExecutionLayer<T> {
         self
     }
 
+    pub fn produce_forked_pow_block(self) -> (Self, ExecutionBlockHash) {
+        let head_block = self
+            .server
+            .execution_block_generator()
+            .latest_block()
+            .unwrap();
+
+        let block_hash = self
+            .server
+            .execution_block_generator()
+            .insert_pow_block_by_hash(head_block.parent_hash(), 1)
+            .unwrap();
+        (self, block_hash)
+    }
+
     pub async fn with_terminal_block<'a, U, V>(self, func: U) -> Self
     where
         U: Fn(ChainSpec, ExecutionLayer<T>, Option<ExecutionBlock>) -> V,

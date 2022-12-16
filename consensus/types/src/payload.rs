@@ -261,7 +261,7 @@ impl<T: EthSpec> ExecPayload<T> for FullPayload<T> {
         })
     }
 
-    fn is_default_with_empty_roots<'a>(&'a self) -> bool {
+    fn is_default_with_empty_roots(&self) -> bool {
         // For full payloads the empty/zero distinction does not exist.
         self.is_default_with_zero_roots()
     }
@@ -536,7 +536,7 @@ impl<T: EthSpec> ExecPayload<T> for BlindedPayload<T> {
         }
     }
 
-    fn is_default_with_zero_roots<'a>(&'a self) -> bool {
+    fn is_default_with_zero_roots(&self) -> bool {
         self.to_ref().is_default_with_zero_roots()
     }
 
@@ -643,13 +643,13 @@ impl<'b, T: EthSpec> ExecPayload<T> for BlindedPayloadRef<'b, T> {
 }
 
 macro_rules! impl_exec_payload_common {
-    ($wrapper_type:ident,
-     $wrapped_type:ident,
-     $wrapped_type_full:ident,
-     $wrapped_type_header:ident,
-     $wrapped_field:ident,
-     $fork_variant:ident,
-     $block_type_variant:ident,
+    ($wrapper_type:ident,           // BlindedPayloadMerge          |   FullPayloadMerge
+     $wrapped_type:ident,           // ExecutionPayloadHeaderMerge  |   ExecutionPayloadMerge
+     $wrapped_type_full:ident,      // ExecutionPayloadMerge        |   ExecutionPayloadMerge
+     $wrapped_type_header:ident,    // ExecutionPayloadHeaderMerge  |   ExecutionPayloadHeaderMerge
+     $wrapped_field:ident,          // execution_payload_header     |   execution_payload
+     $fork_variant:ident,           // Merge                        |   Merge
+     $block_type_variant:ident,     // Blinded                      |   Full
      $f:block,
      $g:block) => {
         impl<T: EthSpec> ExecPayload<T> for $wrapper_type<T> {
@@ -696,7 +696,15 @@ macro_rules! impl_exec_payload_common {
             }
 
             fn is_default_with_empty_roots(&self) -> bool {
-                self.$wrapped_field == $wrapped_type::from($wrapped_type_full::default())
+                // FIXME: is there a better way than ignoring this lint?
+                // This is necessary because the first invocation of this macro might expand to:
+                //     self.execution_payload_header == ExecutionPayloadHeaderMerge::from(ExecutionPayloadMerge::default())
+                // but the second invocation might expand to:
+                //     self.execution_payload == ExecutionPayloadMerge::from(ExecutionPayloadMerge::default())
+                #[allow(clippy::cmp_owned)]
+                {
+                    self.$wrapped_field == $wrapped_type::from($wrapped_type_full::default())
+                }
             }
 
             fn transactions(&self) -> Option<&Transactions<T>> {
@@ -720,16 +728,17 @@ macro_rules! impl_exec_payload_common {
 }
 
 macro_rules! impl_exec_payload_for_fork {
+    // BlindedPayloadMerge, FullPayloadMerge, ExecutionPayloadHeaderMerge, ExecutionPayloadMerge, Merge
     ($wrapper_type_header:ident, $wrapper_type_full:ident, $wrapped_type_header:ident, $wrapped_type_full:ident, $fork_variant:ident) => {
         //*************** Blinded payload implementations ******************//
 
         impl_exec_payload_common!(
-            $wrapper_type_header,
-            $wrapped_type_header,
-            $wrapped_type_full,
-            $wrapped_type_header,
+            $wrapper_type_header, // BlindedPayloadMerge
+            $wrapped_type_header, // ExecutionPayloadHeaderMerge
+            $wrapped_type_full,   // ExecutionPayloadMerge
+            $wrapped_type_header, // ExecutionPayloadHeaderMerge
             execution_payload_header,
-            $fork_variant,
+            $fork_variant, // Merge
             Blinded,
             { |_| { None } },
             {
@@ -794,12 +803,12 @@ macro_rules! impl_exec_payload_for_fork {
         //*************** Full payload implementations ******************//
 
         impl_exec_payload_common!(
-            $wrapper_type_full,
-            $wrapped_type_full,
-            $wrapped_type_full,
-            $wrapped_type_header,
+            $wrapper_type_full,   // FullPayloadMerge
+            $wrapped_type_full,   // ExecutionPayloadMerge
+            $wrapped_type_full,   // ExecutionPayloadMerge
+            $wrapped_type_header, // ExecutionPayloadHeaderMerge
             execution_payload,
-            $fork_variant,
+            $fork_variant, // Merge
             Full,
             {
                 let c: for<'a> fn(&'a $wrapper_type_full<T>) -> Option<&'a Transactions<T>> =

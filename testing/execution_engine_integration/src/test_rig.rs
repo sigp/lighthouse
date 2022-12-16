@@ -616,7 +616,8 @@ async fn check_payload_reconstruction<E: GenericExecutionEngine>(
 ) {
     let reconstructed = ee
         .execution_layer
-        .get_payload_by_block_hash(payload.block_hash())
+        // FIXME: handle other forks here?
+        .get_payload_by_block_hash(payload.block_hash(), ForkName::Merge)
         .await
         .unwrap()
         .unwrap();

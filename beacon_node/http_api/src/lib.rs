@@ -1670,36 +1670,62 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path::end())
         .and(warp::body::json())
         .and(network_tx_filter.clone())
+        .and(log_filter.clone())
         .and_then(
             |chain: Arc<BeaconChain<T>>,
-             address_change: SignedBlsToExecutionChange,
-             network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
+             address_changes: Vec<SignedBlsToExecutionChange>,
+             #[allow(unused)] network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
+             log: Logger| {
                 blocking_json_task(move || {
-                    let outcome = chain
-                        .verify_bls_to_execution_change_for_gossip(address_change)
-                        .map_err(|e| {
-                            warp_utils::reject::object_invalid(format!(
-                                "gossip verification failed: {:?}",
-                                e
-                            ))
-                        })?;
+                    let mut failures = vec![];
 
-                    if let ObservationOutcome::New(address_change) = outcome {
-                        #[cfg(feature = "withdrawals-processing")]
-                        {
-                            publish_pubsub_message(
-                                &network_tx,
-                                PubsubMessage::BlsToExecutionChange(Box::new(
-                                    address_change.as_inner().clone(),
-                                )),
-                            )?;
+                    for (index, address_change) in address_changes.into_iter().enumerate() {
+                        let validator_index = address_change.message.validator_index;
+
+                        match chain.verify_bls_to_execution_change_for_gossip(address_change) {
+                            Ok(ObservationOutcome::New(verified_address_change)) => {
+                                #[cfg(feature = "withdrawals-processing")]
+                                {
+                                    publish_pubsub_message(
+                                        &network_tx,
+                                        PubsubMessage::BlsToExecutionChange(Box::new(
+                                            verified_address_change.as_inner().clone(),
+                                        )),
+                                    )?;
+                                }
+
+                                chain.import_bls_to_execution_change(verified_address_change);
+                            }
+                            Ok(ObservationOutcome::AlreadyKnown) => {
+                                debug!(
+                                    log,
+                                    "BLS to execution change already known";
+                                    "validator_index" => validator_index,
+                                );
+                            }
+                            Err(e) => {
+                                error!(
+                                    log,
+                                    "Invalid BLS to execution change";
+                                    "validator_index" => validator_index,
+                                    "source" => "HTTP API",
+                                );
+                                failures.push(api_types::Failure::new(
+                                    index,
+                                    format!("invalid: {e:?}"),
+                                ));
+                            }
                         }
-                        drop(network_tx);
-
-                        chain.import_bls_to_execution_change(address_change);
                     }
 
-                    Ok(())
+                    if failures.is_empty() {
+                        Ok(())
+                    } else {
+                        Err(warp_utils::reject::indexed_bad_request(
+                            "some BLS to execution changes failed to verify".into(),
+                            failures,
+                        ))
+                    }
                 })
             },
         );
@@ -2951,6 +2977,22 @@ pub fn serve<T: BeaconChainTypes>(
             })
         });
 
+    // POST lighthouse/ui/validator_metrics
+    let post_lighthouse_ui_validator_metrics = warp::path("lighthouse")
+        .and(warp::path("ui"))
+        .and(warp::path("validator_metrics"))
+        .and(warp::path::end())
+        .and(warp::body::json())
+        .and(chain_filter.clone())
+        .and_then(
+            |request_data: ui::ValidatorMetricsRequestData, chain: Arc<BeaconChain<T>>| {
+                blocking_json_task(move || {
+                    ui::post_validator_monitor_metrics(request_data, chain)
+                        .map(api_types::GenericResponse::from)
+                })
+            },
+        );
+
     // GET lighthouse/syncing
     let get_lighthouse_syncing = warp::path("lighthouse")
         .and(warp::path("syncing"))
@@ -3402,6 +3444,7 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(get_validator_sync_committee_contribution.boxed())
                 .or(get_lighthouse_health.boxed())
                 .or(get_lighthouse_ui_health.boxed())
+                .or(get_lighthouse_ui_validator_count.boxed())
                 .or(get_lighthouse_syncing.boxed())
                 .or(get_lighthouse_nat.boxed())
                 .or(get_lighthouse_peers.boxed())
@@ -3419,7 +3462,6 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(get_lighthouse_attestation_performance.boxed())
                 .or(get_lighthouse_block_packing_efficiency.boxed())
                 .or(get_lighthouse_merge_readiness.boxed())
-                .or(get_lighthouse_ui_validator_count.boxed())
                 .or(get_events.boxed()),
         )
         .boxed()
@@ -3444,7 +3486,8 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(post_lighthouse_liveness.boxed())
                 .or(post_lighthouse_database_reconstruct.boxed())
                 .or(post_lighthouse_database_historical_blocks.boxed())
-                .or(post_lighthouse_block_rewards.boxed()),
+                .or(post_lighthouse_block_rewards.boxed())
+                .or(post_lighthouse_ui_validator_metrics.boxed()),
         ))
         .recover(warp_utils::reject::handle_rejection)
         .with(slog_logging(log.clone()))

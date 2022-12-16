@@ -1,5 +1,5 @@
 use crate::error::InvalidBestNodeInfo;
-use crate::{error::Error, Block, ExecutionStatus};
+use crate::{error::Error, Block, ExecutionStatus, JustifiedBalances};
 use serde_derive::{Deserialize, Serialize};
 use ssz::four_byte_option_impl;
 use ssz::Encode;
@@ -169,7 +169,7 @@ impl ProtoArray {
         mut deltas: Vec<i64>,
         justified_checkpoint: Checkpoint,
         finalized_checkpoint: Checkpoint,
-        new_balances: &[u64],
+        new_justified_balances: &JustifiedBalances,
         proposer_boost_root: Hash256,
         current_slot: Slot,
         spec: &ChainSpec,
@@ -241,9 +241,11 @@ impl ProtoArray {
                     // Invalid nodes (or their ancestors) should not receive a proposer boost.
                     && !execution_status_is_invalid
                 {
-                    proposer_score =
-                        calculate_proposer_boost::<E>(new_balances, proposer_score_boost)
-                            .ok_or(Error::ProposerBoostOverflow(node_index))?;
+                    proposer_score = calculate_committee_fraction::<E>(
+                        new_justified_balances,
+                        proposer_score_boost,
+                    )
+                    .ok_or(Error::ProposerBoostOverflow(node_index))?;
                     node_delta = node_delta
                         .checked_add(proposer_score as i64)
                         .ok_or(Error::DeltaOverflow(node_index))?;
@@ -1006,32 +1008,19 @@ impl ProtoArray {
     }
 }
 
-/// A helper method to calculate the proposer boost based on the given `validator_balances`.
-/// This does *not* do any verification about whether a boost should or should not be applied.
-/// The `validator_balances` array used here is assumed to be structured like the one stored in
-/// the `BalancesCache`, where *effective* balances are stored and inactive balances are defaulted
-/// to zero.
-///
-/// Returns `None` if there is an overflow or underflow when calculating the score.
+/// A helper method to calculate the proposer boost based on the given `justified_balances`.
 ///
 /// https://github.com/ethereum/consensus-specs/blob/dev/specs/phase0/fork-choice.md#get_latest_attesting_balance
-pub fn calculate_proposer_boost<E: EthSpec>(
-    validator_balances: &[u64],
+pub fn calculate_committee_fraction<E: EthSpec>(
+    justified_balances: &JustifiedBalances,
     proposer_score_boost: u64,
 ) -> Option<u64> {
-    let mut total_balance: u64 = 0;
-    let mut num_validators: u64 = 0;
-    for &balance in validator_balances {
-        // We need to filter zero balances here to get an accurate active validator count.
-        // This is because we default inactive validator balances to zero when creating
-        // this balances array.
-        if balance != 0 {
-            total_balance = total_balance.checked_add(balance)?;
-            num_validators = num_validators.checked_add(1)?;
-        }
-    }
-    let average_balance = total_balance.checked_div(num_validators)?;
-    let committee_size = num_validators.checked_div(E::slots_per_epoch())?;
+    let average_balance = justified_balances
+        .total_effective_balance
+        .checked_div(justified_balances.num_active_validators)?;
+    let committee_size = justified_balances
+        .num_active_validators
+        .checked_div(E::slots_per_epoch())?;
     let committee_weight = committee_size.checked_mul(average_balance)?;
     committee_weight
         .checked_mul(proposer_score_boost)?
