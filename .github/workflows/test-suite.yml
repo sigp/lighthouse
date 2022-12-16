@@ -13,6 +13,8 @@ env:
   RUSTFLAGS: "-D warnings"
   # The Nightly version used for cargo-udeps, might need updating from time to time.
   PINNED_NIGHTLY: nightly-2022-05-20
+  # Prevent Github API rate limiting.
+  WEB3SIGNER_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 jobs:
   target-branch-check:
     name: target-branch-check

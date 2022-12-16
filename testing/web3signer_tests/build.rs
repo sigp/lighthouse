@@ -1,7 +1,10 @@
 //! This build script downloads the latest Web3Signer release and places it in the `OUT_DIR` so it
 //! can be used for integration testing.
 
-use reqwest::Client;
+use reqwest::{
+    header::{self, HeaderValue},
+    Client,
+};
 use serde_json::Value;
 use std::env;
 use std::fs;
@@ -15,10 +18,16 @@ const FIXED_VERSION_STRING: Option<&str> = None;
 #[tokio::main]
 async fn main() {
     let out_dir = env::var("OUT_DIR").unwrap();
-    download_binary(out_dir.into()).await;
+
+    // Read Github API token from environment. This is intended to prevent rate-limits on CI.
+    // We use a name that is unlikely to collide with anything the user has configured.
+    // FIXME(sproul): remove unwrap after testing
+    let github_token = Some(env::var("WEB3SIGNER_GITHUB_TOKEN").unwrap());
+
+    download_binary(out_dir.into(), github_token.as_deref().unwrap_or("")).await;
 }
 
-pub async fn download_binary(dest_dir: PathBuf) {
+pub async fn download_binary(dest_dir: PathBuf, github_token: &str) {
     let version_file = dest_dir.join("version");
 
     let client = Client::builder()
@@ -33,8 +42,11 @@ pub async fn download_binary(dest_dir: PathBuf) {
         env_version
     } else {
         // Get the latest release of the web3 signer repo.
+        let mut token_header_value = HeaderValue::from_str(github_token).unwrap();
+        token_header_value.set_sensitive(true);
         let latest_response: Value = client
             .get("https://api.github.com/repos/ConsenSys/web3signer/releases/latest")
+            .header(header::AUTHORIZATION, token_header_value)
             .send()
             .await
             .unwrap()
