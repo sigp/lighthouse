@@ -261,6 +261,8 @@ impl<TSpec: EthSpec> UpgradeInfo for RPCProtocol<TSpec> {
             ProtocolId::new(Protocol::Ping, Version::V1, Encoding::SSZSnappy),
             ProtocolId::new(Protocol::MetaData, Version::V2, Encoding::SSZSnappy),
             ProtocolId::new(Protocol::MetaData, Version::V1, Encoding::SSZSnappy),
+            ProtocolId::new(Protocol::BlobsByRoot, Version::V1, Encoding::SSZSnappy),
+            ProtocolId::new(Protocol::BlobsByRange, Version::V1, Encoding::SSZSnappy),
         ];
         if self.enable_light_client_server {
             supported_protocols.push(ProtocolId::new(
