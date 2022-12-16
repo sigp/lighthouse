@@ -5,18 +5,17 @@ use eth2::lighthouse::BlockRewardsV2;
 use slog::Logger;
 use crate::BlockId;
 
-pub fn compute_block_rewards<T: BeaconChainTypes>(
+pub fn compute_sync_committee_rewards<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
     block_id: BlockId,
     validators: Vec<ValidatorId>,
     log: Logger
-) -> Result<BlockRewardsV2, Error> {
+) -> Result<BlockRewardsV2, warp::Rejection> {
 
-    // Create AttestationRewards with calculated rewards
     Ok(BlockRewardsV2{
         execution_optimistic: false,
         finalized: false,
-        data: Vec::new(),
+        data: vec![],
     })
 
 }
