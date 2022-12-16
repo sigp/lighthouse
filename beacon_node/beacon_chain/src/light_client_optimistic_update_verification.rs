@@ -38,7 +38,7 @@ pub enum Error {
     /// Failed to construct a LightClientOptimisticUpdate from state.
     FailedConstructingUpdate,
     /// Unknown block with parent root.
-    UnknownBlockParentRoot(Hash256, Hash256),
+    UnknownBlockParentRoot(Hash256),
     /// Beacon chain error occured.
     BeaconChainError(BeaconChainError),
     LightClientUpdateError(LightClientUpdateError),
@@ -103,7 +103,6 @@ impl<T: BeaconChainTypes> VerifiedLightClientOptimisticUpdate<T> {
 
         if canonical_root != head_block.message().parent_root() {
             return Err(Error::UnknownBlockParentRoot(
-                light_client_optimistic_update.attested_header.body_root,
                 canonical_root,
             ));
         }

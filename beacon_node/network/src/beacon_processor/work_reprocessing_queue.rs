@@ -47,6 +47,9 @@ const ADDITIONAL_QUEUED_BLOCK_DELAY: Duration = Duration::from_millis(5);
 /// For how long to queue aggregated and unaggregated attestations for re-processing.
 pub const QUEUED_ATTESTATION_DELAY: Duration = Duration::from_secs(12);
 
+/// For how long to queue light client updates for re-processing.
+pub const QUEUED_LIGHT_CLIENT_UPDATE_DELAY: Duration = Duration::from_secs(12);
+
 /// For how long to queue rpc blocks before sending them back for reprocessing.
 pub const QUEUED_RPC_BLOCK_DELAY: Duration = Duration::from_secs(3);
 
@@ -57,6 +60,9 @@ const MAXIMUM_QUEUED_BLOCKS: usize = 16;
 
 /// How many attestations we keep before new ones get dropped.
 const MAXIMUM_QUEUED_ATTESTATIONS: usize = 16_384;
+
+/// How many light client updates we keep before new ones get dropped.
+const MAXIMUM_QUEUED_LIGHT_CLIENT_UPDATES: usize = 128;
 
 /// Messages that the scheduler can receive.
 pub enum ReprocessQueueMessage<T: BeaconChainTypes> {
@@ -75,6 +81,8 @@ pub enum ReprocessQueueMessage<T: BeaconChainTypes> {
     UnknownBlockUnaggregate(QueuedUnaggregate<T::EthSpec>),
     /// An aggregated attestation that references an unknown block.
     UnknownBlockAggregate(QueuedAggregate<T::EthSpec>),
+    /// A light client optimistic update that references a parent root that has not been seen as a parent.
+    UnknownLCOptimisticUpdate(QueuedLCUpdate<T::EthSpec>),
 }
 
 /// Events sent by the scheduler once they are ready for re-processing.
@@ -183,9 +191,11 @@ struct ReprocessQueue<T: BeaconChainTypes> {
     /* Aux */
     /// Next attestation id, used for both aggregated and unaggregated attestations
     next_attestation: usize,
+    next_lc_update: usize,
     early_block_debounce: TimeLatch,
     rpc_block_debounce: TimeLatch,
     attestation_delay_debounce: TimeLatch,
+    lc_update_delay_debounce: TimeLatch,
 }
 
 pub type QueuedLCUpdateId = usize;
@@ -296,9 +306,11 @@ pub fn spawn_reprocess_scheduler<T: BeaconChainTypes>(
         awaiting_attestations_per_root: HashMap::new(),
         awaiting_lc_updates_per_parent_root: HashMap::new(),
         next_attestation: 0,
+        next_lc_update: 0,
         early_block_debounce: TimeLatch::default(),
         rpc_block_debounce: TimeLatch::default(),
         attestation_delay_debounce: TimeLatch::default(),
+        lc_update_delay_debounce: TimeLatch::default(),
     };
 
     executor.spawn(
@@ -500,6 +512,44 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
 
                 self.next_attestation += 1;
             }
+            InboundEvent::Msg(UnknownLCOptimisticUpdate(queued_light_client_optimistic_update)) => {
+                if self.lc_updates_delay_queue.len() >= MAXIMUM_QUEUED_LIGHT_CLIENT_UPDATES {
+                    if self.lc_update_delay_debounce.elapsed() {
+                        error!(
+                            log,
+                            "Light client updates delay queue is full";
+                            "queue_size" => MAXIMUM_QUEUED_LIGHT_CLIENT_UPDATES,
+                            "msg" => "check system clock"
+                        );
+                    }
+                    // Drop the attestation.
+                    return;
+                }
+
+                let lc_id: QueuedLCUpdateId = self.next_lc_update;
+
+                // Register the delay.
+                let delay_key = self
+                    .lc_updates_delay_queue
+                    .insert(lc_id, QUEUED_LIGHT_CLIENT_UPDATE_DELAY);
+
+                // Register the light client update for the corresponding root.
+                self.awaiting_lc_updates_per_parent_root
+                    .entry(
+                        queued_light_client_optimistic_update
+                        .light_client_optimistic_update
+                        .attested_header
+                        .canonical_root()
+                    )
+                    .or_default()
+                    .push(lc_id);
+
+                // Store the light client update and its info.
+                self.queued_lc_updates
+                    .insert(self.next_lc_update, (queued_light_client_optimistic_update, delay_key));
+
+                self.next_lc_update += 1;
+            }
             InboundEvent::Msg(BlockImported {
                 block_root,
                 parent_root,
@@ -552,6 +602,12 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
                     .awaiting_lc_updates_per_parent_root
                     .remove(&parent_root)
                 {
+                    debug!(
+                        log, 
+                        "unqueue lc optimistic updates";
+                        "parent_root" => %parent_root,
+                    );
+
                     for lc_id in queued_lc_id {
                         if let Some((work, delay_key)) = self.queued_lc_updates.remove(&lc_id).map(
                             |(light_client_optimistic_update, delay_key)| {

@@ -28,7 +28,7 @@ use types::{
 
 use super::{
     super::work_reprocessing_queue::{
-        QueuedAggregate, QueuedGossipBlock, QueuedUnaggregate, ReprocessQueueMessage,
+        QueuedAggregate, QueuedGossipBlock, QueuedUnaggregate, ReprocessQueueMessage, QueuedLCUpdate
     },
     Worker,
 };
@@ -1385,7 +1385,7 @@ impl<T: BeaconChainTypes> Worker<T> {
     ) {
         match self
             .chain
-            .verify_optimistic_update_for_gossip(light_client_optimistic_update, seen_timestamp)
+            .verify_optimistic_update_for_gossip(light_client_optimistic_update.clone(), seen_timestamp)
         {
             Ok(verified_light_client_optimistic_update) => {
                 debug!(
@@ -1401,7 +1401,6 @@ impl<T: BeaconChainTypes> Worker<T> {
                 metrics::register_optimistic_update_error(&e);
                 match e {
                     LightClientOptimisticUpdateError::UnknownBlockParentRoot(
-                        block_root,
                         parent_root,
                     ) => {
                         debug!(
@@ -1410,11 +1409,14 @@ impl<T: BeaconChainTypes> Worker<T> {
                             "peer_id" => %peer_id,
                             "parent_root" => ?parent_root
                         );
+
                         if let Some(sender) = reprocess_tx {
-                            let msg = ReprocessQueueMessage::BlockImported {
-                                block_root,
-                                parent_root,
-                            };
+                            let msg = ReprocessQueueMessage::UnknownLCOptimisticUpdate ( QueuedLCUpdate {
+                                peer_id,
+                                message_id,
+                                light_client_optimistic_update: Box::new(light_client_optimistic_update),
+                                seen_timestamp,
+                            });
 
                             if sender.try_send(msg).is_err() {
                                 error!(
