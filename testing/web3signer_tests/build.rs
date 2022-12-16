@@ -21,8 +21,7 @@ async fn main() {
 
     // Read Github API token from environment. This is intended to prevent rate-limits on CI.
     // We use a name that is unlikely to collide with anything the user has configured.
-    // FIXME(sproul): remove unwrap after testing
-    let github_token = Some(env::var("WEB3SIGNER_GITHUB_TOKEN").unwrap());
+    let github_token = env::var("WEB3SIGNER_GITHUB_TOKEN");
 
     download_binary(out_dir.into(), github_token.as_deref().unwrap_or("")).await;
 }
