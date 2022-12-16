@@ -1,13 +1,12 @@
 use std::task::{Context, Poll};
 
 use futures::StreamExt;
-use libp2p::core::connection::ConnectionId;
 use libp2p::core::ConnectedPoint;
 use libp2p::swarm::behaviour::{ConnectionClosed, ConnectionEstablished, DialFailure, FromSwarm};
 use libp2p::swarm::dial_opts::{DialOpts, PeerCondition};
 use libp2p::swarm::dummy::ConnectionHandler;
-use libp2p::swarm::{DialError, NetworkBehaviour, NetworkBehaviourAction, PollParameters};
-use libp2p::{Multiaddr, PeerId};
+use libp2p::swarm::{NetworkBehaviour, NetworkBehaviourAction, PollParameters};
+use libp2p::PeerId;
 use slog::{debug, error};
 use types::EthSpec;
 
