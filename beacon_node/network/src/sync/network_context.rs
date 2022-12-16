@@ -50,7 +50,7 @@ impl<T: EthSpec> BlockBlobRequestInfo<T> {
     }
 
     pub fn pop_response(&mut self) -> Option<SignedBeaconBlockAndBlobsSidecar<T>> {
-        if !self.accumulated_blocks.is_empty() && !self.accumulated_blocks.is_empty() {
+        if !self.accumulated_blocks.is_empty() && !self.accumulated_sidecars.is_empty() {
             let beacon_block = self.accumulated_blocks.pop_front().expect("non empty");
             let blobs_sidecar = self.accumulated_sidecars.pop_front().expect("non empty");
             return Some(SignedBeaconBlockAndBlobsSidecar {
