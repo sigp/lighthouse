@@ -88,7 +88,7 @@ jobs:
             # ==============================
             - name: Install Protoc
               if: contains(matrix.arch, 'darwin') || contains(matrix.arch, 'windows')
-              uses: arduino/setup-protoc@e52d9eb
+              uses: arduino/setup-protoc@e52d9eb8f7b63115df1ac544a1376fdbf5a39612
               with:
                 repo-token: ${{ secrets.GITHUB_TOKEN }}
 
