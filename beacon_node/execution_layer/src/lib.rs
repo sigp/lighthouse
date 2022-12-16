@@ -40,6 +40,7 @@ use types::{
     ProposerPreparationData, PublicKeyBytes, Signature, SignedBeaconBlock, Slot, Uint256,
 };
 
+mod block_hash;
 mod engine_api;
 mod engines;
 mod metrics;
@@ -90,6 +91,10 @@ pub enum Error {
     ShuttingDown,
     FeeRecipientUnspecified,
     MissingLatestValidHash,
+    BlockHashMismatch {
+        computed: ExecutionBlockHash,
+        payload: ExecutionBlockHash,
+    },
     InvalidJWTSecret(String),
 }
 

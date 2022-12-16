@@ -15,7 +15,7 @@ use crate::{
 use execution_layer::{BuilderParams, PayloadStatus};
 use fork_choice::{InvalidationOperation, PayloadVerificationStatus};
 use proto_array::{Block as ProtoBlock, ExecutionStatus};
-use slog::debug;
+use slog::{debug, warn};
 use slot_clock::SlotClock;
 use state_processing::per_block_processing::{
     compute_timestamp_at_slot, is_execution_enabled, is_merge_transition_complete,
@@ -59,29 +59,47 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
         state: &BeaconState<T::EthSpec>,
         notify_execution_layer: NotifyExecutionLayer,
     ) -> Result<Self, BlockError<T::EthSpec>> {
-        let payload_verification_status = match notify_execution_layer {
-            NotifyExecutionLayer::No if chain.optimistic_finalized_sync => {
-                // XXX: We should really check the `blockHash` before marking a block as optimistic.
-                Some(PayloadVerificationStatus::Optimistic)
-            }
-            _ => {
-                if is_execution_enabled(state, block.message().body()) {
-                    // Perform the initial stages of payload verification.
-                    //
-                    // We will duplicate these checks again during `per_block_processing`, however these checks
-                    // are cheap and doing them here ensures we protect the execution engine from junk.
-                    partially_verify_execution_payload(
-                        state,
-                        block.slot(),
-                        block.message().execution_payload()?,
-                        &chain.spec,
-                    )
-                    .map_err(BlockError::PerBlockProcessingError)?;
-                    None
-                } else {
-                    Some(PayloadVerificationStatus::Irrelevant)
+        let payload_verification_status = if is_execution_enabled(state, block.message().body()) {
+            // Perform the initial stages of payload verification.
+            //
+            // We will duplicate these checks again during `per_block_processing`, however these checks
+            // are cheap and doing them here ensures we protect the execution engine from junk.i
+            let block_message = block.message();
+            let payload = block_message.execution_payload()?;
+            partially_verify_execution_payload(state, block.slot(), payload, &chain.spec)
+                .map_err(BlockError::PerBlockProcessingError)?;
+
+            match notify_execution_layer {
+                NotifyExecutionLayer::No if chain.config.optimistic_finalized_sync => {
+                    let execution_layer = chain
+                        .execution_layer
+                        .as_ref()
+                        .ok_or(ExecutionPayloadError::NoExecutionConnection)?;
+
+                    if let Err(e) =
+                        execution_layer.verify_payload_block_hash(&payload.execution_payload)
+                    {
+                        warn!(
+                            chain.log,
+                            "Fast payload blockHash verification failed";
+                            "block_number" => payload.block_number(),
+                            "msg" => "falling back to full verification",
+                            "error" => ?e,
+                        );
+                        None
+                    } else {
+                        slog::info!(
+                            chain.log,
+                            "By some miracle payload verification succeeded";
+                            "block_number" => payload.block_number(),
+                        );
+                        Some(PayloadVerificationStatus::Optimistic)
+                    }
                 }
+                _ => None,
             }
+        } else {
+            Some(PayloadVerificationStatus::Irrelevant)
         };
 
         Ok(Self {

@@ -70,7 +70,7 @@ impl Default for ChainConfig {
             paranoid_block_proposal: false,
             count_unrealized_full: CountUnrealizedFull::default(),
             checkpoint_sync_url_timeout: 60,
-            optimistic_finalized_sync: false,
+            optimistic_finalized_sync: true, //FIXME(sproul): set false
         }
     }
 }
