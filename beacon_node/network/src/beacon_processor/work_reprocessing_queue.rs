@@ -537,16 +537,18 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
                 self.awaiting_lc_updates_per_parent_root
                     .entry(
                         queued_light_client_optimistic_update
-                        .light_client_optimistic_update
-                        .attested_header
-                        .canonical_root()
+                            .light_client_optimistic_update
+                            .attested_header
+                            .canonical_root(),
                     )
                     .or_default()
                     .push(lc_id);
 
                 // Store the light client update and its info.
-                self.queued_lc_updates
-                    .insert(self.next_lc_update, (queued_light_client_optimistic_update, delay_key));
+                self.queued_lc_updates.insert(
+                    self.next_lc_update,
+                    (queued_light_client_optimistic_update, delay_key),
+                );
 
                 self.next_lc_update += 1;
             }
@@ -603,7 +605,7 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
                     .remove(&parent_root)
                 {
                     debug!(
-                        log, 
+                        log,
                         "unqueue lc optimistic updates";
                         "parent_root" => %parent_root,
                     );

@@ -102,9 +102,7 @@ impl<T: BeaconChainTypes> VerifiedLightClientOptimisticUpdate<T> {
             .canonical_root();
 
         if canonical_root != head_block.message().parent_root() {
-            return Err(Error::UnknownBlockParentRoot(
-                canonical_root,
-            ));
+            return Err(Error::UnknownBlockParentRoot(canonical_root));
         }
 
         // verify that no other optimistic_update with a lower or equal

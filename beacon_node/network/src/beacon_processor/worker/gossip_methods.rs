@@ -28,7 +28,8 @@ use types::{
 
 use super::{
     super::work_reprocessing_queue::{
-        QueuedAggregate, QueuedGossipBlock, QueuedUnaggregate, ReprocessQueueMessage, QueuedLCUpdate
+        QueuedAggregate, QueuedGossipBlock, QueuedLCUpdate, QueuedUnaggregate,
+        ReprocessQueueMessage,
     },
     Worker,
 };
@@ -1383,10 +1384,10 @@ impl<T: BeaconChainTypes> Worker<T> {
         reprocess_tx: Option<mpsc::Sender<ReprocessQueueMessage<T>>>,
         seen_timestamp: Duration,
     ) {
-        match self
-            .chain
-            .verify_optimistic_update_for_gossip(light_client_optimistic_update.clone(), seen_timestamp)
-        {
+        match self.chain.verify_optimistic_update_for_gossip(
+            light_client_optimistic_update.clone(),
+            seen_timestamp,
+        ) {
             Ok(verified_light_client_optimistic_update) => {
                 debug!(
                     self.log,
@@ -1400,9 +1401,7 @@ impl<T: BeaconChainTypes> Worker<T> {
             Err(e) => {
                 metrics::register_optimistic_update_error(&e);
                 match e {
-                    LightClientOptimisticUpdateError::UnknownBlockParentRoot(
-                        parent_root,
-                    ) => {
+                    LightClientOptimisticUpdateError::UnknownBlockParentRoot(parent_root) => {
                         debug!(
                             self.log,
                             "Optimistic update for unknown block";
@@ -1411,12 +1410,15 @@ impl<T: BeaconChainTypes> Worker<T> {
                         );
 
                         if let Some(sender) = reprocess_tx {
-                            let msg = ReprocessQueueMessage::UnknownLCOptimisticUpdate ( QueuedLCUpdate {
-                                peer_id,
-                                message_id,
-                                light_client_optimistic_update: Box::new(light_client_optimistic_update),
-                                seen_timestamp,
-                            });
+                            let msg =
+                                ReprocessQueueMessage::UnknownLCOptimisticUpdate(QueuedLCUpdate {
+                                    peer_id,
+                                    message_id,
+                                    light_client_optimistic_update: Box::new(
+                                        light_client_optimistic_update,
+                                    ),
+                                    seen_timestamp,
+                                });
 
                             if sender.try_send(msg).is_err() {
                                 error!(
