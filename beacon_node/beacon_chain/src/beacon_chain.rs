@@ -4963,6 +4963,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let forkchoice_updated_response = execution_layer
             .notify_forkchoice_updated(
+                &self.spec,
                 head_hash,
                 justified_hash,
                 finalized_hash,

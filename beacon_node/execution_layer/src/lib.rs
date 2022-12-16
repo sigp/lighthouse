@@ -1018,6 +1018,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
 
                     let response = engine
                         .notify_forkchoice_updated(
+                            current_fork,
                             fork_choice_state,
                             Some(payload_attributes.clone()),
                             self.log(),
@@ -1228,6 +1229,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
     /// - An error, if all nodes return an error.
     pub async fn notify_forkchoice_updated(
         &self,
+        spec: &ChainSpec,
         head_block_hash: ExecutionBlockHash,
         justified_block_hash: ExecutionBlockHash,
         finalized_block_hash: ExecutionBlockHash,
@@ -1278,8 +1280,10 @@ impl<T: EthSpec> ExecutionLayer<T> {
             finalized_block_hash,
         };
 
+        let fork_name = spec.fork_name_at_epoch(next_slot.epoch(T::slots_per_epoch()));
+
         self.engine()
-            .set_latest_forkchoice_state(forkchoice_state)
+            .set_latest_forkchoice_state(forkchoice_state, fork_name)
             .await;
 
         let payload_attributes_ref = &payload_attributes;
@@ -1288,6 +1292,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
             .request(|engine| async move {
                 engine
                     .notify_forkchoice_updated(
+                        fork_name,
                         forkchoice_state,
                         payload_attributes_ref.clone(),
                         self.log(),

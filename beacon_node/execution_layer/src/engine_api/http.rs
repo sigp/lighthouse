@@ -884,7 +884,12 @@ impl HttpJsonRpc {
     ) -> Result<PayloadStatusV1, Error> {
         let supported_apis = self.get_cached_supported_apis().await?;
         if supported_apis.new_payload_v2 {
-            self.new_payload_v2(execution_payload).await
+            match execution_payload {
+                ExecutionPayload::Merge(_) => self.new_payload_v1(execution_payload).await,
+                ExecutionPayload::Capella(_) | ExecutionPayload::Eip4844(_) => {
+                    self.new_payload_v2(execution_payload).await
+                }
+            }
         } else if supported_apis.new_payload_v1 {
             self.new_payload_v1(execution_payload).await
         } else {
@@ -901,7 +906,14 @@ impl HttpJsonRpc {
     ) -> Result<ExecutionPayload<T>, Error> {
         let supported_apis = self.get_cached_supported_apis().await?;
         if supported_apis.get_payload_v2 {
-            self.get_payload_v2(fork_name, payload_id).await
+            match fork_name {
+                ForkName::Base | ForkName::Altair | ForkName::Merge => {
+                    self.get_payload_v1(fork_name, payload_id).await
+                }
+                ForkName::Capella | ForkName::Eip4844 => {
+                    self.get_payload_v2(fork_name, payload_id).await
+                }
+            }
         } else if supported_apis.new_payload_v1 {
             self.get_payload_v1(fork_name, payload_id).await
         } else {
@@ -913,13 +925,27 @@ impl HttpJsonRpc {
     // forkchoice_updated that the execution engine supports
     pub async fn forkchoice_updated(
         &self,
+        fork_name: ForkName,
         forkchoice_state: ForkchoiceState,
         payload_attributes: Option<PayloadAttributes>,
     ) -> Result<ForkchoiceUpdatedResponse, Error> {
         let supported_apis = self.get_cached_supported_apis().await?;
         if supported_apis.forkchoice_updated_v2 {
-            self.forkchoice_updated_v2(forkchoice_state, payload_attributes)
-                .await
+            match fork_name {
+                ForkName::Base | ForkName::Altair | ForkName::Merge => {
+                    self.forkchoice_updated_v1(
+                        forkchoice_state,
+                        payload_attributes
+                            .map(|pa| pa.downgrade_to_v1())
+                            .transpose()?,
+                    )
+                    .await
+                }
+                ForkName::Capella | ForkName::Eip4844 => {
+                    self.forkchoice_updated_v2(forkchoice_state, payload_attributes)
+                        .await
+                }
+            }
         } else if supported_apis.forkchoice_updated_v1 {
             self.forkchoice_updated_v1(
                 forkchoice_state,

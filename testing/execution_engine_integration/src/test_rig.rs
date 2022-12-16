@@ -290,6 +290,7 @@ impl<E: GenericExecutionEngine> TestRig<E> {
             .ee_a
             .execution_layer
             .notify_forkchoice_updated(
+                &self.spec,
                 parent_hash,
                 justified_block_hash,
                 finalized_block_hash,
@@ -350,6 +351,7 @@ impl<E: GenericExecutionEngine> TestRig<E> {
             .ee_a
             .execution_layer
             .notify_forkchoice_updated(
+                &self.spec,
                 head_block_hash,
                 justified_block_hash,
                 finalized_block_hash,
@@ -390,6 +392,7 @@ impl<E: GenericExecutionEngine> TestRig<E> {
             .ee_a
             .execution_layer
             .notify_forkchoice_updated(
+                &self.spec,
                 head_block_hash,
                 justified_block_hash,
                 finalized_block_hash,
@@ -503,6 +506,7 @@ impl<E: GenericExecutionEngine> TestRig<E> {
             .ee_a
             .execution_layer
             .notify_forkchoice_updated(
+                &self.spec,
                 head_block_hash,
                 justified_block_hash,
                 finalized_block_hash,
@@ -543,6 +547,7 @@ impl<E: GenericExecutionEngine> TestRig<E> {
             .ee_b
             .execution_layer
             .notify_forkchoice_updated(
+                &self.spec,
                 head_block_hash,
                 justified_block_hash,
                 finalized_block_hash,
@@ -595,6 +600,7 @@ impl<E: GenericExecutionEngine> TestRig<E> {
             .ee_b
             .execution_layer
             .notify_forkchoice_updated(
+                &self.spec,
                 head_block_hash,
                 justified_block_hash,
                 finalized_block_hash,

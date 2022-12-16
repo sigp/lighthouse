@@ -118,6 +118,7 @@ impl<T: EthSpec> MockExecutionLayer<T> {
 
         self.el
             .notify_forkchoice_updated(
+                &self.spec,
                 parent_hash,
                 ExecutionBlockHash::zero(),
                 ExecutionBlockHash::zero(),
@@ -207,6 +208,7 @@ impl<T: EthSpec> MockExecutionLayer<T> {
         let head_block_root = Hash256::repeat_byte(13);
         self.el
             .notify_forkchoice_updated(
+                &self.spec,
                 block_hash,
                 ExecutionBlockHash::zero(),
                 ExecutionBlockHash::zero(),
