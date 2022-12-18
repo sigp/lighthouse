@@ -422,6 +422,140 @@ impl ApiTester {
         self
     }
 
+    // finalization tests
+    pub async fn test_beacon_states_root_finalized(self) -> Self {
+        for state_id in self.interesting_state_ids() {
+            let result = self
+                .client
+                .get_beacon_states_root(state_id.0)
+                .await
+                .unwrap()
+                .map(|res| res.finalized);
+
+            let (state_root, _) = state_id.root(&self.chain).unwrap();
+            let state_slot = state.slot();
+            let expected = chain.is_finalized_state(&state_root, state_slot).unwrap();
+
+            assert_eq!(result, expected, "{:?}", state_id);
+        }
+
+        self
+    }
+
+    pub async fn test_beacon_states_fork_finalized(self) -> Self {
+        for state_id in self.interesting_state_ids() {
+            let result = self
+                .client
+                .get_beacon_states_fork(state_id.0)
+                .await
+                .unwrap()
+                .map(|res| res.finalized);
+
+            let (state_root, _) = state_id.root(&self.chain).unwrap();
+            let state_slot = state.slot();
+            let expected = chain.is_finalized_state(&state_root, state_slot).unwrap();
+
+            assert_eq!(result, expected, "{:?}", state_id);
+        }
+
+        self
+    }
+
+    pub async fn test_beacon_states_finality_checkpoints_finalized(self) -> Self {
+        for state_id in self.interesting_state_ids() {
+            let result = self
+                .client
+                .get_beacon_states_finality_checkpoints(state_id.0)
+                .await
+                .unwrap()
+                .map(|res| res.finalized);
+
+            let (state_root, _) = state_id.root(&self.chain).unwrap();
+            let state_slot = state.slot();
+            let expected = chain.is_finalized_state(&state_root, state_slot).unwrap();
+
+            assert_eq!(result, expected, "{:?}", state_id);
+        }
+
+        self
+    }
+
+    pub async fn test_beacon_headers_block_id_finalized(self) -> Self {
+        for block_id in self.interesting_block_ids() {
+            let result = self
+                .client
+                .get_beacon_headers_block_id(block_id.0)
+                .await
+                .unwrap()
+                .map(|res| res.finalized);
+
+            let (block, _) = block_id.blinded_block(&chain).await.unwrap();
+            let (block_root, _) = block_id.root(&chain)?;
+            let expected = chain.is_finalized_block(&block_root, block.slot()).unwrap();
+
+            assert_eq!(result, expected, "{:?}", state_id);
+        }
+
+        self
+    }
+
+    pub async fn test_beacon_blocks_finalized(self) -> Self {
+        for block_id in self.interesting_block_ids() {
+            let result = self
+                .client
+                .get_beacon_blocks(block_id.0)
+                .await
+                .unwrap()
+                .map(|res| res.finalized);
+
+            let (block, _) = block_id.blinded_block(&chain).await.unwrap();
+            let (block_root, _) = block_id.root(&chain)?;
+            let expected = chain.is_finalized_block(&block_root, block.slot()).unwrap();
+
+            assert_eq!(result, expected, "{:?}", state_id);
+        }
+
+        self
+    }
+
+    pub async fn test_beacon_blinded_blocks_finalized(self) -> Self {
+        for block_id in self.interesting_block_ids() {
+            let result = self
+                .client
+                .get_beacon_blinded_blocks(block_id.0)
+                .await
+                .unwrap()
+                .map(|res| res.finalized);
+
+            let (block, _) = block_id.blinded_block(&chain).await.unwrap();
+            let (block_root, _) = block_id.root(&chain)?;
+            let expected = chain.is_finalized_block(&block_root, block.slot()).unwrap();
+
+            assert_eq!(result, expected, "{:?}", state_id);
+        }
+
+        self
+    }
+
+    pub async fn test_debug_beacon_states_finalized(self) -> Self {
+        for state_id in self.interesting_state_ids() {
+            let result = self
+                .client
+                .get_debug_beacon_states(state_id.0)
+                .await
+                .unwrap()
+                .map(|res| res.finalized);
+
+            let (state_root, _) = state_id.root(&self.chain).unwrap();
+            let state_slot = state.slot();
+            let expected = chain.is_finalized_state(&state_root, state_slot).unwrap();
+
+            assert_eq!(result, expected, "{:?}", state_id);
+        }
+
+        self
+    }
+
     pub async fn test_beacon_states_root(self) -> Self {
         for state_id in self.interesting_state_ids() {
             let result = self
