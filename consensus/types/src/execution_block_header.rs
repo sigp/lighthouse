@@ -66,6 +66,8 @@ impl ExecutionBlockHeader {
         rlp_empty_list_root: Hash256,
         rlp_transactions_root: Hash256,
     ) -> Self {
+        // Most of these field mappings are defined in EIP-3675 except for `mixHash`, which is
+        // defined in EIP-4399.
         ExecutionBlockHeader {
             parent_hash: payload.parent_hash.into_root(),
             ommers_hash: rlp_empty_list_root,
@@ -80,7 +82,7 @@ impl ExecutionBlockHeader {
             gas_used: payload.gas_used.into(),
             timestamp: payload.timestamp,
             extra_data: payload.extra_data.clone().into(),
-            mix_hash: Hash256::zero(),
+            mix_hash: payload.prev_randao,
             nonce: Hash64::zero(),
             base_fee_per_gas: payload.base_fee_per_gas,
         }
