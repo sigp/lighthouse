@@ -339,7 +339,7 @@ impl BeaconNodeHttpClient {
     pub async fn get_beacon_states_root(
         &self,
         state_id: StateId,
-    ) -> Result<Option<ExecutionOptimisticResponse<RootData>>, Error> {
+    ) -> Result<Option<ExecutionOptimisticFinalizedResponse<RootData>>, Error> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
@@ -358,7 +358,7 @@ impl BeaconNodeHttpClient {
     pub async fn get_beacon_states_fork(
         &self,
         state_id: StateId,
-    ) -> Result<Option<ExecutionOptimisticResponse<Fork>>, Error> {
+    ) -> Result<Option<ExecutionOptimisticFinalizedResponse<Fork>>, Error> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
@@ -377,7 +377,7 @@ impl BeaconNodeHttpClient {
     pub async fn get_beacon_states_finality_checkpoints(
         &self,
         state_id: StateId,
-    ) -> Result<Option<ExecutionOptimisticResponse<FinalityCheckpointsData>>, Error> {
+    ) -> Result<Option<ExecutionOptimisticFinalizedResponse<FinalityCheckpointsData>>, Error> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
@@ -397,7 +397,8 @@ impl BeaconNodeHttpClient {
         &self,
         state_id: StateId,
         ids: Option<&[ValidatorId]>,
-    ) -> Result<Option<ExecutionOptimisticResponse<Vec<ValidatorBalanceData>>>, Error> {
+    ) -> Result<Option<ExecutionOptimisticFinalizedResponse<Vec<ValidatorBalanceData>>>, Error>
+    {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
@@ -427,7 +428,7 @@ impl BeaconNodeHttpClient {
         state_id: StateId,
         ids: Option<&[ValidatorId]>,
         statuses: Option<&[ValidatorStatus]>,
-    ) -> Result<Option<ExecutionOptimisticResponse<Vec<ValidatorData>>>, Error> {
+    ) -> Result<Option<ExecutionOptimisticFinalizedResponse<Vec<ValidatorData>>>, Error> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
@@ -467,7 +468,7 @@ impl BeaconNodeHttpClient {
         slot: Option<Slot>,
         index: Option<u64>,
         epoch: Option<Epoch>,
-    ) -> Result<Option<ExecutionOptimisticResponse<Vec<CommitteeData>>>, Error> {
+    ) -> Result<Option<ExecutionOptimisticFinalizedResponse<Vec<CommitteeData>>>, Error> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
@@ -500,7 +501,7 @@ impl BeaconNodeHttpClient {
         &self,
         state_id: StateId,
         epoch: Option<Epoch>,
-    ) -> Result<ExecutionOptimisticResponse<SyncCommitteeByValidatorIndices>, Error> {
+    ) -> Result<ExecutionOptimisticFinalizedResponse<SyncCommitteeByValidatorIndices>, Error> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
@@ -523,7 +524,7 @@ impl BeaconNodeHttpClient {
         &self,
         state_id: StateId,
         epoch: Option<Epoch>,
-    ) -> Result<Option<ExecutionOptimisticResponse<RandaoMix>>, Error> {
+    ) -> Result<Option<ExecutionOptimisticFinalizedResponse<RandaoMix>>, Error> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
@@ -548,7 +549,7 @@ impl BeaconNodeHttpClient {
         &self,
         state_id: StateId,
         validator_id: &ValidatorId,
-    ) -> Result<Option<ExecutionOptimisticResponse<ValidatorData>>, Error> {
+    ) -> Result<Option<ExecutionOptimisticFinalizedResponse<ValidatorData>>, Error> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
@@ -569,7 +570,7 @@ impl BeaconNodeHttpClient {
         &self,
         slot: Option<Slot>,
         parent_root: Option<Hash256>,
-    ) -> Result<Option<ExecutionOptimisticResponse<Vec<BlockHeaderData>>>, Error> {
+    ) -> Result<Option<ExecutionOptimisticFinalizedResponse<Vec<BlockHeaderData>>>, Error> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
@@ -596,7 +597,7 @@ impl BeaconNodeHttpClient {
     pub async fn get_beacon_headers_block_id(
         &self,
         block_id: BlockId,
-    ) -> Result<Option<ExecutionOptimisticResponse<BlockHeaderData>>, Error> {
+    ) -> Result<Option<ExecutionOptimisticFinalizedResponse<BlockHeaderData>>, Error> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
@@ -676,7 +677,10 @@ impl BeaconNodeHttpClient {
     pub async fn get_beacon_blocks<T: EthSpec>(
         &self,
         block_id: BlockId,
-    ) -> Result<Option<ExecutionOptimisticForkVersionedResponse<SignedBeaconBlock<T>>>, Error> {
+    ) -> Result<
+        Option<ExecutionOptimisticFinalizedForkVersionedResponse<SignedBeaconBlock<T>>>,
+        Error,
+    > {
         let path = self.get_beacon_blocks_path(block_id)?;
         let response = match self.get_response(path, |b| b).await.optional()? {
             Some(res) => res,
@@ -685,31 +689,35 @@ impl BeaconNodeHttpClient {
 
         // If present, use the fork provided in the headers to decode the block. Gracefully handle
         // missing and malformed fork names by falling back to regular deserialisation.
-        let (block, version, execution_optimistic) = match response.fork_name_from_header() {
-            Ok(Some(fork_name)) => {
-                let (data, (version, execution_optimistic)) =
-                    map_fork_name_with!(fork_name, SignedBeaconBlock, {
-                        let ExecutionOptimisticForkVersionedResponse {
-                            version,
-                            execution_optimistic,
-                            data,
-                        } = response.json().await?;
-                        (data, (version, execution_optimistic))
-                    });
-                (data, version, execution_optimistic)
-            }
-            Ok(None) | Err(_) => {
-                let ExecutionOptimisticForkVersionedResponse {
-                    version,
-                    execution_optimistic,
-                    data,
-                } = response.json().await?;
-                (data, version, execution_optimistic)
-            }
-        };
-        Ok(Some(ExecutionOptimisticForkVersionedResponse {
+        let (block, version, execution_optimistic, finalized) =
+            match response.fork_name_from_header() {
+                Ok(Some(fork_name)) => {
+                    let (data, (version, execution_optimistic, finalized)) =
+                        map_fork_name_with!(fork_name, SignedBeaconBlock, {
+                            let ExecutionOptimisticFinalizedForkVersionedResponse {
+                                version,
+                                execution_optimistic,
+                                finalized,
+                                data,
+                            } = response.json().await?;
+                            (data, (version, execution_optimistic, finalized))
+                        });
+                    (data, version, execution_optimistic, finalized)
+                }
+                Ok(None) | Err(_) => {
+                    let ExecutionOptimisticFinalizedForkVersionedResponse {
+                        version,
+                        execution_optimistic,
+                        finalized,
+                        data,
+                    } = response.json().await?;
+                    (data, version, execution_optimistic, finalized)
+                }
+            };
+        Ok(Some(ExecutionOptimisticFinalizedForkVersionedResponse {
             version,
             execution_optimistic,
+            finalized,
             data: block,
         }))
     }
@@ -720,8 +728,10 @@ impl BeaconNodeHttpClient {
     pub async fn get_beacon_blinded_blocks<T: EthSpec>(
         &self,
         block_id: BlockId,
-    ) -> Result<Option<ExecutionOptimisticForkVersionedResponse<SignedBlindedBeaconBlock<T>>>, Error>
-    {
+    ) -> Result<
+        Option<ExecutionOptimisticFinalizedForkVersionedResponse<SignedBlindedBeaconBlock<T>>>,
+        Error,
+    > {
         let path = self.get_beacon_blinded_blocks_path(block_id)?;
         let response = match self.get_response(path, |b| b).await.optional()? {
             Some(res) => res,
@@ -730,31 +740,35 @@ impl BeaconNodeHttpClient {
 
         // If present, use the fork provided in the headers to decode the block. Gracefully handle
         // missing and malformed fork names by falling back to regular deserialisation.
-        let (block, version, execution_optimistic) = match response.fork_name_from_header() {
-            Ok(Some(fork_name)) => {
-                let (data, (version, execution_optimistic)) =
-                    map_fork_name_with!(fork_name, SignedBlindedBeaconBlock, {
-                        let ExecutionOptimisticForkVersionedResponse {
-                            version,
-                            execution_optimistic,
-                            data,
-                        } = response.json().await?;
-                        (data, (version, execution_optimistic))
-                    });
-                (data, version, execution_optimistic)
-            }
-            Ok(None) | Err(_) => {
-                let ExecutionOptimisticForkVersionedResponse {
-                    version,
-                    execution_optimistic,
-                    data,
-                } = response.json().await?;
-                (data, version, execution_optimistic)
-            }
-        };
-        Ok(Some(ExecutionOptimisticForkVersionedResponse {
+        let (block, version, execution_optimistic, finalized) =
+            match response.fork_name_from_header() {
+                Ok(Some(fork_name)) => {
+                    let (data, (version, execution_optimistic, finalized)) =
+                        map_fork_name_with!(fork_name, SignedBlindedBeaconBlock, {
+                            let ExecutionOptimisticFinalizedForkVersionedResponse {
+                                version,
+                                execution_optimistic,
+                                finalized,
+                                data,
+                            } = response.json().await?;
+                            (data, (version, execution_optimistic, finalized))
+                        });
+                    (data, version, execution_optimistic, finalized)
+                }
+                Ok(None) | Err(_) => {
+                    let ExecutionOptimisticFinalizedForkVersionedResponse {
+                        version,
+                        execution_optimistic,
+                        finalized,
+                        data,
+                    } = response.json().await?;
+                    (data, version, execution_optimistic, finalized)
+                }
+            };
+        Ok(Some(ExecutionOptimisticFinalizedForkVersionedResponse {
             version,
             execution_optimistic,
+            finalized,
             data: block,
         }))
     }
@@ -817,7 +831,7 @@ impl BeaconNodeHttpClient {
     pub async fn get_beacon_blocks_root(
         &self,
         block_id: BlockId,
-    ) -> Result<Option<ExecutionOptimisticResponse<RootData>>, Error> {
+    ) -> Result<Option<ExecutionOptimisticFinalizedResponse<RootData>>, Error> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
@@ -836,7 +850,7 @@ impl BeaconNodeHttpClient {
     pub async fn get_beacon_blocks_attestations<T: EthSpec>(
         &self,
         block_id: BlockId,
-    ) -> Result<Option<ExecutionOptimisticResponse<Vec<Attestation<T>>>>, Error> {
+    ) -> Result<Option<ExecutionOptimisticFinalizedResponse<Vec<Attestation<T>>>>, Error> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
@@ -1254,7 +1268,8 @@ impl BeaconNodeHttpClient {
     pub async fn get_debug_beacon_states<T: EthSpec>(
         &self,
         state_id: StateId,
-    ) -> Result<Option<ExecutionOptimisticForkVersionedResponse<BeaconState<T>>>, Error> {
+    ) -> Result<Option<ExecutionOptimisticFinalizedForkVersionedResponse<BeaconState<T>>>, Error>
+    {
         let path = self.get_debug_beacon_states_path(state_id)?;
         self.get_opt(path).await
     }
@@ -1633,7 +1648,7 @@ impl BeaconNodeHttpClient {
         &self,
         epoch: Epoch,
         indices: &[u64],
-    ) -> Result<ExecutionOptimisticResponse<Vec<SyncDuty>>, Error> {
+    ) -> Result<ExecutionOptimisticFinalizedResponse<Vec<SyncDuty>>, Error> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
