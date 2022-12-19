@@ -2141,12 +2141,10 @@ dependencies = [
  "strum",
  "task_executor",
  "tempfile",
- "tiny-keccak",
  "tokio",
  "tokio-stream",
  "tree_hash",
  "tree_hash_derive",
- "trie-root",
  "triehash",
  "types",
  "warp",
@@ -7058,15 +7056,6 @@ dependencies = [
  "darling",
  "quote",
  "syn",
-]
-
-[[package]]
-name = "trie-root"
-version = "0.17.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9a36c5ca3911ed3c9a5416ee6c679042064b93fc637ded67e25f92e68d783891"
-dependencies = [
- "hash-db",
 ]
 
 [[package]]

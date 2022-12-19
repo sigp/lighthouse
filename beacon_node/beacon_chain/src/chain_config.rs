@@ -65,7 +65,7 @@ pub struct ChainConfig {
     /// Low values are useful for execution engines which don't improve their payload after the
     /// first call, and high values are useful for ensuring the EL is given ample notice.
     pub prepare_payload_lookahead: Duration,
-    /// Use EL-free optimistic sync for the finalized part of the chain (experimental).
+    /// Use EL-free optimistic sync for the finalized part of the chain.
     pub optimistic_finalized_sync: bool,
 }
 

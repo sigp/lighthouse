@@ -45,9 +45,7 @@ ethereum-consensus = { git = "https://github.com/ralexstokes/ethereum-consensus"
 ssz-rs = { git = "https://github.com/ralexstokes/ssz-rs", rev = "cb08f1" }
 tokio-stream = { version = "0.1.9", features = [ "sync" ] }
 strum = "0.24.0"
-trie-root = "0.17.0"
 keccak-hash = "0.10.0"
-tiny-keccak = "2.0.0"
 hash256-std-hasher = "0.15.2"
 triehash = "0.8.4"
 hash-db = "0.15.2"
