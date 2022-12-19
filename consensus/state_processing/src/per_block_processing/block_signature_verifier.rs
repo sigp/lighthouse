@@ -170,7 +170,6 @@ where
         // Deposits are not included because they can legally have invalid signatures.
         self.include_exits(block)?;
         self.include_sync_aggregate(block)?;
-        #[cfg(feature = "withdrawals")]
         self.include_bls_to_execution_changes(block)?;
 
         Ok(())
@@ -345,7 +344,6 @@ where
     }
 
     /// Include the signature of the block's BLS to execution changes for verification.
-    #[cfg(feature = "withdrawals")]
     pub fn include_bls_to_execution_changes<Payload: AbstractExecPayload<T>>(
         &mut self,
         block: &'a SignedBeaconBlock<T, Payload>,

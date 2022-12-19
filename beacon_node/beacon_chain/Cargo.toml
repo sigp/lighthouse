@@ -10,7 +10,6 @@ default = ["participation_metrics"]
 write_ssz_files = []  # Writes debugging .ssz files to /tmp during block processing.
 participation_metrics = []  # Exposes validator participation metrics to Prometheus.
 fork_from_env = [] # Initialise the harness chain spec from the FORK_NAME env variable
-withdrawals = ["state_processing/withdrawals", "types/withdrawals", "store/withdrawals", "execution_layer/withdrawals"]
 withdrawals-processing = [
     "state_processing/withdrawals-processing",
     "store/withdrawals-processing",

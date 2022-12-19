@@ -19,7 +19,7 @@ pub use process_operations::process_operations;
 pub use verify_attestation::{
     verify_attestation_for_block_inclusion, verify_attestation_for_state,
 };
-#[cfg(all(feature = "withdrawals", feature = "withdrawals-processing"))]
+#[cfg(feature = "withdrawals-processing")]
 pub use verify_bls_to_execution_change::verify_bls_to_execution_change;
 pub use verify_deposit::{
     get_existing_validator_index, verify_deposit_merkle_proof, verify_deposit_signature,
@@ -36,7 +36,7 @@ pub mod signature_sets;
 pub mod tests;
 mod verify_attestation;
 mod verify_attester_slashing;
-#[cfg(all(feature = "withdrawals", feature = "withdrawals-processing"))]
+#[cfg(feature = "withdrawals-processing")]
 mod verify_bls_to_execution_change;
 mod verify_deposit;
 mod verify_exit;
@@ -165,7 +165,7 @@ pub fn per_block_processing<T: EthSpec, Payload: AbstractExecPayload<T>>(
     // previous block.
     if is_execution_enabled(state, block.body()) {
         let payload = block.body().execution_payload()?;
-        #[cfg(all(feature = "withdrawals", feature = "withdrawals-processing"))]
+        #[cfg(feature = "withdrawals-processing")]
         process_withdrawals::<T, Payload>(state, payload, spec)?;
         process_execution_payload::<T, Payload>(state, payload, spec)?;
     }
@@ -469,7 +469,6 @@ pub fn compute_timestamp_at_slot<T: EthSpec>(
 /// Compute the next batch of withdrawals which should be included in a block.
 ///
 /// https://github.com/ethereum/consensus-specs/blob/dev/specs/capella/beacon-chain.md#new-get_expected_withdrawals
-#[cfg(feature = "withdrawals")]
 pub fn get_expected_withdrawals<T: EthSpec>(
     state: &BeaconState<T>,
     spec: &ChainSpec,
@@ -525,7 +524,7 @@ pub fn get_expected_withdrawals<T: EthSpec>(
 }
 
 /// Apply withdrawals to the state.
-#[cfg(all(feature = "withdrawals", feature = "withdrawals-processing"))]
+#[cfg(feature = "withdrawals-processing")]
 pub fn process_withdrawals<'payload, T: EthSpec, Payload: AbstractExecPayload<T>>(
     state: &mut BeaconState<T>,
     payload: Payload::Ref<'payload>,

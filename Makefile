@@ -21,7 +21,7 @@ CROSS_FEATURES ?= gnosis,slasher-lmdb,slasher-mdbx
 CROSS_PROFILE ?= release
 
 # List of features to use when running EF tests.
-EF_TEST_FEATURES ?= beacon_chain/withdrawals,beacon_chain/withdrawals-processing
+EF_TEST_FEATURES ?= beacon_chain/withdrawals-processing
 
 # Cargo profile for regular builds.
 PROFILE ?= release

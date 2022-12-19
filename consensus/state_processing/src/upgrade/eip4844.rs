@@ -10,12 +10,8 @@ pub fn upgrade_to_eip4844<E: EthSpec>(
     let pre = pre_state.as_capella_mut()?;
 
     // FIXME(sean) This is a hack to let us participate in testnets where capella doesn't exist.
-    // if we are disabling withdrawals, assume we should fork off of bellatrix.
-    let previous_fork_version = if cfg!(feature = "withdrawals") {
-        pre.fork.current_version
-    } else {
-        spec.bellatrix_fork_version
-    };
+    // let previous_fork_version = spec.bellatrix_fork_version;
+    let previous_fork_version = pre.fork.current_version;
 
     // Where possible, use something like `mem::take` to move fields from behind the &mut
     // reference. For other fields that don't have a good default value, use `clone`.
@@ -64,9 +60,7 @@ pub fn upgrade_to_eip4844<E: EthSpec>(
         // Execution
         latest_execution_payload_header: pre.latest_execution_payload_header.upgrade_to_eip4844(),
         // Withdrawals
-        #[cfg(feature = "withdrawals")]
         next_withdrawal_index: pre.next_withdrawal_index,
-        #[cfg(feature = "withdrawals")]
         next_withdrawal_validator_index: pre.next_withdrawal_validator_index,
         // Caches
         total_active_balance: pre.total_active_balance,
