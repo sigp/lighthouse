@@ -76,7 +76,7 @@ impl GenericExecutionEngine for NethermindEngine {
     fn init_datadir() -> TempDir {
         let datadir = TempDir::new().unwrap();
         let genesis_json_path = datadir.path().join("genesis.json");
-        let mut file = File::create(&genesis_json_path).unwrap();
+        let mut file = File::create(genesis_json_path).unwrap();
         let json = nethermind_genesis_json();
         serde_json::to_writer(&mut file, &json).unwrap();
         datadir

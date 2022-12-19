@@ -631,10 +631,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
 
     // Return the `id`'s of all monitored validators.
     pub fn get_all_monitored_validators(&self) -> Vec<String> {
-        self.validators
-            .iter()
-            .map(|(_, val)| val.id.clone())
-            .collect()
+        self.validators.values().map(|val| val.id.clone()).collect()
     }
 
     /// If `self.auto_register == true`, add the `validator_index` to `self.monitored_validators`.
