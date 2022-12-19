@@ -19,9 +19,9 @@ const FIXED_VERSION_STRING: Option<&str> = None;
 async fn main() {
     let out_dir = env::var("OUT_DIR").unwrap();
 
-    // Read Github API token from environment. This is intended to prevent rate-limits on CI.
-    // We use a name that is unlikely to collide with anything the user has configured.
-    let github_token = env::var("WEB3SIGNER_GITHUB_TOKEN");
+    // Read a Github API token from the environment. This is intended to prevent rate-limits on CI.
+    // We use a name that is unlikely to accidentally collide with anything the user has configured.
+    let github_token = env::var("LIGHTHOUSE_GITHUB_TOKEN");
 
     download_binary(out_dir.into(), github_token.as_deref().unwrap_or("")).await;
 }
