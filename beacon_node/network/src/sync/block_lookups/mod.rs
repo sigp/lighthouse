@@ -6,6 +6,7 @@ use beacon_chain::{BeaconChainTypes, BlockError};
 use fnv::FnvHashMap;
 use futures::StreamExt;
 use itertools::{Either, Itertools};
+use lighthouse_network::rpc::{RPCError, RPCResponseErrorCode};
 use lighthouse_network::{PeerAction, PeerId};
 use lru_cache::LRUTimeCache;
 use slog::{debug, error, trace, warn, Logger};
@@ -39,6 +40,13 @@ pub type RootBlockTuple<T> = (Hash256, BlockWrapper<T>);
 
 const FAILED_CHAINS_CACHE_EXPIRY_SECONDS: u64 = 60;
 const SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS: u8 = 3;
+
+/// This is used to resolve the scenario where we request a parent from before the data availability
+/// boundary and need to retry with a request for only the block.
+pub enum ForceBlockRequest {
+    True,
+    False,
+}
 
 pub(crate) struct BlockLookups<T: BeaconChainTypes> {
     /// Parent chain lookups being downloaded.
@@ -165,7 +173,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         }
 
         let parent_lookup = ParentLookup::new(block_root, block, peer_id);
-        self.request_parent(parent_lookup, cx);
+        self.request_parent(parent_lookup, cx, ForceBlockRequest::False);
     }
 
     /* Lookup responses */
@@ -291,7 +299,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                     cx.report_peer(peer_id, PeerAction::LowToleranceError, e);
 
                     // We try again if possible.
-                    self.request_parent(parent_lookup, cx);
+                    self.request_parent(parent_lookup, cx, ForceBlockRequest::False);
                 }
                 VerifyError::PreviousFailure { parent_root } => {
                     debug!(
@@ -367,7 +375,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         {
             let parent_lookup = self.parent_lookups.remove(pos);
             trace!(self.log, "Parent lookup's peer disconnected"; &parent_lookup);
-            self.request_parent(parent_lookup, cx);
+            self.request_parent(parent_lookup, cx, ForceBlockRequest::False);
         }
     }
 
@@ -377,6 +385,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         id: Id,
         peer_id: PeerId,
         cx: &mut SyncNetworkContext<T>,
+        error: RPCError,
     ) {
         if let Some(pos) = self
             .parent_lookups
@@ -386,7 +395,19 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             let mut parent_lookup = self.parent_lookups.remove(pos);
             parent_lookup.download_failed();
             trace!(self.log, "Parent lookup request failed"; &parent_lookup);
-            self.request_parent(parent_lookup, cx);
+
+            // `ResourceUnavailable` indicates we requested a parent block from prior to the 4844 fork epoch.
+            let force_block_request = if let RPCError::ErrorResponse(
+                RPCResponseErrorCode::ResourceUnavailable,
+                _,
+            ) = error
+            {
+                debug!(self.log, "RPC parent lookup for block and blobs failed. Retrying the request for just a block"; "peer_id" => %peer_id);
+                ForceBlockRequest::True
+            } else {
+                ForceBlockRequest::False
+            };
+            self.request_parent(parent_lookup, cx, force_block_request);
         } else {
             return debug!(self.log, "RPC failure for a parent lookup request that was not found"; "peer_id" => %peer_id);
         };
@@ -542,7 +563,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 // need to keep looking for parents
                 // add the block back to the queue and continue the search
                 parent_lookup.add_block(block);
-                self.request_parent(parent_lookup, cx);
+                self.request_parent(parent_lookup, cx, ForceBlockRequest::False);
             }
             BlockProcessResult::Ok
             | BlockProcessResult::Err(BlockError::BlockIsAlreadyKnown { .. }) => {
@@ -604,7 +625,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
 
                 // Try again if possible
                 parent_lookup.processing_failed();
-                self.request_parent(parent_lookup, cx);
+                self.request_parent(parent_lookup, cx, ForceBlockRequest::False);
             }
             BlockProcessResult::Ignored => {
                 // Beacon processor signalled to ignore the block processing result.
@@ -697,8 +718,9 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         &mut self,
         mut parent_lookup: ParentLookup<T>,
         cx: &mut SyncNetworkContext<T>,
+        force_block_request: ForceBlockRequest,
     ) {
-        match parent_lookup.request_parent(cx) {
+        match parent_lookup.request_parent(cx, force_block_request) {
             Err(e) => {
                 debug!(self.log, "Failed to request parent"; &parent_lookup, "error" => e.as_static());
                 match e {
