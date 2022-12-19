@@ -1401,7 +1401,9 @@ impl<T: BeaconChainTypes> Worker<T> {
             Err(e) => {
                 match e {
                     LightClientOptimisticUpdateError::UnknownBlockParentRoot(parent_root) => {
-                        metrics::register_optimistic_update_sent_for_reprocessing(&e);
+                        metrics::inc_counter(
+                            &metrics::BEACON_PROCESSOR_REPROCESSING_QUEUE_SENT_OPTIMISTIC_UPDATES,
+                        );
                         debug!(
                             self.log,
                             "Optimistic update for unknown block";

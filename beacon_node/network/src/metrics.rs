@@ -373,7 +373,10 @@ lazy_static! {
         "beacon_processor_reprocessing_queue_matched_optimistic_updates",
         "Number of queued light client optimistic updates where as matching block has been imported."
     );
-
+    pub static ref BEACON_PROCESSOR_REPROCESSING_QUEUE_SENT_OPTIMISTIC_UPDATES: Result<IntCounter> = try_create_int_counter(
+        "beacon_processor_reprocessing_queue_sent_optimistic_updates",
+        "Number of queued light client optimistic updates where as matching block has been imported."
+    );
 }
 
 pub fn update_bandwidth_metrics(bandwidth: Arc<BandwidthSinks>) {
@@ -391,14 +394,6 @@ pub fn register_finality_update_error(error: &LightClientFinalityUpdateError) {
 
 pub fn register_optimistic_update_error(error: &LightClientOptimisticUpdateError) {
     inc_counter_vec(&GOSSIP_OPTIMISTIC_UPDATE_ERRORS_PER_TYPE, &[error.as_ref()]);
-}
-
-pub fn register_optimistic_update_sent_for_reprocessing(error: &LightClientOptimisticUpdateError) {
-    match error {
-        LightClientOptimisticUpdateError::UnknownBlockParentRoot(_) =>
-            inc_counter_vec(&GOSSIP_OPTIMISTIC_UPDATE_ERRORS_PER_TYPE, &[error.as_ref()]),
-        _ => {},
-    }
 }
 
 pub fn register_attestation_error(error: &AttnError) {
