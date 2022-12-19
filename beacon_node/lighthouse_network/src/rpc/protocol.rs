@@ -253,6 +253,8 @@ impl<TSpec: EthSpec> UpgradeInfo for RPCProtocol<TSpec> {
         let mut supported_protocols = vec![
             ProtocolId::new(Protocol::Status, Version::V1, Encoding::SSZSnappy),
             ProtocolId::new(Protocol::Goodbye, Version::V1, Encoding::SSZSnappy),
+            ProtocolId::new(Protocol::BlobsByRange, Version::V1, Encoding::SSZSnappy),
+            ProtocolId::new(Protocol::BlobsByRoot, Version::V1, Encoding::SSZSnappy),
             // V2 variants have higher preference then V1
             ProtocolId::new(Protocol::BlocksByRange, Version::V2, Encoding::SSZSnappy),
             ProtocolId::new(Protocol::BlocksByRange, Version::V1, Encoding::SSZSnappy),
