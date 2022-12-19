@@ -110,15 +110,13 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
                 endpoint,
                 other_established,
                 ..
-            }) => self.inject_connection_established(peer_id, endpoint, other_established),
+            }) => self.on_connection_established(peer_id, endpoint, other_established),
             FromSwarm::ConnectionClosed(ConnectionClosed {
                 peer_id,
                 remaining_established,
                 ..
-            }) => self.inject_connection_closed(peer_id, remaining_established),
-            FromSwarm::DialFailure(DialFailure { peer_id, .. }) => {
-                self.inject_dial_failure(peer_id)
-            }
+            }) => self.on_connection_closed(peer_id, remaining_established),
+            FromSwarm::DialFailure(DialFailure { peer_id, .. }) => self.on_dial_failure(peer_id),
             FromSwarm::AddressChange(_)
             | FromSwarm::ListenFailure(_)
             | FromSwarm::NewListener(_)
@@ -136,7 +134,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
 }
 
 impl<TSpec: EthSpec> PeerManager<TSpec> {
-    fn inject_connection_established(
+    fn on_connection_established(
         &mut self,
         peer_id: PeerId,
         endpoint: &ConnectedPoint,
@@ -208,7 +206,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         metrics::inc_counter(&metrics::PEER_CONNECT_EVENT_COUNT);
     }
 
-    fn inject_connection_closed(&mut self, peer_id: PeerId, remaining_established: usize) {
+    fn on_connection_closed(&mut self, peer_id: PeerId, remaining_established: usize) {
         if remaining_established > 0 {
             return;
         }
@@ -244,7 +242,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     /// NOTE: It can be the case that we are dialing a peer and during the dialing process the peer
     /// connects and the dial attempt later fails. To handle this, we only update the peer_db if
     /// the peer is not already connected.
-    fn inject_dial_failure(&mut self, peer_id: Option<PeerId>) {
+    fn on_dial_failure(&mut self, peer_id: Option<PeerId>) {
         if let Some(peer_id) = peer_id {
             if !self.network_globals.peers.read().is_connected(&peer_id) {
                 self.inject_disconnect(&peer_id);
