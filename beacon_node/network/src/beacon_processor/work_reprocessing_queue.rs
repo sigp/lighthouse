@@ -39,6 +39,7 @@ const TASK_NAME: &str = "beacon_processor_reprocess_queue";
 const GOSSIP_BLOCKS: &str = "gossip_blocks";
 const RPC_BLOCKS: &str = "rpc_blocks";
 const ATTESTATIONS: &str = "attestations";
+const LC_UPDATES: &str = "lc_updates";
 
 /// Queue blocks for re-processing with an `ADDITIONAL_QUEUED_BLOCK_DELAY` after the slot starts.
 /// This is to account for any slight drift in the system clock.
@@ -48,7 +49,7 @@ const ADDITIONAL_QUEUED_BLOCK_DELAY: Duration = Duration::from_millis(5);
 pub const QUEUED_ATTESTATION_DELAY: Duration = Duration::from_secs(12);
 
 /// For how long to queue light client updates for re-processing.
-pub const QUEUED_LIGHT_CLIENT_UPDATE_DELAY: Duration = Duration::from_secs(3);
+pub const QUEUED_LIGHT_CLIENT_UPDATE_DELAY: Duration = Duration::from_secs(12);
 
 /// For how long to queue rpc blocks before sending them back for reprocessing.
 pub const QUEUED_RPC_BLOCK_DELAY: Duration = Duration::from_secs(3);
@@ -151,6 +152,8 @@ enum InboundEvent<T: BeaconChainTypes> {
     ReadyRpcBlock(QueuedRpcBlock<T::EthSpec>),
     /// An aggregated or unaggregated attestation is ready for re-processing.
     ReadyAttestation(QueuedAttestationId),
+    /// A light client update that is ready for re-processing.
+    ReadyLCUpdate(QueuedLCUpdateId),
     /// A `DelayQueue` returned an error.
     DelayQueueError(TimeError, &'static str),
     /// A message sent to the `ReprocessQueue`
@@ -263,6 +266,20 @@ impl<T: BeaconChainTypes> Stream for ReprocessQueue<T> {
             }
             Poll::Ready(Some(Err(e))) => {
                 return Poll::Ready(Some(InboundEvent::DelayQueueError(e, "attestations_queue")));
+            }
+            // `Poll::Ready(None)` means that there are no more entries in the delay queue and we
+            // will continue to get this result until something else is added into the queue.
+            Poll::Ready(None) | Poll::Pending => (),
+        }
+
+        match self.lc_updates_delay_queue.poll_expired(cx) {
+            Poll::Ready(Some(Ok(lc_id))) => {
+                return Poll::Ready(Some(InboundEvent::ReadyLCUpdate(
+                    lc_id.into_inner(),
+                )));
+            }
+            Poll::Ready(Some(Err(e))) => {
+                return Poll::Ready(Some(InboundEvent::DelayQueueError(e, "lc_updates_queue")));
             }
             // `Poll::Ready(None)` means that there are no more entries in the delay queue and we
             // will continue to get this result until something else is added into the queue.
@@ -611,6 +628,9 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
                     );
 
                     for lc_id in queued_lc_id {
+                        metrics::inc_counter(
+                            &metrics::BEACON_PROCESSOR_REPROCESSING_QUEUE_MATCHED_OPTIMISTIC_UPDATES,
+                        );
                         if let Some((work, delay_key)) = self.queued_lc_updates.remove(&lc_id).map(
                             |(light_client_optimistic_update, delay_key)| {
                                 (
@@ -716,6 +736,38 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
                     }
                 }
             }
+            InboundEvent::ReadyLCUpdate(queued_id) => {
+                metrics::inc_counter(
+                    &metrics::BEACON_PROCESSOR_REPROCESSING_QUEUE_EXPIRED_OPTIMISTIC_UPDATES,
+                );
+
+                if let Some((parent_root, work)) =
+                    self.queued_lc_updates
+                        .remove(&queued_id)
+                        .map(|(queued_lc_update, _delay_key)| {
+                            (
+                                queued_lc_update
+                                    .light_client_optimistic_update
+                                    .attested_header
+                                    .canonical_root(),
+                                ReadyWork::LCUpdate(queued_lc_update),
+                            )
+                        })
+                {
+                    if self.ready_work_tx.try_send(work).is_err() {
+                        error!(
+                            log,
+                            "Failed to send scheduled lc optimistic update";
+                        );
+                    }
+
+                    if let Some(queued_lc_updates) = self.awaiting_lc_updates_per_parent_root.get_mut(&parent_root) {
+                        if let Some(index) = queued_lc_updates.iter().position(|&id| id == queued_id) {
+                            queued_lc_updates.swap_remove(index);
+                        }
+                    }
+                }
+            }
         }
 
         metrics::set_gauge_vec(
@@ -732,6 +784,11 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
             &metrics::BEACON_PROCESSOR_REPROCESSING_QUEUE_TOTAL,
             &[ATTESTATIONS],
             self.attestations_delay_queue.len() as i64,
+        );
+        metrics::set_gauge_vec(
+            &metrics::BEACON_PROCESSOR_REPROCESSING_QUEUE_TOTAL,
+            &[LC_UPDATES],
+            self.lc_updates_delay_queue.len() as i64,
         );
     }
 }

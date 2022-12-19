@@ -1399,9 +1399,9 @@ impl<T: BeaconChainTypes> Worker<T> {
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
             }
             Err(e) => {
-                metrics::register_optimistic_update_error(&e);
                 match e {
                     LightClientOptimisticUpdateError::UnknownBlockParentRoot(parent_root) => {
+                        metrics::register_optimistic_update_sent_for_reprocessing(&e);
                         debug!(
                             self.log,
                             "Optimistic update for unknown block";
@@ -1427,6 +1427,13 @@ impl<T: BeaconChainTypes> Worker<T> {
                                 )
                             }
                         } else {
+                            debug!(
+                                self.log,
+                                "Not sending LC update because it had been reprocessed";
+                                "peer_id" => %peer_id,
+                                "parent_root" => ?parent_root
+                            );
+
                             self.propagate_validation_result(
                                 message_id,
                                 peer_id,
@@ -1436,6 +1443,8 @@ impl<T: BeaconChainTypes> Worker<T> {
                         return;
                     }
                     LightClientOptimisticUpdateError::InvalidLightClientOptimisticUpdate => {
+                        metrics::register_optimistic_update_error(&e);
+
                         debug!(
                             self.log,
                             "LC invalid optimistic update";
@@ -1450,6 +1459,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                         )
                     }
                     LightClientOptimisticUpdateError::TooEarly => {
+                        metrics::register_optimistic_update_error(&e);
                         debug!(
                             self.log,
                             "LC optimistic update too early";
@@ -1463,21 +1473,29 @@ impl<T: BeaconChainTypes> Worker<T> {
                             "light_client_gossip_error",
                         );
                     }
-                    LightClientOptimisticUpdateError::OptimisticUpdateAlreadySeen => debug!(
-                        self.log,
-                        "LC optimistic update already seen";
-                        "peer" => %peer_id,
-                        "error" => ?e,
-                    ),
+                    LightClientOptimisticUpdateError::OptimisticUpdateAlreadySeen => {   
+                        metrics::register_optimistic_update_error(&e);
+
+                        debug!(
+                            self.log,
+                            "LC optimistic update already seen";
+                            "peer" => %peer_id,
+                            "error" => ?e,
+                        )
+                    }
                     LightClientOptimisticUpdateError::BeaconChainError(_)
                     | LightClientOptimisticUpdateError::LightClientUpdateError(_)
                     | LightClientOptimisticUpdateError::SigSlotStartIsNone
-                    | LightClientOptimisticUpdateError::FailedConstructingUpdate => debug!(
-                        self.log,
-                        "LC error constructing optimistic update";
-                        "peer" => %peer_id,
-                        "error" => ?e,
-                    ),
+                    | LightClientOptimisticUpdateError::FailedConstructingUpdate => {
+                        metrics::register_optimistic_update_error(&e);
+                        
+                        debug!(
+                            self.log,
+                            "LC error constructing optimistic update";
+                            "peer" => %peer_id,
+                            "error" => ?e,
+                        )
+                    },
                 }
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
             }
