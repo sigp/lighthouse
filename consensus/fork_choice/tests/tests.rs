@@ -378,9 +378,13 @@ impl ForkChoiceTest {
 
         assert_eq!(
             &balances[..],
-            fc.fc_store().justified_balances(),
+            &fc.fc_store().justified_balances().effective_balances,
             "balances should match"
-        )
+        );
+        assert_eq!(
+            balances.iter().sum::<u64>(),
+            fc.fc_store().justified_balances().total_effective_balance
+        );
     }
 
     /// Returns an attestation that is valid for some slot in the given `chain`.

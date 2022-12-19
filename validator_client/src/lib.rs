@@ -427,6 +427,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             .runtime_context(context.service_context("block".into()))
             .graffiti(config.graffiti)
             .graffiti_file(config.graffiti_file.clone())
+            .block_delay(config.block_delay)
             .build()?;
 
         let attestation_service = AttestationServiceBuilder::new()

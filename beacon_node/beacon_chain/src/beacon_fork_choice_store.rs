@@ -7,6 +7,8 @@
 use crate::{metrics, BeaconSnapshot};
 use derivative::Derivative;
 use fork_choice::ForkChoiceStore;
+use proto_array::JustifiedBalances;
+use safe_arith::ArithError;
 use ssz_derive::{Decode, Encode};
 use std::collections::BTreeSet;
 use std::marker::PhantomData;
@@ -31,6 +33,7 @@ pub enum Error {
     MissingState(Hash256),
     InvalidPersistedBytes(ssz::DecodeError),
     BeaconStateError(BeaconStateError),
+    Arith(ArithError),
 }
 
 impl From<BeaconStateError> for Error {
@@ -39,26 +42,14 @@ impl From<BeaconStateError> for Error {
     }
 }
 
+impl From<ArithError> for Error {
+    fn from(e: ArithError) -> Self {
+        Error::Arith(e)
+    }
+}
+
 /// The number of validator balance sets that are cached within `BalancesCache`.
 const MAX_BALANCE_CACHE_SIZE: usize = 4;
-
-/// Returns the effective balances for every validator in the given `state`.
-///
-/// Any validator who is not active in the epoch of the given `state` is assigned a balance of
-/// zero.
-pub fn get_effective_balances<T: EthSpec>(state: &BeaconState<T>) -> Vec<u64> {
-    state
-        .validators()
-        .iter()
-        .map(|validator| {
-            if validator.is_active_at(state.current_epoch()) {
-                validator.effective_balance
-            } else {
-                0
-            }
-        })
-        .collect()
-}
 
 #[superstruct(
     variants(V8),
@@ -113,7 +104,7 @@ impl BalancesCache {
             let item = CacheItem {
                 block_root: epoch_boundary_root,
                 epoch,
-                balances: get_effective_balances(state),
+                balances: JustifiedBalances::from_justified_state(state)?.effective_balances,
             };
 
             if self.items.len() == MAX_BALANCE_CACHE_SIZE {
@@ -152,7 +143,7 @@ pub struct BeaconForkChoiceStore<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<
     time: Slot,
     finalized_checkpoint: Checkpoint,
     justified_checkpoint: Checkpoint,
-    justified_balances: Vec<u64>,
+    justified_balances: JustifiedBalances,
     best_justified_checkpoint: Checkpoint,
     unrealized_justified_checkpoint: Checkpoint,
     unrealized_finalized_checkpoint: Checkpoint,
@@ -181,7 +172,7 @@ where
     pub fn get_forkchoice_store(
         store: Arc<HotColdDB<E, Hot, Cold>>,
         anchor: &BeaconSnapshot<E>,
-    ) -> Self {
+    ) -> Result<Self, Error> {
         let anchor_state = &anchor.beacon_state;
         let mut anchor_block_header = anchor_state.latest_block_header().clone();
         if anchor_block_header.state_root == Hash256::zero() {
@@ -194,13 +185,14 @@ where
             root: anchor_root,
         };
         let finalized_checkpoint = justified_checkpoint;
+        let justified_balances = JustifiedBalances::from_justified_state(anchor_state)?;
 
-        Self {
+        Ok(Self {
             store,
             balances_cache: <_>::default(),
             time: anchor_state.slot(),
             justified_checkpoint,
-            justified_balances: anchor_state.balances().clone().into(),
+            justified_balances,
             finalized_checkpoint,
             best_justified_checkpoint: justified_checkpoint,
             unrealized_justified_checkpoint: justified_checkpoint,
@@ -208,7 +200,7 @@ where
             proposer_boost_root: Hash256::zero(),
             equivocating_indices: BTreeSet::new(),
             _phantom: PhantomData,
-        }
+        })
     }
 
     /// Save the current state of `Self` to a `PersistedForkChoiceStore` which can be stored to the
@@ -219,7 +211,7 @@ where
             time: self.time,
             finalized_checkpoint: self.finalized_checkpoint,
             justified_checkpoint: self.justified_checkpoint,
-            justified_balances: self.justified_balances.clone(),
+            justified_balances: self.justified_balances.effective_balances.clone(),
             best_justified_checkpoint: self.best_justified_checkpoint,
             unrealized_justified_checkpoint: self.unrealized_justified_checkpoint,
             unrealized_finalized_checkpoint: self.unrealized_finalized_checkpoint,
@@ -233,13 +225,15 @@ where
         persisted: PersistedForkChoiceStore,
         store: Arc<HotColdDB<E, Hot, Cold>>,
     ) -> Result<Self, Error> {
+        let justified_balances =
+            JustifiedBalances::from_effective_balances(persisted.justified_balances)?;
         Ok(Self {
             store,
             balances_cache: persisted.balances_cache,
             time: persisted.time,
             finalized_checkpoint: persisted.finalized_checkpoint,
             justified_checkpoint: persisted.justified_checkpoint,
-            justified_balances: persisted.justified_balances,
+            justified_balances,
             best_justified_checkpoint: persisted.best_justified_checkpoint,
             unrealized_justified_checkpoint: persisted.unrealized_justified_checkpoint,
             unrealized_finalized_checkpoint: persisted.unrealized_finalized_checkpoint,
@@ -279,7 +273,7 @@ where
         &self.justified_checkpoint
     }
 
-    fn justified_balances(&self) -> &[u64] {
+    fn justified_balances(&self) -> &JustifiedBalances {
         &self.justified_balances
     }
 
@@ -314,8 +308,9 @@ where
             self.justified_checkpoint.root,
             self.justified_checkpoint.epoch,
         ) {
+            // NOTE: could avoid this re-calculation by introducing a `PersistedCacheItem`.
             metrics::inc_counter(&metrics::BALANCES_CACHE_HITS);
-            self.justified_balances = balances;
+            self.justified_balances = JustifiedBalances::from_effective_balances(balances)?;
         } else {
             metrics::inc_counter(&metrics::BALANCES_CACHE_MISSES);
             let justified_block = self
@@ -332,7 +327,7 @@ where
                 .map_err(Error::FailedToReadState)?
                 .ok_or_else(|| Error::MissingState(justified_block.state_root()))?;
 
-            self.justified_balances = get_effective_balances(&state);
+            self.justified_balances = JustifiedBalances::from_justified_state(&state)?;
         }
 
         Ok(())
