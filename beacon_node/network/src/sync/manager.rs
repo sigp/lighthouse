@@ -45,6 +45,7 @@ use crate::sync::range_sync::ExpectedBatchTy;
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockError, EngineState};
 use futures::StreamExt;
 use lighthouse_network::rpc::methods::MAX_REQUEST_BLOCKS;
+use lighthouse_network::rpc::{RPCError, RPCResponseErrorCode};
 use lighthouse_network::types::{NetworkGlobals, SyncState};
 use lighthouse_network::SyncInfo;
 use lighthouse_network::{PeerAction, PeerId};
@@ -131,6 +132,7 @@ pub enum SyncMessage<T: EthSpec> {
     RpcError {
         peer_id: PeerId,
         request_id: RequestId,
+        error: RPCError,
     },
 
     /// A batch has been processed by the block processor thread.
@@ -282,7 +284,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     }
 
     /// Handles RPC errors related to requests that were emitted from the sync manager.
-    fn inject_error(&mut self, peer_id: PeerId, request_id: RequestId) {
+    fn inject_error(&mut self, peer_id: PeerId, request_id: RequestId, error: RPCError) {
         trace!(self.log, "Sync manager received a failed RPC");
         match request_id {
             RequestId::SingleBlock { id } => {
@@ -291,7 +293,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             }
             RequestId::ParentLookup { id } => {
                 self.block_lookups
-                    .parent_lookup_failed(id, peer_id, &mut self.network);
+                    .parent_lookup_failed(id, peer_id, &mut self.network, error);
             }
             RequestId::BackFillSync { id } => {
                 if let Some(batch_id) = self
@@ -603,7 +605,8 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             SyncMessage::RpcError {
                 peer_id,
                 request_id,
-            } => self.inject_error(peer_id, request_id),
+                error,
+            } => self.inject_error(peer_id, request_id, error),
             SyncMessage::BlockProcessed {
                 process_type,
                 result,

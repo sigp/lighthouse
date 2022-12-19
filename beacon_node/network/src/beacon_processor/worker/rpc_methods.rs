@@ -254,6 +254,14 @@ impl<T: BeaconChainTypes> Worker<T> {
                                 "peer" => %peer_id,
                                 "request_root" => ?root
                             );
+                            self.send_error_response(
+                                peer_id,
+                                RPCResponseErrorCode::ResourceUnavailable,
+                                "No blob for requested block".into(),
+                                request_id,
+                            );
+                            send_response = false;
+                            break;
                         }
                         Ok((None, Some(_))) => {
                             debug!(

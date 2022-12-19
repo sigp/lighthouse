@@ -185,13 +185,4 @@ impl<T: EthSpec> ConsensusContext<T> {
     pub fn blobs_verified_vs_txs(&self) -> bool {
         self.blobs_verified_vs_txs
     }
-
-    pub fn set_blobs_sidecar(mut self, blobs_sidecar: Option<Arc<BlobsSidecar<T>>>) -> Self {
-        self.blobs_sidecar = blobs_sidecar;
-        self
-    }
-
-    pub fn blobs_sidecar(&self) -> Option<Arc<BlobsSidecar<T>>> {
-        self.blobs_sidecar.clone()
-    }
 }

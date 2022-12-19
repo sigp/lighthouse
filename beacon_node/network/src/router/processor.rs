@@ -103,12 +103,13 @@ impl<T: BeaconChainTypes> Processor<T> {
 
     /// An error occurred during an RPC request. The state is maintained by the sync manager, so
     /// this function notifies the sync manager of the error.
-    pub fn on_rpc_error(&mut self, peer_id: PeerId, request_id: RequestId) {
+    pub fn on_rpc_error(&mut self, peer_id: PeerId, request_id: RequestId, error: RPCError) {
         // Check if the failed RPC belongs to sync
         if let RequestId::Sync(request_id) = request_id {
             self.send_to_sync(SyncMessage::RpcError {
                 peer_id,
                 request_id,
+                error,
             });
         }
     }

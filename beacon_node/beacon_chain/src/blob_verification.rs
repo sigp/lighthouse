@@ -87,6 +87,8 @@ pub enum BlobError {
     /// We were unable to process this sync committee message due to an internal error. It's unclear if the
     /// sync committee message is valid.
     BeaconChainError(BeaconChainError),
+    /// No blobs for the specified block where we would expect blobs.
+    MissingBlobs,
 }
 
 impl From<BeaconChainError> for BlobError {

@@ -579,10 +579,8 @@ pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
     let mut signature_verified_blocks = Vec::with_capacity(chain_segment.len());
 
     for (block_root, block) in &chain_segment {
-        let mut consensus_context = ConsensusContext::new(block.slot())
-            .set_current_block_root(*block_root)
-            //FIXME(sean) Consider removing this is we pass the blob wrapper everywhere
-            .set_blobs_sidecar(block.blobs_sidecar());
+        let mut consensus_context =
+            ConsensusContext::new(block.slot()).set_current_block_root(*block_root);
 
         signature_verifier.include_all_signatures(block.block(), &mut consensus_context)?;
 
@@ -936,8 +934,7 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
             .set_current_block_root(block_root)
             .set_proposer_index(block.message().proposer_index())
             .set_blobs_sidecar_validated(true) // Validated in `validate_blob_for_gossip`
-            .set_blobs_verified_vs_txs(true) // Validated in `validate_blob_for_gossip`
-            .set_blobs_sidecar(block.blobs_sidecar()); // TODO: potentially remove
+            .set_blobs_verified_vs_txs(true);
 
         Ok(Self {
             block,
@@ -1009,9 +1006,8 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
 
         let mut signature_verifier = get_signature_verifier(&state, &pubkey_cache, &chain.spec);
 
-        let mut consensus_context = ConsensusContext::new(block.slot())
-            .set_current_block_root(block_root)
-            .set_blobs_sidecar(block.blobs_sidecar());
+        let mut consensus_context =
+            ConsensusContext::new(block.slot()).set_current_block_root(block_root);
 
         signature_verifier.include_all_signatures(block.block(), &mut consensus_context)?;
 
@@ -1564,48 +1560,50 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
          * Verify kzg proofs and kzg commitments against transactions if required
          */
         //FIXME(sean) should this be prior to applying attestions to fork choice above? done in parallel?
-        if let Some(ref sidecar) = consensus_context.blobs_sidecar() {
-            if let Some(data_availability_boundary) = chain.data_availability_boundary() {
-                if block_slot.epoch(T::EthSpec::slots_per_epoch()) > data_availability_boundary {
-                    let kzg = chain.kzg.as_ref().ok_or(BlockError::BlobValidation(
-                        BlobError::TrustedSetupNotInitialized,
-                    ))?;
-                    let transactions = block
-                        .message()
-                        .body()
-                        .execution_payload_eip4844()
-                        .map(|payload| payload.transactions())
-                        .map_err(|_| BlockError::BlobValidation(BlobError::TransactionsMissing))?
-                        .ok_or(BlockError::BlobValidation(BlobError::TransactionsMissing))?;
-                    let kzg_commitments =
-                        block.message().body().blob_kzg_commitments().map_err(|_| {
-                            BlockError::BlobValidation(BlobError::KzgCommitmentMissing)
-                        })?;
-                    if !consensus_context.blobs_sidecar_validated() {
-                        if !kzg_utils::validate_blobs_sidecar(
-                            &kzg,
-                            block.slot(),
-                            block_root,
-                            kzg_commitments,
-                            sidecar,
-                        )
-                        .map_err(|e| BlockError::BlobValidation(BlobError::KzgError(e)))?
-                        {
-                            return Err(BlockError::BlobValidation(BlobError::InvalidKzgProof));
-                        }
-                    }
-                    if !consensus_context.blobs_verified_vs_txs()
-                        && verify_kzg_commitments_against_transactions::<T::EthSpec>(
-                            transactions,
-                            kzg_commitments,
-                        )
-                        //FIXME(sean) we should maybe just map this error so we have more info about the mismatch
-                        .is_err()
+        if let Some(data_availability_boundary) = chain.data_availability_boundary() {
+            if block_slot.epoch(T::EthSpec::slots_per_epoch()) >= data_availability_boundary {
+                let sidecar = block
+                    .blobs()
+                    .ok_or(BlockError::BlobValidation(BlobError::MissingBlobs))?;
+                let kzg = chain.kzg.as_ref().ok_or(BlockError::BlobValidation(
+                    BlobError::TrustedSetupNotInitialized,
+                ))?;
+                let transactions = block
+                    .message()
+                    .body()
+                    .execution_payload_eip4844()
+                    .map(|payload| payload.transactions())
+                    .map_err(|_| BlockError::BlobValidation(BlobError::TransactionsMissing))?
+                    .ok_or(BlockError::BlobValidation(BlobError::TransactionsMissing))?;
+                let kzg_commitments = block
+                    .message()
+                    .body()
+                    .blob_kzg_commitments()
+                    .map_err(|_| BlockError::BlobValidation(BlobError::KzgCommitmentMissing))?;
+                if !consensus_context.blobs_sidecar_validated() {
+                    if !kzg_utils::validate_blobs_sidecar(
+                        &kzg,
+                        block.slot(),
+                        block_root,
+                        kzg_commitments,
+                        sidecar,
+                    )
+                    .map_err(|e| BlockError::BlobValidation(BlobError::KzgError(e)))?
                     {
-                        return Err(BlockError::BlobValidation(
-                            BlobError::TransactionCommitmentMismatch,
-                        ));
+                        return Err(BlockError::BlobValidation(BlobError::InvalidKzgProof));
                     }
+                }
+                if !consensus_context.blobs_verified_vs_txs()
+                    && verify_kzg_commitments_against_transactions::<T::EthSpec>(
+                        transactions,
+                        kzg_commitments,
+                    )
+                    //FIXME(sean) we should maybe just map this error so we have more info about the mismatch
+                    .is_err()
+                {
+                    return Err(BlockError::BlobValidation(
+                        BlobError::TransactionCommitmentMismatch,
+                    ));
                 }
             }
         }

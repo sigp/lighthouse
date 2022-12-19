@@ -499,10 +499,11 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                     response,
                 });
             }
-            NetworkEvent::RPCFailed { id, peer_id } => {
+            NetworkEvent::RPCFailed { id, peer_id, error } => {
                 self.send_to_router(RouterMessage::RPCFailed {
                     peer_id,
                     request_id: id,
+                    error,
                 });
             }
             NetworkEvent::StatusPeer(peer_id) => {
