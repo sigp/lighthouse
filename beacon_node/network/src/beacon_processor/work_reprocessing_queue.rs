@@ -274,9 +274,7 @@ impl<T: BeaconChainTypes> Stream for ReprocessQueue<T> {
 
         match self.lc_updates_delay_queue.poll_expired(cx) {
             Poll::Ready(Some(Ok(lc_id))) => {
-                return Poll::Ready(Some(InboundEvent::ReadyLCUpdate(
-                    lc_id.into_inner(),
-                )));
+                return Poll::Ready(Some(InboundEvent::ReadyLCUpdate(lc_id.into_inner())));
             }
             Poll::Ready(Some(Err(e))) => {
                 return Poll::Ready(Some(InboundEvent::DelayQueueError(e, "lc_updates_queue")));
@@ -741,19 +739,17 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
                     &metrics::BEACON_PROCESSOR_REPROCESSING_QUEUE_EXPIRED_OPTIMISTIC_UPDATES,
                 );
 
-                if let Some((parent_root, work)) =
-                    self.queued_lc_updates
-                        .remove(&queued_id)
-                        .map(|(queued_lc_update, _delay_key)| {
-                            (
-                                queued_lc_update
-                                    .light_client_optimistic_update
-                                    .attested_header
-                                    .canonical_root(),
-                                ReadyWork::LCUpdate(queued_lc_update),
-                            )
-                        })
-                {
+                if let Some((parent_root, work)) = self.queued_lc_updates.remove(&queued_id).map(
+                    |(queued_lc_update, _delay_key)| {
+                        (
+                            queued_lc_update
+                                .light_client_optimistic_update
+                                .attested_header
+                                .canonical_root(),
+                            ReadyWork::LCUpdate(queued_lc_update),
+                        )
+                    },
+                ) {
                     if self.ready_work_tx.try_send(work).is_err() {
                         error!(
                             log,
@@ -761,8 +757,13 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
                         );
                     }
 
-                    if let Some(queued_lc_updates) = self.awaiting_lc_updates_per_parent_root.get_mut(&parent_root) {
-                        if let Some(index) = queued_lc_updates.iter().position(|&id| id == queued_id) {
+                    if let Some(queued_lc_updates) = self
+                        .awaiting_lc_updates_per_parent_root
+                        .get_mut(&parent_root)
+                    {
+                        if let Some(index) =
+                            queued_lc_updates.iter().position(|&id| id == queued_id)
+                        {
                             queued_lc_updates.swap_remove(index);
                         }
                     }

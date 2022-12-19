@@ -1475,7 +1475,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                             "light_client_gossip_error",
                         );
                     }
-                    LightClientOptimisticUpdateError::OptimisticUpdateAlreadySeen => {   
+                    LightClientOptimisticUpdateError::OptimisticUpdateAlreadySeen => {
                         metrics::register_optimistic_update_error(&e);
 
                         debug!(
@@ -1490,14 +1490,14 @@ impl<T: BeaconChainTypes> Worker<T> {
                     | LightClientOptimisticUpdateError::SigSlotStartIsNone
                     | LightClientOptimisticUpdateError::FailedConstructingUpdate => {
                         metrics::register_optimistic_update_error(&e);
-                        
+
                         debug!(
                             self.log,
                             "LC error constructing optimistic update";
                             "peer" => %peer_id,
                             "error" => ?e,
                         )
-                    },
+                    }
                 }
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
             }

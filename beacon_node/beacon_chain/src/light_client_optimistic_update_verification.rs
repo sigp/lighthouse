@@ -94,17 +94,6 @@ impl<T: BeaconChainTypes> VerifiedLightClientOptimisticUpdate<T> {
             None => Slot::new(0),
         };
 
-        // check if we can process the optimistic update immediately
-        // otherwise queue
-
-        let canonical_root = light_client_optimistic_update
-            .attested_header
-            .canonical_root();
-
-        if canonical_root != head_block.message().parent_root() {
-            return Err(Error::UnknownBlockParentRoot(canonical_root));
-        }
-
         // verify that no other optimistic_update with a lower or equal
         // optimistic_header.slot was already forwarded on the network
         if gossiped_optimistic_slot <= latest_seen_optimistic_update_slot {
@@ -120,6 +109,16 @@ impl<T: BeaconChainTypes> VerifiedLightClientOptimisticUpdate<T> {
                 }
             }
             None => return Err(Error::SigSlotStartIsNone),
+        }
+
+        // check if we can process the optimistic update immediately
+        // otherwise queue
+        let canonical_root = light_client_optimistic_update
+            .attested_header
+            .canonical_root();
+
+        if canonical_root != head_block.message().parent_root() {
+            return Err(Error::UnknownBlockParentRoot(canonical_root));
         }
 
         let optimistic_update =
