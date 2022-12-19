@@ -1697,3 +1697,22 @@ fn gui_flag() {
             assert!(config.validator_monitor_auto);
         });
 }
+
+#[test]
+fn optimistic_finalized_sync_default() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert!(config.chain.optimistic_finalized_sync);
+        });
+}
+
+#[test]
+fn disable_optimistic_finalized_sync() {
+    CommandLineTest::new()
+        .flag("disable-optimistic-finalized-sync", None)
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert!(!config.chain.optimistic_finalized_sync);
+        });
+}

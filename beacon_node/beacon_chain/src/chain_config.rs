@@ -91,7 +91,7 @@ impl Default for ChainConfig {
             count_unrealized_full: CountUnrealizedFull::default(),
             checkpoint_sync_url_timeout: 60,
             prepare_payload_lookahead: Duration::from_secs(4),
-            optimistic_finalized_sync: true, //FIXME(sproul): set false
+            optimistic_finalized_sync: true,
         }
     }
 }

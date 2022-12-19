@@ -85,9 +85,9 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
                     {
                         warn!(
                             chain.log,
-                            "Fast payload blockHash verification failed";
+                            "Falling back to slow block hash verification";
                             "block_number" => payload.block_number(),
-                            "msg" => "falling back to full verification",
+                            "info" => "you can silence this warning with --disable-optimistic-finalized-sync",
                             "error" => ?e,
                         );
                         None
