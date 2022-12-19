@@ -13,7 +13,7 @@ BLS_TARBALL = $(patsubst %,%-$(BLS_TEST_TAG).tar.gz,$(BLS_TEST))
 BLS_OUTPUT_DIR := $(OUTPUT_DIR)/$(BLS_TEST_REPO_NAME)
 BLS_BASE_URL := https://github.com/ethereum/$(BLS_TEST_REPO_NAME)/releases/download/$(BLS_TEST_TAG)
 
-WGET := $(if $(LIGHTHOUSE_GITHUB_TOKEN),wget --header=Authorization: $(LIGHTHOUSE_GITHUB_TOKEN),wget)
+WGET := $(if $(LIGHTHOUSE_GITHUB_TOKEN),wget --header="Authorization: $(LIGHTHOUSE_GITHUB_TOKEN)",wget)
 
 all:
 	make $(OUTPUT_DIR)
