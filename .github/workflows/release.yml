@@ -8,8 +8,8 @@ on:
 env:
     DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
     DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
-    IMAGE_NAME: ${{ github.repository_owner}}/lighthouse
-    LCLI_IMAGE_NAME: ${{ github.repository_owner }}/lcli
+    REPO_NAME: ${{ github.repository_owner }}/lighthouse
+    IMAGE_NAME: ${{ github.repository_owner }}/lighthouse
 
 jobs:
     extract-version:
@@ -219,7 +219,7 @@ jobs:
 
             - name: Create Release Draft
               env:
-                  GITHUB_USER: ${{ github.repository_owner}}
+                  GITHUB_USER: ${{ github.repository_owner }}
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
               # The formatting here is borrowed from OpenEthereum: https://github.com/openethereum/openethereum/blob/main/.github/workflows/build.yml
