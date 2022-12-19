@@ -826,7 +826,7 @@ impl<T: BeaconChainTypes> Worker<T> {
             | Err(e @ BlockError::ExecutionPayloadError(_))
             // TODO(merge): reconsider peer scoring for this event.
             | Err(e @ BlockError::ParentExecutionPayloadInvalid { 
-                warn!(self.log, "Could not validate payload from parent, rejecting the block";
+                warn!(self.log, "Could not validate the payload from parent, rejecting the block";
                 "error" => %e);
              })
             | Err(e @ BlockError::GenesisBlock) => {
