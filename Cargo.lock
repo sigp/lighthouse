@@ -581,7 +581,7 @@ dependencies = [
  "eth2_hashing",
  "eth2_serde_utils",
  "eth2_ssz",
- "ethereum-types 0.12.1",
+ "ethereum-types 0.14.1",
  "hex",
  "milagro_bls",
  "rand 0.7.3",
@@ -689,9 +689,9 @@ checksum = "14c189c53d098945499cdfa7ecc63567cf3886b3332b312a5b4585d8d3a6a610"
 
 [[package]]
 name = "bytes"
-version = "1.2.1"
+version = "1.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ec8a7b6a70fde80372154c65702f00a0f56f3e1c36abbc6c440484be248856db"
+checksum = "dfb24e866b15a1af2a1b663f10c6b6b8f397a84aadb828f12e5b289ec23a3a3c"
 dependencies = [
  "serde",
 ]
@@ -725,7 +725,7 @@ dependencies = [
  "eth2_ssz",
  "eth2_ssz_derive",
  "eth2_ssz_types",
- "ethereum-types 0.12.1",
+ "ethereum-types 0.14.1",
  "quickcheck",
  "quickcheck_macros",
  "smallvec",
@@ -842,7 +842,7 @@ dependencies = [
  "dirs",
  "eth2_network_config",
  "eth2_ssz",
- "ethereum-types 0.12.1",
+ "ethereum-types 0.14.1",
  "hex",
  "serde",
  "serde_json",
@@ -1536,7 +1536,7 @@ dependencies = [
  "derivative",
  "eth2_ssz",
  "eth2_ssz_derive",
- "ethereum-types 0.12.1",
+ "ethereum-types 0.14.1",
  "execution_layer",
  "fork_choice",
  "fs2",
@@ -1835,7 +1835,7 @@ dependencies = [
 name = "eth2_serde_utils"
 version = "0.1.1"
 dependencies = [
- "ethereum-types 0.12.1",
+ "ethereum-types 0.14.1",
  "hex",
  "serde",
  "serde_derive",
@@ -1847,7 +1847,7 @@ name = "eth2_ssz"
 version = "0.4.1"
 dependencies = [
  "eth2_ssz_derive",
- "ethereum-types 0.12.1",
+ "ethereum-types 0.14.1",
  "itertools",
  "smallvec",
 ]
@@ -1921,11 +1921,11 @@ dependencies = [
 
 [[package]]
 name = "ethabi"
-version = "17.2.0"
+version = "18.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e4966fba78396ff92db3b817ee71143eccd98acf0f876b8d600e585a670c5d1b"
+checksum = "7413c5f74cc903ea37386a8965a936cbeb334bd270862fdece542c1b2dcbc898"
 dependencies = [
- "ethereum-types 0.13.1",
+ "ethereum-types 0.14.1",
  "hex",
  "once_cell",
  "regex",
@@ -1945,20 +1945,22 @@ dependencies = [
  "crunchy",
  "fixed-hash 0.7.0",
  "impl-rlp",
- "impl-serde",
+ "impl-serde 0.3.2",
  "tiny-keccak",
 ]
 
 [[package]]
 name = "ethbloom"
-version = "0.12.1"
+version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "11da94e443c60508eb62cf256243a64da87304c2802ac2528847f79d750007ef"
+checksum = "c22d4b5885b6aa2fe5e8b9329fb8d232bf739e434e6b87347c63bdd00c120f60"
 dependencies = [
  "crunchy",
- "fixed-hash 0.7.0",
+ "fixed-hash 0.8.0",
+ "impl-codec 0.6.0",
  "impl-rlp",
- "impl-serde",
+ "impl-serde 0.4.0",
+ "scale-info",
  "tiny-keccak",
 ]
 
@@ -1993,44 +1995,45 @@ dependencies = [
  "ethbloom 0.11.1",
  "fixed-hash 0.7.0",
  "impl-rlp",
- "impl-serde",
+ "impl-serde 0.3.2",
  "primitive-types 0.10.1",
  "uint",
 ]
 
 [[package]]
 name = "ethereum-types"
-version = "0.13.1"
+version = "0.14.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b2827b94c556145446fcce834ca86b7abf0c39a805883fe20e72c5bfdb5a0dc6"
+checksum = "02d215cbf040552efcbe99a38372fe80ab9d00268e20012b79fcd0f073edd8ee"
 dependencies = [
- "ethbloom 0.12.1",
- "fixed-hash 0.7.0",
+ "ethbloom 0.13.0",
+ "fixed-hash 0.8.0",
+ "impl-codec 0.6.0",
  "impl-rlp",
- "impl-serde",
- "primitive-types 0.11.1",
+ "impl-serde 0.4.0",
+ "primitive-types 0.12.1",
+ "scale-info",
  "uint",
 ]
 
 [[package]]
 name = "ethers-core"
-version = "0.17.0"
+version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0ebdd63c828f58aa067f40f9adcbea5e114fb1f90144b3a1e2858e0c9b1ff4e8"
+checksum = "ade3e9c97727343984e1ceada4fdab11142d2ee3472d2c67027d56b1251d4f15"
 dependencies = [
  "arrayvec",
  "bytes",
  "chrono",
  "elliptic-curve",
- "ethabi 17.2.0",
- "fastrlp",
+ "ethabi 18.0.0",
  "generic-array",
  "hex",
  "k256",
+ "open-fastrlp",
  "rand 0.8.5",
  "rlp",
  "rlp-derive",
- "rust_decimal",
  "serde",
  "serde_json",
  "strum",
@@ -2041,9 +2044,9 @@ dependencies = [
 
 [[package]]
 name = "ethers-providers"
-version = "0.17.0"
+version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e46482e4d1e79b20c338fd9db9e166184eb387f0a4e7c05c5b5c0aa2e8c8900c"
+checksum = "a1a9e0597aa6b2fdc810ff58bc95e4eeaa2c219b3e615ed025106ecb027407d8"
 dependencies = [
  "async-trait",
  "auto_impl",
@@ -2181,31 +2184,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "fastrlp"
-version = "0.1.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "089263294bb1c38ac73649a6ad563dd9a5142c8dc0482be15b8b9acb22a1611e"
-dependencies = [
- "arrayvec",
- "auto_impl",
- "bytes",
- "ethereum-types 0.13.1",
- "fastrlp-derive",
-]
-
-[[package]]
-name = "fastrlp-derive"
-version = "0.1.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d9e9158c1d8f0a7a716c9191562eaabba70268ba64972ef4871ce8d66fd08872"
-dependencies = [
- "bytes",
- "proc-macro2",
- "quote",
- "syn",
-]
-
-[[package]]
 name = "ff"
 version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2244,7 +2222,6 @@ name = "fixed-hash"
 version = "0.7.0"
 source = "git+https://github.com/paritytech/parity-common?rev=df638ab0885293d21d656dc300d39236b69ce57d#df638ab0885293d21d656dc300d39236b69ce57d"
 dependencies = [
- "arbitrary",
  "byteorder",
  "rand 0.8.5",
  "rustc-hex",
@@ -2257,6 +2234,10 @@ version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "835c052cb0c08c1acf6ffd71c022172e18723949c8282f2b9f27efbc51e64534"
 dependencies = [
+ "arbitrary",
+ "byteorder",
+ "rand 0.8.5",
+ "rustc-hex",
  "static_assertions",
 ]
 
@@ -3047,6 +3028,15 @@ name = "impl-serde"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4551f042f3438e64dbd6226b20527fc84a6e1fe65688b58746a2f53623f25f5c"
+dependencies = [
+ "serde",
+]
+
+[[package]]
+name = "impl-serde"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ebc88fc67028ae3db0c853baa36269d398d5f45b6982f95549ff5def78c935cd"
 dependencies = [
  "serde",
 ]
@@ -3977,7 +3967,7 @@ name = "merkle_proof"
 version = "0.2.0"
 dependencies = [
  "eth2_hashing",
- "ethereum-types 0.12.1",
+ "ethereum-types 0.14.1",
  "lazy_static",
  "quickcheck",
  "quickcheck_macros",
@@ -4216,7 +4206,7 @@ dependencies = [
  "error-chain",
  "eth2_ssz",
  "eth2_ssz_types",
- "ethereum-types 0.12.1",
+ "ethereum-types 0.14.1",
  "exit-future",
  "fnv",
  "futures",
@@ -4442,6 +4432,31 @@ name = "opaque-debug"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "624a8340c38c1b80fd549087862da4ba43e08858af025b236e509b6649fc13d5"
+
+[[package]]
+name = "open-fastrlp"
+version = "0.1.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "786393f80485445794f6043fd3138854dd109cc6c4bd1a6383db304c9ce9b9ce"
+dependencies = [
+ "arrayvec",
+ "auto_impl",
+ "bytes",
+ "ethereum-types 0.14.1",
+ "open-fastrlp-derive",
+]
+
+[[package]]
+name = "open-fastrlp-derive"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "003b2be5c6c53c1cfeb0a238b8a1c3915cd410feb684457a36c10038f764bb1c"
+dependencies = [
+ "bytes",
+ "proc-macro2",
+ "quote",
+ "syn",
+]
 
 [[package]]
 name = "openssl"
@@ -4839,20 +4854,7 @@ dependencies = [
  "fixed-hash 0.7.0",
  "impl-codec 0.5.1",
  "impl-rlp",
- "impl-serde",
- "uint",
-]
-
-[[package]]
-name = "primitive-types"
-version = "0.11.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e28720988bff275df1f51b171e1b2a18c30d194c4d2b61defdacecd625a5d94a"
-dependencies = [
- "fixed-hash 0.7.0",
- "impl-codec 0.6.0",
- "impl-rlp",
- "impl-serde",
+ "impl-serde 0.3.2",
  "uint",
 ]
 
@@ -4863,6 +4865,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9f3486ccba82358b11a77516035647c34ba167dfa53312630de83b12bd4f3d66"
 dependencies = [
  "fixed-hash 0.8.0",
+ "impl-codec 0.6.0",
+ "impl-rlp",
+ "impl-serde 0.4.0",
+ "scale-info",
  "uint",
 ]
 
@@ -5312,9 +5318,9 @@ dependencies = [
 
 [[package]]
 name = "reqwest"
-version = "0.11.12"
+version = "0.11.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "431949c384f4e2ae07605ccaa56d1d9d2ecdb5cadd4f9577ccfab29f2e5149fc"
+checksum = "68cc60575865c7831548863cc02356512e3f1dc2f3f82cb837d7fc4cc8f3c97c"
 dependencies = [
  "base64",
  "bytes",
@@ -5439,17 +5445,6 @@ dependencies = [
  "libsqlite3-sys",
  "memchr",
  "smallvec",
-]
-
-[[package]]
-name = "rust_decimal"
-version = "1.26.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ee9164faf726e4f3ece4978b25ca877ddc6802fa77f38cdccb32c7f805ecd70c"
-dependencies = [
- "arrayvec",
- "num-traits",
- "serde",
 ]
 
 [[package]]
@@ -5580,6 +5575,30 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "93fc1dc3aaa9bfed95e02e6eadabb4baf7e3078b0bd1b4d7b6b0b68378900502"
 dependencies = [
  "winapi-util",
+]
+
+[[package]]
+name = "scale-info"
+version = "2.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "001cf62ece89779fd16105b5f515ad0e5cedcd5440d3dd806bb067978e7c3608"
+dependencies = [
+ "cfg-if",
+ "derive_more",
+ "parity-scale-codec 3.2.1",
+ "scale-info-derive",
+]
+
+[[package]]
+name = "scale-info-derive"
+version = "2.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "303959cf613a6f6efd19ed4b4ad5bf79966a13352716299ad532cfb115f4205c"
+dependencies = [
+ "proc-macro-crate",
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]
@@ -6425,7 +6444,7 @@ version = "0.2.0"
 dependencies = [
  "criterion",
  "eth2_hashing",
- "ethereum-types 0.12.1",
+ "ethereum-types 0.14.1",
 ]
 
 [[package]]
@@ -7024,7 +7043,7 @@ dependencies = [
  "eth2_hashing",
  "eth2_ssz",
  "eth2_ssz_derive",
- "ethereum-types 0.12.1",
+ "ethereum-types 0.14.1",
  "rand 0.8.5",
  "smallvec",
  "tree_hash_derive",
@@ -7183,7 +7202,7 @@ dependencies = [
  "eth2_ssz",
  "eth2_ssz_derive",
  "eth2_ssz_types",
- "ethereum-types 0.12.1",
+ "ethereum-types 0.14.1",
  "hex",
  "int_to_bytes",
  "itertools",

@@ -62,8 +62,10 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
         let payload_verification_status = if is_execution_enabled(state, block.message().body()) {
             // Perform the initial stages of payload verification.
             //
-            // We will duplicate these checks again during `per_block_processing`, however these checks
-            // are cheap and doing them here ensures we protect the execution engine from junk.i
+            // We will duplicate these checks again during `per_block_processing`, however these
+            // checks are cheap and doing them here ensures we have verified them before marking
+            // the block as optimistically imported. This is particularly relevant in the case
+            // where we do not send the block to the EL at all.
             let block_message = block.message();
             let payload = block_message.execution_payload()?;
             partially_verify_execution_payload(state, block.slot(), payload, &chain.spec)
@@ -71,6 +73,8 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
 
             match notify_execution_layer {
                 NotifyExecutionLayer::No if chain.config.optimistic_finalized_sync => {
+                    // Verify the block hash here in Lighthouse and immediately mark the block as
+                    // optimistically imported. This saves a lot of roundtrips to the EL.
                     let execution_layer = chain
                         .execution_layer
                         .as_ref()
@@ -88,11 +92,6 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
                         );
                         None
                     } else {
-                        slog::info!(
-                            chain.log,
-                            "By some miracle payload verification succeeded";
-                            "block_number" => payload.block_number(),
-                        );
                         Some(PayloadVerificationStatus::Optimistic)
                     }
                 }

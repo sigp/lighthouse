@@ -43,6 +43,7 @@ use types::{
 mod block_hash;
 mod engine_api;
 mod engines;
+mod keccak;
 mod metrics;
 pub mod payload_cache;
 mod payload_status;
@@ -94,6 +95,7 @@ pub enum Error {
     BlockHashMismatch {
         computed: ExecutionBlockHash,
         payload: ExecutionBlockHash,
+        transactions_root: Hash256,
     },
     InvalidJWTSecret(String),
 }
