@@ -13,7 +13,8 @@ use std::sync::Arc;
 use strum::IntoStaticStr;
 use superstruct::superstruct;
 use types::{
-    light_client_bootstrap::LightClientBootstrap, Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot,
+    light_client_bootstrap::LightClientBootstrap, Epoch, EthSpec, Hash256,
+    LightClientFinalityUpdate, LightClientOptimisticUpdate, SignedBeaconBlock, Slot,
 };
 
 /// Maximum number of blocks in a single request.
@@ -248,6 +249,12 @@ pub enum RPCResponse<T: EthSpec> {
     /// A response to a get LIGHTCLIENT_BOOTSTRAP request.
     LightClientBootstrap(LightClientBootstrap<T>),
 
+    /// A response to a get LightClientOptimisticUpdate request.
+    LightClientOptimisticUpdate(LightClientOptimisticUpdate<T>),
+
+    /// A response to a get LightClientFinalityUpdate request.
+    LightClientFinalityUpdate(LightClientFinalityUpdate<T>),
+
     /// A PONG response to a PING request.
     Pong(Ping),
 
@@ -283,6 +290,14 @@ pub enum RPCCodedResponse<T: EthSpec> {
 pub struct LightClientBootstrapRequest {
     pub root: Hash256,
 }
+
+/// Request a light_client_optimistic_update for lightclients peers.
+#[derive(Encode, Decode, Clone, Debug, PartialEq)]
+pub struct LightClientOptimisticUpdateRequest {}
+
+/// Request a light_client_finality_update for lightclients peers.
+#[derive(Encode, Decode, Clone, Debug, PartialEq)]
+pub struct LightClientFinalityUpdateRequest {}
 
 /// The code assigned to an erroneous `RPCResponse`.
 #[derive(Debug, Clone, Copy, PartialEq, IntoStaticStr)]
@@ -333,6 +348,8 @@ impl<T: EthSpec> RPCCodedResponse<T> {
                 RPCResponse::Pong(_) => false,
                 RPCResponse::MetaData(_) => false,
                 RPCResponse::LightClientBootstrap(_) => false,
+                RPCResponse::LightClientOptimisticUpdate(_) => false,
+                RPCResponse::LightClientFinalityUpdate(_) => false,
             },
             RPCCodedResponse::Error(_, _) => true,
             // Stream terminations are part of responses that have chunks
@@ -368,6 +385,8 @@ impl<T: EthSpec> RPCResponse<T> {
             RPCResponse::Pong(_) => Protocol::Ping,
             RPCResponse::MetaData(_) => Protocol::MetaData,
             RPCResponse::LightClientBootstrap(_) => Protocol::LightClientBootstrap,
+            RPCResponse::LightClientOptimisticUpdate(_) => Protocol::LightClientOptimisticUpdate,
+            RPCResponse::LightClientFinalityUpdate(_) => Protocol::LightClientFinalityUpdate,
         }
     }
 }
@@ -405,6 +424,20 @@ impl<T: EthSpec> std::fmt::Display for RPCResponse<T> {
             RPCResponse::MetaData(metadata) => write!(f, "Metadata: {}", metadata.seq_number()),
             RPCResponse::LightClientBootstrap(bootstrap) => {
                 write!(f, "LightClientBootstrap Slot: {}", bootstrap.header.slot)
+            }
+            RPCResponse::LightClientOptimisticUpdate(update) => {
+                write!(
+                    f,
+                    "LightClientOptimisticUpdate Slot: {}",
+                    update.signature_slot
+                )
+            }
+            RPCResponse::LightClientFinalityUpdate(update) => {
+                write!(
+                    f,
+                    "LightClientFinalityUpdate Slot: {}",
+                    update.signature_slot
+                )
             }
         }
     }

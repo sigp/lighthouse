@@ -208,7 +208,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         )
     }
 
-    /// Handle a `BlocksByRoot` request from the peer.
+    /// Handle a `LightClientBootstrap` request from the peer.
     pub fn handle_light_client_bootstrap(
         self,
         peer_id: PeerId,
@@ -277,6 +277,60 @@ impl<T: BeaconChainTypes> Worker<T> {
         self.send_response(
             peer_id,
             Response::LightClientBootstrap(bootstrap),
+            request_id,
+        )
+    }
+
+    /// Handle a `LightClientOptimisticUpdate` request from the peer.
+    pub fn handle_light_client_optimistic_update(
+        self,
+        peer_id: PeerId,
+        request_id: PeerRequestId,
+        _request: LightClientOptimisticUpdateRequest,
+    ) {
+        let light_client_optimistic_update =
+            match self.chain.latest_seen_optimistic_update.lock().clone() {
+                Some(update) => update,
+                None => {
+                    self.send_error_response(
+                        peer_id,
+                        RPCResponseErrorCode::ResourceUnavailable,
+                        "Latest optimistic update not avaiable".into(),
+                        request_id,
+                    );
+                    return;
+                }
+            };
+        self.send_response(
+            peer_id,
+            Response::LightClientOptimisticUpdate(light_client_optimistic_update),
+            request_id,
+        )
+    }
+
+    /// Handle a `LightClientFinalityUpdate` request from the peer.
+    pub fn handle_light_client_finality_update(
+        self,
+        peer_id: PeerId,
+        request_id: PeerRequestId,
+        _request: LightClientFinalityUpdateRequest,
+    ) {
+        let light_client_finality_update =
+            match self.chain.latest_seen_finality_update.lock().clone() {
+                Some(update) => update,
+                None => {
+                    self.send_error_response(
+                        peer_id,
+                        RPCResponseErrorCode::ResourceUnavailable,
+                        "Latest finality update not avaiable".into(),
+                        request_id,
+                    );
+                    return;
+                }
+            };
+        self.send_response(
+            peer_id,
+            Response::LightClientFinalityUpdate(light_client_finality_update),
             request_id,
         )
     }

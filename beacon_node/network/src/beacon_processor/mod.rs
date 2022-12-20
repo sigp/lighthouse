@@ -45,7 +45,10 @@ use beacon_chain::{BeaconChain, BeaconChainTypes, GossipVerifiedBlock, NotifyExe
 use derivative::Derivative;
 use futures::stream::{Stream, StreamExt};
 use futures::task::Poll;
-use lighthouse_network::rpc::LightClientBootstrapRequest;
+use lighthouse_network::rpc::{
+    LightClientBootstrapRequest, LightClientFinalityUpdateRequest,
+    LightClientOptimisticUpdateRequest,
+};
 use lighthouse_network::{
     rpc::{BlocksByRangeRequest, BlocksByRootRequest, StatusMessage},
     Client, MessageId, NetworkGlobals, PeerId, PeerRequestId,
@@ -183,6 +186,14 @@ const MAX_BLS_TO_EXECUTION_CHANGE_QUEUE_LEN: usize = 16_384;
 /// will be stored before we start dropping them.
 const MAX_LIGHT_CLIENT_BOOTSTRAP_QUEUE_LEN: usize = 1_024;
 
+/// The maximum number of queued `LightClientFinalityUpdateRequest` objects received from the network RPC that
+/// will be stored before we start dropping them.
+const MAX_LIGHT_CLIENT_OPTIMISTIC_UPDATE_QUEUE_LEN: usize = 512;
+
+/// The maximum number of queued `LightClientOptimisticUpdateRequest` objects received from the network RPC that
+/// will be stored before we start dropping them.
+const MAX_LIGHT_CLIENT_FINALITY_UPDATE_QUEUE_LEN: usize = 512;
+
 /// The name of the manager tokio task.
 const MANAGER_TASK_NAME: &str = "beacon_processor_manager";
 
@@ -219,6 +230,8 @@ pub const GOSSIP_SYNC_SIGNATURE: &str = "gossip_sync_signature";
 pub const GOSSIP_SYNC_CONTRIBUTION: &str = "gossip_sync_contribution";
 pub const GOSSIP_LIGHT_CLIENT_FINALITY_UPDATE: &str = "light_client_finality_update";
 pub const GOSSIP_LIGHT_CLIENT_OPTIMISTIC_UPDATE: &str = "light_client_optimistic_update";
+pub const LIGHT_CLIENT_FINALITY_UPDATE_REQUEST: &str = "light_client_finality_update_request";
+pub const LIGHT_CLIENT_OPTIMISTIC_UPDATE_REQUEST: &str = "light_client_optimistic_update_request";
 pub const RPC_BLOCK: &str = "rpc_block";
 pub const CHAIN_SEGMENT: &str = "chain_segment";
 pub const CHAIN_SEGMENT_BACKFILL: &str = "chain_segment_backfill";
@@ -643,7 +656,7 @@ impl<T: BeaconChainTypes> WorkEvent<T> {
     }
 
     /// Create a new work event to process `LightClientBootstrap`s from the RPC network.
-    pub fn lightclient_bootstrap_request(
+    pub fn light_client_bootstrap_request(
         peer_id: PeerId,
         request_id: PeerRequestId,
         request: LightClientBootstrapRequest,
@@ -651,6 +664,38 @@ impl<T: BeaconChainTypes> WorkEvent<T> {
         Self {
             drop_during_sync: true,
             work: Work::LightClientBootstrapRequest {
+                peer_id,
+                request_id,
+                request,
+            },
+        }
+    }
+
+    /// Create a new work event to process `LightClientOptimisticUpdate`s from the RPC network.
+    pub fn light_client_optimistic_update_request(
+        peer_id: PeerId,
+        request_id: PeerRequestId,
+        request: LightClientOptimisticUpdateRequest,
+    ) -> Self {
+        Self {
+            drop_during_sync: true,
+            work: Work::LightClientOptimisticUpdateRequest {
+                peer_id,
+                request_id,
+                request,
+            },
+        }
+    }
+
+    /// Create a new work event to process `LightClientFinalityUpdate`s from the RPC network.
+    pub fn light_client_finality_update_request(
+        peer_id: PeerId,
+        request_id: PeerRequestId,
+        request: LightClientFinalityUpdateRequest,
+    ) -> Self {
+        Self {
+            drop_during_sync: true,
+            work: Work::LightClientFinalityUpdateRequest {
                 peer_id,
                 request_id,
                 request,
@@ -880,6 +925,16 @@ pub enum Work<T: BeaconChainTypes> {
         request_id: PeerRequestId,
         request: LightClientBootstrapRequest,
     },
+    LightClientOptimisticUpdateRequest {
+        peer_id: PeerId,
+        request_id: PeerRequestId,
+        request: LightClientOptimisticUpdateRequest,
+    },
+    LightClientFinalityUpdateRequest {
+        peer_id: PeerId,
+        request_id: PeerRequestId,
+        request: LightClientFinalityUpdateRequest,
+    },
 }
 
 impl<T: BeaconChainTypes> Work<T> {
@@ -909,6 +964,10 @@ impl<T: BeaconChainTypes> Work<T> {
             Work::BlocksByRangeRequest { .. } => BLOCKS_BY_RANGE_REQUEST,
             Work::BlocksByRootsRequest { .. } => BLOCKS_BY_ROOTS_REQUEST,
             Work::LightClientBootstrapRequest { .. } => LIGHT_CLIENT_BOOTSTRAP_REQUEST,
+            Work::LightClientOptimisticUpdateRequest { .. } => {
+                LIGHT_CLIENT_OPTIMISTIC_UPDATE_REQUEST
+            }
+            Work::LightClientFinalityUpdateRequest { .. } => LIGHT_CLIENT_FINALITY_UPDATE_REQUEST,
             Work::UnknownBlockAttestation { .. } => UNKNOWN_BLOCK_ATTESTATION,
             Work::UnknownBlockAggregate { .. } => UNKNOWN_BLOCK_AGGREGATE,
             Work::GossipBlsToExecutionChange { .. } => GOSSIP_BLS_TO_EXECUTION_CHANGE,
@@ -1065,6 +1124,10 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
             FifoQueue::new(MAX_BLS_TO_EXECUTION_CHANGE_QUEUE_LEN);
 
         let mut lcbootstrap_queue = FifoQueue::new(MAX_LIGHT_CLIENT_BOOTSTRAP_QUEUE_LEN);
+        let mut lc_optimistic_update_queue =
+            FifoQueue::new(MAX_LIGHT_CLIENT_OPTIMISTIC_UPDATE_QUEUE_LEN);
+        let mut lc_finality_update_queue =
+            FifoQueue::new(MAX_LIGHT_CLIENT_FINALITY_UPDATE_QUEUE_LEN);
 
         let chain = match self.beacon_chain.upgrade() {
             Some(chain) => chain,
@@ -1459,6 +1522,12 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                             }
                             Work::LightClientBootstrapRequest { .. } => {
                                 lcbootstrap_queue.push(work, work_id, &self.log)
+                            }
+                            Work::LightClientOptimisticUpdateRequest { .. } => {
+                                lc_optimistic_update_queue.push(work, work_id, &self.log)
+                            }
+                            Work::LightClientFinalityUpdateRequest { .. } => {
+                                lc_finality_update_queue.push(work, work_id, &self.log)
                             }
                             Work::UnknownBlockAttestation { .. } => {
                                 unknown_block_attestation_queue.push(work)
@@ -1899,6 +1968,20 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                 request,
             } => task_spawner.spawn_blocking(move || {
                 worker.handle_light_client_bootstrap(peer_id, request_id, request)
+            }),
+            Work::LightClientOptimisticUpdateRequest {
+                peer_id,
+                request_id,
+                request,
+            } => task_spawner.spawn_blocking(move || {
+                worker.handle_light_client_optimistic_update(peer_id, request_id, request)
+            }),
+            Work::LightClientFinalityUpdateRequest {
+                peer_id,
+                request_id,
+                request,
+            } => task_spawner.spawn_blocking(move || {
+                worker.handle_light_client_finality_update(peer_id, request_id, request)
             }),
             Work::UnknownBlockAttestation {
                 message_id,

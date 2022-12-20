@@ -17,8 +17,9 @@ use std::sync::Arc;
 use tokio_util::codec::{Decoder, Encoder};
 use types::light_client_bootstrap::LightClientBootstrap;
 use types::{
-    EthSpec, ForkContext, ForkName, Hash256, SignedBeaconBlock, SignedBeaconBlockAltair,
-    SignedBeaconBlockBase, SignedBeaconBlockCapella, SignedBeaconBlockMerge,
+    light_client_bootstrap::LightClientBootstrap, EthSpec, ForkContext, ForkName, Hash256,
+    LightClientFinalityUpdate, LightClientOptimisticUpdate, SignedBeaconBlock,
+    SignedBeaconBlockAltair, SignedBeaconBlockBase, SignedBeaconBlockMerge,
 };
 use unsigned_varint::codec::Uvi;
 
@@ -72,6 +73,8 @@ impl<TSpec: EthSpec> Encoder<RPCCodedResponse<TSpec>> for SSZSnappyInboundCodec<
                 RPCResponse::BlocksByRange(res) => res.as_ssz_bytes(),
                 RPCResponse::BlocksByRoot(res) => res.as_ssz_bytes(),
                 RPCResponse::LightClientBootstrap(res) => res.as_ssz_bytes(),
+                RPCResponse::LightClientOptimisticUpdate(res) => res.as_ssz_bytes(),
+                RPCResponse::LightClientFinalityUpdate(res) => res.as_ssz_bytes(),
                 RPCResponse::Pong(res) => res.data.as_ssz_bytes(),
                 RPCResponse::MetaData(res) =>
                 // Encode the correct version of the MetaData response based on the negotiated version.
@@ -233,6 +236,8 @@ impl<TSpec: EthSpec> Encoder<OutboundRequest<TSpec>> for SSZSnappyOutboundCodec<
             OutboundRequest::Ping(req) => req.as_ssz_bytes(),
             OutboundRequest::MetaData(_) => return Ok(()), // no metadata to encode
             OutboundRequest::LightClientBootstrap(req) => req.as_ssz_bytes(),
+            OutboundRequest::LightClientOptimisticUpdate(req) => req.as_ssz_bytes(),
+            OutboundRequest::LightClientFinalityUpdate(req) => req.as_ssz_bytes(),
         };
         // SSZ encoded bytes should be within `max_packet_size`
         if bytes.len() > self.max_packet_size {
@@ -484,6 +489,12 @@ fn handle_v1_request<T: EthSpec>(
                 root: Hash256::from_ssz_bytes(decoded_buffer)?,
             },
         ))),
+        Protocol::LightClientOptimisticUpdate => Ok(Some(
+            InboundRequest::LightClientOptimisticUpdate(LightClientOptimisticUpdateRequest {}),
+        )),
+        Protocol::LightClientFinalityUpdate => Ok(Some(InboundRequest::LightClientFinalityUpdate(
+            LightClientFinalityUpdateRequest {},
+        ))),
         // MetaData requests return early from InboundUpgrade and do not reach the decoder.
         // Handle this case just for completeness.
         Protocol::MetaData => {
@@ -557,6 +568,14 @@ fn handle_v1_response<T: EthSpec>(
         )))),
         Protocol::LightClientBootstrap => Ok(Some(RPCResponse::LightClientBootstrap(
             LightClientBootstrap::from_ssz_bytes(decoded_buffer)?,
+        ))),
+        Protocol::LightClientOptimisticUpdate => {
+            Ok(Some(RPCResponse::LightClientOptimisticUpdate(
+                LightClientOptimisticUpdate::from_ssz_bytes(decoded_buffer)?,
+            )))
+        }
+        Protocol::LightClientFinalityUpdate => Ok(Some(RPCResponse::LightClientFinalityUpdate(
+            LightClientFinalityUpdate::from_ssz_bytes(decoded_buffer)?,
         ))),
     }
 }
@@ -896,6 +915,12 @@ mod tests {
                 }
                 OutboundRequest::LightClientBootstrap(bootstrap) => {
                     assert_eq!(decoded, InboundRequest::LightClientBootstrap(bootstrap))
+                }
+                OutboundRequest::LightClientOptimisticUpdate(update) => {
+                    assert_eq!(decoded, InboundRequest::LightClientOptimisticUpdate(update))
+                }
+                OutboundRequest::LightClientFinalityUpdate(update) => {
+                    assert_eq!(decoded, InboundRequest::LightClientFinalityUpdate(update))
                 }
             }
         }

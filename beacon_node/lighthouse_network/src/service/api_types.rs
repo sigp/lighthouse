@@ -1,12 +1,15 @@
 use std::sync::Arc;
 
 use libp2p::core::connection::ConnectionId;
-use types::light_client_bootstrap::LightClientBootstrap;
-use types::{EthSpec, SignedBeaconBlock};
+use types::{
+    light_client_bootstrap::LightClientBootstrap, EthSpec, LightClientFinalityUpdate,
+    LightClientOptimisticUpdate, SignedBeaconBlock,
+};
 
 use crate::rpc::{
     methods::{
         BlocksByRangeRequest, BlocksByRootRequest, LightClientBootstrapRequest,
+        LightClientFinalityUpdateRequest, LightClientOptimisticUpdateRequest,
         OldBlocksByRangeRequest, RPCCodedResponse, RPCResponse, ResponseTermination, StatusMessage,
     },
     OutboundRequest, SubstreamId,
@@ -37,6 +40,10 @@ pub enum Request {
     BlocksByRoot(BlocksByRootRequest),
     // light client bootstrap request
     LightClientBootstrap(LightClientBootstrapRequest),
+    // light client optimistic update request
+    LightClientOptimisticUpdate(LightClientOptimisticUpdateRequest),
+    // light client finality update request
+    LightClientFinalityUpdate(LightClientFinalityUpdateRequest),
 }
 
 impl<TSpec: EthSpec> std::convert::From<Request> for OutboundRequest<TSpec> {
@@ -51,6 +58,12 @@ impl<TSpec: EthSpec> std::convert::From<Request> for OutboundRequest<TSpec> {
                 })
             }
             Request::LightClientBootstrap(b) => OutboundRequest::LightClientBootstrap(b),
+            Request::LightClientOptimisticUpdate(update) => {
+                OutboundRequest::LightClientOptimisticUpdate(update)
+            }
+            Request::LightClientFinalityUpdate(update) => {
+                OutboundRequest::LightClientFinalityUpdate(update)
+            }
             Request::Status(s) => OutboundRequest::Status(s),
         }
     }
@@ -72,6 +85,10 @@ pub enum Response<TSpec: EthSpec> {
     BlocksByRoot(Option<Arc<SignedBeaconBlock<TSpec>>>),
     /// A response to a LightClientUpdate request.
     LightClientBootstrap(LightClientBootstrap<TSpec>),
+    /// A response to a LightClientOptimisticUpdate request.
+    LightClientOptimisticUpdate(LightClientOptimisticUpdate<TSpec>),
+    /// A response to a LightClientFinalityUpdate request.
+    LightClientFinalityUpdate(LightClientFinalityUpdate<TSpec>),
 }
 
 impl<TSpec: EthSpec> std::convert::From<Response<TSpec>> for RPCCodedResponse<TSpec> {
@@ -88,6 +105,12 @@ impl<TSpec: EthSpec> std::convert::From<Response<TSpec>> for RPCCodedResponse<TS
             Response::Status(s) => RPCCodedResponse::Success(RPCResponse::Status(s)),
             Response::LightClientBootstrap(b) => {
                 RPCCodedResponse::Success(RPCResponse::LightClientBootstrap(b))
+            }
+            Response::LightClientOptimisticUpdate(b) => {
+                RPCCodedResponse::Success(RPCResponse::LightClientOptimisticUpdate(b))
+            }
+            Response::LightClientFinalityUpdate(b) => {
+                RPCCodedResponse::Success(RPCResponse::LightClientFinalityUpdate(b))
             }
         }
     }

@@ -39,6 +39,8 @@ pub enum OutboundRequest<TSpec: EthSpec> {
     BlocksByRange(OldBlocksByRangeRequest),
     BlocksByRoot(BlocksByRootRequest),
     LightClientBootstrap(LightClientBootstrapRequest),
+    LightClientOptimisticUpdate(LightClientOptimisticUpdateRequest),
+    LightClientFinalityUpdate(LightClientFinalityUpdateRequest),
     Ping(Ping),
     MetaData(PhantomData<TSpec>),
 }
@@ -88,7 +90,9 @@ impl<TSpec: EthSpec> OutboundRequest<TSpec> {
             // Note: This match arm is technically unreachable as we only respond to light client requests
             // that we generate from the beacon state.
             // We do not make light client rpc requests from the beacon node
-            OutboundRequest::LightClientBootstrap(_) => vec![],
+            OutboundRequest::LightClientBootstrap(_)
+            | OutboundRequest::LightClientOptimisticUpdate(_)
+            | OutboundRequest::LightClientFinalityUpdate(_) => vec![],
         }
     }
     /* These functions are used in the handler for stream management */
@@ -103,6 +107,8 @@ impl<TSpec: EthSpec> OutboundRequest<TSpec> {
             OutboundRequest::Ping(_) => 1,
             OutboundRequest::MetaData(_) => 1,
             OutboundRequest::LightClientBootstrap(_) => 1,
+            OutboundRequest::LightClientOptimisticUpdate(_) => 1,
+            OutboundRequest::LightClientFinalityUpdate(_) => 1,
         }
     }
 
@@ -116,6 +122,10 @@ impl<TSpec: EthSpec> OutboundRequest<TSpec> {
             OutboundRequest::Ping(_) => Protocol::Ping,
             OutboundRequest::MetaData(_) => Protocol::MetaData,
             OutboundRequest::LightClientBootstrap(_) => Protocol::LightClientBootstrap,
+            OutboundRequest::LightClientOptimisticUpdate(_) => {
+                Protocol::LightClientOptimisticUpdate
+            }
+            OutboundRequest::LightClientFinalityUpdate(_) => Protocol::LightClientFinalityUpdate,
         }
     }
 
@@ -127,7 +137,9 @@ impl<TSpec: EthSpec> OutboundRequest<TSpec> {
             // variants that have `multiple_responses()` can have values.
             OutboundRequest::BlocksByRange(_) => ResponseTermination::BlocksByRange,
             OutboundRequest::BlocksByRoot(_) => ResponseTermination::BlocksByRoot,
-            OutboundRequest::LightClientBootstrap(_) => unreachable!(),
+            OutboundRequest::LightClientBootstrap(_)
+            | OutboundRequest::LightClientOptimisticUpdate(_)
+            | OutboundRequest::LightClientFinalityUpdate(_) => unreachable!(),
             OutboundRequest::Status(_) => unreachable!(),
             OutboundRequest::Goodbye(_) => unreachable!(),
             OutboundRequest::Ping(_) => unreachable!(),
@@ -187,6 +199,12 @@ impl<TSpec: EthSpec> std::fmt::Display for OutboundRequest<TSpec> {
             OutboundRequest::MetaData(_) => write!(f, "MetaData request"),
             OutboundRequest::LightClientBootstrap(bootstrap) => {
                 write!(f, "Lightclient Bootstrap: {}", bootstrap.root)
+            }
+            OutboundRequest::LightClientOptimisticUpdate(_) => {
+                write!(f, "Light client optimistic update request")
+            }
+            OutboundRequest::LightClientFinalityUpdate(_) => {
+                write!(f, "Light client finality update request")
             }
         }
     }
