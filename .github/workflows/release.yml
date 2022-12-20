@@ -204,7 +204,7 @@ jobs:
             # ==============================
 
             - name: Download artifacts
-              uses: actions/download-artifact@v2
+              uses: actions/download-artifact@v3
 
             # ==============================
             #       Create release draft
