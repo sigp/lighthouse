@@ -852,11 +852,11 @@ impl HttpJsonRpc {
     pub async fn supported_apis_v1(&self) -> Result<SupportedApis, Error> {
         Ok(SupportedApis {
             new_payload_v1: true,
-            new_payload_v2: cfg!(all(feature = "withdrawals", not(test))),
+            new_payload_v2: cfg!(not(test)),
             forkchoice_updated_v1: true,
-            forkchoice_updated_v2: cfg!(all(feature = "withdrawals", not(test))),
+            forkchoice_updated_v2: cfg!(not(test)),
             get_payload_v1: true,
-            get_payload_v2: cfg!(all(feature = "withdrawals", not(test))),
+            get_payload_v2: cfg!(not(test)),
             exchange_transition_configuration_v1: true,
         })
     }

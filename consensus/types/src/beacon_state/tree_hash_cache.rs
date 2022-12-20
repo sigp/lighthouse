@@ -336,11 +336,9 @@ impl<T: EthSpec> BeaconTreeHashCacheInner<T> {
         }
 
         // Withdrawal indices (Capella and later).
-        #[cfg(feature = "withdrawals")]
         if let Ok(next_withdrawal_index) = state.next_withdrawal_index() {
             hasher.write(next_withdrawal_index.tree_hash_root().as_bytes())?;
         }
-        #[cfg(feature = "withdrawals")]
         if let Ok(next_withdrawal_validator_index) = state.next_withdrawal_validator_index() {
             hasher.write(next_withdrawal_validator_index.tree_hash_root().as_bytes())?;
         }

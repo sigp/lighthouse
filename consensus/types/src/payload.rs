@@ -37,7 +37,6 @@ pub trait ExecPayload<T: EthSpec>: Debug + Clone + PartialEq + Hash + TreeHash +
     fn gas_limit(&self) -> u64;
     fn transactions(&self) -> Option<&Transactions<T>>;
     /// fork-specific fields
-    #[cfg(feature = "withdrawals")]
     fn withdrawals_root(&self) -> Result<Hash256, Error>;
 
     /// Is this a default payload with 0x0 roots for transactions and withdrawals?
@@ -241,7 +240,6 @@ impl<T: EthSpec> ExecPayload<T> for FullPayload<T> {
         })
     }
 
-    #[cfg(feature = "withdrawals")]
     fn withdrawals_root(&self) -> Result<Hash256, Error> {
         match self {
             FullPayload::Merge(_) => Err(Error::IncorrectStateVariant),
@@ -343,7 +341,6 @@ impl<'b, T: EthSpec> ExecPayload<T> for FullPayloadRef<'b, T> {
         })
     }
 
-    #[cfg(feature = "withdrawals")]
     fn withdrawals_root(&self) -> Result<Hash256, Error> {
         match self {
             FullPayloadRef::Merge(_) => Err(Error::IncorrectStateVariant),
@@ -523,7 +520,6 @@ impl<T: EthSpec> ExecPayload<T> for BlindedPayload<T> {
         None
     }
 
-    #[cfg(feature = "withdrawals")]
     fn withdrawals_root(&self) -> Result<Hash256, Error> {
         match self {
             BlindedPayload::Merge(_) => Err(Error::IncorrectStateVariant),
@@ -614,7 +610,6 @@ impl<'b, T: EthSpec> ExecPayload<T> for BlindedPayloadRef<'b, T> {
         None
     }
 
-    #[cfg(feature = "withdrawals")]
     fn withdrawals_root(&self) -> Result<Hash256, Error> {
         match self {
             BlindedPayloadRef::Merge(_) => Err(Error::IncorrectStateVariant),
@@ -712,7 +707,6 @@ macro_rules! impl_exec_payload_common {
                 f(self)
             }
 
-            #[cfg(feature = "withdrawals")]
             fn withdrawals_root(&self) -> Result<Hash256, Error> {
                 let g = $g;
                 g(self)

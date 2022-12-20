@@ -4,7 +4,7 @@ use crate::case_result::compare_beacon_state_results_without_caches;
 use crate::decode::{ssz_decode_file, ssz_decode_file_with, ssz_decode_state, yaml_decode_file};
 use crate::testing_spec;
 use serde_derive::Deserialize;
-#[cfg(all(feature = "withdrawals", feature = "withdrawals-processing"))]
+#[cfg(feature = "withdrawals-processing")]
 use state_processing::per_block_processing::process_operations::{
     process_bls_to_execution_changes, process_bls_to_execution_changes,
 };
@@ -22,7 +22,7 @@ use state_processing::{
 };
 use std::fmt::Debug;
 use std::path::Path;
-#[cfg(all(feature = "withdrawals", feature = "withdrawals-processing"))]
+#[cfg(feature = "withdrawals-processing")]
 use types::SignedBlsToExecutionChange;
 use types::{
     Attestation, AttesterSlashing, BeaconBlock, BeaconState, BlindedPayload, ChainSpec, Deposit,
@@ -42,7 +42,7 @@ struct ExecutionMetadata {
 }
 
 /// Newtype for testing withdrawals.
-#[cfg(all(feature = "withdrawals", feature = "withdrawals-processing"))]
+#[cfg(feature = "withdrawals-processing")]
 #[derive(Debug, Clone, Deserialize)]
 pub struct WithdrawalsPayload<T: EthSpec> {
     payload: FullPayload<T>,
@@ -341,7 +341,7 @@ impl<E: EthSpec> Operation<E> for BlindedPayload<E> {
     }
 }
 
-#[cfg(all(feature = "withdrawals", feature = "withdrawals-processing"))]
+#[cfg(feature = "withdrawals-processing")]
 impl<E: EthSpec> Operation<E> for WithdrawalsPayload<E> {
     fn handler_name() -> String {
         "withdrawals".into()
@@ -374,7 +374,7 @@ impl<E: EthSpec> Operation<E> for WithdrawalsPayload<E> {
     }
 }
 
-#[cfg(all(feature = "withdrawals", feature = "withdrawals-processing"))]
+#[cfg(feature = "withdrawals-processing")]
 impl<E: EthSpec> Operation<E> for SignedBlsToExecutionChange {
     fn handler_name() -> String {
         "bls_to_execution_change".into()

@@ -24,8 +24,6 @@ gnosis = []
 slasher-mdbx = ["slasher/mdbx"]
 # Support slasher LMDB backend.
 slasher-lmdb = ["slasher/lmdb"]
-# Support for inclusion of withdrawals fields in all capella consensus types in all APIs.
-withdrawals = ["types/withdrawals", "beacon_node/withdrawals"]
 # Support for withdrawals consensus processing logic.
 withdrawals-processing = ["beacon_node/withdrawals-processing"]
 
