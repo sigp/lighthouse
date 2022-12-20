@@ -9,7 +9,6 @@ pub fn upgrade_to_eip4844<E: EthSpec>(
     let epoch = pre_state.current_epoch();
     let pre = pre_state.as_capella_mut()?;
 
-    // FIXME(sean) This is a hack to let us participate in testnets where capella doesn't exist.
     let previous_fork_version = pre.fork.current_version;
 
     // Where possible, use something like `mem::take` to move fields from behind the &mut
