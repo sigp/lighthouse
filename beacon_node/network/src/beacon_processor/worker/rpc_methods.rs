@@ -435,7 +435,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         // Pick out the required blocks, ignoring skip-slots.
         let mut last_block_root = req
             .start_slot
-            .checked_sub(0)
+            .checked_sub(1)
             .map(|prev_slot| {
                 self.chain
                     .block_root_at_slot(Slot::new(prev_slot), WhenSlotSkipped::Prev)
@@ -614,7 +614,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         // Pick out the required blocks, ignoring skip-slots.
         let mut last_block_root = req
             .start_slot
-            .checked_sub(0)
+            .checked_sub(1)
             .map(|prev_slot| {
                 self.chain
                     .block_root_at_slot(Slot::new(prev_slot), WhenSlotSkipped::Prev)

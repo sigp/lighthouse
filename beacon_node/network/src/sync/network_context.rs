@@ -314,14 +314,18 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                         let (chain_id, batch_id, info) = entry.get_mut();
                         let chain_id = chain_id.clone();
                         let batch_id = batch_id.clone();
+                        let stream_terminator = maybe_block.is_none();
                         info.add_block_response(maybe_block);
-                        let maybe_block = info.pop_response().map(|block_sidecar_pair| {
+                        let maybe_block_wrapped = info.pop_response().map(|block_sidecar_pair| {
                             BlockWrapper::BlockAndBlob { block_sidecar_pair }
                         });
                         if info.is_finished() {
                             entry.remove();
                         }
-                        Some((chain_id, batch_id, maybe_block))
+                        if !stream_terminator && maybe_block_wrapped.is_none() {
+                            return None
+                        }
+                        Some((chain_id, batch_id, maybe_block_wrapped))
                     }
                     Entry::Vacant(_) => None,
                 }
@@ -356,12 +360,16 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 let (chain_id, batch_id, info) = entry.get_mut();
                 let chain_id = chain_id.clone();
                 let batch_id = batch_id.clone();
+                let stream_terminator = maybe_sidecar.is_none();
                 info.add_sidecar_response(maybe_sidecar);
                 let maybe_block = info
                     .pop_response()
                     .map(|block_sidecar_pair| BlockWrapper::BlockAndBlob { block_sidecar_pair });
                 if info.is_finished() {
                     entry.remove();
+                }
+                if !stream_terminator && maybe_block.is_none() {
+                    return None
                 }
                 Some((chain_id, batch_id, maybe_block))
             }

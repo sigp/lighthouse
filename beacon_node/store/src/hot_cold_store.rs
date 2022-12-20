@@ -503,9 +503,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     }
 
     pub fn get_blobs(&self, block_root: &Hash256) -> Result<Option<BlobsSidecar<E>>, Error> {
-        if let Some(blobs) = self.blob_cache.lock().get(block_root) {
-            Ok(Some(blobs.clone()))
-        } else if let Some(bytes) = self
+        if let Some(bytes) = self
             .hot_db
             .get_bytes(DBColumn::BeaconBlob.into(), block_root.as_bytes())?
         {

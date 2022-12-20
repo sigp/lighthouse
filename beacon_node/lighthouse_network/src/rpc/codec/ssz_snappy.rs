@@ -298,8 +298,8 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyOutboundCodec<TSpec> {
             .rpc_response_limits::<TSpec>(&self.fork_context);
         if ssz_limits.is_out_of_bounds(length, self.max_packet_size) {
             return Err(RPCError::InvalidData(format!(
-                "RPC response length is out of bounds, length {}",
-                length
+                "RPC response length is out of bounds, length {}, max {}, min {}",
+                length, ssz_limits.max, ssz_limits.min
             )));
         }
         // Calculate worst case compression length for given uncompressed length
