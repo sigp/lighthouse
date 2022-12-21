@@ -425,16 +425,34 @@ impl ApiTester {
     // finalization tests
     pub async fn test_beacon_states_root_finalized(self) -> Self {
         for state_id in self.interesting_state_ids() {
+            let state_root = state_id.root(&self.chain);
+            let state = state_id.state(&self.chain);
+
+            // if .root or .state fail, skip the test. those would be errors outside the scope
+            // of this test, here we're testing the finalized field assuming the call to .is_finalized_state
+            // occurs after the state_root and state calls, and that the state_root and state calls
+            // were correct.
+            if state_root.is_err() || state.is_err() {
+                continue;
+            }
+
+            // now that we know the state is valid, we can unwrap() everything we need
             let result = self
                 .client
                 .get_beacon_states_root(state_id.0)
                 .await
                 .unwrap()
-                .map(|res| res.finalized);
+                .unwrap()
+                .finalized
+                .unwrap();
 
-            let (state_root, _) = state_id.root(&self.chain).unwrap();
+            let (state_root, _) = state_root.unwrap();
+            let (state, _) = state.unwrap();
             let state_slot = state.slot();
-            let expected = chain.is_finalized_state(&state_root, state_slot).unwrap();
+            let expected = self
+                .chain
+                .is_finalized_state(&state_root, state_slot)
+                .unwrap();
 
             assert_eq!(result, expected, "{:?}", state_id);
         }
@@ -444,16 +462,34 @@ impl ApiTester {
 
     pub async fn test_beacon_states_fork_finalized(self) -> Self {
         for state_id in self.interesting_state_ids() {
+            let state_root = state_id.root(&self.chain);
+            let state = state_id.state(&self.chain);
+
+            // if .root or .state fail, skip the test. those would be errors outside the scope
+            // of this test, here we're testing the finalized field assuming the call to .is_finalized_state
+            // occurs after the state_root and state calls, and that the state_root and state calls
+            // were correct.
+            if state_root.is_err() || state.is_err() {
+                continue;
+            }
+
+            // now that we know the state is valid, we can unwrap() everything we need
             let result = self
                 .client
                 .get_beacon_states_fork(state_id.0)
                 .await
                 .unwrap()
-                .map(|res| res.finalized);
+                .unwrap()
+                .finalized
+                .unwrap();
 
-            let (state_root, _) = state_id.root(&self.chain).unwrap();
+            let (state_root, _) = state_root.unwrap();
+            let (state, _) = state.unwrap();
             let state_slot = state.slot();
-            let expected = chain.is_finalized_state(&state_root, state_slot).unwrap();
+            let expected = self
+                .chain
+                .is_finalized_state(&state_root, state_slot)
+                .unwrap();
 
             assert_eq!(result, expected, "{:?}", state_id);
         }
@@ -463,16 +499,34 @@ impl ApiTester {
 
     pub async fn test_beacon_states_finality_checkpoints_finalized(self) -> Self {
         for state_id in self.interesting_state_ids() {
+            let state_root = state_id.root(&self.chain);
+            let state = state_id.state(&self.chain);
+
+            // if .root or .state fail, skip the test. those would be errors outside the scope
+            // of this test, here we're testing the finalized field assuming the call to .is_finalized_state
+            // occurs after the state_root and state calls, and that the state_root and state calls
+            // were correct.
+            if state_root.is_err() || state.is_err() {
+                continue;
+            }
+
+            // now that we know the state is valid, we can unwrap() everything we need
             let result = self
                 .client
                 .get_beacon_states_finality_checkpoints(state_id.0)
                 .await
                 .unwrap()
-                .map(|res| res.finalized);
+                .unwrap()
+                .finalized
+                .unwrap();
 
-            let (state_root, _) = state_id.root(&self.chain).unwrap();
+            let (state_root, _) = state_root.unwrap();
+            let (state, _) = state.unwrap();
             let state_slot = state.slot();
-            let expected = chain.is_finalized_state(&state_root, state_slot).unwrap();
+            let expected = self
+                .chain
+                .is_finalized_state(&state_root, state_slot)
+                .unwrap();
 
             assert_eq!(result, expected, "{:?}", state_id);
         }
@@ -482,56 +536,108 @@ impl ApiTester {
 
     pub async fn test_beacon_headers_block_id_finalized(self) -> Self {
         for block_id in self.interesting_block_ids() {
+            let block_root = block_id.root(&self.chain);
+            let block = block_id.full_block(&self.chain).await;
+
+            // if .root or .state fail, skip the test. those would be errors outside the scope
+            // of this test, here we're testing the finalized field assuming the call to .is_finalized_state
+            // occurs after the state_root and state calls, and that the state_root and state calls
+            // were correct.
+            if block_root.is_err() || block.is_err() {
+                continue;
+            }
+
+            // now that we know the block is valid, we can unwrap() everything we need
             let result = self
                 .client
                 .get_beacon_headers_block_id(block_id.0)
                 .await
                 .unwrap()
-                .map(|res| res.finalized);
+                .unwrap()
+                .finalized
+                .unwrap();
 
-            let (block, _) = block_id.blinded_block(&chain).await.unwrap();
-            let (block_root, _) = block_id.root(&chain)?;
-            let expected = chain.is_finalized_block(&block_root, block.slot()).unwrap();
+            let (block_root, _) = block_root.unwrap();
+            let (block, _) = block.unwrap();
+            let block_slot = block.slot();
+            let expected = self
+                .chain
+                .is_finalized_block(&block_root, block_slot)
+                .unwrap();
 
-            assert_eq!(result, expected, "{:?}", state_id);
+            assert_eq!(result, expected, "{:?}", block_id);
         }
 
         self
     }
 
-    pub async fn test_beacon_blocks_finalized(self) -> Self {
+    pub async fn test_beacon_blocks_finalized<T: EthSpec>(self) -> Self {
         for block_id in self.interesting_block_ids() {
+            let block_root = block_id.root(&self.chain);
+            let block = block_id.full_block(&self.chain).await;
+
+            // if .root or .full_block fail, skip the test. those would be errors outside the scope
+            // of this test, here we're testing the finalized field assuming the call to .is_finalized_block
+            // occurs after those calls, and that they were correct.
+            if block_root.is_err() || block.is_err() {
+                continue;
+            }
+
+            // now that we know the block is valid, we can unwrap() everything we need
             let result = self
                 .client
-                .get_beacon_blocks(block_id.0)
+                .get_beacon_blocks::<MainnetEthSpec>(block_id.0)
                 .await
                 .unwrap()
-                .map(|res| res.finalized);
+                .unwrap()
+                .finalized
+                .unwrap();
 
-            let (block, _) = block_id.blinded_block(&chain).await.unwrap();
-            let (block_root, _) = block_id.root(&chain)?;
-            let expected = chain.is_finalized_block(&block_root, block.slot()).unwrap();
+            let (block_root, _) = block_root.unwrap();
+            let (block, _) = block.unwrap();
+            let block_slot = block.slot();
+            let expected = self
+                .chain
+                .is_finalized_block(&block_root, block_slot)
+                .unwrap();
 
-            assert_eq!(result, expected, "{:?}", state_id);
+            assert_eq!(result, expected, "{:?}", block_id);
         }
 
         self
     }
 
-    pub async fn test_beacon_blinded_blocks_finalized(self) -> Self {
+    pub async fn test_beacon_blinded_blocks_finalized<T: EthSpec>(self) -> Self {
         for block_id in self.interesting_block_ids() {
+            let block_root = block_id.root(&self.chain);
+            let block = block_id.full_block(&self.chain).await;
+
+            // if .root or .full_block fail, skip the test. those would be errors outside the scope
+            // of this test, here we're testing the finalized field assuming the call to .is_finalized_block
+            // occurs after those calls, and that they were correct.
+            if block_root.is_err() || block.is_err() {
+                continue;
+            }
+
+            // now that we know the block is valid, we can unwrap() everything we need
             let result = self
                 .client
-                .get_beacon_blinded_blocks(block_id.0)
+                .get_beacon_blinded_blocks::<MainnetEthSpec>(block_id.0)
                 .await
                 .unwrap()
-                .map(|res| res.finalized);
+                .unwrap()
+                .finalized
+                .unwrap();
 
-            let (block, _) = block_id.blinded_block(&chain).await.unwrap();
-            let (block_root, _) = block_id.root(&chain)?;
-            let expected = chain.is_finalized_block(&block_root, block.slot()).unwrap();
+            let (block_root, _) = block_root.unwrap();
+            let (block, _) = block.unwrap();
+            let block_slot = block.slot();
+            let expected = self
+                .chain
+                .is_finalized_block(&block_root, block_slot)
+                .unwrap();
 
-            assert_eq!(result, expected, "{:?}", state_id);
+            assert_eq!(result, expected, "{:?}", block_id);
         }
 
         self
@@ -539,16 +645,34 @@ impl ApiTester {
 
     pub async fn test_debug_beacon_states_finalized(self) -> Self {
         for state_id in self.interesting_state_ids() {
+            let state_root = state_id.root(&self.chain);
+            let state = state_id.state(&self.chain);
+
+            // if .root or .state fail, skip the test. those would be errors outside the scope
+            // of this test, here we're testing the finalized field assuming the call to .is_finalized_state
+            // occurs after the state_root and state calls, and that the state_root and state calls
+            // were correct.
+            if state_root.is_err() || state.is_err() {
+                continue;
+            }
+
+            // now that we know the state is valid, we can unwrap() everything we need
             let result = self
                 .client
-                .get_debug_beacon_states(state_id.0)
+                .get_debug_beacon_states::<MainnetEthSpec>(state_id.0)
                 .await
                 .unwrap()
-                .map(|res| res.finalized);
+                .unwrap()
+                .finalized
+                .unwrap();
 
-            let (state_root, _) = state_id.root(&self.chain).unwrap();
+            let (state_root, _) = state_root.unwrap();
+            let (state, _) = state.unwrap();
             let state_slot = state.slot();
-            let expected = chain.is_finalized_state(&state_root, state_slot).unwrap();
+            let expected = self
+                .chain
+                .is_finalized_state(&state_root, state_slot)
+                .unwrap();
 
             assert_eq!(result, expected, "{:?}", state_id);
         }
@@ -3921,6 +4045,20 @@ async fn beacon_get() {
     ApiTester::new()
         .await
         .test_beacon_genesis()
+        .await
+        .test_beacon_states_root_finalized()
+        .await
+        .test_beacon_states_fork_finalized()
+        .await
+        .test_beacon_states_finality_checkpoints_finalized()
+        .await
+        .test_beacon_headers_block_id_finalized()
+        .await
+        .test_beacon_blocks_finalized::<MainnetEthSpec>()
+        .await
+        .test_beacon_blinded_blocks_finalized::<MainnetEthSpec>()
+        .await
+        .test_debug_beacon_states_finalized()
         .await
         .test_beacon_states_root()
         .await
