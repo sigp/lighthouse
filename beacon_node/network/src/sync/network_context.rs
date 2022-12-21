@@ -197,7 +197,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             ExpectedBatchTy::OnlyBlockBlobs => {
                 debug!(
                     self.log,
-                    "Sending BlobsByRange request";
+                    "Sending BlocksByRange and BlobsByRange requests";
                     "method" => "Mixed by range request",
                     "count" => request.count,
                     "peer" => %peer_id,
@@ -264,7 +264,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             ExpectedBatchTy::OnlyBlockBlobs => {
                 debug!(
                     self.log,
-                    "Sending backfill BlobsByRange request";
+                    "Sending backfill BlocksByRange and BlobsByRange requests";
                     "method" => "Mixed by range request",
                     "count" => request.count,
                     "peer" => %peer_id,
