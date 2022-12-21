@@ -319,12 +319,18 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                         let maybe_block_wrapped = info.pop_response().map(|block_sidecar_pair| {
                             BlockWrapper::BlockAndBlob { block_sidecar_pair }
                         });
+
+                        if stream_terminator && !info.is_finished() {
+                            return None;
+                        }
+                        if !stream_terminator && maybe_block_wrapped.is_none() {
+                            return None;
+                        }
+
                         if info.is_finished() {
                             entry.remove();
                         }
-                        if !stream_terminator && maybe_block_wrapped.is_none() {
-                            return None
-                        }
+
                         Some((chain_id, batch_id, maybe_block_wrapped))
                     }
                     Entry::Vacant(_) => None,
@@ -365,12 +371,19 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 let maybe_block = info
                     .pop_response()
                     .map(|block_sidecar_pair| BlockWrapper::BlockAndBlob { block_sidecar_pair });
+
+                if stream_terminator && !info.is_finished() {
+                    return None;
+                }
+
+                if !stream_terminator && maybe_block.is_none() {
+                    return None;
+                }
+
                 if info.is_finished() {
                     entry.remove();
                 }
-                if !stream_terminator && maybe_block.is_none() {
-                    return None
-                }
+
                 Some((chain_id, batch_id, maybe_block))
             }
             Entry::Vacant(_) => None,

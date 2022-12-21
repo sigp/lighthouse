@@ -23,7 +23,7 @@ use tokio_util::{
 use types::BlobsSidecar;
 use types::{
     BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockMerge, Blob, EmptyBlock, EthSpec,
-    ForkContext, ForkName, Hash256, MainnetEthSpec, Signature, SignedBeaconBlock
+    ForkContext, ForkName, Hash256, MainnetEthSpec, Signature, SignedBeaconBlock,
 };
 
 lazy_static! {
@@ -364,16 +364,10 @@ impl ProtocolId {
             Protocol::Goodbye => RpcLimits::new(0, 0), // Goodbye request has no response
             Protocol::BlocksByRange => rpc_block_limits_by_fork(fork_context.current_fork()),
             Protocol::BlocksByRoot => rpc_block_limits_by_fork(fork_context.current_fork()),
-
-            Protocol::BlobsByRange => RpcLimits::new(
-                *BLOBS_SIDECAR_MIN,
-                *BLOBS_SIDECAR_MAX,
-            ),
-            Protocol::BlobsByRoot => RpcLimits::new(
-                *SIGNED_BLOCK_AND_BLOBS_MIN,
-                *SIGNED_BLOCK_AND_BLOBS_MAX,
-            ),
-
+            Protocol::BlobsByRange => RpcLimits::new(*BLOBS_SIDECAR_MIN, *BLOBS_SIDECAR_MAX),
+            Protocol::BlobsByRoot => {
+                RpcLimits::new(*SIGNED_BLOCK_AND_BLOBS_MIN, *SIGNED_BLOCK_AND_BLOBS_MAX)
+            }
             Protocol::Ping => RpcLimits::new(
                 <Ping as Encode>::ssz_fixed_len(),
                 <Ping as Encode>::ssz_fixed_len(),
@@ -392,13 +386,16 @@ impl ProtocolId {
     /// Returns `true` if the given `ProtocolId` should expect `context_bytes` in the
     /// beginning of the stream, else returns `false`.
     pub fn has_context_bytes(&self) -> bool {
-        if self.version == Version::V2 {
-            match self.message_name {
+        match self.version {
+            Version::V2 => match self.message_name {
                 Protocol::BlocksByRange | Protocol::BlocksByRoot => return true,
                 _ => return false,
-            }
+            },
+            Version::V1 => match self.message_name {
+                Protocol::BlobsByRange | Protocol::BlobsByRoot => return true,
+                _ => return false,
+            },
         }
-        false
     }
 }
 

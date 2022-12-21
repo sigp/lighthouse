@@ -689,7 +689,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                 self.log,
                 "BlobsByRange Response processed";
                 "peer" => %peer_id,
-                "msg" => "Failed to return all requested blocks",
+                "msg" => "Failed to return all requested blobs",
                 "start_slot" => req.start_slot,
                 "current_slot" => current_slot,
                 "requested" => req.count,

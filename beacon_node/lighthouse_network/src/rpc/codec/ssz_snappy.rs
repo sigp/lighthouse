@@ -439,6 +439,9 @@ fn context_bytes<T: EthSpec>(
                     SignedBeaconBlock::Base { .. } => Some(fork_context.genesis_context_bytes()),
                 };
             }
+            if let RPCResponse::BlobsByRange(_) | RPCResponse::BlobsByRoot(_) = rpc_variant {
+                return fork_context.to_context_bytes(ForkName::Eip4844);
+            }
         }
     }
     None
@@ -570,42 +573,38 @@ fn handle_v1_response<T: EthSpec>(
             SignedBeaconBlock::Base(SignedBeaconBlockBase::from_ssz_bytes(decoded_buffer)?),
         )))),
         Protocol::BlobsByRange => {
-            Ok(Some(RPCResponse::BlobsByRange(Arc::new(
-                BlobsSidecar::from_ssz_bytes(decoded_buffer)?,
-            ))))
-            //FIXME(sean) do we need context bytes?
-            // let fork_name = fork_name.take().ok_or_else(|| {
-            //     RPCError::ErrorResponse(
-            //         RPCResponseErrorCode::InvalidRequest,
-            //         format!("No context bytes provided for {} response", protocol),
-            //     )
-            // })?;
-            // match fork_name {
-            //     ForkName::Eip4844 => ,
-            //     _ => Err(RPCError::ErrorResponse(
-            //         RPCResponseErrorCode::InvalidRequest,
-            //         "Invalid forkname for blobsbyrange".to_string(),
-            //     )),
-            // }
+            let fork_name = fork_name.take().ok_or_else(|| {
+                RPCError::ErrorResponse(
+                    RPCResponseErrorCode::InvalidRequest,
+                    format!("No context bytes provided for {} response", protocol),
+                )
+            })?;
+            match fork_name {
+                ForkName::Eip4844 => Ok(Some(RPCResponse::BlobsByRange(Arc::new(
+                    BlobsSidecar::from_ssz_bytes(decoded_buffer)?,
+                )))),
+                _ => Err(RPCError::ErrorResponse(
+                    RPCResponseErrorCode::InvalidRequest,
+                    "Invalid forkname for blobsbyrange".to_string(),
+                )),
+            }
         }
         Protocol::BlobsByRoot => {
-            Ok(Some(RPCResponse::BlobsByRoot(Arc::new(
-                SignedBeaconBlockAndBlobsSidecar::from_ssz_bytes(decoded_buffer)?,
-            ))))
-            //FIXME(sean) do we need context bytes?
-            // let fork_name = fork_name.take().ok_or_else(|| {
-            //     RPCError::ErrorResponse(
-            //         RPCResponseErrorCode::InvalidRequest,
-            //         format!("No context bytes provided for {} response", protocol),
-            //     )
-            // })?;
-            // match fork_name {
-            //     ForkName::Eip4844 =>
-            //     _ => Err(RPCError::ErrorResponse(
-            //         RPCResponseErrorCode::InvalidRequest,
-            //         "Invalid forkname for blobsbyroot".to_string(),
-            //     )),
-            // }
+            let fork_name = fork_name.take().ok_or_else(|| {
+                RPCError::ErrorResponse(
+                    RPCResponseErrorCode::InvalidRequest,
+                    format!("No context bytes provided for {} response", protocol),
+                )
+            })?;
+            match fork_name {
+                ForkName::Eip4844 => Ok(Some(RPCResponse::BlobsByRoot(Arc::new(
+                    SignedBeaconBlockAndBlobsSidecar::from_ssz_bytes(decoded_buffer)?,
+                )))),
+                _ => Err(RPCError::ErrorResponse(
+                    RPCResponseErrorCode::InvalidRequest,
+                    "Invalid forkname for blobsbyroot".to_string(),
+                )),
+            }
         }
         Protocol::Ping => Ok(Some(RPCResponse::Pong(Ping {
             data: u64::from_ssz_bytes(decoded_buffer)?,

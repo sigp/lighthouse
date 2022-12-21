@@ -137,10 +137,16 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
 
         let id = SyncingChain::<T>::id(&target_head_root, &target_head_slot);
 
+        let target_slot = if is_finalized_segment {
+            target_head_slot + (2 * T::EthSpec::slots_per_epoch()) + 1
+        } else {
+            target_head_slot
+        };
+
         SyncingChain {
             id,
             start_epoch,
-            target_head_slot,
+            target_head_slot: target_slot,
             target_head_root,
             batches: BTreeMap::new(),
             peers,
