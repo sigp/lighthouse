@@ -78,7 +78,34 @@ pub fn compute_attestation_rewards<T: BeaconChainTypes>(
     //TODO Loop through index
     let base_reward = get_base_reward(&state, index[0], base_reward_per_increment, spec);
 
-    //TODO get unslashed_participating_increments, to be able to calculate the reward_numerator
+    //Get previous_epoch through state.previous_epoch()
+    let previous_epoch = state.previous_epoch();
+
+    //Get unslashed_participating_indices
+    let unslashed_participating_indices = participation_cache.get_unslashed_participating_indices(flag_index, previous_epoch);
+
+    //Unwrap unslashed_participating_indices
+    let unslashed_participating_indices = unslashed_participating_indices.or_else(|_| {
+        Err(warp_utils::reject::custom_server_error("Unable to get unslashed participating indices".to_owned()))
+    })?;
+
+    //Get unslashed_participating_balance
+    let unslashed_participating_balance = unslashed_participating_indices.total_balance();
+
+    //Unwrap unslashed_participating_balance
+    let unslashed_participating_balance = unslashed_participating_balance.or_else(|_| {
+        Err(warp_utils::reject::custom_server_error("Unable to get unslashed participating balance".to_owned()))
+    })?;
+
+    //Get unslashed_participating_increments
+    let unslashed_participating_increments = unslashed_participating_balance.safe_div(spec.effective_balance_increment);
+
+    //Unwrap unslashed_participating_increments
+    let unslashed_participating_increments = unslashed_participating_increments.or_else(|_| {
+        Err(warp_utils::reject::custom_server_error("Unable to get unslashed participating increments".to_owned()))
+    })?;
+
+    //Calculate reward_numerator = base_reward * weight * unslashed_participating_increments
 
     //--- Calculate actual rewards ---//
 
