@@ -4,7 +4,7 @@ use eth2::types::ValidatorId;
 use eth2::lighthouse::AttestationRewardsTBD;
 use slog::Logger;
 use participation_cache::ParticipationCache;
-use state_processing::per_epoch_processing::altair::participation_cache;
+use state_processing::{per_epoch_processing::altair::{participation_cache, rewards_and_penalties::get_flag_weight}};
 use types::{Epoch, EthSpec};
 
 pub fn compute_attestation_rewards<T: BeaconChainTypes>(
@@ -37,18 +37,22 @@ pub fn compute_attestation_rewards<T: BeaconChainTypes>(
         Err(warp_utils::reject::custom_server_error("Unable to get state".to_owned()))
     })?;
 
-    //--- Calculate ideal rewards ---//
+    //--- Calculate ideal rewards for 33 (0...32) values ---//
 
-    // Unwrap state as BeaconState
+    //Unwrap state as BeaconState
     let state = state.ok_or_else(|| {
         warp_utils::reject::custom_server_error("Unable to get state".to_owned())
     })?;
 
-    // Create ParticipationCache
+    //Create ParticipationCache
     let participation_cache = ParticipationCache::new(&state, spec);
 
-    // Use get_flag_index_deltas to get a map like (flag, effective_balance)
-    
+    //TODO Define flag_index as usize
+    let flag_index = 0;
+
+    //Use get_flag_weight
+    let weight = get_flag_weight(flag_index);
+
     //--- Calculate actual rewards ---//
 
     Ok(AttestationRewardsTBD{
