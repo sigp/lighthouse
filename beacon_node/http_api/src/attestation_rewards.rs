@@ -2,9 +2,10 @@ use std::sync::Arc;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use eth2::types::ValidatorId;
 use eth2::lighthouse::AttestationRewardsTBD;
+use safe_arith::SafeArith;
 use slog::Logger;
 use participation_cache::ParticipationCache;
-use state_processing::{per_epoch_processing::altair::{participation_cache, rewards_and_penalties::get_flag_weight}};
+use state_processing::{per_epoch_processing::altair::{participation_cache, rewards_and_penalties::get_flag_weight}, common::altair::{BaseRewardPerIncrement, get_base_reward}};
 use types::{Epoch, EthSpec};
 
 pub fn compute_attestation_rewards<T: BeaconChainTypes>(
@@ -46,12 +47,38 @@ pub fn compute_attestation_rewards<T: BeaconChainTypes>(
 
     //Create ParticipationCache
     let participation_cache = ParticipationCache::new(&state, spec);
+    let participation_cache = participation_cache.or_else(|_| {
+        Err(warp_utils::reject::custom_server_error("Unable to get participation cache".to_owned()))
+    })?;
 
     //TODO Define flag_index as usize
     let flag_index = 0;
 
-    //Use get_flag_weight
+    //Use get_flag_weight to get weight
     let weight = get_flag_weight(flag_index);
+
+    //Get total_active_balance through current_epoch_total_active_balance
+    let total_active_balance = participation_cache.current_epoch_total_active_balance();
+
+    //Get active_increments through total_active_balance and spec.effective_balance_increment
+    let active_increments = total_active_balance.safe_div(spec.effective_balance_increment);
+
+    //Get base_reward_per_increment through BaseRewardPerIncrement::new
+    let base_reward_per_increment = BaseRewardPerIncrement::new(total_active_balance, spec);
+
+    //Use pattern matching to handle ok and error cases of base_reward_per_increment
+    let base_reward_per_increment = match base_reward_per_increment {
+        Ok(base_reward_per_increment) => base_reward_per_increment,
+        Err(e) => return Err(warp_utils::reject::custom_server_error(format!("Unable to get base reward per increment: {:?}", e))),
+    };
+
+    //Get index from participation_cache.eligible_validator_indices
+    let index = participation_cache.eligible_validator_indices();
+
+    //TODO Loop through index
+    let base_reward = get_base_reward(&state, index[0], base_reward_per_increment, spec);
+
+    //TODO get unslashed_participating_increments, to be able to calculate the reward_numerator
 
     //--- Calculate actual rewards ---//
 
