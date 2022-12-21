@@ -178,7 +178,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             ExpectedBatchTy::OnlyBlock => {
                 trace!(
                     self.log,
-                    "Sending BlocksByRange Request";
+                    "Sending BlocksByRange request";
                     "method" => "BlocksByRange",
                     "count" => request.count,
                     "peer" => %peer_id,
@@ -197,7 +197,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             ExpectedBatchTy::OnlyBlockBlobs => {
                 debug!(
                     self.log,
-                    "Sending BlockBlock by range request";
+                    "Sending BlobsByRange request";
                     "method" => "Mixed by range request",
                     "count" => request.count,
                     "peer" => %peer_id,
@@ -245,7 +245,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             ExpectedBatchTy::OnlyBlock => {
                 trace!(
                     self.log,
-                    "Sending backfill BlocksByRange Request";
+                    "Sending backfill BlocksByRange request";
                     "method" => "BlocksByRange",
                     "count" => request.count,
                     "peer" => %peer_id,
@@ -264,7 +264,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             ExpectedBatchTy::OnlyBlockBlobs => {
                 debug!(
                     self.log,
-                    "Sending BlockBlock by range request";
+                    "Sending backfill BlobsByRange request";
                     "method" => "Mixed by range request",
                     "count" => request.count,
                     "peer" => %peer_id,
@@ -272,7 +272,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
 
                 // create the shared request id. This is fine since the rpc handles substream ids.
                 let id = self.next_id();
-                let request_id = RequestId::Sync(SyncRequestId::RangeSidecarPair { id });
+                let request_id = RequestId::Sync(SyncRequestId::BackFillSidecarPair { id });
 
                 // Create the blob request based on the blob request.
                 let blobs_request = Request::BlobsByRange(BlobsByRangeRequest {
