@@ -503,6 +503,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     }
 
     pub fn get_blobs(&self, block_root: &Hash256) -> Result<Option<BlobsSidecar<E>>, Error> {
+        // FIXME(sean) I was attempting to use a blob cache here but was getting deadlocks,
+        // may want to attempt to use one again
         if let Some(bytes) = self
             .hot_db
             .get_bytes(DBColumn::BeaconBlob.into(), block_root.as_bytes())?
