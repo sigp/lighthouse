@@ -28,6 +28,7 @@ pub struct ConfigAndPreset {
     #[serde(flatten)]
     pub bellatrix_preset: BellatrixPreset,
     #[superstruct(only(Capella))]
+    #[serde(flatten)]
     pub capella_preset: CapellaPreset,
     /// The `extra_fields` map allows us to gracefully decode fields intended for future hard forks.
     #[serde(flatten)]
