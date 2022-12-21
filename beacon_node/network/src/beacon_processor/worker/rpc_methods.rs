@@ -433,7 +433,17 @@ impl<T: BeaconChainTypes> Worker<T> {
         };
 
         // Pick out the required blocks, ignoring skip-slots.
-        let mut last_block_root = None;
+        let mut last_block_root = req
+            .start_slot
+            .checked_sub(1)
+            .map(|prev_slot| {
+                self.chain
+                    .block_root_at_slot(Slot::new(prev_slot), WhenSlotSkipped::Prev)
+            })
+            .transpose()
+            .ok()
+            .flatten()
+            .flatten();
         let maybe_block_roots = process_results(forwards_block_root_iter, |iter| {
             iter.take_while(|(_, slot)| slot.as_u64() < req.start_slot.saturating_add(req.count))
                 // map skip slots to None
@@ -602,7 +612,17 @@ impl<T: BeaconChainTypes> Worker<T> {
         };
 
         // Pick out the required blocks, ignoring skip-slots.
-        let mut last_block_root = None;
+        let mut last_block_root = req
+            .start_slot
+            .checked_sub(1)
+            .map(|prev_slot| {
+                self.chain
+                    .block_root_at_slot(Slot::new(prev_slot), WhenSlotSkipped::Prev)
+            })
+            .transpose()
+            .ok()
+            .flatten()
+            .flatten();
         let maybe_block_roots = process_results(forwards_block_root_iter, |iter| {
             iter.take_while(|(_, slot)| slot.as_u64() < req.start_slot.saturating_add(req.count))
                 // map skip slots to None
@@ -669,7 +689,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                 self.log,
                 "BlobsByRange Response processed";
                 "peer" => %peer_id,
-                "msg" => "Failed to return all requested blocks",
+                "msg" => "Failed to return all requested blobs",
                 "start_slot" => req.start_slot,
                 "current_slot" => current_slot,
                 "requested" => req.count,
