@@ -1,6 +1,7 @@
 //! Provides network functionality for the Syncing thread. This fundamentally wraps a network
 //! channel and stores a global RPC ID to perform requests.
 
+use super::block_sidecar_coupling::BlockBlobRequestInfo;
 use super::manager::{Id, RequestId as SyncRequestId};
 use super::range_sync::{BatchId, ChainId, ExpectedBatchTy};
 use crate::beacon_processor::WorkEvent;
@@ -13,59 +14,11 @@ use lighthouse_network::rpc::methods::BlobsByRangeRequest;
 use lighthouse_network::rpc::{BlocksByRangeRequest, BlocksByRootRequest, GoodbyeReason};
 use lighthouse_network::{Client, NetworkGlobals, PeerAction, PeerId, ReportSource, Request};
 use slog::{debug, trace, warn};
-use slot_clock::SlotClock;
 use std::collections::hash_map::Entry;
-use std::collections::VecDeque;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use types::signed_block_and_blobs::BlockWrapper;
-use types::{
-    BlobsSidecar, ChainSpec, EthSpec, SignedBeaconBlock, SignedBeaconBlockAndBlobsSidecar,
-};
-
-#[derive(Debug, Default)]
-struct BlockBlobRequestInfo<T: EthSpec> {
-    /// Blocks we have received awaiting for their corresponding sidecar.
-    accumulated_blocks: VecDeque<Arc<SignedBeaconBlock<T>>>,
-    /// Sidecars we have received awaiting for their corresponding block.
-    accumulated_sidecars: VecDeque<Arc<BlobsSidecar<T>>>,
-    /// Whether the individual RPC request for blocks is finished or not.
-    is_blocks_rpc_finished: bool,
-    /// Whether the individual RPC request for sidecars is finished or not.
-    is_sidecar_rpc_finished: bool,
-}
-
-impl<T: EthSpec> BlockBlobRequestInfo<T> {
-    pub fn add_block_response(&mut self, maybe_block: Option<Arc<SignedBeaconBlock<T>>>) {
-        match maybe_block {
-            Some(block) => self.accumulated_blocks.push_back(block),
-            None => self.is_blocks_rpc_finished = true,
-        }
-    }
-
-    pub fn add_sidecar_response(&mut self, maybe_sidecar: Option<Arc<BlobsSidecar<T>>>) {
-        match maybe_sidecar {
-            Some(sidecar) => self.accumulated_sidecars.push_back(sidecar),
-            None => self.is_sidecar_rpc_finished = true,
-        }
-    }
-
-    pub fn pop_response(&mut self) -> Option<SignedBeaconBlockAndBlobsSidecar<T>> {
-        if !self.accumulated_blocks.is_empty() && !self.accumulated_sidecars.is_empty() {
-            let beacon_block = self.accumulated_blocks.pop_front().expect("non empty");
-            let blobs_sidecar = self.accumulated_sidecars.pop_front().expect("non empty");
-            return Some(SignedBeaconBlockAndBlobsSidecar {
-                beacon_block,
-                blobs_sidecar,
-            });
-        }
-        None
-    }
-
-    pub fn is_finished(&self) -> bool {
-        self.is_blocks_rpc_finished && self.is_sidecar_rpc_finished
-    }
-}
+use types::{BlobsSidecar, EthSpec, SignedBeaconBlock};
 
 /// Wraps a Network channel to employ various RPC related network functionality for the Sync manager. This includes management of a global RPC request Id.
 pub struct SyncNetworkContext<T: BeaconChainTypes> {
@@ -102,6 +55,24 @@ pub struct SyncNetworkContext<T: BeaconChainTypes> {
 
     /// Logger for the `SyncNetworkContext`.
     log: slog::Logger,
+}
+
+/// Small enumeration to make dealing with block and blob requests easier.
+pub enum BlockOrBlob<T: EthSpec> {
+    Block(Option<Arc<SignedBeaconBlock<T>>>),
+    Blob(Option<Arc<BlobsSidecar<T>>>),
+}
+
+impl<T: EthSpec> From<Option<Arc<SignedBeaconBlock<T>>>> for BlockOrBlob<T> {
+    fn from(block: Option<Arc<SignedBeaconBlock<T>>>) -> Self {
+        BlockOrBlob::Block(block)
+    }
+}
+
+impl<T: EthSpec> From<Option<Arc<BlobsSidecar<T>>>> for BlockOrBlob<T> {
+    fn from(blob: Option<Arc<BlobsSidecar<T>>>) -> Self {
+        BlockOrBlob::Blob(blob)
+    }
 }
 
 impl<T: BeaconChainTypes> SyncNetworkContext<T> {
@@ -300,91 +271,45 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         }
     }
 
-    /// Received a blocks by range response.
+    /// Response for a request that is only for blocks.
     pub fn range_sync_block_response(
         &mut self,
         request_id: Id,
-        maybe_block: Option<Arc<SignedBeaconBlock<T::EthSpec>>>,
-        batch_type: ExpectedBatchTy,
-    ) -> Option<(ChainId, BatchId, Option<BlockWrapper<T::EthSpec>>)> {
-        match batch_type {
-            ExpectedBatchTy::OnlyBlockBlobs => {
-                match self.range_sidecar_pair_requests.entry(request_id) {
-                    Entry::Occupied(mut entry) => {
-                        let (chain_id, batch_id, info) = entry.get_mut();
-                        let chain_id = chain_id.clone();
-                        let batch_id = batch_id.clone();
-                        let stream_terminator = maybe_block.is_none();
-                        info.add_block_response(maybe_block);
-                        let maybe_block_wrapped = info.pop_response().map(|block_sidecar_pair| {
-                            BlockWrapper::BlockAndBlob { block_sidecar_pair }
-                        });
-
-                        if stream_terminator && !info.is_finished() {
-                            return None;
-                        }
-                        if !stream_terminator && maybe_block_wrapped.is_none() {
-                            return None;
-                        }
-
-                        if info.is_finished() {
-                            entry.remove();
-                        }
-
-                        Some((chain_id, batch_id, maybe_block_wrapped))
-                    }
-                    Entry::Vacant(_) => None,
-                }
-            }
-            ExpectedBatchTy::OnlyBlock => {
-                // if the request is just for blocks then it can be removed on a stream termination
-                match maybe_block {
-                    Some(block) => {
-                        self.range_requests
-                            .get(&request_id)
-                            .cloned()
-                            .map(|(chain_id, batch_id)| {
-                                (chain_id, batch_id, Some(BlockWrapper::Block { block }))
-                            })
-                    }
-                    None => self
-                        .range_requests
-                        .remove(&request_id)
-                        .map(|(chain_id, batch_id)| (chain_id, batch_id, None)),
-                }
-            }
+        is_stream_terminator: bool,
+    ) -> Option<(ChainId, BatchId)> {
+        if is_stream_terminator {
+            self.range_requests
+                .remove(&request_id)
+                .map(|(chain_id, batch_id)| (chain_id, batch_id))
+        } else {
+            self.range_requests.get(&request_id).cloned()
         }
     }
 
-    pub fn range_sync_sidecar_response(
+    /// Received a blocks by range response for a request that couples blocks and blobs.
+    pub fn range_sync_block_and_blob_response(
         &mut self,
         request_id: Id,
-        maybe_sidecar: Option<Arc<BlobsSidecar<T::EthSpec>>>,
-    ) -> Option<(ChainId, BatchId, Option<BlockWrapper<T::EthSpec>>)> {
+        block_or_blob: BlockOrBlob<T::EthSpec>,
+    ) -> Option<(
+        ChainId,
+        BatchId,
+        Result<Vec<BlockWrapper<T::EthSpec>>, &'static str>,
+    )> {
         match self.range_sidecar_pair_requests.entry(request_id) {
             Entry::Occupied(mut entry) => {
-                let (chain_id, batch_id, info) = entry.get_mut();
-                let chain_id = chain_id.clone();
-                let batch_id = batch_id.clone();
-                let stream_terminator = maybe_sidecar.is_none();
-                info.add_sidecar_response(maybe_sidecar);
-                let maybe_block = info
-                    .pop_response()
-                    .map(|block_sidecar_pair| BlockWrapper::BlockAndBlob { block_sidecar_pair });
-
-                if stream_terminator && !info.is_finished() {
-                    return None;
+                let (_, _, info) = entry.get_mut();
+                match block_or_blob {
+                    BlockOrBlob::Block(maybe_block) => info.add_block_response(maybe_block),
+                    BlockOrBlob::Blob(maybe_sidecar) => info.add_sidecar_response(maybe_sidecar),
                 }
-
-                if !stream_terminator && maybe_block.is_none() {
-                    return None;
-                }
-
                 if info.is_finished() {
-                    entry.remove();
+                    // If the request is finished, unqueue everything
+                    let (chain_id, batch_id, info) = entry.remove();
+                    Some((chain_id, batch_id, info.into_responses()))
+                } else {
+                    None
                 }
-
-                Some((chain_id, batch_id, maybe_block))
             }
             Entry::Vacant(_) => None,
         }
@@ -418,65 +343,41 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         }
     }
 
-    /// Received a blocks by range response.
-    pub fn backfill_sync_block_response(
+    /// Response for a request that is only for blocks.
+    pub fn backfill_sync_only_blocks_response(
         &mut self,
         request_id: Id,
-        maybe_block: Option<Arc<SignedBeaconBlock<T::EthSpec>>>,
-        batch_type: ExpectedBatchTy,
-    ) -> Option<(BatchId, Option<BlockWrapper<T::EthSpec>>)> {
-        match batch_type {
-            ExpectedBatchTy::OnlyBlockBlobs => {
-                match self.backfill_sidecar_pair_requests.entry(request_id) {
-                    Entry::Occupied(mut entry) => {
-                        let (batch_id, info) = entry.get_mut();
-                        let batch_id = batch_id.clone();
-                        info.add_block_response(maybe_block);
-                        let maybe_block = info.pop_response().map(|block_sidecar_pair| {
-                            BlockWrapper::BlockAndBlob { block_sidecar_pair }
-                        });
-                        if info.is_finished() {
-                            entry.remove();
-                        }
-                        Some((batch_id, maybe_block))
-                    }
-                    Entry::Vacant(_) => None,
-                }
-            }
-            ExpectedBatchTy::OnlyBlock => {
-                // if the request is just for blocks then it can be removed on a stream termination
-                match maybe_block {
-                    Some(block) => self
-                        .backfill_requests
-                        .get(&request_id)
-                        .cloned()
-                        .map(|batch_id| (batch_id, Some(BlockWrapper::Block { block }))),
-                    None => self
-                        .backfill_requests
-                        .remove(&request_id)
-                        .map(|batch_id| (batch_id, None)),
-                }
-            }
+        is_stream_terminator: bool,
+    ) -> Option<BatchId> {
+        if is_stream_terminator {
+            self.backfill_requests
+                .remove(&request_id)
+                .map(|batch_id| batch_id)
+        } else {
+            self.backfill_requests.get(&request_id).cloned()
         }
     }
 
-    pub fn backfill_sync_sidecar_response(
+    /// Received a blocks by range response for a request that couples blocks and blobs.
+    pub fn backfill_sync_block_and_blob_response(
         &mut self,
         request_id: Id,
-        maybe_sidecar: Option<Arc<BlobsSidecar<T::EthSpec>>>,
-    ) -> Option<(BatchId, Option<BlockWrapper<T::EthSpec>>)> {
+        block_or_blob: BlockOrBlob<T::EthSpec>,
+    ) -> Option<(BatchId, Result<Vec<BlockWrapper<T::EthSpec>>, &'static str>)> {
         match self.backfill_sidecar_pair_requests.entry(request_id) {
             Entry::Occupied(mut entry) => {
-                let (batch_id, info) = entry.get_mut();
-                let batch_id = batch_id.clone();
-                info.add_sidecar_response(maybe_sidecar);
-                let maybe_block = info
-                    .pop_response()
-                    .map(|block_sidecar_pair| BlockWrapper::BlockAndBlob { block_sidecar_pair });
-                if info.is_finished() {
-                    entry.remove();
+                let (_, info) = entry.get_mut();
+                match block_or_blob {
+                    BlockOrBlob::Block(maybe_block) => info.add_block_response(maybe_block),
+                    BlockOrBlob::Blob(maybe_sidecar) => info.add_sidecar_response(maybe_sidecar),
                 }
-                Some((batch_id, maybe_block))
+                if info.is_finished() {
+                    // If the request is finished, unqueue everything
+                    let (batch_id, info) = entry.remove();
+                    Some((batch_id, info.into_responses()))
+                } else {
+                    None
+                }
             }
             Entry::Vacant(_) => None,
         }
