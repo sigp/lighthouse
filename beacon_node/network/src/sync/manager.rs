@@ -841,7 +841,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         }
     }
 
-    /// Handles receiving a response for a bacjfill sync request that should have both blocks and
+    /// Handles receiving a response for a Backfill sync request that should have both blocks and
     /// blobs.
     fn block_blob_backfill_response(
         &mut self,
