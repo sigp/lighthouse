@@ -304,7 +304,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                     BlockOrBlob::Blob(maybe_sidecar) => info.add_sidecar_response(maybe_sidecar),
                 }
                 if info.is_finished() {
-                    // If the request is finished, unqueue everything
+                    // If the request is finished, dequeue everything
                     let (chain_id, batch_id, info) = entry.remove();
                     Some((chain_id, batch_id, info.into_responses()))
                 } else {
@@ -372,7 +372,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                     BlockOrBlob::Blob(maybe_sidecar) => info.add_sidecar_response(maybe_sidecar),
                 }
                 if info.is_finished() {
-                    // If the request is finished, unqueue everything
+                    // If the request is finished, dequeue everything
                     let (batch_id, info) = entry.remove();
                     Some((batch_id, info.into_responses()))
                 } else {
