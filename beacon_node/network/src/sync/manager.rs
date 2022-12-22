@@ -827,10 +827,10 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     }
                 }
                 Err(e) => {
-                    // inform backfill that the request needs to be treated as failed
+                    // inform range that the request needs to be treated as failed
                     // With time we will want to downgrade this log
                     warn!(
-                    self.log, "Blocks and blobs request for backfill received invalid data";
+                    self.log, "Blocks and blobs request for range received invalid data";
                     "peer_id" => %peer_id, "batch_id" => batch_id, "error" => e
                     );
                     // TODO: penalize the peer for being a bad boy
