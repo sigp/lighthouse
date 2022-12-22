@@ -1,85 +1,37 @@
-# Prater config
-
-# Extends the mainnet preset
-CONFIG_NAME: 'eip4844'
-PRESET_BASE: 'mainnet'
-
-# Transition
-# ---------------------------------------------------------------
-TERMINAL_TOTAL_DIFFICULTY: 40
-# By default, don't use these params
-TERMINAL_BLOCK_HASH: 0x0000000000000000000000000000000000000000000000000000000000000000
-TERMINAL_BLOCK_HASH_ACTIVATION_EPOCH: 18446744073709551615
+CONFIG_NAME: testnet
+PRESET_BASE: mainnet
 
 # Genesis
-# ---------------------------------------------------------------
-# `2**14` (= 16,384)
-MIN_GENESIS_ACTIVE_VALIDATOR_COUNT: 2
-# Mar-01-2021 08:53:32 AM +UTC
-MIN_GENESIS_TIME: 1653318000
-# Prater area code (Vienna)
+# The genesis fork version looks weird for legacy reasons
 GENESIS_FORK_VERSION: 0x00000ffd
-# Customized for Prater: 1919188 seconds (Mar-23-2021 02:00:00 PM +UTC)
-GENESIS_DELAY: 0
-
-
-# Forking
-# ---------------------------------------------------------------
-# Some forks are disabled for now:
-#  - These may be re-assigned to another fork-version later
-#  - Temporarily set to max uint64 value: 2**64 - 1
 
 # Altair
-ALTAIR_FORK_VERSION: 0x01000ffd
-ALTAIR_FORK_EPOCH: 1
+ALTAIR_FORK_EPOCH: 2
+ALTAIR_FORK_VERSION: 0x20000090
+
 # Merge
-BELLATRIX_FORK_VERSION: 0x02000ffd
-BELLATRIX_FORK_EPOCH: 2
-# Sharding
-EIP4844_FORK_VERSION: 0x83000ffd
-EIP4844_FORK_EPOCH: 3
+BELLATRIX_FORK_EPOCH: 3
+BELLATRIX_FORK_VERSION: 0x20000091
+TERMINAL_TOTAL_DIFFICULTY: 2
 
-# TBD, 2**32 is a placeholder. Merge transition approach is in active R&D.
-TRANSITION_TOTAL_DIFFICULTY: 40
+# Capella
+CAPELLA_FORK_EPOCH: 4
+CAPELLA_FORK_VERSION: 0x20000092
+MAX_WITHDRAWALS_PER_PAYLOAD: 4
 
+# EIP4844
+EIP4844_FORK_EPOCH: 5
+EIP4844_FORK_VERSION: 0x20000093
 
 # Time parameters
-# ---------------------------------------------------------------
-# 12 seconds
 SECONDS_PER_SLOT: 12
-# 14 (estimate from Eth1 mainnet)
-SECONDS_PER_ETH1_BLOCK: 14
-# 2**8 (= 256) epochs ~27 hours
-MIN_VALIDATOR_WITHDRAWABILITY_DELAY: 256
-# 2**8 (= 256) epochs ~27 hours
-SHARD_COMMITTEE_PERIOD: 256
-# 2**11 (= 2,048) Eth1 blocks ~8 hours
-ETH1_FOLLOW_DISTANCE: 15
-
-
-# Validator cycle
-# ---------------------------------------------------------------
-# 2**2 (= 4)
-INACTIVITY_SCORE_BIAS: 4
-# 2**4 (= 16)
-INACTIVITY_SCORE_RECOVERY_RATE: 16
-# 2**4 * 10**9 (= 16,000,000,000) Gwei
-EJECTION_BALANCE: 16000000000
-# 2**2 (= 4)
-MIN_PER_EPOCH_CHURN_LIMIT: 4
-# 2**16 (= 65,536)
-CHURN_LIMIT_QUOTIENT: 65536
-
-
-# Fork choice
-# ---------------------------------------------------------------
-# 40%
-PROPOSER_SCORE_BOOST: 40
+SLOTS_PER_EPOCH: 32
 
 # Deposit contract
-# ---------------------------------------------------------------
-# Ethereum Goerli testnet
+DEPOSIT_CONTRACT_ADDRESS: 0x4242424242424242424242424242424242424242
+
 DEPOSIT_CHAIN_ID: 1331
-DEPOSIT_NETWORK_ID: 69
-# Prater test deposit contract on Goerli Testnet
-DEPOSIT_CONTRACT_ADDRESS: 0x8A04d14125D0FDCDc742F4A05C051De07232EDa4
+DEPOSIT_NETWORK_ID: 1331
+
+ETH1_FOLLOW_DISTANCE: 1
+MIN_GENESIS_ACTIVE_VALIDATOR_COUNT: 2
