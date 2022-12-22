@@ -7,6 +7,7 @@ use slog::Logger;
 use participation_cache::ParticipationCache;
 use state_processing::{per_epoch_processing::altair::{participation_cache, rewards_and_penalties::get_flag_weight}, common::altair::{BaseRewardPerIncrement, get_base_reward}};
 use types::{Epoch, EthSpec};
+use types::consts::altair::WEIGHT_DENOMINATOR;
 
 pub fn compute_attestation_rewards<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
@@ -105,7 +106,37 @@ pub fn compute_attestation_rewards<T: BeaconChainTypes>(
         Err(warp_utils::reject::custom_server_error("Unable to get unslashed participating increments".to_owned()))
     })?;
 
-    //Calculate reward_numerator = base_reward * weight * unslashed_participating_increments
+    //Unwrap weight to u64
+    let weight = weight.or_else(|_| {
+        Err(warp_utils::reject::custom_server_error("Unable to get weight".to_owned()))
+    })?;
+
+    //Unwrap base_reward to u64
+    let base_reward = base_reward.or_else(|_| {
+        Err(warp_utils::reject::custom_server_error("Unable to get base reward".to_owned()))
+    })?;
+    
+    //Calculate reward_numerator = base_reward * weight * unslashed_participating_increments with Error handling
+    let reward_numerator = base_reward.safe_mul(weight).and_then(|reward_numerator| {
+        reward_numerator.safe_mul(unslashed_participating_increments)
+    }).or_else(|_| {
+        Err(warp_utils::reject::custom_server_error("Unable to calculate reward numerator".to_owned()))
+    })?;
+
+    //Get active_increments
+    let active_increments = total_active_balance.safe_div(spec.effective_balance_increment);
+
+    //Unwrap active_increments to u64
+    let active_increments = active_increments.or_else(|_| {
+        Err(warp_utils::reject::custom_server_error("Unable to get active increments".to_owned()))
+    })?;
+
+    //Calculate reward = reward_numerator // (active_increments * WEIGHT_DENOMINATOR)
+    let reward = reward_numerator.safe_div(active_increments).and_then(|reward| {
+        reward.safe_div(WEIGHT_DENOMINATOR)
+    }).or_else(|_| {
+        Err(warp_utils::reject::custom_server_error("Unable to calculate reward".to_owned()))
+    })?;
 
     //--- Calculate actual rewards ---//
 
