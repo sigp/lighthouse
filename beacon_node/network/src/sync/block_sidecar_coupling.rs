@@ -1,7 +1,4 @@
-use std::{
-    collections::{hash_map::OccupiedEntry, VecDeque},
-    sync::Arc,
-};
+use std::{collections::VecDeque, sync::Arc};
 
 use types::{
     signed_block_and_blobs::BlockWrapper, BlobsSidecar, EthSpec, SignedBeaconBlock,
@@ -23,18 +20,6 @@ pub struct BlockBlobRequestInfo<T: EthSpec> {
     is_blocks_rpc_finished: bool,
     /// Whether the individual RPC request for sidecars is finished or not.
     is_sidecar_rpc_finished: bool,
-}
-
-pub struct BlockBlobRequestEntry<'a, K, T: EthSpec> {
-    entry: OccupiedEntry<'a, K, BlockBlobRequestInfo<T>>,
-}
-
-impl<'a, K, T: EthSpec> From<OccupiedEntry<'a, K, BlockBlobRequestInfo<T>>>
-    for BlockBlobRequestEntry<'a, K, T>
-{
-    fn from(entry: OccupiedEntry<'a, K, BlockBlobRequestInfo<T>>) -> Self {
-        BlockBlobRequestEntry { entry }
-    }
 }
 
 impl<T: EthSpec> BlockBlobRequestInfo<T> {
