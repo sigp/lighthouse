@@ -32,7 +32,7 @@ pub async fn publish_block<T: BeaconChainTypes>(
     let block_root = block_root.unwrap_or_else(|| block.canonical_root());
 
     // Send the block, regardless of whether or not it is valid. The API
-    // specification is very clear that this isa the desired behaviour.
+    // specification is very clear that this is the desired behaviour.
     let wrapped_block = if matches!(block.as_ref(), &SignedBeaconBlock::Eip4844(_)) {
         if let Some(sidecar) = chain.blob_cache.pop(&block_root) {
             let block_and_blobs = SignedBeaconBlockAndBlobsSidecar {

@@ -716,9 +716,10 @@ fn context_bytes_to_fork_name(
         .from_context_bytes(context_bytes)
         .cloned()
         .ok_or_else(|| {
+            let encoded = hex::encode(context_bytes);
             RPCError::ErrorResponse(
                 RPCResponseErrorCode::InvalidRequest,
-                "Context bytes does not correspond to a valid fork".to_string(),
+                format!("Context bytes {} do not correspond to a valid fork", encoded),
             )
         })
 }
