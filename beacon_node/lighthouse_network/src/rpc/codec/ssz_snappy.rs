@@ -719,7 +719,10 @@ fn context_bytes_to_fork_name(
             let encoded = hex::encode(context_bytes);
             RPCError::ErrorResponse(
                 RPCResponseErrorCode::InvalidRequest,
-                format!("Context bytes {} do not correspond to a valid fork", encoded),
+                format!(
+                    "Context bytes {} do not correspond to a valid fork",
+                    encoded
+                ),
             )
         })
 }
