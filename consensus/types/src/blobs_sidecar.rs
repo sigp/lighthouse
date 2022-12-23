@@ -1,3 +1,4 @@
+use derivative::Derivative;
 use crate::test_utils::TestRandom;
 use crate::{Blob, EthSpec, Hash256, SignedBeaconBlock, SignedRoot, Slot};
 use kzg::KzgProof;
@@ -10,9 +11,10 @@ use tree_hash_derive::TreeHash;
 
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 #[derive(
-    Debug, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, PartialEq, Default, TestRandom,
+    Debug, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, Default, TestRandom, Derivative
 )]
 #[serde(bound = "T: EthSpec")]
+#[derivative(PartialEq, Hash(bound = "T: EthSpec"))]
 pub struct BlobsSidecar<T: EthSpec> {
     pub beacon_block_root: Hash256,
     pub beacon_block_slot: Slot,

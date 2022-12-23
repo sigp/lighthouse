@@ -5,6 +5,7 @@ use ssz::{Decode, DecodeError};
 use ssz_derive::{Decode, Encode};
 use std::sync::Arc;
 use tree_hash_derive::TreeHash;
+use derivative::Derivative;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, PartialEq)]
 #[serde(bound = "T: EthSpec")]
@@ -13,8 +14,8 @@ pub struct SignedBeaconBlockAndBlobsSidecarDecode<T: EthSpec> {
     pub blobs_sidecar: BlobsSidecar<T>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Encode, TreeHash, PartialEq)]
-#[serde(bound = "T: EthSpec")]
+#[derive(Debug, Clone, Serialize, Deserialize, Encode, TreeHash, Derivative)]
+#[derivative(PartialEq, Hash(bound = "T: EthSpec"))]
 pub struct SignedBeaconBlockAndBlobsSidecar<T: EthSpec> {
     pub beacon_block: Arc<SignedBeaconBlock<T>>,
     pub blobs_sidecar: Arc<BlobsSidecar<T>>,
@@ -34,7 +35,8 @@ impl<T: EthSpec> SignedBeaconBlockAndBlobsSidecar<T> {
 }
 
 /// A wrapper over a [`SignedBeaconBlock`] or a [`SignedBeaconBlockAndBlobsSidecar`].
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Derivative)]
+#[derivative(PartialEq, Hash(bound = "T: EthSpec"))]
 pub enum BlockWrapper<T: EthSpec> {
     Block(Arc<SignedBeaconBlock<T>>),
     BlockAndBlob(SignedBeaconBlockAndBlobsSidecar<T>),
@@ -101,17 +103,6 @@ impl<T: EthSpec> BlockWrapper<T> {
                 } = block_sidecar_pair;
                 (beacon_block, Some(blobs_sidecar))
             }
-        }
-    }
-}
-
-// FIXME(sean): probably needs to be changed. This is needed because SignedBeaconBlockAndBlobsSidecar
-// does not implement Hash
-impl<T: EthSpec> std::hash::Hash for BlockWrapper<T> {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        match self {
-            BlockWrapper::Block(block) => block.hash(state),
-            BlockWrapper::BlockAndBlob(block_and_blob) => block_and_blob.beacon_block.hash(state),
         }
     }
 }
