@@ -531,25 +531,21 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         id
     }
 
+    /// Check whether a batch for this epoch (and only this epoch) should request just blocks or
+    /// blocks and blobs.
     pub fn batch_type(&self, epoch: types::Epoch) -> ExpectedBatchTy {
-        // Keep tests only for blocks.
+        const _: () = assert!(
+            super::backfill_sync::BACKFILL_EPOCHS_PER_BATCH == 1
+                && super::range_sync::EPOCHS_PER_BATCH == 1,
+            "To deal with alignment with 4844 boundaries, batches need to be of just one epoch"
+        );
         #[cfg(test)]
         {
+            // Keep tests only for blocks.
             return ExpectedBatchTy::OnlyBlock;
         }
         #[cfg(not(test))]
         {
-            use super::range_sync::EPOCHS_PER_BATCH;
-            assert_eq!(
-                EPOCHS_PER_BATCH, 1,
-                "If this is not one, everything will fail horribly"
-            );
-
-            // Here we need access to the beacon chain, check the fork boundary, the current epoch, the
-            // blob period to serve and check with that if the batch is a blob batch or not.
-            // NOTE: This would carelessly assume batch sizes are always 1 epoch, to avoid needing to
-            // align with the batch boundary.
-
             if let Some(data_availability_boundary) = self.chain.data_availability_boundary() {
                 if epoch >= data_availability_boundary {
                     ExpectedBatchTy::OnlyBlockBlobs
