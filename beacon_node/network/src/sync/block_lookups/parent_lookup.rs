@@ -1,8 +1,7 @@
 use super::RootBlockTuple;
 use beacon_chain::BeaconChainTypes;
 use lighthouse_network::PeerId;
-use std::sync::Arc;
-use store::{Hash256, SignedBeaconBlock};
+use store::Hash256;
 use strum::IntoStaticStr;
 use types::signed_block_and_blobs::BlockWrapper;
 

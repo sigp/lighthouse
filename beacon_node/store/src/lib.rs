@@ -7,6 +7,7 @@
 //!
 //! Provides a simple API for storing/retrieving all types that sometimes needs type-hints. See
 //! tests for implementation examples.
+#![allow(dead_code)]
 #[macro_use]
 extern crate lazy_static;
 

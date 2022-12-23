@@ -1,7 +1,6 @@
 use lru::LruCache;
 use parking_lot::Mutex;
-use tree_hash::TreeHash;
-use types::{BlobsSidecar, EthSpec, ExecutionPayload, Hash256};
+use types::{BlobsSidecar, EthSpec, Hash256};
 
 pub const DEFAULT_BLOB_CACHE_SIZE: usize = 10;
 
