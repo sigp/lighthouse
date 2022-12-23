@@ -8,7 +8,6 @@ edition = "2021"
 [features]
 portable = ["bls/supranational-portable"]
 fake_crypto = ['bls/fake_crypto']
-withdrawals = ["types/withdrawals", "beacon_chain/withdrawals", "store/withdrawals", "state_processing/withdrawals"]
 withdrawals-processing = ["beacon_chain/withdrawals-processing", "store/withdrawals-processing", "state_processing/withdrawals-processing"]
 
 [dependencies]
