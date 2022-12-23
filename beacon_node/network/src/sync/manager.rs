@@ -898,10 +898,10 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         request_id: RequestId,
         peer_id: PeerId,
         maybe_sidecar: Option<Arc<BlobsSidecar<<T>::EthSpec>>>,
-        seen_timestamp: Duration,
+        _seen_timestamp: Duration,
     ) {
         match request_id {
-            RequestId::SingleBlock { id } | RequestId::ParentLookup { id } => {
+            RequestId::SingleBlock { .. } | RequestId::ParentLookup { .. } => {
                 unreachable!("There is no such thing as a singular 'by root' glob request that is not accompanied by the block")
             }
             RequestId::BackFillSync { .. } => {

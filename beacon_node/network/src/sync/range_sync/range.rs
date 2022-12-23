@@ -388,12 +388,11 @@ mod tests {
     use slog::{o, Drain};
     use tokio::sync::mpsc;
 
-    use slot_clock::{SlotClock, SystemTimeSlotClock};
+    use slot_clock::SystemTimeSlotClock;
     use std::collections::HashSet;
     use std::sync::Arc;
-    use std::time::Duration;
     use store::MemoryStore;
-    use types::{Hash256, MainnetEthSpec, MinimalEthSpec as E};
+    use types::{Hash256, MinimalEthSpec as E};
 
     #[derive(Debug)]
     struct FakeStorage {
