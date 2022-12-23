@@ -4,7 +4,7 @@ use eth2::types::BlockId as CoreBlockId;
 use std::fmt;
 use std::str::FromStr;
 use std::sync::Arc;
-use types::{Hash256, SignedBeaconBlock, SignedBlindedBeaconBlock, Slot};
+use types::{BlobsSidecar, Hash256, SignedBeaconBlock, SignedBlindedBeaconBlock, Slot};
 
 /// Wraps `eth2::types::BlockId` and provides a simple way to obtain a block or root for a given
 /// `BlockId`.
@@ -209,6 +209,51 @@ impl BlockId {
                             })
                     })
             }
+        }
+    }
+
+    /// Return the `BlobsSidecar` identified by `self`.
+    pub async fn blobs_sidecar<T: BeaconChainTypes>(
+        &self,
+        chain: &BeaconChain<T>,
+    ) -> Result<(Arc<BlobsSidecar<T::EthSpec>>), warp::Rejection> {
+        let root = match &self.0 {
+            CoreBlockId::Head => {
+                let (cached_head, _execution_status) = chain
+                    .canonical_head
+                    .head_and_execution_status()
+                    .map_err(warp_utils::reject::beacon_chain_error)?;
+                cached_head.head_block_root()
+            }
+            CoreBlockId::Slot(slot) => {
+                let maybe_block_root = chain
+                    .block_root_at_slot(*slot, WhenSlotSkipped::None)
+                    .ok()
+                    .flatten();
+                match maybe_block_root {
+                    Some(block_root) => block_root,
+                    None => {
+                        return Err(warp_utils::reject::custom_not_found(format!(
+                            "Block root for slot {} not found",
+                            slot
+                        )))
+                    }
+                }
+            }
+            _ => self.root(chain)?.0,
+        };
+
+        match chain.store.get_blobs(&root) {
+            Ok(Some(blob)) => Ok((Arc::new(blob))),
+            Ok(None) => Err(warp_utils::reject::custom_not_found(format!(
+                "Blob with block root {} is not in the store",
+                root
+            ))),
+            // should we use `warp_utils::reject::beacon_chain_error` instead?
+            Err(e) => Err(warp_utils::reject::custom_not_found(format!(
+                "Error fetching blob with block root {}: {:?}",
+                root, e
+            ))),
         }
     }
 }
