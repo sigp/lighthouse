@@ -93,11 +93,14 @@ impl<T: EthSpec> BlockWrapper<T> {
         self.block().parent_root()
     }
 
-    pub fn deconstruct(self) -> (Arc<SignedBeaconBlock<T>>, Result<Option<Arc<BlobsSidecar<T>>>, BlobReconstructionError>) {
+    pub fn deconstruct(self, block_root: Option<Hash256>) -> (Arc<SignedBeaconBlock<T>>, Result<Option<Arc<BlobsSidecar<T>>>, BlobReconstructionError>) {
         match self {
-            BlockWrapper::Block(block) => (block, block
-                .reconstruct_empty_blobs(block_root)
-                .map(|blob_opt| blob_opt.map(Arc::new))),
+            BlockWrapper::Block(block) => {
+                let blobs = block
+                    .reconstruct_empty_blobs(block_root)
+                    .map(|blob_opt| blob_opt.map(Arc::new));
+                (block,blobs)
+            } ,
             BlockWrapper::BlockAndBlob(block_sidecar_pair) => {
                 let SignedBeaconBlockAndBlobsSidecar {
                     beacon_block,

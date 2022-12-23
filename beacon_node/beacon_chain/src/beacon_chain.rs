@@ -2935,7 +2935,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // If the write fails, revert fork choice to the version from disk, else we can
         // end up with blocks in fork choice that are missing from disk.
         // See https://github.com/sigp/lighthouse/issues/2028
-        let (signed_block, blobs) = signed_block.deconstruct();
+        let (signed_block, blobs) = signed_block.deconstruct(Some(block_root));
         let block = signed_block.message();
         let mut ops: Vec<_> = confirmed_state_roots
             .into_iter()

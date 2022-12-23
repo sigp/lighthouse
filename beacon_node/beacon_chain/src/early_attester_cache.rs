@@ -69,7 +69,7 @@ impl<E: EthSpec> EarlyAttesterCache<E> {
             },
         };
 
-        let (block, blobs) = block.deconstruct();
+        let (block, blobs) = block.deconstruct(Some(beacon_block_root));
         let item = CacheItem {
             epoch,
             committee_lengths,
@@ -77,7 +77,7 @@ impl<E: EthSpec> EarlyAttesterCache<E> {
             source,
             target,
             block,
-            blobs: blobs?,
+            blobs: blobs.map_err(|_|Error::MissingBlobs)?,
             proto_block,
         };
 
