@@ -278,11 +278,9 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         is_stream_terminator: bool,
     ) -> Option<(ChainId, BatchId)> {
         if is_stream_terminator {
-            self.range_requests
-                .remove(&request_id)
-                .map(|(chain_id, batch_id)| (chain_id, batch_id))
+            self.range_requests.remove(&request_id)
         } else {
-            self.range_requests.get(&request_id).cloned()
+            self.range_requests.get(&request_id).copied()
         }
     }
 
@@ -354,7 +352,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 .remove(&request_id)
                 .map(|batch_id| batch_id)
         } else {
-            self.backfill_requests.get(&request_id).cloned()
+            self.backfill_requests.get(&request_id).copied()
         }
     }
 
