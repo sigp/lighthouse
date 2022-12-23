@@ -17,10 +17,7 @@ use slog::{debug, error, info, warn};
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use types::signed_block_and_blobs::BlockWrapper;
-use types::{
-    Epoch, Hash256, SignedBeaconBlock, SignedBeaconBlockAndBlobsSidecar,
-    SignedBeaconBlockAndBlobsSidecarDecode,
-};
+use types::{Epoch, Hash256, SignedBeaconBlock};
 
 /// Id associated to a batch processing request, either a sync batch or a parent lookup.
 #[derive(Clone, Debug, PartialEq)]

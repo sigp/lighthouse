@@ -42,8 +42,6 @@ mod verify_deposit;
 mod verify_exit;
 mod verify_proposer_slashing;
 
-use crate::common::decrease_balance;
-
 #[cfg(feature = "arbitrary-fuzz")]
 use arbitrary::Arbitrary;
 

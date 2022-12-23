@@ -2,24 +2,21 @@ use clap::ArgMatches;
 use clap_utils::{parse_optional, parse_required, parse_ssz_optional};
 use eth2_hashing::hash;
 use eth2_network_config::Eth2NetworkConfig;
-use genesis::interop_genesis_state;
 use ssz::Decode;
 use ssz::Encode;
 use state_processing::process_activations;
-use state_processing::upgrade::{
-    upgrade_to_altair, upgrade_to_bellatrix, upgrade_to_capella, upgrade_to_eip4844,
-};
+use state_processing::upgrade::{upgrade_to_altair, upgrade_to_bellatrix};
 use std::fs::File;
 use std::io::Read;
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
+use types::ExecutionBlockHash;
 use types::{
     test_utils::generate_deterministic_keypairs, Address, BeaconState, ChainSpec, Config, Eth1Data,
     EthSpec, ExecutionPayloadHeader, ExecutionPayloadHeaderMerge, Hash256, Keypair, PublicKey,
     Validator,
 };
-use types::{BeaconStateMerge, ExecutionBlockHash};
 
 pub fn run<T: EthSpec>(testnet_dir_path: PathBuf, matches: &ArgMatches) -> Result<(), String> {
     let deposit_contract_address: Address = parse_required(matches, "deposit-contract-address")?;

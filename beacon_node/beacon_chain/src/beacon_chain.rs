@@ -62,7 +62,7 @@ use crate::{metrics, BeaconChainError, BeaconForkChoiceStore, BeaconSnapshot, Ca
 use eth2::types::{EventKind, SseBlock, SyncDuty};
 use execution_layer::{
     BlockProposalContents, BuilderParams, ChainHealth, ExecutionLayer, FailedCondition,
-    PayloadAttributes, PayloadAttributesV2, PayloadStatus,
+    PayloadAttributes, PayloadStatus,
 };
 pub use fork_choice::CountUnrealized;
 use fork_choice::{

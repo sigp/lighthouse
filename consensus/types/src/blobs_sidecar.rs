@@ -1,6 +1,6 @@
 use derivative::Derivative;
 use crate::test_utils::TestRandom;
-use crate::{Blob, EthSpec, Hash256, SignedBeaconBlock, SignedRoot, Slot};
+use crate::{Blob, EthSpec, Hash256, SignedRoot, Slot};
 use kzg::KzgProof;
 use serde_derive::{Deserialize, Serialize};
 use ssz::Encode;

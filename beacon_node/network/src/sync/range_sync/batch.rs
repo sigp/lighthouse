@@ -5,6 +5,7 @@ use std::collections::HashSet;
 use std::hash::{Hash, Hasher};
 use std::ops::Sub;
 use std::sync::Arc;
+use strum::Display;
 use types::signed_block_and_blobs::BlockWrapper;
 use types::{Epoch, EthSpec, SignedBeaconBlock, SignedBeaconBlockAndBlobsSidecar, Slot};
 
@@ -40,7 +41,8 @@ impl<T: EthSpec> BatchTy<T> {
 pub struct MixedBlockTyErr;
 
 /// Type of expected batch.
-#[derive(Debug, Clone)]
+#[derive(Debug, Copy, Clone, Display)]
+#[strum(serialize_all = "snake_case")]
 pub enum ExpectedBatchTy {
     OnlyBlockBlobs,
     OnlyBlock,
@@ -247,7 +249,7 @@ impl<T: EthSpec, B: BatchConfig> BatchInfo<T, B> {
                 start_slot: self.start_slot.into(),
                 count: self.end_slot.sub(self.start_slot).into(),
             },
-            self.batch_type.clone(),
+            self.batch_type,
         )
     }
 
@@ -557,6 +559,7 @@ impl<T: EthSpec, B: BatchConfig> slog::KV for BatchInfo<T, B> {
         serializer.emit_usize("processed", self.failed_processing_attempts.len())?;
         serializer.emit_u8("processed_no_penalty", self.non_faulty_processing_attempts)?;
         serializer.emit_arguments("state", &format_args!("{:?}", self.state))?;
+        serializer.emit_arguments("batch_ty", &format_args!("{}", self.batch_type));
         slog::Result::Ok(())
     }
 }

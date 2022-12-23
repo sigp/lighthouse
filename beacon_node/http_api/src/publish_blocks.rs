@@ -11,9 +11,8 @@ use tokio::sync::mpsc::UnboundedSender;
 use tree_hash::TreeHash;
 use types::signed_block_and_blobs::BlockWrapper;
 use types::{
-    AbstractExecPayload, BlindedPayload, BlobsSidecar, EthSpec, ExecPayload, ExecutionBlockHash,
-    FullPayload, Hash256, SignedBeaconBlock, SignedBeaconBlockAndBlobsSidecar,
-    SignedBeaconBlockEip4844,
+    AbstractExecPayload, BlindedPayload, EthSpec, ExecPayload, ExecutionBlockHash, FullPayload,
+    Hash256, SignedBeaconBlock, SignedBeaconBlockAndBlobsSidecar,
 };
 use warp::Rejection;
 

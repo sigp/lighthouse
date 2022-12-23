@@ -1,5 +1,4 @@
 use super::batch::{BatchInfo, BatchProcessingResult, BatchState};
-use super::BatchTy;
 use crate::beacon_processor::{ChainSegmentProcessId, WorkEvent as BeaconWorkEvent};
 use crate::sync::{
     manager::Id, network_context::SyncNetworkContext, BatchOperationOutcome, BatchProcessResult,

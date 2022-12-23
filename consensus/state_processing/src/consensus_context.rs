@@ -1,13 +1,10 @@
 use crate::common::get_indexed_attestation;
 use crate::per_block_processing::errors::{AttestationInvalid, BlockOperationError};
 use std::collections::{hash_map::Entry, HashMap};
-use std::marker::PhantomData;
-use std::sync::Arc;
 use tree_hash::TreeHash;
 use types::{
     AbstractExecPayload, Attestation, AttestationData, BeaconState, BeaconStateError, BitList,
-    BlobsSidecar, ChainSpec, Epoch, EthSpec, ExecPayload, Hash256, IndexedAttestation,
-    SignedBeaconBlock, Slot,
+    ChainSpec, Epoch, EthSpec, Hash256, IndexedAttestation, SignedBeaconBlock, Slot,
 };
 
 #[derive(Debug)]
