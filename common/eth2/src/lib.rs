@@ -680,6 +680,19 @@ impl BeaconNodeHttpClient {
         Ok(path)
     }
 
+    /// Path for `lighthouse/beacon/blobs_sidecars/{block_id}`
+    pub fn get_blobs_sidecar_path(&self, block_id: BlockId) -> Result<Url, Error> {
+        let mut path = self.server.full.clone();
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("lighthouse")
+            .push("beacon")
+            .push("blobs_sidecars")
+            .push(&block_id.to_string());
+        Ok(path)
+    }
+
     /// Path for `v1/beacon/blinded_blocks/{block_id}`
     pub fn get_beacon_blinded_blocks_path(&self, block_id: BlockId) -> Result<Url, Error> {
         let mut path = self.eth_path(V1)?;
@@ -733,6 +746,23 @@ impl BeaconNodeHttpClient {
             execution_optimistic,
             data: block,
         }))
+    }
+
+    /// `GET lighthouse/beacon/blobs_sidecars/{block_id}`
+    ///
+    /// Returns `Ok(None)` on a 404 error.
+    pub async fn get_blobs_sidecar<T: EthSpec>(
+        &self,
+        block_id: BlockId,
+    ) -> Result<Option<GenericResponse<BlobsSidecar<T>>>, Error> {
+        let path = self.get_blobs_sidecar_path(block_id)?;
+        let response = match self.get_response(path, |b| b).await.optional()? {
+            Some(res) => res,
+            None => return Ok(None),
+        };
+
+        let GenericResponse { data } = response.json().await?;
+        Ok(Some(GenericResponse { data }))
     }
 
     /// `GET v1/beacon/blinded_blocks/{block_id}`

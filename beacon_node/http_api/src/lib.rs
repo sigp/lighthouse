@@ -3324,10 +3324,10 @@ pub fn serve<T: BeaconChainTypes>(
             )))
         });
 
-    // GET lighthouse/beacon/blob_sidecars/{block_id}
-    let get_blob_sidecars = warp::path("lighthouse")
+    // GET lighthouse/beacon/blobs_sidecars/{block_id}
+    let get_blobs_sidecars = warp::path("lighthouse")
         .and(warp::path("beacon"))
-        .and(warp::path("blob_sidecars"))
+        .and(warp::path("blobs_sidecars"))
         .and(block_id_or_err)
         .and(warp::path::end())
         .and(chain_filter.clone())
@@ -3494,7 +3494,7 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(get_lighthouse_attestation_performance.boxed())
                 .or(get_lighthouse_block_packing_efficiency.boxed())
                 .or(get_lighthouse_merge_readiness.boxed())
-                .or(get_blob_sidecars.boxed())
+                .or(get_blobs_sidecars.boxed())
                 .or(get_events.boxed()),
         )
         .boxed()
