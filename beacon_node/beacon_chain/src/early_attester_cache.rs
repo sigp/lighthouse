@@ -77,7 +77,7 @@ impl<E: EthSpec> EarlyAttesterCache<E> {
             source,
             target,
             block,
-            blobs,
+            blobs: blobs?,
             proto_block,
         };
 
