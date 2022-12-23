@@ -21,8 +21,6 @@ pub struct ConsensusContext<T: EthSpec> {
     /// Cache of indexed attestations constructed during block processing.
     indexed_attestations:
         HashMap<(AttestationData, BitList<T::MaxValidatorsPerCommittee>), IndexedAttestation<T>>,
-    /// Should only be populated if the sidecar has not been validated.
-    blobs_sidecar: Option<Arc<BlobsSidecar<T>>>,
     /// Whether `validate_blobs_sidecar` has successfully passed.
     blobs_sidecar_validated: bool,
     /// Whether `verify_kzg_commitments_against_transactions` has successfully passed.
@@ -49,7 +47,6 @@ impl<T: EthSpec> ConsensusContext<T> {
             proposer_index: None,
             current_block_root: None,
             indexed_attestations: HashMap::new(),
-            blobs_sidecar: None,
             blobs_sidecar_validated: false,
             blobs_verified_vs_txs: false,
         }

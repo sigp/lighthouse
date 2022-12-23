@@ -1,3 +1,4 @@
+use crate::signed_beacon_block::BlobReconstructionError;
 use crate::{BlobsSidecar, EthSpec, Hash256, SignedBeaconBlock, SignedBeaconBlockEip4844, Slot};
 use serde_derive::{Deserialize, Serialize};
 use ssz::{Decode, DecodeError};
@@ -35,60 +36,52 @@ impl<T: EthSpec> SignedBeaconBlockAndBlobsSidecar<T> {
 /// A wrapper over a [`SignedBeaconBlock`] or a [`SignedBeaconBlockAndBlobsSidecar`].
 #[derive(Clone, Debug)]
 pub enum BlockWrapper<T: EthSpec> {
-    Block {
-        block: Arc<SignedBeaconBlock<T>>,
-    },
-    BlockAndBlob {
-        block_sidecar_pair: SignedBeaconBlockAndBlobsSidecar<T>,
-    },
+    Block(Arc<SignedBeaconBlock<T>>),
+    BlockAndBlob(SignedBeaconBlockAndBlobsSidecar<T>),
 }
 
 impl<T: EthSpec> BlockWrapper<T> {
     pub fn slot(&self) -> Slot {
         match self {
-            BlockWrapper::Block { block } => block.slot(),
-            BlockWrapper::BlockAndBlob { block_sidecar_pair } => {
+            BlockWrapper::Block(block) => block.slot(),
+            BlockWrapper::BlockAndBlob(block_sidecar_pair) => {
                 block_sidecar_pair.beacon_block.slot()
             }
         }
     }
     pub fn block(&self) -> &SignedBeaconBlock<T> {
         match self {
-            BlockWrapper::Block { block } => &block,
-            BlockWrapper::BlockAndBlob { block_sidecar_pair } => &block_sidecar_pair.beacon_block,
+            BlockWrapper::Block(block) => &block,
+            BlockWrapper::BlockAndBlob(block_sidecar_pair) => &block_sidecar_pair.beacon_block,
         }
     }
     pub fn block_cloned(&self) -> Arc<SignedBeaconBlock<T>> {
         match self {
-            BlockWrapper::Block { block } => block.clone(),
-            BlockWrapper::BlockAndBlob { block_sidecar_pair } => {
+            BlockWrapper::Block(block) => block.clone(),
+            BlockWrapper::BlockAndBlob(block_sidecar_pair) => {
                 block_sidecar_pair.beacon_block.clone()
             }
         }
     }
 
-    pub fn blobs(&self) -> Option<&BlobsSidecar<T>> {
+    pub fn blobs(
+        &self,
+        block_root: Option<Hash256>,
+    ) -> Result<Option<Arc<BlobsSidecar<T>>>, BlobReconstructionError> {
         match self {
-            BlockWrapper::Block { .. } => None,
-            BlockWrapper::BlockAndBlob { block_sidecar_pair } => {
-                Some(&block_sidecar_pair.blobs_sidecar)
-            }
-        }
-    }
-
-    pub fn blobs_cloned(&self) -> Option<Arc<BlobsSidecar<T>>> {
-        match self {
-            BlockWrapper::Block { block: _ } => None,
-            BlockWrapper::BlockAndBlob { block_sidecar_pair } => {
-                Some(block_sidecar_pair.blobs_sidecar.clone())
+            BlockWrapper::Block(block) => block
+                .reconstruct_empty_blobs(block_root)
+                .map(|blob_opt| blob_opt.map(Arc::new)),
+            BlockWrapper::BlockAndBlob(block_sidecar_pair) => {
+                Ok(Some(block_sidecar_pair.blobs_sidecar.clone()))
             }
         }
     }
 
     pub fn message(&self) -> crate::BeaconBlockRef<T> {
         match self {
-            BlockWrapper::Block { block } => block.message(),
-            BlockWrapper::BlockAndBlob { block_sidecar_pair } => {
+            BlockWrapper::Block(block) => block.message(),
+            BlockWrapper::BlockAndBlob(block_sidecar_pair) => {
                 block_sidecar_pair.beacon_block.message()
             }
         }
@@ -100,8 +93,8 @@ impl<T: EthSpec> BlockWrapper<T> {
 
     pub fn deconstruct(self) -> (Arc<SignedBeaconBlock<T>>, Option<Arc<BlobsSidecar<T>>>) {
         match self {
-            BlockWrapper::Block { block } => (block, None),
-            BlockWrapper::BlockAndBlob { block_sidecar_pair } => {
+            BlockWrapper::Block(block) => (block, None),
+            BlockWrapper::BlockAndBlob(block_sidecar_pair) => {
                 let SignedBeaconBlockAndBlobsSidecar {
                     beacon_block,
                     blobs_sidecar,
@@ -112,29 +105,25 @@ impl<T: EthSpec> BlockWrapper<T> {
     }
 }
 
-// TODO: probably needes to be changed. This is needed because SignedBeaconBlockAndBlobsSidecar
+// FIXME(sean): probably needs to be changed. This is needed because SignedBeaconBlockAndBlobsSidecar
 // does not implement Hash
 impl<T: EthSpec> std::hash::Hash for BlockWrapper<T> {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         match self {
-            BlockWrapper::Block { block } => block.hash(state),
-            BlockWrapper::BlockAndBlob {
-                block_sidecar_pair: block_and_blob,
-            } => block_and_blob.beacon_block.hash(state),
+            BlockWrapper::Block(block) => block.hash(state),
+            BlockWrapper::BlockAndBlob(block_and_blob) => block_and_blob.beacon_block.hash(state),
         }
     }
 }
 
 impl<T: EthSpec> From<SignedBeaconBlock<T>> for BlockWrapper<T> {
     fn from(block: SignedBeaconBlock<T>) -> Self {
-        BlockWrapper::Block {
-            block: Arc::new(block),
-        }
+        BlockWrapper::Block(Arc::new(block))
     }
 }
 
 impl<T: EthSpec> From<Arc<SignedBeaconBlock<T>>> for BlockWrapper<T> {
     fn from(block: Arc<SignedBeaconBlock<T>>) -> Self {
-        BlockWrapper::Block { block }
+        BlockWrapper::Block(block)
     }
 }

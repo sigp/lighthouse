@@ -12,6 +12,14 @@ const KZG_PROOF_BYTES_LEN: usize = 48;
 #[ssz(struct_behaviour = "transparent")]
 pub struct KzgProof(pub [u8; KZG_PROOF_BYTES_LEN]);
 
+impl KzgProof {
+    pub fn empty() -> Self {
+        let mut bytes = [0; KZG_PROOF_BYTES_LEN];
+        bytes[0] = 192;
+        Self(bytes)
+    }
+}
+
 impl fmt::Display for KzgProof {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", eth2_serde_utils::hex::encode(self.0))

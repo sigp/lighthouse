@@ -28,6 +28,15 @@ impl<T: EthSpec> BlobsSidecar<T> {
         Self::default()
     }
 
+    pub fn empty_from_parts(beacon_block_root: Hash256, beacon_block_slot: Slot) -> Self {
+        Self {
+            beacon_block_root,
+            beacon_block_slot,
+            blobs: VariableList::empty(),
+            kzg_aggregated_proof: KzgProof::empty(),
+        }
+    }
+
     #[allow(clippy::integer_arithmetic)]
     pub fn max_size() -> usize {
         // Fixed part

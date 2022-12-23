@@ -51,16 +51,14 @@ impl<T: EthSpec> BlockBlobRequestInfo<T> {
                 {
                     let blobs_sidecar =
                         accumulated_sidecars.pop_front().ok_or("missing sidecar")?;
-                    Ok(BlockWrapper::BlockAndBlob {
-                        block_sidecar_pair: SignedBeaconBlockAndBlobsSidecar {
+                    Ok(BlockWrapper::BlockAndBlob(
+                        SignedBeaconBlockAndBlobsSidecar {
                             beacon_block,
                             blobs_sidecar,
                         },
-                    })
+                    ))
                 } else {
-                    Ok(BlockWrapper::Block {
-                        block: beacon_block,
-                    })
+                    Ok(BlockWrapper::Block(beacon_block))
                 }
             })
             .collect::<Result<Vec<_>, _>>();

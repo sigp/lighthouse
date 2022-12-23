@@ -734,14 +734,14 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             RequestId::SingleBlock { id } => self.block_lookups.single_block_lookup_response(
                 id,
                 peer_id,
-                beacon_block.map(|block| BlockWrapper::Block { block }),
+                beacon_block.map(|block| BlockWrapper::Block(block)),
                 seen_timestamp,
                 &mut self.network,
             ),
             RequestId::ParentLookup { id } => self.block_lookups.parent_lookup_response(
                 id,
                 peer_id,
-                beacon_block.map(|block| BlockWrapper::Block { block }),
+                beacon_block.map(|block| BlockWrapper::Block(block)),
                 seen_timestamp,
                 &mut self.network,
             ),
@@ -756,7 +756,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         batch_id,
                         &peer_id,
                         id,
-                        beacon_block.map(|block| BlockWrapper::Block { block }),
+                        beacon_block.map(|block| BlockWrapper::Block(block)),
                     ) {
                         Ok(ProcessResult::SyncCompleted) => self.update_sync_state(),
                         Ok(ProcessResult::Successful) => {}
@@ -780,7 +780,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         chain_id,
                         batch_id,
                         id,
-                        beacon_block.map(|block| BlockWrapper::Block { block }),
+                        beacon_block.map(|block| BlockWrapper::Block(block)),
                     );
                     self.update_sync_state();
                 }
@@ -930,9 +930,11 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             RequestId::SingleBlock { id } => self.block_lookups.single_block_lookup_response(
                 id,
                 peer_id,
-                block_sidecar_pair.map(|block_sidecar_pair| BlockWrapper::BlockAndBlob {
-                    // TODO: why is this in an arc
-                    block_sidecar_pair: (*block_sidecar_pair).clone(),
+                block_sidecar_pair.map(|block_sidecar_pair| {
+                    BlockWrapper::BlockAndBlob(
+                        // TODO: why is this in an arc
+                        (*block_sidecar_pair).clone(),
+                    )
                 }),
                 seen_timestamp,
                 &mut self.network,
@@ -940,9 +942,11 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             RequestId::ParentLookup { id } => self.block_lookups.parent_lookup_response(
                 id,
                 peer_id,
-                block_sidecar_pair.map(|block_sidecar_pair| BlockWrapper::BlockAndBlob {
-                    // TODO: why is this in an arc
-                    block_sidecar_pair: (*block_sidecar_pair).clone(),
+                block_sidecar_pair.map(|block_sidecar_pair| {
+                    BlockWrapper::BlockAndBlob(
+                        // TODO: why is this in an arc
+                        (*block_sidecar_pair).clone(),
+                    )
                 }),
                 seen_timestamp,
                 &mut self.network,
