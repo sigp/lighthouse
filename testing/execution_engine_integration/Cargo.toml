@@ -24,4 +24,3 @@ fork_choice = { path = "../../consensus/fork_choice" }
 
 [features]
 default = []
-withdrawals = []

@@ -80,14 +80,12 @@ use slasher::Slasher;
 use slog::{crit, debug, error, info, trace, warn, Logger};
 use slot_clock::SlotClock;
 use ssz::Encode;
-#[cfg(feature = "withdrawals")]
-use state_processing::per_block_processing::get_expected_withdrawals;
 use state_processing::{
     common::get_attesting_indices_from_state,
     per_block_processing,
     per_block_processing::{
-        errors::AttestationValidationError, verify_attestation_for_block_inclusion,
-        VerifySignatures,
+        errors::AttestationValidationError, get_expected_withdrawals,
+        verify_attestation_for_block_inclusion, VerifySignatures,
     },
     per_slot_processing,
     state_advance::{complete_state_advance, partial_state_advance},
@@ -290,7 +288,6 @@ struct PartialBeaconBlock<E: EthSpec, Payload: AbstractExecPayload<E>> {
     voluntary_exits: Vec<SignedVoluntaryExit>,
     sync_aggregate: Option<SyncAggregate<E>>,
     prepare_payload_handle: Option<PreparePayloadHandle<E, Payload>>,
-    #[cfg(feature = "withdrawals")]
     bls_to_execution_changes: Vec<SignedBlsToExecutionChange>,
 }
 
@@ -4208,7 +4205,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let eth1_data = eth1_chain.eth1_data_for_block_production(&state, &self.spec)?;
         let deposits = eth1_chain.deposits_for_block_inclusion(&state, &eth1_data, &self.spec)?;
 
-        #[cfg(feature = "withdrawals")]
         let bls_to_execution_changes = self
             .op_pool
             .get_bls_to_execution_changes(&state, &self.spec);
@@ -4371,7 +4367,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             voluntary_exits,
             sync_aggregate,
             prepare_payload_handle,
-            #[cfg(feature = "withdrawals")]
             bls_to_execution_changes,
         })
     }
@@ -4400,7 +4395,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             // this function. We can assume that the handle has already been consumed in order to
             // produce said `execution_payload`.
             prepare_payload_handle: _,
-            #[cfg(feature = "withdrawals")]
             bls_to_execution_changes,
         } = partial_beacon_block;
 
@@ -4501,7 +4495,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             execution_payload: payload
                                 .try_into()
                                 .map_err(|_| BlockProductionError::InvalidPayloadFork)?,
-                            #[cfg(feature = "withdrawals")]
                             bls_to_execution_changes: bls_to_execution_changes.into(),
                         },
                     }),
@@ -4533,7 +4526,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             execution_payload: payload
                                 .try_into()
                                 .map_err(|_| BlockProductionError::InvalidPayloadFork)?,
-                            #[cfg(feature = "withdrawals")]
                             bls_to_execution_changes: bls_to_execution_changes.into(),
                             blob_kzg_commitments: kzg_commitments
                                 .ok_or(BlockProductionError::InvalidPayloadFork)?,
@@ -4833,7 +4825,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Ok(());
         }
 
-        #[cfg(feature = "withdrawals")]
         let withdrawals = match self.spec.fork_name_at_slot::<T::EthSpec>(prepare_slot) {
             ForkName::Base | ForkName::Altair | ForkName::Merge => None,
             ForkName::Capella | ForkName::Eip4844 => {
@@ -4868,10 +4859,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             execution_layer
                 .get_suggested_fee_recipient(proposer as u64)
                 .await,
-            #[cfg(feature = "withdrawals")]
             withdrawals,
-            #[cfg(not(feature = "withdrawals"))]
-            None,
         );
 
         debug!(
