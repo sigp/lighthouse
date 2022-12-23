@@ -3494,6 +3494,7 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(get_lighthouse_attestation_performance.boxed())
                 .or(get_lighthouse_block_packing_efficiency.boxed())
                 .or(get_lighthouse_merge_readiness.boxed())
+                .or(get_blob_sidecars.boxed())
                 .or(get_events.boxed()),
         )
         .boxed()
