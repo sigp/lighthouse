@@ -77,7 +77,7 @@ impl<E: EthSpec> EarlyAttesterCache<E> {
             source,
             target,
             block,
-            blobs: blobs.map_err(|_|Error::MissingBlobs)?,
+            blobs: blobs.map_err(|_| Error::MissingBlobs)?,
             proto_block,
         };
 

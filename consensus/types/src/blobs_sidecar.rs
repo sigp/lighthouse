@@ -1,6 +1,6 @@
-use derivative::Derivative;
 use crate::test_utils::TestRandom;
 use crate::{Blob, EthSpec, Hash256, SignedRoot, Slot};
+use derivative::Derivative;
 use kzg::KzgProof;
 use serde_derive::{Deserialize, Serialize};
 use ssz::Encode;
@@ -11,7 +11,7 @@ use tree_hash_derive::TreeHash;
 
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 #[derive(
-    Debug, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, Default, TestRandom, Derivative
+    Debug, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, Default, TestRandom, Derivative,
 )]
 #[serde(bound = "T: EthSpec")]
 #[derivative(PartialEq, Hash(bound = "T: EthSpec"))]

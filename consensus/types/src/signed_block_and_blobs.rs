@@ -1,11 +1,11 @@
 use crate::signed_beacon_block::BlobReconstructionError;
 use crate::{BlobsSidecar, EthSpec, Hash256, SignedBeaconBlock, SignedBeaconBlockEip4844, Slot};
+use derivative::Derivative;
 use serde_derive::{Deserialize, Serialize};
 use ssz::{Decode, DecodeError};
 use ssz_derive::{Decode, Encode};
 use std::sync::Arc;
 use tree_hash_derive::TreeHash;
-use derivative::Derivative;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, PartialEq)]
 #[serde(bound = "T: EthSpec")]
@@ -93,14 +93,20 @@ impl<T: EthSpec> BlockWrapper<T> {
         self.block().parent_root()
     }
 
-    pub fn deconstruct(self, block_root: Option<Hash256>) -> (Arc<SignedBeaconBlock<T>>, Result<Option<Arc<BlobsSidecar<T>>>, BlobReconstructionError>) {
+    pub fn deconstruct(
+        self,
+        block_root: Option<Hash256>,
+    ) -> (
+        Arc<SignedBeaconBlock<T>>,
+        Result<Option<Arc<BlobsSidecar<T>>>, BlobReconstructionError>,
+    ) {
         match self {
             BlockWrapper::Block(block) => {
                 let blobs = block
                     .reconstruct_empty_blobs(block_root)
                     .map(|blob_opt| blob_opt.map(Arc::new));
-                (block,blobs)
-            } ,
+                (block, blobs)
+            }
             BlockWrapper::BlockAndBlob(block_sidecar_pair) => {
                 let SignedBeaconBlockAndBlobsSidecar {
                     beacon_block,
