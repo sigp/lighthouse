@@ -165,7 +165,6 @@ pub struct ExecutionBlockWithTransactions<T: EthSpec> {
     #[serde(rename = "hash")]
     pub block_hash: ExecutionBlockHash,
     pub transactions: Vec<Transaction>,
-    #[cfg(feature = "withdrawals")]
     #[superstruct(only(Capella, Eip4844))]
     pub withdrawals: Vec<JsonWithdrawal>,
 }
@@ -215,7 +214,6 @@ impl<T: EthSpec> TryFrom<ExecutionPayload<T>> for ExecutionBlockWithTransactions
                         .iter()
                         .map(|tx| Transaction::decode(&Rlp::new(tx)))
                         .collect::<Result<Vec<_>, _>>()?,
-                    #[cfg(feature = "withdrawals")]
                     withdrawals: Vec::from(block.withdrawals)
                         .into_iter()
                         .map(|withdrawal| withdrawal.into())
@@ -243,7 +241,6 @@ impl<T: EthSpec> TryFrom<ExecutionPayload<T>> for ExecutionBlockWithTransactions
                         .iter()
                         .map(|tx| Transaction::decode(&Rlp::new(tx)))
                         .collect::<Result<Vec<_>, _>>()?,
-                    #[cfg(feature = "withdrawals")]
                     withdrawals: Vec::from(block.withdrawals)
                         .into_iter()
                         .map(|withdrawal| withdrawal.into())

@@ -164,7 +164,6 @@ impl<T: EthSpec> JsonExecutionPayload<T> {
                     base_fee_per_gas: v2.base_fee_per_gas,
                     block_hash: v2.block_hash,
                     transactions: v2.transactions,
-                    #[cfg(feature = "withdrawals")]
                     withdrawals: v2
                         .withdrawals
                         .map(|v| {
@@ -192,7 +191,6 @@ impl<T: EthSpec> JsonExecutionPayload<T> {
                     excess_data_gas: v2.excess_data_gas.ok_or_else(|| Error::BadConversion("Null `excess_data_gas` field converting JsonExecutionPayloadV2 -> ExecutionPayloadEip4844".to_string()))?,
                     block_hash: v2.block_hash,
                     transactions: v2.transactions,
-                    #[cfg(feature = "withdrawals")]
                     withdrawals: v2
                         .withdrawals
                         .map(|v| {
@@ -280,7 +278,6 @@ impl<T: EthSpec> TryFrom<ExecutionPayload<T>> for JsonExecutionPayloadV2<T> {
                 excess_data_gas: None,
                 block_hash: capella.block_hash,
                 transactions: capella.transactions,
-                #[cfg(feature = "withdrawals")]
                 withdrawals: Some(
                     Vec::from(capella.withdrawals)
                         .into_iter()
@@ -288,8 +285,6 @@ impl<T: EthSpec> TryFrom<ExecutionPayload<T>> for JsonExecutionPayloadV2<T> {
                         .collect::<Vec<_>>()
                         .into(),
                 ),
-                #[cfg(not(feature = "withdrawals"))]
-                withdrawals: None,
             }),
             ExecutionPayload::Eip4844(eip4844) => Ok(JsonExecutionPayloadV2 {
                 parent_hash: eip4844.parent_hash,
@@ -307,7 +302,6 @@ impl<T: EthSpec> TryFrom<ExecutionPayload<T>> for JsonExecutionPayloadV2<T> {
                 excess_data_gas: Some(eip4844.excess_data_gas),
                 block_hash: eip4844.block_hash,
                 transactions: eip4844.transactions,
-                #[cfg(feature = "withdrawals")]
                 withdrawals: Some(
                     Vec::from(eip4844.withdrawals)
                         .into_iter()
@@ -315,11 +309,18 @@ impl<T: EthSpec> TryFrom<ExecutionPayload<T>> for JsonExecutionPayloadV2<T> {
                         .collect::<Vec<_>>()
                         .into(),
                 ),
-                #[cfg(not(feature = "withdrawals"))]
-                withdrawals: None,
             }),
         }
     }
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[serde(bound = "T: EthSpec", rename_all = "camelCase")]
+pub struct JsonGetPayloadResponse<T: EthSpec> {
+    pub execution_payload: JsonExecutionPayloadV2<T>,
+    // uncomment this when geth fixes its serialization
+    //#[serde(with = "eth2_serde_utils::u256_hex_be")]
+    //pub block_value: Uint256,
 }
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]

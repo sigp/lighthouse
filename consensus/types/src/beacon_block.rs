@@ -502,7 +502,6 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> EmptyBlock for BeaconBlockCape
                 voluntary_exits: VariableList::empty(),
                 sync_aggregate: SyncAggregate::empty(),
                 execution_payload: Payload::Capella::default(),
-                #[cfg(feature = "withdrawals")]
                 bls_to_execution_changes: VariableList::empty(),
             },
         }
@@ -532,7 +531,6 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> EmptyBlock for BeaconBlockEip4
                 voluntary_exits: VariableList::empty(),
                 sync_aggregate: SyncAggregate::empty(),
                 execution_payload: Payload::Eip4844::default(),
-                #[cfg(feature = "withdrawals")]
                 bls_to_execution_changes: VariableList::empty(),
                 blob_kzg_commitments: VariableList::empty(),
             },

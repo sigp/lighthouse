@@ -103,10 +103,7 @@ impl<T: EthSpec> MockExecutionLayer<T> {
             prev_randao,
             Address::repeat_byte(42),
             // FIXME: think about how to handle different forks / withdrawals here..
-            #[cfg(feature = "withdrawals")]
             Some(vec![]),
-            #[cfg(not(feature = "withdrawals"))]
-            None,
         );
 
         // Insert a proposer to ensure the fork choice updated command works.

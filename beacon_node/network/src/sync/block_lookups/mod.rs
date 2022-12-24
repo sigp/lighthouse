@@ -4,15 +4,12 @@ use std::time::Duration;
 
 use beacon_chain::{BeaconChainTypes, BlockError};
 use fnv::FnvHashMap;
-use futures::StreamExt;
-use itertools::{Either, Itertools};
 use lighthouse_network::rpc::{RPCError, RPCResponseErrorCode};
 use lighthouse_network::{PeerAction, PeerId};
 use lru_cache::LRUTimeCache;
 use slog::{debug, error, trace, warn, Logger};
 use smallvec::SmallVec;
-use std::sync::Arc;
-use store::{Hash256, SignedBeaconBlock};
+use store::Hash256;
 use types::signed_block_and_blobs::BlockWrapper;
 
 use crate::beacon_processor::{ChainSegmentProcessId, WorkEvent};

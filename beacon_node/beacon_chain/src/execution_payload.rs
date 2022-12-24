@@ -17,11 +17,9 @@ use fork_choice::{InvalidationOperation, PayloadVerificationStatus};
 use proto_array::{Block as ProtoBlock, ExecutionStatus};
 use slog::debug;
 use slot_clock::SlotClock;
-#[cfg(feature = "withdrawals")]
-use state_processing::per_block_processing::get_expected_withdrawals;
 use state_processing::per_block_processing::{
-    compute_timestamp_at_slot, is_execution_enabled, is_merge_transition_complete,
-    partially_verify_execution_payload,
+    compute_timestamp_at_slot, get_expected_withdrawals, is_execution_enabled,
+    is_merge_transition_complete, partially_verify_execution_payload,
 };
 use std::sync::Arc;
 use tokio::task::JoinHandle;
@@ -382,7 +380,6 @@ pub fn get_execution_payload<
     let random = *state.get_randao_mix(current_epoch)?;
     let latest_execution_payload_header_block_hash =
         state.latest_execution_payload_header()?.block_hash();
-    #[cfg(feature = "withdrawals")]
     let withdrawals = match state {
         &BeaconState::Capella(_) | &BeaconState::Eip4844(_) => {
             Some(get_expected_withdrawals(state, spec)?.into())
@@ -407,7 +404,6 @@ pub fn get_execution_payload<
                     proposer_index,
                     latest_execution_payload_header_block_hash,
                     builder_params,
-                    #[cfg(feature = "withdrawals")]
                     withdrawals,
                 )
                 .await
@@ -442,7 +438,7 @@ pub async fn prepare_execution_payload<T, Payload>(
     proposer_index: u64,
     latest_execution_payload_header_block_hash: ExecutionBlockHash,
     builder_params: BuilderParams,
-    #[cfg(feature = "withdrawals")] withdrawals: Option<Vec<Withdrawal>>,
+    withdrawals: Option<Vec<Withdrawal>>,
 ) -> Result<BlockProposalContents<T::EthSpec, Payload>, BlockProductionError>
 where
     T: BeaconChainTypes,
@@ -504,15 +500,8 @@ where
     let suggested_fee_recipient = execution_layer
         .get_suggested_fee_recipient(proposer_index)
         .await;
-    let payload_attributes = PayloadAttributes::new(
-        timestamp,
-        random,
-        suggested_fee_recipient,
-        #[cfg(feature = "withdrawals")]
-        withdrawals,
-        #[cfg(not(feature = "withdrawals"))]
-        None,
-    );
+    let payload_attributes =
+        PayloadAttributes::new(timestamp, random, suggested_fee_recipient, withdrawals);
 
     // Note: the suggested_fee_recipient is stored in the `execution_layer`, it will add this parameter.
     //

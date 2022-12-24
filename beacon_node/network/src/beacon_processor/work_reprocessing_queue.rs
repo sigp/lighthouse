@@ -23,7 +23,6 @@ use slog::{crit, debug, error, warn, Logger};
 use slot_clock::SlotClock;
 use std::collections::{HashMap, HashSet};
 use std::pin::Pin;
-use std::sync::Arc;
 use std::task::Context;
 use std::time::Duration;
 use task_executor::TaskExecutor;
@@ -31,7 +30,7 @@ use tokio::sync::mpsc::{self, Receiver, Sender};
 use tokio::time::error::Error as TimeError;
 use tokio_util::time::delay_queue::{DelayQueue, Key as DelayKey};
 use types::signed_block_and_blobs::BlockWrapper;
-use types::{Attestation, EthSpec, Hash256, SignedAggregateAndProof, SignedBeaconBlock, SubnetId};
+use types::{Attestation, EthSpec, Hash256, SignedAggregateAndProof, SubnetId};
 
 const TASK_NAME: &str = "beacon_processor_reprocess_queue";
 const GOSSIP_BLOCKS: &str = "gossip_blocks";

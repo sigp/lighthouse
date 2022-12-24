@@ -28,5 +28,4 @@ directory = { path = "../../common/directory" }
 strum = { version = "0.24.0", features = ["derive"] }
 
 [features]
-withdrawals = ["state_processing/withdrawals", "types/withdrawals"]
 withdrawals-processing = ["state_processing/withdrawals-processing"]
