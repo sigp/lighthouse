@@ -250,9 +250,9 @@ impl TestValidator {
         store_withdrawal_key: bool,
     ) -> Result<Vec<String>, String> {
         let mut cmd = validator_cmd();
-        cmd.arg(format!("--{}", VALIDATOR_DIR_FLAG))
+        cmd.arg(CREATE_CMD)
+            .arg(format!("--{}", VALIDATOR_DIR_FLAG))
             .arg(self.validator_dir.clone().into_os_string())
-            .arg(CREATE_CMD)
             .arg(format!("--{}", WALLETS_DIR_FLAG))
             .arg(self.wallet.base_dir().into_os_string())
             .arg(format!("--{}", WALLET_NAME_FLAG))

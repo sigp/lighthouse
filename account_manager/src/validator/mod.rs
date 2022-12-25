@@ -28,6 +28,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     Defaults to ~/.lighthouse/{network}/validators",
                 )
                 .takes_value(true)
+                .global(true)
                 .conflicts_with("datadir"),
         )
         .subcommand(create::cli_app())
