@@ -27,15 +27,42 @@ pub fn compute_sync_committee_rewards<T: BeaconChainTypes>(
         .map_err(beacon_chain_error)?
         .ok_or_else(|| custom_bad_request(String::from("Unable to get state")))?;
 
-    // TODO: filter payload by vlaidators
     let reward_payload = chain
         .compute_sync_committee_rewards(block.message(), &mut state)
         .map_err(beacon_chain_error)?;
 
+    let data = if reward_payload.is_empty() {
+            None 
+        } else if validators.is_empty() {
+            Some(reward_payload)
+        } else {
+            Some(
+                reward_payload
+                    .into_iter()
+                    .filter(|reward| {
+                        validators
+                            .iter()
+                            .any(|validator| match validator {
+                                ValidatorId::Index(i) => {
+                                    reward.validator_index == *i
+                                }
+                                ValidatorId::PublicKey(pubkey) => {
+                                    match state.get_validator_index(pubkey) {
+                                        Ok(Some(i)) => { reward.validator_index == i as u64 }
+                                        _ => { false }
+                                    }
+                                }
+                            })
+                    })
+                    .collect::<Vec<SyncCommitteeAttestationReward>>()
+                )
+        };
+                            
+
     Ok(SyncCommitteeAttestationRewards{
         execution_optimistic: None,
         finalized: None,
-        data: if reward_payload.is_empty() { None } else { Some(reward_payload) }
+        data
     })
 
     
