@@ -5,7 +5,7 @@ use beacon_chain::{
     test_utils::{AttestationStrategy, BlockStrategy},
 };
 use eth2::types::DepositContractData;
-use execution_layer::{ForkChoiceState, PayloadAttributes};
+use execution_layer::{ForkchoiceState, PayloadAttributes};
 use parking_lot::Mutex;
 use slot_clock::SlotClock;
 use state_processing::state_advance::complete_state_advance;
@@ -55,7 +55,7 @@ struct ForkChoiceUpdates {
 #[derive(Debug, Clone)]
 struct ForkChoiceUpdateMetadata {
     received_at: Duration,
-    state: ForkChoiceState,
+    state: ForkchoiceState,
     payload_attributes: Option<PayloadAttributes>,
 }
 
@@ -86,7 +86,7 @@ impl ForkChoiceUpdates {
                     .payload_attributes
                     .as_ref()
                     .map_or(false, |payload_attributes| {
-                        payload_attributes.timestamp == proposal_timestamp
+                        payload_attributes.timestamp() == proposal_timestamp
                     })
             })
             .cloned()
@@ -342,7 +342,7 @@ pub async fn proposer_boost_re_org_test(
         .lock()
         .set_forkchoice_updated_hook(Box::new(move |state, payload_attributes| {
             let received_at = chain_inner.slot_clock.now_duration().unwrap();
-            let state = ForkChoiceState::from(state);
+            let state = ForkchoiceState::from(state);
             let payload_attributes = payload_attributes.map(Into::into);
             let update = ForkChoiceUpdateMetadata {
                 received_at,
@@ -521,16 +521,20 @@ pub async fn proposer_boost_re_org_test(
 
     if !misprediction {
         assert_eq!(
-            lookahead, payload_lookahead,
+            lookahead,
+            payload_lookahead,
             "lookahead={lookahead:?}, timestamp={}, prev_randao={:?}",
-            payload_attribs.timestamp, payload_attribs.prev_randao,
+            payload_attribs.timestamp(),
+            payload_attribs.prev_randao(),
         );
     } else {
         // On a misprediction we issue the first fcU 500ms before creating a block!
         assert_eq!(
-            lookahead, fork_choice_lookahead,
+            lookahead,
+            fork_choice_lookahead,
             "timestamp={}, prev_randao={:?}",
-            payload_attribs.timestamp, payload_attribs.prev_randao,
+            payload_attribs.timestamp(),
+            payload_attribs.prev_randao(),
         );
     }
 }
