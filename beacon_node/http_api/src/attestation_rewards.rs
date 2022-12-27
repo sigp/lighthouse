@@ -25,55 +25,52 @@ pub fn compute_attestation_rewards<T: BeaconChainTypes>(
     let state_slot = (epoch + 1).end_slot(T::EthSpec::slots_per_epoch());
 
     //Get state_root as H256 from state_slot
-    let state_root = chain.state_root_at_slot(state_slot).or_else(|_| {
-        Err(warp_utils::reject::custom_server_error("Unable to get state root".to_owned()))
-    })?;
-
-    //Unwrap state_root as H256
-    let state_root = state_root.ok_or_else(|| {
-        warp_utils::reject::custom_server_error("Unable to get state root".to_owned())
-    })?;
+    let state_root = match chain.state_root_at_slot(state_slot) {
+        Ok(Some(state_root)) => state_root,
+        Ok(None) => return Err(warp_utils::reject::custom_server_error("Unable to get state root".to_owned())),
+        Err(_) => return Err(warp_utils::reject::custom_server_error("Unable to get state root".to_owned())),
+    };
 
     //Get state from state_root and state_slot
-    let mut state = chain.get_state(&state_root, Some(state_slot)).or_else(|_| {
-        Err(warp_utils::reject::custom_server_error("Unable to get state".to_owned()))
-    })?;
+    let mut state = match chain.get_state(&state_root, Some(state_slot)) {
+        Ok(Some(state)) => state,
+        Ok(None) => return Err(warp_utils::reject::custom_server_error("State not found".to_owned())),
+        Err(_) => return Err(warp_utils::reject::custom_server_error("Unable to get state".to_owned())),
+    };
 
     //--- Calculate ideal rewards for 33 (0...32) values ---//
 
-    //Unwrap state as BeaconState
-    let state = state.ok_or_else(|| {
-        warp_utils::reject::custom_server_error("Unable to get state".to_owned())
-    })?;
-
     //Create ParticipationCache
-    let participation_cache = ParticipationCache::new(&state, spec);
-    let participation_cache = participation_cache.or_else(|_| {
-        Err(warp_utils::reject::custom_server_error("Unable to get participation cache".to_owned()))
-    })?;
+    let participation_cache = match ParticipationCache::new(&state, spec) {
+        Ok(participation_cache) => participation_cache,
+        Err(_) => return Err(warp_utils::reject::custom_server_error("Unable to get participation cache".to_owned())),
+    };
 
     //TODO Define flag_index as usize
     let flag_index = 0;
 
-    //Use get_flag_weight to get weight
-    let weight = get_flag_weight(flag_index);
-
+    //Get weight as u64
+    let weight = match get_flag_weight(flag_index) {
+        Ok(weight) => weight,
+        Err(_) => return Err(warp_utils::reject::custom_server_error("Unable to get weight".to_owned())),
+    };
+    
     //Get total_active_balance through current_epoch_total_active_balance
     let total_active_balance = participation_cache.current_epoch_total_active_balance();
-
+    
     //TODO (flag, effective_balance) -> ideal_reward, while flag is head/target/source
 
     //Get active_increments through total_active_balance and spec.effective_balance_increment
-    let active_increments = total_active_balance.safe_div(spec.effective_balance_increment);
+    let active_increments = match total_active_balance.safe_div(spec.effective_balance_increment) {
+        Ok(active_increments) => active_increments,
+        Err(_) => return Err(warp_utils::reject::custom_server_error("Unable to get active increments".to_owned())),
+    };    
 
     //Get base_reward_per_increment through BaseRewardPerIncrement::new
-    let base_reward_per_increment = BaseRewardPerIncrement::new(total_active_balance, spec);
-
-    //Use pattern matching to handle ok and error cases of base_reward_per_increment
-    let base_reward_per_increment = match base_reward_per_increment {
+    let base_reward_per_increment = match BaseRewardPerIncrement::new(total_active_balance, spec) {
         Ok(base_reward_per_increment) => base_reward_per_increment,
-        Err(e) => return Err(warp_utils::reject::custom_server_error(format!("Unable to get base reward per increment: {:?}", e))),
-    };
+        Err(_) => return Err(warp_utils::reject::custom_server_error("Unable to get base reward per increment".to_owned())),
+    };    
 
     //Get index from participation_cache.eligible_validator_indices
     let index = participation_cache.eligible_validator_indices();
@@ -85,72 +82,62 @@ pub fn compute_attestation_rewards<T: BeaconChainTypes>(
     let previous_epoch = state.previous_epoch();
 
     //Get unslashed_participating_indices
-    let unslashed_participating_indices = participation_cache.get_unslashed_participating_indices(flag_index, previous_epoch);
-
-    //Unwrap unslashed_participating_indices
-    let unslashed_participating_indices = unslashed_participating_indices.or_else(|_| {
-        Err(warp_utils::reject::custom_server_error("Unable to get unslashed participating indices".to_owned()))
-    })?;
+    let unslashed_participating_indices = match participation_cache.get_unslashed_participating_indices(flag_index, previous_epoch) {
+        Ok(unslashed_participating_indices) => unslashed_participating_indices,
+        Err(_) => return Err(warp_utils::reject::custom_server_error("Unable to get unslashed participating indices".to_owned())),
+    };    
 
     //Get unslashed_participating_balance
-    let unslashed_participating_balance = unslashed_participating_indices.total_balance();
-
-    //Unwrap unslashed_participating_balance
-    let unslashed_participating_balance = unslashed_participating_balance.or_else(|_| {
-        Err(warp_utils::reject::custom_server_error("Unable to get unslashed participating balance".to_owned()))
-    })?;
+    let unslashed_participating_balance = match unslashed_participating_indices.total_balance() {
+        Ok(unslashed_participating_balance) => unslashed_participating_balance,
+        Err(_) => return Err(warp_utils::reject::custom_server_error("Unable to get unslashed participating balance".to_owned())),
+    };    
 
     //Get unslashed_participating_increments
-    let unslashed_participating_increments = unslashed_participating_balance.safe_div(spec.effective_balance_increment);
-
-    //Unwrap unslashed_participating_increments
-    let unslashed_participating_increments = unslashed_participating_increments.or_else(|_| {
-        Err(warp_utils::reject::custom_server_error("Unable to get unslashed participating increments".to_owned()))
-    })?;
-
-    //Unwrap weight to u64
-    let weight = weight.or_else(|_| {
-        Err(warp_utils::reject::custom_server_error("Unable to get weight".to_owned()))
-    })?;
+    let unslashed_participating_increments = match unslashed_participating_balance.safe_div(spec.effective_balance_increment) {
+        Ok(unslashed_participating_increments) => unslashed_participating_increments,
+        Err(_) => return Err(warp_utils::reject::custom_server_error("Unable to get unslashed participating increments".to_owned())),
+    };  
 
     //Unwrap base_reward to u64
-    let base_reward = base_reward.or_else(|_| {
-        Err(warp_utils::reject::custom_server_error("Unable to get base reward".to_owned()))
-    })?;
+    let base_reward = match base_reward {
+        Ok(base_reward) => base_reward,
+        Err(_) => return Err(warp_utils::reject::custom_server_error("Unable to get base reward".to_owned())),
+    };
     
     //Calculate reward_numerator = base_reward * weight * unslashed_participating_increments with Error handling
-    let reward_numerator = base_reward.safe_mul(weight).and_then(|reward_numerator| {
-        reward_numerator.safe_mul(unslashed_participating_increments)
-    }).or_else(|_| {
-        Err(warp_utils::reject::custom_server_error("Unable to calculate reward numerator".to_owned()))
-    })?;
+    let reward_numerator = match base_reward.safe_mul(weight).and_then(|reward_numerator| {
+        reward_numerator.safe_mul(unslashed_participating_increments)}) {
+        Ok(reward_numerator) => reward_numerator,
+        Err(_) => return Err(warp_utils::reject::custom_server_error("Unable to calculate reward numerator".to_owned())),
+    };
 
     //Get active_increments
-    let active_increments = total_active_balance.safe_div(spec.effective_balance_increment);
-
-    //Unwrap active_increments to u64
-    let active_increments = active_increments.or_else(|_| {
-        Err(warp_utils::reject::custom_server_error("Unable to get active increments".to_owned()))
-    })?;
+    let active_increments = match total_active_balance.safe_div(spec.effective_balance_increment) {
+        Ok(active_increments) => active_increments,
+        Err(_) => return Err(warp_utils::reject::custom_server_error("Unable to get active increments".to_owned())),
+    };    
 
     //Calculate reward = reward_numerator // (active_increments * WEIGHT_DENOMINATOR)
-    let reward = reward_numerator.safe_div(active_increments).and_then(|reward| {
-        reward.safe_div(WEIGHT_DENOMINATOR)
-    }).or_else(|_| {
-        Err(warp_utils::reject::custom_server_error("Unable to calculate reward".to_owned()))
-    })?;
+    let reward = match reward_numerator.safe_div(active_increments) {
+        Ok(reward) => match reward.safe_div(WEIGHT_DENOMINATOR) {
+            Ok(reward) => reward,
+            Err(_) => return Err(warp_utils::reject::custom_server_error("Unable to calculate reward: Division by WEIGHT_DENOMINATOR failed".to_owned())),
+        },
+        Err(_) => return Err(warp_utils::reject::custom_server_error("Unable to calculate reward: Division by active_increments failed".to_owned())),
+    };
 
     //TODO Put reward in Vec<IdealAttestationRewards>
 
     //--- Calculate actual rewards ---//
 
     //Check if the validator index is eligible for rewards using state.is_eligible_validator(epoch, validator_index)
-    let eligible = state.is_eligible_validator(previous_epoch, index[0]);
+    let eligible = match state.is_eligible_validator(previous_epoch, index[0]) {
+        Ok(eligible) => eligible,
+        Err(_) => return Err(warp_utils::reject::custom_server_error("Unable to get eligible".to_owned())),
+    };
 
-    //Unwrap eligible to bool
-    let eligible = eligible.or_else(|_| {
-        Err(warp_utils::reject::custom_server_error("Unable to get eligible".to_owned()))
-    })?;
+    //TODO add error handling to everything below
 
     //If eligible is false, change the reward to 0
     let reward = if eligible {
