@@ -7,3 +7,4 @@ mod payload_invalidation;
 mod store_tests;
 mod sync_committee_verification;
 mod tests;
+mod rewards;
