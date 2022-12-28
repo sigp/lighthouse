@@ -6,6 +6,7 @@ on:
             - unstable
             - stable
             - capella
+            - eip4844
         tags:
             - v*
 
@@ -39,6 +40,11 @@ jobs:
               if: github.event.ref == 'refs/heads/capella'
               run: |
                     echo "VERSION=capella" >> $GITHUB_ENV
+                    echo "VERSION_SUFFIX=" >> $GITHUB_ENV
+            - name: Extract version (if eip4844)
+              if: github.event.ref == 'refs/heads/eip4844'
+              run: |
+                    echo "VERSION=eip4844" >> $GITHUB_ENV
                     echo "VERSION_SUFFIX=" >> $GITHUB_ENV
             - name: Extract version (if tagged release)
               if: startsWith(github.event.ref, 'refs/tags')
