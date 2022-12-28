@@ -109,7 +109,7 @@ fn tx_peek_blob_versioned_hashes<T: EthSpec>(
             .get(next_version_hash_index..next_version_hash_index.safe_add(32)?)
             .ok_or(BlockProcessingError::BlobVersionHashIndexOutOfBounds {
                 length: tx_len,
-                index: (next_version_hash_index as usize).safe_add(32)?,
+                index: (next_version_hash_index).safe_add(32)?,
             })?;
         Ok(VersionedHash::from_slice(bytes))
     }))
