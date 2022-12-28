@@ -87,6 +87,7 @@ use std::time::Duration;
 use store::{Error as DBError, HotStateSummary, KeyValueStore, StoreOp};
 use task_executor::JoinHandle;
 use tree_hash::TreeHash;
+use types::signed_beacon_block::BlobReconstructionError;
 use types::signed_block_and_blobs::BlockWrapper;
 use types::ExecPayload;
 use types::{
@@ -476,6 +477,12 @@ impl<T: EthSpec> From<DBError> for BlockError<T> {
 impl<T: EthSpec> From<ArithError> for BlockError<T> {
     fn from(e: ArithError) -> Self {
         BlockError::BeaconChainError(BeaconChainError::ArithError(e))
+    }
+}
+
+impl<T: EthSpec> From<BlobReconstructionError> for BlockError<T> {
+    fn from(e: BlobReconstructionError) -> Self {
+        BlockError::BlobValidation(BlobError::from(e))
     }
 }
 
@@ -905,7 +912,7 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         // Validate the block's execution_payload (if any).
         validate_execution_payload_for_gossip(&parent_block, block.message(), chain)?;
 
-        if let Some(blobs_sidecar) = block.blobs() {
+        if let Some(blobs_sidecar) = block.blobs(Some(block_root))? {
             let kzg_commitments = block
                 .message()
                 .body()
@@ -919,7 +926,7 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
                 .map_err(|_| BlockError::BlobValidation(BlobError::TransactionsMissing))?
                 .ok_or(BlockError::BlobValidation(BlobError::TransactionsMissing))?;
             validate_blob_for_gossip(
-                blobs_sidecar,
+                &blobs_sidecar,
                 kzg_commitments,
                 transactions,
                 block.slot(),
@@ -1134,12 +1141,8 @@ impl<T: BeaconChainTypes> IntoExecutionPendingBlock<T> for Arc<SignedBeaconBlock
         let block_root = check_block_relevancy(&self, block_root, chain)
             .map_err(|e| BlockSlashInfo::SignatureNotChecked(self.signed_block_header(), e))?;
 
-        SignatureVerifiedBlock::check_slashable(
-            BlockWrapper::Block { block: self },
-            block_root,
-            chain,
-        )?
-        .into_execution_pending_block_slashable(block_root, chain, notify_execution_layer)
+        SignatureVerifiedBlock::check_slashable(BlockWrapper::Block(self), block_root, chain)?
+            .into_execution_pending_block_slashable(block_root, chain, notify_execution_layer)
     }
 
     fn block(&self) -> &SignedBeaconBlock<T::EthSpec> {
@@ -1563,7 +1566,7 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
         if let Some(data_availability_boundary) = chain.data_availability_boundary() {
             if block_slot.epoch(T::EthSpec::slots_per_epoch()) >= data_availability_boundary {
                 let sidecar = block
-                    .blobs()
+                    .blobs(Some(block_root))?
                     .ok_or(BlockError::BlobValidation(BlobError::MissingBlobs))?;
                 let kzg = chain.kzg.as_ref().ok_or(BlockError::BlobValidation(
                     BlobError::TrustedSetupNotInitialized,
@@ -1586,7 +1589,7 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
                         block.slot(),
                         block_root,
                         kzg_commitments,
-                        sidecar,
+                        &sidecar,
                     )
                     .map_err(|e| BlockError::BlobValidation(BlobError::KzgError(e)))?
                     {

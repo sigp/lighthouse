@@ -3,6 +3,7 @@ use slot_clock::SlotClock;
 use crate::beacon_chain::{BeaconChain, BeaconChainTypes, MAXIMUM_GOSSIP_CLOCK_DISPARITY};
 use crate::{kzg_utils, BeaconChainError};
 use state_processing::per_block_processing::eip4844::eip4844::verify_kzg_commitments_against_transactions;
+use types::signed_beacon_block::BlobReconstructionError;
 use types::{BeaconStateError, BlobsSidecar, Hash256, KzgCommitment, Slot, Transactions};
 
 #[derive(Debug)]
@@ -87,6 +88,12 @@ pub enum BlobError {
     BeaconChainError(BeaconChainError),
     /// No blobs for the specified block where we would expect blobs.
     MissingBlobs,
+}
+
+impl From<BlobReconstructionError> for BlobError {
+    fn from(_: BlobReconstructionError) -> Self {
+        BlobError::MissingBlobs
+    }
 }
 
 impl From<BeaconChainError> for BlobError {

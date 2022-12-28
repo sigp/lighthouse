@@ -26,11 +26,11 @@ impl<T: EthSpec> BatchTy<T> {
         match self {
             BatchTy::Blocks(blocks) => blocks
                 .into_iter()
-                .map(|block| BlockWrapper::Block { block })
+                .map(|block| BlockWrapper::Block(block))
                 .collect(),
             BatchTy::BlocksAndBlobs(block_sidecar_pair) => block_sidecar_pair
                 .into_iter()
-                .map(|block_sidecar_pair| BlockWrapper::BlockAndBlob { block_sidecar_pair })
+                .map(|block_sidecar_pair| BlockWrapper::BlockAndBlob(block_sidecar_pair))
                 .collect(),
         }
     }
@@ -415,7 +415,7 @@ impl<T: EthSpec, B: BatchConfig> BatchInfo<T, B> {
                 match self.batch_type {
                     ExpectedBatchTy::OnlyBlockBlobs => {
                         let blocks = blocks.into_iter().map(|block| {
-                            let BlockWrapper::BlockAndBlob { block_sidecar_pair: block_and_blob } = block else {
+                            let BlockWrapper::BlockAndBlob(block_and_blob) = block else {
                                 panic!("Batches should never have a mixed type. This is a bug. Contact D")
                             };
                             block_and_blob
@@ -424,7 +424,7 @@ impl<T: EthSpec, B: BatchConfig> BatchInfo<T, B> {
                     }
                     ExpectedBatchTy::OnlyBlock => {
                         let blocks = blocks.into_iter().map(|block| {
-                            let BlockWrapper::Block { block } = block else {
+                            let BlockWrapper::Block(block) = block else {
                                 panic!("Batches should never have a mixed type. This is a bug. Contact D")
                             };
                             block
@@ -559,7 +559,7 @@ impl<T: EthSpec, B: BatchConfig> slog::KV for BatchInfo<T, B> {
         serializer.emit_usize("processed", self.failed_processing_attempts.len())?;
         serializer.emit_u8("processed_no_penalty", self.non_faulty_processing_attempts)?;
         serializer.emit_arguments("state", &format_args!("{:?}", self.state))?;
-        serializer.emit_arguments("batch_ty", &format_args!("{}", self.batch_type));
+        serializer.emit_arguments("batch_ty", &format_args!("{}", self.batch_type))?;
         slog::Result::Ok(())
     }
 }

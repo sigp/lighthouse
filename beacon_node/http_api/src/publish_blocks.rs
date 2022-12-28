@@ -42,9 +42,7 @@ pub async fn publish_block<T: BeaconChainTypes>(
                 network_tx,
                 PubsubMessage::BeaconBlockAndBlobsSidecars(block_and_blobs.clone()),
             )?;
-            BlockWrapper::BlockAndBlob {
-                block_sidecar_pair: block_and_blobs,
-            }
+            BlockWrapper::BlockAndBlob(block_and_blobs)
         } else {
             //FIXME(sean): This should probably return a specific no-blob-cached error code, beacon API coordination required
             return Err(warp_utils::reject::broadcast_without_import(format!(
@@ -53,7 +51,7 @@ pub async fn publish_block<T: BeaconChainTypes>(
         }
     } else {
         crate::publish_pubsub_message(network_tx, PubsubMessage::BeaconBlock(block.clone()))?;
-        BlockWrapper::Block { block }
+        BlockWrapper::Block(block)
     };
 
     // Determine the delay after the start of the slot, register it with metrics.
