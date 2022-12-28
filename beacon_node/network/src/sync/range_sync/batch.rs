@@ -559,7 +559,7 @@ impl<T: EthSpec, B: BatchConfig> slog::KV for BatchInfo<T, B> {
         serializer.emit_usize("processed", self.failed_processing_attempts.len())?;
         serializer.emit_u8("processed_no_penalty", self.non_faulty_processing_attempts)?;
         serializer.emit_arguments("state", &format_args!("{:?}", self.state))?;
-        serializer.emit_arguments("batch_ty", &format_args!("{}", self.batch_type));
+        serializer.emit_arguments("batch_ty", &format_args!("{}", self.batch_type))?;
         slog::Result::Ok(())
     }
 }
