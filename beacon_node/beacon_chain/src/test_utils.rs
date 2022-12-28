@@ -1459,7 +1459,7 @@ where
         let proposer_index = state.get_beacon_proposer_index(slot, &self.spec).unwrap();
 
         let signed_block = block.sign(
-            &self.validator_keypairs[proposer_index as usize].sk,
+            &self.validator_keypairs[proposer_index].sk,
             &state.fork(),
             state.genesis_validators_root(),
             &self.spec,
