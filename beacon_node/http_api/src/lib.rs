@@ -1716,10 +1716,10 @@ pub fn serve<T: BeaconChainTypes>(
         .and_then(
             |chain: Arc<BeaconChain<T>>,
             epoch: Epoch,
-            validators: Vec<ValidatorId>,
+            flag_index: usize,
             log: Logger| {
             blocking_json_task(move || attestation_rewards::compute_attestation_rewards(
-                chain, epoch, validators, log))
+                chain, epoch, flag_index, log))
         });
         
     /*

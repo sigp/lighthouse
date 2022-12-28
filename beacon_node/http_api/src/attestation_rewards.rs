@@ -1,6 +1,5 @@
 use std::sync::Arc;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
-use eth2::types::ValidatorId;
 use eth2::lighthouse::AttestationRewardsTBD;
 use safe_arith::SafeArith;
 use slog::Logger;
@@ -12,7 +11,7 @@ use types::consts::altair::WEIGHT_DENOMINATOR;
 pub fn compute_attestation_rewards<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
     epoch: Epoch,
-    validators: Vec<ValidatorId>,
+    flag_index: usize,
     log: Logger
 ) -> Result<AttestationRewardsTBD, warp::Rejection> {    
 
@@ -32,7 +31,7 @@ pub fn compute_attestation_rewards<T: BeaconChainTypes>(
     };
 
     //Get state from state_root and state_slot
-    let mut state = match chain.get_state(&state_root, Some(state_slot)) {
+    let state = match chain.get_state(&state_root, Some(state_slot)) {
         Ok(Some(state)) => state,
         Ok(None) => return Err(warp_utils::reject::custom_server_error("State not found".to_owned())),
         Err(_) => return Err(warp_utils::reject::custom_server_error("Unable to get state".to_owned())),
@@ -46,9 +45,6 @@ pub fn compute_attestation_rewards<T: BeaconChainTypes>(
         Err(_) => return Err(warp_utils::reject::custom_server_error("Unable to get participation cache".to_owned())),
     };
 
-    //TODO Define flag_index as usize
-    let flag_index = 0;
-
     //Get weight as u64
     let weight = match get_flag_weight(flag_index) {
         Ok(weight) => weight,
@@ -58,13 +54,7 @@ pub fn compute_attestation_rewards<T: BeaconChainTypes>(
     //Get total_active_balance through current_epoch_total_active_balance
     let total_active_balance = participation_cache.current_epoch_total_active_balance();
     
-    //TODO (flag, effective_balance) -> ideal_reward, while flag is head/target/source
-
-    //Get active_increments through total_active_balance and spec.effective_balance_increment
-    let active_increments = match total_active_balance.safe_div(spec.effective_balance_increment) {
-        Ok(active_increments) => active_increments,
-        Err(_) => return Err(warp_utils::reject::custom_server_error("Unable to get active increments".to_owned())),
-    };    
+    //TODO (flag, effective_balance) -> ideal_reward, while flag is head/target/source   
 
     //Get base_reward_per_increment through BaseRewardPerIncrement::new
     let base_reward_per_increment = match BaseRewardPerIncrement::new(total_active_balance, spec) {
