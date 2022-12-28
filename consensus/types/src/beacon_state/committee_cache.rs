@@ -144,7 +144,7 @@ impl CommitteeCache {
             self.committees_per_slot as usize,
             index as usize,
         );
-        let committee = self.compute_committee(committee_index as usize)?;
+        let committee = self.compute_committee(committee_index)?;
 
         Some(BeaconCommittee {
             slot,

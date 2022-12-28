@@ -4766,9 +4766,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .ok_or(Error::InvalidSlot(prepare_slot))?
                 .as_secs(),
             pre_payload_attributes.prev_randao,
-            execution_layer
-                .get_suggested_fee_recipient(proposer as u64)
-                .await,
+            execution_layer.get_suggested_fee_recipient(proposer).await,
             withdrawals,
         );
 
