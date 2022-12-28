@@ -1,12 +1,9 @@
 use std::{collections::VecDeque, sync::Arc};
 
-use types::{
-    signed_block_and_blobs::BlockWrapper, BlobsSidecar, EthSpec, SignedBeaconBlock,
-    SignedBeaconBlockAndBlobsSidecar,
-};
+use types::{signed_block_and_blobs::BlockWrapper, BlobsSidecar, EthSpec, SignedBeaconBlock};
 
 #[derive(Debug, Default)]
-pub struct BlockBlobRequestInfo<T: EthSpec> {
+pub struct BlocksAndBlobsRequestInfo<T: EthSpec> {
     /// Blocks we have received awaiting for their corresponding sidecar.
     accumulated_blocks: VecDeque<Arc<SignedBeaconBlock<T>>>,
     /// Sidecars we have received awaiting for their corresponding block.
@@ -17,7 +14,7 @@ pub struct BlockBlobRequestInfo<T: EthSpec> {
     is_sidecars_stream_terminated: bool,
 }
 
-impl<T: EthSpec> BlockBlobRequestInfo<T> {
+impl<T: EthSpec> BlocksAndBlobsRequestInfo<T> {
     pub fn add_block_response(&mut self, maybe_block: Option<Arc<SignedBeaconBlock<T>>>) {
         match maybe_block {
             Some(block) => self.accumulated_blocks.push_back(block),
@@ -33,7 +30,7 @@ impl<T: EthSpec> BlockBlobRequestInfo<T> {
     }
 
     pub fn into_responses(self) -> Result<Vec<BlockWrapper<T>>, &'static str> {
-        let BlockBlobRequestInfo {
+        let BlocksAndBlobsRequestInfo {
             accumulated_blocks,
             mut accumulated_sidecars,
             ..
@@ -51,14 +48,9 @@ impl<T: EthSpec> BlockBlobRequestInfo<T> {
                 {
                     let blobs_sidecar =
                         accumulated_sidecars.pop_front().ok_or("missing sidecar")?;
-                    Ok(BlockWrapper::BlockAndBlob(
-                        SignedBeaconBlockAndBlobsSidecar {
-                            beacon_block,
-                            blobs_sidecar,
-                        },
-                    ))
+                    Ok(BlockWrapper::new_with_blobs(beacon_block, blobs_sidecar))
                 } else {
-                    Ok(BlockWrapper::Block(beacon_block))
+                    Ok(beacon_block.into())
                 }
             })
             .collect::<Result<Vec<_>, _>>();

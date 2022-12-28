@@ -73,7 +73,7 @@ impl<TSpec: EthSpec> Encoder<RPCCodedResponse<TSpec>> for SSZSnappyInboundCodec<
                 RPCResponse::BlocksByRange(res) => res.as_ssz_bytes(),
                 RPCResponse::BlocksByRoot(res) => res.as_ssz_bytes(),
                 RPCResponse::BlobsByRange(res) => res.as_ssz_bytes(),
-                RPCResponse::BlobsByRoot(res) => res.as_ssz_bytes(),
+                RPCResponse::BlockAndBlobsByRoot(res) => res.as_ssz_bytes(),
                 RPCResponse::LightClientBootstrap(res) => res.as_ssz_bytes(),
                 RPCResponse::Pong(res) => res.data.as_ssz_bytes(),
                 RPCResponse::MetaData(res) =>
@@ -439,7 +439,8 @@ fn context_bytes<T: EthSpec>(
                     SignedBeaconBlock::Base { .. } => Some(fork_context.genesis_context_bytes()),
                 };
             }
-            if let RPCResponse::BlobsByRange(_) | RPCResponse::BlobsByRoot(_) = rpc_variant {
+            if let RPCResponse::BlobsByRange(_) | RPCResponse::BlockAndBlobsByRoot(_) = rpc_variant
+            {
                 return fork_context.to_context_bytes(ForkName::Eip4844);
             }
         }
@@ -585,7 +586,7 @@ fn handle_v1_response<T: EthSpec>(
                 )))),
                 _ => Err(RPCError::ErrorResponse(
                     RPCResponseErrorCode::InvalidRequest,
-                    "Invalid forkname for blobsbyrange".to_string(),
+                    "Invalid fork name for blobs by range".to_string(),
                 )),
             }
         }
@@ -597,12 +598,12 @@ fn handle_v1_response<T: EthSpec>(
                 )
             })?;
             match fork_name {
-                ForkName::Eip4844 => Ok(Some(RPCResponse::BlobsByRoot(Arc::new(
+                ForkName::Eip4844 => Ok(Some(RPCResponse::BlockAndBlobsByRoot(
                     SignedBeaconBlockAndBlobsSidecar::from_ssz_bytes(decoded_buffer)?,
-                )))),
+                ))),
                 _ => Err(RPCError::ErrorResponse(
                     RPCResponseErrorCode::InvalidRequest,
-                    "Invalid forkname for blobsbyroot".to_string(),
+                    "Invalid fork name for block and blobs by root".to_string(),
                 )),
             }
         }

@@ -332,7 +332,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         let process_id = ChainSegmentProcessId::RangeBatchId(self.id, batch_id, count_unrealized);
         self.current_processing_batch = Some(batch_id);
 
-        let work_event = BeaconWorkEvent::chain_segment(process_id, blocks.into_wrapped_blocks());
+        let work_event = BeaconWorkEvent::chain_segment(process_id, blocks);
 
         if let Err(e) = beacon_processor_send.try_send(work_event) {
             crit!(self.log, "Failed to send chain segment to processor."; "msg" => "process_batch",

@@ -1141,7 +1141,7 @@ impl<T: BeaconChainTypes> IntoExecutionPendingBlock<T> for Arc<SignedBeaconBlock
         let block_root = check_block_relevancy(&self, block_root, chain)
             .map_err(|e| BlockSlashInfo::SignatureNotChecked(self.signed_block_header(), e))?;
 
-        SignatureVerifiedBlock::check_slashable(BlockWrapper::Block(self), block_root, chain)?
+        SignatureVerifiedBlock::check_slashable(self.into(), block_root, chain)?
             .into_execution_pending_block_slashable(block_root, chain, notify_execution_layer)
     }
 
