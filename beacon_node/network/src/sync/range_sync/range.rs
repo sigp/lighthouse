@@ -373,7 +373,7 @@ where
 #[cfg(test)]
 mod tests {
     use crate::service::RequestId;
-    use crate::sync::range_sync::ByRangeRequestType;
+    use crate::sync::range_sync::ExpectedBatchTy;
     use crate::NetworkMessage;
 
     use super::*;
@@ -686,7 +686,7 @@ mod tests {
         let (peer1, local_info, head_info) = rig.head_peer();
         range.add_peer(&mut rig.cx, local_info, peer1, head_info);
         let ((chain1, batch1), id1) = match rig.grab_request(&peer1).0 {
-            RequestId::Sync(crate::sync::manager::RequestId::RangeBlocks { id }) => {
+            RequestId::Sync(crate::sync::manager::RequestId::RangeSync { id }) => {
                 (rig.cx.range_sync_response(id, true).unwrap(), id)
             }
             other => panic!("unexpected request {:?}", other),
@@ -705,7 +705,7 @@ mod tests {
         let (peer2, local_info, finalized_info) = rig.finalized_peer();
         range.add_peer(&mut rig.cx, local_info, peer2, finalized_info);
         let ((chain2, batch2), id2) = match rig.grab_request(&peer2).0 {
-            RequestId::Sync(crate::sync::manager::RequestId::RangeBlocks { id }) => {
+            RequestId::Sync(crate::sync::manager::RequestId::RangeSync { id }) => {
                 (rig.cx.range_sync_response(id, true).unwrap(), id)
             }
             other => panic!("unexpected request {:?}", other),

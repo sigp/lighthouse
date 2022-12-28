@@ -4,9 +4,10 @@ use lighthouse_network::PeerId;
 use std::collections::HashSet;
 use std::hash::{Hash, Hasher};
 use std::ops::Sub;
+use std::sync::Arc;
 use strum::Display;
 use types::signed_block_and_blobs::BlockWrapper;
-use types::{Epoch, EthSpec, Slot};
+use types::{Epoch, EthSpec, SignedBeaconBlock, SignedBeaconBlockAndBlobsSidecar, Slot};
 
 /// The number of times to retry a batch before it is considered failed.
 const MAX_BATCH_DOWNLOAD_ATTEMPTS: u8 = 5;
@@ -15,12 +16,36 @@ const MAX_BATCH_DOWNLOAD_ATTEMPTS: u8 = 5;
 /// after `MAX_BATCH_PROCESSING_ATTEMPTS` times, it is considered faulty.
 const MAX_BATCH_PROCESSING_ATTEMPTS: u8 = 3;
 
+pub enum BatchTy<T: EthSpec> {
+    Blocks(Vec<Arc<SignedBeaconBlock<T>>>),
+    BlocksAndBlobs(Vec<SignedBeaconBlockAndBlobsSidecar<T>>),
+}
+
+impl<T: EthSpec> BatchTy<T> {
+    pub fn into_wrapped_blocks(self) -> Vec<BlockWrapper<T>> {
+        match self {
+            BatchTy::Blocks(blocks) => blocks
+                .into_iter()
+                .map(|block| BlockWrapper::Block(block))
+                .collect(),
+            BatchTy::BlocksAndBlobs(block_sidecar_pair) => block_sidecar_pair
+                .into_iter()
+                .map(|block_sidecar_pair| BlockWrapper::BlockAndBlob(block_sidecar_pair))
+                .collect(),
+        }
+    }
+}
+
+/// Error representing a batch with mixed block types.
+#[derive(Debug)]
+pub struct MixedBlockTyErr;
+
 /// Type of expected batch.
 #[derive(Debug, Copy, Clone, Display)]
 #[strum(serialize_all = "snake_case")]
-pub enum ByRangeRequestType {
-    BlocksAndBlobs,
-    Blocks,
+pub enum ExpectedBatchTy {
+    OnlyBlockBlobs,
+    OnlyBlock,
 }
 
 /// Allows customisation of the above constants used in other sync methods such as BackFillSync.
@@ -106,7 +131,7 @@ pub struct BatchInfo<T: EthSpec, B: BatchConfig = RangeSyncBatchConfig> {
     /// State of the batch.
     state: BatchState<T>,
     /// Whether this batch contains all blocks or all blocks and blobs.
-    batch_type: ByRangeRequestType,
+    batch_type: ExpectedBatchTy,
     /// Pin the generic
     marker: std::marker::PhantomData<B>,
 }
@@ -155,7 +180,7 @@ impl<T: EthSpec, B: BatchConfig> BatchInfo<T, B> {
     /// fork boundary will be of mixed type (all blocks and one last blockblob), and I don't want to
     /// deal with this for now.
     /// This means finalization might be slower in eip4844
-    pub fn new(start_epoch: &Epoch, num_of_epochs: u64, batch_type: ByRangeRequestType) -> Self {
+    pub fn new(start_epoch: &Epoch, num_of_epochs: u64, batch_type: ExpectedBatchTy) -> Self {
         let start_slot = start_epoch.start_slot(T::slots_per_epoch());
         let end_slot = start_slot + num_of_epochs * T::slots_per_epoch();
         BatchInfo {
@@ -218,7 +243,7 @@ impl<T: EthSpec, B: BatchConfig> BatchInfo<T, B> {
     }
 
     /// Returns a BlocksByRange request associated with the batch.
-    pub fn to_blocks_by_range_request(&self) -> (BlocksByRangeRequest, ByRangeRequestType) {
+    pub fn to_blocks_by_range_request(&self) -> (BlocksByRangeRequest, ExpectedBatchTy) {
         (
             BlocksByRangeRequest {
                 start_slot: self.start_slot.into(),
@@ -383,11 +408,30 @@ impl<T: EthSpec, B: BatchConfig> BatchInfo<T, B> {
         }
     }
 
-    pub fn start_processing(&mut self) -> Result<Vec<BlockWrapper<T>>, WrongState> {
+    pub fn start_processing(&mut self) -> Result<BatchTy<T>, WrongState> {
         match self.state.poison() {
             BatchState::AwaitingProcessing(peer, blocks) => {
                 self.state = BatchState::Processing(Attempt::new::<B, T>(peer, &blocks));
-                Ok(blocks)
+                match self.batch_type {
+                    ExpectedBatchTy::OnlyBlockBlobs => {
+                        let blocks = blocks.into_iter().map(|block| {
+                            let BlockWrapper::BlockAndBlob(block_and_blob) = block else {
+                                panic!("Batches should never have a mixed type. This is a bug. Contact D")
+                            };
+                            block_and_blob
+                        }).collect();
+                        Ok(BatchTy::BlocksAndBlobs(blocks))
+                    }
+                    ExpectedBatchTy::OnlyBlock => {
+                        let blocks = blocks.into_iter().map(|block| {
+                            let BlockWrapper::Block(block) = block else {
+                                panic!("Batches should never have a mixed type. This is a bug. Contact D")
+                            };
+                            block
+                        }).collect();
+                        Ok(BatchTy::Blocks(blocks))
+                    }
+                }
             }
             BatchState::Poisoned => unreachable!("Poisoned batch"),
             other => {

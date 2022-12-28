@@ -32,28 +32,27 @@ pub async fn publish_block<T: BeaconChainTypes>(
 
     // Send the block, regardless of whether or not it is valid. The API
     // specification is very clear that this is the desired behaviour.
-    let wrapped_block: BlockWrapper<T::EthSpec> =
-        if matches!(block.as_ref(), &SignedBeaconBlock::Eip4844(_)) {
-            if let Some(sidecar) = chain.blob_cache.pop(&block_root) {
-                let block_and_blobs = SignedBeaconBlockAndBlobsSidecar {
-                    beacon_block: block,
-                    blobs_sidecar: Arc::new(sidecar),
-                };
-                crate::publish_pubsub_message(
-                    network_tx,
-                    PubsubMessage::BeaconBlockAndBlobsSidecars(block_and_blobs.clone()),
-                )?;
-                block_and_blobs.into()
-            } else {
-                //FIXME(sean): This should probably return a specific no-blob-cached error code, beacon API coordination required
-                return Err(warp_utils::reject::broadcast_without_import(format!(
-                    "no blob cached for block"
-                )));
-            }
+    let wrapped_block = if matches!(block.as_ref(), &SignedBeaconBlock::Eip4844(_)) {
+        if let Some(sidecar) = chain.blob_cache.pop(&block_root) {
+            let block_and_blobs = SignedBeaconBlockAndBlobsSidecar {
+                beacon_block: block,
+                blobs_sidecar: Arc::new(sidecar),
+            };
+            crate::publish_pubsub_message(
+                network_tx,
+                PubsubMessage::BeaconBlockAndBlobsSidecars(block_and_blobs.clone()),
+            )?;
+            BlockWrapper::BlockAndBlob(block_and_blobs)
         } else {
-            crate::publish_pubsub_message(network_tx, PubsubMessage::BeaconBlock(block.clone()))?;
-            block.into()
-        };
+            //FIXME(sean): This should probably return a specific no-blob-cached error code, beacon API coordination required
+            return Err(warp_utils::reject::broadcast_without_import(format!(
+                "no blob cached for block"
+            )));
+        }
+    } else {
+        crate::publish_pubsub_message(network_tx, PubsubMessage::BeaconBlock(block.clone()))?;
+        BlockWrapper::Block(block)
+    };
 
     // Determine the delay after the start of the slot, register it with metrics.
     let block = wrapped_block.block();

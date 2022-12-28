@@ -230,10 +230,10 @@ impl<T: BeaconChainTypes> Worker<T> {
                         Ok((Some(block), Some(blobs))) => {
                             self.send_response(
                                 peer_id,
-                                Response::BlobsByRoot(Some(SignedBeaconBlockAndBlobsSidecar {
+                                Response::BlobsByRoot(Some(Arc::new(SignedBeaconBlockAndBlobsSidecar {
                                     beacon_block: block,
                                     blobs_sidecar: blobs,
-                                })),
+                                }))),
                                 request_id,
                             );
                             send_block_count += 1;
