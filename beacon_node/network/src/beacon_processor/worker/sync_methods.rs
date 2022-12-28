@@ -188,14 +188,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                 let end_slot = downloaded_blocks.last().map(|b| b.slot().as_u64());
                 let sent_blocks = downloaded_blocks.len();
 
-                let unwrapped = downloaded_blocks
-                    .into_iter()
-                    .map(|block| match block {
-                        BlockWrapper::Block(block) => block,
-                        //FIXME(sean) handle blobs in backfill
-                        BlockWrapper::BlockAndBlob(_) => todo!(),
-                    })
-                    .collect();
+                let unwrapped = downloaded_blocks.into_iter().map(|_| todo!()).collect();
 
                 match self.process_backfill_blocks(unwrapped) {
                     (_, Ok(_)) => {

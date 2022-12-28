@@ -223,10 +223,10 @@ impl<T: BeaconChainTypes> Processor<T> {
                 SyncId::SingleBlock { .. } | SyncId::ParentLookup { .. } => {
                     unreachable!("Block lookups do not request BBRange requests")
                 }
-                id @ (SyncId::BackFillSync { .. }
-                | SyncId::RangeSync { .. }
-                | SyncId::BackFillSidecarPair { .. }
-                | SyncId::RangeSidecarPair { .. }) => id,
+                id @ (SyncId::BackFillBlocks { .. }
+                | SyncId::RangeBlocks { .. }
+                | SyncId::BackFillBlobs { .. }
+                | SyncId::RangeBlobs { .. }) => id,
             },
             RequestId::Router => unreachable!("All BBRange requests belong to sync"),
         };
@@ -258,7 +258,7 @@ impl<T: BeaconChainTypes> Processor<T> {
         );
 
         if let RequestId::Sync(id) = request_id {
-            self.send_to_sync(SyncMessage::RpcGlob {
+            self.send_to_sync(SyncMessage::RpcBlobs {
                 peer_id,
                 request_id: id,
                 blob_sidecar,
@@ -282,10 +282,10 @@ impl<T: BeaconChainTypes> Processor<T> {
         let request_id = match request_id {
             RequestId::Sync(sync_id) => match sync_id {
                 id @ (SyncId::SingleBlock { .. } | SyncId::ParentLookup { .. }) => id,
-                SyncId::BackFillSync { .. }
-                | SyncId::RangeSync { .. }
-                | SyncId::RangeSidecarPair { .. }
-                | SyncId::BackFillSidecarPair { .. } => {
+                SyncId::BackFillBlocks { .. }
+                | SyncId::RangeBlocks { .. }
+                | SyncId::RangeBlobs { .. }
+                | SyncId::BackFillBlobs { .. } => {
                     unreachable!("Batch syncing do not request BBRoot requests")
                 }
             },
@@ -310,15 +310,15 @@ impl<T: BeaconChainTypes> Processor<T> {
         &mut self,
         peer_id: PeerId,
         request_id: RequestId,
-        block_and_blobs: Option<Arc<SignedBeaconBlockAndBlobsSidecar<T::EthSpec>>>,
+        block_and_blobs: Option<SignedBeaconBlockAndBlobsSidecar<T::EthSpec>>,
     ) {
         let request_id = match request_id {
             RequestId::Sync(sync_id) => match sync_id {
                 id @ (SyncId::SingleBlock { .. } | SyncId::ParentLookup { .. }) => id,
-                SyncId::BackFillSync { .. }
-                | SyncId::RangeSync { .. }
-                | SyncId::RangeSidecarPair { .. }
-                | SyncId::BackFillSidecarPair { .. } => {
+                SyncId::BackFillBlocks { .. }
+                | SyncId::RangeBlocks { .. }
+                | SyncId::RangeBlobs { .. }
+                | SyncId::BackFillBlobs { .. } => {
                     unreachable!("Batch syncing does not request BBRoot requests")
                 }
             },
@@ -330,7 +330,7 @@ impl<T: BeaconChainTypes> Processor<T> {
             "Received BlockAndBlobssByRoot Response";
             "peer" => %peer_id,
         );
-        self.send_to_sync(SyncMessage::RpcBlockAndGlob {
+        self.send_to_sync(SyncMessage::RpcBlockAndBlobs {
             peer_id,
             request_id,
             block_and_blobs,
