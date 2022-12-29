@@ -12,11 +12,9 @@ TERMINAL_BLOCK_HASH_ACTIVATION_EPOCH: 18446744073709551615
 # ---------------------------------------------------------------
 # The genesis fork version looks weird for legacy reasons
 MIN_GENESIS_ACTIVE_VALIDATOR_COUNT: 2
-# Dec 1, 2020, 12pm UTC
-MIN_GENESIS_TIME: 1606824000
+MIN_GENESIS_TIME: 1671528489
 GENESIS_FORK_VERSION: 0x00000ffd
-# 604800 seconds (7 days)
-GENESIS_DELAY: 604800
+GENESIS_DELAY: 0
 
 # Forking
 # ---------------------------------------------------------------
