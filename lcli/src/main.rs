@@ -371,7 +371,8 @@ fn main() {
         .subcommand(
             SubCommand::with_name("create-payload-header")
                 .about("Generates an SSZ file containing bytes for an `ExecutionPayloadHeader`. \
-                Useful as input for `lcli new-testnet --execution-payload-header FILE`. ")
+                Useful as input for `lcli new-testnet --execution-payload-header FILE`. If `--fork` \
+                is not provided, a payload header for the `Bellatrix` fork will be created.")
                 .arg(
                     Arg::with_name("execution-block-hash")
                         .long("execution-block-hash")
@@ -417,7 +418,15 @@ fn main() {
                         .takes_value(true)
                         .required(true)
                         .help("Output file"),
-                )
+                ).arg(
+                Arg::with_name("fork")
+                    .long("fork")
+                    .value_name("FORK")
+                    .takes_value(true)
+                    .default_value("bellatrix")
+                    .help("The fork for which the execution payload header should be created.")
+                    .possible_values(&["merge", "bellatrix", "capella", "eip4844"])
+            )
         )
         .subcommand(
             SubCommand::with_name("new-testnet")

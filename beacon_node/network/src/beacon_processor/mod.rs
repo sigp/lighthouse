@@ -115,7 +115,8 @@ const MAX_AGGREGATED_ATTESTATION_REPROCESS_QUEUE_LEN: usize = 1_024;
 /// before we start dropping them.
 const MAX_GOSSIP_BLOCK_QUEUE_LEN: usize = 1_024;
 
-//FIXME(sean) verify
+/// The maximum number of queued `SignedBeaconBlockAndBlobsSidecar` objects received on gossip that
+/// will be stored before we start dropping them.
 const MAX_GOSSIP_BLOCK_AND_BLOB_QUEUE_LEN: usize = 1_024;
 
 /// The maximum number of queued `SignedBeaconBlock` objects received prior to their slot (but
@@ -1186,7 +1187,6 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                         // required to verify some attestations.
                         } else if let Some(item) = gossip_block_queue.pop() {
                             self.spawn_worker(item, toolbox);
-                        //FIXME(sean)
                         } else if let Some(item) = gossip_block_and_blobs_sidecar_queue.pop() {
                             self.spawn_worker(item, toolbox);
                         // Check the aggregates, *then* the unaggregates since we assume that
@@ -1675,23 +1675,9 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
             /*
              * Verification for blobs sidecars received on gossip.
              */
-            Work::GossipBlockAndBlobsSidecar {
-                message_id,
-                peer_id,
-                peer_client,
-                block_and_blobs,
-                seen_timestamp,
-            } => task_spawner.spawn_async(async move {
-                worker
-                    .process_gossip_block_and_blobs_sidecar(
-                        message_id,
-                        peer_id,
-                        peer_client,
-                        block_and_blobs,
-                        seen_timestamp,
-                    )
-                    .await
-            }),
+            Work::GossipBlockAndBlobsSidecar { .. } => {
+                warn!(self.log, "Unexpected block and blobs on gossip")
+            }
             /*
              * Import for blocks that we received earlier than their intended slot.
              */
@@ -1892,19 +1878,9 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                     request,
                 )
             }),
-            Work::BlobsByRangeRequest {
-                peer_id,
-                request_id,
-                request,
-            } => task_spawner.spawn_blocking_with_manual_send_idle(move |send_idle_on_drop| {
-                worker.handle_blobs_by_range_request(
-                    sub_executor,
-                    send_idle_on_drop,
-                    peer_id,
-                    request_id,
-                    request,
-                )
-            }),
+            Work::BlobsByRangeRequest { .. } => {
+                warn!(self.log.clone(), "Unexpected BlobsByRange Request")
+            }
             /*
              * Processing of lightclient bootstrap requests from other peers.
              */

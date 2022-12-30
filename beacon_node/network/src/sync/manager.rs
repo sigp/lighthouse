@@ -47,7 +47,7 @@ use lighthouse_network::rpc::methods::MAX_REQUEST_BLOCKS;
 use lighthouse_network::types::{NetworkGlobals, SyncState};
 use lighthouse_network::SyncInfo;
 use lighthouse_network::{PeerAction, PeerId};
-use slog::{crit, debug, error, info, trace, Logger};
+use slog::{crit, debug, error, info, trace, warn, Logger};
 use std::boxed::Box;
 use std::ops::Sub;
 use std::sync::Arc;
@@ -592,8 +592,9 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     .block_lookups
                     .parent_chain_processed(chain_hash, result, &mut self.network),
             },
-            //FIXME(sean)
-            SyncMessage::RpcBlob { .. } => todo!(),
+            SyncMessage::RpcBlob { .. } => {
+                warn!(self.log, "Unexpected blob message received");
+            }
         }
     }
 

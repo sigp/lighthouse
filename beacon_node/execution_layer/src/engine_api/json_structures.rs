@@ -350,12 +350,14 @@ impl From<Withdrawal> for JsonWithdrawal {
 
 impl From<JsonWithdrawal> for Withdrawal {
     fn from(jw: JsonWithdrawal) -> Self {
+        // This comparison is to avoid a scenarion where the EE gives us too large a number this
+        // panics when it attempts to case to a `u64`.
+        let amount = std::cmp::max(jw.amount / 1000000000, Uint256::from(u64::MAX));
         Self {
             index: jw.index,
             validator_index: jw.validator_index,
             address: jw.address,
-            //FIXME(sean) if EE gives us too large a number this panics
-            amount: (jw.amount / 1000000000).as_u64(),
+            amount: amount.as_u64(),
         }
     }
 }

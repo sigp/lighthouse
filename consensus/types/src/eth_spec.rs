@@ -247,11 +247,6 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq +
     fn max_blobs_per_block() -> usize {
         Self::MaxBlobsPerBlock::to_usize()
     }
-
-    /// FIXME: why is this called chunks_per_blob??
-    fn chunks_per_blob() -> usize {
-        Self::FieldElementsPerBlob::to_usize()
-    }
 }
 
 /// Macro to inherit some type values from another EthSpec.
