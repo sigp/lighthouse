@@ -82,17 +82,40 @@ pub async fn handle_rpc<T: EthSpec>(
                 ENGINE_NEW_PAYLOAD_V2 => {
                     JsonExecutionPayload::V2(get_param::<JsonExecutionPayloadV2<T>>(params, 0)?)
                 }
+                // TODO(4844) add that here..
                 _ => unreachable!(),
             };
-            let fork = match request {
-                JsonExecutionPayload::V1(_) => ForkName::Merge,
-                JsonExecutionPayload::V2(ref payload) => {
-                    if payload.withdrawals.is_none() {
-                        ForkName::Merge
-                    } else {
-                        ForkName::Capella
+
+            let fork = ctx
+                .execution_block_generator
+                .read()
+                .get_fork_at_timestamp(*request.timestamp());
+            // validate method called correctly according to shanghai fork time
+            match fork {
+                ForkName::Merge => {
+                    if request.withdrawals().is_ok() && request.withdrawals().unwrap().is_some() {
+                        return Err(format!(
+                            "{} called with `withdrawals` before capella fork!",
+                            method
+                        ));
                     }
                 }
+                ForkName::Capella => {
+                    if method == ENGINE_NEW_PAYLOAD_V1 {
+                        return Err(format!("{} called after capella fork!", method));
+                    }
+                    if request.withdrawals().is_err()
+                        || (request.withdrawals().is_ok()
+                            && request.withdrawals().unwrap().is_none())
+                    {
+                        return Err(format!(
+                            "{} called without `withdrawals` after capella fork!",
+                            method
+                        ));
+                    }
+                }
+                // TODO(4844) add 4844 error checking here
+                _ => unreachable!(),
             };
 
             // Canned responses set by block hash take priority.
@@ -125,7 +148,7 @@ pub async fn handle_rpc<T: EthSpec>(
 
             Ok(serde_json::to_value(JsonPayloadStatusV1::from(response)).unwrap())
         }
-        ENGINE_GET_PAYLOAD_V1 => {
+        ENGINE_GET_PAYLOAD_V1 | ENGINE_GET_PAYLOAD_V2 => {
             let request: JsonPayloadIdRequest = get_param(params, 0)?;
             let id = request.into();
 
@@ -135,12 +158,76 @@ pub async fn handle_rpc<T: EthSpec>(
                 .get_payload(&id)
                 .ok_or_else(|| format!("no payload for id {:?}", id))?;
 
-            Ok(serde_json::to_value(JsonExecutionPayloadV1::try_from(response).unwrap()).unwrap())
+            // validate method called correctly according to shanghai fork time
+            if ctx
+                .execution_block_generator
+                .read()
+                .get_fork_at_timestamp(response.timestamp())
+                == ForkName::Capella
+                && method == ENGINE_GET_PAYLOAD_V1
+            {
+                return Err(format!("{} called after capella fork!", method));
+            }
+            // TODO(4844) add 4844 error checking here
+
+            match method {
+                ENGINE_GET_PAYLOAD_V1 => Ok(serde_json::to_value(
+                    JsonExecutionPayloadV1::try_from(response).unwrap(),
+                )
+                .unwrap()),
+                ENGINE_GET_PAYLOAD_V2 => Ok(serde_json::to_value(JsonGetPayloadResponse {
+                    execution_payload: JsonExecutionPayloadV2::try_from(response).unwrap(),
+                })
+                .unwrap()),
+                _ => unreachable!(),
+            }
         }
-        // FIXME(capella): handle fcu version 2
-        ENGINE_FORKCHOICE_UPDATED_V1 => {
+        ENGINE_FORKCHOICE_UPDATED_V1 | ENGINE_FORKCHOICE_UPDATED_V2 => {
             let forkchoice_state: JsonForkchoiceStateV1 = get_param(params, 0)?;
-            let payload_attributes: Option<JsonPayloadAttributes> = get_param(params, 1)?;
+            let payload_attributes = match method {
+                ENGINE_FORKCHOICE_UPDATED_V1 => {
+                    let jpa1: Option<JsonPayloadAttributesV1> = get_param(params, 1)?;
+                    jpa1.map(JsonPayloadAttributes::V1)
+                }
+                ENGINE_FORKCHOICE_UPDATED_V2 => {
+                    let jpa2: Option<JsonPayloadAttributesV2> = get_param(params, 1)?;
+                    jpa2.map(JsonPayloadAttributes::V2)
+                }
+                _ => unreachable!(),
+            };
+
+            // validate method called correctly according to shanghai fork time
+            if let Some(pa) = payload_attributes.as_ref() {
+                match ctx
+                    .execution_block_generator
+                    .read()
+                    .get_fork_at_timestamp(*pa.timestamp())
+                {
+                    ForkName::Merge => {
+                        if pa.withdrawals().is_ok() && pa.withdrawals().unwrap().is_some() {
+                            return Err(format!(
+                                "{} called with `withdrawals` before capella fork!",
+                                method
+                            ));
+                        }
+                    }
+                    ForkName::Capella => {
+                        if method == ENGINE_FORKCHOICE_UPDATED_V1 {
+                            return Err(format!("{} called after capella fork!", method));
+                        }
+                        if pa.withdrawals().is_err()
+                            || (pa.withdrawals().is_ok() && pa.withdrawals().unwrap().is_none())
+                        {
+                            return Err(format!(
+                                "{} called without `withdrawals` after capella fork!",
+                                method
+                            ));
+                        }
+                    }
+                    // TODO(4844) add 4844 error checking here
+                    _ => unreachable!(),
+                };
+            }
 
             if let Some(hook_response) = ctx
                 .hook
@@ -161,13 +248,10 @@ pub async fn handle_rpc<T: EthSpec>(
                 return Ok(serde_json::to_value(response).unwrap());
             }
 
-            let mut response = ctx
-                .execution_block_generator
-                .write()
-                .forkchoice_updated_v1(
-                    forkchoice_state.into(),
-                    payload_attributes.map(|json| json.into()),
-                )?;
+            let mut response = ctx.execution_block_generator.write().forkchoice_updated(
+                forkchoice_state.into(),
+                payload_attributes.map(|json| json.into()),
+            )?;
 
             if let Some(mut status) = ctx.static_forkchoice_updated_response.lock().clone() {
                 if status.status == PayloadStatusV1Status::Valid {

@@ -26,17 +26,22 @@ impl<T: EthSpec> MockExecutionLayer<T> {
             DEFAULT_TERMINAL_BLOCK,
             ExecutionBlockHash::zero(),
             Epoch::new(0),
+            None,
+            None,
             Some(JwtKey::from_slice(&DEFAULT_JWT_SECRET).unwrap()),
             None,
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         executor: TaskExecutor,
         terminal_total_difficulty: Uint256,
         terminal_block: u64,
         terminal_block_hash: ExecutionBlockHash,
         terminal_block_hash_activation_epoch: Epoch,
+        shanghai_time: Option<u64>,
+        eip4844_time: Option<u64>,
         jwt_key: Option<JwtKey>,
         builder_url: Option<SensitiveUrl>,
     ) -> Self {
@@ -54,6 +59,8 @@ impl<T: EthSpec> MockExecutionLayer<T> {
             terminal_total_difficulty,
             terminal_block,
             terminal_block_hash,
+            shanghai_time,
+            eip4844_time,
         );
 
         let url = SensitiveUrl::parse(&server.url()).unwrap();

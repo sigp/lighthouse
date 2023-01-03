@@ -28,7 +28,7 @@ PROFILE ?= release
 
 # List of all hard forks. This list is used to set env variables for several tests so that
 # they run for different forks.
-FORKS=phase0 altair merge
+FORKS=phase0 altair merge capella
 
 # Builds the Lighthouse binary in release (optimized).
 #

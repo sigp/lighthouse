@@ -11,11 +11,11 @@ use crate::{
     StateSkipConfig,
 };
 use bls::get_withdrawal_credentials;
-use execution_layer::test_utils::DEFAULT_JWT_SECRET;
 use execution_layer::{
     auth::JwtKey,
     test_utils::{
-        ExecutionBlockGenerator, MockExecutionLayer, TestingBuilder, DEFAULT_TERMINAL_BLOCK,
+        ExecutionBlockGenerator, MockExecutionLayer, TestingBuilder, DEFAULT_JWT_SECRET,
+        DEFAULT_TERMINAL_BLOCK,
     },
     ExecutionLayer,
 };
@@ -385,12 +385,20 @@ where
 
     pub fn mock_execution_layer(mut self) -> Self {
         let spec = self.spec.clone().expect("cannot build without spec");
+        let shanghai_time = spec.capella_fork_epoch.map(|epoch| {
+            HARNESS_GENESIS_TIME + spec.seconds_per_slot * E::slots_per_epoch() * epoch.as_u64()
+        });
+        let eip4844_time = spec.eip4844_fork_epoch.map(|epoch| {
+            HARNESS_GENESIS_TIME + spec.seconds_per_slot * E::slots_per_epoch() * epoch.as_u64()
+        });
         let mock = MockExecutionLayer::new(
             self.runtime.task_executor.clone(),
             spec.terminal_total_difficulty,
             DEFAULT_TERMINAL_BLOCK,
             spec.terminal_block_hash,
             spec.terminal_block_hash_activation_epoch,
+            shanghai_time,
+            eip4844_time,
             Some(JwtKey::from_slice(&DEFAULT_JWT_SECRET).unwrap()),
             None,
         );
@@ -405,12 +413,20 @@ where
         let builder_url = SensitiveUrl::parse(format!("http://127.0.0.1:{port}").as_str()).unwrap();
 
         let spec = self.spec.clone().expect("cannot build without spec");
+        let shanghai_time = spec.capella_fork_epoch.map(|epoch| {
+            HARNESS_GENESIS_TIME + spec.seconds_per_slot * E::slots_per_epoch() * epoch.as_u64()
+        });
+        let eip4844_time = spec.eip4844_fork_epoch.map(|epoch| {
+            HARNESS_GENESIS_TIME + spec.seconds_per_slot * E::slots_per_epoch() * epoch.as_u64()
+        });
         let mock_el = MockExecutionLayer::new(
             self.runtime.task_executor.clone(),
             spec.terminal_total_difficulty,
             DEFAULT_TERMINAL_BLOCK,
             spec.terminal_block_hash,
             spec.terminal_block_hash_activation_epoch,
+            shanghai_time,
+            eip4844_time,
             Some(JwtKey::from_slice(&DEFAULT_JWT_SECRET).unwrap()),
             Some(builder_url.clone()),
         )
