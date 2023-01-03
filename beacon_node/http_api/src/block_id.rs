@@ -217,32 +217,7 @@ impl BlockId {
         &self,
         chain: &BeaconChain<T>,
     ) -> Result<(Arc<BlobsSidecar<T::EthSpec>>), warp::Rejection> {
-        let root = match &self.0 {
-            CoreBlockId::Head => {
-                let (cached_head, _execution_status) = chain
-                    .canonical_head
-                    .head_and_execution_status()
-                    .map_err(warp_utils::reject::beacon_chain_error)?;
-                cached_head.head_block_root()
-            }
-            CoreBlockId::Slot(slot) => {
-                let maybe_block_root = chain
-                    .block_root_at_slot(*slot, WhenSlotSkipped::None)
-                    .ok()
-                    .flatten();
-                match maybe_block_root {
-                    Some(block_root) => block_root,
-                    None => {
-                        return Err(warp_utils::reject::custom_not_found(format!(
-                            "Block root for slot {} not found",
-                            slot
-                        )))
-                    }
-                }
-            }
-            _ => self.root(chain)?.0,
-        };
-
+        let root = self.root(chain)?.0;
         match chain.store.get_blobs(&root) {
             Ok(Some(blob)) => Ok((Arc::new(blob))),
             Ok(None) => Err(warp_utils::reject::custom_not_found(format!(
