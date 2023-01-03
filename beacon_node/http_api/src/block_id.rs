@@ -249,11 +249,7 @@ impl BlockId {
                 "Blob with block root {} is not in the store",
                 root
             ))),
-            // should we use `warp_utils::reject::beacon_chain_error` instead?
-            Err(e) => Err(warp_utils::reject::custom_not_found(format!(
-                "Error fetching blob with block root {}: {:?}",
-                root, e
-            ))),
+            Err(e) => Err(warp_utils::reject::beacon_chain_error(e.into())),
         }
     }
 }
