@@ -88,12 +88,12 @@ use store::{Error as DBError, HotStateSummary, KeyValueStore, StoreOp};
 use task_executor::JoinHandle;
 use tree_hash::TreeHash;
 use types::signed_block_and_blobs::BlockWrapper;
+use types::ExecPayload;
 use types::{
     BeaconBlockRef, BeaconState, BeaconStateError, BlindedPayload, ChainSpec, CloneConfig, Epoch,
     EthSpec, ExecutionBlockHash, Hash256, InconsistentFork, PublicKey, PublicKeyBytes,
     RelativeEpoch, SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
 };
-use types::{BlobsSidecar, ExecPayload};
 
 pub const POS_PANDA_BANNER: &str = r#"
     ,,,         ,,,                                               ,,,         ,,,

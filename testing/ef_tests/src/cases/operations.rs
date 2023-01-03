@@ -4,8 +4,9 @@ use crate::case_result::compare_beacon_state_results_without_caches;
 use crate::decode::{ssz_decode_file, ssz_decode_file_with, ssz_decode_state, yaml_decode_file};
 use crate::testing_spec;
 use serde_derive::Deserialize;
+#[cfg(feature = "withdrawals-processing")]
 use state_processing::per_block_processing::process_operations::process_bls_to_execution_changes;
-#[cfg(feature = "withdrawals")]
+#[cfg(feature = "withdrawals-processing")]
 use state_processing::per_block_processing::process_withdrawals;
 use state_processing::{
     per_block_processing::{
@@ -21,7 +22,7 @@ use state_processing::{
 };
 use std::fmt::Debug;
 use std::path::Path;
-#[cfg(feature = "withdrawals")]
+#[cfg(feature = "withdrawals-processing")]
 use types::SignedBlsToExecutionChange;
 use types::{
     Attestation, AttesterSlashing, BeaconBlock, BeaconState, BlindedPayload, ChainSpec, Deposit,
@@ -41,7 +42,7 @@ struct ExecutionMetadata {
 }
 
 /// Newtype for testing withdrawals.
-#[cfg(feature = "withdrawals")]
+#[cfg(feature = "withdrawals-processing")]
 #[derive(Debug, Clone, Deserialize)]
 pub struct WithdrawalsPayload<T: EthSpec> {
     payload: FullPayload<T>,
@@ -340,6 +341,7 @@ impl<E: EthSpec> Operation<E> for BlindedPayload<E> {
     }
 }
 
+#[cfg(feature = "withdrawals-processing")]
 impl<E: EthSpec> Operation<E> for WithdrawalsPayload<E> {
     fn handler_name() -> String {
         "withdrawals".into()
@@ -351,10 +353,6 @@ impl<E: EthSpec> Operation<E> for WithdrawalsPayload<E> {
 
     fn is_enabled_for_fork(fork_name: ForkName) -> bool {
         if fork_name == ForkName::Capella && !cfg!(feature = "withdrawals-processing") {
-            return false;
-        }
-
-        if !cfg!(feature = "withdrawals") {
             return false;
         }
 
@@ -370,7 +368,7 @@ impl<E: EthSpec> Operation<E> for WithdrawalsPayload<E> {
         })
     }
 
-    #[cfg(feature = "withdrawals")]
+    #[cfg(feature = "withdrawals-processing")]
     fn apply_to(
         &self,
         state: &mut BeaconState<E>,
@@ -384,19 +382,9 @@ impl<E: EthSpec> Operation<E> for WithdrawalsPayload<E> {
             process_withdrawals::<_, FullPayload<_>>(state, self.payload.to_ref(), spec)
         }
     }
-
-    #[cfg(not(feature = "withdrawals"))]
-    fn apply_to(
-        &self,
-        state: &mut BeaconState<E>,
-        spec: &ChainSpec,
-        _: &Operations<E, Self>,
-    ) -> Result<(), BlockProcessingError> {
-        Ok(())
-    }
 }
 
-#[cfg(feature = "withdrawals")]
+#[cfg(feature = "withdrawals-processing")]
 impl<E: EthSpec> Operation<E> for SignedBlsToExecutionChange {
     fn handler_name() -> String {
         "bls_to_execution_change".into()

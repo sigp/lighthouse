@@ -9,7 +9,6 @@ edition = "2021"
 ef_tests = []
 milagro = ["bls/milagro"]
 fake_crypto = ["bls/fake_crypto"]
-withdrawals = ["state_processing/withdrawals", "store/withdrawals", "beacon_chain/withdrawals", "types/withdrawals", "execution_layer/withdrawals"]
 withdrawals-processing = ["state_processing/withdrawals-processing", "store/withdrawals-processing", "beacon_chain/withdrawals-processing", "execution_layer/withdrawals-processing"]
 
 [dependencies]
