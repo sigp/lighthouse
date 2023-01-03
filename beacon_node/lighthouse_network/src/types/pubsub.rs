@@ -3,20 +3,16 @@
 use crate::types::{GossipEncoding, GossipKind, GossipTopic};
 use crate::TopicHash;
 use libp2p::gossipsub::{DataTransform, GossipsubMessage, RawGossipsubMessage};
-use serde_derive::{Deserialize, Serialize};
 use snap::raw::{decompress_len, Decoder, Encoder};
 use ssz::{Decode, Encode};
-use ssz_derive::{Decode, Encode};
 use std::boxed::Box;
 use std::io::{Error, ErrorKind};
 use std::sync::Arc;
-use tree_hash_derive::TreeHash;
 use types::{
-    Attestation, AttesterSlashing, BlobsSidecar, EthSpec, ForkContext, ForkName,
-    LightClientFinalityUpdate, LightClientOptimisticUpdate, ProposerSlashing,
-    SignedAggregateAndProof, SignedBeaconBlock, SignedBeaconBlockAltair,
-    SignedBeaconBlockAndBlobsSidecar, SignedBeaconBlockBase, SignedBeaconBlockCapella,
-    SignedBeaconBlockEip4844, SignedBeaconBlockMerge, SignedBlsToExecutionChange,
+    Attestation, AttesterSlashing, EthSpec, ForkContext, ForkName, LightClientFinalityUpdate,
+    LightClientOptimisticUpdate, ProposerSlashing, SignedAggregateAndProof, SignedBeaconBlock,
+    SignedBeaconBlockAltair, SignedBeaconBlockAndBlobsSidecar, SignedBeaconBlockBase,
+    SignedBeaconBlockCapella, SignedBeaconBlockMerge, SignedBlsToExecutionChange,
     SignedContributionAndProof, SignedVoluntaryExit, SubnetId, SyncCommitteeMessage, SyncSubnetId,
 };
 

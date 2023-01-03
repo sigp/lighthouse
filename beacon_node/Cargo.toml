@@ -13,7 +13,6 @@ node_test_rig = { path = "../testing/node_test_rig" }
 
 [features]
 write_ssz_files = ["beacon_chain/write_ssz_files"]  # Writes debugging .ssz files to /tmp during block processing.
-withdrawals = ["beacon_chain/withdrawals", "types/withdrawals", "store/withdrawals", "execution_layer/withdrawals"]
 withdrawals-processing = [
     "beacon_chain/withdrawals-processing",
     "store/withdrawals-processing",

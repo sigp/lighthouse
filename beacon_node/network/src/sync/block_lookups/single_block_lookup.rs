@@ -4,8 +4,7 @@ use lighthouse_network::{rpc::BlocksByRootRequest, PeerId};
 use rand::seq::IteratorRandom;
 use ssz_types::VariableList;
 use std::collections::HashSet;
-use std::sync::Arc;
-use store::{EthSpec, Hash256, SignedBeaconBlock};
+use store::{EthSpec, Hash256};
 use strum::IntoStaticStr;
 use types::signed_block_and_blobs::BlockWrapper;
 

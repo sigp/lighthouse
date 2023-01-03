@@ -9,6 +9,6 @@ RUN apt-get install -y unzip && \
     unzip protoc.zip -d /usr && \
     chmod +x /usr/bin/protoc
 
-RUN apt-get install -y cmake clang-3.9
+RUN apt-get install -y cmake clang-3.9 && ln -s ../lib/llvm-3.9/bin/clang /usr/bin/clang
 
 ENV PROTOC=/usr/bin/protoc

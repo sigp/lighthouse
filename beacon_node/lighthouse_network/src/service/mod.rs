@@ -75,6 +75,8 @@ pub enum NetworkEvent<AppReqId: ReqId, TSpec: EthSpec> {
         id: AppReqId,
         /// The peer to which this request was sent.
         peer_id: PeerId,
+        /// The error of the failed request.
+        error: RPCError,
     },
     RequestReceived {
         /// The peer that sent the request.
@@ -1177,9 +1179,9 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                             &error,
                             ConnectionDirection::Outgoing,
                         );
-                        // inform failures of requests comming outside the behaviour
+                        // inform failures of requests coming outside the behaviour
                         if let RequestId::Application(id) = id {
-                            Some(NetworkEvent::RPCFailed { peer_id, id })
+                            Some(NetworkEvent::RPCFailed { peer_id, id, error })
                         } else {
                             None
                         }
@@ -1313,7 +1315,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                     RPCResponse::BlocksByRoot(resp) => {
                         self.build_response(id, peer_id, Response::BlocksByRoot(Some(resp)))
                     }
-                    RPCResponse::BlobsByRoot(resp) => {
+                    RPCResponse::BlockAndBlobsByRoot(resp) => {
                         self.build_response(id, peer_id, Response::BlobsByRoot(Some(resp)))
                     }
                     // Should never be reached

@@ -42,6 +42,7 @@ pub enum Error {
     // Boxed to avoid an infinite-size recursion issue.
     BeaconChain(Box<BeaconChainError>),
     MissingBeaconState(Hash256),
+    MissingBlobs,
     FailedToTransitionState(StateAdvanceError),
     CannotAttestToFutureState {
         state_slot: Slot,

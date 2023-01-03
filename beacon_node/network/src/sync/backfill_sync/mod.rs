@@ -33,7 +33,7 @@ use types::{Epoch, EthSpec};
 /// we will negatively report peers with poor bandwidth. This can be set arbitrarily high, in which
 /// case the responder will fill the response up to the max request size, assuming they have the
 /// bandwidth to do so.
-pub const BACKFILL_EPOCHS_PER_BATCH: u64 = 2;
+pub const BACKFILL_EPOCHS_PER_BATCH: u64 = 1;
 
 /// The maximum number of batches to queue before requesting more.
 const BACKFILL_BATCH_BUFFER_SIZE: u8 = 20;
@@ -536,7 +536,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
         let process_id = ChainSegmentProcessId::BackSyncBatchId(batch_id);
         self.current_processing_batch = Some(batch_id);
 
-        let work_event = BeaconWorkEvent::chain_segment(process_id, blocks.into_wrapped_blocks());
+        let work_event = BeaconWorkEvent::chain_segment(process_id, blocks);
         if let Err(e) = network.processor_channel().try_send(work_event) {
             crit!(self.log, "Failed to send backfill segment to processor."; "msg" => "process_batch",
                 "error" => %e, "batch" => self.processing_target);

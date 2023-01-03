@@ -36,6 +36,10 @@ impl From<SignedBeaconBlockHash> for Hash256 {
     }
 }
 
+pub enum BlobReconstructionError {
+    BlobsMissing,
+}
+
 /// A `BeaconBlock` and a signature from its proposer.
 #[superstruct(
     variants(Base, Altair, Merge, Capella, Eip4844),
@@ -235,6 +239,29 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> SignedBeaconBlock<E, Payload> 
     pub fn canonical_root(&self) -> Hash256 {
         self.message().tree_hash_root()
     }
+
+    /// Reconstructs an empty `BlobsSidecar`, using the given block root if provided, else calculates it.
+    /// If this block has kzg commitments, an error will be returned. If this block is from prior to the
+    /// Eip4844 fork, `None` will be returned.
+    pub fn reconstruct_empty_blobs(
+        &self,
+        block_root_opt: Option<Hash256>,
+    ) -> Result<Option<BlobsSidecar<E>>, BlobReconstructionError> {
+        self.message()
+            .body()
+            .blob_kzg_commitments()
+            .map(|kzg_commitments| {
+                if kzg_commitments.len() > 0 {
+                    Err(BlobReconstructionError::BlobsMissing)
+                } else {
+                    Ok(Some(BlobsSidecar::empty_from_parts(
+                        block_root_opt.unwrap_or(self.canonical_root()),
+                        self.slot(),
+                    )))
+                }
+            })
+            .unwrap_or(Ok(None))
+    }
 }
 
 // We can convert pre-Bellatrix blocks without payloads into blocks with payloads.
@@ -341,7 +368,6 @@ impl<E: EthSpec> SignedBeaconBlockCapella<E, BlindedPayload<E>> {
                             voluntary_exits,
                             sync_aggregate,
                             execution_payload: BlindedPayloadCapella { .. },
-                            #[cfg(feature = "withdrawals")]
                             bls_to_execution_changes,
                         },
                 },
@@ -364,7 +390,6 @@ impl<E: EthSpec> SignedBeaconBlockCapella<E, BlindedPayload<E>> {
                     voluntary_exits,
                     sync_aggregate,
                     execution_payload: FullPayloadCapella { execution_payload },
-                    #[cfg(feature = "withdrawals")]
                     bls_to_execution_changes,
                 },
             },
@@ -397,7 +422,6 @@ impl<E: EthSpec> SignedBeaconBlockEip4844<E, BlindedPayload<E>> {
                             voluntary_exits,
                             sync_aggregate,
                             execution_payload: BlindedPayloadEip4844 { .. },
-                            #[cfg(feature = "withdrawals")]
                             bls_to_execution_changes,
                             blob_kzg_commitments,
                         },
@@ -421,7 +445,6 @@ impl<E: EthSpec> SignedBeaconBlockEip4844<E, BlindedPayload<E>> {
                     voluntary_exits,
                     sync_aggregate,
                     execution_payload: FullPayloadEip4844 { execution_payload },
-                    #[cfg(feature = "withdrawals")]
                     bls_to_execution_changes,
                     blob_kzg_commitments,
                 },

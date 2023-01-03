@@ -11,6 +11,7 @@ use crate::error;
 use crate::service::{NetworkMessage, RequestId};
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use futures::prelude::*;
+use lighthouse_network::rpc::RPCError;
 use lighthouse_network::{
     MessageId, NetworkGlobals, PeerId, PeerRequestId, PubsubMessage, Request, Response,
 };
@@ -58,6 +59,7 @@ pub enum RouterMessage<T: EthSpec> {
     RPCFailed {
         peer_id: PeerId,
         request_id: RequestId,
+        error: RPCError,
     },
     /// A gossip message has been received. The fields are: message id, the peer that sent us this
     /// message, the message itself and a bool which indicates if the message should be processed
@@ -140,8 +142,9 @@ impl<T: BeaconChainTypes> Router<T> {
             RouterMessage::RPCFailed {
                 peer_id,
                 request_id,
+                error,
             } => {
-                self.processor.on_rpc_error(peer_id, request_id);
+                self.processor.on_rpc_error(peer_id, request_id, error);
             }
             RouterMessage::PubsubMessage(id, peer_id, gossip, should_process) => {
                 self.handle_gossip(id, peer_id, gossip, should_process);

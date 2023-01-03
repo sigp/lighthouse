@@ -779,7 +779,7 @@ impl HttpJsonRpc {
     ) -> Result<ExecutionPayload<T>, Error> {
         let params = json!([JsonPayloadIdRequest::from(payload_id)]);
 
-        let payload_v2: JsonExecutionPayloadV2<T> = self
+        let response: JsonGetPayloadResponse<T> = self
             .rpc_request(
                 ENGINE_GET_PAYLOAD_V2,
                 params,
@@ -787,7 +787,7 @@ impl HttpJsonRpc {
             )
             .await?;
 
-        JsonExecutionPayload::V2(payload_v2).try_into_execution_payload(fork_name)
+        JsonExecutionPayload::V2(response.execution_payload).try_into_execution_payload(fork_name)
     }
 
     pub async fn get_payload_v3<T: EthSpec>(
@@ -889,11 +889,11 @@ impl HttpJsonRpc {
     pub async fn supported_apis_v1(&self) -> Result<SupportedApis, Error> {
         Ok(SupportedApis {
             new_payload_v1: true,
-            new_payload_v2: cfg!(all(feature = "withdrawals", not(test))),
+            new_payload_v2: cfg!(feature = "withdrawals-processing"),
             forkchoice_updated_v1: true,
-            forkchoice_updated_v2: cfg!(all(feature = "withdrawals", not(test))),
+            forkchoice_updated_v2: cfg!(feature = "withdrawals-processing"),
             get_payload_v1: true,
-            get_payload_v2: cfg!(all(feature = "withdrawals", not(test))),
+            get_payload_v2: cfg!(feature = "withdrawals-processing"),
             exchange_transition_configuration_v1: true,
         })
     }

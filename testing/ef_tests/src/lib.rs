@@ -1,5 +1,5 @@
 pub use case_result::CaseResult;
-#[cfg(all(feature = "withdrawals", feature = "withdrawals-processing"))]
+#[cfg(feature = "withdrawals-processing")]
 pub use cases::WithdrawalsPayload;
 pub use cases::{
     Case, EffectiveBalanceUpdates, Eth1DataReset, HistoricalRootsUpdate, InactivityUpdates,

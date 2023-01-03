@@ -17,10 +17,7 @@ use slog::{debug, error, info, warn};
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use types::signed_block_and_blobs::BlockWrapper;
-use types::{
-    Epoch, Hash256, SignedBeaconBlock, SignedBeaconBlockAndBlobsSidecar,
-    SignedBeaconBlockAndBlobsSidecarDecode,
-};
+use types::{Epoch, Hash256, SignedBeaconBlock};
 
 /// Id associated to a batch processing request, either a sync batch or a parent lookup.
 #[derive(Clone, Debug, PartialEq)]
@@ -193,13 +190,8 @@ impl<T: BeaconChainTypes> Worker<T> {
 
                 let unwrapped = downloaded_blocks
                     .into_iter()
-                    .map(|block| match block {
-                        BlockWrapper::Block { block } => block,
-                        //FIXME(sean) handle blobs in backfill
-                        BlockWrapper::BlockAndBlob {
-                            block_sidecar_pair: _,
-                        } => todo!(),
-                    })
+                    //FIXME(sean) handle blobs in backfill
+                    .map(|block| block.block_cloned())
                     .collect();
 
                 match self.process_backfill_blocks(unwrapped) {

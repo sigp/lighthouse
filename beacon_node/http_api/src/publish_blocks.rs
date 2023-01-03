@@ -9,10 +9,10 @@ use slot_clock::SlotClock;
 use std::sync::Arc;
 use tokio::sync::mpsc::UnboundedSender;
 use tree_hash::TreeHash;
+use types::signed_block_and_blobs::BlockWrapper;
 use types::{
-    AbstractExecPayload, BlindedPayload, BlobsSidecar, EthSpec, ExecPayload, ExecutionBlockHash,
-    FullPayload, Hash256, SignedBeaconBlock, SignedBeaconBlockAndBlobsSidecar,
-    SignedBeaconBlockEip4844,
+    AbstractExecPayload, BlindedPayload, EthSpec, ExecPayload, ExecutionBlockHash, FullPayload,
+    Hash256, SignedBeaconBlock, SignedBeaconBlockAndBlobsSidecar,
 };
 use warp::Rejection;
 
@@ -32,31 +32,38 @@ pub async fn publish_block<T: BeaconChainTypes>(
 
     // Send the block, regardless of whether or not it is valid. The API
     // specification is very clear that this is the desired behaviour.
-    let message = if matches!(block.as_ref(), &SignedBeaconBlock::Eip4844(_)) {
-        if let Some(sidecar) = chain.blob_cache.pop(&block_root) {
-            PubsubMessage::BeaconBlockAndBlobsSidecars(SignedBeaconBlockAndBlobsSidecar {
-                beacon_block: block.clone(),
-                blobs_sidecar: Arc::new(sidecar),
-            })
+    let wrapped_block: BlockWrapper<T::EthSpec> =
+        if matches!(block.as_ref(), &SignedBeaconBlock::Eip4844(_)) {
+            if let Some(sidecar) = chain.blob_cache.pop(&block_root) {
+                let block_and_blobs = SignedBeaconBlockAndBlobsSidecar {
+                    beacon_block: block,
+                    blobs_sidecar: Arc::new(sidecar),
+                };
+                crate::publish_pubsub_message(
+                    network_tx,
+                    PubsubMessage::BeaconBlockAndBlobsSidecars(block_and_blobs.clone()),
+                )?;
+                block_and_blobs.into()
+            } else {
+                //FIXME(sean): This should probably return a specific no-blob-cached error code, beacon API coordination required
+                return Err(warp_utils::reject::broadcast_without_import(format!(
+                    "no blob cached for block"
+                )));
+            }
         } else {
-            //FIXME(sean): This should probably return a specific no-blob-cached error code, beacon API coordination required
-            return Err(warp_utils::reject::broadcast_without_import(format!(
-                "no blob cached for block"
-            )));
-        }
-    } else {
-        PubsubMessage::BeaconBlock(block.clone())
-    };
-    crate::publish_pubsub_message(network_tx, message)?;
+            crate::publish_pubsub_message(network_tx, PubsubMessage::BeaconBlock(block.clone()))?;
+            block.into()
+        };
 
     // Determine the delay after the start of the slot, register it with metrics.
+    let block = wrapped_block.block();
     let delay = get_block_delay_ms(seen_timestamp, block.message(), &chain.slot_clock);
     metrics::observe_duration(&metrics::HTTP_API_BLOCK_BROADCAST_DELAY_TIMES, delay);
 
     match chain
         .process_block(
             block_root,
-            block.clone(),
+            wrapped_block.clone(),
             CountUnrealized::True,
             NotifyExecutionLayer::Yes,
         )

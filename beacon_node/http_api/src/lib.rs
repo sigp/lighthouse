@@ -1125,9 +1125,6 @@ pub fn serve<T: BeaconChainTypes>(
                     .map(|()| warp::reply())
             },
         );
-    /*
-     * beacon/blinded_blocks
-     */
 
     // POST beacon/blinded_blocks
     let post_beacon_blinded_blocks = eth_v1

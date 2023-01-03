@@ -186,7 +186,7 @@ async fn state_advance_timer<T: BeaconChainTypes>(
                             head_slot,
                         }) => debug!(
                             log,
-                            "Refused to advance head state";
+                            "Refused to advance head state. Chain may be syncing or lagging too far behind";
                             "head_slot" => head_slot,
                             "current_slot" => current_slot,
                         ),

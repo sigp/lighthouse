@@ -1,5 +1,4 @@
 use super::batch::{BatchInfo, BatchProcessingResult, BatchState};
-use super::BatchTy;
 use crate::beacon_processor::{ChainSegmentProcessId, WorkEvent as BeaconWorkEvent};
 use crate::sync::{
     manager::Id, network_context::SyncNetworkContext, BatchOperationOutcome, BatchProcessResult,
@@ -137,10 +136,16 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
 
         let id = SyncingChain::<T>::id(&target_head_root, &target_head_slot);
 
+        let target_slot = if is_finalized_segment {
+            target_head_slot + (2 * T::EthSpec::slots_per_epoch()) + 1
+        } else {
+            target_head_slot
+        };
+
         SyncingChain {
             id,
             start_epoch,
-            target_head_slot,
+            target_head_slot: target_slot,
             target_head_root,
             batches: BTreeMap::new(),
             peers,
@@ -327,7 +332,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         let process_id = ChainSegmentProcessId::RangeBatchId(self.id, batch_id, count_unrealized);
         self.current_processing_batch = Some(batch_id);
 
-        let work_event = BeaconWorkEvent::chain_segment(process_id, blocks.into_wrapped_blocks());
+        let work_event = BeaconWorkEvent::chain_segment(process_id, blocks);
 
         if let Err(e) = beacon_processor_send.try_send(work_event) {
             crit!(self.log, "Failed to send chain segment to processor."; "msg" => "process_batch",

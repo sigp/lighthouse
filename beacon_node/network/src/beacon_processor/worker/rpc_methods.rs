@@ -12,7 +12,6 @@ use lighthouse_network::rpc::*;
 use lighthouse_network::{PeerId, PeerRequestId, ReportSource, Response, SyncInfo};
 use slog::{debug, error};
 use slot_clock::SlotClock;
-use ssz_types::VariableList;
 use std::sync::Arc;
 use task_executor::TaskExecutor;
 use types::light_client_bootstrap::LightClientBootstrap;
@@ -231,10 +230,10 @@ impl<T: BeaconChainTypes> Worker<T> {
                         Ok((Some(block), Some(blobs))) => {
                             self.send_response(
                                 peer_id,
-                                Response::BlobsByRoot(Some(Arc::new(SignedBeaconBlockAndBlobsSidecar {
+                                Response::BlobsByRoot(Some(SignedBeaconBlockAndBlobsSidecar {
                                     beacon_block: block,
                                     blobs_sidecar: blobs,
-                                }))),
+                                })),
                                 request_id,
                             );
                             send_block_count += 1;
@@ -254,6 +253,14 @@ impl<T: BeaconChainTypes> Worker<T> {
                                 "peer" => %peer_id,
                                 "request_root" => ?root
                             );
+                            self.send_error_response(
+                                peer_id,
+                                RPCResponseErrorCode::ResourceUnavailable,
+                                "No blob for requested block".into(),
+                                request_id,
+                            );
+                            send_response = false;
+                            break;
                         }
                         Ok((None, Some(_))) => {
                             debug!(
@@ -425,7 +432,17 @@ impl<T: BeaconChainTypes> Worker<T> {
         };
 
         // Pick out the required blocks, ignoring skip-slots.
-        let mut last_block_root = None;
+        let mut last_block_root = req
+            .start_slot
+            .checked_sub(1)
+            .map(|prev_slot| {
+                self.chain
+                    .block_root_at_slot(Slot::new(prev_slot), WhenSlotSkipped::Prev)
+            })
+            .transpose()
+            .ok()
+            .flatten()
+            .flatten();
         let maybe_block_roots = process_results(forwards_block_root_iter, |iter| {
             iter.take_while(|(_, slot)| slot.as_u64() < req.start_slot.saturating_add(req.count))
                 // map skip slots to None
@@ -503,6 +520,15 @@ impl<T: BeaconChainTypes> Worker<T> {
                                 "block_root" => ?root,
                                 "error" => ?e
                             );
+
+                            // send the stream terminator
+                            self.send_error_response(
+                                peer_id,
+                                RPCResponseErrorCode::ServerError,
+                                "Failed fetching blocks".into(),
+                                request_id,
+                            );
+                            send_response = false;
                             break;
                         }
                     }
@@ -554,7 +580,7 @@ impl<T: BeaconChainTypes> Worker<T> {
     /// Handle a `BlobsByRange` request from the peer.
     pub fn handle_blobs_by_range_request(
         self,
-        executor: TaskExecutor,
+        _executor: TaskExecutor,
         send_on_drop: SendOnDrop,
         peer_id: PeerId,
         request_id: PeerRequestId,
@@ -594,7 +620,17 @@ impl<T: BeaconChainTypes> Worker<T> {
         };
 
         // Pick out the required blocks, ignoring skip-slots.
-        let mut last_block_root = None;
+        let mut last_block_root = req
+            .start_slot
+            .checked_sub(1)
+            .map(|prev_slot| {
+                self.chain
+                    .block_root_at_slot(Slot::new(prev_slot), WhenSlotSkipped::Prev)
+            })
+            .transpose()
+            .ok()
+            .flatten()
+            .flatten();
         let maybe_block_roots = process_results(forwards_block_root_iter, |iter| {
             iter.take_while(|(_, slot)| slot.as_u64() < req.start_slot.saturating_add(req.count))
                 // map skip slots to None
@@ -619,7 +655,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         let block_roots = block_roots.into_iter().flatten().collect::<Vec<_>>();
 
         let mut blobs_sent = 0;
-        let mut send_response = true;
+        let send_response = true;
 
         for root in block_roots {
             match self.chain.store.get_blobs(&root) {
@@ -661,7 +697,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                 self.log,
                 "BlobsByRange Response processed";
                 "peer" => %peer_id,
-                "msg" => "Failed to return all requested blocks",
+                "msg" => "Failed to return all requested blobs",
                 "start_slot" => req.start_slot,
                 "current_slot" => current_slot,
                 "requested" => req.count,

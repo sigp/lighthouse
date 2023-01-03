@@ -73,7 +73,7 @@ impl<TSpec: EthSpec> Encoder<RPCCodedResponse<TSpec>> for SSZSnappyInboundCodec<
                 RPCResponse::BlocksByRange(res) => res.as_ssz_bytes(),
                 RPCResponse::BlocksByRoot(res) => res.as_ssz_bytes(),
                 RPCResponse::BlobsByRange(res) => res.as_ssz_bytes(),
-                RPCResponse::BlobsByRoot(res) => res.as_ssz_bytes(),
+                RPCResponse::BlockAndBlobsByRoot(res) => res.as_ssz_bytes(),
                 RPCResponse::LightClientBootstrap(res) => res.as_ssz_bytes(),
                 RPCResponse::Pong(res) => res.data.as_ssz_bytes(),
                 RPCResponse::MetaData(res) =>
@@ -298,8 +298,8 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyOutboundCodec<TSpec> {
             .rpc_response_limits::<TSpec>(&self.fork_context);
         if ssz_limits.is_out_of_bounds(length, self.max_packet_size) {
             return Err(RPCError::InvalidData(format!(
-                "RPC response length is out of bounds, length {}",
-                length
+                "RPC response length is out of bounds, length {}, max {}, min {}",
+                length, ssz_limits.max, ssz_limits.min
             )));
         }
         // Calculate worst case compression length for given uncompressed length
@@ -439,6 +439,10 @@ fn context_bytes<T: EthSpec>(
                     SignedBeaconBlock::Base { .. } => Some(fork_context.genesis_context_bytes()),
                 };
             }
+            if let RPCResponse::BlobsByRange(_) | RPCResponse::BlockAndBlobsByRoot(_) = rpc_variant
+            {
+                return fork_context.to_context_bytes(ForkName::Eip4844);
+            }
         }
     }
     None
@@ -531,9 +535,6 @@ fn handle_v2_request<T: EthSpec>(
         Protocol::BlocksByRoot => Ok(Some(InboundRequest::BlocksByRoot(BlocksByRootRequest {
             block_roots: VariableList::from_ssz_bytes(decoded_buffer)?,
         }))),
-        Protocol::BlobsByRange => Ok(Some(InboundRequest::BlobsByRange(
-            BlobsByRangeRequest::from_ssz_bytes(decoded_buffer)?,
-        ))),
         // MetaData requests return early from InboundUpgrade and do not reach the decoder.
         // Handle this case just for completeness.
         Protocol::MetaData => {
@@ -585,7 +586,7 @@ fn handle_v1_response<T: EthSpec>(
                 )))),
                 _ => Err(RPCError::ErrorResponse(
                     RPCResponseErrorCode::InvalidRequest,
-                    "Invalid forkname for blobsbyrange".to_string(),
+                    "Invalid fork name for blobs by range".to_string(),
                 )),
             }
         }
@@ -597,12 +598,12 @@ fn handle_v1_response<T: EthSpec>(
                 )
             })?;
             match fork_name {
-                ForkName::Eip4844 => Ok(Some(RPCResponse::BlobsByRoot(Arc::new(
+                ForkName::Eip4844 => Ok(Some(RPCResponse::BlockAndBlobsByRoot(
                     SignedBeaconBlockAndBlobsSidecar::from_ssz_bytes(decoded_buffer)?,
-                )))),
+                ))),
                 _ => Err(RPCError::ErrorResponse(
                     RPCResponseErrorCode::InvalidRequest,
-                    "Invalid forkname for blobsbyroot".to_string(),
+                    "Invalid fork name for block and blobs by root".to_string(),
                 )),
             }
         }
@@ -716,9 +717,13 @@ fn context_bytes_to_fork_name(
         .from_context_bytes(context_bytes)
         .cloned()
         .ok_or_else(|| {
+            let encoded = hex::encode(context_bytes);
             RPCError::ErrorResponse(
                 RPCResponseErrorCode::InvalidRequest,
-                "Context bytes does not correspond to a valid fork".to_string(),
+                format!(
+                    "Context bytes {} do not correspond to a valid fork",
+                    encoded
+                ),
             )
         })
 }
@@ -826,8 +831,21 @@ mod tests {
         }
     }
 
+    fn blbrange_request() -> BlobsByRangeRequest {
+        BlobsByRangeRequest {
+            start_slot: 0,
+            count: 10,
+        }
+    }
+
     fn bbroot_request() -> BlocksByRootRequest {
         BlocksByRootRequest {
+            block_roots: VariableList::from(vec![Hash256::zero()]),
+        }
+    }
+
+    fn blbroot_request() -> BlobsByRootRequest {
+        BlobsByRootRequest {
             block_roots: VariableList::from(vec![Hash256::zero()]),
         }
     }
@@ -1454,6 +1472,8 @@ mod tests {
             OutboundRequest::Goodbye(GoodbyeReason::Fault),
             OutboundRequest::BlocksByRange(bbrange_request()),
             OutboundRequest::BlocksByRoot(bbroot_request()),
+            OutboundRequest::BlobsByRange(blbrange_request()),
+            OutboundRequest::BlobsByRoot(blbroot_request()),
             OutboundRequest::MetaData(PhantomData::<Spec>),
         ];
         for req in requests.iter() {

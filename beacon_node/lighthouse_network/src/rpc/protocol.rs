@@ -22,7 +22,7 @@ use tokio_util::{
 };
 use types::BlobsSidecar;
 use types::{
-    BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockMerge, Blob, EmptyBlock, EthSpec,
+    BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockMerge, EmptyBlock, EthSpec,
     ForkContext, ForkName, Hash256, MainnetEthSpec, Signature, SignedBeaconBlock,
 };
 
@@ -107,6 +107,12 @@ lazy_static! {
     .as_ssz_bytes()
     .len();
 
+    pub static ref BLOBS_SIDECAR_MIN: usize = BlobsSidecar::<MainnetEthSpec>::empty().as_ssz_bytes().len();
+    pub static ref BLOBS_SIDECAR_MAX: usize = BlobsSidecar::<MainnetEthSpec>::max_size();
+
+    //FIXME(sean) these are underestimates
+    pub static ref SIGNED_BLOCK_AND_BLOBS_MIN: usize = *BLOBS_SIDECAR_MIN + *SIGNED_BEACON_BLOCK_BASE_MIN;
+    pub static ref SIGNED_BLOCK_AND_BLOBS_MAX: usize =*BLOBS_SIDECAR_MAX + *SIGNED_BEACON_BLOCK_EIP4844_MAX;
 }
 
 /// The maximum bytes that can be sent across the RPC pre-merge.
@@ -261,6 +267,8 @@ impl<TSpec: EthSpec> UpgradeInfo for RPCProtocol<TSpec> {
             ProtocolId::new(Protocol::Ping, Version::V1, Encoding::SSZSnappy),
             ProtocolId::new(Protocol::MetaData, Version::V2, Encoding::SSZSnappy),
             ProtocolId::new(Protocol::MetaData, Version::V1, Encoding::SSZSnappy),
+            ProtocolId::new(Protocol::BlobsByRoot, Version::V1, Encoding::SSZSnappy),
+            ProtocolId::new(Protocol::BlobsByRange, Version::V1, Encoding::SSZSnappy),
         ];
         if self.enable_light_client_server {
             supported_protocols.push(ProtocolId::new(
@@ -356,11 +364,10 @@ impl ProtocolId {
             Protocol::Goodbye => RpcLimits::new(0, 0), // Goodbye request has no response
             Protocol::BlocksByRange => rpc_block_limits_by_fork(fork_context.current_fork()),
             Protocol::BlocksByRoot => rpc_block_limits_by_fork(fork_context.current_fork()),
-
-            //FIXME(sean) add blob sizes
-            Protocol::BlobsByRange => rpc_block_limits_by_fork(fork_context.current_fork()),
-            Protocol::BlobsByRoot => rpc_block_limits_by_fork(fork_context.current_fork()),
-
+            Protocol::BlobsByRange => RpcLimits::new(*BLOBS_SIDECAR_MIN, *BLOBS_SIDECAR_MAX),
+            Protocol::BlobsByRoot => {
+                RpcLimits::new(*SIGNED_BLOCK_AND_BLOBS_MIN, *SIGNED_BLOCK_AND_BLOBS_MAX)
+            }
             Protocol::Ping => RpcLimits::new(
                 <Ping as Encode>::ssz_fixed_len(),
                 <Ping as Encode>::ssz_fixed_len(),
@@ -379,13 +386,16 @@ impl ProtocolId {
     /// Returns `true` if the given `ProtocolId` should expect `context_bytes` in the
     /// beginning of the stream, else returns `false`.
     pub fn has_context_bytes(&self) -> bool {
-        if self.version == Version::V2 {
-            match self.message_name {
+        match self.version {
+            Version::V2 => match self.message_name {
                 Protocol::BlocksByRange | Protocol::BlocksByRoot => return true,
                 _ => return false,
-            }
+            },
+            Version::V1 => match self.message_name {
+                Protocol::BlobsByRange | Protocol::BlobsByRoot => return true,
+                _ => return false,
+            },
         }
-        false
     }
 }
 
