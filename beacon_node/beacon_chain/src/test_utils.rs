@@ -387,6 +387,27 @@ where
         self
     }
 
+    pub fn recalculate_fork_times_with_genesis(mut self, genesis_time: u64) -> Self {
+        let mock = self
+            .mock_execution_layer
+            .as_mut()
+            .expect("must have mock execution layer to recalculate fork times");
+        let spec = self
+            .spec
+            .clone()
+            .expect("cannot recalculate fork times without spec");
+        mock.server.execution_block_generator().shanghai_time =
+            spec.capella_fork_epoch.map(|epoch| {
+                genesis_time + spec.seconds_per_slot * E::slots_per_epoch() * epoch.as_u64()
+            });
+        mock.server.execution_block_generator().eip4844_time =
+            spec.eip4844_fork_epoch.map(|epoch| {
+                genesis_time + spec.seconds_per_slot * E::slots_per_epoch() * epoch.as_u64()
+            });
+
+        self
+    }
+
     pub fn mock_execution_layer(mut self) -> Self {
         let spec = self.spec.clone().expect("cannot build without spec");
         let shanghai_time = spec.capella_fork_epoch.map(|epoch| {
