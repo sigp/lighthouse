@@ -1,7 +1,8 @@
 mod kzg_commitment;
 mod kzg_proof;
+mod trusted_setup;
 
-pub use crate::{kzg_commitment::KzgCommitment, kzg_proof::KzgProof};
+pub use crate::{kzg_commitment::KzgCommitment, kzg_proof::KzgProof, trusted_setup::TrustedSetup};
 pub use c_kzg::bytes_to_g1;
 pub use c_kzg::{
     Error as CKzgError, KZGSettings, BYTES_PER_BLOB, BYTES_PER_FIELD_ELEMENT,
@@ -35,6 +36,16 @@ impl Kzg {
         Ok(Self {
             trusted_setup: KZGSettings::load_trusted_setup_file(file_path)
                 .map_err(Error::InvalidTrustedSetup)?,
+        })
+    }
+
+    pub fn new_from_trusted_setup(trusted_setup: TrustedSetup) -> Result<Self, Error> {
+        Ok(Self {
+            trusted_setup: KZGSettings::load_trusted_setup(
+                trusted_setup.g1_points,
+                trusted_setup.g2_points,
+            )
+            .map_err(Error::InvalidTrustedSetup)?,
         })
     }
 

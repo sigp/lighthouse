@@ -1835,6 +1835,8 @@ dependencies = [
  "enr",
  "eth2_config",
  "eth2_ssz",
+ "kzg",
+ "serde_json",
  "serde_yaml",
  "tempfile",
  "types",

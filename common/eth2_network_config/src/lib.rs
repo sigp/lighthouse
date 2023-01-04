@@ -13,10 +13,11 @@
 
 use enr::{CombinedKey, Enr};
 use eth2_config::{instantiate_hardcoded_nets, HardcodedNet};
+use kzg::TrustedSetup;
 use std::fs::{create_dir_all, File};
 use std::io::{Read, Write};
 use std::path::PathBuf;
-use types::{BeaconState, ChainSpec, Config, EthSpec, EthSpecId};
+use types::{BeaconState, ChainSpec, Config, Epoch, EthSpec, EthSpecId};
 
 pub const DEPLOY_BLOCK_FILE: &str = "deploy_block.txt";
 pub const BOOT_ENR_FILE: &str = "boot_enr.yaml";
@@ -32,6 +33,14 @@ instantiate_hardcoded_nets!(eth2_config);
 
 pub const DEFAULT_HARDCODED_NETWORK: &str = "mainnet";
 
+/// Contains the bytes from the trusted setup json.
+/// The mainnet trusted setup is also reused in testnets.
+///
+/// This is done to ensure that testnets also inherit the high security and
+/// randomness of the mainnet kzg trusted setup ceremony.
+pub const TRUSTED_SETUP: &[u8] =
+    include_bytes!("../built_in_network_configs/testing_trusted_setups.json");
+
 /// Specifies an Eth2 network.
 ///
 /// See the crate-level documentation for more details.
@@ -43,6 +52,7 @@ pub struct Eth2NetworkConfig {
     pub boot_enr: Option<Vec<Enr<CombinedKey>>>,
     pub genesis_state_bytes: Option<Vec<u8>>,
     pub config: Config,
+    pub kzg_trusted_setup: Option<TrustedSetup>,
 }
 
 impl Eth2NetworkConfig {
@@ -58,6 +68,20 @@ impl Eth2NetworkConfig {
 
     /// Instantiates `Self` from a `HardcodedNet`.
     fn from_hardcoded_net(net: &HardcodedNet) -> Result<Self, String> {
+        let config: Config = serde_yaml::from_reader(net.config)
+            .map_err(|e| format!("Unable to parse yaml config: {:?}", e))?;
+        let kzg_trusted_setup = if let Some(epoch) = config.eip4844_fork_epoch {
+            // Only load the trusted setup if the eip4844 fork epoch is set
+            if epoch.value != Epoch::max_value() {
+                let trusted_setup: TrustedSetup = serde_json::from_reader(TRUSTED_SETUP)
+                    .map_err(|e| format!("Unable to read trusted setup file: {}", e))?;
+                Some(trusted_setup)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
         Ok(Self {
             deposit_contract_deploy_block: serde_yaml::from_reader(net.deploy_block)
                 .map_err(|e| format!("Unable to parse deploy block: {:?}", e))?,
@@ -67,8 +91,8 @@ impl Eth2NetworkConfig {
             ),
             genesis_state_bytes: Some(net.genesis_state_bytes.to_vec())
                 .filter(|bytes| !bytes.is_empty()),
-            config: serde_yaml::from_reader(net.config)
-                .map_err(|e| format!("Unable to parse yaml config: {:?}", e))?,
+            config,
+            kzg_trusted_setup,
         })
     }
 
@@ -194,7 +218,7 @@ impl Eth2NetworkConfig {
 
         let deposit_contract_deploy_block = load_from_file!(DEPLOY_BLOCK_FILE);
         let boot_enr = optional_load_from_file!(BOOT_ENR_FILE);
-        let config = load_from_file!(BASE_CONFIG_FILE);
+        let config: Config = load_from_file!(BASE_CONFIG_FILE);
 
         // The genesis state is a special case because it uses SSZ, not YAML.
         let genesis_file_path = base_dir.join(GENESIS_STATE_FILE);
@@ -212,11 +236,25 @@ impl Eth2NetworkConfig {
             None
         };
 
+        let kzg_trusted_setup = if let Some(epoch) = config.eip4844_fork_epoch {
+            // Only load the trusted setup if the eip4844 fork epoch is set
+            if epoch.value != Epoch::max_value() {
+                let trusted_setup: TrustedSetup = serde_json::from_reader(TRUSTED_SETUP)
+                    .map_err(|e| format!("Unable to read trusted setup file: {}", e))?;
+                Some(trusted_setup)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
         Ok(Self {
             deposit_contract_deploy_block,
             boot_enr,
             genesis_state_bytes,
             config,
+            kzg_trusted_setup,
         })
     }
 }
