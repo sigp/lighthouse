@@ -2945,9 +2945,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         ops.push(StoreOp::PutState(block.state_root(), &state));
 
         if let Some(blobs) = blobs? {
-            //FIXME(sean) using this for debugging for now
-            info!(self.log, "Writing blobs to store"; "block_root" => ?block_root);
-            ops.push(StoreOp::PutBlobs(block_root, blobs));
+            if blobs.blobs.len() > 0 {
+                //FIXME(sean) using this for debugging for now
+                info!(self.log, "Writing blobs to store"; "block_root" => ?block_root);
+                ops.push(StoreOp::PutBlobs(block_root, blobs));
+            }
         };
         let txn_lock = self.store.hot_db.begin_rw_transaction();
 
