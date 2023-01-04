@@ -8,19 +8,18 @@ mod persistence;
 mod reward_cache;
 mod sync_aggregate_id;
 
+use crate::attestation_storage::{AttestationMap, CheckpointKey};
+use crate::sync_aggregate_id::SyncAggregateId;
 pub use attestation::AttMaxCover;
 pub use attestation_storage::{AttestationRef, SplitAttestation};
+use attester_slashing::AttesterSlashingMaxCover;
+use max_cover::maximum_cover;
 pub use max_cover::MaxCover;
+use parking_lot::{RwLock, RwLockWriteGuard};
 pub use persistence::{
     PersistedOperationPool, PersistedOperationPoolV12, PersistedOperationPoolV5,
 };
 pub use reward_cache::RewardCache;
-
-use crate::attestation_storage::{AttestationMap, CheckpointKey};
-use crate::sync_aggregate_id::SyncAggregateId;
-use attester_slashing::AttesterSlashingMaxCover;
-use max_cover::maximum_cover;
-use parking_lot::{RwLock, RwLockWriteGuard};
 use state_processing::per_block_processing::errors::AttestationValidationError;
 use state_processing::per_block_processing::{
     get_slashable_indices_modular, verify_exit, VerifySignatures,
@@ -767,7 +766,8 @@ mod release_tests {
     use super::attestation::earliest_attestation_validators;
     use super::*;
     use beacon_chain::test_utils::{
-        test_spec, BeaconChainHarness, EphemeralHarnessType, RelativeSyncCommittee,
+        get_fork_from_env, test_spec, BeaconChainHarness, EphemeralHarnessType,
+        RelativeSyncCommittee,
     };
     use lazy_static::lazy_static;
     use maplit::hashset;
@@ -1789,9 +1789,26 @@ mod release_tests {
     {
         let mut spec = test_spec::<E>();
 
+        if cfg!(feature = "fork_from_env") {
+            let fork = get_fork_from_env();
+            match fork {
+                ForkName::Altair | ForkName::Merge | ForkName::Capella | ForkName::Eip4844 => {}
+                _ => panic!(
+                    "Unknown fork {}, add it above AND below so this test doesn't panic",
+                    fork
+                ),
+            }
+        }
+
         // Give some room to sign surround slashings.
+        // It appears we need to set _every_ fork to some non-zero value
+        // here. Otherwise if we set FORK_NAME_ENV_VAR to some fork that
+        // isn't listed here, tests that use this function will panic in
+        // non-trivial ways
         spec.altair_fork_epoch = Some(Epoch::new(3));
         spec.bellatrix_fork_epoch = Some(Epoch::new(6));
+        spec.capella_fork_epoch = Some(Epoch::new(9));
+        spec.eip4844_fork_epoch = Some(Epoch::new(12));
 
         // To make exits immediately valid.
         spec.shard_committee_period = 0;
