@@ -30,11 +30,11 @@ pub struct IdealAttestationRewards {
     // Validator's effective balance in gwei
     pub effective_balance: u64,
     // Ideal attester's reward for head vote in gwei
-    pub head: i64,
+    pub head: u64,
     // Ideal attester's reward for target vote in gwei
-    pub target: i64,
+    pub target: u64,
     // Ideal attester's reward for source vote in gwei
-    pub source: i64,
+    pub source: u64,
 
 }
 

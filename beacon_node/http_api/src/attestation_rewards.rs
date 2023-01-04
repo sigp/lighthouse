@@ -1,6 +1,6 @@
-use std::sync::Arc;
+use std::{sync::Arc, collections::HashMap};
 use beacon_chain::{BeaconChain, BeaconChainTypes};
-use eth2::lighthouse::AttestationRewardsTBD;
+use eth2::{lighthouse::AttestationRewardsTBD, types::ValidatorId};
 use safe_arith::SafeArith;
 use slog::Logger;
 use participation_cache::ParticipationCache;
@@ -11,7 +11,7 @@ use types::consts::altair::WEIGHT_DENOMINATOR;
 pub fn compute_attestation_rewards<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
     epoch: Epoch,
-    flag_index: usize,
+    validators: Vec<ValidatorId>,
     log: Logger
 ) -> Result<AttestationRewardsTBD, warp::Rejection> {    
 
@@ -45,6 +45,17 @@ pub fn compute_attestation_rewards<T: BeaconChainTypes>(
         Err(_) => return Err(warp_utils::reject::custom_server_error("Unable to get participation cache".to_owned())),
     };
 
+    //TODO Get flag_index as usize
+    let flag_index = 0;
+
+    //Calculate flag(head, target, source) for the 33 effective_balance values to have a map of (flag, effective_balance) -> ideal_reward
+    let mut ideal_rewards = HashMap::new();
+
+    for effective_balance in 0..33 {
+        let flag =  0; // calculate_flag();
+        ideal_rewards.insert(flag, effective_balance);
+    }
+
     //Get weight as u64
     let weight = match get_flag_weight(flag_index) {
         Ok(weight) => weight,
@@ -54,8 +65,6 @@ pub fn compute_attestation_rewards<T: BeaconChainTypes>(
     //Get total_active_balance through current_epoch_total_active_balance
     let total_active_balance = participation_cache.current_epoch_total_active_balance();
     
-    //TODO (flag, effective_balance) -> ideal_reward, while flag is head/target/source   
-
     //Get base_reward_per_increment through BaseRewardPerIncrement::new
     let base_reward_per_increment = match BaseRewardPerIncrement::new(total_active_balance, spec) {
         Ok(base_reward_per_increment) => base_reward_per_increment,
