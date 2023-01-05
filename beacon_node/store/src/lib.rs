@@ -161,6 +161,7 @@ pub enum StoreOp<'a, E: EthSpec> {
     PutStateTemporaryFlag(Hash256),
     DeleteStateTemporaryFlag(Hash256),
     DeleteBlock(Hash256),
+    DeleteBlobs(Hash256),
     DeleteState(Hash256, Option<Slot>),
     DeleteExecutionPayload(Hash256),
 }
