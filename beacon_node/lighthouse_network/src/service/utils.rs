@@ -88,7 +88,7 @@ fn keypair_from_hex(hex_bytes: &str) -> error::Result<Keypair> {
         hex_bytes.to_string()
     };
 
-    hex::decode(&hex_bytes)
+    hex::decode(hex_bytes)
         .map_err(|e| format!("Failed to parse p2p secret key bytes: {:?}", e).into())
         .and_then(keypair_from_bytes)
 }
@@ -253,6 +253,8 @@ pub(crate) fn create_whitelist_filter(
         add(ProposerSlashing);
         add(AttesterSlashing);
         add(SignedContributionAndProof);
+        add(LightClientFinalityUpdate);
+        add(LightClientOptimisticUpdate);
         for id in 0..attestation_subnet_count {
             add(Attestation(SubnetId::new(id)));
         }

@@ -13,6 +13,8 @@ env:
   RUSTFLAGS: "-D warnings"
   # The Nightly version used for cargo-udeps, might need updating from time to time.
   PINNED_NIGHTLY: nightly-2022-05-20
+  # Prevent Github API rate limiting.
+  LIGHTHOUSE_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 jobs:
   target-branch-check:
     name: target-branch-check
@@ -51,7 +53,7 @@ jobs:
     - name: Get latest version of stable Rust
       run: rustup update stable
     - name: Install Protoc
-      uses: arduino/setup-protoc@v1
+      uses: arduino/setup-protoc@e52d9eb8f7b63115df1ac544a1376fdbf5a39612
       with:
         repo-token: ${{ secrets.GITHUB_TOKEN }}
     - name: Install ganache
@@ -95,7 +97,7 @@ jobs:
     - name: Get latest version of stable Rust
       run: rustup update stable
     - name: Install Protoc
-      uses: arduino/setup-protoc@v1
+      uses: arduino/setup-protoc@e52d9eb8f7b63115df1ac544a1376fdbf5a39612
       with:
         repo-token: ${{ secrets.GITHUB_TOKEN }}
     - name: Run beacon_chain tests for all known forks
@@ -109,7 +111,7 @@ jobs:
     - name: Get latest version of stable Rust
       run: rustup update stable
     - name: Install Protoc
-      uses: arduino/setup-protoc@v1
+      uses: arduino/setup-protoc@e52d9eb8f7b63115df1ac544a1376fdbf5a39612
       with:
         repo-token: ${{ secrets.GITHUB_TOKEN }}
     - name: Run operation_pool tests for all known forks
@@ -133,7 +135,7 @@ jobs:
     - name: Get latest version of stable Rust
       run: rustup update stable
     - name: Install Protoc
-      uses: arduino/setup-protoc@v1
+      uses: arduino/setup-protoc@e52d9eb8f7b63115df1ac544a1376fdbf5a39612
       with:
         repo-token: ${{ secrets.GITHUB_TOKEN }}
     - name: Install ganache
@@ -149,7 +151,7 @@ jobs:
     - name: Get latest version of stable Rust
       run: rustup update stable
     - name: Install Protoc
-      uses: arduino/setup-protoc@v1
+      uses: arduino/setup-protoc@e52d9eb8f7b63115df1ac544a1376fdbf5a39612
       with:
         repo-token: ${{ secrets.GITHUB_TOKEN }}
     - name: Run state_transition_vectors in release.
@@ -163,7 +165,7 @@ jobs:
     - name: Get latest version of stable Rust
       run: rustup update stable
     - name: Install Protoc
-      uses: arduino/setup-protoc@v1
+      uses: arduino/setup-protoc@e52d9eb8f7b63115df1ac544a1376fdbf5a39612
       with:
         repo-token: ${{ secrets.GITHUB_TOKEN }}
     - name: Run consensus-spec-tests with blst, milagro and fake_crypto
@@ -189,7 +191,7 @@ jobs:
     - name: Get latest version of stable Rust
       run: rustup update stable
     - name: Install Protoc
-      uses: arduino/setup-protoc@v1
+      uses: arduino/setup-protoc@e52d9eb8f7b63115df1ac544a1376fdbf5a39612
       with:
         repo-token: ${{ secrets.GITHUB_TOKEN }}
     - name: Install ganache
@@ -205,7 +207,7 @@ jobs:
     - name: Get latest version of stable Rust
       run: rustup update stable
     - name: Install Protoc
-      uses: arduino/setup-protoc@v1
+      uses: arduino/setup-protoc@e52d9eb8f7b63115df1ac544a1376fdbf5a39612
       with:
         repo-token: ${{ secrets.GITHUB_TOKEN }}
     - name: Install ganache
@@ -221,7 +223,7 @@ jobs:
     - name: Get latest version of stable Rust
       run: rustup update stable
     - name: Install Protoc
-      uses: arduino/setup-protoc@v1
+      uses: arduino/setup-protoc@e52d9eb8f7b63115df1ac544a1376fdbf5a39612
       with:
         repo-token: ${{ secrets.GITHUB_TOKEN }}
     - name: Install ganache
@@ -237,7 +239,7 @@ jobs:
     - name: Get latest version of stable Rust
       run: rustup update stable
     - name: Install Protoc
-      uses: arduino/setup-protoc@v1
+      uses: arduino/setup-protoc@e52d9eb8f7b63115df1ac544a1376fdbf5a39612
       with:
         repo-token: ${{ secrets.GITHUB_TOKEN }}
     - name: Install ganache
@@ -253,7 +255,7 @@ jobs:
     - name: Get latest version of stable Rust
       run: rustup update stable
     - name: Install Protoc
-      uses: arduino/setup-protoc@v1
+      uses: arduino/setup-protoc@e52d9eb8f7b63115df1ac544a1376fdbf5a39612
       with:
         repo-token: ${{ secrets.GITHUB_TOKEN }}
     - name: Install ganache
@@ -285,7 +287,7 @@ jobs:
     - name: Get latest version of stable Rust
       run: rustup update stable
     - name: Install Protoc
-      uses: arduino/setup-protoc@v1
+      uses: arduino/setup-protoc@e52d9eb8f7b63115df1ac544a1376fdbf5a39612
       with:
         repo-token: ${{ secrets.GITHUB_TOKEN }}
     - name: Run exec engine integration tests in release
@@ -299,7 +301,7 @@ jobs:
     - name: Get latest version of stable Rust
       run: rustup update stable
     - name: Install Protoc
-      uses: arduino/setup-protoc@v1
+      uses: arduino/setup-protoc@e52d9eb8f7b63115df1ac544a1376fdbf5a39612
       with:
         repo-token: ${{ secrets.GITHUB_TOKEN }}
     - name: Typecheck benchmark code without running it
@@ -323,7 +325,7 @@ jobs:
     - name: Get latest version of stable Rust
       run: rustup update stable
     - name: Install Protoc
-      uses: arduino/setup-protoc@v1
+      uses: arduino/setup-protoc@e52d9eb8f7b63115df1ac544a1376fdbf5a39612
       with:
         repo-token: ${{ secrets.GITHUB_TOKEN }}
     - name: Lint code for quality and style with Clippy
@@ -346,7 +348,7 @@ jobs:
         cargo build --release --bin cargo-clippy --bin clippy-driver
         cargo build --release --bin cargo-clippy --bin clippy-driver -Zunstable-options --out-dir $(rustc --print=sysroot)/bin
     - name: Install Protoc
-      uses: arduino/setup-protoc@v1
+      uses: arduino/setup-protoc@e52d9eb8f7b63115df1ac544a1376fdbf5a39612
       with:
         repo-token: ${{ secrets.GITHUB_TOKEN }}
     - name: Run Clippy with the disallowed-from-async lint
@@ -360,7 +362,7 @@ jobs:
     - name: Install Rust @ MSRV (${{ needs.extract-msrv.outputs.MSRV }})
       run: rustup override set ${{ needs.extract-msrv.outputs.MSRV }}
     - name: Install Protoc
-      uses: arduino/setup-protoc@v1
+      uses: arduino/setup-protoc@e52d9eb8f7b63115df1ac544a1376fdbf5a39612
       with:
         repo-token: ${{ secrets.GITHUB_TOKEN }}
     - name: Run cargo check
@@ -404,7 +406,7 @@ jobs:
     # NOTE: cargo-udeps version is pinned until this issue is resolved:
     # https://github.com/est31/cargo-udeps/issues/135
     - name: Install Protoc
-      uses: arduino/setup-protoc@v1
+      uses: arduino/setup-protoc@e52d9eb8f7b63115df1ac544a1376fdbf5a39612
       with:
         repo-token: ${{ secrets.GITHUB_TOKEN }}
     - name: Install cargo-udeps

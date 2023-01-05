@@ -339,6 +339,10 @@ fn do_transition<T: EthSpec>(
         .map_err(|e| format!("Unable to build caches: {:?}", e))?;
     debug!("Build all caches (again): {:?}", t.elapsed());
 
+    let mut ctxt = ConsensusContext::new(pre_state.slot())
+        .set_current_block_root(block_root)
+        .set_proposer_index(block.message().proposer_index());
+
     if !config.no_signature_verification {
         let get_pubkey = move |validator_index| {
             validator_pubkey_cache
@@ -359,18 +363,20 @@ fn do_transition<T: EthSpec>(
             get_pubkey,
             decompressor,
             &block,
-            Some(block_root),
-            Some(block.message().proposer_index()),
+            &mut ctxt,
             spec,
         )
         .map_err(|e| format!("Invalid block signature: {:?}", e))?;
         debug!("Batch verify block signatures: {:?}", t.elapsed());
+
+        // Signature verification should prime the indexed attestation cache.
+        assert_eq!(
+            ctxt.num_cached_indexed_attestations(),
+            block.message().body().attestations().len()
+        );
     }
 
     let t = Instant::now();
-    let mut ctxt = ConsensusContext::new(pre_state.slot())
-        .set_current_block_root(block_root)
-        .set_proposer_index(block.message().proposer_index());
     per_block_processing(
         &mut pre_state,
         &block,

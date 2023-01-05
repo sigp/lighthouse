@@ -1,6 +1,9 @@
 use beacon_node::{beacon_chain::CountUnrealizedFull, ClientConfig as Config};
 
 use crate::exec::{CommandLineTestExec, CompletedTest};
+use beacon_node::beacon_chain::chain_config::{
+    DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION, DEFAULT_RE_ORG_THRESHOLD,
+};
 use eth1::Eth1Endpoint;
 use lighthouse_network::PeerId;
 use std::fs::File;
@@ -10,6 +13,7 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::str::FromStr;
 use std::string::ToString;
+use std::time::Duration;
 use tempfile::TempDir;
 use types::{Address, Checkpoint, Epoch, ExecutionBlockHash, ForkName, Hash256, MainnetEthSpec};
 use unused_port::{unused_tcp_port, unused_udp_port};
@@ -150,6 +154,31 @@ fn checkpoint_sync_url_timeout_default() {
         .run_with_zero_port()
         .with_config(|config| {
             assert_eq!(config.chain.checkpoint_sync_url_timeout, 60);
+        });
+}
+
+#[test]
+fn prepare_payload_lookahead_default() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config.chain.prepare_payload_lookahead,
+                Duration::from_secs(4),
+            )
+        });
+}
+
+#[test]
+fn prepare_payload_lookahead_shorter() {
+    CommandLineTest::new()
+        .flag("prepare-payload-lookahead", Some("1500"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config.chain.prepare_payload_lookahead,
+                Duration::from_millis(1500)
+            )
         });
 }
 
@@ -1501,6 +1530,49 @@ fn ensure_panic_on_failed_launch() {
 }
 
 #[test]
+fn enable_proposer_re_orgs_default() {
+    CommandLineTest::new().run().with_config(|config| {
+        assert_eq!(
+            config.chain.re_org_threshold,
+            Some(DEFAULT_RE_ORG_THRESHOLD)
+        );
+        assert_eq!(
+            config.chain.re_org_max_epochs_since_finalization,
+            DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION,
+        );
+    });
+}
+
+#[test]
+fn disable_proposer_re_orgs() {
+    CommandLineTest::new()
+        .flag("disable-proposer-reorgs", None)
+        .run()
+        .with_config(|config| assert_eq!(config.chain.re_org_threshold, None));
+}
+
+#[test]
+fn proposer_re_org_threshold() {
+    CommandLineTest::new()
+        .flag("proposer-reorg-threshold", Some("90"))
+        .run()
+        .with_config(|config| assert_eq!(config.chain.re_org_threshold.unwrap().0, 90));
+}
+
+#[test]
+fn proposer_re_org_max_epochs_since_finalization() {
+    CommandLineTest::new()
+        .flag("proposer-reorg-epochs-since-finalization", Some("8"))
+        .run()
+        .with_config(|config| {
+            assert_eq!(
+                config.chain.re_org_max_epochs_since_finalization.as_u64(),
+                8
+            )
+        });
+}
+
+#[test]
 fn monitoring_endpoint() {
     CommandLineTest::new()
         .flag("monitoring-endpoint", Some("http://example:8000"))
@@ -1548,6 +1620,23 @@ fn enabled_disable_log_timestamp_flag() {
             assert!(config.logger_config.disable_log_timestamp);
         });
 }
+#[test]
+fn logfile_restricted_perms_default() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert!(config.logger_config.is_restricted);
+        });
+}
+#[test]
+fn logfile_no_restricted_perms_flag() {
+    CommandLineTest::new()
+        .flag("logfile-no-restricted-perms", None)
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert!(config.logger_config.is_restricted == false);
+        });
+}
 
 #[test]
 fn sync_eth1_chain_default() {
@@ -1587,7 +1676,7 @@ fn sync_eth1_chain_disable_deposit_contract_sync_flag() {
 fn light_client_server_default() {
     CommandLineTest::new()
         .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.chain.enable_light_client_server, false));
+        .with_config(|config| assert_eq!(config.network.enable_light_client_server, false));
 }
 
 #[test]
@@ -1595,5 +1684,16 @@ fn light_client_server_enabled() {
     CommandLineTest::new()
         .flag("light-client-server", None)
         .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.chain.enable_light_client_server, true));
+        .with_config(|config| assert_eq!(config.network.enable_light_client_server, true));
+}
+
+#[test]
+fn gui_flag() {
+    CommandLineTest::new()
+        .flag("gui", None)
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert!(config.http_api.enabled);
+            assert!(config.validator_monitor_auto);
+        });
 }

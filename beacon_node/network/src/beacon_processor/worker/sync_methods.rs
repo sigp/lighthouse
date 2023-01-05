@@ -10,6 +10,7 @@ use crate::sync::{BatchProcessResult, ChainId};
 use beacon_chain::CountUnrealized;
 use beacon_chain::{
     BeaconChainError, BeaconChainTypes, BlockError, ChainSegmentResult, HistoricalBlockError,
+    NotifyExecutionLayer,
 };
 use lighthouse_network::PeerAction;
 use slog::{debug, error, info, warn};
@@ -85,7 +86,12 @@ impl<T: BeaconChainTypes> Worker<T> {
         let slot = block.slot();
         let result = self
             .chain
-            .process_block(block_root, block, CountUnrealized::True)
+            .process_block(
+                block_root,
+                block,
+                CountUnrealized::True,
+                NotifyExecutionLayer::Yes,
+            )
             .await;
 
         metrics::inc_counter(&metrics::BEACON_PROCESSOR_RPC_BLOCK_IMPORTED_TOTAL);
@@ -127,6 +133,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         &self,
         sync_type: ChainSegmentProcessId,
         downloaded_blocks: Vec<Arc<SignedBeaconBlock<T::EthSpec>>>,
+        notify_execution_layer: NotifyExecutionLayer,
     ) {
         let result = match sync_type {
             // this a request from the range sync
@@ -136,7 +143,11 @@ impl<T: BeaconChainTypes> Worker<T> {
                 let sent_blocks = downloaded_blocks.len();
 
                 match self
-                    .process_blocks(downloaded_blocks.iter(), count_unrealized)
+                    .process_blocks(
+                        downloaded_blocks.iter(),
+                        count_unrealized,
+                        notify_execution_layer,
+                    )
                     .await
                 {
                     (_, Ok(_)) => {
@@ -215,7 +226,11 @@ impl<T: BeaconChainTypes> Worker<T> {
                 // parent blocks are ordered from highest slot to lowest, so we need to process in
                 // reverse
                 match self
-                    .process_blocks(downloaded_blocks.iter().rev(), CountUnrealized::True)
+                    .process_blocks(
+                        downloaded_blocks.iter().rev(),
+                        CountUnrealized::True,
+                        notify_execution_layer,
+                    )
                     .await
                 {
                     (imported_blocks, Err(e)) => {
@@ -246,11 +261,12 @@ impl<T: BeaconChainTypes> Worker<T> {
         &self,
         downloaded_blocks: impl Iterator<Item = &'a Arc<SignedBeaconBlock<T::EthSpec>>>,
         count_unrealized: CountUnrealized,
+        notify_execution_layer: NotifyExecutionLayer,
     ) -> (usize, Result<(), ChainSegmentFailed>) {
         let blocks: Vec<Arc<_>> = downloaded_blocks.cloned().collect();
         match self
             .chain
-            .process_chain_segment(blocks, count_unrealized)
+            .process_chain_segment(blocks, count_unrealized, notify_execution_layer)
             .await
         {
             ChainSegmentResult::Successful { imported_blocks } => {
@@ -428,7 +444,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                 } else {
                     // The block is in the future, but not too far.
                     debug!(
-                        self.log, "Block is slightly ahead of our slot clock, ignoring.";
+                        self.log, "Block is slightly ahead of our slot clock. Ignoring.";
                         "present_slot" => present_slot,
                         "block_slot" => block_slot,
                         "FUTURE_SLOT_TOLERANCE" => FUTURE_SLOT_TOLERANCE,

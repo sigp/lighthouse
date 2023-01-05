@@ -242,7 +242,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 source: ReportSource::SyncService,
             })
             .unwrap_or_else(|_| {
-                warn!(self.log, "Could not report peer, channel failed");
+                warn!(self.log, "Could not report peer: channel failed");
             });
     }
 
@@ -257,7 +257,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 msg,
             })
             .unwrap_or_else(|e| {
-                warn!(self.log, "Could not report peer, channel failed"; "error"=> %e);
+                warn!(self.log, "Could not report peer: channel failed"; "error"=> %e);
             });
     }
 
