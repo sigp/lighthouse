@@ -409,7 +409,10 @@ where
                     self.current_inbound_substream_id,
                     InboundInfo {
                         state: awaiting_stream,
-                        pending_items: VecDeque::with_capacity(std::cmp::min(expected_responses,128) as usize),
+                        pending_items: VecDeque::with_capacity(std::cmp::min(
+                            expected_responses,
+                            128,
+                        ) as usize),
                         delay_key: Some(delay_key),
                         protocol: req.protocol(),
                         request_start_time: Instant::now(),
