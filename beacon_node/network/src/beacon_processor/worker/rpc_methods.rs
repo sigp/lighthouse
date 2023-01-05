@@ -660,10 +660,15 @@ impl<T: BeaconChainTypes> Worker<T> {
         for root in block_roots {
             match self.chain.store.get_blobs(&root) {
                 Ok(Some(blob)) => {
+                    let response_data = if blob.blobs.len() > 0 {
+                        Some(Arc::new(blob))
+                    } else {
+                        None
+                    };
                     blobs_sent += 1;
                     self.send_network_message(NetworkMessage::SendResponse {
                         peer_id,
-                        response: Response::BlobsByRange(Some(Arc::new(blob))),
+                        response: Response::BlobsByRange(response_data),
                         id: request_id,
                     });
                 }
