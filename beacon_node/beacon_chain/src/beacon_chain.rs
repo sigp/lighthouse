@@ -1052,7 +1052,28 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         block_root: &Hash256,
     ) -> Result<Option<BlobsSidecar<T::EthSpec>>, Error> {
-        Ok(self.store.get_blobs(block_root)?)
+        match self.store.get_blobs(block_root)? {
+            Some(blobs) => Ok(Some(blobs)),
+            None => {
+                if let Some(block) = self.get_block(block_root).await? {
+                    let expected_kzg_commitments = block.message().body().blob_kzg_commitments()?;
+
+                    if expected_kzg_commitments.len() > 0 {
+                        Err(Error::DBInconsistent(format!(
+                            "expected kzg_commitments but no blobs stored for block_root {}",
+                            block_root
+                        )))
+                    } else {
+                        Ok(Some(BlobsSidecar::empty_from_parts(
+                            *block_root,
+                            block.slot(),
+                        )))
+                    }
+                } else {
+                    Ok(None)
+                }
+            }
+        }
     }
 
     pub fn get_blinded_block(
