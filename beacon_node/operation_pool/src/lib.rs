@@ -1787,7 +1787,7 @@ mod release_tests {
 
     fn cross_fork_harness<E: EthSpec>() -> (BeaconChainHarness<EphemeralHarnessType<E>>, ChainSpec)
     {
-        let mut spec = test_spec::<E>();
+        let mut spec = E::default_spec();
 
         // Give some room to sign surround slashings.
         spec.altair_fork_epoch = Some(Epoch::new(3));

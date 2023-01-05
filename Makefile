@@ -28,7 +28,7 @@ PROFILE ?= release
 
 # List of all hard forks. This list is used to set env variables for several tests so that
 # they run for different forks.
-FORKS=phase0 altair merge
+FORKS=phase0 altair merge capella
 
 # Builds the Lighthouse binary in release (optimized).
 #
@@ -120,7 +120,7 @@ run-ef-tests:
 test-beacon-chain: $(patsubst %,test-beacon-chain-%,$(FORKS))
 
 test-beacon-chain-%:
-	env FORK_NAME=$* cargo test --release --features fork_from_env -p beacon_chain
+	env FORK_NAME=$* cargo test --release --features fork_from_env,withdrawals-processing -p beacon_chain
 
 # Run the tests in the `operation_pool` crate for all known forks.
 test-op-pool: $(patsubst %,test-op-pool-%,$(FORKS))
