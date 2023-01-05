@@ -34,7 +34,6 @@ pub fn process_operations<'a, T: EthSpec, Payload: AbstractExecPayload<T>>(
     process_deposits(state, block_body.deposits(), spec)?;
     process_exits(state, block_body.voluntary_exits(), verify_signatures, spec)?;
 
-    #[cfg(feature = "withdrawals-processing")]
     if let Ok(bls_to_execution_changes) = block_body.bls_to_execution_changes() {
         process_bls_to_execution_changes(state, bls_to_execution_changes, verify_signatures, spec)?;
     }
@@ -295,13 +294,15 @@ pub fn process_exits<T: EthSpec>(
 ///
 /// Returns `Ok(())` if the validation and state updates completed successfully. Otherwise returns
 /// an `Err` describing the invalid object or cause of failure.
-#[cfg(feature = "withdrawals-processing")]
 pub fn process_bls_to_execution_changes<T: EthSpec>(
     state: &mut BeaconState<T>,
     bls_to_execution_changes: &[SignedBlsToExecutionChange],
     verify_signatures: VerifySignatures,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
+    if cfg!(not(feature = "withdrawals-processing")) {
+        return Ok(());
+    }
     for (i, signed_address_change) in bls_to_execution_changes.iter().enumerate() {
         verify_bls_to_execution_change(state, signed_address_change, verify_signatures, spec)
             .map_err(|e| e.into_with_index(i))?;

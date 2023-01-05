@@ -143,7 +143,6 @@ impl<T: EthSpec> PersistedOperationPool<T> {
             proposer_slashings,
             voluntary_exits,
             // FIXME(capella): implement schema migration for address changes in op pool
-            #[cfg(feature = "withdrawals-processing")]
             bls_to_execution_changes: Default::default(),
             reward_cache: Default::default(),
             _phantom: Default::default(),

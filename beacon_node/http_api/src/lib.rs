@@ -1687,16 +1687,12 @@ pub fn serve<T: BeaconChainTypes>(
 
                         match chain.verify_bls_to_execution_change_for_gossip(address_change) {
                             Ok(ObservationOutcome::New(verified_address_change)) => {
-                                #[cfg(feature = "withdrawals-processing")]
-                                {
-                                    publish_pubsub_message(
-                                        &network_tx,
-                                        PubsubMessage::BlsToExecutionChange(Box::new(
-                                            verified_address_change.as_inner().clone(),
-                                        )),
-                                    )?;
-                                }
-
+                                publish_pubsub_message(
+                                    &network_tx,
+                                    PubsubMessage::BlsToExecutionChange(Box::new(
+                                        verified_address_change.as_inner().clone(),
+                                    )),
+                                )?;
                                 chain.import_bls_to_execution_change(verified_address_change);
                             }
                             Ok(ObservationOutcome::AlreadyKnown) => {
