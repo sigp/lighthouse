@@ -1,3 +1,4 @@
+use beacon_chain::TrustedSetup;
 use directory::DEFAULT_ROOT_DIR;
 use environment::LoggerConfig;
 use network::NetworkConfig;
@@ -68,7 +69,7 @@ pub struct Config {
     pub chain: beacon_chain::ChainConfig,
     pub eth1: eth1::Config,
     pub execution_layer: Option<execution_layer::Config>,
-    pub trusted_setup_file: Option<PathBuf>,
+    pub trusted_setup: Option<TrustedSetup>,
     pub http_api: http_api::Config,
     pub http_metrics: http_metrics::Config,
     pub monitoring_api: Option<monitoring_api::Config>,
@@ -91,7 +92,7 @@ impl Default for Config {
             sync_eth1_chain: false,
             eth1: <_>::default(),
             execution_layer: None,
-            trusted_setup_file: None,
+            trusted_setup: None,
             graffiti: Graffiti::default(),
             http_api: <_>::default(),
             http_metrics: <_>::default(),
