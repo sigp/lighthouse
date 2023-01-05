@@ -120,7 +120,7 @@ run-ef-tests:
 test-beacon-chain: $(patsubst %,test-beacon-chain-%,$(FORKS))
 
 test-beacon-chain-%:
-	env FORK_NAME=$* cargo test --release --features fork_from_env -p beacon_chain
+	env FORK_NAME=$* cargo test --release --features fork_from_env,withdrawals-processing -p beacon_chain
 
 # Run the tests in the `operation_pool` crate for all known forks.
 test-op-pool: $(patsubst %,test-op-pool-%,$(FORKS))

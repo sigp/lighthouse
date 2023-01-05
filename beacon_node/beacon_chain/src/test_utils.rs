@@ -120,23 +120,19 @@ fn make_rng() -> Mutex<StdRng> {
     Mutex::new(StdRng::seed_from_u64(0x0DDB1A5E5BAD5EEDu64))
 }
 
-pub fn get_fork_from_env() -> ForkName {
-    let fork_string = std::env::var(FORK_NAME_ENV_VAR).unwrap_or_else(|e| {
-        panic!(
-            "{} env var must be defined when using fork_from_env: {:?}",
-            FORK_NAME_ENV_VAR, e
-        )
-    });
-    ForkName::from_str(fork_string.as_str()).unwrap()
-}
-
 /// Return a `ChainSpec` suitable for test usage.
 ///
 /// If the `fork_from_env` feature is enabled, read the fork to use from the FORK_NAME environment
 /// variable. Otherwise use the default spec.
 pub fn test_spec<E: EthSpec>() -> ChainSpec {
     let mut spec = if cfg!(feature = "fork_from_env") {
-        let fork = get_fork_from_env();
+        let fork_name = std::env::var(FORK_NAME_ENV_VAR).unwrap_or_else(|e| {
+            panic!(
+                "{} env var must be defined when using fork_from_env: {:?}",
+                FORK_NAME_ENV_VAR, e
+            )
+        });
+        let fork = ForkName::from_str(fork_name.as_str()).unwrap();
         fork.make_genesis_spec(E::default_spec())
     } else {
         E::default_spec()
