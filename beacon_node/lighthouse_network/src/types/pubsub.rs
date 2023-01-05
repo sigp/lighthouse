@@ -45,6 +45,15 @@ pub struct SnappyTransform {
     max_size_per_message: usize,
 }
 
+// This is just required for the gossipsub builder. Not to be used when instantiating.
+impl Default for SnappyTransform {
+    fn default() -> Self {
+        SnappyTransform {
+            max_size_per_message: 10_000_000,
+        }
+    }
+}
+
 impl SnappyTransform {
     pub fn new(max_size_per_message: usize) -> Self {
         SnappyTransform {

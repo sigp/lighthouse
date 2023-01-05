@@ -22,11 +22,11 @@ use gossipsub_scoring_parameters::{lighthouse_gossip_thresholds, PeerScoreSettin
 use libp2p::bandwidth::BandwidthSinks;
 use libp2p::gossipsub::error::PublishError;
 use libp2p::gossipsub::metrics::Config as GossipsubMetricsConfig;
-use libp2p::gossipsub::subscription_filter::MaxCountSubscriptionFilter;
-use libp2p::gossipsub::{
-    GossipsubEvent, IdentTopic as Topic, MessageAcceptance, MessageAuthenticity, MessageId,
+use libp2p::gossipsub::MaxCountSubscriptionFilter;
+use libp2p::gossipsub::{GossipsubBuilder,
+    GossipsubEvent, IdentTopic as Topic, MessageAcceptance, MessageAuthenticity, MessageId,ValidationMode,
 };
-use libp2p::identify::{Identify, IdentifyConfig, IdentifyEvent};
+use libp2p::identify::{Behaviour as Identify, Config as IdentifyConfig, Event as IdentifyEvent};
 use libp2p::multiaddr::{Multiaddr, Protocol as MProtocol};
 use libp2p::swarm::{ConnectionLimits, Swarm, SwarmBuilder, SwarmEvent};
 use libp2p::PeerId;
@@ -237,20 +237,26 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
 
             config.gs_config = gossipsub_config(config.network_load, ctx.fork_context.clone());
 
-            // If metrics are enabled for gossipsub build the configuration
-            let gossipsub_metrics = ctx
-                .gossipsub_registry
-                .map(|registry| (registry, GossipsubMetricsConfig::default()));
-
             let snappy_transform = SnappyTransform::new(config.gs_config.max_transmit_size());
-            let mut gossipsub = Gossipsub::new_with_subscription_filter_and_transform(
-                MessageAuthenticity::Anonymous,
-                config.gs_config.clone(),
-                gossipsub_metrics,
-                filter,
-                snappy_transform,
-            )
-            .map_err(|e| format!("Could not construct gossipsub: {:?}", e))?;
+            let mut gossipsub = {
+                let gossipsub_builder = GossipsubBuilder::new(MessageAuthenticity::Anonymous)
+                    .config(config.gs_config.clone())
+                    .validation_mode(ValidationMode::Anonymous)
+                    .topic_subscription_filter(filter)
+                    .data_transform(snappy_transform);
+
+                // Enable metrics 
+                let gossipsub_builder = {
+                    if let Some(registry) = ctx.gossipsub_registry {
+                    gossipsub_builder.metrics(registry, GossipsubMetricsConfig::default())
+                    } else {
+                        gossipsub_builder
+                    }
+                };
+
+                gossipsub_builder.build()
+                .map_err(|e| format!("Could not construct gossipsub: {:?}", e))?
+            };
 
             gossipsub
                 .with_peer_score(params, thresholds)
@@ -316,7 +322,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
 
             // use the executor for libp2p
             struct Executor(task_executor::TaskExecutor);
-            impl libp2p::core::Executor for Executor {
+            impl libp2p::swarm::Executor for Executor {
                 fn exec(&self, f: Pin<Box<dyn futures::Future<Output = ()> + Send>>) {
                     self.0.spawn(f, "libp2p");
                 }
@@ -341,12 +347,16 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                 .with_max_established_per_peer(Some(MAX_CONNECTIONS_PER_PEER));
 
             (
-                SwarmBuilder::new(transport, behaviour, local_peer_id)
-                    .notify_handler_buffer_size(std::num::NonZeroUsize::new(7).expect("Not zero"))
-                    .connection_event_buffer_size(64)
-                    .connection_limits(limits)
-                    .executor(Box::new(Executor(executor)))
-                    .build(),
+                SwarmBuilder::with_executor(
+                    transport,
+                    behaviour,
+                    local_peer_id,
+                    Executor(executor),
+                )
+                .notify_handler_buffer_size(std::num::NonZeroUsize::new(7).expect("Not zero"))
+                .connection_event_buffer_size(64)
+                .connection_limits(limits)
+                .build(),
                 bandwidth,
             )
         };

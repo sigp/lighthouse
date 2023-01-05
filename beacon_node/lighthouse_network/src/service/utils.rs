@@ -8,8 +8,8 @@ use libp2p::bandwidth::{BandwidthLogging, BandwidthSinks};
 use libp2p::core::{
     identity::Keypair, multiaddr::Multiaddr, muxing::StreamMuxerBox, transport::Boxed,
 };
-use libp2p::gossipsub::subscription_filter::WhitelistSubscriptionFilter;
 use libp2p::gossipsub::IdentTopic as Topic;
+use libp2p::gossipsub::WhitelistSubscriptionFilter;
 use libp2p::{core, noise, PeerId, Transport};
 use prometheus_client::registry::Registry;
 use slog::{debug, warn};
@@ -44,8 +44,7 @@ type BoxedTransport = Boxed<(PeerId, StreamMuxerBox)>;
 pub fn build_transport(
     local_private_key: Keypair,
 ) -> std::io::Result<(BoxedTransport, Arc<BandwidthSinks>)> {
-    let tcp =
-        libp2p::tcp::TokioTcpTransport::new(libp2p::tcp::GenTcpConfig::default().nodelay(true));
+    let tcp = libp2p::tcp::tokio::Transport::new(libp2p::tcp::Config::default().nodelay(true));
     let transport = libp2p::dns::TokioDnsConfig::system(tcp)?;
     #[cfg(feature = "libp2p-websocket")]
     let transport = {
