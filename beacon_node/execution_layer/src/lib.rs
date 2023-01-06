@@ -35,7 +35,7 @@ use tokio::{
     time::sleep,
 };
 use tokio_stream::wrappers::WatchStream;
-use types::{AbstractExecPayload, Blob, ExecPayload, KzgCommitment};
+use types::{AbstractExecPayload, BeaconStateError, Blob, ExecPayload, KzgCommitment};
 use types::{
     BlindedPayload, BlockType, ChainSpec, Epoch, ExecutionBlockHash, ForkName,
     ProposerPreparationData, PublicKeyBytes, Signature, SignedBeaconBlock, Slot, Uint256,
@@ -95,6 +95,13 @@ pub enum Error {
     FeeRecipientUnspecified,
     MissingLatestValidHash,
     InvalidJWTSecret(String),
+    BeaconStateError(BeaconStateError),
+}
+
+impl From<BeaconStateError> for Error {
+    fn from(e: BeaconStateError) -> Self {
+        Error::BeaconStateError(e)
+    }
 }
 
 impl From<ApiError> for Error {
@@ -153,17 +160,17 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> BlockProposalContents<T, Paylo
             } => Some(blobs),
         }
     }
-    pub fn default_at_fork(fork_name: ForkName) -> Self {
-        match fork_name {
+    pub fn default_at_fork(fork_name: ForkName) -> Result<Self, BeaconStateError> {
+        Ok(match fork_name {
             ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {
-                BlockProposalContents::Payload(Payload::default_at_fork(fork_name))
+                BlockProposalContents::Payload(Payload::default_at_fork(fork_name)?)
             }
             ForkName::Eip4844 => BlockProposalContents::PayloadAndBlobs {
-                payload: Payload::default_at_fork(fork_name),
+                payload: Payload::default_at_fork(fork_name)?,
                 blobs: vec![],
                 kzg_commitments: vec![],
             },
-        }
+        })
     }
 }
 
@@ -803,10 +810,6 @@ impl<T: EthSpec> ExecutionLayer<T> {
                                 spec,
                             ) {
                                 Ok(()) => Ok(ProvenancedPayload::Builder(
-                                    //FIXME(sean) the builder API needs to be updated
-                                    // NOTE       the comment above was removed in the
-                                    //            rebase with unstable.. I think it goes
-                                    //            here now?
                                     BlockProposalContents::Payload(relay.data.message.header),
                                 )),
                                 Err(reason) if !reason.payload_invalid() => {
@@ -858,19 +861,11 @@ impl<T: EthSpec> ExecutionLayer<T> {
                                 spec,
                             ) {
                                 Ok(()) => Ok(ProvenancedPayload::Builder(
-                                    //FIXME(sean) the builder API needs to be updated
-                                    // NOTE       the comment above was removed in the
-                                    //            rebase with unstable.. I think it goes
-                                    //            here now?
                                     BlockProposalContents::Payload(relay.data.message.header),
                                 )),
                                 // If the payload is valid then use it. The local EE failed
                                 // to produce a payload so we have no alternative.
                                 Err(e) if !e.payload_invalid() => Ok(ProvenancedPayload::Builder(
-                                    //FIXME(sean) the builder API needs to be updated
-                                    // NOTE       the comment above was removed in the
-                                    //            rebase with unstable.. I think it goes
-                                    //            here now?
                                     BlockProposalContents::Payload(relay.data.message.header),
                                 )),
                                 Err(reason) => {

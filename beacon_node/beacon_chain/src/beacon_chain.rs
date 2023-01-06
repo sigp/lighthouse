@@ -6,7 +6,6 @@ use crate::attestation_verification::{
 use crate::attester_cache::{AttesterCache, AttesterCacheKey};
 use crate::beacon_proposer_cache::compute_proposer_duties_from_head;
 use crate::beacon_proposer_cache::BeaconProposerCache;
-use crate::blob_verification::{BlobError, VerifiedBlobsSidecar};
 use crate::block_times_cache::BlockTimesCache;
 use crate::block_verification::{
     check_block_is_finalized_descendant, check_block_relevancy, get_block_root,
@@ -1814,23 +1813,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 }
             }
             metrics::inc_counter(&metrics::SYNC_CONTRIBUTION_PROCESSING_SUCCESSES);
-            v
-        })
-    }
-
-    /// Accepts some `BlobsSidecar` received over from the network and attempts to verify it,
-    /// returning `Ok(_)` if it is valid to be (re)broadcast on the gossip network.
-    pub fn verify_blobs_sidecar_for_gossip<'a>(
-        &self,
-        blobs_sidecar: &'a BlobsSidecar<T::EthSpec>,
-    ) -> Result<VerifiedBlobsSidecar<'a, T>, BlobError> {
-        metrics::inc_counter(&metrics::BLOBS_SIDECAR_PROCESSING_REQUESTS);
-        let _timer = metrics::start_timer(&metrics::BLOBS_SIDECAR_GOSSIP_VERIFICATION_TIMES);
-        VerifiedBlobsSidecar::verify(blobs_sidecar, self).map(|v| {
-            if let Some(_event_handler) = self.event_handler.as_ref() {
-                // TODO: Handle sse events
-            }
-            metrics::inc_counter(&metrics::BLOBS_SIDECAR_PROCESSING_SUCCESSES);
             v
         })
     }
@@ -4479,7 +4461,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         .try_into()
                         .map_err(|_| BlockProductionError::InvalidPayloadFork)?,
                     bls_to_execution_changes: bls_to_execution_changes.into(),
-                    //FIXME(sean) get blobs
                     blob_kzg_commitments: VariableList::from(kzg_commitments),
                 },
             }),

@@ -11,10 +11,7 @@ use beacon_chain::{
     BeaconChainError, BeaconChainTypes, BlockError, CountUnrealized, ForkChoiceError,
     GossipVerifiedBlock, NotifyExecutionLayer,
 };
-use lighthouse_network::{
-    Client, MessageAcceptance, MessageId, PeerAction, PeerId, ReportSource,
-    SignedBeaconBlockAndBlobsSidecar,
-};
+use lighthouse_network::{Client, MessageAcceptance, MessageId, PeerAction, PeerId, ReportSource};
 use slog::{crit, debug, error, info, trace, warn};
 use slot_clock::SlotClock;
 use ssz::Encode;
@@ -697,19 +694,6 @@ impl<T: BeaconChainTypes> Worker<T> {
                 );
             }
         }
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    pub async fn process_gossip_block_and_blobs_sidecar(
-        self,
-        _message_id: MessageId,
-        _peer_id: PeerId,
-        _peer_client: Client,
-        _block_and_blob: Arc<SignedBeaconBlockAndBlobsSidecar<T::EthSpec>>,
-        _seen_timestamp: Duration,
-    ) {
-        //FIXME
-        unimplemented!()
     }
 
     /// Process the beacon block received from the gossip network and

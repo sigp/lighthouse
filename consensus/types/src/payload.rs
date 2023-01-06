@@ -92,7 +92,7 @@ pub trait AbstractExecPayload<T: EthSpec>:
         + From<ExecutionPayloadEip4844<T>>
         + TryFrom<ExecutionPayloadHeaderEip4844<T>>;
 
-    fn default_at_fork(fork_name: ForkName) -> Self;
+    fn default_at_fork(fork_name: ForkName) -> Result<Self, Error>;
 }
 
 #[superstruct(
@@ -372,13 +372,12 @@ impl<T: EthSpec> AbstractExecPayload<T> for FullPayload<T> {
     type Capella = FullPayloadCapella<T>;
     type Eip4844 = FullPayloadEip4844<T>;
 
-    fn default_at_fork(fork_name: ForkName) -> Self {
+    fn default_at_fork(fork_name: ForkName) -> Result<Self, Error> {
         match fork_name {
-            //FIXME(sean) error handling
-            ForkName::Base | ForkName::Altair => panic!(),
-            ForkName::Merge => FullPayloadMerge::default().into(),
-            ForkName::Capella => FullPayloadCapella::default().into(),
-            ForkName::Eip4844 => FullPayloadEip4844::default().into(),
+            ForkName::Base | ForkName::Altair => Err(Error::IncorrectStateVariant),
+            ForkName::Merge => Ok(FullPayloadMerge::default().into()),
+            ForkName::Capella => Ok(FullPayloadCapella::default().into()),
+            ForkName::Eip4844 => Ok(FullPayloadEip4844::default().into()),
         }
     }
 }
@@ -882,13 +881,12 @@ impl<T: EthSpec> AbstractExecPayload<T> for BlindedPayload<T> {
     type Capella = BlindedPayloadCapella<T>;
     type Eip4844 = BlindedPayloadEip4844<T>;
 
-    fn default_at_fork(fork_name: ForkName) -> Self {
+    fn default_at_fork(fork_name: ForkName) -> Result<Self, Error> {
         match fork_name {
-            //FIXME(sean) error handling
-            ForkName::Base | ForkName::Altair => panic!(),
-            ForkName::Merge => BlindedPayloadMerge::default().into(),
-            ForkName::Capella => BlindedPayloadCapella::default().into(),
-            ForkName::Eip4844 => BlindedPayloadEip4844::default().into(),
+            ForkName::Base | ForkName::Altair => Err(Error::IncorrectStateVariant),
+            ForkName::Merge => Ok(BlindedPayloadMerge::default().into()),
+            ForkName::Capella => Ok(BlindedPayloadCapella::default().into()),
+            ForkName::Eip4844 => Ok(BlindedPayloadEip4844::default().into()),
         }
     }
 }

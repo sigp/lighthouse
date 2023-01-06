@@ -189,6 +189,11 @@ async fn reconstruct_block<T: BeaconChainTypes>(
                     .spec
                     .fork_name_at_epoch(block.slot().epoch(T::EthSpec::slots_per_epoch())),
             )
+            .map_err(|e| {
+                warp_utils::reject::custom_server_error(format!(
+                    "Default payload construction error: {e:?}"
+                ))
+            })?
             .into()
             // If we already have an execution payload with this transactions root cached, use it.
         } else if let Some(cached_payload) =
