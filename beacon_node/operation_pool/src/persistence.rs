@@ -18,7 +18,7 @@ type PersistedSyncContributions<T> = Vec<(SyncAggregateId, Vec<SyncCommitteeCont
 /// Operations are stored in arbitrary order, so it's not a good idea to compare instances
 /// of this type (or its encoded form) for equality. Convert back to an `OperationPool` first.
 #[superstruct(
-    variants(V5, V12),
+    variants(V5, V12, V14),
     variant_attributes(
         derive(Derivative, PartialEq, Debug, Encode, Decode),
         derivative(Clone),
@@ -32,7 +32,7 @@ pub struct PersistedOperationPool<T: EthSpec> {
     #[superstruct(only(V5))]
     pub attestations_v5: Vec<(AttestationId, Vec<Attestation<T>>)>,
     /// Attestations and their attesting indices.
-    #[superstruct(only(V12))]
+    #[superstruct(only(V12, V14))]
     pub attestations: Vec<(Attestation<T>, Vec<u64>)>,
     /// Mapping from sync contribution ID to sync contributions and aggregate.
     pub sync_contributions: PersistedSyncContributions<T>,
@@ -40,20 +40,23 @@ pub struct PersistedOperationPool<T: EthSpec> {
     #[superstruct(only(V5))]
     pub attester_slashings_v5: Vec<(AttesterSlashing<T>, ForkVersion)>,
     /// Attester slashings.
-    #[superstruct(only(V12))]
+    #[superstruct(only(V12, V14))]
     pub attester_slashings: Vec<SigVerifiedOp<AttesterSlashing<T>, T>>,
     /// [DEPRECATED] Proposer slashings.
     #[superstruct(only(V5))]
     pub proposer_slashings_v5: Vec<ProposerSlashing>,
     /// Proposer slashings with fork information.
-    #[superstruct(only(V12))]
+    #[superstruct(only(V12, V14))]
     pub proposer_slashings: Vec<SigVerifiedOp<ProposerSlashing, T>>,
     /// [DEPRECATED] Voluntary exits.
     #[superstruct(only(V5))]
     pub voluntary_exits_v5: Vec<SignedVoluntaryExit>,
     /// Voluntary exits with fork information.
-    #[superstruct(only(V12))]
+    #[superstruct(only(V12, V14))]
     pub voluntary_exits: Vec<SigVerifiedOp<SignedVoluntaryExit, T>>,
+    /// BLS to Execution Changes
+    #[superstruct(only(V14))]
+    pub bls_to_execution_changes: Vec<SigVerifiedOp<SignedBlsToExecutionChange, T>>,
 }
 
 impl<T: EthSpec> PersistedOperationPool<T> {
@@ -99,12 +102,20 @@ impl<T: EthSpec> PersistedOperationPool<T> {
             .map(|(_, exit)| exit.clone())
             .collect();
 
-        PersistedOperationPool::V12(PersistedOperationPoolV12 {
+        let bls_to_execution_changes = operation_pool
+            .bls_to_execution_changes
+            .read()
+            .iter()
+            .map(|(_, bls_to_execution_change)| bls_to_execution_change.clone())
+            .collect();
+
+        PersistedOperationPool::V14(PersistedOperationPoolV14 {
             attestations,
             sync_contributions,
             attester_slashings,
             proposer_slashings,
             voluntary_exits,
+            bls_to_execution_changes,
         })
     }
 
@@ -127,14 +138,33 @@ impl<T: EthSpec> PersistedOperationPool<T> {
         );
         let sync_contributions = RwLock::new(self.sync_contributions().iter().cloned().collect());
         let attestations = match self {
-            PersistedOperationPool::V5(_) => return Err(OpPoolError::IncorrectOpPoolVariant),
-            PersistedOperationPool::V12(pool) => {
+            PersistedOperationPool::V5(_) | PersistedOperationPool::V12(_) => {
+                return Err(OpPoolError::IncorrectOpPoolVariant)
+            }
+            PersistedOperationPool::V14(ref pool) => {
                 let mut map = AttestationMap::default();
-                for (att, attesting_indices) in pool.attestations {
+                for (att, attesting_indices) in pool.attestations.clone() {
                     map.insert(att, attesting_indices);
                 }
                 RwLock::new(map)
             }
+        };
+        let bls_to_execution_changes = match self {
+            PersistedOperationPool::V5(_) | PersistedOperationPool::V12(_) => {
+                return Err(OpPoolError::IncorrectOpPoolVariant)
+            }
+            PersistedOperationPool::V14(pool) => RwLock::new(
+                pool.bls_to_execution_changes
+                    .iter()
+                    .cloned()
+                    .map(|bls_to_execution_change| {
+                        (
+                            bls_to_execution_change.as_inner().message.validator_index,
+                            bls_to_execution_change,
+                        )
+                    })
+                    .collect(),
+            ),
         };
         let op_pool = OperationPool {
             attestations,
@@ -142,8 +172,7 @@ impl<T: EthSpec> PersistedOperationPool<T> {
             attester_slashings,
             proposer_slashings,
             voluntary_exits,
-            // FIXME(capella): implement schema migration for address changes in op pool
-            bls_to_execution_changes: Default::default(),
+            bls_to_execution_changes,
             reward_cache: Default::default(),
             _phantom: Default::default(),
         };
@@ -165,6 +194,20 @@ impl<T: EthSpec> StoreItem for PersistedOperationPoolV5<T> {
     }
 }
 
+impl<T: EthSpec> StoreItem for PersistedOperationPoolV12<T> {
+    fn db_column() -> DBColumn {
+        DBColumn::OpPool
+    }
+
+    fn as_store_bytes(&self) -> Vec<u8> {
+        self.as_ssz_bytes()
+    }
+
+    fn from_store_bytes(bytes: &[u8]) -> Result<Self, StoreError> {
+        PersistedOperationPoolV12::from_ssz_bytes(bytes).map_err(Into::into)
+    }
+}
+
 /// Deserialization for `PersistedOperationPool` defaults to `PersistedOperationPool::V12`.
 impl<T: EthSpec> StoreItem for PersistedOperationPool<T> {
     fn db_column() -> DBColumn {
@@ -177,8 +220,8 @@ impl<T: EthSpec> StoreItem for PersistedOperationPool<T> {
 
     fn from_store_bytes(bytes: &[u8]) -> Result<Self, StoreError> {
         // Default deserialization to the latest variant.
-        PersistedOperationPoolV12::from_ssz_bytes(bytes)
-            .map(Self::V12)
+        PersistedOperationPoolV14::from_ssz_bytes(bytes)
+            .map(Self::V14)
             .map_err(Into::into)
     }
 }
