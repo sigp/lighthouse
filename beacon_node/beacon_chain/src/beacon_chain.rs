@@ -972,7 +972,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
         Ok((
             self.get_block(block_root).await?.map(Arc::new),
-            self.get_blobs(block_root).await?.map(Arc::new),
+            self.get_blobs(block_root).ok().flatten().map(Arc::new),
         ))
     }
 
@@ -1048,7 +1048,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// ## Errors
     ///
     /// May return a database error.
-    pub async fn get_blobs(
+    pub fn get_blobs(
         &self,
         block_root: &Hash256,
     ) -> Result<Option<BlobsSidecar<T::EthSpec>>, Error> {
@@ -1060,7 +1060,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
                     if expected_kzg_commitments.len() > 0 {
                         Err(Error::DBInconsistent(format!(
-                            "expected kzg_commitments but no blobs stored for block_root {}",
+                            "Expected kzg commitments but no blobs stored for block root {}",
                             block_root
                         )))
                     } else {

@@ -658,25 +658,22 @@ impl<T: BeaconChainTypes> Worker<T> {
         let send_response = true;
 
         for root in block_roots {
-            match self.chain.store.get_blobs(&root) {
-                Ok(Some(blob)) => {
-                    let response_data = if blob.blobs.len() > 0 {
-                        Some(Arc::new(blob))
-                    } else {
-                        None
-                    };
-                    blobs_sent += 1;
-                    self.send_network_message(NetworkMessage::SendResponse {
-                        peer_id,
-                        response: Response::BlobsByRange(response_data),
-                        id: request_id,
-                    });
+            match self.chain.get_blobs(&root) {
+                Ok(Some(blobs)) => {
+                    if blobs.blobs.len() > 0 {
+                        blobs_sent += 1;
+                        self.send_network_message(NetworkMessage::SendResponse {
+                            peer_id,
+                            response: Response::BlobsByRange(Some(Arc::new(blobs))),
+                            id: request_id,
+                        });
+                    }
                 }
                 Ok(None) => {
                     error!(
                         self.log,
-                        "Blob in the chain is not in the store";
-                        "request_root" => ?root
+                        "No blobs or block in the store for block root";
+                        "block_root" => ?root
                     );
                     break;
                 }
