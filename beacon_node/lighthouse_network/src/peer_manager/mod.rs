@@ -1146,6 +1146,43 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         }
     }
 
+    /// The Peer manager's heartbeat maintains the peer count and maintains peer reputations.
+    ///
+    /// It will request discovery queries if the peer count has not reached the desired number of
+    /// overall peers, as well as the desired number of outbound-only peers.
+    ///
+    /// NOTE: Discovery will only add a new query if one isn't already queued.
+    fn heartbeat(&mut self) {
+        // Optionally run a discovery query if we need more peers.
+        self.maintain_peer_count(0);
+
+        // Cleans up the connection state of dialing peers.
+        // Libp2p dials peer-ids, but sometimes the response is from another peer-id or libp2p
+        // returns dial errors without a peer-id attached. This function reverts peers that have a
+        // dialing status long than DIAL_TIMEOUT seconds to a disconnected status. This is important because
+        // we count the number of dialing peers in our inbound connections.
+        self.network_globals.peers.write().cleanup_dialing_peers();
+
+        // Updates peer's scores and unban any peers if required.
+        let actions = self.network_globals.peers.write().update_scores();
+        for (peer_id, action) in actions {
+            self.handle_score_action(&peer_id, action, None);
+        }
+
+        // Update peer score metrics;
+        self.update_peer_score_metrics();
+
+        // Maintain minimum count for sync committee peers.
+        self.maintain_sync_committee_peers();
+
+        // Prune any excess peers back to our target in such a way that incentivises good scores and
+        // a uniform distribution of subnets.
+        self.prune_excess_peers();
+
+        // Unban any peers that have served their temporary ban timeout
+        self.unban_temporary_banned_peers();
+    }
+
     // Update metrics related to peer scoring.
     fn update_peer_score_metrics(&self) {
         if !self.metrics_enabled {
@@ -1213,43 +1250,6 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                 score / (peers as f64),
             );
         }
-    }
-
-    /// The Peer manager's heartbeat maintains the peer count and maintains peer reputations.
-    ///
-    /// It will request discovery queries if the peer count has not reached the desired number of
-    /// overall peers, as well as the desired number of outbound-only peers.
-    ///
-    /// NOTE: Discovery will only add a new query if one isn't already queued.
-    fn heartbeat(&mut self) {
-        // Optionally run a discovery query if we need more peers.
-        self.maintain_peer_count(0);
-
-        // Cleans up the connection state of dialing peers.
-        // Libp2p dials peer-ids, but sometimes the response is from another peer-id or libp2p
-        // returns dial errors without a peer-id attached. This function reverts peers that have a
-        // dialing status long than DIAL_TIMEOUT seconds to a disconnected status. This is important because
-        // we count the number of dialing peers in our inbound connections.
-        self.network_globals.peers.write().cleanup_dialing_peers();
-
-        // Updates peer's scores and unban any peers if required.
-        let actions = self.network_globals.peers.write().update_scores();
-        for (peer_id, action) in actions {
-            self.handle_score_action(&peer_id, action, None);
-        }
-
-        // Update peer score metrics;
-        self.update_peer_score_metrics();
-
-        // Maintain minimum count for sync committee peers.
-        self.maintain_sync_committee_peers();
-
-        // Prune any excess peers back to our target in such a way that incentivises good scores and
-        // a uniform distribution of subnets.
-        self.prune_excess_peers();
-
-        // Unban any peers that have served their temporary ban timeout
-        self.unban_temporary_banned_peers();
     }
 }
 
