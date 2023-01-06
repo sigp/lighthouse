@@ -1055,7 +1055,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         match self.store.get_blobs(block_root)? {
             Some(blobs) => Ok(Some(blobs)),
             None => {
-                if let Some(block) = self.get_block(block_root).await? {
+                if let Ok(Some(block)) = self.get_blinded_block(block_root) {
                     let expected_kzg_commitments = block.message().body().blob_kzg_commitments()?;
 
                     if expected_kzg_commitments.len() > 0 {
