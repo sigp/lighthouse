@@ -3021,6 +3021,22 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 info!(self.log, "Writing blobs to store"; "block_root" => ?block_root);
                 ops.push(StoreOp::PutBlobs(block_root, blobs));
             }
+
+            // Update db's metadata for blobs pruning.
+            if current_slot == current_epoch.start_slot(T::EthSpec::slots_per_epoch()) {
+                if let Some(mut blob_info) = self.store.get_blob_info() {
+                    let next_epoch_to_prune =
+                        blob_info.last_pruned_epoch + *MIN_EPOCHS_FOR_BLOBS_SIDECARS_REQUESTS;
+
+                    if current_epoch > next_epoch_to_prune {
+                        blob_info.availability_breakpoint = block_root;
+                        self.store.compare_and_set_blob_info_with_write(
+                            self.store.get_blob_info(),
+                            Some(blob_info),
+                        )?;
+                    }
+                }
+            }
         };
         let txn_lock = self.store.hot_db.begin_rw_transaction();
 
