@@ -12,7 +12,7 @@ env:
   # Deny warnings in CI
   RUSTFLAGS: "-D warnings"
   # The Nightly version used for cargo-udeps, might need updating from time to time.
-  PINNED_NIGHTLY: nightly-2022-05-20
+  PINNED_NIGHTLY: nightly-2022-12-15
   # Prevent Github API rate limiting.
   LIGHTHOUSE_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 jobs:
@@ -332,27 +332,6 @@ jobs:
       run: make lint
     - name: Certify Cargo.lock freshness
       run: git diff --exit-code Cargo.lock
-  disallowed-from-async-lint:
-    name: disallowed-from-async-lint
-    runs-on: ubuntu-latest
-    needs: cargo-fmt
-    continue-on-error: true
-    steps:
-    - uses: actions/checkout@v3
-    - name: Install SigP Clippy fork
-      run: |
-        cd ..
-        git clone https://github.com/michaelsproul/rust-clippy.git
-        cd rust-clippy
-        git checkout 31a49666ccfcd7963b63345d6ce757c373f22c2a
-        cargo build --release --bin cargo-clippy --bin clippy-driver
-        cargo build --release --bin cargo-clippy --bin clippy-driver -Zunstable-options --out-dir $(rustc --print=sysroot)/bin
-    - name: Install Protoc
-      uses: arduino/setup-protoc@e52d9eb8f7b63115df1ac544a1376fdbf5a39612
-      with:
-        repo-token: ${{ secrets.GITHUB_TOKEN }}
-    - name: Run Clippy with the disallowed-from-async lint
-      run: make nightly-lint
   check-msrv:
     name: check-msrv
     runs-on: ubuntu-latest
