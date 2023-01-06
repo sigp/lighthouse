@@ -80,7 +80,6 @@ impl<E: EthSpec> Operation<E> for Attestation<E> {
         _: &Operations<E, Self>,
     ) -> Result<(), BlockProcessingError> {
         let mut ctxt = ConsensusContext::new(state.slot());
-        let proposer_index = ctxt.get_proposer_index(state, spec)?;
         match state {
             BeaconState::Base(_) => base::process_attestations(
                 state,
@@ -89,14 +88,9 @@ impl<E: EthSpec> Operation<E> for Attestation<E> {
                 &mut ctxt,
                 spec,
             ),
-            BeaconState::Altair(_) | BeaconState::Merge(_) => altair::process_attestation(
-                state,
-                self,
-                0,
-                proposer_index,
-                VerifySignatures::True,
-                spec,
-            ),
+            BeaconState::Altair(_) | BeaconState::Merge(_) => {
+                altair::process_attestation(state, self, 0, &mut ctxt, VerifySignatures::True, spec)
+            }
         }
     }
 }

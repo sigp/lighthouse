@@ -1,6 +1,6 @@
 use super::{BeaconBlockHeader, EthSpec, Slot, SyncAggregate};
 use crate::{
-    light_client_update::Error, test_utils::TestRandom, BeaconBlock, BeaconState, ChainSpec,
+    light_client_update::Error, test_utils::TestRandom, BeaconState, ChainSpec, SignedBeaconBlock,
 };
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
@@ -23,9 +23,9 @@ pub struct LightClientOptimisticUpdate<T: EthSpec> {
 
 impl<T: EthSpec> LightClientOptimisticUpdate<T> {
     pub fn new(
-        chain_spec: ChainSpec,
-        block: BeaconBlock<T>,
-        attested_state: BeaconState<T>,
+        chain_spec: &ChainSpec,
+        block: &SignedBeaconBlock<T>,
+        attested_state: &BeaconState<T>,
     ) -> Result<Self, Error> {
         let altair_fork_epoch = chain_spec
             .altair_fork_epoch
@@ -34,7 +34,7 @@ impl<T: EthSpec> LightClientOptimisticUpdate<T> {
             return Err(Error::AltairForkNotActive);
         }
 
-        let sync_aggregate = block.body().sync_aggregate()?;
+        let sync_aggregate = block.message().body().sync_aggregate()?;
         if sync_aggregate.num_set_bits() < chain_spec.min_sync_committee_participants as usize {
             return Err(Error::NotEnoughSyncCommitteeParticipants);
         }

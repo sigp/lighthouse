@@ -23,6 +23,7 @@ use types::{EthSpec, ExecutionBlockHash, Uint256};
 use warp::{http::StatusCode, Filter, Rejection};
 
 pub use execution_block_generator::{generate_pow_block, Block, ExecutionBlockGenerator};
+pub use hook::Hook;
 pub use mock_builder::{Context as MockBuilderContext, MockBuilder, Operation, TestingBuilder};
 pub use mock_execution_layer::MockExecutionLayer;
 
@@ -33,6 +34,7 @@ pub const DEFAULT_BUILDER_THRESHOLD_WEI: u128 = 1_000_000_000_000_000_000;
 
 mod execution_block_generator;
 mod handle_rpc;
+mod hook;
 mod mock_builder;
 mod mock_execution_layer;
 
@@ -99,6 +101,7 @@ impl<T: EthSpec> MockServer<T> {
             static_new_payload_response: <_>::default(),
             static_forkchoice_updated_response: <_>::default(),
             static_get_block_by_hash_response: <_>::default(),
+            hook: <_>::default(),
             new_payload_statuses: <_>::default(),
             fcu_payload_statuses: <_>::default(),
             _phantom: PhantomData,
@@ -359,8 +362,7 @@ impl<T: EthSpec> MockServer<T> {
             .write()
             // The EF tests supply blocks out of order, so we must import them "without checks" and
             // trust they form valid chains.
-            .insert_block_without_checks(block)
-            .unwrap()
+            .insert_block_without_checks(block);
     }
 
     pub fn get_block(&self, block_hash: ExecutionBlockHash) -> Option<Block<T>> {
@@ -441,6 +443,7 @@ pub struct Context<T: EthSpec> {
     pub static_new_payload_response: Arc<Mutex<Option<StaticNewPayloadResponse>>>,
     pub static_forkchoice_updated_response: Arc<Mutex<Option<PayloadStatusV1>>>,
     pub static_get_block_by_hash_response: Arc<Mutex<Option<Option<ExecutionBlock>>>>,
+    pub hook: Arc<Mutex<Hook>>,
 
     // Canned responses by block hash.
     //
