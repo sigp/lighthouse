@@ -333,6 +333,11 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
         let proposer_index = self.validator_store.validator_index(&validator_pubkey);
         let validator_pubkey_ref = &validator_pubkey;
 
+        info!(
+            log,
+            "Requesting unsigned block";
+            "slot" => slot.as_u64(),
+        );
         // Request block from first responsive beacon node.
         let block = self
             .beacon_nodes
@@ -345,6 +350,11 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                             let _get_timer = metrics::start_timer_vec(
                                 &metrics::BLOCK_SERVICE_TIMES,
                                 &[metrics::BEACON_BLOCK_HTTP_GET],
+                            );
+                            info!(
+                                log,
+                                "Received unsigned block";
+                                "slot" => slot.as_u64(),
                             );
                             beacon_node
                                 .get_validator_blocks::<E, Payload>(
@@ -365,6 +375,11 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                             let _get_timer = metrics::start_timer_vec(
                                 &metrics::BLOCK_SERVICE_TIMES,
                                 &[metrics::BLINDED_BEACON_BLOCK_HTTP_GET],
+                            );
+                            info!(
+                                log,
+                                "Received unsigned block";
+                                "slot" => slot.as_u64(),
                             );
                             beacon_node
                                 .get_validator_blinded_blocks::<E, Payload>(
