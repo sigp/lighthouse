@@ -303,7 +303,7 @@ impl<T: BeaconChainTypes> Worker<T> {
             };
         self.send_response(
             peer_id,
-            Response::LightClientOptimisticUpdate(light_client_optimistic_update),
+            Response::LightClientOptimisticUpdate(Arc::new(light_client_optimistic_update)),
             request_id,
         )
     }
@@ -330,7 +330,7 @@ impl<T: BeaconChainTypes> Worker<T> {
             };
         self.send_response(
             peer_id,
-            Response::LightClientFinalityUpdate(light_client_finality_update),
+            Response::LightClientFinalityUpdate(Arc::new(light_client_finality_update)),
             request_id,
         )
     }

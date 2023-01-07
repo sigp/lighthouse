@@ -570,12 +570,12 @@ fn handle_v1_response<T: EthSpec>(
             LightClientBootstrap::from_ssz_bytes(decoded_buffer)?,
         ))),
         Protocol::LightClientOptimisticUpdate => {
-            Ok(Some(RPCResponse::LightClientOptimisticUpdate(
+            Ok(Some(RPCResponse::LightClientOptimisticUpdate(Arc::new(
                 LightClientOptimisticUpdate::from_ssz_bytes(decoded_buffer)?,
-            )))
+            ))))
         }
         Protocol::LightClientFinalityUpdate => Ok(Some(RPCResponse::LightClientFinalityUpdate(
-            LightClientFinalityUpdate::from_ssz_bytes(decoded_buffer)?,
+            Arc::new(LightClientFinalityUpdate::from_ssz_bytes(decoded_buffer)?),
         ))),
     }
 }

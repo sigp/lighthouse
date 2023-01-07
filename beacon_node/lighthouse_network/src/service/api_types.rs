@@ -86,9 +86,9 @@ pub enum Response<TSpec: EthSpec> {
     /// A response to a LightClientUpdate request.
     LightClientBootstrap(LightClientBootstrap<TSpec>),
     /// A response to a LightClientOptimisticUpdate request.
-    LightClientOptimisticUpdate(LightClientOptimisticUpdate<TSpec>),
+    LightClientOptimisticUpdate(Arc<LightClientOptimisticUpdate<TSpec>>),
     /// A response to a LightClientFinalityUpdate request.
-    LightClientFinalityUpdate(LightClientFinalityUpdate<TSpec>),
+    LightClientFinalityUpdate(Arc<LightClientFinalityUpdate<TSpec>>),
 }
 
 impl<TSpec: EthSpec> std::convert::From<Response<TSpec>> for RPCCodedResponse<TSpec> {

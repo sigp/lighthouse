@@ -250,10 +250,10 @@ pub enum RPCResponse<T: EthSpec> {
     LightClientBootstrap(LightClientBootstrap<T>),
 
     /// A response to a get LightClientOptimisticUpdate request.
-    LightClientOptimisticUpdate(LightClientOptimisticUpdate<T>),
+    LightClientOptimisticUpdate(Arc<LightClientOptimisticUpdate<T>>),
 
     /// A response to a get LightClientFinalityUpdate request.
-    LightClientFinalityUpdate(LightClientFinalityUpdate<T>),
+    LightClientFinalityUpdate(Arc<LightClientFinalityUpdate<T>>),
 
     /// A PONG response to a PING request.
     Pong(Ping),
