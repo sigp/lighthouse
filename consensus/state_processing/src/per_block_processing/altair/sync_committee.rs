@@ -4,7 +4,7 @@ use crate::{signature_sets::sync_aggregate_signature_set, VerifySignatures};
 use safe_arith::SafeArith;
 use std::borrow::Cow;
 use types::consts::altair::{PROPOSER_WEIGHT, SYNC_REWARD_WEIGHT, WEIGHT_DENOMINATOR};
-use types::{BeaconState, ChainSpec, EthSpec, PublicKeyBytes, SyncAggregate, Unsigned};
+use types::{BeaconState, ChainSpec, EthSpec, PublicKeyBytes, SyncAggregate, Unsigned, Slot};
 
 pub fn process_sync_aggregate<T: EthSpec>(
     state: &mut BeaconState<T>,
@@ -69,6 +69,7 @@ pub fn compute_sync_aggregate_rewards<T: EthSpec>(
     state: &BeaconState<T>,
     spec: &ChainSpec,
 ) -> Result<(u64, u64), BlockProcessingError> {
+
     let total_active_balance = state.get_total_active_balance()?;
     let total_active_increments =
         total_active_balance.safe_div(spec.effective_balance_increment)?;

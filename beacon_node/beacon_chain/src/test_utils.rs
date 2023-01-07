@@ -2,7 +2,8 @@ pub use crate::persisted_beacon_chain::PersistedBeaconChain;
 pub use crate::{
     beacon_chain::{BEACON_CHAIN_DB_KEY, ETH1_CACHE_DB_KEY, FORK_CHOICE_DB_KEY, OP_POOL_DB_KEY},
     migrate::MigratorConfig,
-    BeaconChainError, ProduceBlockVerification,
+    sync_committee_verification::Error as SyncCommitteeError,
+    BeaconChainError, ProduceBlockVerification
 };
 use crate::{
     builder::{BeaconChainBuilder, Witness},
@@ -48,6 +49,7 @@ use store::{config::StoreConfig, HotColdDB, ItemStore, LevelDB, MemoryStore};
 use task_executor::{test_utils::TestRuntime, ShutdownReason};
 use tree_hash::TreeHash;
 use types::sync_selection_proof::SyncSelectionProof;
+use types::sync_committee_contribution::Error as ContributionError;
 pub use types::test_utils::generate_deterministic_keypairs;
 use types::{typenum::U4294967296, *};
 
@@ -1878,6 +1880,37 @@ where
 
         (honest_head, faulty_head)
     }
+
+    pub fn process_sync_contributions(
+        &self,
+        sync_contributions: HarnessSyncContributions<E>
+    ) -> Result<(), SyncCommitteeError> {
+
+        let mut verified_contributions = Vec::with_capacity(sync_contributions.len());
+
+        for (_, contribution_and_proof) in sync_contributions {
+            if let Some(signed_contribution_and_proof) = contribution_and_proof {
+                let verified_contribution = self
+                    .chain
+                    .verify_sync_contribution_for_gossip(signed_contribution_and_proof)?;
+
+                verified_contributions.push(verified_contribution);
+
+            } else {
+                return Err(SyncCommitteeError::ContributionError(ContributionError::VerificationFail));
+            }
+        }
+
+        for verified_contribution in verified_contributions {
+            self
+                .chain
+                .add_contribution_to_block_inclusion_pool(verified_contribution)?;
+        }
+
+        Ok(())
+
+    }
+
 }
 
 // Junk `Debug` impl to satistfy certain trait bounds during testing.
