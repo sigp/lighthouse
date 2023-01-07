@@ -105,8 +105,8 @@ async fn test_sync_committee_rewards() {
 
     assert_eq!(mismatches.len(),
                 0, 
-                "{}",
-                format!("Expect 0 mismatches, but these validators have mismatches on balances: {} ", mismatches.join(","))
+                "Expect 0 mismatches, but these validators have mismatches on balance: {} ", 
+                mismatches.join(",")
                );
 
 }
