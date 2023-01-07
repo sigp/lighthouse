@@ -51,20 +51,23 @@ pub fn compute_attestation_rewards<T: BeaconChainTypes>(
 
     //TODO Get flag_index as usize
     let flag_index = 0;
-    
+
+    // Initialize an empty vector to hold the rewards
+    let mut rewards = Vec::new();
+
     for flag_index in [TIMELY_SOURCE_FLAG_INDEX, TIMELY_TARGET_FLAG_INDEX, TIMELY_HEAD_FLAG_INDEX].iter() {
+
+        //Get weight as u64
+        let weight = match get_flag_weight(*flag_index) {
+            Ok(weight) => weight,
+            Err(_) => return Err(warp_utils::reject::custom_server_error("Unable to get weight".to_owned())),
+        };
 
         //Get unslashed_participating_indices
         let unslashed_participating_indices = match participation_cache.get_unslashed_participating_indices(*flag_index, previous_epoch) {
             Ok(unslashed_participating_indices) => unslashed_participating_indices,
             Err(_) => return Err(warp_utils::reject::custom_server_error("Unable to get unslashed participating indices".to_owned())),
         };    
-        
-        //Get weight as u64
-        let weight = match get_flag_weight(*flag_index) {
-            Ok(weight) => weight,
-            Err(_) => return Err(warp_utils::reject::custom_server_error("Unable to get weight".to_owned())),
-        };
         
         //Get unslashed_participating_balance
         let unslashed_participating_balance = match unslashed_participating_indices.total_balance() {
@@ -77,7 +80,7 @@ pub fn compute_attestation_rewards<T: BeaconChainTypes>(
             Ok(unslashed_participating_increments) => unslashed_participating_increments,
             Err(_) => return Err(warp_utils::reject::custom_server_error("Unable to get unslashed participating increments".to_owned())),
         };  
-        
+
         //Get total_active_balance through current_epoch_total_active_balance
         let total_active_balance = participation_cache.current_epoch_total_active_balance();
         
@@ -98,11 +101,13 @@ pub fn compute_attestation_rewards<T: BeaconChainTypes>(
         
         for i in index {
             let base_reward = get_base_reward(&state, *i, base_reward_per_increment, spec);
+
             //Unwrap base_reward to u64
             let base_reward = match base_reward {
                 Ok(base_reward) => base_reward,
                 Err(_) => return Err(warp_utils::reject::custom_server_error("Unable to get base reward".to_owned())),
             };
+            
             //Calculate reward_numerator = base_reward * weight * unslashed_participating_increments with Error handling
             let reward_numerator = match base_reward.safe_mul(weight).and_then(|reward_numerator| {
                 reward_numerator.safe_mul(unslashed_participating_increments)}) {
@@ -118,6 +123,8 @@ pub fn compute_attestation_rewards<T: BeaconChainTypes>(
                 },
                 Err(_) => return Err(warp_utils::reject::custom_server_error("Unable to calculate reward: Division by active_increments failed".to_owned())),
             };
+            // Push the rewards onto the vector
+            rewards.push(reward);
         }
     }
    
