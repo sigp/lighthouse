@@ -189,7 +189,7 @@ impl ValidatorDefinitions {
             .write(true)
             .read(true)
             .create_new(false)
-            .open(&config_path)
+            .open(config_path)
             .map_err(Error::UnableToOpenFile)?;
         serde_yaml::from_reader(file).map_err(Error::UnableToParseFile)
     }

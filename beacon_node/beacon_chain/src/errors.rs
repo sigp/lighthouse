@@ -204,6 +204,7 @@ pub enum BeaconChainError {
     MissingPersistedForkChoice,
     CommitteePromiseFailed(oneshot_broadcast::Error),
     MaxCommitteePromises(usize),
+    ProposerHeadForkChoiceError(fork_choice::Error<proto_array::Error>),
 }
 
 easy_from_to!(SlotProcessingError, BeaconChainError);
@@ -234,6 +235,7 @@ pub enum BlockProductionError {
     UnableToProduceAtSlot(Slot),
     SlotProcessingError(SlotProcessingError),
     BlockProcessingError(BlockProcessingError),
+    ForkChoiceError(ForkChoiceError),
     Eth1ChainError(Eth1ChainError),
     BeaconStateError(BeaconStateError),
     StateAdvanceError(StateAdvanceError),
@@ -252,7 +254,6 @@ pub enum BlockProductionError {
     FailedToReadFinalizedBlock(store::Error),
     MissingFinalizedBlock(Hash256),
     BlockTooLarge(usize),
-    ForkChoiceError(BeaconChainError),
     ShuttingDown,
     MissingSyncAggregate,
     MissingExecutionPayload,
@@ -265,3 +266,4 @@ easy_from_to!(BeaconStateError, BlockProductionError);
 easy_from_to!(SlotProcessingError, BlockProductionError);
 easy_from_to!(Eth1ChainError, BlockProductionError);
 easy_from_to!(StateAdvanceError, BlockProductionError);
+easy_from_to!(ForkChoiceError, BlockProductionError);

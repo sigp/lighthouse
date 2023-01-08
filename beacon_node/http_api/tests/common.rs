@@ -1,5 +1,5 @@
 use beacon_chain::{
-    test_utils::{BeaconChainHarness, EphemeralHarnessType},
+    test_utils::{BeaconChainHarness, BoxedMutator, EphemeralHarnessType},
     BeaconChain, BeaconChainTypes,
 };
 use directory::DEFAULT_ROOT_DIR;
@@ -7,11 +7,18 @@ use eth2::{BeaconNodeHttpClient, Timeouts};
 use http_api::{Config, Context};
 use lighthouse_network::{
     discv5::enr::{CombinedKey, EnrBuilder},
-    libp2p::{core::connection::ConnectionId, swarm::NetworkBehaviour},
+    libp2p::{
+        core::connection::ConnectionId,
+        swarm::{
+            behaviour::{ConnectionEstablished, FromSwarm},
+            NetworkBehaviour,
+        },
+    },
     rpc::methods::{MetaData, MetaDataV2},
     types::{EnrAttestationBitfield, EnrSyncCommitteeBitfield, SyncState},
     ConnectedPoint, Enr, NetworkGlobals, PeerId, PeerManager,
 };
+use logging::test_logger;
 use network::{NetworkReceivers, NetworkSenders};
 use sensitive_url::SensitiveUrl;
 use slog::Logger;
@@ -19,6 +26,7 @@ use std::future::Future;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 use std::time::Duration;
+use store::MemoryStore;
 use tokio::sync::oneshot;
 use types::{ChainSpec, EthSpec};
 
@@ -47,13 +55,30 @@ pub struct ApiServer<E: EthSpec, SFut: Future<Output = ()>> {
     pub external_peer_id: PeerId,
 }
 
+type Mutator<E> = BoxedMutator<E, MemoryStore<E>, MemoryStore<E>>;
+
 impl<E: EthSpec> InteractiveTester<E> {
     pub async fn new(spec: Option<ChainSpec>, validator_count: usize) -> Self {
-        let harness = BeaconChainHarness::builder(E::default())
+        Self::new_with_mutator(spec, validator_count, None).await
+    }
+
+    pub async fn new_with_mutator(
+        spec: Option<ChainSpec>,
+        validator_count: usize,
+        mutator: Option<Mutator<E>>,
+    ) -> Self {
+        let mut harness_builder = BeaconChainHarness::builder(E::default())
             .spec_or_default(spec)
             .deterministic_keypairs(validator_count)
-            .fresh_ephemeral_store()
-            .build();
+            .logger(test_logger())
+            .mock_execution_layer()
+            .fresh_ephemeral_store();
+
+        if let Some(mutator) = mutator {
+            harness_builder = harness_builder.initial_mutator(mutator);
+        }
+
+        let harness = harness_builder.build();
 
         let ApiServer {
             server,
@@ -124,12 +149,18 @@ pub async fn create_api_server_on_port<T: BeaconChainTypes>(
     // add a peer
     let peer_id = PeerId::random();
 
-    let connected_point = ConnectedPoint::Listener {
+    let endpoint = &ConnectedPoint::Listener {
         local_addr: EXTERNAL_ADDR.parse().unwrap(),
         send_back_addr: EXTERNAL_ADDR.parse().unwrap(),
     };
-    let con_id = ConnectionId::new(1);
-    pm.inject_connection_established(&peer_id, &con_id, &connected_point, None, 0);
+    let connection_id = ConnectionId::new(1);
+    pm.on_swarm_event(FromSwarm::ConnectionEstablished(ConnectionEstablished {
+        peer_id,
+        connection_id,
+        endpoint,
+        failed_addresses: &[],
+        other_established: 0,
+    }));
     *network_globals.sync_state.write() = SyncState::Synced;
 
     let eth1_service =

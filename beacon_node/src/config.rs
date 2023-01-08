@@ -1,3 +1,7 @@
+use beacon_chain::chain_config::{
+    ReOrgThreshold, DEFAULT_PREPARE_PAYLOAD_LOOKAHEAD_FACTOR,
+    DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION, DEFAULT_RE_ORG_THRESHOLD,
+};
 use clap::ArgMatches;
 use clap_utils::flags::DISABLE_MALLOC_TUNING_FLAG;
 use client::{ClientConfig, ClientGenesis};
@@ -18,6 +22,7 @@ use std::net::Ipv6Addr;
 use std::net::{IpAddr, Ipv4Addr, ToSocketAddrs};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
+use std::time::Duration;
 use types::{Checkpoint, Epoch, EthSpec, Hash256, PublicKeyBytes, GRAFFITI_BYTES_LEN};
 use unused_port::{unused_tcp_port, unused_udp_port};
 
@@ -680,10 +685,31 @@ pub fn get_config<E: EthSpec>(
         client_config.chain.enable_lock_timeouts = false;
     }
 
+    if cli_args.is_present("disable-proposer-reorgs") {
+        client_config.chain.re_org_threshold = None;
+    } else {
+        client_config.chain.re_org_threshold = Some(
+            clap_utils::parse_optional(cli_args, "proposer-reorg-threshold")?
+                .map(ReOrgThreshold)
+                .unwrap_or(DEFAULT_RE_ORG_THRESHOLD),
+        );
+        client_config.chain.re_org_max_epochs_since_finalization =
+            clap_utils::parse_optional(cli_args, "proposer-reorg-epochs-since-finalization")?
+                .unwrap_or(DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION);
+    }
+
     // Note: This overrides any previous flags that enable this option.
     if cli_args.is_present("disable-deposit-contract-sync") {
         client_config.sync_eth1_chain = false;
     }
+
+    client_config.chain.prepare_payload_lookahead =
+        clap_utils::parse_optional(cli_args, "prepare-payload-lookahead")?
+            .map(Duration::from_millis)
+            .unwrap_or_else(|| {
+                Duration::from_secs(spec.seconds_per_slot)
+                    / DEFAULT_PREPARE_PAYLOAD_LOOKAHEAD_FACTOR
+            });
 
     if let Some(timeout) =
         clap_utils::parse_optional(cli_args, "fork-choice-before-proposal-timeout")?

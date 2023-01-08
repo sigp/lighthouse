@@ -12,10 +12,10 @@ This number can be much higher depending on how many other validators are queued
 
 ## Withdrawal of exited funds
 
-Even though users can perform a voluntary exit in phase 0, they **cannot withdraw their exited funds at this point in time**.
-This implies that the staked funds are effectively **frozen** until withdrawals are enabled in future phases.
+Even though users can currently perform a voluntary exit, they **cannot withdraw their exited funds at this point in time**.
+This implies that the staked funds are effectively **frozen** until withdrawals are enabled in a future hard fork (Capella).
 
-To understand the phased rollout strategy for Ethereum upgrades, please visit <https://ethereum.org/en/upgrades/#roadmap>.
+To understand the rollout strategy for Ethereum upgrades, please visit <https://ethereum.org/en/upgrades>.
 
 
 

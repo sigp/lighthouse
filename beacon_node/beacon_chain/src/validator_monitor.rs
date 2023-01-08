@@ -4,7 +4,7 @@
 
 use crate::metrics;
 use parking_lot::RwLock;
-use slog::{crit, debug, error, info, warn, Logger};
+use slog::{crit, debug, info, Logger};
 use slot_clock::SlotClock;
 use state_processing::per_epoch_processing::{
     errors::EpochProcessingError, EpochProcessingSummary,
@@ -664,7 +664,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
             );
         }
         if !attestation_miss.is_empty() {
-            error!(
+            info!(
                 self.log,
                 "Previous epoch attestation(s) missing";
                 "epoch" => prev_epoch,
@@ -673,7 +673,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
         }
 
         if !head_miss.is_empty() {
-            warn!(
+            info!(
                 self.log,
                 "Previous epoch attestation(s) failed to match head";
                 "epoch" => prev_epoch,
@@ -682,7 +682,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
         }
 
         if !target_miss.is_empty() {
-            warn!(
+            info!(
                 self.log,
                 "Previous epoch attestation(s) failed to match target";
                 "epoch" => prev_epoch,
@@ -691,7 +691,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
         }
 
         if !suboptimal_inclusion.is_empty() {
-            warn!(
+            info!(
                 self.log,
                 "Previous epoch attestation(s) had sub-optimal inclusion delay";
                 "epoch" => prev_epoch,
@@ -711,6 +711,11 @@ impl<T: EthSpec> ValidatorMonitor<T> {
     /// Returns the number of validators monitored by `self`.
     pub fn num_validators(&self) -> usize {
         self.validators.len()
+    }
+
+    // Return the `id`'s of all monitored validators.
+    pub fn get_all_monitored_validators(&self) -> Vec<String> {
+        self.validators.values().map(|val| val.id.clone()).collect()
     }
 
     /// If `self.auto_register == true`, add the `validator_index` to `self.monitored_validators`.

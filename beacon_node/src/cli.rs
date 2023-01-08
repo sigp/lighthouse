@@ -773,6 +773,38 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(false)
         )
         .arg(
+            Arg::with_name("disable-proposer-reorgs")
+                .long("disable-proposer-reorgs")
+                .help("Do not attempt to reorg late blocks from other validators when proposing.")
+                .takes_value(false)
+        )
+        .arg(
+            Arg::with_name("proposer-reorg-threshold")
+                .long("proposer-reorg-threshold")
+                .value_name("PERCENT")
+                .help("Percentage of vote weight below which to attempt a proposer reorg. \
+                       Default: 20%")
+                .conflicts_with("disable-proposer-reorgs")
+        )
+        .arg(
+            Arg::with_name("proposer-reorg-epochs-since-finalization")
+                .long("proposer-reorg-epochs-since-finalization")
+                .value_name("EPOCHS")
+                .help("Maximum number of epochs since finalization at which proposer reorgs are \
+                       allowed. Default: 2")
+                .conflicts_with("disable-proposer-reorgs")
+        )
+        .arg(
+            Arg::with_name("prepare-payload-lookahead")
+                .long("prepare-payload-lookahead")
+                .value_name("MILLISECONDS")
+                .help("The time before the start of a proposal slot at which payload attributes \
+                       should be sent. Low values are useful for execution nodes which don't \
+                       improve their payload after the first call, and high values are useful \
+                       for ensuring the EL is given ample notice. Default: 1/3 of a slot.")
+                .takes_value(true)
+        )
+        .arg(
             Arg::with_name("fork-choice-before-proposal-timeout")
                 .long("fork-choice-before-proposal-timeout")
                 .help("Set the maximum number of milliseconds to wait for fork choice before \

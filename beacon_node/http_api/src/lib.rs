@@ -2840,7 +2840,7 @@ pub fn serve<T: BeaconChainTypes>(
                             let is_live =
                                 chain.validator_seen_at_epoch(index as usize, request_data.epoch);
                             api_types::LivenessResponseData {
-                                index: index as u64,
+                                index,
                                 epoch: request_data.epoch,
                                 is_live,
                             }
@@ -2876,7 +2876,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and_then(
             |sysinfo, app_start: std::time::Instant, data_dir, network_globals| {
                 blocking_json_task(move || {
-                    let app_uptime = app_start.elapsed().as_secs() as u64;
+                    let app_uptime = app_start.elapsed().as_secs();
                     Ok(api_types::GenericResponse::from(observe_system_health_bn(
                         sysinfo,
                         data_dir,
@@ -2898,6 +2898,22 @@ pub fn serve<T: BeaconChainTypes>(
                 ui::get_validator_count(chain).map(api_types::GenericResponse::from)
             })
         });
+
+    // POST lighthouse/ui/validator_metrics
+    let post_lighthouse_ui_validator_metrics = warp::path("lighthouse")
+        .and(warp::path("ui"))
+        .and(warp::path("validator_metrics"))
+        .and(warp::path::end())
+        .and(warp::body::json())
+        .and(chain_filter.clone())
+        .and_then(
+            |request_data: ui::ValidatorMetricsRequestData, chain: Arc<BeaconChain<T>>| {
+                blocking_json_task(move || {
+                    ui::post_validator_monitor_metrics(request_data, chain)
+                        .map(api_types::GenericResponse::from)
+                })
+            },
+        );
 
     // GET lighthouse/syncing
     let get_lighthouse_syncing = warp::path("lighthouse")
@@ -3349,6 +3365,7 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(get_validator_sync_committee_contribution.boxed())
                 .or(get_lighthouse_health.boxed())
                 .or(get_lighthouse_ui_health.boxed())
+                .or(get_lighthouse_ui_validator_count.boxed())
                 .or(get_lighthouse_syncing.boxed())
                 .or(get_lighthouse_nat.boxed())
                 .or(get_lighthouse_peers.boxed())
@@ -3366,7 +3383,6 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(get_lighthouse_attestation_performance.boxed())
                 .or(get_lighthouse_block_packing_efficiency.boxed())
                 .or(get_lighthouse_merge_readiness.boxed())
-                .or(get_lighthouse_ui_validator_count.boxed())
                 .or(get_events.boxed()),
         )
         .boxed()
@@ -3390,7 +3406,8 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(post_lighthouse_liveness.boxed())
                 .or(post_lighthouse_database_reconstruct.boxed())
                 .or(post_lighthouse_database_historical_blocks.boxed())
-                .or(post_lighthouse_block_rewards.boxed()),
+                .or(post_lighthouse_block_rewards.boxed())
+                .or(post_lighthouse_ui_validator_metrics.boxed()),
         ))
         .recover(warp_utils::reject::handle_rejection)
         .with(slog_logging(log.clone()))
