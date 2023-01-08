@@ -26,6 +26,8 @@ pub struct StoreConfig {
     pub compact_on_prune: bool,
     /// Whether to prune payloads on initialization and finalization.
     pub prune_payloads: bool,
+    /// Whether to prune blobs older than the blob data availability boundary.
+    pub prune_blobs: bool,
 }
 
 /// Variant of `StoreConfig` that gets written to disk. Contains immutable configuration params.
@@ -50,6 +52,7 @@ impl Default for StoreConfig {
             compact_on_init: false,
             compact_on_prune: true,
             prune_payloads: true,
+            prune_blobs: true,
         }
     }
 }

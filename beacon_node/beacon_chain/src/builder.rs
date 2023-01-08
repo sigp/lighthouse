@@ -914,6 +914,20 @@ where
             );
         }
 
+        // Prune blobs sidecars older than the blob data availability boundary in the background.
+        if beacon_chain.store.get_config().prune_blobs {
+            let store = beacon_chain.store.clone();
+            let log = log.clone();
+            beacon_chain.task_executor.spawn_blocking(
+                move || {
+                    if let Err(e) = store.try_prune_blobs(false) {
+                        error!(log, "Error pruning blobs in background"; "error" => ?e);
+                    }
+                },
+                "prune_blobs_background",
+            );
+        }
+
         Ok(beacon_chain)
     }
 }

@@ -65,6 +65,12 @@ pub fn prune_payloads_app<'a, 'b>() -> App<'a, 'b> {
         .about("Prune finalized execution payloads")
 }
 
+pub fn prune_blobs_app<'a, 'b>() -> App<'a, 'b> {
+    App::new("prune_blobs")
+        .setting(clap::AppSettings::ColoredHelp)
+        .about("Prune blobs older than data availability boundary")
+}
+
 pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
     App::new(CMD)
         .visible_aliases(&["db"])
@@ -92,6 +98,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .subcommand(version_cli_app())
         .subcommand(inspect_cli_app())
         .subcommand(prune_payloads_app())
+        .subcommand(prune_blobs_app())
 }
 
 fn parse_client_config<E: EthSpec>(
@@ -287,6 +294,29 @@ pub fn prune_payloads<E: EthSpec>(
     db.try_prune_execution_payloads(force)
 }
 
+pub fn prune_blobs<E: EthSpec>(
+    client_config: ClientConfig,
+    runtime_context: &RuntimeContext<E>,
+    log: Logger,
+) -> Result<(), Error> {
+    let spec = &runtime_context.eth2_config.spec;
+    let hot_path = client_config.get_db_path();
+    let cold_path = client_config.get_freezer_db_path();
+
+    let db = HotColdDB::<E, LevelDB<E>, LevelDB<E>>::open(
+        &hot_path,
+        &cold_path,
+        |_, _, _| Ok(()),
+        client_config.store,
+        spec.clone(),
+        log,
+    )?;
+
+    // If we're trigging a prune manually then ignore the check on the split's parent that bails
+    // out early by passing true to the force parameter.
+    db.try_prune_blobs(true)
+}
+
 /// Run the database manager, returning an error string if the operation did not succeed.
 pub fn run<T: EthSpec>(cli_args: &ArgMatches<'_>, env: Environment<T>) -> Result<(), String> {
     let client_config = parse_client_config(cli_args, &env)?;
@@ -304,6 +334,7 @@ pub fn run<T: EthSpec>(cli_args: &ArgMatches<'_>, env: Environment<T>) -> Result
             inspect_db(inspect_config, client_config, &context, log)
         }
         ("prune_payloads", Some(_)) => prune_payloads(client_config, &context, log),
+        ("prune_blobs", Some(_)) => prune_blobs(client_config, &context, log),
         _ => {
             return Err("Unknown subcommand, for help `lighthouse database_manager --help`".into())
         }
