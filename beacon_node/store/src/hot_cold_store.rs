@@ -94,7 +94,7 @@ pub enum HotColdDBError {
     MissingHotStateSummary(Hash256),
     MissingEpochBoundaryState(Hash256),
     MissingSplitState(Hash256, Slot),
-    MissingStateToPruneBlobs(Hash256, Slot),
+    MissingStateToPruneBlobs(Hash256),
     MissingExecutionPayload(Hash256),
     MissingFullBlockExecutionPayloadPruned(Hash256, Slot),
     MissingAnchorInfo,
@@ -1712,15 +1712,9 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         }
 
         // Load the state from which to prune blobs so we can backtrack.
-        let erase_state = self
-            .get_state(
-                &data_availability_breakpoint,
-                Some(blob_info.last_pruned_epoch.end_slot(E::slots_per_epoch())),
-            )?
-            .ok_or(HotColdDBError::MissingStateToPruneBlobs(
-                data_availability_breakpoint,
-                blob_info.oldest_blob_slot,
-            ))?;
+        let erase_state = self.get_state(&data_availability_breakpoint, None)?.ok_or(
+            HotColdDBError::MissingStateToPruneBlobs(data_availability_breakpoint),
+        )?;
 
         // The data availability breakpoint is set at the start of an epoch indicating the epoch
         // before can be pruned.
