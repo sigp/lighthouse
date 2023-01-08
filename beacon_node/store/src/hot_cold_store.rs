@@ -213,7 +213,7 @@ impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
         }
 
         if db.spec.eip4844_fork_epoch.is_some() {
-            *db.blob_info.write() = db.load_blob_info()?;
+            *db.blob_info.write() = db.load_blob_info()?.or(Some(BlobInfo::default()));
         }
 
         // Ensure that the schema version of the on-disk database matches the software.
@@ -1700,18 +1700,25 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             return Ok(());
         }
 
-        if blob_info.data_availability_breakpoint == blob_info.oldest_blob_parent {
+        let data_availability_breakpoint: Hash256;
+
+        if let Some(breakpoint) = blob_info.data_availability_breakpoint {
+            if breakpoint == blob_info.oldest_blob_parent {
+                return Ok(());
+            }
+            data_availability_breakpoint = breakpoint;
+        } else {
             return Ok(());
         }
 
         // Load the state from which to prune blobs so we can backtrack.
         let erase_state = self
             .get_state(
-                &blob_info.data_availability_breakpoint,
+                &data_availability_breakpoint,
                 Some(blob_info.last_pruned_epoch.end_slot(E::slots_per_epoch())),
             )?
             .ok_or(HotColdDBError::MissingStateToPruneBlobs(
-                blob_info.data_availability_breakpoint,
+                data_availability_breakpoint,
                 blob_info.oldest_blob_slot,
             ))?;
 
@@ -1808,7 +1815,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         );
 
         blob_info.last_pruned_epoch = erase_epoch;
-        blob_info.oldest_blob_parent = blob_info.data_availability_breakpoint;
+        blob_info.oldest_blob_parent = data_availability_breakpoint;
         self.compare_and_set_blob_info_with_write(self.get_blob_info(), Some(blob_info))?;
 
         Ok(())

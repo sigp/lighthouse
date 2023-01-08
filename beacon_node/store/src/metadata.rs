@@ -120,12 +120,12 @@ impl StoreItem for AnchorInfo {
 }
 
 /// Database parameters relevant to blob sync.
-#[derive(Debug, PartialEq, Eq, Clone, Encode, Decode, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Eq, Clone, Encode, Decode, Serialize, Deserialize, Default)]
 pub struct BlobInfo {
     /// The latest epoch that blobs were pruned.
     pub last_pruned_epoch: Epoch,
     /// The block root of the next blobs to prune from.
-    pub data_availability_breakpoint: Hash256,
+    pub data_availability_breakpoint: Option<Hash256>,
     /// The block root of the next blob that needs to be added to fill in the history.
     pub oldest_blob_parent: Hash256,
     /// The slot before which blobs are available.
