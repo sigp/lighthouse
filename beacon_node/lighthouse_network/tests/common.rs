@@ -15,13 +15,6 @@ use types::{
 };
 use unused_port::unused_tcp_port;
 
-#[allow(clippy::type_complexity)]
-#[allow(unused)]
-pub mod behaviour;
-#[allow(clippy::type_complexity)]
-#[allow(unused)]
-pub mod swarm;
-
 type E = MinimalEthSpec;
 type ReqId = usize;
 

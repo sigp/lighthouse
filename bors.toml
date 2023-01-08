@@ -23,7 +23,6 @@ status = [
     "check-msrv",
     "slasher-tests",
     "syncing-simulator-ubuntu",
-    "disallowed-from-async-lint",
     "compile-with-beta-compiler"
 ]
 use_squash_merge = true
