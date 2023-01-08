@@ -212,6 +212,10 @@ impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
             );
         }
 
+        if db.spec.eip4844_fork_epoch.is_some() {
+            *db.blob_info.write() = db.load_blob_info()?;
+        }
+
         // Ensure that the schema version of the on-disk database matches the software.
         // If the version is mismatched, an automatic migration will be attempted.
         let db = Arc::new(db);
