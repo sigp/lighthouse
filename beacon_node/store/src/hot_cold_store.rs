@@ -1696,25 +1696,24 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             return Ok(());
         }
 
-        if blob_info.availability_breakpoint == blob_info.oldest_blob_parent {
+        if blob_info.data_availability_breakpoint == blob_info.oldest_blob_parent {
             return Ok(());
         }
 
         // Load the state from which to prune blobs so we can backtrack.
         let erase_state = self
             .get_state(
-                &blob_info.availability_breakpoint,
+                &blob_info.data_availability_breakpoint,
                 Some(blob_info.last_pruned_epoch.end_slot(E::slots_per_epoch())),
             )?
             .ok_or(HotColdDBError::MissingStateToPruneBlobs(
-                blob_info.availability_breakpoint,
+                blob_info.data_availability_breakpoint,
                 blob_info.oldest_blob_slot,
             ))?;
 
         // The data availability breakpoint is set at the start of an epoch indicating the epoch
         // before can be pruned.
         let erase_epoch = erase_state.current_epoch() - 1;
-        let erase_slot = erase_epoch.end_slot(E::slots_per_epoch());
 
         // The finalized block may or may not have its blobs sidecar stored, depending on
         // whether it was at a skipped slot. However for a fully pruned database its parent
@@ -1724,18 +1723,14 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         let already_pruned = process_results(
             BlockRootsIter::new(&erase_state, blob_info.oldest_blob_slot),
             |mut iter| {
-                iter.find(|(slot, block_root)| {
+                iter.find(|(_, block_root)| {
                     move || -> bool {
-                        if *slot <= erase_slot {
-                            if let Ok(Some(erase_parent_block)) =
-                                self.get_blinded_block(&block_root)
+                        if let Ok(Some(erase_parent_block)) = self.get_blinded_block(&block_root) {
+                            if let Ok(expected_kzg_commitments) =
+                                erase_parent_block.message().body().blob_kzg_commitments()
                             {
-                                if let Ok(expected_kzg_commitments) =
-                                    erase_parent_block.message().body().blob_kzg_commitments()
-                                {
-                                    if expected_kzg_commitments.len() > 0 {
-                                        return true;
-                                    }
+                                if expected_kzg_commitments.len() > 0 {
+                                    return true;
                                 }
                             }
                         }
@@ -1790,10 +1785,10 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 ops.push(StoreOp::DeleteBlobs(block_root));
             }
 
-            if slot <= erase_slot {
+            if block_root == blob_info.oldest_blob_parent {
                 info!(
                     self.log,
-                    "Blobs sidecar pruning reached earliest available blob state";
+                    "Blobs sidecar pruning reached earliest available blobs sidecar";
                     "slot" => slot
                 );
                 break;
@@ -1809,7 +1804,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         );
 
         blob_info.last_pruned_epoch = erase_epoch;
-        blob_info.oldest_blob_parent = blob_info.availability_breakpoint;
+        blob_info.oldest_blob_parent = blob_info.data_availability_breakpoint;
         self.compare_and_set_blob_info_with_write(self.get_blob_info(), Some(blob_info))?;
 
         Ok(())
