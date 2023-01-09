@@ -4,7 +4,7 @@ use crate::{signature_sets::sync_aggregate_signature_set, VerifySignatures};
 use safe_arith::SafeArith;
 use std::borrow::Cow;
 use types::consts::altair::{PROPOSER_WEIGHT, SYNC_REWARD_WEIGHT, WEIGHT_DENOMINATOR};
-use types::{BeaconState, ChainSpec, EthSpec, PublicKeyBytes, SyncAggregate, Unsigned, Slot};
+use types::{BeaconState, ChainSpec, EthSpec, PublicKeyBytes, SyncAggregate, Unsigned};
 
 pub fn process_sync_aggregate<T: EthSpec>(
     state: &mut BeaconState<T>,

@@ -1708,7 +1708,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path("rewards"))
         .and(chain_filter.clone());
 
-    // TODO: POST beacon/rewards/sync_committee/{block_id}
+    // POST beacon/rewards/sync_committee/{block_id}
     let post_beacon_rewards_sync_committee = beacon_rewards_path
         .clone()
         .and(warp::path("sync_committee"))

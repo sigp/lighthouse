@@ -26,6 +26,7 @@ pub fn compute_sync_committee_rewards<T: BeaconChainTypes>(
         .map_err(beacon_chain_error)?;
 
     let data = if reward_payload.is_empty() {
+            debug!(log, "compute_sync_committee_rewards returned empty");
             None 
         } else if validators.is_empty() {
             Some(reward_payload)
