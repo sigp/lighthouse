@@ -1,5 +1,5 @@
 use beacon_chain::{metrics, BeaconChain, BeaconChainError, BeaconChainTypes};
-use eth2::types::ValidatorStatus;
+use eth2::types::{Epoch, ValidatorStatus};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -69,6 +69,79 @@ pub fn get_validator_count<T: BeaconChainTypes>(
         exited_unslashed,
         exited_slashed,
     })
+}
+
+#[derive(PartialEq, Serialize, Deserialize)]
+pub struct ValidatorInfoRequestData {
+    indices: Vec<u64>,
+}
+
+#[derive(PartialEq, Serialize, Deserialize)]
+pub struct ValidatorBalance {
+    epoch: u64,
+    total_balance: u64,
+}
+
+#[derive(PartialEq, Serialize, Deserialize)]
+pub struct ValidatorInfo {
+    balances: Vec<ValidatorBalance>,
+}
+
+#[derive(PartialEq, Serialize, Deserialize)]
+pub struct ValidatorInfoResponse {
+    validators: HashMap<String, ValidatorInfo>,
+}
+
+pub fn get_validator_info<T: BeaconChainTypes>(
+    request_data: ValidatorInfoRequestData,
+    chain: Arc<BeaconChain<T>>,
+) -> Result<ValidatorInfoResponse, warp::Rejection> {
+    let current_epoch = chain.epoch().map_err(beacon_chain_error)?;
+
+    let epochs = current_epoch.saturating_sub(10_u64).as_u64()..current_epoch.as_u64();
+
+    let validator_ids = chain
+        .validator_monitor
+        .read()
+        .get_all_monitored_validators()
+        .iter()
+        .cloned()
+        .collect::<HashSet<String>>();
+
+    let indices = request_data
+        .indices
+        .iter()
+        .map(|index| index.to_string())
+        .collect::<HashSet<String>>();
+
+    let ids = validator_ids
+        .intersection(&indices)
+        .collect::<HashSet<&String>>();
+
+    let mut validators = HashMap::new();
+
+    for id in ids {
+        if let Ok(index) = id.parse::<u64>() {
+            if let Some(validator) = chain
+                .validator_monitor
+                .read()
+                .get_monitored_validator(index)
+            {
+                let mut balances = vec![];
+                for epoch in epochs.clone() {
+                    if let Some(total_balance) = validator.get_total_balance(Epoch::new(epoch)) {
+                        balances.push(ValidatorBalance {
+                            epoch,
+                            total_balance,
+                        });
+                    }
+                }
+                validators.insert(id.clone(), ValidatorInfo { balances });
+            }
+        }
+    }
+
+    Ok(ValidatorInfoResponse { validators })
 }
 
 #[derive(PartialEq, Serialize, Deserialize)]

@@ -29,7 +29,7 @@ const TOTAL_LABEL: &str = "total";
 
 /// The validator monitor collects per-epoch data about each monitored validator. Historical data
 /// will be kept around for `HISTORIC_EPOCHS` before it is pruned.
-pub const HISTORIC_EPOCHS: usize = 4;
+pub const HISTORIC_EPOCHS: usize = 11;
 
 /// Once the validator monitor reaches this number of validators it will stop
 /// tracking their metrics/logging individually in an effort to reduce
@@ -45,7 +45,7 @@ pub enum Error {
 
 /// Contains data pertaining to one validator for one epoch.
 #[derive(Default)]
-struct EpochSummary {
+pub struct EpochSummary {
     /*
      * Attestations with a target in the current epoch.
      */
@@ -103,6 +103,12 @@ struct EpochSummary {
     pub proposer_slashings: usize,
     /// The number of attester slashings observed.
     pub attester_slashings: usize,
+
+    /*
+     * Other validator info helpful for the UI.
+     */
+    /// The total balance of the validator.
+    pub total_balance: Option<u64>,
 }
 
 impl EpochSummary {
@@ -176,12 +182,16 @@ impl EpochSummary {
     pub fn register_attester_slashing(&mut self) {
         self.attester_slashings += 1;
     }
+
+    pub fn register_validator_total_balance(&mut self, total_balance: u64) {
+        self.total_balance = Some(total_balance)
+    }
 }
 
 type SummaryMap = HashMap<Epoch, EpochSummary>;
 
 /// A validator that is being monitored by the `ValidatorMonitor`.
-struct MonitoredValidator {
+pub struct MonitoredValidator {
     /// A human-readable identifier for the validator.
     pub id: String,
     /// The validator index in the state.
@@ -251,6 +261,20 @@ impl MonitoredValidator {
     /// Ensure epoch summary is added to the summaries map
     fn touch_epoch_summary(&self, epoch: Epoch) {
         self.with_epoch_summary(epoch, |_| {});
+    }
+
+    fn get_from_epoch_summary<F, U>(&self, epoch: Epoch, func: F) -> Option<U>
+    where
+        F: Fn(Option<&EpochSummary>) -> Option<U>,
+    {
+        let summaries = self.summaries.read();
+        func(summaries.get(&epoch))
+    }
+
+    pub fn get_total_balance(&self, epoch: Epoch) -> Option<u64> {
+        self.get_from_epoch_summary(epoch, |summary_opt| {
+            summary_opt.and_then(|summary| summary.total_balance)
+        })
     }
 }
 
@@ -356,6 +380,9 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                 let id = &monitored_validator.id;
 
                 if let Some(balance) = state.balances().get(i) {
+                    monitored_validator.with_epoch_summary(current_epoch, |summary| {
+                        summary.register_validator_total_balance(*balance)
+                    });
                     metrics::set_int_gauge(
                         &metrics::VALIDATOR_MONITOR_BALANCE_GWEI,
                         &[id],
@@ -715,6 +742,14 @@ impl<T: EthSpec> ValidatorMonitor<T> {
     // Return the `id`'s of all monitored validators.
     pub fn get_all_monitored_validators(&self) -> Vec<String> {
         self.validators.values().map(|val| val.id.clone()).collect()
+    }
+
+    pub fn get_monitored_validator(&self, index: u64) -> Option<&MonitoredValidator> {
+        if let Some(pubkey) = self.indices.get(&index) {
+            self.validators.get(pubkey)
+        } else {
+            None
+        }
     }
 
     /// If `self.auto_register == true`, add the `validator_index` to `self.monitored_validators`.
