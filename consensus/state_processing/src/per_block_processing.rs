@@ -474,10 +474,6 @@ pub fn get_expected_withdrawals<T: EthSpec>(
     let mut validator_index = state.next_withdrawal_validator_index()?;
     let mut withdrawals = vec![];
 
-    if cfg!(not(feature = "withdrawals-processing")) {
-        return Ok(withdrawals.into());
-    }
-
     let bound = std::cmp::min(
         state.validators().len() as u64,
         spec.max_validators_per_withdrawals_sweep,
@@ -525,9 +521,6 @@ pub fn process_withdrawals<'payload, T: EthSpec, Payload: AbstractExecPayload<T>
     payload: Payload::Ref<'payload>,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
-    if cfg!(not(feature = "withdrawals-processing")) {
-        return Ok(());
-    }
     match state {
         BeaconState::Merge(_) => Ok(()),
         BeaconState::Capella(_) | BeaconState::Eip4844(_) => {

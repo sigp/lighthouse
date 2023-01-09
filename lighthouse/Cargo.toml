@@ -24,8 +24,6 @@ gnosis = []
 slasher-mdbx = ["slasher/mdbx"]
 # Support slasher LMDB backend.
 slasher-lmdb = ["slasher/lmdb"]
-# Support for withdrawals consensus processing logic.
-withdrawals-processing = ["beacon_node/withdrawals-processing"]
 
 [dependencies]
 beacon_node = { "path" = "../beacon_node" }
