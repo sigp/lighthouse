@@ -147,7 +147,7 @@ use darling::{FromDeriveInput, FromMeta};
 use proc_macro::TokenStream;
 use quote::quote;
 use std::convert::TryInto;
-use syn::{parse_macro_input, DataEnum, DataStruct, DeriveInput, Ident};
+use syn::{parse_macro_input, DataEnum, DataStruct, DeriveInput, Ident, Index};
 
 /// The highest possible union selector value (higher values are reserved for backwards compatible
 /// extensions).
@@ -442,10 +442,14 @@ fn ssz_encode_derive_struct_transparent(
         );
     }
 
-    let (ty, ident, _field_opts) = ssz_fields
+    let (index, (ty, ident, _field_opts)) = ssz_fields
         .iter()
-        .find(|(_, _, field_opts)| !field_opts.skip_deserializing)
+        .enumerate()
+        .find(|(_, (_, _, field_opts))| !field_opts.skip_deserializing)
         .expect("\"transparent\" struct must have at least one non-skipped field");
+
+    // Remove the `_usize` suffix from the value to avoid a compiler warning.
+    let index = Index::from(index);
 
     let output = if let Some(field_name) = ident {
         quote! {
@@ -479,11 +483,11 @@ fn ssz_encode_derive_struct_transparent(
                 }
 
                 fn ssz_bytes_len(&self) -> usize {
-                    self.0.ssz_bytes_len()
+                    self.#index.ssz_bytes_len()
                 }
 
                 fn ssz_append(&self, buf: &mut Vec<u8>) {
-                    self.0.ssz_append(buf)
+                    self.#index.ssz_append(buf)
                 }
             }
         }
