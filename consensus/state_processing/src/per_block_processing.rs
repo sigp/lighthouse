@@ -19,7 +19,6 @@ pub use process_operations::process_operations;
 pub use verify_attestation::{
     verify_attestation_for_block_inclusion, verify_attestation_for_state,
 };
-#[cfg(feature = "withdrawals-processing")]
 pub use verify_bls_to_execution_change::verify_bls_to_execution_change;
 pub use verify_deposit::{
     get_existing_validator_index, verify_deposit_merkle_proof, verify_deposit_signature,
@@ -36,13 +35,11 @@ pub mod signature_sets;
 pub mod tests;
 mod verify_attestation;
 mod verify_attester_slashing;
-#[cfg(feature = "withdrawals-processing")]
 mod verify_bls_to_execution_change;
 mod verify_deposit;
 mod verify_exit;
 mod verify_proposer_slashing;
 
-#[cfg(feature = "withdrawals-processing")]
 use crate::common::decrease_balance;
 
 #[cfg(feature = "arbitrary-fuzz")]
@@ -165,7 +162,6 @@ pub fn per_block_processing<T: EthSpec, Payload: AbstractExecPayload<T>>(
     // previous block.
     if is_execution_enabled(state, block.body()) {
         let payload = block.body().execution_payload()?;
-        #[cfg(feature = "withdrawals-processing")]
         process_withdrawals::<T, Payload>(state, payload, spec)?;
         process_execution_payload::<T, Payload>(state, payload, spec)?;
     }
@@ -524,12 +520,14 @@ pub fn get_expected_withdrawals<T: EthSpec>(
 }
 
 /// Apply withdrawals to the state.
-#[cfg(feature = "withdrawals-processing")]
 pub fn process_withdrawals<'payload, T: EthSpec, Payload: AbstractExecPayload<T>>(
     state: &mut BeaconState<T>,
     payload: Payload::Ref<'payload>,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
+    if cfg!(not(feature = "withdrawals-processing")) {
+        return Ok(());
+    }
     match state {
         BeaconState::Merge(_) => Ok(()),
         BeaconState::Capella(_) | BeaconState::Eip4844(_) => {

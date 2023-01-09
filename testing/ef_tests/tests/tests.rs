@@ -82,14 +82,12 @@ fn operations_execution_payload_blinded() {
     OperationsHandler::<MainnetEthSpec, BlindedPayload<_>>::default().run();
 }
 
-#[cfg(feature = "withdrawals-processing")]
 #[test]
 fn operations_withdrawals() {
     OperationsHandler::<MinimalEthSpec, WithdrawalsPayload<_>>::default().run();
     OperationsHandler::<MainnetEthSpec, WithdrawalsPayload<_>>::default().run();
 }
 
-#[cfg(feature = "withdrawals-processing")]
 #[test]
 fn operations_bls_to_execution_change() {
     OperationsHandler::<MinimalEthSpec, SignedBlsToExecutionChange>::default().run();

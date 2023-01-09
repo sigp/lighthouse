@@ -4,30 +4,24 @@ use crate::case_result::compare_beacon_state_results_without_caches;
 use crate::decode::{ssz_decode_file, ssz_decode_file_with, ssz_decode_state, yaml_decode_file};
 use crate::testing_spec;
 use serde_derive::Deserialize;
-#[cfg(feature = "withdrawals-processing")]
-use state_processing::per_block_processing::process_operations::{
-    process_bls_to_execution_changes, process_bls_to_execution_changes,
-};
 use state_processing::{
     per_block_processing::{
         errors::BlockProcessingError,
         process_block_header, process_execution_payload,
         process_operations::{
-            altair, base, process_attester_slashings, process_deposits, process_exits,
-            process_proposer_slashings,
+            altair, base, process_attester_slashings, process_bls_to_execution_changes,
+            process_deposits, process_exits, process_proposer_slashings,
         },
-        process_sync_aggregate, VerifyBlockRoot, VerifySignatures,
+        process_sync_aggregate, process_withdrawals, VerifyBlockRoot, VerifySignatures,
     },
     ConsensusContext,
 };
 use std::fmt::Debug;
 use std::path::Path;
-#[cfg(feature = "withdrawals-processing")]
-use types::SignedBlsToExecutionChange;
 use types::{
     Attestation, AttesterSlashing, BeaconBlock, BeaconState, BlindedPayload, ChainSpec, Deposit,
-    EthSpec, ExecutionPayload, ForkName, FullPayload, ProposerSlashing, SignedVoluntaryExit,
-    SyncAggregate,
+    EthSpec, ExecutionPayload, ForkName, FullPayload, ProposerSlashing, SignedBlsToExecutionChange,
+    SignedVoluntaryExit, SyncAggregate,
 };
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -42,7 +36,6 @@ struct ExecutionMetadata {
 }
 
 /// Newtype for testing withdrawals.
-#[cfg(feature = "withdrawals-processing")]
 #[derive(Debug, Clone, Deserialize)]
 pub struct WithdrawalsPayload<T: EthSpec> {
     payload: FullPayload<T>,
@@ -341,7 +334,6 @@ impl<E: EthSpec> Operation<E> for BlindedPayload<E> {
     }
 }
 
-#[cfg(feature = "withdrawals-processing")]
 impl<E: EthSpec> Operation<E> for WithdrawalsPayload<E> {
     fn handler_name() -> String {
         "withdrawals".into()
@@ -374,7 +366,6 @@ impl<E: EthSpec> Operation<E> for WithdrawalsPayload<E> {
     }
 }
 
-#[cfg(feature = "withdrawals-processing")]
 impl<E: EthSpec> Operation<E> for SignedBlsToExecutionChange {
     fn handler_name() -> String {
         "bls_to_execution_change".into()
