@@ -18,6 +18,7 @@ use self::UpdatePattern::*;
 use crate::*;
 use ssz::{Decode, Encode};
 use typenum::Unsigned;
+use types::historical_summary::HistoricalSummary;
 
 /// Description of how a `BeaconState` field is updated during state processing.
 ///
@@ -329,6 +330,23 @@ field!(
     DBColumn::BeaconRandaoMixes,
     |_| OncePerEpoch { lag: 1 },
     |state: &BeaconState<_>, index, _| safe_modulo_index(state.randao_mixes(), index)
+);
+
+field!(
+    HistoricalSummaries,
+    VariableLengthField,
+    HistoricalSummary,
+    T::HistoricalRootsLimit,
+    DBColumn::BeaconHistoricalSummaries,
+    |_| OncePerNSlots {
+        n: T::SlotsPerHistoricalRoot::to_u64()
+    },
+    |state: &BeaconState<_>, index, _| safe_modulo_index(
+        state
+            .historical_summaries()
+            .map_err(|_| ChunkError::InvalidFork)?,
+        index
+    )
 );
 
 pub fn store_updated_vector<F: Field<E>, E: EthSpec, S: KeyValueStore<E>>(
@@ -679,6 +697,7 @@ pub enum ChunkError {
         end_vindex: usize,
         length: usize,
     },
+    InvalidFork,
 }
 
 #[cfg(test)]

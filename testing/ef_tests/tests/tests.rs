@@ -424,6 +424,12 @@ fn epoch_processing_historical_roots_update() {
 }
 
 #[test]
+fn epoch_processing_historical_summaries_update() {
+    EpochProcessingHandler::<MinimalEthSpec, HistoricalSummariesUpdate>::default().run();
+    EpochProcessingHandler::<MainnetEthSpec, HistoricalSummariesUpdate>::default().run();
+}
+
+#[test]
 fn epoch_processing_participation_record_updates() {
     EpochProcessingHandler::<MinimalEthSpec, ParticipationRecordUpdates>::default().run();
     EpochProcessingHandler::<MainnetEthSpec, ParticipationRecordUpdates>::default().run();

@@ -3,6 +3,7 @@
 #![allow(clippy::indexing_slicing)]
 
 use super::Error;
+use crate::historical_summary::HistoricalSummaryCache;
 use crate::{BeaconState, EthSpec, Hash256, ParticipationList, Slot, Unsigned, Validator};
 use cached_tree_hash::{int_log, CacheArena, CachedTreeHash, TreeHashCache};
 use rayon::prelude::*;
@@ -142,6 +143,7 @@ pub struct BeaconTreeHashCacheInner<T: EthSpec> {
     block_roots: TreeHashCache,
     state_roots: TreeHashCache,
     historical_roots: TreeHashCache,
+    historical_summaries: OptionalTreeHashCache,
     balances: TreeHashCache,
     randao_mixes: TreeHashCache,
     slashings: TreeHashCache,
@@ -164,6 +166,14 @@ impl<T: EthSpec> BeaconTreeHashCacheInner<T> {
         let historical_roots = state
             .historical_roots()
             .new_tree_hash_cache(&mut fixed_arena);
+        let historical_summaries = OptionalTreeHashCache::new(
+            state
+                .historical_summaries()
+                .ok()
+                .map(&HistoricalSummaryCache::new)
+                .as_ref(),
+        );
+
         let randao_mixes = state.randao_mixes().new_tree_hash_cache(&mut fixed_arena);
 
         let validators = ValidatorsListTreeHashCache::new::<T>(state.validators());
@@ -200,6 +210,7 @@ impl<T: EthSpec> BeaconTreeHashCacheInner<T> {
             block_roots,
             state_roots,
             historical_roots,
+            historical_summaries,
             balances,
             randao_mixes,
             slashings,
@@ -249,6 +260,16 @@ impl<T: EthSpec> BeaconTreeHashCacheInner<T> {
                 .slashings()
                 .recalculate_tree_hash_root(&mut self.slashings_arena, &mut self.slashings)?,
         ];
+
+        // Historical roots/summaries.
+        if let Ok(historical_summaries) = state.historical_summaries() {
+            leaves.push(
+                self.historical_summaries.recalculate_tree_hash_root(
+                    &HistoricalSummaryCache::new(historical_summaries),
+                )?,
+            );
+        }
+
         // Participation
         if let BeaconState::Base(state) = state {
             leaves.push(state.previous_epoch_attestations.tree_hash_root());
