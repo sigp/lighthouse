@@ -12,7 +12,8 @@ pub use attestation::AttMaxCover;
 pub use attestation_storage::{AttestationRef, SplitAttestation};
 pub use max_cover::MaxCover;
 pub use persistence::{
-    PersistedOperationPool, PersistedOperationPoolV12, PersistedOperationPoolV5,
+    PersistedOperationPool, PersistedOperationPoolV12, PersistedOperationPoolV14,
+    PersistedOperationPoolV5,
 };
 pub use reward_cache::RewardCache;
 
