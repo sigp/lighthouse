@@ -22,7 +22,10 @@ use types::{
 };
 
 /// Used for Prometheus labels.
-const ALL_VALIDATORS: &str = "all_validators";
+///
+/// We've used `total` for this value to align with Nimbus, as per:
+/// https://github.com/sigp/lighthouse/pull/3728#issuecomment-1375173063
+const TOTAL_LABEL: &str = "total";
 
 /// The validator monitor collects per-epoch data about each monitored validator. Historical data
 /// will be kept around for `HISTORIC_EPOCHS` before it is pruned.
@@ -411,7 +414,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
         }
     }
 
-    /// Run `func` with the `ALL_VALIDATORS` label and optionally the
+    /// Run `func` with the `TOTAL_LABEL` and optionally the
     /// `individual_id`.
     ///
     /// This function is used for registering metrics that can be applied to
@@ -422,7 +425,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
     /// We allow disabling tracking metrics on an individual validator basis
     /// since it can result in untenable cardinality with high validator counts.
     fn aggregatable_metric<F: Fn(&str)>(&self, individual_id: &str, func: F) {
-        func(ALL_VALIDATORS);
+        func(TOTAL_LABEL);
 
         if self.individual_tracking() {
             func(individual_id);
