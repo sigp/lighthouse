@@ -1712,13 +1712,13 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         }
 
         // Load the state from which to prune blobs so we can backtrack.
-        let erase_state = self.get_state(&data_availability_breakpoint, None)?.ok_or(
+        let prune_state = self.get_state(&data_availability_breakpoint, None)?.ok_or(
             HotColdDBError::MissingStateToPruneBlobs(data_availability_breakpoint),
         )?;
 
-        // The data availability breakpoint is set at the start of an epoch indicating the epoch
+        // The data_availability_breakpoint is set at the start of an epoch indicating the epoch
         // before can be pruned.
-        let erase_epoch = erase_state.current_epoch() - 1;
+        let prune_epoch = prune_state.current_epoch() - 1;
 
         // The finalized block may or may not have its blobs sidecar stored, depending on
         // whether it was at a skipped slot. However for a fully pruned database its parent
@@ -1726,7 +1726,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         // parent block with at least one kzg commitment.
 
         let already_pruned = process_results(
-            BlockRootsIter::new(&erase_state, blob_info.oldest_blob_slot),
+            BlockRootsIter::new(&prune_state, blob_info.oldest_blob_slot),
             |mut iter| {
                 iter.find(|(_, block_root)| {
                     move || -> bool {
@@ -1764,7 +1764,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         let mut ops = vec![];
         let mut last_pruned_block_root = None;
 
-        for res in BlockRootsIterator::new(self, &erase_state) {
+        for res in BlockRootsIterator::new(self, &prune_state) {
             let (block_root, slot) = match res {
                 Ok(tuple) => tuple,
                 Err(e) => {
@@ -1796,6 +1796,9 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                     "Blobs sidecar pruning reached earliest available blobs sidecar";
                     "slot" => slot
                 );
+                blob_info.oldest_blob_slot = slot;
+                blob_info.last_pruned_epoch = prune_epoch;
+                blob_info.oldest_blob_parent = data_availability_breakpoint;
                 break;
             }
         }
@@ -1808,8 +1811,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             "blobs_sidecars_pruned" => blobs_sidecars_pruned,
         );
 
-        blob_info.last_pruned_epoch = erase_epoch;
-        blob_info.oldest_blob_parent = data_availability_breakpoint;
         self.compare_and_set_blob_info_with_write(self.get_blob_info(), Some(blob_info))?;
 
         Ok(())
