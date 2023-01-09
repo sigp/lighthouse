@@ -901,6 +901,13 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(false)
         )
         .arg(
+            Arg::with_name("disable-optimistic-finalized-sync")
+                .long("disable-optimistic-finalized-sync")
+                .help("Force Lighthouse to verify every execution block hash with the execution \
+                       client during finalized sync. By default block hashes will be checked in \
+                       Lighthouse and only passed to the EL if initial verification fails.")
+        )
+        .arg(
             Arg::with_name("light-client-server")
                 .long("light-client-server")
                 .help("Act as a full node supporting light clients on the p2p network \

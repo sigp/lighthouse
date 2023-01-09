@@ -741,6 +741,10 @@ pub fn get_config<E: EthSpec>(
         client_config.validator_monitor_auto = true;
     }
 
+    // Optimistic finalized sync.
+    client_config.chain.optimistic_finalized_sync =
+        !cli_args.is_present("disable-optimistic-finalized-sync");
+
     Ok(client_config)
 }
 
