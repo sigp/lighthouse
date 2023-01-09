@@ -632,22 +632,18 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                                 "validator" => id,
                             );
                         }
-                    } else {
-                        if self.individual_tracking() {
-                            metrics::set_int_gauge(
-                                &metrics::VALIDATOR_MONITOR_VALIDATOR_IN_CURRENT_SYNC_COMMITTEE,
-                                &[id],
-                                0,
-                            );
-                        }
-                        if self.individual_tracking() {
-                            debug!(
-                                self.log,
-                                "Validator isn't part of the current sync committee";
-                                "epoch" => current_epoch,
-                                "validator" => id,
-                            );
-                        }
+                    } else if self.individual_tracking() {
+                        metrics::set_int_gauge(
+                            &metrics::VALIDATOR_MONITOR_VALIDATOR_IN_CURRENT_SYNC_COMMITTEE,
+                            &[id],
+                            0,
+                        );
+                        debug!(
+                            self.log,
+                            "Validator isn't part of the current sync committee";
+                            "epoch" => current_epoch,
+                            "validator" => id,
+                        );
                     }
                 }
             }
