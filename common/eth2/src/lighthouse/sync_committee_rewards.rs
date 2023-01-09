@@ -4,17 +4,17 @@ use serde::{Deserialize, Serialize};
 // All rewards in GWei
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
-pub struct SyncCommitteeAttestationRewards {
+pub struct SyncCommitteeRewards {
 
     pub execution_optimistic: Option<bool>,
 
     pub finalized: Option<bool>,
 
-    pub data: Option<Vec<SyncCommitteeAttestationReward>> 
+    pub data: Option<Vec<SyncCommitteeReward>> 
 }
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
-pub struct SyncCommitteeAttestationReward {
+pub struct SyncCommitteeReward {
 
     pub validator_index: u64,
     // sync committee reward in gwei for the validator

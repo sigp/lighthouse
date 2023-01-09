@@ -1029,7 +1029,7 @@ impl BeaconNodeHttpClient {
     /// `POST beacon/rewards/sync_committee`
     pub async fn post_beacon_rewards_sync_committee(
         &self,
-        rewards: &[Option<Vec<lighthouse::SyncCommitteeAttestationReward>>],
+        rewards: &[Option<Vec<lighthouse::SyncCommitteeReward>>],
     ) -> Result<(), Error> {
         let mut path = self.eth_path(V1)?;
 

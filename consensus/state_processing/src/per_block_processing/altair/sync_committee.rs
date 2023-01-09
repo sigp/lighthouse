@@ -69,7 +69,6 @@ pub fn compute_sync_aggregate_rewards<T: EthSpec>(
     state: &BeaconState<T>,
     spec: &ChainSpec,
 ) -> Result<(u64, u64), BlockProcessingError> {
-
     let total_active_balance = state.get_total_active_balance()?;
     let total_active_increments =
         total_active_balance.safe_div(spec.effective_balance_increment)?;

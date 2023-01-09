@@ -1,6 +1,6 @@
 use crate::{BeaconChain, BeaconChainError, BeaconChainTypes};
 
-use eth2::lighthouse::SyncCommitteeAttestationReward;
+use eth2::lighthouse::SyncCommitteeReward;
 use state_processing::per_block_processing::altair::sync_committee::compute_sync_aggregate_rewards;
 use types::{BeaconBlockRef, BeaconState, ExecPayload};
 use std::collections::HashMap;
@@ -10,7 +10,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         block: BeaconBlockRef<'_, T::EthSpec, Payload>,
         state: &mut BeaconState<T::EthSpec>,
-    ) -> Result<Vec<SyncCommitteeAttestationReward>, BeaconChainError> {
+    ) -> Result<Vec<SyncCommitteeReward>, BeaconChainError> {
         if block.slot() != state.slot() {
             return Err(BeaconChainError::BlockRewardSlotError);
         }
@@ -67,7 +67,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     } else {
                         *new_balance as i64 - state.balances()[*i] as i64 - total_proposer_rewards as i64
                     };
-                    SyncCommitteeAttestationReward {
+                    SyncCommitteeReward {
                         validator_index: *i as u64,
                         reward
                     }

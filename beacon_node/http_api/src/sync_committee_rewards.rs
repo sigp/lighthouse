@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use beacon_chain::{BeaconChain, BeaconChainTypes, BeaconChainError};
 use eth2::types::ValidatorId;
-use eth2::lighthouse::{SyncCommitteeAttestationRewards, SyncCommitteeAttestationReward};
+use eth2::lighthouse::{SyncCommitteeRewards, SyncCommitteeReward};
 use slog::{debug, Logger};
 use state_processing::BlockReplayer;
 use types::{BeaconState, SignedBlindedBeaconBlock};
@@ -13,7 +13,7 @@ pub fn compute_sync_committee_rewards<T: BeaconChainTypes>(
     block_id: BlockId,
     validators: Vec<ValidatorId>,
     log: Logger
-) -> Result<SyncCommitteeAttestationRewards, warp::Rejection> {
+) -> Result<SyncCommitteeRewards, warp::Rejection> {
 
 
     let (block, _) = block_id.blinded_block(&chain)?;
@@ -49,12 +49,12 @@ pub fn compute_sync_committee_rewards<T: BeaconChainTypes>(
                                 }
                             })
                     })
-                    .collect::<Vec<SyncCommitteeAttestationReward>>()
+                    .collect::<Vec<SyncCommitteeReward>>()
                 )
         };
                             
 
-    Ok(SyncCommitteeAttestationRewards{
+    Ok(SyncCommitteeRewards{
         execution_optimistic: None,
         finalized: None,
         data
