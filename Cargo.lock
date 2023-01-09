@@ -472,6 +472,7 @@ dependencies = [
  "node_test_rig",
  "sensitive_url",
  "serde",
+ "serde_json",
  "slasher",
  "slog",
  "store",
@@ -787,7 +788,7 @@ dependencies = [
 [[package]]
 name = "c-kzg"
 version = "0.1.0"
-source = "git+https://github.com/pawanjay176/c-kzg-4844?rev=69bde8f4e0bbf0da30d92601b7db138bdd7e6a04#69bde8f4e0bbf0da30d92601b7db138bdd7e6a04"
+source = "git+https://github.com/pawanjay176/c-kzg-4844?rev=c9e4fa0dabdd000738b7fcdf85a72880a5da8748#c9e4fa0dabdd000738b7fcdf85a72880a5da8748"
 dependencies = [
  "hex",
  "libc",
@@ -1902,6 +1903,8 @@ dependencies = [
  "enr",
  "eth2_config",
  "eth2_ssz",
+ "kzg",
+ "serde_json",
  "serde_yaml",
  "tempfile",
  "types",

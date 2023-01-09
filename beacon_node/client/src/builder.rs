@@ -185,8 +185,8 @@ where
             builder
         };
 
-        let builder = if let Some(trusted_setup_file) = config.trusted_setup_file {
-            builder.trusted_setup(trusted_setup_file)
+        let builder = if let Some(trusted_setup) = config.trusted_setup {
+            builder.trusted_setup(trusted_setup)
         } else {
             builder
         };

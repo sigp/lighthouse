@@ -21,7 +21,7 @@ use eth1::Config as Eth1Config;
 use execution_layer::ExecutionLayer;
 use fork_choice::{ForkChoice, ResetPayloadStatuses};
 use futures::channel::mpsc::Sender;
-use kzg::Kzg;
+use kzg::{Kzg, TrustedSetup};
 use operation_pool::{OperationPool, PersistedOperationPool};
 use parking_lot::RwLock;
 use proto_array::ReOrgThreshold;
@@ -29,7 +29,6 @@ use slasher::Slasher;
 use slog::{crit, error, info, Logger};
 use slot_clock::{SlotClock, TestingSlotClock};
 use std::marker::PhantomData;
-use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 use store::{Error as StoreError, HotColdDB, ItemStore, KeyValueStoreOp};
@@ -97,7 +96,7 @@ pub struct BeaconChainBuilder<T: BeaconChainTypes> {
     // Pending I/O batch that is constructed during building and should be executed atomically
     // alongside `PersistedBeaconChain` storage when `BeaconChainBuilder::build` is called.
     pending_io_batch: Vec<KeyValueStoreOp>,
-    trusted_setup_path: Option<PathBuf>,
+    trusted_setup: Option<TrustedSetup>,
     task_executor: Option<TaskExecutor>,
 }
 
@@ -137,7 +136,7 @@ where
             slasher: None,
             validator_monitor: None,
             pending_io_batch: vec![],
-            trusted_setup_path: None,
+            trusted_setup: None,
             task_executor: None,
         }
     }
@@ -594,8 +593,8 @@ where
         self
     }
 
-    pub fn trusted_setup(mut self, trusted_setup_file_path: PathBuf) -> Self {
-        self.trusted_setup_path = Some(trusted_setup_file_path);
+    pub fn trusted_setup(mut self, trusted_setup: TrustedSetup) -> Self {
+        self.trusted_setup = Some(trusted_setup);
         self
     }
 
@@ -640,8 +639,8 @@ where
             slot_clock.now().ok_or("Unable to read slot")?
         };
 
-        let kzg = if let Some(trusted_setup_file) = self.trusted_setup_path {
-            let kzg = Kzg::new_from_file(trusted_setup_file)
+        let kzg = if let Some(trusted_setup) = self.trusted_setup {
+            let kzg = Kzg::new_from_trusted_setup(trusted_setup)
                 .map_err(|e| format!("Failed to load trusted setup: {:?}", e))?;
             Some(Arc::new(kzg))
         } else {

@@ -513,13 +513,12 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         )
         /* 4844 settings */
         .arg(
-            Arg::with_name("trusted-setup-file")
-                .long("trusted-setup-file")
+            Arg::with_name("trusted-setup-file-override")
+                .long("trusted-setup-file-override")
                 .value_name("FILE")
-                .help("File containing the trusted setup parameters. \
-                      NOTE: This is only for the devnet, the trusted setup params \
-                      must be embedded into the ethspec once parameter loading \
-                      is supported in the ckzg library")
+                .help("Path to a json file containing the trusted setup params. \
+                      NOTE: This will override the trusted setup that is generated \
+                      from the mainnet kzg ceremony. Use with caution")
                 .takes_value(true)
         )
         /*

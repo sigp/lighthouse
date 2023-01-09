@@ -18,7 +18,7 @@ eth2_serde_utils = "0.1.1"
 hex = "0.4.2"
 eth2_hashing = "0.3.0"
 ethereum-types = "0.12.1"
-c-kzg = {git = "https://github.com/pawanjay176/c-kzg-4844", rev = "69bde8f4e0bbf0da30d92601b7db138bdd7e6a04" }
+c-kzg = {git = "https://github.com/pawanjay176/c-kzg-4844", rev = "c9e4fa0dabdd000738b7fcdf85a72880a5da8748" }
 
 [features]
 default = ["mainnet-spec"]
