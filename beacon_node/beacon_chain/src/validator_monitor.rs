@@ -593,13 +593,13 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                         }
                     }
 
-                    self.aggregatable_metric(id, |label| {
+                    if self.individual_tracking() {
                         metrics::set_int_gauge(
                             &metrics::VALIDATOR_MONITOR_PREV_EPOCH_ON_CHAIN_INCLUSION_DISTANCE,
-                            &[label],
+                            &[id],
                             inclusion_delay as i64,
                         );
-                    });
+                    }
                 }
 
                 // Indicates the number of sync committee signatures that made it into
@@ -610,13 +610,13 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                 let current_epoch = epoch - 1;
                 if let Some(sync_committee) = summary.sync_committee() {
                     if sync_committee.contains(pubkey) {
-                        self.aggregatable_metric(id, |label| {
+                        if self.individual_tracking() {
                             metrics::set_int_gauge(
                                 &metrics::VALIDATOR_MONITOR_VALIDATOR_IN_CURRENT_SYNC_COMMITTEE,
-                                &[label],
+                                &[id],
                                 1,
                             );
-                        });
+                        }
                         let epoch_summary = monitored_validator.summaries.read();
                         if let Some(summary) = epoch_summary.get(&current_epoch) {
                             // This log is not gated by
@@ -633,13 +633,13 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                             );
                         }
                     } else {
-                        self.aggregatable_metric(id, |label| {
+                        if self.individual_tracking() {
                             metrics::set_int_gauge(
                                 &metrics::VALIDATOR_MONITOR_VALIDATOR_IN_CURRENT_SYNC_COMMITTEE,
-                                &[label],
+                                &[id],
                                 0,
                             );
-                        });
+                        }
                         if self.individual_tracking() {
                             debug!(
                                 self.log,
@@ -1039,14 +1039,15 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                         &metrics::VALIDATOR_MONITOR_ATTESTATION_IN_BLOCK_TOTAL,
                         &["block", label],
                     );
-                    metrics::set_int_gauge(
-                        &metrics::VALIDATOR_MONITOR_ATTESTATION_IN_BLOCK_DELAY_SLOTS,
-                        &["block", label],
-                        delay.as_u64() as i64,
-                    );
                 });
 
                 if self.individual_tracking() {
+                    metrics::set_int_gauge(
+                        &metrics::VALIDATOR_MONITOR_ATTESTATION_IN_BLOCK_DELAY_SLOTS,
+                        &["block", id],
+                        delay.as_u64() as i64,
+                    );
+
                     info!(
                         self.log,
                         "Attestation included in block";
@@ -1480,13 +1481,6 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                     /*
                      * Attestations
                      */
-                    self.aggregatable_metric(id, |label| {
-                        metrics::set_gauge_vec(
-                            &metrics::VALIDATOR_MONITOR_PREV_EPOCH_ATTESTATIONS_TOTAL,
-                            &[label],
-                            summary.attestations as i64,
-                        );
-                    });
                     if let Some(delay) = summary.attestation_min_delay {
                         self.aggregatable_metric(id, |tag| {
                             metrics::observe_timer_vec(
@@ -1494,95 +1488,91 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                                 &[tag],
                                 delay,
                             );
-                    });
+                        });
                     }
-                    self.aggregatable_metric(id, |label| {
+                    if self.individual_tracking() {
+                        metrics::set_gauge_vec(
+                            &metrics::VALIDATOR_MONITOR_PREV_EPOCH_ATTESTATIONS_TOTAL,
+                            &[id],
+                            summary.attestations as i64,
+                        );
                         metrics::set_gauge_vec(
                             &metrics::VALIDATOR_MONITOR_PREV_EPOCH_ATTESTATION_AGGREGATE_INCLUSIONS,
-                            &[label],
+                            &[id],
                             summary.attestation_aggregate_inclusions as i64,
                         );
-                    });
-                    self.aggregatable_metric(id, |label| {
                         metrics::set_gauge_vec(
                             &metrics::VALIDATOR_MONITOR_PREV_EPOCH_ATTESTATION_BLOCK_INCLUSIONS,
-                            &[label],
+                            &[id],
                             summary.attestation_block_inclusions as i64,
                         );
-                    });
-                    if let Some(distance) = summary.attestation_min_block_inclusion_distance {
-                        self.aggregatable_metric(id, |tag| {
+
+                        if let Some(distance) = summary.attestation_min_block_inclusion_distance {
                             metrics::set_gauge_vec(
-                                &metrics::VALIDATOR_MONITOR_PREV_EPOCH_ATTESTATION_BLOCK_MIN_INCLUSION_DISTANCE,
-                                &[tag],
-                                distance.as_u64() as i64,
-                            );
-                    });
+                                    &metrics::VALIDATOR_MONITOR_PREV_EPOCH_ATTESTATION_BLOCK_MIN_INCLUSION_DISTANCE,
+                                    &[id],
+                                    distance.as_u64() as i64,
+                                );
+                        }
                     }
                     /*
                      * Sync committee messages
                      */
-                    self.aggregatable_metric(id, |label| {
-                        metrics::set_gauge_vec(
-                            &metrics::VALIDATOR_MONITOR_PREV_EPOCH_SYNC_COMMITTEE_MESSAGES_TOTAL,
-                            &[label],
-                            summary.sync_committee_messages as i64,
-                        );
-                    });
                     if let Some(delay) = summary.sync_committee_message_min_delay {
                         self.aggregatable_metric(id, |tag| {
                             metrics::observe_timer_vec(
-                            &metrics::VALIDATOR_MONITOR_PREV_EPOCH_SYNC_COMMITTEE_MESSAGES_MIN_DELAY_SECONDS,
-                            &[tag],
-                            delay,
-                        );
-                    });
+                                &metrics::VALIDATOR_MONITOR_PREV_EPOCH_SYNC_COMMITTEE_MESSAGES_MIN_DELAY_SECONDS,
+                                &[tag],
+                                delay,
+                            );
+                        });
                     }
-                    self.aggregatable_metric(id, |label| {
+                    if self.individual_tracking() {
+                        metrics::set_gauge_vec(
+                            &metrics::VALIDATOR_MONITOR_PREV_EPOCH_SYNC_COMMITTEE_MESSAGES_TOTAL,
+                            &[id],
+                            summary.sync_committee_messages as i64,
+                        );
                         metrics::set_gauge_vec(
                             &metrics::VALIDATOR_MONITOR_PREV_EPOCH_SYNC_CONTRIBUTION_INCLUSIONS,
-                            &[label],
+                            &[id],
                             summary.sync_signature_contribution_inclusions as i64,
                         );
-                    });
-                    self.aggregatable_metric(id, |label| {
                         metrics::set_gauge_vec(
                             &metrics::VALIDATOR_MONITOR_PREV_EPOCH_SYNC_SIGNATURE_BLOCK_INCLUSIONS,
-                            &[label],
+                            &[id],
                             summary.sync_signature_block_inclusions as i64,
                         );
-                    });
+                    }
 
                     /*
                      * Sync contributions
                      */
-                    self.aggregatable_metric(id, |label| {
+                    if self.individual_tracking() {
                         metrics::set_gauge_vec(
                             &metrics::VALIDATOR_MONITOR_PREV_EPOCH_SYNC_CONTRIBUTIONS_TOTAL,
-                            &[label],
+                            &[id],
                             summary.sync_contributions as i64,
                         );
-                    });
+                    }
                     if let Some(delay) = summary.sync_contribution_min_delay {
-                        self.aggregatable_metric(id, |tag| {
-                            metrics::observe_timer_vec(
+                        metrics::observe_timer_vec(
                             &metrics::VALIDATOR_MONITOR_PREV_EPOCH_SYNC_CONTRIBUTION_MIN_DELAY_SECONDS,
-                            &[tag],
+                            &[id],
                             delay,
                         );
-                    });
                     }
 
                     /*
                      * Blocks
                      */
-                    self.aggregatable_metric(id, |label| {
+                    if self.individual_tracking() {
                         metrics::set_gauge_vec(
                             &metrics::VALIDATOR_MONITOR_PREV_EPOCH_BEACON_BLOCKS_TOTAL,
-                            &[label],
+                            &[id],
                             summary.blocks as i64,
                         );
-                    });
+                    }
                     if let Some(delay) = summary.block_min_delay {
                         self.aggregatable_metric(id, |tag| {
                             metrics::observe_timer_vec(
@@ -1595,13 +1585,13 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                     /*
                      * Aggregates
                      */
-                    self.aggregatable_metric(id, |label| {
+                    if self.individual_tracking() {
                         metrics::set_gauge_vec(
                             &metrics::VALIDATOR_MONITOR_PREV_EPOCH_AGGREGATES_TOTAL,
-                            &[label],
+                            &[id],
                             summary.aggregates as i64,
                         );
-                    });
+                    }
                     if let Some(delay) = summary.aggregate_min_delay {
                         self.aggregatable_metric(id, |tag| {
                             metrics::observe_timer_vec(
@@ -1614,27 +1604,23 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                     /*
                      * Other
                      */
-                    self.aggregatable_metric(id, |label| {
+                    if self.individual_tracking() {
                         metrics::set_gauge_vec(
                             &metrics::VALIDATOR_MONITOR_PREV_EPOCH_EXITS_TOTAL,
-                            &[label],
+                            &[id],
                             summary.exits as i64,
                         );
-                    });
-                    self.aggregatable_metric(id, |label| {
                         metrics::set_gauge_vec(
                             &metrics::VALIDATOR_MONITOR_PREV_EPOCH_PROPOSER_SLASHINGS_TOTAL,
-                            &[label],
+                            &[id],
                             summary.proposer_slashings as i64,
                         );
-                    });
-                    self.aggregatable_metric(id, |label| {
                         metrics::set_gauge_vec(
                             &metrics::VALIDATOR_MONITOR_PREV_EPOCH_ATTESTER_SLASHINGS_TOTAL,
-                            &[label],
+                            &[id],
                             summary.attester_slashings as i64,
                         );
-                    });
+                    }
                 }
             }
         }
