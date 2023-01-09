@@ -777,12 +777,17 @@ impl<T: EthSpec> ValidatorMonitor<T> {
             let id = &validator.id;
             let delay = get_block_delay_ms(seen_timestamp, block, slot_clock);
 
-            metrics::inc_counter_vec(&metrics::VALIDATOR_MONITOR_BEACON_BLOCK_TOTAL, &[src, id]);
-            metrics::observe_timer_vec(
-                &metrics::VALIDATOR_MONITOR_BEACON_BLOCK_DELAY_SECONDS,
-                &[src, id],
-                delay,
-            );
+            self.aggregatable_metric(id, |label| {
+                metrics::inc_counter_vec(
+                    &metrics::VALIDATOR_MONITOR_BEACON_BLOCK_TOTAL,
+                    &[src, label],
+                );
+                metrics::observe_timer_vec(
+                    &metrics::VALIDATOR_MONITOR_BEACON_BLOCK_DELAY_SECONDS,
+                    &[src, label],
+                    delay,
+                );
+            });
 
             info!(
                 self.log,
@@ -848,15 +853,17 @@ impl<T: EthSpec> ValidatorMonitor<T> {
             if let Some(validator) = self.get_validator(*i) {
                 let id = &validator.id;
 
-                metrics::inc_counter_vec(
-                    &metrics::VALIDATOR_MONITOR_UNAGGREGATED_ATTESTATION_TOTAL,
-                    &[src, id],
-                );
-                metrics::observe_timer_vec(
-                    &metrics::VALIDATOR_MONITOR_UNAGGREGATED_ATTESTATION_DELAY_SECONDS,
-                    &[src, id],
-                    delay,
-                );
+                self.aggregatable_metric(id, |label| {
+                    metrics::inc_counter_vec(
+                        &metrics::VALIDATOR_MONITOR_UNAGGREGATED_ATTESTATION_TOTAL,
+                        &[src, label],
+                    );
+                    metrics::observe_timer_vec(
+                        &metrics::VALIDATOR_MONITOR_UNAGGREGATED_ATTESTATION_DELAY_SECONDS,
+                        &[src, label],
+                        delay,
+                    );
+                });
 
                 if self.individual_tracking() {
                     info!(
@@ -934,15 +941,17 @@ impl<T: EthSpec> ValidatorMonitor<T> {
         if let Some(validator) = self.get_validator(aggregator_index) {
             let id = &validator.id;
 
-            metrics::inc_counter_vec(
-                &metrics::VALIDATOR_MONITOR_AGGREGATED_ATTESTATION_TOTAL,
-                &[src, id],
-            );
-            metrics::observe_timer_vec(
-                &metrics::VALIDATOR_MONITOR_AGGREGATED_ATTESTATION_DELAY_SECONDS,
-                &[src, id],
-                delay,
-            );
+            self.aggregatable_metric(id, |label| {
+                metrics::inc_counter_vec(
+                    &metrics::VALIDATOR_MONITOR_AGGREGATED_ATTESTATION_TOTAL,
+                    &[src, label],
+                );
+                metrics::observe_timer_vec(
+                    &metrics::VALIDATOR_MONITOR_AGGREGATED_ATTESTATION_DELAY_SECONDS,
+                    &[src, label],
+                    delay,
+                );
+            });
 
             if self.individual_tracking() {
                 info!(
@@ -967,15 +976,17 @@ impl<T: EthSpec> ValidatorMonitor<T> {
             if let Some(validator) = self.get_validator(*i) {
                 let id = &validator.id;
 
-                metrics::inc_counter_vec(
-                    &metrics::VALIDATOR_MONITOR_ATTESTATION_IN_AGGREGATE_TOTAL,
-                    &[src, id],
-                );
-                metrics::observe_timer_vec(
-                    &metrics::VALIDATOR_MONITOR_ATTESTATION_IN_AGGREGATE_DELAY_SECONDS,
-                    &[src, id],
-                    delay,
-                );
+                self.aggregatable_metric(id, |label| {
+                    metrics::inc_counter_vec(
+                        &metrics::VALIDATOR_MONITOR_ATTESTATION_IN_AGGREGATE_TOTAL,
+                        &[src, label],
+                    );
+                    metrics::observe_timer_vec(
+                        &metrics::VALIDATOR_MONITOR_ATTESTATION_IN_AGGREGATE_DELAY_SECONDS,
+                        &[src, label],
+                        delay,
+                    );
+                });
 
                 if self.individual_tracking() {
                     info!(
@@ -1023,15 +1034,17 @@ impl<T: EthSpec> ValidatorMonitor<T> {
             if let Some(validator) = self.get_validator(*i) {
                 let id = &validator.id;
 
-                metrics::inc_counter_vec(
-                    &metrics::VALIDATOR_MONITOR_ATTESTATION_IN_BLOCK_TOTAL,
-                    &["block", id],
-                );
-                metrics::set_int_gauge(
-                    &metrics::VALIDATOR_MONITOR_ATTESTATION_IN_BLOCK_DELAY_SLOTS,
-                    &["block", id],
-                    delay.as_u64() as i64,
-                );
+                self.aggregatable_metric(id, |label| {
+                    metrics::inc_counter_vec(
+                        &metrics::VALIDATOR_MONITOR_ATTESTATION_IN_BLOCK_TOTAL,
+                        &["block", label],
+                    );
+                    metrics::set_int_gauge(
+                        &metrics::VALIDATOR_MONITOR_ATTESTATION_IN_BLOCK_DELAY_SLOTS,
+                        &["block", label],
+                        delay.as_u64() as i64,
+                    );
+                });
 
                 if self.individual_tracking() {
                     info!(
@@ -1301,7 +1314,9 @@ impl<T: EthSpec> ValidatorMonitor<T> {
             let id = &validator.id;
             let epoch = exit.epoch;
 
-            metrics::inc_counter_vec(&metrics::VALIDATOR_MONITOR_EXIT_TOTAL, &[src, id]);
+            self.aggregatable_metric(id, |label| {
+                metrics::inc_counter_vec(&metrics::VALIDATOR_MONITOR_EXIT_TOTAL, &[src, label]);
+            });
 
             // Not gated behind `self.individual_tracking()` since it's an
             // infrequent and interesting message.
@@ -1342,10 +1357,12 @@ impl<T: EthSpec> ValidatorMonitor<T> {
         if let Some(validator) = self.get_validator(proposer) {
             let id = &validator.id;
 
-            metrics::inc_counter_vec(
-                &metrics::VALIDATOR_MONITOR_PROPOSER_SLASHING_TOTAL,
-                &[src, id],
-            );
+            self.aggregatable_metric(id, |label| {
+                metrics::inc_counter_vec(
+                    &metrics::VALIDATOR_MONITOR_PROPOSER_SLASHING_TOTAL,
+                    &[src, label],
+                );
+            });
 
             // Not gated behind `self.individual_tracking()` since it's an
             // infrequent and interesting message.
@@ -1397,10 +1414,12 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                 let id = &validator.id;
                 let epoch = data.slot.epoch(T::slots_per_epoch());
 
-                metrics::inc_counter_vec(
-                    &metrics::VALIDATOR_MONITOR_ATTESTER_SLASHING_TOTAL,
-                    &[src, id],
-                );
+                self.aggregatable_metric(id, |label| {
+                    metrics::inc_counter_vec(
+                        &metrics::VALIDATOR_MONITOR_ATTESTER_SLASHING_TOTAL,
+                        &[src, label],
+                    );
+                });
 
                 // Not gated behind `self.individual_tracking()` since it's an
                 // infrequent and interesting message.
