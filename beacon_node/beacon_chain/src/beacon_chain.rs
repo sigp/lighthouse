@@ -972,7 +972,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
         Ok((
             self.get_block(block_root).await?.map(Arc::new),
-            self.get_blobs(block_root).await?.map(Arc::new),
+            self.get_blobs(block_root).ok().flatten().map(Arc::new),
         ))
     }
 
@@ -1048,11 +1048,32 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// ## Errors
     ///
     /// May return a database error.
-    pub async fn get_blobs(
+    pub fn get_blobs(
         &self,
         block_root: &Hash256,
     ) -> Result<Option<BlobsSidecar<T::EthSpec>>, Error> {
-        Ok(self.store.get_blobs(block_root)?)
+        match self.store.get_blobs(block_root)? {
+            Some(blobs) => Ok(Some(blobs)),
+            None => {
+                if let Ok(Some(block)) = self.get_blinded_block(block_root) {
+                    let expected_kzg_commitments = block.message().body().blob_kzg_commitments()?;
+
+                    if expected_kzg_commitments.len() > 0 {
+                        Err(Error::DBInconsistent(format!(
+                            "Expected kzg commitments but no blobs stored for block root {}",
+                            block_root
+                        )))
+                    } else {
+                        Ok(Some(BlobsSidecar::empty_from_parts(
+                            *block_root,
+                            block.slot(),
+                        )))
+                    }
+                } else {
+                    Ok(None)
+                }
+            }
+        }
     }
 
     pub fn get_blinded_block(
@@ -2945,9 +2966,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         ops.push(StoreOp::PutState(block.state_root(), &state));
 
         if let Some(blobs) = blobs? {
-            //FIXME(sean) using this for debugging for now
-            info!(self.log, "Writing blobs to store"; "block_root" => ?block_root);
-            ops.push(StoreOp::PutBlobs(block_root, blobs));
+            if blobs.blobs.len() > 0 {
+                //FIXME(sean) using this for debugging for now
+                info!(self.log, "Writing blobs to store"; "block_root" => ?block_root);
+                ops.push(StoreOp::PutBlobs(block_root, blobs));
+            }
         };
         let txn_lock = self.store.hot_db.begin_rw_transaction();
 

@@ -39,6 +39,7 @@ eth2_network_config = { path = "../common/eth2_network_config" }
 execution_layer = { path = "execution_layer" }
 lighthouse_network = { path = "./lighthouse_network" }
 serde = "1.0.116"
+serde_json = "1.0.58"
 clap_utils = { path = "../common/clap_utils" }
 hyper = "0.14.4"
 lighthouse_version = { path = "../common/lighthouse_version" }
