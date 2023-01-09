@@ -754,6 +754,17 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true)
         )
         .arg(
+            Arg::with_name("validator-monitor-individual-tracking-threshold")
+                .long("validator-monitor-individual-tracking-threshold")
+                .help("Once the validator monitor reaches this number of local validators \
+                    it will stop collecting per-validator Prometheus metrics and issuing \
+                    per-validator logs. Instead, it will provide aggregate metrics and logs. \
+                    This avoids infeasibly high cardinality in the Prometheus database and \
+                    high log volume when using many validators. Defaults to 64.")
+                .value_name("INTEGER")
+                .takes_value(true)
+        )
+        .arg(
             Arg::with_name("disable-lock-timeouts")
                 .long("disable-lock-timeouts")
                 .help("Disable the timeouts applied to some internal locks by default. This can \
