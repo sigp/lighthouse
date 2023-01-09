@@ -1115,28 +1115,30 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                 slot_clock,
             );
 
-            metrics::inc_counter_vec(
-                &metrics::VALIDATOR_MONITOR_SYNC_COMMITTEE_MESSAGES_TOTAL,
-                &[src, id],
-            );
-            metrics::observe_timer_vec(
-                &metrics::VALIDATOR_MONITOR_SYNC_COMMITTEE_MESSAGES_DELAY_SECONDS,
-                &[src, id],
-                delay,
-            );
+            self.aggregatable_metric(id, |label| {
+                metrics::inc_counter_vec(
+                    &metrics::VALIDATOR_MONITOR_SYNC_COMMITTEE_MESSAGES_TOTAL,
+                    &[src, label],
+                );
+                metrics::observe_timer_vec(
+                    &metrics::VALIDATOR_MONITOR_SYNC_COMMITTEE_MESSAGES_DELAY_SECONDS,
+                    &[src, label],
+                    delay,
+                );
+            });
 
-            // Not gated behind `self.individual_tracking()` since the number of
-            // logs is capped by the sync committee size.
-            info!(
-                self.log,
-                "Sync committee message";
-                "head" => %sync_committee_message.beacon_block_root,
-                "delay_ms" => %delay.as_millis(),
-                "epoch" => %epoch,
-                "slot" => %sync_committee_message.slot,
-                "src" => src,
-                "validator" => %id,
-            );
+            if self.individual_tracking() {
+                info!(
+                    self.log,
+                    "Sync committee message";
+                    "head" => %sync_committee_message.beacon_block_root,
+                    "delay_ms" => %delay.as_millis(),
+                    "epoch" => %epoch,
+                    "slot" => %sync_committee_message.slot,
+                    "src" => src,
+                    "validator" => %id,
+                );
+            }
 
             validator.with_epoch_summary(epoch, |summary| {
                 summary.register_sync_committee_message(delay)
@@ -1201,28 +1203,30 @@ impl<T: EthSpec> ValidatorMonitor<T> {
         if let Some(validator) = self.get_validator(aggregator_index) {
             let id = &validator.id;
 
-            metrics::inc_counter_vec(
-                &metrics::VALIDATOR_MONITOR_SYNC_CONTRIBUTIONS_TOTAL,
-                &[src, id],
-            );
-            metrics::observe_timer_vec(
-                &metrics::VALIDATOR_MONITOR_SYNC_CONTRIBUTIONS_DELAY_SECONDS,
-                &[src, id],
-                delay,
-            );
+            self.aggregatable_metric(id, |label| {
+                metrics::inc_counter_vec(
+                    &metrics::VALIDATOR_MONITOR_SYNC_CONTRIBUTIONS_TOTAL,
+                    &[src, label],
+                );
+                metrics::observe_timer_vec(
+                    &metrics::VALIDATOR_MONITOR_SYNC_CONTRIBUTIONS_DELAY_SECONDS,
+                    &[src, label],
+                    delay,
+                );
+            });
 
-            // Not gated behind `self.individual_tracking()` since the number of
-            // logs is capped by the sync committee size.
-            info!(
-                self.log,
-                "Sync contribution";
-                "head" => %beacon_block_root,
-                "delay_ms" => %delay.as_millis(),
-                "epoch" => %epoch,
-                "slot" => %slot,
-                "src" => src,
-                "validator" => %id,
-            );
+            if self.individual_tracking() {
+                info!(
+                    self.log,
+                    "Sync contribution";
+                    "head" => %beacon_block_root,
+                    "delay_ms" => %delay.as_millis(),
+                    "epoch" => %epoch,
+                    "slot" => %slot,
+                    "src" => src,
+                    "validator" => %id,
+                );
+            }
 
             validator.with_epoch_summary(epoch, |summary| {
                 summary.register_sync_committee_contribution(delay)
@@ -1233,23 +1237,25 @@ impl<T: EthSpec> ValidatorMonitor<T> {
             if let Some(validator) = self.validators.get(validator_pubkey) {
                 let id = &validator.id;
 
-                metrics::inc_counter_vec(
-                    &metrics::VALIDATOR_MONITOR_SYNC_COMMITTEE_MESSAGE_IN_CONTRIBUTION_TOTAL,
-                    &[src, id],
-                );
+                self.aggregatable_metric(id, |label| {
+                    metrics::inc_counter_vec(
+                        &metrics::VALIDATOR_MONITOR_SYNC_COMMITTEE_MESSAGE_IN_CONTRIBUTION_TOTAL,
+                        &[src, label],
+                    );
+                });
 
-                // Not gated behind `self.individual_tracking()` since the number of
-                // logs is capped by the sync committee size.
-                info!(
-                    self.log,
-                    "Sync signature included in contribution";
-                    "head" => %beacon_block_root,
-                    "delay_ms" => %delay.as_millis(),
-                    "epoch" => %epoch,
-                    "slot" => %slot,
-                    "src" => src,
-                    "validator" => %id,
-                );
+                if self.individual_tracking() {
+                    info!(
+                        self.log,
+                        "Sync signature included in contribution";
+                        "head" => %beacon_block_root,
+                        "delay_ms" => %delay.as_millis(),
+                        "epoch" => %epoch,
+                        "slot" => %slot,
+                        "src" => src,
+                        "validator" => %id,
+                    );
+                }
 
                 validator.with_epoch_summary(epoch, |summary| {
                     summary.register_sync_signature_contribution_inclusion()
@@ -1271,21 +1277,23 @@ impl<T: EthSpec> ValidatorMonitor<T> {
             if let Some(validator) = self.validators.get(validator_pubkey) {
                 let id = &validator.id;
 
-                metrics::inc_counter_vec(
-                    &metrics::VALIDATOR_MONITOR_SYNC_COMMITTEE_MESSAGE_IN_BLOCK_TOTAL,
-                    &["block", id],
-                );
+                self.aggregatable_metric(id, |label| {
+                    metrics::inc_counter_vec(
+                        &metrics::VALIDATOR_MONITOR_SYNC_COMMITTEE_MESSAGE_IN_BLOCK_TOTAL,
+                        &["block", label],
+                    );
+                });
 
-                // Not gated behind `self.individual_tracking()` since the number of
-                // logs is capped by the sync committee size.
-                info!(
-                    self.log,
-                    "Sync signature included in block";
-                    "head" => %beacon_block_root,
-                    "epoch" => %epoch,
-                    "slot" => %slot,
-                    "validator" => %id,
-                );
+                if self.individual_tracking() {
+                    info!(
+                        self.log,
+                        "Sync signature included in block";
+                        "head" => %beacon_block_root,
+                        "epoch" => %epoch,
+                        "slot" => %slot,
+                        "validator" => %id,
+                    );
+                }
 
                 validator.with_epoch_summary(epoch, |summary| {
                     summary.register_sync_signature_block_inclusions();
