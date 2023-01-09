@@ -377,7 +377,7 @@ pub fn endpoint_from_config(config: &Config, spec: &ChainSpec) -> Result<HttpJso
                 .map_err(|e| format!("Failed to create eth1 json rpc client: {:?}", e))
         }
         Eth1Endpoint::NoAuth(endpoint) => {
-            HttpJsonRpc::new(endpoint, Some(config.execution_timeout_multiplier), &spec)
+            HttpJsonRpc::new(endpoint, Some(config.execution_timeout_multiplier), spec)
                 .map_err(|e| format!("Failed to create eth1 json rpc client: {:?}", e))
         }
     }

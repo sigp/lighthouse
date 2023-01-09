@@ -974,6 +974,7 @@ mod test {
     impl Tester {
         pub fn new(with_auth: bool) -> Self {
             let server = MockServer::unit_testing();
+            let spec = MainnetEthSpec::default_spec();
 
             let rpc_url = SensitiveUrl::parse(&server.url()).unwrap();
             let echo_url = SensitiveUrl::parse(&format!("{}/echo", server.url())).unwrap();
@@ -989,8 +990,8 @@ mod test {
                 )
             } else {
                 (
-                    Arc::new(HttpJsonRpc::new(rpc_url, None).unwrap()),
-                    Arc::new(HttpJsonRpc::new(echo_url, None).unwrap()),
+                    Arc::new(HttpJsonRpc::new(rpc_url, None, &spec).unwrap()),
+                    Arc::new(HttpJsonRpc::new(echo_url, None, &spec).unwrap()),
                 )
             };
 
