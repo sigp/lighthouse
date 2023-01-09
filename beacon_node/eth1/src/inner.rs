@@ -122,7 +122,7 @@ impl SszEth1Cache {
                 cache: self.deposit_cache.to_deposit_cache()?,
                 last_processed_block: self.last_processed_block,
             }),
-            endpoint: endpoint_from_config(&config)
+            endpoint: endpoint_from_config(&config, &spec)
                 .map_err(|e| format!("Failed to create endpoint: {:?}", e))?,
             to_finalize: RwLock::new(None),
             // Set the remote head_block zero when creating a new instance. We only care about
