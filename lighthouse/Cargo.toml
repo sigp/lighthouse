@@ -4,7 +4,7 @@ version = "3.3.0"
 authors = ["Sigma Prime <contact@sigmaprime.io>"]
 edition = "2021"
 autotests = false
-rust-version = "1.62"
+rust-version = "1.65"
 
 [features]
 default = ["slasher-mdbx"]
