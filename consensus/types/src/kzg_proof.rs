@@ -7,7 +7,18 @@ use tree_hash::{PackedEncoding, TreeHash};
 
 const KZG_PROOF_BYTES_LEN: usize = 48;
 
-#[derive(Debug, PartialEq, Hash, Clone, Copy, Encode, Decode, Serialize, Deserialize)]
+#[derive(
+    Debug,
+    PartialEq,
+    Hash,
+    Clone,
+    Copy,
+    Encode,
+    Decode,
+    Serialize,
+    Deserialize,
+    arbitrary::Arbitrary,
+)]
 #[serde(transparent)]
 #[ssz(struct_behaviour = "transparent")]
 pub struct KzgProof(#[serde(with = "BigArray")] pub [u8; KZG_PROOF_BYTES_LEN]);

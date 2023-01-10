@@ -145,8 +145,7 @@ impl AllowNextEpoch {
     }
 }
 
-#[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
-#[derive(PartialEq, Eq, Hash, Clone, Copy)]
+#[derive(PartialEq, Eq, Hash, Clone, Copy, arbitrary::Arbitrary)]
 pub struct BeaconStateHash(Hash256);
 
 impl fmt::Debug for BeaconStateHash {
@@ -188,18 +187,19 @@ impl From<BeaconStateHash> for Hash256 {
             TreeHash,
             TestRandom,
             CompareFields,
+            arbitrary::Arbitrary
         ),
         serde(bound = "T: EthSpec", deny_unknown_fields),
+        arbitrary(bound = "T: EthSpec"),
         derivative(Clone),
-        cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))
     ),
     cast_error(ty = "Error", expr = "Error::IncorrectStateVariant"),
     partial_getter_error(ty = "Error", expr = "Error::IncorrectStateVariant")
 )]
-#[derive(Debug, PartialEq, Serialize, Deserialize, Encode, TreeHash)]
+#[derive(Debug, PartialEq, Serialize, Deserialize, Encode, TreeHash, arbitrary::Arbitrary)]
 #[serde(untagged)]
 #[serde(bound = "T: EthSpec")]
-#[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
+#[arbitrary(bound = "T: EthSpec")]
 #[tree_hash(enum_behaviour = "transparent")]
 #[ssz(enum_behaviour = "transparent")]
 pub struct BeaconState<T>

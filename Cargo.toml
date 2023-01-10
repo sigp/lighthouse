@@ -100,6 +100,7 @@ eth2_hashing = { path = "crypto/eth2_hashing" }
 tree_hash = { path = "consensus/tree_hash" }
 tree_hash_derive = { path = "consensus/tree_hash_derive" }
 eth2_serde_utils = { path = "consensus/serde_utils" }
+arbitrary = { git = "https://github.com/michaelsproul/arbitrary", rev="bf51d6276648c9259256ce68f2f9de9803b526d5" }
 
 [profile.maxperf]
 inherits = "release"

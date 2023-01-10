@@ -7,7 +7,9 @@ use std::fmt;
 use std::fmt::{Display, Formatter};
 use tree_hash::{PackedEncoding, TreeHash};
 
-#[derive(Derivative, Debug, Clone, Encode, Decode, Serialize, Deserialize)]
+#[derive(
+    Derivative, Debug, Clone, Encode, Decode, Serialize, Deserialize, arbitrary::Arbitrary,
+)]
 #[derivative(PartialEq, Eq, Hash)]
 #[ssz(struct_behaviour = "transparent")]
 pub struct KzgCommitment(#[serde(with = "BigArray")] pub [u8; 48]);

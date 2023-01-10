@@ -6,9 +6,20 @@ use ssz_derive::{Decode, Encode};
 use ssz_types::VariableList;
 use tree_hash_derive::TreeHash;
 
-#[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
-#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, PartialEq, Default)]
+#[derive(
+    Debug,
+    Clone,
+    Serialize,
+    Deserialize,
+    Encode,
+    Decode,
+    TreeHash,
+    PartialEq,
+    Default,
+    arbitrary::Arbitrary,
+)]
 #[serde(bound = "T: EthSpec")]
+#[arbitrary(bound = "T: EthSpec")]
 pub struct BlobsSidecar<T: EthSpec> {
     pub beacon_block_root: Hash256,
     pub beacon_block_slot: Slot,

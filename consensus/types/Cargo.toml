@@ -39,7 +39,9 @@ serde_yaml = "0.8.13"
 tempfile = "3.1.0"
 derivative = "2.1.1"
 rusqlite = { version = "0.25.3", features = ["bundled"], optional = true }
-arbitrary = { version = "1.0", features = ["derive"], optional = true }
+# The arbitrary dependency is enabled by default since Capella to avoid complexity introduced by
+# `AbstractExecPayload`
+arbitrary = { version = "1.0", features = ["derive"] }
 eth2_serde_utils = "0.1.1"
 regex = "1.5.5"
 lazy_static = "1.4.0"
@@ -64,7 +66,6 @@ default = ["sqlite", "legacy-arith"]
 legacy-arith = []
 sqlite = ["rusqlite"]
 arbitrary-fuzz = [
-  "arbitrary",
   "ethereum-types/arbitrary",
   "bls/arbitrary",
   "eth2_ssz/arbitrary",
