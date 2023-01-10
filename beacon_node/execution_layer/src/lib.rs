@@ -35,6 +35,7 @@ use tokio::{
     time::sleep,
 };
 use tokio_stream::wrappers::WatchStream;
+use types::execution_payload::{ExecutionPayloadAndBlobsSidecar, PayloadWrapper};
 use types::{AbstractExecPayload, Blob, ExecPayload, KzgCommitment};
 use types::{
     BlindedPayload, BlockType, ChainSpec, Epoch, ExecutionBlockHash, ForkName,
@@ -1753,7 +1754,8 @@ impl<T: EthSpec> ExecutionLayer<T> {
         &self,
         block_root: Hash256,
         block: &SignedBeaconBlock<T, BlindedPayload<T>>,
-    ) -> Result<ExecutionPayload<T>, Error> {
+        fork_name: ForkName,
+    ) -> Result<PayloadWrapper<T>, Error> {
         debug!(
             self.log(),
             "Sending block to builder";
@@ -1763,29 +1765,31 @@ impl<T: EthSpec> ExecutionLayer<T> {
         if let Some(builder) = self.builder() {
             let (payload_result, duration) =
                 timed_future(metrics::POST_BLINDED_PAYLOAD_BUILDER, async {
-                    builder
-                        .post_builder_blinded_blocks(block)
-                        .await
-                        .map_err(Error::Builder)
-                        .map(|d| d.data)
+                    match fork_name {
+                        ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {
+                            let payload = builder
+                                .post_builder_blinded_blocks::<T, ExecutionPayload<T>>(block)
+                                .await
+                                .map_err(Error::Builder)
+                                .map(|d| d.data)?;
+                            Ok(PayloadWrapper::Payload(payload))
+                        }
+                        ForkName::Eip4844 => {
+                            let payload_and_blob = builder
+                                .post_builder_blinded_blocks::<T, ExecutionPayloadAndBlobsSidecar<T>>(block)
+                                .await
+                                .map_err(Error::Builder)
+                                .map(|d| d.data)?;
+                            Ok(PayloadWrapper::PayloadAndBlob(payload_and_blob))
+                        },
+                    }
                 })
                 .await;
 
-            match &payload_result {
-                Ok(payload) => {
-                    metrics::inc_counter_vec(
-                        &metrics::EXECUTION_LAYER_BUILDER_REVEAL_PAYLOAD_OUTCOME,
-                        &[metrics::SUCCESS],
-                    );
-                    info!(
-                        self.log(),
-                        "Builder successfully revealed payload";
-                        "relay_response_ms" => duration.as_millis(),
-                        "block_root" => ?block_root,
-                        "fee_recipient" => ?payload.fee_recipient(),
-                        "block_hash" => ?payload.block_hash(),
-                        "parent_hash" => ?payload.parent_hash()
-                    )
+            let payload_maybe = match &payload_result {
+                Ok(PayloadWrapper::Payload(payload)) => Some(payload),
+                Ok(PayloadWrapper::PayloadAndBlob(payload_and_blob)) => {
+                    Some(&payload_and_blob.execution_payload)
                 }
                 Err(e) => {
                     metrics::inc_counter_vec(
@@ -1804,8 +1808,29 @@ impl<T: EthSpec> ExecutionLayer<T> {
                             .execution_payload()
                             .map(|payload| format!("{}", payload.parent_hash()))
                             .unwrap_or_else(|_| "unknown".to_string())
-                    )
+                    );
+                    None
                 }
+            };
+
+            match payload_maybe {
+                Some(payload) => {
+                    metrics::inc_counter_vec(
+                        &metrics::EXECUTION_LAYER_BUILDER_REVEAL_PAYLOAD_OUTCOME,
+                        &[metrics::SUCCESS],
+                    );
+
+                    info!(
+                        self.log(),
+                        "Builder successfully revealed payload";
+                        "relay_response_ms" => duration.as_millis(),
+                        "block_root" => ?block_root,
+                        "fee_recipient" => ?payload.fee_recipient(),
+                        "block_hash" => ?payload.block_hash(),
+                        "parent_hash" => ?payload.parent_hash()
+                    );
+                }
+                None => {}
             }
 
             payload_result

@@ -9,6 +9,7 @@ use slot_clock::SlotClock;
 use std::sync::Arc;
 use tokio::sync::mpsc::UnboundedSender;
 use tree_hash::TreeHash;
+use types::execution_payload::PayloadWrapper;
 use types::signed_block_and_blobs::BlockWrapper;
 use types::{
     AbstractExecPayload, BlindedPayload, EthSpec, ExecPayload, ExecutionBlockHash, FullPayload,
@@ -203,8 +204,11 @@ async fn reconstruct_block<T: BeaconChainTypes>(
             cached_payload
             // Otherwise, this means we are attempting a blind block proposal.
         } else {
-            let full_payload = el
-                .propose_blinded_beacon_block(block_root, &block)
+            let fork_name = chain
+                .spec
+                .fork_name_at_epoch(block.slot().epoch(T::EthSpec::slots_per_epoch()));
+            let payload_wrapper = el
+                .propose_blinded_beacon_block(block_root, &block, fork_name)
                 .await
                 .map_err(|e| {
                     warp_utils::reject::custom_server_error(format!(
@@ -212,6 +216,14 @@ async fn reconstruct_block<T: BeaconChainTypes>(
                         e
                     ))
                 })?;
+            //FIXME: what to do with blob?
+            let full_payload = match &payload_wrapper {
+                PayloadWrapper::Payload(payload) => payload,
+                PayloadWrapper::PayloadAndBlob(payload_and_blob) => {
+                    &payload_and_blob.execution_payload
+                }
+            };
+
             info!(log, "Successfully published a block to the builder network"; "block_hash" => ?full_payload.block_hash());
             full_payload
         };

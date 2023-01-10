@@ -133,3 +133,19 @@ impl<T: EthSpec> ExecutionPayload<T> {
             + (T::max_withdrawals_per_payload() * <Withdrawal as Encode>::ssz_fixed_len())
     }
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize, Encode, TreeHash, Derivative)]
+#[derivative(PartialEq, Hash(bound = "T: EthSpec"))]
+#[serde(bound = "T: EthSpec")]
+pub struct ExecutionPayloadAndBlobsSidecar<T: EthSpec> {
+    pub execution_payload: ExecutionPayload<T>,
+    pub blobs_sidecar: BlobsSidecar<T>,
+}
+
+/// A wrapper over a [`ExecutionPayload`] or a [`ExecutionPayloadAndBlobsSidecar`].
+#[derive(Clone, Debug, Derivative)]
+#[derivative(PartialEq, Hash(bound = "T: EthSpec"))]
+pub enum PayloadWrapper<T: EthSpec> {
+    Payload(ExecutionPayload<T>),
+    PayloadAndBlob(ExecutionPayloadAndBlobsSidecar<T>),
+}
