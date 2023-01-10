@@ -171,6 +171,9 @@ impl<T: BeaconChainTypes> Router<T> {
             Request::LightClientBootstrap(request) => self
                 .processor
                 .on_lightclient_bootstrap(peer_id, id, request),
+            Request::LightClientUpdatesByRange(request) => self
+                .processor
+                .on_light_client_updates_by_range_request(peer_id, id, request),
         }
     }
 
@@ -196,6 +199,7 @@ impl<T: BeaconChainTypes> Router<T> {
                     .on_blocks_by_root_response(peer_id, request_id, beacon_block);
             }
             Response::LightClientBootstrap(_) => unreachable!(),
+            Response::LightClientUpdatesByRange(_) => unreachable!(),
         }
     }
 

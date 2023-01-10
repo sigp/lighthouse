@@ -455,4 +455,20 @@ impl<T: BeaconChainTypes> Worker<T> {
             "load_blocks_by_range_blocks",
         );
     }
+
+    /// Handle a `LightClientUpdatesByRange` request from the peer.
+    pub fn handle_light_client_updates_by_range_request(
+        self,
+        executor: TaskExecutor,
+        peer_id: PeerId,
+        request_id: PeerRequestId,
+        mut req: LightClientUpdatesByRangeRequest,
+    ) {
+        debug!(self.log, "Received BlocksByRange Request";
+            "peer_id" => %peer_id,
+            "count" => req.count,
+            "start_period" => req.start_period,
+        );
+        todo!()
+    }
 }

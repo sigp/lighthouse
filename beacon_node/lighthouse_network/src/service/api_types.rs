@@ -1,12 +1,15 @@
 use std::sync::Arc;
 
 use libp2p::core::connection::ConnectionId;
-use types::{light_client_bootstrap::LightClientBootstrap, EthSpec, SignedBeaconBlock};
+use types::{
+    light_client_bootstrap::LightClientBootstrap, EthSpec, LightClientUpdate, SignedBeaconBlock,
+};
 
 use crate::rpc::{
     methods::{
         BlocksByRangeRequest, BlocksByRootRequest, LightClientBootstrapRequest,
-        OldBlocksByRangeRequest, RPCCodedResponse, RPCResponse, ResponseTermination, StatusMessage,
+        LightClientUpdatesByRangeRequest, OldBlocksByRangeRequest, RPCCodedResponse, RPCResponse,
+        ResponseTermination, StatusMessage,
     },
     OutboundRequest, SubstreamId,
 };
@@ -36,6 +39,8 @@ pub enum Request {
     BlocksByRoot(BlocksByRootRequest),
     // light client bootstrap request
     LightClientBootstrap(LightClientBootstrapRequest),
+    // light client updates by range request
+    LightClientUpdatesByRange(LightClientUpdatesByRangeRequest),
 }
 
 impl<TSpec: EthSpec> std::convert::From<Request> for OutboundRequest<TSpec> {
@@ -50,6 +55,7 @@ impl<TSpec: EthSpec> std::convert::From<Request> for OutboundRequest<TSpec> {
                 })
             }
             Request::LightClientBootstrap(b) => OutboundRequest::LightClientBootstrap(b),
+            Request::LightClientUpdatesByRange(r) => OutboundRequest::LightClientUpdatesByRange(r),
             Request::Status(s) => OutboundRequest::Status(s),
         }
     }
@@ -71,6 +77,8 @@ pub enum Response<TSpec: EthSpec> {
     BlocksByRoot(Option<Arc<SignedBeaconBlock<TSpec>>>),
     /// A response to a LightClientUpdate request.
     LightClientBootstrap(LightClientBootstrap<TSpec>),
+    /// A response to a LightClientUpdatesByRange request.
+    LightClientUpdatesByRange(Option<Arc<LightClientUpdate<TSpec>>>),
 }
 
 impl<TSpec: EthSpec> std::convert::From<Response<TSpec>> for RPCCodedResponse<TSpec> {
@@ -88,6 +96,12 @@ impl<TSpec: EthSpec> std::convert::From<Response<TSpec>> for RPCCodedResponse<TS
             Response::LightClientBootstrap(b) => {
                 RPCCodedResponse::Success(RPCResponse::LightClientBootstrap(b))
             }
+            Response::LightClientUpdatesByRange(r) => match r {
+                Some(b) => RPCCodedResponse::Success(RPCResponse::LightClientUpdatesByRange(b)),
+                None => RPCCodedResponse::StreamTermination(
+                    ResponseTermination::LightClientUpdatesByRange,
+                ),
+            },
         }
     }
 }

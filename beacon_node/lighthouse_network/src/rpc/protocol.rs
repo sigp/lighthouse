@@ -109,6 +109,7 @@ const TTFB_TIMEOUT: u64 = 5;
 /// The number of seconds to wait for the first bytes of a request once a protocol has been
 /// established before the stream is terminated.
 const REQUEST_TIMEOUT: u64 = 15;
+const MAX_REQUEST_LIGHT_CLIENT_UPDATES: u64 = 128;
 
 /// Returns the maximum bytes that can be sent across the RPC.
 pub fn max_rpc_size(fork_context: &ForkContext) -> usize {
@@ -155,6 +156,8 @@ pub enum Protocol {
     MetaData,
     /// The `LightClientBootstrap` protocol name.
     LightClientBootstrap,
+    /// The `LightClientUpdatesByRange` protocol name.
+    LightClientUpdatesByRange,
 }
 
 /// RPC Versions
@@ -182,6 +185,7 @@ impl std::fmt::Display for Protocol {
             Protocol::Ping => "ping",
             Protocol::MetaData => "metadata",
             Protocol::LightClientBootstrap => "light_client_bootstrap",
+            Protocol::LightClientUpdatesByRange => "light_client_updates_by_range",
         };
         f.write_str(repr)
     }
@@ -305,6 +309,10 @@ impl ProtocolId {
                 <LightClientBootstrapRequest as Encode>::ssz_fixed_len(),
                 <LightClientBootstrapRequest as Encode>::ssz_fixed_len(),
             ),
+            Protocol::LightClientUpdatesByRange => RpcLimits::new(
+                <LightClientUpdatesByRangeRequest as Encode>::ssz_fixed_len(),
+                <LightClientUpdatesByRangeRequest as Encode>::ssz_fixed_len(),
+            ),
             Protocol::MetaData => RpcLimits::new(0, 0), // Metadata requests are empty
         }
     }
@@ -331,6 +339,10 @@ impl ProtocolId {
             Protocol::LightClientBootstrap => RpcLimits::new(
                 <LightClientBootstrapRequest as Encode>::ssz_fixed_len(),
                 <LightClientBootstrapRequest as Encode>::ssz_fixed_len(),
+            ),
+            Protocol::LightClientUpdatesByRange => RpcLimits::new(
+                <LightClientUpdatesByRangeRequest as Encode>::ssz_fixed_len(),
+                <LightClientUpdatesByRangeRequest as Encode>::ssz_fixed_len(),
             ),
         }
     }
@@ -438,6 +450,7 @@ pub enum InboundRequest<TSpec: EthSpec> {
     BlocksByRange(OldBlocksByRangeRequest),
     BlocksByRoot(BlocksByRootRequest),
     LightClientBootstrap(LightClientBootstrapRequest),
+    LightClientUpdatesByRange(LightClientUpdatesByRangeRequest),
     Ping(Ping),
     MetaData(PhantomData<TSpec>),
 }
@@ -456,6 +469,7 @@ impl<TSpec: EthSpec> InboundRequest<TSpec> {
             InboundRequest::Ping(_) => 1,
             InboundRequest::MetaData(_) => 1,
             InboundRequest::LightClientBootstrap(_) => 1,
+            InboundRequest::LightClientUpdatesByRange(req) => req.count,
         }
     }
 
@@ -469,6 +483,7 @@ impl<TSpec: EthSpec> InboundRequest<TSpec> {
             InboundRequest::Ping(_) => Protocol::Ping,
             InboundRequest::MetaData(_) => Protocol::MetaData,
             InboundRequest::LightClientBootstrap(_) => Protocol::LightClientBootstrap,
+            InboundRequest::LightClientUpdatesByRange(_) => Protocol::LightClientUpdatesByRange,
         }
     }
 
@@ -485,6 +500,9 @@ impl<TSpec: EthSpec> InboundRequest<TSpec> {
             InboundRequest::Ping(_) => unreachable!(),
             InboundRequest::MetaData(_) => unreachable!(),
             InboundRequest::LightClientBootstrap(_) => unreachable!(),
+            InboundRequest::LightClientUpdatesByRange(_) => {
+                ResponseTermination::LightClientUpdatesByRange
+            }
         }
     }
 }
@@ -590,6 +608,9 @@ impl<TSpec: EthSpec> std::fmt::Display for InboundRequest<TSpec> {
             InboundRequest::MetaData(_) => write!(f, "MetaData request"),
             InboundRequest::LightClientBootstrap(bootstrap) => {
                 write!(f, "LightClientBootstrap: {}", bootstrap.root)
+            }
+            InboundRequest::LightClientUpdatesByRange(req) => {
+                write!(f, "LightClientUpdates by range: {:?}", req)
             }
         }
     }

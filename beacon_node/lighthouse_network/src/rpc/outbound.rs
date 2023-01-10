@@ -39,6 +39,7 @@ pub enum OutboundRequest<TSpec: EthSpec> {
     BlocksByRange(OldBlocksByRangeRequest),
     BlocksByRoot(BlocksByRootRequest),
     LightClientBootstrap(LightClientBootstrapRequest),
+    LightClientUpdatesByRange(LightClientUpdatesByRangeRequest),
     Ping(Ping),
     MetaData(PhantomData<TSpec>),
 }
@@ -85,10 +86,11 @@ impl<TSpec: EthSpec> OutboundRequest<TSpec> {
                 ProtocolId::new(Protocol::MetaData, Version::V2, Encoding::SSZSnappy),
                 ProtocolId::new(Protocol::MetaData, Version::V1, Encoding::SSZSnappy),
             ],
-            // Note: This match arm is technically unreachable as we only respond to light client requests
+            // Note: Light client match arms are technically unreachable as we only respond to light client requests
             // that we generate from the beacon state.
             // We do not make light client rpc requests from the beacon node
             OutboundRequest::LightClientBootstrap(_) => vec![],
+            OutboundRequest::LightClientUpdatesByRange(_) => vec![],
         }
     }
     /* These functions are used in the handler for stream management */
@@ -103,6 +105,7 @@ impl<TSpec: EthSpec> OutboundRequest<TSpec> {
             OutboundRequest::Ping(_) => 1,
             OutboundRequest::MetaData(_) => 1,
             OutboundRequest::LightClientBootstrap(_) => 1,
+            OutboundRequest::LightClientUpdatesByRange(_) => 1,
         }
     }
 
@@ -116,6 +119,7 @@ impl<TSpec: EthSpec> OutboundRequest<TSpec> {
             OutboundRequest::Ping(_) => Protocol::Ping,
             OutboundRequest::MetaData(_) => Protocol::MetaData,
             OutboundRequest::LightClientBootstrap(_) => Protocol::LightClientBootstrap,
+            OutboundRequest::LightClientUpdatesByRange(_) => Protocol::LightClientUpdatesByRange,
         }
     }
 
@@ -128,6 +132,7 @@ impl<TSpec: EthSpec> OutboundRequest<TSpec> {
             OutboundRequest::BlocksByRange(_) => ResponseTermination::BlocksByRange,
             OutboundRequest::BlocksByRoot(_) => ResponseTermination::BlocksByRoot,
             OutboundRequest::LightClientBootstrap(_) => unreachable!(),
+            OutboundRequest::LightClientUpdatesByRange(_) => unreachable!(),
             OutboundRequest::Status(_) => unreachable!(),
             OutboundRequest::Goodbye(_) => unreachable!(),
             OutboundRequest::Ping(_) => unreachable!(),
@@ -187,6 +192,9 @@ impl<TSpec: EthSpec> std::fmt::Display for OutboundRequest<TSpec> {
             OutboundRequest::MetaData(_) => write!(f, "MetaData request"),
             OutboundRequest::LightClientBootstrap(bootstrap) => {
                 write!(f, "Lightclient Bootstrap: {}", bootstrap.root)
+            }
+            OutboundRequest::LightClientUpdatesByRange(req) => {
+                write!(f, "Lightclient Updates by range: {:?}", req)
             }
         }
     }

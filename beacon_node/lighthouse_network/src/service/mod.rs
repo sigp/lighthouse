@@ -995,6 +995,10 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
             Request::BlocksByRoot { .. } => {
                 metrics::inc_counter_vec(&metrics::TOTAL_RPC_REQUESTS, &["blocks_by_root"])
             }
+            Request::LightClientUpdatesByRange(_) => metrics::inc_counter_vec(
+                &metrics::TOTAL_RPC_REQUESTS,
+                &["light_client_updates_by_range"],
+            ),
         }
         NetworkEvent::RequestReceived {
             peer_id,
@@ -1266,6 +1270,21 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                         );
                         Some(event)
                     }
+                    InboundRequest::LightClientUpdatesByRange(req) => {
+                        let methods::LightClientUpdatesByRangeRequest {
+                            start_period,
+                            mut count,
+                        } = req;
+                        let event = self.build_request(
+                            peer_request_id,
+                            peer_id,
+                            Request::LightClientUpdatesByRange(LightClientUpdatesByRangeRequest {
+                                start_period,
+                                count,
+                            }),
+                        );
+                        Some(event)
+                    }
                 }
             }
             Ok(RPCReceived::Response(id, resp)) => {
@@ -1293,16 +1312,24 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                     RPCResponse::BlocksByRoot(resp) => {
                         self.build_response(id, peer_id, Response::BlocksByRoot(Some(resp)))
                     }
-                    // Should never be reached
+                    // These should never be reached
                     RPCResponse::LightClientBootstrap(bootstrap) => {
                         self.build_response(id, peer_id, Response::LightClientBootstrap(bootstrap))
                     }
+                    RPCResponse::LightClientUpdatesByRange(resp) => self.build_response(
+                        id,
+                        peer_id,
+                        Response::LightClientUpdatesByRange(Some(resp)),
+                    ),
                 }
             }
             Ok(RPCReceived::EndOfStream(id, termination)) => {
                 let response = match termination {
                     ResponseTermination::BlocksByRange => Response::BlocksByRange(None),
                     ResponseTermination::BlocksByRoot => Response::BlocksByRoot(None),
+                    ResponseTermination::LightClientUpdatesByRange => {
+                        Response::LightClientUpdatesByRange(None)
+                    }
                 };
                 self.build_response(id, peer_id, response)
             }
