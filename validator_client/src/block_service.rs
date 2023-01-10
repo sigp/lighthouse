@@ -351,11 +351,6 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                                 &metrics::BLOCK_SERVICE_TIMES,
                                 &[metrics::BEACON_BLOCK_HTTP_GET],
                             );
-                            info!(
-                                log,
-                                "Received unsigned block";
-                                "slot" => slot.as_u64(),
-                            );
                             beacon_node
                                 .get_validator_blocks::<E, Payload>(
                                     slot,
@@ -376,11 +371,6 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                                 &metrics::BLOCK_SERVICE_TIMES,
                                 &[metrics::BLINDED_BEACON_BLOCK_HTTP_GET],
                             );
-                            info!(
-                                log,
-                                "Received unsigned block";
-                                "slot" => slot.as_u64(),
-                            );
                             beacon_node
                                 .get_validator_blinded_blocks::<E, Payload>(
                                     slot,
@@ -398,6 +388,11 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                         }
                     };
 
+                    info!(
+                        log,
+                        "Received unsigned block";
+                        "slot" => slot.as_u64(),
+                    );
                     if proposer_index != Some(block.proposer_index()) {
                         return Err(BlockError::Recoverable(
                             "Proposer index does not match block proposer. Beacon chain re-orged"
@@ -416,6 +411,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
             .await
             .map_err(|e| BlockError::Recoverable(format!("Unable to sign block: {:?}", e)))?;
 
+        info!(log, "Publishing signed block");
         // Publish block with first available beacon node.
         self.beacon_nodes
             .first_success(
