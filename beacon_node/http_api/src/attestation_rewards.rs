@@ -52,8 +52,8 @@ pub fn compute_attestation_rewards<T: BeaconChainTypes>(
     //TODO Get flag_index as usize
     let flag_index = 0;
 
-    // Initialize an empty vector to hold the rewards
-    let mut rewards = Vec::new();
+    //Initialize an empty HashMap to hold the rewards
+    let mut ideal_rewards = HashMap::new();
 
     for flag_index in [TIMELY_SOURCE_FLAG_INDEX, TIMELY_TARGET_FLAG_INDEX, TIMELY_HEAD_FLAG_INDEX].iter() {
 
@@ -95,12 +95,10 @@ pub fn compute_attestation_rewards<T: BeaconChainTypes>(
             Ok(base_reward_per_increment) => base_reward_per_increment,
             Err(_) => return Err(warp_utils::reject::custom_server_error("Unable to get base reward per increment".to_owned())),
         };
-
-        //Get index from participation_cache.eligible_validator_indices
-        let index = participation_cache.eligible_validator_indices();
         
-        for i in index {
-            let base_reward = get_base_reward(&state, *i, base_reward_per_increment, spec);
+        for effective_balance_eth in 0..=32 {
+            //TODO Use safe_mul here
+            let base_reward = get_base_reward(&state, effective_balance_eth, base_reward_per_increment, spec);
 
             //Unwrap base_reward to u64
             let base_reward = match base_reward {
@@ -123,20 +121,17 @@ pub fn compute_attestation_rewards<T: BeaconChainTypes>(
                 },
                 Err(_) => return Err(warp_utils::reject::custom_server_error("Unable to calculate reward: Division by active_increments failed".to_owned())),
             };
-            // Push the rewards onto the vector
-            rewards.push(reward);
-        }
-    }
-   
-    //TODO Calculate flag(head, target, source) for the 33 effective_balance values to have a map of (flag, effective_balance) -> ideal_reward
-    let mut ideal_rewards = HashMap::new();
-    
-    for effective_balance in 0..33 {
-        let flag =  0; // calculate_flag();
-        ideal_rewards.insert(flag, effective_balance);
+            
+            if !is_in_inactivity_leak(previous_epoch, &spec) {
+                //Push the rewards onto the HashMap
+                ideal_rewards.insert((flag_index, effective_balance_eth), reward);
+            } else {
+                //Push the rewards onto the HashMap
+                ideal_rewards.insert((flag_index, effective_balance_eth), 0);
+        }  
     }
 
-    //TODO Put reward in Vec<IdealAttestationRewards>
+    //TODO Output the ideal_rewards HashMap
 
     //--- Calculate actual rewards ---//
 
@@ -156,7 +151,7 @@ pub fn compute_attestation_rewards<T: BeaconChainTypes>(
     };
 
     //Check if they voted correctly for the flag (head/target/source) by checking if their validator index appears in participation_cache.get_unslashed_participating_indices(flag, epoch)
-    let voted_correctly = participation_cache.get_unslashed_participating_indices(flag_index, previous_epoch).is_ok();
+    let voted_correctly = participation_cache.get_unslashed_participating_indices(*flag_index, previous_epoch).is_ok();
 
     //If they voted correctly, they get paid the ideal_reward for (flag, validator.effective_balance), which can be looked up in the ideal rewards map.
     //If they voted incorrectly, then for the head vote their reward is 0, and for target/source it is -1 * base_reward * weight // WEIGHT_DENOMINATOR
@@ -185,4 +180,6 @@ pub fn compute_attestation_rewards<T: BeaconChainTypes>(
         data: vec![],
     })
 
+}
+    Ok(())
 }
