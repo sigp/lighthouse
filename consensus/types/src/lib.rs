@@ -51,6 +51,7 @@ pub mod graffiti;
 pub mod historical_batch;
 pub mod indexed_attestation;
 pub mod light_client_bootstrap;
+pub mod light_client_finality_update;
 pub mod light_client_optimistic_update;
 pub mod light_client_update;
 pub mod pending_attestation;
@@ -73,6 +74,7 @@ pub mod voluntary_exit;
 #[macro_use]
 pub mod slot_epoch_macros;
 pub mod config_and_preset;
+pub mod execution_block_header;
 pub mod fork_context;
 pub mod participation_flags;
 pub mod participation_list;
@@ -126,6 +128,7 @@ pub use crate::enr_fork_id::EnrForkId;
 pub use crate::eth1_data::Eth1Data;
 pub use crate::eth_spec::EthSpecId;
 pub use crate::execution_block_hash::ExecutionBlockHash;
+pub use crate::execution_block_header::ExecutionBlockHeader;
 pub use crate::execution_payload::{ExecutionPayload, Transaction, Transactions};
 pub use crate::execution_payload_header::ExecutionPayloadHeader;
 pub use crate::fork::Fork;
@@ -136,6 +139,8 @@ pub use crate::free_attestation::FreeAttestation;
 pub use crate::graffiti::{Graffiti, GRAFFITI_BYTES_LEN};
 pub use crate::historical_batch::HistoricalBatch;
 pub use crate::indexed_attestation::IndexedAttestation;
+pub use crate::light_client_finality_update::LightClientFinalityUpdate;
+pub use crate::light_client_optimistic_update::LightClientOptimisticUpdate;
 pub use crate::participation_flags::ParticipationFlags;
 pub use crate::participation_list::ParticipationList;
 pub use crate::payload::{BlindedPayload, BlockType, ExecPayload, FullPayload};
@@ -176,6 +181,7 @@ pub type Hash256 = H256;
 pub type Uint256 = ethereum_types::U256;
 pub type Address = H160;
 pub type ForkVersion = [u8; 4];
+pub type Hash64 = ethereum_types::H64;
 
 pub use bls::{
     AggregatePublicKey, AggregateSignature, Keypair, PublicKey, PublicKeyBytes, SecretKey,

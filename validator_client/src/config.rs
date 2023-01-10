@@ -13,6 +13,7 @@ use slog::{info, warn, Logger};
 use std::fs;
 use std::net::IpAddr;
 use std::path::PathBuf;
+use std::time::Duration;
 use types::{Address, GRAFFITI_BYTES_LEN};
 
 pub const DEFAULT_BEACON_NODE: &str = "http://localhost:5052/";
@@ -61,6 +62,10 @@ pub struct Config {
     /// A list of custom certificates that the validator client will additionally use when
     /// connecting to a beacon node over SSL/TLS.
     pub beacon_nodes_tls_certs: Option<Vec<PathBuf>>,
+    /// Delay from the start of the slot to wait before publishing a block.
+    ///
+    /// This is *not* recommended in prod and should only be used for testing.
+    pub block_delay: Option<Duration>,
     /// Disables publishing http api requests to all beacon nodes for select api calls.
     pub disable_run_on_all: bool,
 }
@@ -95,6 +100,7 @@ impl Default for Config {
             monitoring_api: None,
             enable_doppelganger_protection: false,
             beacon_nodes_tls_certs: None,
+            block_delay: None,
             builder_proposals: false,
             builder_registration_timestamp_override: None,
             gas_limit: None,
@@ -339,6 +345,13 @@ impl Config {
                 "The flag `--strict-fee-recipient` has been deprecated due to a bug causing \
                 missed proposals. The flag will be ignored."
             );
+        }
+
+        /*
+         * Experimental
+         */
+        if let Some(delay_ms) = parse_optional::<u64>(cli_args, "block-delay-ms")? {
+            config.block_delay = Some(Duration::from_millis(delay_ms));
         }
 
         Ok(config)

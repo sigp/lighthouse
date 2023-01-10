@@ -15,7 +15,7 @@ use crate::{
 use execution_layer::{BuilderParams, PayloadStatus};
 use fork_choice::{InvalidationOperation, PayloadVerificationStatus};
 use proto_array::{Block as ProtoBlock, ExecutionStatus};
-use slog::debug;
+use slog::{debug, warn};
 use slot_clock::SlotClock;
 use state_processing::per_block_processing::{
     compute_timestamp_at_slot, is_execution_enabled, is_merge_transition_complete,
@@ -35,6 +35,16 @@ pub enum AllowOptimisticImport {
     No,
 }
 
+/// Signal whether the execution payloads of new blocks should be
+/// immediately verified with the EL or imported optimistically without
+/// any EL communication.
+#[derive(Default, Clone, Copy)]
+pub enum NotifyExecutionLayer {
+    #[default]
+    Yes,
+    No,
+}
+
 /// Used to await the result of executing payload with a remote EE.
 pub struct PayloadNotifier<T: BeaconChainTypes> {
     pub chain: Arc<BeaconChain<T>>,
@@ -47,19 +57,46 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
         chain: Arc<BeaconChain<T>>,
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
         state: &BeaconState<T::EthSpec>,
+        notify_execution_layer: NotifyExecutionLayer,
     ) -> Result<Self, BlockError<T::EthSpec>> {
         let payload_verification_status = if is_execution_enabled(state, block.message().body()) {
             // Perform the initial stages of payload verification.
             //
-            // We will duplicate these checks again during `per_block_processing`, however these checks
-            // are cheap and doing them here ensures we protect the execution engine from junk.
-            partially_verify_execution_payload(
-                state,
-                block.message().execution_payload()?,
-                &chain.spec,
-            )
-            .map_err(BlockError::PerBlockProcessingError)?;
-            None
+            // We will duplicate these checks again during `per_block_processing`, however these
+            // checks are cheap and doing them here ensures we have verified them before marking
+            // the block as optimistically imported. This is particularly relevant in the case
+            // where we do not send the block to the EL at all.
+            let block_message = block.message();
+            let payload = block_message.execution_payload()?;
+            partially_verify_execution_payload(state, block.slot(), payload, &chain.spec)
+                .map_err(BlockError::PerBlockProcessingError)?;
+
+            match notify_execution_layer {
+                NotifyExecutionLayer::No if chain.config.optimistic_finalized_sync => {
+                    // Verify the block hash here in Lighthouse and immediately mark the block as
+                    // optimistically imported. This saves a lot of roundtrips to the EL.
+                    let execution_layer = chain
+                        .execution_layer
+                        .as_ref()
+                        .ok_or(ExecutionPayloadError::NoExecutionConnection)?;
+
+                    if let Err(e) =
+                        execution_layer.verify_payload_block_hash(&payload.execution_payload)
+                    {
+                        warn!(
+                            chain.log,
+                            "Falling back to slow block hash verification";
+                            "block_number" => payload.block_number(),
+                            "info" => "you can silence this warning with --disable-optimistic-finalized-sync",
+                            "error" => ?e,
+                        );
+                        None
+                    } else {
+                        Some(PayloadVerificationStatus::Optimistic)
+                    }
+                }
+                _ => None,
+            }
         } else {
             Some(PayloadVerificationStatus::Irrelevant)
         };
@@ -357,7 +394,8 @@ pub fn get_execution_payload<
     let spec = &chain.spec;
     let current_epoch = state.current_epoch();
     let is_merge_transition_complete = is_merge_transition_complete(state);
-    let timestamp = compute_timestamp_at_slot(state, spec).map_err(BeaconStateError::from)?;
+    let timestamp =
+        compute_timestamp_at_slot(state, state.slot(), spec).map_err(BeaconStateError::from)?;
     let random = *state.get_randao_mix(current_epoch)?;
     let latest_execution_payload_header_block_hash =
         state.latest_execution_payload_header()?.block_hash;

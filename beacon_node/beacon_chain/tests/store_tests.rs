@@ -5,10 +5,11 @@ use beacon_chain::builder::BeaconChainBuilder;
 use beacon_chain::test_utils::{
     test_spec, AttestationStrategy, BeaconChainHarness, BlockStrategy, DiskHarnessType,
 };
+use beacon_chain::validator_monitor::DEFAULT_INDIVIDUAL_TRACKING_THRESHOLD;
 use beacon_chain::{
     historical_blocks::HistoricalBlockError, migrate::MigratorConfig, BeaconChain,
-    BeaconChainError, BeaconChainTypes, BeaconSnapshot, ChainConfig, ServerSentEventHandler,
-    WhenSlotSkipped,
+    BeaconChainError, BeaconChainTypes, BeaconSnapshot, ChainConfig, NotifyExecutionLayer,
+    ServerSentEventHandler, WhenSlotSkipped,
 };
 use fork_choice::CountUnrealized;
 use lazy_static::lazy_static;
@@ -2121,7 +2122,7 @@ async fn weak_subjectivity_sync() {
                 log.clone(),
                 1,
             )))
-            .monitor_validators(true, vec![], log)
+            .monitor_validators(true, vec![], DEFAULT_INDIVIDUAL_TRACKING_THRESHOLD, log)
             .build()
             .expect("should build"),
     );
@@ -2148,6 +2149,7 @@ async fn weak_subjectivity_sync() {
                 full_block.canonical_root(),
                 Arc::new(full_block),
                 CountUnrealized::True,
+                NotifyExecutionLayer::Yes,
             )
             .await
             .unwrap();

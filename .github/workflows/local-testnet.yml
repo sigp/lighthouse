@@ -21,7 +21,7 @@ jobs:
       - name: Get latest version of stable Rust
         run: rustup update stable
       - name: Install Protoc
-        uses: arduino/setup-protoc@v1
+        uses: arduino/setup-protoc@e52d9eb8f7b63115df1ac544a1376fdbf5a39612
         with:
             repo-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Install ganache
