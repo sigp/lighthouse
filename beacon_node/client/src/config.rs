@@ -49,6 +49,9 @@ pub struct Config {
     pub db_name: String,
     /// Path where the freezer database will be located.
     pub freezer_db_path: Option<PathBuf>,
+    /// Path where the blobs freezer database will be located if it should be separate from the
+    /// historical state freezer.
+    pub blobs_freezer_db_path: Option<PathBuf>,
     pub log_file: PathBuf,
     /// If true, the node will use co-ordinated junk for eth1 values.
     ///
@@ -89,6 +92,7 @@ impl Default for Config {
             data_dir: PathBuf::from(DEFAULT_ROOT_DIR),
             db_name: "chain_db".to_string(),
             freezer_db_path: None,
+            blobs_freezer_db_path: None,
             log_file: PathBuf::from(""),
             genesis: <_>::default(),
             store: <_>::default(),
@@ -149,9 +153,26 @@ impl Config {
             .unwrap_or_else(|| self.default_freezer_db_path())
     }
 
+    /// Returns the path to which the client may initialize the on-disk blobs freezer database.
+    ///
+    /// Will attempt to use the user-supplied path from e.g. the CLI, or will default
+    /// to None.
+    pub fn get_blobs_freezer_db_path(&self) -> Option<PathBuf> {
+        self.blobs_freezer_db_path.clone()
+    }
+
     /// Get the freezer DB path, creating it if necessary.
     pub fn create_freezer_db_path(&self) -> Result<PathBuf, String> {
         ensure_dir_exists(self.get_freezer_db_path())
+    }
+
+    /// Get the blobs freezer DB path, creating it if necessary.
+    pub fn create_blobs_freezer_db_path(&self) -> Result<Option<PathBuf>, String> {
+        if let Some(blobs_freezer_path) = self.get_blobs_freezer_db_path() {
+            Ok(Some(ensure_dir_exists(blobs_freezer_path)?))
+        } else {
+            Ok(None)
+        }
     }
 
     /// Returns the "modern" path to the data_dir.
