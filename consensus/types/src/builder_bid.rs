@@ -7,8 +7,7 @@ use bls::PublicKeyBytes;
 use bls::Signature;
 use serde::{Deserialize as De, Deserializer, Serialize as Ser, Serializer};
 use serde_derive::{Deserialize, Serialize};
-use serde_json::Error;
-use serde_with::{DeserializeAs, SerializeAs};
+use serde_with::{As, DeserializeAs, SerializeAs};
 use ssz_types::VariableList;
 use std::marker::PhantomData;
 use superstruct::superstruct;
@@ -29,14 +28,8 @@ use tree_hash_derive::TreeHash;
 )]
 #[tree_hash(enum_behaviour = "transparent")]
 pub struct BuilderBid<E: EthSpec, Payload: AbstractExecPayload<E>> {
-    #[superstruct(only(Merge), partial_getter(rename = "payload_merge"))]
-    pub header: Payload::Merge,
-
-    #[superstruct(only(Capella), partial_getter(rename = "payload_capella"))]
-    pub header: Payload::Capella,
-
-    #[superstruct(only(Eip4844), partial_getter(rename = "payload_eip4844"))]
-    pub header: Payload::Eip4844,
+    #[serde(with = "As::<BlindedPayloadAsHeader<E>>")]
+    pub header: Payload,
 
     #[serde(with = "eth2_serde_utils::quoted_u256")]
     pub value: Uint256,
@@ -48,16 +41,6 @@ pub struct BuilderBid<E: EthSpec, Payload: AbstractExecPayload<E>> {
     #[serde(skip)]
     #[tree_hash(skip_hashing)]
     _phantom_data: PhantomData<E>,
-}
-
-impl<T: EthSpec, Payload: AbstractExecPayload<T>> BuilderBid<T, Payload> {
-    pub fn header(self) -> Result<Payload, Error> {
-        match self {
-            Self::Merge(bid) => Ok(bid.header.into()),
-            Self::Capella(bid) => Ok(bid.header.into()),
-            Self::Eip4844(bid) => Ok(bid.header.into()),
-        }
-    }
 }
 
 impl<E: EthSpec, Payload: AbstractExecPayload<E>> SignedRoot for BuilderBid<E, Payload> {}
@@ -113,96 +96,113 @@ mod tests {
     use super::*;
     use crate::{BlindedPayload, MainnetEthSpec};
 
-    pub fn deserialize_bid<E: EthSpec, Payload: AbstractExecPayload<E>>(
-        str: &str,
-    ) -> Result<BuilderBid<E, Payload>, Error> {
-        let bid = serde_json::from_str(str)?;
-        Ok(bid)
+    type Spec = MainnetEthSpec;
+    type Payload = BlindedPayload<Spec>;
+
+    fn deserialize_bid(str: &str) -> BuilderBid<Spec, Payload> {
+        serde_json::from_str(str).expect("should deserialize to BuilderBid")
+    }
+
+    fn serialize_bid(bid: BuilderBid<Spec, Payload>) -> String {
+        serde_json::to_string(&bid).expect("should serialize to json string")
+    }
+
+    fn to_minified_json(json: &str) -> String {
+        let mut json_mut = String::from(json);
+        json_mut.retain(|c| !c.is_whitespace());
+        json_mut
     }
 
     #[test]
-    fn test_deserialize_builder_bid_merge() {
-        let str = r#"{
-            "header": {
-              "parent_hash": "0xcf8e0d4e9587369b2301d0790347320302cc0943d5a1884560367e8208d920f2",
-              "fee_recipient": "0xabcf8e0d4e9587369b2301d0790347320302cc09",
-              "state_root": "0xcf8e0d4e9587369b2301d0790347320302cc0943d5a1884560367e8208d920f2",
-              "receipts_root": "0xcf8e0d4e9587369b2301d0790347320302cc0943d5a1884560367e8208d920f2",
-              "logs_bloom": "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
-              "prev_randao": "0xcf8e0d4e9587369b2301d0790347320302cc0943d5a1884560367e8208d920f2",
-              "block_number": "1",
-              "gas_limit": "1",
-              "gas_used": "1",
-              "timestamp": "1",
-              "extra_data": "0xcf8e0d4e9587369b2301d0790347320302cc0943d5a1884560367e8208d920f2",
-              "base_fee_per_gas": "1",
-              "block_hash": "0xcf8e0d4e9587369b2301d0790347320302cc0943d5a1884560367e8208d920f2",
-              "transactions_root": "0xcf8e0d4e9587369b2301d0790347320302cc0943d5a1884560367e8208d920f2"
-            },
-            "value": "1",
-            "pubkey": "0x93247f2209abcacf57b75a51dafae777f9dd38bc7053d1af526f220a7489a6d3a2753e5f3e8b1cfe39b56f43611df74a"
-          }"#;
-        let result = deserialize_bid::<MainnetEthSpec, BlindedPayload<MainnetEthSpec>>(str);
-        assert!(result.is_ok());
+    fn test_serde_builder_bid_merge() {
+        let expected_json = to_minified_json(
+            r#"{
+                "header": {
+                  "parent_hash": "0xcf8e0d4e9587369b2301d0790347320302cc0943d5a1884560367e8208d920f2",
+                  "fee_recipient": "0xabcf8e0d4e9587369b2301d0790347320302cc09",
+                  "state_root": "0xcf8e0d4e9587369b2301d0790347320302cc0943d5a1884560367e8208d920f2",
+                  "receipts_root": "0xcf8e0d4e9587369b2301d0790347320302cc0943d5a1884560367e8208d920f2",
+                  "logs_bloom": "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+                  "prev_randao": "0xcf8e0d4e9587369b2301d0790347320302cc0943d5a1884560367e8208d920f2",
+                  "block_number": "1",
+                  "gas_limit": "1",
+                  "gas_used": "1",
+                  "timestamp": "1",
+                  "extra_data": "0xcf8e0d4e9587369b2301d0790347320302cc0943d5a1884560367e8208d920f2",
+                  "base_fee_per_gas": "1",
+                  "block_hash": "0xcf8e0d4e9587369b2301d0790347320302cc0943d5a1884560367e8208d920f2",
+                  "transactions_root": "0xcf8e0d4e9587369b2301d0790347320302cc0943d5a1884560367e8208d920f2"
+                },
+                "value": "1",
+                "pubkey": "0x93247f2209abcacf57b75a51dafae777f9dd38bc7053d1af526f220a7489a6d3a2753e5f3e8b1cfe39b56f43611df74a"
+            }"#,
+        );
+        let bid = deserialize_bid(&expected_json);
+        let actual_json = serialize_bid(bid);
+        assert_eq!(actual_json, expected_json);
     }
 
     #[test]
-    #[cfg(feature = "withdrawals")]
-    fn test_deserialize_builder_bid_capella() {
-        let str = r#"{
-            "header": {
-              "parent_hash": "0xcf8e0d4e9587369b2301d0790347320302cc0943d5a1884560367e8208d920f2",
-              "fee_recipient": "0xabcf8e0d4e9587369b2301d0790347320302cc09",
-              "state_root": "0xcf8e0d4e9587369b2301d0790347320302cc0943d5a1884560367e8208d920f2",
-              "receipts_root": "0xcf8e0d4e9587369b2301d0790347320302cc0943d5a1884560367e8208d920f2",
-              "logs_bloom": "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
-              "prev_randao": "0xcf8e0d4e9587369b2301d0790347320302cc0943d5a1884560367e8208d920f2",
-              "block_number": "1",
-              "gas_limit": "1",
-              "gas_used": "1",
-              "timestamp": "1",
-              "extra_data": "0xcf8e0d4e9587369b2301d0790347320302cc0943d5a1884560367e8208d920f2",
-              "base_fee_per_gas": "1",
-              "block_hash": "0xcf8e0d4e9587369b2301d0790347320302cc0943d5a1884560367e8208d920f2",
-              "transactions_root": "0xcf8e0d4e9587369b2301d0790347320302cc0943d5a1884560367e8208d920f2",
-              "withdrawals_root": "0xcf8e0d4e9587369b2301d0790347320302cc0943d5a1884560367e8208d920f2"
-            },
-            "value": "1",
-            "pubkey": "0x93247f2209abcacf57b75a51dafae777f9dd38bc7053d1af526f220a7489a6d3a2753e5f3e8b1cfe39b56f43611df74a"
-          }"#;
-        let result = deserialize_bid::<MainnetEthSpec, BlindedPayload<MainnetEthSpec>>(str);
-        assert!(result.is_ok());
+    fn test_serde_builder_bid_capella() {
+        let expected_json = to_minified_json(
+            r#"{
+                "header": {
+                  "parent_hash": "0xcf8e0d4e9587369b2301d0790347320302cc0943d5a1884560367e8208d920f2",
+                  "fee_recipient": "0xabcf8e0d4e9587369b2301d0790347320302cc09",
+                  "state_root": "0xcf8e0d4e9587369b2301d0790347320302cc0943d5a1884560367e8208d920f2",
+                  "receipts_root": "0xcf8e0d4e9587369b2301d0790347320302cc0943d5a1884560367e8208d920f2",
+                  "logs_bloom": "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+                  "prev_randao": "0xcf8e0d4e9587369b2301d0790347320302cc0943d5a1884560367e8208d920f2",
+                  "block_number": "1",
+                  "gas_limit": "1",
+                  "gas_used": "1",
+                  "timestamp": "1",
+                  "extra_data": "0xcf8e0d4e9587369b2301d0790347320302cc0943d5a1884560367e8208d920f2",
+                  "base_fee_per_gas": "1",
+                  "block_hash": "0xcf8e0d4e9587369b2301d0790347320302cc0943d5a1884560367e8208d920f2",
+                  "transactions_root": "0xcf8e0d4e9587369b2301d0790347320302cc0943d5a1884560367e8208d920f2",
+                  "withdrawals_root": "0xcf8e0d4e9587369b2301d0790347320302cc0943d5a1884560367e8208d920f2"
+                },
+                "value": "1",
+                "pubkey": "0x93247f2209abcacf57b75a51dafae777f9dd38bc7053d1af526f220a7489a6d3a2753e5f3e8b1cfe39b56f43611df74a"
+            }"#,
+        );
+        let bid = deserialize_bid(&expected_json);
+        let actual_json = serialize_bid(bid);
+        assert_eq!(actual_json, expected_json);
     }
 
     #[test]
-    #[cfg(feature = "withdrawals")]
-    fn test_deserialize_builder_bid_eip4844() {
-        let str = r#"{
-            "header": {
-              "parent_hash": "0xcf8e0d4e9587369b2301d0790347320302cc0943d5a1884560367e8208d920f2",
-              "fee_recipient": "0xabcf8e0d4e9587369b2301d0790347320302cc09",
-              "state_root": "0xcf8e0d4e9587369b2301d0790347320302cc0943d5a1884560367e8208d920f2",
-              "receipts_root": "0xcf8e0d4e9587369b2301d0790347320302cc0943d5a1884560367e8208d920f2",
-              "logs_bloom": "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
-              "prev_randao": "0xcf8e0d4e9587369b2301d0790347320302cc0943d5a1884560367e8208d920f2",
-              "block_number": "1",
-              "gas_limit": "1",
-              "gas_used": "1",
-              "timestamp": "1",
-              "extra_data": "0xcf8e0d4e9587369b2301d0790347320302cc0943d5a1884560367e8208d920f2",
-              "base_fee_per_gas": "1",
-              "excess_data_gas": "1",
-              "block_hash": "0xcf8e0d4e9587369b2301d0790347320302cc0943d5a1884560367e8208d920f2",
-              "transactions_root": "0xcf8e0d4e9587369b2301d0790347320302cc0943d5a1884560367e8208d920f2",
-              "withdrawals_root": "0xcf8e0d4e9587369b2301d0790347320302cc0943d5a1884560367e8208d920f2"
-            },
-            "value": "1",
-            "pubkey": "0x93247f2209abcacf57b75a51dafae777f9dd38bc7053d1af526f220a7489a6d3a2753e5f3e8b1cfe39b56f43611df74a",
-            "blob_kzg_commitments": [
-        "0xa94170080872584e54a1cf092d845703b13907f2e6b3b1c0ad573b910530499e3bcd48c6378846b80d2bfa58c81cf3d5"
-            ]
-          }"#;
-        let result = deserialize_bid::<MainnetEthSpec, BlindedPayload<MainnetEthSpec>>(str);
-        assert!(result.is_ok());
+    fn test_serde_builder_bid_eip4844() {
+        let expected_json = to_minified_json(
+            r#"{
+                "header": {
+                  "parent_hash": "0xcf8e0d4e9587369b2301d0790347320302cc0943d5a1884560367e8208d920f2",
+                  "fee_recipient": "0xabcf8e0d4e9587369b2301d0790347320302cc09",
+                  "state_root": "0xcf8e0d4e9587369b2301d0790347320302cc0943d5a1884560367e8208d920f2",
+                  "receipts_root": "0xcf8e0d4e9587369b2301d0790347320302cc0943d5a1884560367e8208d920f2",
+                  "logs_bloom": "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+                  "prev_randao": "0xcf8e0d4e9587369b2301d0790347320302cc0943d5a1884560367e8208d920f2",
+                  "block_number": "1",
+                  "gas_limit": "1",
+                  "gas_used": "1",
+                  "timestamp": "1",
+                  "extra_data": "0xcf8e0d4e9587369b2301d0790347320302cc0943d5a1884560367e8208d920f2",
+                  "base_fee_per_gas": "1",
+                  "excess_data_gas": "1",
+                  "block_hash": "0xcf8e0d4e9587369b2301d0790347320302cc0943d5a1884560367e8208d920f2",
+                  "transactions_root": "0xcf8e0d4e9587369b2301d0790347320302cc0943d5a1884560367e8208d920f2",
+                  "withdrawals_root": "0xcf8e0d4e9587369b2301d0790347320302cc0943d5a1884560367e8208d920f2"
+                },
+                "value": "1",
+                "pubkey": "0x93247f2209abcacf57b75a51dafae777f9dd38bc7053d1af526f220a7489a6d3a2753e5f3e8b1cfe39b56f43611df74a",
+                "blob_kzg_commitments": [
+            "0xa94170080872584e54a1cf092d845703b13907f2e6b3b1c0ad573b910530499e3bcd48c6378846b80d2bfa58c81cf3d5"
+                ]
+            }"#,
+        );
+        let bid = deserialize_bid(&expected_json);
+        let actual_json = serialize_bid(bid);
+        assert_eq!(actual_json, expected_json);
     }
 }

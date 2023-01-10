@@ -750,7 +750,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                         "Requested blinded execution payload";
                         "relay_fee_recipient" => match &relay_result {
                             // FIXME remove clone?
-                            Ok(Some(r)) => format!("{:?}", r.data.message.clone().header().unwrap().fee_recipient()),
+                            Ok(Some(r)) => format!("{:?}", r.data.message.clone().header().fee_recipient()),
                             Ok(None) => "empty response".to_string(),
                             Err(_) => "request failed".to_string(),
                         },
@@ -787,7 +787,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                         }
                         (Ok(Some(relay)), Ok(local)) => {
                             // FIXME remove clone?
-                            let header = relay.data.message.clone().header().unwrap();
+                            let header = relay.data.message.header().clone();
 
                             info!(
                                 self.log(),
@@ -858,7 +858,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                         }
                         (Ok(Some(relay)), Err(local_error)) => {
                             // FIXME remove clone?
-                            let header = relay.data.message.clone().header().unwrap();
+                            let header = relay.data.message.header().clone();
 
                             info!(
                                 self.log(),
@@ -1911,7 +1911,7 @@ fn verify_builder_bid<T: EthSpec, Payload: AbstractExecPayload<T>>(
 ) -> Result<(), Box<InvalidBuilderPayload>> {
     let is_signature_valid = bid.data.verify_signature(spec);
     // FIXME remove clone?
-    let header = &bid.data.message.clone().header().unwrap();
+    let header = &bid.data.message.header();
     let payload_value = bid.data.message.value().clone();
 
     // Avoid logging values that we can't represent with our Prometheus library.
