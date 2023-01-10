@@ -80,7 +80,7 @@ pub trait AbstractExecPayload<T: EthSpec>:
     + TryFrom<ExecutionPayloadHeader<T>>
     + TryInto<Self::Merge>
     + TryInto<Self::Capella>
-    + TryInto<Self::Eip4844> // FIXME(sproul): delete + for<'a> arbitrary::Arbitrary<'a>
+    + TryInto<Self::Eip4844>
 {
     type Ref<'a>: ExecPayload<T>
         + Copy
