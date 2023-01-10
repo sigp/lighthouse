@@ -104,7 +104,7 @@ fn main() {
                 .long("logfile-format")
                 .value_name("FORMAT")
                 .help("Specifies the log format used when emitting logs to the logfile.")
-                .possible_values(&["JSON"])
+                .possible_values(&["DEFAULT", "JSON"])
                 .takes_value(true)
                 .global(true)
         )
@@ -411,7 +411,10 @@ fn run<E: EthSpec>(
         .value_of("logfile-debug-level")
         .ok_or("Expected --logfile-debug-level flag")?;
 
-    let logfile_format = matches.value_of("logfile-format");
+    let logfile_format = matches
+        .value_of("logfile-format")
+        // Ensure that `logfile-format` defaults to the value of `log-format`.
+        .or_else(|| matches.value_of("log-format"));
 
     let logfile_max_size: u64 = matches
         .value_of("logfile-max-size")
