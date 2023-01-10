@@ -261,15 +261,6 @@ impl<T: EthSpec> BeaconTreeHashCacheInner<T> {
                 .recalculate_tree_hash_root(&mut self.slashings_arena, &mut self.slashings)?,
         ];
 
-        // Historical roots/summaries.
-        if let Ok(historical_summaries) = state.historical_summaries() {
-            leaves.push(
-                self.historical_summaries.recalculate_tree_hash_root(
-                    &HistoricalSummaryCache::new(historical_summaries),
-                )?,
-            );
-        }
-
         // Participation
         if let BeaconState::Base(state) = state {
             leaves.push(state.previous_epoch_attestations.tree_hash_root());
@@ -312,6 +303,24 @@ impl<T: EthSpec> BeaconTreeHashCacheInner<T> {
         if let Ok(payload_header) = state.latest_execution_payload_header() {
             leaves.push(payload_header.tree_hash_root());
         }
+
+        // Withdrawal indices (Capella and later).
+        if let Ok(next_withdrawal_index) = state.next_withdrawal_index() {
+            leaves.push(next_withdrawal_index.tree_hash_root());
+        }
+        if let Ok(next_withdrawal_validator_index) = state.next_withdrawal_validator_index() {
+            leaves.push(next_withdrawal_validator_index.tree_hash_root());
+        }
+
+        // Historical roots/summaries (Capella and later).
+        if let Ok(historical_summaries) = state.historical_summaries() {
+            leaves.push(
+                self.historical_summaries.recalculate_tree_hash_root(
+                    &HistoricalSummaryCache::new(historical_summaries),
+                )?,
+            );
+        }
+
         Ok(leaves)
     }
 
@@ -354,14 +363,6 @@ impl<T: EthSpec> BeaconTreeHashCacheInner<T> {
         let leaves = self.recalculate_tree_hash_leaves(state)?;
         for leaf in leaves {
             hasher.write(leaf.as_bytes())?;
-        }
-
-        // Withdrawal indices (Capella and later).
-        if let Ok(next_withdrawal_index) = state.next_withdrawal_index() {
-            hasher.write(next_withdrawal_index.tree_hash_root().as_bytes())?;
-        }
-        if let Ok(next_withdrawal_validator_index) = state.next_withdrawal_validator_index() {
-            hasher.write(next_withdrawal_validator_index.tree_hash_root().as_bytes())?;
         }
 
         let root = hasher.finish()?;

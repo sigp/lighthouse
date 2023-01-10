@@ -7,10 +7,10 @@ pub fn process_historical_summaries_update<T: EthSpec>(
     state: &mut BeaconState<T>,
 ) -> Result<(), EpochProcessingError> {
     // Set historical block root accumulator.
-    let next_epoch = state.current_epoch() + 1;
+    let next_epoch = state.next_epoch()?;
     if next_epoch
-        .as_usize()
-        .safe_rem(T::slots_per_historical_root().safe_div(T::slots_per_epoch() as usize)?)?
+        .as_u64()
+        .safe_rem((T::slots_per_historical_root() as u64).safe_div(T::slots_per_epoch())?)?
         == 0
     {
         let summary = HistoricalSummary::new(state);
