@@ -5,7 +5,7 @@ authors = ["Michael Sproul <michael@sigmaprime.io>"]
 edition = "2021"
 
 [dependencies]
-ethereum-types = "0.12.1"
+ethereum-types = "0.14.1"
 eth2_hashing = "0.3.0"
 lazy_static = "1.4.0"
 safe_arith = { path = "../safe_arith" }
