@@ -217,6 +217,7 @@ macro_rules! ssz_static_test_no_run {
 #[cfg(feature = "fake_crypto")]
 mod ssz_static {
     use ef_tests::{Handler, SszStaticHandler, SszStaticTHCHandler, SszStaticWithSpecHandler};
+    use types::historical_summary::HistoricalSummary;
     use types::*;
 
     ssz_static_test!(aggregate_and_proof, AggregateAndProof<_>);
@@ -358,6 +359,12 @@ mod ssz_static {
     fn signed_bls_to_execution_change() {
         SszStaticHandler::<SignedBlsToExecutionChange, MinimalEthSpec>::capella_only().run();
         SszStaticHandler::<SignedBlsToExecutionChange, MainnetEthSpec>::capella_only().run();
+    }
+
+    #[test]
+    fn historical_summary() {
+        SszStaticHandler::<HistoricalSummary, MinimalEthSpec>::capella_only().run();
+        SszStaticHandler::<HistoricalSummary, MainnetEthSpec>::capella_only().run();
     }
 }
 

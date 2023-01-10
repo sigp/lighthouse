@@ -1,4 +1,5 @@
 //! Mapping from types to canonical string identifiers used in testing.
+use types::historical_summary::HistoricalSummary;
 use types::*;
 
 pub trait TypeName {
@@ -87,3 +88,4 @@ type_name!(VoluntaryExit);
 type_name!(Withdrawal);
 type_name!(BlsToExecutionChange, "BLSToExecutionChange");
 type_name!(SignedBlsToExecutionChange, "SignedBLSToExecutionChange");
+type_name!(HistoricalSummary);
