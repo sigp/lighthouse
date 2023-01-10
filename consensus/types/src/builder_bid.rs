@@ -14,7 +14,7 @@ use superstruct::superstruct;
 use tree_hash_derive::TreeHash;
 
 #[superstruct(
-    variants(Merge, Capella, Eip4844),
+    variants(Capella, Eip4844),
     variant_attributes(
         derive(PartialEq, Debug, Serialize, Deserialize, TreeHash, Clone),
         serde(bound = "E: EthSpec, Payload: ExecPayload<E>", deny_unknown_fields)
