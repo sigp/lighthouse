@@ -355,8 +355,7 @@ impl EthSpec for MinimalEthSpec {
 }
 
 /// Gnosis Beacon Chain specifications.
-#[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
-#[derive(Clone, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Debug, Default, Serialize, Deserialize, arbitrary::Arbitrary)]
 pub struct GnosisEthSpec;
 
 impl EthSpec for GnosisEthSpec {
