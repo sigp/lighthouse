@@ -29,7 +29,7 @@ const TOTAL_LABEL: &str = "total";
 
 /// The validator monitor collects per-epoch data about each monitored validator. Historical data
 /// will be kept around for `HISTORIC_EPOCHS` before it is pruned.
-pub const HISTORIC_EPOCHS: usize = 11;
+pub const HISTORIC_EPOCHS: usize = 10;
 
 /// Once the validator monitor reaches this number of validators it will stop
 /// tracking their metrics/logging individually in an effort to reduce

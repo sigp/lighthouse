@@ -77,14 +77,14 @@ pub struct ValidatorInfoRequestData {
 }
 
 #[derive(PartialEq, Serialize, Deserialize)]
-pub struct ValidatorBalance {
+pub struct ValidatorInfoValues {
     epoch: u64,
     total_balance: u64,
 }
 
 #[derive(PartialEq, Serialize, Deserialize)]
 pub struct ValidatorInfo {
-    balances: Vec<ValidatorBalance>,
+    info: Vec<ValidatorInfoValues>,
 }
 
 #[derive(PartialEq, Serialize, Deserialize)]
@@ -98,7 +98,7 @@ pub fn get_validator_info<T: BeaconChainTypes>(
 ) -> Result<ValidatorInfoResponse, warp::Rejection> {
     let current_epoch = chain.epoch().map_err(beacon_chain_error)?;
 
-    let epochs = current_epoch.saturating_sub(10_u64).as_u64()..current_epoch.as_u64();
+    let epochs = current_epoch.saturating_sub(10_u64).as_u64()..=current_epoch.as_u64();
 
     let validator_ids = chain
         .validator_monitor
@@ -127,16 +127,16 @@ pub fn get_validator_info<T: BeaconChainTypes>(
                 .read()
                 .get_monitored_validator(index)
             {
-                let mut balances = vec![];
+                let mut info = vec![];
                 for epoch in epochs.clone() {
                     if let Some(total_balance) = validator.get_total_balance(Epoch::new(epoch)) {
-                        balances.push(ValidatorBalance {
+                        info.push(ValidatorInfoValues {
                             epoch,
                             total_balance,
                         });
                     }
                 }
-                validators.insert(id.clone(), ValidatorInfo { balances });
+                validators.insert(id.clone(), ValidatorInfo { info });
             }
         }
     }
