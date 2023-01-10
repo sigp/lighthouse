@@ -157,7 +157,7 @@ checksum = "216261ddc8289130e551ddcd5ce8a064710c0d064a4d2895c67151c92b5443f6"
 [[package]]
 name = "arbitrary"
 version = "1.2.2"
-source = "git+https://github.com/michaelsproul/arbitrary?rev=bf51d6276648c9259256ce68f2f9de9803b526d5#bf51d6276648c9259256ce68f2f9de9803b526d5"
+source = "git+https://github.com/michaelsproul/arbitrary?rev=a572fd8743012a4f1ada5ee5968b1b3619c427ba#a572fd8743012a4f1ada5ee5968b1b3619c427ba"
 dependencies = [
  "derive_arbitrary",
 ]
@@ -1392,7 +1392,7 @@ dependencies = [
 [[package]]
 name = "derive_arbitrary"
 version = "1.2.2"
-source = "git+https://github.com/michaelsproul/arbitrary?rev=bf51d6276648c9259256ce68f2f9de9803b526d5#bf51d6276648c9259256ce68f2f9de9803b526d5"
+source = "git+https://github.com/michaelsproul/arbitrary?rev=a572fd8743012a4f1ada5ee5968b1b3619c427ba#a572fd8743012a4f1ada5ee5968b1b3619c427ba"
 dependencies = [
  "darling 0.14.2",
  "proc-macro2",
