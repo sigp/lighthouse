@@ -948,7 +948,10 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         store_updated_vector(StateRoots, db, state, &self.spec, ops)?;
         store_updated_vector(HistoricalRoots, db, state, &self.spec, ops)?;
         store_updated_vector(RandaoMixes, db, state, &self.spec, ops)?;
-        store_updated_vector(HistoricalSummaries, db, state, &self.spec, ops)?;
+        match state.fork_name(&self.spec)? {
+            ForkName::Base | ForkName::Altair | ForkName::Merge {} => (),
+            _ => store_updated_vector(HistoricalSummaries, db, state, &self.spec, ops)?,
+        };
 
         // 3. Store restore point.
         let restore_point_index = state.slot().as_u64() / self.config.slots_per_restore_point;
