@@ -110,6 +110,8 @@ impl<E: GenericExecutionEngine> TestRig<E> {
         let (runtime_shutdown, exit) = exit_future::signal();
         let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
         let executor = TaskExecutor::new(Arc::downgrade(&runtime), exit, log.clone(), shutdown_tx);
+        let mut spec = MainnetEthSpec::default_spec();
+        spec.terminal_total_difficulty = Uint256::zero();
 
         let fee_recipient = None;
 
@@ -125,7 +127,7 @@ impl<E: GenericExecutionEngine> TestRig<E> {
                 ..Default::default()
             };
             let execution_layer =
-                ExecutionLayer::from_config(config, executor.clone(), log.clone()).unwrap();
+                ExecutionLayer::from_config(config, executor.clone(), log.clone(), &spec).unwrap();
             ExecutionPair {
                 execution_engine,
                 execution_layer,
@@ -144,15 +146,12 @@ impl<E: GenericExecutionEngine> TestRig<E> {
                 ..Default::default()
             };
             let execution_layer =
-                ExecutionLayer::from_config(config, executor, log.clone()).unwrap();
+                ExecutionLayer::from_config(config, executor, log.clone(), &spec).unwrap();
             ExecutionPair {
                 execution_engine,
                 execution_layer,
             }
         };
-
-        let mut spec = MainnetEthSpec::default_spec();
-        spec.terminal_total_difficulty = Uint256::zero();
 
         Self {
             runtime,

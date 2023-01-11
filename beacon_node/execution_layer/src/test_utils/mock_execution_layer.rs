@@ -78,7 +78,8 @@ impl<T: EthSpec> MockExecutionLayer<T> {
             ..Default::default()
         };
         let el =
-            ExecutionLayer::from_config(config, executor.clone(), executor.log().clone()).unwrap();
+            ExecutionLayer::from_config(config, executor.clone(), executor.log().clone(), &spec)
+                .unwrap();
 
         Self {
             server,

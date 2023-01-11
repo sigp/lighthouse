@@ -366,6 +366,7 @@ where
             .collect::<Result<_, _>>()
             .unwrap();
 
+        let spec = MainnetEthSpec::default_spec();
         let config = execution_layer::Config {
             execution_endpoints: urls,
             secret_files: vec![],
@@ -376,6 +377,7 @@ where
             config,
             self.runtime.task_executor.clone(),
             self.log.clone(),
+            &spec,
         )
         .unwrap();
 
