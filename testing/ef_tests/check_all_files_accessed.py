@@ -41,8 +41,6 @@ excluded_paths = [
     "tests/.*/.*/ssz_static/LightClientFinalityUpdate",
     # Eip4844 tests are disabled for now.
     "tests/.*/eip4844",
-    # Capella tests are disabled for now.
-    "tests/.*/capella",
     # One of the EF researchers likes to pack the tarballs on a Mac
     ".*\.DS_Store.*",
     # More Mac weirdness.

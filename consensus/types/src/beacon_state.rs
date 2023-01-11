@@ -14,6 +14,7 @@ use ssz::{ssz_encode, Decode, DecodeError, Encode};
 use ssz_derive::{Decode, Encode};
 use ssz_types::{typenum::Unsigned, BitVector, FixedVector};
 use std::convert::TryInto;
+use std::hash::Hash;
 use std::{fmt, mem, sync::Arc};
 use superstruct::superstruct;
 use swap_or_not_shuffle::compute_shuffled_index;
@@ -25,6 +26,7 @@ pub use self::committee_cache::{
     compute_committee_index_in_epoch, compute_committee_range_in_epoch, epoch_committee_count,
     CommitteeCache,
 };
+use crate::historical_summary::HistoricalSummary;
 pub use clone_config::CloneConfig;
 pub use eth_spec::*;
 pub use iter::BlockRootsIter;
@@ -223,6 +225,7 @@ where
     pub block_roots: FixedVector<Hash256, T::SlotsPerHistoricalRoot>,
     #[compare_fields(as_slice)]
     pub state_roots: FixedVector<Hash256, T::SlotsPerHistoricalRoot>,
+    // Frozen in Capella, replaced by historical_summaries
     pub historical_roots: VariableList<Hash256, T::HistoricalRootsLimit>,
 
     // Ethereum 1.0 chain data
@@ -296,11 +299,14 @@ where
     )]
     pub latest_execution_payload_header: ExecutionPayloadHeaderEip4844<T>,
 
-    // Withdrawals
+    // Capella
     #[superstruct(only(Capella, Eip4844), partial_getter(copy))]
     pub next_withdrawal_index: u64,
     #[superstruct(only(Capella, Eip4844), partial_getter(copy))]
     pub next_withdrawal_validator_index: u64,
+    // Deep history valid from Capella onwards.
+    #[superstruct(only(Capella, Eip4844))]
+    pub historical_summaries: VariableList<HistoricalSummary, T::HistoricalRootsLimit>,
 
     // Caching (not in the spec)
     #[serde(skip_serializing, skip_deserializing)]

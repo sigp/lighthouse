@@ -215,6 +215,7 @@ macro_rules! ssz_static_test_no_run {
 #[cfg(feature = "fake_crypto")]
 mod ssz_static {
     use ef_tests::{Handler, SszStaticHandler, SszStaticTHCHandler, SszStaticWithSpecHandler};
+    use types::historical_summary::HistoricalSummary;
     use types::*;
 
     ssz_static_test!(aggregate_and_proof, AggregateAndProof<_>);
@@ -357,6 +358,12 @@ mod ssz_static {
         SszStaticHandler::<SignedBlsToExecutionChange, MinimalEthSpec>::capella_only().run();
         SszStaticHandler::<SignedBlsToExecutionChange, MainnetEthSpec>::capella_only().run();
     }
+
+    #[test]
+    fn historical_summary() {
+        SszStaticHandler::<HistoricalSummary, MinimalEthSpec>::capella_only().run();
+        SszStaticHandler::<HistoricalSummary, MainnetEthSpec>::capella_only().run();
+    }
 }
 
 #[test]
@@ -421,6 +428,12 @@ fn epoch_processing_randao_mixes_reset() {
 fn epoch_processing_historical_roots_update() {
     EpochProcessingHandler::<MinimalEthSpec, HistoricalRootsUpdate>::default().run();
     EpochProcessingHandler::<MainnetEthSpec, HistoricalRootsUpdate>::default().run();
+}
+
+#[test]
+fn epoch_processing_historical_summaries_update() {
+    EpochProcessingHandler::<MinimalEthSpec, HistoricalSummariesUpdate>::default().run();
+    EpochProcessingHandler::<MainnetEthSpec, HistoricalSummariesUpdate>::default().run();
 }
 
 #[test]

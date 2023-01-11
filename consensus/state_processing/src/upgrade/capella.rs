@@ -1,3 +1,4 @@
+use ssz_types::VariableList;
 use std::mem;
 use types::{BeaconState, BeaconStateCapella, BeaconStateError as Error, ChainSpec, EthSpec, Fork};
 
@@ -55,9 +56,10 @@ pub fn upgrade_to_capella<E: EthSpec>(
         next_sync_committee: pre.next_sync_committee.clone(),
         // Execution
         latest_execution_payload_header: pre.latest_execution_payload_header.upgrade_to_capella(),
-        // Withdrawals
+        // Capella
         next_withdrawal_index: 0,
         next_withdrawal_validator_index: 0,
+        historical_summaries: VariableList::default(),
         // Caches
         total_active_balance: pre.total_active_balance,
         committee_caches: mem::take(&mut pre.committee_caches),

@@ -741,7 +741,6 @@ fn main() {
                         .value_name("PATH")
                         .takes_value(true)
                         .conflicts_with("beacon-url")
-                        .requires("pre-state-path")
                         .help("Path to load a SignedBeaconBlock from file as SSZ."),
                 )
                 .arg(
