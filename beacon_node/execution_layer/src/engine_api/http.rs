@@ -889,11 +889,11 @@ impl HttpJsonRpc {
     pub async fn supported_apis_v1(&self) -> Result<SupportedApis, Error> {
         Ok(SupportedApis {
             new_payload_v1: true,
-            new_payload_v2: cfg!(any(feature = "withdrawals-processing", test)),
+            new_payload_v2: cfg!(test),
             forkchoice_updated_v1: true,
-            forkchoice_updated_v2: cfg!(any(feature = "withdrawals-processing", test)),
+            forkchoice_updated_v2: cfg!(test),
             get_payload_v1: true,
-            get_payload_v2: cfg!(any(feature = "withdrawals-processing", test)),
+            get_payload_v2: cfg!(test),
             exchange_transition_configuration_v1: true,
         })
     }

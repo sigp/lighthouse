@@ -74,7 +74,7 @@ pub async fn handle_rpc<T: EthSpec>(
                 .unwrap())
             }
         }
-        ENGINE_NEW_PAYLOAD_V1 | ENGINE_NEW_PAYLOAD_V2 => {
+        ENGINE_NEW_PAYLOAD_V1 | ENGINE_NEW_PAYLOAD_V2 | ENGINE_NEW_PAYLOAD_V3 => {
             let request = match method {
                 ENGINE_NEW_PAYLOAD_V1 => {
                     JsonExecutionPayload::V1(get_param::<JsonExecutionPayloadV1<T>>(params, 0)?)
@@ -82,7 +82,9 @@ pub async fn handle_rpc<T: EthSpec>(
                 ENGINE_NEW_PAYLOAD_V2 => {
                     JsonExecutionPayload::V2(get_param::<JsonExecutionPayloadV2<T>>(params, 0)?)
                 }
-                // TODO(4844) add that here..
+                ENGINE_NEW_PAYLOAD_V3 => {
+                    JsonExecutionPayload::V2(get_param::<JsonExecutionPayloadV2<T>>(params, 0)?)
+                }
                 _ => unreachable!(),
             };
 
@@ -114,7 +116,30 @@ pub async fn handle_rpc<T: EthSpec>(
                         ));
                     }
                 }
-                // TODO(4844) add 4844 error checking here
+                ForkName::Eip4844 => {
+                    //FIXME(sean)
+                    if method == ENGINE_NEW_PAYLOAD_V1 {
+                        return Err(format!("{} called after capella fork!", method));
+                    }
+                    if request.withdrawals().is_err()
+                        || (request.withdrawals().is_ok()
+                            && request.withdrawals().unwrap().is_none())
+                    {
+                        return Err(format!(
+                            "{} called without `withdrawals` after eip4844 fork!",
+                            method
+                        ));
+                    }
+                    if request.excess_data_gas().is_err()
+                        || (request.excess_data_gas().is_ok()
+                            && request.excess_data_gas().unwrap().is_none())
+                    {
+                        return Err(format!(
+                            "{} called without `excess_data_gas` after eip4844 fork!",
+                            method
+                        ));
+                    }
+                }
                 _ => unreachable!(),
             };
 
@@ -148,7 +173,7 @@ pub async fn handle_rpc<T: EthSpec>(
 
             Ok(serde_json::to_value(JsonPayloadStatusV1::from(response)).unwrap())
         }
-        ENGINE_GET_PAYLOAD_V1 | ENGINE_GET_PAYLOAD_V2 => {
+        ENGINE_GET_PAYLOAD_V1 | ENGINE_GET_PAYLOAD_V2 | ENGINE_GET_PAYLOAD_V3 => {
             let request: JsonPayloadIdRequest = get_param(params, 0)?;
             let id = request.into();
 
@@ -168,7 +193,17 @@ pub async fn handle_rpc<T: EthSpec>(
             {
                 return Err(format!("{} called after capella fork!", method));
             }
-            // TODO(4844) add 4844 error checking here
+            // validate method called correctly according to eip4844 fork time
+            if ctx
+                .execution_block_generator
+                .read()
+                .get_fork_at_timestamp(response.timestamp())
+                == ForkName::Eip4844
+                //FIXME(sean)
+                && method == ENGINE_GET_PAYLOAD_V1
+            {
+                return Err(format!("{} called after capella fork!", method));
+            }
 
             match method {
                 ENGINE_GET_PAYLOAD_V1 => Ok(serde_json::to_value(
@@ -224,7 +259,20 @@ pub async fn handle_rpc<T: EthSpec>(
                             ));
                         }
                     }
-                    // TODO(4844) add 4844 error checking here
+                    ForkName::Eip4844 => {
+                        //FIXME(sean)
+                        if method == ENGINE_FORKCHOICE_UPDATED_V1 {
+                            return Err(format!("{} called after capella fork!", method));
+                        }
+                        if pa.withdrawals().is_err()
+                            || (pa.withdrawals().is_ok() && pa.withdrawals().unwrap().is_none())
+                        {
+                            return Err(format!(
+                                "{} called without `withdrawals` after capella fork!",
+                                method
+                            ));
+                        }
+                    }
                     _ => unreachable!(),
                 };
             }

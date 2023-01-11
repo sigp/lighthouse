@@ -401,6 +401,7 @@ dependencies = [
  "eth1",
  "eth2",
  "eth2_hashing",
+ "eth2_network_config",
  "eth2_ssz",
  "eth2_ssz_derive",
  "eth2_ssz_types",

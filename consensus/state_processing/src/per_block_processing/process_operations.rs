@@ -300,9 +300,6 @@ pub fn process_bls_to_execution_changes<T: EthSpec>(
     verify_signatures: VerifySignatures,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
-    if cfg!(not(feature = "withdrawals-processing")) {
-        return Ok(());
-    }
     for (i, signed_address_change) in bls_to_execution_changes.iter().enumerate() {
         verify_bls_to_execution_change(state, signed_address_change, verify_signatures, spec)
             .map_err(|e| e.into_with_index(i))?;

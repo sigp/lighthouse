@@ -23,6 +23,7 @@ use fork_choice::CountUnrealized;
 use futures::channel::mpsc::Receiver;
 pub use genesis::{interop_genesis_state, DEFAULT_ETH1_BLOCK_HASH};
 use int_to_bytes::int_to_bytes32;
+use kzg::TrustedSetup;
 use merkle_proof::MerkleTree;
 use parking_lot::Mutex;
 use parking_lot::RwLockWriteGuard;
@@ -493,6 +494,10 @@ where
         let validator_keypairs = self
             .validator_keypairs
             .expect("cannot build without validator keypairs");
+        let trusted_setup: TrustedSetup =
+            serde_json::from_reader(eth2_network_config::TRUSTED_SETUP)
+                .map_err(|e| format!("Unable to read trusted setup file: {}", e))
+                .unwrap();
 
         let mut builder = BeaconChainBuilder::new(self.eth_spec_instance)
             .logger(log.clone())
@@ -509,7 +514,8 @@ where
                 log.clone(),
                 5,
             )))
-            .monitor_validators(true, vec![], log);
+            .monitor_validators(true, vec![], log)
+            .trusted_setup(trusted_setup);
 
         builder = if let Some(mutator) = self.initial_mutator {
             mutator(builder)

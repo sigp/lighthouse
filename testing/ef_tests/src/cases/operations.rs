@@ -344,10 +344,6 @@ impl<E: EthSpec> Operation<E> for WithdrawalsPayload<E> {
     }
 
     fn is_enabled_for_fork(fork_name: ForkName) -> bool {
-        if fork_name == ForkName::Capella && !cfg!(feature = "withdrawals-processing") {
-            return false;
-        }
-
         fork_name != ForkName::Base && fork_name != ForkName::Altair && fork_name != ForkName::Merge
     }
 
@@ -366,12 +362,7 @@ impl<E: EthSpec> Operation<E> for WithdrawalsPayload<E> {
         spec: &ChainSpec,
         _: &Operations<E, Self>,
     ) -> Result<(), BlockProcessingError> {
-        //FIXME(sean) remove this once the spec tests sort this out
-        if matches!(state, BeaconState::Eip4844(_)) {
-            Ok(())
-        } else {
-            process_withdrawals::<_, FullPayload<_>>(state, self.payload.to_ref(), spec)
-        }
+        process_withdrawals::<_, FullPayload<_>>(state, self.payload.to_ref(), spec)
     }
 }
 
@@ -385,9 +376,6 @@ impl<E: EthSpec> Operation<E> for SignedBlsToExecutionChange {
     }
 
     fn is_enabled_for_fork(fork_name: ForkName) -> bool {
-        if fork_name == ForkName::Capella && !cfg!(feature = "withdrawals-processing") {
-            return false;
-        }
         fork_name != ForkName::Base && fork_name != ForkName::Altair && fork_name != ForkName::Merge
     }
 
@@ -401,12 +389,7 @@ impl<E: EthSpec> Operation<E> for SignedBlsToExecutionChange {
         spec: &ChainSpec,
         _extra: &Operations<E, Self>,
     ) -> Result<(), BlockProcessingError> {
-        //FIXME(sean) remove this once the spec tests sort this out
-        if matches!(state, BeaconState::Eip4844(_)) {
-            Ok(())
-        } else {
-            process_bls_to_execution_changes(state, &[self.clone()], VerifySignatures::True, spec)
-        }
+        process_bls_to_execution_changes(state, &[self.clone()], VerifySignatures::True, spec)
     }
 }
 
