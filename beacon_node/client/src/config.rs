@@ -168,10 +168,9 @@ impl Config {
 
     /// Get the blobs freezer DB path, creating it if necessary.
     pub fn create_blobs_freezer_db_path(&self) -> Result<Option<PathBuf>, String> {
-        if let Some(blobs_freezer_path) = self.get_blobs_freezer_db_path() {
-            Ok(Some(ensure_dir_exists(blobs_freezer_path)?))
-        } else {
-            Ok(None)
+        match self.get_blobs_freezer_db_path() {
+            Some(blobs_freezer_path) => Ok(Some(ensure_dir_exists(blobs_freezer_path)?)),
+            None => Ok(None),
         }
     }
 

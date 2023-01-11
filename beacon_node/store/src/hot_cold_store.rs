@@ -1250,15 +1250,16 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     pub fn load_hot_blobs(&self, block_root: &Hash256) -> Result<Option<BlobsSidecar<E>>, Error> {
         // FIXME(sean) I was attempting to use a blob cache here but was getting deadlocks,
         // may want to attempt to use one again
-        if let Some(bytes) = self
+        match self
             .hot_db
             .get_bytes(DBColumn::BeaconBlob.into(), block_root.as_bytes())?
         {
-            let ret = BlobsSidecar::from_ssz_bytes(&bytes)?;
-            self.blob_cache.lock().put(*block_root, ret.clone());
-            Ok(Some(ret))
-        } else {
-            Ok(None)
+            Some(bytes) => {
+                let ret = BlobsSidecar::from_ssz_bytes(&bytes)?;
+                self.blob_cache.lock().put(*block_root, ret.clone());
+                Ok(Some(ret))
+            }
+            None => Ok(None),
         }
     }
 
@@ -1272,12 +1273,9 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             &self.cold_db
         };
 
-        if let Some(ref blobs_bytes) =
-            blobs_freezer.get_bytes(DBColumn::BeaconBlob.into(), block_root.as_bytes())?
-        {
-            Ok(Some(BlobsSidecar::from_ssz_bytes(blobs_bytes)?))
-        } else {
-            Ok(None)
+        match blobs_freezer.get_bytes(DBColumn::BeaconBlob.into(), block_root.as_bytes())? {
+            Some(ref blobs_bytes) => Ok(Some(BlobsSidecar::from_ssz_bytes(blobs_bytes)?)),
+            None => Ok(None),
         }
     }
 
@@ -1989,10 +1987,9 @@ pub fn migrate_database<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
     let mut hot_db_ops: Vec<StoreOp<E>> = Vec::new();
     let mut cold_blobs_db_ops: Vec<StoreOp<E>> = Vec::new();
 
-    let blobs_freezer = if let Some(ref cold_blobs_db) = store.cold_blobs_db {
-        cold_blobs_db
-    } else {
-        &store.cold_db
+    let blobs_freezer = match store.cold_blobs_db {
+        Some(ref cold_blobs_db) => cold_blobs_db,
+        None => &store.cold_db,
     };
 
     // 1. Copy all of the states between the head and the split slot, from the hot DB
