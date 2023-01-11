@@ -416,13 +416,11 @@ where
         });
         let mock = MockExecutionLayer::new(
             self.runtime.task_executor.clone(),
-            spec.terminal_total_difficulty,
             DEFAULT_TERMINAL_BLOCK,
-            spec.terminal_block_hash,
-            spec.terminal_block_hash_activation_epoch,
             shanghai_time,
             eip4844_time,
             Some(JwtKey::from_slice(&DEFAULT_JWT_SECRET).unwrap()),
+            spec.clone(),
             None,
         );
         self.execution_layer = Some(mock.el.clone());
@@ -444,13 +442,11 @@ where
         });
         let mock_el = MockExecutionLayer::new(
             self.runtime.task_executor.clone(),
-            spec.terminal_total_difficulty,
             DEFAULT_TERMINAL_BLOCK,
-            spec.terminal_block_hash,
-            spec.terminal_block_hash_activation_epoch,
             shanghai_time,
             eip4844_time,
             Some(JwtKey::from_slice(&DEFAULT_JWT_SECRET).unwrap()),
+            spec.clone(),
             Some(builder_url.clone()),
         )
         .move_to_terminal_block();
