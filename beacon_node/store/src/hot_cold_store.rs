@@ -234,7 +234,7 @@ impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
                     }
                     Some(blob_info)
                 }
-                None => None,
+                None => Some(BlobInfo::default()),
             };
             *db.blob_info.write() = blob_info;
         }
