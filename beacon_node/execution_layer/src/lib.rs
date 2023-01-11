@@ -750,8 +750,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                         self.log(),
                         "Requested blinded execution payload";
                         "relay_fee_recipient" => match &relay_result {
-                            // FIXME remove clone?
-                            Ok(Some(r)) => format!("{:?}", r.data.message.clone().header().fee_recipient()),
+                            Ok(Some(r)) => format!("{:?}", r.data.message.header().fee_recipient()),
                             Ok(None) => "empty response".to_string(),
                             Err(_) => "request failed".to_string(),
                         },
@@ -787,7 +786,6 @@ impl<T: EthSpec> ExecutionLayer<T> {
                             Ok(ProvenancedPayload::Local(local))
                         }
                         (Ok(Some(relay)), Ok(local)) => {
-                            // FIXME remove clone?
                             let header = relay.data.message.header().clone();
 
                             info!(
@@ -858,7 +856,6 @@ impl<T: EthSpec> ExecutionLayer<T> {
                             }
                         }
                         (Ok(Some(relay)), Err(local_error)) => {
-                            // FIXME remove clone?
                             let header = relay.data.message.header().clone();
 
                             info!(
@@ -1935,7 +1932,6 @@ fn verify_builder_bid<T: EthSpec, Payload: AbstractExecPayload<T>>(
     spec: &ChainSpec,
 ) -> Result<(), Box<InvalidBuilderPayload>> {
     let is_signature_valid = bid.data.verify_signature(spec);
-    // FIXME remove clone?
     let header = &bid.data.message.header();
     let payload_value = bid.data.message.value().clone();
 
