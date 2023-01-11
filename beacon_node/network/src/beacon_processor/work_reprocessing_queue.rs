@@ -39,7 +39,7 @@ const TASK_NAME: &str = "beacon_processor_reprocess_queue";
 const GOSSIP_BLOCKS: &str = "gossip_blocks";
 const RPC_BLOCKS: &str = "rpc_blocks";
 const ATTESTATIONS: &str = "attestations";
-const LC_UPDATES: &str = "lc_updates";
+const LIGHT_CLIENT_UPDATES: &str = "lc_updates";
 
 /// Queue blocks for re-processing with an `ADDITIONAL_QUEUED_BLOCK_DELAY` after the slot starts.
 /// This is to account for any slight drift in the system clock.
@@ -83,7 +83,7 @@ pub enum ReprocessQueueMessage<T: BeaconChainTypes> {
     /// An aggregated attestation that references an unknown block.
     UnknownBlockAggregate(QueuedAggregate<T::EthSpec>),
     /// A light client optimistic update that references a parent root that has not been seen as a parent.
-    UnknownLCOptimisticUpdate(QueuedLCUpdate<T::EthSpec>),
+    UnknownLightClientOptimisticUpdate(QueuedLightClientUpdate<T::EthSpec>),
 }
 
 /// Events sent by the scheduler once they are ready for re-processing.
@@ -92,7 +92,7 @@ pub enum ReadyWork<T: BeaconChainTypes> {
     RpcBlock(QueuedRpcBlock<T::EthSpec>),
     Unaggregate(QueuedUnaggregate<T::EthSpec>),
     Aggregate(QueuedAggregate<T::EthSpec>),
-    LCUpdate(QueuedLCUpdate<T::EthSpec>),
+    LightClientUpdate(QueuedLightClientUpdate<T::EthSpec>),
 }
 
 /// An Attestation for which the corresponding block was not seen while processing, queued for
@@ -117,7 +117,7 @@ pub struct QueuedAggregate<T: EthSpec> {
 
 /// A light client update for which the corresponding parent block was not seen while processing,
 /// queued for later.
-pub struct QueuedLCUpdate<T: EthSpec> {
+pub struct QueuedLightClientUpdate<T: EthSpec> {
     pub peer_id: PeerId,
     pub message_id: MessageId,
     pub light_client_optimistic_update: Box<LightClientOptimisticUpdate<T>>,
@@ -153,7 +153,7 @@ enum InboundEvent<T: BeaconChainTypes> {
     /// An aggregated or unaggregated attestation is ready for re-processing.
     ReadyAttestation(QueuedAttestationId),
     /// A light client update that is ready for re-processing.
-    ReadyLCUpdate(QueuedLCUpdateId),
+    ReadyLightClientUpdate(QueuedLightClientUpdateId),
     /// A `DelayQueue` returned an error.
     DelayQueueError(TimeError, &'static str),
     /// A message sent to the `ReprocessQueue`
@@ -175,7 +175,7 @@ struct ReprocessQueue<T: BeaconChainTypes> {
     /// Queue to manage scheduled attestations.
     attestations_delay_queue: DelayQueue<QueuedAttestationId>,
     /// Queue to manage scheduled light client updates.
-    lc_updates_delay_queue: DelayQueue<QueuedLCUpdateId>,
+    lc_updates_delay_queue: DelayQueue<QueuedLightClientUpdateId>,
 
     /* Queued items */
     /// Queued blocks.
@@ -187,9 +187,9 @@ struct ReprocessQueue<T: BeaconChainTypes> {
     /// Attestations (aggregated and unaggregated) per root.
     awaiting_attestations_per_root: HashMap<Hash256, Vec<QueuedAttestationId>>,
     /// Queued Light Client Updates.
-    queued_lc_updates: FnvHashMap<usize, (QueuedLCUpdate<T::EthSpec>, DelayKey)>,
+    queued_lc_updates: FnvHashMap<usize, (QueuedLightClientUpdate<T::EthSpec>, DelayKey)>,
     /// Light Client Updates per parent_root.
-    awaiting_lc_updates_per_parent_root: HashMap<Hash256, Vec<QueuedLCUpdateId>>,
+    awaiting_lc_updates_per_parent_root: HashMap<Hash256, Vec<QueuedLightClientUpdateId>>,
 
     /* Aux */
     /// Next attestation id, used for both aggregated and unaggregated attestations
@@ -201,7 +201,7 @@ struct ReprocessQueue<T: BeaconChainTypes> {
     lc_update_delay_debounce: TimeLatch,
 }
 
-pub type QueuedLCUpdateId = usize;
+pub type QueuedLightClientUpdateId = usize;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum QueuedAttestationId {
@@ -274,7 +274,7 @@ impl<T: BeaconChainTypes> Stream for ReprocessQueue<T> {
 
         match self.lc_updates_delay_queue.poll_expired(cx) {
             Poll::Ready(Some(Ok(lc_id))) => {
-                return Poll::Ready(Some(InboundEvent::ReadyLCUpdate(lc_id.into_inner())));
+                return Poll::Ready(Some(InboundEvent::ReadyLightClientUpdate(lc_id.into_inner())));
             }
             Poll::Ready(Some(Err(e))) => {
                 return Poll::Ready(Some(InboundEvent::DelayQueueError(e, "lc_updates_queue")));
@@ -527,7 +527,7 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
 
                 self.next_attestation += 1;
             }
-            InboundEvent::Msg(UnknownLCOptimisticUpdate(queued_light_client_optimistic_update)) => {
+            InboundEvent::Msg(UnknownLightClientOptimisticUpdate(queued_light_client_optimistic_update)) => {
                 if self.lc_updates_delay_queue.len() >= MAXIMUM_QUEUED_LIGHT_CLIENT_UPDATES {
                     if self.lc_update_delay_debounce.elapsed() {
                         error!(
@@ -537,11 +537,11 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
                             "msg" => "check system clock"
                         );
                     }
-                    // Drop the attestation.
+                    // Drop the light client update.
                     return;
                 }
 
-                let lc_id: QueuedLCUpdateId = self.next_lc_update;
+                let lc_id: QueuedLightClientUpdateId = self.next_lc_update;
 
                 // Register the delay.
                 let delay_key = self
@@ -614,14 +614,14 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
                         }
                     }
                 }
-                // Unqueue the lc optimistic updates we have for this root, if any.
+                // Unqueue the light client optimistic updates we have for this root, if any.
                 if let Some(queued_lc_id) = self
                     .awaiting_lc_updates_per_parent_root
                     .remove(&parent_root)
                 {
                     debug!(
                         log,
-                        "unqueue lc optimistic updates";
+                        "unqueue light client optimistic updates";
                         "parent_root" => %parent_root,
                     );
 
@@ -632,7 +632,7 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
                         if let Some((work, delay_key)) = self.queued_lc_updates.remove(&lc_id).map(
                             |(light_client_optimistic_update, delay_key)| {
                                 (
-                                    ReadyWork::LCUpdate(light_client_optimistic_update),
+                                    ReadyWork::LightClientUpdate(light_client_optimistic_update),
                                     delay_key,
                                 )
                             },
@@ -642,7 +642,7 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
 
                             // Send the work
                             match self.ready_work_tx.try_send(work) {
-                                Ok(_) => debug!(log, "reprocessing lc update sent"),
+                                Ok(_) => debug!(log, "reprocessing light client update sent"),
                                 Err(_) => error!(
                                     log,
                                     "Failed to send scheduled light client update";
@@ -734,7 +734,7 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
                     }
                 }
             }
-            InboundEvent::ReadyLCUpdate(queued_id) => {
+            InboundEvent::ReadyLightClientUpdate(queued_id) => {
                 metrics::inc_counter(
                     &metrics::BEACON_PROCESSOR_REPROCESSING_QUEUE_EXPIRED_OPTIMISTIC_UPDATES,
                 );
@@ -746,14 +746,14 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
                                 .light_client_optimistic_update
                                 .attested_header
                                 .canonical_root(),
-                            ReadyWork::LCUpdate(queued_lc_update),
+                            ReadyWork::LightClientUpdate(queued_lc_update),
                         )
                     },
                 ) {
                     if self.ready_work_tx.try_send(work).is_err() {
                         error!(
                             log,
-                            "Failed to send scheduled lc optimistic update";
+                            "Failed to send scheduled light client optimistic update";
                         );
                     }
 
@@ -788,7 +788,7 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
         );
         metrics::set_gauge_vec(
             &metrics::BEACON_PROCESSOR_REPROCESSING_QUEUE_TOTAL,
-            &[LC_UPDATES],
+            &[LIGHT_CLIENT_UPDATES],
             self.lc_updates_delay_queue.len() as i64,
         );
     }

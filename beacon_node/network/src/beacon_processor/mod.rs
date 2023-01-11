@@ -67,7 +67,7 @@ use types::{
     SignedVoluntaryExit, SubnetId, SyncCommitteeMessage, SyncSubnetId,
 };
 use work_reprocessing_queue::{
-    spawn_reprocess_scheduler, QueuedAggregate, QueuedLCUpdate, QueuedRpcBlock, QueuedUnaggregate,
+    spawn_reprocess_scheduler, QueuedAggregate, QueuedLightClientUpdate, QueuedRpcBlock, QueuedUnaggregate,
     ReadyWork,
 };
 
@@ -700,14 +700,14 @@ impl<T: BeaconChainTypes> std::convert::From<ReadyWork<T>> for WorkEvent<T> {
                     seen_timestamp,
                 },
             },
-            ReadyWork::LCUpdate(QueuedLCUpdate {
+            ReadyWork::LightClientUpdate(QueuedLightClientUpdate {
                 peer_id,
                 message_id,
                 light_client_optimistic_update,
                 seen_timestamp,
             }) => Self {
                 drop_during_sync: true,
-                work: Work::UnknownLCOptimisticUpdate {
+                work: Work::UnknownLightClientOptimisticUpdate {
                     message_id,
                     peer_id,
                     light_client_optimistic_update,
@@ -753,7 +753,7 @@ pub enum Work<T: BeaconChainTypes> {
         aggregate: Box<SignedAggregateAndProof<T::EthSpec>>,
         seen_timestamp: Duration,
     },
-    UnknownLCOptimisticUpdate {
+    UnknownLightClientOptimisticUpdate {
         message_id: MessageId,
         peer_id: PeerId,
         light_client_optimistic_update: Box<LightClientOptimisticUpdate<T::EthSpec>>,
@@ -871,7 +871,7 @@ impl<T: BeaconChainTypes> Work<T> {
             Work::LightClientBootstrapRequest { .. } => LIGHT_CLIENT_BOOTSTRAP_REQUEST,
             Work::UnknownBlockAttestation { .. } => UNKNOWN_BLOCK_ATTESTATION,
             Work::UnknownBlockAggregate { .. } => UNKNOWN_BLOCK_AGGREGATE,
-            Work::UnknownLCOptimisticUpdate { .. } => UNKNOWN_LIGHT_CLIENT_UPDATE,
+            Work::UnknownLightClientOptimisticUpdate { .. } => UNKNOWN_LIGHT_CLIENT_UPDATE,
         }
     }
 }
@@ -1375,7 +1375,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                             Work::UnknownBlockAggregate { .. } => {
                                 unknown_block_aggregate_queue.push(work)
                             }
-                            Work::UnknownLCOptimisticUpdate { .. } => {
+                            Work::UnknownLightClientOptimisticUpdate { .. } => {
                                 unknown_light_client_update_queue.push(work, work_id, &self.log)
                             }
                         }
@@ -1820,7 +1820,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                     seen_timestamp,
                 )
             }),
-            Work::UnknownLCOptimisticUpdate {
+            Work::UnknownLightClientOptimisticUpdate {
                 message_id,
                 peer_id,
                 light_client_optimistic_update,

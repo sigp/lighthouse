@@ -28,7 +28,7 @@ use types::{
 
 use super::{
     super::work_reprocessing_queue::{
-        QueuedAggregate, QueuedGossipBlock, QueuedLCUpdate, QueuedUnaggregate,
+        QueuedAggregate, QueuedGossipBlock, QueuedLightClientUpdate, QueuedUnaggregate,
         ReprocessQueueMessage,
     },
     Worker,
@@ -1330,7 +1330,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     LightClientFinalityUpdateError::InvalidLightClientFinalityUpdate => {
                         debug!(
                             self.log,
-                            "LC invalid finality update";
+                            "Light client invalid finality update";
                             "peer" => %peer_id,
                             "error" => ?e,
                         );
@@ -1344,7 +1344,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     LightClientFinalityUpdateError::TooEarly => {
                         debug!(
                             self.log,
-                            "LC finality update too early";
+                            "Light client finality update too early";
                             "peer" => %peer_id,
                             "error" => ?e,
                         );
@@ -1357,7 +1357,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     }
                     LightClientFinalityUpdateError::FinalityUpdateAlreadySeen => debug!(
                         self.log,
-                        "LC finality update already seen";
+                        "Light client finality update already seen";
                         "peer" => %peer_id,
                         "error" => ?e,
                     ),
@@ -1366,7 +1366,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     | LightClientFinalityUpdateError::SigSlotStartIsNone
                     | LightClientFinalityUpdateError::FailedConstructingUpdate => debug!(
                         self.log,
-                        "LC error constructing finality update";
+                        "Light client error constructing finality update";
                         "peer" => %peer_id,
                         "error" => ?e,
                     ),
@@ -1391,7 +1391,7 @@ impl<T: BeaconChainTypes> Worker<T> {
             Ok(verified_light_client_optimistic_update) => {
                 debug!(
                     self.log,
-                    "LC successful optimistic update";
+                    "Light client successful optimistic update";
                     "peer" => %peer_id,
                     "parent_root" => %verified_light_client_optimistic_update.parent_root,
                 );
@@ -1413,7 +1413,7 @@ impl<T: BeaconChainTypes> Worker<T> {
 
                         if let Some(sender) = reprocess_tx {
                             let msg =
-                                ReprocessQueueMessage::UnknownLCOptimisticUpdate(QueuedLCUpdate {
+                                ReprocessQueueMessage::UnknownLightClientOptimisticUpdate(QueuedLightClientUpdate {
                                     peer_id,
                                     message_id,
                                     light_client_optimistic_update: Box::new(
@@ -1431,7 +1431,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                         } else {
                             debug!(
                                 self.log,
-                                "Not sending LC update because it had been reprocessed";
+                                "Not sendinglight clientupdate because it had been reprocessed";
                                 "peer_id" => %peer_id,
                                 "parent_root" => ?parent_root
                             );
@@ -1449,7 +1449,7 @@ impl<T: BeaconChainTypes> Worker<T> {
 
                         debug!(
                             self.log,
-                            "LC invalid optimistic update";
+                            "Light client invalid optimistic update";
                             "peer" => %peer_id,
                             "error" => ?e,
                         );
@@ -1464,7 +1464,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                         metrics::register_optimistic_update_error(&e);
                         debug!(
                             self.log,
-                            "LC optimistic update too early";
+                            "Light client optimistic update too early";
                             "peer" => %peer_id,
                             "error" => ?e,
                         );
@@ -1480,7 +1480,7 @@ impl<T: BeaconChainTypes> Worker<T> {
 
                         debug!(
                             self.log,
-                            "LC optimistic update already seen";
+                            "Light client optimistic update already seen";
                             "peer" => %peer_id,
                             "error" => ?e,
                         )
@@ -1493,7 +1493,7 @@ impl<T: BeaconChainTypes> Worker<T> {
 
                         debug!(
                             self.log,
-                            "LC error constructing optimistic update";
+                            "Light client error constructing optimistic update";
                             "peer" => %peer_id,
                             "error" => ?e,
                         )
