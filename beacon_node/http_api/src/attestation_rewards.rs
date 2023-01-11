@@ -134,42 +134,31 @@ pub fn compute_attestation_rewards<T: BeaconChainTypes>(
     //TODO Output the ideal_rewards HashMap
 
     //--- Calculate actual rewards ---//
-
-    //Check if the validator index is eligible for rewards using state.is_eligible_validator(epoch, validator_index)
-    let eligible = match state.is_eligible_validator(previous_epoch, index[0]) {
-        Ok(eligible) => eligible,
-        Err(_) => return Err(warp_utils::reject::custom_server_error("Unable to get eligible".to_owned())),
-    };
-
-    //TODO add error handling to everything below
-
-    //If eligible is false, change the reward to 0
-    let reward = if eligible {
-        reward
-    } else {
-        0
-    };
-
-    //Check if they voted correctly for the flag (head/target/source) by checking if their validator index appears in participation_cache.get_unslashed_participating_indices(flag, epoch)
-    let voted_correctly = participation_cache.get_unslashed_participating_indices(*flag_index, previous_epoch).is_ok();
-
-    //If they voted correctly, they get paid the ideal_reward for (flag, validator.effective_balance), which can be looked up in the ideal rewards map.
-    //If they voted incorrectly, then for the head vote their reward is 0, and for target/source it is -1 * base_reward * weight // WEIGHT_DENOMINATOR
-    let actual_reward = if voted_correctly {
-        reward
-    } else {
-        if flag_index == 0 {
-            0
+    
+    let mut rewards: Vec<(usize, u64)> = vec![];
+    let index = participation_cache.eligible_validator_indices();
+    
+    for validator_index in index {
+        let eligible = match state.is_eligible_validator(previous_epoch, *validator_index) {
+            Ok(eligible) => eligible,
+            Err(_) => return Err(warp_utils::reject::custom_server_error("Unable to get eligible".to_owned())),
+        };
+        let actual_rewards = if !eligible {
+            0u64
         } else {
-            base_reward.safe_mul(weight).and_then(|reward| {
-                reward.safe_div(WEIGHT_DENOMINATOR)
-            }).and_then(|reward| {
-                reward.safe_mul(1)
-            }).or_else(|_| {
-                Err(warp_utils::reject::custom_server_error("Unable to calculate actual reward".to_owned()))
-            })?
-        }
-    };
+            //validator_index is eligible for rewards, calculate actual rewards 
+            let voted_correctly = participation_cache.get_unslashed_participating_indices(*flag_index, previous_epoch).is_ok();
+            if voted_correctly {
+                //Voted correctly, get paid the ideal_reward for (flag, validator.effective_balance)
+                let ideal_reward = ideal_rewards.get(&(flag_index, index.effective_balance));
+                //Voted incorrectly, the head vote reward is 0, target/source their reward is -1 * base_reward * weight // WEIGHT_DENOMINATOR
+            } else {
+                HeadFlag => 0u64; 
+                -1 * base_reward * weight / WEIGHT_DENOMINATOR
+            }
+        };
+        rewards.push((*validator_index, actual_rewards))
+    }
 
     //TODO Put actual_reward in Vec<AttestationRewardsTBD>
     //TODO Code cleanup
