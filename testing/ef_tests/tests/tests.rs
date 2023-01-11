@@ -101,8 +101,6 @@ fn sanity_blocks() {
 }
 
 #[test]
-// One of these EF tests causes a sync committee calculation, which requires pubkey aggregation
-#[cfg(not(feature = "fake_crypto"))]
 fn sanity_slots() {
     SanitySlotsHandler::<MinimalEthSpec>::default().run();
     SanitySlotsHandler::<MainnetEthSpec>::default().run();
