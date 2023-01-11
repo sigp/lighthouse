@@ -26,8 +26,7 @@ use task_executor::TaskExecutor;
 use tempfile::NamedTempFile;
 use tree_hash::TreeHash;
 use types::{
-    Address, BeaconState, BlindedPayload, ChainSpec, EthSpec, ExecPayload, ForkName, Hash256, Slot,
-    Uint256,
+    Address, BeaconState, BlindedPayload, ChainSpec, EthSpec, ExecPayload, Hash256, Slot, Uint256,
 };
 
 #[derive(Clone)]
@@ -306,14 +305,15 @@ impl<E: EthSpec> mev_build_rs::BlindedBlockProvider for MockBuilder<E> {
         let payload_attributes =
             PayloadAttributes::new(timestamp, *prev_randao, fee_recipient, None);
 
+        let fork_name = self.spec.fork_name_at_slot::<E>(slot);
+
         let payload = self
             .el
             .get_full_payload_caching::<BlindedPayload<E>>(
                 head_execution_hash,
                 &payload_attributes,
                 forkchoice_update_params,
-                // TODO: do we need to write a test for this if this is Capella fork?
-                ForkName::Merge,
+                fork_name,
             )
             .await
             .map_err(convert_err)?

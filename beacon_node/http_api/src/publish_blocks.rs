@@ -26,7 +26,7 @@ pub async fn publish_block<T: BeaconChainTypes>(
     log: Logger,
 ) -> Result<(), Rejection> {
     let seen_timestamp = timestamp_now();
-    let block = block_wrapper.block();
+    let block = block_wrapper.block_cloned();
     //FIXME(sean) have to move this to prior to publishing because it's included in the blobs sidecar message.
     //this may skew metrics
     let block_root = block_root.unwrap_or_else(|| block.canonical_root());
@@ -49,7 +49,7 @@ pub async fn publish_block<T: BeaconChainTypes>(
             match maybe_sidecar {
                 Some(sidecar) => {
                     let block_and_blobs = SignedBeaconBlockAndBlobsSidecar {
-                        beacon_block: block_wrapper.block_cloned(),
+                        beacon_block: block,
                         blobs_sidecar: sidecar,
                     };
                     crate::publish_pubsub_message(
@@ -190,7 +190,7 @@ async fn reconstruct_block<T: BeaconChainTypes>(
     block: SignedBeaconBlock<T::EthSpec, BlindedPayload<T::EthSpec>>,
     log: Logger,
 ) -> Result<BlockWrapper<T::EthSpec>, Rejection> {
-    let payload_header = block.message().body().execution_payload().map_err(|e| {
+    let payload_header = block.message().body().execution_payload().map_err(|_| {
         warp_utils::reject::custom_server_error("Unable to add payload to block".to_string())
     })?;
 
