@@ -98,8 +98,8 @@ GETH_http_base=8545
 GETH_el_base=8645
 
 # Make Geth config with genesis time and TTD.
-SHANGHAI_TIME=$(($GENESIS_TIME + $CAPELLA_FORK_EPOCH * $SECONDS_PER_SLOT * 32))
-echo "Shangai time = $SHANGHAI_TIME"
+SHANGHAI_TIME=$(($GENESIS_TIME + $CAPELLA_FORK_EPOCH * $SECONDS_PER_SLOT * 8))
+echo "Shanghai time = $SHANGHAI_TIME"
 cat ./config/geth.json.template \
   | sed "s/SHANGHAI_BLOCK_TEMPLATE/$SHANGHAI_TIME/" \
   | sed "s/TERMINAL_TOTAL_DIFFICULTY_TEMPLATE/$TERMINAL_TOTAL_DIFFICULTY/" > ./config/geth.json
