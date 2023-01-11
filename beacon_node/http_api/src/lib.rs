@@ -50,6 +50,7 @@ use sysinfo::{System, SystemExt};
 use system_health::observe_system_health_bn;
 use tokio::sync::mpsc::{Sender, UnboundedSender};
 use tokio_stream::{wrappers::BroadcastStream, StreamExt};
+use types::signed_block_and_blobs::BlockWrapper;
 use types::{
     Attestation, AttestationData, AttesterSlashing, BeaconStateError, BlindedPayload,
     CommitteeCache, ConfigAndPreset, Epoch, EthSpec, ForkName, FullPayload,
@@ -1120,7 +1121,8 @@ pub fn serve<T: BeaconChainTypes>(
              chain: Arc<BeaconChain<T>>,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
              log: Logger| async move {
-                publish_blocks::publish_block(None, block, chain, &network_tx, log)
+                let block_wrapper = BlockWrapper::new(block);
+                publish_blocks::publish_block(None, block_wrapper, chain, &network_tx, log)
                     .await
                     .map(|()| warp::reply())
             },

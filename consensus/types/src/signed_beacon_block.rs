@@ -1,9 +1,11 @@
+use crate::signed_block_and_blobs::BlockWrapper;
 use crate::*;
 use bls::Signature;
 use derivative::Derivative;
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use std::fmt;
+use std::sync::Arc;
 use superstruct::superstruct;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
@@ -455,6 +457,25 @@ impl<E: EthSpec> SignedBeaconBlockEip4844<E, BlindedPayload<E>> {
 }
 
 impl<E: EthSpec> SignedBeaconBlock<E, BlindedPayload<E>> {
+    pub fn try_into_full_block_wrapper(
+        self,
+        execution_payload: Option<ExecutionPayload<E>>,
+        blobs_sidecar: Option<BlobsSidecar<E>>,
+    ) -> Option<BlockWrapper<E>> {
+        let maybe_full_block = self.try_into_full_block(execution_payload);
+
+        maybe_full_block.map(|full_block| match full_block {
+            SignedBeaconBlock::Base(_)
+            | SignedBeaconBlock::Altair(_)
+            | SignedBeaconBlock::Merge(_)
+            | SignedBeaconBlock::Capella(_) => BlockWrapper::new(Arc::new(full_block)),
+            SignedBeaconBlock::Eip4844(_) => BlockWrapper::new_with_blobs(
+                Arc::new(full_block),
+                Arc::new(blobs_sidecar.unwrap_or_default()),
+            ),
+        })
+    }
+
     pub fn try_into_full_block(
         self,
         execution_payload: Option<ExecutionPayload<E>>,

@@ -20,13 +20,13 @@ use warp::Rejection;
 /// Handles a request from the HTTP API for full blocks.
 pub async fn publish_block<T: BeaconChainTypes>(
     block_root: Option<Hash256>,
-    block: Arc<SignedBeaconBlock<T::EthSpec>>,
+    block_wrapper: BlockWrapper<T::EthSpec>,
     chain: Arc<BeaconChain<T>>,
     network_tx: &UnboundedSender<NetworkMessage<T::EthSpec>>,
     log: Logger,
 ) -> Result<(), Rejection> {
     let seen_timestamp = timestamp_now();
-
+    let block = block_wrapper.block();
     //FIXME(sean) have to move this to prior to publishing because it's included in the blobs sidecar message.
     //this may skew metrics
     let block_root = block_root.unwrap_or_else(|| block.canonical_root());
@@ -35,21 +35,35 @@ pub async fn publish_block<T: BeaconChainTypes>(
     // specification is very clear that this is the desired behaviour.
     let wrapped_block: BlockWrapper<T::EthSpec> =
         if matches!(block.as_ref(), &SignedBeaconBlock::Eip4844(_)) {
-            if let Some(sidecar) = chain.blob_cache.pop(&block_root) {
-                let block_and_blobs = SignedBeaconBlockAndBlobsSidecar {
-                    beacon_block: block,
-                    blobs_sidecar: Arc::new(sidecar),
-                };
-                crate::publish_pubsub_message(
-                    network_tx,
-                    PubsubMessage::BeaconBlockAndBlobsSidecars(block_and_blobs.clone()),
-                )?;
-                block_and_blobs.into()
-            } else {
-                //FIXME(sean): This should probably return a specific no-blob-cached error code, beacon API coordination required
-                return Err(warp_utils::reject::broadcast_without_import(format!(
-                    "no blob cached for block"
-                )));
+            let maybe_sidecar = block_wrapper
+                .blobs(Some(block_root))
+                .ok()
+                .flatten()
+                .or_else(|| {
+                    chain
+                        .blob_cache
+                        .pop(&block_root)
+                        .map(|blob_sidecar| Arc::new(blob_sidecar))
+                });
+
+            match maybe_sidecar {
+                Some(sidecar) => {
+                    let block_and_blobs = SignedBeaconBlockAndBlobsSidecar {
+                        beacon_block: block_wrapper.block_cloned(),
+                        blobs_sidecar: sidecar,
+                    };
+                    crate::publish_pubsub_message(
+                        network_tx,
+                        PubsubMessage::BeaconBlockAndBlobsSidecars(block_and_blobs.clone()),
+                    )?;
+                    block_and_blobs.into()
+                }
+                None => {
+                    //FIXME(sean): This should probably return a specific no-blob-cached error code, beacon API coordination required
+                    return Err(warp_utils::reject::broadcast_without_import(format!(
+                        "no blob cached for block"
+                    )));
+                }
             }
         } else {
             crate::publish_pubsub_message(network_tx, PubsubMessage::BeaconBlock(block.clone()))?;
@@ -163,15 +177,8 @@ pub async fn publish_blinded_block<T: BeaconChainTypes>(
     log: Logger,
 ) -> Result<(), Rejection> {
     let block_root = block.canonical_root();
-    let full_block = reconstruct_block(chain.clone(), block_root, block, log.clone()).await?;
-    publish_block::<T>(
-        Some(block_root),
-        Arc::new(full_block),
-        chain,
-        network_tx,
-        log,
-    )
-    .await
+    let block_wrapper = reconstruct_block(chain.clone(), block_root, block, log.clone()).await?;
+    publish_block::<T>(Some(block_root), block_wrapper, chain, network_tx, log).await
 }
 
 /// Deconstruct the given blinded block, and construct a full block. This attempts to use the
@@ -182,58 +189,56 @@ async fn reconstruct_block<T: BeaconChainTypes>(
     block_root: Hash256,
     block: SignedBeaconBlock<T::EthSpec, BlindedPayload<T::EthSpec>>,
     log: Logger,
-) -> Result<SignedBeaconBlock<T::EthSpec, FullPayload<T::EthSpec>>, Rejection> {
-    let full_payload = if let Ok(payload_header) = block.message().body().execution_payload() {
-        let el = chain.execution_layer.as_ref().ok_or_else(|| {
-            warp_utils::reject::custom_server_error("Missing execution layer".to_string())
-        })?;
+) -> Result<BlockWrapper<T::EthSpec>, Rejection> {
+    let payload_header = block.message().body().execution_payload().map_err(|e| {
+        warp_utils::reject::custom_server_error("Unable to add payload to block".to_string())
+    })?;
 
-        // If the execution block hash is zero, use an empty payload.
-        let full_payload = if payload_header.block_hash() == ExecutionBlockHash::zero() {
-            FullPayload::default_at_fork(
-                chain
-                    .spec
-                    .fork_name_at_epoch(block.slot().epoch(T::EthSpec::slots_per_epoch())),
-            )
-            .into()
-            // If we already have an execution payload with this transactions root cached, use it.
-        } else if let Some(cached_payload) =
-            el.get_payload_by_root(&payload_header.tree_hash_root())
-        {
-            info!(log, "Reconstructing a full block using a local payload"; "block_hash" => ?cached_payload.block_hash());
-            cached_payload
-            // Otherwise, this means we are attempting a blind block proposal.
-        } else {
-            let fork_name = chain
+    let el = chain.execution_layer.as_ref().ok_or_else(|| {
+        warp_utils::reject::custom_server_error("Missing execution layer".to_string())
+    })?;
+
+    // If the execution block hash is zero, use an empty payload.
+    let block_wrapper = if payload_header.block_hash() == ExecutionBlockHash::zero() {
+        let payload = FullPayload::default_at_fork(
+            chain
                 .spec
-                .fork_name_at_epoch(block.slot().epoch(T::EthSpec::slots_per_epoch()));
-            let payload_wrapper = el
-                .propose_blinded_beacon_block(block_root, &block, fork_name)
-                .await
-                .map_err(|e| {
-                    warp_utils::reject::custom_server_error(format!(
-                        "Blind block proposal failed: {:?}",
-                        e
-                    ))
-                })?;
-            //FIXME: what to do with blob?
-            let full_payload = match &payload_wrapper {
-                PayloadWrapper::Payload(payload) => payload,
-                PayloadWrapper::PayloadAndBlob(payload_and_blob) => {
-                    &payload_and_blob.execution_payload
-                }
-            };
+                .fork_name_at_epoch(block.slot().epoch(T::EthSpec::slots_per_epoch())),
+        )
+        .into();
+        block.try_into_full_block_wrapper(Some(payload), None)
+        // If we already have an execution payload with this transactions root cached, use it.
+    } else if let Some(cached_payload) = el.get_payload_by_root(&payload_header.tree_hash_root()) {
+        info!(log, "Reconstructing a full block using a local payload"; "block_hash" => ?cached_payload.block_hash());
+        block.try_into_full_block_wrapper(Some(cached_payload), None)
+        // Otherwise, this means we are attempting a blind block proposal.
+    } else {
+        let fork_name = chain
+            .spec
+            .fork_name_at_epoch(block.slot().epoch(T::EthSpec::slots_per_epoch()));
+        let payload_wrapper = el
+            .propose_blinded_beacon_block(block_root, &block, fork_name)
+            .await
+            .map_err(|e| {
+                warp_utils::reject::custom_server_error(format!(
+                    "Blind block proposal failed: {:?}",
+                    e
+                ))
+            })?;
 
-            info!(log, "Successfully published a block to the builder network"; "block_hash" => ?full_payload.block_hash());
-            full_payload
+        let (full_payload, maybe_blobs) = match payload_wrapper {
+            PayloadWrapper::Payload(payload) => (payload, None),
+            PayloadWrapper::PayloadAndBlob(payload_and_blob) => (
+                payload_and_blob.execution_payload,
+                Some(payload_and_blob.blobs_sidecar),
+            ),
         };
 
-        Some(full_payload)
-    } else {
-        None
+        info!(log, "Successfully published a block to the builder network"; "block_hash" => ?full_payload.block_hash());
+        block.try_into_full_block_wrapper(Some(full_payload), maybe_blobs)
     };
 
-    block.try_into_full_block(full_payload).ok_or_else(|| {
+    block_wrapper.ok_or_else(|| {
         warp_utils::reject::custom_server_error("Unable to add payload to block".to_string())
     })
 }
