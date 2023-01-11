@@ -54,6 +54,8 @@ impl<'a, N: Unsigned> HistoricalSummaryCache<'a, N> {
     pub fn new(inner: &'a VariableList<HistoricalSummary, N>) -> Self {
         Self { inner }
     }
+
+    #[allow(clippy::len_without_is_empty)]
     pub fn len(&self) -> usize {
         self.inner.len()
     }

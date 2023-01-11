@@ -170,7 +170,7 @@ impl<T: EthSpec> BeaconTreeHashCacheInner<T> {
             state
                 .historical_summaries()
                 .ok()
-                .map(&HistoricalSummaryCache::new)
+                .map(HistoricalSummaryCache::new)
                 .as_ref(),
         );
 
