@@ -94,13 +94,14 @@ pub enum HotColdDBError {
     MissingRestorePointHash(u64),
     MissingRestorePoint(Hash256),
     MissingColdStateSummary(Hash256),
-    MissingColdBlobs(Hash256),
     MissingHotStateSummary(Hash256),
+    MissingColdBlobs(Hash256),
     MissingEpochBoundaryState(Hash256),
     MissingSplitState(Hash256, Slot),
     MissingExecutionPayload(Hash256),
     MissingFullBlockExecutionPayloadPruned(Hash256, Slot),
     MissingAnchorInfo,
+    MissingPathToBlobsFreezer,
     HotStateSummaryError(BeaconStateError),
     RestorePointDecodeError(ssz::DecodeError),
     BlockReplayBeaconError(BeaconStateError),
@@ -169,18 +170,12 @@ impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
     ) -> Result<Arc<Self>, Error> {
         Self::verify_slots_per_restore_point(config.slots_per_restore_point)?;
 
-        let cold_blobs_db = if let Some(path) = cold_blobs_path {
-            Some(LevelDB::open(path.as_path())?)
-        } else {
-            None
-        };
-
         let mut db = HotColdDB {
             split: RwLock::new(Split::default()),
             anchor_info: RwLock::new(None),
             blob_info: RwLock::new(BlobInfo::default()),
             cold_db: LevelDB::open(cold_path)?,
-            cold_blobs_db,
+            cold_blobs_db: None,
             hot_db: LevelDB::open(hot_path)?,
             block_cache: Mutex::new(LruCache::new(config.block_cache_size)),
             blob_cache: Mutex::new(LruCache::new(config.blob_cache_size)),
@@ -223,6 +218,25 @@ impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
                 "split_slot" => split.slot,
                 "split_state" => ?split.state_root
             );
+        }
+
+        if db.spec.eip4844_fork_epoch.is_some() {
+            let blob_info = match db.load_blob_info()? {
+                Some(mut blob_info) => {
+                    if blob_info.blobs_freezer {
+                        cold_blobs_path
+                            .as_ref()
+                            .ok_or(HotColdDBError::MissingPathToBlobsFreezer)?;
+                    }
+                    if let Some(path) = cold_blobs_path {
+                        db.cold_blobs_db = Some(LevelDB::open(path.as_path())?);
+                        blob_info.blobs_freezer = true;
+                    }
+                    Some(blob_info)
+                }
+                None => None,
+            };
+            *db.blob_info.write() = blob_info;
         }
 
         // Ensure that the schema version of the on-disk database matches the software.
