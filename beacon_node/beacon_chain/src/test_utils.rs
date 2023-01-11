@@ -420,7 +420,7 @@ where
             shanghai_time,
             eip4844_time,
             Some(JwtKey::from_slice(&DEFAULT_JWT_SECRET).unwrap()),
-            spec.clone(),
+            spec,
             None,
         );
         self.execution_layer = Some(mock.el.clone());
