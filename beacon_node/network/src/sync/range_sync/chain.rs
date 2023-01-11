@@ -22,7 +22,7 @@ use types::{Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot};
 pub const EPOCHS_PER_BATCH: u64 = 2;
 
 /// The maximum number of batches to queue before requesting more.
-const BATCH_BUFFER_SIZE: u8 = 5;
+const BATCH_BUFFER_SIZE: u8 = 1;
 
 /// A return type for functions that act on a `Chain` which informs the caller whether the chain
 /// has been completed and should be removed or to be kept if further processing is

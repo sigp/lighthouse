@@ -11,8 +11,8 @@
     "istanbulBlock": 0,
     "berlinBlock": 0,
     "londonBlock": 0,
-    "shanghaiBlock": SHANGHAI_BLOCK_TEMPLATE,
-    "terminalTotalDifficulty": TERMINAL_TOTAL_DIFFICULTY_TEMPLATE
+    "terminalTotalDifficulty": TERMINAL_TOTAL_DIFFICULTY_TEMPLATE,
+    "shanghaiTime": SHANGHAI_BLOCK_TEMPLATE
   },
   "alloc": {
     "0x0000000000000000000000000000000000000000": {
