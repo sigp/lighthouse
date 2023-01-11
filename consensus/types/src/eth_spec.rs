@@ -253,11 +253,6 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq +
     fn max_blobs_per_block() -> usize {
         Self::MaxBlobsPerBlock::to_usize()
     }
-
-    /// Returns the `BYTES_PER_BLOB` constant for the specification.
-    fn bytes_per_blob() -> usize {
-        Self::BytesPerBlob::to_usize()
-    }
 }
 
 /// Macro to inherit some type values from another EthSpec.

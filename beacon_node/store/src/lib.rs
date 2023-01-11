@@ -215,6 +215,8 @@ pub enum DBColumn {
     /// For Optimistically Imported Merge Transition Blocks
     #[strum(serialize = "otb")]
     OptimisticTransitionBlock,
+    #[strum(serialize = "bhs")]
+    BeaconHistoricalSummaries,
 }
 
 /// A block from the database, which might have an execution payload or not.

@@ -57,9 +57,10 @@ pub fn upgrade_to_eip4844<E: EthSpec>(
         next_sync_committee: pre.next_sync_committee.clone(),
         // Execution
         latest_execution_payload_header: pre.latest_execution_payload_header.upgrade_to_eip4844(),
-        // Withdrawals
+        // Capella
         next_withdrawal_index: pre.next_withdrawal_index,
         next_withdrawal_validator_index: pre.next_withdrawal_validator_index,
+        historical_summaries: pre.historical_summaries.clone(),
         // Caches
         total_active_balance: pre.total_active_balance,
         committee_caches: mem::take(&mut pre.committee_caches),

@@ -12,9 +12,7 @@ participation_metrics = []  # Exposes validator participation metrics to Prometh
 fork_from_env = [] # Initialise the harness chain spec from the FORK_NAME env variable
 withdrawals-processing = [
     "state_processing/withdrawals-processing",
-    "store/withdrawals-processing",
     "execution_layer/withdrawals-processing",
-    "operation_pool/withdrawals-processing"
 ]
 spec-minimal = ["kzg/minimal-spec"]
 

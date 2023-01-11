@@ -3,6 +3,7 @@
 #![allow(clippy::indexing_slicing)]
 
 use super::Error;
+use crate::historical_summary::HistoricalSummaryCache;
 use crate::{BeaconState, EthSpec, Hash256, ParticipationList, Slot, Unsigned, Validator};
 use cached_tree_hash::{int_log, CacheArena, CachedTreeHash, TreeHashCache};
 use rayon::prelude::*;
@@ -142,6 +143,7 @@ pub struct BeaconTreeHashCacheInner<T: EthSpec> {
     block_roots: TreeHashCache,
     state_roots: TreeHashCache,
     historical_roots: TreeHashCache,
+    historical_summaries: OptionalTreeHashCache,
     balances: TreeHashCache,
     randao_mixes: TreeHashCache,
     slashings: TreeHashCache,
@@ -164,6 +166,14 @@ impl<T: EthSpec> BeaconTreeHashCacheInner<T> {
         let historical_roots = state
             .historical_roots()
             .new_tree_hash_cache(&mut fixed_arena);
+        let historical_summaries = OptionalTreeHashCache::new(
+            state
+                .historical_summaries()
+                .ok()
+                .map(HistoricalSummaryCache::new)
+                .as_ref(),
+        );
+
         let randao_mixes = state.randao_mixes().new_tree_hash_cache(&mut fixed_arena);
 
         let validators = ValidatorsListTreeHashCache::new::<T>(state.validators());
@@ -200,6 +210,7 @@ impl<T: EthSpec> BeaconTreeHashCacheInner<T> {
             block_roots,
             state_roots,
             historical_roots,
+            historical_summaries,
             balances,
             randao_mixes,
             slashings,
@@ -249,6 +260,7 @@ impl<T: EthSpec> BeaconTreeHashCacheInner<T> {
                 .slashings()
                 .recalculate_tree_hash_root(&mut self.slashings_arena, &mut self.slashings)?,
         ];
+
         // Participation
         if let BeaconState::Base(state) = state {
             leaves.push(state.previous_epoch_attestations.tree_hash_root());
@@ -291,6 +303,24 @@ impl<T: EthSpec> BeaconTreeHashCacheInner<T> {
         if let Ok(payload_header) = state.latest_execution_payload_header() {
             leaves.push(payload_header.tree_hash_root());
         }
+
+        // Withdrawal indices (Capella and later).
+        if let Ok(next_withdrawal_index) = state.next_withdrawal_index() {
+            leaves.push(next_withdrawal_index.tree_hash_root());
+        }
+        if let Ok(next_withdrawal_validator_index) = state.next_withdrawal_validator_index() {
+            leaves.push(next_withdrawal_validator_index.tree_hash_root());
+        }
+
+        // Historical roots/summaries (Capella and later).
+        if let Ok(historical_summaries) = state.historical_summaries() {
+            leaves.push(
+                self.historical_summaries.recalculate_tree_hash_root(
+                    &HistoricalSummaryCache::new(historical_summaries),
+                )?,
+            );
+        }
+
         Ok(leaves)
     }
 
@@ -333,14 +363,6 @@ impl<T: EthSpec> BeaconTreeHashCacheInner<T> {
         let leaves = self.recalculate_tree_hash_leaves(state)?;
         for leaf in leaves {
             hasher.write(leaf.as_bytes())?;
-        }
-
-        // Withdrawal indices (Capella and later).
-        if let Ok(next_withdrawal_index) = state.next_withdrawal_index() {
-            hasher.write(next_withdrawal_index.tree_hash_root().as_bytes())?;
-        }
-        if let Ok(next_withdrawal_validator_index) = state.next_withdrawal_validator_index() {
-            hasher.write(next_withdrawal_validator_index.tree_hash_root().as_bytes())?;
         }
 
         let root = hasher.finish()?;

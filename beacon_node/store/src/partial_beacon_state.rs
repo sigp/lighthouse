@@ -1,12 +1,13 @@
 use crate::chunked_vector::{
-    load_variable_list_from_db, load_vector_from_db, BlockRoots, HistoricalRoots, RandaoMixes,
-    StateRoots,
+    load_variable_list_from_db, load_vector_from_db, BlockRoots, HistoricalRoots,
+    HistoricalSummaries, RandaoMixes, StateRoots,
 };
 use crate::{get_key_for_col, DBColumn, Error, KeyValueStore, KeyValueStoreOp};
 use ssz::{Decode, DecodeError, Encode};
 use ssz_derive::{Decode, Encode};
 use std::convert::TryInto;
 use std::sync::Arc;
+use types::historical_summary::HistoricalSummary;
 use types::superstruct;
 use types::*;
 
@@ -104,16 +105,20 @@ where
     )]
     pub latest_execution_payload_header: ExecutionPayloadHeaderEip4844<T>,
 
-    // Withdrawals
+    // Capella
     #[superstruct(only(Capella, Eip4844))]
     pub next_withdrawal_index: u64,
     #[superstruct(only(Capella, Eip4844))]
     pub next_withdrawal_validator_index: u64,
+
+    #[ssz(skip_serializing, skip_deserializing)]
+    #[superstruct(only(Capella, Eip4844))]
+    pub historical_summaries: Option<VariableList<HistoricalSummary, T::HistoricalRootsLimit>>,
 }
 
 /// Implement the conversion function from BeaconState -> PartialBeaconState.
 macro_rules! impl_from_state_forgetful {
-    ($s:ident, $outer:ident, $variant_name:ident, $struct_name:ident, [$($extra_fields:ident),*]) => {
+    ($s:ident, $outer:ident, $variant_name:ident, $struct_name:ident, [$($extra_fields:ident),*], [$($extra_fields_opt:ident),*]) => {
         PartialBeaconState::$variant_name($struct_name {
             // Versioning
             genesis_time: $s.genesis_time,
@@ -154,6 +159,11 @@ macro_rules! impl_from_state_forgetful {
             // Variant-specific fields
             $(
                 $extra_fields: $s.$extra_fields.clone()
+            ),*,
+
+            // Variant-specific optional
+            $(
+                $extra_fields_opt: None
             ),*
         })
     }
@@ -168,7 +178,8 @@ impl<T: EthSpec> PartialBeaconState<T> {
                 outer,
                 Base,
                 PartialBeaconStateBase,
-                [previous_epoch_attestations, current_epoch_attestations]
+                [previous_epoch_attestations, current_epoch_attestations],
+                []
             ),
             BeaconState::Altair(s) => impl_from_state_forgetful!(
                 s,
@@ -181,7 +192,8 @@ impl<T: EthSpec> PartialBeaconState<T> {
                     current_sync_committee,
                     next_sync_committee,
                     inactivity_scores
-                ]
+                ],
+                []
             ),
             BeaconState::Merge(s) => impl_from_state_forgetful!(
                 s,
@@ -195,7 +207,8 @@ impl<T: EthSpec> PartialBeaconState<T> {
                     next_sync_committee,
                     inactivity_scores,
                     latest_execution_payload_header
-                ]
+                ],
+                []
             ),
             BeaconState::Capella(s) => impl_from_state_forgetful!(
                 s,
@@ -211,7 +224,8 @@ impl<T: EthSpec> PartialBeaconState<T> {
                     latest_execution_payload_header,
                     next_withdrawal_index,
                     next_withdrawal_validator_index
-                ]
+                ],
+                [historical_summaries]
             ),
             BeaconState::Eip4844(s) => impl_from_state_forgetful!(
                 s,
@@ -227,7 +241,8 @@ impl<T: EthSpec> PartialBeaconState<T> {
                     latest_execution_payload_header,
                     next_withdrawal_index,
                     next_withdrawal_validator_index
-                ]
+                ],
+                [historical_summaries]
             ),
         }
     }
@@ -303,6 +318,23 @@ impl<T: EthSpec> PartialBeaconState<T> {
         Ok(())
     }
 
+    pub fn load_historical_summaries<S: KeyValueStore<T>>(
+        &mut self,
+        store: &S,
+        spec: &ChainSpec,
+    ) -> Result<(), Error> {
+        let slot = self.slot();
+        if let Ok(historical_summaries) = self.historical_summaries_mut() {
+            if historical_summaries.is_none() {
+                *historical_summaries =
+                    Some(load_variable_list_from_db::<HistoricalSummaries, T, _>(
+                        store, slot, spec,
+                    )?);
+            }
+        }
+        Ok(())
+    }
+
     pub fn load_randao_mixes<S: KeyValueStore<T>>(
         &mut self,
         store: &S,
@@ -326,7 +358,7 @@ impl<T: EthSpec> PartialBeaconState<T> {
 
 /// Implement the conversion from PartialBeaconState -> BeaconState.
 macro_rules! impl_try_into_beacon_state {
-    ($inner:ident, $variant_name:ident, $struct_name:ident, [$($extra_fields:ident),*]) => {
+    ($inner:ident, $variant_name:ident, $struct_name:ident, [$($extra_fields:ident),*], [$($extra_opt_fields:ident),*]) => {
         BeaconState::$variant_name($struct_name {
             // Versioning
             genesis_time: $inner.genesis_time,
@@ -371,6 +403,11 @@ macro_rules! impl_try_into_beacon_state {
             // Variant-specific fields
             $(
                 $extra_fields: $inner.$extra_fields
+            ),*,
+
+            // Variant-specific optional fields
+            $(
+                $extra_opt_fields: unpack_field($inner.$extra_opt_fields)?
             ),*
         })
     }
@@ -389,7 +426,8 @@ impl<E: EthSpec> TryInto<BeaconState<E>> for PartialBeaconState<E> {
                 inner,
                 Base,
                 BeaconStateBase,
-                [previous_epoch_attestations, current_epoch_attestations]
+                [previous_epoch_attestations, current_epoch_attestations],
+                []
             ),
             PartialBeaconState::Altair(inner) => impl_try_into_beacon_state!(
                 inner,
@@ -401,7 +439,8 @@ impl<E: EthSpec> TryInto<BeaconState<E>> for PartialBeaconState<E> {
                     current_sync_committee,
                     next_sync_committee,
                     inactivity_scores
-                ]
+                ],
+                []
             ),
             PartialBeaconState::Merge(inner) => impl_try_into_beacon_state!(
                 inner,
@@ -414,7 +453,8 @@ impl<E: EthSpec> TryInto<BeaconState<E>> for PartialBeaconState<E> {
                     next_sync_committee,
                     inactivity_scores,
                     latest_execution_payload_header
-                ]
+                ],
+                []
             ),
             PartialBeaconState::Capella(inner) => impl_try_into_beacon_state!(
                 inner,
@@ -429,7 +469,8 @@ impl<E: EthSpec> TryInto<BeaconState<E>> for PartialBeaconState<E> {
                     latest_execution_payload_header,
                     next_withdrawal_index,
                     next_withdrawal_validator_index
-                ]
+                ],
+                [historical_summaries]
             ),
             PartialBeaconState::Eip4844(inner) => impl_try_into_beacon_state!(
                 inner,
@@ -444,7 +485,8 @@ impl<E: EthSpec> TryInto<BeaconState<E>> for PartialBeaconState<E> {
                     latest_execution_payload_header,
                     next_withdrawal_index,
                     next_withdrawal_validator_index
-                ]
+                ],
+                [historical_summaries]
             ),
         };
         Ok(state)

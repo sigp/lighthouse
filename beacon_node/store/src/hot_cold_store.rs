@@ -1,5 +1,5 @@
 use crate::chunked_vector::{
-    store_updated_vector, BlockRoots, HistoricalRoots, RandaoMixes, StateRoots,
+    store_updated_vector, BlockRoots, HistoricalRoots, HistoricalSummaries, RandaoMixes, StateRoots,
 };
 use crate::config::{
     OnDiskStoreConfig, StoreConfig, DEFAULT_SLOTS_PER_RESTORE_POINT,
@@ -952,6 +952,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         store_updated_vector(StateRoots, db, state, &self.spec, ops)?;
         store_updated_vector(HistoricalRoots, db, state, &self.spec, ops)?;
         store_updated_vector(RandaoMixes, db, state, &self.spec, ops)?;
+        store_updated_vector(HistoricalSummaries, db, state, &self.spec, ops)?;
 
         // 3. Store restore point.
         let restore_point_index = state.slot().as_u64() / self.config.slots_per_restore_point;
@@ -1006,6 +1007,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         partial_state.load_state_roots(&self.cold_db, &self.spec)?;
         partial_state.load_historical_roots(&self.cold_db, &self.spec)?;
         partial_state.load_randao_mixes(&self.cold_db, &self.spec)?;
+        partial_state.load_historical_summaries(&self.cold_db, &self.spec)?;
 
         partial_state.try_into()
     }

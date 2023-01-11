@@ -628,27 +628,6 @@ impl BeaconNodeHttpClient {
         Ok(())
     }
 
-    /// `POST beacon/blobs`
-    ///
-    /// Returns `Ok(None)` on a 404 error.
-    pub async fn post_beacon_blobs<T: EthSpec>(
-        &self,
-        block: &BlobsSidecar<T>,
-    ) -> Result<(), Error> {
-        let mut path = self.eth_path(V1)?;
-
-        path.path_segments_mut()
-            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
-            .push("beacon")
-            .push("blobs");
-
-        //FIXME(sean) should we re-use the proposal timeout? seems reasonable to..
-        self.post_with_timeout(path, block, self.timeouts.proposal)
-            .await?;
-
-        Ok(())
-    }
-
     /// `POST beacon/blinded_blocks`
     ///
     /// Returns `Ok(None)` on a 404 error.

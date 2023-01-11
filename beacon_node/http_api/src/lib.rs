@@ -1681,16 +1681,12 @@ pub fn serve<T: BeaconChainTypes>(
 
                         match chain.verify_bls_to_execution_change_for_gossip(address_change) {
                             Ok(ObservationOutcome::New(verified_address_change)) => {
-                                #[cfg(feature = "withdrawals-processing")]
-                                {
-                                    publish_pubsub_message(
-                                        &network_tx,
-                                        PubsubMessage::BlsToExecutionChange(Box::new(
-                                            verified_address_change.as_inner().clone(),
-                                        )),
-                                    )?;
-                                }
-
+                                publish_pubsub_message(
+                                    &network_tx,
+                                    PubsubMessage::BlsToExecutionChange(Box::new(
+                                        verified_address_change.as_inner().clone(),
+                                    )),
+                                )?;
                                 chain.import_bls_to_execution_change(verified_address_change);
                             }
                             Ok(ObservationOutcome::AlreadyKnown) => {
@@ -2915,7 +2911,7 @@ pub fn serve<T: BeaconChainTypes>(
                             let is_live =
                                 chain.validator_seen_at_epoch(index as usize, request_data.epoch);
                             api_types::LivenessResponseData {
-                                index: index as u64,
+                                index,
                                 epoch: request_data.epoch,
                                 is_live,
                             }
@@ -2951,7 +2947,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and_then(
             |sysinfo, app_start: std::time::Instant, data_dir, network_globals| {
                 blocking_json_task(move || {
-                    let app_uptime = app_start.elapsed().as_secs() as u64;
+                    let app_uptime = app_start.elapsed().as_secs();
                     Ok(api_types::GenericResponse::from(observe_system_health_bn(
                         sysinfo,
                         data_dir,

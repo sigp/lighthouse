@@ -460,7 +460,7 @@ where
         if is_terminal_block_hash_set && !is_activation_epoch_reached {
             // Use the "empty" payload if there's a terminal block hash, but we haven't reached the
             // terminal block epoch yet.
-            return Ok(BlockProposalContents::default_at_fork(fork));
+            return BlockProposalContents::default_at_fork(fork).map_err(Into::into);
         }
 
         let terminal_pow_block_hash = execution_layer
@@ -473,7 +473,7 @@ where
         } else {
             // If the merge transition hasn't occurred yet and the EL hasn't found the terminal
             // block, return an "empty" payload.
-            return Ok(BlockProposalContents::default_at_fork(fork));
+            return BlockProposalContents::default_at_fork(fork).map_err(Into::into);
         }
     } else {
         latest_execution_payload_header_block_hash

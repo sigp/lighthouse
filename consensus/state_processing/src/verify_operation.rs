@@ -1,8 +1,10 @@
 use crate::per_block_processing::{
     errors::{
-        AttesterSlashingValidationError, ExitValidationError, ProposerSlashingValidationError,
+        AttesterSlashingValidationError, BlsExecutionChangeValidationError, ExitValidationError,
+        ProposerSlashingValidationError,
     },
-    verify_attester_slashing, verify_exit, verify_proposer_slashing,
+    verify_attester_slashing, verify_bls_to_execution_change, verify_exit,
+    verify_proposer_slashing,
 };
 use crate::VerifySignatures;
 use derivative::Derivative;
@@ -12,15 +14,7 @@ use ssz_derive::{Decode, Encode};
 use std::marker::PhantomData;
 use types::{
     AttesterSlashing, BeaconState, ChainSpec, Epoch, EthSpec, Fork, ForkVersion, ProposerSlashing,
-    SignedVoluntaryExit,
-};
-
-#[cfg(feature = "withdrawals-processing")]
-use {
-    crate::per_block_processing::{
-        errors::BlsExecutionChangeValidationError, verify_bls_to_execution_change,
-    },
-    types::SignedBlsToExecutionChange,
+    SignedBlsToExecutionChange, SignedVoluntaryExit,
 };
 
 const MAX_FORKS_VERIFIED_AGAINST: usize = 2;
@@ -202,7 +196,6 @@ impl<E: EthSpec> VerifyOperation<E> for ProposerSlashing {
     }
 }
 
-#[cfg(feature = "withdrawals-processing")]
 impl<E: EthSpec> VerifyOperation<E> for SignedBlsToExecutionChange {
     type Error = BlsExecutionChangeValidationError;
 

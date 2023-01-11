@@ -17,7 +17,6 @@ withdrawals-processing = [
     "beacon_chain/withdrawals-processing",
     "store/withdrawals-processing",
     "execution_layer/withdrawals-processing",
-    "http_api/withdrawals-processing",
 ]
 spec-minimal = ["beacon_chain/spec-minimal"]
 

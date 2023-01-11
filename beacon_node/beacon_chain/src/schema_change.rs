@@ -1,6 +1,7 @@
 //! Utilities for managing database schema changes.
 mod migration_schema_v12;
 mod migration_schema_v13;
+mod migration_schema_v14;
 
 use crate::beacon_chain::{BeaconChainTypes, ETH1_CACHE_DB_KEY};
 use crate::eth1_chain::SszEth1;
@@ -113,6 +114,14 @@ pub fn migrate_schema<T: BeaconChainTypes>(
             db.store_schema_version_atomically(to, ops)?;
 
             Ok(())
+        }
+        (SchemaVersion(13), SchemaVersion(14)) => {
+            let ops = migration_schema_v14::upgrade_to_v14::<T>(db.clone(), log)?;
+            db.store_schema_version_atomically(to, ops)
+        }
+        (SchemaVersion(14), SchemaVersion(13)) => {
+            let ops = migration_schema_v14::downgrade_from_v14::<T>(db.clone(), log)?;
+            db.store_schema_version_atomically(to, ops)
         }
         // Anything else is an error.
         (_, _) => Err(HotColdDBError::UnsupportedSchemaVersion {
