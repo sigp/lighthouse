@@ -1412,15 +1412,16 @@ impl<T: BeaconChainTypes> Worker<T> {
                         );
 
                         if let Some(sender) = reprocess_tx {
-                            let msg =
-                                ReprocessQueueMessage::UnknownLightClientOptimisticUpdate(QueuedLightClientUpdate {
+                            let msg = ReprocessQueueMessage::UnknownLightClientOptimisticUpdate(
+                                QueuedLightClientUpdate {
                                     peer_id,
                                     message_id,
                                     light_client_optimistic_update: Box::new(
                                         light_client_optimistic_update,
                                     ),
                                     seen_timestamp,
-                                });
+                                },
+                            );
 
                             if sender.try_send(msg).is_err() {
                                 error!(

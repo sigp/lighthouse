@@ -274,7 +274,9 @@ impl<T: BeaconChainTypes> Stream for ReprocessQueue<T> {
 
         match self.lc_updates_delay_queue.poll_expired(cx) {
             Poll::Ready(Some(Ok(lc_id))) => {
-                return Poll::Ready(Some(InboundEvent::ReadyLightClientUpdate(lc_id.into_inner())));
+                return Poll::Ready(Some(InboundEvent::ReadyLightClientUpdate(
+                    lc_id.into_inner(),
+                )));
             }
             Poll::Ready(Some(Err(e))) => {
                 return Poll::Ready(Some(InboundEvent::DelayQueueError(e, "lc_updates_queue")));
@@ -527,7 +529,9 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
 
                 self.next_attestation += 1;
             }
-            InboundEvent::Msg(UnknownLightClientOptimisticUpdate(queued_light_client_optimistic_update)) => {
+            InboundEvent::Msg(UnknownLightClientOptimisticUpdate(
+                queued_light_client_optimistic_update,
+            )) => {
                 if self.lc_updates_delay_queue.len() >= MAXIMUM_QUEUED_LIGHT_CLIENT_UPDATES {
                     if self.lc_update_delay_debounce.elapsed() {
                         error!(
