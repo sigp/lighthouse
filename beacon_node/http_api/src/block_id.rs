@@ -216,10 +216,10 @@ impl BlockId {
     pub async fn blobs_sidecar<T: BeaconChainTypes>(
         &self,
         chain: &BeaconChain<T>,
-    ) -> Result<(Arc<BlobsSidecar<T::EthSpec>>), warp::Rejection> {
+    ) -> Result<Arc<BlobsSidecar<T::EthSpec>>, warp::Rejection> {
         let root = self.root(chain)?.0;
         match chain.store.get_blobs(&root) {
-            Ok(Some(blob)) => Ok((Arc::new(blob))),
+            Ok(Some(blob)) => Ok(Arc::new(blob)),
             Ok(None) => Err(warp_utils::reject::custom_not_found(format!(
                 "Blob with block root {} is not in the store",
                 root
