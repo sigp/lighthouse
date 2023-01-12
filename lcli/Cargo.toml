@@ -8,7 +8,6 @@ edition = "2021"
 [features]
 portable = ["bls/supranational-portable"]
 fake_crypto = ['bls/fake_crypto']
-withdrawals-processing = ["beacon_chain/withdrawals-processing", "store/withdrawals-processing", "state_processing/withdrawals-processing"]
 
 [dependencies]
 bls = { path = "../crypto/bls" }

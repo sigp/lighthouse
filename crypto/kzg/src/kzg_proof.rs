@@ -126,3 +126,12 @@ impl Debug for KzgProof {
         write!(f, "{}", eth2_serde_utils::hex::encode(&self.0))
     }
 }
+
+#[cfg(feature = "arbitrary")]
+impl arbitrary::Arbitrary<'_> for KzgProof {
+    fn arbitrary(u: &mut arbitrary::Unstructured<'_>) -> arbitrary::Result<Self> {
+        let mut bytes = [0u8; KZG_PROOF_BYTES_LEN];
+        u.fill_buffer(&mut bytes)?;
+        Ok(KzgProof(bytes))
+    }
+}

@@ -19,6 +19,7 @@ hex = "0.4.2"
 eth2_hashing = "0.3.0"
 ethereum-types = "0.12.1"
 c-kzg = {git = "https://github.com/pawanjay176/c-kzg-4844", rev = "c9e4fa0dabdd000738b7fcdf85a72880a5da8748" }
+arbitrary = { version = "1.0", features = ["derive"], optional = true }
 
 [features]
 default = ["mainnet-spec"]

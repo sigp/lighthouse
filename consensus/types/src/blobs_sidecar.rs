@@ -17,7 +17,6 @@ use tree_hash_derive::TreeHash;
     Encode,
     Decode,
     TreeHash,
-    PartialEq,
     Default,
         TestRandom,
 Derivative,
