@@ -64,9 +64,9 @@ pub fn previous_fork(fork_name: ForkName) -> ForkName {
     match fork_name {
         ForkName::Base => ForkName::Base,
         ForkName::Altair => ForkName::Base,
-        ForkName::Merge => ForkName::Altair, // TODO: Check this when tests are released..
-        ForkName::Capella => ForkName::Merge, // TODO: Check this when tests are released..
-        ForkName::Eip4844 => ForkName::Capella, // TODO: Check this when tests are released..
+        ForkName::Merge => ForkName::Altair,
+        ForkName::Capella => ForkName::Merge,
+        ForkName::Eip4844 => ForkName::Capella,
     }
 }
 

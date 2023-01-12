@@ -386,8 +386,8 @@ mod ssz_static {
 
     #[test]
     fn historical_summary() {
-        SszStaticHandler::<HistoricalSummary, MinimalEthSpec>::capella_only().run();
-        SszStaticHandler::<HistoricalSummary, MainnetEthSpec>::capella_only().run();
+        SszStaticHandler::<HistoricalSummary, MinimalEthSpec>::capella_and_later().run();
+        SszStaticHandler::<HistoricalSummary, MainnetEthSpec>::capella_and_later().run();
     }
 }
 
