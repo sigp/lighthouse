@@ -48,7 +48,9 @@ impl fmt::Display for EthSpecId {
     }
 }
 
-pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq + Eq {
+pub trait EthSpec:
+    'static + Default + Sync + Send + Clone + Debug + PartialEq + Eq + for<'a> arbitrary::Arbitrary<'a>
+{
     /*
      * Constants
      */
@@ -258,8 +260,7 @@ macro_rules! params_from_eth_spec {
 }
 
 /// Ethereum Foundation specifications.
-#[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
-#[derive(Clone, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Debug, Default, Serialize, Deserialize, arbitrary::Arbitrary)]
 pub struct MainnetEthSpec;
 
 impl EthSpec for MainnetEthSpec {
@@ -305,8 +306,7 @@ impl EthSpec for MainnetEthSpec {
 }
 
 /// Ethereum Foundation minimal spec, as defined in the eth2.0-specs repo.
-#[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
-#[derive(Clone, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Debug, Default, Serialize, Deserialize, arbitrary::Arbitrary)]
 pub struct MinimalEthSpec;
 
 impl EthSpec for MinimalEthSpec {
@@ -355,8 +355,7 @@ impl EthSpec for MinimalEthSpec {
 }
 
 /// Gnosis Beacon Chain specifications.
-#[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
-#[derive(Clone, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Debug, Default, Serialize, Deserialize, arbitrary::Arbitrary)]
 pub struct GnosisEthSpec;
 
 impl EthSpec for GnosisEthSpec {

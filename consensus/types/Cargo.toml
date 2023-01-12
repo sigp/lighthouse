@@ -11,11 +11,11 @@ harness = false
 [dependencies]
 serde-big-array = {version = "0.3.2", features = ["const-generics"]}
 merkle_proof = { path = "../../consensus/merkle_proof" }
-bls = { path = "../../crypto/bls" }
+bls = { path = "../../crypto/bls", features = ["arbitrary"] }
 compare_fields = { path = "../../common/compare_fields" }
 compare_fields_derive = { path = "../../common/compare_fields_derive" }
 eth2_interop_keypairs = { path = "../../common/eth2_interop_keypairs" }
-ethereum-types = "0.12.1"
+ethereum-types = { version = "0.12.1", features = ["arbitrary"] }
 eth2_hashing = "0.3.0"
 hex = "0.4.2"
 int_to_bytes = { path = "../int_to_bytes" }
@@ -26,12 +26,12 @@ safe_arith = { path = "../safe_arith" }
 serde = {version = "1.0.116" , features = ["rc"] }
 serde_derive = "1.0.116"
 slog = "2.5.2"
-eth2_ssz = "0.4.1"
+eth2_ssz = { version = "0.4.1", features = ["arbitrary"] }
 eth2_ssz_derive = "0.3.1"
-eth2_ssz_types = "0.2.2"
-swap_or_not_shuffle = { path = "../swap_or_not_shuffle" }
+eth2_ssz_types = { version = "0.2.2", features = ["arbitrary"] }
+swap_or_not_shuffle = { path = "../swap_or_not_shuffle", features = ["arbitrary"] }
 test_random_derive = { path = "../../common/test_random_derive" }
-tree_hash = "0.4.1"
+tree_hash = { version = "0.4.1", features = ["arbitrary"] }
 tree_hash_derive = "0.4.0"
 rand_xorshift = "0.3.0"
 cached_tree_hash = { path = "../cached_tree_hash" }
@@ -39,7 +39,9 @@ serde_yaml = "0.8.13"
 tempfile = "3.1.0"
 derivative = "2.1.1"
 rusqlite = { version = "0.25.3", features = ["bundled"], optional = true }
-arbitrary = { version = "1.0", features = ["derive"], optional = true }
+# The arbitrary dependency is enabled by default since Capella to avoid complexity introduced by
+# `AbstractExecPayload`
+arbitrary = { version = "1.0", features = ["derive"] }
 eth2_serde_utils = "0.1.1"
 regex = "1.5.5"
 lazy_static = "1.4.0"
@@ -63,12 +65,6 @@ default = ["sqlite", "legacy-arith"]
 # Allow saturating arithmetic on slots and epochs. Enabled by default, but deprecated.
 legacy-arith = []
 sqlite = ["rusqlite"]
-arbitrary-fuzz = [
-  "arbitrary",
-  "ethereum-types/arbitrary",
-  "bls/arbitrary",
-  "eth2_ssz/arbitrary",
-  "eth2_ssz_types/arbitrary",
-  "swap_or_not_shuffle/arbitrary",
-  "tree_hash/arbitrary",
-]
+# The `arbitrary-fuzz` feature is a no-op provided for backwards compatibility.
+# For simplicity `Arbitrary` is now derived regardless of the feature's presence.
+arbitrary-fuzz = []

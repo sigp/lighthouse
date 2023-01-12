@@ -26,19 +26,23 @@ use tree_hash_derive::TreeHash;
             TreeHash,
             TestRandom,
             Derivative,
+            arbitrary::Arbitrary
         ),
-        derivative(PartialEq, Hash(bound = "T: EthSpec, Payload: ExecPayload<T>")),
-        serde(bound = "T: EthSpec, Payload: ExecPayload<T>", deny_unknown_fields),
-        cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))
+        derivative(PartialEq, Hash(bound = "T: EthSpec, Payload: AbstractExecPayload<T>")),
+        serde(
+            bound = "T: EthSpec, Payload: AbstractExecPayload<T>",
+            deny_unknown_fields
+        ),
+        arbitrary(bound = "T: EthSpec, Payload: AbstractExecPayload<T>"),
     ),
     cast_error(ty = "Error", expr = "Error::IncorrectStateVariant"),
     partial_getter_error(ty = "Error", expr = "Error::IncorrectStateVariant")
 )]
-#[derive(Debug, Clone, Serialize, Deserialize, Derivative)]
+#[derive(Debug, Clone, Serialize, Deserialize, Derivative, arbitrary::Arbitrary)]
 #[derivative(PartialEq, Hash(bound = "T: EthSpec"))]
 #[serde(untagged)]
-#[serde(bound = "T: EthSpec, Payload: ExecPayload<T>")]
-#[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
+#[serde(bound = "T: EthSpec, Payload: AbstractExecPayload<T>")]
+#[arbitrary(bound = "T: EthSpec, Payload: AbstractExecPayload<T>")]
 pub struct BeaconBlockBody<T: EthSpec, Payload: AbstractExecPayload<T> = FullPayload<T>> {
     pub randao_reveal: Signature,
     pub eth1_data: Eth1Data,
@@ -71,6 +75,7 @@ pub struct BeaconBlockBody<T: EthSpec, Payload: AbstractExecPayload<T> = FullPay
     #[ssz(skip_serializing, skip_deserializing)]
     #[tree_hash(skip_hashing)]
     #[serde(skip)]
+    #[arbitrary(default)]
     pub _phantom: PhantomData<Payload>,
 }
 

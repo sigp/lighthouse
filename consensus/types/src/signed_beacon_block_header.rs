@@ -10,9 +10,19 @@ use tree_hash_derive::TreeHash;
 /// A signed header of a `BeaconBlock`.
 ///
 /// Spec v0.12.1
-#[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 #[derive(
-    Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom,
+    arbitrary::Arbitrary,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    Hash,
+    Serialize,
+    Deserialize,
+    Encode,
+    Decode,
+    TreeHash,
+    TestRandom,
 )]
 pub struct SignedBeaconBlockHeader {
     pub message: BeaconBlockHeader,
