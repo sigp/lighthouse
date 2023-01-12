@@ -312,7 +312,7 @@ pub fn prune_blobs<E: EthSpec>(
         log,
     )?;
 
-    // If we're trigging a prune manually then ignore the check on the split's parent that bails
+    // If we're triggering a prune manually then ignore the check on the split's parent that bails
     // out early by passing true to the force parameter.
     db.try_prune_blobs(true)
 }
