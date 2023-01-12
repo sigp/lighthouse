@@ -44,8 +44,10 @@ use types::{
     ExecutionPayload, ExecutionPayloadCapella, ExecutionPayloadEip4844, ExecutionPayloadMerge,
 };
 
+mod block_hash;
 mod engine_api;
 mod engines;
+mod keccak;
 mod metrics;
 pub mod payload_cache;
 mod payload_status;
@@ -94,6 +96,11 @@ pub enum Error {
     ShuttingDown,
     FeeRecipientUnspecified,
     MissingLatestValidHash,
+    BlockHashMismatch {
+        computed: ExecutionBlockHash,
+        payload: ExecutionBlockHash,
+        transactions_root: Hash256,
+    },
     InvalidJWTSecret(String),
     BeaconStateError(BeaconStateError),
 }

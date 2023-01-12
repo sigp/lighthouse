@@ -76,6 +76,7 @@ pub mod voluntary_exit;
 #[macro_use]
 pub mod slot_epoch_macros;
 pub mod config_and_preset;
+pub mod execution_block_header;
 pub mod fork_context;
 pub mod participation_flags;
 pub mod participation_list;
@@ -136,6 +137,7 @@ pub use crate::enr_fork_id::EnrForkId;
 pub use crate::eth1_data::Eth1Data;
 pub use crate::eth_spec::EthSpecId;
 pub use crate::execution_block_hash::ExecutionBlockHash;
+pub use crate::execution_block_header::ExecutionBlockHeader;
 pub use crate::execution_payload::{
     ExecutionPayload, ExecutionPayloadCapella, ExecutionPayloadEip4844, ExecutionPayloadMerge,
     ExecutionPayloadRef, Transaction, Transactions, Withdrawals,
@@ -207,6 +209,7 @@ pub type ForkVersion = [u8; 4];
 pub type BLSFieldElement = Uint256;
 pub type Blob<T> = FixedVector<BLSFieldElement, <T as EthSpec>::FieldElementsPerBlob>;
 pub type VersionedHash = Hash256;
+pub type Hash64 = ethereum_types::H64;
 
 pub use bls::{
     AggregatePublicKey, AggregateSignature, Keypair, PublicKey, PublicKeyBytes, SecretKey,

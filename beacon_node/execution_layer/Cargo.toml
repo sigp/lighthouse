@@ -38,7 +38,7 @@ rand = "0.8.5"
 zeroize = { version = "1.4.2", features = ["zeroize_derive"] }
 lighthouse_metrics = { path = "../../common/lighthouse_metrics" }
 lazy_static = "1.4.0"
-ethers-core = "0.17.0"
+ethers-core = "1.0.2"
 builder_client = { path = "../builder_client" }
 fork_choice = { path = "../../consensus/fork_choice" }
 mev-build-rs = { git = "https://github.com/ralexstokes/mev-rs", rev = "6c99b0fbdc0427b1625469d2e575303ce08de5b8" }
@@ -46,3 +46,7 @@ ethereum-consensus = { git = "https://github.com/ralexstokes/ethereum-consensus"
 ssz-rs = { git = "https://github.com/ralexstokes/ssz-rs", rev = "cb08f1" }
 tokio-stream = { version = "0.1.9", features = [ "sync" ] }
 strum = "0.24.0"
+keccak-hash = "0.10.0"
+hash256-std-hasher = "0.15.2"
+triehash = "0.8.4"
+hash-db = "0.15.2"

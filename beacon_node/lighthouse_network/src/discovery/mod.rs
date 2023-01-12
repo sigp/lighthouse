@@ -22,12 +22,13 @@ use enr::{ATTESTATION_BITFIELD_ENR_KEY, ETH2_ENR_KEY, SYNC_COMMITTEE_BITFIELD_EN
 use futures::prelude::*;
 use futures::stream::FuturesUnordered;
 use libp2p::multiaddr::Protocol;
+use libp2p::swarm::behaviour::{DialFailure, FromSwarm};
 use libp2p::swarm::AddressScore;
 pub use libp2p::{
     core::{connection::ConnectionId, ConnectedPoint, Multiaddr, PeerId},
     swarm::{
-        handler::ConnectionHandler, DialError, NetworkBehaviour,
-        NetworkBehaviourAction as NBAction, NotifyHandler, PollParameters, SubstreamProtocol,
+        dummy::ConnectionHandler, DialError, NetworkBehaviour, NetworkBehaviourAction as NBAction,
+        NotifyHandler, PollParameters, SubstreamProtocol,
     },
 };
 use lru::LruCache;
@@ -927,11 +928,11 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
 
 impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
     // Discovery is not a real NetworkBehaviour...
-    type ConnectionHandler = libp2p::swarm::handler::DummyConnectionHandler;
+    type ConnectionHandler = ConnectionHandler;
     type OutEvent = DiscoveredPeers;
 
     fn new_handler(&mut self) -> Self::ConnectionHandler {
-        libp2p::swarm::handler::DummyConnectionHandler::default()
+        ConnectionHandler
     }
 
     // Handles the libp2p request to obtain multiaddrs for peer_id's in order to dial them.
@@ -944,40 +945,6 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
         } else {
             // PeerId is not known
             Vec::new()
-        }
-    }
-
-    fn inject_event(
-        &mut self,
-        _: PeerId,
-        _: ConnectionId,
-        _: <Self::ConnectionHandler as ConnectionHandler>::OutEvent,
-    ) {
-    }
-
-    fn inject_dial_failure(
-        &mut self,
-        peer_id: Option<PeerId>,
-        _handler: Self::ConnectionHandler,
-        error: &DialError,
-    ) {
-        if let Some(peer_id) = peer_id {
-            match error {
-                DialError::Banned
-                | DialError::LocalPeerId
-                | DialError::InvalidPeerId(_)
-                | DialError::ConnectionIo(_)
-                | DialError::NoAddresses
-                | DialError::Transport(_)
-                | DialError::WrongPeerId { .. } => {
-                    // set peer as disconnected in discovery DHT
-                    debug!(self.log, "Marking peer disconnected in DHT"; "peer_id" => %peer_id);
-                    self.disconnect_peer(&peer_id);
-                }
-                DialError::ConnectionLimit(_)
-                | DialError::DialPeerConditionFalse(_)
-                | DialError::Aborted => {}
-            }
         }
     }
 
@@ -1066,6 +1033,50 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
             }
         }
         Poll::Pending
+    }
+
+    fn on_swarm_event(&mut self, event: FromSwarm<Self::ConnectionHandler>) {
+        match event {
+            FromSwarm::DialFailure(DialFailure { peer_id, error, .. }) => {
+                self.on_dial_failure(peer_id, error)
+            }
+            FromSwarm::ConnectionEstablished(_)
+            | FromSwarm::ConnectionClosed(_)
+            | FromSwarm::AddressChange(_)
+            | FromSwarm::ListenFailure(_)
+            | FromSwarm::NewListener(_)
+            | FromSwarm::NewListenAddr(_)
+            | FromSwarm::ExpiredListenAddr(_)
+            | FromSwarm::ListenerError(_)
+            | FromSwarm::ListenerClosed(_)
+            | FromSwarm::NewExternalAddr(_)
+            | FromSwarm::ExpiredExternalAddr(_) => {
+                // Ignore events not relevant to discovery
+            }
+        }
+    }
+}
+
+impl<TSpec: EthSpec> Discovery<TSpec> {
+    fn on_dial_failure(&mut self, peer_id: Option<PeerId>, error: &DialError) {
+        if let Some(peer_id) = peer_id {
+            match error {
+                DialError::Banned
+                | DialError::LocalPeerId
+                | DialError::InvalidPeerId(_)
+                | DialError::ConnectionIo(_)
+                | DialError::NoAddresses
+                | DialError::Transport(_)
+                | DialError::WrongPeerId { .. } => {
+                    // set peer as disconnected in discovery DHT
+                    debug!(self.log, "Marking peer disconnected in DHT"; "peer_id" => %peer_id);
+                    self.disconnect_peer(&peer_id);
+                }
+                DialError::ConnectionLimit(_)
+                | DialError::DialPeerConditionFalse(_)
+                | DialError::Aborted => {}
+            }
+        }
     }
 }
 
