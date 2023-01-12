@@ -130,6 +130,7 @@ pub trait AbstractExecPayload<T: EthSpec>:
         tree_hash(enum_behaviour = "transparent"),
     ),
     map_into(ExecutionPayload),
+    map_ref_into(ExecutionPayloadRef),
     cast_error(ty = "Error", expr = "BeaconStateError::IncorrectStateVariant"),
     partial_getter_error(ty = "Error", expr = "BeaconStateError::IncorrectStateVariant")
 )]
@@ -277,9 +278,17 @@ impl<T: EthSpec> ExecPayload<T> for FullPayload<T> {
 }
 
 impl<T: EthSpec> FullPayload<T> {
-    pub fn execution_payload(&self) -> ExecutionPayload<T> {
-        map_full_payload_into_execution_payload!(self.clone(), |inner, cons| {
+    pub fn execution_payload(self) -> ExecutionPayload<T> {
+        map_full_payload_into_execution_payload!(self, |inner, cons| {
             cons(inner.execution_payload)
+        })
+    }
+}
+
+impl<'a, T: EthSpec> FullPayloadRef<'a, T> {
+    pub fn execution_payload_ref(self) -> ExecutionPayloadRef<'a, T> {
+        map_full_payload_ref_into_execution_payload_ref!(&'a _, self, |inner, cons| {
+            cons(&inner.execution_payload)
         })
     }
 }

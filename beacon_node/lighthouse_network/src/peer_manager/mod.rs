@@ -7,7 +7,7 @@ use crate::{NetworkGlobals, PeerId};
 use crate::{Subnet, SubnetDiscovery};
 use delay_map::HashSetDelay;
 use discv5::Enr;
-use libp2p::identify::IdentifyInfo;
+use libp2p::identify::Info as IdentifyInfo;
 use peerdb::{client::ClientKind, BanOperation, BanResult, ScoreUpdateResult};
 use rand::seq::SliceRandom;
 use slog::{debug, error, trace, warn};

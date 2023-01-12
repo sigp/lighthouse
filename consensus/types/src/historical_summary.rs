@@ -29,6 +29,7 @@ use tree_hash_derive::TreeHash;
     Clone,
     Copy,
     Default,
+    arbitrary::Arbitrary,
 )]
 pub struct HistoricalSummary {
     block_summary_root: Hash256,

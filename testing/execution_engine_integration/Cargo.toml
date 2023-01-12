@@ -15,8 +15,8 @@ execution_layer = { path = "../../beacon_node/execution_layer" }
 sensitive_url = { path = "../../common/sensitive_url" }
 types = { path = "../../consensus/types" }
 unused_port = { path = "../../common/unused_port" }
-ethers-core = "0.17.0"
-ethers-providers = "0.17.0"
+ethers-core = "1.0.2"
+ethers-providers = "1.0.2"
 deposit_contract = { path = "../../common/deposit_contract" }
 reqwest = { version = "0.11.0", features = ["json"] }
 hex = "0.4.2"
