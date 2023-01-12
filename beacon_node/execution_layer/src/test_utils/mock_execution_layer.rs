@@ -9,7 +9,7 @@ use sensitive_url::SensitiveUrl;
 use task_executor::TaskExecutor;
 use tempfile::NamedTempFile;
 use tree_hash::TreeHash;
-use types::{Address, ChainSpec, Epoch, EthSpec, FullPayload, Hash256, Uint256};
+use types::{Address, ChainSpec, Epoch, EthSpec, FullPayload, Hash256, MainnetEthSpec};
 
 pub struct MockExecutionLayer<T: EthSpec> {
     pub server: MockServer<T>,
@@ -20,15 +20,17 @@ pub struct MockExecutionLayer<T: EthSpec> {
 
 impl<T: EthSpec> MockExecutionLayer<T> {
     pub fn default_params(executor: TaskExecutor) -> Self {
+        let mut spec = MainnetEthSpec::default_spec();
+        spec.terminal_total_difficulty = DEFAULT_TERMINAL_DIFFICULTY.into();
+        spec.terminal_block_hash = ExecutionBlockHash::zero();
+        spec.terminal_block_hash_activation_epoch = Epoch::new(0);
         Self::new(
             executor,
-            DEFAULT_TERMINAL_DIFFICULTY.into(),
             DEFAULT_TERMINAL_BLOCK,
-            ExecutionBlockHash::zero(),
-            Epoch::new(0),
             None,
             None,
             Some(JwtKey::from_slice(&DEFAULT_JWT_SECRET).unwrap()),
+            spec,
             None,
         )
     }
@@ -36,29 +38,22 @@ impl<T: EthSpec> MockExecutionLayer<T> {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         executor: TaskExecutor,
-        terminal_total_difficulty: Uint256,
         terminal_block: u64,
-        terminal_block_hash: ExecutionBlockHash,
-        terminal_block_hash_activation_epoch: Epoch,
         shanghai_time: Option<u64>,
         eip4844_time: Option<u64>,
         jwt_key: Option<JwtKey>,
+        spec: ChainSpec,
         builder_url: Option<SensitiveUrl>,
     ) -> Self {
         let handle = executor.handle().unwrap();
-
-        let mut spec = T::default_spec();
-        spec.terminal_total_difficulty = terminal_total_difficulty;
-        spec.terminal_block_hash = terminal_block_hash;
-        spec.terminal_block_hash_activation_epoch = terminal_block_hash_activation_epoch;
 
         let jwt_key = jwt_key.unwrap_or_else(JwtKey::random);
         let server = MockServer::new(
             &handle,
             jwt_key,
-            terminal_total_difficulty,
+            spec.terminal_total_difficulty,
             terminal_block,
-            terminal_block_hash,
+            spec.terminal_block_hash,
             shanghai_time,
             eip4844_time,
         );
@@ -78,7 +73,8 @@ impl<T: EthSpec> MockExecutionLayer<T> {
             ..Default::default()
         };
         let el =
-            ExecutionLayer::from_config(config, executor.clone(), executor.log().clone()).unwrap();
+            ExecutionLayer::from_config(config, executor.clone(), executor.log().clone(), &spec)
+                .unwrap();
 
         Self {
             server,

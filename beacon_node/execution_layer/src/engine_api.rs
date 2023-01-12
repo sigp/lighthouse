@@ -329,7 +329,7 @@ pub struct ProposeBlindedBlockResponse {
 // This name is work in progress, it could
 // change when this method is actually proposed
 // but I'm writing this as it has been described
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct SupportedApis {
     pub new_payload_v1: bool,
     pub new_payload_v2: bool,

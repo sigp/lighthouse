@@ -363,7 +363,7 @@ impl Default for Config {
     }
 }
 
-pub fn endpoint_from_config(config: &Config) -> Result<HttpJsonRpc, String> {
+pub fn endpoint_from_config(config: &Config, spec: &ChainSpec) -> Result<HttpJsonRpc, String> {
     match config.endpoint.clone() {
         Eth1Endpoint::Auth {
             endpoint,
@@ -373,11 +373,16 @@ pub fn endpoint_from_config(config: &Config) -> Result<HttpJsonRpc, String> {
         } => {
             let auth = Auth::new_with_path(jwt_path, jwt_id, jwt_version)
                 .map_err(|e| format!("Failed to initialize jwt auth: {:?}", e))?;
-            HttpJsonRpc::new_with_auth(endpoint, auth, Some(config.execution_timeout_multiplier))
-                .map_err(|e| format!("Failed to create eth1 json rpc client: {:?}", e))
+            HttpJsonRpc::new_with_auth(
+                endpoint,
+                auth,
+                Some(config.execution_timeout_multiplier),
+                spec,
+            )
+            .map_err(|e| format!("Failed to create eth1 json rpc client: {:?}", e))
         }
         Eth1Endpoint::NoAuth(endpoint) => {
-            HttpJsonRpc::new(endpoint, Some(config.execution_timeout_multiplier))
+            HttpJsonRpc::new(endpoint, Some(config.execution_timeout_multiplier), spec)
                 .map_err(|e| format!("Failed to create eth1 json rpc client: {:?}", e))
         }
     }
@@ -404,7 +409,7 @@ impl Service {
                 deposit_cache: RwLock::new(DepositUpdater::new(
                     config.deposit_contract_deploy_block,
                 )),
-                endpoint: endpoint_from_config(&config)?,
+                endpoint: endpoint_from_config(&config, &spec)?,
                 to_finalize: RwLock::new(None),
                 remote_head_block: RwLock::new(None),
                 config: RwLock::new(config),
@@ -433,7 +438,7 @@ impl Service {
             inner: Arc::new(Inner {
                 block_cache: <_>::default(),
                 deposit_cache: RwLock::new(deposit_cache),
-                endpoint: endpoint_from_config(&config)
+                endpoint: endpoint_from_config(&config, &spec)
                     .map_err(Error::FailedToInitializeFromSnapshot)?,
                 to_finalize: RwLock::new(None),
                 remote_head_block: RwLock::new(None),

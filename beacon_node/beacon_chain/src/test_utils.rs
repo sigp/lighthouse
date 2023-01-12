@@ -366,6 +366,7 @@ where
             .collect::<Result<_, _>>()
             .unwrap();
 
+        let spec = MainnetEthSpec::default_spec();
         let config = execution_layer::Config {
             execution_endpoints: urls,
             secret_files: vec![],
@@ -376,6 +377,7 @@ where
             config,
             self.runtime.task_executor.clone(),
             self.log.clone(),
+            &spec,
         )
         .unwrap();
 
@@ -414,13 +416,11 @@ where
         });
         let mock = MockExecutionLayer::new(
             self.runtime.task_executor.clone(),
-            spec.terminal_total_difficulty,
             DEFAULT_TERMINAL_BLOCK,
-            spec.terminal_block_hash,
-            spec.terminal_block_hash_activation_epoch,
             shanghai_time,
             eip4844_time,
             Some(JwtKey::from_slice(&DEFAULT_JWT_SECRET).unwrap()),
+            spec,
             None,
         );
         self.execution_layer = Some(mock.el.clone());
@@ -442,13 +442,11 @@ where
         });
         let mock_el = MockExecutionLayer::new(
             self.runtime.task_executor.clone(),
-            spec.terminal_total_difficulty,
             DEFAULT_TERMINAL_BLOCK,
-            spec.terminal_block_hash,
-            spec.terminal_block_hash_activation_epoch,
             shanghai_time,
             eip4844_time,
             Some(JwtKey::from_slice(&DEFAULT_JWT_SECRET).unwrap()),
+            spec.clone(),
             Some(builder_url.clone()),
         )
         .move_to_terminal_block();

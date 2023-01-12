@@ -258,7 +258,12 @@ pub struct ExecutionLayer<T: EthSpec> {
 
 impl<T: EthSpec> ExecutionLayer<T> {
     /// Instantiate `Self` with an Execution engine specified in `Config`, using JSON-RPC via HTTP.
-    pub fn from_config(config: Config, executor: TaskExecutor, log: Logger) -> Result<Self, Error> {
+    pub fn from_config(
+        config: Config,
+        executor: TaskExecutor,
+        log: Logger,
+        spec: &ChainSpec,
+    ) -> Result<Self, Error> {
         let Config {
             execution_endpoints: urls,
             builder_url,
@@ -313,8 +318,9 @@ impl<T: EthSpec> ExecutionLayer<T> {
         let engine: Engine = {
             let auth = Auth::new(jwt_key, jwt_id, jwt_version);
             debug!(log, "Loaded execution endpoint"; "endpoint" => %execution_url, "jwt_path" => ?secret_file.as_path());
-            let api = HttpJsonRpc::new_with_auth(execution_url, auth, execution_timeout_multiplier)
-                .map_err(Error::ApiError)?;
+            let api =
+                HttpJsonRpc::new_with_auth(execution_url, auth, execution_timeout_multiplier, spec)
+                    .map_err(Error::ApiError)?;
             Engine::new(api, executor.clone(), &log)
         };
 

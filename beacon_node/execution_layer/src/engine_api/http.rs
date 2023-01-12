@@ -10,7 +10,7 @@ use serde_json::json;
 use tokio::sync::RwLock;
 
 use std::time::Duration;
-use types::EthSpec;
+use types::{ChainSpec, EthSpec};
 
 pub use deposit_log::{DepositLog, Log};
 pub use reqwest::Client;
@@ -538,12 +538,27 @@ impl HttpJsonRpc {
     pub fn new(
         url: SensitiveUrl,
         execution_timeout_multiplier: Option<u32>,
+        spec: &ChainSpec,
     ) -> Result<Self, Error> {
+        // FIXME: remove this `cached_supported_apis` spec hack once the `engine_getCapabilities`
+        //        method is implemented in all execution clients:
+        //        https://github.com/ethereum/execution-apis/issues/321
+        let cached_supported_apis = RwLock::new(Some(SupportedApis {
+            new_payload_v1: true,
+            new_payload_v2: spec.capella_fork_epoch.is_some() || spec.eip4844_fork_epoch.is_some(),
+            forkchoice_updated_v1: true,
+            forkchoice_updated_v2: spec.capella_fork_epoch.is_some()
+                || spec.eip4844_fork_epoch.is_some(),
+            get_payload_v1: true,
+            get_payload_v2: spec.capella_fork_epoch.is_some() || spec.eip4844_fork_epoch.is_some(),
+            exchange_transition_configuration_v1: true,
+        }));
+
         Ok(Self {
             client: Client::builder().build()?,
             url,
             execution_timeout_multiplier: execution_timeout_multiplier.unwrap_or(1),
-            cached_supported_apis: Default::default(),
+            cached_supported_apis,
             auth: None,
         })
     }
@@ -552,12 +567,27 @@ impl HttpJsonRpc {
         url: SensitiveUrl,
         auth: Auth,
         execution_timeout_multiplier: Option<u32>,
+        spec: &ChainSpec,
     ) -> Result<Self, Error> {
+        // FIXME: remove this `cached_supported_apis` spec hack once the `engine_getCapabilities`
+        //        method is implemented in all execution clients:
+        //        https://github.com/ethereum/execution-apis/issues/321
+        let cached_supported_apis = RwLock::new(Some(SupportedApis {
+            new_payload_v1: true,
+            new_payload_v2: spec.capella_fork_epoch.is_some() || spec.eip4844_fork_epoch.is_some(),
+            forkchoice_updated_v1: true,
+            forkchoice_updated_v2: spec.capella_fork_epoch.is_some()
+                || spec.eip4844_fork_epoch.is_some(),
+            get_payload_v1: true,
+            get_payload_v2: spec.capella_fork_epoch.is_some() || spec.eip4844_fork_epoch.is_some(),
+            exchange_transition_configuration_v1: true,
+        }));
+
         Ok(Self {
             client: Client::builder().build()?,
             url,
             execution_timeout_multiplier: execution_timeout_multiplier.unwrap_or(1),
-            cached_supported_apis: Default::default(),
+            cached_supported_apis,
             auth: Some(auth),
         })
     }
@@ -848,21 +878,25 @@ impl HttpJsonRpc {
         Ok(response)
     }
 
-    // this is a stub as this method hasn't been defined yet
-    pub async fn supported_apis_v1(&self) -> Result<SupportedApis, Error> {
+    // TODO: This is currently a stub for the `engine_getCapabilities`
+    //       method. This stub is unused because we set cached_supported_apis
+    //       in the constructor based on the `spec`
+    //       Implement this once the execution clients support it
+    //       https://github.com/ethereum/execution-apis/issues/321
+    pub async fn get_capabilities(&self) -> Result<SupportedApis, Error> {
         Ok(SupportedApis {
             new_payload_v1: true,
-            new_payload_v2: cfg!(any(feature = "withdrawals-processing", test)),
+            new_payload_v2: true,
             forkchoice_updated_v1: true,
-            forkchoice_updated_v2: cfg!(any(feature = "withdrawals-processing", test)),
+            forkchoice_updated_v2: true,
             get_payload_v1: true,
-            get_payload_v2: cfg!(any(feature = "withdrawals-processing", test)),
+            get_payload_v2: true,
             exchange_transition_configuration_v1: true,
         })
     }
 
-    pub async fn set_cached_supported_apis(&self, supported_apis: SupportedApis) {
-        *self.cached_supported_apis.write().await = Some(supported_apis);
+    pub async fn set_cached_supported_apis(&self, supported_apis: Option<SupportedApis>) {
+        *self.cached_supported_apis.write().await = supported_apis;
     }
 
     pub async fn get_cached_supported_apis(&self) -> Result<SupportedApis, Error> {
@@ -870,8 +904,8 @@ impl HttpJsonRpc {
         if let Some(supported_apis) = cached_opt {
             Ok(supported_apis)
         } else {
-            let supported_apis = self.supported_apis_v1().await?;
-            self.set_cached_supported_apis(supported_apis).await;
+            let supported_apis = self.get_capabilities().await?;
+            self.set_cached_supported_apis(Some(supported_apis)).await;
             Ok(supported_apis)
         }
     }
@@ -955,6 +989,7 @@ mod test {
     impl Tester {
         pub fn new(with_auth: bool) -> Self {
             let server = MockServer::unit_testing();
+            let spec = MainnetEthSpec::default_spec();
 
             let rpc_url = SensitiveUrl::parse(&server.url()).unwrap();
             let echo_url = SensitiveUrl::parse(&format!("{}/echo", server.url())).unwrap();
@@ -965,13 +1000,13 @@ mod test {
                 let echo_auth =
                     Auth::new(JwtKey::from_slice(&DEFAULT_JWT_SECRET).unwrap(), None, None);
                 (
-                    Arc::new(HttpJsonRpc::new_with_auth(rpc_url, rpc_auth, None).unwrap()),
-                    Arc::new(HttpJsonRpc::new_with_auth(echo_url, echo_auth, None).unwrap()),
+                    Arc::new(HttpJsonRpc::new_with_auth(rpc_url, rpc_auth, None, &spec).unwrap()),
+                    Arc::new(HttpJsonRpc::new_with_auth(echo_url, echo_auth, None, &spec).unwrap()),
                 )
             } else {
                 (
-                    Arc::new(HttpJsonRpc::new(rpc_url, None).unwrap()),
-                    Arc::new(HttpJsonRpc::new(echo_url, None).unwrap()),
+                    Arc::new(HttpJsonRpc::new(rpc_url, None, &spec).unwrap()),
+                    Arc::new(HttpJsonRpc::new(echo_url, None, &spec).unwrap()),
                 )
             };
 
