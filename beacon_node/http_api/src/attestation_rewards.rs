@@ -55,6 +55,10 @@ pub fn compute_attestation_rewards<T: BeaconChainTypes>(
     //Initialize an empty HashMap to hold the rewards
     let mut ideal_rewards = HashMap::new();
 
+    //Initialize base_reward and effective_balance_eth because they are being used in another loop
+    let mut base_reward = 0;
+    let mut effective_balance_eth = 0;
+
     for flag_index in [TIMELY_SOURCE_FLAG_INDEX, TIMELY_TARGET_FLAG_INDEX, TIMELY_HEAD_FLAG_INDEX].iter() {
 
         //Get weight as u64
@@ -122,7 +126,7 @@ pub fn compute_attestation_rewards<T: BeaconChainTypes>(
                 Err(_) => return Err(warp_utils::reject::custom_server_error("Unable to calculate reward: Division by active_increments failed".to_owned())),
             };
             
-            if !is_in_inactivity_leak(previous_epoch, &spec) {
+            if !state.is_in_inactivity_leak(previous_epoch, &spec) {
                 //Push the rewards onto the HashMap
                 ideal_rewards.insert((flag_index, effective_balance_eth), reward);
             } else {
@@ -150,11 +154,11 @@ pub fn compute_attestation_rewards<T: BeaconChainTypes>(
             let voted_correctly = participation_cache.get_unslashed_participating_indices(*flag_index, previous_epoch).is_ok();
             if voted_correctly {
                 //Voted correctly, get paid the ideal_reward for (flag, validator.effective_balance)
-                let ideal_reward = ideal_rewards.get(&(flag_index, index.effective_balance));
+                let actual_rewards= ideal_rewards.get(&(flag_index, effective_balance_eth));
                 //Voted incorrectly, the head vote reward is 0, target/source their reward is -1 * base_reward * weight // WEIGHT_DENOMINATOR
             } else {
-                HeadFlag => 0u64; 
-                -1 * base_reward * weight / WEIGHT_DENOMINATOR
+                HeadFlag = 0u64; 
+                let actual_rewards = (-(base_reward as i64 as i128) * weight as i128 / WEIGHT_DENOMINATOR as i128) as u64;
             }
         };
         rewards.push((*validator_index, actual_rewards))
@@ -162,13 +166,11 @@ pub fn compute_attestation_rewards<T: BeaconChainTypes>(
 
     //TODO Put actual_reward in Vec<AttestationRewardsTBD>
     //TODO Code cleanup
-
+    
+}
     Ok(AttestationRewardsTBD{
         execution_optimistic: false,
         finalized: false,
         data: vec![],
     })
-
-}
-    Ok(())
 }
