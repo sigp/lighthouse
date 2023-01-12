@@ -15,7 +15,7 @@ use crate::{
 use execution_layer::{BlockProposalContents, BuilderParams, PayloadAttributes, PayloadStatus};
 use fork_choice::{InvalidationOperation, PayloadVerificationStatus};
 use proto_array::{Block as ProtoBlock, ExecutionStatus};
-use slog::debug;
+use slog::{debug, warn};
 use slot_clock::SlotClock;
 use state_processing::per_block_processing::{
     compute_timestamp_at_slot, get_expected_withdrawals, is_execution_enabled,
@@ -60,26 +60,51 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
         state: &BeaconState<T::EthSpec>,
         notify_execution_layer: NotifyExecutionLayer,
     ) -> Result<Self, BlockError<T::EthSpec>> {
-        let payload_verification_status = match notify_execution_layer {
-            NotifyExecutionLayer::No => Some(PayloadVerificationStatus::Optimistic),
-            NotifyExecutionLayer::Yes => {
-                if is_execution_enabled(state, block.message().body()) {
-                    // Perform the initial stages of payload verification.
-                    //
-                    // We will duplicate these checks again during `per_block_processing`, however these checks
-                    // are cheap and doing them here ensures we protect the execution engine from junk.
-                    partially_verify_execution_payload::<T::EthSpec, FullPayload<T::EthSpec>>(
-                        state,
-                        block.slot(),
-                        block.message().execution_payload()?,
-                        &chain.spec,
-                    )
-                    .map_err(BlockError::PerBlockProcessingError)?;
-                    None
-                } else {
-                    Some(PayloadVerificationStatus::Irrelevant)
+        let payload_verification_status = if is_execution_enabled(state, block.message().body()) {
+            // Perform the initial stages of payload verification.
+            //
+            // We will duplicate these checks again during `per_block_processing`, however these
+            // checks are cheap and doing them here ensures we have verified them before marking
+            // the block as optimistically imported. This is particularly relevant in the case
+            // where we do not send the block to the EL at all.
+            let block_message = block.message();
+            let payload = block_message.execution_payload()?;
+            partially_verify_execution_payload::<_, FullPayload<_>>(
+                state,
+                block.slot(),
+                payload,
+                &chain.spec,
+            )
+            .map_err(BlockError::PerBlockProcessingError)?;
+
+            match notify_execution_layer {
+                NotifyExecutionLayer::No if chain.config.optimistic_finalized_sync => {
+                    // Verify the block hash here in Lighthouse and immediately mark the block as
+                    // optimistically imported. This saves a lot of roundtrips to the EL.
+                    let execution_layer = chain
+                        .execution_layer
+                        .as_ref()
+                        .ok_or(ExecutionPayloadError::NoExecutionConnection)?;
+
+                    if let Err(e) =
+                        execution_layer.verify_payload_block_hash(payload.execution_payload_ref())
+                    {
+                        warn!(
+                            chain.log,
+                            "Falling back to slow block hash verification";
+                            "block_number" => payload.block_number(),
+                            "info" => "you can silence this warning with --disable-optimistic-finalized-sync",
+                            "error" => ?e,
+                        );
+                        None
+                    } else {
+                        Some(PayloadVerificationStatus::Optimistic)
+                    }
                 }
+                _ => None,
             }
+        } else {
+            Some(PayloadVerificationStatus::Irrelevant)
         };
 
         Ok(Self {

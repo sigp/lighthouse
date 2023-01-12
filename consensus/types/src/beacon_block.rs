@@ -29,10 +29,14 @@ use tree_hash_derive::TreeHash;
             TreeHash,
             TestRandom,
             Derivative,
+            arbitrary::Arbitrary
         ),
-        derivative(PartialEq, Hash(bound = "T: EthSpec, Payload: ExecPayload<T>")),
-        serde(bound = "T: EthSpec, Payload: ExecPayload<T>", deny_unknown_fields),
-        cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary)),
+        derivative(PartialEq, Hash(bound = "T: EthSpec, Payload: AbstractExecPayload<T>")),
+        serde(
+            bound = "T: EthSpec, Payload: AbstractExecPayload<T>",
+            deny_unknown_fields
+        ),
+        arbitrary(bound = "T: EthSpec, Payload: AbstractExecPayload<T>"),
     ),
     ref_attributes(
         derive(Debug, PartialEq, TreeHash),
@@ -41,11 +45,13 @@ use tree_hash_derive::TreeHash;
     map_ref_into(BeaconBlockBodyRef, BeaconBlock),
     map_ref_mut_into(BeaconBlockBodyRefMut)
 )]
-#[derive(Debug, Clone, Serialize, Deserialize, Encode, TreeHash, Derivative)]
+#[derive(
+    Debug, Clone, Serialize, Deserialize, Encode, TreeHash, Derivative, arbitrary::Arbitrary,
+)]
 #[derivative(PartialEq, Hash(bound = "T: EthSpec"))]
 #[serde(untagged)]
-#[serde(bound = "T: EthSpec, Payload: ExecPayload<T>")]
-#[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
+#[serde(bound = "T: EthSpec, Payload: AbstractExecPayload<T>")]
+#[arbitrary(bound = "T: EthSpec, Payload: AbstractExecPayload<T>")]
 #[tree_hash(enum_behaviour = "transparent")]
 #[ssz(enum_behaviour = "transparent")]
 pub struct BeaconBlock<T: EthSpec, Payload: AbstractExecPayload<T> = FullPayload<T>> {

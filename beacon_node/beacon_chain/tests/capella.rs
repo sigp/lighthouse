@@ -16,12 +16,9 @@ fn verify_execution_payload_chain<T: EthSpec>(chain: &[FullPayload<T>]) {
 
         // Check against previous `ExecutionPayload`.
         if let Some(prev_ep) = prev_ep {
-            assert_eq!(prev_ep.block_hash(), ep.execution_payload().parent_hash());
-            assert_eq!(
-                prev_ep.execution_payload().block_number() + 1,
-                ep.execution_payload().block_number()
-            );
-            assert!(ep.execution_payload().timestamp() > prev_ep.execution_payload().timestamp());
+            assert_eq!(prev_ep.block_hash(), ep.parent_hash());
+            assert_eq!(prev_ep.block_number() + 1, ep.block_number());
+            assert!(ep.timestamp() > prev_ep.timestamp());
         }
         prev_ep = Some(ep.clone());
     }

@@ -16,7 +16,7 @@ bls = { path = "../../crypto/bls", default-features = false }
 compare_fields = { path = "../../common/compare_fields" }
 compare_fields_derive = { path = "../../common/compare_fields_derive" }
 derivative = "2.1.1"
-ethereum-types = "0.12.1"
+ethereum-types = "0.14.1"
 hex = "0.4.2"
 rayon = "1.4.1"
 serde = "1.0.116"

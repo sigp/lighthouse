@@ -2,6 +2,7 @@ pub use crate::persisted_beacon_chain::PersistedBeaconChain;
 pub use crate::{
     beacon_chain::{BEACON_CHAIN_DB_KEY, ETH1_CACHE_DB_KEY, FORK_CHOICE_DB_KEY, OP_POOL_DB_KEY},
     migrate::MigratorConfig,
+    validator_monitor::DEFAULT_INDIVIDUAL_TRACKING_THRESHOLD,
     BeaconChainError, NotifyExecutionLayer, ProduceBlockVerification,
 };
 use crate::{
@@ -367,6 +368,7 @@ where
             .collect::<Result<_, _>>()
             .unwrap();
 
+        let spec = MainnetEthSpec::default_spec();
         let config = execution_layer::Config {
             execution_endpoints: urls,
             secret_files: vec![],
@@ -377,6 +379,7 @@ where
             config,
             self.runtime.task_executor.clone(),
             self.log.clone(),
+            &spec,
         )
         .unwrap();
 
@@ -415,13 +418,11 @@ where
         });
         let mock = MockExecutionLayer::new(
             self.runtime.task_executor.clone(),
-            spec.terminal_total_difficulty,
             DEFAULT_TERMINAL_BLOCK,
-            spec.terminal_block_hash,
-            spec.terminal_block_hash_activation_epoch,
             shanghai_time,
             eip4844_time,
             Some(JwtKey::from_slice(&DEFAULT_JWT_SECRET).unwrap()),
+            spec,
             None,
         );
         self.execution_layer = Some(mock.el.clone());
@@ -443,13 +444,11 @@ where
         });
         let mock_el = MockExecutionLayer::new(
             self.runtime.task_executor.clone(),
-            spec.terminal_total_difficulty,
             DEFAULT_TERMINAL_BLOCK,
-            spec.terminal_block_hash,
-            spec.terminal_block_hash_activation_epoch,
             shanghai_time,
             eip4844_time,
             Some(JwtKey::from_slice(&DEFAULT_JWT_SECRET).unwrap()),
+            spec.clone(),
             Some(builder_url.clone()),
         )
         .move_to_terminal_block();
@@ -514,7 +513,7 @@ where
                 log.clone(),
                 5,
             )))
-            .monitor_validators(true, vec![], log)
+            .monitor_validators(true, vec![], DEFAULT_INDIVIDUAL_TRACKING_THRESHOLD, log)
             .trusted_setup(trusted_setup);
 
         builder = if let Some(mutator) = self.initial_mutator {

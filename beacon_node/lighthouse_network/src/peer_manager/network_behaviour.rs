@@ -1,14 +1,12 @@
 use std::task::{Context, Poll};
 
 use futures::StreamExt;
-use libp2p::core::connection::ConnectionId;
 use libp2p::core::ConnectedPoint;
+use libp2p::swarm::behaviour::{ConnectionClosed, ConnectionEstablished, DialFailure, FromSwarm};
 use libp2p::swarm::dial_opts::{DialOpts, PeerCondition};
-use libp2p::swarm::handler::DummyConnectionHandler;
-use libp2p::swarm::{
-    ConnectionHandler, DialError, NetworkBehaviour, NetworkBehaviourAction, PollParameters,
-};
-use libp2p::{Multiaddr, PeerId};
+use libp2p::swarm::dummy::ConnectionHandler;
+use libp2p::swarm::{NetworkBehaviour, NetworkBehaviourAction, PollParameters};
+use libp2p::PeerId;
 use slog::{debug, error};
 use types::EthSpec;
 
@@ -20,23 +18,14 @@ use super::peerdb::BanResult;
 use super::{ConnectingType, PeerManager, PeerManagerEvent, ReportSource};
 
 impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
-    type ConnectionHandler = DummyConnectionHandler;
+    type ConnectionHandler = ConnectionHandler;
 
     type OutEvent = PeerManagerEvent;
 
     /* Required trait members */
 
     fn new_handler(&mut self) -> Self::ConnectionHandler {
-        DummyConnectionHandler::default()
-    }
-
-    fn inject_event(
-        &mut self,
-        _: PeerId,
-        _: ConnectionId,
-        _: <DummyConnectionHandler as ConnectionHandler>::OutEvent,
-    ) {
-        unreachable!("Dummy handler does not emit events")
+        ConnectionHandler
     }
 
     fn poll(
@@ -114,19 +103,46 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
         Poll::Pending
     }
 
-    /* Overwritten trait members */
+    fn on_swarm_event(&mut self, event: FromSwarm<Self::ConnectionHandler>) {
+        match event {
+            FromSwarm::ConnectionEstablished(ConnectionEstablished {
+                peer_id,
+                endpoint,
+                other_established,
+                ..
+            }) => self.on_connection_established(peer_id, endpoint, other_established),
+            FromSwarm::ConnectionClosed(ConnectionClosed {
+                peer_id,
+                remaining_established,
+                ..
+            }) => self.on_connection_closed(peer_id, remaining_established),
+            FromSwarm::DialFailure(DialFailure { peer_id, .. }) => self.on_dial_failure(peer_id),
+            FromSwarm::AddressChange(_)
+            | FromSwarm::ListenFailure(_)
+            | FromSwarm::NewListener(_)
+            | FromSwarm::NewListenAddr(_)
+            | FromSwarm::ExpiredListenAddr(_)
+            | FromSwarm::ListenerError(_)
+            | FromSwarm::ListenerClosed(_)
+            | FromSwarm::NewExternalAddr(_)
+            | FromSwarm::ExpiredExternalAddr(_) => {
+                // The rest of the events we ignore since they are handled in their associated
+                // `SwarmEvent`
+            }
+        }
+    }
+}
 
-    fn inject_connection_established(
+impl<TSpec: EthSpec> PeerManager<TSpec> {
+    fn on_connection_established(
         &mut self,
-        peer_id: &PeerId,
-        _connection_id: &ConnectionId,
+        peer_id: PeerId,
         endpoint: &ConnectedPoint,
-        _failed_addresses: Option<&Vec<Multiaddr>>,
         other_established: usize,
     ) {
         debug!(self.log, "Connection established"; "peer_id" => %peer_id, "connection" => ?endpoint.to_endpoint());
         if other_established == 0 {
-            self.events.push(PeerManagerEvent::MetaData(*peer_id));
+            self.events.push(PeerManagerEvent::MetaData(peer_id));
         }
 
         // Check NAT if metrics are enabled
@@ -135,20 +151,20 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
         }
 
         // Check to make sure the peer is not supposed to be banned
-        match self.ban_status(peer_id) {
+        match self.ban_status(&peer_id) {
             // TODO: directly emit the ban event?
             BanResult::BadScore => {
                 // This is a faulty state
                 error!(self.log, "Connected to a banned peer. Re-banning"; "peer_id" => %peer_id);
                 // Reban the peer
-                self.goodbye_peer(peer_id, GoodbyeReason::Banned, ReportSource::PeerManager);
+                self.goodbye_peer(&peer_id, GoodbyeReason::Banned, ReportSource::PeerManager);
                 return;
             }
             BanResult::BannedIp(ip_addr) => {
                 // A good peer has connected to us via a banned IP address. We ban the peer and
                 // prevent future connections.
                 debug!(self.log, "Peer connected via banned IP. Banning"; "peer_id" => %peer_id, "banned_ip" => %ip_addr);
-                self.goodbye_peer(peer_id, GoodbyeReason::BannedIP, ReportSource::PeerManager);
+                self.goodbye_peer(&peer_id, GoodbyeReason::BannedIP, ReportSource::PeerManager);
                 return;
             }
             BanResult::NotBanned => {}
@@ -162,11 +178,11 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
                 .network_globals
                 .peers
                 .read()
-                .peer_info(peer_id)
+                .peer_info(&peer_id)
                 .map_or(true, |peer| !peer.has_future_duty())
         {
             // Gracefully disconnect the peer.
-            self.disconnect_peer(*peer_id, GoodbyeReason::TooManyPeers);
+            self.disconnect_peer(peer_id, GoodbyeReason::TooManyPeers);
             return;
         }
 
@@ -174,14 +190,14 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
         // does not need to know about these peers.
         match endpoint {
             ConnectedPoint::Listener { send_back_addr, .. } => {
-                self.inject_connect_ingoing(peer_id, send_back_addr.clone(), None);
+                self.inject_connect_ingoing(&peer_id, send_back_addr.clone(), None);
                 self.events
-                    .push(PeerManagerEvent::PeerConnectedIncoming(*peer_id));
+                    .push(PeerManagerEvent::PeerConnectedIncoming(peer_id));
             }
             ConnectedPoint::Dialer { address, .. } => {
-                self.inject_connect_outgoing(peer_id, address.clone(), None);
+                self.inject_connect_outgoing(&peer_id, address.clone(), None);
                 self.events
-                    .push(PeerManagerEvent::PeerConnectedOutgoing(*peer_id));
+                    .push(PeerManagerEvent::PeerConnectedOutgoing(peer_id));
             }
         }
 
@@ -189,14 +205,8 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
         self.update_connected_peer_metrics();
         metrics::inc_counter(&metrics::PEER_CONNECT_EVENT_COUNT);
     }
-    fn inject_connection_closed(
-        &mut self,
-        peer_id: &PeerId,
-        _: &ConnectionId,
-        _: &ConnectedPoint,
-        _: DummyConnectionHandler,
-        remaining_established: usize,
-    ) {
+
+    fn on_connection_closed(&mut self, peer_id: PeerId, remaining_established: usize) {
         if remaining_established > 0 {
             return;
         }
@@ -206,49 +216,25 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
             .network_globals
             .peers
             .read()
-            .is_connected_or_disconnecting(peer_id)
+            .is_connected_or_disconnecting(&peer_id)
         {
             // We are disconnecting the peer or the peer has already been connected.
             // Both these cases, the peer has been previously registered by the peer manager and
             // potentially the application layer.
             // Inform the application.
             self.events
-                .push(PeerManagerEvent::PeerDisconnected(*peer_id));
+                .push(PeerManagerEvent::PeerDisconnected(peer_id));
             debug!(self.log, "Peer disconnected"; "peer_id" => %peer_id);
         }
 
         // NOTE: It may be the case that a rejected node, due to too many peers is disconnected
         // here and the peer manager has no knowledge of its connection. We insert it here for
         // reference so that peer manager can track this peer.
-        self.inject_disconnect(peer_id);
+        self.inject_disconnect(&peer_id);
 
         // Update the prometheus metrics
         self.update_connected_peer_metrics();
         metrics::inc_counter(&metrics::PEER_DISCONNECT_EVENT_COUNT);
-    }
-
-    fn inject_address_change(
-        &mut self,
-        _peer_id: &PeerId,
-        _connection_id: &ConnectionId,
-        old: &ConnectedPoint,
-        new: &ConnectedPoint,
-    ) {
-        debug_assert!(
-            matches!(
-                (old, new),
-                (
-                    // inbound remains inbound
-                    ConnectedPoint::Listener { .. },
-                    ConnectedPoint::Listener { .. }
-                ) | (
-                    // outbound remains outbound
-                    ConnectedPoint::Dialer { .. },
-                    ConnectedPoint::Dialer { .. }
-                )
-            ),
-            "A peer has changed between inbound and outbound"
-        )
     }
 
     /// A dial attempt has failed.
@@ -256,12 +242,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
     /// NOTE: It can be the case that we are dialing a peer and during the dialing process the peer
     /// connects and the dial attempt later fails. To handle this, we only update the peer_db if
     /// the peer is not already connected.
-    fn inject_dial_failure(
-        &mut self,
-        peer_id: Option<PeerId>,
-        _handler: DummyConnectionHandler,
-        _error: &DialError,
-    ) {
+    fn on_dial_failure(&mut self, peer_id: Option<PeerId>) {
         if let Some(peer_id) = peer_id {
             if !self.network_globals.peers.read().is_connected(&peer_id) {
                 self.inject_disconnect(&peer_id);

@@ -21,7 +21,7 @@ CROSS_FEATURES ?= gnosis,slasher-lmdb,slasher-mdbx
 CROSS_PROFILE ?= release
 
 # List of features to use when running EF tests.
-EF_TEST_FEATURES ?= beacon_chain/withdrawals-processing
+EF_TEST_FEATURES ?=
 
 # Cargo profile for regular builds.
 PROFILE ?= release
@@ -89,12 +89,12 @@ build-release-tarballs:
 # Runs the full workspace tests in **release**, without downloading any additional
 # test vectors.
 test-release:
-	cargo test --workspace --features withdrawals-processing --release --exclude ef_tests --exclude beacon_chain --exclude slasher
+	cargo test --workspace --release --exclude ef_tests --exclude beacon_chain --exclude slasher
 
 # Runs the full workspace tests in **debug**, without downloading any additional test
 # vectors.
 test-debug:
-	cargo test --workspace --features withdrawals-processing --exclude ef_tests --exclude beacon_chain
+	cargo test --workspace --exclude ef_tests --exclude beacon_chain
 
 # Runs cargo-fmt (linter).
 cargo-fmt:
@@ -120,7 +120,7 @@ run-ef-tests:
 test-beacon-chain: $(patsubst %,test-beacon-chain-%,$(FORKS))
 
 test-beacon-chain-%:
-	env FORK_NAME=$* cargo test --release --features fork_from_env,withdrawals-processing -p beacon_chain
+	env FORK_NAME=$* cargo test --release --features fork_from_env -p beacon_chain
 
 # Run the tests in the `operation_pool` crate for all known forks.
 test-op-pool: $(patsubst %,test-op-pool-%,$(FORKS))
