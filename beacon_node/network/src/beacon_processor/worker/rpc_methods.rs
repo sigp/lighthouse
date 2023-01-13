@@ -212,9 +212,9 @@ impl<T: BeaconChainTypes> Worker<T> {
         request: LightClientBootstrapRequest,
     ) {
         let block_root = request.root;
-        let state_root = match self.chain.get_blinded_block(&block_root) {
+        let signed_block = match self.chain.get_blinded_block(&block_root) {
             Ok(signed_block) => match signed_block {
-                Some(signed_block) => signed_block.state_root(),
+                Some(signed_block) => signed_block,
                 None => {
                     self.send_error_response(
                         peer_id,
@@ -235,7 +235,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                 return;
             }
         };
-        let mut beacon_state = match self.chain.get_state(&state_root, None) {
+        let mut beacon_state = match self.chain.get_state(&signed_block.state_root(), None) {
             Ok(beacon_state) => match beacon_state {
                 Some(state) => state,
                 None => {
@@ -258,7 +258,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                 return;
             }
         };
-        let bootstrap = match LightClientBootstrap::from_beacon_state(&mut beacon_state) {
+        let bootstrap = match LightClientBootstrap::new(&self.chain.spec, &mut beacon_state, signed_block) {
             Ok(bootstrap) => bootstrap,
             Err(_) => {
                 self.send_error_response(

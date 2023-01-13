@@ -1,5 +1,5 @@
-use super::{BeaconBlockHeader, EthSpec, FixedVector, Hash256, Slot, SyncAggregate, SyncCommittee};
-use crate::{beacon_state, test_utils::TestRandom, BeaconBlock, BeaconState, ChainSpec};
+use super::{LightClientHeader, EthSpec, FixedVector, Hash256, Slot, SyncAggregate, SyncCommittee};
+use crate::{beacon_state, test_utils::TestRandom, SignedBlindedBeaconBlock, BeaconState, ChainSpec};
 use safe_arith::ArithError;
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
@@ -29,6 +29,10 @@ pub enum Error {
     NotEnoughSyncCommitteeParticipants,
     MismatchingPeriods,
     InvalidFinalizedBlock,
+    InvalidAttestedBlock,
+    InvalidAttestedState,
+    InvalidBlock,
+    SlotMismatch,
 }
 
 impl From<ssz_types::Error> for Error {
@@ -57,13 +61,13 @@ impl From<ArithError> for Error {
 #[serde(bound = "T: EthSpec")]
 pub struct LightClientUpdate<T: EthSpec> {
     /// The last `BeaconBlockHeader` from the last attested block by the sync committee.
-    pub attested_header: BeaconBlockHeader,
+    pub attested_header: LightClientHeader,
     /// The `SyncCommittee` used in the next period.
     pub next_sync_committee: Arc<SyncCommittee<T>>,
     /// Merkle proof for next sync committee
     pub next_sync_committee_branch: FixedVector<Hash256, NextSyncCommitteeProofLen>,
     /// The last `BeaconBlockHeader` from the last attested finalized block (end of epoch).
-    pub finalized_header: BeaconBlockHeader,
+    pub finalized_header: LightClientHeader,
     /// Merkle proof attesting finalized header.
     pub finality_branch: FixedVector<Hash256, FinalizedRootProofLen>,
     /// current sync aggreggate
@@ -76,9 +80,10 @@ impl<T: EthSpec> LightClientUpdate<T> {
     pub fn new(
         chain_spec: ChainSpec,
         beacon_state: BeaconState<T>,
-        block: BeaconBlock<T>,
+        block: SignedBlindedBeaconBlock<T>,
         attested_state: &mut BeaconState<T>,
-        finalized_block: BeaconBlock<T>,
+        attested_block: SignedBlindedBeaconBlock<T>,
+        finalized_block: Option<SignedBlindedBeaconBlock<T>>,
     ) -> Result<Self, Error> {
         let altair_fork_epoch = chain_spec
             .altair_fork_epoch
@@ -87,42 +92,68 @@ impl<T: EthSpec> LightClientUpdate<T> {
             return Err(Error::AltairForkNotActive);
         }
 
-        let sync_aggregate = block.body().sync_aggregate()?;
+        let sync_aggregate = block.message().body().sync_aggregate()?;
         if sync_aggregate.num_set_bits() < chain_spec.min_sync_committee_participants as usize {
             return Err(Error::NotEnoughSyncCommitteeParticipants);
         }
-
-        let signature_period = block.epoch().sync_committee_period(&chain_spec)?;
+        
+        let mut header = beacon_state.latest_block_header().clone();
+        if beacon_state.slot() != header.slot {
+            return Err(Error::SlotMismatch);
+        }
+        header.state_root = beacon_state.tree_hash_root();
+        if header.tree_hash_root() != block.message().tree_hash_root() {
+            return Err(Error::InvalidBlock);
+        }
+        
+        let signature_period = block.message().epoch().sync_committee_period(&chain_spec)?;
+        if attested_state.slot() != attested_state.latest_block_header().slot {
+            return Err(Error::SlotMismatch);
+        }
         // Compute and validate attested header.
         let mut attested_header = attested_state.latest_block_header().clone();
         attested_header.state_root = attested_state.tree_hash_root();
-        let attested_period = attested_header
-            .slot
-            .epoch(T::slots_per_epoch())
-            .sync_committee_period(&chain_spec)?;
+
+        if attested_header.tree_hash_root() != attested_block.message().tree_hash_root() ||
+            block.message().parent_root() != attested_block.message().tree_hash_root() 
+        {
+            return Err(Error::InvalidAttestedBlock);
+        }
+        let attested_period = attested_block.message().epoch().sync_committee_period(&chain_spec)?;
         if attested_period != signature_period {
             return Err(Error::MismatchingPeriods);
         }
         // Build finalized header from finalized block
-        let finalized_header = BeaconBlockHeader {
-            slot: finalized_block.slot(),
-            proposer_index: finalized_block.proposer_index(),
-            parent_root: finalized_block.parent_root(),
-            state_root: finalized_block.state_root(),
-            body_root: finalized_block.body_root(),
+        let (finalized_header, finality_branch) = if let Some(finalized_block) = finalized_block {
+            let finalized_header = if finalized_block.message().slot() != chain_spec.genesis_slot {
+                let finalized_header = LightClientHeader::from_block(finalized_block);
+                if finalized_header.beacon.tree_hash_root() != attested_state.finalized_checkpoint().root {
+                    return Err(Error::InvalidFinalizedBlock);
+                }
+                finalized_header
+            } else {
+                if attested_state.finalized_checkpoint().root != Hash256::zero() {
+                    return Err(Error::InvalidAttestedState);
+                }
+                LightClientHeader::zeros()
+            };
+            let finality_branch = FixedVector::new(attested_state.compute_merkle_proof(FINALIZED_ROOT_INDEX)?)?;
+            (finalized_header, finality_branch)
+        } else {
+            (LightClientHeader::zeros(), FixedVector::new(vec![
+                Hash256::zero();
+                FINALIZED_ROOT_PROOF_LEN
+            ])?)
         };
-        if finalized_header.tree_hash_root() != beacon_state.finalized_checkpoint().root {
-            return Err(Error::InvalidFinalizedBlock);
-        }
+
         let next_sync_committee_branch =
             attested_state.compute_merkle_proof(NEXT_SYNC_COMMITTEE_INDEX)?;
-        let finality_branch = attested_state.compute_merkle_proof(FINALIZED_ROOT_INDEX)?;
         Ok(Self {
-            attested_header,
+            attested_header: LightClientHeader::from_block(attested_block),
             next_sync_committee: attested_state.next_sync_committee()?.clone(),
             next_sync_committee_branch: FixedVector::new(next_sync_committee_branch)?,
             finalized_header,
-            finality_branch: FixedVector::new(finality_branch)?,
+            finality_branch,
             sync_aggregate: sync_aggregate.clone(),
             signature_slot: block.slot(),
         })
