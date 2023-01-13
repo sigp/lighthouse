@@ -1217,11 +1217,13 @@ impl<T: BeaconChainTypes> Worker<T> {
                 );
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
                 // We penalize the peer slightly to prevent overuse of invalids.
-                self.gossip_penalize_peer(
-                    peer_id,
-                    PeerAction::HighToleranceError,
-                    "invalid_bls_to_execution_change",
-                );
+                if !matches!(e, BeaconChainError::BlsToExecutionChangeBadFork(_)) {
+                    self.gossip_penalize_peer(
+                        peer_id,
+                        PeerAction::HighToleranceError,
+                        "invalid_bls_to_execution_change",
+                    );
+                }
                 return;
             }
         };
