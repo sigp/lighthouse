@@ -4,27 +4,14 @@ use serde::{Deserialize, Serialize};
 // All rewards in GWei
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
-// TODO: AttestationRewards already exists
+//TODO: AttestationRewards already exists
 pub struct AttestationRewardsTBD {
-
     pub execution_optimistic: bool,
-
     pub finalized: bool,
-
-    pub data: Vec<AttestationRewardTBD>,
-
-}
-
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
-pub struct AttestationRewardTBD {
-    // Ideal rewards info for a single attestation
     pub ideal_rewards: Vec<IdealAttestationRewards>,
-    // Rewards info for a single attestation
     pub total_rewards: Vec<TotalAttestationRewards>,
-
 }
 
-// TODO Types for negative values need to be added
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct IdealAttestationRewards {
     // Validator's effective balance in gwei

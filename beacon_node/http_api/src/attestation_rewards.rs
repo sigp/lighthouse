@@ -49,15 +49,14 @@ pub fn compute_attestation_rewards<T: BeaconChainTypes>(
     //Get previous_epoch through state.previous_epoch()
     let previous_epoch = state.previous_epoch();
 
-    //TODO Get flag_index as usize
-    let flag_index = 0;
-
     //Initialize an empty HashMap to hold the rewards
     let mut ideal_rewards = HashMap::new();
 
     //Initialize base_reward and effective_balance_eth because they are being used in another loop
-    let mut base_reward = 0;
-    let mut effective_balance_eth = 0;
+    let base_reward = 0;
+    let effective_balance_eth = 0;
+    let weight = 0;
+    let flag_index = 0;
 
     for flag_index in [TIMELY_SOURCE_FLAG_INDEX, TIMELY_TARGET_FLAG_INDEX, TIMELY_HEAD_FLAG_INDEX].iter() {
 
@@ -134,12 +133,13 @@ pub fn compute_attestation_rewards<T: BeaconChainTypes>(
                 ideal_rewards.insert((flag_index, effective_balance_eth), 0);
         }  
     }
+}
 
     //TODO Output the ideal_rewards HashMap
 
     //--- Calculate actual rewards ---//
     
-    let mut rewards: Vec<(usize, u64)> = vec![];
+    let mut rewards = Vec::new();
     let index = participation_cache.eligible_validator_indices();
     
     for validator_index in index {
@@ -147,30 +147,30 @@ pub fn compute_attestation_rewards<T: BeaconChainTypes>(
             Ok(eligible) => eligible,
             Err(_) => return Err(warp_utils::reject::custom_server_error("Unable to get eligible".to_owned())),
         };
-        let actual_rewards = if !eligible {
+        let total_reward = if !eligible {
             0u64
         } else {
             //validator_index is eligible for rewards, calculate actual rewards 
-            let voted_correctly = participation_cache.get_unslashed_participating_indices(*flag_index, previous_epoch).is_ok();
+            let voted_correctly = participation_cache.get_unslashed_participating_indices(flag_index, previous_epoch).is_ok();
             if voted_correctly {
                 //Voted correctly, get paid the ideal_reward for (flag, validator.effective_balance)
-                let actual_rewards= ideal_rewards.get(&(flag_index, effective_balance_eth));
-                //Voted incorrectly, the head vote reward is 0, target/source their reward is -1 * base_reward * weight // WEIGHT_DENOMINATOR
+                *ideal_rewards.get(&(&flag_index, effective_balance_eth)).unwrap_or(&0)
             } else {
-                HeadFlag = 0u64; 
-                let actual_rewards = (-(base_reward as i64 as i128) * weight as i128 / WEIGHT_DENOMINATOR as i128) as u64;
+                //Voted incorrectly, the head vote reward is 0, target/source their reward is -1 * base_reward * weight // WEIGHT_DENOMINATOR
+                (-(base_reward as i64 as i128) * weight as i128 / WEIGHT_DENOMINATOR as i128) as u64
             }
         };
-        rewards.push((*validator_index, actual_rewards))
+        rewards.push((*validator_index, total_reward));
     }
 
     //TODO Put actual_reward in Vec<AttestationRewardsTBD>
     //TODO Code cleanup
     
-}
+
     Ok(AttestationRewardsTBD{
         execution_optimistic: false,
         finalized: false,
-        data: vec![],
+        ideal_rewards: todo!(),
+        total_rewards: todo!(),
     })
 }
