@@ -657,7 +657,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             self,
             start_slot,
             None,
-            || (end_state, end_block_root),
+            || Ok((end_state, end_block_root)),
             spec,
         )
     }
@@ -666,7 +666,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         &self,
         start_slot: Slot,
         end_slot: Slot,
-        get_state: impl FnOnce() -> (BeaconState<E>, Hash256),
+        get_state: impl FnOnce() -> Result<(BeaconState<E>, Hash256), Error>,
         spec: &ChainSpec,
     ) -> Result<HybridForwardsBlockRootsIterator<E, Hot, Cold>, Error> {
         HybridForwardsBlockRootsIterator::new(self, start_slot, Some(end_slot), get_state, spec)
@@ -683,7 +683,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             self,
             start_slot,
             None,
-            || (end_state, end_state_root),
+            || Ok((end_state, end_state_root)),
             spec,
         )
     }
@@ -692,7 +692,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         &self,
         start_slot: Slot,
         end_slot: Slot,
-        get_state: impl FnOnce() -> (BeaconState<E>, Hash256),
+        get_state: impl FnOnce() -> Result<(BeaconState<E>, Hash256), Error>,
         spec: &ChainSpec,
     ) -> Result<HybridForwardsStateRootsIterator<E, Hot, Cold>, Error> {
         HybridForwardsStateRootsIterator::new(self, start_slot, Some(end_slot), get_state, spec)
@@ -1067,7 +1067,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         let state_root_iter = self.forwards_state_roots_iterator_until(
             low_restore_point.slot(),
             slot,
-            || (high_restore_point, Hash256::zero()),
+            || Ok((high_restore_point, Hash256::zero())),
             &self.spec,
         )?;
 
@@ -1694,9 +1694,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     /// Try to prune blobs older than the data availability boundary.
     pub fn try_prune_blobs(&self, force: bool) -> Result<(), Error> {
         let blob_info = match self.get_blob_info() {
-            Some(old_blob_info) => {
-                old_blob_info
-            }
+            Some(old_blob_info) => old_blob_info,
             None => {
                 return Ok(());
             }
@@ -1709,14 +1707,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
         let dab_state_root = blob_info.data_availability_boundary.state_root;
 
-        // Load the state from which to prune blobs so we can backtrack.
-        let dab_state = self
-            .get_state(&dab_state_root, None)?
-            .ok_or(HotColdDBError::MissingStateToPruneBlobs(dab_state_root))?;
-
-        let dab_block_root = dab_state.get_latest_block_root(dab_state_root);
-        let dab_slot = dab_state.slot();
-
         // Iterate block roots backwards to oldest blob slot.
         warn!(
             self.log,
@@ -1727,9 +1717,19 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         let mut ops = vec![];
         let mut last_pruned_block_root = None;
 
-        for res in std::iter::once(Ok((dab_block_root, dab_slot)))
-            .chain(BlockRootsIterator::new(self, &dab_state))
-        {
+        for res in self.forwards_block_roots_iterator_until(
+            blob_info.oldest_blob_slot,
+            blob_info.data_availability_boundary.slot,
+            || {
+                let dab_state = self
+                    .get_state(&dab_state_root, None)?
+                    .ok_or(HotColdDBError::MissingStateToPruneBlobs(dab_state_root))?;
+                let dab_block_root = dab_state.get_latest_block_root(dab_state_root);
+
+                Ok((dab_state, dab_block_root))
+            },
+            &self.spec,
+        )? {
             let (block_root, slot) = match res {
                 Ok(tuple) => tuple,
                 Err(e) => {
@@ -1761,7 +1761,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                     "Blobs sidecar pruning reached earliest available blobs sidecar";
                     "slot" => slot
                 );
-                blob_info.oldest_blob_slot = dab_slot + 1;
                 break;
             }
         }
@@ -1774,8 +1773,12 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             "blobs_sidecars_pruned" => blobs_sidecars_pruned,
         );
 
-        blob_info.last_pruned_epoch = dab_state.current_epoch();
-        self.compare_and_set_blob_info_with_write(self.get_blob_info(), Some(blob_info))?;
+        if let Some(mut new_blob_info) = self.get_blob_info() {
+            new_blob_info.last_pruned_epoch =
+                (blob_info.data_availability_boundary.slot + 1).epoch(E::slots_per_epoch());
+            new_blob_info.oldest_blob_slot = blob_info.data_availability_boundary.slot + 1;
+            self.compare_and_set_blob_info_with_write(self.get_blob_info(), Some(new_blob_info))?;
+        }
 
         Ok(())
     }
