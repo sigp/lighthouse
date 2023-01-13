@@ -12,6 +12,7 @@ pub use types::{
     Address, EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadHeader, FixedVector,
     ForkName, Hash256, Uint256, VariableList, Withdrawal,
 };
+use types::{ExecutionPayloadCapella, ExecutionPayloadEip4844, ExecutionPayloadMerge};
 
 pub mod auth;
 pub mod http;
@@ -267,7 +268,7 @@ pub struct PayloadAttributes {
     #[superstruct(getter(copy))]
     pub suggested_fee_recipient: Address,
     #[superstruct(only(V2))]
-    pub withdrawals: Option<Vec<Withdrawal>>,
+    pub withdrawals: Vec<Withdrawal>,
 }
 
 impl PayloadAttributes {
@@ -277,31 +278,18 @@ impl PayloadAttributes {
         suggested_fee_recipient: Address,
         withdrawals: Option<Vec<Withdrawal>>,
     ) -> Self {
-        // this should always return the highest version
-        PayloadAttributes::V2(PayloadAttributesV2 {
-            timestamp,
-            prev_randao,
-            suggested_fee_recipient,
-            withdrawals,
-        })
-    }
-
-    pub fn downgrade_to_v1(self) -> Result<Self, Error> {
-        match self {
-            PayloadAttributes::V1(_) => Ok(self),
-            PayloadAttributes::V2(v2) => {
-                if v2.withdrawals.is_some() {
-                    return Err(Error::BadConversion(
-                        "Downgrading from PayloadAttributesV2 with non-null withdrawals"
-                            .to_string(),
-                    ));
-                }
-                Ok(PayloadAttributes::V1(PayloadAttributesV1 {
-                    timestamp: v2.timestamp,
-                    prev_randao: v2.prev_randao,
-                    suggested_fee_recipient: v2.suggested_fee_recipient,
-                }))
-            }
+        match withdrawals {
+            Some(withdrawals) => PayloadAttributes::V2(PayloadAttributesV2 {
+                timestamp,
+                prev_randao,
+                suggested_fee_recipient,
+                withdrawals,
+            }),
+            None => PayloadAttributes::V1(PayloadAttributesV1 {
+                timestamp,
+                prev_randao,
+                suggested_fee_recipient,
+            }),
         }
     }
 }
@@ -324,6 +312,39 @@ pub struct ProposeBlindedBlockResponse {
     pub status: ProposeBlindedBlockResponseStatus,
     pub latest_valid_hash: Option<Hash256>,
     pub validation_error: Option<String>,
+}
+
+#[superstruct(
+    variants(Merge, Capella, Eip4844),
+    variant_attributes(derive(Clone, Debug, PartialEq),),
+    cast_error(ty = "Error", expr = "Error::IncorrectStateVariant"),
+    partial_getter_error(ty = "Error", expr = "Error::IncorrectStateVariant")
+)]
+#[derive(Clone, Debug, PartialEq)]
+pub struct GetPayloadResponse<T: EthSpec> {
+    #[superstruct(only(Merge), partial_getter(rename = "execution_payload_merge"))]
+    pub execution_payload: ExecutionPayloadMerge<T>,
+    #[superstruct(only(Capella), partial_getter(rename = "execution_payload_capella"))]
+    pub execution_payload: ExecutionPayloadCapella<T>,
+    #[superstruct(only(Eip4844), partial_getter(rename = "execution_payload_eip4844"))]
+    pub execution_payload: ExecutionPayloadEip4844<T>,
+    pub block_value: Uint256,
+}
+
+impl<T: EthSpec> GetPayloadResponse<T> {
+    pub fn execution_payload(self) -> ExecutionPayload<T> {
+        match self {
+            GetPayloadResponse::Merge(response) => {
+                ExecutionPayload::Merge(response.execution_payload)
+            }
+            GetPayloadResponse::Capella(response) => {
+                ExecutionPayload::Capella(response.execution_payload)
+            }
+            GetPayloadResponse::Eip4844(response) => {
+                ExecutionPayload::Eip4844(response.execution_payload)
+            }
+        }
+    }
 }
 
 // This name is work in progress, it could
