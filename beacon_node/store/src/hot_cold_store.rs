@@ -1693,16 +1693,14 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
     /// Try to prune blobs older than the data availability boundary.
     pub fn try_prune_blobs(&self, force: bool) -> Result<(), Error> {
-        let mut blob_info: BlobInfo;
-
-        match self.get_blob_info() {
+        let blob_info = match self.get_blob_info() {
             Some(old_blob_info) => {
-                blob_info = old_blob_info;
+                old_blob_info
             }
             None => {
                 return Ok(());
             }
-        }
+        };
 
         if blob_info.last_pruned_epoch == blob_info.next_epoch_to_prune && !force {
             info!(self.log, "Blobs sidecars are pruned");
