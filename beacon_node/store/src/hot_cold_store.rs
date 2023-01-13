@@ -1691,6 +1691,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         Ok(())
     }
 
+    /// Try to prune blobs older than the data availability boundary.
     pub fn try_prune_blobs(&self, force: bool) -> Result<(), Error> {
         let mut blob_info: BlobInfo;
 
@@ -1857,11 +1858,15 @@ pub fn migrate_database<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
         return Err(HotColdDBError::FreezeSlotUnaligned(frozen_head.slot()).into());
     }
 
+    // Prune blobs before migration.
+    store.try_prune_blobs(false)?;
+
     let mut hot_db_ops: Vec<StoreOp<E>> = Vec::new();
 
     // 1. Copy all of the states between the head and the split slot, from the hot DB
     // to the cold DB. Delete the execution payloads of these now-finalized blocks.
     let state_root_iter = RootsIterator::new(&store, frozen_head);
+
     for maybe_tuple in state_root_iter.take_while(|result| match result {
         Ok((_, _, slot)) => {
             slot >= &current_split_slot
@@ -1903,7 +1908,7 @@ pub fn migrate_database<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
     }
 
     // Warning: Critical section.  We have to take care not to put any of the two databases in an
-    //          inconsistent state if the OS process dies at any point during the freezeing
+    //          inconsistent state if the OS process dies at any point during the freezing
     //          procedure.
     //
     // Since it is pretty much impossible to be atomic across more than one database, we trade
@@ -1919,7 +1924,7 @@ pub fn migrate_database<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
         let mut split_guard = store.split.write();
         let latest_split_slot = split_guard.slot;
 
-        // Detect a sitation where the split point is (erroneously) changed from more than one
+        // Detect a situation where the split point is (erroneously) changed from more than one
         // place in code.
         if latest_split_slot != current_split_slot {
             error!(
