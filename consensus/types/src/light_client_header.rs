@@ -1,8 +1,8 @@
 use super::{BeaconBlockHeader, SignedBlindedBeaconBlock};
-use test_random_derive::TestRandom;
+use crate::{test_utils::TestRandom, EthSpec, Hash256, Slot};
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
-use crate::{test_utils::TestRandom, EthSpec, Hash256, Slot};
+use test_random_derive::TestRandom;
 
 /// A LightClientHeader is a header that is verified by a light client.
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]

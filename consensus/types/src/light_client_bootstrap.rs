@@ -1,11 +1,16 @@
-use super::{LightClientHeader, ChainSpec, SignedBlindedBeaconBlock, BeaconState, EthSpec, FixedVector, Hash256, SyncCommittee};
-use crate::{beacon_state::Error as BeaconStateError, light_client_update::*, test_utils::TestRandom};
+use super::{
+    BeaconState, ChainSpec, EthSpec, FixedVector, Hash256, LightClientHeader,
+    SignedBlindedBeaconBlock, SyncCommittee,
+};
+use crate::{
+    beacon_state::Error as BeaconStateError, light_client_update::*, test_utils::TestRandom,
+};
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
+use ssz_types::Error as SszTypesError;
 use std::sync::Arc;
 use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
-use ssz_types::Error as SszTypesError;
 
 /// A LightClientBootstrap is the initializer we send over to lightclient nodes
 /// that are trying to generate their basic storage when booting up.

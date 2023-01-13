@@ -7,7 +7,8 @@ use slot_clock::SlotClock;
 use std::time::Duration;
 use strum::AsRefStr;
 use types::{
-    light_client_update::Error as LightClientUpdateError, LightClientOptimisticUpdate, Slot, LightClientUpdate,
+    light_client_update::Error as LightClientUpdateError, LightClientOptimisticUpdate,
+    LightClientUpdate, Slot,
 };
 
 /// Returned when a light client optimistic update was not successfully verified. It might not have been verified for

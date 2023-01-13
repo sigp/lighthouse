@@ -1,4 +1,4 @@
-use super::{LightClientHeader, LightClientUpdate, EthSpec, Slot, SyncAggregate};
+use super::{EthSpec, LightClientHeader, LightClientUpdate, Slot, SyncAggregate};
 use crate::test_utils::TestRandom;
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
@@ -19,9 +19,7 @@ pub struct LightClientOptimisticUpdate<T: EthSpec> {
 }
 
 impl<T: EthSpec> LightClientOptimisticUpdate<T> {
-    pub fn from_light_client_update(
-        update: LightClientUpdate<T>,
-    ) -> Self {
+    pub fn from_light_client_update(update: LightClientUpdate<T>) -> Self {
         Self {
             attested_header: update.attested_header.clone(),
             sync_aggregate: update.sync_aggregate.clone(),

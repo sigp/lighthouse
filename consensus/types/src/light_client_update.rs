@@ -1,5 +1,7 @@
-use super::{LightClientHeader, EthSpec, FixedVector, Hash256, Slot, SyncAggregate, SyncCommittee};
-use crate::{beacon_state, test_utils::TestRandom, SignedBlindedBeaconBlock, BeaconState, ChainSpec};
+use super::{EthSpec, FixedVector, Hash256, LightClientHeader, Slot, SyncAggregate, SyncCommittee};
+use crate::{
+    beacon_state, test_utils::TestRandom, BeaconState, ChainSpec, SignedBlindedBeaconBlock,
+};
 use safe_arith::ArithError;
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
@@ -96,7 +98,7 @@ impl<T: EthSpec> LightClientUpdate<T> {
         if sync_aggregate.num_set_bits() < chain_spec.min_sync_committee_participants as usize {
             return Err(Error::NotEnoughSyncCommitteeParticipants);
         }
-        
+
         let mut header = beacon_state.latest_block_header().clone();
         if beacon_state.slot() != header.slot {
             return Err(Error::SlotMismatch);
@@ -105,7 +107,7 @@ impl<T: EthSpec> LightClientUpdate<T> {
         if header.tree_hash_root() != block.message().tree_hash_root() {
             return Err(Error::InvalidBlock);
         }
-        
+
         let signature_period = block.message().epoch().sync_committee_period(&chain_spec)?;
         if attested_state.slot() != attested_state.latest_block_header().slot {
             return Err(Error::SlotMismatch);
@@ -114,12 +116,15 @@ impl<T: EthSpec> LightClientUpdate<T> {
         let mut attested_header = attested_state.latest_block_header().clone();
         attested_header.state_root = attested_state.tree_hash_root();
 
-        if attested_header.tree_hash_root() != attested_block.message().tree_hash_root() ||
-            block.message().parent_root() != attested_block.message().tree_hash_root() 
+        if attested_header.tree_hash_root() != attested_block.message().tree_hash_root()
+            || block.message().parent_root() != attested_block.message().tree_hash_root()
         {
             return Err(Error::InvalidAttestedBlock);
         }
-        let attested_period = attested_block.message().epoch().sync_committee_period(&chain_spec)?;
+        let attested_period = attested_block
+            .message()
+            .epoch()
+            .sync_committee_period(&chain_spec)?;
         if attested_period != signature_period {
             return Err(Error::MismatchingPeriods);
         }
@@ -127,7 +132,9 @@ impl<T: EthSpec> LightClientUpdate<T> {
         let (finalized_header, finality_branch) = if let Some(finalized_block) = finalized_block {
             let finalized_header = if finalized_block.message().slot() != chain_spec.genesis_slot {
                 let finalized_header = LightClientHeader::from_block(&finalized_block);
-                if finalized_header.beacon.tree_hash_root() != attested_state.finalized_checkpoint().root {
+                if finalized_header.beacon.tree_hash_root()
+                    != attested_state.finalized_checkpoint().root
+                {
                     return Err(Error::InvalidFinalizedBlock);
                 }
                 finalized_header
@@ -137,13 +144,14 @@ impl<T: EthSpec> LightClientUpdate<T> {
                 }
                 LightClientHeader::zeros()
             };
-            let finality_branch = FixedVector::new(attested_state.compute_merkle_proof(FINALIZED_ROOT_INDEX)?)?;
+            let finality_branch =
+                FixedVector::new(attested_state.compute_merkle_proof(FINALIZED_ROOT_INDEX)?)?;
             (finalized_header, finality_branch)
         } else {
-            (LightClientHeader::zeros(), FixedVector::new(vec![
-                Hash256::zero();
-                FINALIZED_ROOT_PROOF_LEN
-            ])?)
+            (
+                LightClientHeader::zeros(),
+                FixedVector::new(vec![Hash256::zero(); FINALIZED_ROOT_PROOF_LEN])?,
+            )
         };
 
         let next_sync_committee_branch =
@@ -157,6 +165,102 @@ impl<T: EthSpec> LightClientUpdate<T> {
             sync_aggregate: sync_aggregate.clone(),
             signature_slot: block.slot(),
         })
+    }
+
+    pub fn is_better_update(&self, old_update: &Self, chain_spec: &ChainSpec) -> bool {
+        let max_active_participants = self.sync_aggregate.sync_committee_bits.len();
+        let new_num_active_participants = self.sync_aggregate.num_set_bits();
+        let old_num_active_participants = old_update.sync_aggregate.num_set_bits();
+        // Compare supermajorit (> 2/3) sync committee participation
+        let new_has_supermajority = new_num_active_participants * 3 >= max_active_participants * 2;
+        let old_has_supermajority = old_num_active_participants * 3 >= max_active_participants * 2;
+
+        if new_has_supermajority != old_has_supermajority {
+            return new_has_supermajority > old_has_supermajority;
+        }
+        if !new_has_supermajority && new_num_active_participants != old_num_active_participants {
+            return new_num_active_participants > old_num_active_participants;
+        }
+        // Compare presence of relevant sync committee
+        let new_is_sync_committee_update = self.next_sync_committee_branch
+            != FixedVector::new(vec![Hash256::zero(); NEXT_SYNC_COMMITTEE_PROOF_LEN]).unwrap();
+        let old_is_sync_committee_update = old_update.next_sync_committee_branch
+            != FixedVector::new(vec![Hash256::zero(); NEXT_SYNC_COMMITTEE_PROOF_LEN]).unwrap();
+        let new_has_relevant_sync_committee = new_is_sync_committee_update
+            && self
+                .attested_header
+                .beacon
+                .slot
+                .epoch(T::slots_per_epoch())
+                .sync_committee_period(chain_spec)
+                == self
+                    .signature_slot
+                    .epoch(T::slots_per_epoch())
+                    .sync_committee_period(chain_spec);
+        let old_has_relevant_sync_committee = old_is_sync_committee_update
+            && old_update
+                .attested_header
+                .beacon
+                .slot
+                .epoch(T::slots_per_epoch())
+                .sync_committee_period(chain_spec)
+                == old_update
+                    .signature_slot
+                    .epoch(T::slots_per_epoch())
+                    .sync_committee_period(chain_spec);
+
+        if new_has_relevant_sync_committee != old_has_relevant_sync_committee {
+            return new_has_relevant_sync_committee;
+        }
+        // Compare indication of finality
+        let new_has_finality = self.finality_branch
+            != FixedVector::new(vec![Hash256::zero(); FINALIZED_ROOT_PROOF_LEN]).unwrap();
+        let old_has_finality = old_update.finality_branch
+            != FixedVector::new(vec![Hash256::zero(); FINALIZED_ROOT_PROOF_LEN]).unwrap();
+        if new_has_finality != old_has_finality {
+            return new_has_finality;
+        }
+
+        // Compare sync committee finality
+        if new_has_finality {
+            let new_has_sync_committee_finality = self
+                .finalized_header
+                .beacon
+                .slot
+                .epoch(T::slots_per_epoch())
+                .sync_committee_period(chain_spec)
+                == self
+                    .attested_header
+                    .beacon
+                    .slot
+                    .epoch(T::slots_per_epoch())
+                    .sync_committee_period(chain_spec);
+            let old_has_sync_committee_finality = old_update
+                .finalized_header
+                .beacon
+                .slot
+                .epoch(T::slots_per_epoch())
+                .sync_committee_period(chain_spec)
+                == old_update
+                    .attested_header
+                    .beacon
+                    .slot
+                    .epoch(T::slots_per_epoch())
+                    .sync_committee_period(chain_spec);
+            if new_has_sync_committee_finality != old_has_sync_committee_finality {
+                return new_has_sync_committee_finality;
+            }
+        }
+
+        // Tiebreaker 1: Sync committee participation beyond supermajorit
+        if new_num_active_participants != old_num_active_participants {
+            return new_num_active_participants > old_num_active_participants;
+        }
+        // Tiebreaker 2: Prefer older data (fewer changes to best)
+        if self.attested_header.beacon.slot != old_update.attested_header.beacon.slot {
+            return self.attested_header.beacon.slot < old_update.attested_header.beacon.slot;
+        }
+        self.signature_slot < old_update.signature_slot
     }
 }
 

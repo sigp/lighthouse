@@ -1,7 +1,4 @@
-use super::{
-    EthSpec, FixedVector, Hash256,
-    Slot, SyncAggregate,
-};
+use super::{EthSpec, FixedVector, Hash256, Slot, SyncAggregate};
 use crate::{light_client_update::*, test_utils::TestRandom, LightClientHeader};
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
@@ -26,9 +23,7 @@ pub struct LightClientFinalityUpdate<T: EthSpec> {
 }
 
 impl<T: EthSpec> LightClientFinalityUpdate<T> {
-    pub fn from_light_client_update(
-        update: LightClientUpdate<T>,
-    ) -> LightClientFinalityUpdate<T> {
+    pub fn from_light_client_update(update: LightClientUpdate<T>) -> LightClientFinalityUpdate<T> {
         Self {
             attested_header: update.attested_header,
             finalized_header: update.finalized_header,

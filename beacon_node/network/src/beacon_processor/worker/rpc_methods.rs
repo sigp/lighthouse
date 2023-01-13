@@ -258,18 +258,19 @@ impl<T: BeaconChainTypes> Worker<T> {
                 return;
             }
         };
-        let bootstrap = match LightClientBootstrap::new(&self.chain.spec, &mut beacon_state, &signed_block) {
-            Ok(bootstrap) => bootstrap,
-            Err(_) => {
-                self.send_error_response(
-                    peer_id,
-                    RPCResponseErrorCode::ResourceUnavailable,
-                    "Bootstrap not avaiable".into(),
-                    request_id,
-                );
-                return;
-            }
-        };
+        let bootstrap =
+            match LightClientBootstrap::new(&self.chain.spec, &mut beacon_state, &signed_block) {
+                Ok(bootstrap) => bootstrap,
+                Err(_) => {
+                    self.send_error_response(
+                        peer_id,
+                        RPCResponseErrorCode::ResourceUnavailable,
+                        "Bootstrap not avaiable".into(),
+                        request_id,
+                    );
+                    return;
+                }
+            };
         self.send_response(
             peer_id,
             Response::LightClientBootstrap(bootstrap),
