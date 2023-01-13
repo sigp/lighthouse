@@ -1,11 +1,8 @@
-use super::{BeaconBlockHeader, EthSpec, Slot, SyncAggregate};
-use crate::{
-    light_client_update::Error, test_utils::TestRandom, BeaconState, ChainSpec, SignedBeaconBlock,
-};
+use super::{LightClientHeader, LightClientUpdate, EthSpec, Slot, SyncAggregate};
+use crate::test_utils::TestRandom;
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
-use tree_hash::TreeHash;
 
 /// A LightClientOptimisticUpdate is the update we send on each slot,
 /// it is based off the current unfinalized epoch is verified only against BLS signature.
@@ -14,7 +11,7 @@ use tree_hash::TreeHash;
 #[serde(bound = "T: EthSpec")]
 pub struct LightClientOptimisticUpdate<T: EthSpec> {
     /// The last `BeaconBlockHeader` from the last attested block by the sync committee.
-    pub attested_header: BeaconBlockHeader,
+    pub attested_header: LightClientHeader,
     /// current sync aggreggate
     pub sync_aggregate: SyncAggregate<T>,
     /// Slot of the sync aggregated singature
@@ -22,31 +19,14 @@ pub struct LightClientOptimisticUpdate<T: EthSpec> {
 }
 
 impl<T: EthSpec> LightClientOptimisticUpdate<T> {
-    pub fn new(
-        chain_spec: &ChainSpec,
-        block: &SignedBeaconBlock<T>,
-        attested_state: &BeaconState<T>,
-    ) -> Result<Self, Error> {
-        let altair_fork_epoch = chain_spec
-            .altair_fork_epoch
-            .ok_or(Error::AltairForkNotActive)?;
-        if attested_state.slot().epoch(T::slots_per_epoch()) < altair_fork_epoch {
-            return Err(Error::AltairForkNotActive);
+    pub fn from_light_client_update(
+        update: LightClientUpdate<T>,
+    ) -> Self {
+        Self {
+            attested_header: update.attested_header.clone(),
+            sync_aggregate: update.sync_aggregate.clone(),
+            signature_slot: update.signature_slot,
         }
-
-        let sync_aggregate = block.message().body().sync_aggregate()?;
-        if sync_aggregate.num_set_bits() < chain_spec.min_sync_committee_participants as usize {
-            return Err(Error::NotEnoughSyncCommitteeParticipants);
-        }
-
-        // Compute and validate attested header.
-        let mut attested_header = attested_state.latest_block_header().clone();
-        attested_header.state_root = attested_state.tree_hash_root();
-        Ok(Self {
-            attested_header,
-            sync_aggregate: sync_aggregate.clone(),
-            signature_slot: block.slot(),
-        })
     }
 }
 

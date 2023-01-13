@@ -78,11 +78,11 @@ pub struct LightClientUpdate<T: EthSpec> {
 
 impl<T: EthSpec> LightClientUpdate<T> {
     pub fn new(
-        chain_spec: ChainSpec,
-        beacon_state: BeaconState<T>,
-        block: SignedBlindedBeaconBlock<T>,
+        chain_spec: &ChainSpec,
+        beacon_state: &BeaconState<T>,
+        block: &SignedBlindedBeaconBlock<T>,
         attested_state: &mut BeaconState<T>,
-        attested_block: SignedBlindedBeaconBlock<T>,
+        attested_block: &SignedBlindedBeaconBlock<T>,
         finalized_block: Option<SignedBlindedBeaconBlock<T>>,
     ) -> Result<Self, Error> {
         let altair_fork_epoch = chain_spec
@@ -126,7 +126,7 @@ impl<T: EthSpec> LightClientUpdate<T> {
         // Build finalized header from finalized block
         let (finalized_header, finality_branch) = if let Some(finalized_block) = finalized_block {
             let finalized_header = if finalized_block.message().slot() != chain_spec.genesis_slot {
-                let finalized_header = LightClientHeader::from_block(finalized_block);
+                let finalized_header = LightClientHeader::from_block(&finalized_block);
                 if finalized_header.beacon.tree_hash_root() != attested_state.finalized_checkpoint().root {
                     return Err(Error::InvalidFinalizedBlock);
                 }

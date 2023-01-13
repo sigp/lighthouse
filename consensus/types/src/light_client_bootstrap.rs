@@ -44,7 +44,7 @@ impl<T: EthSpec> LightClientBootstrap<T> {
     pub fn new(
         chain_spec: &ChainSpec,
         beacon_state: &mut BeaconState<T>,
-        block: SignedBlindedBeaconBlock<T>,
+        block: &SignedBlindedBeaconBlock<T>,
     ) -> Result<Self, Error> {
         let altair_fork_epoch = chain_spec
             .altair_fork_epoch

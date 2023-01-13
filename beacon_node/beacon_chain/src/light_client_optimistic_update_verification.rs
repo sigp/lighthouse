@@ -7,7 +7,7 @@ use slot_clock::SlotClock;
 use std::time::Duration;
 use strum::AsRefStr;
 use types::{
-    light_client_update::Error as LightClientUpdateError, LightClientOptimisticUpdate, Slot,
+    light_client_update::Error as LightClientUpdateError, LightClientOptimisticUpdate, Slot, LightClientUpdate,
 };
 
 /// Returned when a light client optimistic update was not successfully verified. It might not have been verified for
@@ -73,7 +73,7 @@ impl<T: BeaconChainTypes> VerifiedLightClientOptimisticUpdate<T> {
         chain: &BeaconChain<T>,
         seen_timestamp: Duration,
     ) -> Result<Self, Error> {
-        let gossiped_optimistic_slot = light_client_optimistic_update.attested_header.slot;
+        let gossiped_optimistic_slot = light_client_optimistic_update.attested_header.beacon.slot;
         let one_third_slot_duration = Duration::new(chain.spec.seconds_per_slot / 3, 0);
         let signature_slot = light_client_optimistic_update.signature_slot;
         let start_time = chain.slot_clock.start_of(signature_slot);
@@ -86,11 +86,11 @@ impl<T: BeaconChainTypes> VerifiedLightClientOptimisticUpdate<T> {
             .get_blinded_block(&attested_block_root)?
             .ok_or(Error::FailedConstructingUpdate)?;
 
-        let attested_state = chain
+        let mut attested_state = chain
             .get_state(&attested_block.state_root(), Some(attested_block.slot()))?
             .ok_or(Error::FailedConstructingUpdate)?;
         let latest_seen_optimistic_update_slot = match latest_seen_optimistic_update.as_ref() {
-            Some(update) => update.attested_header.slot,
+            Some(update) => update.attested_header.beacon.slot,
             None => Slot::new(0),
         };
 
@@ -121,8 +121,16 @@ impl<T: BeaconChainTypes> VerifiedLightClientOptimisticUpdate<T> {
             return Err(Error::UnknownBlockParentRoot(canonical_root));
         }
 
-        let optimistic_update =
-            LightClientOptimisticUpdate::new(&chain.spec, head_block, &attested_state)?;
+        let head_state = &head.snapshot.beacon_state;
+        let update=  LightClientUpdate::new(
+            &chain.spec,
+            &head_state,
+            &head_block.clone_as_blinded(),
+            &mut attested_state,
+            &attested_block,
+            None,
+        )?;
+        let optimistic_update = LightClientOptimisticUpdate::from_light_client_update(update);
 
         // verify that the gossiped optimistic update is the same as the locally constructed one.
         if optimistic_update != light_client_optimistic_update {

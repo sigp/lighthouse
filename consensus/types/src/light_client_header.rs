@@ -13,7 +13,7 @@ pub struct LightClientHeader {
 }
 
 impl LightClientHeader {
-    pub fn from_block<T: EthSpec>(block: SignedBlindedBeaconBlock<T>) -> Self {
+    pub fn from_block<T: EthSpec>(block: &SignedBlindedBeaconBlock<T>) -> Self {
         Self {
             beacon: block.message().block_header(),
         }

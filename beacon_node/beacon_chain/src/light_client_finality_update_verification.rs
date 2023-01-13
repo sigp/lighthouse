@@ -6,7 +6,7 @@ use slot_clock::SlotClock;
 use std::time::Duration;
 use strum::AsRefStr;
 use types::{
-    light_client_update::Error as LightClientUpdateError, LightClientFinalityUpdate, Slot,
+    light_client_update::Error as LightClientUpdateError, LightClientFinalityUpdate, Slot, LightClientUpdate,
 };
 
 /// Returned when a light client finality update was not successfully verified. It might not have been verified for
@@ -69,7 +69,7 @@ impl<T: BeaconChainTypes> VerifiedLightClientFinalityUpdate<T> {
         chain: &BeaconChain<T>,
         seen_timestamp: Duration,
     ) -> Result<Self, Error> {
-        let gossiped_finality_slot = light_client_finality_update.finalized_header.slot;
+        let gossiped_finality_slot = light_client_finality_update.finalized_header.beacon.slot;
         let one_third_slot_duration = Duration::new(chain.spec.seconds_per_slot / 3, 0);
         let signature_slot = light_client_finality_update.signature_slot;
         let start_time = chain.slot_clock.start_of(signature_slot);
@@ -90,7 +90,7 @@ impl<T: BeaconChainTypes> VerifiedLightClientFinalityUpdate<T> {
             .get_blinded_block(&finalized_block_root)?
             .ok_or(Error::FailedConstructingUpdate)?;
         let latest_seen_finality_update_slot = match latest_seen_finality_update.as_ref() {
-            Some(update) => update.finalized_header.slot,
+            Some(update) => update.finalized_header.beacon.slot,
             None => Slot::new(0),
         };
 
@@ -112,13 +112,15 @@ impl<T: BeaconChainTypes> VerifiedLightClientFinalityUpdate<T> {
         }
 
         let head_state = &head.snapshot.beacon_state;
-        let finality_update = LightClientFinalityUpdate::new(
+        let update = LightClientUpdate::new(
             &chain.spec,
-            head_state,
-            head_block,
+            &head_state,
+            &head_block.clone_as_blinded(),
             &mut attested_state,
-            &finalized_block,
+            &attested_block,
+            Some(finalized_block),
         )?;
+        let finality_update = LightClientFinalityUpdate::from_light_client_update(update);
 
         // verify that the gossiped finality update is the same as the locally constructed one.
         if finality_update != light_client_finality_update {
