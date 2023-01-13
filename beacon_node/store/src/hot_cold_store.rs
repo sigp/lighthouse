@@ -1704,62 +1704,20 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             }
         }
 
-        let data_availability_breakpoint: Hash256;
-
-        match blob_info.data_availability_boundary {
-            Some(breakpoint) => {
-                if breakpoint == blob_info.oldest_blob_parent {
-                    return Ok(());
-                }
-                data_availability_breakpoint = breakpoint;
-            }
-            None => {
-                return Ok(());
-            }
-        }
-
-        // Load the state from which to prune blobs so we can backtrack.
-        let prune_state = self.get_state(&data_availability_breakpoint, None)?.ok_or(
-            HotColdDBError::MissingStateToPruneBlobs(data_availability_breakpoint),
-        )?;
-
-        // The data_availability_breakpoint is set at the start of an epoch indicating the epoch
-        // before can be pruned.
-        let prune_epoch = prune_state.current_epoch() - 1;
-
-        // The finalized block may or may not have its blobs sidecar stored, depending on
-        // whether it was at a skipped slot. However for a fully pruned database its parent
-        // should *always* have been pruned. In the case of blobs sidecars we look at the next
-        // parent block with at least one kzg commitment.
-
-        let already_pruned = process_results(
-            BlockRootsIter::new(&prune_state, blob_info.oldest_blob_slot),
-            |mut iter| {
-                iter.find(|(_, block_root)| {
-                    move || -> bool {
-                        if let Ok(Some(erase_parent_block)) = self.get_blinded_block(&block_root) {
-                            if let Ok(expected_kzg_commitments) =
-                                erase_parent_block.message().body().blob_kzg_commitments()
-                            {
-                                if expected_kzg_commitments.len() > 0 {
-                                    return true;
-                                }
-                            }
-                        }
-                        false
-                    }()
-                })
-                .map_or(Ok(true), |(_, split_parent_root)| {
-                    self.blobs_sidecar_exists(&split_parent_root)
-                        .map(|exists| !exists)
-                })
-            },
-        )??;
-
-        if already_pruned && !force {
+        if blob_info.last_pruned_epoch == blob_info.next_epoch_to_prune && !force {
             info!(self.log, "Blobs sidecars are pruned");
             return Ok(());
         }
+
+        let dab_state_root = blob_info.data_availability_boundary.state_root;
+
+        // Load the state from which to prune blobs so we can backtrack.
+        let dab_state = self
+            .get_state(&dab_state_root, None)?
+            .ok_or(HotColdDBError::MissingStateToPruneBlobs(dab_state_root))?;
+
+        let dab_block_root = dab_state.get_latest_block_root(dab_state_root);
+        let dab_slot = dab_state.slot();
 
         // Iterate block roots backwards to oldest blob slot.
         warn!(
@@ -1771,7 +1729,9 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         let mut ops = vec![];
         let mut last_pruned_block_root = None;
 
-        for res in BlockRootsIterator::new(self, &prune_state) {
+        for res in std::iter::once(Ok((dab_block_root, dab_slot)))
+            .chain(BlockRootsIterator::new(self, &dab_state))
+        {
             let (block_root, slot) = match res {
                 Ok(tuple) => tuple,
                 Err(e) => {
@@ -1797,15 +1757,13 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 ops.push(StoreOp::DeleteBlobs(block_root));
             }
 
-            if block_root == blob_info.oldest_blob_parent {
+            if slot <= blob_info.oldest_blob_slot {
                 info!(
                     self.log,
                     "Blobs sidecar pruning reached earliest available blobs sidecar";
                     "slot" => slot
                 );
-                blob_info.oldest_blob_slot = slot;
-                blob_info.last_pruned_epoch = prune_epoch;
-                blob_info.oldest_blob_parent = data_availability_breakpoint;
+                blob_info.oldest_blob_slot = dab_slot + 1;
                 break;
             }
         }
@@ -1818,6 +1776,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             "blobs_sidecars_pruned" => blobs_sidecars_pruned,
         );
 
+        blob_info.last_pruned_epoch = dab_state.current_epoch();
         self.compare_and_set_blob_info_with_write(self.get_blob_info(), Some(blob_info))?;
 
         Ok(())
@@ -1968,7 +1927,7 @@ pub fn migrate_database<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
 }
 
 /// Struct for storing the split slot and state root in the database.
-#[derive(Debug, Clone, Copy, PartialEq, Default, Encode, Decode, Deserialize, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Encode, Decode, Deserialize, Serialize)]
 pub struct Split {
     pub(crate) slot: Slot,
     pub(crate) state_root: Hash256,
@@ -1985,6 +1944,12 @@ impl StoreItem for Split {
 
     fn from_store_bytes(bytes: &[u8]) -> Result<Self, Error> {
         Ok(Self::from_ssz_bytes(bytes)?)
+    }
+}
+
+impl Split {
+    pub fn new(slot: Slot, state_root: Hash256) -> Self {
+        Split { slot, state_root }
     }
 }
 

@@ -50,6 +50,7 @@ use crate::persisted_fork_choice::PersistedForkChoice;
 use crate::pre_finalization_cache::PreFinalizationBlockCache;
 use crate::shuffling_cache::{BlockShufflingIds, ShufflingCache};
 use crate::snapshot_cache::{BlockProductionPreState, SnapshotCache};
+use crate::store::Split;
 use crate::sync_committee_verification::{
     Error as SyncCommitteeError, VerifiedSyncCommitteeMessage, VerifiedSyncContribution,
 };
@@ -3029,7 +3030,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         if Some(current_epoch)
-            >= self.spec.eip4844_fork_epoch.map(|eip4844_fork_epoch| {
+            > self.spec.eip4844_fork_epoch.map(|eip4844_fork_epoch| {
                 eip4844_fork_epoch + *MIN_EPOCHS_FOR_BLOBS_SIDECARS_REQUESTS
             })
         {
@@ -3038,15 +3039,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             // Update db's metadata for blobs pruning.
             if current_slot == current_epoch_start_slot {
                 if let Some(mut blob_info) = self.store.get_blob_info() {
-                    // Pruning enabled until data availability boundary.
                     if let Some(data_availability_boundary) = self.data_availability_boundary() {
-                        blob_info.data_availability_boundary = self.state_root_at_slot(
-                            data_availability_boundary.start_slot(T::EthSpec::slots_per_epoch()),
-                        )?;
-                        self.store.compare_and_set_blob_info_with_write(
-                            self.store.get_blob_info(),
-                            Some(blob_info),
-                        )?;
+                        let dab_slot =
+                            data_availability_boundary.end_slot(T::EthSpec::slots_per_epoch());
+                        if let Some(dab_state_root) = self.state_root_at_slot(dab_slot)? {
+                            blob_info.data_availability_boundary =
+                                Split::new(dab_slot, dab_state_root);
+
+                            self.store.compare_and_set_blob_info_with_write(
+                                self.store.get_blob_info(),
+                                Some(blob_info),
+                            )?;
+                        }
                     }
                 }
             }
