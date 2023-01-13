@@ -24,7 +24,9 @@ use metastruct::metastruct;
 ///
 /// Credit to Reth for the type definition.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-#[metastruct(mappings(map_execution_block_header_fields()))]
+#[metastruct(mappings(map_execution_block_header_fields_except_withdrawals(exclude(
+    withdrawals_root
+))))]
 pub struct ExecutionBlockHeader {
     pub parent_hash: Hash256,
     pub ommers_hash: Hash256,
@@ -42,6 +44,7 @@ pub struct ExecutionBlockHeader {
     pub mix_hash: Hash256,
     pub nonce: Hash64,
     pub base_fee_per_gas: Uint256,
+    pub withdrawals_root: Option<Hash256>,
 }
 
 impl ExecutionBlockHeader {
@@ -49,6 +52,7 @@ impl ExecutionBlockHeader {
         payload: ExecutionPayloadRef<E>,
         rlp_empty_list_root: Hash256,
         rlp_transactions_root: Hash256,
+        rlp_withdrawals_root: Option<Hash256>,
     ) -> Self {
         // Most of these field mappings are defined in EIP-3675 except for `mixHash`, which is
         // defined in EIP-4399.
@@ -69,6 +73,7 @@ impl ExecutionBlockHeader {
             mix_hash: payload.prev_randao(),
             nonce: Hash64::zero(),
             base_fee_per_gas: payload.base_fee_per_gas(),
+            withdrawals_root: rlp_withdrawals_root,
         }
     }
 }
