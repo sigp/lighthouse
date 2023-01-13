@@ -1215,9 +1215,20 @@ impl<T: BeaconChainTypes> Worker<T> {
                     "peer" => %peer_id,
                     "error" => ?e
                 );
-                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
-                // We penalize the peer slightly to prevent overuse of invalids.
-                if !matches!(e, BeaconChainError::BlsToExecutionChangeBadFork(_)) {
+                // We ignore pre-capella messages without penalizing peers.
+                if matches!(e, BeaconChainError::BlsToExecutionChangeBadFork(_)) {
+                    self.propagate_validation_result(
+                        message_id,
+                        peer_id,
+                        MessageAcceptance::Ignore,
+                    );
+                } else {
+                    // We penalize the peer slightly to prevent overuse of invalids.
+                    self.propagate_validation_result(
+                        message_id,
+                        peer_id,
+                        MessageAcceptance::Reject,
+                    );
                     self.gossip_penalize_peer(
                         peer_id,
                         PeerAction::HighToleranceError,
