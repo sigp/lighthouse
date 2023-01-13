@@ -228,7 +228,6 @@ struct Inner<E: EthSpec> {
     executor: TaskExecutor,
     payload_cache: PayloadCache<E>,
     builder_profit_threshold: Uint256,
-    spec: ChainSpec,
     log: Logger,
 }
 
@@ -252,8 +251,6 @@ pub struct Config {
     /// The minimum value of an external payload for it to be considered in a proposal.
     pub builder_profit_threshold: u128,
     pub execution_timeout_multiplier: Option<u32>,
-    #[serde(skip)]
-    pub spec: ChainSpec,
 }
 
 /// Provides access to one execution engine and provides a neat interface for consumption by the
@@ -281,7 +278,6 @@ impl<T: EthSpec> ExecutionLayer<T> {
             default_datadir,
             builder_profit_threshold,
             execution_timeout_multiplier,
-            spec,
         } = config;
 
         if urls.len() > 1 {
@@ -326,9 +322,13 @@ impl<T: EthSpec> ExecutionLayer<T> {
         let engine: Engine = {
             let auth = Auth::new(jwt_key, jwt_id, jwt_version);
             debug!(log, "Loaded execution endpoint"; "endpoint" => %execution_url, "jwt_path" => ?secret_file.as_path());
-            let api =
-                HttpJsonRpc::new_with_auth(execution_url, auth, execution_timeout_multiplier, &spec)
-                    .map_err(Error::ApiError)?;
+            let api = HttpJsonRpc::new_with_auth(
+                execution_url,
+                auth,
+                execution_timeout_multiplier,
+                &spec,
+            )
+            .map_err(Error::ApiError)?;
             Engine::new(api, executor.clone(), &log)
         };
 
@@ -354,7 +354,6 @@ impl<T: EthSpec> ExecutionLayer<T> {
             executor,
             payload_cache: PayloadCache::default(),
             builder_profit_threshold: Uint256::from(builder_profit_threshold),
-            spec,
             log,
         };
 
@@ -1028,7 +1027,6 @@ impl<T: EthSpec> ExecutionLayer<T> {
 
                     let response = engine
                         .notify_forkchoice_updated(
-                            current_fork,
                             fork_choice_state,
                             Some(payload_attributes.clone()),
                             self.log(),
@@ -1289,13 +1287,8 @@ impl<T: EthSpec> ExecutionLayer<T> {
             finalized_block_hash,
         };
 
-        let fork_name = self
-            .inner
-            .spec
-            .fork_name_at_epoch(next_slot.epoch(T::slots_per_epoch()));
-
         self.engine()
-            .set_latest_forkchoice_state(fork_name, forkchoice_state)
+            .set_latest_forkchoice_state(forkchoice_state)
             .await;
 
         let payload_attributes_ref = &payload_attributes;
@@ -1304,7 +1297,6 @@ impl<T: EthSpec> ExecutionLayer<T> {
             .request(|engine| async move {
                 engine
                     .notify_forkchoice_updated(
-                        fork_name,
                         forkchoice_state,
                         payload_attributes_ref.clone(),
                         self.log(),

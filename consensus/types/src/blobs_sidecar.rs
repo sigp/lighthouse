@@ -18,8 +18,8 @@ use tree_hash_derive::TreeHash;
     Decode,
     TreeHash,
     Default,
-        TestRandom,
-Derivative,
+    TestRandom,
+    Derivative,
     arbitrary::Arbitrary,
 )]
 #[serde(bound = "T: EthSpec")]

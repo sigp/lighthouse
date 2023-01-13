@@ -953,10 +953,13 @@ impl HttpJsonRpc {
         &self,
         execution_payload: ExecutionPayload<T>,
     ) -> Result<PayloadStatusV1, Error> {
-        match execution_payload {
-            ExecutionPayload::Eip4844(_) => self.new_payload_v3(execution_payload).await,
-            ExecutionPayload::Capella(_) => self.new_payload_v2(execution_payload).await,
-            ExecutionPayload::Merge(_) => self.new_payload_v1(execution_payload).await,
+        let supported_apis = self.get_cached_supported_apis().await?;
+        if supported_apis.new_payload_v2 {
+            self.new_payload_v2(execution_payload).await
+        } else if supported_apis.new_payload_v1 {
+            self.new_payload_v1(execution_payload).await
+        } else {
+            Err(Error::RequiredMethodUnsupported("engine_newPayload"))
         }
     }
 
@@ -967,11 +970,13 @@ impl HttpJsonRpc {
         fork_name: ForkName,
         payload_id: PayloadId,
     ) -> Result<ExecutionPayload<T>, Error> {
-        match fork_name {
-            ForkName::Eip4844 => self.get_payload_v3(fork_name, payload_id).await,
-            ForkName::Capella => self.get_payload_v2(fork_name, payload_id).await,
-            ForkName::Merge => self.get_payload_v1(fork_name, payload_id).await,
-            _ => Err(Error::RequiredMethodUnsupported("engine_getPayload")),
+        let supported_apis = self.get_cached_supported_apis().await?;
+        if supported_apis.get_payload_v2 {
+            self.get_payload_v2(fork_name, payload_id).await
+        } else if supported_apis.new_payload_v1 {
+            self.get_payload_v1(fork_name, payload_id).await
+        } else {
+            Err(Error::RequiredMethodUnsupported("engine_getPayload"))
         }
     }
 
@@ -979,25 +984,23 @@ impl HttpJsonRpc {
     // forkchoice_updated that the execution engine supports
     pub async fn forkchoice_updated(
         &self,
-        fork_name: ForkName,
         forkchoice_state: ForkchoiceState,
         payload_attributes: Option<PayloadAttributes>,
     ) -> Result<ForkchoiceUpdatedResponse, Error> {
-        match fork_name {
-            ForkName::Capella | ForkName::Eip4844 => {
-                self.forkchoice_updated_v2(forkchoice_state, payload_attributes)
-                    .await
-            }
-            ForkName::Merge => {
-                self.forkchoice_updated_v1(
-                    forkchoice_state,
-                    payload_attributes
-                        .map(|pa| pa.downgrade_to_v1())
-                        .transpose()?,
-                )
+        let supported_apis = self.get_cached_supported_apis().await?;
+        if supported_apis.forkchoice_updated_v2 {
+            self.forkchoice_updated_v2(forkchoice_state, payload_attributes)
                 .await
-            }
-            _ => Err(Error::RequiredMethodUnsupported("engine_forkchoiceUpdated")),
+        } else if supported_apis.forkchoice_updated_v1 {
+            self.forkchoice_updated_v1(
+                forkchoice_state,
+                payload_attributes
+                    .map(|pa| pa.downgrade_to_v1())
+                    .transpose()?,
+            )
+            .await
+        } else {
+            Err(Error::RequiredMethodUnsupported("engine_forkchoiceUpdated"))
         }
     }
 }
