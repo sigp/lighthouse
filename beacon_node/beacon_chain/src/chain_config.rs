@@ -91,9 +91,8 @@ impl Default for ChainConfig {
             count_unrealized_full: CountUnrealizedFull::default(),
             checkpoint_sync_url_timeout: 60,
             prepare_payload_lookahead: Duration::from_secs(4),
-            // TODO(capella): disabled until withdrawal verification is implemented
-            // See: https://github.com/sigp/lighthouse/issues/3870
-            optimistic_finalized_sync: false,
+            // This value isn't actually read except in tests.
+            optimistic_finalized_sync: true,
         }
     }
 }
