@@ -822,6 +822,12 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                     let key = get_key_for_col(DBColumn::ExecPayload.into(), block_root.as_bytes());
                     key_value_batch.push(KeyValueStoreOp::DeleteKey(key));
                 }
+
+                StoreOp::PutOrphanedBlobs(block_root) => {
+                    let db_key =
+                        get_key_for_col(DBColumn::BeaconBlobOrphan.into(), block_root.as_bytes());
+                    key_value_batch.push(KeyValueStoreOp::PutKeyValue(db_key, [].into()));
+                }
             }
         }
         Ok(key_value_batch)
@@ -862,6 +868,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 StoreOp::DeleteState(_, _) => (),
 
                 StoreOp::DeleteExecutionPayload(_) => (),
+
+                StoreOp::PutOrphanedBlobs(_) => (),
             }
         }
 
