@@ -158,7 +158,7 @@ pub enum StoreOp<'a, E: EthSpec> {
     PutBlock(Hash256, Arc<SignedBeaconBlock<E>>),
     PutState(Hash256, &'a BeaconState<E>),
     PutBlobs(Hash256, Arc<BlobsSidecar<E>>),
-    PutOrphanedBlobs(Hash256),
+    PutOrphanedBlobsKey(Hash256),
     PutStateSummary(Hash256, HotStateSummary),
     PutStateTemporaryFlag(Hash256),
     DeleteStateTemporaryFlag(Hash256),

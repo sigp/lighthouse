@@ -573,7 +573,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
                     StoreOp::DeleteBlock(block_root),
                     StoreOp::DeleteExecutionPayload(block_root),
                     StoreOp::DeleteBlobs(block_root),
-                    StoreOp::PutOrphanedBlobs(block_root),
+                    StoreOp::PutOrphanedBlobsKey(block_root),
                 ]
             })
             .chain(
