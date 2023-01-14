@@ -476,7 +476,7 @@ impl<T: BeaconChainTypes> Worker<T> {
 
         let mut light_client_updates_sent = 0;
         let mut send_response = true;
-        
+
         // No async necessary here because we don't need to hit the execution layer.
         // TODO(geemo): use database iterator.
         for i in req.start_period..req.start_period + req.count {

@@ -5,7 +5,7 @@ use regex::bytes::Regex;
 use serde::Serialize;
 use ssz_derive::{Decode, Encode};
 use ssz_types::{
-    typenum::{U1024, U256, U128},
+    typenum::{U1024, U128, U256},
     VariableList,
 };
 use std::ops::Deref;

@@ -523,7 +523,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         &self,
         _sync_committee_period: u64,
     ) -> Result<Option<LightClientUpdate<E>>, Error> {
-       todo!() 
+        todo!()
     }
 
     /// Fetch a state from the store, but don't compute all of the values when replaying blocks
