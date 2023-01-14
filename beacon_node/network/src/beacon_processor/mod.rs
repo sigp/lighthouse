@@ -1832,7 +1832,6 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                 request,
             } => task_spawner.spawn_blocking(move || {
                 worker.handle_light_client_updates_by_range_request(
-                    sub_executor,
                     peer_id,
                     request_id,
                     request,

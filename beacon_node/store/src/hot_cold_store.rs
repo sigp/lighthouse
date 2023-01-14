@@ -518,6 +518,14 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         }
     }
 
+    /// Fetch a light client update from the store.
+    pub fn get_light_client_update(
+        &self,
+        _sync_committee_period: u64,
+    ) -> Result<Option<LightClientUpdate<E>>, Error> {
+       todo!() 
+    }
+
     /// Fetch a state from the store, but don't compute all of the values when replaying blocks
     /// upon that state (e.g., state roots). Additionally, only states from the hot store are
     /// returned.

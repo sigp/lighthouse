@@ -459,7 +459,6 @@ impl<T: BeaconChainTypes> Worker<T> {
     /// Handle a `LightClientUpdatesByRange` request from the peer.
     pub fn handle_light_client_updates_by_range_request(
         self,
-        executor: TaskExecutor,
         peer_id: PeerId,
         request_id: PeerRequestId,
         mut req: LightClientUpdatesByRangeRequest,
@@ -469,6 +468,94 @@ impl<T: BeaconChainTypes> Worker<T> {
             "count" => req.count,
             "start_period" => req.start_period,
         );
-        todo!()
+
+        // Should not send more than max request blocks
+        if req.count > MAX_REQUEST_LIGHT_CLIENT_UPDATES {
+            req.count = MAX_REQUEST_LIGHT_CLIENT_UPDATES;
+        }
+
+        let mut light_client_updates_sent = 0;
+        let mut send_response = true;
+        
+        // No async necessary here because we don't need to hit the execution layer.
+        // TODO(geemo): use database iterator.
+        for i in req.start_period..req.start_period + req.count {
+            match self.chain.get_light_client_update(i) {
+                Ok(Some(update)) => {
+                    light_client_updates_sent += 1;
+                    self.send_network_message(NetworkMessage::SendResponse {
+                        peer_id,
+                        response: Response::LightClientUpdatesByRange(Some(Arc::new(update))),
+                        id: request_id,
+                    });
+                }
+                Ok(None) => {
+                    error!(
+                        self.log,
+                        "Light client update is not in the store";
+                        "request_period" => i
+                    );
+                    break;
+                }
+                Err(e) => {
+                    error!(
+                        self.log,
+                        "Error fetching light client update for peer";
+                        "request_period" => i,
+                        "error" => ?e
+                    );
+
+                    // send the stream terminator
+                    self.send_error_response(
+                        peer_id,
+                        RPCResponseErrorCode::ServerError,
+                        "Failed fetching light client updates".into(),
+                        request_id,
+                    );
+                    send_response = false;
+                    break;
+                }
+            }
+        }
+
+        let current_period = self
+            .chain
+            .slot()
+            .unwrap_or_else(|_| self.chain.slot_clock.genesis_slot())
+            .epoch(T::EthSpec::slots_per_epoch())
+            .sync_committee_period(&self.chain.spec)
+            .unwrap_or_else(|_| 0);
+
+        if light_client_updates_sent < (req.count as usize) {
+            debug!(
+                self.log,
+                "LightClientUpdatesByRange outgoing response processed";
+                "peer" => %peer_id,
+                "msg" => "Failed to return all requested light client updates",
+                "start_period" => req.start_period,
+                "current_period" => current_period,
+                "requested" => req.count,
+                "returned" => light_client_updates_sent
+            );
+        } else {
+            debug!(
+                self.log,
+                "LightClientUpdatesByRange outgoing response processed";
+                "peer" => %peer_id,
+                "start_period" => req.start_period,
+                "current_period" => current_period,
+                "requested" => req.count,
+                "returned" => light_client_updates_sent
+            );
+        }
+
+        if send_response {
+            // send the stream terminator
+            self.send_network_message(NetworkMessage::SendResponse {
+                peer_id,
+                response: Response::LightClientUpdatesByRange(None),
+                id: request_id,
+            });
+        }
     }
 }

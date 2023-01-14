@@ -5,7 +5,7 @@ use regex::bytes::Regex;
 use serde::Serialize;
 use ssz_derive::{Decode, Encode};
 use ssz_types::{
-    typenum::{U1024, U256},
+    typenum::{U1024, U256, U128},
     VariableList,
 };
 use std::ops::Deref;
@@ -20,6 +20,10 @@ use types::{
 /// Maximum number of blocks in a single request.
 pub type MaxRequestBlocks = U1024;
 pub const MAX_REQUEST_BLOCKS: u64 = 1024;
+
+/// Maximum number of light client updates in a single request.
+pub type MaxRequestLightClientUpdates = U128;
+pub const MAX_REQUEST_LIGHT_CLIENT_UPDATES: u64 = 128;
 
 /// Maximum length of error message.
 pub type MaxErrorLen = U256;
