@@ -555,9 +555,18 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("prune-blobs")
                 .long("prune-blobs")
                 .help("Prune blobs from Lighthouse's database when they are older than the data \
-                       data availability boundary relative to the current head.")
+                       data availability boundary relative to the current epoch.")
                 .takes_value(true)
                 .default_value("true")
+        )
+        .arg(
+            Arg::with_name("epochs-per-blob-prune")
+                .long("epochs-per-blob-prune")
+                .help("The epoch interval with which to prune blobs from Lighthouse's \
+                       database when they are older than the data data availability \
+                       boundary relative to the current epoch.")
+                .takes_value(true)
+                .default_value("1")
         )
 
         /*

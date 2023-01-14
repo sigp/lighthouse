@@ -1721,9 +1721,13 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             }
         };
 
-        if blob_info.last_pruned_epoch == blob_info.next_epoch_to_prune && !force {
-            info!(self.log, "Blobs sidecars are pruned");
-            return Ok(());
+        if !force {
+            let epochs_per_blob_prune =
+                Epoch::new(self.get_config().epochs_per_blob_prune * E::slots_per_epoch());
+            if blob_info.last_pruned_epoch + epochs_per_blob_prune > blob_info.next_epoch_to_prune {
+                info!(self.log, "Blobs sidecars are pruned");
+                return Ok(());
+            }
         }
 
         let dab_state_root = blob_info.data_availability_boundary.state_root;
@@ -1840,7 +1844,7 @@ pub fn migrate_database<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
     }
 
     // Prune blobs before migration.
-    store.try_prune_blobs(false)?;
+    store.try_prune_blobs(true)?;
 
     let mut hot_db_ops: Vec<StoreOp<E>> = Vec::new();
 

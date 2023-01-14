@@ -415,6 +415,12 @@ pub fn get_config<E: EthSpec>(
         client_config.store.prune_blobs = prune_blobs;
     }
 
+    if let Some(epochs_per_blob_prune) =
+        clap_utils::parse_optional(cli_args, "epochs-per-blob-prune")?
+    {
+        client_config.store.epochs_per_blob_prune = epochs_per_blob_prune;
+    }
+
     /*
      * Zero-ports
      *

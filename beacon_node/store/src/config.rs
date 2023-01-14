@@ -8,6 +8,7 @@ pub const PREV_DEFAULT_SLOTS_PER_RESTORE_POINT: u64 = 2048;
 pub const DEFAULT_SLOTS_PER_RESTORE_POINT: u64 = 8192;
 pub const DEFAULT_BLOCK_CACHE_SIZE: usize = 5;
 pub const DEFAULT_BLOB_CACHE_SIZE: usize = 5;
+pub const DEFAULT_EPOCHS_PER_BLOB_PRUNE: u64 = 1;
 
 /// Database configuration parameters.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -28,6 +29,8 @@ pub struct StoreConfig {
     pub prune_payloads: bool,
     /// Whether to prune blobs older than the blob data availability boundary.
     pub prune_blobs: bool,
+    /// Frequency of blob pruning. Default: every epoch.
+    pub epochs_per_blob_prune: u64,
 }
 
 /// Variant of `StoreConfig` that gets written to disk. Contains immutable configuration params.
@@ -53,6 +56,7 @@ impl Default for StoreConfig {
             compact_on_prune: true,
             prune_payloads: true,
             prune_blobs: true,
+            epochs_per_blob_prune: DEFAULT_EPOCHS_PER_BLOB_PRUNE,
         }
     }
 }
