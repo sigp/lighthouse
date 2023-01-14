@@ -166,7 +166,11 @@ impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
         let mut db = HotColdDB {
             split: RwLock::new(Split::default()),
             anchor_info: RwLock::new(None),
-            blob_info: RwLock::new(None),
+            blob_info: RwLock::new(
+                spec.eip4844_fork_epoch
+                    .is_some()
+                    .then(|| BlobInfo::default()),
+            ),
             cold_db: LevelDB::open(cold_path)?,
             hot_db: LevelDB::open(hot_path)?,
             block_cache: Mutex::new(LruCache::new(config.block_cache_size)),
@@ -212,8 +216,17 @@ impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
             );
         }
 
-        if db.spec.eip4844_fork_epoch.is_some() {
-            *db.blob_info.write() = db.load_blob_info()?.or(Some(BlobInfo::default()));
+        if let Some(blob_info) = db.load_blob_info()? {
+            let dab_slot = blob_info.data_availability_boundary.slot;
+            let dab_state_root = blob_info.data_availability_boundary.state_root;
+            *db.blob_info.write() = Some(blob_info);
+
+            info!(
+                db.log,
+                "Blob info loaded from disk";
+                "data_availability_boundary_slot" => dab_slot,
+                "data_availability_boundary_state" => ?dab_state_root,
+            );
         }
 
         // Ensure that the schema version of the on-disk database matches the software.
