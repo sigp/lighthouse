@@ -333,8 +333,8 @@ pub struct JsonWithdrawal {
     #[serde(with = "eth2_serde_utils::u64_hex_be")]
     pub validator_index: u64,
     pub address: Address,
-    #[serde(with = "eth2_serde_utils::u256_hex_be")]
-    pub amount: Uint256,
+    #[serde(with = "eth2_serde_utils::u64_hex_be")]
+    pub amount: u64,
 }
 
 impl From<Withdrawal> for JsonWithdrawal {
@@ -343,21 +343,18 @@ impl From<Withdrawal> for JsonWithdrawal {
             index: withdrawal.index,
             validator_index: withdrawal.validator_index,
             address: withdrawal.address,
-            amount: Uint256::from((withdrawal.amount as u128) * 1000000000u128),
+            amount: withdrawal.amount,
         }
     }
 }
 
 impl From<JsonWithdrawal> for Withdrawal {
     fn from(jw: JsonWithdrawal) -> Self {
-        // This comparison is done to avoid a scenario where the EE gives us too large a number and we
-        // panic when attempting to cast to a `u64`.
-        let amount = std::cmp::max(jw.amount / 1000000000, Uint256::from(u64::MAX));
         Self {
             index: jw.index,
             validator_index: jw.validator_index,
             address: jw.address,
-            amount: amount.as_u64(),
+            amount: jw.amount,
         }
     }
 }
