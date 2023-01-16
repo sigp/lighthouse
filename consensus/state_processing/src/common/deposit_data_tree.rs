@@ -1,4 +1,4 @@
-use eth2_hashing::hash;
+use ethereum_hashing::hash;
 use int_to_bytes::int_to_bytes32;
 use merkle_proof::{MerkleTree, MerkleTreeError};
 use safe_arith::SafeArith;

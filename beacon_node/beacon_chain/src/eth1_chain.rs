@@ -1,7 +1,7 @@
 use crate::metrics;
 use eth1::{Config as Eth1Config, Eth1Block, Service as HttpService};
 use eth2::lighthouse::Eth1SyncStatusData;
-use eth2_hashing::hash;
+use ethereum_hashing::hash;
 use int_to_bytes::int_to_bytes32;
 use slog::{debug, error, trace, Logger};
 use ssz::{Decode, Encode};
