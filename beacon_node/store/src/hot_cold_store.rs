@@ -1722,8 +1722,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         };
 
         if !force {
-            if blob_info.last_pruned_epoch + self.get_config().epochs_per_blob_prune
-                > blob_info.next_epoch_to_prune
+            if blob_info.last_pruned_epoch.as_u64() + self.get_config().epochs_per_blob_prune
+                > blob_info.next_epoch_to_prune.as_u64()
             {
                 info!(self.log, "Blobs sidecars are pruned");
                 return Ok(());
