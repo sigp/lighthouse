@@ -1,4 +1,5 @@
 use crate::{
+    json_structures::JsonWithdrawal,
     keccak::{keccak256, KeccakHasher},
     metrics, Error, ExecutionLayer,
 };
@@ -6,8 +7,8 @@ use ethers_core::utils::rlp::RlpStream;
 use keccak_hash::KECCAK_EMPTY_LIST_RLP;
 use triehash::ordered_trie_root;
 use types::{
-    map_execution_block_header_fields, Address, EthSpec, ExecutionBlockHash, ExecutionBlockHeader,
-    ExecutionPayloadRef, Hash256, Hash64, Uint256,
+    map_execution_block_header_fields_except_withdrawals, Address, EthSpec, ExecutionBlockHash,
+    ExecutionBlockHeader, ExecutionPayloadRef, Hash256, Hash64, Uint256,
 };
 
 impl<T: EthSpec> ExecutionLayer<T> {
@@ -24,11 +25,23 @@ impl<T: EthSpec> ExecutionLayer<T> {
             payload.transactions().iter().map(|txn_bytes| &**txn_bytes),
         );
 
+        // Calculate withdrawals root (post-Capella).
+        let rlp_withdrawals_root = if let Ok(withdrawals) = payload.withdrawals() {
+            Some(ordered_trie_root::<KeccakHasher, _>(
+                withdrawals.iter().map(|withdrawal| {
+                    rlp_encode_withdrawal(&JsonWithdrawal::from(withdrawal.clone()))
+                }),
+            ))
+        } else {
+            None
+        };
+
         // Construct the block header.
         let exec_block_header = ExecutionBlockHeader::from_payload(
             payload,
             KECCAK_EMPTY_LIST_RLP.as_fixed_bytes().into(),
             rlp_transactions_root,
+            rlp_withdrawals_root,
         );
 
         // Hash the RLP encoding of the block header.
@@ -47,13 +60,27 @@ impl<T: EthSpec> ExecutionLayer<T> {
     }
 }
 
+/// RLP encode a withdrawal.
+pub fn rlp_encode_withdrawal(withdrawal: &JsonWithdrawal) -> Vec<u8> {
+    let mut rlp_stream = RlpStream::new();
+    rlp_stream.begin_list(4);
+    rlp_stream.append(&withdrawal.index);
+    rlp_stream.append(&withdrawal.validator_index);
+    rlp_stream.append(&withdrawal.address);
+    rlp_stream.append(&withdrawal.amount);
+    rlp_stream.out().into()
+}
+
 /// RLP encode an execution block header.
 pub fn rlp_encode_block_header(header: &ExecutionBlockHeader) -> Vec<u8> {
     let mut rlp_header_stream = RlpStream::new();
     rlp_header_stream.begin_unbounded_list();
-    map_execution_block_header_fields!(&header, |_, field| {
+    map_execution_block_header_fields_except_withdrawals!(&header, |_, field| {
         rlp_header_stream.append(field);
     });
+    if let Some(withdrawals_root) = &header.withdrawals_root {
+        rlp_header_stream.append(withdrawals_root);
+    }
     rlp_header_stream.finalize_unbounded_list();
     rlp_header_stream.out().into()
 }
@@ -99,6 +126,7 @@ mod test {
             mix_hash: Hash256::from_str("0000000000000000000000000000000000000000000000000000000000000000").unwrap(),
             nonce: Hash64::zero(),
             base_fee_per_gas: 0x036b_u64.into(),
+            withdrawals_root: None,
         };
         let expected_rlp = "f90200a0e0a94a7a3c9617401586b1a27025d2d9671332d22d540e0af72b069170380f2aa01dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d4934794ba5e000000000000000000000000000000000000a0ec3c94b18b8a1cff7d60f8d258ec723312932928626b4c9355eb4ab3568ec7f7a050f738580ed699f0469702c7ccc63ed2e51bc034be9479b7bff4e68dee84accfa029b0562f7140574dd0d50dee8a271b22e1a0a7b78fca58f7c60370d8317ba2a9b9010000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000830200000188016345785d8a00008301553482079e42a0000000000000000000000000000000000000000000000000000000000000000088000000000000000082036b";
         let expected_hash =
@@ -126,6 +154,7 @@ mod test {
             mix_hash: Hash256::from_str("0000000000000000000000000000000000000000000000000000000000020000").unwrap(),
             nonce: Hash64::zero(),
             base_fee_per_gas: 0x036b_u64.into(),
+            withdrawals_root: None,
         };
         let expected_rlp = "f901fda0927ca537f06c783a3a2635b8805eef1c8c2124f7444ad4a3389898dd832f2dbea01dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d4934794ba5e000000000000000000000000000000000000a0e97859b065bd8dbbb4519c7cb935024de2484c2b7f881181b4360492f0b06b82a050f738580ed699f0469702c7ccc63ed2e51bc034be9479b7bff4e68dee84accfa029b0562f7140574dd0d50dee8a271b22e1a0a7b78fca58f7c60370d8317ba2a9b9010000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000800188016345785d8a00008301553482079e42a0000000000000000000000000000000000000000000000000000000000002000088000000000000000082036b";
         let expected_hash =
@@ -154,6 +183,7 @@ mod test {
             mix_hash: Hash256::from_str("bf5289894b2ceab3549f92f063febbac896b280ddb18129a57cff13113c11b13").unwrap(),
             nonce: Hash64::zero(),
             base_fee_per_gas: 0x34187b238_u64.into(),
+            withdrawals_root: None,
         };
         let expected_hash =
             Hash256::from_str("6da69709cd5a34079b6604d29cd78fc01dacd7c6268980057ad92a2bede87351")
