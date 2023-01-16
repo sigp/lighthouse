@@ -100,6 +100,15 @@ fn main() {
                 .global(true),
         )
         .arg(
+            Arg::with_name("logfile-format")
+                .long("logfile-format")
+                .value_name("FORMAT")
+                .help("Specifies the log format used when emitting logs to the logfile.")
+                .possible_values(&["DEFAULT", "JSON"])
+                .takes_value(true)
+                .global(true)
+        )
+        .arg(
             Arg::with_name("logfile-max-size")
                 .long("logfile-max-size")
                 .value_name("SIZE")
@@ -402,6 +411,11 @@ fn run<E: EthSpec>(
         .value_of("logfile-debug-level")
         .ok_or("Expected --logfile-debug-level flag")?;
 
+    let logfile_format = matches
+        .value_of("logfile-format")
+        // Ensure that `logfile-format` defaults to the value of `log-format`.
+        .or_else(|| matches.value_of("log-format"));
+
     let logfile_max_size: u64 = matches
         .value_of("logfile-max-size")
         .ok_or("Expected --logfile-max-size flag")?
@@ -452,6 +466,7 @@ fn run<E: EthSpec>(
         debug_level: String::from(debug_level),
         logfile_debug_level: String::from(logfile_debug_level),
         log_format: log_format.map(String::from),
+        logfile_format: logfile_format.map(String::from),
         log_color,
         disable_log_timestamp,
         max_log_size: logfile_max_size * 1_024 * 1_024,

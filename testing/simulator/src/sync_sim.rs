@@ -51,6 +51,7 @@ fn syncing_sim(
             debug_level: String::from(log_level),
             logfile_debug_level: String::from("debug"),
             log_format: log_format.map(String::from),
+            logfile_format: None,
             log_color: false,
             disable_log_timestamp: false,
             max_log_size: 0,
