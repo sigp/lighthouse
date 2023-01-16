@@ -1018,11 +1018,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         if self.store.get_config().prune_blobs {
             let store = self.store.clone();
             let log = self.log.clone();
-            let current_slot = self.slot()?;
-            let current_epoch = current_slot.epoch(T::EthSpec::slots_per_epoch());
+            let data_availability_boundary = self.data_availability_boundary();
             self.task_executor.spawn_blocking(
                 move || {
-                    if let Err(e) = store.try_prune_blobs(false, Some(current_epoch)) {
+                    if let Err(e) = store.try_prune_blobs(false, data_availability_boundary) {
                         error!(log, "Error pruning blobs in background"; "error" => ?e);
                     }
                 },

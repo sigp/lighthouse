@@ -1735,7 +1735,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 // finalized epoch, hence current_epoch = split_epoch + 1
                 let current_epoch =
                     self.get_split_slot().epoch(E::slots_per_epoch()) + Epoch::new(1);
-                current_epoch - *MIN_EPOCHS_FOR_BLOBS_SIDECARS_REQUESTS
+                current_epoch.saturating_sub(*MIN_EPOCHS_FOR_BLOBS_SIDECARS_REQUESTS)
             }
         };
 
@@ -1757,12 +1757,23 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
         let mut ops = vec![];
         let mut last_pruned_block_root = None;
-        let end_slot = next_epoch_to_prune.start_slot(E::slots_per_epoch());
+        let end_slot = next_epoch_to_prune.end_slot(E::slots_per_epoch());
 
+        // todo(emhane): In the future, if the data availability boundary is less than the split
+        // epoch, this code will have to change to account for head candidates.
         for res in self.forwards_block_roots_iterator_until(
             oldest_blob_slot,
             end_slot,
-            || Err(HotColdDBError::UnsupportedDataAvailabilityBoundary.into()),
+            || {
+                let split = self.get_split_info();
+
+                let split_state = self.get_state(&split.state_root, Some(split.slot))?.ok_or(
+                    HotColdDBError::MissingSplitState(split.state_root, split.slot),
+                )?;
+                let split_block_root = split_state.get_latest_block_root(split.state_root);
+
+                Ok((split_state, split_block_root))
+            },
             &self.spec,
         )? {
             let (block_root, slot) = match res {
