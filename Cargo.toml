@@ -93,13 +93,6 @@ members = [
 [patch.crates-io]
 fixed-hash = { git = "https://github.com/paritytech/parity-common", rev="df638ab0885293d21d656dc300d39236b69ce57d" }
 warp = { git = "https://github.com/macladson/warp", rev="7e75acc368229a46a236a8c991bf251fe7fe50ef" }
-ethereum_ssz = "1.0.0-beta.2"
-ethereum_ssz_derive = "1.0.0-beta.2"
-ssz_types = "1.0.0-beta.0"
-eth2_hashing = { path = "crypto/eth2_hashing" }
-tree_hash = { path = "consensus/tree_hash" }
-tree_hash_derive = { path = "consensus/tree_hash_derive" }
-ethereum_serde_utils = "1.0.0-beta.0"
 
 [profile.maxperf]
 inherits = "release"
