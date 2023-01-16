@@ -1662,7 +1662,24 @@ fn logfile_no_restricted_perms_flag() {
             assert!(config.logger_config.is_restricted == false);
         });
 }
-
+#[test]
+fn logfile_format_default() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| assert_eq!(config.logger_config.logfile_format, None));
+}
+#[test]
+fn logfile_format_flag() {
+    CommandLineTest::new()
+        .flag("logfile-format", Some("JSON"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config.logger_config.logfile_format,
+                Some("JSON".to_string())
+            )
+        });
+}
 #[test]
 fn sync_eth1_chain_default() {
     CommandLineTest::new()
