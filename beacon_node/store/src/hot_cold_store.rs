@@ -1722,9 +1722,9 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         };
 
         if !force {
-            let epochs_per_blob_prune =
-                Epoch::new(self.get_config().epochs_per_blob_prune * E::slots_per_epoch());
-            if blob_info.last_pruned_epoch + epochs_per_blob_prune > blob_info.next_epoch_to_prune {
+            if blob_info.last_pruned_epoch + self.get_config().epochs_per_blob_prune
+                > blob_info.next_epoch_to_prune
+            {
                 info!(self.log, "Blobs sidecars are pruned");
                 return Ok(());
             }

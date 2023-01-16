@@ -418,7 +418,8 @@ pub fn get_config<E: EthSpec>(
     if let Some(epochs_per_blob_prune) =
         clap_utils::parse_optional(cli_args, "epochs-per-blob-prune")?
     {
-        client_config.store.epochs_per_blob_prune = epochs_per_blob_prune;
+        client_config.store.epochs_per_blob_prune =
+            Epoch::new(epochs_per_blob_prune * E::slots_per_epoch());
     }
 
     /*
