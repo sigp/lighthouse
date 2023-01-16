@@ -437,8 +437,8 @@ pub struct TransitionConfigurationV1 {
 /// Serializes the `logs_bloom` field of an `ExecutionPayload`.
 pub mod serde_logs_bloom {
     use super::*;
-    use serde_utils::hex::PrefixedHexVisitor;
     use serde::{Deserializer, Serializer};
+    use serde_utils::hex::PrefixedHexVisitor;
 
     pub fn serialize<S, U>(bytes: &FixedVector<u8, U>, serializer: S) -> Result<S::Ok, S::Error>
     where
