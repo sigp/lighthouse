@@ -1,8 +1,8 @@
-use crate::{DBColumn, Error, Split, StoreItem};
+use crate::{DBColumn, Error, StoreItem};
 use serde_derive::{Deserialize, Serialize};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
-use types::{Checkpoint, Epoch, Hash256, Slot};
+use types::{Checkpoint, Hash256, Slot};
 
 pub const CURRENT_SCHEMA_VERSION: SchemaVersion = SchemaVersion(15);
 
@@ -122,12 +122,6 @@ impl StoreItem for AnchorInfo {
 /// Database parameters relevant to blob sync.
 #[derive(Debug, PartialEq, Eq, Clone, Encode, Decode, Serialize, Deserialize, Default)]
 pub struct BlobInfo {
-    /// The latest epoch that blobs were pruned.
-    pub last_pruned_epoch: Epoch,
-    /// The next epoch to prune blobs from.
-    pub next_epoch_to_prune: Epoch,
-    /// The state root and slot of the next blobs to prune from.
-    pub data_availability_boundary: Split,
     /// The slot before which blobs are available.
     pub oldest_blob_slot: Slot,
 }

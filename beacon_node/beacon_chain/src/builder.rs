@@ -918,9 +918,13 @@ where
         if beacon_chain.store.get_config().prune_blobs {
             let store = beacon_chain.store.clone();
             let log = log.clone();
+            let current_slot = beacon_chain
+                .slot()
+                .map_err(|e| format!("Failed to get current slot: {:?}", e))?;
+            let current_epoch = current_slot.epoch(TEthSpec::slots_per_epoch());
             beacon_chain.task_executor.spawn_blocking(
                 move || {
-                    if let Err(e) = store.try_prune_blobs(false) {
+                    if let Err(e) = store.try_prune_blobs(false, Some(current_epoch)) {
                         error!(log, "Error pruning blobs in background"; "error" => ?e);
                     }
                 },

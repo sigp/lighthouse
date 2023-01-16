@@ -38,6 +38,7 @@ use std::marker::PhantomData;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
+use types::consts::eip4844::MIN_EPOCHS_FOR_BLOBS_SIDECARS_REQUESTS;
 use types::*;
 
 /// On-disk database that stores finalized states efficiently.
@@ -80,6 +81,7 @@ pub enum HotColdDBError {
         target_version: SchemaVersion,
         current_version: SchemaVersion,
     },
+    UnsupportedDataAvailabilityBoundary,
     /// Recoverable error indicating that the database freeze point couldn't be updated
     /// due to the finalized block not lying on an epoch boundary (should be infrequent).
     FreezeSlotUnaligned(Slot),
@@ -94,7 +96,6 @@ pub enum HotColdDBError {
     MissingHotStateSummary(Hash256),
     MissingEpochBoundaryState(Hash256),
     MissingSplitState(Hash256, Slot),
-    MissingStateToPruneBlobs(Hash256),
     MissingExecutionPayload(Hash256),
     MissingFullBlockExecutionPayloadPruned(Hash256, Slot),
     MissingAnchorInfo,
@@ -217,15 +218,13 @@ impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
         }
 
         if let Some(blob_info) = db.load_blob_info()? {
-            let dab_slot = blob_info.data_availability_boundary.slot;
-            let dab_state_root = blob_info.data_availability_boundary.state_root;
+            let oldest_blob_slot = blob_info.oldest_blob_slot;
             *db.blob_info.write() = Some(blob_info);
 
             info!(
                 db.log,
                 "Blob info loaded from disk";
-                "data_availability_boundary_slot" => dab_slot,
-                "data_availability_boundary_state" => ?dab_state_root,
+                "oldest_blob_slot" => oldest_blob_slot,
             );
         }
 
@@ -1375,7 +1374,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             *blob_info = new_value;
             Ok(kv_op)
         } else {
-            Err(Error::AnchorInfoConcurrentMutation)
+            Err(Error::BlobInfoConcurrentMutation)
         }
     }
 
@@ -1713,24 +1712,41 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     }
 
     /// Try to prune blobs older than the data availability boundary.
-    pub fn try_prune_blobs(&self, force: bool) -> Result<(), Error> {
+    pub fn try_prune_blobs(
+        &self,
+        force: bool,
+        data_availability_boundary: Option<Epoch>,
+    ) -> Result<(), Error> {
         let blob_info = match self.get_blob_info() {
-            Some(old_blob_info) => old_blob_info,
+            Some(blob_info) => blob_info,
             None => {
                 return Ok(());
             }
         };
 
+        let oldest_blob_slot = blob_info.oldest_blob_slot;
+        // The last entirely pruned epoch, blobs sidecar pruning may have stopped early in the
+        // middle of an epoch.
+        let last_pruned_epoch = oldest_blob_slot.epoch(E::slots_per_epoch()) - 1;
+        let next_epoch_to_prune = match data_availability_boundary {
+            Some(epoch) => epoch,
+            None => {
+                // The split slot is set upon finalization and is the first slot in the latest
+                // finalized epoch, hence current_epoch = split_epoch + 1
+                let current_epoch =
+                    self.get_split_slot().epoch(E::slots_per_epoch()) + Epoch::new(1);
+                current_epoch - *MIN_EPOCHS_FOR_BLOBS_SIDECARS_REQUESTS
+            }
+        };
+
         if !force {
-            if blob_info.last_pruned_epoch.as_u64() + self.get_config().epochs_per_blob_prune
-                > blob_info.next_epoch_to_prune.as_u64()
+            if last_pruned_epoch.as_u64() + self.get_config().epochs_per_blob_prune
+                > next_epoch_to_prune.as_u64()
             {
                 info!(self.log, "Blobs sidecars are pruned");
                 return Ok(());
             }
         }
-
-        let dab_state_root = blob_info.data_availability_boundary.state_root;
 
         // Iterate block roots backwards to oldest blob slot.
         warn!(
@@ -1741,18 +1757,12 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
         let mut ops = vec![];
         let mut last_pruned_block_root = None;
+        let end_slot = next_epoch_to_prune.start_slot(E::slots_per_epoch());
 
         for res in self.forwards_block_roots_iterator_until(
-            blob_info.oldest_blob_slot,
-            blob_info.data_availability_boundary.slot,
-            || {
-                let dab_state = self
-                    .get_state(&dab_state_root, None)?
-                    .ok_or(HotColdDBError::MissingStateToPruneBlobs(dab_state_root))?;
-                let dab_block_root = dab_state.get_latest_block_root(dab_state_root);
-
-                Ok((dab_state, dab_block_root))
-            },
+            oldest_blob_slot,
+            end_slot,
+            || Err(HotColdDBError::UnsupportedDataAvailabilityBoundary.into()),
             &self.spec,
         )? {
             let (block_root, slot) = match res {
@@ -1780,7 +1790,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 ops.push(StoreOp::DeleteBlobs(block_root));
             }
 
-            if slot <= blob_info.oldest_blob_slot {
+            if slot >= end_slot {
                 info!(
                     self.log,
                     "Blobs sidecar pruning reached earliest available blobs sidecar";
@@ -1798,12 +1808,12 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             "blobs_sidecars_pruned" => blobs_sidecars_pruned,
         );
 
-        if let Some(mut new_blob_info) = self.get_blob_info() {
-            new_blob_info.last_pruned_epoch =
-                (blob_info.data_availability_boundary.slot + 1).epoch(E::slots_per_epoch());
-            new_blob_info.oldest_blob_slot = blob_info.data_availability_boundary.slot + 1;
-            self.compare_and_set_blob_info_with_write(self.get_blob_info(), Some(new_blob_info))?;
-        }
+        self.compare_and_set_blob_info_with_write(
+            Some(blob_info),
+            Some(BlobInfo {
+                oldest_blob_slot: end_slot + 1,
+            }),
+        )?;
 
         Ok(())
     }
@@ -1842,9 +1852,6 @@ pub fn migrate_database<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
     if frozen_head.slot() % E::slots_per_epoch() != 0 {
         return Err(HotColdDBError::FreezeSlotUnaligned(frozen_head.slot()).into());
     }
-
-    // Prune blobs before migration.
-    store.try_prune_blobs(true)?;
 
     let mut hot_db_ops: Vec<StoreOp<E>> = Vec::new();
 

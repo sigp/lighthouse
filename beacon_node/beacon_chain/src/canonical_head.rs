@@ -54,9 +54,8 @@ use slog::{crit, debug, error, warn, Logger};
 use slot_clock::SlotClock;
 use std::sync::Arc;
 use std::time::Duration;
-use store::{iter::StateRootsIterator, KeyValueStoreOp, Split, StoreItem};
+use store::{iter::StateRootsIterator, KeyValueStoreOp, StoreItem};
 use task_executor::{JoinHandle, ShutdownReason};
-use types::consts::eip4844::MIN_EPOCHS_FOR_BLOBS_SIDECARS_REQUESTS;
 use types::*;
 
 /// Simple wrapper around `RwLock` that uses private visibility to prevent any other modules from
@@ -794,51 +793,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .execution_status
             .is_optimistic_or_invalid();
 
-        if self.store.get_config().prune_blobs {
-            let current_slot = self.slot()?;
-            let current_epoch = current_slot.epoch(T::EthSpec::slots_per_epoch());
-            if Some(current_epoch)
-                > self.spec.eip4844_fork_epoch.map(|eip4844_fork_epoch| {
-                    eip4844_fork_epoch + *MIN_EPOCHS_FOR_BLOBS_SIDECARS_REQUESTS
-                })
-            {
-                let current_epoch_start_slot =
-                    current_epoch.start_slot(T::EthSpec::slots_per_epoch());
-
-                // Update db's metadata for blobs pruning.
-                if current_slot == current_epoch_start_slot {
-                    if let Some(mut blob_info) = self.store.get_blob_info() {
-                        if let Some(data_availability_boundary) = self.data_availability_boundary()
-                        {
-                            let dab_slot =
-                                data_availability_boundary.end_slot(T::EthSpec::slots_per_epoch());
-                            if let Some(dab_state_root) = self.state_root_at_slot(dab_slot)? {
-                                blob_info.data_availability_boundary =
-                                    Split::new(dab_slot, dab_state_root);
-
-                                self.store.compare_and_set_blob_info_with_write(
-                                    self.store.get_blob_info(),
-                                    Some(blob_info),
-                                )?;
-                            }
-                        }
-                    }
-                }
-            }
-
-            let store = self.store.clone();
-            let log = self.log.clone();
-
-            self.task_executor.spawn_blocking(
-                move || {
-                    if let Err(e) = store.try_prune_blobs(false) {
-                        error!(log, "Error pruning blobs in background"; "error" => ?e);
-                    }
-                },
-                "prune_blobs_background",
-            );
-        }
-
         // Detect and potentially report any re-orgs.
         let reorg_distance = detect_reorg(
             &old_snapshot.beacon_state,
@@ -1059,6 +1013,22 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Take a write-lock on the canonical head and signal for it to prune.
         self.canonical_head.fork_choice_write_lock().prune()?;
+
+        // Prune blobs.
+        if self.store.get_config().prune_blobs {
+            let store = self.store.clone();
+            let log = self.log.clone();
+            let current_slot = self.slot()?;
+            let current_epoch = current_slot.epoch(T::EthSpec::slots_per_epoch());
+            self.task_executor.spawn_blocking(
+                move || {
+                    if let Err(e) = store.try_prune_blobs(false, Some(current_epoch)) {
+                        error!(log, "Error pruning blobs in background"; "error" => ?e);
+                    }
+                },
+                "prune_blobs_background",
+            );
+        }
 
         Ok(())
     }

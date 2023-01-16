@@ -312,9 +312,9 @@ pub fn prune_blobs<E: EthSpec>(
         log,
     )?;
 
-    // If we're triggering a prune manually then ignore the check on the split's parent that bails
-    // out early by passing true to the force parameter.
-    db.try_prune_blobs(true)
+    // If we're triggering a prune manually then ignore the check on `epochs_per_blob_prune` that
+    // bails out early by passing true to the force parameter.
+    db.try_prune_blobs(true, None)
 }
 
 /// Run the database manager, returning an error string if the operation did not succeed.
