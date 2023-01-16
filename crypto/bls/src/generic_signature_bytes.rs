@@ -3,7 +3,7 @@ use crate::{
     generic_signature::{GenericSignature, TSignature},
     Error, INFINITY_SIGNATURE, SIGNATURE_BYTES_LEN,
 };
-use eth2_serde_utils::hex::encode as hex_encode;
+use serde_utils::hex::encode as hex_encode;
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
 use ssz::{Decode, Encode};

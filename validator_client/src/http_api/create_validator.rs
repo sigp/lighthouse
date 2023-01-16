@@ -159,7 +159,7 @@ pub async fn create_validators_mnemonic<P: AsRef<Path>, T: 'static + SlotClock, 
             gas_limit: request.gas_limit,
             builder_proposals: request.builder_proposals,
             voting_pubkey,
-            eth1_deposit_tx_data: eth2_serde_utils::hex::encode(&eth1_deposit_data.rlp),
+            eth1_deposit_tx_data: serde_utils::hex::encode(&eth1_deposit_data.rlp),
             deposit_gwei: request.deposit_gwei,
         });
     }

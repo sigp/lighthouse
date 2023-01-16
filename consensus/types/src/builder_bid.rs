@@ -13,7 +13,7 @@ use tree_hash_derive::TreeHash;
 pub struct BuilderBid<E: EthSpec, Payload: ExecPayload<E>> {
     #[serde_as(as = "BlindedPayloadAsHeader<E>")]
     pub header: Payload,
-    #[serde(with = "eth2_serde_utils::quoted_u256")]
+    #[serde(with = "serde_utils::quoted_u256")]
     pub value: Uint256,
     pub pubkey: PublicKeyBytes,
     #[serde(skip)]

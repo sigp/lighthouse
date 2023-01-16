@@ -82,10 +82,10 @@ impl std::fmt::Display for EndpointVersion {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GenesisData {
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub genesis_time: u64,
     pub genesis_validators_root: Hash256,
-    #[serde(with = "eth2_serde_utils::bytes_4_hex")]
+    #[serde(with = "serde_utils::bytes_4_hex")]
     pub genesis_fork_version: [u8; 4],
 }
 
@@ -302,9 +302,9 @@ impl fmt::Display for ValidatorId {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ValidatorData {
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub index: u64,
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub balance: u64,
     pub status: ValidatorStatus,
     pub validator: Validator,
@@ -312,9 +312,9 @@ pub struct ValidatorData {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ValidatorBalanceData {
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub index: u64,
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub balance: u64,
 }
 
@@ -477,16 +477,16 @@ pub struct ValidatorsQuery {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CommitteeData {
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub index: u64,
     pub slot: Slot,
-    #[serde(with = "eth2_serde_utils::quoted_u64_vec")]
+    #[serde(with = "serde_utils::quoted_u64_vec")]
     pub validators: Vec<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SyncCommitteeByValidatorIndices {
-    #[serde(with = "eth2_serde_utils::quoted_u64_vec")]
+    #[serde(with = "serde_utils::quoted_u64_vec")]
     pub validators: Vec<u64>,
     pub validator_aggregates: Vec<SyncSubcommittee>,
 }
@@ -499,7 +499,7 @@ pub struct RandaoMix {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct SyncSubcommittee {
-    #[serde(with = "eth2_serde_utils::quoted_u64_vec")]
+    #[serde(with = "serde_utils::quoted_u64_vec")]
     pub indices: Vec<u64>,
 }
 
@@ -524,7 +524,7 @@ pub struct BlockHeaderData {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DepositContractData {
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub chain_id: u64,
     pub address: Address,
 }
@@ -548,7 +548,7 @@ pub struct IdentityData {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MetaData {
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub seq_number: u64,
     pub attnets: String,
     pub syncnets: String,
@@ -635,27 +635,27 @@ pub struct ValidatorBalancesQuery {
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(transparent)]
-pub struct ValidatorIndexData(#[serde(with = "eth2_serde_utils::quoted_u64_vec")] pub Vec<u64>);
+pub struct ValidatorIndexData(#[serde(with = "serde_utils::quoted_u64_vec")] pub Vec<u64>);
 
 /// Borrowed variant of `ValidatorIndexData`, for serializing/sending.
 #[derive(Clone, Copy, Serialize)]
 #[serde(transparent)]
 pub struct ValidatorIndexDataRef<'a>(
-    #[serde(serialize_with = "eth2_serde_utils::quoted_u64_vec::serialize")] pub &'a [u64],
+    #[serde(serialize_with = "serde_utils::quoted_u64_vec::serialize")] pub &'a [u64],
 );
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AttesterData {
     pub pubkey: PublicKeyBytes,
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub validator_index: u64,
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub committees_at_slot: u64,
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub committee_index: CommitteeIndex,
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub committee_length: u64,
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub validator_committee_index: u64,
     pub slot: Slot,
 }
@@ -663,7 +663,7 @@ pub struct AttesterData {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ProposerData {
     pub pubkey: PublicKeyBytes,
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub validator_index: u64,
     pub slot: Slot,
 }
@@ -712,11 +712,11 @@ pub struct ValidatorAggregateAttestationQuery {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
 pub struct BeaconCommitteeSubscription {
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub validator_index: u64,
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub committee_index: u64,
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub committees_at_slot: u64,
     pub slot: Slot,
     pub is_aggregator: bool,
@@ -837,13 +837,13 @@ impl fmt::Display for PeerDirection {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PeerCount {
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub connected: u64,
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub connecting: u64,
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub disconnected: u64,
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub disconnecting: u64,
 }
 
@@ -878,7 +878,7 @@ pub struct SseHead {
 #[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
 pub struct SseChainReorg {
     pub slot: Slot,
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub depth: u64,
     pub old_head_block: Hash256,
     pub old_head_state: Hash256,
@@ -1108,13 +1108,13 @@ fn parse_accept(accept: &str) -> Result<Vec<Mime>, String> {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct LivenessRequestData {
     pub epoch: Epoch,
-    #[serde(with = "eth2_serde_utils::quoted_u64_vec")]
+    #[serde(with = "serde_utils::quoted_u64_vec")]
     pub indices: Vec<u64>,
 }
 
 #[derive(PartialEq, Debug, Serialize, Deserialize)]
 pub struct LivenessResponseData {
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub index: u64,
     pub epoch: Epoch,
     pub is_live: bool,
