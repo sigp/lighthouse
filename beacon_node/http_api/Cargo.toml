@@ -24,7 +24,7 @@ lighthouse_metrics = { path = "../../common/lighthouse_metrics" }
 lazy_static = "1.4.0"
 warp_utils = { path = "../../common/warp_utils" }
 slot_clock = { path = "../../common/slot_clock" }
-eth2_ssz = "0.4.1"
+ethereum_ssz = "1.0.0-beta.2"
 bs58 = "0.4.0"
 futures = "0.3.8"
 execution_layer = {path = "../execution_layer"}

@@ -11,8 +11,8 @@ rand = "0.8.5"
 tree_hash_derive = "0.4.0"
 types = { path = "../types" }
 beacon_chain = { path = "../../beacon_node/beacon_chain" }
-eth2_ssz = "0.4.1"
-eth2_ssz_derive = "0.3.0"
+ethereum_ssz = "1.0.0-beta.2"
+ethereum_ssz_derive = "1.0.0-beta.2"
 
 [dependencies]
 ethereum-types = "0.14.1"

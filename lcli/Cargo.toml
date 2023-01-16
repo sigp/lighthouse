@@ -20,7 +20,7 @@ env_logger = "0.9.0"
 types = { path = "../consensus/types" }
 state_processing = { path = "../consensus/state_processing" }
 int_to_bytes = { path = "../consensus/int_to_bytes" }
-eth2_ssz = "0.4.1"
+ethereum_ssz = "1.0.0-beta.2"
 environment = { path = "../lighthouse/environment" }
 eth2_network_config = { path = "../common/eth2_network_config" }
 genesis = { path = "../beacon_node/genesis" }
