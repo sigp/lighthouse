@@ -35,7 +35,7 @@ ethereum_ssz = "1.0.0-beta.2"
 ssz_types = "1.0.0-beta.0"
 ethereum_ssz_derive = "1.0.0-beta.2"
 state_processing = { path = "../../consensus/state_processing" }
-tree_hash = "0.4.1"
+tree_hash = "1.0.0-beta.0"
 types = { path = "../../consensus/types" }
 tokio = "1.14.0"
 eth1 = { path = "../eth1" }

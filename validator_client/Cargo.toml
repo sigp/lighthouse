@@ -13,7 +13,7 @@ tokio = { version = "1.14.0", features = ["time", "rt-multi-thread", "macros"] }
 logging = { path = "../common/logging" }
 
 [dependencies]
-tree_hash = "0.4.1"
+tree_hash = "1.0.0-beta.0"
 clap = "2.33.3"
 slashing_protection = { path = "./slashing_protection" }
 slot_clock = { path = "../common/slot_clock" }

@@ -6,7 +6,7 @@ edition = "2021"
 
 [dependencies]
 ethereum_ssz = "1.0.0-beta.2"
-tree_hash = "0.4.1"
+tree_hash = "1.0.0-beta.0"
 milagro_bls = { git = "https://github.com/sigp/milagro_bls", tag = "v1.4.2", optional = true }
 rand = "0.7.3"
 serde = "1.0.116"

@@ -15,5 +15,5 @@ hex = "0.4.2"
 [dependencies]
 types = { path = "../../consensus/types"}
 ethereum_ssz = "1.0.0-beta.2"
-tree_hash = "0.4.1"
+tree_hash = "1.0.0-beta.0"
 ethabi = "16.0.0"

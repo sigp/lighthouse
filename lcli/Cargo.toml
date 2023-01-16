@@ -25,7 +25,7 @@ environment = { path = "../lighthouse/environment" }
 eth2_network_config = { path = "../common/eth2_network_config" }
 genesis = { path = "../beacon_node/genesis" }
 deposit_contract = { path = "../common/deposit_contract" }
-tree_hash = "0.4.1"
+tree_hash = "1.0.0-beta.0"
 clap_utils = { path = "../common/clap_utils" }
 lighthouse_network = { path = "../beacon_node/lighthouse_network" }
 validator_dir = { path = "../common/validator_dir", features = ["insecure_keys"] }

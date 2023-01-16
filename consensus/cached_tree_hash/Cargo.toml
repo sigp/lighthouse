@@ -10,7 +10,7 @@ ssz_types = "1.0.0-beta.0"
 eth2_hashing = "0.3.0"
 ethereum_ssz_derive = "1.0.0-beta.2"
 ethereum_ssz = "1.0.0-beta.2"
-tree_hash = "0.4.1"
+tree_hash = "1.0.0-beta.0"
 smallvec = "1.6.1"
 
 [dev-dependencies]
