@@ -7,8 +7,7 @@ edition = "2021"
 [dependencies]
 eth2_ssz = "0.4.1"
 tree_hash = "0.4.1"
-# FIXME(bls): update this to v1.5+ once issue is fixed
-milagro_bls = { git = "https://github.com/sigp/milagro_bls", branch = "uncompressed", optional = true }
+milagro_bls = { git = "https://github.com/sigp/milagro_bls", tag = "v1.5.1", optional = true }
 rand = "0.8.5"
 serde = "1.0.116"
 serde_derive = "1.0.116"
