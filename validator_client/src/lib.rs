@@ -187,7 +187,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
         .map_err(|e| {
             match e {
                 UnableToOpenVotingKeystore(err) => {
-                    format!("Unable to initialize validators: {:?}, If you have recently moved the location of your data directory \
+                    format!("Unable to initialize validators: {:?}. If you have recently moved the location of your data directory \
                     make sure to update the location of voting_keystore_path in your validator_definitions.yml", err)
                 },
                 err => {
