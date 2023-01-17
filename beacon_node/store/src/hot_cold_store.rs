@@ -890,30 +890,39 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             }
         }
 
-        if let Some(blob_ops) = blobs_batch {
-            let blobs_db = self.blobs_db.as_ref().unwrap_or(&self.cold_db);
-            let mut guard_blob = self.blob_cache.lock();
+        let guard_blob = match blobs_batch {
+            Some(blob_ops) => {
+                let blobs_db = self.blobs_db.as_ref().unwrap_or(&self.cold_db);
+                // Update the blob cache whilst holding a lock, while holding a lock on the block
+                // cache, to ensure they and their databases all update atomically.
+                let mut guard_blob = self.blob_cache.lock();
 
-            for op in &blob_ops {
-                match op {
-                    StoreOp::PutBlobs(block_root, blobs) => {
-                        guard_blob.put(*block_root, (**blobs).clone());
+                for op in &blob_ops {
+                    match op {
+                        StoreOp::PutBlobs(block_root, blobs) => {
+                            guard_blob.put(*block_root, (**blobs).clone());
+                        }
+
+                        StoreOp::DeleteBlobs(block_root) => {
+                            guard_blob.pop(block_root);
+                        }
+
+                        _ => (),
                     }
-
-                    StoreOp::DeleteBlobs(block_root) => {
-                        guard_blob.pop(block_root);
-                    }
-
-                    _ => (),
                 }
+                blobs_db.do_atomically(self.convert_to_kv_batch(blob_ops)?)?;
+                Some(guard_blob)
             }
-            blobs_db.do_atomically(self.convert_to_kv_batch(blob_ops)?)?;
-            drop(guard_blob);
-        }
+            None => None,
+        };
 
         self.hot_db
             .do_atomically(self.convert_to_kv_batch(batch)?)?;
+
         drop(guard);
+        if let Some(guard_blob) = guard_blob {
+            drop(guard_blob);
+        }
 
         Ok(())
     }
