@@ -17,8 +17,8 @@ pub const VERSION: &str = git_version!(
         // NOTE: using --match instead of --exclude for compatibility with old Git
         "--match=thiswillnevermatchlol"
     ],
-    prefix = "Lighthouse/v3.4.0-",
-    fallback = "Lighthouse/v3.4.0"
+    prefix = "Lighthouse/v3.4.0-tree.0-",
+    fallback = "Lighthouse/v3.4.0-tree.0"
 );
 
 /// Returns `VERSION`, but with platform information appended to the end.
@@ -38,7 +38,7 @@ mod test {
     #[test]
     fn version_formatting() {
         let re =
-            Regex::new(r"^Lighthouse/v[0-9]+\.[0-9]+\.[0-9]+(-rc.[0-9])?(-[[:xdigit:]]{7})?\+?$")
+            Regex::new(r"^Lighthouse/v[0-9]+\.[0-9]+\.[0-9]+(-tree.[0-9])?(-[[:xdigit:]]{7})?\+?$")
                 .unwrap();
         assert!(
             re.is_match(VERSION),
