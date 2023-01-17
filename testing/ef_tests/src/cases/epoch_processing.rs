@@ -294,9 +294,9 @@ impl<E: EthSpec, T: EpochTransition<E>> Case for EpochProcessing<E, T> {
         let mut state = pre_state.clone();
         let mut expected = self.post.clone();
 
-        expected.as_mut().map(|post_state| {
+        if let Some(post_state) = expected.as_mut() {
             post_state.build_all_committee_caches(spec).unwrap();
-        });
+        }
 
         let mut result = T::run(&mut state, spec).map(|_| state);
 

@@ -246,7 +246,7 @@ impl ChainSpec {
     pub fn fork_activated_at_slot<E: EthSpec>(&self, slot: Slot) -> Option<ForkName> {
         let prev_slot_fork = self.fork_name_at_slot::<E>(slot - 1);
         let slot_fork = self.fork_name_at_slot::<E>(slot);
-        (slot_fork != prev_slot_fork).then(|| slot_fork)
+        (slot_fork != prev_slot_fork).then_some(slot_fork)
     }
 
     /// Returns the fork version for a named fork.

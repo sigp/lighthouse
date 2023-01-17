@@ -1,5 +1,5 @@
 use crate::*;
-use ssz::{DecodeError, Encode};
+use ssz::Encode;
 use ssz_derive::Encode;
 use std::io::{Read, Write};
 use std::sync::Arc;

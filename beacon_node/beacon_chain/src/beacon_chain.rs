@@ -3456,7 +3456,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         };
         let (state, state_root_opt) = if head_slot < slot {
             // Attempt an aggressive re-org if configured and the conditions are right.
-            if let Some(re_org_state) = self.get_state_for_re_org(slot, head_slot, head_block_root)
+            if let Some((re_org_state, re_org_state_root)) =
+                self.get_state_for_re_org(slot, head_slot, head_block_root)
             {
                 info!(
                     self.log,
@@ -3464,7 +3465,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     "slot" => slot,
                     "head_to_reorg" => %head_block_root,
                 );
-                (re_org_state.pre_state, re_org_state.state_root)
+                (re_org_state, Some(re_org_state_root))
             } else {
                 // Fetch the head state advanced through to `slot`, which should be present in the
                 // state cache thanks to the state advance timer.
@@ -3594,7 +3595,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     "Error loading block production state";
                     "error" => ?e,
                 );
-            )
+            })
             .ok()??;
 
         info!(

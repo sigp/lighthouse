@@ -6,12 +6,9 @@ use beacon_chain::types::{
     BeaconStateMerge, ChainSpec, Domain, Epoch, EthSpec, FixedVector, Hash256, Keypair,
     MainnetEthSpec, MinimalEthSpec, RelativeEpoch, Slot,
 };
-use safe_arith::SafeArith;
-use ssz::{Decode, Encode};
-use state_processing::per_slot_processing;
+use ssz::Encode;
 use std::ops::Mul;
 use swap_or_not_shuffle::compute_shuffled_index;
-use tree_hash::TreeHash;
 
 pub const MAX_VALIDATOR_COUNT: usize = 129;
 pub const SLOT_OFFSET: Slot = Slot::new(1);

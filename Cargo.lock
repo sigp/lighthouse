@@ -614,7 +614,7 @@ dependencies = [
  "task_executor",
  "tempfile",
  "tokio",
- "tree_hash 0.4.1",
+ "tree_hash",
  "types",
  "unused_port",
 ]
@@ -761,6 +761,7 @@ version = "0.2.0"
 dependencies = [
  "arbitrary",
  "blst",
+ "criterion",
  "ethereum-types 0.14.1",
  "ethereum_hashing",
  "ethereum_serde_utils",
@@ -770,7 +771,7 @@ dependencies = [
  "rand 0.8.5",
  "serde",
  "serde_derive",
- "tree_hash 0.4.1",
+ "tree_hash",
  "zeroize",
 ]
 
@@ -1632,7 +1633,7 @@ dependencies = [
  "reqwest",
  "serde_json",
  "sha2 0.10.6",
- "tree_hash 0.4.1",
+ "tree_hash",
  "types",
 ]
 
@@ -1925,7 +1926,7 @@ dependencies = [
  "state_processing",
  "store",
  "swap_or_not_shuffle",
- "tree_hash 0.4.1",
+ "tree_hash",
  "tree_hash_derive",
  "types",
 ]
@@ -2081,7 +2082,7 @@ dependencies = [
  "superstruct",
  "task_executor",
  "tokio",
- "tree_hash 0.4.1",
+ "tree_hash",
  "types",
  "web3",
 ]
@@ -2360,9 +2361,9 @@ dependencies = [
 
 [[package]]
 name = "ethereum_ssz"
-version = "0.5.0"
+version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "29d6b56a74d435691764a6e8b635dab1cca4fcf15d7ec8f265c73d3b98cdd889"
+checksum = "8012d097c5b4f4915c84c672a397a2ca4124e1900737f1393b3ba0c87d8fa489"
 dependencies = [
  "ethereum-types 0.14.1",
  "itertools",
@@ -2371,9 +2372,9 @@ dependencies = [
 
 [[package]]
 name = "ethereum_ssz_derive"
-version = "0.5.0"
+version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "44f51ce7a63b03c9ee2ea8e0e7078e948846dc227331e50fa2124c0fa872b1fc"
+checksum = "9f421142049c25d52d7c38124af054e235f4898355282069ef37e4d031565fb8"
 dependencies = [
  "darling 0.13.4",
  "proc-macro2",
@@ -2514,7 +2515,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "tokio-stream",
- "tree_hash 0.4.1",
+ "tree_hash",
  "tree_hash_derive",
  "triehash",
  "types",
@@ -2864,7 +2865,7 @@ dependencies = [
  "slog",
  "state_processing",
  "tokio",
- "tree_hash 0.4.1",
+ "tree_hash",
  "types",
 ]
 
@@ -3230,7 +3231,7 @@ dependencies = [
  "task_executor",
  "tokio",
  "tokio-stream",
- "tree_hash 0.4.1",
+ "tree_hash",
  "types",
  "unused_port",
  "warp",
@@ -3739,7 +3740,7 @@ dependencies = [
  "snap",
  "state_processing",
  "store",
- "tree_hash 0.4.1",
+ "tree_hash",
  "types",
  "validator_dir",
  "web3",
@@ -4701,7 +4702,7 @@ dependencies = [
  "rayon",
  "serde",
  "smallvec",
- "tree_hash 0.5.0",
+ "tree_hash",
  "triomphe",
  "typenum",
  "vec_map",
@@ -7078,7 +7079,7 @@ dependencies = [
  "sloggers",
  "strum",
  "tempfile",
- "tree_hash 0.4.1",
+ "tree_hash",
  "tree_hash_derive",
  "types",
 ]
@@ -7342,6 +7343,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "stable_deref_trait"
+version = "1.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a8f112729512f8e442d81f95a8a7ddf2b7c6b8a1a6f509a95864142b30cab2d3"
+
+[[package]]
 name = "state_processing"
 version = "0.2.0"
 dependencies = [
@@ -7365,7 +7372,7 @@ dependencies = [
  "smallvec",
  "ssz_types",
  "tokio",
- "tree_hash 0.4.1",
+ "tree_hash",
  "types",
  "vec_map",
 ]
@@ -7402,6 +7409,7 @@ dependencies = [
  "lazy_static",
  "leveldb",
  "lighthouse_metrics",
+ "logging",
  "lru 0.7.8",
  "parking_lot 0.12.1",
  "safe_arith",
@@ -7414,7 +7422,7 @@ dependencies = [
  "strum",
  "take-until",
  "tempfile",
- "tree_hash 0.4.1",
+ "tree_hash",
  "types",
  "zstd",
 ]
@@ -8139,17 +8147,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "tree_hash"
-version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "87bb13ce6641dabdb9983d3cadd77d9320eb81102abeb15220eb98db12d58eb6"
-dependencies = [
- "ethereum-types 0.14.1",
- "ethereum_hashing",
- "smallvec",
-]
-
-[[package]]
 name = "tree_hash_derive"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8355,7 +8352,7 @@ dependencies = [
  "tempfile",
  "test_random_derive",
  "tokio",
- "tree_hash 0.4.1",
+ "tree_hash",
  "tree_hash_derive",
 ]
 
@@ -8549,7 +8546,7 @@ dependencies = [
  "task_executor",
  "tempfile",
  "tokio",
- "tree_hash 0.4.1",
+ "tree_hash",
  "types",
  "url",
  "validator_dir",
@@ -8570,7 +8567,7 @@ dependencies = [
  "lockfile",
  "rand 0.8.5",
  "tempfile",
- "tree_hash 0.4.1",
+ "tree_hash",
  "types",
 ]
 

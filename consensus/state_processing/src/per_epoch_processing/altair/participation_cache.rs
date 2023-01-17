@@ -355,7 +355,7 @@ impl ParticipationCache {
             eligible_indices,
             process_slashings_indices,
             inactivity_score_updates: definitely_not_in_inactivity_leak
-                .then(|| inactivity_score_updates),
+                .then_some(inactivity_score_updates),
         })
     }
 

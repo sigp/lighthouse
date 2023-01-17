@@ -192,11 +192,7 @@ where
             balances_cache: <_>::default(),
             time: anchor_state.slot(),
             justified_checkpoint,
-<<<<<<< HEAD
-            justified_balances: anchor_state.balances().to_vec(),
-=======
             justified_balances,
->>>>>>> origin/unstable
             finalized_checkpoint,
             best_justified_checkpoint: justified_checkpoint,
             unrealized_justified_checkpoint: justified_checkpoint,

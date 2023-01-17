@@ -198,7 +198,7 @@ pub fn run<T: EthSpec>(env: Environment<T>, matches: &ArgMatches) -> Result<(), 
     let validator_pubkey_cache = store.immutable_validators.clone();
     validator_pubkey_cache
         .write()
-        .import_new_pubkeys(&pre_state, &store)
+        .import_new_pubkeys(&pre_state)
         .map_err(|e| format!("Failed to create pubkey cache: {:?}", e))?;
 
     /*
@@ -298,6 +298,7 @@ pub fn run<T: EthSpec>(env: Environment<T>, matches: &ArgMatches) -> Result<(), 
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn do_transition<T: EthSpec>(
     mut pre_state: BeaconState<T>,
     block_root: Hash256,

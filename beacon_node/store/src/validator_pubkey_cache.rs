@@ -218,6 +218,7 @@ impl DatabaseValidator {
         }
     }
 
+    #[allow(clippy::wrong_self_convention)]
     fn into_immutable_validator(&self) -> Result<(PublicKey, ValidatorImmutable), Error> {
         let pubkey = PublicKey::deserialize_uncompressed(&self.pubkey)
             .map_err(Error::InvalidValidatorPubkeyBytes)?;
@@ -236,14 +237,14 @@ impl DatabaseValidator {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::test_utils::{BeaconChainHarness, EphemeralHarnessType};
+    use crate::{HotColdDB, KeyValueStore, MemoryStore};
+    use beacon_chain::test_utils::BeaconChainHarness;
     use logging::test_logger;
     use std::sync::Arc;
-    use store::HotColdDB;
     use types::{BeaconState, EthSpec, Keypair, MainnetEthSpec};
 
     type E = MainnetEthSpec;
-    type T = EphemeralHarnessType<E>;
+    type Store = MemoryStore<E>;
 
     fn get_state(validator_count: usize) -> (BeaconState<E>, Vec<Keypair>) {
         let harness = BeaconChainHarness::builder(MainnetEthSpec)
@@ -257,14 +258,14 @@ mod test {
         (harness.get_current_state(), harness.validator_keypairs)
     }
 
-    fn get_store() -> BeaconStore<T> {
+    fn get_store() -> Arc<HotColdDB<E, Store, Store>> {
         Arc::new(
             HotColdDB::open_ephemeral(<_>::default(), E::default_spec(), test_logger()).unwrap(),
         )
     }
 
     #[allow(clippy::needless_range_loop)]
-    fn check_cache_get(cache: &ValidatorPubkeyCache<T>, keypairs: &[Keypair]) {
+    fn check_cache_get(cache: &ValidatorPubkeyCache<E, Store, Store>, keypairs: &[Keypair]) {
         let validator_count = keypairs.len();
 
         for i in 0..validator_count + 1 {
@@ -297,7 +298,7 @@ mod test {
 
         let store = get_store();
 
-        let mut cache = ValidatorPubkeyCache::new(&state, store).expect("should create cache");
+        let mut cache = ValidatorPubkeyCache::new(&state, &store).expect("should create cache");
 
         check_cache_get(&cache, &keypairs[..]);
 
@@ -330,13 +331,12 @@ mod test {
         let store = get_store();
 
         // Create a new cache.
-        let cache = ValidatorPubkeyCache::new(&state, store.clone()).expect("should create cache");
+        let cache = ValidatorPubkeyCache::new(&state, &store).expect("should create cache");
         check_cache_get(&cache, &keypairs[..]);
         drop(cache);
 
         // Re-init the cache from the store.
-        let mut cache =
-            ValidatorPubkeyCache::load_from_store(store.clone()).expect("should open cache");
+        let mut cache = ValidatorPubkeyCache::load_from_store(&store).expect("should open cache");
         check_cache_get(&cache, &keypairs[..]);
 
         // Add some more keypairs.
@@ -349,7 +349,7 @@ mod test {
         drop(cache);
 
         // Re-init the cache from the store.
-        let cache = ValidatorPubkeyCache::load_from_store(store).expect("should open cache");
+        let cache = ValidatorPubkeyCache::load_from_store(&store).expect("should open cache");
         check_cache_get(&cache, &keypairs[..]);
     }
 }

@@ -99,8 +99,17 @@ impl Validator {
     }
 
     #[inline]
+    pub fn activation_epoch_mut(&mut self) -> &mut Epoch {
+        &mut self.mutable.activation_epoch
+    }
+
+    #[inline]
     pub fn exit_epoch(&self) -> Epoch {
         self.mutable.exit_epoch
+    }
+
+    pub fn exit_epoch_mut(&mut self) -> &mut Epoch {
+        &mut self.mutable.exit_epoch
     }
 
     #[inline]

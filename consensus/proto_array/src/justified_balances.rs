@@ -25,10 +25,10 @@ impl JustifiedBalances {
             .iter()
             .map(|validator| {
                 if validator.is_active_at(current_epoch) {
-                    total_effective_balance.safe_add_assign(validator.effective_balance)?;
+                    total_effective_balance.safe_add_assign(validator.effective_balance())?;
                     num_active_validators.safe_add_assign(1)?;
 
-                    Ok(validator.effective_balance)
+                    Ok(validator.effective_balance())
                 } else {
                     Ok(0)
                 }

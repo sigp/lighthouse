@@ -5,7 +5,6 @@ use crate::validator::ValidatorTrait;
 use crate::*;
 use compare_fields::CompareFields;
 use compare_fields_derive::CompareFields;
-use derivative::Derivative;
 use ethereum_hashing::hash;
 use int_to_bytes::{int_to_bytes4, int_to_bytes8};
 use metastruct::{metastruct, NumFields};
@@ -1711,6 +1710,7 @@ impl<T: EthSpec, GenericValidator: ValidatorTrait> BeaconState<T, GenericValidat
         ))
     }
 
+    #[allow(clippy::integer_arithmetic)]
     pub fn apply_pending_mutations(&mut self) -> Result<(), Error> {
         match self {
             Self::Base(inner) => {
@@ -1754,6 +1754,7 @@ impl<T: EthSpec, GenericValidator: ValidatorTrait> BeaconState<T, GenericValidat
 
         // 2. Get all `BeaconState` leaves.
         let mut leaves = vec![];
+        #[allow(clippy::integer_arithmetic)]
         match self {
             BeaconState::Base(state) => {
                 map_beacon_state_base_fields!(state, |_, field| {

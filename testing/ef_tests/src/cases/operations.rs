@@ -386,9 +386,9 @@ impl<E: EthSpec, O: Operation<E>> Case for Operations<E, O> {
         let mut state = pre_state.clone();
         let mut expected = self.post.clone();
 
-        expected
-            .as_mut()
-            .map(|post_state| post_state.build_all_committee_caches(spec).unwrap());
+        if let Some(post_state) = expected.as_mut() {
+            post_state.build_all_committee_caches(spec).unwrap();
+        }
 
         let mut result = self
             .operation

@@ -1729,6 +1729,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     }
 
     /// Load the state root of a restore point.
+    #[allow(unused)]
     fn load_restore_point_hash(&self, restore_point_index: u64) -> Result<Hash256, Error> {
         let key = Self::restore_point_key(restore_point_index);
         self.cold_db
@@ -1738,6 +1739,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     }
 
     /// Store the state root of a restore point.
+    #[allow(unused)]
     fn store_restore_point_hash(
         &self,
         restore_point_index: u64,
@@ -1751,6 +1753,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     }
 
     /// Convert a `restore_point_index` into a database key.
+    #[allow(unused)]
     fn restore_point_key(restore_point_index: u64) -> Hash256 {
         Hash256::from_low_u64_be(restore_point_index)
     }

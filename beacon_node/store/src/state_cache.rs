@@ -146,7 +146,7 @@ impl<E: EthSpec> StateCache<E> {
             .iter()
             .rev()
             .find_map(|(ancestor_slot, state_root)| {
-                (*ancestor_slot <= slot).then(|| *state_root)
+                (*ancestor_slot <= slot).then_some(*state_root)
             })?;
 
         let state = self.get_by_state_root(state_root)?;
