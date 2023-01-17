@@ -2,7 +2,7 @@
 //!
 //! Currently using identify to fingerprint.
 
-use libp2p::identify::IdentifyInfo;
+use libp2p::identify::Info as IdentifyInfo;
 use serde::Serialize;
 use strum::{AsRefStr, EnumIter, IntoStaticStr};
 

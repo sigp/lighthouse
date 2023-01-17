@@ -29,7 +29,7 @@ pub struct JsonResponseBody {
     pub id: serde_json::Value,
 }
 
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct TransparentJsonPayloadId(#[serde(with = "eth2_serde_utils::bytes_8_hex")] pub PayloadId);
 
@@ -227,7 +227,7 @@ impl<T: EthSpec> From<JsonExecutionPayloadV1<T>> for ExecutionPayload<T> {
     }
 }
 
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct JsonPayloadAttributesV1 {
     #[serde(with = "eth2_serde_utils::u64_hex_be")]
@@ -270,7 +270,7 @@ impl From<JsonPayloadAttributesV1> for PayloadAttributes {
     }
 }
 
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct JsonForkChoiceStateV1 {
     pub head_block_hash: ExecutionBlockHash,
@@ -323,7 +323,7 @@ pub enum JsonPayloadStatusV1Status {
     InvalidBlockHash,
 }
 
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct JsonPayloadStatusV1 {
     pub status: JsonPayloadStatusV1Status,
@@ -388,7 +388,7 @@ impl From<JsonPayloadStatusV1> for PayloadStatusV1 {
     }
 }
 
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct JsonForkchoiceUpdatedV1Response {
     pub payload_status: JsonPayloadStatusV1,
