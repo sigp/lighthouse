@@ -73,6 +73,8 @@ pub struct RPCRateLimiter {
     bbrange_rl: Limiter<PeerId>,
     /// BlocksByRoot rate limiter.
     bbroots_rl: Limiter<PeerId>,
+    /// LightClientBootstrap rate limiter.
+    lcbootstrap_rl: Limiter<PeerId>,
 }
 
 /// Error type for non conformant requests
@@ -98,6 +100,8 @@ pub struct RPCRateLimiterBuilder {
     bbrange_quota: Option<Quota>,
     /// Quota for the BlocksByRoot protocol.
     bbroots_quota: Option<Quota>,
+    /// Quota for the LightClientBootstrap protocol.
+    lcbootstrap_quota: Option<Quota>,
 }
 
 impl RPCRateLimiterBuilder {
@@ -116,6 +120,7 @@ impl RPCRateLimiterBuilder {
             Protocol::Goodbye => self.goodbye_quota = q,
             Protocol::BlocksByRange => self.bbrange_quota = q,
             Protocol::BlocksByRoot => self.bbroots_quota = q,
+            Protocol::LightClientBootstrap => self.lcbootstrap_quota = q,
         }
         self
     }
@@ -155,6 +160,9 @@ impl RPCRateLimiterBuilder {
         let bbrange_quota = self
             .bbrange_quota
             .ok_or("BlocksByRange quota not specified")?;
+        let lcbootstrap_quote = self
+            .lcbootstrap_quota
+            .ok_or("LightClientBootstrap quota not specified")?;
 
         // create the rate limiters
         let ping_rl = Limiter::from_quota(ping_quota)?;
@@ -163,6 +171,7 @@ impl RPCRateLimiterBuilder {
         let goodbye_rl = Limiter::from_quota(goodbye_quota)?;
         let bbroots_rl = Limiter::from_quota(bbroots_quota)?;
         let bbrange_rl = Limiter::from_quota(bbrange_quota)?;
+        let lcbootstrap_rl = Limiter::from_quota(lcbootstrap_quote)?;
 
         // check for peers to prune every 30 seconds, starting in 30 seconds
         let prune_every = tokio::time::Duration::from_secs(30);
@@ -176,6 +185,7 @@ impl RPCRateLimiterBuilder {
             goodbye_rl,
             bbroots_rl,
             bbrange_rl,
+            lcbootstrap_rl,
             init_time: Instant::now(),
         })
     }
@@ -199,6 +209,7 @@ impl RPCRateLimiter {
             Protocol::Goodbye => &mut self.goodbye_rl,
             Protocol::BlocksByRange => &mut self.bbrange_rl,
             Protocol::BlocksByRoot => &mut self.bbroots_rl,
+            Protocol::LightClientBootstrap => &mut self.lcbootstrap_rl,
         };
         check(limiter)
     }

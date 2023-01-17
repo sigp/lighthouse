@@ -482,7 +482,7 @@ impl<T: EthSpec> BeaconState<T> {
     /// Spec v0.12.1
     pub fn get_committee_count_at_slot(&self, slot: Slot) -> Result<u64, Error> {
         let cache = self.committee_cache_at_slot(slot)?;
-        Ok(cache.committees_per_slot() as u64)
+        Ok(cache.committees_per_slot())
     }
 
     /// Compute the number of committees in an entire epoch.

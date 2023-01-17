@@ -285,7 +285,7 @@ where
         } else {
             if !matches!(response, RPCCodedResponse::StreamTermination(..)) {
                 // the stream is closed after sending the expected number of responses
-                trace!(self.log, "Inbound stream has expired, response not sent";
+                trace!(self.log, "Inbound stream has expired. Response not sent";
                     "response" => %response, "id" => inbound_id);
             }
             return;
@@ -325,61 +325,6 @@ where
 
     fn listen_protocol(&self) -> SubstreamProtocol<Self::InboundProtocol, ()> {
         self.listen_protocol.clone()
-    }
-
-    fn inject_fully_negotiated_inbound(
-        &mut self,
-        substream: <Self::InboundProtocol as InboundUpgrade<NegotiatedSubstream>>::Output,
-        _info: Self::InboundOpenInfo,
-    ) {
-        // only accept new peer requests when active
-        if !matches!(self.state, HandlerState::Active) {
-            return;
-        }
-
-        let (req, substream) = substream;
-        let expected_responses = req.expected_responses();
-
-        // store requests that expect responses
-        if expected_responses > 0 {
-            if self.inbound_substreams.len() < MAX_INBOUND_SUBSTREAMS {
-                // Store the stream and tag the output.
-                let delay_key = self.inbound_substreams_delay.insert(
-                    self.current_inbound_substream_id,
-                    Duration::from_secs(RESPONSE_TIMEOUT),
-                );
-                let awaiting_stream = InboundState::Idle(substream);
-                self.inbound_substreams.insert(
-                    self.current_inbound_substream_id,
-                    InboundInfo {
-                        state: awaiting_stream,
-                        pending_items: VecDeque::with_capacity(expected_responses as usize),
-                        delay_key: Some(delay_key),
-                        protocol: req.protocol(),
-                        request_start_time: Instant::now(),
-                        remaining_chunks: expected_responses,
-                    },
-                );
-            } else {
-                self.events_out.push(Err(HandlerErr::Inbound {
-                    id: self.current_inbound_substream_id,
-                    proto: req.protocol(),
-                    error: RPCError::HandlerRejected,
-                }));
-                return self.shutdown(None);
-            }
-        }
-
-        // If we received a goodbye, shutdown the connection.
-        if let InboundRequest::Goodbye(_) = req {
-            self.shutdown(None);
-        }
-
-        self.events_out.push(Ok(RPCReceived::Request(
-            self.current_inbound_substream_id,
-            req,
-        )));
-        self.current_inbound_substream_id.0 += 1;
     }
 
     fn inject_fully_negotiated_outbound(
@@ -436,6 +381,64 @@ where
             }
             self.current_outbound_substream_id.0 += 1;
         }
+    }
+
+    fn inject_fully_negotiated_inbound(
+        &mut self,
+        substream: <Self::InboundProtocol as InboundUpgrade<NegotiatedSubstream>>::Output,
+        _info: Self::InboundOpenInfo,
+    ) {
+        // only accept new peer requests when active
+        if !matches!(self.state, HandlerState::Active) {
+            return;
+        }
+
+        let (req, substream) = substream;
+        let expected_responses = req.expected_responses();
+
+        // store requests that expect responses
+        if expected_responses > 0 {
+            if self.inbound_substreams.len() < MAX_INBOUND_SUBSTREAMS {
+                // Store the stream and tag the output.
+                let delay_key = self.inbound_substreams_delay.insert(
+                    self.current_inbound_substream_id,
+                    Duration::from_secs(RESPONSE_TIMEOUT),
+                );
+                let awaiting_stream = InboundState::Idle(substream);
+                self.inbound_substreams.insert(
+                    self.current_inbound_substream_id,
+                    InboundInfo {
+                        state: awaiting_stream,
+                        pending_items: VecDeque::with_capacity(std::cmp::min(
+                            expected_responses,
+                            128,
+                        ) as usize),
+                        delay_key: Some(delay_key),
+                        protocol: req.protocol(),
+                        request_start_time: Instant::now(),
+                        remaining_chunks: expected_responses,
+                    },
+                );
+            } else {
+                self.events_out.push(Err(HandlerErr::Inbound {
+                    id: self.current_inbound_substream_id,
+                    proto: req.protocol(),
+                    error: RPCError::HandlerRejected,
+                }));
+                return self.shutdown(None);
+            }
+        }
+
+        // If we received a goodbye, shutdown the connection.
+        if let InboundRequest::Goodbye(_) = req {
+            self.shutdown(None);
+        }
+
+        self.events_out.push(Ok(RPCReceived::Request(
+            self.current_inbound_substream_id,
+            req,
+        )));
+        self.current_inbound_substream_id.0 += 1;
     }
 
     fn inject_event(&mut self, rpc_event: Self::InEvent) {

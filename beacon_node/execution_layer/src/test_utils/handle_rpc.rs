@@ -123,6 +123,14 @@ pub async fn handle_rpc<T: EthSpec>(
             let forkchoice_state: JsonForkChoiceStateV1 = get_param(params, 0)?;
             let payload_attributes: Option<JsonPayloadAttributesV1> = get_param(params, 1)?;
 
+            if let Some(hook_response) = ctx
+                .hook
+                .lock()
+                .on_forkchoice_updated(forkchoice_state.clone(), payload_attributes.clone())
+            {
+                return Ok(serde_json::to_value(hook_response).unwrap());
+            }
+
             let head_block_hash = forkchoice_state.head_block_hash;
 
             // Canned responses set by block hash take priority.

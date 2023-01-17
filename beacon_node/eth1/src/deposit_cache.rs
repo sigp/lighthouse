@@ -675,7 +675,7 @@ pub mod tests {
     #[test]
     fn test_finalization_boundaries() {
         let n = 8;
-        let half = (n / 2) as usize;
+        let half = n / 2;
 
         let mut deposit_cache = get_cache_with_deposits(n as u64);
 
@@ -828,9 +828,9 @@ pub mod tests {
         // get_log(half+quarter) should return log with index `half+quarter`
         assert_eq!(
             q3_log_before_finalization.index,
-            (half + quarter) as u64,
+            half + quarter,
             "log index should be {}",
-            (half + quarter),
+            half + quarter,
         );
 
         // get lower quarter of deposits with max deposit count

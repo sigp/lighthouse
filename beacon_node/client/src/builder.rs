@@ -173,6 +173,7 @@ where
             .monitor_validators(
                 config.validator_monitor_auto,
                 config.validator_monitor_pubkeys.clone(),
+                config.validator_monitor_individual_tracking_threshold,
                 runtime_context
                     .service_context("val_mon".to_string())
                     .log()
@@ -769,7 +770,11 @@ where
                         runtime_context.executor.spawn(
                             async move {
                                 let result = inner_chain
-                                    .update_execution_engine_forkchoice(current_slot, params)
+                                    .update_execution_engine_forkchoice(
+                                        current_slot,
+                                        params,
+                                        Default::default(),
+                                    )
                                     .await;
 
                                 // No need to exit early if setting the head fails. It will be set again if/when the

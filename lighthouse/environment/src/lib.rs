@@ -50,11 +50,13 @@ pub struct LoggerConfig {
     pub debug_level: String,
     pub logfile_debug_level: String,
     pub log_format: Option<String>,
+    pub logfile_format: Option<String>,
     pub log_color: bool,
     pub disable_log_timestamp: bool,
     pub max_log_size: u64,
     pub max_log_number: usize,
     pub compression: bool,
+    pub is_restricted: bool,
 }
 impl Default for LoggerConfig {
     fn default() -> Self {
@@ -63,11 +65,13 @@ impl Default for LoggerConfig {
             debug_level: String::from("info"),
             logfile_debug_level: String::from("debug"),
             log_format: None,
+            logfile_format: None,
             log_color: false,
             disable_log_timestamp: false,
             max_log_size: 200,
             max_log_number: 5,
             compression: false,
+            is_restricted: true,
         }
     }
 }
@@ -250,14 +254,14 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
         let file_logger = FileLoggerBuilder::new(&path)
             .level(logfile_level)
             .channel_size(LOG_CHANNEL_SIZE)
-            .format(match config.log_format.as_deref() {
+            .format(match config.logfile_format.as_deref() {
                 Some("JSON") => Format::Json,
                 _ => Format::default(),
             })
             .rotate_size(config.max_log_size)
             .rotate_keep(config.max_log_number)
             .rotate_compress(config.compression)
-            .restrict_permissions(true)
+            .restrict_permissions(config.is_restricted)
             .build()
             .map_err(|e| format!("Unable to build file logger: {}", e))?;
 

@@ -117,6 +117,31 @@ Returns information regarding the health of the host machine.
 }
 ```
 
+## `GET /lighthouse/ui/graffiti`
+
+Returns the graffiti that will be used for the next block proposal of each validator.
+
+### HTTP Specification
+
+| Property          | Specification                              |
+|-------------------|--------------------------------------------|
+| Path              | `/lighthouse/ui/graffiti`                    |
+| Method            | GET                                        |
+| Required Headers  | [`Authorization`](./api-vc-auth-header.md) |
+| Typical Responses | 200                                        |
+
+### Example Response Body
+
+```json
+{
+  "data": {
+    "0x81283b7a20e1ca460ebd9bbd77005d557370cabb1f9a44f530c4c4c66230f675f8df8b4c2818851aa7d77a80ca5a4a5e": "mr f was here",
+    "0xa3a32b0f8b4ddb83f1a0a853d81dd725dfe577d4f4c3db8ece52ce2b026eca84815c1a7e8e92a4de3d755733bf7e4a9b": "mr v was here",
+    "0x872c61b4a7f8510ec809e5b023f5fdda2105d024c470ddbbeca4bc74e8280af0d178d749853e8f6a841083ac1b4db98f": null
+  }
+}
+```
+
 ## `GET /lighthouse/spec`
 
 Returns the Ethereum proof-of-stake consensus specification loaded for this validator.
