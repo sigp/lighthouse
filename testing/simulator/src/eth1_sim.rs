@@ -62,11 +62,13 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
             debug_level: String::from("debug"),
             logfile_debug_level: String::from("debug"),
             log_format: None,
+            logfile_format: None,
             log_color: false,
             disable_log_timestamp: false,
             max_log_size: 0,
             max_log_number: 0,
             compression: false,
+            is_restricted: true,
         })?
         .multi_threaded_tokio_runtime()?
         .build()?;

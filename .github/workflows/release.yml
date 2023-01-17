@@ -8,8 +8,8 @@ on:
 env:
     DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
     DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
-    REPO_NAME: sigp/lighthouse
-    IMAGE_NAME: sigp/lighthouse
+    REPO_NAME: ${{ github.repository_owner }}/lighthouse
+    IMAGE_NAME: ${{ github.repository_owner }}/lighthouse
 
 jobs:
     extract-version:
@@ -63,12 +63,8 @@ jobs:
         steps:
             - name: Checkout sources
               uses: actions/checkout@v3
-            - name: Build toolchain
-              uses: actions-rs/toolchain@v1
-              with:
-                  toolchain: stable
-                  profile:  minimal
-                  override: true
+            - name: Get latest version of stable Rust
+              run: rustup update stable
 
             # ==============================
             # Windows dependencies
@@ -88,7 +84,7 @@ jobs:
             # ==============================
             - name: Install Protoc
               if: contains(matrix.arch, 'darwin') || contains(matrix.arch, 'windows')
-              uses: arduino/setup-protoc@v1
+              uses: arduino/setup-protoc@e52d9eb8f7b63115df1ac544a1376fdbf5a39612
               with:
                 repo-token: ${{ secrets.GITHUB_TOKEN }}
 
@@ -179,13 +175,13 @@ jobs:
             # =======================================================================
 
             - name:  Upload artifact
-              uses:  actions/upload-artifact@v2
+              uses:  actions/upload-artifact@v3
               with:
                   name: lighthouse-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.arch }}.tar.gz
                   path: lighthouse-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.arch }}.tar.gz
 
             - name: Upload signature
-              uses: actions/upload-artifact@v2
+              uses: actions/upload-artifact@v3
               with:
                   name: lighthouse-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.arch }}.tar.gz.asc
                   path: lighthouse-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.arch }}.tar.gz.asc
@@ -208,7 +204,7 @@ jobs:
             # ==============================
 
             - name: Download artifacts
-              uses: actions/download-artifact@v2
+              uses: actions/download-artifact@v3
 
             # ==============================
             #       Create release draft
@@ -216,11 +212,14 @@ jobs:
 
             - name: Generate Full Changelog
               id: changelog
-              run: echo "CHANGELOG=$(git log --pretty=format:"- %s" $(git describe --tags --abbrev=0 ${{ env.VERSION }}^)..${{ env.VERSION }})" >> $GITHUB_OUTPUT
+              run: |
+                echo "CHANGELOG<<EOF" >> $GITHUB_OUTPUT
+                echo "$(git log --pretty=format:"- %s" $(git describe --tags --abbrev=0 ${{ env.VERSION }}^)..${{ env.VERSION }})" >> $GITHUB_OUTPUT
+                echo "EOF" >> $GITHUB_OUTPUT
 
             - name: Create Release Draft
               env:
-                  GITHUB_USER: sigp
+                  GITHUB_USER: ${{ github.repository_owner }}
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
               # The formatting here is borrowed from OpenEthereum: https://github.com/openethereum/openethereum/blob/main/.github/workflows/build.yml

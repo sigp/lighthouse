@@ -18,6 +18,8 @@ pub const PROPOSER_SLASHING_TOPIC: &str = "proposer_slashing";
 pub const ATTESTER_SLASHING_TOPIC: &str = "attester_slashing";
 pub const SIGNED_CONTRIBUTION_AND_PROOF_TOPIC: &str = "sync_committee_contribution_and_proof";
 pub const SYNC_COMMITTEE_PREFIX_TOPIC: &str = "sync_committee_";
+pub const LIGHT_CLIENT_FINALITY_UPDATE: &str = "light_client_finality_update";
+pub const LIGHT_CLIENT_OPTIMISTIC_UPDATE: &str = "light_client_optimistic_update";
 
 pub const CORE_TOPICS: [GossipKind; 6] = [
     GossipKind::BeaconBlock,
@@ -26,6 +28,11 @@ pub const CORE_TOPICS: [GossipKind; 6] = [
     GossipKind::ProposerSlashing,
     GossipKind::AttesterSlashing,
     GossipKind::SignedContributionAndProof,
+];
+
+pub const LIGHT_CLIENT_GOSSIP_TOPICS: [GossipKind; 2] = [
+    GossipKind::LightClientFinalityUpdate,
+    GossipKind::LightClientOptimisticUpdate,
 ];
 
 /// A gossipsub topic which encapsulates the type of messages that should be sent and received over
@@ -63,6 +70,10 @@ pub enum GossipKind {
     /// Topic for publishing unaggregated sync committee signatures on a particular subnet.
     #[strum(serialize = "sync_committee")]
     SyncCommitteeMessage(SyncSubnetId),
+    /// Topic for publishing finality updates for light clients.
+    LightClientFinalityUpdate,
+    /// Topic for publishing optimistic updates for light clients.
+    LightClientOptimisticUpdate,
 }
 
 impl std::fmt::Display for GossipKind {
@@ -136,6 +147,8 @@ impl GossipTopic {
                 VOLUNTARY_EXIT_TOPIC => GossipKind::VoluntaryExit,
                 PROPOSER_SLASHING_TOPIC => GossipKind::ProposerSlashing,
                 ATTESTER_SLASHING_TOPIC => GossipKind::AttesterSlashing,
+                LIGHT_CLIENT_FINALITY_UPDATE => GossipKind::LightClientFinalityUpdate,
+                LIGHT_CLIENT_OPTIMISTIC_UPDATE => GossipKind::LightClientOptimisticUpdate,
                 topic => match committee_topic_index(topic) {
                     Some(subnet) => match subnet {
                         Subnet::Attestation(s) => GossipKind::Attestation(s),
@@ -194,6 +207,8 @@ impl std::fmt::Display for GossipTopic {
             GossipKind::SyncCommitteeMessage(index) => {
                 format!("{}{}", SYNC_COMMITTEE_PREFIX_TOPIC, *index)
             }
+            GossipKind::LightClientFinalityUpdate => LIGHT_CLIENT_FINALITY_UPDATE.into(),
+            GossipKind::LightClientOptimisticUpdate => LIGHT_CLIENT_OPTIMISTIC_UPDATE.into(),
         };
         write!(
             f,

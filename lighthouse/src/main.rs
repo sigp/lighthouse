@@ -100,6 +100,15 @@ fn main() {
                 .global(true),
         )
         .arg(
+            Arg::with_name("logfile-format")
+                .long("logfile-format")
+                .value_name("FORMAT")
+                .help("Specifies the log format used when emitting logs to the logfile.")
+                .possible_values(&["DEFAULT", "JSON"])
+                .takes_value(true)
+                .global(true)
+        )
+        .arg(
             Arg::with_name("logfile-max-size")
                 .long("logfile-max-size")
                 .value_name("SIZE")
@@ -127,6 +136,15 @@ fn main() {
                 .help(
                     "If present, compress old log files. This can help reduce the space needed \
                     to store old logs.")
+                .global(true),
+        )
+        .arg(
+            Arg::with_name("logfile-no-restricted-perms")
+                .long("logfile-no-restricted-perms")
+                .help(
+                    "If present, log files will be generated as world-readable meaning they can be read by \
+                    any user on the machine. Note that logs can often contain sensitive information \
+                    about your validator and so this flag should be used with caution.")
                 .global(true),
         )
         .arg(
@@ -393,6 +411,11 @@ fn run<E: EthSpec>(
         .value_of("logfile-debug-level")
         .ok_or("Expected --logfile-debug-level flag")?;
 
+    let logfile_format = matches
+        .value_of("logfile-format")
+        // Ensure that `logfile-format` defaults to the value of `log-format`.
+        .or_else(|| matches.value_of("log-format"));
+
     let logfile_max_size: u64 = matches
         .value_of("logfile-max-size")
         .ok_or("Expected --logfile-max-size flag")?
@@ -406,6 +429,8 @@ fn run<E: EthSpec>(
         .map_err(|e| format!("Failed to parse `logfile-max-number`: {:?}", e))?;
 
     let logfile_compress = matches.is_present("logfile-compress");
+
+    let logfile_restricted = !matches.is_present("logfile-no-restricted-perms");
 
     // Construct the path to the log file.
     let mut log_path: Option<PathBuf> = clap_utils::parse_optional(matches, "logfile")?;
@@ -441,11 +466,13 @@ fn run<E: EthSpec>(
         debug_level: String::from(debug_level),
         logfile_debug_level: String::from(logfile_debug_level),
         log_format: log_format.map(String::from),
+        logfile_format: logfile_format.map(String::from),
         log_color,
         disable_log_timestamp,
         max_log_size: logfile_max_size * 1_024 * 1_024,
         max_log_number: logfile_max_number,
         compression: logfile_compress,
+        is_restricted: logfile_restricted,
     };
 
     let builder = environment_builder.initialize_logger(logger_config.clone())?;
