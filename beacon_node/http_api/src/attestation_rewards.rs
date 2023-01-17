@@ -178,10 +178,21 @@ pub fn compute_attestation_rewards<T: BeaconChainTypes>(
         }
     }).collect();
 
+    //TODO Check target, source, and inclusion_delay
+    let total_rewards: Vec<TotalAttestationRewards> = rewards.into_iter().map(|(validator_index, reward)| {
+        TotalAttestationRewards {
+            validator_index: validator_index as u64,
+            head: reward as i64,
+            target: 0,
+            source: 0,
+            inclusion_delay: 0,
+        }
+    }).collect();
+
     Ok(AttestationRewardsTBD{
         execution_optimistic: false,
         finalized: false,
         ideal_rewards: ideal_rewards_vec,
-        total_rewards: todo!(),
+        total_rewards,
     })
 }

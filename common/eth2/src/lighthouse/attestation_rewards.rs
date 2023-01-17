@@ -20,7 +20,7 @@ pub struct IdealAttestationRewards {
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct TotalAttestationRewards {
     // one entry for every validator based on their attestations in the epoch
-    pub validaor_index: u64,
+    pub validator_index: u64,
     // attester's reward for head vote in gwei
     pub head: i64,
     // attester's reward for target vote in gwei
