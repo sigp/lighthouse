@@ -1,6 +1,5 @@
 # Merge Migration
 
-
 This document provides detail for users who want to run a Lighthouse node on post-merge Ethereum.
 
 > The merge occurred on mainnet in September 2022.
