@@ -455,4 +455,3 @@ impl<T: BeaconChainTypes> Worker<T> {
         );
     }
 }
-
