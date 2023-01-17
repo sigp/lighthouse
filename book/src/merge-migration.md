@@ -58,7 +58,7 @@ supported.
 Each execution engine has its own flags for configuring the engine API and JWT. Please consult
 the relevant page for your execution engine for the required flags:
 
-- [Geth: Connecting to Consensus Clients](https://geth.ethereum.org/docs/interface/consensus-clients)
+- [Geth: Connecting to Consensus Clients](https://geth.ethereum.org/docs/getting-started/consensus-clients)
 - [Nethermind: Running Nethermind Post Merge](https://docs.nethermind.io/nethermind/first-steps-with-nethermind/running-nethermind-post-merge)
 - [Besu: Prepare For The Merge](https://besu.hyperledger.org/en/stable/HowTo/Upgrade/Prepare-for-The-Merge/)
 - [Erigon: Beacon Chain (Consensus Layer)](https://github.com/ledgerwatch/erigon#beacon-chain-consensus-layer)
@@ -203,5 +203,5 @@ guidance for specific setups.
 - [Ethereum.org: The Merge](https://ethereum.org/en/upgrades/merge/)
 - [Ethereum Staking Launchpad: Merge Readiness](https://launchpad.ethereum.org/en/merge-readiness).
 - [CoinCashew: Ethereum Merge Upgrade Checklist](https://www.coincashew.com/coins/overview-eth/ethereum-merge-upgrade-checklist-for-home-stakers-and-validators)
-- [EthDocker: Merge Preparation](https://eth-docker.net/docs/About/MergePrep/)
+- [EthDocker: Merge Preparation](https://eth-docker.net/About/MergePrep/)
 - [Remy Roy: How to join the Goerli/Prater merge testnet](https://github.com/remyroy/ethstaker/blob/main/merge-goerli-prater.md)
