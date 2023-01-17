@@ -21,7 +21,7 @@ lazy_static! {
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
-pub struct SubnetId(#[serde(with = "eth2_serde_utils::quoted_u64")] u64);
+pub struct SubnetId(#[serde(with = "serde_utils::quoted_u64")] u64);
 
 pub fn subnet_id_to_string(i: u64) -> &'static str {
     if i < MAX_SUBNET_ID as u64 {
@@ -86,7 +86,7 @@ impl SubnetId {
 
         let subscription_event_idx = epoch.as_u64() / spec.epochs_per_subnet_subscription;
         let permutation_seed =
-            eth2_hashing::hash(&int_to_bytes::int_to_bytes8(subscription_event_idx));
+            ethereum_hashing::hash(&int_to_bytes::int_to_bytes8(subscription_event_idx));
 
         let num_subnets = 1 << spec.attestation_subnet_prefix_bits();
 

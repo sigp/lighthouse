@@ -5,7 +5,8 @@ use crate::validator::ValidatorTrait;
 use crate::*;
 use compare_fields::CompareFields;
 use compare_fields_derive::CompareFields;
-use eth2_hashing::hash;
+use derivative::Derivative;
+use ethereum_hashing::hash;
 use int_to_bytes::{int_to_bytes4, int_to_bytes8};
 use metastruct::{metastruct, NumFields};
 pub use pubkey_cache::PubkeyCache;
@@ -248,7 +249,7 @@ where
     // Versioning
     #[superstruct(getter(copy))]
     #[metastruct(exclude_from(tree_lists))]
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub genesis_time: u64,
     #[superstruct(getter(copy))]
     #[metastruct(exclude_from(tree_lists))]
@@ -277,7 +278,7 @@ where
     pub eth1_data_votes: VList<Eth1Data, T::SlotsPerEth1VotingPeriod>,
     #[superstruct(getter(copy))]
     #[metastruct(exclude_from(tree_lists))]
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub eth1_deposit_index: u64,
 
     // Registry

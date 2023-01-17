@@ -25,7 +25,7 @@ pub struct Validator {
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom)]
 pub struct ValidatorMutable {
-    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    #[serde(with = "serde_utils::quoted_u64")]
     pub effective_balance: u64,
     pub slashed: bool,
     pub activation_eligibility_epoch: Epoch,

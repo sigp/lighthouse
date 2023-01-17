@@ -573,10 +573,9 @@ dependencies = [
  "environment",
  "eth1",
  "eth2",
- "eth2_hashing",
- "eth2_ssz",
- "eth2_ssz_derive",
- "eth2_ssz_types",
+ "ethereum_hashing",
+ "ethereum_ssz",
+ "ethereum_ssz_derive",
  "execution_layer",
  "exit-future",
  "fork_choice",
@@ -607,6 +606,7 @@ dependencies = [
  "sloggers",
  "slot_clock",
  "smallvec",
+ "ssz_types",
  "state_processing",
  "store",
  "strum",
@@ -761,11 +761,10 @@ version = "0.2.0"
 dependencies = [
  "arbitrary",
  "blst",
- "criterion",
- "eth2_hashing",
- "eth2_serde_utils",
- "eth2_ssz",
  "ethereum-types 0.14.1",
+ "ethereum_hashing",
+ "ethereum_serde_utils",
+ "ethereum_ssz",
  "hex",
  "milagro_bls",
  "rand 0.8.5",
@@ -796,7 +795,7 @@ dependencies = [
  "clap",
  "clap_utils",
  "eth2_network_config",
- "eth2_ssz",
+ "ethereum_ssz",
  "hex",
  "lighthouse_network",
  "log",
@@ -905,15 +904,15 @@ dependencies = [
 name = "cached_tree_hash"
 version = "0.1.0"
 dependencies = [
- "eth2_hashing",
- "eth2_ssz",
- "eth2_ssz_derive",
- "eth2_ssz_types",
  "ethereum-types 0.14.1",
+ "ethereum_hashing",
+ "ethereum_ssz",
+ "ethereum_ssz_derive",
  "quickcheck",
  "quickcheck_macros",
  "smallvec",
- "tree_hash 0.4.1",
+ "ssz_types",
+ "tree_hash",
 ]
 
 [[package]]
@@ -1048,8 +1047,8 @@ dependencies = [
  "clap",
  "dirs",
  "eth2_network_config",
- "eth2_ssz",
  "ethereum-types 0.14.1",
+ "ethereum_ssz",
  "hex",
  "serde",
  "serde_json",
@@ -1136,16 +1135,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bd7bef69dc86e3c610e4e7aed41035e2a7ed12e72dd7530f61327a6579a4390b"
 dependencies = [
  "crossbeam-utils",
-]
-
-[[package]]
-name = "console_error_panic_hook"
-version = "0.1.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a06aeb73f470f66dcdbf7223caeebb85984942f22f1adb2a088cf9668146bbbc"
-dependencies = [
- "cfg-if",
- "wasm-bindgen",
 ]
 
 [[package]]
@@ -1637,8 +1626,8 @@ dependencies = [
 name = "deposit_contract"
 version = "0.2.0"
 dependencies = [
- "eth2_ssz",
  "ethabi 16.0.0",
+ "ethereum_ssz",
  "hex",
  "reqwest",
  "serde_json",
@@ -1918,9 +1907,9 @@ dependencies = [
  "compare_fields",
  "compare_fields_derive",
  "derivative",
- "eth2_ssz",
- "eth2_ssz_derive",
  "ethereum-types 0.14.1",
+ "ethereum_ssz",
+ "ethereum_ssz_derive",
  "execution_layer",
  "fork_choice",
  "fs2",
@@ -2072,8 +2061,8 @@ dependencies = [
  "environment",
  "eth1_test_rig",
  "eth2",
- "eth2_ssz",
- "eth2_ssz_derive",
+ "ethereum_ssz",
+ "ethereum_ssz_derive",
  "execution_layer",
  "futures",
  "hex",
@@ -2116,9 +2105,9 @@ dependencies = [
  "account_utils",
  "bytes",
  "eth2_keystore",
- "eth2_serde_utils",
- "eth2_ssz",
- "eth2_ssz_derive",
+ "ethereum_serde_utils",
+ "ethereum_ssz",
+ "ethereum_ssz_derive",
  "futures",
  "futures-util",
  "libsecp256k1",
@@ -2146,24 +2135,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "eth2_hashing"
-version = "0.3.0"
-dependencies = [
- "cpufeatures",
- "lazy_static",
- "ring",
- "rustc-hex",
- "sha2 0.10.6",
- "wasm-bindgen-test",
-]
-
-[[package]]
 name = "eth2_interop_keypairs"
 version = "0.2.0"
 dependencies = [
  "base64",
  "bls",
- "eth2_hashing",
+ "ethereum_hashing",
  "hex",
  "lazy_static",
  "num-bigint",
@@ -2212,60 +2189,11 @@ version = "0.2.0"
 dependencies = [
  "enr",
  "eth2_config",
- "eth2_ssz",
+ "ethereum_ssz",
  "serde_yaml",
  "tempfile",
  "types",
  "zip",
-]
-
-[[package]]
-name = "eth2_serde_utils"
-version = "0.1.1"
-dependencies = [
- "ethereum-types 0.14.1",
- "hex",
- "serde",
- "serde_derive",
- "serde_json",
-]
-
-[[package]]
-name = "eth2_ssz"
-version = "0.4.1"
-dependencies = [
- "eth2_ssz_derive",
- "ethereum-types 0.14.1",
- "itertools",
- "smallvec",
-]
-
-[[package]]
-name = "eth2_ssz_derive"
-version = "0.3.0"
-dependencies = [
- "darling 0.13.4",
- "proc-macro2",
- "quote",
- "syn",
-]
-
-[[package]]
-name = "eth2_ssz_types"
-version = "0.2.2"
-dependencies = [
- "arbitrary",
- "derivative",
- "eth2_serde_utils",
- "eth2_ssz",
- "milhouse",
- "serde",
- "serde_derive",
- "serde_json",
- "smallvec",
- "tree_hash 0.4.1",
- "tree_hash_derive",
- "typenum",
 ]
 
 [[package]]
@@ -2418,6 +2346,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "ethereum_serde_utils"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "adbe1498020586dfe908cec0becafd15ffe7c37142a35dc2ea60273c71c37530"
+dependencies = [
+ "ethereum-types 0.14.1",
+ "hex",
+ "serde",
+ "serde_derive",
+ "serde_json",
+]
+
+[[package]]
 name = "ethereum_ssz"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2541,10 +2482,9 @@ dependencies = [
  "bytes",
  "environment",
  "eth2",
- "eth2_serde_utils",
- "eth2_ssz",
- "eth2_ssz_types",
  "ethereum-consensus",
+ "ethereum_serde_utils",
+ "ethereum_ssz",
  "ethers-core",
  "exit-future",
  "fork_choice",
@@ -2567,6 +2507,7 @@ dependencies = [
  "slog",
  "slot_clock",
  "ssz-rs",
+ "ssz_types",
  "state_processing",
  "strum",
  "task_executor",
@@ -2718,8 +2659,8 @@ name = "fork_choice"
 version = "0.1.0"
 dependencies = [
  "beacon_chain",
- "eth2_ssz",
- "eth2_ssz_derive",
+ "ethereum_ssz",
+ "ethereum_ssz_derive",
  "proto_array",
  "slog",
  "state_processing",
@@ -2913,8 +2854,8 @@ dependencies = [
  "environment",
  "eth1",
  "eth1_test_rig",
- "eth2_hashing",
- "eth2_ssz",
+ "ethereum_hashing",
+ "ethereum_ssz",
  "futures",
  "int_to_bytes",
  "merkle_proof",
@@ -3263,7 +3204,7 @@ dependencies = [
  "environment",
  "eth1",
  "eth2",
- "eth2_ssz",
+ "ethereum_ssz",
  "execution_layer",
  "futures",
  "hex",
@@ -3784,8 +3725,8 @@ dependencies = [
  "eth1_test_rig",
  "eth2",
  "eth2_network_config",
- "eth2_ssz",
  "eth2_wallet",
+ "ethereum_ssz",
  "genesis",
  "int_to_bytes",
  "lighthouse_network",
@@ -4387,8 +4328,8 @@ dependencies = [
  "env_logger 0.9.3",
  "environment",
  "eth1",
- "eth2_hashing",
  "eth2_network_config",
+ "ethereum_hashing",
  "futures",
  "lazy_static",
  "lighthouse_metrics",
@@ -4429,9 +4370,8 @@ dependencies = [
  "dirs",
  "discv5",
  "error-chain",
- "eth2_ssz",
- "eth2_ssz_derive",
- "eth2_ssz_types",
+ "ethereum_ssz",
+ "ethereum_ssz_derive",
  "exit-future",
  "fnv",
  "futures",
@@ -4455,6 +4395,7 @@ dependencies = [
  "slog-term",
  "smallvec",
  "snap",
+ "ssz_types",
  "strum",
  "superstruct",
  "task_executor",
@@ -4688,8 +4629,8 @@ dependencies = [
 name = "merkle_proof"
 version = "0.2.0"
 dependencies = [
- "eth2_hashing",
  "ethereum-types 0.14.1",
+ "ethereum_hashing",
  "lazy_static",
  "quickcheck",
  "quickcheck_macros",
@@ -5054,9 +4995,8 @@ dependencies = [
  "derivative",
  "environment",
  "error-chain",
- "eth2_ssz",
- "eth2_ssz_types",
  "ethereum-types 0.14.1",
+ "ethereum_ssz",
  "exit-future",
  "fnv",
  "futures",
@@ -5080,6 +5020,7 @@ dependencies = [
  "sloggers",
  "slot_clock",
  "smallvec",
+ "ssz_types",
  "store",
  "strum",
  "task_executor",
@@ -5400,8 +5341,8 @@ dependencies = [
  "beacon_chain",
  "bitvec 1.0.1",
  "derivative",
- "eth2_ssz",
- "eth2_ssz_derive",
+ "ethereum_ssz",
+ "ethereum_ssz_derive",
  "itertools",
  "lazy_static",
  "lighthouse_metrics",
@@ -6000,8 +5941,8 @@ dependencies = [
 name = "proto_array"
 version = "0.2.0"
 dependencies = [
- "eth2_ssz",
- "eth2_ssz_derive",
+ "ethereum_ssz",
+ "ethereum_ssz_derive",
  "safe_arith",
  "serde",
  "serde_derive",
@@ -7115,8 +7056,8 @@ version = "0.1.0"
 dependencies = [
  "bincode",
  "byteorder",
- "eth2_ssz",
- "eth2_ssz_derive",
+ "ethereum_ssz",
+ "ethereum_ssz_derive",
  "filesystem",
  "flate2",
  "lazy_static",
@@ -7164,7 +7105,7 @@ name = "slashing_protection"
 version = "0.1.0"
 dependencies = [
  "arbitrary",
- "eth2_serde_utils",
+ "ethereum_serde_utils",
  "filesystem",
  "lazy_static",
  "r2d2",
@@ -7384,10 +7325,21 @@ dependencies = [
 ]
 
 [[package]]
-name = "stable_deref_trait"
-version = "1.2.0"
+name = "ssz_types"
+version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a8f112729512f8e442d81f95a8a7ddf2b7c6b8a1a6f509a95864142b30cab2d3"
+checksum = "babb2d535656e2f243adc91642033d476f0b411a7c6fbc338f4bc89ef50261d0"
+dependencies = [
+ "arbitrary",
+ "derivative",
+ "ethereum_serde_utils",
+ "ethereum_ssz",
+ "serde",
+ "serde_derive",
+ "smallvec",
+ "tree_hash",
+ "typenum",
+]
 
 [[package]]
 name = "state_processing"
@@ -7398,10 +7350,9 @@ dependencies = [
  "bls",
  "derivative",
  "env_logger 0.9.3",
- "eth2_hashing",
- "eth2_ssz",
- "eth2_ssz_derive",
- "eth2_ssz_types",
+ "ethereum_hashing",
+ "ethereum_ssz",
+ "ethereum_ssz_derive",
  "int_to_bytes",
  "integer-sqrt",
  "itertools",
@@ -7412,6 +7363,7 @@ dependencies = [
  "rustc-hash",
  "safe_arith",
  "smallvec",
+ "ssz_types",
  "tokio",
  "tree_hash 0.4.1",
  "types",
@@ -7423,7 +7375,7 @@ name = "state_transition_vectors"
 version = "0.1.0"
 dependencies = [
  "beacon_chain",
- "eth2_ssz",
+ "ethereum_ssz",
  "lazy_static",
  "state_processing",
  "tokio",
@@ -7444,8 +7396,8 @@ dependencies = [
  "bls",
  "db-key",
  "directory",
- "eth2_ssz",
- "eth2_ssz_derive",
+ "ethereum_ssz",
+ "ethereum_ssz_derive",
  "itertools",
  "lazy_static",
  "leveldb",
@@ -7554,8 +7506,8 @@ name = "swap_or_not_shuffle"
 version = "0.2.0"
 dependencies = [
  "criterion",
- "eth2_hashing",
  "ethereum-types 0.14.1",
+ "ethereum_hashing",
 ]
 
 [[package]]
@@ -8177,17 +8129,13 @@ dependencies = [
 
 [[package]]
 name = "tree_hash"
-version = "0.4.1"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "87bb13ce6641dabdb9983d3cadd77d9320eb81102abeb15220eb98db12d58eb6"
 dependencies = [
- "beacon_chain",
- "eth2_hashing",
- "eth2_ssz",
- "eth2_ssz_derive",
  "ethereum-types 0.14.1",
- "rand 0.8.5",
+ "ethereum_hashing",
  "smallvec",
- "tree_hash_derive",
- "types",
 ]
 
 [[package]]
@@ -8203,7 +8151,9 @@ dependencies = [
 
 [[package]]
 name = "tree_hash_derive"
-version = "0.4.0"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1f58b240429d87246830cab32cfa3d8e01ed9c2abc3918b6345f518e855e8976"
 dependencies = [
  "darling 0.13.4",
  "quote",
@@ -8368,13 +8318,12 @@ dependencies = [
  "compare_fields_derive",
  "criterion",
  "derivative",
- "eth2_hashing",
  "eth2_interop_keypairs",
- "eth2_serde_utils",
- "eth2_ssz",
- "eth2_ssz_derive",
- "eth2_ssz_types",
  "ethereum-types 0.14.1",
+ "ethereum_hashing",
+ "ethereum_serde_utils",
+ "ethereum_ssz",
+ "ethereum_ssz_derive",
  "hex",
  "int_to_bytes",
  "itertools",
@@ -8399,6 +8348,7 @@ dependencies = [
  "serde_yaml",
  "slog",
  "smallvec",
+ "ssz_types",
  "state_processing",
  "superstruct",
  "swap_or_not_shuffle",
@@ -8567,7 +8517,7 @@ dependencies = [
  "environment",
  "eth2",
  "eth2_keystore",
- "eth2_serde_utils",
+ "ethereum_serde_utils",
  "exit-future",
  "filesystem",
  "futures",
@@ -8821,30 +8771,6 @@ name = "wasm-bindgen-shared"
 version = "0.2.83"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1c38c045535d93ec4f0b4defec448e4291638ee608530863b1e2ba115d4fff7f"
-
-[[package]]
-name = "wasm-bindgen-test"
-version = "0.3.33"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "09d2fff962180c3fadf677438054b1db62bee4aa32af26a45388af07d1287e1d"
-dependencies = [
- "console_error_panic_hook",
- "js-sys",
- "scoped-tls",
- "wasm-bindgen",
- "wasm-bindgen-futures",
- "wasm-bindgen-test-macro",
-]
-
-[[package]]
-name = "wasm-bindgen-test-macro"
-version = "0.3.33"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4683da3dfc016f704c9f82cf401520c4f1cb3ee440f7f52b3d6ac29506a49ca7"
-dependencies = [
- "proc-macro2",
- "quote",
-]
 
 [[package]]
 name = "wasm-timer"

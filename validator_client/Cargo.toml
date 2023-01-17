@@ -13,7 +13,7 @@ tokio = { version = "1.14.0", features = ["time", "rt-multi-thread", "macros"] }
 logging = { path = "../common/logging" }
 
 [dependencies]
-tree_hash = "0.4.1"
+tree_hash = "0.5.0"
 clap = "2.33.3"
 slashing_protection = { path = "./slashing_protection" }
 slot_clock = { path = "../common/slot_clock" }
@@ -46,7 +46,7 @@ lighthouse_version = { path = "../common/lighthouse_version" }
 warp_utils = { path = "../common/warp_utils" }
 warp = "0.3.2"
 hyper = "0.14.4"
-eth2_serde_utils = "0.1.1"
+ethereum_serde_utils = "0.5.0"
 libsecp256k1 = "0.7.0"
 ring = "0.16.19"
 rand = { version = "0.8.5", features = ["small_rng"] }

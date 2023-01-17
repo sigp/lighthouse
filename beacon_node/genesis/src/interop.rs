@@ -1,5 +1,5 @@
 use crate::common::genesis_deposits;
-use eth2_hashing::hash;
+use ethereum_hashing::hash;
 use rayon::prelude::*;
 use ssz::Encode;
 use state_processing::initialize_beacon_state_from_eth1;
