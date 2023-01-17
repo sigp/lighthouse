@@ -333,6 +333,11 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
         let proposer_index = self.validator_store.validator_index(&validator_pubkey);
         let validator_pubkey_ref = &validator_pubkey;
 
+        info!(
+            log,
+            "Requesting unsigned block";
+            "slot" => slot.as_u64(),
+        );
         // Request block from first responsive beacon node.
         let block = self
             .beacon_nodes
@@ -383,6 +388,11 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                         }
                     };
 
+                    info!(
+                        log,
+                        "Received unsigned block";
+                        "slot" => slot.as_u64(),
+                    );
                     if proposer_index != Some(block.proposer_index()) {
                         return Err(BlockError::Recoverable(
                             "Proposer index does not match block proposer. Beacon chain re-orged"
@@ -401,6 +411,11 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
             .await
             .map_err(|e| BlockError::Recoverable(format!("Unable to sign block: {:?}", e)))?;
 
+        info!(
+            log,
+            "Publishing signed block";
+            "slot" => slot.as_u64(),
+        );
         // Publish block with first available beacon node.
         self.beacon_nodes
             .first_success(
