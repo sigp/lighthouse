@@ -1,22 +1,22 @@
 use std::sync::Arc;
 use beacon_chain::{BeaconChain, BeaconChainTypes, BeaconChainError};
 use eth2::types::ValidatorId;
-use eth2::lighthouse::{SyncCommitteeRewards, SyncCommitteeReward};
+use eth2::lighthouse::SyncCommitteeReward;
 use slog::{debug, Logger};
 use state_processing::BlockReplayer;
 use types::{BeaconState, SignedBlindedBeaconBlock};
 use warp_utils::reject::beacon_chain_error;
-use crate::BlockId;
+use crate::{BlockId, ExecutionOptimistic};
 
 pub fn compute_sync_committee_rewards<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
     block_id: BlockId,
     validators: Vec<ValidatorId>,
     log: Logger
-) -> Result<SyncCommitteeRewards, warp::Rejection> {
+) -> Result<(Option<Vec<SyncCommitteeReward>>, ExecutionOptimistic), warp::Rejection> {
 
 
-    let (block, _) = block_id.blinded_block(&chain)?;
+    let (block, execution_optimistic) = block_id.blinded_block(&chain)?;
 
     let mut state = get_state_before_applying_block(chain.clone(), block.clone())
         .map_err(beacon_chain_error)?;
@@ -54,11 +54,7 @@ pub fn compute_sync_committee_rewards<T: BeaconChainTypes>(
         };
                             
 
-    Ok(SyncCommitteeRewards{
-        execution_optimistic: None,
-        finalized: None,
-        data
-    })
+    Ok((data, execution_optimistic))
 
     
 }
@@ -70,19 +66,19 @@ fn get_state_before_applying_block<T:BeaconChainTypes>(
 
     let parent_block: SignedBlindedBeaconBlock<T::EthSpec> = chain
         .get_blinded_block(&block.parent_root())?
-        .ok_or_else(|| BeaconChainError::SyncCommitteeRewardsSyncError)?;
+        .ok_or_else(|| BeaconChainError::SyncCommitteeRewardsSyncError)?; //TODO
 
 
     let parent_state = chain
         .get_state(&parent_block.state_root(), Some(parent_block.slot()))?
-        .ok_or_else(|| BeaconChainError::SyncCommitteeRewardsSyncError)?;
+        .ok_or_else(|| BeaconChainError::SyncCommitteeRewardsSyncError)?; //TODO
 
     let replayer = BlockReplayer::new(parent_state, &chain.spec)
         .no_signature_verification()
         .state_root_iter([Ok((parent_block.state_root(), parent_block.slot()))].into_iter())
         .minimal_block_root_verification()
         .apply_blocks(vec![], Some(block.slot()))
-        .map_err(|_: BeaconChainError| BeaconChainError::SyncCommitteeRewardsSyncError)?;
+        .map_err(|_: BeaconChainError| BeaconChainError::SyncCommitteeRewardsSyncError)?; //TODO
 
     Ok(replayer.into_state())
 }

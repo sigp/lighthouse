@@ -1,9 +1,12 @@
 use crate::{BeaconChain, BeaconChainError, BeaconChainTypes};
 
 use eth2::lighthouse::SyncCommitteeReward;
+use safe_arith::SafeArith;
 use state_processing::per_block_processing::altair::sync_committee::compute_sync_aggregate_rewards;
+use store::RelativeEpoch;
 use types::{BeaconBlockRef, BeaconState, ExecPayload};
 use std::collections::HashMap;
+use slog::error;
 
 impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn compute_sync_committee_rewards<Payload: ExecPayload<T::EthSpec>>(
@@ -14,8 +17,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         if block.slot() != state.slot() {
             return Err(BeaconChainError::BlockRewardSlotError);
         }
-
+        
         let spec = &self.spec;
+
+        state.build_committee_cache(RelativeEpoch::Current, spec)?;
 
         let sync_aggregate = block
             .body()
@@ -29,7 +34,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .get_sync_committee_indices(&sync_committee)?;
 
         let (participant_reward_value, proposer_reward_per_bit) = compute_sync_aggregate_rewards(&state, spec)
-            .map_err(|_| BeaconChainError::SyncCommitteeRewardsSyncError)?;
+            .map_err(|e| {
+                error!(
+                    self.log, "Error calculating sync aggregate rewards";
+                    "error" => ?e
+                );
+                BeaconChainError::SyncCommitteeRewardsSyncError
+            })?;
 
         let mut balances = sync_committee_indices
             .iter()
@@ -42,38 +53,41 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Apply rewards to participant balances. Keep track of proposer rewards
         for (validator_index, participant_bit) in sync_committee_indices.iter().zip(sync_aggregate.sync_committee_bits.iter()) {
-            let participant_balance = balances.get(validator_index);
+            let participant_balance = balances
+                .entry(*validator_index)
+                .or_insert(state.balances()[*validator_index]);
 
             if participant_bit {
-                if let Some(balance_value) = participant_balance {
-                    balances.insert(*validator_index, balance_value + participant_reward_value);
-                }
-                *balances.get_mut(&proposer_index).unwrap() += proposer_reward_per_bit;
-                total_proposer_rewards +=  proposer_reward_per_bit;
+                participant_balance.safe_add_assign(participant_reward_value)?;
+
+                balances
+                    .entry(proposer_index)
+                    .or_insert(state.balances()[proposer_index])
+                    .safe_add_assign(proposer_reward_per_bit)?;
+
+                total_proposer_rewards.safe_add_assign(proposer_reward_per_bit)?;
             } else {
-                if let Some(balance_value) = participant_balance {
-                    balances.insert(*validator_index, balance_value.saturating_sub(participant_reward_value));
-                }
+                *participant_balance = participant_balance.saturating_sub(participant_reward_value);
             }
         }
 
-        if sync_committee.pubkeys.is_empty() { 
-            Ok(Vec::new())
-        } else {
-            Ok(
-                balances.iter().map(|(i, new_balance)| {
-                    let reward = if *i != proposer_index {
-                        *new_balance as i64 - state.balances()[*i] as i64
-                    } else {
-                        *new_balance as i64 - state.balances()[*i] as i64 - total_proposer_rewards as i64
-                    };
-                    SyncCommitteeReward {
-                        validator_index: *i as u64,
-                        reward
-                    }
-                })
-                .collect()
-            )
-        }
+        Ok(
+            sync_committee_indices.iter().map(|i| {
+                let new_balance = *balances
+                    .entry(*i)
+                    .or_insert(state.balances()[*i]) as i64;
+
+                let reward = if *i != proposer_index {
+                    new_balance - state.balances()[*i] as i64
+                } else {
+                    new_balance - state.balances()[*i] as i64 - total_proposer_rewards as i64
+                };
+                SyncCommitteeReward {
+                    validator_index: *i as u64,
+                    reward
+                }
+            })
+            .collect()
+        )
     }
 }

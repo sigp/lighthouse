@@ -4,18 +4,9 @@ use serde::{Deserialize, Serialize};
 // All rewards in GWei
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
-pub struct SyncCommitteeRewards {
-
-    pub execution_optimistic: Option<bool>,
-
-    pub finalized: Option<bool>,
-
-    pub data: Option<Vec<SyncCommitteeReward>> 
-}
-
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct SyncCommitteeReward {
 
+    #[serde(with = "eth2_serde_utils::quoted_u64")]
     pub validator_index: u64,
     // sync committee reward in gwei for the validator
     pub reward: i64,

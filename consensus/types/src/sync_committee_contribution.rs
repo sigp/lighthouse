@@ -12,7 +12,6 @@ pub enum Error {
     SszTypesError(ssz_types::Error),
     AlreadySigned(usize),
     SubnetCountIsZero(ArithError),
-    VerificationFail,
 }
 
 /// An aggregation of `SyncCommitteeMessage`s, used in creating a `SignedContributionAndProof`.

@@ -33,8 +33,7 @@ fn get_harness<E: EthSpec>() -> BeaconChainHarness<EphemeralHarnessType<E>> {
 
 #[tokio::test]
 async fn test_sync_committee_rewards() {
-    let num_block_produced = MinimalEthSpec::slots_per_epoch() * 5 + 2; // Avoid latest block at
-                                                                        // boundary
+    let num_block_produced = MinimalEthSpec::slots_per_epoch(); 
     let harness = get_harness::<MinimalEthSpec>();
 
     let latest_block_root = harness

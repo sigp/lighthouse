@@ -49,7 +49,6 @@ use store::{config::StoreConfig, HotColdDB, ItemStore, LevelDB, MemoryStore};
 use task_executor::{test_utils::TestRuntime, ShutdownReason};
 use tree_hash::TreeHash;
 use types::sync_selection_proof::SyncSelectionProof;
-use types::sync_committee_contribution::Error as ContributionError;
 pub use types::test_utils::generate_deterministic_keypairs;
 use types::{typenum::U4294967296, *};
 
@@ -1889,16 +1888,14 @@ where
         let mut verified_contributions = Vec::with_capacity(sync_contributions.len());
 
         for (_, contribution_and_proof) in sync_contributions {
-            if let Some(signed_contribution_and_proof) = contribution_and_proof {
-                let verified_contribution = self
-                    .chain
-                    .verify_sync_contribution_for_gossip(signed_contribution_and_proof)?;
+            let signed_contribution_and_proof = contribution_and_proof.unwrap();
 
-                verified_contributions.push(verified_contribution);
+            let verified_contribution = self
+                .chain
+                .verify_sync_contribution_for_gossip(signed_contribution_and_proof)?;
 
-            } else {
-                return Err(SyncCommitteeError::ContributionError(ContributionError::VerificationFail));
-            }
+            verified_contributions.push(verified_contribution);
+
         }
 
         for verified_contribution in verified_contributions {
