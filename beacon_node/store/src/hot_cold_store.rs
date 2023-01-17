@@ -1732,9 +1732,9 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             Some(epoch) => epoch,
             None => {
                 // The split slot is set upon finalization and is the first slot in the latest
-                // finalized epoch, hence current_epoch = split_epoch + 1
+                // finalized epoch, hence current_epoch = split_epoch + 2
                 let current_epoch =
-                    self.get_split_slot().epoch(E::slots_per_epoch()) + Epoch::new(1);
+                    self.get_split_slot().epoch(E::slots_per_epoch()) + Epoch::new(2);
                 current_epoch.saturating_sub(*MIN_EPOCHS_FOR_BLOBS_SIDECARS_REQUESTS)
             }
         };
