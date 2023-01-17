@@ -30,8 +30,8 @@ use crate::beacon_node_fallback::{
     RequireSynced,
 };
 use crate::doppelganger_service::DoppelgangerService;
-use crate::initialized_validators::Error::UnableToOpenVotingKeystore;
 use crate::graffiti_file::GraffitiFile;
+use crate::initialized_validators::Error::UnableToOpenVotingKeystore;
 use account_utils::validator_definitions::ValidatorDefinitions;
 use attestation_service::{AttestationService, AttestationServiceBuilder};
 use block_service::{BlockService, BlockServiceBuilder};
