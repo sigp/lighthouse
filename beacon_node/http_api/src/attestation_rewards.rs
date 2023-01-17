@@ -1,6 +1,7 @@
 use std::{sync::Arc, collections::HashMap};
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use eth2::{lighthouse::AttestationRewardsTBD, types::ValidatorId};
+use eth2::lighthouse::attestation_rewards::{IdealAttestationRewards, TotalAttestationRewards};
 use safe_arith::SafeArith;
 use slog::Logger;
 use participation_cache::ParticipationCache;
@@ -131,9 +132,9 @@ pub fn compute_attestation_rewards<T: BeaconChainTypes>(
             } else {
                 //Push the rewards onto the HashMap
                 ideal_rewards.insert((flag_index, effective_balance_eth), 0);
-        }  
+            }  
+        }
     }
-}
 
     //TODO Output the ideal_rewards HashMap
 
@@ -165,12 +166,22 @@ pub fn compute_attestation_rewards<T: BeaconChainTypes>(
 
     //TODO Put actual_reward in Vec<AttestationRewardsTBD>
     //TODO Code cleanup
-    
+
+    //Convert ideal_rewards HashMap to Vec<IdealAttestationRewards>
+    //TODO Check target and source
+    let ideal_rewards_vec: Vec<IdealAttestationRewards> = ideal_rewards.iter().map(|((flag_index, effective_balance_eth), reward)| {
+        IdealAttestationRewards {
+            effective_balance: *effective_balance_eth as u64,
+            head: *reward,
+            target: 0,
+            source: 0,
+        }
+    }).collect();
 
     Ok(AttestationRewardsTBD{
         execution_optimistic: false,
         finalized: false,
-        ideal_rewards: todo!(),
+        ideal_rewards: ideal_rewards_vec,
         total_rewards: todo!(),
     })
 }

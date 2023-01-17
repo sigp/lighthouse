@@ -3,14 +3,6 @@ use serde::{Deserialize, Serialize};
 // Details about the rewards paid for attestations
 // All rewards in GWei
 
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
-//TODO: AttestationRewards already exists
-pub struct AttestationRewardsTBD {
-    pub execution_optimistic: bool,
-    pub finalized: bool,
-    pub ideal_rewards: Vec<IdealAttestationRewards>,
-    pub total_rewards: Vec<TotalAttestationRewards>,
-}
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct IdealAttestationRewards {
@@ -22,7 +14,7 @@ pub struct IdealAttestationRewards {
     pub target: u64,
     // Ideal attester's reward for source vote in gwei
     pub source: u64,
-
+    
 }
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
@@ -37,5 +29,14 @@ pub struct TotalAttestationRewards {
     pub source: i64,
     // attester's inclusion_delay reward in gwei (phase0 only)
     pub inclusion_delay: u64,
+    
+}
 
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+//TODO: AttestationRewards already exists
+pub struct AttestationRewardsTBD {
+    pub execution_optimistic: bool,
+    pub finalized: bool,
+    pub ideal_rewards: Vec<IdealAttestationRewards>,
+    pub total_rewards: Vec<TotalAttestationRewards>,
 }

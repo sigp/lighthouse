@@ -3,7 +3,7 @@
 mod attestation_performance;
 mod block_packing_efficiency;
 mod block_rewards;
-mod attestation_rewards;
+pub mod attestation_rewards;
 
 use crate::{
     ok_or_error,
