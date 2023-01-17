@@ -31,11 +31,11 @@ slog = { version = "2.5.2", features = ["max_level_trace"] }
 sloggers = { version = "2.1.1", features = ["json"] }
 slot_clock = { path = "../../common/slot_clock" }
 ethereum_hashing = "1.0.0-beta.2"
-ethereum_ssz = "1.0.0-beta.2"
-ssz_types = "1.0.0-beta.0"
-ethereum_ssz_derive = "1.0.0-beta.2"
+ethereum_ssz = "0.5.0"
+ssz_types = "0.5.0"
+ethereum_ssz_derive = "0.5.0"
 state_processing = { path = "../../consensus/state_processing" }
-tree_hash = "1.0.0-beta.0"
+tree_hash = "0.5.0"
 types = { path = "../../consensus/types" }
 tokio = "1.14.0"
 eth1 = { path = "../eth1" }

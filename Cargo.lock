@@ -2332,9 +2332,9 @@ dependencies = [
 
 [[package]]
 name = "ethereum_serde_utils"
-version = "1.0.0-beta.0"
+version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c927663d966e972b65dba434972dc158b3b07d0d40feadf2ecc095f90dfb79f6"
+checksum = "adbe1498020586dfe908cec0becafd15ffe7c37142a35dc2ea60273c71c37530"
 dependencies = [
  "ethereum-types 0.14.1",
  "hex",
@@ -2345,8 +2345,9 @@ dependencies = [
 
 [[package]]
 name = "ethereum_ssz"
-version = "1.0.0-beta.2"
-source = "git+https://github.com/sigp/ethereum_ssz?branch=ethereum-types-0.14#ef07d9c865647ae0ed59349c1c2dd274b3e2af35"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "29d6b56a74d435691764a6e8b635dab1cca4fcf15d7ec8f265c73d3b98cdd889"
 dependencies = [
  "ethereum-types 0.14.1",
  "itertools",
@@ -2355,9 +2356,9 @@ dependencies = [
 
 [[package]]
 name = "ethereum_ssz_derive"
-version = "1.0.0-beta.2"
+version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8b686a7fe25ffac20ffef791a802bb55d4245c64277884ea6db63e857306a30f"
+checksum = "44f51ce7a63b03c9ee2ea8e0e7078e948846dc227331e50fa2124c0fa872b1fc"
 dependencies = [
  "darling 0.13.4",
  "proc-macro2",
@@ -7243,9 +7244,9 @@ dependencies = [
 
 [[package]]
 name = "ssz_types"
-version = "1.0.0-beta.0"
+version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7e4d448cbd05c84d3b28339592a13bce1af5279445c2dce19598120ff9d62857"
+checksum = "babb2d535656e2f243adc91642033d476f0b411a7c6fbc338f4bc89ef50261d0"
 dependencies = [
  "arbitrary",
  "derivative",
@@ -8031,9 +8032,9 @@ dependencies = [
 
 [[package]]
 name = "tree_hash"
-version = "1.0.0-beta.0"
+version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "40f59e8e790d15781f9cbe1cecb2f79465b2314163c9683af3625027f9a78fdc"
+checksum = "87bb13ce6641dabdb9983d3cadd77d9320eb81102abeb15220eb98db12d58eb6"
 dependencies = [
  "ethereum-types 0.14.1",
  "ethereum_hashing",
@@ -8042,9 +8043,9 @@ dependencies = [
 
 [[package]]
 name = "tree_hash_derive"
-version = "1.0.0-beta.0"
+version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bb9bd290c33b0e154dc443baaa5b0c3f3291a3728703870e56aff967d533d26e"
+checksum = "1f58b240429d87246830cab32cfa3d8e01ed9c2abc3918b6345f518e855e8976"
 dependencies = [
  "darling 0.13.4",
  "quote",

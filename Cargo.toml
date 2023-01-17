@@ -86,7 +86,6 @@ members = [
 [patch.crates-io]
 fixed-hash = { git = "https://github.com/paritytech/parity-common", rev="df638ab0885293d21d656dc300d39236b69ce57d" }
 warp = { git = "https://github.com/macladson/warp", rev="7e75acc368229a46a236a8c991bf251fe7fe50ef" }
-ethereum_ssz = { git = "https://github.com/sigp/ethereum_ssz", branch="ethereum-types-0.14" }
 
 [profile.maxperf]
 inherits = "release"

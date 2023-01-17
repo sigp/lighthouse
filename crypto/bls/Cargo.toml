@@ -5,13 +5,13 @@ authors = ["Paul Hauner <paul@paulhauner.com>"]
 edition = "2021"
 
 [dependencies]
-ethereum_ssz = "1.0.0-beta.2"
-tree_hash = "1.0.0-beta.0"
+ethereum_ssz = "0.5.0"
+tree_hash = "0.5.0"
 milagro_bls = { git = "https://github.com/sigp/milagro_bls", tag = "v1.4.2", optional = true }
 rand = "0.7.3"
 serde = "1.0.116"
 serde_derive = "1.0.116"
-ethereum_serde_utils = "1.0.0-beta.0"
+ethereum_serde_utils = "0.5.0"
 hex = "0.4.2"
 ethereum_hashing = "1.0.0-beta.2"
 ethereum-types = "0.14.1"
