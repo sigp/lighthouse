@@ -246,19 +246,39 @@ impl<T: BeaconChainTypes> Worker<T> {
                                 "request_root" => ?root
                             );
                         }
-                        Ok((Some(_), None)) => {
-                            debug!(
-                                self.log,
-                                "Peer requested block and blob, but no blob found";
-                                "peer" => %peer_id,
-                                "request_root" => ?root
-                            );
-                            self.send_error_response(
-                                peer_id,
-                                RPCResponseErrorCode::ResourceUnavailable,
-                                "No blob for requested block".into(),
-                                request_id,
-                            );
+                        Ok((Some(block), None)) => {
+                            let data_availability_boundary_by_root = self.chain.data_availability_boundary_by_root_rpc_request();
+                            let block_epoch = block.epoch();
+
+                           if Some(block_epoch) >= data_availability_boundary_by_root {
+                                debug!(
+                                    self.log,
+                                    "Peer requested block and blob that should be available, but no blob found";
+                                    "peer" => %peer_id,
+                                    "request_root" => ?root,
+                                    "data_availability_boundary_by_root" => data_availability_boundary_by_root,
+                                );
+                                self.send_error_response(
+                                    peer_id,
+                                    RPCResponseErrorCode::ResourceUnavailable,
+                                    "No blob for requested block.".into(),
+                                    request_id,
+                                );
+                            } else {
+                                debug!(
+                                    self.log,
+                                    "Peer requested block and blob older than the data availability boundary for ByRoot request, no blob found";
+                                    "peer" => %peer_id,
+                                    "request_root" => ?root,
+                                    "data_availability_boundary_by_root" => data_availability_boundary_by_root,
+                                );
+                                self.send_error_response(
+                                    peer_id,
+                                    RPCResponseErrorCode::ResourceUnavailable,
+                                    format!("No blob for requested block. Requested blob is older than the data availability boundary for a ByRoot request, currently at epoch {:?}", data_availability_boundary_by_root),
+                                    request_id,
+                                );
+                            }
                             send_response = false;
                             break;
                         }
@@ -592,15 +612,33 @@ impl<T: BeaconChainTypes> Worker<T> {
             "start_slot" => req.start_slot,
         );
 
+        let start_slot = Slot::from(req.start_slot);
+        let start_epoch = start_slot.epoch(T::EthSpec::slots_per_epoch());
+        let data_availability_boundary = self.chain.data_availability_boundary();
+
+        if Some(start_epoch) < data_availability_boundary {
+            let oldest_blob_slot = self
+                .chain
+                .store
+                .get_blob_info()
+                .map(|blob_info| blob_info.oldest_blob_slot);
+
+            debug!(self.log, "Range request start slot is older than data availability boundary"; "requested_slot" => req.start_slot, "oldest_known_slot" => ?oldest_blob_slot, "data_availability_boundary" => data_availability_boundary);
+
+            return self.send_error_response(
+                peer_id,
+                RPCResponseErrorCode::ResourceUnavailable,
+                format!("Requested start slot in epoch {}. Data availability boundary is currently at epoch {:?}", start_epoch, data_availability_boundary),
+                request_id,
+            );
+        }
+
         // Should not send more than max request blocks
         if req.count > MAX_REQUEST_BLOBS_SIDECARS {
             req.count = MAX_REQUEST_BLOBS_SIDECARS;
         }
 
-        let forwards_block_root_iter = match self
-            .chain
-            .forwards_iter_block_roots(Slot::from(req.start_slot))
-        {
+        let forwards_block_root_iter = match self.chain.forwards_iter_block_roots(start_slot) {
             Ok(iter) => iter,
             Err(BeaconChainError::HistoricalBlockError(
                 HistoricalBlockError::BlockOutOfRange {

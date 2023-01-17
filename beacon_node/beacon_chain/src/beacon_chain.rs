@@ -2486,7 +2486,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         while let Some((_root, block)) = filtered_chain_segment.first() {
             // Determine the epoch of the first block in the remaining segment.
-            let start_epoch = block.slot().epoch(T::EthSpec::slots_per_epoch());
+            let start_epoch = block.epoch();
 
             // The `last_index` indicates the position of the first block in an epoch greater
             // than the current epoch: partitioning the blocks into a run of blocks in the same
@@ -2494,9 +2494,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             // the same `BeaconState`.
             let last_index = filtered_chain_segment
                 .iter()
-                .position(|(_root, block)| {
-                    block.slot().epoch(T::EthSpec::slots_per_epoch()) > start_epoch
-                })
+                .position(|(_root, block)| block.epoch() > start_epoch)
                 .unwrap_or(filtered_chain_segment.len());
 
             let mut blocks = filtered_chain_segment.split_off(last_index);
@@ -3162,7 +3160,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Sync aggregate.
         if let Ok(sync_aggregate) = block.body().sync_aggregate() {
             // `SyncCommittee` for the sync_aggregate should correspond to the duty slot
-            let duty_epoch = block.slot().epoch(T::EthSpec::slots_per_epoch());
+            let duty_epoch = block.epoch();
 
             match self.sync_committee_at_epoch(duty_epoch) {
                 Ok(sync_committee) => {
@@ -3429,7 +3427,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         parent_block_slot: Slot,
     ) {
         // Do not write to eth1 finalization cache for blocks older than 5 epochs.
-        if block.slot().epoch(T::EthSpec::slots_per_epoch()) + 5 < current_epoch {
+        if block.epoch() + 5 < current_epoch {
             return;
         }
 
@@ -5857,6 +5855,29 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     )
                 })
             })
+            .flatten()
+    }
+
+    /// The epoch since which we cater blob data upon a request 'ByRoot'.
+    /// `None` if the `Eip4844` fork is disabled.
+    pub fn data_availability_boundary_by_root_rpc_request(&self) -> Option<Epoch> {
+        self.spec
+            .eip4844_fork_epoch
+            .map(|fork_epoch| {
+                self.epoch().ok().map(|current_epoch| {
+                    vec![
+                        fork_epoch,
+                        current_epoch.saturating_sub(*MIN_EPOCHS_FOR_BLOBS_SIDECARS_REQUESTS),
+                        self.canonical_head
+                            .cached_head()
+                            .finalized_checkpoint()
+                            .epoch,
+                    ]
+                    .into_iter()
+                    .max()
+                })
+            })
+            .flatten()
             .flatten()
     }
 

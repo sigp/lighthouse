@@ -1,5 +1,7 @@
 use crate::signed_beacon_block::BlobReconstructionError;
-use crate::{BlobsSidecar, EthSpec, Hash256, SignedBeaconBlock, SignedBeaconBlockEip4844, Slot};
+use crate::{
+    BlobsSidecar, Epoch, EthSpec, Hash256, SignedBeaconBlock, SignedBeaconBlockEip4844, Slot,
+};
 use derivative::Derivative;
 use serde_derive::{Deserialize, Serialize};
 use ssz::{Decode, DecodeError};
@@ -71,6 +73,14 @@ impl<T: EthSpec> BlockWrapper<T> {
             BlockWrapperInner::Block(block) => block.slot(),
             BlockWrapperInner::BlockAndBlob(block_sidecar_pair) => {
                 block_sidecar_pair.beacon_block.slot()
+            }
+        }
+    }
+    pub fn epoch(&self) -> Epoch {
+        match &self.0 {
+            BlockWrapperInner::Block(block) => block.epoch(),
+            BlockWrapperInner::BlockAndBlob(block_sidecar_pair) => {
+                block_sidecar_pair.beacon_block.epoch()
             }
         }
     }
