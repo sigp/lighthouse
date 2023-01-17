@@ -90,7 +90,7 @@ pub struct PeerManager<TSpec: EthSpec> {
     // NOTE: An LRUTimeCache is used compared to a structure that needs to be polled to avoid very
     // frequent polling to unban peers. Instead, this cache piggy-backs the PeerManager heartbeat
     // to update and clear the cache. Therefore the PEER_RECONNECTION_TIMEOUT only has a resolution
-    // of the HEARTBEAT_INTERVAL. 
+    // of the HEARTBEAT_INTERVAL.
     temporary_banned_peers: LRUTimeCache<PeerId>,
     /// A collection of sync committee subnets that we need to stay subscribed to.
     /// Sync committee subnets are longer term (256 epochs). Hence, we need to re-run
