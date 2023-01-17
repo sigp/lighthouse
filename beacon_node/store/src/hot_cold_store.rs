@@ -849,11 +849,14 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         Ok(key_value_batch)
     }
 
-    pub fn do_atomically(&self, batch: Vec<StoreOp<E>>) -> Result<(), Error> {
+    pub fn do_atomically_and_update_cache(
+        &self,
+        batch: Vec<StoreOp<E>>,
+        blobs_batch: Option<Vec<StoreOp<E>>>,
+    ) -> Result<(), Error> {
         // Update the block cache whilst holding a lock, to ensure that the cache updates atomically
         // with the database.
         let mut guard = self.block_cache.lock();
-        let mut guard_blob = self.blob_cache.lock();
 
         for op in &batch {
             match op {
@@ -861,9 +864,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                     guard.put(*block_root, (**block).clone());
                 }
 
-                StoreOp::PutBlobs(block_root, blobs) => {
-                    guard_blob.put(*block_root, (**blobs).clone());
-                }
+                StoreOp::PutBlobs(_, _) => (),
 
                 StoreOp::PutState(_, _) => (),
 
@@ -877,9 +878,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                     guard.pop(block_root);
                 }
 
-                StoreOp::DeleteBlobs(block_root) => {
-                    guard_blob.pop(block_root);
-                }
+                StoreOp::DeleteBlobs(_) => (),
 
                 StoreOp::DeleteState(_, _) => (),
 
@@ -891,11 +890,30 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             }
         }
 
+        if let Some(blob_ops) = blobs_batch {
+            let blobs_db = self.blobs_db.as_ref().unwrap_or(&self.cold_db);
+            let mut guard_blob = self.blob_cache.lock();
+
+            for op in &blob_ops {
+                match op {
+                    StoreOp::PutBlobs(block_root, blobs) => {
+                        guard_blob.put(*block_root, (**blobs).clone());
+                    }
+
+                    StoreOp::DeleteBlobs(block_root) => {
+                        guard_blob.pop(block_root);
+                    }
+
+                    _ => (),
+                }
+            }
+            blobs_db.do_atomically(self.convert_to_kv_batch(blob_ops)?)?;
+            drop(guard_blob);
+        }
+
         self.hot_db
             .do_atomically(self.convert_to_kv_batch(batch)?)?;
-
         drop(guard);
-        drop(guard_blob);
 
         Ok(())
     }
@@ -1232,11 +1250,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
     /// Fetch a blobs sidecar from the store.
     pub fn get_blobs(&self, block_root: &Hash256) -> Result<Option<BlobsSidecar<E>>, Error> {
-        let blobs_db = if let Some(ref blobs_db) = self.blobs_db {
-            blobs_db
-        } else {
-            &self.cold_db
-        };
+        let blobs_db = self.blobs_db.as_ref().unwrap_or(&self.cold_db);
 
         match blobs_db.get_bytes(DBColumn::BeaconBlob.into(), block_root.as_bytes())? {
             Some(ref blobs_bytes) => {
@@ -1751,7 +1765,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             }
         }
         let payloads_pruned = ops.len();
-        self.do_atomically(ops)?;
+        self.do_atomically_and_update_cache(ops, None)?;
         info!(
             self.log,
             "Execution payload pruning complete";
@@ -2050,7 +2064,7 @@ pub fn migrate_database<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
     }
 
     // Delete the states from the hot database if we got this far.
-    store.do_atomically(hot_db_ops)?;
+    store.do_atomically_and_update_cache(hot_db_ops, None)?;
 
     debug!(
         store.log,

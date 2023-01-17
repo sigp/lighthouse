@@ -1380,7 +1380,9 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
                         StoreOp::PutStateTemporaryFlag(state_root),
                     ]
                 };
-                chain.store.do_atomically(state_batch)?;
+                chain
+                    .store
+                    .do_atomically_and_update_cache(state_batch, None)?;
                 drop(txn_lock);
 
                 confirmed_state_roots.push(state_root);
