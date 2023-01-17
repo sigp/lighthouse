@@ -53,7 +53,7 @@ jobs:
                          x86_64-portable]
                 features: [
                     {version_suffix: "", env: ""},
-                    {version_suffix: "-minimal", env: "spec-minimal"}
+                    {version_suffix: "-dev", env: "spec-minimal"}
                 ]
                 include:
                     - profile: maxperf

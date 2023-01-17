@@ -83,7 +83,7 @@ The `modernity` is:
 
 The `features` is:
 
-* `-minimal` for build with `minimal-spec` preset enabled.
+* `-dev` for a development build with `minimal-spec` preset enabled.
 * empty for a standard build with no custom feature enabled.
 
 
