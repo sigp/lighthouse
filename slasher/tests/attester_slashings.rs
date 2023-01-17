@@ -39,8 +39,8 @@ fn double_vote_multi_vals() {
 fn double_vote_some_vals() {
     let v1 = vec![0, 1, 2, 3, 4, 5, 6];
     let v2 = vec![0, 2, 4, 6];
-    let att1 = indexed_att(&v1, 0, 1, 0);
-    let att2 = indexed_att(&v2, 0, 1, 1);
+    let att1 = indexed_att(v1, 0, 1, 0);
+    let att2 = indexed_att(v2, 0, 1, 1);
     let slashings = hashset![att_slashing(&att1, &att2)];
     let attestations = vec![att1, att2];
     slasher_test_indiv(&attestations, &slashings, 1);
@@ -53,9 +53,9 @@ fn double_vote_some_vals_repeat() {
     let v1 = vec![0, 1, 2, 3, 4, 5, 6];
     let v2 = vec![0, 2, 4, 6];
     let v3 = vec![1, 3, 5];
-    let att1 = indexed_att(&v1, 0, 1, 0);
-    let att2 = indexed_att(&v2, 0, 1, 1);
-    let att3 = indexed_att(&v3, 0, 1, 0);
+    let att1 = indexed_att(v1, 0, 1, 0);
+    let att2 = indexed_att(v2, 0, 1, 1);
+    let att3 = indexed_att(v3, 0, 1, 0);
     let slashings = hashset![att_slashing(&att1, &att2)];
     let attestations = vec![att1, att2, att3];
     slasher_test_indiv(&attestations, &slashings, 1);
@@ -67,8 +67,8 @@ fn double_vote_some_vals_repeat() {
 fn no_double_vote_same_target() {
     let v1 = vec![0, 1, 2, 3, 4, 5, 6];
     let v2 = vec![0, 1, 2, 3, 4, 5, 7, 8];
-    let att1 = indexed_att(&v1, 0, 1, 0);
-    let att2 = indexed_att(&v2, 0, 1, 0);
+    let att1 = indexed_att(v1, 0, 1, 0);
+    let att2 = indexed_att(v2, 0, 1, 0);
     let attestations = vec![att1, att2];
     slasher_test_indiv(&attestations, &hashset! {}, 1);
     slasher_test_indiv(&attestations, &hashset! {}, 1000);
@@ -79,8 +79,8 @@ fn no_double_vote_same_target() {
 fn no_double_vote_distinct_vals() {
     let v1 = vec![0, 1, 2, 3];
     let v2 = vec![4, 5, 6, 7];
-    let att1 = indexed_att(&v1, 0, 1, 0);
-    let att2 = indexed_att(&v2, 0, 1, 1);
+    let att1 = indexed_att(v1, 0, 1, 0);
+    let att2 = indexed_att(v2, 0, 1, 1);
     let attestations = vec![att1, att2];
     slasher_test_indiv(&attestations, &hashset! {}, 1);
     slasher_test_indiv(&attestations, &hashset! {}, 1000);
@@ -89,7 +89,7 @@ fn no_double_vote_distinct_vals() {
 #[test]
 fn no_double_vote_repeated() {
     let v = vec![0, 1, 2, 3, 4];
-    let att1 = indexed_att(&v, 0, 1, 0);
+    let att1 = indexed_att(v, 0, 1, 0);
     let att2 = att1.clone();
     let attestations = vec![att1, att2];
     slasher_test_indiv(&attestations, &hashset! {}, 1);

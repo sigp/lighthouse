@@ -147,7 +147,8 @@ pub fn reset_fork_choice_to_finalization<E: EthSpec, Hot: ItemStore<E>, Cold: It
         beacon_state: finalized_state,
     };
 
-    let fc_store = BeaconForkChoiceStore::get_forkchoice_store(store.clone(), &finalized_snapshot);
+    let fc_store = BeaconForkChoiceStore::get_forkchoice_store(store.clone(), &finalized_snapshot)
+        .map_err(|e| format!("Unable to reset fork choice store for revert: {e:?}"))?;
 
     let mut fork_choice = ForkChoice::from_anchor(
         fc_store,

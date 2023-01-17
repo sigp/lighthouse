@@ -52,11 +52,12 @@ pub fn process_sync_aggregate<T: EthSpec>(
         .into_iter()
         .zip(aggregate.sync_committee_bits.iter())
     {
+        // FIXME(sproul): double-check this for Capella, proposer shouldn't have 0 effective balance
         if participation_bit {
-            increase_balance(state, participant_index as usize, participant_reward)?;
+            increase_balance(state, participant_index, participant_reward)?;
             total_proposer_reward.safe_add_assign(proposer_reward)?;
         } else {
-            decrease_balance(state, participant_index as usize, participant_reward)?;
+            decrease_balance(state, participant_index, participant_reward)?;
         }
     }
     increase_balance(state, proposer_index as usize, total_proposer_reward)?;

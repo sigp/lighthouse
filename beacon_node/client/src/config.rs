@@ -1,4 +1,5 @@
 use beacon_chain::migrate::MigratorConfig;
+use beacon_chain::validator_monitor::DEFAULT_INDIVIDUAL_TRACKING_THRESHOLD;
 use directory::DEFAULT_ROOT_DIR;
 use environment::LoggerConfig;
 use network::NetworkConfig;
@@ -60,6 +61,11 @@ pub struct Config {
     pub validator_monitor_auto: bool,
     /// A list of validator pubkeys to monitor.
     pub validator_monitor_pubkeys: Vec<PublicKeyBytes>,
+    /// Once the number of monitored validators goes above this threshold, we
+    /// will stop tracking metrics on a per-validator basis. This prevents large
+    /// validator counts causing infeasibly high cardinailty for Prometheus and
+    /// high log volumes.
+    pub validator_monitor_individual_tracking_threshold: usize,
     #[serde(skip)]
     /// The `genesis` field is not serialized or deserialized by `serde` to ensure it is defined
     /// via the CLI at runtime, instead of from a configuration file saved to disk.
@@ -100,6 +106,7 @@ impl Default for Config {
             slasher: None,
             validator_monitor_auto: false,
             validator_monitor_pubkeys: vec![],
+            validator_monitor_individual_tracking_threshold: DEFAULT_INDIVIDUAL_TRACKING_THRESHOLD,
             logger_config: LoggerConfig::default(),
         }
     }

@@ -50,7 +50,7 @@ impl<'a, T: EthSpec> AttMaxCover<'a, T> {
         let sqrt_total_active_balance = base::SqrtTotalActiveBalance::new(total_active_balance);
         let fresh_validators_rewards: HashMap<u64, u64> = indices
             .iter()
-            .map(|i| *i as u64)
+            .copied()
             .flat_map(|validator_index| {
                 let effective_balance =
                     state.get_effective_balance(validator_index as usize).ok()?;

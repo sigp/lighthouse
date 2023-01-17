@@ -15,7 +15,8 @@
 //! 2. There's a possibility that the head block is never built upon, causing wasted CPU cycles.
 use crate::validator_monitor::HISTORIC_EPOCHS as VALIDATOR_MONITOR_HISTORIC_EPOCHS;
 use crate::{
-    beacon_chain::ATTESTATION_CACHE_LOCK_TIMEOUT, BeaconChain, BeaconChainError, BeaconChainTypes,
+    beacon_chain::ATTESTATION_CACHE_LOCK_TIMEOUT, chain_config::FORK_CHOICE_LOOKAHEAD_FACTOR,
+    BeaconChain, BeaconChainError, BeaconChainTypes,
 };
 use slog::{debug, error, warn, Logger};
 use slot_clock::SlotClock;
@@ -145,7 +146,7 @@ async fn state_advance_timer<T: BeaconChainTypes>(
 
         // Run fork choice 23/24s of the way through the slot (11.5s on mainnet).
         // We need to run after the state advance, so use the same condition as above.
-        let fork_choice_offset = slot_duration / 24;
+        let fork_choice_offset = slot_duration / FORK_CHOICE_LOOKAHEAD_FACTOR;
         let fork_choice_instant = if duration_to_next_slot > state_advance_offset {
             Instant::now() + duration_to_next_slot - fork_choice_offset
         } else {
@@ -236,7 +237,19 @@ async fn state_advance_timer<T: BeaconChainTypes>(
                     return;
                 }
 
+                // Re-compute the head, dequeuing attestations for the current slot early.
                 beacon_chain.recompute_head_at_slot(next_slot).await;
+
+                // Prepare proposers so that the node can send payload attributes in the case where
+                // it decides to abandon a proposer boost re-org.
+                if let Err(e) = beacon_chain.prepare_beacon_proposer(current_slot).await {
+                    warn!(
+                        log,
+                        "Unable to prepare proposer with lookahead";
+                        "error" => ?e,
+                        "slot" => next_slot,
+                    );
+                }
 
                 // Use a blocking task to avoid blocking the core executor whilst waiting for locks
                 // in `ForkChoiceSignalTx`.
