@@ -2,11 +2,11 @@ use crate::{BeaconChain, BeaconChainError, BeaconChainTypes};
 
 use eth2::lighthouse::SyncCommitteeReward;
 use safe_arith::SafeArith;
+use slog::error;
 use state_processing::per_block_processing::altair::sync_committee::compute_sync_aggregate_rewards;
+use std::collections::HashMap;
 use store::RelativeEpoch;
 use types::{BeaconBlockRef, BeaconState, ExecPayload};
-use std::collections::HashMap;
-use slog::error;
 
 impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn compute_sync_committee_rewards<Payload: ExecPayload<T::EthSpec>>(
@@ -17,24 +17,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         if block.slot() != state.slot() {
             return Err(BeaconChainError::BlockRewardSlotError);
         }
-        
+
         let spec = &self.spec;
 
         state.build_committee_cache(RelativeEpoch::Current, spec)?;
 
-        let sync_aggregate = block
-            .body()
-            .sync_aggregate()?;
+        let sync_aggregate = block.body().sync_aggregate()?;
 
-        let sync_committee = state
-            .current_sync_committee()?
-            .clone();
+        let sync_committee = state.current_sync_committee()?.clone();
 
-        let sync_committee_indices = state
-            .get_sync_committee_indices(&sync_committee)?;
+        let sync_committee_indices = state.get_sync_committee_indices(&sync_committee)?;
 
-        let (participant_reward_value, proposer_reward_per_bit) = compute_sync_aggregate_rewards(&state, spec)
-            .map_err(|e| {
+        let (participant_reward_value, proposer_reward_per_bit) =
+            compute_sync_aggregate_rewards(&state, spec).map_err(|e| {
                 error!(
                     self.log, "Error calculating sync aggregate rewards";
                     "error" => ?e
@@ -52,7 +47,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         balances.insert(proposer_index, state.balances()[proposer_index]);
 
         // Apply rewards to participant balances. Keep track of proposer rewards
-        for (validator_index, participant_bit) in sync_committee_indices.iter().zip(sync_aggregate.sync_committee_bits.iter()) {
+        for (validator_index, participant_bit) in sync_committee_indices
+            .iter()
+            .zip(sync_aggregate.sync_committee_bits.iter())
+        {
             let participant_balance = balances
                 .entry(*validator_index)
                 .or_insert(state.balances()[*validator_index]);
@@ -71,11 +69,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
         }
 
-        Ok(
-            sync_committee_indices.iter().map(|i| {
-                let new_balance = *balances
-                    .entry(*i)
-                    .or_insert(state.balances()[*i]) as i64;
+        Ok(sync_committee_indices
+            .iter()
+            .map(|i| {
+                let new_balance = *balances.entry(*i).or_insert(state.balances()[*i]) as i64;
 
                 let reward = if *i != proposer_index {
                     new_balance - state.balances()[*i] as i64
@@ -84,10 +81,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 };
                 SyncCommitteeReward {
                     validator_index: *i as u64,
-                    reward
+                    reward,
                 }
             })
-            .collect()
-        )
+            .collect())
     }
 }

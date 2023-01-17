@@ -1984,9 +1984,8 @@ where
 
     pub fn process_sync_contributions(
         &self,
-        sync_contributions: HarnessSyncContributions<E>
+        sync_contributions: HarnessSyncContributions<E>,
     ) -> Result<(), SyncCommitteeError> {
-
         let mut verified_contributions = Vec::with_capacity(sync_contributions.len());
 
         for (_, contribution_and_proof) in sync_contributions {
@@ -1997,19 +1996,15 @@ where
                 .verify_sync_contribution_for_gossip(signed_contribution_and_proof)?;
 
             verified_contributions.push(verified_contribution);
-
         }
 
         for verified_contribution in verified_contributions {
-            self
-                .chain
+            self.chain
                 .add_contribution_to_block_inclusion_pool(verified_contribution)?;
         }
 
         Ok(())
-
     }
-
 }
 
 // Junk `Debug` impl to satistfy certain trait bounds during testing.

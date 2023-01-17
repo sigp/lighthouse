@@ -1722,20 +1722,18 @@ pub fn serve<T: BeaconChainTypes>(
              block_id: BlockId,
              validators: Vec<ValidatorId>,
              log: Logger| {
-            blocking_json_task(move || {
-                let (rewards, execution_optimistic) = sync_committee_rewards::compute_sync_committee_rewards(
-                    chain, 
-                    block_id, 
-                    validators,
-                    log)?;
+                blocking_json_task(move || {
+                    let (rewards, execution_optimistic) =
+                        sync_committee_rewards::compute_sync_committee_rewards(
+                            chain, block_id, validators, log,
+                        )?;
 
-                Ok(rewards)
-                    .map(api_types::GenericResponse::from)
-                    .map(|resp| resp.add_execution_optimistic(execution_optimistic))
-
-            })
-        });
-
+                    Ok(rewards)
+                        .map(api_types::GenericResponse::from)
+                        .map(|resp| resp.add_execution_optimistic(execution_optimistic))
+                })
+            },
+        );
 
     /*
      * config

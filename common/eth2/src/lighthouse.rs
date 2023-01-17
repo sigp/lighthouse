@@ -27,8 +27,8 @@ pub use block_packing_efficiency::{
     BlockPackingEfficiency, BlockPackingEfficiencyQuery, ProposerInfo, UniqueAttestation,
 };
 pub use block_rewards::{AttestationRewards, BlockReward, BlockRewardMeta, BlockRewardsQuery};
-pub use sync_committee_rewards::SyncCommitteeReward;
 pub use lighthouse_network::{types::SyncState, PeerInfo};
+pub use sync_committee_rewards::SyncCommitteeReward;
 
 // Define "legacy" implementations of `Option<T>` which use four bytes for encoding the union
 // selector.
