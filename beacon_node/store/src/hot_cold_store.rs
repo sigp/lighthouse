@@ -496,7 +496,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
     /// Check if the blobs sidecar for a block exists on disk.
     pub fn blobs_sidecar_exists(&self, block_root: &Hash256) -> Result<bool, Error> {
-        self.get_item::<BlobsSidecar>(block_root)
+        self.get_item::<BlobsSidecar<T>>(block_root)
             .map(|blobs| blobs.is_some())
     }
 
