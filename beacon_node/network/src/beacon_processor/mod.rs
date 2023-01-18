@@ -1047,8 +1047,8 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
             self.log.clone(),
         );
 
-        // Channel for sending work to the rate-limiting scheduler (`work_rate_limiting_tx`)
-        // work events are received back via `event_rx` once they're scheduled for processing.
+        // Channel for sending work to the rate-limiting scheduler (`work_rate_limiting_tx`) and to
+        // receive them back once they are scheduled (`scheduled_work_rx`).
         // TODO(jimmy): add option to disable rate-limiting
         let (scheduled_work_tx, scheduled_work_rx) = mpsc::channel(MAX_SCHEDULED_WORK_QUEUE_LEN);
         let work_rate_limiting_tx = spawn_rate_limiting_scheduler(
