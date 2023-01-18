@@ -5858,27 +5858,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .flatten()
     }
 
-    /// The epoch since which we cater blob data upon a request 'ByRoot'.
+    /// The epoch that is a data availability boundary, or the latest finalized epoch.
     /// `None` if the `Eip4844` fork is disabled.
-    pub fn data_availability_boundary_by_root_rpc_request(&self) -> Option<Epoch> {
-        self.spec
-            .eip4844_fork_epoch
-            .map(|fork_epoch| {
-                self.epoch().ok().map(|current_epoch| {
-                    vec![
-                        fork_epoch,
-                        current_epoch.saturating_sub(*MIN_EPOCHS_FOR_BLOBS_SIDECARS_REQUESTS),
-                        self.canonical_head
-                            .cached_head()
-                            .finalized_checkpoint()
-                            .epoch,
-                    ]
-                    .into_iter()
-                    .max()
-                })
-            })
-            .flatten()
-            .flatten()
+    pub fn finalized_data_availability_boundary(&self) -> Option<Epoch> {
+        self.data_availability_boundary().map(|boundary| {
+            std::cmp::max(
+                boundary,
+                self.canonical_head
+                    .cached_head()
+                    .finalized_checkpoint()
+                    .epoch,
+            )
+        })
     }
 
     /// Returns `true` if we are at or past the `Eip4844` fork. This will always return `false` if
