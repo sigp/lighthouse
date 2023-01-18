@@ -643,6 +643,12 @@ impl<T: BeaconChainTypes> Worker<T> {
             }
             None => {
                 debug!(self.log, "Eip4844 fork is disabled");
+                self.send_error_response(
+                    peer_id,
+                    RPCResponseErrorCode::ResourceUnavailable,
+                    "Backfilling".into(),
+                    request_id,
+                );
                 return;
             }
         };
