@@ -513,15 +513,31 @@ impl<T: EthSpec> OperationPool<T> {
         );
     }
 
-    /// Insert a BLS to execution change into the pool.
+    /// Check if a BLS to execution change for `validator_index` already exists in the map.
+    pub fn bls_to_execution_change_exists(&self, validator_index: u64) -> bool {
+        self.bls_to_execution_changes
+            .read()
+            .contains_key(&validator_index)
+    }
+
+    /// Insert a BLS to execution change into the pool, *only if* no prior change is known.
+    ///
+    /// Return `true` if the change was inserted.
     pub fn insert_bls_to_execution_change(
         &self,
         verified_change: SigVerifiedOp<SignedBlsToExecutionChange, T>,
-    ) {
-        self.bls_to_execution_changes.write().insert(
-            verified_change.as_inner().message.validator_index,
-            verified_change,
-        );
+    ) -> bool {
+        match self
+            .bls_to_execution_changes
+            .write()
+            .entry(verified_change.as_inner().message.validator_index)
+        {
+            Entry::Vacant(entry) => {
+                entry.insert(verified_change);
+                true
+            }
+            Entry::Occupied(_) => false,
+        }
     }
 
     /// Get a list of execution changes for inclusion in a block.

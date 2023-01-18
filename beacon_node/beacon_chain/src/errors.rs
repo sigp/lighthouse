@@ -206,7 +206,7 @@ pub enum BeaconChainError {
     MissingPersistedForkChoice,
     CommitteePromiseFailed(oneshot_broadcast::Error),
     MaxCommitteePromises(usize),
-    BlsToExecutionChangeBadFork(ForkName),
+    BlsToExecutionPriorToCapella,
     InconsistentFork(InconsistentFork),
     ProposerHeadForkChoiceError(fork_choice::Error<proto_array::Error>),
 }
