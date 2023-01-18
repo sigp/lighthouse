@@ -971,7 +971,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
         Ok((
             self.get_block(block_root).await?.map(Arc::new),
-            self.get_blobs(block_root).ok().flatten().map(Arc::new),
+            self.get_blobs(block_root)?.map(Arc::new),
         ))
     }
 
@@ -1044,9 +1044,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     /// Returns the blobs at the given root, if any.
     ///
-    /// ## Errors
+    /// Returns `Ok(None)` if the blobs are not found. This could indicate the blob has been pruned
+    /// or that the block it is referenced by doesn't exist in our database.
     ///
-    /// May return a database error.
+    /// If we can find the corresponding block in our database, we know whether we *should* have
+    /// blobs. If we should have blobs and no blobs are found, this will error. If we shouldn't,
+    /// this will reconstruct an empty `BlobsSidecar`.
+    ///
+    /// ## Errors
+    /// - any database read errors
+    /// - block and blobs are inconsistent in the database
+    /// - this method is called with a pre-eip4844 block root
     pub fn get_blobs(
         &self,
         block_root: &Hash256,
@@ -1054,23 +1062,33 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         match self.store.get_blobs(block_root)? {
             Some(blobs) => Ok(Some(blobs)),
             None => {
-                if let Ok(Some(block)) = self.get_blinded_block(block_root) {
-                    let expected_kzg_commitments = block.message().body().blob_kzg_commitments()?;
-
-                    if expected_kzg_commitments.len() > 0 {
-                        Err(Error::DBInconsistent(format!(
-                            "Expected kzg commitments but no blobs stored for block root {}",
-                            block_root
-                        )))
-                    } else {
-                        Ok(Some(BlobsSidecar::empty_from_parts(
-                            *block_root,
-                            block.slot(),
-                        )))
-                    }
-                } else {
-                    Ok(None)
-                }
+                // Check for the corresponding block to understand whether we *should* have blobs.
+                self
+                    .get_blinded_block(block_root)?
+                    .map(|block| {
+                        // If there are no KZG commitments in the block, we know the sidecar should
+                        // be empty.
+                        let expected_kzg_commitments = block.message().body().blob_kzg_commitments()?;
+                        if expected_kzg_commitments.is_empty() {
+                            Ok(Some(BlobsSidecar::empty_from_parts(
+                                *block_root,
+                                block.slot(),
+                            )))
+                        } else {
+                            if let Some(boundary) = self.data_availability_boundary() {
+                                // We should have blobs for all blocks after the boundary.
+                                if boundary <= block.epoch() {
+                                    return Err(Error::DBInconsistent(format!(
+                                        "Expected kzg commitments but no blobs stored for block root {}",
+                                        block_root
+                                    )))
+                                }
+                            }
+                            Ok(None)
+                        }
+                    })
+                    .transpose()
+                    .map(Option::flatten)
             }
         }
     }
