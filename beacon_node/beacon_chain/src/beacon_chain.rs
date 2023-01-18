@@ -1063,12 +1063,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             Some(blobs) => Ok(Some(blobs)),
             None => {
                 // Check for the corresponding block to understand whether we *should* have blobs.
-                self
-                    .get_blinded_block(block_root)?
+                self.get_blinded_block(block_root)?
                     .map(|block| {
                         // If there are no KZG commitments in the block, we know the sidecar should
                         // be empty.
-                        let expected_kzg_commitments = block.message().body().blob_kzg_commitments()?;
+                        let expected_kzg_commitments =
+                            block.message().body().blob_kzg_commitments()?;
                         if expected_kzg_commitments.is_empty() {
                             Ok(Some(BlobsSidecar::empty_from_parts(
                                 *block_root,
@@ -1078,10 +1078,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             if let Some(boundary) = self.data_availability_boundary() {
                                 // We should have blobs for all blocks after the boundary.
                                 if boundary <= block.epoch() {
-                                    return Err(Error::DBInconsistent(format!(
-                                        "Expected kzg commitments but no blobs stored for block root {}",
-                                        block_root
-                                    )))
+                                    return Err(Error::BlobsUnavailable);
                                 }
                             }
                             Ok(None)

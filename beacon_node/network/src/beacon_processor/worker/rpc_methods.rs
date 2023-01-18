@@ -293,6 +293,21 @@ impl<T: BeaconChainTypes> Worker<T> {
                                 "request_root" => ?root
                             );
                         }
+                        Err(BeaconChainError::BlobsUnavailable) => {
+                            error!(
+                                self.log,
+                                "No blobs in the store for block root";
+                                "block_root" => ?root
+                            );
+                            self.send_error_response(
+                                peer_id,
+                                RPCResponseErrorCode::ResourceUnavailable,
+                                "Blobs unavailable".into(),
+                                request_id,
+                            );
+                            send_response = false;
+                            break;
+                        }
                         Err(BeaconChainError::BlockHashMissingFromExecutionLayer(_)) => {
                             debug!(
                                 self.log,
@@ -736,6 +751,21 @@ impl<T: BeaconChainTypes> Worker<T> {
                     error!(
                         self.log,
                         "No blobs or block in the store for block root";
+                        "block_root" => ?root
+                    );
+                    self.send_error_response(
+                        peer_id,
+                        RPCResponseErrorCode::ResourceUnavailable,
+                        "Blobs unavailable".into(),
+                        request_id,
+                    );
+                    send_response = false;
+                    break;
+                }
+                Err(BeaconChainError::BlobsUnavailable) => {
+                    error!(
+                        self.log,
+                        "No blobs in the store for block root";
                         "block_root" => ?root
                     );
                     self.send_error_response(
