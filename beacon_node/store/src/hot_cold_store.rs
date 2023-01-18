@@ -496,7 +496,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
     /// Check if the blobs sidecar for a block exists on disk.
     pub fn blobs_sidecar_exists(&self, block_root: &Hash256) -> Result<bool, Error> {
-        self.get_item::<BlobsSidecar<T>>(block_root)
+        self.get_item::<BlobsSidecar<E>>(block_root)
             .map(|blobs| blobs.is_some())
     }
 
@@ -543,7 +543,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     pub fn blobs_as_kv_store_ops(
         &self,
         key: &Hash256,
-        blobs: &BlobsSidecar<E>,
+        blobs: BlobsSidecar<E>,
         ops: &mut Vec<KeyValueStoreOp>,
     ) {
         let db_key = get_key_for_col(DBColumn::BeaconBlob.into(), key.as_bytes());
@@ -778,7 +778,11 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 }
 
                 StoreOp::PutBlobs(block_root, blobs) => {
-                    self.blobs_as_kv_store_ops(&block_root, &blobs, &mut key_value_batch);
+                    self.blobs_as_kv_store_ops(
+                        &block_root,
+                        (&*blobs).clone(),
+                        &mut key_value_batch,
+                    );
                 }
 
                 StoreOp::PutStateSummary(state_root, summary) => {
