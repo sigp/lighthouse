@@ -646,7 +646,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                 self.send_error_response(
                     peer_id,
                     RPCResponseErrorCode::ResourceUnavailable,
-                    "Backfilling".into(),
+                    "Eip4844 fork is disabled".into(),
                     request_id,
                 );
                 return;
