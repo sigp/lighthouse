@@ -51,7 +51,7 @@ use lighthouse_network::{
     Client, MessageId, NetworkGlobals, PeerId, PeerRequestId,
 };
 use logging::TimeLatch;
-use slog::{crit, debug, error, info, trace, warn, Logger};
+use slog::{crit, debug, error, trace, warn, Logger};
 use std::collections::VecDeque;
 use std::future::Future;
 use std::pin::Pin;
@@ -1078,8 +1078,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                     }
                     Some(InboundEvent::WorkEvent(event)) => {
                         if event.is_back_fill() {
-                            // TODO(jimmy): downgrade to debug
-                            info!(
+                            debug!(
                                 self.log,
                                 "Sending backfill work event to rate limiting queue"
                             );

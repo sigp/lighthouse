@@ -1,4 +1,4 @@
-use slog::{error, info, Logger};
+use slog::{debug, error, Logger};
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::Sender;
 use tokio::time::sleep;
@@ -28,8 +28,7 @@ pub fn spawn_rate_limiting_scheduler<T: BeaconChainTypes>(
             loop {
                 match work_rate_limiting_rx.recv().await {
                     Some(event) => {
-                        // TODO(jimmy): downgrade to debug
-                        info!(
+                        debug!(
                             log,
                             "Sending scheduled backfill work event to BeaconProcessor"
                         );
@@ -49,8 +48,8 @@ pub fn spawn_rate_limiting_scheduler<T: BeaconChainTypes>(
                 let slot_duration = slot_clock.slot_duration();
 
                 if let Some(duration_to_next_slot) = slot_clock.duration_to_next_slot() {
-                    // FIXME(jimmy): this assumes 12s slots, need to consider different slot times
-                    // TODO: Fire the work event at 6s, 7s, 10s, after slot start.
+                    // FIXME(jimmy): Fire the work event at 6s, 7s, 10s, after slot start.
+                    // this assumes 12s slots, also need to consider different slot times
                     sleep(duration_to_next_slot + (slot_duration / 2)).await;
                 } else {
                     // Just sleep for one slot if we are unable to read the system clock, this gives
