@@ -1711,7 +1711,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         Ok(())
     }
 
-    //
+    /// Try to prune blobs approximating data availability boundary when it is not at hand.
     pub fn try_prune_most_blobs(&self, force: bool) -> Result<(), Error> {
         let eip4844_fork = match self.spec.eip4844_fork_epoch {
             Some(epoch) => epoch,
