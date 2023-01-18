@@ -59,7 +59,7 @@ pub struct HotColdDB<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> {
     pub(crate) config: StoreConfig,
     /// Cold database containing compact historical data.
     pub cold_db: Cold,
-    /// Database containing blobs.
+    /// Database containing blobs. If None, store falls back to use `cold_db`.
     pub blobs_db: Option<Cold>,
     /// Hot database containing duplicated but quick-to-access recent data.
     ///
@@ -541,6 +541,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             .key_delete(DBColumn::BeaconBlock.into(), block_root.as_bytes())?;
         self.hot_db
             .key_delete(DBColumn::ExecPayload.into(), block_root.as_bytes())
+        // todo(emhane): do we want to delete the corresponding blobs here too?
     }
 
     pub fn put_blobs(&self, block_root: &Hash256, blobs: BlobsSidecar<E>) -> Result<(), Error> {
