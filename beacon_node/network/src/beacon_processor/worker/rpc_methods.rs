@@ -440,7 +440,10 @@ impl<T: BeaconChainTypes> Worker<T> {
                     oldest_block_slot,
                 },
             )) => {
-                debug!(self.log, "Range request failed during backfill"; "requested_slot" => slot, "oldest_known_slot" => oldest_block_slot);
+                debug!(self.log, "Range request failed during backfill";
+                    "requested_slot" => slot,
+                    "oldest_known_slot" => oldest_block_slot
+                );
                 return self.send_error_response(
                     peer_id,
                     RPCResponseErrorCode::ResourceUnavailable,
@@ -616,46 +619,61 @@ impl<T: BeaconChainTypes> Worker<T> {
         let start_epoch = start_slot.epoch(T::EthSpec::slots_per_epoch());
         let data_availability_boundary = self.chain.data_availability_boundary();
 
-        if Some(start_epoch) < data_availability_boundary {
-            let oldest_blob_slot = self
-                .chain
-                .store
-                .get_blob_info()
-                .map(|blob_info| blob_info.oldest_blob_slot);
+        let serve_blobs_from_slot = match data_availability_boundary {
+            Some(data_availability_boundary_epoch) => {
+                if Some(start_epoch) < data_availability_boundary {
+                    let oldest_blob_slot = self
+                        .chain
+                        .store
+                        .get_blob_info()
+                        .map(|blob_info| blob_info.oldest_blob_slot);
 
-            debug!(self.log, "Range request start slot is older than data availability boundary"; "requested_slot" => req.start_slot, "oldest_known_slot" => ?oldest_blob_slot, "data_availability_boundary" => data_availability_boundary);
+                    debug!(
+                        self.log,
+                        "Range request start slot is older than data availability boundary";
+                        "requested_slot" => req.start_slot,
+                        "oldest_known_slot" => ?oldest_blob_slot,
+                        "data_availability_boundary" => data_availability_boundary
+                    );
 
-            return self.send_error_response(
-                peer_id,
-                RPCResponseErrorCode::ResourceUnavailable,
-                format!("Requested start slot in epoch {}. Data availability boundary is currently at epoch {:?}", start_epoch, data_availability_boundary),
-                request_id,
-            );
-        }
+                    data_availability_boundary_epoch.start_slot(T::EthSpec::slots_per_epoch())
+                } else {
+                    start_slot
+                }
+            }
+            None => {
+                debug!(self.log, "Eip4844 fork is disabled");
+                return;
+            }
+        };
 
         // Should not send more than max request blocks
         if req.count > MAX_REQUEST_BLOBS_SIDECARS {
             req.count = MAX_REQUEST_BLOBS_SIDECARS;
         }
 
-        let forwards_block_root_iter = match self.chain.forwards_iter_block_roots(start_slot) {
-            Ok(iter) => iter,
-            Err(BeaconChainError::HistoricalBlockError(
-                HistoricalBlockError::BlockOutOfRange {
-                    slot,
-                    oldest_block_slot,
-                },
-            )) => {
-                debug!(self.log, "Range request failed during backfill"; "requested_slot" => slot, "oldest_known_slot" => oldest_block_slot);
-                return self.send_error_response(
-                    peer_id,
-                    RPCResponseErrorCode::ResourceUnavailable,
-                    "Backfilling".into(),
-                    request_id,
-                );
-            }
-            Err(e) => return error!(self.log, "Unable to obtain root iter"; "error" => ?e),
-        };
+        let forwards_block_root_iter =
+            match self.chain.forwards_iter_block_roots(serve_blobs_from_slot) {
+                Ok(iter) => iter,
+                Err(BeaconChainError::HistoricalBlockError(
+                    HistoricalBlockError::BlockOutOfRange {
+                        slot,
+                        oldest_block_slot,
+                    },
+                )) => {
+                    debug!(self.log, "Range request failed during backfill";
+                        "requested_slot" => slot,
+                        "oldest_known_slot" => oldest_block_slot
+                    );
+                    return self.send_error_response(
+                        peer_id,
+                        RPCResponseErrorCode::ResourceUnavailable,
+                        "Backfilling".into(),
+                        request_id,
+                    );
+                }
+                Err(e) => return error!(self.log, "Unable to obtain root iter"; "error" => ?e),
+            };
 
         // Pick out the required blocks, ignoring skip-slots.
         let mut last_block_root = req
