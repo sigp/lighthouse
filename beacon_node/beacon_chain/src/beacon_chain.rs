@@ -1068,7 +1068,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         // If there are no KZG commitments in the block, we know the sidecar should
                         // be empty.
                         let expected_kzg_commitments =
-                            block.message().body().blob_kzg_commitments()?;
+                            match block.message().body().blob_kzg_commitments() {
+                                Ok(kzg_commitments) => kzg_commitments,
+                                Err(_) => return Err(Error::BlobsUnavailable),
+                            };
                         if expected_kzg_commitments.is_empty() {
                             Ok(Some(BlobsSidecar::empty_from_parts(
                                 *block_root,
