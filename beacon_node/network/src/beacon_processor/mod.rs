@@ -51,7 +51,7 @@ use lighthouse_network::{
     Client, MessageId, NetworkGlobals, PeerId, PeerRequestId,
 };
 use logging::TimeLatch;
-use slog::{crit, debug, error, trace, warn, Logger};
+use slog::{crit, debug, error, info, trace, warn, Logger};
 use std::collections::VecDeque;
 use std::future::Future;
 use std::pin::Pin;
@@ -72,10 +72,12 @@ use work_reprocessing_queue::{
 
 use worker::{Toolbox, Worker};
 
+mod rate_limiting_queue;
 mod tests;
 mod work_reprocessing_queue;
 mod worker;
 
+use crate::beacon_processor::rate_limiting_queue::{spawn_rate_limiting_scheduler, ScheduledWork};
 use crate::beacon_processor::work_reprocessing_queue::QueuedGossipBlock;
 pub use worker::{ChainSegmentProcessId, GossipAggregatePackage, GossipAttestationPackage};
 
@@ -356,6 +358,19 @@ pub struct WorkEvent<T: BeaconChainTypes> {
 }
 
 impl<T: BeaconChainTypes> WorkEvent<T> {
+    /// Returns true if it is a backfill event
+    pub fn is_back_fill(&self) -> bool {
+        return if let Work::ChainSegment { ref process_id, .. } = &self.work {
+            if let ChainSegmentProcessId::BackSyncBatchId { .. } = process_id {
+                true
+            } else {
+                false
+            }
+        } else {
+            false
+        };
+    }
+
     /// Create a new `Work` event for some unaggregated attestation.
     pub fn unaggregated_attestation(
         message_id: MessageId,
@@ -631,6 +646,14 @@ impl<T: BeaconChainTypes> WorkEvent<T> {
     }
 }
 
+impl<T: BeaconChainTypes> From<ScheduledWork<T>> for WorkEvent<T> {
+    fn from(scheduled_work: ScheduledWork<T>) -> Self {
+        match scheduled_work {
+            ScheduledWork::BackfillSync(work_event) => work_event,
+        }
+    }
+}
+
 impl<T: BeaconChainTypes> std::convert::From<ReadyWork<T>> for WorkEvent<T> {
     fn from(ready_work: ReadyWork<T>) -> Self {
         match ready_work {
@@ -855,6 +878,8 @@ enum InboundEvent<T: BeaconChainTypes> {
     WorkerIdle,
     /// There is new work to be done.
     WorkEvent(WorkEvent<T>),
+    /// A work event that was queued for rate-limiting has become ready.  
+    RateLimitedWorkEvent(WorkEvent<T>),
     /// A work event that was queued for re-processing has become ready.
     ReprocessingWork(WorkEvent<T>),
 }
@@ -870,6 +895,8 @@ struct InboundEvents<T: BeaconChainTypes> {
     event_rx: mpsc::Receiver<WorkEvent<T>>,
     /// Used internally for queuing work ready to be re-processed.
     reprocess_work_rx: mpsc::Receiver<ReadyWork<T>>,
+    /// Used internally for scheduling rate-limited work to be processed.
+    scheduled_work_rx: mpsc::Receiver<ScheduledWork<T>>,
 }
 
 impl<T: BeaconChainTypes> Stream for InboundEvents<T> {
@@ -893,6 +920,19 @@ impl<T: BeaconChainTypes> Stream for InboundEvents<T> {
         match self.reprocess_work_rx.poll_recv(cx) {
             Poll::Ready(Some(ready_work)) => {
                 return Poll::Ready(Some(InboundEvent::ReprocessingWork(ready_work.into())));
+            }
+            Poll::Ready(None) => {
+                return Poll::Ready(None);
+            }
+            Poll::Pending => {}
+        }
+
+        // Check the rate-limiting queue before polling for new work
+        match self.scheduled_work_rx.poll_recv(cx) {
+            Poll::Ready(Some(scheduled_work)) => {
+                return Poll::Ready(Some(InboundEvent::RateLimitedWorkEvent(
+                    scheduled_work.into(),
+                )));
             }
             Poll::Ready(None) => {
                 return Poll::Ready(None);
@@ -991,23 +1031,34 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
         let mut bbrange_queue = FifoQueue::new(MAX_BLOCKS_BY_RANGE_QUEUE_LEN);
         let mut bbroots_queue = FifoQueue::new(MAX_BLOCKS_BY_ROOTS_QUEUE_LEN);
         let mut lcbootstrap_queue = FifoQueue::new(MAX_LIGHT_CLIENT_BOOTSTRAP_QUEUE_LEN);
+
+        let chain = match self.beacon_chain.upgrade() {
+            Some(chain) => chain,
+            // No need to proceed any further if the beacon chain has been dropped, the client
+            // is shutting down.
+            None => return,
+        };
+
         // Channels for sending work to the re-process scheduler (`work_reprocessing_tx`) and to
         // receive them back once they are ready (`ready_work_rx`).
         let (ready_work_tx, ready_work_rx) = mpsc::channel(MAX_SCHEDULED_WORK_QUEUE_LEN);
-        let work_reprocessing_tx = {
-            if let Some(chain) = self.beacon_chain.upgrade() {
-                spawn_reprocess_scheduler(
-                    ready_work_tx,
-                    &self.executor,
-                    chain.slot_clock.clone(),
-                    self.log.clone(),
-                )
-            } else {
-                // No need to proceed any further if the beacon chain has been dropped, the client
-                // is shutting down.
-                return;
-            }
-        };
+        let work_reprocessing_tx = spawn_reprocess_scheduler(
+            ready_work_tx,
+            &self.executor,
+            chain.slot_clock.clone(),
+            self.log.clone(),
+        );
+
+        // Channel for sending work to the rate-limiting scheduler (`work_rate_limiting_tx`)
+        // work events are received back via `event_rx` once they're scheduled for processing.
+        // TODO(jimmy): add option to disable rate-limiting
+        let (scheduled_work_tx, scheduled_work_rx) = mpsc::channel(MAX_SCHEDULED_WORK_QUEUE_LEN);
+        let work_rate_limiting_tx = spawn_rate_limiting_scheduler(
+            scheduled_work_tx,
+            &self.executor,
+            chain.slot_clock.clone(),
+            self.log.clone(),
+        );
 
         let executor = self.executor.clone();
 
@@ -1018,6 +1069,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                 idle_rx,
                 event_rx,
                 reprocess_work_rx: ready_work_rx,
+                scheduled_work_rx,
             };
 
             loop {
@@ -1026,7 +1078,26 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                         self.current_workers = self.current_workers.saturating_sub(1);
                         None
                     }
-                    Some(InboundEvent::WorkEvent(event))
+                    Some(InboundEvent::WorkEvent(event)) => {
+                        if event.is_back_fill() {
+                            // TODO(jimmy): downgrade to debug
+                            info!(
+                                self.log,
+                                "Sending backfill work event to rate limiting queue"
+                            );
+                            if let Err(e) = work_rate_limiting_tx.try_send(event) {
+                                error!(
+                                    self.log,
+                                    "Unable to queue backfill work event";
+                                    "error" => %e
+                                )
+                            }
+                            continue;
+                        } else {
+                            Some(event)
+                        }
+                    }
+                    Some(InboundEvent::RateLimitedWorkEvent(event))
                     | Some(InboundEvent::ReprocessingWork(event)) => Some(event),
                     None => {
                         debug!(
