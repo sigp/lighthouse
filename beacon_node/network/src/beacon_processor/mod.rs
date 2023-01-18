@@ -360,15 +360,13 @@ pub struct WorkEvent<T: BeaconChainTypes> {
 impl<T: BeaconChainTypes> WorkEvent<T> {
     /// Returns true if it is a backfill event
     pub fn is_back_fill(&self) -> bool {
-        return if let Work::ChainSegment { ref process_id, .. } = &self.work {
-            if let ChainSegmentProcessId::BackSyncBatchId { .. } = process_id {
-                true
-            } else {
-                false
-            }
-        } else {
-            false
-        };
+        match &self.work {
+            Work::ChainSegment { ref process_id, .. } => match process_id {
+                ChainSegmentProcessId::BackSyncBatchId { .. } => true,
+                _ => false,
+            },
+            _ => false,
+        }
     }
 
     /// Create a new `Work` event for some unaggregated attestation.
