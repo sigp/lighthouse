@@ -1711,37 +1711,65 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         Ok(())
     }
 
+    //
+    pub fn try_prune_most_blobs(&self, force: bool) -> Result<(), Error> {
+        let eip4844_fork = match self.spec.eip4844_fork_epoch {
+            Some(epoch) => epoch,
+            None => {
+                debug!(self.log, "Eip4844 fork is disabled");
+                return Ok(());
+            }
+        };
+        // At best, current_epoch = split_epoch + 2. However, if finalization doesn't advance, the
+        // `split.slot` is not updated and current_epoch > split_epoch + 2.
+        let at_most_current_epoch =
+            self.get_split_slot().epoch(E::slots_per_epoch()) + Epoch::new(2);
+        let at_most_data_availability_boundary = std::cmp::max(
+            eip4844_fork,
+            at_most_current_epoch.saturating_sub(*MIN_EPOCHS_FOR_BLOBS_SIDECARS_REQUESTS),
+        );
+
+        self.try_prune_blobs(force, Some(at_most_data_availability_boundary))
+    }
+
     /// Try to prune blobs older than the data availability boundary.
     pub fn try_prune_blobs(
         &self,
         force: bool,
         data_availability_boundary: Option<Epoch>,
     ) -> Result<(), Error> {
-        let blob_info = match self.get_blob_info() {
-            Some(blob_info) => blob_info,
-            None => {
-                return Ok(());
+        let (data_availability_boundary, eip4844_fork) =
+            match (data_availability_boundary, self.spec.eip4844_fork_epoch) {
+                (Some(boundary_epoch), Some(fork_epoch)) => (boundary_epoch, fork_epoch),
+                _ => {
+                    debug!(self.log, "Eip4844 fork is disabled");
+                    return Ok(());
+                }
+            };
+
+        let blob_info = || -> BlobInfo {
+            if let Some(blob_info) = self.get_blob_info() {
+                if blob_info.oldest_blob_slot.epoch(E::slots_per_epoch()) >= eip4844_fork {
+                    return blob_info;
+                }
             }
-        };
+            // If BlobInfo is uninitialized this is probably the first time pruning blobs, or
+            // maybe oldest_blob_info has been initialized with Epoch::default.
+            // start from the eip4844 fork epoch. No new blobs are imported into the beacon
+            // chain that are older than the data availability boundary.
+            BlobInfo {
+                oldest_blob_slot: eip4844_fork.start_slot(E::slots_per_epoch()),
+            }
+        }();
 
         let oldest_blob_slot = blob_info.oldest_blob_slot;
         // The last entirely pruned epoch, blobs sidecar pruning may have stopped early in the
-        // middle of an epoch.
+        // middle of an epoch otherwise the oldest blob slot is a start slot.
         let last_pruned_epoch = oldest_blob_slot.epoch(E::slots_per_epoch()) - 1;
-        let next_epoch_to_prune = match data_availability_boundary {
-            Some(epoch) => epoch,
-            None => {
-                // The split slot is set upon finalization and is the first slot in the latest
-                // finalized epoch, hence current_epoch = split_epoch + 2
-                let current_epoch =
-                    self.get_split_slot().epoch(E::slots_per_epoch()) + Epoch::new(2);
-                current_epoch.saturating_sub(*MIN_EPOCHS_FOR_BLOBS_SIDECARS_REQUESTS)
-            }
-        };
 
         if !force {
             if last_pruned_epoch.as_u64() + self.get_config().epochs_per_blob_prune
-                > next_epoch_to_prune.as_u64()
+                > data_availability_boundary.as_u64()
             {
                 info!(self.log, "Blobs sidecars are pruned");
                 return Ok(());
@@ -1757,7 +1785,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
         let mut ops = vec![];
         let mut last_pruned_block_root = None;
-        let end_slot = next_epoch_to_prune.end_slot(E::slots_per_epoch());
+        let end_slot = data_availability_boundary.end_slot(E::slots_per_epoch());
 
         // todo(emhane): In the future, if the data availability boundary is less than the split
         // epoch, this code will have to change to account for head candidates.

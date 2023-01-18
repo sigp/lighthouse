@@ -314,7 +314,7 @@ pub fn prune_blobs<E: EthSpec>(
 
     // If we're triggering a prune manually then ignore the check on `epochs_per_blob_prune` that
     // bails out early by passing true to the force parameter.
-    db.try_prune_blobs(true, None)
+    db.try_prune_most_blobs(true)
 }
 
 /// Run the database manager, returning an error string if the operation did not succeed.
