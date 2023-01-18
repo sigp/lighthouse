@@ -247,7 +247,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                             );
                         }
                         Ok((Some(block), None)) => {
-                            let data_availability_boundary_by_root = self.chain.data_availability_boundary_by_root_rpc_request();
+                            let data_availability_boundary_by_root = self.chain.finalized_data_availability_boundary();
                             let block_epoch = block.epoch();
 
                            if Some(block_epoch) >= data_availability_boundary_by_root {
