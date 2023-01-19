@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 // Details about the rewards paid for attestations
 // All rewards in GWei
 
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub struct IdealAttestationRewards {
     // Validator's effective balance in gwei
     pub effective_balance: u64,
@@ -15,7 +15,7 @@ pub struct IdealAttestationRewards {
     pub source: u64,
 }
 
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub struct TotalAttestationRewards {
     // one entry for every validator based on their attestations in the epoch
     pub validator_index: u64,
@@ -29,7 +29,7 @@ pub struct TotalAttestationRewards {
     pub inclusion_delay: u64,
 }
 
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 //TODO: AttestationRewards already exists
 pub struct AttestationRewardsTBD {
     pub execution_optimistic: bool,

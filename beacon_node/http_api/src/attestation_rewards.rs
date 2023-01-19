@@ -30,16 +30,12 @@ pub fn compute_attestation_rewards<T: BeaconChainTypes>(
     let state_root = chain
         .state_root_at_slot(state_slot)
         .map_err(warp_utils::reject::beacon_chain_error)?
-        .ok_or(warp_utils::reject::custom_not_found(
-            "State root not found".to_owned(),
-        ))?;
+        .ok_or_else(|| warp_utils::reject::custom_not_found("State root not found".to_owned()))?;
 
     let state = chain
         .get_state(&state_root, Some(state_slot))
         .map_err(warp_utils::reject::beacon_chain_error)?
-        .ok_or(warp_utils::reject::custom_not_found(
-            "State not found".to_owned(),
-        ))?;
+        .ok_or_else(|| warp_utils::reject::custom_not_found("State not found".to_owned()))?;
 
     //--- Calculate ideal_rewards ---//
     let participation_cache = ParticipationCache::new(&state, spec)
@@ -134,7 +130,7 @@ pub fn compute_attestation_rewards<T: BeaconChainTypes>(
                     )
                 })?;
 
-            if !state.is_in_inactivity_leak(previous_epoch, &spec) {
+            if !state.is_in_inactivity_leak(previous_epoch, spec) {
                 ideal_rewards_hashmap.insert((flag_index, effective_balance_eth), ideal_reward);
             } else {
                 ideal_rewards_hashmap.insert((flag_index, effective_balance_eth), 0);
