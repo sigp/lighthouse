@@ -596,12 +596,18 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
             .into_iter()
             .map(Into::into)
             .flat_map(|block_root: Hash256| {
-                [
+                let mut store_ops = vec![
                     StoreOp::DeleteBlock(block_root),
                     StoreOp::DeleteExecutionPayload(block_root),
-                    StoreOp::DeleteBlobs(block_root),
-                    StoreOp::PutOrphanedBlobsKey(block_root),
-                ]
+                ];
+                if let Ok(true) = store.blobs_sidecar_exists(&block_root) {
+                    // Keep track of non-empty orphaned blobs sidecars.
+                    store_ops.extend([
+                        StoreOp::DeleteBlobs(block_root),
+                        StoreOp::PutOrphanedBlobsKey(block_root),
+                    ]);
+                }
+                store_ops
             })
             .chain(
                 abandoned_states
