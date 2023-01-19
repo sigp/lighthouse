@@ -1705,7 +1705,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path("rewards"))
         .and(chain_filter.clone());
 
-    // TODO: POST beacon/rewards/attestations/{epoch}  
+    // TODO: POST beacon/rewards/attestations/{epoch}
     let post_beacon_rewards_attestation = beacon_rewards_path
         .clone()
         .and(warp::path("attestation"))
@@ -1715,13 +1715,15 @@ pub fn serve<T: BeaconChainTypes>(
         .and(log_filter.clone())
         .and_then(
             |chain: Arc<BeaconChain<T>>,
-            epoch: Epoch,
-            validators: Vec<ValidatorId>,
-            log: Logger| {
-            blocking_json_task(move || attestation_rewards::compute_attestation_rewards(
-                chain, epoch, validators, log))
-        });
-        
+             epoch: Epoch,
+             validators: Vec<ValidatorId>,
+             log: Logger| {
+                blocking_json_task(move || {
+                    attestation_rewards::compute_attestation_rewards(chain, epoch, validators, log)
+                })
+            },
+        );
+
     /*
      * config
      */

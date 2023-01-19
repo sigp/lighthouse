@@ -1,9 +1,9 @@
 //! This module contains endpoints that are non-standard and only available on Lighthouse servers.
 
 mod attestation_performance;
+pub mod attestation_rewards;
 mod block_packing_efficiency;
 mod block_rewards;
-pub mod attestation_rewards;
 
 use crate::{
     ok_or_error,

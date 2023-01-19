@@ -3,7 +3,6 @@ use serde::{Deserialize, Serialize};
 // Details about the rewards paid for attestations
 // All rewards in GWei
 
-
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct IdealAttestationRewards {
     // Validator's effective balance in gwei
@@ -14,7 +13,6 @@ pub struct IdealAttestationRewards {
     pub target: u64,
     // Ideal attester's reward for source vote in gwei
     pub source: u64,
-    
 }
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
@@ -29,7 +27,6 @@ pub struct TotalAttestationRewards {
     pub source: i64,
     // attester's inclusion_delay reward in gwei (phase0 only)
     pub inclusion_delay: u64,
-    
 }
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
