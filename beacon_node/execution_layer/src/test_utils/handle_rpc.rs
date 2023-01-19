@@ -202,7 +202,31 @@ pub async fn handle_rpc<T: EthSpec>(
                     jpa1.map(JsonPayloadAttributes::V1)
                 }
                 ENGINE_FORKCHOICE_UPDATED_V2 => {
-                    get_param::<Option<JsonPayloadAttributes>>(params, 1)?
+                    // we can't use `deny_unknown_fields` without breaking compatibility with some
+                    // clients that haven't updated to the latest engine_api spec. So instead we'll
+                    // need to deserialize based on timestamp
+                    get_param::<Option<JsonPayloadAttributes>>(params, 1).and_then(|pa| {
+                        pa.and_then(|pa| {
+                            match ctx
+                                .execution_block_generator
+                                .read()
+                                .get_fork_at_timestamp(*pa.timestamp())
+                            {
+                                ForkName::Merge => {
+                                    get_param::<Option<JsonPayloadAttributesV1>>(params, 1)
+                                        .map(|opt| opt.map(JsonPayloadAttributes::V1))
+                                        .transpose()
+                                }
+                                ForkName::Capella => {
+                                    get_param::<Option<JsonPayloadAttributesV2>>(params, 1)
+                                        .map(|opt| opt.map(JsonPayloadAttributes::V2))
+                                        .transpose()
+                                }
+                                _ => unreachable!(),
+                            }
+                        })
+                        .transpose()
+                    })?
                 }
                 _ => unreachable!(),
             };
