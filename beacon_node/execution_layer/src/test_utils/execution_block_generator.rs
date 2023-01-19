@@ -524,7 +524,7 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
                                     base_fee_per_gas: Uint256::one(),
                                     block_hash: ExecutionBlockHash::zero(),
                                     transactions: vec![].into(),
-                                    withdrawals: pa.withdrawals.as_ref().unwrap().clone().into(),
+                                    withdrawals: pa.withdrawals.clone().into(),
                                 })
                             }
                             ForkName::Eip4844 => {
@@ -545,7 +545,7 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
                                     excess_data_gas: Uint256::one(),
                                     block_hash: ExecutionBlockHash::zero(),
                                     transactions: vec![].into(),
-                                    withdrawals: pa.withdrawals.as_ref().unwrap().clone().into(),
+                                    withdrawals: pa.withdrawals.clone().into(),
                                 })
                             }
                             _ => unreachable!(),

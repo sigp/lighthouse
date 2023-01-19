@@ -79,12 +79,22 @@ pub async fn handle_rpc<T: EthSpec>(
                 ENGINE_NEW_PAYLOAD_V1 => {
                     JsonExecutionPayload::V1(get_param::<JsonExecutionPayloadV1<T>>(params, 0)?)
                 }
-                ENGINE_NEW_PAYLOAD_V2 => {
-                    JsonExecutionPayload::V2(get_param::<JsonExecutionPayloadV2<T>>(params, 0)?)
-                }
-                ENGINE_NEW_PAYLOAD_V3 => {
-                    JsonExecutionPayload::V2(get_param::<JsonExecutionPayloadV2<T>>(params, 0)?)
-                }
+                ENGINE_NEW_PAYLOAD_V2 => get_param::<JsonExecutionPayloadV2<T>>(params, 0)
+                    .map(|jep| JsonExecutionPayload::V2(jep))
+                    .or_else(|_| {
+                        get_param::<JsonExecutionPayloadV1<T>>(params, 0)
+                            .map(|jep| JsonExecutionPayload::V1(jep))
+                    })?,
+                ENGINE_NEW_PAYLOAD_V3 => get_param::<JsonExecutionPayloadV3<T>>(params, 0)
+                    .map(|jep| JsonExecutionPayload::V3(jep))
+                    .or_else(|_| {
+                        get_param::<JsonExecutionPayloadV2<T>>(params, 0)
+                            .map(|jep| JsonExecutionPayload::V2(jep))
+                            .or_else(|_| {
+                                get_param::<JsonExecutionPayloadV1<T>>(params, 0)
+                                    .map(|jep| JsonExecutionPayload::V1(jep))
+                            })
+                    })?,
                 _ => unreachable!(),
             };
 
@@ -95,9 +105,9 @@ pub async fn handle_rpc<T: EthSpec>(
             // validate method called correctly according to shanghai fork time
             match fork {
                 ForkName::Merge => {
-                    if request.withdrawals().is_ok() && request.withdrawals().unwrap().is_some() {
+                    if matches!(request, JsonExecutionPayload::V2(_)) {
                         return Err(format!(
-                            "{} called with `withdrawals` before capella fork!",
+                            "{} called with `ExecutionPayloadV2` before capella fork!",
                             method
                         ));
                     }
@@ -106,36 +116,26 @@ pub async fn handle_rpc<T: EthSpec>(
                     if method == ENGINE_NEW_PAYLOAD_V1 {
                         return Err(format!("{} called after capella fork!", method));
                     }
-                    if request.withdrawals().is_err()
-                        || (request.withdrawals().is_ok()
-                            && request.withdrawals().unwrap().is_none())
-                    {
+                    if matches!(request, JsonExecutionPayload::V1(_)) {
                         return Err(format!(
-                            "{} called without `withdrawals` after capella fork!",
+                            "{} called with `ExecutionPayloadV1` after capella fork!",
                             method
                         ));
                     }
                 }
                 ForkName::Eip4844 => {
-                    //FIXME(sean)
-                    if method == ENGINE_NEW_PAYLOAD_V1 {
+                    if method == ENGINE_NEW_PAYLOAD_V1 || method == ENGINE_NEW_PAYLOAD_V2 {
                         return Err(format!("{} called after capella fork!", method));
                     }
-                    if request.withdrawals().is_err()
-                        || (request.withdrawals().is_ok()
-                            && request.withdrawals().unwrap().is_none())
-                    {
+                    if matches!(request, JsonExecutionPayload::V1(_)) {
                         return Err(format!(
-                            "{} called without `withdrawals` after eip4844 fork!",
+                            "{} called with `ExecutionPayloadV1` after eip4844 fork!",
                             method
                         ));
                     }
-                    if request.excess_data_gas().is_err()
-                        || (request.excess_data_gas().is_ok()
-                            && request.excess_data_gas().unwrap().is_none())
-                    {
+                    if matches!(request, JsonExecutionPayload::V2(_)) {
                         return Err(format!(
-                            "{} called without `excess_data_gas` after eip4844 fork!",
+                            "{} called with `ExecutionPayloadV2` after eip4844 fork!",
                             method
                         ));
                     }
@@ -163,7 +163,7 @@ pub async fn handle_rpc<T: EthSpec>(
                 Some(
                     ctx.execution_block_generator
                         .write()
-                        .new_payload(request.try_into_execution_payload(fork).unwrap()),
+                        .new_payload(request.into()),
                 )
             } else {
                 None
@@ -199,21 +199,55 @@ pub async fn handle_rpc<T: EthSpec>(
                 .read()
                 .get_fork_at_timestamp(response.timestamp())
                 == ForkName::Eip4844
-                //FIXME(sean)
-                && method == ENGINE_GET_PAYLOAD_V1
+                && (method == ENGINE_GET_PAYLOAD_V1 || method == ENGINE_GET_PAYLOAD_V2)
             {
-                return Err(format!("{} called after capella fork!", method));
+                return Err(format!("{} called after eip4844 fork!", method));
             }
 
             match method {
-                ENGINE_GET_PAYLOAD_V1 => Ok(serde_json::to_value(
-                    JsonExecutionPayloadV1::try_from(response).unwrap(),
-                )
-                .unwrap()),
-                ENGINE_GET_PAYLOAD_V2 => Ok(serde_json::to_value(JsonGetPayloadResponse {
-                    execution_payload: JsonExecutionPayloadV2::try_from(response).unwrap(),
-                })
-                .unwrap()),
+                ENGINE_GET_PAYLOAD_V1 => {
+                    Ok(serde_json::to_value(JsonExecutionPayload::from(response)).unwrap())
+                }
+                ENGINE_GET_PAYLOAD_V2 => Ok(match JsonExecutionPayload::from(response) {
+                    JsonExecutionPayload::V1(execution_payload) => {
+                        serde_json::to_value(JsonGetPayloadResponseV1 {
+                            execution_payload,
+                            block_value: 0.into(),
+                        })
+                        .unwrap()
+                    }
+                    JsonExecutionPayload::V2(execution_payload) => {
+                        serde_json::to_value(JsonGetPayloadResponseV2 {
+                            execution_payload,
+                            block_value: 0.into(),
+                        })
+                        .unwrap()
+                    }
+                    _ => unreachable!(),
+                }),
+                ENGINE_GET_PAYLOAD_V3 => Ok(match JsonExecutionPayload::from(response) {
+                    JsonExecutionPayload::V1(execution_payload) => {
+                        serde_json::to_value(JsonGetPayloadResponseV1 {
+                            execution_payload,
+                            block_value: 0.into(),
+                        })
+                        .unwrap()
+                    }
+                    JsonExecutionPayload::V2(execution_payload) => {
+                        serde_json::to_value(JsonGetPayloadResponseV2 {
+                            execution_payload,
+                            block_value: 0.into(),
+                        })
+                        .unwrap()
+                    }
+                    JsonExecutionPayload::V3(execution_payload) => {
+                        serde_json::to_value(JsonGetPayloadResponseV3 {
+                            execution_payload,
+                            block_value: 0.into(),
+                        })
+                        .unwrap()
+                    }
+                }),
                 _ => unreachable!(),
             }
         }
@@ -225,8 +259,31 @@ pub async fn handle_rpc<T: EthSpec>(
                     jpa1.map(JsonPayloadAttributes::V1)
                 }
                 ENGINE_FORKCHOICE_UPDATED_V2 => {
-                    let jpa2: Option<JsonPayloadAttributesV2> = get_param(params, 1)?;
-                    jpa2.map(JsonPayloadAttributes::V2)
+                    // we can't use `deny_unknown_fields` without breaking compatibility with some
+                    // clients that haven't updated to the latest engine_api spec. So instead we'll
+                    // need to deserialize based on timestamp
+                    get_param::<Option<JsonPayloadAttributes>>(params, 1).and_then(|pa| {
+                        pa.and_then(|pa| {
+                            match ctx
+                                .execution_block_generator
+                                .read()
+                                .get_fork_at_timestamp(*pa.timestamp())
+                            {
+                                ForkName::Merge => {
+                                    get_param::<Option<JsonPayloadAttributesV1>>(params, 1)
+                                        .map(|opt| opt.map(JsonPayloadAttributes::V1))
+                                        .transpose()
+                                }
+                                ForkName::Capella | ForkName::Eip4844 => {
+                                    get_param::<Option<JsonPayloadAttributesV2>>(params, 1)
+                                        .map(|opt| opt.map(JsonPayloadAttributes::V2))
+                                        .transpose()
+                                }
+                                _ => unreachable!(),
+                            }
+                        })
+                        .transpose()
+                    })?
                 }
                 _ => unreachable!(),
             };
@@ -239,36 +296,20 @@ pub async fn handle_rpc<T: EthSpec>(
                     .get_fork_at_timestamp(*pa.timestamp())
                 {
                     ForkName::Merge => {
-                        if pa.withdrawals().is_ok() && pa.withdrawals().unwrap().is_some() {
+                        if matches!(pa, JsonPayloadAttributes::V2(_)) {
                             return Err(format!(
-                                "{} called with `withdrawals` before capella fork!",
+                                "{} called with `JsonPayloadAttributesV2` before capella fork!",
                                 method
                             ));
                         }
                     }
-                    ForkName::Capella => {
+                    ForkName::Capella | ForkName::Eip4844 => {
                         if method == ENGINE_FORKCHOICE_UPDATED_V1 {
                             return Err(format!("{} called after capella fork!", method));
                         }
-                        if pa.withdrawals().is_err()
-                            || (pa.withdrawals().is_ok() && pa.withdrawals().unwrap().is_none())
-                        {
+                        if matches!(pa, JsonPayloadAttributes::V1(_)) {
                             return Err(format!(
-                                "{} called without `withdrawals` after capella fork!",
-                                method
-                            ));
-                        }
-                    }
-                    ForkName::Eip4844 => {
-                        //FIXME(sean)
-                        if method == ENGINE_FORKCHOICE_UPDATED_V1 {
-                            return Err(format!("{} called after capella fork!", method));
-                        }
-                        if pa.withdrawals().is_err()
-                            || (pa.withdrawals().is_ok() && pa.withdrawals().unwrap().is_none())
-                        {
-                            return Err(format!(
-                                "{} called without `withdrawals` after capella fork!",
+                                "{} called with `JsonPayloadAttributesV1` after capella fork!",
                                 method
                             ));
                         }
