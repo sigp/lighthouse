@@ -296,6 +296,14 @@ impl<E: EthSpec> CandidateBeaconNode<E> {
                 "endpoint_capella_fork_epoch" => ?beacon_node_spec.capella_fork_epoch,
                 "hint" => UPDATE_REQUIRED_LOG_HINT,
             );
+        } else if beacon_node_spec.verge_fork_epoch != spec.verge_fork_epoch {
+            warn!(
+                log,
+                "Beacon node has mismatched Verge fork epoch";
+                "endpoint" => %self.beacon_node,
+                "endpoint_verge_fork_epoch" => ?beacon_node_spec.verge_fork_epoch,
+                "hint" => UPDATE_REQUIRED_LOG_HINT,
+            );
         }
 
         Ok(())

@@ -93,7 +93,7 @@ pub async fn handle_rpc<T: EthSpec>(
                 .unwrap())
             }
         }
-        ENGINE_NEW_PAYLOAD_V1 | ENGINE_NEW_PAYLOAD_V2 => {
+        ENGINE_NEW_PAYLOAD_V1 | ENGINE_NEW_PAYLOAD_V2 | ENGINE_NEW_PAYLOAD_V4 => {
             let request = match method {
                 ENGINE_NEW_PAYLOAD_V1 => JsonExecutionPayload::V1(
                     get_param::<JsonExecutionPayloadV1<T>>(params, 0)
@@ -106,6 +106,17 @@ pub async fn handle_rpc<T: EthSpec>(
                             .map(|jep| JsonExecutionPayload::V1(jep))
                     })
                     .map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?,
+                ENGINE_NEW_PAYLOAD_V4 => get_param::<JsonExecutionPayloadV4<T>>(params, 0)
+                    .map(|jep| JsonExecutionPayload::V4(jep))
+                    .or_else(|_| {
+                        get_param::<JsonExecutionPayloadV2<T>>(params, 0)
+                            .map(|jep| JsonExecutionPayload::V2(jep))
+                            .or_else(|_| {
+                                get_param::<JsonExecutionPayloadV1<T>>(params, 0)
+                                    .map(|jep| JsonExecutionPayload::V1(jep))
+                            })
+                    })
+                    .map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?,
                 // TODO(4844) add that here..
                 _ => unreachable!(),
             };
@@ -114,7 +125,7 @@ pub async fn handle_rpc<T: EthSpec>(
                 .execution_block_generator
                 .read()
                 .get_fork_at_timestamp(*request.timestamp());
-            // validate method called correctly according to shanghai fork time
+            // validate method called correctly according to fork time
             match fork {
                 ForkName::Merge => {
                     if matches!(request, JsonExecutionPayload::V2(_)) {
@@ -145,6 +156,32 @@ pub async fn handle_rpc<T: EthSpec>(
                     }
                 }
                 // TODO(4844) add 4844 error checking here
+                ForkName::Verge => {
+                    if method == ENGINE_NEW_PAYLOAD_V1 || method == ENGINE_NEW_PAYLOAD_V2 {
+                        return Err((
+                            format!("{} called after verge fork!", method),
+                            GENERIC_ERROR_CODE,
+                        ));
+                    }
+                    if matches!(request, JsonExecutionPayload::V1(_)) {
+                        return Err((
+                            format!(
+                                "{} called with `ExecutionPayloadV1` after verge fork!",
+                                method
+                            ),
+                            GENERIC_ERROR_CODE,
+                        ));
+                    }
+                    if matches!(request, JsonExecutionPayload::V2(_)) {
+                        return Err((
+                            format!(
+                                "{} called with `ExecutionPayloadV2` after verge fork!",
+                                method
+                            ),
+                            GENERIC_ERROR_CODE,
+                        ));
+                    }
+                }
                 _ => unreachable!(),
             };
 
@@ -180,7 +217,7 @@ pub async fn handle_rpc<T: EthSpec>(
 
             Ok(serde_json::to_value(JsonPayloadStatusV1::from(response)).unwrap())
         }
-        ENGINE_GET_PAYLOAD_V1 | ENGINE_GET_PAYLOAD_V2 => {
+        ENGINE_GET_PAYLOAD_V1 | ENGINE_GET_PAYLOAD_V2 | ENGINE_GET_PAYLOAD_V4 => {
             let request: JsonPayloadIdRequest =
                 get_param(params, 0).map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?;
             let id = request.into();
@@ -210,6 +247,19 @@ pub async fn handle_rpc<T: EthSpec>(
                 ));
             }
             // TODO(4844) add 4844 error checking here
+            // validate method called correctly according to verge fork time
+            if ctx
+                .execution_block_generator
+                .read()
+                .get_fork_at_timestamp(response.timestamp())
+                == ForkName::Verge
+                && (method == ENGINE_GET_PAYLOAD_V1 || method == ENGINE_GET_PAYLOAD_V2)
+            {
+                return Err((
+                    format!("{} called after verge fork!", method),
+                    FORK_REQUEST_MISMATCH_ERROR_CODE,
+                ));
+            }
 
             match method {
                 ENGINE_GET_PAYLOAD_V1 => {
@@ -225,6 +275,30 @@ pub async fn handle_rpc<T: EthSpec>(
                     }
                     JsonExecutionPayload::V2(execution_payload) => {
                         serde_json::to_value(JsonGetPayloadResponseV2 {
+                            execution_payload,
+                            block_value: DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI.into(),
+                        })
+                        .unwrap()
+                    }
+                    _ => unreachable!(),
+                }),
+                ENGINE_GET_PAYLOAD_V4 => Ok(match JsonExecutionPayload::from(response) {
+                    JsonExecutionPayload::V1(execution_payload) => {
+                        serde_json::to_value(JsonGetPayloadResponseV1 {
+                            execution_payload,
+                            block_value: DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI.into(),
+                        })
+                        .unwrap()
+                    }
+                    JsonExecutionPayload::V2(execution_payload) => {
+                        serde_json::to_value(JsonGetPayloadResponseV2 {
+                            execution_payload,
+                            block_value: DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI.into(),
+                        })
+                        .unwrap()
+                    }
+                    JsonExecutionPayload::V4(execution_payload) => {
+                        serde_json::to_value(JsonGetPayloadResponseV4 {
                             execution_payload,
                             block_value: DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI.into(),
                         })
@@ -260,7 +334,7 @@ pub async fn handle_rpc<T: EthSpec>(
                                             .map(|opt| opt.map(JsonPayloadAttributes::V1))
                                             .transpose()
                                     }
-                                    ForkName::Capella => {
+                                    ForkName::Capella | ForkName::Verge => {
                                         get_param::<Option<JsonPayloadAttributesV2>>(params, 1)
                                             .map(|opt| opt.map(JsonPayloadAttributes::V2))
                                             .transpose()
@@ -293,7 +367,7 @@ pub async fn handle_rpc<T: EthSpec>(
                             ));
                         }
                     }
-                    ForkName::Capella => {
+                    ForkName::Capella | ForkName::Verge => {
                         if method == ENGINE_FORKCHOICE_UPDATED_V1 {
                             return Err((
                                 format!("{} called after Capella fork!", method),
@@ -408,6 +482,7 @@ pub async fn handle_rpc<T: EthSpec>(
                                 .withdrawals()
                                 .ok()
                                 .map(|withdrawals| VariableList::from(withdrawals.clone())),
+                            execution_witness: block.execution_witness().ok().cloned(),
                         }));
                     }
                     None => response.push(None),

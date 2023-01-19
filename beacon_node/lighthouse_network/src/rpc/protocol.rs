@@ -22,8 +22,8 @@ use tokio_util::{
 };
 use types::{
     BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockCapella, BeaconBlockMerge,
-    EmptyBlock, EthSpec, ForkContext, ForkName, Hash256, MainnetEthSpec, Signature,
-    SignedBeaconBlock,
+    BeaconBlockVerge, EmptyBlock, EthSpec, ForkContext, ForkName, Hash256, MainnetEthSpec,
+    Signature, SignedBeaconBlock,
 };
 
 lazy_static! {
@@ -69,6 +69,13 @@ lazy_static! {
     .as_ssz_bytes()
     .len();
 
+    pub static ref SIGNED_BEACON_BLOCK_VERGE_MAX_WITHOUT_PAYLOAD: usize = SignedBeaconBlock::<MainnetEthSpec>::from_block(
+        BeaconBlock::Verge(BeaconBlockVerge::full(&MainnetEthSpec::default_spec())),
+        Signature::empty(),
+    )
+    .as_ssz_bytes()
+    .len();
+
     /// The `BeaconBlockMerge` block has an `ExecutionPayload` field which has a max size ~16 GiB for future proofing.
     /// We calculate the value from its fields instead of constructing the block and checking the length.
     /// Note: This is only the theoretical upper bound. We further bound the max size we receive over the network
@@ -81,6 +88,10 @@ lazy_static! {
 
     pub static ref SIGNED_BEACON_BLOCK_CAPELLA_MAX: usize = *SIGNED_BEACON_BLOCK_CAPELLA_MAX_WITHOUT_PAYLOAD
     + types::ExecutionPayload::<MainnetEthSpec>::max_execution_payload_capella_size() // adding max size of execution payload (~16gb)
+    + ssz::BYTES_PER_LENGTH_OFFSET; // Adding the additional ssz offset for the `ExecutionPayload` field
+                                    //
+    pub static ref SIGNED_BEACON_BLOCK_VERGE_MAX: usize = *SIGNED_BEACON_BLOCK_VERGE_MAX_WITHOUT_PAYLOAD
+    + types::ExecutionPayload::<MainnetEthSpec>::max_execution_payload_verge_size() // adding max size of execution payload (~16gb)
     + ssz::BYTES_PER_LENGTH_OFFSET; // Adding the additional ssz offset for the `ExecutionPayload` field
 
     pub static ref BLOCKS_BY_ROOT_REQUEST_MIN: usize =
@@ -121,6 +132,7 @@ pub fn max_rpc_size(fork_context: &ForkContext, max_chunk_size: usize) -> usize 
         ForkName::Altair | ForkName::Base => max_chunk_size / 10,
         ForkName::Merge => max_chunk_size,
         ForkName::Capella => max_chunk_size,
+        ForkName::Verge => max_chunk_size,
     }
 }
 
@@ -144,6 +156,11 @@ pub fn rpc_block_limits_by_fork(current_fork: ForkName) -> RpcLimits {
         ForkName::Capella => RpcLimits::new(
             *SIGNED_BEACON_BLOCK_BASE_MIN, // Base block is smaller than altair and merge blocks
             *SIGNED_BEACON_BLOCK_CAPELLA_MAX, // Capella block is larger than base, altair and merge blocks
+        ),
+        ForkName::Verge => RpcLimits::new(
+            *SIGNED_BEACON_BLOCK_BASE_MIN, // Base block is smaller than altair and merge blocks
+            *SIGNED_BEACON_BLOCK_VERGE_MAX, // Verge block is larger than base, altair, merge and
+                                           // capella blocks
         ),
     }
 }

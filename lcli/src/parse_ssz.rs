@@ -78,6 +78,9 @@ pub fn run_parse_ssz<T: EthSpec>(
             SignedBeaconBlockCapella::<T>::from_ssz_bytes,
             format,
         )?,
+        "SignedBeaconBlockVerge" => {
+            decode_and_print(&bytes, SignedBeaconBlockVerge::<T>::from_ssz_bytes, format)?
+        }
         "BeaconState" => decode_and_print::<BeaconState<T>>(
             &bytes,
             |bytes| BeaconState::from_ssz_bytes(bytes, spec),
@@ -94,6 +97,9 @@ pub fn run_parse_ssz<T: EthSpec>(
         }
         "BeaconStateCapella" => {
             decode_and_print(&bytes, BeaconStateCapella::<T>::from_ssz_bytes, format)?
+        }
+        "BeaconStateVerge" => {
+            decode_and_print(&bytes, BeaconStateVerge::<T>::from_ssz_bytes, format)?
         }
         other => return Err(format!("Unknown type: {}", other)),
     };

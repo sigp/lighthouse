@@ -1,6 +1,6 @@
 use crate::{
     consts::altair, AltairPreset, BasePreset, BellatrixPreset, CapellaPreset, ChainSpec, Config,
-    EthSpec, ForkName,
+    EthSpec, ForkName, VergePreset,
 };
 use maplit::hashmap;
 use serde_derive::{Deserialize, Serialize};
@@ -12,7 +12,7 @@ use superstruct::superstruct;
 ///
 /// Mostly useful for the API.
 #[superstruct(
-    variants(Bellatrix, Capella),
+    variants(Bellatrix, Capella, Verge),
     variant_attributes(derive(Serialize, Deserialize, Debug, PartialEq, Clone))
 )]
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
@@ -27,9 +27,12 @@ pub struct ConfigAndPreset {
     pub altair_preset: AltairPreset,
     #[serde(flatten)]
     pub bellatrix_preset: BellatrixPreset,
-    #[superstruct(only(Capella))]
+    #[superstruct(only(Capella, Verge))]
     #[serde(flatten)]
     pub capella_preset: CapellaPreset,
+    #[superstruct(only(Verge))]
+    #[serde(flatten)]
+    pub verge_preset: VergePreset,
     /// The `extra_fields` map allows us to gracefully decode fields intended for future hard forks.
     #[serde(flatten)]
     pub extra_fields: HashMap<String, Value>,
@@ -43,7 +46,23 @@ impl ConfigAndPreset {
         let bellatrix_preset = BellatrixPreset::from_chain_spec::<T>(spec);
         let extra_fields = get_extra_fields(spec);
 
-        if spec.capella_fork_epoch.is_some()
+        if spec.verge_fork_epoch.is_some()
+            || fork_name.is_none()
+            || fork_name == Some(ForkName::Verge)
+        {
+            let capella_preset = CapellaPreset::from_chain_spec::<T>(spec);
+            let verge_preset = VergePreset::from_chain_spec::<T>(spec);
+
+            ConfigAndPreset::Verge(ConfigAndPresetVerge {
+                config,
+                base_preset,
+                altair_preset,
+                bellatrix_preset,
+                capella_preset,
+                verge_preset,
+                extra_fields,
+            })
+        } else if spec.capella_fork_epoch.is_some()
             || fork_name.is_none()
             || fork_name == Some(ForkName::Capella)
         {

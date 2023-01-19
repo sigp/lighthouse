@@ -438,6 +438,9 @@ pub fn serve<E: EthSpec>(
                     ForkName::Capella => {
                         PayloadAttributes::new(timestamp, *prev_randao, fee_recipient, Some(vec![]))
                     }
+                    ForkName::Verge => {
+                        PayloadAttributes::new(timestamp, *prev_randao, fee_recipient, Some(vec![]))
+                    }
                     ForkName::Base | ForkName::Altair => {
                         return Err(reject("invalid fork"));
                     }

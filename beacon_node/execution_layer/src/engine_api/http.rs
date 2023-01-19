@@ -32,10 +32,12 @@ pub const ETH_SYNCING_TIMEOUT: Duration = Duration::from_secs(1);
 
 pub const ENGINE_NEW_PAYLOAD_V1: &str = "engine_newPayloadV1";
 pub const ENGINE_NEW_PAYLOAD_V2: &str = "engine_newPayloadV2";
+pub const ENGINE_NEW_PAYLOAD_V4: &str = "engine_newPayloadV3";
 pub const ENGINE_NEW_PAYLOAD_TIMEOUT: Duration = Duration::from_secs(8);
 
 pub const ENGINE_GET_PAYLOAD_V1: &str = "engine_getPayloadV1";
 pub const ENGINE_GET_PAYLOAD_V2: &str = "engine_getPayloadV2";
+pub const ENGINE_GET_PAYLOAD_V4: &str = "engine_getPayloadV3";
 pub const ENGINE_GET_PAYLOAD_TIMEOUT: Duration = Duration::from_secs(2);
 
 pub const ENGINE_FORKCHOICE_UPDATED_V1: &str = "engine_forkchoiceUpdatedV1";
@@ -58,8 +60,10 @@ pub const METHOD_NOT_FOUND_CODE: i64 = -32601;
 pub static LIGHTHOUSE_CAPABILITIES: &[&str] = &[
     ENGINE_NEW_PAYLOAD_V1,
     ENGINE_NEW_PAYLOAD_V2,
+    ENGINE_NEW_PAYLOAD_V4,
     ENGINE_GET_PAYLOAD_V1,
     ENGINE_GET_PAYLOAD_V2,
+    ENGINE_NEW_PAYLOAD_V4,
     ENGINE_FORKCHOICE_UPDATED_V1,
     ENGINE_FORKCHOICE_UPDATED_V2,
     ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1,
@@ -72,12 +76,14 @@ pub static LIGHTHOUSE_CAPABILITIES: &[&str] = &[
 pub static PRE_CAPELLA_ENGINE_CAPABILITIES: EngineCapabilities = EngineCapabilities {
     new_payload_v1: true,
     new_payload_v2: false,
+    new_payload_v4: false,
     forkchoice_updated_v1: true,
     forkchoice_updated_v2: false,
     get_payload_bodies_by_hash_v1: false,
     get_payload_bodies_by_range_v1: false,
     get_payload_v1: true,
     get_payload_v2: false,
+    get_payload_v4: false,
 };
 
 /// Contains methods to convert arbitrary bytes to an ETH2 deposit contract object.
@@ -741,6 +747,14 @@ impl HttpJsonRpc {
                 )
                 .await?,
             ),
+            ForkName::Verge => ExecutionBlockWithTransactions::Verge(
+                self.rpc_request(
+                    ETH_GET_BLOCK_BY_HASH,
+                    params,
+                    ETH_GET_BLOCK_BY_HASH_TIMEOUT * self.execution_timeout_multiplier,
+                )
+                .await?,
+            ),
             ForkName::Base | ForkName::Altair => {
                 return Err(Error::UnsupportedForkVariant(format!(
                     "called get_block_by_hash_with_txns with fork {:?}",
@@ -826,6 +840,16 @@ impl HttpJsonRpc {
                 Ok(JsonGetPayloadResponse::V1(response).into())
             }
             ForkName::Capella => {
+                let response: JsonGetPayloadResponseV2<T> = self
+                    .rpc_request(
+                        ENGINE_GET_PAYLOAD_V2,
+                        params,
+                        ENGINE_GET_PAYLOAD_TIMEOUT * self.execution_timeout_multiplier,
+                    )
+                    .await?;
+                Ok(JsonGetPayloadResponse::V2(response).into())
+            }
+            ForkName::Verge => {
                 let response: JsonGetPayloadResponseV2<T> = self
                     .rpc_request(
                         ENGINE_GET_PAYLOAD_V2,
@@ -950,6 +974,7 @@ impl HttpJsonRpc {
             Ok(capabilities) => Ok(EngineCapabilities {
                 new_payload_v1: capabilities.contains(ENGINE_NEW_PAYLOAD_V1),
                 new_payload_v2: capabilities.contains(ENGINE_NEW_PAYLOAD_V2),
+                new_payload_v4: capabilities.contains(ENGINE_NEW_PAYLOAD_V4),
                 forkchoice_updated_v1: capabilities.contains(ENGINE_FORKCHOICE_UPDATED_V1),
                 forkchoice_updated_v2: capabilities.contains(ENGINE_FORKCHOICE_UPDATED_V2),
                 get_payload_bodies_by_hash_v1: capabilities
@@ -958,6 +983,7 @@ impl HttpJsonRpc {
                     .contains(ENGINE_GET_PAYLOAD_BODIES_BY_RANGE_V1),
                 get_payload_v1: capabilities.contains(ENGINE_GET_PAYLOAD_V1),
                 get_payload_v2: capabilities.contains(ENGINE_GET_PAYLOAD_V2),
+                get_payload_v4: capabilities.contains(ENGINE_GET_PAYLOAD_V4),
             }),
         }
     }
@@ -1662,7 +1688,7 @@ mod test {
                         "extraData":"0x",
                         "baseFeePerGas":"0x7",
                         "blockHash":"0x6359b8381a370e2f54072a5784ddd78b6ed024991558c511d4452eb4f6ac898c",
-                        "transactions":[]
+                        "transactions":[],
                     }
                 })],
                 |client| async move {
@@ -1686,7 +1712,7 @@ mod test {
                             extra_data: vec![].into(),
                             base_fee_per_gas: Uint256::from(7),
                             block_hash: ExecutionBlockHash::from_str("0x6359b8381a370e2f54072a5784ddd78b6ed024991558c511d4452eb4f6ac898c").unwrap(),
-                        transactions: vec![].into(),
+                            transactions: vec![].into(),
                         });
 
                     assert_eq!(payload, expected);
@@ -1733,7 +1759,7 @@ mod test {
                         "extraData":"0x",
                         "baseFeePerGas":"0x7",
                         "blockHash":"0x3559e851470f6e7bbed1db474980683e8c315bfce99b2a6ef47c057c04de7858",
-                        "transactions":[]
+                        "transactions":[],
                     }],
                 })
             )

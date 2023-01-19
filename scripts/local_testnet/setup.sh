@@ -16,7 +16,7 @@ source ./vars.env
 NOW=`date +%s`
 GENESIS_TIME=`expr $NOW + $GENESIS_DELAY`
 
-lcli \
+RUST_BACKTRACE=1 lcli \
 	new-testnet \
 	--spec $SPEC_PRESET \
 	--deposit-contract-address $DEPOSIT_CONTRACT_ADDRESS \
@@ -28,6 +28,7 @@ lcli \
 	--altair-fork-epoch $ALTAIR_FORK_EPOCH \
 	--bellatrix-fork-epoch $BELLATRIX_FORK_EPOCH \
 	--capella-fork-epoch $CAPELLA_FORK_EPOCH \
+    --verge-fork-epoch $VERGE_FORK_EPOCH \
 	--ttd $TTD \
 	--eth1-block-hash $ETH1_BLOCK_HASH \
 	--eth1-id $CHAIN_ID \

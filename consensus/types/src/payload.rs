@@ -39,6 +39,7 @@ pub trait ExecPayload<T: EthSpec>: Debug + Clone + PartialEq + Hash + TreeHash +
     fn transactions(&self) -> Option<&Transactions<T>>;
     /// fork-specific fields
     fn withdrawals_root(&self) -> Result<Hash256, Error>;
+    fn execution_witness_root(&self) -> Result<Hash256, Error>;
 
     /// Is this a default payload with 0x0 roots for transactions and withdrawals?
     fn is_default_with_zero_roots(&self) -> bool;
@@ -81,8 +82,13 @@ pub trait AbstractExecPayload<T: EthSpec>:
     + TryFrom<ExecutionPayloadHeader<T>>
     + TryInto<Self::Merge>
     + TryInto<Self::Capella>
+    + TryInto<Self::Verge>
 {
-    type Ref<'a>: ExecPayload<T> + Copy + From<&'a Self::Merge> + From<&'a Self::Capella>;
+    type Ref<'a>: ExecPayload<T>
+        + Copy
+        + From<&'a Self::Merge>
+        + From<&'a Self::Capella>
+        + From<&'a Self::Verge>;
 
     type Merge: OwnedExecPayload<T>
         + Into<Self>
@@ -92,12 +98,16 @@ pub trait AbstractExecPayload<T: EthSpec>:
         + Into<Self>
         + for<'a> From<Cow<'a, ExecutionPayloadCapella<T>>>
         + TryFrom<ExecutionPayloadHeaderCapella<T>>;
+    type Verge: OwnedExecPayload<T>
+        + Into<Self>
+        + for<'a> From<Cow<'a, ExecutionPayloadVerge<T>>>
+        + TryFrom<ExecutionPayloadHeaderVerge<T>>;
 
     fn default_at_fork(fork_name: ForkName) -> Result<Self, Error>;
 }
 
 #[superstruct(
-    variants(Merge, Capella),
+    variants(Merge, Capella, Verge),
     variant_attributes(
         derive(
             Debug,
@@ -136,6 +146,8 @@ pub struct FullPayload<T: EthSpec> {
     pub execution_payload: ExecutionPayloadMerge<T>,
     #[superstruct(only(Capella), partial_getter(rename = "execution_payload_capella"))]
     pub execution_payload: ExecutionPayloadCapella<T>,
+    #[superstruct(only(Verge), partial_getter(rename = "execution_payload_verge"))]
+    pub execution_payload: ExecutionPayloadVerge<T>,
 }
 
 impl<T: EthSpec> From<FullPayload<T>> for ExecutionPayload<T> {
@@ -238,6 +250,19 @@ impl<T: EthSpec> ExecPayload<T> for FullPayload<T> {
             FullPayload::Merge(_) => Err(Error::IncorrectStateVariant),
             FullPayload::Capella(ref inner) => {
                 Ok(inner.execution_payload.withdrawals.tree_hash_root())
+            }
+            FullPayload::Verge(ref inner) => {
+                Ok(inner.execution_payload.withdrawals.tree_hash_root())
+            }
+        }
+    }
+
+    fn execution_witness_root(&self) -> Result<Hash256, Error> {
+        match self {
+            FullPayload::Merge(_) => Err(Error::IncorrectStateVariant),
+            FullPayload::Capella(_) => Err(Error::IncorrectStateVariant),
+            FullPayload::Verge(ref inner) => {
+                Ok(inner.execution_payload.execution_witness.tree_hash_root())
             }
         }
     }
@@ -345,6 +370,19 @@ impl<'b, T: EthSpec> ExecPayload<T> for FullPayloadRef<'b, T> {
             FullPayloadRef::Capella(inner) => {
                 Ok(inner.execution_payload.withdrawals.tree_hash_root())
             }
+            FullPayloadRef::Verge(inner) => {
+                Ok(inner.execution_payload.withdrawals.tree_hash_root())
+            }
+        }
+    }
+
+    fn execution_witness_root(&self) -> Result<Hash256, Error> {
+        match self {
+            FullPayloadRef::Merge(_) => Err(Error::IncorrectStateVariant),
+            FullPayloadRef::Capella(_) => Err(Error::IncorrectStateVariant),
+            FullPayloadRef::Verge(inner) => {
+                Ok(inner.execution_payload.execution_witness.tree_hash_root())
+            }
         }
     }
 
@@ -365,12 +403,14 @@ impl<T: EthSpec> AbstractExecPayload<T> for FullPayload<T> {
     type Ref<'a> = FullPayloadRef<'a, T>;
     type Merge = FullPayloadMerge<T>;
     type Capella = FullPayloadCapella<T>;
+    type Verge = FullPayloadVerge<T>;
 
     fn default_at_fork(fork_name: ForkName) -> Result<Self, Error> {
         match fork_name {
             ForkName::Base | ForkName::Altair => Err(Error::IncorrectStateVariant),
             ForkName::Merge => Ok(FullPayloadMerge::default().into()),
             ForkName::Capella => Ok(FullPayloadCapella::default().into()),
+            ForkName::Verge => Ok(FullPayloadVerge::default().into()),
         }
     }
 }
@@ -391,7 +431,7 @@ impl<T: EthSpec> TryFrom<ExecutionPayloadHeader<T>> for FullPayload<T> {
 }
 
 #[superstruct(
-    variants(Merge, Capella),
+    variants(Merge, Capella, Verge),
     variant_attributes(
         derive(
             Debug,
@@ -429,6 +469,8 @@ pub struct BlindedPayload<T: EthSpec> {
     pub execution_payload_header: ExecutionPayloadHeaderMerge<T>,
     #[superstruct(only(Capella), partial_getter(rename = "execution_payload_capella"))]
     pub execution_payload_header: ExecutionPayloadHeaderCapella<T>,
+    #[superstruct(only(Verge), partial_getter(rename = "execution_payload_verge"))]
+    pub execution_payload_header: ExecutionPayloadHeaderVerge<T>,
 }
 
 impl<'a, T: EthSpec> From<BlindedPayloadRef<'a, T>> for BlindedPayload<T> {
@@ -509,6 +551,17 @@ impl<T: EthSpec> ExecPayload<T> for BlindedPayload<T> {
             BlindedPayload::Merge(_) => Err(Error::IncorrectStateVariant),
             BlindedPayload::Capella(ref inner) => {
                 Ok(inner.execution_payload_header.withdrawals_root)
+            }
+            BlindedPayload::Verge(ref inner) => Ok(inner.execution_payload_header.withdrawals_root),
+        }
+    }
+
+    fn execution_witness_root(&self) -> Result<Hash256, Error> {
+        match self {
+            BlindedPayload::Merge(_) => Err(Error::IncorrectStateVariant),
+            BlindedPayload::Capella(_) => Err(Error::IncorrectStateVariant),
+            BlindedPayload::Verge(ref inner) => {
+                Ok(inner.execution_payload_header.execution_witness_root)
             }
         }
     }
@@ -597,6 +650,17 @@ impl<'b, T: EthSpec> ExecPayload<T> for BlindedPayloadRef<'b, T> {
             BlindedPayloadRef::Capella(inner) => {
                 Ok(inner.execution_payload_header.withdrawals_root)
             }
+            BlindedPayloadRef::Verge(inner) => Ok(inner.execution_payload_header.withdrawals_root),
+        }
+    }
+
+    fn execution_witness_root(&self) -> Result<Hash256, Error> {
+        match self {
+            BlindedPayloadRef::Merge(_) => Err(Error::IncorrectStateVariant),
+            BlindedPayloadRef::Capella(_) => Err(Error::IncorrectStateVariant),
+            BlindedPayloadRef::Verge(inner) => {
+                Ok(inner.execution_payload_header.execution_witness_root)
+            }
         }
     }
 
@@ -625,7 +689,8 @@ macro_rules! impl_exec_payload_common {
      $block_type_variant:ident,     // Blinded                      |   Full
      $is_default_with_empty_roots:block,
      $f:block,
-     $g:block) => {
+     $g:block,
+     $h:block) => {
         impl<T: EthSpec> ExecPayload<T> for $wrapper_type<T> {
             fn block_type() -> BlockType {
                 BlockType::$block_type_variant
@@ -683,6 +748,11 @@ macro_rules! impl_exec_payload_common {
                 let g = $g;
                 g(self)
             }
+
+            fn execution_witness_root(&self) -> Result<Hash256, Error> {
+                let h = $h;
+                h(self)
+            }
         }
 
         impl<T: EthSpec> From<$wrapped_type<T>> for $wrapper_type<T> {
@@ -718,6 +788,14 @@ macro_rules! impl_exec_payload_for_fork {
                     |payload: &$wrapper_type_header<T>| {
                         let wrapper_ref_type = BlindedPayloadRef::$fork_variant(&payload);
                         wrapper_ref_type.withdrawals_root()
+                    };
+                c
+            },
+            {
+                let c: for<'a> fn(&'a $wrapper_type_header<T>) -> Result<Hash256, Error> =
+                    |payload: &$wrapper_type_header<T>| {
+                        let wrapper_ref_type = BlindedPayloadRef::$fork_variant(&payload);
+                        wrapper_ref_type.execution_witness_root()
                     };
                 c
             }
@@ -799,6 +877,14 @@ macro_rules! impl_exec_payload_for_fork {
                         wrapper_ref_type.withdrawals_root()
                     };
                 c
+            },
+            {
+                let c: for<'a> fn(&'a $wrapper_type_full<T>) -> Result<Hash256, Error> =
+                    |payload: &$wrapper_type_full<T>| {
+                        let wrapper_ref_type = FullPayloadRef::$fork_variant(&payload);
+                        wrapper_ref_type.execution_witness_root()
+                    };
+                c
             }
         );
 
@@ -860,17 +946,26 @@ impl_exec_payload_for_fork!(
     ExecutionPayloadCapella,
     Capella
 );
+impl_exec_payload_for_fork!(
+    BlindedPayloadVerge,
+    FullPayloadVerge,
+    ExecutionPayloadHeaderVerge,
+    ExecutionPayloadVerge,
+    Verge
+);
 
 impl<T: EthSpec> AbstractExecPayload<T> for BlindedPayload<T> {
     type Ref<'a> = BlindedPayloadRef<'a, T>;
     type Merge = BlindedPayloadMerge<T>;
     type Capella = BlindedPayloadCapella<T>;
+    type Verge = BlindedPayloadVerge<T>;
 
     fn default_at_fork(fork_name: ForkName) -> Result<Self, Error> {
         match fork_name {
             ForkName::Base | ForkName::Altair => Err(Error::IncorrectStateVariant),
             ForkName::Merge => Ok(BlindedPayloadMerge::default().into()),
             ForkName::Capella => Ok(BlindedPayloadCapella::default().into()),
+            ForkName::Verge => Ok(BlindedPayloadVerge::default().into()),
         }
     }
 }
@@ -899,6 +994,11 @@ impl<T: EthSpec> From<ExecutionPayloadHeader<T>> for BlindedPayload<T> {
                     execution_payload_header,
                 })
             }
+            ExecutionPayloadHeader::Verge(execution_payload_header) => {
+                Self::Verge(BlindedPayloadVerge {
+                    execution_payload_header,
+                })
+            }
         }
     }
 }
@@ -911,6 +1011,9 @@ impl<T: EthSpec> From<BlindedPayload<T>> for ExecutionPayloadHeader<T> {
             }
             BlindedPayload::Capella(blinded_payload) => {
                 ExecutionPayloadHeader::Capella(blinded_payload.execution_payload_header)
+            }
+            BlindedPayload::Verge(blinded_payload) => {
+                ExecutionPayloadHeader::Verge(blinded_payload.execution_payload_header)
             }
         }
     }

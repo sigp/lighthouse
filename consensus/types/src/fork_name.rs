@@ -12,6 +12,7 @@ pub enum ForkName {
     Altair,
     Merge,
     Capella,
+    Verge,
 }
 
 impl ForkName {
@@ -21,6 +22,7 @@ impl ForkName {
             ForkName::Altair,
             ForkName::Merge,
             ForkName::Capella,
+            ForkName::Verge,
         ]
     }
 
@@ -58,6 +60,13 @@ impl ForkName {
                 spec.capella_fork_epoch = Some(Epoch::new(0));
                 spec
             }
+            ForkName::Verge => {
+                spec.altair_fork_epoch = Some(Epoch::new(0));
+                spec.bellatrix_fork_epoch = Some(Epoch::new(0));
+                spec.capella_fork_epoch = Some(Epoch::new(0));
+                spec.verge_fork_epoch = Some(Epoch::new(0));
+                spec
+            }
         }
     }
 
@@ -70,6 +79,7 @@ impl ForkName {
             ForkName::Altair => Some(ForkName::Base),
             ForkName::Merge => Some(ForkName::Altair),
             ForkName::Capella => Some(ForkName::Merge),
+            ForkName::Verge => Some(ForkName::Capella),
         }
     }
 
@@ -81,7 +91,8 @@ impl ForkName {
             ForkName::Base => Some(ForkName::Altair),
             ForkName::Altair => Some(ForkName::Merge),
             ForkName::Merge => Some(ForkName::Capella),
-            ForkName::Capella => None,
+            ForkName::Capella => Some(ForkName::Verge),
+            ForkName::Verge => None,
         }
     }
 }
@@ -127,6 +138,10 @@ macro_rules! map_fork_name_with {
                 let (value, extra_data) = $body;
                 ($t::Capella(value), extra_data)
             }
+            ForkName::Verge => {
+                let (value, extra_data) = $body;
+                ($t::Verge(value), extra_data)
+            }
         }
     };
 }
@@ -140,6 +155,7 @@ impl FromStr for ForkName {
             "altair" => ForkName::Altair,
             "bellatrix" | "merge" => ForkName::Merge,
             "capella" => ForkName::Capella,
+            "verge" => ForkName::Verge,
             _ => return Err(format!("unknown fork name: {}", fork_name)),
         })
     }
@@ -152,6 +168,7 @@ impl Display for ForkName {
             ForkName::Altair => "altair".fmt(f),
             ForkName::Merge => "bellatrix".fmt(f),
             ForkName::Capella => "capella".fmt(f),
+            ForkName::Verge => "verge".fmt(f),
         }
     }
 }

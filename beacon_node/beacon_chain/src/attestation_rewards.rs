@@ -50,9 +50,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         match state {
             BeaconState::Base(_) => self.compute_attestation_rewards_base(state, validators),
-            BeaconState::Altair(_) | BeaconState::Merge(_) | BeaconState::Capella(_) => {
-                self.compute_attestation_rewards_altair(state, validators)
-            }
+            BeaconState::Altair(_)
+            | BeaconState::Merge(_)
+            | BeaconState::Capella(_)
+            | BeaconState::Verge(_) => self.compute_attestation_rewards_altair(state, validators),
         }
     }
 

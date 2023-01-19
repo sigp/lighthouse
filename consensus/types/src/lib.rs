@@ -41,6 +41,7 @@ pub mod eth_spec;
 pub mod execution_block_hash;
 pub mod execution_payload;
 pub mod execution_payload_header;
+pub mod execution_witness;
 pub mod fork;
 pub mod fork_data;
 pub mod fork_name;
@@ -107,11 +108,11 @@ pub use crate::attestation_duty::AttestationDuty;
 pub use crate::attester_slashing::AttesterSlashing;
 pub use crate::beacon_block::{
     BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockCapella, BeaconBlockMerge,
-    BeaconBlockRef, BeaconBlockRefMut, BlindedBeaconBlock, EmptyBlock,
+    BeaconBlockRef, BeaconBlockRefMut, BeaconBlockVerge, BlindedBeaconBlock, EmptyBlock,
 };
 pub use crate::beacon_block_body::{
     BeaconBlockBody, BeaconBlockBodyAltair, BeaconBlockBodyBase, BeaconBlockBodyCapella,
-    BeaconBlockBodyMerge, BeaconBlockBodyRef, BeaconBlockBodyRefMut,
+    BeaconBlockBodyMerge, BeaconBlockBodyRef, BeaconBlockBodyRefMut, BeaconBlockBodyVerge,
 };
 pub use crate::beacon_block_header::BeaconBlockHeader;
 pub use crate::beacon_committee::{BeaconCommittee, OwnedBeaconCommittee};
@@ -120,7 +121,7 @@ pub use crate::bls_to_execution_change::BlsToExecutionChange;
 pub use crate::chain_spec::{ChainSpec, Config, Domain};
 pub use crate::checkpoint::Checkpoint;
 pub use crate::config_and_preset::{
-    ConfigAndPreset, ConfigAndPresetBellatrix, ConfigAndPresetCapella,
+    ConfigAndPreset, ConfigAndPresetBellatrix, ConfigAndPresetCapella, ConfigAndPresetVerge,
 };
 pub use crate::contribution_and_proof::ContributionAndProof;
 pub use crate::deposit::{Deposit, DEPOSIT_TREE_DEPTH};
@@ -134,12 +135,13 @@ pub use crate::execution_block_hash::ExecutionBlockHash;
 pub use crate::execution_block_header::ExecutionBlockHeader;
 pub use crate::execution_payload::{
     ExecutionPayload, ExecutionPayloadCapella, ExecutionPayloadMerge, ExecutionPayloadRef,
-    Transaction, Transactions, Withdrawals,
+    ExecutionPayloadVerge, Transaction, Transactions, Withdrawals,
 };
 pub use crate::execution_payload_header::{
     ExecutionPayloadHeader, ExecutionPayloadHeaderCapella, ExecutionPayloadHeaderMerge,
-    ExecutionPayloadHeaderRef, ExecutionPayloadHeaderRefMut,
+    ExecutionPayloadHeaderRef, ExecutionPayloadHeaderRefMut, ExecutionPayloadHeaderVerge,
 };
+pub use crate::execution_witness::ExecutionWitness;
 pub use crate::fork::Fork;
 pub use crate::fork_context::ForkContext;
 pub use crate::fork_data::ForkData;
@@ -154,11 +156,11 @@ pub use crate::participation_flags::ParticipationFlags;
 pub use crate::participation_list::ParticipationList;
 pub use crate::payload::{
     AbstractExecPayload, BlindedPayload, BlindedPayloadCapella, BlindedPayloadMerge,
-    BlindedPayloadRef, BlockType, ExecPayload, FullPayload, FullPayloadCapella, FullPayloadMerge,
-    FullPayloadRef, OwnedExecPayload,
+    BlindedPayloadRef, BlindedPayloadVerge, BlockType, ExecPayload, FullPayload,
+    FullPayloadCapella, FullPayloadMerge, FullPayloadRef, FullPayloadVerge, OwnedExecPayload,
 };
 pub use crate::pending_attestation::PendingAttestation;
-pub use crate::preset::{AltairPreset, BasePreset, BellatrixPreset, CapellaPreset};
+pub use crate::preset::{AltairPreset, BasePreset, BellatrixPreset, CapellaPreset, VergePreset};
 pub use crate::proposer_preparation_data::ProposerPreparationData;
 pub use crate::proposer_slashing::ProposerSlashing;
 pub use crate::relative_epoch::{Error as RelativeEpochError, RelativeEpoch};
@@ -167,7 +169,8 @@ pub use crate::shuffling_id::AttestationShufflingId;
 pub use crate::signed_aggregate_and_proof::SignedAggregateAndProof;
 pub use crate::signed_beacon_block::{
     SignedBeaconBlock, SignedBeaconBlockAltair, SignedBeaconBlockBase, SignedBeaconBlockCapella,
-    SignedBeaconBlockHash, SignedBeaconBlockMerge, SignedBlindedBeaconBlock,
+    SignedBeaconBlockHash, SignedBeaconBlockMerge, SignedBeaconBlockVerge,
+    SignedBlindedBeaconBlock,
 };
 pub use crate::signed_beacon_block_header::SignedBeaconBlockHeader;
 pub use crate::signed_bls_to_execution_change::SignedBlsToExecutionChange;

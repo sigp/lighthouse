@@ -12,8 +12,8 @@ use types::{
     Attestation, AttesterSlashing, EthSpec, ForkContext, ForkName, LightClientFinalityUpdate,
     LightClientOptimisticUpdate, ProposerSlashing, SignedAggregateAndProof, SignedBeaconBlock,
     SignedBeaconBlockAltair, SignedBeaconBlockBase, SignedBeaconBlockCapella,
-    SignedBeaconBlockMerge, SignedBlsToExecutionChange, SignedContributionAndProof,
-    SignedVoluntaryExit, SubnetId, SyncCommitteeMessage, SyncSubnetId,
+    SignedBeaconBlockMerge, SignedBeaconBlockVerge, SignedBlsToExecutionChange,
+    SignedContributionAndProof, SignedVoluntaryExit, SubnetId, SyncCommitteeMessage, SyncSubnetId,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -181,6 +181,10 @@ impl<T: EthSpec> PubsubMessage<T> {
                                 ),
                                 Some(ForkName::Capella) => SignedBeaconBlock::<T>::Capella(
                                     SignedBeaconBlockCapella::from_ssz_bytes(data)
+                                        .map_err(|e| format!("{:?}", e))?,
+                                ),
+                                Some(ForkName::Verge) => SignedBeaconBlock::<T>::Verge(
+                                    SignedBeaconBlockVerge::from_ssz_bytes(data)
                                         .map_err(|e| format!("{:?}", e))?,
                                 ),
                                 None => {

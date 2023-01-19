@@ -414,6 +414,12 @@ pub fn process_execution_payload<T: EthSpec, Payload: AbstractExecPayload<T>>(
                 _ => return Err(BlockProcessingError::IncorrectStateType),
             }
         }
+        ExecutionPayloadHeaderRefMut::Verge(header_mut) => {
+            match payload.to_execution_payload_header() {
+                ExecutionPayloadHeader::Verge(header) => *header_mut = header,
+                _ => return Err(BlockProcessingError::IncorrectStateType),
+            }
+        }
     }
 
     Ok(())
@@ -526,7 +532,7 @@ pub fn process_withdrawals<T: EthSpec, Payload: AbstractExecPayload<T>>(
 ) -> Result<(), BlockProcessingError> {
     match state {
         BeaconState::Merge(_) => Ok(()),
-        BeaconState::Capella(_) => {
+        BeaconState::Capella(_) | BeaconState::Verge(_) => {
             let expected_withdrawals = get_expected_withdrawals(state, spec)?;
             let expected_root = expected_withdrawals.tree_hash_root();
             let withdrawals_root = payload.withdrawals_root()?;

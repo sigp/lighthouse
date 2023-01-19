@@ -205,6 +205,42 @@ impl CapellaPreset {
     }
 }
 
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "UPPERCASE")]
+pub struct VergePreset {
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub bytes_per_banderwagon_element: u64,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub max_stems: u64,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub max_stem_length: u64,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub max_committments_per_stem: u64,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub max_committments: u64,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub bytes_per_suffix_state_diff_value: u64,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub max_verkle_width: u64,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub ipa_proof_depth: u64,
+}
+
+impl VergePreset {
+    pub fn from_chain_spec<T: EthSpec>(_spec: &ChainSpec) -> Self {
+        Self {
+            bytes_per_banderwagon_element: T::bytes_per_banderwagon_element() as u64,
+            max_stems: T::max_stems() as u64,
+            max_stem_length: T::max_stem_length() as u64,
+            max_committments_per_stem: T::max_committments_per_stem() as u64,
+            max_committments: T::max_committments() as u64,
+            bytes_per_suffix_state_diff_value: T::bytes_per_suffix_state_diff_value() as u64,
+            max_verkle_width: T::max_verkle_width() as u64,
+            ipa_proof_depth: T::ipa_proof_depth() as u64,
+        }
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -243,6 +279,9 @@ mod test {
 
         let capella: CapellaPreset = preset_from_file(&preset_name, "capella.yaml");
         assert_eq!(capella, CapellaPreset::from_chain_spec::<E>(&spec));
+
+        let verge: VergePreset = preset_from_file(&preset_name, "verge.yaml");
+        assert_eq!(verge, VergePreset::from_chain_spec::<E>(&spec));
     }
 
     #[test]

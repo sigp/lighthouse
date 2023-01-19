@@ -96,7 +96,10 @@ impl<E: EthSpec> Operation<E> for Attestation<E> {
                 &mut ctxt,
                 spec,
             ),
-            BeaconState::Altair(_) | BeaconState::Merge(_) | BeaconState::Capella(_) => {
+            BeaconState::Altair(_)
+            | BeaconState::Merge(_)
+            | BeaconState::Capella(_)
+            | BeaconState::Verge(_) => {
                 initialize_progressive_balances_cache(state, None, spec)?;
                 altair::process_attestation(state, self, 0, &mut ctxt, VerifySignatures::True, spec)
             }

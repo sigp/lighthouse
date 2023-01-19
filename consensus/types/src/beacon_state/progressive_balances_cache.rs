@@ -179,6 +179,9 @@ impl ProgressiveBalancesMode {
 pub fn is_progressive_balances_enabled<E: EthSpec>(state: &BeaconState<E>) -> bool {
     match state {
         BeaconState::Base(_) => false,
-        BeaconState::Altair(_) | BeaconState::Merge(_) | BeaconState::Capella(_) => true,
+        BeaconState::Altair(_)
+        | BeaconState::Merge(_)
+        | BeaconState::Capella(_)
+        | BeaconState::Verge(_) => true,
     }
 }

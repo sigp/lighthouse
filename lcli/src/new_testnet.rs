@@ -9,7 +9,9 @@ use ethereum_hashing::hash;
 use ssz::Decode;
 use ssz::Encode;
 use state_processing::process_activations;
-use state_processing::upgrade::{upgrade_to_altair, upgrade_to_bellatrix};
+use state_processing::upgrade::{
+    upgrade_to_altair, upgrade_to_bellatrix, upgrade_to_capella, upgrade_to_verge,
+};
 use std::fs::File;
 use std::io::Read;
 use std::path::PathBuf;
@@ -19,8 +21,8 @@ use types::ExecutionBlockHash;
 use types::{
     test_utils::generate_deterministic_keypairs, Address, BeaconState, ChainSpec, Config, Epoch,
     Eth1Data, EthSpec, ExecutionPayloadHeader, ExecutionPayloadHeaderCapella,
-    ExecutionPayloadHeaderMerge, ExecutionPayloadHeaderRefMut, ForkName, Hash256, Keypair,
-    PublicKey, Validator,
+    ExecutionPayloadHeaderMerge, ExecutionPayloadHeaderRefMut, ExecutionPayloadHeaderVerge,
+    ForkName, Hash256, Keypair, PublicKey, Validator,
 };
 
 pub fn run<T: EthSpec>(testnet_dir_path: PathBuf, matches: &ArgMatches) -> Result<(), String> {
@@ -85,6 +87,10 @@ pub fn run<T: EthSpec>(testnet_dir_path: PathBuf, matches: &ArgMatches) -> Resul
         spec.capella_fork_epoch = Some(fork_epoch);
     }
 
+    if let Some(fork_epoch) = parse_optional(matches, "verge-fork-epoch")? {
+        spec.verge_fork_epoch = Some(fork_epoch);
+    }
+
     if let Some(ttd) = parse_optional(matches, "ttd")? {
         spec.terminal_total_difficulty = ttd;
     }
@@ -110,6 +116,10 @@ pub fn run<T: EthSpec>(testnet_dir_path: PathBuf, matches: &ArgMatches) -> Resul
                     ForkName::Capella => {
                         ExecutionPayloadHeaderCapella::<T>::from_ssz_bytes(bytes.as_slice())
                             .map(ExecutionPayloadHeader::Capella)
+                    }
+                    ForkName::Verge => {
+                        ExecutionPayloadHeaderVerge::<T>::from_ssz_bytes(bytes.as_slice())
+                            .map(ExecutionPayloadHeader::Verge)
                     }
                 }
                 .map_err(|e| format!("SSZ decode failed: {:?}", e))
@@ -214,14 +224,29 @@ fn initialize_state_with_validators<T: EthSpec>(
     execution_payload_header: Option<ExecutionPayloadHeader<T>>,
     spec: &ChainSpec,
 ) -> Result<BeaconState<T>, String> {
-    // If no header is provided, then start from a Bellatrix state by default
-    let default_header: ExecutionPayloadHeader<T> =
+    // If no header is provided, then start from a default state.
+    let default_header = if spec.verge_fork_epoch == Some(T::genesis_epoch()) {
+        ExecutionPayloadHeader::Verge(ExecutionPayloadHeaderVerge {
+            block_hash: ExecutionBlockHash::from_root(eth1_block_hash),
+            parent_hash: ExecutionBlockHash::zero(),
+            ..ExecutionPayloadHeaderVerge::default()
+        })
+    } else if spec.capella_fork_epoch == Some(T::genesis_epoch()) {
+        ExecutionPayloadHeader::Capella(ExecutionPayloadHeaderCapella {
+            block_hash: ExecutionBlockHash::from_root(eth1_block_hash),
+            parent_hash: ExecutionBlockHash::zero(),
+            ..ExecutionPayloadHeaderCapella::default()
+        })
+    } else {
         ExecutionPayloadHeader::Merge(ExecutionPayloadHeaderMerge {
             block_hash: ExecutionBlockHash::from_root(eth1_block_hash),
             parent_hash: ExecutionBlockHash::zero(),
             ..ExecutionPayloadHeaderMerge::default()
-        });
+        })
+    };
+
     let execution_payload_header = execution_payload_header.unwrap_or(default_header);
+
     // Empty eth1 data
     let eth1_data = Eth1Data {
         block_hash: eth1_block_hash,
@@ -263,6 +288,8 @@ fn initialize_state_with_validators<T: EthSpec>(
 
     process_activations(&mut state, spec).unwrap();
 
+    let mut post_merge = false;
+
     if spec
         .altair_fork_epoch
         .map_or(false, |fork_epoch| fork_epoch == T::genesis_epoch())
@@ -272,7 +299,7 @@ fn initialize_state_with_validators<T: EthSpec>(
         state.fork_mut().previous_version = spec.altair_fork_version;
     }
 
-    // Similarly, perform an upgrade to the merge if configured from genesis.
+    // Similarly, perform an upgrade to Bellatrix if configured from genesis.
     if spec
         .bellatrix_fork_epoch
         .map_or(false, |fork_epoch| fork_epoch == T::genesis_epoch())
@@ -282,6 +309,37 @@ fn initialize_state_with_validators<T: EthSpec>(
         // Remove intermediate Altair fork from `state.fork`.
         state.fork_mut().previous_version = spec.bellatrix_fork_version;
 
+        post_merge = true;
+    }
+
+    // Similarly, perform an upgrade to Capella if configured from genesis.
+    if spec
+        .capella_fork_epoch
+        .map_or(false, |fork_epoch| fork_epoch == T::genesis_epoch())
+    {
+        upgrade_to_capella(&mut state, spec).unwrap();
+
+        // Remove intermediate Bellatrix fork from `state.fork`.
+        state.fork_mut().previous_version = spec.capella_fork_version;
+
+        post_merge = true;
+    }
+
+    // Similarly, perform an upgrade to Verge if configured from genesis.
+    if spec
+        .verge_fork_epoch
+        .map_or(false, |fork_epoch| fork_epoch == T::genesis_epoch())
+    {
+        upgrade_to_verge(&mut state, spec).unwrap();
+
+        // Remove intermediate Capella fork from `state.fork`.
+        state.fork_mut().previous_version = spec.verge_fork_version;
+
+        post_merge = true;
+    }
+
+    // If fork is post_merge.
+    if post_merge {
         // Override latest execution payload header.
         // See https://github.com/ethereum/consensus-specs/blob/v1.1.0/specs/merge/beacon-chain.md#testing
 
@@ -297,8 +355,19 @@ fn initialize_state_with_validators<T: EthSpec>(
                     return Err("Execution payload header must be a bellatrix header".to_string());
                 }
             }
-            ExecutionPayloadHeaderRefMut::Capella(_) => {
-                return Err("Cannot start genesis from a capella state".to_string())
+            ExecutionPayloadHeaderRefMut::Capella(header_mut) => {
+                if let ExecutionPayloadHeader::Capella(eph) = execution_payload_header {
+                    *header_mut = eph;
+                } else {
+                    return Err("Execution payload header must be a capella header".to_string());
+                }
+            }
+            ExecutionPayloadHeaderRefMut::Verge(header_mut) => {
+                if let ExecutionPayloadHeader::Verge(eph) = execution_payload_header {
+                    *header_mut = eph;
+                } else {
+                    return Err("Execution payload header must be a verge header".to_string());
+                }
             }
         }
     }

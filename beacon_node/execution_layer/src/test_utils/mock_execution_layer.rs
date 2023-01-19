@@ -29,6 +29,7 @@ impl<T: EthSpec> MockExecutionLayer<T> {
             DEFAULT_TERMINAL_BLOCK,
             None,
             None,
+            None,
             Some(JwtKey::from_slice(&DEFAULT_JWT_SECRET).unwrap()),
             spec,
         )
@@ -39,6 +40,7 @@ impl<T: EthSpec> MockExecutionLayer<T> {
         executor: TaskExecutor,
         terminal_block: u64,
         shanghai_time: Option<u64>,
+        verge_time: Option<u64>,
         builder_threshold: Option<u128>,
         jwt_key: Option<JwtKey>,
         spec: ChainSpec,
@@ -53,6 +55,7 @@ impl<T: EthSpec> MockExecutionLayer<T> {
             terminal_block,
             spec.terminal_block_hash,
             shanghai_time,
+            verge_time,
         );
 
         let url = SensitiveUrl::parse(&server.url()).unwrap();

@@ -45,6 +45,7 @@ pub struct ExecutionBlockHeader {
     pub nonce: Hash64,
     pub base_fee_per_gas: Uint256,
     pub withdrawals_root: Option<Hash256>,
+    pub execution_witness_root: Option<Hash256>,
 }
 
 impl ExecutionBlockHeader {
@@ -53,6 +54,7 @@ impl ExecutionBlockHeader {
         rlp_empty_list_root: Hash256,
         rlp_transactions_root: Hash256,
         rlp_withdrawals_root: Option<Hash256>,
+        rlp_execution_witness_root: Option<Hash256>,
     ) -> Self {
         // Most of these field mappings are defined in EIP-3675 except for `mixHash`, which is
         // defined in EIP-4399.
@@ -74,6 +76,7 @@ impl ExecutionBlockHeader {
             nonce: Hash64::zero(),
             base_fee_per_gas: payload.base_fee_per_gas(),
             withdrawals_root: rlp_withdrawals_root,
+            execution_witness_root: rlp_execution_witness_root,
         }
     }
 }

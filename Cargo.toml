@@ -159,7 +159,9 @@ tempfile = "3"
 tokio = { version = "1", features = ["rt-multi-thread", "sync", "signal"] }
 tokio-stream = { version = "0.1", features = ["sync"] }
 tokio-util = { version = "0.6", features = ["codec", "compat", "time"] }
-tree_hash = "0.5"
+#tree_hash = "0.5.2"
+tree_hash = { git = "https://github.com/macladson/tree_hash.git", rev = "a5bc39d" }
+#tree_hash_derive = { git = "https://github.com/macladson/tree_hash", branch = "option" }
 tree_hash_derive = "0.5"
 url = "2"
 uuid = { version = "0.8", features = ["serde", "v4"] }

@@ -4353,7 +4353,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // allows it to run concurrently with things like attestation packing.
         let prepare_payload_handle = match &state {
             BeaconState::Base(_) | BeaconState::Altair(_) => None,
-            BeaconState::Merge(_) | BeaconState::Capella(_) => {
+            BeaconState::Merge(_) | BeaconState::Capella(_) | BeaconState::Verge(_) => {
                 let prepare_payload_handle =
                     get_execution_payload(self.clone(), &state, proposer_index, builder_params)?;
                 Some(prepare_payload_handle)
@@ -4643,6 +4643,30 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     bls_to_execution_changes: bls_to_execution_changes.into(),
                 },
             }),
+            BeaconState::Verge(_) => BeaconBlock::Verge(BeaconBlockVerge {
+                slot,
+                proposer_index,
+                parent_root,
+                state_root: Hash256::zero(),
+                body: BeaconBlockBodyVerge {
+                    randao_reveal,
+                    eth1_data,
+                    graffiti,
+                    proposer_slashings: proposer_slashings.into(),
+                    attester_slashings: attester_slashings.into(),
+                    attestations: attestations.into(),
+                    deposits: deposits.into(),
+                    voluntary_exits: voluntary_exits.into(),
+                    sync_aggregate: sync_aggregate
+                        .ok_or(BlockProductionError::MissingSyncAggregate)?,
+                    execution_payload: block_contents
+                        .ok_or(BlockProductionError::MissingExecutionPayload)?
+                        .to_payload()
+                        .try_into()
+                        .map_err(|_| BlockProductionError::InvalidPayloadFork)?,
+                    bls_to_execution_changes: bls_to_execution_changes.into(),
+                },
+            }),
         };
 
         let block = SignedBeaconBlock::from_block(
@@ -4912,7 +4936,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         } else {
             let withdrawals = match self.spec.fork_name_at_slot::<T::EthSpec>(prepare_slot) {
                 ForkName::Base | ForkName::Altair | ForkName::Merge => None,
-                ForkName::Capella => {
+                ForkName::Capella | ForkName::Verge => {
                     let chain = self.clone();
                     self.spawn_blocking_handle(
                         move || {

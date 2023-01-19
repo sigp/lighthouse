@@ -16,6 +16,7 @@ use types::{
 };
 use types::{
     ExecutionPayload, ExecutionPayloadCapella, ExecutionPayloadHeader, ExecutionPayloadMerge,
+    ExecutionPayloadVerge,
 };
 
 #[derive(PartialEq)]
@@ -97,6 +98,7 @@ fn reconstruct_default_header_block<E: EthSpec>(
     let payload: ExecutionPayload<E> = match fork {
         ForkName::Merge => ExecutionPayloadMerge::default().into(),
         ForkName::Capella => ExecutionPayloadCapella::default().into(),
+        ForkName::Verge => ExecutionPayloadVerge::default().into(),
         ForkName::Base | ForkName::Altair => {
             return Err(Error::PayloadReconstruction(format!(
                 "Block with fork variant {} has execution payload",

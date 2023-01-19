@@ -42,8 +42,8 @@ use tree_hash::TreeHash;
 use types::{AbstractExecPayload, BeaconStateError, ExecPayload};
 use types::{
     BlindedPayload, BlockType, ChainSpec, Epoch, ExecutionPayloadCapella, ExecutionPayloadMerge,
-    ForkVersionedResponse, ProposerPreparationData, PublicKeyBytes, Signature, SignedBeaconBlock,
-    Slot,
+    ExecutionPayloadVerge, ForkVersionedResponse, ProposerPreparationData, PublicKeyBytes,
+    Signature, SignedBeaconBlock, Slot,
 };
 
 mod block_hash;
@@ -158,13 +158,15 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> BlockProposalContents<T, Paylo
     }
     pub fn default_at_fork(fork_name: ForkName) -> Result<Self, BeaconStateError> {
         Ok(match fork_name {
-            ForkName::Base | ForkName::Altair | ForkName::Merge | ForkName::Capella => {
-                BlockProposalContents::Payload {
-                    payload: Payload::default_at_fork(fork_name)?,
-                    block_value: Uint256::zero(),
-                    _phantom: PhantomData,
-                }
-            }
+            ForkName::Base
+            | ForkName::Altair
+            | ForkName::Merge
+            | ForkName::Capella
+            | ForkName::Verge => BlockProposalContents::Payload {
+                payload: Payload::default_at_fork(fork_name)?,
+                block_value: Uint256::zero(),
+                _phantom: PhantomData,
+            },
         })
     }
 }
@@ -1576,6 +1578,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
             let payload = match fork {
                 ForkName::Merge => ExecutionPayloadMerge::default().into(),
                 ForkName::Capella => ExecutionPayloadCapella::default().into(),
+                ForkName::Verge => ExecutionPayloadVerge::default().into(),
                 ForkName::Base | ForkName::Altair => {
                     return Err(Error::InvalidForkForPayload);
                 }
@@ -1643,6 +1646,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
             return match fork {
                 ForkName::Merge => Ok(Some(ExecutionPayloadMerge::default().into())),
                 ForkName::Capella => Ok(Some(ExecutionPayloadCapella::default().into())),
+                ForkName::Verge => Ok(Some(ExecutionPayloadVerge::default().into())),
                 ForkName::Base | ForkName::Altair => Err(ApiError::UnsupportedForkVariant(
                     format!("called get_payload_by_hash_from_engine with {}", fork),
                 )),
@@ -1713,6 +1717,34 @@ impl<T: EthSpec> ExecutionLayer<T> {
                     block_hash: capella_block.block_hash,
                     transactions,
                     withdrawals,
+                })
+            }
+            ExecutionBlockWithTransactions::Verge(verge_block) => {
+                let withdrawals = VariableList::new(
+                    verge_block
+                        .withdrawals
+                        .into_iter()
+                        .map(Into::into)
+                        .collect(),
+                )
+                .map_err(ApiError::DeserializeWithdrawals)?;
+                ExecutionPayload::Verge(ExecutionPayloadVerge {
+                    parent_hash: verge_block.parent_hash,
+                    fee_recipient: verge_block.fee_recipient,
+                    state_root: verge_block.state_root,
+                    receipts_root: verge_block.receipts_root,
+                    logs_bloom: verge_block.logs_bloom,
+                    prev_randao: verge_block.prev_randao,
+                    block_number: verge_block.block_number,
+                    gas_limit: verge_block.gas_limit,
+                    gas_used: verge_block.gas_used,
+                    timestamp: verge_block.timestamp,
+                    extra_data: verge_block.extra_data,
+                    base_fee_per_gas: verge_block.base_fee_per_gas,
+                    block_hash: verge_block.block_hash,
+                    transactions,
+                    withdrawals,
+                    execution_witness: verge_block.execution_witness,
                 })
             }
         };
