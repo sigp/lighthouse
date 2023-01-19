@@ -80,13 +80,13 @@ pub fn compute_attestation_rewards<T: BeaconChainTypes>(
                 .and_then(|reward_numerator| reward_numerator.safe_mul(unslashed_participating_increments))
                 .map_err(|_| warp_utils::reject::custom_server_error("Unable to calculate reward numerator".to_owned()))?;
         
-            let reward = reward_numerator
+            let ideal_reward = reward_numerator
                 .safe_div(active_increments)
-                .and_then(|reward| reward.safe_div(WEIGHT_DENOMINATOR))
-                .map_err(|_| warp_utils::reject::custom_server_error("Unable to calculate reward".to_owned()))?;
+                .and_then(|ideal_reward| ideal_reward.safe_div(WEIGHT_DENOMINATOR))
+                .map_err(|_| warp_utils::reject::custom_server_error("Unable to calculate ideal_reward".to_owned()))?;
             
             if !state.is_in_inactivity_leak(previous_epoch, &spec) {
-                ideal_rewards_hashmap.insert((flag_index, effective_balance_eth), reward);
+                ideal_rewards_hashmap.insert((flag_index, effective_balance_eth), ideal_reward);
             } else {
                 ideal_rewards_hashmap.insert((flag_index, effective_balance_eth), 0);
             }  
@@ -94,7 +94,7 @@ pub fn compute_attestation_rewards<T: BeaconChainTypes>(
     }
 
     //--- Calculate actual rewards ---//
-    let mut rewards = Vec::new();
+    let mut total_rewards_vec = Vec::new();
 
     let index = participation_cache.eligible_validator_indices();
 
@@ -113,24 +113,24 @@ pub fn compute_attestation_rewards<T: BeaconChainTypes>(
                 (-(base_reward as i64 as i128) * weight as i128 / WEIGHT_DENOMINATOR as i128) as u64
             }
         };
-        rewards.push((*validator_index, total_reward));
+        total_rewards_vec.push((*validator_index, total_reward));
     }
 
     //TODO Check target and source
-    let ideal_rewards: Vec<IdealAttestationRewards> = ideal_rewards_hashmap.iter().map(|((flag_index, effective_balance_eth), reward)| {
+    let ideal_rewards: Vec<IdealAttestationRewards> = ideal_rewards_hashmap.iter().map(|((flag_index, effective_balance_eth), ideal_reward)| {
         IdealAttestationRewards {
             effective_balance: *effective_balance_eth as u64,
-            head: *reward,
+            head: *ideal_reward,
             target: 0,
             source: 0,
         }
     }).collect();
 
     //TODO Check target, source, and inclusion_delay
-    let total_rewards: Vec<TotalAttestationRewards> = rewards.into_iter().map(|(validator_index, reward)| {
+    let total_rewards: Vec<TotalAttestationRewards> = total_rewards_vec.into_iter().map(|(validator_index, total_reward)| {
         TotalAttestationRewards {
             validator_index: validator_index as u64,
-            head: reward as i64,
+            head: total_reward as i64,
             target: 0,
             source: 0,
             inclusion_delay: 0,
