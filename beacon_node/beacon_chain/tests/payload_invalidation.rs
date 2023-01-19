@@ -1007,9 +1007,7 @@ async fn payload_preparation() {
             .unwrap(),
         fee_recipient,
         None,
-    )
-    .downgrade_to_v1()
-    .unwrap();
+    );
     assert_eq!(rig.previous_payload_attributes(), payload_attributes);
 }
 
