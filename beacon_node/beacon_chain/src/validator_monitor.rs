@@ -190,6 +190,42 @@ impl EpochSummary {
 
 type SummaryMap = HashMap<Epoch, EpochSummary>;
 
+#[derive(Default)]
+pub struct ValidatorMetrics {
+    pub attestation_hits: u64,
+    pub attestation_misses: u64,
+    pub attestation_head_hits: u64,
+    pub attestation_head_misses: u64,
+    pub attestation_target_hits: u64,
+    pub attestation_target_misses: u64,
+}
+
+impl ValidatorMetrics {
+    pub fn increment_hits(&mut self) {
+        self.attestation_hits += 1;
+    }
+
+    pub fn increment_misses(&mut self) {
+        self.attestation_misses += 1;
+    }
+
+    pub fn increment_target_hits(&mut self) {
+        self.attestation_target_hits += 1;
+    }
+
+    pub fn increment_target_misses(&mut self) {
+        self.attestation_target_misses += 1;
+    }
+
+    pub fn increment_head_hits(&mut self) {
+        self.attestation_head_hits += 1;
+    }
+
+    pub fn increment_head_misses(&mut self) {
+        self.attestation_head_misses += 1;
+    }
+}
+
 /// A validator that is being monitored by the `ValidatorMonitor`.
 pub struct MonitoredValidator {
     /// A human-readable identifier for the validator.
@@ -198,6 +234,8 @@ pub struct MonitoredValidator {
     pub index: Option<u64>,
     /// A history of the validator over time.
     pub summaries: RwLock<SummaryMap>,
+    /// Validator metrics to be exposed over the HTTP API.
+    pub metrics: RwLock<ValidatorMetrics>,
 }
 
 impl MonitoredValidator {
@@ -208,6 +246,7 @@ impl MonitoredValidator {
                 .unwrap_or_else(|| pubkey.to_string()),
             index,
             summaries: <_>::default(),
+            metrics: <_>::default(),
         }
     }
 
@@ -371,18 +410,23 @@ impl<T: EthSpec> ValidatorMonitor<T> {
             if let Some(i) = monitored_validator.index {
                 monitored_validator.touch_epoch_summary(current_epoch);
 
+                let i = i as usize;
+
+                // Cache relevant validator info.
+                if let Some(balance) = state.balances().get(i) {
+                    monitored_validator.with_epoch_summary(current_epoch, |summary| {
+                        summary.register_validator_total_balance(*balance)
+                    });
+                }
+
                 // Only log the per-validator metrics if it's enabled.
                 if !self.individual_tracking() {
                     continue;
                 }
 
-                let i = i as usize;
                 let id = &monitored_validator.id;
 
                 if let Some(balance) = state.balances().get(i) {
-                    monitored_validator.with_epoch_summary(current_epoch, |summary| {
-                        summary.register_validator_total_balance(*balance)
-                    });
                     metrics::set_int_gauge(
                         &metrics::VALIDATOR_MONITOR_BALANCE_GWEI,
                         &[id],
@@ -505,6 +549,25 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                     // attestations.
                     continue;
                 }
+
+                // Store some metrics directly to be re-exposed on the HTTP API.
+                let mut validator_metrics = monitored_validator.metrics.write();
+                if previous_epoch_matched_any {
+                    validator_metrics.increment_hits();
+                    if previous_epoch_matched_target {
+                        validator_metrics.increment_target_hits()
+                    } else {
+                        validator_metrics.increment_target_misses()
+                    }
+                    if previous_epoch_matched_head {
+                        validator_metrics.increment_head_hits()
+                    } else {
+                        validator_metrics.increment_head_misses()
+                    }
+                } else {
+                    validator_metrics.increment_misses()
+                }
+                drop(validator_metrics);
 
                 // Indicates if any attestation made it on-chain.
                 //
