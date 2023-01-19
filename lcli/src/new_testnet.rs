@@ -1,7 +1,8 @@
 use clap::ArgMatches;
 use clap_utils::{parse_optional, parse_required, parse_ssz_optional};
 use eth2_hashing::hash;
-use eth2_network_config::Eth2NetworkConfig;
+use eth2_network_config::{Eth2NetworkConfig, TRUSTED_SETUP};
+use kzg::TrustedSetup;
 use ssz::Decode;
 use ssz::Encode;
 use state_processing::process_activations;
@@ -13,9 +14,9 @@ use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
 use types::ExecutionBlockHash;
 use types::{
-    test_utils::generate_deterministic_keypairs, Address, BeaconState, ChainSpec, Config, Eth1Data,
-    EthSpec, ExecutionPayloadHeader, ExecutionPayloadHeaderMerge, Hash256, Keypair, PublicKey,
-    Validator,
+    test_utils::generate_deterministic_keypairs, Address, BeaconState, ChainSpec, Config, Epoch,
+    Eth1Data, EthSpec, ExecutionPayloadHeader, ExecutionPayloadHeaderMerge, Hash256, Keypair,
+    PublicKey, Validator,
 };
 
 pub fn run<T: EthSpec>(testnet_dir_path: PathBuf, matches: &ArgMatches) -> Result<(), String> {
@@ -142,11 +143,24 @@ pub fn run<T: EthSpec>(testnet_dir_path: PathBuf, matches: &ArgMatches) -> Resul
         None
     };
 
+    let kzg_trusted_setup = if let Some(epoch) = spec.eip4844_fork_epoch {
+        // Only load the trusted setup if the eip4844 fork epoch is set
+        if epoch != Epoch::max_value() {
+            let trusted_setup: TrustedSetup = serde_json::from_reader(TRUSTED_SETUP)
+                .map_err(|e| format!("Unable to read trusted setup file: {}", e))?;
+            Some(trusted_setup)
+        } else {
+            None
+        }
+    } else {
+        None
+    };
     let testnet = Eth2NetworkConfig {
         deposit_contract_deploy_block,
         boot_enr: Some(vec![]),
         genesis_state_bytes,
         config: Config::from_chain_spec::<T>(&spec),
+        kzg_trusted_setup,
     };
 
     testnet.write_to_file(testnet_dir_path, overwrite_files)

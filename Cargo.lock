@@ -3322,6 +3322,7 @@ dependencies = [
  "eth2_wallet",
  "genesis",
  "int_to_bytes",
+ "kzg",
  "lighthouse_network",
  "lighthouse_version",
  "log",
