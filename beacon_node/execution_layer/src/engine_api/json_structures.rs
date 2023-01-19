@@ -1,5 +1,6 @@
 use super::*;
 use serde::{Deserialize, Serialize};
+use serde_with::{serde_as, DefaultOnNull, Same};
 use strum::EnumString;
 use types::{EthSpec, ExecutionBlockHash, FixedVector, Transaction, Unsigned, VariableList};
 
@@ -80,6 +81,8 @@ pub struct JsonExecutionPayloadHeaderV1<T: EthSpec> {
     pub base_fee_per_gas: Uint256,
     pub block_hash: ExecutionBlockHash,
     pub transactions_root: Hash256,
+    pub verkle_proof_root: Hash256,
+    pub verkle_key_vals_root: Hash256,
 }
 
 impl<T: EthSpec> From<JsonExecutionPayloadHeaderV1<T>> for ExecutionPayloadHeader<T> {
@@ -100,6 +103,8 @@ impl<T: EthSpec> From<JsonExecutionPayloadHeaderV1<T>> for ExecutionPayloadHeade
             base_fee_per_gas,
             block_hash,
             transactions_root,
+            verkle_proof_root,
+            verkle_key_vals_root,
         } = e;
 
         Self {
@@ -117,10 +122,13 @@ impl<T: EthSpec> From<JsonExecutionPayloadHeaderV1<T>> for ExecutionPayloadHeade
             base_fee_per_gas,
             block_hash,
             transactions_root,
+            verkle_proof_root,
+            verkle_key_vals_root,
         }
     }
 }
 
+#[serde_as]
 #[derive(Debug, PartialEq, Default, Serialize, Deserialize)]
 #[serde(bound = "T: EthSpec", rename_all = "camelCase")]
 pub struct JsonExecutionPayloadV1<T: EthSpec> {
@@ -147,6 +155,10 @@ pub struct JsonExecutionPayloadV1<T: EthSpec> {
     #[serde(with = "ssz_types::serde_utils::list_of_hex_var_list")]
     pub transactions:
         VariableList<Transaction<T::MaxBytesPerTransaction>, T::MaxTransactionsPerPayload>,
+    #[serde_as(as = "DefaultOnNull<Same>")]
+    pub verkle_proof: VerkleProof<T>,
+    #[serde_as(as = "DefaultOnNull<Same>")]
+    pub verkle_key_vals: VariableList<VerkleMap<T>, T::MaxVerkleProofKeyVals>,
 }
 
 impl<T: EthSpec> From<ExecutionPayload<T>> for JsonExecutionPayloadV1<T> {
@@ -167,6 +179,8 @@ impl<T: EthSpec> From<ExecutionPayload<T>> for JsonExecutionPayloadV1<T> {
             base_fee_per_gas,
             block_hash,
             transactions,
+            verkle_proof,
+            verkle_key_vals,
         } = e;
 
         Self {
@@ -184,6 +198,8 @@ impl<T: EthSpec> From<ExecutionPayload<T>> for JsonExecutionPayloadV1<T> {
             base_fee_per_gas,
             block_hash,
             transactions,
+            verkle_proof,
+            verkle_key_vals,
         }
     }
 }
@@ -206,6 +222,8 @@ impl<T: EthSpec> From<JsonExecutionPayloadV1<T>> for ExecutionPayload<T> {
             base_fee_per_gas,
             block_hash,
             transactions,
+            verkle_proof,
+            verkle_key_vals,
         } = e;
 
         Self {
@@ -223,6 +241,8 @@ impl<T: EthSpec> From<JsonExecutionPayloadV1<T>> for ExecutionPayload<T> {
             base_fee_per_gas,
             block_hash,
             transactions,
+            verkle_proof,
+            verkle_key_vals,
         }
     }
 }

@@ -4,10 +4,11 @@ use http::deposit_methods::RpcError;
 pub use json_structures::TransitionConfigurationV1;
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
+use serde_with::{serde_as, DefaultOnNull, Same};
 use strum::IntoStaticStr;
 pub use types::{
     Address, EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadHeader, FixedVector,
-    Hash256, Uint256, VariableList,
+    Hash256, Uint256, VariableList, VerkleMap, VerkleProof,
 };
 
 pub mod auth;
@@ -112,8 +113,10 @@ pub struct ExecutionBlock {
 }
 
 /// Representation of an exection block with enough detail to reconstruct a payload.
+#[serde_as]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[serde(bound = "T: EthSpec")]
 pub struct ExecutionBlockWithTransactions<T: EthSpec> {
     pub parent_hash: ExecutionBlockHash,
     #[serde(alias = "miner")]
@@ -138,6 +141,10 @@ pub struct ExecutionBlockWithTransactions<T: EthSpec> {
     #[serde(rename = "hash")]
     pub block_hash: ExecutionBlockHash,
     pub transactions: Vec<Transaction>,
+    #[serde_as(as = "DefaultOnNull<Same>")]
+    pub verkle_proof: VerkleProof<T>,
+    #[serde_as(as = "DefaultOnNull<Same>")]
+    pub verkle_key_vals: VariableList<VerkleMap<T>, T::MaxVerkleProofKeyVals>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]

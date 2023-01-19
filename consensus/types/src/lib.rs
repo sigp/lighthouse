@@ -129,7 +129,9 @@ pub use crate::eth1_data::Eth1Data;
 pub use crate::eth_spec::EthSpecId;
 pub use crate::execution_block_hash::ExecutionBlockHash;
 pub use crate::execution_block_header::ExecutionBlockHeader;
-pub use crate::execution_payload::{ExecutionPayload, Transaction, Transactions};
+pub use crate::execution_payload::{
+    ExecutionPayload, Transaction, Transactions, VerkleMap, VerkleProof,
+};
 pub use crate::execution_payload_header::ExecutionPayloadHeader;
 pub use crate::fork::Fork;
 pub use crate::fork_context::ForkContext;

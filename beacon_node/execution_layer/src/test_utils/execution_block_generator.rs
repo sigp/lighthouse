@@ -5,6 +5,7 @@ use crate::{
             JsonForkchoiceUpdatedV1Response, JsonPayloadStatusV1, JsonPayloadStatusV1Status,
         },
         ExecutionBlock, PayloadAttributes, PayloadId, PayloadStatusV1, PayloadStatusV1Status,
+        VerkleProof,
     },
     ExecutionBlockWithTransactions,
 };
@@ -89,6 +90,8 @@ impl<T: EthSpec> Block<T> {
                 base_fee_per_gas: payload.base_fee_per_gas,
                 block_hash: payload.block_hash,
                 transactions: vec![],
+                verkle_proof: payload.verkle_proof.clone(),
+                verkle_key_vals: payload.verkle_key_vals.clone(),
             }),
             Block::PoW(_) => None,
         }
@@ -477,6 +480,8 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
                     base_fee_per_gas: Uint256::one(),
                     block_hash: ExecutionBlockHash::zero(),
                     transactions: vec![].into(),
+                    verkle_proof: VerkleProof::default(),
+                    verkle_key_vals: vec![].into(),
                 };
 
                 execution_payload.block_hash =

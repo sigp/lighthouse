@@ -109,6 +109,15 @@ sleeping 1
 execute_command_add_PID el_bootnode.log ./el_bootnode.sh
 sleeping 1
 
+# Start json_rpc_snoop
+SNOOP_PORT=8646
+SNOOP_LISTEN=8999
+snoop() {
+    exec ./json_rpc_snoop -p $SNOOP_PORT http://localhost:$SNOOP_LISTEN
+}
+execute_command_add_PID snoop.log snoop
+
+
 # Start beacon nodes
 BN_udp_tcp_base=9000
 BN_http_port_base=8000
@@ -119,17 +128,24 @@ EL_base_auth_http=5000
 
 (( $VC_COUNT < $BN_COUNT )) && SAS=-s || SAS=
 
-for (( el=1; el<=$BN_COUNT; el++ )); do
+for (( el=2; el<=$BN_COUNT; el++ )); do
     execute_command_add_PID geth_$el.log ./geth.sh $DATADIR/geth_datadir$el $((EL_base_network + $el)) $((EL_base_http + $el)) $((EL_base_auth_http + $el)) $genesis_file
 done
 
+# Start geth which is connected to json_rpc_snoop
+execute_command_add_PID geth_1.log ./geth.sh $DATADIR/geth_datadir1 $((EL_base_network + 1)) $((EL_base_http + 1)) $SNOOP_LISTEN $genesis_file
+
+
 sleeping 20
 
-for (( bn=1; bn<=$BN_COUNT; bn++ )); do
+for (( bn=2; bn<=$BN_COUNT; bn++ )); do
     secret=$DATADIR/geth_datadir$bn/geth/jwtsecret
     echo $secret
     execute_command_add_PID beacon_node_$bn.log ./beacon_node.sh $SAS -d $DEBUG_LEVEL $DATADIR/node_$bn $((BN_udp_tcp_base + $bn)) $((BN_http_port_base + $bn)) http://localhost:$((EL_base_auth_http + $bn)) $secret
 done
+
+# Start beacon node which is connected to json_rpc_snoop
+execute_command_add_PID beacon_node_1.log ./beacon_node.sh $SAS -d $DEBUG_LEVEL $DATADIR/node_1 $((BN_udp_tcp_base + 1)) $((BN_http_port_base + 1)) http://localhost:$SNOOP_PORT $DATADIR/geth_datadir1/geth/jwtsecret
 
 # Start requested number of validator clients
 for (( vc=1; vc<=$VC_COUNT; vc++ )); do

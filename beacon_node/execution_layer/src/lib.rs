@@ -1529,6 +1529,8 @@ impl<T: EthSpec> ExecutionLayer<T> {
             base_fee_per_gas: block.base_fee_per_gas,
             block_hash: block.block_hash,
             transactions,
+            verkle_proof: block.verkle_proof,
+            verkle_key_vals: block.verkle_key_vals,
         }))
     }
 

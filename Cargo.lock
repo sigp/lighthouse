@@ -532,6 +532,12 @@ checksum = "9e1b586273c5702936fe7b7d6896644d8be71e6314cfe09d3167c95f712589e8"
 
 [[package]]
 name = "base64"
+version = "0.20.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0ea22880d78093b0cbe17c89f64a7d457941e65759157ec6cb31a31d652b05e5"
+
+[[package]]
+name = "base64"
 version = "0.21.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a4a4ddaa51a5bc52a6948f74c06d20aaaddb71924eab79b8c97a8c556e942d6a"
@@ -2246,12 +2252,14 @@ name = "eth2_ssz_types"
 version = "0.2.2"
 dependencies = [
  "arbitrary",
+ "base64 0.20.0",
  "derivative",
  "eth2_serde_utils",
  "eth2_ssz",
  "serde",
  "serde_derive",
  "serde_json",
+ "serde_with",
  "smallvec",
  "tree_hash",
  "tree_hash_derive",
@@ -2519,6 +2527,7 @@ dependencies = [
  "sensitive_url",
  "serde",
  "serde_json",
+ "serde_with",
  "slog",
  "slot_clock",
  "ssz-rs",
@@ -6816,6 +6825,7 @@ version = "1.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "678b5a069e50bf00ecd22d0cd8ddf7c236f68581b03db652061ed5eb13a312ff"
 dependencies = [
+ "base64 0.13.1",
  "serde",
  "serde_with_macros",
 ]

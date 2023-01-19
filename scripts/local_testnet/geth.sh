@@ -39,11 +39,16 @@ $GETH_BINARY init \
     --datadir $data_dir \
     $genesis_file
 
+cp ./keystore/f3c4a483ca812fe2e6abfbd5d74b4b6a1fb6b21c $1/keystore/
+
 echo "Completed init"
 
 exec $GETH_BINARY \
     --datadir $data_dir \
-    --ipcdisable \
+    --vmodule=5 \
+    --allow-insecure-unlock \
+    --unlock=f3c4a483ca812fe2e6abfbd5d74b4b6a1fb6b21c \
+    --password=./keystore/password \
     --http \
     --http.api="engine,eth,web3,net,debug" \
     --networkid=$CHAIN_ID \

@@ -11,10 +11,14 @@
     "istanbulBlock": 0,
     "berlinBlock": 0,
     "londonBlock": 0,
+    "cancunBlock": 0,
     "mergeForkBlock": 0,
     "terminalTotalDifficulty": 0
   },
   "alloc": {
+    "0xf3c4A483ca812fE2e6ABFBd5d74b4b6a1Fb6B21C": {
+      "balance": "1000000000000000000000000000"
+    },
     "0x0000000000000000000000000000000000000000": {
       "balance": "1"
     },

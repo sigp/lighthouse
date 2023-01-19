@@ -113,6 +113,14 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq +
     /// Must be set to `SyncCommitteeSize / SyncCommitteeSubnetCount`.
     type SyncSubcommitteeSize: Unsigned + Clone + Sync + Send + Debug + PartialEq;
 
+    /*
+     * New in Verkle
+     */
+    type MaxVerkleProofBytes: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+    type MaxVerkleProofKeyVals: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+    type MaxVerkleKeyLength: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+    type MaxVerkleValueLength: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+
     fn default_spec() -> ChainSpec;
 
     fn spec_name() -> EthSpecId;
@@ -265,6 +273,10 @@ impl EthSpec for MainnetEthSpec {
     type SyncSubcommitteeSize = U128; // 512 committee size / 4 sync committee subnet count
     type MaxPendingAttestations = U4096; // 128 max attestations * 32 slots per epoch
     type SlotsPerEth1VotingPeriod = U2048; // 64 epochs * 32 slots per epoch
+    type MaxVerkleProofBytes = U65536;
+    type MaxVerkleProofKeyVals = U65536;
+    type MaxVerkleKeyLength = U32;
+    type MaxVerkleValueLength = U32;
 
     fn default_spec() -> ChainSpec {
         ChainSpec::mainnet()
@@ -309,7 +321,11 @@ impl EthSpec for MinimalEthSpec {
         BytesPerLogsBloom,
         GasLimitDenominator,
         MinGasLimit,
-        MaxExtraDataBytes
+        MaxExtraDataBytes,
+        MaxVerkleProofBytes,
+        MaxVerkleProofKeyVals,
+        MaxVerkleKeyLength,
+        MaxVerkleValueLength
     });
 
     fn default_spec() -> ChainSpec {
@@ -354,6 +370,10 @@ impl EthSpec for GnosisEthSpec {
     type SyncSubcommitteeSize = U128; // 512 committee size / 4 sync committee subnet count
     type MaxPendingAttestations = U2048; // 128 max attestations * 16 slots per epoch
     type SlotsPerEth1VotingPeriod = U1024; // 64 epochs * 16 slots per epoch
+    type MaxVerkleProofBytes = U65536;
+    type MaxVerkleProofKeyVals = U65536;
+    type MaxVerkleKeyLength = U32;
+    type MaxVerkleValueLength = U32;
 
     fn default_spec() -> ChainSpec {
         ChainSpec::gnosis()
