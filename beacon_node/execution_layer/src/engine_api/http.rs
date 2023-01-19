@@ -735,7 +735,7 @@ impl HttpJsonRpc {
         &self,
         execution_payload: ExecutionPayload<T>,
     ) -> Result<PayloadStatusV1, Error> {
-        let params = json!([JsonExecutionPayloadV1::try_from(execution_payload)?]);
+        let params = json!([JsonExecutionPayload::from(execution_payload)]);
 
         let response: JsonPayloadStatusV1 = self
             .rpc_request(
@@ -752,7 +752,7 @@ impl HttpJsonRpc {
         &self,
         execution_payload: ExecutionPayload<T>,
     ) -> Result<PayloadStatusV1, Error> {
-        let params = json!([JsonExecutionPayloadV2::try_from(execution_payload)?]);
+        let params = json!([JsonExecutionPayload::from(execution_payload)]);
 
         let response: JsonPayloadStatusV1 = self
             .rpc_request(
@@ -767,7 +767,6 @@ impl HttpJsonRpc {
 
     pub async fn get_payload_v1<T: EthSpec>(
         &self,
-        fork_name: ForkName,
         payload_id: PayloadId,
     ) -> Result<ExecutionPayload<T>, Error> {
         let params = json!([JsonPayloadIdRequest::from(payload_id)]);
@@ -780,25 +779,41 @@ impl HttpJsonRpc {
             )
             .await?;
 
-        JsonExecutionPayload::V1(payload_v1).try_into_execution_payload(fork_name)
+        Ok(JsonExecutionPayload::V1(payload_v1).into())
     }
 
     pub async fn get_payload_v2<T: EthSpec>(
         &self,
         fork_name: ForkName,
         payload_id: PayloadId,
-    ) -> Result<ExecutionPayload<T>, Error> {
+    ) -> Result<GetPayloadResponse<T>, Error> {
         let params = json!([JsonPayloadIdRequest::from(payload_id)]);
 
-        let response: JsonGetPayloadResponse<T> = self
-            .rpc_request(
-                ENGINE_GET_PAYLOAD_V2,
-                params,
-                ENGINE_GET_PAYLOAD_TIMEOUT * self.execution_timeout_multiplier,
-            )
-            .await?;
-
-        JsonExecutionPayload::V2(response.execution_payload).try_into_execution_payload(fork_name)
+        match fork_name {
+            ForkName::Merge => {
+                let response: JsonGetPayloadResponseV1<T> = self
+                    .rpc_request(
+                        ENGINE_GET_PAYLOAD_V2,
+                        params,
+                        ENGINE_GET_PAYLOAD_TIMEOUT * self.execution_timeout_multiplier,
+                    )
+                    .await?;
+                Ok(JsonGetPayloadResponse::V1(response).into())
+            }
+            ForkName::Capella => {
+                let response: JsonGetPayloadResponseV2<T> = self
+                    .rpc_request(
+                        ENGINE_GET_PAYLOAD_V2,
+                        params,
+                        ENGINE_GET_PAYLOAD_TIMEOUT * self.execution_timeout_multiplier,
+                    )
+                    .await?;
+                Ok(JsonGetPayloadResponse::V2(response).into())
+            }
+            ForkName::Base | ForkName::Altair | ForkName::Eip4844 => Err(
+                Error::UnsupportedForkVariant(format!("called get_payload_v2 with {}", fork_name)),
+            ),
+        }
     }
 
     pub async fn get_blobs_bundle_v1<T: EthSpec>(
@@ -935,9 +950,15 @@ impl HttpJsonRpc {
     ) -> Result<ExecutionPayload<T>, Error> {
         let supported_apis = self.get_cached_supported_apis().await?;
         if supported_apis.get_payload_v2 {
-            self.get_payload_v2(fork_name, payload_id).await
+            // TODO: modify this method to return GetPayloadResponse instead
+            //       of throwing away the `block_value` and returning only the
+            //       ExecutionPayload
+            Ok(self
+                .get_payload_v2(fork_name, payload_id)
+                .await?
+                .execution_payload())
         } else if supported_apis.new_payload_v1 {
-            self.get_payload_v1(fork_name, payload_id).await
+            self.get_payload_v1(payload_id).await
         } else {
             Err(Error::RequiredMethodUnsupported("engine_getPayload"))
         }
@@ -955,13 +976,8 @@ impl HttpJsonRpc {
             self.forkchoice_updated_v2(forkchoice_state, payload_attributes)
                 .await
         } else if supported_apis.forkchoice_updated_v1 {
-            self.forkchoice_updated_v1(
-                forkchoice_state,
-                payload_attributes
-                    .map(|pa| pa.downgrade_to_v1())
-                    .transpose()?,
-            )
-            .await
+            self.forkchoice_updated_v1(forkchoice_state, payload_attributes)
+                .await
         } else {
             Err(Error::RequiredMethodUnsupported("engine_forkchoiceUpdated"))
         }
@@ -976,9 +992,7 @@ mod test {
     use std::future::Future;
     use std::str::FromStr;
     use std::sync::Arc;
-    use types::{
-        ExecutionPayloadMerge, ForkName, MainnetEthSpec, Transactions, Unsigned, VariableList,
-    };
+    use types::{ExecutionPayloadMerge, MainnetEthSpec, Transactions, Unsigned, VariableList};
 
     struct Tester {
         server: MockServer<MainnetEthSpec>,
@@ -1318,9 +1332,7 @@ mod test {
         Tester::new(true)
             .assert_request_equals(
                 |client| async move {
-                    let _ = client
-                        .get_payload_v1::<MainnetEthSpec>(ForkName::Merge, [42; 8])
-                        .await;
+                    let _ = client.get_payload_v1::<MainnetEthSpec>([42; 8]).await;
                 },
                 json!({
                     "id": STATIC_ID,
@@ -1333,9 +1345,7 @@ mod test {
 
         Tester::new(false)
             .assert_auth_failure(|client| async move {
-                client
-                    .get_payload_v1::<MainnetEthSpec>(ForkName::Merge, [42; 8])
-                    .await
+                client.get_payload_v1::<MainnetEthSpec>([42; 8]).await
             })
             .await;
     }
@@ -1564,7 +1574,7 @@ mod test {
                 // engine_getPayloadV1 REQUEST validation
                 |client| async move {
                     let _ = client
-                        .get_payload_v1::<MainnetEthSpec>(ForkName::Merge,str_to_payload_id("0xa247243752eb10b4"))
+                        .get_payload_v1::<MainnetEthSpec>(str_to_payload_id("0xa247243752eb10b4"))
                         .await;
                 },
                 json!({
@@ -1599,7 +1609,7 @@ mod test {
                 })],
                 |client| async move {
                     let payload = client
-                        .get_payload_v1::<MainnetEthSpec>(ForkName::Merge,str_to_payload_id("0xa247243752eb10b4"))
+                        .get_payload_v1::<MainnetEthSpec>(str_to_payload_id("0xa247243752eb10b4"))
                         .await
                         .unwrap();
 

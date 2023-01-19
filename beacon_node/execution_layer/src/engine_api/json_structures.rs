@@ -64,7 +64,7 @@ pub struct JsonPayloadIdResponse {
 }
 
 #[superstruct(
-    variants(V1, V2),
+    variants(V1, V2, V3),
     variant_attributes(
         derive(Debug, PartialEq, Default, Serialize, Deserialize,),
         serde(bound = "T: EthSpec", rename_all = "camelCase"),
@@ -94,235 +94,234 @@ pub struct JsonExecutionPayload<T: EthSpec> {
     pub extra_data: VariableList<u8, T::MaxExtraDataBytes>,
     #[serde(with = "eth2_serde_utils::u256_hex_be")]
     pub base_fee_per_gas: Uint256,
-    #[superstruct(only(V2))]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[serde(default)]
-    #[serde(with = "eth2_serde_utils::u256_hex_be_opt")]
-    pub excess_data_gas: Option<Uint256>,
+    #[superstruct(only(V3))]
+    #[serde(with = "eth2_serde_utils::u256_hex_be")]
+    pub excess_data_gas: Uint256,
     pub block_hash: ExecutionBlockHash,
     #[serde(with = "ssz_types::serde_utils::list_of_hex_var_list")]
     pub transactions:
         VariableList<Transaction<T::MaxBytesPerTransaction>, T::MaxTransactionsPerPayload>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[serde(default)]
-    #[superstruct(only(V2))]
-    pub withdrawals: Option<VariableList<JsonWithdrawal, T::MaxWithdrawalsPerPayload>>,
+    #[superstruct(only(V2, V3))]
+    pub withdrawals: VariableList<JsonWithdrawal, T::MaxWithdrawalsPerPayload>,
 }
 
-impl<T: EthSpec> JsonExecutionPayload<T> {
-    pub fn try_into_execution_payload(
-        self,
-        fork_name: ForkName,
-    ) -> Result<ExecutionPayload<T>, Error> {
-        match self {
-            JsonExecutionPayload::V1(v1) => match fork_name {
-                ForkName::Merge => Ok(ExecutionPayload::Merge(ExecutionPayloadMerge {
-                    parent_hash: v1.parent_hash,
-                    fee_recipient: v1.fee_recipient,
-                    state_root: v1.state_root,
-                    receipts_root: v1.receipts_root,
-                    logs_bloom: v1.logs_bloom,
-                    prev_randao: v1.prev_randao,
-                    block_number: v1.block_number,
-                    gas_limit: v1.gas_limit,
-                    gas_used: v1.gas_used,
-                    timestamp: v1.timestamp,
-                    extra_data: v1.extra_data,
-                    base_fee_per_gas: v1.base_fee_per_gas,
-                    block_hash: v1.block_hash,
-                    transactions: v1.transactions,
-                })),
-                _ => Err(Error::UnsupportedForkVariant(format!("Unsupported conversion from JsonExecutionPayloadV1 for {}", fork_name))),
-            }
-            JsonExecutionPayload::V2(v2) => match fork_name {
-                ForkName::Merge => Ok(ExecutionPayload::Merge(ExecutionPayloadMerge {
-                    parent_hash: v2.parent_hash,
-                    fee_recipient: v2.fee_recipient,
-                    state_root: v2.state_root,
-                    receipts_root: v2.receipts_root,
-                    logs_bloom: v2.logs_bloom,
-                    prev_randao: v2.prev_randao,
-                    block_number: v2.block_number,
-                    gas_limit: v2.gas_limit,
-                    gas_used: v2.gas_used,
-                    timestamp: v2.timestamp,
-                    extra_data: v2.extra_data,
-                    base_fee_per_gas: v2.base_fee_per_gas,
-                    block_hash: v2.block_hash,
-                    transactions: v2.transactions,
-                })),
-                ForkName::Capella => Ok(ExecutionPayload::Capella(ExecutionPayloadCapella {
-                    parent_hash: v2.parent_hash,
-                    fee_recipient: v2.fee_recipient,
-                    state_root: v2.state_root,
-                    receipts_root: v2.receipts_root,
-                    logs_bloom: v2.logs_bloom,
-                    prev_randao: v2.prev_randao,
-                    block_number: v2.block_number,
-                    gas_limit: v2.gas_limit,
-                    gas_used: v2.gas_used,
-                    timestamp: v2.timestamp,
-                    extra_data: v2.extra_data,
-                    base_fee_per_gas: v2.base_fee_per_gas,
-                    block_hash: v2.block_hash,
-                    transactions: v2.transactions,
-                    withdrawals: v2
-                        .withdrawals
-                        .map(|v| {
-                            Into::<Vec<_>>::into(v)
-                                .into_iter()
-                                .map(Into::into)
-                                .collect::<Vec<_>>()
-                                .into()
-                        })
-                        .ok_or_else(|| Error::BadConversion("Null withdrawal field converting JsonExecutionPayloadV2 -> ExecutionPayloadCapella".to_string()))?
-                })),
-                ForkName::Eip4844 => Ok(ExecutionPayload::Eip4844(ExecutionPayloadEip4844 {
-                    parent_hash: v2.parent_hash,
-                    fee_recipient: v2.fee_recipient,
-                    state_root: v2.state_root,
-                    receipts_root: v2.receipts_root,
-                    logs_bloom: v2.logs_bloom,
-                    prev_randao: v2.prev_randao,
-                    block_number: v2.block_number,
-                    gas_limit: v2.gas_limit,
-                    gas_used: v2.gas_used,
-                    timestamp: v2.timestamp,
-                    extra_data: v2.extra_data,
-                    base_fee_per_gas: v2.base_fee_per_gas,
-                    excess_data_gas: v2.excess_data_gas.ok_or_else(|| Error::BadConversion("Null `excess_data_gas` field converting JsonExecutionPayloadV2 -> ExecutionPayloadEip4844".to_string()))?,
-                    block_hash: v2.block_hash,
-                    transactions: v2.transactions,
-                    withdrawals: v2
-                        .withdrawals
-                        .map(|v| {
-                            Into::<Vec<_>>::into(v)
-                                .into_iter()
-                                .map(Into::into)
-                                .collect::<Vec<_>>()
-                                .into()
-                        })
-                        .ok_or_else(|| Error::BadConversion("Null withdrawal field converting JsonExecutionPayloadV2 -> ExecutionPayloadEip4844".to_string()))?
-                })),
-                _ => Err(Error::UnsupportedForkVariant(format!("Unsupported conversion from JsonExecutionPayloadV2 for {}", fork_name))),
-            }
+impl<T: EthSpec> From<ExecutionPayloadMerge<T>> for JsonExecutionPayloadV1<T> {
+    fn from(payload: ExecutionPayloadMerge<T>) -> Self {
+        JsonExecutionPayloadV1 {
+            parent_hash: payload.parent_hash,
+            fee_recipient: payload.fee_recipient,
+            state_root: payload.state_root,
+            receipts_root: payload.receipts_root,
+            logs_bloom: payload.logs_bloom,
+            prev_randao: payload.prev_randao,
+            block_number: payload.block_number,
+            gas_limit: payload.gas_limit,
+            gas_used: payload.gas_used,
+            timestamp: payload.timestamp,
+            extra_data: payload.extra_data,
+            base_fee_per_gas: payload.base_fee_per_gas,
+            block_hash: payload.block_hash,
+            transactions: payload.transactions,
+        }
+    }
+}
+impl<T: EthSpec> From<ExecutionPayloadCapella<T>> for JsonExecutionPayloadV2<T> {
+    fn from(payload: ExecutionPayloadCapella<T>) -> Self {
+        JsonExecutionPayloadV2 {
+            parent_hash: payload.parent_hash,
+            fee_recipient: payload.fee_recipient,
+            state_root: payload.state_root,
+            receipts_root: payload.receipts_root,
+            logs_bloom: payload.logs_bloom,
+            prev_randao: payload.prev_randao,
+            block_number: payload.block_number,
+            gas_limit: payload.gas_limit,
+            gas_used: payload.gas_used,
+            timestamp: payload.timestamp,
+            extra_data: payload.extra_data,
+            base_fee_per_gas: payload.base_fee_per_gas,
+            block_hash: payload.block_hash,
+            transactions: payload.transactions,
+            withdrawals: payload
+                .withdrawals
+                .into_iter()
+                .cloned()
+                .map(Into::into)
+                .collect::<Vec<_>>()
+                .into(),
+        }
+    }
+}
+impl<T: EthSpec> From<ExecutionPayloadEip4844<T>> for JsonExecutionPayloadV3<T> {
+    fn from(payload: ExecutionPayloadEip4844<T>) -> Self {
+        JsonExecutionPayloadV3 {
+            parent_hash: payload.parent_hash,
+            fee_recipient: payload.fee_recipient,
+            state_root: payload.state_root,
+            receipts_root: payload.receipts_root,
+            logs_bloom: payload.logs_bloom,
+            prev_randao: payload.prev_randao,
+            block_number: payload.block_number,
+            gas_limit: payload.gas_limit,
+            gas_used: payload.gas_used,
+            timestamp: payload.timestamp,
+            extra_data: payload.extra_data,
+            base_fee_per_gas: payload.base_fee_per_gas,
+            excess_data_gas: payload.excess_data_gas,
+            block_hash: payload.block_hash,
+            transactions: payload.transactions,
+            withdrawals: payload
+                .withdrawals
+                .into_iter()
+                .cloned()
+                .map(Into::into)
+                .collect::<Vec<_>>()
+                .into(),
         }
     }
 }
 
-impl<T: EthSpec> TryFrom<ExecutionPayload<T>> for JsonExecutionPayloadV1<T> {
-    type Error = Error;
-    fn try_from(payload: ExecutionPayload<T>) -> Result<Self, Error> {
-        match payload {
-            ExecutionPayload::Merge(merge) => Ok(JsonExecutionPayloadV1 {
-                parent_hash: merge.parent_hash,
-                fee_recipient: merge.fee_recipient,
-                state_root: merge.state_root,
-                receipts_root: merge.receipts_root,
-                logs_bloom: merge.logs_bloom,
-                prev_randao: merge.prev_randao,
-                block_number: merge.block_number,
-                gas_limit: merge.gas_limit,
-                gas_used: merge.gas_used,
-                timestamp: merge.timestamp,
-                extra_data: merge.extra_data,
-                base_fee_per_gas: merge.base_fee_per_gas,
-                block_hash: merge.block_hash,
-                transactions: merge.transactions,
-            }),
-            ExecutionPayload::Capella(_) => Err(Error::UnsupportedForkVariant(format!(
-                "Unsupported conversion to JsonExecutionPayloadV1 for {}",
-                ForkName::Capella
-            ))),
-            ExecutionPayload::Eip4844(_) => Err(Error::UnsupportedForkVariant(format!(
-                "Unsupported conversion to JsonExecutionPayloadV1 for {}",
-                ForkName::Eip4844
-            ))),
+impl<T: EthSpec> From<ExecutionPayload<T>> for JsonExecutionPayload<T> {
+    fn from(execution_payload: ExecutionPayload<T>) -> Self {
+        match execution_payload {
+            ExecutionPayload::Merge(payload) => JsonExecutionPayload::V1(payload.into()),
+            ExecutionPayload::Capella(payload) => JsonExecutionPayload::V2(payload.into()),
+            ExecutionPayload::Eip4844(payload) => JsonExecutionPayload::V3(payload.into()),
         }
     }
 }
 
-impl<T: EthSpec> TryFrom<ExecutionPayload<T>> for JsonExecutionPayloadV2<T> {
-    type Error = Error;
-    fn try_from(payload: ExecutionPayload<T>) -> Result<Self, Error> {
-        match payload {
-            ExecutionPayload::Merge(merge) => Ok(JsonExecutionPayloadV2 {
-                parent_hash: merge.parent_hash,
-                fee_recipient: merge.fee_recipient,
-                state_root: merge.state_root,
-                receipts_root: merge.receipts_root,
-                logs_bloom: merge.logs_bloom,
-                prev_randao: merge.prev_randao,
-                block_number: merge.block_number,
-                gas_limit: merge.gas_limit,
-                gas_used: merge.gas_used,
-                timestamp: merge.timestamp,
-                extra_data: merge.extra_data,
-                base_fee_per_gas: merge.base_fee_per_gas,
-                excess_data_gas: None,
-                block_hash: merge.block_hash,
-                transactions: merge.transactions,
-                withdrawals: None,
-            }),
-            ExecutionPayload::Capella(capella) => Ok(JsonExecutionPayloadV2 {
-                parent_hash: capella.parent_hash,
-                fee_recipient: capella.fee_recipient,
-                state_root: capella.state_root,
-                receipts_root: capella.receipts_root,
-                logs_bloom: capella.logs_bloom,
-                prev_randao: capella.prev_randao,
-                block_number: capella.block_number,
-                gas_limit: capella.gas_limit,
-                gas_used: capella.gas_used,
-                timestamp: capella.timestamp,
-                extra_data: capella.extra_data,
-                base_fee_per_gas: capella.base_fee_per_gas,
-                excess_data_gas: None,
-                block_hash: capella.block_hash,
-                transactions: capella.transactions,
-                withdrawals: Some(
-                    Vec::from(capella.withdrawals)
-                        .into_iter()
-                        .map(Into::into)
-                        .collect::<Vec<_>>()
-                        .into(),
-                ),
-            }),
-            ExecutionPayload::Eip4844(eip4844) => Ok(JsonExecutionPayloadV2 {
-                parent_hash: eip4844.parent_hash,
-                fee_recipient: eip4844.fee_recipient,
-                state_root: eip4844.state_root,
-                receipts_root: eip4844.receipts_root,
-                logs_bloom: eip4844.logs_bloom,
-                prev_randao: eip4844.prev_randao,
-                block_number: eip4844.block_number,
-                gas_limit: eip4844.gas_limit,
-                gas_used: eip4844.gas_used,
-                timestamp: eip4844.timestamp,
-                extra_data: eip4844.extra_data,
-                base_fee_per_gas: eip4844.base_fee_per_gas,
-                excess_data_gas: Some(eip4844.excess_data_gas),
-                block_hash: eip4844.block_hash,
-                transactions: eip4844.transactions,
-                withdrawals: Some(
-                    Vec::from(eip4844.withdrawals)
-                        .into_iter()
-                        .map(Into::into)
-                        .collect::<Vec<_>>()
-                        .into(),
-                ),
-            }),
+impl<T: EthSpec> From<JsonExecutionPayloadV1<T>> for ExecutionPayloadMerge<T> {
+    fn from(payload: JsonExecutionPayloadV1<T>) -> Self {
+        ExecutionPayloadMerge {
+            parent_hash: payload.parent_hash,
+            fee_recipient: payload.fee_recipient,
+            state_root: payload.state_root,
+            receipts_root: payload.receipts_root,
+            logs_bloom: payload.logs_bloom,
+            prev_randao: payload.prev_randao,
+            block_number: payload.block_number,
+            gas_limit: payload.gas_limit,
+            gas_used: payload.gas_used,
+            timestamp: payload.timestamp,
+            extra_data: payload.extra_data,
+            base_fee_per_gas: payload.base_fee_per_gas,
+            block_hash: payload.block_hash,
+            transactions: payload.transactions,
+        }
+    }
+}
+impl<T: EthSpec> From<JsonExecutionPayloadV2<T>> for ExecutionPayloadCapella<T> {
+    fn from(payload: JsonExecutionPayloadV2<T>) -> Self {
+        ExecutionPayloadCapella {
+            parent_hash: payload.parent_hash,
+            fee_recipient: payload.fee_recipient,
+            state_root: payload.state_root,
+            receipts_root: payload.receipts_root,
+            logs_bloom: payload.logs_bloom,
+            prev_randao: payload.prev_randao,
+            block_number: payload.block_number,
+            gas_limit: payload.gas_limit,
+            gas_used: payload.gas_used,
+            timestamp: payload.timestamp,
+            extra_data: payload.extra_data,
+            base_fee_per_gas: payload.base_fee_per_gas,
+            block_hash: payload.block_hash,
+            transactions: payload.transactions,
+            withdrawals: payload
+                .withdrawals
+                .into_iter()
+                .cloned()
+                .map(Into::into)
+                .collect::<Vec<_>>()
+                .into(),
+        }
+    }
+}
+impl<T: EthSpec> From<JsonExecutionPayloadV3<T>> for ExecutionPayloadEip4844<T> {
+    fn from(payload: JsonExecutionPayloadV3<T>) -> Self {
+        ExecutionPayloadEip4844 {
+            parent_hash: payload.parent_hash,
+            fee_recipient: payload.fee_recipient,
+            state_root: payload.state_root,
+            receipts_root: payload.receipts_root,
+            logs_bloom: payload.logs_bloom,
+            prev_randao: payload.prev_randao,
+            block_number: payload.block_number,
+            gas_limit: payload.gas_limit,
+            gas_used: payload.gas_used,
+            timestamp: payload.timestamp,
+            extra_data: payload.extra_data,
+            base_fee_per_gas: payload.base_fee_per_gas,
+            excess_data_gas: payload.excess_data_gas,
+            block_hash: payload.block_hash,
+            transactions: payload.transactions,
+            withdrawals: payload
+                .withdrawals
+                .into_iter()
+                .cloned()
+                .map(Into::into)
+                .collect::<Vec<_>>()
+                .into(),
         }
     }
 }
 
+impl<T: EthSpec> From<JsonExecutionPayload<T>> for ExecutionPayload<T> {
+    fn from(json_execution_payload: JsonExecutionPayload<T>) -> Self {
+        match json_execution_payload {
+            JsonExecutionPayload::V1(payload) => ExecutionPayload::Merge(payload.into()),
+            JsonExecutionPayload::V2(payload) => ExecutionPayload::Capella(payload.into()),
+            JsonExecutionPayload::V3(payload) => ExecutionPayload::Eip4844(payload.into()),
+        }
+    }
+}
+
+#[superstruct(
+    variants(V1, V2, V3),
+    variant_attributes(
+        derive(Debug, PartialEq, Serialize, Deserialize),
+        serde(bound = "T: EthSpec", rename_all = "camelCase")
+    ),
+    cast_error(ty = "Error", expr = "Error::IncorrectStateVariant"),
+    partial_getter_error(ty = "Error", expr = "Error::IncorrectStateVariant")
+)]
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
-#[serde(bound = "T: EthSpec", rename_all = "camelCase")]
+#[serde(untagged)]
 pub struct JsonGetPayloadResponse<T: EthSpec> {
+    #[superstruct(only(V1), partial_getter(rename = "execution_payload_v1"))]
+    pub execution_payload: JsonExecutionPayloadV1<T>,
+    #[superstruct(only(V2), partial_getter(rename = "execution_payload_v2"))]
     pub execution_payload: JsonExecutionPayloadV2<T>,
-    // uncomment this when geth fixes its serialization
-    //#[serde(with = "eth2_serde_utils::u256_hex_be")]
-    //pub block_value: Uint256,
+    #[superstruct(only(V3), partial_getter(rename = "execution_payload_v3"))]
+    pub execution_payload: JsonExecutionPayloadV3<T>,
+    #[serde(with = "eth2_serde_utils::u256_hex_be")]
+    pub block_value: Uint256,
+}
+
+impl<T: EthSpec> From<JsonGetPayloadResponse<T>> for GetPayloadResponse<T> {
+    fn from(json_get_payload_response: JsonGetPayloadResponse<T>) -> Self {
+        match json_get_payload_response {
+            JsonGetPayloadResponse::V1(response) => {
+                GetPayloadResponse::Merge(GetPayloadResponseMerge {
+                    execution_payload: response.execution_payload.into(),
+                    block_value: response.block_value,
+                })
+            }
+            JsonGetPayloadResponse::V2(response) => {
+                GetPayloadResponse::Capella(GetPayloadResponseCapella {
+                    execution_payload: response.execution_payload.into(),
+                    block_value: response.block_value,
+                })
+            }
+            JsonGetPayloadResponse::V3(response) => {
+                GetPayloadResponse::Eip4844(GetPayloadResponseEip4844 {
+                    execution_payload: response.execution_payload.into(),
+                    block_value: response.block_value,
+                })
+            }
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
@@ -376,9 +375,7 @@ pub struct JsonPayloadAttributes {
     pub prev_randao: Hash256,
     pub suggested_fee_recipient: Address,
     #[superstruct(only(V2))]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[serde(default)]
-    pub withdrawals: Option<Vec<JsonWithdrawal>>,
+    pub withdrawals: Vec<JsonWithdrawal>,
 }
 
 impl From<PayloadAttributes> for JsonPayloadAttributes {
@@ -393,9 +390,7 @@ impl From<PayloadAttributes> for JsonPayloadAttributes {
                 timestamp: pa.timestamp,
                 prev_randao: pa.prev_randao,
                 suggested_fee_recipient: pa.suggested_fee_recipient,
-                withdrawals: pa
-                    .withdrawals
-                    .map(|w| w.into_iter().map(Into::into).collect()),
+                withdrawals: pa.withdrawals.into_iter().map(Into::into).collect(),
             }),
         }
     }
@@ -413,9 +408,7 @@ impl From<JsonPayloadAttributes> for PayloadAttributes {
                 timestamp: jpa.timestamp,
                 prev_randao: jpa.prev_randao,
                 suggested_fee_recipient: jpa.suggested_fee_recipient,
-                withdrawals: jpa
-                    .withdrawals
-                    .map(|jw| jw.into_iter().map(Into::into).collect()),
+                withdrawals: jpa.withdrawals.into_iter().map(Into::into).collect(),
             }),
         }
     }
