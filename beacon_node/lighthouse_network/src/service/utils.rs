@@ -44,8 +44,7 @@ type BoxedTransport = Boxed<(PeerId, StreamMuxerBox)>;
 pub fn build_transport(
     local_private_key: Keypair,
 ) -> std::io::Result<(BoxedTransport, Arc<BandwidthSinks>)> {
-    let tcp =
-        libp2p::tcp::TokioTcpTransport::new(libp2p::tcp::GenTcpConfig::default().nodelay(true));
+    let tcp = libp2p::tcp::tokio::Transport::new(libp2p::tcp::Config::default().nodelay(true));
     let transport = libp2p::dns::TokioDnsConfig::system(tcp)?;
     #[cfg(feature = "libp2p-websocket")]
     let transport = {
@@ -88,7 +87,7 @@ fn keypair_from_hex(hex_bytes: &str) -> error::Result<Keypair> {
         hex_bytes.to_string()
     };
 
-    hex::decode(&hex_bytes)
+    hex::decode(hex_bytes)
         .map_err(|e| format!("Failed to parse p2p secret key bytes: {:?}", e).into())
         .and_then(keypair_from_bytes)
 }

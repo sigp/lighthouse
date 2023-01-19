@@ -41,7 +41,6 @@ jobs:
               run: |
                     echo "VERSION=capella" >> $GITHUB_ENV
                     echo "VERSION_SUFFIX=" >> $GITHUB_ENV
-                    echo "CROSS_FEATURES=withdrawals-processing" >> $GITHUB_ENV
             - name: Extract version (if eip4844)
               if: github.event.ref == 'refs/heads/eip4844'
               run: |
@@ -55,7 +54,6 @@ jobs:
         outputs:
             VERSION: ${{ env.VERSION }}
             VERSION_SUFFIX: ${{ env.VERSION_SUFFIX }}
-            CROSS_FEATURES: ${{ env.CROSS_FEATURES }}
     build-docker-single-arch:
         name: build-docker-${{ matrix.binary }}
         runs-on: ubuntu-22.04
@@ -74,7 +72,7 @@ jobs:
             DOCKER_CLI_EXPERIMENTAL: enabled
             VERSION: ${{ needs.extract-version.outputs.VERSION }}
             VERSION_SUFFIX: ${{ needs.extract-version.outputs.VERSION_SUFFIX }}
-            CROSS_FEATURES: ${{ needs.extract-version.outputs.CROSS_FEATURES }}
+            CROSS_FEATURES: null
         steps:
             - uses: actions/checkout@v3
             - name: Update Rust

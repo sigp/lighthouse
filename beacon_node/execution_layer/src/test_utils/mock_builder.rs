@@ -84,7 +84,8 @@ impl<E: EthSpec> TestingBuilder<E> {
         };
 
         let el =
-            ExecutionLayer::from_config(config, executor.clone(), executor.log().clone()).unwrap();
+            ExecutionLayer::from_config(config, executor.clone(), executor.log().clone(), &spec)
+                .unwrap();
 
         // This should probably be done for all fields, we only update ones we are testing with so far.
         let mut context = Context::for_mainnet();

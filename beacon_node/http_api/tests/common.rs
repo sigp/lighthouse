@@ -7,7 +7,13 @@ use eth2::{BeaconNodeHttpClient, Timeouts};
 use http_api::{Config, Context};
 use lighthouse_network::{
     discv5::enr::{CombinedKey, EnrBuilder},
-    libp2p::{core::connection::ConnectionId, swarm::NetworkBehaviour},
+    libp2p::{
+        core::connection::ConnectionId,
+        swarm::{
+            behaviour::{ConnectionEstablished, FromSwarm},
+            NetworkBehaviour,
+        },
+    },
     rpc::methods::{MetaData, MetaDataV2},
     types::{EnrAttestationBitfield, EnrSyncCommitteeBitfield, SyncState},
     ConnectedPoint, Enr, NetworkGlobals, PeerId, PeerManager,
@@ -143,12 +149,18 @@ pub async fn create_api_server_on_port<T: BeaconChainTypes>(
     // add a peer
     let peer_id = PeerId::random();
 
-    let connected_point = ConnectedPoint::Listener {
+    let endpoint = &ConnectedPoint::Listener {
         local_addr: EXTERNAL_ADDR.parse().unwrap(),
         send_back_addr: EXTERNAL_ADDR.parse().unwrap(),
     };
-    let con_id = ConnectionId::new(1);
-    pm.inject_connection_established(&peer_id, &con_id, &connected_point, None, 0);
+    let connection_id = ConnectionId::new(1);
+    pm.on_swarm_event(FromSwarm::ConnectionEstablished(ConnectionEstablished {
+        peer_id,
+        connection_id,
+        endpoint,
+        failed_addresses: &[],
+        other_established: 0,
+    }));
     *network_globals.sync_state.write() = SyncState::Synced;
 
     let eth1_service =

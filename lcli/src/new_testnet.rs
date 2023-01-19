@@ -15,7 +15,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use types::ExecutionBlockHash;
 use types::{
     test_utils::generate_deterministic_keypairs, Address, BeaconState, ChainSpec, Config, Epoch,
-    Eth1Data, EthSpec, ExecutionPayloadHeader, ExecutionPayloadHeaderMerge, Hash256, Keypair,
+    Eth1Data, EthSpec, ExecutionPayloadHeader, ExecutionPayloadHeaderCapella,
+    ExecutionPayloadHeaderEip4844, ExecutionPayloadHeaderMerge, ForkName, Hash256, Keypair,
     PublicKey, Validator,
 };
 
@@ -98,10 +99,25 @@ pub fn run<T: EthSpec>(testnet_dir_path: PathBuf, matches: &ArgMatches) -> Resul
                         .map_err(|e| format!("Unable to open {}: {}", filename, e))?;
                     file.read_to_end(&mut bytes)
                         .map_err(|e| format!("Unable to read {}: {}", filename, e))?;
-                    //FIXME(sean)
-                    ExecutionPayloadHeaderMerge::<T>::from_ssz_bytes(bytes.as_slice())
-                        .map(ExecutionPayloadHeader::Merge)
-                        .map_err(|e| format!("SSZ decode failed: {:?}", e))
+                    let fork_name = spec.fork_name_at_epoch(Epoch::new(0));
+                    match fork_name {
+                        ForkName::Base | ForkName::Altair => Err(ssz::DecodeError::BytesInvalid(
+                            "genesis fork must be post-merge".to_string(),
+                        )),
+                        ForkName::Merge => {
+                            ExecutionPayloadHeaderMerge::<T>::from_ssz_bytes(bytes.as_slice())
+                                .map(ExecutionPayloadHeader::Merge)
+                        }
+                        ForkName::Capella => {
+                            ExecutionPayloadHeaderCapella::<T>::from_ssz_bytes(bytes.as_slice())
+                                .map(ExecutionPayloadHeader::Capella)
+                        }
+                        ForkName::Eip4844 => {
+                            ExecutionPayloadHeaderEip4844::<T>::from_ssz_bytes(bytes.as_slice())
+                                .map(ExecutionPayloadHeader::Eip4844)
+                        }
+                    }
+                    .map_err(|e| format!("SSZ decode failed: {:?}", e))
                 })
                 .transpose()?;
 

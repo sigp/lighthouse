@@ -1,6 +1,7 @@
 mod attestation_production;
 mod attestation_verification;
 mod block_verification;
+mod capella;
 mod merge;
 mod op_verification;
 mod payload_invalidation;

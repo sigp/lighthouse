@@ -377,6 +377,11 @@ impl<E: EthSpec + TypeName> Handler for SanitySlotsHandler<E> {
     fn handler_name(&self) -> String {
         "slots".into()
     }
+
+    fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
+        // Some sanity tests compute sync committees, which requires real crypto.
+        fork_name == ForkName::Base || cfg!(not(feature = "fake_crypto"))
+    }
 }
 
 #[derive(Derivative)]

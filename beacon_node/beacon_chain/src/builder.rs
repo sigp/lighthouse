@@ -583,11 +583,13 @@ where
         mut self,
         auto_register: bool,
         validators: Vec<PublicKeyBytes>,
+        individual_metrics_threshold: usize,
         log: Logger,
     ) -> Self {
         self.validator_monitor = Some(ValidatorMonitor::new(
             validators,
             auto_register,
+            individual_metrics_threshold,
             log.clone(),
         ));
         self
@@ -815,7 +817,6 @@ where
             observed_voluntary_exits: <_>::default(),
             observed_proposer_slashings: <_>::default(),
             observed_attester_slashings: <_>::default(),
-            #[cfg(feature = "withdrawals-processing")]
             observed_bls_to_execution_changes: <_>::default(),
             latest_seen_finality_update: <_>::default(),
             latest_seen_optimistic_update: <_>::default(),
@@ -1010,6 +1011,7 @@ fn descriptive_db_error(item: &str, error: &StoreError) -> String {
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::validator_monitor::DEFAULT_INDIVIDUAL_TRACKING_THRESHOLD;
     use eth2_hashing::hash;
     use genesis::{
         generate_deterministic_keypairs, interop_genesis_state, DEFAULT_ETH1_BLOCK_HASH,
@@ -1066,7 +1068,12 @@ mod test {
             .testing_slot_clock(Duration::from_secs(1))
             .expect("should configure testing slot clock")
             .shutdown_sender(shutdown_tx)
-            .monitor_validators(true, vec![], log.clone())
+            .monitor_validators(
+                true,
+                vec![],
+                DEFAULT_INDIVIDUAL_TRACKING_THRESHOLD,
+                log.clone(),
+            )
             .build()
             .expect("should build");
 

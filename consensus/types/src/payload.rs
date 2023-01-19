@@ -48,7 +48,15 @@ pub trait ExecPayload<T: EthSpec>: Debug + Clone + PartialEq + Hash + TreeHash +
 
 /// `ExecPayload` functionality the requires ownership.
 pub trait OwnedExecPayload<T: EthSpec>:
-    ExecPayload<T> + Default + Serialize + DeserializeOwned + Encode + Decode + TestRandom + 'static
+    ExecPayload<T>
+    + Default
+    + Serialize
+    + DeserializeOwned
+    + Encode
+    + Decode
+    + TestRandom
+    + for<'a> arbitrary::Arbitrary<'a>
+    + 'static
 {
 }
 
@@ -60,6 +68,7 @@ impl<T: EthSpec, P> OwnedExecPayload<T> for P where
         + Encode
         + Decode
         + TestRandom
+        + for<'a> arbitrary::Arbitrary<'a>
         + 'static
 {
 }
@@ -92,7 +101,7 @@ pub trait AbstractExecPayload<T: EthSpec>:
         + From<ExecutionPayloadEip4844<T>>
         + TryFrom<ExecutionPayloadHeaderEip4844<T>>;
 
-    fn default_at_fork(fork_name: ForkName) -> Self;
+    fn default_at_fork(fork_name: ForkName) -> Result<Self, Error>;
 }
 
 #[superstruct(
@@ -108,10 +117,11 @@ pub trait AbstractExecPayload<T: EthSpec>:
             TestRandom,
             TreeHash,
             Derivative,
+            arbitrary::Arbitrary,
         ),
         derivative(PartialEq, Hash(bound = "T: EthSpec")),
         serde(bound = "T: EthSpec", deny_unknown_fields),
-        cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary)),
+        arbitrary(bound = "T: EthSpec"),
         ssz(struct_behaviour = "transparent"),
     ),
     ref_attributes(
@@ -120,12 +130,14 @@ pub trait AbstractExecPayload<T: EthSpec>:
         tree_hash(enum_behaviour = "transparent"),
     ),
     map_into(ExecutionPayload),
+    map_ref_into(ExecutionPayloadRef),
     cast_error(ty = "Error", expr = "BeaconStateError::IncorrectStateVariant"),
     partial_getter_error(ty = "Error", expr = "BeaconStateError::IncorrectStateVariant")
 )]
-#[derive(Debug, Clone, Serialize, Deserialize, TreeHash, Derivative)]
+#[derive(Debug, Clone, Serialize, Deserialize, TreeHash, Derivative, arbitrary::Arbitrary)]
 #[derivative(PartialEq, Hash(bound = "T: EthSpec"))]
 #[serde(bound = "T: EthSpec")]
+#[arbitrary(bound = "T: EthSpec")]
 #[tree_hash(enum_behaviour = "transparent")]
 pub struct FullPayload<T: EthSpec> {
     #[superstruct(only(Merge), partial_getter(rename = "execution_payload_merge"))]
@@ -266,9 +278,17 @@ impl<T: EthSpec> ExecPayload<T> for FullPayload<T> {
 }
 
 impl<T: EthSpec> FullPayload<T> {
-    pub fn execution_payload(&self) -> ExecutionPayload<T> {
-        map_full_payload_into_execution_payload!(self.clone(), |inner, cons| {
+    pub fn execution_payload(self) -> ExecutionPayload<T> {
+        map_full_payload_into_execution_payload!(self, |inner, cons| {
             cons(inner.execution_payload)
+        })
+    }
+}
+
+impl<'a, T: EthSpec> FullPayloadRef<'a, T> {
+    pub fn execution_payload_ref(self) -> ExecutionPayloadRef<'a, T> {
+        map_full_payload_ref_into_execution_payload_ref!(&'a _, self, |inner, cons| {
+            cons(&inner.execution_payload)
         })
     }
 }
@@ -372,13 +392,12 @@ impl<T: EthSpec> AbstractExecPayload<T> for FullPayload<T> {
     type Capella = FullPayloadCapella<T>;
     type Eip4844 = FullPayloadEip4844<T>;
 
-    fn default_at_fork(fork_name: ForkName) -> Self {
+    fn default_at_fork(fork_name: ForkName) -> Result<Self, Error> {
         match fork_name {
-            //FIXME(sean) error handling
-            ForkName::Base | ForkName::Altair => panic!(),
-            ForkName::Merge => FullPayloadMerge::default().into(),
-            ForkName::Capella => FullPayloadCapella::default().into(),
-            ForkName::Eip4844 => FullPayloadEip4844::default().into(),
+            ForkName::Base | ForkName::Altair => Err(Error::IncorrectStateVariant),
+            ForkName::Merge => Ok(FullPayloadMerge::default().into()),
+            ForkName::Capella => Ok(FullPayloadCapella::default().into()),
+            ForkName::Eip4844 => Ok(FullPayloadEip4844::default().into()),
         }
     }
 }
@@ -419,10 +438,11 @@ impl<T: EthSpec> TryFrom<ExecutionPayloadHeader<T>> for FullPayload<T> {
             TestRandom,
             TreeHash,
             Derivative,
+            arbitrary::Arbitrary
         ),
         derivative(PartialEq, Hash(bound = "T: EthSpec")),
         serde(bound = "T: EthSpec", deny_unknown_fields),
-        cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary)),
+        arbitrary(bound = "T: EthSpec"),
         ssz(struct_behaviour = "transparent"),
     ),
     ref_attributes(
@@ -434,9 +454,10 @@ impl<T: EthSpec> TryFrom<ExecutionPayloadHeader<T>> for FullPayload<T> {
     cast_error(ty = "Error", expr = "BeaconStateError::IncorrectStateVariant"),
     partial_getter_error(ty = "Error", expr = "BeaconStateError::IncorrectStateVariant")
 )]
-#[derive(Debug, Clone, Serialize, Deserialize, TreeHash, Derivative)]
+#[derive(Debug, Clone, Serialize, Deserialize, TreeHash, Derivative, arbitrary::Arbitrary)]
 #[derivative(PartialEq, Hash(bound = "T: EthSpec"))]
 #[serde(bound = "T: EthSpec")]
+#[arbitrary(bound = "T: EthSpec")]
 #[tree_hash(enum_behaviour = "transparent")]
 pub struct BlindedPayload<T: EthSpec> {
     #[superstruct(only(Merge), partial_getter(rename = "execution_payload_merge"))]
@@ -882,13 +903,12 @@ impl<T: EthSpec> AbstractExecPayload<T> for BlindedPayload<T> {
     type Capella = BlindedPayloadCapella<T>;
     type Eip4844 = BlindedPayloadEip4844<T>;
 
-    fn default_at_fork(fork_name: ForkName) -> Self {
+    fn default_at_fork(fork_name: ForkName) -> Result<Self, Error> {
         match fork_name {
-            //FIXME(sean) error handling
-            ForkName::Base | ForkName::Altair => panic!(),
-            ForkName::Merge => BlindedPayloadMerge::default().into(),
-            ForkName::Capella => BlindedPayloadCapella::default().into(),
-            ForkName::Eip4844 => BlindedPayloadEip4844::default().into(),
+            ForkName::Base | ForkName::Altair => Err(Error::IncorrectStateVariant),
+            ForkName::Merge => Ok(BlindedPayloadMerge::default().into()),
+            ForkName::Capella => Ok(BlindedPayloadCapella::default().into()),
+            ForkName::Eip4844 => Ok(BlindedPayloadEip4844::default().into()),
         }
     }
 }

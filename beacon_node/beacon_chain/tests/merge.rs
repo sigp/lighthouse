@@ -17,12 +17,9 @@ fn verify_execution_payload_chain<T: EthSpec>(chain: &[FullPayload<T>]) {
 
         // Check against previous `ExecutionPayload`.
         if let Some(prev_ep) = prev_ep {
-            assert_eq!(prev_ep.block_hash(), ep.execution_payload().parent_hash());
-            assert_eq!(
-                prev_ep.execution_payload().block_number() + 1,
-                ep.execution_payload().block_number()
-            );
-            assert!(ep.execution_payload().timestamp() > prev_ep.execution_payload().timestamp());
+            assert_eq!(prev_ep.block_hash(), ep.parent_hash());
+            assert_eq!(prev_ep.block_number() + 1, ep.block_number());
+            assert!(ep.timestamp() > prev_ep.timestamp());
         }
         prev_ep = Some(ep.clone());
     }
@@ -191,18 +188,17 @@ async fn base_altair_merge_with_terminal_block_after_fork() {
 
     harness.extend_slots(1).await;
 
-    let one_after_merge_head = &harness.chain.head_snapshot().beacon_block;
-    // FIXME: why is this being tested twice?
+    let two_after_merge_head = &harness.chain.head_snapshot().beacon_block;
     assert!(
-        one_after_merge_head
+        two_after_merge_head
             .message()
             .body()
             .execution_payload()
             .unwrap()
             .is_default_with_empty_roots(),
-        "One after merge head is default payload"
+        "Two after merge head is default payload"
     );
-    assert_eq!(one_after_merge_head.slot(), merge_fork_slot + 2);
+    assert_eq!(two_after_merge_head.slot(), merge_fork_slot + 2);
 
     /*
      * Next merge block should include an exec payload.

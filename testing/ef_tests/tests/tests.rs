@@ -82,14 +82,12 @@ fn operations_execution_payload_blinded() {
     OperationsHandler::<MainnetEthSpec, BlindedPayload<_>>::default().run();
 }
 
-#[cfg(feature = "withdrawals-processing")]
 #[test]
 fn operations_withdrawals() {
     OperationsHandler::<MinimalEthSpec, WithdrawalsPayload<_>>::default().run();
     OperationsHandler::<MainnetEthSpec, WithdrawalsPayload<_>>::default().run();
 }
 
-#[cfg(feature = "withdrawals-processing")]
 #[test]
 fn operations_bls_to_execution_change() {
     OperationsHandler::<MinimalEthSpec, SignedBlsToExecutionChange>::default().run();
@@ -217,6 +215,7 @@ macro_rules! ssz_static_test_no_run {
 #[cfg(feature = "fake_crypto")]
 mod ssz_static {
     use ef_tests::{Handler, SszStaticHandler, SszStaticTHCHandler, SszStaticWithSpecHandler};
+    use types::historical_summary::HistoricalSummary;
     use types::signed_block_and_blobs::SignedBeaconBlockAndBlobsSidecarDecode;
     use types::*;
 
@@ -384,6 +383,12 @@ mod ssz_static {
         SszStaticHandler::<SignedBeaconBlockAndBlobsSidecarDecode<MinimalEthSpec>, MinimalEthSpec>::eip4844_only().run();
         SszStaticHandler::<SignedBeaconBlockAndBlobsSidecarDecode<MainnetEthSpec>, MainnetEthSpec>::eip4844_only().run();
     }
+
+    #[test]
+    fn historical_summary() {
+        SszStaticHandler::<HistoricalSummary, MinimalEthSpec>::capella_and_later().run();
+        SszStaticHandler::<HistoricalSummary, MainnetEthSpec>::capella_and_later().run();
+    }
 }
 
 #[test]
@@ -448,6 +453,12 @@ fn epoch_processing_randao_mixes_reset() {
 fn epoch_processing_historical_roots_update() {
     EpochProcessingHandler::<MinimalEthSpec, HistoricalRootsUpdate>::default().run();
     EpochProcessingHandler::<MainnetEthSpec, HistoricalRootsUpdate>::default().run();
+}
+
+#[test]
+fn epoch_processing_historical_summaries_update() {
+    EpochProcessingHandler::<MinimalEthSpec, HistoricalSummariesUpdate>::default().run();
+    EpochProcessingHandler::<MainnetEthSpec, HistoricalSummariesUpdate>::default().run();
 }
 
 #[test]

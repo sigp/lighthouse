@@ -366,7 +366,6 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub(crate) observed_attester_slashings:
         Mutex<ObservedOperations<AttesterSlashing<T::EthSpec>, T::EthSpec>>,
     /// Maintains a record of which validators we've seen BLS to execution changes for.
-    #[cfg(feature = "withdrawals-processing")]
     pub(crate) observed_bls_to_execution_changes:
         Mutex<ObservedOperations<SignedBlsToExecutionChange, T::EthSpec>>,
     /// The most recently validated light client finality update received on gossip.
@@ -2293,29 +2292,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         bls_to_execution_change: SignedBlsToExecutionChange,
     ) -> Result<ObservationOutcome<SignedBlsToExecutionChange, T::EthSpec>, Error> {
-        #[cfg(feature = "withdrawals-processing")]
-        {
-            let current_fork = self.spec.fork_name_at_slot::<T::EthSpec>(self.slot()?);
-            if let ForkName::Base | ForkName::Altair | ForkName::Merge = current_fork {
-                // Disallow BLS to execution changes prior to the Capella fork.
-                return Err(Error::BlsToExecutionChangeBadFork(current_fork));
-            }
-
-            let wall_clock_state = self.wall_clock_state()?;
-
-            Ok(self
-                .observed_bls_to_execution_changes
-                .lock()
-                .verify_and_observe(bls_to_execution_change, &wall_clock_state, &self.spec)?)
+        let current_fork = self.spec.fork_name_at_slot::<T::EthSpec>(self.slot()?);
+        if let ForkName::Base | ForkName::Altair | ForkName::Merge = current_fork {
+            // Disallow BLS to execution changes prior to the Capella fork.
+            return Err(Error::BlsToExecutionChangeBadFork(current_fork));
         }
 
-        // TODO: remove this whole block once withdrawals-processing is removed
-        #[cfg(not(feature = "withdrawals-processing"))]
-        {
-            #[allow(clippy::drop_non_drop)]
-            drop(bls_to_execution_change);
-            Ok(ObservationOutcome::AlreadyKnown)
-        }
+        let wall_clock_state = self.wall_clock_state()?;
+
+        Ok(self
+            .observed_bls_to_execution_changes
+            .lock()
+            .verify_and_observe(bls_to_execution_change, &wall_clock_state, &self.spec)?)
     }
 
     /// Import a BLS to execution change to the op pool.
@@ -2324,12 +2312,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         bls_to_execution_change: SigVerifiedOp<SignedBlsToExecutionChange, T::EthSpec>,
     ) {
         if self.eth1_chain.is_some() {
-            #[cfg(feature = "withdrawals-processing")]
             self.op_pool
                 .insert_bls_to_execution_change(bls_to_execution_change);
-
-            #[cfg(not(feature = "withdrawals-processing"))]
-            drop(bls_to_execution_change);
         }
     }
 
@@ -4879,9 +4863,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .ok_or(Error::InvalidSlot(prepare_slot))?
                 .as_secs(),
             pre_payload_attributes.prev_randao,
-            execution_layer
-                .get_suggested_fee_recipient(proposer as u64)
-                .await,
+            execution_layer.get_suggested_fee_recipient(proposer).await,
             withdrawals,
         );
 

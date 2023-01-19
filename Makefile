@@ -21,14 +21,14 @@ CROSS_FEATURES ?= gnosis,slasher-lmdb,slasher-mdbx
 CROSS_PROFILE ?= release
 
 # List of features to use when running EF tests.
-EF_TEST_FEATURES ?= beacon_chain/withdrawals-processing
+EF_TEST_FEATURES ?=
 
 # Cargo profile for regular builds.
 PROFILE ?= release
 
 # List of all hard forks. This list is used to set env variables for several tests so that
 # they run for different forks.
-FORKS=phase0 altair merge
+FORKS=phase0 altair merge capella
 
 # Builds the Lighthouse binary in release (optimized).
 #

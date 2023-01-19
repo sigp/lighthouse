@@ -223,7 +223,7 @@ mod test {
     }
 
     fn preset_from_file<T: DeserializeOwned>(preset_name: &str, filename: &str) -> T {
-        let f = File::open(&presets_base_path().join(preset_name).join(filename))
+        let f = File::open(presets_base_path().join(preset_name).join(filename))
             .expect("preset file exists");
         serde_yaml::from_reader(f).unwrap()
     }

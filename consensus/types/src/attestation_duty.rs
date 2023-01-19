@@ -1,8 +1,7 @@
 use crate::*;
 use serde_derive::{Deserialize, Serialize};
 
-#[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
-#[derive(Debug, PartialEq, Clone, Copy, Default, Serialize, Deserialize)]
+#[derive(arbitrary::Arbitrary, Debug, PartialEq, Clone, Copy, Default, Serialize, Deserialize)]
 pub struct AttestationDuty {
     /// The slot during which the attester must attest.
     pub slot: Slot,

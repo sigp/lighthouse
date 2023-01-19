@@ -10,8 +10,18 @@ use tree_hash_derive::TreeHash;
 /// Information about a `BeaconChain` validator.
 ///
 /// Spec v0.12.1
-#[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TestRandom, TreeHash)]
+#[derive(
+    arbitrary::Arbitrary,
+    Debug,
+    Clone,
+    PartialEq,
+    Serialize,
+    Deserialize,
+    Encode,
+    Decode,
+    TestRandom,
+    TreeHash,
+)]
 pub struct Validator {
     pub pubkey: PublicKeyBytes,
     pub withdrawal_credentials: Hash256,

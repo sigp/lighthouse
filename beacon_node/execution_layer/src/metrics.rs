@@ -45,6 +45,11 @@ lazy_static::lazy_static! {
         "execution_layer_get_payload_by_block_hash_time",
         "Time to reconstruct a payload from the EE using eth_getBlockByHash"
     );
+    pub static ref EXECUTION_LAYER_VERIFY_BLOCK_HASH: Result<Histogram> = try_create_histogram_with_buckets(
+        "execution_layer_verify_block_hash_time",
+        "Time to verify the execution block hash in Lighthouse, without the EL",
+        Ok(vec![10e-6, 50e-6, 100e-6, 500e-6, 1e-3, 5e-3, 10e-3, 50e-3, 100e-3, 500e-3]),
+    );
     pub static ref EXECUTION_LAYER_PAYLOAD_STATUS: Result<IntCounterVec> = try_create_int_counter_vec(
         "execution_layer_payload_status",
         "Indicates the payload status returned for a particular method",

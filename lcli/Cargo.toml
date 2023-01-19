@@ -1,14 +1,13 @@
 [package]
 name = "lcli"
 description = "Lighthouse CLI (modeled after zcli)"
-version = "3.3.0"
+version = "3.4.0"
 authors = ["Paul Hauner <paul@paulhauner.com>"]
 edition = "2021"
 
 [features]
 portable = ["bls/supranational-portable"]
 fake_crypto = ['bls/fake_crypto']
-withdrawals-processing = ["beacon_chain/withdrawals-processing", "store/withdrawals-processing", "state_processing/withdrawals-processing"]
 
 [dependencies]
 bls = { path = "../crypto/bls" }

@@ -11,7 +11,7 @@ use std::sync::Arc;
 use task_executor::TaskExecutor;
 use tokio::sync::{watch, Mutex, RwLock};
 use tokio_stream::wrappers::WatchStream;
-use types::{ExecutionBlockHash, ForkName};
+use types::ExecutionBlockHash;
 
 /// The number of payload IDs that will be stored for each `Engine`.
 ///
@@ -114,7 +114,7 @@ pub struct Engine {
     pub api: HttpJsonRpc,
     payload_id_cache: Mutex<LruCache<PayloadIdCacheKey, PayloadId>>,
     state: RwLock<State>,
-    latest_forkchoice_state: RwLock<Option<(ForkName, ForkchoiceState)>>,
+    latest_forkchoice_state: RwLock<Option<ForkchoiceState>>,
     executor: TaskExecutor,
     log: Logger,
 }
@@ -153,15 +153,13 @@ impl Engine {
 
     pub async fn notify_forkchoice_updated(
         &self,
-        fork_name: ForkName,
         forkchoice_state: ForkchoiceState,
         payload_attributes: Option<PayloadAttributes>,
         log: &Logger,
     ) -> Result<ForkchoiceUpdatedResponse, EngineApiError> {
-        info!(log, "Notifying FCU"; "fork_name" => ?fork_name);
         let response = self
             .api
-            .forkchoice_updated(fork_name, forkchoice_state, payload_attributes.clone())
+            .forkchoice_updated(forkchoice_state, payload_attributes.clone())
             .await?;
 
         if let Some(payload_id) = response.payload_id {
@@ -181,18 +179,18 @@ impl Engine {
         Ok(response)
     }
 
-    async fn get_latest_forkchoice_state(&self) -> Option<(ForkName, ForkchoiceState)> {
+    async fn get_latest_forkchoice_state(&self) -> Option<ForkchoiceState> {
         *self.latest_forkchoice_state.read().await
     }
 
-    pub async fn set_latest_forkchoice_state(&self, fork_name: ForkName, state: ForkchoiceState) {
-        *self.latest_forkchoice_state.write().await = Some((fork_name, state));
+    pub async fn set_latest_forkchoice_state(&self, state: ForkchoiceState) {
+        *self.latest_forkchoice_state.write().await = Some(state);
     }
 
     async fn send_latest_forkchoice_state(&self) {
         let latest_forkchoice_state = self.get_latest_forkchoice_state().await;
 
-        if let Some((fork_name, forkchoice_state)) = latest_forkchoice_state {
+        if let Some(forkchoice_state) = latest_forkchoice_state {
             if forkchoice_state.head_block_hash == ExecutionBlockHash::zero() {
                 debug!(
                     self.log,
@@ -206,16 +204,11 @@ impl Engine {
                 self.log,
                 "Issuing forkchoiceUpdated";
                 "forkchoice_state" => ?forkchoice_state,
-                "fork_name" => ?fork_name,
             );
 
             // For simplicity, payload attributes are never included in this call. It may be
             // reasonable to include them in the future.
-            if let Err(e) = self
-                .api
-                .forkchoice_updated(fork_name, forkchoice_state, None)
-                .await
-            {
+            if let Err(e) = self.api.forkchoice_updated(forkchoice_state, None).await {
                 debug!(
                     self.log,
                     "Failed to issue latest head to engine";

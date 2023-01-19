@@ -4,7 +4,10 @@ use ssz::Encode;
 use std::fs::File;
 use std::io::Write;
 use std::time::{SystemTime, UNIX_EPOCH};
-use types::{EthSpec, ExecutionPayloadHeader, ExecutionPayloadHeaderMerge};
+use types::{
+    EthSpec, ExecutionPayloadHeader, ExecutionPayloadHeaderCapella, ExecutionPayloadHeaderEip4844,
+    ExecutionPayloadHeaderMerge, ForkName,
+};
 
 pub fn run<T: EthSpec>(matches: &ArgMatches) -> Result<(), String> {
     let eth1_block_hash = parse_required(matches, "execution-block-hash")?;
@@ -17,17 +20,36 @@ pub fn run<T: EthSpec>(matches: &ArgMatches) -> Result<(), String> {
     let base_fee_per_gas = parse_required(matches, "base-fee-per-gas")?;
     let gas_limit = parse_required(matches, "gas-limit")?;
     let file_name = matches.value_of("file").ok_or("No file supplied")?;
+    let fork_name: ForkName = parse_optional(matches, "fork")?.unwrap_or(ForkName::Merge);
 
-    //FIXME(sean)
-    let execution_payload_header: ExecutionPayloadHeader<T> =
-        ExecutionPayloadHeader::Merge(ExecutionPayloadHeaderMerge {
+    let execution_payload_header: ExecutionPayloadHeader<T> = match fork_name {
+        ForkName::Base | ForkName::Altair => return Err("invalid fork name".to_string()),
+        ForkName::Merge => ExecutionPayloadHeader::Merge(ExecutionPayloadHeaderMerge {
             gas_limit,
             base_fee_per_gas,
             timestamp: genesis_time,
             block_hash: eth1_block_hash,
             prev_randao: eth1_block_hash.into_root(),
             ..ExecutionPayloadHeaderMerge::default()
-        });
+        }),
+        ForkName::Capella => ExecutionPayloadHeader::Capella(ExecutionPayloadHeaderCapella {
+            gas_limit,
+            base_fee_per_gas,
+            timestamp: genesis_time,
+            block_hash: eth1_block_hash,
+            prev_randao: eth1_block_hash.into_root(),
+            ..ExecutionPayloadHeaderCapella::default()
+        }),
+        ForkName::Eip4844 => ExecutionPayloadHeader::Eip4844(ExecutionPayloadHeaderEip4844 {
+            gas_limit,
+            base_fee_per_gas,
+            timestamp: genesis_time,
+            block_hash: eth1_block_hash,
+            prev_randao: eth1_block_hash.into_root(),
+            ..ExecutionPayloadHeaderEip4844::default()
+        }),
+    };
+
     let mut file = File::create(file_name).map_err(|_| "Unable to create file".to_string())?;
     let bytes = execution_payload_header.as_ssz_bytes();
     file.write_all(bytes.as_slice())

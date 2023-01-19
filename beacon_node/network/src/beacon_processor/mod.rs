@@ -116,7 +116,8 @@ const MAX_AGGREGATED_ATTESTATION_REPROCESS_QUEUE_LEN: usize = 1_024;
 /// before we start dropping them.
 const MAX_GOSSIP_BLOCK_QUEUE_LEN: usize = 1_024;
 
-//FIXME(sean) verify
+/// The maximum number of queued `SignedBeaconBlockAndBlobsSidecar` objects received on gossip that
+/// will be stored before we start dropping them.
 const MAX_GOSSIP_BLOCK_AND_BLOB_QUEUE_LEN: usize = 1_024;
 
 /// The maximum number of queued `SignedBeaconBlock` objects received prior to their slot (but
@@ -1213,7 +1214,6 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                         // required to verify some attestations.
                         } else if let Some(item) = gossip_block_queue.pop() {
                             self.spawn_worker(item, toolbox);
-                        //FIXME(sean)
                         } else if let Some(item) = gossip_block_and_blobs_sidecar_queue.pop() {
                             self.spawn_worker(item, toolbox);
                         // Check the aggregates, *then* the unaggregates since we assume that
