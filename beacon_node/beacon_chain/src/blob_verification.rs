@@ -136,28 +136,11 @@ pub fn validate_blob_for_gossip<T: BeaconChainTypes>(
         });
     }
 
-    // Verify that kzg commitments in the block are valid BLS g1 points
-    for commitment in kzg_commitments {
-        if kzg::bytes_to_g1(&commitment.0).is_err() {
-            return Err(BlobError::InvalidKZGCommitment);
-        }
-    }
-
     // Validate commitments agains transactions in the block.
     if verify_kzg_commitments_against_transactions::<T::EthSpec>(transactions, kzg_commitments)
         .is_err()
     {
         return Err(BlobError::TransactionCommitmentMismatch);
-    }
-
-    // Check that blobs are < BLS_MODULUS
-    // TODO(pawan): Add this check after there's some resolution of this
-    // issue https://github.com/ethereum/c-kzg-4844/issues/11
-    // As of now, `bytes_to_bls_field` does not fail in the c-kzg library if blob >= BLS_MODULUS
-
-    // Validate that kzg proof is a valid g1 point
-    if kzg::bytes_to_g1(&blob_sidecar.kzg_aggregated_proof.0).is_err() {
-        return Err(BlobError::InvalidKzgProof);
     }
 
     // Validatate that the kzg proof is valid against the commitments and blobs

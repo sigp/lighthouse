@@ -11,6 +11,7 @@ fake_crypto = ['bls/fake_crypto']
 
 [dependencies]
 bls = { path = "../crypto/bls" }
+kzg = { path = "../crypto/kzg" }
 clap = "2.33.3"
 log = "0.4.11"
 serde = "1.0.116"

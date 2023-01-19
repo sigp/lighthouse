@@ -2,6 +2,7 @@ use clap::ArgMatches;
 use clap_utils::{parse_optional, parse_required, parse_ssz_optional};
 use eth2_hashing::hash;
 use eth2_network_config::{Eth2NetworkConfig, TRUSTED_SETUP};
+use kzg::TrustedSetup;
 use ssz::Decode;
 use ssz::Encode;
 use state_processing::process_activations;
@@ -81,13 +82,8 @@ pub fn run<T: EthSpec>(testnet_dir_path: PathBuf, matches: &ArgMatches) -> Resul
         spec.capella_fork_epoch = Some(fork_epoch);
     }
 
-    let mut kzg_trusted_setup = None;
     if let Some(fork_epoch) = parse_optional(matches, "eip4844-fork-epoch")? {
         spec.eip4844_fork_epoch = Some(fork_epoch);
-        kzg_trusted_setup = Some(
-            serde_json::from_reader(TRUSTED_SETUP)
-                .map_err(|e| format!("Unable to read trusted setup file: {}", e))?,
-        )
     }
 
     if let Some(ttd) = parse_optional(matches, "ttd")? {
@@ -163,6 +159,18 @@ pub fn run<T: EthSpec>(testnet_dir_path: PathBuf, matches: &ArgMatches) -> Resul
         None
     };
 
+    let kzg_trusted_setup = if let Some(epoch) = spec.eip4844_fork_epoch {
+        // Only load the trusted setup if the eip4844 fork epoch is set
+        if epoch != Epoch::max_value() {
+            let trusted_setup: TrustedSetup = serde_json::from_reader(TRUSTED_SETUP)
+                .map_err(|e| format!("Unable to read trusted setup file: {}", e))?;
+            Some(trusted_setup)
+        } else {
+            None
+        }
+    } else {
+        None
+    };
     let testnet = Eth2NetworkConfig {
         deposit_contract_deploy_block,
         boot_enr: Some(vec![]),
