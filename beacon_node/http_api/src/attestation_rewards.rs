@@ -3,7 +3,7 @@ use eth2::lighthouse::attestation_rewards::{IdealAttestationRewards, TotalAttest
 use eth2::{lighthouse::AttestationRewardsTBD, types::ValidatorId};
 use participation_cache::ParticipationCache;
 use safe_arith::SafeArith;
-use slog::Logger;
+use slog::{debug, Logger};
 use state_processing::{
     common::altair::{get_base_reward, BaseRewardPerIncrement},
     per_epoch_processing::altair::{participation_cache, rewards_and_penalties::get_flag_weight},
@@ -24,6 +24,8 @@ pub fn compute_attestation_rewards<T: BeaconChainTypes>(
     validators: Vec<ValidatorId>,
     log: Logger,
 ) -> Result<(AttestationRewardsTBD, ExecutionOptimistic), warp::Rejection> {
+    debug!(log, "computing attestation rewards"; "epoch" => epoch, "validator_count" => validators.len());
+
     //--- Get state ---//
     let spec = &chain.spec;
 
@@ -137,9 +139,9 @@ pub fn compute_attestation_rewards<T: BeaconChainTypes>(
                 })?;
 
             if !state.is_in_inactivity_leak(previous_epoch, spec) {
-                ideal_rewards_hashmap.insert((flag_index, effective_balance_eth), ideal_reward);
+                ideal_rewards_hashmap.insert((*flag_index, effective_balance_eth), ideal_reward);
             } else {
-                ideal_rewards_hashmap.insert((flag_index, effective_balance_eth), 0);
+                ideal_rewards_hashmap.insert((*flag_index, effective_balance_eth), 0);
             }
         }
     }
@@ -164,7 +166,7 @@ pub fn compute_attestation_rewards<T: BeaconChainTypes>(
                 .is_ok();
             if voted_correctly {
                 *ideal_rewards_hashmap
-                    .entry((&flag_index, effective_balance_eth))
+                    .entry((flag_index, effective_balance_eth))
                     .or_insert(0)
             } else {
                 (-(base_reward as i64 as i128) * weight as i128 / WEIGHT_DENOMINATOR as i128) as u64
@@ -177,7 +179,7 @@ pub fn compute_attestation_rewards<T: BeaconChainTypes>(
     let ideal_rewards: Vec<IdealAttestationRewards> = ideal_rewards_hashmap
         .iter()
         .map(
-            |((flag_index, effective_balance_eth), ideal_reward)| IdealAttestationRewards {
+            |((_flag_index, effective_balance_eth), ideal_reward)| IdealAttestationRewards {
                 effective_balance: *effective_balance_eth as u64,
                 head: *ideal_reward,
                 target: 0,
