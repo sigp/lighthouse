@@ -99,6 +99,7 @@ jobs:
                       --platform=linux/${SHORT_ARCH} \
                       --file ./Dockerfile.cross . \
                       --tag ${IMAGE_NAME}:${VERSION}-${SHORT_ARCH}${VERSION_SUFFIX}${MODERNITY_SUFFIX} \
+                      --provenance=false \
                       --push
     build-docker-multiarch:
         name: build-docker-multiarch${{ matrix.modernity }}
