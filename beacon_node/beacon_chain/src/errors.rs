@@ -210,6 +210,8 @@ pub enum BeaconChainError {
     InconsistentFork(InconsistentFork),
     ProposerHeadForkChoiceError(fork_choice::Error<proto_array::Error>),
     BlobsUnavailable,
+    NoKzgCommitmentsFieldOnBlock,
+    BlobsOlderThanDataAvailabilityBoundary,
 }
 
 easy_from_to!(SlotProcessingError, BeaconChainError);

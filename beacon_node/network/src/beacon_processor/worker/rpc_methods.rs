@@ -251,7 +251,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                             let block_epoch = block.epoch();
 
                            if Some(block_epoch) >= finalized_data_availability_boundary {
-                                debug!(
+                                error!(
                                     self.log,
                                     "Peer requested block and blob that should be available, but no blob found";
                                     "peer" => %peer_id,
@@ -270,7 +270,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                             }
                         }
                         Ok((None, Some(_))) => {
-                            debug!(
+                            error!(
                                 self.log,
                                 "Peer requested block and blob, but no block found";
                                 "peer" => %peer_id,
@@ -754,17 +754,47 @@ impl<T: BeaconChainTypes> Worker<T> {
                     send_response = false;
                     break;
                 }
+                Err(BeaconChainError::NoKzgCommitmentsFieldOnBlock) => {
+                    error!(
+                        self.log,
+                        "No kzg_commitments field in block";
+                        "block_root" => ?root,
+                    );
+                    self.send_error_response(
+                        peer_id,
+                        RPCResponseErrorCode::ResourceUnavailable,
+                        "Failed reading field kzg_commitments from block".into(),
+                        request_id,
+                    );
+                    send_response = false;
+                    break;
+                }
+                Err(BeaconChainError::BlobsOlderThanDataAvailabilityBoundary) => {
+                    error!(
+                        self.log,
+                        "Failed loading blobs older than data availability boundary";
+                        "block_root" => ?root,
+                    );
+                    self.send_error_response(
+                        peer_id,
+                        RPCResponseErrorCode::ResourceUnavailable,
+                        "Blobs older than data availability boundary".into(),
+                        request_id,
+                    );
+                    send_response = false;
+                    break;
+                }
                 Err(e) => {
                     error!(
                         self.log,
-                        "Error fetching blob for peer";
+                        "Error fetching blinded block for block root";
                         "block_root" => ?root,
                         "error" => ?e
                     );
                     self.send_error_response(
                         peer_id,
                         RPCResponseErrorCode::ServerError,
-                        "Failed fetching blobs".into(),
+                        "No blobs and failed fetching corresponding block".into(),
                         request_id,
                     );
                     send_response = false;

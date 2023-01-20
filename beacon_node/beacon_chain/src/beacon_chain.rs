@@ -1070,7 +1070,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         let expected_kzg_commitments =
                             match block.message().body().blob_kzg_commitments() {
                                 Ok(kzg_commitments) => kzg_commitments,
-                                Err(_) => return Err(Error::BlobsUnavailable),
+                                Err(_) => return Err(Error::NoKzgCommitmentsFieldOnBlock),
                             };
                         if expected_kzg_commitments.is_empty() {
                             Ok(Some(BlobsSidecar::empty_from_parts(
@@ -1079,12 +1079,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             )))
                         } else {
                             if let Some(boundary) = self.data_availability_boundary() {
-                                // We should have blobs for all blocks after the boundary.
+                                // We should have blobs for all blocks younger than the boundary.
                                 if boundary <= block.epoch() {
                                     return Err(Error::BlobsUnavailable);
                                 }
                             }
-                            Ok(None)
+                            Err(Error::BlobsOlderThanDataAvailabilityBoundary)
                         }
                     })
                     .transpose()
