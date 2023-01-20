@@ -24,6 +24,8 @@ gnosis = []
 slasher-mdbx = ["slasher/mdbx"]
 # Support slasher LMDB backend.
 slasher-lmdb = ["slasher/lmdb"]
+# Use jemalloc.
+jemalloc = ["malloc_utils/jemalloc"]
 
 [dependencies]
 beacon_node = { "path" = "../beacon_node" }
