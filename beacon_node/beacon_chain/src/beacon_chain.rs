@@ -2232,12 +2232,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         bls_to_execution_change: SignedBlsToExecutionChange,
     ) -> Result<ObservationOutcome<SignedBlsToExecutionChange, T::EthSpec>, Error> {
         // Before checking the gossip duplicate filter, check that no prior change is already
-        // in our op pool. Ignore these messages: do not gossip, do not try to overwrite op pool.
-        if self
+        // in our op pool. Ignore these messages: do not gossip, do not try to override the pool.
+        match self
             .op_pool
-            .bls_to_execution_change_exists(bls_to_execution_change.message.validator_index)
+            .bls_to_execution_change_in_pool_equals(&bls_to_execution_change)
         {
-            return Ok(ObservationOutcome::AlreadyKnown);
+            Some(true) => return Ok(ObservationOutcome::AlreadyKnown),
+            Some(false) => return Err(Error::BlsToExecutionConflictsWithPool),
+            None => (),
         }
 
         // Use the head state to save advancing to the wall-clock slot unnecessarily. The message is
@@ -2249,7 +2251,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(self
             .observed_bls_to_execution_changes
             .lock()
-            .verify_and_observe(bls_to_execution_change, &head_state, &self.spec)?)
+            .verify_and_observe(bls_to_execution_change, head_state, &self.spec)?)
     }
 
     /// Verify a signed BLS to execution change before allowing it to propagate on the gossip network.
@@ -2262,6 +2264,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Err(Error::BlsToExecutionPriorToCapella);
         }
         self.verify_bls_to_execution_change_for_http_api(bls_to_execution_change)
+            .or_else(|e| {
+                // On gossip treat conflicts the same as duplicates [IGNORE].
+                match e {
+                    Error::BlsToExecutionConflictsWithPool => Ok(ObservationOutcome::AlreadyKnown),
+                    e => Err(e),
+                }
+            })
     }
 
     /// Check if the current slot is greater than or equal to the Capella fork epoch.

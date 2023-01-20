@@ -1726,11 +1726,12 @@ pub fn serve<T: BeaconChainTypes>(
                                 );
                             }
                             Err(e) => {
-                                error!(
+                                warn!(
                                     log,
                                     "Invalid BLS to execution change";
                                     "validator_index" => validator_index,
-                                    "source" => "HTTP API",
+                                    "reason" => ?e,
+                                    "source" => "HTTP",
                                 );
                                 failures.push(api_types::Failure::new(
                                     index,

@@ -513,11 +513,17 @@ impl<T: EthSpec> OperationPool<T> {
         );
     }
 
-    /// Check if a BLS to execution change for `validator_index` already exists in the map.
-    pub fn bls_to_execution_change_exists(&self, validator_index: u64) -> bool {
+    /// Check if an address change equal to `address_change` is already in the pool.
+    ///
+    /// Return `None` if no address change for the validator index exists in the pool.
+    pub fn bls_to_execution_change_in_pool_equals(
+        &self,
+        address_change: &SignedBlsToExecutionChange,
+    ) -> Option<bool> {
         self.bls_to_execution_changes
             .read()
-            .contains_key(&validator_index)
+            .get(&address_change.message.validator_index)
+            .map(|existing| existing.as_inner() == address_change)
     }
 
     /// Insert a BLS to execution change into the pool, *only if* no prior change is known.
