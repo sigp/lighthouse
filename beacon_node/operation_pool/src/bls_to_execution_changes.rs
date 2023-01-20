@@ -48,16 +48,16 @@ impl<T: EthSpec> BlsToExecutionChanges<T> {
     }
 
     /// FIFO ordering, used for persistence to disk.
-    pub fn iter_fifo<'a>(
-        &'a self,
-    ) -> impl Iterator<Item = &'a Arc<SigVerifiedOp<SignedBlsToExecutionChange, T>>> + 'a {
+    pub fn iter_fifo(
+        &self,
+    ) -> impl Iterator<Item = &Arc<SigVerifiedOp<SignedBlsToExecutionChange, T>>> {
         self.queue.iter()
     }
 
     /// LIFO ordering, used for block packing.
-    pub fn iter_lifo<'a>(
-        &'a self,
-    ) -> impl Iterator<Item = &'a Arc<SigVerifiedOp<SignedBlsToExecutionChange, T>>> + 'a {
+    pub fn iter_lifo(
+        &self,
+    ) -> impl Iterator<Item = &Arc<SigVerifiedOp<SignedBlsToExecutionChange, T>>> {
         self.queue.iter().rev()
     }
 
