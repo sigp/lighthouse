@@ -1719,7 +1719,14 @@ pub fn serve<T: BeaconChainTypes>(
              validators: Vec<ValidatorId>,
              log: Logger| {
                 blocking_json_task(move || {
-                    attestation_rewards::compute_attestation_rewards(chain, epoch, validators, log)
+                    let (attestation_rewards, execution_optimistic) =
+                        attestation_rewards::compute_attestation_rewards(
+                            chain, epoch, validators, log,
+                        )
+                        .unwrap();
+                    Ok(attestation_rewards)
+                        .map(api_types::GenericResponse::from)
+                        .map(|resp| resp.add_execution_optimistic(execution_optimistic))
                 })
             },
         );

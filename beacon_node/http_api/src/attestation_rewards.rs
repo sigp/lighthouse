@@ -16,14 +16,20 @@ use types::consts::altair::{
 use types::{Epoch, EthSpec};
 use warp_utils::reject::custom_not_found;
 
+use crate::ExecutionOptimistic;
+
 pub fn compute_attestation_rewards<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
     epoch: Epoch,
     validators: Vec<ValidatorId>,
     log: Logger,
-) -> Result<AttestationRewardsTBD, warp::Rejection> {
+) -> Result<(AttestationRewardsTBD, ExecutionOptimistic), warp::Rejection> {
     //--- Get state ---//
     let spec = &chain.spec;
+
+    let execution_optimistic = chain
+        .is_optimistic_or_invalid_head()
+        .map_err(|e| custom_not_found(format!("Unable to get execution_optimistic! {:?}", e)))?;
 
     let state_slot = (epoch + 1).end_slot(T::EthSpec::slots_per_epoch());
 
@@ -158,8 +164,8 @@ pub fn compute_attestation_rewards<T: BeaconChainTypes>(
                 .is_ok();
             if voted_correctly {
                 *ideal_rewards_hashmap
-                    .get(&(&flag_index, effective_balance_eth))
-                    .unwrap_or(&0)
+                    .entry((&flag_index, effective_balance_eth))
+                    .or_insert(0)
             } else {
                 (-(base_reward as i64 as i128) * weight as i128 / WEIGHT_DENOMINATOR as i128) as u64
             }
@@ -192,10 +198,11 @@ pub fn compute_attestation_rewards<T: BeaconChainTypes>(
         })
         .collect();
 
-    Ok(AttestationRewardsTBD {
-        execution_optimistic: false,
-        finalized: false,
-        ideal_rewards,
-        total_rewards,
-    })
+    Ok((
+        AttestationRewardsTBD {
+            ideal_rewards,
+            total_rewards,
+        },
+        execution_optimistic,
+    ))
 }
