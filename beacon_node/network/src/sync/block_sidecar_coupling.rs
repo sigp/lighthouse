@@ -1,6 +1,7 @@
 use std::{collections::VecDeque, sync::Arc};
 
-use types::{signed_block_and_blobs::BlockWrapper, BlobsSidecar, EthSpec, SignedBeaconBlock};
+use types::signed_block_and_blobs::BlockWrapper;
+use types::{signed_block_and_blobs::AvailableBlock, BlobsSidecar, EthSpec, SignedBeaconBlock};
 
 #[derive(Debug, Default)]
 pub struct BlocksAndBlobsRequestInfo<T: EthSpec> {
@@ -46,21 +47,20 @@ impl<T: EthSpec> BlocksAndBlobsRequestInfo<T> {
                     .map(|sidecar| sidecar.beacon_block_slot == beacon_block.slot())
                     .unwrap_or(false)
                 {
-                    let blobs_sidecar =
-                        accumulated_sidecars.pop_front().ok_or("missing sidecar")?;
-                    Ok(BlockWrapper::new_with_blobs(beacon_block, blobs_sidecar))
+                    let blobs_sidecar = accumulated_sidecars.pop_front();
+                    BlockWrapper::new(beacon_block, blobs_sidecar)
                 } else {
-                    Ok(beacon_block.into())
+                    BlockWrapper::new(beacon_block, None)
                 }
             })
-            .collect::<Result<Vec<_>, _>>();
+            .collect::<Vec<_>>();
 
         // if accumulated sidecars is not empty, throw an error.
         if !accumulated_sidecars.is_empty() {
             return Err("Received more sidecars than blocks");
         }
 
-        pairs
+        Ok(pairs)
     }
 
     pub fn is_finished(&self) -> bool {

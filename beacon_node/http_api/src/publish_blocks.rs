@@ -9,7 +9,7 @@ use slot_clock::SlotClock;
 use std::sync::Arc;
 use tokio::sync::mpsc::UnboundedSender;
 use tree_hash::TreeHash;
-use types::signed_block_and_blobs::BlockWrapper;
+use types::signed_block_and_blobs::AvailableBlock;
 use types::{
     AbstractExecPayload, BlindedPayload, EthSpec, ExecPayload, ExecutionBlockHash, FullPayload,
     Hash256, SignedBeaconBlock, SignedBeaconBlockAndBlobsSidecar,
@@ -32,7 +32,7 @@ pub async fn publish_block<T: BeaconChainTypes>(
 
     // Send the block, regardless of whether or not it is valid. The API
     // specification is very clear that this is the desired behaviour.
-    let wrapped_block: BlockWrapper<T::EthSpec> =
+    let wrapped_block: AvailableBlock<T::EthSpec> =
         if matches!(block.as_ref(), &SignedBeaconBlock::Eip4844(_)) {
             if let Some(sidecar) = chain.blob_cache.pop(&block_root) {
                 let block_and_blobs = SignedBeaconBlockAndBlobsSidecar {

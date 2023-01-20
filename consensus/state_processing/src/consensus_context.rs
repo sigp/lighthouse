@@ -18,10 +18,6 @@ pub struct ConsensusContext<T: EthSpec> {
     /// Cache of indexed attestations constructed during block processing.
     indexed_attestations:
         HashMap<(AttestationData, BitList<T::MaxValidatorsPerCommittee>), IndexedAttestation<T>>,
-    /// Whether `validate_blobs_sidecar` has successfully passed.
-    blobs_sidecar_validated: bool,
-    /// Whether `verify_kzg_commitments_against_transactions` has successfully passed.
-    blobs_verified_vs_txs: bool,
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -44,8 +40,6 @@ impl<T: EthSpec> ConsensusContext<T> {
             proposer_index: None,
             current_block_root: None,
             indexed_attestations: HashMap::new(),
-            blobs_sidecar_validated: false,
-            blobs_verified_vs_txs: false,
         }
     }
 
@@ -160,23 +154,5 @@ impl<T: EthSpec> ConsensusContext<T> {
 
     pub fn num_cached_indexed_attestations(&self) -> usize {
         self.indexed_attestations.len()
-    }
-
-    pub fn set_blobs_sidecar_validated(mut self, blobs_sidecar_validated: bool) -> Self {
-        self.blobs_sidecar_validated = blobs_sidecar_validated;
-        self
-    }
-
-    pub fn set_blobs_verified_vs_txs(mut self, blobs_verified_vs_txs: bool) -> Self {
-        self.blobs_verified_vs_txs = blobs_verified_vs_txs;
-        self
-    }
-
-    pub fn blobs_sidecar_validated(&self) -> bool {
-        self.blobs_sidecar_validated
-    }
-
-    pub fn blobs_verified_vs_txs(&self) -> bool {
-        self.blobs_verified_vs_txs
     }
 }
