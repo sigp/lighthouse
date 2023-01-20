@@ -1671,7 +1671,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and_then(
             |chain: Arc<BeaconChain<T>>,
              address_changes: Vec<SignedBlsToExecutionChange>,
-             #[allow(unused)] network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
+             network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
              log: Logger| {
                 blocking_json_task(move || {
                     let mut failures = vec![];
@@ -1679,15 +1679,38 @@ pub fn serve<T: BeaconChainTypes>(
                     for (index, address_change) in address_changes.into_iter().enumerate() {
                         let validator_index = address_change.message.validator_index;
 
-                        match chain.verify_bls_to_execution_change_for_gossip(address_change) {
+                        match chain.verify_bls_to_execution_change_for_http_api(address_change) {
                             Ok(ObservationOutcome::New(verified_address_change)) => {
-                                publish_pubsub_message(
-                                    &network_tx,
-                                    PubsubMessage::BlsToExecutionChange(Box::new(
-                                        verified_address_change.as_inner().clone(),
-                                    )),
-                                )?;
-                                chain.import_bls_to_execution_change(verified_address_change);
+                                let validator_index =
+                                    verified_address_change.as_inner().message.validator_index;
+                                let address = verified_address_change
+                                    .as_inner()
+                                    .message
+                                    .to_execution_address;
+
+                                // New to P2P *and* op pool, gossip immediately if post-Capella.
+                                let publish = chain.current_slot_is_post_capella().unwrap_or(false);
+                                if publish {
+                                    publish_pubsub_message(
+                                        &network_tx,
+                                        PubsubMessage::BlsToExecutionChange(Box::new(
+                                            verified_address_change.as_inner().clone(),
+                                        )),
+                                    )?;
+                                }
+
+                                // Import to op pool (may return `false` if there's a race).
+                                let imported =
+                                    chain.import_bls_to_execution_change(verified_address_change);
+
+                                info!(
+                                    log,
+                                    "Processed BLS to execution change";
+                                    "validator_index" => validator_index,
+                                    "address" => ?address,
+                                    "published" => publish,
+                                    "imported" => imported,
+                                );
                             }
                             Ok(ObservationOutcome::AlreadyKnown) => {
                                 debug!(
@@ -1697,11 +1720,12 @@ pub fn serve<T: BeaconChainTypes>(
                                 );
                             }
                             Err(e) => {
-                                error!(
+                                warn!(
                                     log,
                                     "Invalid BLS to execution change";
                                     "validator_index" => validator_index,
-                                    "source" => "HTTP API",
+                                    "reason" => ?e,
+                                    "source" => "HTTP",
                                 );
                                 failures.push(api_types::Failure::new(
                                     index,

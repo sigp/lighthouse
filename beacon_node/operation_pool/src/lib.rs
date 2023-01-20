@@ -2,6 +2,7 @@ mod attestation;
 mod attestation_id;
 mod attestation_storage;
 mod attester_slashing;
+mod bls_to_execution_changes;
 mod max_cover;
 mod metrics;
 mod persistence;
@@ -18,6 +19,7 @@ pub use persistence::{
 pub use reward_cache::RewardCache;
 
 use crate::attestation_storage::{AttestationMap, CheckpointKey};
+use crate::bls_to_execution_changes::BlsToExecutionChanges;
 use crate::sync_aggregate_id::SyncAggregateId;
 use attester_slashing::AttesterSlashingMaxCover;
 use max_cover::maximum_cover;
@@ -51,8 +53,8 @@ pub struct OperationPool<T: EthSpec + Default> {
     proposer_slashings: RwLock<HashMap<u64, SigVerifiedOp<ProposerSlashing, T>>>,
     /// Map from exiting validator to their exit data.
     voluntary_exits: RwLock<HashMap<u64, SigVerifiedOp<SignedVoluntaryExit, T>>>,
-    /// Map from credential changing validator to their execution change data.
-    bls_to_execution_changes: RwLock<HashMap<u64, SigVerifiedOp<SignedBlsToExecutionChange, T>>>,
+    /// Map from credential changing validator to their position in the queue.
+    bls_to_execution_changes: RwLock<BlsToExecutionChanges<T>>,
     /// Reward cache for accelerating attestation packing.
     reward_cache: RwLock<RewardCache>,
     _phantom: PhantomData<T>,
@@ -513,15 +515,28 @@ impl<T: EthSpec> OperationPool<T> {
         );
     }
 
-    /// Insert a BLS to execution change into the pool.
+    /// Check if an address change equal to `address_change` is already in the pool.
+    ///
+    /// Return `None` if no address change for the validator index exists in the pool.
+    pub fn bls_to_execution_change_in_pool_equals(
+        &self,
+        address_change: &SignedBlsToExecutionChange,
+    ) -> Option<bool> {
+        self.bls_to_execution_changes
+            .read()
+            .existing_change_equals(address_change)
+    }
+
+    /// Insert a BLS to execution change into the pool, *only if* no prior change is known.
+    ///
+    /// Return `true` if the change was inserted.
     pub fn insert_bls_to_execution_change(
         &self,
         verified_change: SigVerifiedOp<SignedBlsToExecutionChange, T>,
-    ) {
-        self.bls_to_execution_changes.write().insert(
-            verified_change.as_inner().message.validator_index,
-            verified_change,
-        );
+    ) -> bool {
+        self.bls_to_execution_changes
+            .write()
+            .insert(verified_change)
     }
 
     /// Get a list of execution changes for inclusion in a block.
@@ -533,7 +548,7 @@ impl<T: EthSpec> OperationPool<T> {
         spec: &ChainSpec,
     ) -> Vec<SignedBlsToExecutionChange> {
         filter_limit_operations(
-            self.bls_to_execution_changes.read().values(),
+            self.bls_to_execution_changes.read().iter_lifo(),
             |address_change| {
                 address_change.signature_is_still_valid(&state.fork())
                     && state
@@ -548,33 +563,15 @@ impl<T: EthSpec> OperationPool<T> {
     }
 
     /// Prune BLS to execution changes that have been applied to the state more than 1 block ago.
-    ///
-    /// The block check is necessary to avoid pruning too eagerly and losing the ability to include
-    /// address changes during re-orgs. This is isn't *perfect* so some address changes could
-    /// still get stuck if there are gnarly re-orgs and the changes can't be widely republished
-    /// due to the gossip duplicate rules.
     pub fn prune_bls_to_execution_changes<Payload: AbstractExecPayload<T>>(
         &self,
         head_block: &SignedBeaconBlock<T, Payload>,
         head_state: &BeaconState<T>,
         spec: &ChainSpec,
     ) {
-        prune_validator_hash_map(
-            &mut self.bls_to_execution_changes.write(),
-            |validator_index, validator| {
-                validator.has_eth1_withdrawal_credential(spec)
-                    && head_block
-                        .message()
-                        .body()
-                        .bls_to_execution_changes()
-                        .map_or(true, |recent_changes| {
-                            !recent_changes
-                                .iter()
-                                .any(|c| c.message.validator_index == validator_index)
-                        })
-            },
-            head_state,
-        );
+        self.bls_to_execution_changes
+            .write()
+            .prune(head_block, head_state, spec)
     }
 
     /// Prune all types of transactions given the latest head state and head fork.
@@ -663,8 +660,8 @@ impl<T: EthSpec> OperationPool<T> {
     pub fn get_all_bls_to_execution_changes(&self) -> Vec<SignedBlsToExecutionChange> {
         self.bls_to_execution_changes
             .read()
-            .iter()
-            .map(|(_, address_change)| address_change.as_inner().clone())
+            .iter_fifo()
+            .map(|address_change| address_change.as_inner().clone())
             .collect()
     }
 }
