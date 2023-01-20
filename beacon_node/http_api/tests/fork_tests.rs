@@ -338,7 +338,6 @@ async fn bls_to_execution_changes_update_all_around_capella_fork() {
     let fork_epoch = Epoch::new(2);
     let spec = capella_spec(fork_epoch);
     let max_bls_to_execution_changes = E::max_bls_to_execution_changes();
-    let max_withdrawals_per_payload = E::max_withdrawals_per_payload();
     let tester = InteractiveTester::<E>::new(Some(spec.clone()), validator_count).await;
     let harness = &tester.harness;
     let client = &tester.client;
