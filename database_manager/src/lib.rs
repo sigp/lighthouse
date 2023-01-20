@@ -94,6 +94,16 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .help("Data directory for the freezer database.")
                 .takes_value(true),
         )
+        .arg(
+            Arg::with_name("blob-prune-margin-epochs")
+                .long("blob-prune-margin-epochs")
+                .help(
+                    "The margin for blob pruning in epochs. The oldest blobs are pruned \
+                       up until data_availability_boundary - blob_prune_margin_epochs.",
+                )
+                .takes_value(true)
+                .default_value("0"),
+        )
         .subcommand(migrate_cli_app())
         .subcommand(version_cli_app())
         .subcommand(inspect_cli_app())
@@ -116,6 +126,14 @@ fn parse_client_config<E: EthSpec>(
     let (sprp, sprp_explicit) = get_slots_per_restore_point::<E>(cli_args)?;
     client_config.store.slots_per_restore_point = sprp;
     client_config.store.slots_per_restore_point_set_explicitly = sprp_explicit;
+
+    if let Some(blob_prune_margin_epochs) =
+        clap_utils::parse_optional(cli_args, "blob-prune-margin-epochs")?
+    {
+        if blob_prune_margin_epochs > 0 {
+            client_config.store.blob_prune_margin_epochs = Some(blob_prune_margin_epochs);
+        }
+    }
 
     Ok(client_config)
 }

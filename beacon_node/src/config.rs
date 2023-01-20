@@ -421,6 +421,14 @@ pub fn get_config<E: EthSpec>(
         client_config.store.epochs_per_blob_prune = epochs_per_blob_prune;
     }
 
+    if let Some(blob_prune_margin_epochs) =
+        clap_utils::parse_optional(cli_args, "blob-prune-margin-epochs")?
+    {
+        if blob_prune_margin_epochs > 0 {
+            client_config.store.blob_prune_margin_epochs = Some(blob_prune_margin_epochs);
+        }
+    }
+
     /*
      * Zero-ports
      *

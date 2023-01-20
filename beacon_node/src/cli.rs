@@ -568,6 +568,14 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true)
                 .default_value("1")
         )
+        .arg(
+            Arg::with_name("blob-prune-margin-epochs")
+                .long("blob-prune-margin-epochs")
+                .help("The margin for blob pruning in epochs. The oldest blobs are pruned \
+                       up until data_availability_boundary - blob_prune_margin_epochs.")
+                .takes_value(true)
+                .default_value("0")
+        )
 
         /*
          * Misc.

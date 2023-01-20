@@ -1798,8 +1798,20 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
         let mut ops = vec![];
         let mut last_pruned_block_root = None;
-        // Prune up until the data availability boundary.
-        let end_slot = (data_availability_boundary - 1).end_slot(E::slots_per_epoch());
+
+        // At most prune up until the data availability boundary epoch, leaving at least blobs in
+        // the data availability boundary epoch and younger.
+        let end_slot = {
+            let earliest_prunable_epoch = data_availability_boundary - 1;
+            // Stop pruning before reaching the data availability boundary if a margin is
+            // configured.
+            let end_epoch = if let Some(margin) = self.get_config().blob_prune_margin_epochs {
+                earliest_prunable_epoch - margin
+            } else {
+                earliest_prunable_epoch
+            };
+            end_epoch.end_slot(E::slots_per_epoch())
+        };
 
         for res in self.forwards_block_roots_iterator_until(
             oldest_blob_slot,

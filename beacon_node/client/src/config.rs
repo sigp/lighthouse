@@ -201,6 +201,10 @@ impl Config {
     pub fn create_data_dir(&self) -> Result<PathBuf, String> {
         ensure_dir_exists(self.get_data_dir())
     }
+
+    pub fn get_blob_prune_margin_epochs(&self) -> Option<u64> {
+        self.store.blob_prune_margin_epochs
+    }
 }
 
 /// Ensure that the directory at `path` exists, by creating it and all parents if necessary.
