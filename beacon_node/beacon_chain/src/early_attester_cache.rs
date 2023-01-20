@@ -1,3 +1,4 @@
+use crate::blob_verification::AvailableBlock;
 use crate::{
     attester_cache::{CommitteeLengths, Error},
     metrics,
@@ -5,7 +6,6 @@ use crate::{
 use parking_lot::RwLock;
 use proto_array::Block as ProtoBlock;
 use std::sync::Arc;
-use store::signed_block_and_blobs::AvailableBlock;
 use types::*;
 
 pub struct CacheItem<E: EthSpec> {
