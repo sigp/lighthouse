@@ -1220,7 +1220,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     "error" => ?e
                 );
                 // We ignore pre-capella messages without penalizing peers.
-                if matches!(e, BeaconChainError::BlsToExecutionChangeBadFork(_)) {
+                if matches!(e, BeaconChainError::BlsToExecutionPriorToCapella) {
                     self.propagate_validation_result(
                         message_id,
                         peer_id,

@@ -2227,32 +2227,74 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 
     /// Verify a signed BLS to execution change before allowing it to propagate on the gossip network.
-    pub fn verify_bls_to_execution_change_for_gossip(
+    pub fn verify_bls_to_execution_change_for_http_api(
         &self,
         bls_to_execution_change: SignedBlsToExecutionChange,
     ) -> Result<ObservationOutcome<SignedBlsToExecutionChange, T::EthSpec>, Error> {
-        let current_fork = self.spec.fork_name_at_slot::<T::EthSpec>(self.slot()?);
-        if let ForkName::Base | ForkName::Altair | ForkName::Merge = current_fork {
-            // Disallow BLS to execution changes prior to the Capella fork.
-            return Err(Error::BlsToExecutionChangeBadFork(current_fork));
+        // Before checking the gossip duplicate filter, check that no prior change is already
+        // in our op pool. Ignore these messages: do not gossip, do not try to override the pool.
+        match self
+            .op_pool
+            .bls_to_execution_change_in_pool_equals(&bls_to_execution_change)
+        {
+            Some(true) => return Ok(ObservationOutcome::AlreadyKnown),
+            Some(false) => return Err(Error::BlsToExecutionConflictsWithPool),
+            None => (),
         }
 
-        let wall_clock_state = self.wall_clock_state()?;
+        // Use the head state to save advancing to the wall-clock slot unnecessarily. The message is
+        // signed with respect to the genesis fork version, and the slot check for gossip is applied
+        // separately. This `Arc` clone of the head is nice and cheap.
+        let head_snapshot = self.head().snapshot;
+        let head_state = &head_snapshot.beacon_state;
 
         Ok(self
             .observed_bls_to_execution_changes
             .lock()
-            .verify_and_observe(bls_to_execution_change, &wall_clock_state, &self.spec)?)
+            .verify_and_observe(bls_to_execution_change, head_state, &self.spec)?)
+    }
+
+    /// Verify a signed BLS to execution change before allowing it to propagate on the gossip network.
+    pub fn verify_bls_to_execution_change_for_gossip(
+        &self,
+        bls_to_execution_change: SignedBlsToExecutionChange,
+    ) -> Result<ObservationOutcome<SignedBlsToExecutionChange, T::EthSpec>, Error> {
+        // Ignore BLS to execution changes on gossip prior to Capella.
+        if !self.current_slot_is_post_capella()? {
+            return Err(Error::BlsToExecutionPriorToCapella);
+        }
+        self.verify_bls_to_execution_change_for_http_api(bls_to_execution_change)
+            .or_else(|e| {
+                // On gossip treat conflicts the same as duplicates [IGNORE].
+                match e {
+                    Error::BlsToExecutionConflictsWithPool => Ok(ObservationOutcome::AlreadyKnown),
+                    e => Err(e),
+                }
+            })
+    }
+
+    /// Check if the current slot is greater than or equal to the Capella fork epoch.
+    pub fn current_slot_is_post_capella(&self) -> Result<bool, Error> {
+        let current_fork = self.spec.fork_name_at_slot::<T::EthSpec>(self.slot()?);
+        if let ForkName::Base | ForkName::Altair | ForkName::Merge = current_fork {
+            Ok(false)
+        } else {
+            Ok(true)
+        }
     }
 
     /// Import a BLS to execution change to the op pool.
+    ///
+    /// Return `true` if the change was added to the pool.
     pub fn import_bls_to_execution_change(
         &self,
         bls_to_execution_change: SigVerifiedOp<SignedBlsToExecutionChange, T::EthSpec>,
-    ) {
+    ) -> bool {
         if self.eth1_chain.is_some() {
             self.op_pool
-                .insert_bls_to_execution_change(bls_to_execution_change);
+                .insert_bls_to_execution_change(bls_to_execution_change)
+        } else {
+            false
         }
     }
 

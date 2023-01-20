@@ -1,14 +1,22 @@
 //! Tests for API behaviour across fork boundaries.
 use crate::common::*;
 use beacon_chain::{test_utils::RelativeSyncCommittee, StateSkipConfig};
-use eth2::types::{StateId, SyncSubcommittee};
-use types::{ChainSpec, Epoch, EthSpec, MinimalEthSpec, Slot};
+use eth2::types::{IndexedErrorMessage, StateId, SyncSubcommittee};
+use types::{Address, ChainSpec, Epoch, EthSpec, MinimalEthSpec, Slot};
 
 type E = MinimalEthSpec;
 
 fn altair_spec(altair_fork_epoch: Epoch) -> ChainSpec {
     let mut spec = E::default_spec();
     spec.altair_fork_epoch = Some(altair_fork_epoch);
+    spec
+}
+
+fn capella_spec(capella_fork_epoch: Epoch) -> ChainSpec {
+    let mut spec = E::default_spec();
+    spec.altair_fork_epoch = Some(Epoch::new(0));
+    spec.bellatrix_fork_epoch = Some(Epoch::new(0));
+    spec.capella_fork_epoch = Some(capella_fork_epoch);
     spec
 }
 
@@ -305,5 +313,173 @@ async fn sync_committee_indices_across_fork() {
             committee.validators,
             flatten(&committee.validator_aggregates)
         );
+    }
+}
+
+/// Assert that an HTTP API error has the given status code and indexed errors for the given indices.
+fn assert_server_indexed_error(error: eth2::Error, status_code: u16, indices: Vec<usize>) {
+    let eth2::Error::ServerIndexedMessage(IndexedErrorMessage {
+        code,
+        failures,
+        ..
+    }) = error else {
+        panic!("wrong error, expected ServerIndexedMessage, got: {error:?}")
+    };
+    assert_eq!(code, status_code);
+    assert_eq!(failures.len(), indices.len());
+    for (index, failure) in indices.into_iter().zip(failures) {
+        assert_eq!(failure.index, index as u64);
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn bls_to_execution_changes_update_all_around_capella_fork() {
+    let validator_count = 128;
+    let fork_epoch = Epoch::new(2);
+    let spec = capella_spec(fork_epoch);
+    let max_bls_to_execution_changes = E::max_bls_to_execution_changes();
+    let tester = InteractiveTester::<E>::new(Some(spec.clone()), validator_count).await;
+    let harness = &tester.harness;
+    let client = &tester.client;
+
+    let all_validators = harness.get_all_validators();
+    let all_validators_u64 = all_validators.iter().map(|x| *x as u64).collect::<Vec<_>>();
+
+    // Create a bunch of valid address changes.
+    let valid_address_changes = all_validators_u64
+        .iter()
+        .map(|&validator_index| {
+            harness.make_bls_to_execution_change(
+                validator_index,
+                Address::from_low_u64_be(validator_index),
+            )
+        })
+        .collect::<Vec<_>>();
+
+    // Address changes which conflict with `valid_address_changes` on the address chosen.
+    let conflicting_address_changes = all_validators_u64
+        .iter()
+        .map(|&validator_index| {
+            harness.make_bls_to_execution_change(
+                validator_index,
+                Address::from_low_u64_be(validator_index + 1),
+            )
+        })
+        .collect::<Vec<_>>();
+
+    // Address changes signed with the wrong key.
+    let wrong_key_address_changes = all_validators_u64
+        .iter()
+        .map(|&validator_index| {
+            // Use the correct pubkey.
+            let pubkey = &harness.get_withdrawal_keypair(validator_index).pk;
+            // And the wrong secret key.
+            let secret_key = &harness
+                .get_withdrawal_keypair((validator_index + 1) % validator_count as u64)
+                .sk;
+            harness.make_bls_to_execution_change_with_keys(
+                validator_index,
+                Address::from_low_u64_be(validator_index),
+                pubkey,
+                secret_key,
+            )
+        })
+        .collect::<Vec<_>>();
+
+    // Submit some changes before Capella. Just enough to fill two blocks.
+    let num_pre_capella = validator_count / 4;
+    let blocks_filled_pre_capella = 2;
+    assert_eq!(
+        num_pre_capella,
+        blocks_filled_pre_capella * max_bls_to_execution_changes
+    );
+
+    client
+        .post_beacon_pool_bls_to_execution_changes(&valid_address_changes[..num_pre_capella])
+        .await
+        .unwrap();
+
+    // Conflicting changes for the same validators should all fail.
+    let error = client
+        .post_beacon_pool_bls_to_execution_changes(&conflicting_address_changes[..num_pre_capella])
+        .await
+        .unwrap_err();
+    assert_server_indexed_error(error, 400, (0..num_pre_capella).collect());
+
+    // Re-submitting the same changes should be accepted.
+    client
+        .post_beacon_pool_bls_to_execution_changes(&valid_address_changes[..num_pre_capella])
+        .await
+        .unwrap();
+
+    // Invalid changes signed with the wrong keys should all be rejected without affecting the seen
+    // indices filters (apply ALL of them).
+    let error = client
+        .post_beacon_pool_bls_to_execution_changes(&wrong_key_address_changes)
+        .await
+        .unwrap_err();
+    assert_server_indexed_error(error, 400, all_validators.clone());
+
+    // Advance to right before Capella.
+    let capella_slot = fork_epoch.start_slot(E::slots_per_epoch());
+    harness.extend_to_slot(capella_slot - 1).await;
+    assert_eq!(harness.head_slot(), capella_slot - 1);
+
+    // Add Capella blocks which should be full of BLS to execution changes.
+    for i in 0..validator_count / max_bls_to_execution_changes {
+        let head_block_root = harness.extend_slots(1).await;
+        let head_block = harness
+            .chain
+            .get_block(&head_block_root)
+            .await
+            .unwrap()
+            .unwrap();
+
+        let bls_to_execution_changes = head_block
+            .message()
+            .body()
+            .bls_to_execution_changes()
+            .unwrap();
+
+        // Block should be full.
+        assert_eq!(
+            bls_to_execution_changes.len(),
+            max_bls_to_execution_changes,
+            "block not full on iteration {i}"
+        );
+
+        // Included changes should be the ones from `valid_address_changes` in any order.
+        for address_change in bls_to_execution_changes.iter() {
+            assert!(valid_address_changes.contains(address_change));
+        }
+
+        // After the initial 2 blocks, add the rest of the changes using a large
+        // request containing all the valid, all the conflicting and all the invalid.
+        // Despite the invalid and duplicate messages, the new ones should still get picked up by
+        // the pool.
+        if i == blocks_filled_pre_capella - 1 {
+            let all_address_changes: Vec<_> = [
+                valid_address_changes.clone(),
+                conflicting_address_changes.clone(),
+                wrong_key_address_changes.clone(),
+            ]
+            .concat();
+
+            let error = client
+                .post_beacon_pool_bls_to_execution_changes(&all_address_changes)
+                .await
+                .unwrap_err();
+            assert_server_indexed_error(
+                error,
+                400,
+                (validator_count..3 * validator_count).collect(),
+            );
+        }
+    }
+
+    // Eventually all validators should have eth1 withdrawal credentials.
+    let head_state = harness.get_current_state();
+    for validator in head_state.validators() {
+        assert!(validator.has_eth1_withdrawal_credential(&spec));
     }
 }

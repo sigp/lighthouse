@@ -28,6 +28,26 @@ pub struct BlsToExecutionChange {
 
 impl SignedRoot for BlsToExecutionChange {}
 
+impl BlsToExecutionChange {
+    pub fn sign(
+        self,
+        secret_key: &SecretKey,
+        genesis_validators_root: Hash256,
+        spec: &ChainSpec,
+    ) -> SignedBlsToExecutionChange {
+        let domain = spec.compute_domain(
+            Domain::BlsToExecutionChange,
+            spec.genesis_fork_version,
+            genesis_validators_root,
+        );
+        let message = self.signing_root(domain);
+        SignedBlsToExecutionChange {
+            message: self,
+            signature: secret_key.sign(message),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
