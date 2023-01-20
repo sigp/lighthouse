@@ -29,7 +29,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let sync_committee_indices = state.get_sync_committee_indices(&sync_committee)?;
 
         let (participant_reward_value, proposer_reward_per_bit) =
-            compute_sync_aggregate_rewards(&state, spec).map_err(|e| {
+            compute_sync_aggregate_rewards(state, spec).map_err(|e| {
                 error!(
                     self.log, "Error calculating sync aggregate rewards";
                     "error" => ?e
@@ -53,14 +53,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         {
             let participant_balance = balances
                 .entry(*validator_index)
-                .or_insert(state.balances()[*validator_index]);
+                .or_insert_with(|| state.balances()[*validator_index]);
 
             if participant_bit {
                 participant_balance.safe_add_assign(participant_reward_value)?;
 
                 balances
                     .entry(proposer_index)
-                    .or_insert(state.balances()[proposer_index])
+                    .or_insert_with(|| state.balances()[proposer_index])
                     .safe_add_assign(proposer_reward_per_bit)?;
 
                 total_proposer_rewards.safe_add_assign(proposer_reward_per_bit)?;
@@ -72,7 +72,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(sync_committee_indices
             .iter()
             .map(|i| {
-                let new_balance = *balances.entry(*i).or_insert(state.balances()[*i]) as i64;
+                let new_balance =
+                    *balances.entry(*i).or_insert_with(|| state.balances()[*i]) as i64;
 
                 let reward = if *i != proposer_index {
                     new_balance - state.balances()[*i] as i64
