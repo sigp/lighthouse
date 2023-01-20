@@ -1367,7 +1367,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     ///
     /// Return an `BlobInfoConcurrentMutation` error if the `prev_value` provided
     /// is not correct.
-    pub fn compare_and_set_blob_info(
+    fn compare_and_set_blob_info(
         &self,
         prev_value: Option<BlobInfo>,
         new_value: Option<BlobInfo>,
@@ -1383,7 +1383,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     }
 
     /// As for `compare_and_set_blob_info`, but also writes the blob info to disk immediately.
-    pub fn compare_and_set_blob_info_with_write(
+    fn compare_and_set_blob_info_with_write(
         &self,
         prev_value: Option<BlobInfo>,
         new_value: Option<BlobInfo>,
@@ -1751,6 +1751,14 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 }
             };
 
+        let should_prune_blobs = self.get_config().prune_blobs;
+        if !should_prune_blobs && !force {
+            debug!(self.log, "Blob pruning is disabled";
+                "prune_blobs" => should_prune_blobs
+            );
+            return Ok(());
+        }
+
         let blob_info = || -> BlobInfo {
             if let Some(blob_info) = self.get_blob_info() {
                 if blob_info.oldest_blob_slot.epoch(E::slots_per_epoch()) >= eip4844_fork {
@@ -1758,14 +1766,15 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 }
             }
             // If BlobInfo is uninitialized this is probably the first time pruning blobs, or
-            // maybe oldest_blob_info has been initialized with Epoch::default.
-            // start from the eip4844 fork epoch. No new blobs are imported into the beacon
-            // chain that are older than the data availability boundary.
+            // maybe oldest_blob_info has been initialized with Epoch::default. Start from the
+            // eip4844 fork epoch.
             BlobInfo {
                 oldest_blob_slot: eip4844_fork.start_slot(E::slots_per_epoch()),
             }
         }();
 
+        // todo(emhane): Should we add a marginal for how old blobs we import? If so needs to be
+        // reflected here when choosing which oldest slot to prune from.
         let oldest_blob_slot = blob_info.oldest_blob_slot;
         // The last entirely pruned epoch, blobs sidecar pruning may have stopped early in the
         // middle of an epoch otherwise the oldest blob slot is a start slot.
@@ -1789,14 +1798,20 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
         let mut ops = vec![];
         let mut last_pruned_block_root = None;
-        let end_slot = data_availability_boundary.end_slot(E::slots_per_epoch());
+        // Prune up until the data availability boundary.
+        let end_slot = (data_availability_boundary - 1).end_slot(E::slots_per_epoch());
 
-        // todo(emhane): In the future, if the data availability boundary is less than the split
-        // epoch, this code will have to change to account for head candidates.
         for res in self.forwards_block_roots_iterator_until(
             oldest_blob_slot,
             end_slot,
             || {
+                // todo(emhane): In the future, if the data availability boundary is less than the
+                // split (finalized) epoch, this code will have to change to decide what to do
+                // with pruned blobs in our not-yet-finalized canonical chain and not-yet-orphaned
+                // forks (see DBColumn::BeaconBlobOrphan).
+                //
+                // Related to review and the spec PRs linked in it:
+                // https://github.com/sigp/lighthouse/pull/3852#pullrequestreview-1244785136
                 let split = self.get_split_info();
 
                 let split_state = self.get_state(&split.state_root, Some(split.slot))?.ok_or(

@@ -751,6 +751,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Drop the old cache head nice and early to try and free the memory as soon as possible.
         drop(old_cached_head);
 
+        // Prune blobs in the background.
+        self.store_migrator
+            .process_prune_blobs(self.data_availability_boundary());
+
         // If the finalized checkpoint changed, perform some updates.
         //
         // The `after_finalization` function will take a write-lock on `fork_choice`, therefore it
@@ -1013,21 +1017,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Take a write-lock on the canonical head and signal for it to prune.
         self.canonical_head.fork_choice_write_lock().prune()?;
-
-        // Prune blobs.
-        if self.store.get_config().prune_blobs {
-            let store = self.store.clone();
-            let log = self.log.clone();
-            let data_availability_boundary = self.data_availability_boundary();
-            self.task_executor.spawn_blocking(
-                move || {
-                    if let Err(e) = store.try_prune_blobs(false, data_availability_boundary) {
-                        error!(log, "Error pruning blobs in background"; "error" => ?e);
-                    }
-                },
-                "prune_blobs_background",
-            );
-        }
 
         Ok(())
     }

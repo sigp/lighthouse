@@ -3015,9 +3015,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         ops.push(StoreOp::PutBlock(block_root, signed_block.clone()));
         ops.push(StoreOp::PutState(block.state_root(), &state));
 
+        // Only store blobs at the data availability boundary or younger.
+        //
+        // todo(emhane): Should we add a marginal of one epoch here to ensure data availability
+        // consistency across network at epoch boundaries?
         let block_epoch = block.slot().epoch(T::EthSpec::slots_per_epoch());
-
-        // Only store blobs that haven't passed the data availability boundary.
         if Some(block_epoch) >= self.data_availability_boundary() {
             if let Some(blobs) = blobs? {
                 if blobs.blobs.len() > 0 {
