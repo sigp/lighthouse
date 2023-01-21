@@ -367,7 +367,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     self.send_error_response(
                         peer_id,
                         RPCResponseErrorCode::ResourceUnavailable,
-                        "Bootstrap not avaiable".into(),
+                        "Bootstrap not available".into(),
                         request_id,
                     );
                     return;
@@ -377,7 +377,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                 self.send_error_response(
                     peer_id,
                     RPCResponseErrorCode::ResourceUnavailable,
-                    "Bootstrap not avaiable".into(),
+                    "Bootstrap not available".into(),
                     request_id,
                 );
                 return;
@@ -390,7 +390,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     self.send_error_response(
                         peer_id,
                         RPCResponseErrorCode::ResourceUnavailable,
-                        "Bootstrap not avaiable".into(),
+                        "Bootstrap not available".into(),
                         request_id,
                     );
                     return;
@@ -400,7 +400,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                 self.send_error_response(
                     peer_id,
                     RPCResponseErrorCode::ResourceUnavailable,
-                    "Bootstrap not avaiable".into(),
+                    "Bootstrap not available".into(),
                     request_id,
                 );
                 return;
@@ -412,7 +412,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                 self.send_error_response(
                     peer_id,
                     RPCResponseErrorCode::ResourceUnavailable,
-                    "Bootstrap not avaiable".into(),
+                    "Bootstrap not available".into(),
                     request_id,
                 );
                 return;
