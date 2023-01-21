@@ -519,6 +519,20 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         }
     }
 
+    pub fn put_light_client_update(
+        &self,
+        update: LightClientUpdate<E>,
+    ) -> Result<(), Error> {
+        let sync_committee_period = update.signature_slot.epoch(E::slots_per_epoch())
+            / self.spec.epochs_per_sync_committee_period;
+        let key = sync_committee_period.as_u64().to_le_bytes();
+        if update.signature_slot < self.get_split_slot() {
+            self.cold_db.put_bytes(DBColumn::LightClientUpdate.into(), &key, &update.as_ssz_bytes())
+        } else {
+            self.hot_db.put_bytes(DBColumn::LightClientUpdate.into(), &key, &update.as_ssz_bytes())
+        }
+    }
+
     /// Fetch a light client update from the store.
     pub fn get_light_client_update(
         &self,

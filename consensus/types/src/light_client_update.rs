@@ -62,19 +62,19 @@ impl From<ArithError> for Error {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TestRandom)]
 #[serde(bound = "T: EthSpec")]
 pub struct LightClientUpdate<T: EthSpec> {
-    /// The last `BeaconBlockHeader` from the last attested block by the sync committee.
+    /// The last `LightClientHeader` from the last attested block by the sync committee.
     pub attested_header: LightClientHeader,
     /// The `SyncCommittee` used in the next period.
     pub next_sync_committee: Arc<SyncCommittee<T>>,
     /// Merkle proof for next sync committee
     pub next_sync_committee_branch: FixedVector<Hash256, NextSyncCommitteeProofLen>,
-    /// The last `BeaconBlockHeader` from the last attested finalized block (end of epoch).
+    /// The last `LightClientHeader` from the last attested finalized block (end of epoch).
     pub finalized_header: LightClientHeader,
     /// Merkle proof attesting finalized header.
     pub finality_branch: FixedVector<Hash256, FinalizedRootProofLen>,
     /// current sync aggreggate
     pub sync_aggregate: SyncAggregate<T>,
-    /// Slot of the sync aggregated singature
+    /// Slot of the sync aggregated signature
     pub signature_slot: Slot,
 }
 
