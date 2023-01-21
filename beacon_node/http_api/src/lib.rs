@@ -1702,26 +1702,24 @@ pub fn serve<T: BeaconChainTypes>(
         );
 
     let beacon_rewards_path = eth_v1
-    .and(warp::path("beacon"))
-    .and(warp::path("rewards"))
-    .and(chain_filter.clone());
+        .and(warp::path("beacon"))
+        .and(warp::path("rewards"))
+        .and(chain_filter.clone());
 
     // TODO: GET beacon/rewards/blocks/{block_id}
-    let get_beacon_rewards_block = beacon_rewards_path
+    let get_beacon_rewards_blocks = beacon_rewards_path
         .clone()
         .and(warp::path("blocks"))
         .and(block_id_or_err)
         .and(warp::path::end())
-        .and(warp::body::json())
         .and(log_filter.clone())
         .and_then(
-            |chain: Arc<BeaconChain<T>>,
-            block_id: BlockId,
-            validators: Vec<ValidatorId>,
-            log: Logger| {
-            blocking_json_task(move || block_rewards_v2::compute_block_rewards(
-                chain, block_id, validators, log))
-        });
+            |chain: Arc<BeaconChain<T>>, block_id: BlockId, log: Logger| {
+                blocking_json_task(move || {
+                    block_rewards_v2::compute_beacon_block_rewards(chain, block_id, log)
+                })
+            },
+        );
 
     /*
      * beacon/rewards
@@ -3404,7 +3402,7 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(get_beacon_pool_proposer_slashings.boxed())
                 .or(get_beacon_pool_voluntary_exits.boxed())
                 .or(get_beacon_deposit_snapshot.boxed())
-                .or(get_beacon_rewards_block.boxed())
+                .or(get_beacon_rewards_blocks.boxed())
                 .or(get_config_fork_schedule.boxed())
                 .or(get_config_spec.boxed())
                 .or(get_config_deposit_contract.boxed())

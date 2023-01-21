@@ -1045,10 +1045,7 @@ impl BeaconNodeHttpClient {
     }
 
     /// `GET beacon/rewards/blocks`
-    pub async fn get_beacon_rewards_blocks(
-        &self,
-        epoch: Epoch,
-    ) -> Result<(), Error> {
+    pub async fn get_beacon_rewards_blocks(&self, epoch: Epoch) -> Result<(), Error> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
