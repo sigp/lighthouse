@@ -114,6 +114,9 @@ pub fn migrate_schema<T: BeaconChainTypes>(
 
             Ok(())
         }
+        (SchemaVersion(14), SchemaVersion(15)) => {
+            db.store_schema_version_atomically(to, vec![])
+        }
         // Anything else is an error.
         (_, _) => Err(HotColdDBError::UnsupportedSchemaVersion {
             target_version: to,

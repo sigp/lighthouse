@@ -1273,7 +1273,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                     InboundRequest::LightClientUpdatesByRange(req) => {
                         let methods::LightClientUpdatesByRangeRequest {
                             start_period,
-                            mut count,
+                            count,
                         } = req;
                         let event = self.build_request(
                             peer_request_id,
