@@ -1,7 +1,7 @@
+use beacon_chain::blob_verification::BlockWrapper;
 use std::{collections::VecDeque, sync::Arc};
 
-use types::signed_block_and_blobs::BlockWrapper;
-use types::{signed_block_and_blobs::AvailableBlock, BlobsSidecar, EthSpec, SignedBeaconBlock};
+use types::{BlobsSidecar, EthSpec, SignedBeaconBlock};
 
 #[derive(Debug, Default)]
 pub struct BlocksAndBlobsRequestInfo<T: EthSpec> {

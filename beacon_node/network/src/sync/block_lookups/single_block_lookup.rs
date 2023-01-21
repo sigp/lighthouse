@@ -1,4 +1,5 @@
 use super::RootBlockTuple;
+use beacon_chain::blob_verification::{AsBlock, BlockWrapper};
 use beacon_chain::get_block_root;
 use lighthouse_network::{rpc::BlocksByRootRequest, PeerId};
 use rand::seq::IteratorRandom;
@@ -6,7 +7,6 @@ use ssz_types::VariableList;
 use std::collections::HashSet;
 use store::{EthSpec, Hash256};
 use strum::IntoStaticStr;
-use types::signed_block_and_blobs::BlockWrapper;
 
 /// Object representing a single block lookup request.
 #[derive(PartialEq, Eq)]
@@ -115,7 +115,7 @@ impl<const MAX_ATTEMPTS: u8> SingleBlockRequest<MAX_ATTEMPTS> {
                 Some(block) => {
                     // Compute the block root using this specific function so that we can get timing
                     // metrics.
-                    let block_root = get_block_root(block.block());
+                    let block_root = get_block_root(block.as_block());
                     if block_root != self.hash {
                         // return an error and drop the block
                         // NOTE: we take this is as a download failure to prevent counting the
@@ -205,7 +205,7 @@ impl<const MAX_ATTEMPTS: u8> slog::Value for SingleBlockRequest<MAX_ATTEMPTS> {
 mod tests {
     use super::*;
     use types::test_utils::{SeedableRng, TestRandom, XorShiftRng};
-    use types::MinimalEthSpec as E;
+    use types::{MinimalEthSpec as E, SignedBeaconBlock};
 
     fn rand_block() -> SignedBeaconBlock<E> {
         let mut rng = XorShiftRng::from_seed([42; 16]);

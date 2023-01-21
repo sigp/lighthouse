@@ -9,12 +9,12 @@ use crate::BlockError::BlobValidation;
 use crate::{kzg_utils, BeaconChainError, BlockError};
 use state_processing::per_block_processing::eip4844::eip4844::verify_kzg_commitments_against_transactions;
 use types::signed_beacon_block::BlobReconstructionError;
+use types::ExecPayload;
 use types::{
     BeaconBlockRef, BeaconStateError, BlobsSidecar, Epoch, EthSpec, Hash256, KzgCommitment,
     SignedBeaconBlock, SignedBeaconBlockAndBlobsSidecar, SignedBeaconBlockHeader, Slot,
     Transactions,
 };
-use types::ExecPayload;
 
 #[derive(Debug)]
 pub enum BlobError {
@@ -89,7 +89,7 @@ pub fn validate_blob_for_gossip<T: BeaconChainTypes>(
     block_root: Hash256,
     chain: &BeaconChain<T>,
 ) -> Result<AvailableBlock<T::EthSpec>, BlobError> {
-    if let BlockWrapper::BlockAndBlob(block, blobs_sidecar) = block_wrapper {
+    if let BlockWrapper::BlockAndBlob(ref block, ref blobs_sidecar) = block_wrapper {
         let blob_slot = blobs_sidecar.beacon_block_slot;
         // Do not gossip or process blobs from future or past slots.
         let latest_permissible_slot = chain
@@ -175,6 +175,16 @@ impl<E: EthSpec> BlockWrapper<E> {
 impl<E: EthSpec> From<SignedBeaconBlock<E>> for BlockWrapper<E> {
     fn from(block: SignedBeaconBlock<E>) -> Self {
         BlockWrapper::Block(Arc::new(block))
+    }
+}
+
+impl<E: EthSpec> From<SignedBeaconBlockAndBlobsSidecar<E>> for BlockWrapper<E> {
+    fn from(block: SignedBeaconBlockAndBlobsSidecar<E>) -> Self {
+        let SignedBeaconBlockAndBlobsSidecar {
+            beacon_block,
+            blobs_sidecar,
+        } = block;
+        BlockWrapper::BlockAndBlob(beacon_block, blobs_sidecar)
     }
 }
 
@@ -327,15 +337,6 @@ impl<E: EthSpec> AvailableBlock<E> {
         }
     }
 
-    pub fn block_cloned(&self) -> Arc<SignedBeaconBlock<E>> {
-        match &self.0 {
-            AvailableBlockInner::Block(block) => block.clone(),
-            AvailableBlockInner::BlockAndBlob(block_sidecar_pair) => {
-                block_sidecar_pair.beacon_block.clone()
-            }
-        }
-    }
-
     pub fn blobs(&self) -> Option<Arc<BlobsSidecar<E>>> {
         match &self.0 {
             AvailableBlockInner::Block(_) => None,
@@ -385,8 +386,9 @@ pub trait AsBlock<E: EthSpec> {
     fn parent_root(&self) -> Hash256;
     fn state_root(&self) -> Hash256;
     fn signed_block_header(&self) -> SignedBeaconBlockHeader;
-    fn as_block(&self) -> &SignedBeaconBlock<E>;
     fn message(&self) -> BeaconBlockRef<E>;
+    fn as_block(&self) -> &SignedBeaconBlock<E>;
+    fn block_cloned(&self) -> Arc<SignedBeaconBlock<E>>;
 }
 
 impl<E: EthSpec> AsBlock<E> for BlockWrapper<E> {
@@ -417,15 +419,19 @@ impl<E: EthSpec> AsBlock<E> for BlockWrapper<E> {
     fn message(&self) -> BeaconBlockRef<E> {
         match &self {
             BlockWrapper::Block(block) => block.message(),
-            BlockWrapper::BlockAndBlob(block, _) => {
-                block.message()
-            }
+            BlockWrapper::BlockAndBlob(block, _) => block.message(),
         }
     }
     fn as_block(&self) -> &SignedBeaconBlock<E> {
         match &self {
             BlockWrapper::Block(block) => &block,
             BlockWrapper::BlockAndBlob(block, _) => &block,
+        }
+    }
+    fn block_cloned(&self) -> Arc<SignedBeaconBlock<E>> {
+        match &self {
+            BlockWrapper::Block(block) => block.clone(),
+            BlockWrapper::BlockAndBlob(block, _) => block.clone(),
         }
     }
 }
@@ -458,15 +464,19 @@ impl<E: EthSpec> AsBlock<E> for &BlockWrapper<E> {
     fn message(&self) -> BeaconBlockRef<E> {
         match &self {
             BlockWrapper::Block(block) => block.message(),
-            BlockWrapper::BlockAndBlob(block, _) => {
-                block.message()
-            }
+            BlockWrapper::BlockAndBlob(block, _) => block.message(),
         }
     }
     fn as_block(&self) -> &SignedBeaconBlock<E> {
         match &self {
             BlockWrapper::Block(block) => &block,
             BlockWrapper::BlockAndBlob(block, _) => &block,
+        }
+    }
+    fn block_cloned(&self) -> Arc<SignedBeaconBlock<E>> {
+        match &self {
+            BlockWrapper::Block(block) => block.clone(),
+            BlockWrapper::BlockAndBlob(block, _) => block.clone(),
         }
     }
 }
@@ -517,6 +527,14 @@ impl<E: EthSpec> AsBlock<E> for AvailableBlock<E> {
             AvailableBlockInner::Block(block) => &block,
             AvailableBlockInner::BlockAndBlob(block_sidecar_pair) => {
                 &block_sidecar_pair.beacon_block
+            }
+        }
+    }
+    fn block_cloned(&self) -> Arc<SignedBeaconBlock<E>> {
+        match &self.0 {
+            AvailableBlockInner::Block(block) => block.clone(),
+            AvailableBlockInner::BlockAndBlob(block_sidecar_pair) => {
+                block_sidecar_pair.beacon_block.clone()
             }
         }
     }

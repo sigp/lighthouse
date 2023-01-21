@@ -73,6 +73,7 @@ use fork_choice::{AttestationFromBlock, PayloadVerificationStatus};
 use parking_lot::RwLockReadGuard;
 use proto_array::{Block as ProtoBlock, Block};
 use safe_arith::ArithError;
+use slasher::test_utils::{block, E};
 use slog::{debug, error, warn, Logger};
 use slot_clock::SlotClock;
 use ssz::Encode;
@@ -90,7 +91,6 @@ use std::fs;
 use std::io::Write;
 use std::sync::Arc;
 use std::time::Duration;
-use slasher::test_utils::{block, E};
 use store::{Error as DBError, HotStateSummary, KeyValueStore, StoreOp};
 use task_executor::JoinHandle;
 use tree_hash::TreeHash;
@@ -314,7 +314,7 @@ pub enum BlockError<T: EthSpec> {
     BlobValidation(BlobError),
 }
 
-impl <T: EthSpec>From<BlobError> for BlockError<T> {
+impl<T: EthSpec> From<BlobError> for BlockError<T> {
     fn from(e: BlobError) -> Self {
         Self::BlobValidation(e)
     }
@@ -601,10 +601,10 @@ pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
         let mut consensus_context =
             ConsensusContext::new(block.slot()).set_current_block_root(*block_root);
 
-        //FIXME(sean) batch kzg verification
-        let available_block = block.into_available_block(*block_root, chain)?;
+        signature_verifier.include_all_signatures(block.as_block(), &mut consensus_context)?;
 
-        signature_verifier.include_all_signatures(available_block.as_block(), &mut consensus_context)?;
+        //FIXME(sean) batch kzg verification
+        let available_block = block.clone().into_available_block(*block_root, chain)?;
 
         // Save the block and its consensus context. The context will have had its proposer index
         // and attesting indices filled in, which can be used to accelerate later block processing.
