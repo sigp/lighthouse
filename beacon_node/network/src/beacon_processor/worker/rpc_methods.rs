@@ -122,7 +122,10 @@ impl<T: BeaconChainTypes> Worker<T> {
                 };
                 self.send_sync_message(SyncMessage::AddPeer(peer_id, info));
             }
-            Err(e) => error!(self.log, "Could not process status message"; "error" => ?e),
+            Err(e) => error!(self.log, "Could not process status message";
+                "peer" => %peer_id,
+                "error" => ?e
+            ),
         }
     }
 
@@ -252,13 +255,14 @@ impl<T: BeaconChainTypes> Worker<T> {
 
                             match finalized_data_availability_boundary {
                                 Some(boundary_epoch) => {
-                                    if block_epoch >= finalized_data_availability_boundary {
+                                    if block_epoch >= boundary_epoch {
                                         error!(
                                             self.log,
                                             "Peer requested block and blob that should be available, but no blob found";
+                                            "request" => %request,
                                             "peer" => %peer_id,
                                             "request_root" => ?root,
-                                            "finalized_data_availability_boundary" => finalized_data_availability_boundary,
+                                            "finalized_data_availability_boundary" => %boundary_epoch,
                                         );
                                     } else {
                                         debug!(
@@ -267,7 +271,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                                             boundary for ByRoot request, no blob found";
                                             "peer" => %peer_id,
                                             "request_root" => ?root,
-                                            "finalized_data_availability_boundary" => finalized_data_availability_boundary,
+                                            "finalized_data_availability_boundary" => ?finalized_data_availability_boundary,
                                         );
                                     }
                                 }
@@ -287,6 +291,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                             error!(
                                 self.log,
                                 "Peer requested block and blob, but no block found";
+                                "request" => %request,
                                 "peer" => %peer_id,
                                 "request_root" => ?root
                             );
@@ -295,6 +300,8 @@ impl<T: BeaconChainTypes> Worker<T> {
                             error!(
                                 self.log,
                                 "No blobs in the store for block root";
+                                "request" => %request,
+                                "peer" => %peer_id,
                                 "block_root" => ?root
                             );
                             self.send_error_response(
@@ -436,8 +443,8 @@ impl<T: BeaconChainTypes> Worker<T> {
     ) {
         debug!(self.log, "Received BlocksByRange Request";
             "peer_id" => %peer_id,
-            "count" => req.count,
-            "start_slot" => req.start_slot,
+            "count" => %req.count,
+            "start_slot" => %req.start_slot,
         );
 
         // Should not send more than max request blocks
@@ -457,8 +464,8 @@ impl<T: BeaconChainTypes> Worker<T> {
                 },
             )) => {
                 debug!(self.log, "Range request failed during backfill";
-                    "requested_slot" => slot,
-                    "oldest_known_slot" => oldest_block_slot
+                    "requested_slot" => %slot,
+                    "oldest_known_slot" => %oldest_block_slot
                 );
                 return self.send_error_response(
                     peer_id,
@@ -467,7 +474,13 @@ impl<T: BeaconChainTypes> Worker<T> {
                     request_id,
                 );
             }
-            Err(e) => return error!(self.log, "Unable to obtain root iter"; "error" => ?e),
+            Err(e) => {
+                return error!(self.log, "Unable to obtain root iter";
+                    "request" => %req,
+                    "peer" => %peer_id,
+                    "error" => ?e
+                )
+            }
         };
 
         // Pick out the required blocks, ignoring skip-slots.
@@ -499,7 +512,13 @@ impl<T: BeaconChainTypes> Worker<T> {
 
         let block_roots = match maybe_block_roots {
             Ok(block_roots) => block_roots,
-            Err(e) => return error!(self.log, "Error during iteration over blocks"; "error" => ?e),
+            Err(e) => {
+                return error!(self.log, "Error during iteration over blocks";
+                    "request" => %req,
+                    "peer" => %peer_id,
+                    "error" => ?e
+                )
+            }
         };
 
         // remove all skip slots
@@ -531,6 +550,8 @@ impl<T: BeaconChainTypes> Worker<T> {
                             error!(
                                 self.log,
                                 "Block in the chain is not in the store";
+                                "request" => %req,
+                                "peer" => %peer_id,
                                 "request_root" => ?root
                             );
                             break;
@@ -556,6 +577,8 @@ impl<T: BeaconChainTypes> Worker<T> {
                             error!(
                                 self.log,
                                 "Error fetching block for peer";
+                                "request" => %req,
+                                "peer" => %peer_id,
                                 "block_root" => ?root,
                                 "error" => ?e
                             );
@@ -584,20 +607,20 @@ impl<T: BeaconChainTypes> Worker<T> {
                         "BlocksByRange outgoing response processed";
                         "peer" => %peer_id,
                         "msg" => "Failed to return all requested blocks",
-                        "start_slot" => req.start_slot,
-                        "current_slot" => current_slot,
-                        "requested" => req.count,
-                        "returned" => blocks_sent
+                        "start_slot" => %req.start_slot,
+                        "current_slot" => %current_slot,
+                        "requested" => %req.count,
+                        "returned" => %blocks_sent
                     );
                 } else {
                     debug!(
                         self.log,
                         "BlocksByRange outgoing response processed";
                         "peer" => %peer_id,
-                        "start_slot" => req.start_slot,
-                        "current_slot" => current_slot,
-                        "requested" => req.count,
-                        "returned" => blocks_sent
+                        "start_slot" => %req.start_slot,
+                        "current_slot" => %current_slot,
+                        "requested" => %req.count,
+                        "returned" => %blocks_sent
                     );
                 }
 
@@ -627,8 +650,8 @@ impl<T: BeaconChainTypes> Worker<T> {
     ) {
         debug!(self.log, "Received BlobsByRange Request";
             "peer_id" => %peer_id,
-            "count" => req.count,
-            "start_slot" => req.start_slot,
+            "count" => %req.count,
+            "start_slot" => %req.start_slot,
         );
 
         let start_slot = Slot::from(req.start_slot);
@@ -647,8 +670,8 @@ impl<T: BeaconChainTypes> Worker<T> {
                     debug!(
                         self.log,
                         "Range request start slot is older than data availability boundary";
-                        "requested_slot" => req.start_slot,
-                        "oldest_known_slot" => ?oldest_blob_slot,
+                        "requested_slot" => %req.start_slot,
+                        "oldest_known_slot" => oldest_blob_slot,
                         "data_availability_boundary" => data_availability_boundary
                     );
 
@@ -684,8 +707,8 @@ impl<T: BeaconChainTypes> Worker<T> {
                     },
                 )) => {
                     debug!(self.log, "Range request failed during backfill";
-                        "requested_slot" => slot,
-                        "oldest_known_slot" => oldest_block_slot
+                        "requested_slot" => %slot,
+                        "oldest_known_slot" => %oldest_block_slot
                     );
                     return self.send_error_response(
                         peer_id,
@@ -694,7 +717,13 @@ impl<T: BeaconChainTypes> Worker<T> {
                         request_id,
                     );
                 }
-                Err(e) => return error!(self.log, "Unable to obtain root iter"; "error" => ?e),
+                Err(e) => {
+                    return error!(self.log, "Unable to obtain root iter";
+                        "request" => %req,
+                        "peer" => %peer_id,
+                        "error" => ?e
+                    )
+                }
             };
 
         // Pick out the required blocks, ignoring skip-slots.
@@ -726,7 +755,13 @@ impl<T: BeaconChainTypes> Worker<T> {
 
         let block_roots = match maybe_block_roots {
             Ok(block_roots) => block_roots,
-            Err(e) => return error!(self.log, "Error during iteration over blocks"; "error" => ?e),
+            Err(e) => {
+                return error!(self.log, "Error during iteration over blocks";
+                    "request" => %req,
+                    "peer" => %peer_id,
+                    "error" => ?e
+                )
+            }
         };
 
         // remove all skip slots
@@ -749,6 +784,8 @@ impl<T: BeaconChainTypes> Worker<T> {
                     error!(
                         self.log,
                         "No blobs or block in the store for block root";
+                        "request" => %req,
+                        "peer" => %peer_id,
                         "block_root" => ?root
                     );
                     break;
@@ -757,6 +794,8 @@ impl<T: BeaconChainTypes> Worker<T> {
                     error!(
                         self.log,
                         "No blobs in the store for block root";
+                        "request" => %req,
+                        "peer" => %peer_id,
                         "block_root" => ?root
                     );
                     self.send_error_response(
@@ -772,6 +811,8 @@ impl<T: BeaconChainTypes> Worker<T> {
                     error!(
                         self.log,
                         "No kzg_commitments field in block";
+                        "request" => %req,
+                        "peer" => %peer_id,
                         "block_root" => ?root,
                     );
                     self.send_error_response(
@@ -787,6 +828,8 @@ impl<T: BeaconChainTypes> Worker<T> {
                     error!(
                         self.log,
                         "Failed loading blobs older than data availability boundary";
+                        "request" => %req,
+                        "peer" => %peer_id,
                         "block_root" => ?root,
                     );
                     self.send_error_response(
@@ -802,6 +845,8 @@ impl<T: BeaconChainTypes> Worker<T> {
                     error!(
                         self.log,
                         "Error fetching blinded block for block root";
+                        "request" => %req,
+                        "peer" => %peer_id,
                         "block_root" => ?root,
                         "error" => ?e
                     );
@@ -828,20 +873,20 @@ impl<T: BeaconChainTypes> Worker<T> {
                 "BlobsByRange Response processed";
                 "peer" => %peer_id,
                 "msg" => "Failed to return all requested blobs",
-                "start_slot" => req.start_slot,
-                "current_slot" => current_slot,
-                "requested" => req.count,
-                "returned" => blobs_sent
+                "start_slot" => %req.start_slot,
+                "current_slot" => %current_slot,
+                "requested" => %req.count,
+                "returned" => %blobs_sent
             );
         } else {
             debug!(
                 self.log,
                 "BlobsByRange Response processed";
                 "peer" => %peer_id,
-                "start_slot" => req.start_slot,
-                "current_slot" => current_slot,
-                "requested" => req.count,
-                "returned" => blobs_sent
+                "start_slot" => %req.start_slot,
+                "current_slot" => %current_slot,
+                "requested" => %req.count,
+                "returned" => %blobs_sent
             );
         }
 

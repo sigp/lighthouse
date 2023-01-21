@@ -507,9 +507,23 @@ impl std::fmt::Display for OldBlocksByRangeRequest {
     }
 }
 
+impl std::fmt::Display for BlobsByRootRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Request: BlobsByRoot: Number of Requested Roots: {}",
+            self.block_roots.len()
+        )
+    }
+}
+
 impl std::fmt::Display for BlobsByRangeRequest {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Start Slot: {}, Count: {}", self.start_slot, self.count)
+        write!(
+            f,
+            "Request: BlobsByRange: Start Slot: {}, Count: {}",
+            self.start_slot, self.count
+        )
     }
 }
 
