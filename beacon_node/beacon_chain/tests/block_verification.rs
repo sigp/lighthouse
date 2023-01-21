@@ -80,7 +80,7 @@ fn get_harness(validator_count: usize) -> BeaconChainHarness<EphemeralHarnessTyp
 fn chain_segment_blocks(chain_segment: &[BeaconSnapshot<E>]) -> Vec<Arc<SignedBeaconBlock<E>>> {
     chain_segment
         .iter()
-        .map(|snapshot| snapshot.beacon_block.clone())
+        .map(|snapshot| snapshot.beacon_block.clone().into())
         .collect()
 }
 
@@ -155,7 +155,7 @@ async fn chain_segment_full_segment() {
     harness
         .chain
         .process_chain_segment(
-            blocks.clone(),
+            blocks.clone().into(),
             CountUnrealized::True,
             NotifyExecutionLayer::Yes,
         )
@@ -188,7 +188,7 @@ async fn chain_segment_varying_chunk_size() {
             harness
                 .chain
                 .process_chain_segment(
-                    chunk.to_vec(),
+                    chunk.to_vec().into(),
                     CountUnrealized::True,
                     NotifyExecutionLayer::Yes,
                 )
@@ -227,7 +227,11 @@ async fn chain_segment_non_linear_parent_roots() {
         matches!(
             harness
                 .chain
-                .process_chain_segment(blocks, CountUnrealized::True, NotifyExecutionLayer::Yes)
+                .process_chain_segment(
+                    blocks.into(),
+                    CountUnrealized::True,
+                    NotifyExecutionLayer::Yes
+                )
                 .await
                 .into_block_error(),
             Err(BlockError::NonLinearParentRoots)
@@ -247,7 +251,11 @@ async fn chain_segment_non_linear_parent_roots() {
         matches!(
             harness
                 .chain
-                .process_chain_segment(blocks, CountUnrealized::True, NotifyExecutionLayer::Yes)
+                .process_chain_segment(
+                    blocks.into(),
+                    CountUnrealized::True,
+                    NotifyExecutionLayer::Yes
+                )
                 .await
                 .into_block_error(),
             Err(BlockError::NonLinearParentRoots)
@@ -278,7 +286,11 @@ async fn chain_segment_non_linear_slots() {
         matches!(
             harness
                 .chain
-                .process_chain_segment(blocks, CountUnrealized::True, NotifyExecutionLayer::Yes)
+                .process_chain_segment(
+                    blocks.into(),
+                    CountUnrealized::True,
+                    NotifyExecutionLayer::Yes
+                )
                 .await
                 .into_block_error(),
             Err(BlockError::NonLinearSlots)
@@ -299,7 +311,11 @@ async fn chain_segment_non_linear_slots() {
         matches!(
             harness
                 .chain
-                .process_chain_segment(blocks, CountUnrealized::True, NotifyExecutionLayer::Yes)
+                .process_chain_segment(
+                    blocks.into(),
+                    CountUnrealized::True,
+                    NotifyExecutionLayer::Yes
+                )
                 .await
                 .into_block_error(),
             Err(BlockError::NonLinearSlots)
@@ -317,7 +333,7 @@ async fn assert_invalid_signature(
 ) {
     let blocks = snapshots
         .iter()
-        .map(|snapshot| snapshot.beacon_block.clone())
+        .map(|snapshot| snapshot.beacon_block.clone().into())
         .collect();
 
     // Ensure the block will be rejected if imported in a chain segment.
@@ -325,7 +341,11 @@ async fn assert_invalid_signature(
         matches!(
             harness
                 .chain
-                .process_chain_segment(blocks, CountUnrealized::True, NotifyExecutionLayer::Yes)
+                .process_chain_segment(
+                    blocks.into(),
+                    CountUnrealized::True,
+                    NotifyExecutionLayer::Yes
+                )
                 .await
                 .into_block_error(),
             Err(BlockError::InvalidSignature)
@@ -341,7 +361,7 @@ async fn assert_invalid_signature(
     let ancestor_blocks = chain_segment
         .iter()
         .take(block_index)
-        .map(|snapshot| snapshot.beacon_block.clone())
+        .map(|snapshot| snapshot.beacon_block.clone().into())
         .collect();
     // We don't care if this fails, we just call this to ensure that all prior blocks have been
     // imported prior to this test.
@@ -409,7 +429,7 @@ async fn invalid_signature_gossip_block() {
         let ancestor_blocks = chain_segment
             .iter()
             .take(block_index)
-            .map(|snapshot| snapshot.beacon_block.clone())
+            .map(|snapshot| snapshot.beacon_block.clone().into())
             .collect();
         harness
             .chain
@@ -457,14 +477,18 @@ async fn invalid_signature_block_proposal() {
         ));
         let blocks = snapshots
             .iter()
-            .map(|snapshot| snapshot.beacon_block.clone())
+            .map(|snapshot| snapshot.beacon_block.clone().into())
             .collect::<Vec<_>>();
         // Ensure the block will be rejected if imported in a chain segment.
         assert!(
             matches!(
                 harness
                     .chain
-                    .process_chain_segment(blocks, CountUnrealized::True, NotifyExecutionLayer::Yes)
+                    .process_chain_segment(
+                        blocks.into(),
+                        CountUnrealized::True,
+                        NotifyExecutionLayer::Yes
+                    )
                     .await
                     .into_block_error(),
                 Err(BlockError::InvalidSignature)
@@ -656,13 +680,17 @@ async fn invalid_signature_deposit() {
         update_proposal_signatures(&mut snapshots, &harness);
         let blocks = snapshots
             .iter()
-            .map(|snapshot| snapshot.beacon_block.clone())
+            .map(|snapshot| snapshot.beacon_block.clone().into())
             .collect();
         assert!(
             !matches!(
                 harness
                     .chain
-                    .process_chain_segment(blocks, CountUnrealized::True, NotifyExecutionLayer::Yes)
+                    .process_chain_segment(
+                        blocks.into(),
+                        CountUnrealized::True,
+                        NotifyExecutionLayer::Yes
+                    )
                     .await
                     .into_block_error(),
                 Err(BlockError::InvalidSignature)
@@ -733,7 +761,7 @@ async fn block_gossip_verification() {
     for snapshot in &chain_segment[0..block_index] {
         let gossip_verified = harness
             .chain
-            .verify_block_for_gossip(snapshot.beacon_block.clone())
+            .verify_block_for_gossip(snapshot.beacon_block.clone().into())
             .await
             .expect("should obtain gossip verified block");
 
@@ -771,7 +799,7 @@ async fn block_gossip_verification() {
     *block.slot_mut() = expected_block_slot;
     assert!(
         matches!(
-            unwrap_err(harness.chain.verify_block_for_gossip(Arc::new(SignedBeaconBlock::from_block(block, signature))).await),
+            unwrap_err(harness.chain.verify_block_for_gossip(Arc::new(SignedBeaconBlock::from_block(block, signature)).into()).await),
             BlockError::FutureSlot {
                 present_slot,
                 block_slot,
@@ -835,10 +863,9 @@ async fn block_gossip_verification() {
             unwrap_err(
                 harness
                     .chain
-                    .verify_block_for_gossip(Arc::new(SignedBeaconBlock::from_block(
-                        block,
-                        junk_signature()
-                    )))
+                    .verify_block_for_gossip(
+                        Arc::new(SignedBeaconBlock::from_block(block, junk_signature())).into()
+                    )
                     .await
             ),
             BlockError::ProposalSignatureInvalid
@@ -863,7 +890,7 @@ async fn block_gossip_verification() {
     *block.parent_root_mut() = parent_root;
     assert!(
         matches!(
-            unwrap_err(harness.chain.verify_block_for_gossip(Arc::new(SignedBeaconBlock::from_block(block, signature))).await),
+            unwrap_err(harness.chain.verify_block_for_gossip(Arc::new(SignedBeaconBlock::from_block(block, signature)).into()).await),
             BlockError::ParentUnknown(block)
             if block.parent_root() == parent_root
         ),
@@ -889,7 +916,7 @@ async fn block_gossip_verification() {
     *block.parent_root_mut() = parent_root;
     assert!(
         matches!(
-            unwrap_err(harness.chain.verify_block_for_gossip(Arc::new(SignedBeaconBlock::from_block(block, signature))).await),
+            unwrap_err(harness.chain.verify_block_for_gossip(Arc::new(SignedBeaconBlock::from_block(block, signature)).into()).await),
             BlockError::NotFinalizedDescendant { block_parent_root }
             if block_parent_root == parent_root
         ),
@@ -927,7 +954,7 @@ async fn block_gossip_verification() {
     );
     assert!(
         matches!(
-            unwrap_err(harness.chain.verify_block_for_gossip(Arc::new(block.clone())).await),
+            unwrap_err(harness.chain.verify_block_for_gossip(Arc::new(block.clone()).into()).await),
             BlockError::IncorrectBlockProposer {
                 block,
                 local_shuffling,
@@ -939,7 +966,7 @@ async fn block_gossip_verification() {
     // Check to ensure that we registered this is a valid block from this proposer.
     assert!(
         matches!(
-            unwrap_err(harness.chain.verify_block_for_gossip(Arc::new(block.clone())).await),
+            unwrap_err(harness.chain.verify_block_for_gossip(Arc::new(block.clone()).into()).await),
             BlockError::RepeatProposal {
                 proposer,
                 slot,
@@ -951,7 +978,11 @@ async fn block_gossip_verification() {
 
     let block = chain_segment[block_index].beacon_block.clone();
     assert!(
-        harness.chain.verify_block_for_gossip(block).await.is_ok(),
+        harness
+            .chain
+            .verify_block_for_gossip(block.into())
+            .await
+            .is_ok(),
         "the valid block should be processed"
     );
 
@@ -969,7 +1000,7 @@ async fn block_gossip_verification() {
         matches!(
             harness
                 .chain
-                .verify_block_for_gossip(block.clone())
+                .verify_block_for_gossip(block.clone().into())
                 .await
                 .err()
                 .expect("should error when processing known block"),
@@ -1006,7 +1037,7 @@ async fn verify_block_for_gossip_slashing_detection() {
 
     let verified_block = harness
         .chain
-        .verify_block_for_gossip(Arc::new(block1))
+        .verify_block_for_gossip(Arc::new(block1).into())
         .await
         .unwrap();
     harness
@@ -1022,7 +1053,7 @@ async fn verify_block_for_gossip_slashing_detection() {
     unwrap_err(
         harness
             .chain
-            .verify_block_for_gossip(Arc::new(block2))
+            .verify_block_for_gossip(Arc::new(block2).into())
             .await,
     );
 
@@ -1045,7 +1076,7 @@ async fn verify_block_for_gossip_doppelganger_detection() {
 
     let verified_block = harness
         .chain
-        .verify_block_for_gossip(Arc::new(block))
+        .verify_block_for_gossip(Arc::new(block).into())
         .await
         .unwrap();
     let attestations = verified_block.block.message().body().attestations().clone();
@@ -1184,7 +1215,7 @@ async fn add_base_block_to_altair_chain() {
     assert!(matches!(
         harness
             .chain
-            .verify_block_for_gossip(Arc::new(base_block.clone()))
+            .verify_block_for_gossip(Arc::new(base_block.clone()).into())
             .await
             .err()
             .expect("should error when processing base block"),
@@ -1218,7 +1249,7 @@ async fn add_base_block_to_altair_chain() {
         harness
             .chain
             .process_chain_segment(
-                vec![Arc::new(base_block)],
+                vec![Arc::new(base_block).into()],
                 CountUnrealized::True,
                 NotifyExecutionLayer::Yes,
             )
@@ -1322,7 +1353,7 @@ async fn add_altair_block_to_base_chain() {
     assert!(matches!(
         harness
             .chain
-            .verify_block_for_gossip(Arc::new(altair_block.clone()))
+            .verify_block_for_gossip(Arc::new(altair_block.clone()).into())
             .await
             .err()
             .expect("should error when processing altair block"),
@@ -1356,7 +1387,7 @@ async fn add_altair_block_to_base_chain() {
         harness
             .chain
             .process_chain_segment(
-                vec![Arc::new(altair_block)],
+                vec![Arc::new(altair_block).into()],
                 CountUnrealized::True,
                 NotifyExecutionLayer::Yes
             )

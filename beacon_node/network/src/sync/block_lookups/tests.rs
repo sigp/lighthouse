@@ -38,9 +38,11 @@ impl TestRig {
     fn test_setup(log_level: Option<Level>) -> (BlockLookups<T>, SyncNetworkContext<T>, Self) {
         let builder = NullLoggerBuilder;
         let log = builder.build().expect("should build logger");
-        let store = store::HotColdDB::open_ephemeral(store::StoreConfig::default(), E::default_spec(), log).unwrap();
+        let store =
+            store::HotColdDB::open_ephemeral(store::StoreConfig::default(), E::default_spec(), log)
+                .unwrap();
 
-        // Initialise a new beacon chain from the finalized checkpoint
+        // Initialise a new beacon chain
         let chain = BeaconChainBuilder::new(E)
             .custom_spec(test_spec::<E>())
             .store(Arc::new(store))

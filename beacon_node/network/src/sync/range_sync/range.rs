@@ -377,6 +377,7 @@ mod tests {
     use crate::beacon_processor::WorkEvent as BeaconWorkEvent;
     use crate::service::RequestId;
     use crate::NetworkMessage;
+    use beacon_chain::{builder::BeaconChainBuilder, test_utils::test_spec};
     use beacon_chain::{
         builder::Witness, eth1_chain::CachingEth1Backend, parking_lot::RwLock, EngineState,
     };
@@ -385,7 +386,9 @@ mod tests {
         NetworkGlobals, Request,
     };
     use slog::{o, Drain};
-    use slot_clock::SystemTimeSlotClock;
+    use sloggers::{null::NullLoggerBuilder, Build};
+    use slot_clock::{SlotClock, SystemTimeSlotClock};
+    use std::time::{Duration, SystemTime};
     use std::{collections::HashSet, sync::Arc};
     use store::MemoryStore;
     use tokio::sync::mpsc;
@@ -590,11 +593,41 @@ mod tests {
     }
 
     fn range(log_enabled: bool) -> (TestRig, RangeSync<TestBeaconChainType, FakeStorage>) {
-        let chain = Arc::new(FakeStorage::default());
+        let builder = NullLoggerBuilder;
+        let db_log = builder.build().expect("should build logger");
+        let store = store::HotColdDB::open_ephemeral(
+            store::StoreConfig::default(),
+            E::default_spec(),
+            db_log,
+        )
+        .unwrap();
+
+        // Initialise a new beacon chain from the finalized checkpoint
+        let chain = Arc::new(
+            BeaconChainBuilder::new(E)
+                .custom_spec(test_spec::<E>())
+                .store(Arc::new(store))
+                .dummy_eth1_backend()
+                .expect("should build dummy backend")
+                .slot_clock(SystemTimeSlotClock::new(
+                    types::Slot::new(0),
+                    Duration::from_secs(
+                        SystemTime::now()
+                            .duration_since(SystemTime::UNIX_EPOCH)
+                            .unwrap()
+                            .as_secs(),
+                    ),
+                    Duration::from_millis(400),
+                ))
+                .build()
+                .expect("should build"),
+        );
+
         let log = build_log(slog::Level::Trace, log_enabled);
+        let fake_store = Arc::new(FakeStorage::default());
         let (beacon_processor_tx, beacon_processor_rx) = mpsc::channel(10);
         let range_sync = RangeSync::<TestBeaconChainType, FakeStorage>::new(
-            chain.clone(),
+            fake_store.clone(),
             log.new(o!("component" => "range")),
         );
         let (network_tx, network_rx) = mpsc::unbounded_channel();
@@ -609,7 +642,7 @@ mod tests {
         let test_rig = TestRig {
             log,
             beacon_processor_rx,
-            chain,
+            chain: fake_store,
             cx,
             network_rx,
             globals,
@@ -684,7 +717,7 @@ mod tests {
         range.add_peer(&mut rig.cx, local_info, peer1, head_info);
         let ((chain1, batch1), id1) = match rig.grab_request(&peer1).0 {
             RequestId::Sync(crate::sync::manager::RequestId::RangeBlocks { id }) => {
-                (rig.cx.range_sync_response(id, true).unwrap(), id)
+                (rig.cx.range_sync_block_response(id, true).unwrap(), id)
             }
             other => panic!("unexpected request {:?}", other),
         };
@@ -703,7 +736,7 @@ mod tests {
         range.add_peer(&mut rig.cx, local_info, peer2, finalized_info);
         let ((chain2, batch2), id2) = match rig.grab_request(&peer2).0 {
             RequestId::Sync(crate::sync::manager::RequestId::RangeBlocks { id }) => {
-                (rig.cx.range_sync_response(id, true).unwrap(), id)
+                (rig.cx.range_sync_block_response(id, true).unwrap(), id)
             }
             other => panic!("unexpected request {:?}", other),
         };
