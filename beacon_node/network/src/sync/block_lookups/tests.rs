@@ -4,18 +4,24 @@ use crate::service::RequestId;
 use crate::sync::manager::RequestId as SyncId;
 use crate::NetworkMessage;
 
+use sloggers::{null::NullLoggerBuilder, Build};
+
 use super::*;
 
-use beacon_chain::builder::Witness;
-use beacon_chain::eth1_chain::CachingEth1Backend;
+use beacon_chain::{
+    builder::{BeaconChainBuilder, Witness},
+    eth1_chain::CachingEth1Backend,
+    test_utils::test_spec,
+};
 use lighthouse_network::{NetworkGlobals, Request};
 use slog::{Drain, Level};
-use slot_clock::SystemTimeSlotClock;
+use slot_clock::{SlotClock, SystemTimeSlotClock};
+use std::time::{Duration, SystemTime};
 use store::MemoryStore;
 use tokio::sync::mpsc;
 use types::{
     test_utils::{SeedableRng, TestRandom, XorShiftRng},
-    MinimalEthSpec as E, SignedBeaconBlock,
+    EthSpec, MinimalEthSpec as E, SignedBeaconBlock,
 };
 
 type T = Witness<SystemTimeSlotClock, CachingEth1Backend<E>, E, MemoryStore<E>, MemoryStore<E>>;
@@ -30,6 +36,29 @@ const D: Duration = Duration::new(0, 0);
 
 impl TestRig {
     fn test_setup(log_level: Option<Level>) -> (BlockLookups<T>, SyncNetworkContext<T>, Self) {
+        let builder = NullLoggerBuilder;
+        let log = builder.build().expect("should build logger");
+        let store = store::HotColdDB::open_ephemeral(store::StoreConfig::default(), E::default_spec(), log).unwrap();
+
+        // Initialise a new beacon chain from the finalized checkpoint
+        let chain = BeaconChainBuilder::new(E)
+            .custom_spec(test_spec::<E>())
+            .store(Arc::new(store))
+            .dummy_eth1_backend()
+            .expect("should build dummy backend")
+            .slot_clock(SystemTimeSlotClock::new(
+                types::Slot::new(0),
+                Duration::from_secs(
+                    SystemTime::now()
+                        .duration_since(SystemTime::UNIX_EPOCH)
+                        .unwrap()
+                        .as_secs(),
+                ),
+                Duration::from_millis(400),
+            ))
+            .build()
+            .expect("should build");
+
         let log = {
             let decorator = slog_term::TermDecorator::new().build();
             let drain = slog_term::FullFormat::new(decorator).build().fuse();
@@ -57,7 +86,7 @@ impl TestRig {
                 network_tx,
                 globals,
                 beacon_processor_tx,
-                chain,
+                Arc::new(chain),
                 log.new(slog::o!("component" => "network_context")),
             )
         };
@@ -372,7 +401,15 @@ fn test_parent_lookup_rpc_failure() {
     let id1 = rig.expect_parent_request();
 
     // The request fails. It should be tried again.
-    bl.parent_lookup_failed(id1, peer_id, &mut cx);
+    bl.parent_lookup_failed(
+        id1,
+        peer_id,
+        &mut cx,
+        RPCError::ErrorResponse(
+            RPCResponseErrorCode::ResourceUnavailable,
+            "older than eip4844".into(),
+        ),
+    );
     let id2 = rig.expect_parent_request();
 
     // Send the right block this time.
@@ -406,7 +443,15 @@ fn test_parent_lookup_too_many_attempts() {
             // make sure every error is accounted for
             0 => {
                 // The request fails. It should be tried again.
-                bl.parent_lookup_failed(id, peer_id, &mut cx);
+                bl.parent_lookup_failed(
+                    id,
+                    peer_id,
+                    &mut cx,
+                    RPCError::ErrorResponse(
+                        RPCResponseErrorCode::ResourceUnavailable,
+                        "older than eip4844".into(),
+                    ),
+                );
             }
             _ => {
                 // Send a bad block this time. It should be tried again.
@@ -441,7 +486,15 @@ fn test_parent_lookup_too_many_download_attempts_no_blacklist() {
         let id = rig.expect_parent_request();
         if i % 2 != 0 {
             // The request fails. It should be tried again.
-            bl.parent_lookup_failed(id, peer_id, &mut cx);
+            bl.parent_lookup_failed(
+                id,
+                peer_id,
+                &mut cx,
+                RPCError::ErrorResponse(
+                    RPCResponseErrorCode::ResourceUnavailable,
+                    "older than eip4844".into(),
+                ),
+            );
         } else {
             // Send a bad block this time. It should be tried again.
             let bad_block = rig.rand_block();
@@ -475,7 +528,15 @@ fn test_parent_lookup_too_many_processing_attempts_must_blacklist() {
     for _ in 0..(parent_lookup::PARENT_FAIL_TOLERANCE - PROCESSING_FAILURES) {
         let id = rig.expect_parent_request();
         // The request fails. It should be tried again.
-        bl.parent_lookup_failed(id, peer_id, &mut cx);
+        bl.parent_lookup_failed(
+            id,
+            peer_id,
+            &mut cx,
+            RPCError::ErrorResponse(
+                RPCResponseErrorCode::ResourceUnavailable,
+                "older than eip4844".into(),
+            ),
+        );
     }
 
     // Now fail processing a block in the parent request
@@ -638,12 +699,12 @@ fn test_same_chain_race_condition() {
     let peer_id = PeerId::random();
     let trigger_block = blocks.pop().unwrap();
     let chain_hash = trigger_block.canonical_root();
-    bl.search_parent(chain_hash, trigger_block.clone(), peer_id, &mut cx);
+    bl.search_parent(chain_hash, trigger_block.clone().into(), peer_id, &mut cx);
 
     for (i, block) in blocks.into_iter().rev().enumerate() {
         let id = rig.expect_parent_request();
         // the block
-        bl.parent_lookup_response(id, peer_id, Some(block.clone()), D, &mut cx);
+        bl.parent_lookup_response(id, peer_id, Some(block.clone().into()), D, &mut cx);
         // the stream termination
         bl.parent_lookup_response(id, peer_id, None, D, &mut cx);
         // the processing request
@@ -653,7 +714,11 @@ fn test_same_chain_race_condition() {
             // one block was removed
             bl.parent_block_processed(chain_hash, BlockError::BlockIsAlreadyKnown.into(), &mut cx)
         } else {
-            bl.parent_block_processed(chain_hash, BlockError::ParentUnknown(block).into(), &mut cx)
+            bl.parent_block_processed(
+                chain_hash,
+                BlockError::ParentUnknown(block.into()).into(),
+                &mut cx,
+            )
         }
         parent_lookups_consistency(&bl)
     }
@@ -663,7 +728,7 @@ fn test_same_chain_race_condition() {
 
     // Try to get this block again while the chain is being processed. We should not request it again.
     let peer_id = PeerId::random();
-    bl.search_parent(chain_hash, trigger_block, peer_id, &mut cx);
+    bl.search_parent(chain_hash, trigger_block.into(), peer_id, &mut cx);
     parent_lookups_consistency(&bl);
 
     let process_result = BatchProcessResult::Success {
