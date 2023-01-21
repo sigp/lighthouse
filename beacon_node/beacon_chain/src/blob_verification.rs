@@ -1,17 +1,14 @@
 use derivative::Derivative;
-use slasher::test_utils::{block, E};
 use slot_clock::SlotClock;
 use std::sync::Arc;
 
 use crate::beacon_chain::{BeaconChain, BeaconChainTypes, MAXIMUM_GOSSIP_CLOCK_DISPARITY};
-use crate::block_verification::IntoExecutionPendingBlock;
-use crate::BlockError::BlobValidation;
-use crate::{kzg_utils, BeaconChainError, BlockError};
+use crate::{kzg_utils, BeaconChainError};
 use state_processing::per_block_processing::eip4844::eip4844::verify_kzg_commitments_against_transactions;
 use types::signed_beacon_block::BlobReconstructionError;
 use types::ExecPayload;
 use types::{
-    BeaconBlockRef, BeaconStateError, BlobsSidecar, Epoch, EthSpec, Hash256, KzgCommitment,
+    BeaconBlockRef, BeaconStateError, BlobsSidecar, EthSpec, Hash256, KzgCommitment,
     SignedBeaconBlock, SignedBeaconBlockAndBlobsSidecar, SignedBeaconBlockHeader, Slot,
     Transactions,
 };

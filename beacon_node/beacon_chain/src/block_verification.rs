@@ -54,11 +54,9 @@ use crate::execution_payload::{
     is_optimistic_candidate_block, validate_execution_payload_for_gossip, validate_merge_block,
     AllowOptimisticImport, NotifyExecutionLayer, PayloadNotifier,
 };
-use crate::kzg_utils;
 use crate::snapshot_cache::PreProcessingSnapshot;
 use crate::validator_monitor::HISTORIC_EPOCHS as VALIDATOR_MONITOR_HISTORIC_EPOCHS;
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
-use crate::BlockError::BlobValidation;
 use crate::{
     beacon_chain::{
         BeaconForkChoice, ForkChoiceError, BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT,
@@ -71,13 +69,11 @@ use eth2::types::EventKind;
 use execution_layer::PayloadStatus;
 use fork_choice::{AttestationFromBlock, PayloadVerificationStatus};
 use parking_lot::RwLockReadGuard;
-use proto_array::{Block as ProtoBlock, Block};
+use proto_array::{Block as ProtoBlock};
 use safe_arith::ArithError;
-use slasher::test_utils::{block, E};
 use slog::{debug, error, warn, Logger};
 use slot_clock::SlotClock;
 use ssz::Encode;
-use state_processing::per_block_processing::eip4844::eip4844::verify_kzg_commitments_against_transactions;
 use state_processing::per_block_processing::{errors::IntoWithIndex, is_merge_transition_block};
 use state_processing::{
     block_signature_verifier::{BlockSignatureVerifier, Error as BlockSignatureVerifierError},

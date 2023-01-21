@@ -1,5 +1,5 @@
 use crate::metrics;
-use beacon_chain::blob_verification::{AsBlock, AvailableBlock, BlockWrapper, IntoAvailableBlock};
+use beacon_chain::blob_verification::{AsBlock, BlockWrapper, IntoAvailableBlock};
 use beacon_chain::validator_monitor::{get_block_delay_ms, timestamp_now};
 use beacon_chain::NotifyExecutionLayer;
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockError, CountUnrealized};
