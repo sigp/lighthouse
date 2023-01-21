@@ -250,23 +250,37 @@ impl<T: BeaconChainTypes> Worker<T> {
                             let finalized_data_availability_boundary = self.chain.finalized_data_availability_boundary();
                             let block_epoch = block.epoch();
 
-                           if Some(block_epoch) >= finalized_data_availability_boundary {
-                                error!(
-                                    self.log,
-                                    "Peer requested block and blob that should be available, but no blob found";
-                                    "peer" => %peer_id,
-                                    "request_root" => ?root,
-                                    "finalized_data_availability_boundary" => finalized_data_availability_boundary,
-                                );
-                            } else {
-                                debug!(
-                                    self.log,
-                                    "Peer requested block and blob older than the data availability \
-                                    boundary for ByRoot request, no blob found";
-                                    "peer" => %peer_id,
-                                    "request_root" => ?root,
-                                    "finalized_data_availability_boundary" => finalized_data_availability_boundary,
-                                );
+                            match finalized_data_availability_boundary {
+                                Some(boundary_epoch) => {
+                                    if block_epoch >= finalized_data_availability_boundary {
+                                        error!(
+                                            self.log,
+                                            "Peer requested block and blob that should be available, but no blob found";
+                                            "peer" => %peer_id,
+                                            "request_root" => ?root,
+                                            "finalized_data_availability_boundary" => finalized_data_availability_boundary,
+                                        );
+                                    } else {
+                                        debug!(
+                                            self.log,
+                                            "Peer requested block and blob older than the data availability \
+                                            boundary for ByRoot request, no blob found";
+                                            "peer" => %peer_id,
+                                            "request_root" => ?root,
+                                            "finalized_data_availability_boundary" => finalized_data_availability_boundary,
+                                        );
+                                    }
+                                }
+                                None => {
+                                    debug!(self.log, "Eip4844 fork is disabled");
+                                    self.send_error_response(
+                                        peer_id,
+                                        RPCResponseErrorCode::ResourceUnavailable,
+                                        "Eip4844 fork is disabled".into(),
+                                        request_id,
+                                    );
+                                    return;
+                                }
                             }
                         }
                         Ok((None, Some(_))) => {
