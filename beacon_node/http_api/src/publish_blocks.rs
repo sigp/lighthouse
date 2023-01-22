@@ -60,10 +60,18 @@ pub async fn publish_block<T: BeaconChainTypes>(
     let delay = get_block_delay_ms(seen_timestamp, block.message(), &chain.slot_clock);
     metrics::observe_duration(&metrics::HTTP_API_BLOCK_BROADCAST_DELAY_TIMES, delay);
 
-    //FIXME(sean) handle errors
-    let available_block = wrapped_block
-        .into_available_block(block_root, &chain)
-        .unwrap();
+    let available_block = match wrapped_block.into_available_block(block_root, &chain) {
+        Ok(available_block) => available_block,
+        Err(e) => {
+            let msg = format!("{:?}", e);
+            error!(
+                log,
+                "Invalid block provided to HTTP API";
+                "reason" => &msg
+            );
+            return Err(warp_utils::reject::broadcast_without_import(msg));
+        }
+    };
 
     match chain
         .process_block(

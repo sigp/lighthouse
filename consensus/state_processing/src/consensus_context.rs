@@ -18,6 +18,8 @@ pub struct ConsensusContext<T: EthSpec> {
     /// Cache of indexed attestations constructed during block processing.
     indexed_attestations:
         HashMap<(AttestationData, BitList<T::MaxValidatorsPerCommittee>), IndexedAttestation<T>>,
+    /// Whether `verify_kzg_commitments_against_transactions` has successfully passed.
+    kzg_commitments_consistent: bool,
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -40,6 +42,7 @@ impl<T: EthSpec> ConsensusContext<T> {
             proposer_index: None,
             current_block_root: None,
             indexed_attestations: HashMap::new(),
+            kzg_commitments_consistent: false,
         }
     }
 
@@ -154,5 +157,14 @@ impl<T: EthSpec> ConsensusContext<T> {
 
     pub fn num_cached_indexed_attestations(&self) -> usize {
         self.indexed_attestations.len()
+    }
+
+    pub fn set_kzg_commitments_consistent(mut self, kzg_commitments_consistent: bool) -> Self {
+        self.kzg_commitments_consistent = kzg_commitments_consistent;
+        self
+    }
+
+    pub fn kzg_commitments_consistent(&self) -> bool {
+        self.kzg_commitments_consistent
     }
 }

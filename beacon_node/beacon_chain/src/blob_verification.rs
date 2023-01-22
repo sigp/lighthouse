@@ -60,12 +60,16 @@ pub enum BlobError {
     BeaconChainError(BeaconChainError),
     /// No blobs for the specified block where we would expect blobs.
     UnavailableBlobs,
+    /// Blobs provided for a pre-Eip4844 fork.
     InconsistentFork,
 }
 
 impl From<BlobReconstructionError> for BlobError {
-    fn from(_: BlobReconstructionError) -> Self {
-        BlobError::UnavailableBlobs
+    fn from(e: BlobReconstructionError) -> Self {
+        match e {
+            BlobReconstructionError::UnavailableBlobs => BlobError::UnavailableBlobs,
+            BlobReconstructionError::InconsistentFork => BlobError::InconsistentFork,
+        }
     }
 }
 
@@ -119,7 +123,6 @@ fn verify_data_availability<T: BeaconChainTypes>(
     block_root: Hash256,
     chain: &BeaconChain<T>,
 ) -> Result<(), BlobError> {
-    // Validate commitments agains transactions in the block.
     if verify_kzg_commitments_against_transactions::<T::EthSpec>(transactions, kzg_commitments)
         .is_err()
     {
@@ -148,7 +151,7 @@ fn verify_data_availability<T: BeaconChainTypes>(
 
 /// A wrapper over a [`SignedBeaconBlock`] or a [`SignedBeaconBlockAndBlobsSidecar`]. This makes no
 /// claims about data availability and should not be used in consensus. This struct is useful in
-/// networking when we want to send blocks around without adding consensus logic.
+/// networking when we want to send blocks around without consensus checks.
 #[derive(Clone, Debug, Derivative)]
 #[derivative(PartialEq, Hash(bound = "E: EthSpec"))]
 pub enum BlockWrapper<E: EthSpec> {
@@ -252,9 +255,10 @@ impl<T: BeaconChainTypes> IntoAvailableBlock<T> for BlockWrapper<T::EthSpec> {
     }
 }
 
-/// A wrapper over a [`SignedBeaconBlock`] or a [`SignedBeaconBlockAndBlobsSidecar`]. This newtype
-/// wraps the `BlockWrapperInner` to ensure blobs cannot be accessed via an enum match. This would
-/// circumvent empty blob reconstruction when accessing blobs.
+/// A wrapper over a [`SignedBeaconBlock`] or a [`SignedBeaconBlockAndBlobsSidecar`].  An
+/// `AvailableBlock` has passed any required data availability checks and should be used in
+/// consensus. This newtype wraps `AvailableBlockInner` to ensure data availability checks
+/// cannot be circumvented on construction.
 #[derive(Clone, Debug, Derivative)]
 #[derivative(PartialEq, Hash(bound = "E: EthSpec"))]
 pub struct AvailableBlock<E: EthSpec>(AvailableBlockInner<E>);
@@ -262,7 +266,7 @@ pub struct AvailableBlock<E: EthSpec>(AvailableBlockInner<E>);
 /// A wrapper over a [`SignedBeaconBlock`] or a [`SignedBeaconBlockAndBlobsSidecar`].
 #[derive(Clone, Debug, Derivative)]
 #[derivative(PartialEq, Hash(bound = "E: EthSpec"))]
-pub enum AvailableBlockInner<E: EthSpec> {
+enum AvailableBlockInner<E: EthSpec> {
     Block(Arc<SignedBeaconBlock<E>>),
     BlockAndBlob(SignedBeaconBlockAndBlobsSidecar<E>),
 }

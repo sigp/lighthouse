@@ -4591,11 +4591,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         //FIXME(sean)
         // - add a new timer for processing here
         if let Some(blobs) = blobs_opt {
-            let kzg = if let Some(kzg) = &self.kzg {
-                kzg
-            } else {
-                return Err(BlockProductionError::TrustedSetupNotInitialized);
-            };
+            let kzg = self
+                .kzg
+                .as_ref()
+                .ok_or(BlockProductionError::TrustedSetupNotInitialized)?;
             let kzg_aggregated_proof =
                 kzg_utils::compute_aggregate_kzg_proof::<T::EthSpec>(&kzg, &blobs)
                     .map_err(|e| BlockProductionError::KzgError(e))?;

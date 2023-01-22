@@ -69,7 +69,7 @@ use eth2::types::EventKind;
 use execution_layer::PayloadStatus;
 use fork_choice::{AttestationFromBlock, PayloadVerificationStatus};
 use parking_lot::RwLockReadGuard;
-use proto_array::{Block as ProtoBlock};
+use proto_array::Block as ProtoBlock;
 use safe_arith::ArithError;
 use slog::{debug, error, warn, Logger};
 use slot_clock::SlotClock;
@@ -601,6 +601,7 @@ pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
 
         //FIXME(sean) batch kzg verification
         let available_block = block.clone().into_available_block(*block_root, chain)?;
+        consensus_context = consensus_context.set_kzg_commitments_consistent(true);
 
         // Save the block and its consensus context. The context will have had its proposer index
         // and attesting indices filled in, which can be used to accelerate later block processing.
@@ -927,7 +928,8 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         // Having checked the proposer index and the block root we can cache them.
         let consensus_context = ConsensusContext::new(available_block.slot())
             .set_current_block_root(block_root)
-            .set_proposer_index(available_block.as_block().message().proposer_index());
+            .set_proposer_index(available_block.as_block().message().proposer_index())
+            .set_kzg_commitments_consistent(true);
 
         Ok(Self {
             block: available_block,
@@ -999,8 +1001,10 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
 
         let mut signature_verifier = get_signature_verifier(&state, &pubkey_cache, &chain.spec);
 
-        let mut consensus_context =
-            ConsensusContext::new(block.slot()).set_current_block_root(block_root);
+        let mut consensus_context = ConsensusContext::new(block.slot())
+            .set_current_block_root(block_root)
+            // An `AvailabileBlock is passed in here, so we know this check has been run.`
+            .set_kzg_commitments_consistent(true);
 
         signature_verifier.include_all_signatures(block.as_block(), &mut consensus_context)?;
 
