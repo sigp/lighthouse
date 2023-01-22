@@ -16,6 +16,7 @@ use state_processing::{
 use std::marker::PhantomData;
 use std::sync::Arc;
 use tempfile::tempdir;
+use types::signed_block_and_blobs::BlockWrapper;
 use types::{test_utils::generate_deterministic_keypair, *};
 
 type E = MainnetEthSpec;
@@ -137,7 +138,10 @@ fn update_parent_roots(snapshots: &mut [BeaconSnapshot<E>]) {
 async fn chain_segment_full_segment() {
     let harness = get_harness(VALIDATOR_COUNT);
     let chain_segment = get_chain_segment().await;
-    let blocks = chain_segment_blocks(&chain_segment);
+    let blocks: Vec<BlockWrapper<E>> = chain_segment_blocks(&chain_segment)
+        .into_iter()
+        .map(|block| block.into())
+        .collect();
 
     harness
         .chain
@@ -155,7 +159,7 @@ async fn chain_segment_full_segment() {
     harness
         .chain
         .process_chain_segment(
-            blocks.clone().into(),
+            blocks.clone(),
             CountUnrealized::True,
             NotifyExecutionLayer::Yes,
         )
@@ -167,7 +171,7 @@ async fn chain_segment_full_segment() {
 
     assert_eq!(
         harness.head_block_root(),
-        blocks.last().unwrap().canonical_root(),
+        blocks.last().unwrap().block().canonical_root(),
         "harness should have last block as head"
     );
 }
@@ -177,7 +181,10 @@ async fn chain_segment_varying_chunk_size() {
     for chunk_size in &[1, 2, 3, 5, 31, 32, 33, 42] {
         let harness = get_harness(VALIDATOR_COUNT);
         let chain_segment = get_chain_segment().await;
-        let blocks = chain_segment_blocks(&chain_segment);
+        let blocks: Vec<BlockWrapper<E>> = chain_segment_blocks(&chain_segment)
+            .into_iter()
+            .map(|block| block.into())
+            .collect();
 
         harness
             .chain
@@ -188,7 +195,7 @@ async fn chain_segment_varying_chunk_size() {
             harness
                 .chain
                 .process_chain_segment(
-                    chunk.to_vec().into(),
+                    chunk.to_vec(),
                     CountUnrealized::True,
                     NotifyExecutionLayer::Yes,
                 )
@@ -201,7 +208,7 @@ async fn chain_segment_varying_chunk_size() {
 
         assert_eq!(
             harness.head_block_root(),
-            blocks.last().unwrap().canonical_root(),
+            blocks.last().unwrap().block().canonical_root(),
             "harness should have last block as head"
         );
     }
@@ -220,18 +227,17 @@ async fn chain_segment_non_linear_parent_roots() {
     /*
      * Test with a block removed.
      */
-    let mut blocks = chain_segment_blocks(&chain_segment);
+    let mut blocks: Vec<BlockWrapper<E>> = chain_segment_blocks(&chain_segment)
+        .into_iter()
+        .map(|block| block.into())
+        .collect();
     blocks.remove(2);
 
     assert!(
         matches!(
             harness
                 .chain
-                .process_chain_segment(
-                    blocks.into(),
-                    CountUnrealized::True,
-                    NotifyExecutionLayer::Yes
-                )
+                .process_chain_segment(blocks, CountUnrealized::True, NotifyExecutionLayer::Yes)
                 .await
                 .into_block_error(),
             Err(BlockError::NonLinearParentRoots)
@@ -242,20 +248,19 @@ async fn chain_segment_non_linear_parent_roots() {
     /*
      * Test with a modified parent root.
      */
-    let mut blocks = chain_segment_blocks(&chain_segment);
-    let (mut block, signature) = blocks[3].as_ref().clone().deconstruct();
+    let mut blocks: Vec<BlockWrapper<E>> = chain_segment_blocks(&chain_segment)
+        .into_iter()
+        .map(|block| block.into())
+        .collect();
+    let (mut block, signature) = blocks[3].block().clone().deconstruct();
     *block.parent_root_mut() = Hash256::zero();
-    blocks[3] = Arc::new(SignedBeaconBlock::from_block(block, signature));
+    blocks[3] = Arc::new(SignedBeaconBlock::from_block(block, signature)).into();
 
     assert!(
         matches!(
             harness
                 .chain
-                .process_chain_segment(
-                    blocks.into(),
-                    CountUnrealized::True,
-                    NotifyExecutionLayer::Yes
-                )
+                .process_chain_segment(blocks, CountUnrealized::True, NotifyExecutionLayer::Yes)
                 .await
                 .into_block_error(),
             Err(BlockError::NonLinearParentRoots)
@@ -277,20 +282,19 @@ async fn chain_segment_non_linear_slots() {
      * Test where a child is lower than the parent.
      */
 
-    let mut blocks = chain_segment_blocks(&chain_segment);
-    let (mut block, signature) = blocks[3].as_ref().clone().deconstruct();
+    let mut blocks: Vec<BlockWrapper<E>> = chain_segment_blocks(&chain_segment)
+        .into_iter()
+        .map(|block| block.into())
+        .collect();
+    let (mut block, signature) = blocks[3].block().clone().deconstruct();
     *block.slot_mut() = Slot::new(0);
-    blocks[3] = Arc::new(SignedBeaconBlock::from_block(block, signature));
+    blocks[3] = Arc::new(SignedBeaconBlock::from_block(block, signature)).into();
 
     assert!(
         matches!(
             harness
                 .chain
-                .process_chain_segment(
-                    blocks.into(),
-                    CountUnrealized::True,
-                    NotifyExecutionLayer::Yes
-                )
+                .process_chain_segment(blocks, CountUnrealized::True, NotifyExecutionLayer::Yes)
                 .await
                 .into_block_error(),
             Err(BlockError::NonLinearSlots)
@@ -302,20 +306,19 @@ async fn chain_segment_non_linear_slots() {
      * Test where a child is equal to the parent.
      */
 
-    let mut blocks = chain_segment_blocks(&chain_segment);
-    let (mut block, signature) = blocks[3].as_ref().clone().deconstruct();
+    let mut blocks: Vec<BlockWrapper<E>> = chain_segment_blocks(&chain_segment)
+        .into_iter()
+        .map(|block| block.into())
+        .collect();
+    let (mut block, signature) = blocks[3].block().clone().deconstruct();
     *block.slot_mut() = blocks[2].slot();
-    blocks[3] = Arc::new(SignedBeaconBlock::from_block(block, signature));
+    blocks[3] = Arc::new(SignedBeaconBlock::from_block(block, signature)).into();
 
     assert!(
         matches!(
             harness
                 .chain
-                .process_chain_segment(
-                    blocks.into(),
-                    CountUnrealized::True,
-                    NotifyExecutionLayer::Yes
-                )
+                .process_chain_segment(blocks, CountUnrealized::True, NotifyExecutionLayer::Yes)
                 .await
                 .into_block_error(),
             Err(BlockError::NonLinearSlots)
@@ -331,7 +334,7 @@ async fn assert_invalid_signature(
     snapshots: &[BeaconSnapshot<E>],
     item: &str,
 ) {
-    let blocks = snapshots
+    let blocks: Vec<BlockWrapper<E>> = snapshots
         .iter()
         .map(|snapshot| snapshot.beacon_block.clone().into())
         .collect();
@@ -341,11 +344,7 @@ async fn assert_invalid_signature(
         matches!(
             harness
                 .chain
-                .process_chain_segment(
-                    blocks.into(),
-                    CountUnrealized::True,
-                    NotifyExecutionLayer::Yes
-                )
+                .process_chain_segment(blocks, CountUnrealized::True, NotifyExecutionLayer::Yes)
                 .await
                 .into_block_error(),
             Err(BlockError::InvalidSignature)
@@ -475,7 +474,7 @@ async fn invalid_signature_block_proposal() {
             block.clone(),
             junk_signature(),
         ));
-        let blocks = snapshots
+        let blocks: Vec<BlockWrapper<E>> = snapshots
             .iter()
             .map(|snapshot| snapshot.beacon_block.clone().into())
             .collect::<Vec<_>>();
@@ -484,11 +483,7 @@ async fn invalid_signature_block_proposal() {
             matches!(
                 harness
                     .chain
-                    .process_chain_segment(
-                        blocks.into(),
-                        CountUnrealized::True,
-                        NotifyExecutionLayer::Yes
-                    )
+                    .process_chain_segment(blocks, CountUnrealized::True, NotifyExecutionLayer::Yes)
                     .await
                     .into_block_error(),
                 Err(BlockError::InvalidSignature)
@@ -678,7 +673,7 @@ async fn invalid_signature_deposit() {
             Arc::new(SignedBeaconBlock::from_block(block, signature));
         update_parent_roots(&mut snapshots);
         update_proposal_signatures(&mut snapshots, &harness);
-        let blocks = snapshots
+        let blocks: Vec<BlockWrapper<E>> = snapshots
             .iter()
             .map(|snapshot| snapshot.beacon_block.clone().into())
             .collect();
@@ -686,11 +681,7 @@ async fn invalid_signature_deposit() {
             !matches!(
                 harness
                     .chain
-                    .process_chain_segment(
-                        blocks.into(),
-                        CountUnrealized::True,
-                        NotifyExecutionLayer::Yes
-                    )
+                    .process_chain_segment(blocks, CountUnrealized::True, NotifyExecutionLayer::Yes)
                     .await
                     .into_block_error(),
                 Err(BlockError::InvalidSignature)
@@ -833,7 +824,7 @@ async fn block_gossip_verification() {
     *block.slot_mut() = expected_finalized_slot;
     assert!(
         matches!(
-            unwrap_err(harness.chain.verify_block_for_gossip(Arc::new(SignedBeaconBlock::from_block(block, signature))).await),
+            unwrap_err(harness.chain.verify_block_for_gossip(Arc::new(SignedBeaconBlock::from_block(block, signature)).into()).await),
             BlockError::WouldRevertFinalizedSlot {
                 block_slot,
                 finalized_slot,

@@ -602,7 +602,7 @@ mod tests {
         )
         .unwrap();
 
-        // Initialise a new beacon chain from the finalized checkpoint
+        // Initialise a new beacon chain
         let chain = Arc::new(
             BeaconChainBuilder::new(E)
                 .custom_spec(test_spec::<E>())

@@ -142,7 +142,6 @@ async fn produces_attestations() {
                     .add_head_block(
                         block_root,
                         Arc::new(block.clone()).into(),
-                        None,
                         proto_block,
                         &state,
                         &chain.spec,
@@ -199,7 +198,6 @@ async fn early_attester_cache_old_request() {
         .add_head_block(
             head.beacon_block_root,
             head.beacon_block.clone().into(),
-            None,
             head_proto_block,
             &head.beacon_state,
             &harness.chain.spec,
