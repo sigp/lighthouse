@@ -25,6 +25,7 @@ use types::{
 };
 
 type T = Witness<SystemTimeSlotClock, CachingEth1Backend<E>, E, MemoryStore<E>, MemoryStore<E>>;
+const SLOT_DURATION_MILLIS: u64 = 400;
 
 struct TestRig {
     beacon_processor_rx: mpsc::Receiver<WorkEvent<T>>,
@@ -56,7 +57,7 @@ impl TestRig {
                         .unwrap()
                         .as_secs(),
                 ),
-                Duration::from_millis(400),
+                Duration::from_millis(SLOT_DURATION_MILLIS),
             ))
             .build()
             .expect("should build");

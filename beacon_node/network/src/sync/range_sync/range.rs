@@ -394,6 +394,8 @@ mod tests {
     use tokio::sync::mpsc;
     use types::{Hash256, MinimalEthSpec as E};
 
+    const SLOT_DURATION_MILLIS: u64 = 400;
+
     #[derive(Debug)]
     struct FakeStorage {
         known_blocks: RwLock<HashSet<Hash256>>,
@@ -617,7 +619,7 @@ mod tests {
                             .unwrap()
                             .as_secs(),
                     ),
-                    Duration::from_millis(400),
+                    Duration::from_millis(SLOT_DURATION_MILLIS),
                 ))
                 .build()
                 .expect("should build"),
