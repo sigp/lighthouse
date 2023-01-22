@@ -146,6 +146,32 @@ pub fn compute_attestation_rewards<T: BeaconChainTypes>(
         }
     }
 
+    let ideal_rewards: Vec<IdealAttestationRewards> = ideal_rewards_hashmap
+        .iter()
+        .fold(
+            HashMap::new(),
+            |mut acc, ((_flag_index, effective_balance_eth), ideal_reward)| {
+                let entry =
+                    acc.entry(*effective_balance_eth as u32)
+                        .or_insert(IdealAttestationRewards {
+                            effective_balance: *effective_balance_eth as u64,
+                            head: 0,
+                            target: 0,
+                            source: 0,
+                        });
+                match flag_index {
+                    TIMELY_SOURCE_FLAG_INDEX => entry.source += *ideal_reward,
+                    TIMELY_TARGET_FLAG_INDEX => entry.target += *ideal_reward,
+                    TIMELY_HEAD_FLAG_INDEX => entry.head += *ideal_reward,
+                    _ => {}
+                }
+                acc
+            },
+        )
+        .into_iter()
+        .map(|(_, v)| v)
+        .collect();
+
     //--- Calculate total rewards ---//
     let mut total_rewards_vec = Vec::new();
 
@@ -174,19 +200,6 @@ pub fn compute_attestation_rewards<T: BeaconChainTypes>(
         };
         total_rewards_vec.push((*validator_index, total_reward));
     }
-
-    //TODO Check target and source
-    let ideal_rewards: Vec<IdealAttestationRewards> = ideal_rewards_hashmap
-        .iter()
-        .map(
-            |((_flag_index, effective_balance_eth), ideal_reward)| IdealAttestationRewards {
-                effective_balance: *effective_balance_eth as u64,
-                head: *ideal_reward,
-                target: 0,
-                source: 0,
-            },
-        )
-        .collect();
 
     //TODO Check target, source, and inclusion_delay
     let total_rewards: Vec<TotalAttestationRewards> = total_rewards_vec
