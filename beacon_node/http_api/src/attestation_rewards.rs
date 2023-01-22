@@ -168,8 +168,7 @@ pub fn compute_attestation_rewards<T: BeaconChainTypes>(
                 acc
             },
         )
-        .into_iter()
-        .map(|(_, v)| v)
+        .into_values()
         .collect();
 
     //--- Calculate total rewards ---//
