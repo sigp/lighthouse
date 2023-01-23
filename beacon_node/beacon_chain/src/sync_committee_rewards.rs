@@ -37,14 +37,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 BeaconChainError::SyncCommitteeRewardsSyncError
             })?;
 
-        let mut balances = sync_committee_indices
-            .iter()
-            .map(|i| (*i, state.balances()[*i]))
-            .collect::<HashMap<usize, u64>>();
+        let mut balances = HashMap::<usize, u64>::new();
 
         let mut total_proposer_rewards = 0;
         let proposer_index = state.get_beacon_proposer_index(block.slot(), spec)?;
-        balances.insert(proposer_index, state.balances()[proposer_index]);
 
         // Apply rewards to participant balances. Keep track of proposer rewards
         for (validator_index, participant_bit) in sync_committee_indices
@@ -69,21 +65,22 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
         }
 
-        Ok(sync_committee_indices
+        Ok(balances
             .iter()
-            .map(|i| {
-                let new_balance =
-                    *balances.entry(*i).or_insert_with(|| state.balances()[*i]) as i64;
-
+            .filter_map(|(i, new_balance)| {
                 let reward = if *i != proposer_index {
-                    new_balance - state.balances()[*i] as i64
+                    *new_balance as i64 - state.balances()[*i] as i64
+                } else if sync_committee_indices.contains(&i) {
+                    *new_balance as i64
+                        - state.balances()[*i] as i64
+                        - total_proposer_rewards as i64
                 } else {
-                    new_balance - state.balances()[*i] as i64 - total_proposer_rewards as i64
+                    return None;
                 };
-                SyncCommitteeReward {
+                Some(SyncCommitteeReward {
                     validator_index: *i as u64,
                     reward,
-                }
+                })
             })
             .collect())
     }

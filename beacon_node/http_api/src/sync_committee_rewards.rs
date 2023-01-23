@@ -16,7 +16,7 @@ pub fn compute_sync_committee_rewards<T: BeaconChainTypes>(
 ) -> Result<(Option<Vec<SyncCommitteeReward>>, ExecutionOptimistic), warp::Rejection> {
     let (block, execution_optimistic) = block_id.blinded_block(&chain)?;
 
-    let mut state = get_state_before_applying_block(chain.clone(), block.clone())?;
+    let mut state = get_state_before_applying_block(chain.clone(), &block)?;
 
     let reward_payload = chain
         .compute_sync_committee_rewards(block.message(), &mut state)
@@ -49,7 +49,7 @@ pub fn compute_sync_committee_rewards<T: BeaconChainTypes>(
 
 fn get_state_before_applying_block<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
-    block: SignedBlindedBeaconBlock<T::EthSpec>,
+    block: &SignedBlindedBeaconBlock<T::EthSpec>,
 ) -> Result<BeaconState<T::EthSpec>, warp::reject::Rejection> {
     let parent_block: SignedBlindedBeaconBlock<T::EthSpec> = chain
         .get_blinded_block(&block.parent_root())
