@@ -20,7 +20,7 @@ fn eth1_withdrawal_credentials(pubkey: &PublicKey, spec: &ChainSpec) -> Hash256 
     let fake_execution_address = &hash(&pubkey.as_ssz_bytes())[0..20];
     let mut credentials = [0u8; 32];
     credentials[0] = spec.eth1_address_withdrawal_prefix_byte;
-    credentials[12..].copy_from_slice(fake_exeuction_address);
+    credentials[12..].copy_from_slice(fake_execution_address);
     Hash256::from_slice(&credentials)
 }
 
