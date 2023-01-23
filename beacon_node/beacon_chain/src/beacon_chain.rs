@@ -950,29 +950,36 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         if let Some(block) = self.early_attester_cache.get_block(*block_root) {
             return Ok(Some(block));
         }
-        Ok(self.get_block(block_root).await?.map(Arc::new))
+        self.get_block(block_root).await
+    }
+
+    pub fn get_blobs_checking_early_attester_cache(
+        &self,
+        block_root: &Hash256,
+    ) -> Result<Option<Arc<BlobsSidecar<T::EthSpec>>>, Error> {
+        if let Some(blobs) = self.early_attester_cache.get_blobs(*block_root) {
+            return Ok(Some(blobs));
+        }
+        self.get_blobs(block_root, self.data_availability_boundary())
     }
 
     pub async fn get_block_and_blobs_checking_early_attester_cache(
         &self,
         block_root: &Hash256,
-    ) -> Result<
-        (
-            Option<Arc<SignedBeaconBlock<T::EthSpec>>>,
-            Option<Arc<BlobsSidecar<T::EthSpec>>>,
-        ),
-        Error,
-    > {
+    ) -> (
+        Result<Option<Arc<SignedBeaconBlock<T::EthSpec>>>, Error>,
+        Result<Option<Arc<BlobsSidecar<T::EthSpec>>>, Error>,
+    ) {
         if let (Some(block), Some(blobs)) = (
             self.early_attester_cache.get_block(*block_root),
             self.early_attester_cache.get_blobs(*block_root),
         ) {
-            return Ok((Some(block), Some(blobs)));
+            return (Ok(Some(block)), Ok(Some(blobs)));
         }
-        Ok((
-            self.get_block(block_root).await?.map(Arc::new),
-            self.get_blobs(block_root)?.map(Arc::new),
-        ))
+        (
+            self.get_block(block_root).await,
+            self.get_blobs(block_root, self.data_availability_boundary()),
+        )
     }
 
     /// Returns the block at the given root, if any.
@@ -983,11 +990,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub async fn get_block(
         &self,
         block_root: &Hash256,
-    ) -> Result<Option<SignedBeaconBlock<T::EthSpec>>, Error> {
+    ) -> Result<Option<Arc<SignedBeaconBlock<T::EthSpec>>>, Error> {
         // Load block from database, returning immediately if we have the full block w payload
         // stored.
         let blinded_block = match self.store.try_get_full_block(block_root)? {
-            Some(DatabaseBlock::Full(block)) => return Ok(Some(block)),
+            Some(DatabaseBlock::Full(block)) => return Ok(Some(Arc::new(block))),
             Some(DatabaseBlock::Blinded(block)) => block,
             None => return Ok(None),
         };
@@ -1039,6 +1046,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         blinded_block
             .try_into_full_block(Some(execution_payload))
             .ok_or(Error::AddPayloadLogicError)
+            .map(Arc::new)
             .map(Some)
     }
 
@@ -1055,41 +1063,58 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// - any database read errors
     /// - block and blobs are inconsistent in the database
     /// - this method is called with a pre-eip4844 block root
+    /// - there is not block in store that could have committed these blobs
     pub fn get_blobs(
         &self,
         block_root: &Hash256,
-    ) -> Result<Option<BlobsSidecar<T::EthSpec>>, Error> {
-        match self.store.get_blobs(block_root)? {
-            Some(blobs) => Ok(Some(blobs)),
-            None => {
+        data_availability_boundary: Option<Epoch>,
+    ) -> Result<Option<Arc<BlobsSidecar<T::EthSpec>>>, Error> {
+        match self.store.get_blobs(block_root) {
+            Ok(Some(blobs)) => Ok(Some(Arc::new(blobs))),
+            Ok(None) => {
                 // Check for the corresponding block to understand whether we *should* have blobs.
-                self.get_blinded_block(block_root)?
-                    .map(|block| {
-                        // If there are no KZG commitments in the block, we know the sidecar should
-                        // be empty.
-                        let expected_kzg_commitments =
-                            match block.message().body().blob_kzg_commitments() {
-                                Ok(kzg_commitments) => kzg_commitments,
-                                Err(_) => return Err(Error::NoKzgCommitmentsFieldOnBlock),
-                            };
-                        if expected_kzg_commitments.is_empty() {
-                            Ok(Some(BlobsSidecar::empty_from_parts(
-                                *block_root,
-                                block.slot(),
-                            )))
-                        } else {
-                            if let Some(boundary) = self.data_availability_boundary() {
-                                // We should have blobs for all blocks younger than the boundary.
-                                if boundary <= block.epoch() {
-                                    return Err(Error::BlobsUnavailable);
+                match self.get_blinded_block(block_root)? {
+                    Some(block) => {
+                        // For some ops the finalized_data_availability_boundary is used, hence it
+                        // must be explicitly passed as a param.
+                        if let Some(boundary) = data_availability_boundary {
+                            // We should have blobs for all blocks younger than the boundary, i.e.
+                            // of the same epoch as the boundary or a higher epoch.
+                            if boundary <= block.epoch() {
+                                // If there are no KZG commitments in the block, we know the
+                                // sidecar should be empty.
+                                let expected_kzg_commitments =
+                                    match block.message().body().blob_kzg_commitments() {
+                                        Ok(kzg_commitments) => kzg_commitments,
+                                        Err(_) => {
+                                            // Block verification has failed (big time).
+                                            //
+                                            // todo(emhane): this doesn't need to be mapped to
+                                            // it's own error, it can be directly propagated up,
+                                            // but leaving for initial testing phase.
+                                            return Err(Error::NoKzgCommitmentsFieldOnBlock);
+                                        }
+                                    };
+                                if expected_kzg_commitments.is_empty() {
+                                    Ok(Some(Arc::new(BlobsSidecar::empty_from_parts(
+                                        *block_root,
+                                        block.slot(),
+                                    ))))
+                                } else {
+                                    // DB inconsistent
+                                    Err(Error::BlobsUnavailable)
                                 }
+                            } else {
+                                Ok(None)
                             }
-                            Err(Error::BlobsOlderThanDataAvailabilityBoundary)
+                        } else {
+                            Err(Error::Eip4844ForkDisabled)
                         }
-                    })
-                    .transpose()
-                    .map(Option::flatten)
+                    }
+                    None => Err(Error::BlobsLookupForInexistentBlock),
+                }
             }
+            Err(e) => Err(Error::BlobsDBError(e)),
         }
     }
 

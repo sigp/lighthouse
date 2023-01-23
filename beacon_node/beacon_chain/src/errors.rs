@@ -55,6 +55,7 @@ pub enum BeaconChainError {
     BeaconStateError(BeaconStateError),
     DBInconsistent(String),
     DBError(store::Error),
+    BlobsDBError(store::Error),
     ForkChoiceError(ForkChoiceError),
     ForkChoiceStoreError(ForkChoiceStoreError),
     MissingBeaconBlock(Hash256),
@@ -211,7 +212,8 @@ pub enum BeaconChainError {
     ProposerHeadForkChoiceError(fork_choice::Error<proto_array::Error>),
     BlobsUnavailable,
     NoKzgCommitmentsFieldOnBlock,
-    BlobsOlderThanDataAvailabilityBoundary,
+    Eip4844ForkDisabled,
+    BlobsLookupForInexistentBlock,
 }
 
 easy_from_to!(SlotProcessingError, BeaconChainError);

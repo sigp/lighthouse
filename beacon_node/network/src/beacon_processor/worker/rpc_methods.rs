@@ -12,7 +12,6 @@ use lighthouse_network::rpc::*;
 use lighthouse_network::{PeerId, PeerRequestId, ReportSource, Response, SyncInfo};
 use slog::{debug, error};
 use slot_clock::SlotClock;
-use std::sync::Arc;
 use task_executor::TaskExecutor;
 use types::light_client_bootstrap::LightClientBootstrap;
 use types::{Epoch, EthSpec, Hash256, SignedBeaconBlockAndBlobsSidecar, Slot};
@@ -224,13 +223,14 @@ impl<T: BeaconChainTypes> Worker<T> {
             async move {
                 let mut send_block_count = 0;
                 let mut send_response = true;
+                let finalized_data_availability_boundary = self.chain.finalized_data_availability_boundary();
+
                 for root in request.block_roots.iter() {
-                    match self
+                    match (self
                         .chain
-                        .get_block_and_blobs_checking_early_attester_cache(root)
-                        .await
+                        .get_block(root).await, self.chain.get_blobs(root, finalized_data_availability_boundary))
                     {
-                        Ok((Some(block), Some(blobs))) => {
+                        (Ok(Some(block)), Ok(Some(blobs))) => {
                             self.send_response(
                                 peer_id,
                                 Response::BlobsByRoot(Some(SignedBeaconBlockAndBlobsSidecar {
@@ -241,82 +241,54 @@ impl<T: BeaconChainTypes> Worker<T> {
                             );
                             send_block_count += 1;
                         }
-                        Ok((None, None)) => {
-                            debug!(
+                        (Ok(Some(_)), Ok(None)) => {
+                             // This request could be considered spam (hence logged as error).
+                             error!(
+                                self.log,
+                                "Peer requested blobs older than data availability boundary";
+                                "request" => %request,
+                                "peer" => %peer_id,
+                                "block_root" => ?root,
+                                "finalized_data_availability_boundary" => ?finalized_data_availability_boundary,
+                            );
+                        }
+                        (Ok(None), Ok(None)) => {}
+                        (Ok(None), Err(BeaconChainError::BlobsLookupForInexistentBlock)) => {
+                            // No block or blob found for the block root, no guarantee that we 
+                            // should have this blob. Continue with the other block roots.
+                            //
+                            // This request could be considered spam (hence logged as error).
+                            error!(
                                 self.log,
                                 "Peer requested unknown block and blobs";
                                 "peer" => %peer_id,
                                 "request_root" => ?root
                             );
                         }
-                        Ok((Some(block), None)) => {
-                            let finalized_data_availability_boundary = self.chain.finalized_data_availability_boundary();
-                            let block_epoch = block.epoch();
-
-                            match finalized_data_availability_boundary {
-                                Some(boundary_epoch) => {
-                                    if block_epoch >= boundary_epoch {
-                                        error!(
-                                            self.log,
-                                            "Peer requested block and blob that should be available, but no blob found";
-                                            "request" => %request,
-                                            "peer" => %peer_id,
-                                            "request_root" => ?root,
-                                            "finalized_data_availability_boundary" => %boundary_epoch,
-                                        );
-                                    } else {
-                                        debug!(
-                                            self.log,
-                                            "Peer requested block and blob older than the data availability \
-                                            boundary for ByRoot request, no blob found";
-                                            "peer" => %peer_id,
-                                            "request_root" => ?root,
-                                            "finalized_data_availability_boundary" => ?finalized_data_availability_boundary,
-                                        );
-                                    }
-                                }
-                                None => {
-                                    debug!(self.log, "Eip4844 fork is disabled");
-                                    self.send_error_response(
-                                        peer_id,
-                                        RPCResponseErrorCode::ResourceUnavailable,
-                                        "Eip4844 fork is disabled".into(),
-                                        request_id,
-                                    );
-                                    return;
-                                }
-                            }
-                        }
-                        Ok((None, Some(_))) => {
+                        (Ok(None), Ok(Some(_))) => {
+                            // This block should be available. DB inconsistency.
                             error!(
                                 self.log,
-                                "Peer requested block and blob, but no block found";
+                                "Block that commits blob not found";
                                 "request" => %request,
                                 "peer" => %peer_id,
                                 "request_root" => ?root
                             );
-                        }
-                        Err(BeaconChainError::BlobsUnavailable) => {
-                            error!(
-                                self.log,
-                                "No blobs in the store for block root";
-                                "request" => %request,
-                                "peer" => %peer_id,
-                                "block_root" => ?root
-                            );
                             self.send_error_response(
                                 peer_id,
                                 RPCResponseErrorCode::ResourceUnavailable,
-                                "Blobs unavailable".into(),
+                                "Block that commits blobs is unavailable".into(),
                                 request_id,
                             );
                             send_response = false;
                             break;
                         }
-                        Err(BeaconChainError::BlockHashMissingFromExecutionLayer(_)) => {
+                        (Err(BeaconChainError::BlockHashMissingFromExecutionLayer(_)), _) => {
                             debug!(
                                 self.log,
                                 "Failed to fetch execution payload for block and blobs by root request";
+                                "request" => %request,
+                                "peer" => %peer_id,
                                 "block_root" => ?root,
                                 "reason" => "execution layer not synced",
                             );
@@ -330,14 +302,27 @@ impl<T: BeaconChainTypes> Worker<T> {
                             send_response = false;
                             break;
                         }
-                        Err(e) => {
-                            debug!(
+                        (Err(e), _) => {
+                            error!(
                                 self.log,
-                                "Error fetching block for peer";
+                                "Error fetching block";
+                                "request" => %request,
                                 "peer" => %peer_id,
                                 "request_root" => ?root,
                                 "error" => ?e,
                             );
+                            self.send_error_response(
+                                peer_id,
+                                RPCResponseErrorCode::ServerError,
+                                "Fetching block that commits blob failed".into(),
+                                request_id,
+                            );
+                            send_response = false;
+                            break;
+                        }
+                        (_, Err(e)) => {
+                            send_response = self.handle_blobs_request_error(e, peer_id, root, request_id, format_args!("{}", request));
+                            break;
                         }
                     }
                 }
@@ -541,7 +526,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                                 blocks_sent += 1;
                                 self.send_network_message(NetworkMessage::SendResponse {
                                     peer_id,
-                                    response: Response::BlocksByRange(Some(Arc::new(block))),
+                                    response: Response::BlocksByRange(Some(block)),
                                     id: request_id,
                                 });
                             }
@@ -577,8 +562,6 @@ impl<T: BeaconChainTypes> Worker<T> {
                             error!(
                                 self.log,
                                 "Error fetching block for peer";
-                                "request" => %req,
-                                "peer" => %peer_id,
                                 "block_root" => ?root,
                                 "error" => ?e
                             );
@@ -771,92 +754,57 @@ impl<T: BeaconChainTypes> Worker<T> {
         let mut send_response = true;
 
         for root in block_roots {
-            match self.chain.get_blobs(&root) {
+            match self.chain.get_blobs_checking_early_attester_cache(&root) {
                 Ok(Some(blobs)) => {
                     blobs_sent += 1;
                     self.send_network_message(NetworkMessage::SendResponse {
                         peer_id,
-                        response: Response::BlobsByRange(Some(Arc::new(blobs))),
+                        response: Response::BlobsByRange(Some(blobs)),
                         id: request_id,
                     });
                 }
                 Ok(None) => {
+                    // This request could be considered spam (hence logged as error).
                     error!(
                         self.log,
-                        "No blobs or block in the store for block root";
-                        "request" => %req,
-                        "peer" => %peer_id,
-                        "block_root" => ?root
-                    );
-                    break;
-                }
-                Err(BeaconChainError::BlobsUnavailable) => {
-                    error!(
-                        self.log,
-                        "No blobs in the store for block root";
-                        "request" => %req,
-                        "peer" => %peer_id,
-                        "block_root" => ?root
-                    );
-                    self.send_error_response(
-                        peer_id,
-                        RPCResponseErrorCode::ResourceUnavailable,
-                        "Blobs unavailable".into(),
-                        request_id,
-                    );
-                    send_response = false;
-                    break;
-                }
-                Err(BeaconChainError::NoKzgCommitmentsFieldOnBlock) => {
-                    error!(
-                        self.log,
-                        "No kzg_commitments field in block";
+                        "Peer requested blobs older than data availability boundary";
                         "request" => %req,
                         "peer" => %peer_id,
                         "block_root" => ?root,
                     );
-                    self.send_error_response(
-                        peer_id,
-                        RPCResponseErrorCode::ResourceUnavailable,
-                        "Failed reading field kzg_commitments from block".into(),
-                        request_id,
-                    );
-                    send_response = false;
+                    // Since ByRange sends blobs younger than finalization, after the initial blobs
+                    // sidecar the fork choice may have changed the view of the chain in the
+                    // context of the request, and the blobs sidecar might have been pruned along
+                    // with its abandoned fork. This is not an error, but we stop sending
+                    // responses from this batch as clients MUST respond with blobs sidecars that
+                    // are consistent from a single chain within the context of the request.
+                    send_response = true;
                     break;
                 }
-                Err(BeaconChainError::BlobsOlderThanDataAvailabilityBoundary) => {
+                Err(BeaconChainError::BlobsLookupForInexistentBlock) => {
+                    // No block or blob found for the block root, no guarantee that we
+                    // should have this blob.
+                    //
+                    // This request could be considered spam (hence logged as error).
                     error!(
                         self.log,
-                        "Failed loading blobs older than data availability boundary";
-                        "request" => %req,
+                        "Peer requested unknown block and blobs";
                         "peer" => %peer_id,
-                        "block_root" => ?root,
+                        "request_root" => ?root
                     );
-                    self.send_error_response(
-                        peer_id,
-                        RPCResponseErrorCode::ResourceUnavailable,
-                        "Blobs older than data availability boundary".into(),
-                        request_id,
-                    );
-                    send_response = false;
+                    // ByRange should send chained blobs, same reason to break as when requested
+                    // blobs are too old.
+                    send_response = true;
                     break;
                 }
                 Err(e) => {
-                    error!(
-                        self.log,
-                        "Error fetching blinded block for block root";
-                        "request" => %req,
-                        "peer" => %peer_id,
-                        "block_root" => ?root,
-                        "error" => ?e
-                    );
-                    self.send_error_response(
+                    send_response = self.handle_blobs_request_error(
+                        e,
                         peer_id,
-                        RPCResponseErrorCode::ServerError,
-                        "No blobs and failed fetching corresponding block".into(),
+                        &root,
                         request_id,
+                        format_args!("{}", req),
                     );
-                    send_response = false;
                     break;
                 }
             }
@@ -900,5 +848,95 @@ impl<T: BeaconChainTypes> Worker<T> {
         }
 
         drop(send_on_drop);
+    }
+
+    /// Errors where blobs should be available are handled the same for ByRoot and ByRange
+    /// requests. Returns true if a sigterm is yet to be sent.
+    fn handle_blobs_request_error(
+        &self,
+        error: BeaconChainError,
+        peer_id: PeerId,
+        root: &Hash256,
+        request_id: PeerRequestId,
+        req: std::fmt::Arguments,
+    ) -> bool {
+        match error {
+            BeaconChainError::BlobsUnavailable => {
+                error!(
+                    self.log,
+                    "No blobs in the store for block root";
+                    "request" => req,
+                    "peer" => %peer_id,
+                    "block_root" => ?root
+                );
+                self.send_error_response(
+                    peer_id,
+                    RPCResponseErrorCode::ResourceUnavailable,
+                    "Blobs unavailable".into(),
+                    request_id,
+                );
+                false
+            }
+            BeaconChainError::Eip4844ForkDisabled => {
+                // This request could be considered spam (hence logged as error).
+                error!(
+                    self.log,
+                    "Peer requested blobs but eip4844 fork is disabled";
+                    "request" => req,
+                    "peer" => %peer_id,
+                    "block_root" => ?root,
+                );
+                true
+            }
+            BeaconChainError::NoKzgCommitmentsFieldOnBlock => {
+                error!(
+                    self.log,
+                    "No kzg_commitments field in block at eip4844 fork epoch or younger";
+                    "request" => req,
+                    "peer" => %peer_id,
+                    "block_root" => ?root,
+                );
+                self.send_error_response(
+                    peer_id,
+                    RPCResponseErrorCode::ServerError,
+                    "Failed reading field kzg_commitments from block".into(),
+                    request_id,
+                );
+                false
+            }
+            BeaconChainError::BlobsDBError(e) => {
+                error!(
+                    self.log,
+                    "Error fetching blobs from db";
+                    "request" => req,
+                    "peer" => %peer_id,
+                    "request_root" => ?root,
+                    "error" => ?e,
+                );
+                self.send_error_response(
+                    peer_id,
+                    RPCResponseErrorCode::ServerError,
+                    "Fetching blobs from store failed".into(),
+                    request_id,
+                );
+                false
+            }
+            e => {
+                error!(
+                    self.log,
+                    "Error fetching block";
+                    "peer" => %peer_id,
+                    "request_root" => ?root,
+                    "error" => ?e,
+                );
+                self.send_error_response(
+                    peer_id,
+                    RPCResponseErrorCode::ServerError,
+                    "Fetching block that commits blob failed".into(),
+                    request_id,
+                );
+                false
+            }
+        }
     }
 }

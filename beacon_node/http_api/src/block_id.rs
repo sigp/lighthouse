@@ -184,7 +184,7 @@ impl BlockId {
                                     slot
                                 )));
                             }
-                            Ok((Arc::new(block), execution_optimistic))
+                            Ok((block, execution_optimistic))
                         }
                         None => Err(warp_utils::reject::custom_not_found(format!(
                             "beacon block with root {}",
@@ -200,7 +200,7 @@ impl BlockId {
                     .map_err(warp_utils::reject::beacon_chain_error)
                     .and_then(|block_opt| {
                         block_opt
-                            .map(|block| (Arc::new(block), execution_optimistic))
+                            .map(|block| (block, execution_optimistic))
                             .ok_or_else(|| {
                                 warp_utils::reject::custom_not_found(format!(
                                     "beacon block with root {}",
