@@ -1029,7 +1029,7 @@ impl BeaconNodeHttpClient {
     /// `POST beacon/rewards/attestations`
     pub async fn post_beacon_rewards_attestations(
         &self,
-        attestations: &[lighthouse::AttestationRewardsTBD],
+        attestations: &[lighthouse::AttestationRewardsV2],
     ) -> Result<(), Error> {
         let mut path = self.eth_path(V1)?;
 

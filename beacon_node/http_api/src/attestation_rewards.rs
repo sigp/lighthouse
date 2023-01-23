@@ -1,6 +1,6 @@
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use eth2::lighthouse::attestation_rewards::{IdealAttestationRewards, TotalAttestationRewards};
-use eth2::{lighthouse::AttestationRewardsTBD, types::ValidatorId};
+use eth2::{lighthouse::AttestationRewardsV2, types::ValidatorId};
 use participation_cache::ParticipationCache;
 use safe_arith::SafeArith;
 use slog::{debug, Logger};
@@ -23,7 +23,7 @@ pub fn compute_attestation_rewards<T: BeaconChainTypes>(
     epoch: Epoch,
     validators: Vec<ValidatorId>,
     log: Logger,
-) -> Result<(AttestationRewardsTBD, ExecutionOptimistic), warp::Rejection> {
+) -> Result<(AttestationRewardsV2, ExecutionOptimistic), warp::Rejection> {
     debug!(log, "computing attestation rewards"; "epoch" => epoch, "validator_count" => validators.len());
 
     //--- Get state ---//
@@ -40,7 +40,7 @@ pub fn compute_attestation_rewards<T: BeaconChainTypes>(
         .map_err(warp_utils::reject::beacon_chain_error)?
         .ok_or_else(|| warp_utils::reject::custom_not_found("State root not found".to_owned()))?;
 
-    let state = chain
+    let mut state = chain
         .get_state(&state_root, Some(state_slot))
         .map_err(warp_utils::reject::beacon_chain_error)?
         .ok_or_else(|| warp_utils::reject::custom_not_found("State not found".to_owned()))?;
@@ -56,7 +56,6 @@ pub fn compute_attestation_rewards<T: BeaconChainTypes>(
     let flag_index = 0;
     let weight = 0;
     let base_reward = 0;
-    let effective_balance_eth = 0;
 
     for flag_index in [
         TIMELY_SOURCE_FLAG_INDEX,
@@ -172,7 +171,7 @@ pub fn compute_attestation_rewards<T: BeaconChainTypes>(
         .collect();
 
     //--- Calculate total rewards ---//
-    let mut total_rewards_vec = Vec::new();
+    let mut total_rewards = Vec::new();
 
     let index = participation_cache.eligible_validator_indices();
 
@@ -183,37 +182,76 @@ pub fn compute_attestation_rewards<T: BeaconChainTypes>(
                 warp_utils::reject::custom_server_error("Unable to get eligible".to_owned())
             })?;
 
-        let total_reward = if !eligible {
-            0u64
-        } else {
-            let voted_correctly = participation_cache
-                .get_unslashed_participating_indices(flag_index, previous_epoch)
-                .is_ok();
-            if voted_correctly {
-                *ideal_rewards_hashmap
-                    .entry((flag_index, effective_balance_eth))
-                    .or_insert(0)
-            } else {
-                (-(base_reward as i64 as i128) * weight as i128 / WEIGHT_DENOMINATOR as i128) as u64
+        let balance = state.get_balance_mut(*validator_index).map_err(|_| {
+            warp_utils::reject::custom_server_error("Unable to get balance".to_owned())
+        })?;
+        *balance = (*balance as f64).round().min(32.0).max(0.0) as u64;
+
+        let mut head_reward = 0u64;
+        let mut target_reward = 0u64;
+        let mut source_reward = 0u64;
+
+        for &flag_index in [
+            TIMELY_SOURCE_FLAG_INDEX,
+            TIMELY_TARGET_FLAG_INDEX,
+            TIMELY_HEAD_FLAG_INDEX,
+        ]
+        .iter()
+        {
+            if eligible {
+                let voted_correctly = participation_cache
+                    .get_unslashed_participating_indices(flag_index, previous_epoch)
+                    .is_ok();
+                if voted_correctly {
+                    let _ideal_reward = &ideal_rewards
+                        .iter()
+                        .find(|reward| reward.effective_balance == *balance)
+                        .map(|reward| {
+                            head_reward = reward.head;
+                            target_reward = reward.target;
+                            source_reward = reward.source;
+                            reward
+                        })
+                        .unwrap_or(&IdealAttestationRewards {
+                            effective_balance: *balance,
+                            head: 0,
+                            target: 0,
+                            source: 0,
+                        });
+                } else {
+                    match flag_index {
+                        TIMELY_HEAD_FLAG_INDEX => {}
+                        TIMELY_TARGET_FLAG_INDEX => {
+                            target_reward = (-(base_reward as i64 as i128) * weight as i128
+                                / WEIGHT_DENOMINATOR as i128)
+                                as u64
+                        }
+                        TIMELY_SOURCE_FLAG_INDEX => {
+                            source_reward = (-(base_reward as i64 as i128) * weight as i128
+                                / WEIGHT_DENOMINATOR as i128)
+                                as u64
+                        }
+                        _ => {}
+                    }
+                }
             }
-        };
-        total_rewards_vec.push((*validator_index, total_reward));
+
+            total_rewards.push(TotalAttestationRewards {
+                validator_index: *validator_index as u64,
+                head: head_reward as i64,
+                target: target_reward as i64,
+                source: source_reward as i64,
+                inclusion_delay: 0,
+            });
+        }
     }
 
-    //TODO Check target, source, and inclusion_delay
-    let total_rewards: Vec<TotalAttestationRewards> = total_rewards_vec
-        .into_iter()
-        .map(|(validator_index, total_reward)| TotalAttestationRewards {
-            validator_index: validator_index as u64,
-            head: total_reward as i64,
-            target: 0,
-            source: 0,
-            inclusion_delay: 0,
-        })
-        .collect();
+    //TODO Check inclusion delay. Where do I get attestation data from?
+    //let att_data = attestations.attestation_data();
+    //let inclusion_delay = state.slot().as_u64().checked_sub(att_data.slot.as_u64())?;
 
     Ok((
-        AttestationRewardsTBD {
+        AttestationRewardsV2 {
             ideal_rewards,
             total_rewards,
         },

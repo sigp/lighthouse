@@ -29,7 +29,7 @@ pub use block_packing_efficiency::{
 pub use block_rewards::{AttestationRewards, BlockReward, BlockRewardMeta, BlockRewardsQuery};
 pub use lighthouse_network::{types::SyncState, PeerInfo};
 // TODO: Change name
-pub use attestation_rewards::AttestationRewardsTBD;
+pub use attestation_rewards::AttestationRewardsV2;
 
 // Define "legacy" implementations of `Option<T>` which use four bytes for encoding the union
 // selector.
