@@ -23,15 +23,16 @@
 //!             |
 //!             ▼
 //!     SignedBeaconBlock
+//!             |
+//!             ▼
+//!      AvailableBlock
+//!             |
 //!             |---------------
 //!             |              |
 //!             |              ▼
 //!             |      GossipVerifiedBlock
 //!             |              |
 //!             |---------------
-//!             |
-//!             ▼
-//!      AvailableBLock
 //!             |
 //!             ▼
 //!    SignatureVerifiedBlock
