@@ -3383,7 +3383,8 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(get_lighthouse_attestation_performance.boxed())
                 .or(get_lighthouse_block_packing_efficiency.boxed())
                 .or(get_lighthouse_merge_readiness.boxed())
-                .or(get_events.boxed()),
+                .or(get_events.boxed())
+                .recover(warp_utils::reject::handle_rejection),
         )
         .boxed()
         .or(warp::post().and(
@@ -3407,7 +3408,8 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(post_lighthouse_database_reconstruct.boxed())
                 .or(post_lighthouse_database_historical_blocks.boxed())
                 .or(post_lighthouse_block_rewards.boxed())
-                .or(post_lighthouse_ui_validator_metrics.boxed()),
+                .or(post_lighthouse_ui_validator_metrics.boxed())
+                .recover(warp_utils::reject::handle_rejection),
         ))
         .recover(warp_utils::reject::handle_rejection)
         .with(slog_logging(log.clone()))

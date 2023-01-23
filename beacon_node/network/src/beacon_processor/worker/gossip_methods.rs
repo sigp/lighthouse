@@ -715,6 +715,10 @@ impl<T: BeaconChainTypes> Worker<T> {
             &metrics::BEACON_BLOCK_GOSSIP_SLOT_START_DELAY_TIME,
             block_delay,
         );
+        metrics::set_gauge(
+            &metrics::BEACON_BLOCK_LAST_DELAY,
+            block_delay.as_millis() as i64,
+        );
 
         let verification_result = self
             .chain
