@@ -185,7 +185,7 @@ pub fn compute_attestation_rewards<T: BeaconChainTypes>(
         let balance = state.get_balance_mut(*validator_index).map_err(|_| {
             warp_utils::reject::custom_server_error("Unable to get balance".to_owned())
         })?;
-        *balance = (*balance as f64).round().min(32.0).max(0.0) as u64;
+        *balance = (*balance as f64).round().clamp(0.0, 32.0) as u64;
 
         let mut head_reward = 0u64;
         let mut target_reward = 0u64;
