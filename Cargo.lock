@@ -4704,7 +4704,7 @@ dependencies = [
 [[package]]
 name = "milhouse"
 version = "0.1.0"
-source = "git+https://github.com/sigp/milhouse?branch=main#7712800a18796640a722a219997fc6b2cd745ba2"
+source = "git+https://github.com/sigp/milhouse?branch=main#373b601b12c5b0038681334716cc671f76aea31c"
 dependencies = [
  "derivative",
  "ethereum_hashing",
@@ -7341,13 +7341,13 @@ dependencies = [
 [[package]]
 name = "ssz_types"
 version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "babb2d535656e2f243adc91642033d476f0b411a7c6fbc338f4bc89ef50261d0"
+source = "git+https://github.com/sigp/ssz_types?branch=abstract-serde#eab67903fe39828d5735ab48910556445b0fa3d2"
 dependencies = [
  "arbitrary",
  "derivative",
  "ethereum_serde_utils",
  "ethereum_ssz",
+ "itertools",
  "serde",
  "serde_derive",
  "smallvec",

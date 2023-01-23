@@ -283,8 +283,7 @@ where
     // Registry
     #[test_random(default)]
     pub validators: VList<GenericValidator, T::ValidatorRegistryLimit>,
-    // FIXME(sproul): serde quoting
-    // #[serde(with = "ssz_types::serde_utils::quoted_u64_var_list")]
+    #[serde(with = "ssz_types::serde_utils::quoted_u64_var_list")]
     #[test_random(default)]
     pub balances: VList<u64, T::ValidatorRegistryLimit>,
 
@@ -294,8 +293,7 @@ where
 
     // Slashings
     #[test_random(default)]
-    // FIXME(sproul): serde quoting
-    // #[serde(with = "ssz_types::serde_utils::quoted_u64_fixed_vec")]
+    #[serde(with = "ssz_types::serde_utils::quoted_u64_fixed_vec")]
     pub slashings: FixedVector<u64, T::EpochsPerSlashingsVector>,
 
     // Attestations (genesis fork only)
@@ -329,8 +327,7 @@ where
     pub finalized_checkpoint: Checkpoint,
 
     // Inactivity
-    // FIXME(sproul): quoting
-    // #[serde(with = "ssz_types::serde_utils::quoted_u64_var_list")]
+    #[serde(with = "ssz_types::serde_utils::quoted_u64_var_list")]
     #[superstruct(only(Altair, Merge))]
     #[test_random(default)]
     pub inactivity_scores: VList<u64, T::ValidatorRegistryLimit>,
