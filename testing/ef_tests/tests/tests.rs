@@ -83,6 +83,11 @@ fn operations_execution_payload_blinded() {
 }
 
 #[test]
+fn update_ranking() {
+    UpdateRankingHandler::<MinimalEthSpec>::default().run();
+}
+
+#[test]
 fn sanity_blocks() {
     SanityBlocksHandler::<MinimalEthSpec>::default().run();
     SanityBlocksHandler::<MainnetEthSpec>::default().run();

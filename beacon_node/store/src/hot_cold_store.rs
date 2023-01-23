@@ -519,17 +519,22 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         }
     }
 
-    pub fn put_light_client_update(
-        &self,
-        update: LightClientUpdate<E>,
-    ) -> Result<(), Error> {
+    pub fn put_light_client_update(&self, update: LightClientUpdate<E>) -> Result<(), Error> {
         let sync_committee_period = update.signature_slot.epoch(E::slots_per_epoch())
             / self.spec.epochs_per_sync_committee_period;
         let key = sync_committee_period.as_u64().to_le_bytes();
         if update.signature_slot < self.get_split_slot() {
-            self.cold_db.put_bytes(DBColumn::LightClientUpdate.into(), &key, &update.as_ssz_bytes())
+            self.cold_db.put_bytes(
+                DBColumn::LightClientUpdate.into(),
+                &key,
+                &update.as_ssz_bytes(),
+            )
         } else {
-            self.hot_db.put_bytes(DBColumn::LightClientUpdate.into(), &key, &update.as_ssz_bytes())
+            self.hot_db.put_bytes(
+                DBColumn::LightClientUpdate.into(),
+                &key,
+                &update.as_ssz_bytes(),
+            )
         }
     }
 
@@ -539,7 +544,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         sync_committee_period: u64,
     ) -> Result<Option<LightClientUpdate<E>>, Error> {
         let start_slot = self.spec.altair_fork_epoch.map(|altair_fork_epoch| {
-            let epochs_passed = Epoch::new(sync_committee_period) * self.spec.epochs_per_sync_committee_period;
+            let epochs_passed =
+                Epoch::new(sync_committee_period) * self.spec.epochs_per_sync_committee_period;
             let start_epoch = altair_fork_epoch + epochs_passed;
             start_epoch.start_slot(E::slots_per_epoch())
         });

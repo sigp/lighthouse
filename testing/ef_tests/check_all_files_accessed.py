@@ -25,8 +25,6 @@ excluded_paths = [
     # Intentionally omitted, as per https://github.com/sigp/lighthouse/issues/1835
     "tests/.*/.*/ssz_static/Eth1Block/",
     "tests/.*/.*/ssz_static/PowBlock/",
-    # light_client
-    "tests/.*/.*/light_client",
     # LightClientStore
     "tests/.*/.*/ssz_static/LightClientStore",
     # LightClientUpdate

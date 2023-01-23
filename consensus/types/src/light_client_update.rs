@@ -167,6 +167,7 @@ impl<T: EthSpec> LightClientUpdate<T> {
         })
     }
 
+    // Returns true if self is a better update than the old_update and false otherwise.
     pub fn is_better_update(&self, old_update: &Self, chain_spec: &ChainSpec) -> bool {
         let max_active_participants = self.sync_aggregate.sync_committee_bits.len();
         let new_num_active_participants = self.sync_aggregate.num_set_bits();

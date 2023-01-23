@@ -37,5 +37,5 @@ mod tests {
     use super::*;
     use crate::MainnetEthSpec;
 
-    ssz_tests!(LightClienHeader<MainnetEthSpec>);
+    ssz_tests!(LightClientHeader);
 }
