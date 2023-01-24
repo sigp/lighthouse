@@ -66,7 +66,7 @@ of the Lighthouse book.
 The best place for discussion is the [Lighthouse Discord
 server](https://discord.gg/cyAszAh).
 
-Sign up to the [Lighthouse Development Updates](https://eepurl.com/dh9Lvb/) mailing list for email
+Sign up to the [Lighthouse Development Updates](https://eepurl.com/dh9Lvb) mailing list for email
 notifications about releases, network status and other important information.
 
 Encrypt sensitive messages using our [PGP

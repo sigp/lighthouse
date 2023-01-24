@@ -76,7 +76,7 @@ pub fn get_flag_index_deltas<T: EthSpec>(
         let base_reward = get_base_reward(state, index, base_reward_per_increment, spec)?;
         let mut delta = Delta::default();
 
-        if unslashed_participating_indices.contains(index as usize)? {
+        if unslashed_participating_indices.contains(index)? {
             if !state.is_in_inactivity_leak(previous_epoch, spec) {
                 let reward_numerator = base_reward
                     .safe_mul(weight)?
@@ -89,8 +89,8 @@ pub fn get_flag_index_deltas<T: EthSpec>(
             delta.penalize(base_reward.safe_mul(weight)?.safe_div(WEIGHT_DENOMINATOR)?)?;
         }
         deltas
-            .get_mut(index as usize)
-            .ok_or(Error::DeltaOutOfBounds(index as usize))?
+            .get_mut(index)
+            .ok_or(Error::DeltaOutOfBounds(index))?
             .combine(delta)?;
     }
     Ok(())

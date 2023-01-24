@@ -308,5 +308,17 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     by this validator client. Note this will not necessarily be used if the gas limit \
                     set here moves too far from the previous block's gas limit. [default: 30,000,000]")
                 .requires("builder-proposals"),
-    )
+        )
+        /*
+         * Experimental/development options.
+         */
+        .arg(
+            Arg::with_name("block-delay-ms")
+                .long("block-delay-ms")
+                .value_name("MILLIS")
+                .hidden(true)
+                .help("Time to delay block production from the start of the slot. Should only be \
+                       used for testing.")
+                .takes_value(true),
+        )
 }

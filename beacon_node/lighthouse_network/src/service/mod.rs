@@ -26,7 +26,7 @@ use libp2p::gossipsub::subscription_filter::MaxCountSubscriptionFilter;
 use libp2p::gossipsub::{
     GossipsubEvent, IdentTopic as Topic, MessageAcceptance, MessageAuthenticity, MessageId,
 };
-use libp2p::identify::{Identify, IdentifyConfig, IdentifyEvent};
+use libp2p::identify::{Behaviour as Identify, Config as IdentifyConfig, Event as IdentifyEvent};
 use libp2p::multiaddr::{Multiaddr, Protocol as MProtocol};
 use libp2p::swarm::{ConnectionLimits, Swarm, SwarmBuilder, SwarmEvent};
 use libp2p::PeerId;
@@ -259,7 +259,11 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
             (gossipsub, update_gossipsub_scores)
         };
 
-        let eth2_rpc = RPC::new(ctx.fork_context.clone(), log.clone());
+        let eth2_rpc = RPC::new(
+            ctx.fork_context.clone(),
+            config.enable_light_client_server,
+            log.clone(),
+        );
 
         let discovery = {
             // Build and start the discovery sub-behaviour
@@ -312,7 +316,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
 
             // use the executor for libp2p
             struct Executor(task_executor::TaskExecutor);
-            impl libp2p::core::Executor for Executor {
+            impl libp2p::swarm::Executor for Executor {
                 fn exec(&self, f: Pin<Box<dyn futures::Future<Output = ()> + Send>>) {
                     self.0.spawn(f, "libp2p");
                 }
@@ -337,12 +341,16 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                 .with_max_established_per_peer(Some(MAX_CONNECTIONS_PER_PEER));
 
             (
-                SwarmBuilder::new(transport, behaviour, local_peer_id)
-                    .notify_handler_buffer_size(std::num::NonZeroUsize::new(7).expect("Not zero"))
-                    .connection_event_buffer_size(64)
-                    .connection_limits(limits)
-                    .executor(Box::new(Executor(executor)))
-                    .build(),
+                SwarmBuilder::with_executor(
+                    transport,
+                    behaviour,
+                    local_peer_id,
+                    Executor(executor),
+                )
+                .notify_handler_buffer_size(std::num::NonZeroUsize::new(7).expect("Not zero"))
+                .connection_event_buffer_size(64)
+                .connection_limits(limits)
+                .build(),
                 bandwidth,
             )
         };
@@ -978,6 +986,9 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
             Request::Status(_) => {
                 metrics::inc_counter_vec(&metrics::TOTAL_RPC_REQUESTS, &["status"])
             }
+            Request::LightClientBootstrap(_) => {
+                metrics::inc_counter_vec(&metrics::TOTAL_RPC_REQUESTS, &["light_client_bootstrap"])
+            }
             Request::BlocksByRange { .. } => {
                 metrics::inc_counter_vec(&metrics::TOTAL_RPC_REQUESTS, &["blocks_by_range"])
             }
@@ -1247,6 +1258,14 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                         );
                         Some(event)
                     }
+                    InboundRequest::LightClientBootstrap(req) => {
+                        let event = self.build_request(
+                            peer_request_id,
+                            peer_id,
+                            Request::LightClientBootstrap(req),
+                        );
+                        Some(event)
+                    }
                 }
             }
             Ok(RPCReceived::Response(id, resp)) => {
@@ -1273,6 +1292,10 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                     }
                     RPCResponse::BlocksByRoot(resp) => {
                         self.build_response(id, peer_id, Response::BlocksByRoot(Some(resp)))
+                    }
+                    // Should never be reached
+                    RPCResponse::LightClientBootstrap(bootstrap) => {
+                        self.build_response(id, peer_id, Response::LightClientBootstrap(bootstrap))
                     }
                 }
             }
