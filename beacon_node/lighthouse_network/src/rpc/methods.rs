@@ -360,7 +360,7 @@ impl<T: EthSpec> RPCCodedResponse<T> {
             2 => RPCResponseErrorCode::ServerError,
             3 => RPCResponseErrorCode::ResourceUnavailable,
             139 => RPCResponseErrorCode::RateLimited,
-            142 => RPCResponseErrorCode::BlobsNotFoundForBlock,
+            140 => RPCResponseErrorCode::BlobsNotFoundForBlock,
             _ => RPCResponseErrorCode::Unknown,
         };
         RPCCodedResponse::Error(code, err)
