@@ -30,7 +30,7 @@ pub struct StoreConfig {
     pub prune_payloads: bool,
     /// Whether to prune blobs older than the blob data availability boundary.
     pub prune_blobs: bool,
-    /// Frequency of blob pruning in epochs. Default: every epoch.
+    /// Frequency of blob pruning in epochs. Default: 1 (every epoch).
     pub epochs_per_blob_prune: u64,
     /// The margin for blob pruning in epochs. The oldest blobs are pruned up until
     /// data_availability_boundary - blob_prune_margin_epochs. Default: 0.
