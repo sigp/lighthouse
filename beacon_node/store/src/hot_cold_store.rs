@@ -827,6 +827,10 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                         get_key_for_col(DBColumn::BeaconBlobOrphan.into(), block_root.as_bytes());
                     key_value_batch.push(KeyValueStoreOp::PutKeyValue(db_key, [].into()));
                 }
+
+                StoreOp::PutRawKVStoreOp(kv_store_op) => {
+                    key_value_batch.push(kv_store_op);
+                }
             }
         }
         Ok(key_value_batch)
@@ -869,6 +873,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 StoreOp::DeleteExecutionPayload(_) => (),
 
                 StoreOp::PutOrphanedBlobsKey(_) => (),
+
+                StoreOp::PutRawKVStoreOp(_) => (),
             }
         }
 
@@ -1865,21 +1871,22 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 break;
             }
         }
-
         let blobs_sidecars_pruned = ops.len();
+
+        let update_blob_info = self.compare_and_set_blob_info(
+            Some(blob_info),
+            Some(BlobInfo {
+                oldest_blob_slot: end_slot + 1,
+            }),
+        )?;
+        ops.push(StoreOp::PutRawKVStoreOp(update_blob_info));
+
         self.do_atomically(ops)?;
         info!(
             self.log,
             "Blobs sidecar pruning complete";
             "blobs_sidecars_pruned" => blobs_sidecars_pruned,
         );
-
-        self.compare_and_set_blob_info_with_write(
-            Some(blob_info),
-            Some(BlobInfo {
-                oldest_blob_slot: end_slot + 1,
-            }),
-        )?;
 
         Ok(())
     }
