@@ -211,7 +211,7 @@ pub enum BeaconChainError {
     ProposerHeadForkChoiceError(fork_choice::Error<proto_array::Error>),
     BlobsUnavailable,
     NoKzgCommitmentsFieldOnBlock,
-    BlobsOlderThanDataAvailabilityBoundary,
+    BlobsOlderThanDataAvailabilityBoundary(Epoch),
 }
 
 easy_from_to!(SlotProcessingError, BeaconChainError);

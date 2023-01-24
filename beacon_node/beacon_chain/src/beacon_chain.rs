@@ -957,22 +957,24 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         block_root: &Hash256,
     ) -> Result<
-        (
-            Option<Arc<SignedBeaconBlock<T::EthSpec>>>,
-            Option<Arc<BlobsSidecar<T::EthSpec>>>,
-        ),
+        Option<(
+            Arc<SignedBeaconBlock<T::EthSpec>>,
+            Arc<BlobsSidecar<T::EthSpec>>,
+        )>,
         Error,
     > {
         if let (Some(block), Some(blobs)) = (
             self.early_attester_cache.get_block(*block_root),
             self.early_attester_cache.get_blobs(*block_root),
         ) {
-            return Ok((Some(block), Some(blobs)));
+            return Ok(Some((block, blobs)));
         }
-        Ok((
-            self.get_block(block_root).await?.map(Arc::new),
-            self.get_blobs(block_root)?.map(Arc::new),
-        ))
+        if let Some(block) = self.get_block(block_root).await?.map(Arc::new) {
+            let blobs = self.get_blobs(block_root)?.map(Arc::new);
+            Ok(blobs.map(|blobs| (block, blobs)))
+        } else {
+            Ok(None)
+        }
     }
 
     /// Returns the block at the given root, if any.
@@ -1044,8 +1046,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     /// Returns the blobs at the given root, if any.
     ///
-    /// Returns `Ok(None)` if the blobs are not found. This could indicate the blob has been pruned
-    /// or that the block it is referenced by doesn't exist in our database.
+    /// Returns `Ok(None)` if the blobs and associated block are not found. The block referenced by
+    /// the blob doesn't exist in our database.
     ///
     /// If we can find the corresponding block in our database, we know whether we *should* have
     /// blobs. If we should have blobs and no blobs are found, this will error. If we shouldn't,
@@ -1055,6 +1057,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// - any database read errors
     /// - block and blobs are inconsistent in the database
     /// - this method is called with a pre-eip4844 block root
+    /// - this method is called for a blob that is beyond the prune depth
     pub fn get_blobs(
         &self,
         block_root: &Hash256,
@@ -1073,10 +1076,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                                 Err(_) => return Err(Error::NoKzgCommitmentsFieldOnBlock),
                             };
                         if expected_kzg_commitments.is_empty() {
-                            Ok(Some(BlobsSidecar::empty_from_parts(
-                                *block_root,
-                                block.slot(),
-                            )))
+                            Ok(BlobsSidecar::empty_from_parts(*block_root, block.slot()))
                         } else {
                             if let Some(boundary) = self.data_availability_boundary() {
                                 // We should have blobs for all blocks younger than the boundary.
@@ -1084,11 +1084,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                                     return Err(Error::BlobsUnavailable);
                                 }
                             }
-                            Err(Error::BlobsOlderThanDataAvailabilityBoundary)
+                            Err(Error::BlobsOlderThanDataAvailabilityBoundary(block.epoch()))
                         }
                     })
                     .transpose()
-                    .map(Option::flatten)
             }
         }
     }

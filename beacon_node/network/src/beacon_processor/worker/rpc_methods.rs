@@ -230,7 +230,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                         .get_block_and_blobs_checking_early_attester_cache(root)
                         .await
                     {
-                        Ok((Some(block), Some(blobs))) => {
+                        Ok(Some((block, blobs))) => {
                             self.send_response(
                                 peer_id,
                                 Response::BlobsByRoot(Some(SignedBeaconBlockAndBlobsSidecar {
@@ -241,7 +241,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                             );
                             send_block_count += 1;
                         }
-                        Ok((None, None)) => {
+                        Ok(None) => {
                             debug!(
                                 self.log,
                                 "Peer requested unknown block and blobs";
@@ -249,9 +249,41 @@ impl<T: BeaconChainTypes> Worker<T> {
                                 "request_root" => ?root
                             );
                         }
-                        Ok((Some(block), None)) => {
+                        Err(BeaconChainError::BlobsUnavailable) => {
+                            error!(
+                                self.log,
+                                "No blobs in the store for block root";
+                                "request" => %request,
+                                "peer" => %peer_id,
+                                "block_root" => ?root
+                            );
+                            self.send_error_response(
+                                peer_id,
+                                RPCResponseErrorCode::BlobsNotFoundForBlock,
+                                "Blobs not found for block root".into(),
+                                request_id,
+                            );
+                            send_response = false;
+                            break;
+                        }
+                        Err(BeaconChainError::NoKzgCommitmentsFieldOnBlock) => {
+                            error!(
+                                self.log,
+                                "No kzg_commitments field in block";
+                                "peer" => %peer_id,
+                                "block_root" => ?root,
+                            );
+                            self.send_error_response(
+                                peer_id,
+                                RPCResponseErrorCode::ResourceUnavailable,
+                                "Failed reading field kzg_commitments from block".into(),
+                                request_id,
+                            );
+                            send_response = false;
+                            break;
+                        }
+                        Err(BeaconChainError::BlobsOlderThanDataAvailabilityBoundary(block_epoch)) => {
                             let finalized_data_availability_boundary = self.chain.finalized_data_availability_boundary();
-                            let block_epoch = block.epoch();
 
                             match finalized_data_availability_boundary {
                                 Some(boundary_epoch) => {
@@ -264,6 +296,14 @@ impl<T: BeaconChainTypes> Worker<T> {
                                             "request_root" => ?root,
                                             "finalized_data_availability_boundary" => %boundary_epoch,
                                         );
+                                        self.send_error_response(
+                                            peer_id,
+                                            RPCResponseErrorCode::ResourceUnavailable,
+                                            "Blobs older than data availability boundary".into(),
+                                            request_id,
+                                        );
+                                        send_response = false;
+                                        break;
                                     } else {
                                         debug!(
                                             self.log,
@@ -286,32 +326,6 @@ impl<T: BeaconChainTypes> Worker<T> {
                                     return;
                                 }
                             }
-                        }
-                        Ok((None, Some(_))) => {
-                            error!(
-                                self.log,
-                                "Peer requested block and blob, but no block found";
-                                "request" => %request,
-                                "peer" => %peer_id,
-                                "request_root" => ?root
-                            );
-                        }
-                        Err(BeaconChainError::BlobsUnavailable) => {
-                            error!(
-                                self.log,
-                                "No blobs in the store for block root";
-                                "request" => %request,
-                                "peer" => %peer_id,
-                                "block_root" => ?root
-                            );
-                            self.send_error_response(
-                                peer_id,
-                                RPCResponseErrorCode::ResourceUnavailable,
-                                "Blobs unavailable".into(),
-                                request_id,
-                            );
-                            send_response = false;
-                            break;
                         }
                         Err(BeaconChainError::BlockHashMissingFromExecutionLayer(_)) => {
                             debug!(
@@ -802,40 +816,6 @@ impl<T: BeaconChainTypes> Worker<T> {
                         peer_id,
                         RPCResponseErrorCode::ResourceUnavailable,
                         "Blobs unavailable".into(),
-                        request_id,
-                    );
-                    send_response = false;
-                    break;
-                }
-                Err(BeaconChainError::NoKzgCommitmentsFieldOnBlock) => {
-                    error!(
-                        self.log,
-                        "No kzg_commitments field in block";
-                        "request" => %req,
-                        "peer" => %peer_id,
-                        "block_root" => ?root,
-                    );
-                    self.send_error_response(
-                        peer_id,
-                        RPCResponseErrorCode::ResourceUnavailable,
-                        "Failed reading field kzg_commitments from block".into(),
-                        request_id,
-                    );
-                    send_response = false;
-                    break;
-                }
-                Err(BeaconChainError::BlobsOlderThanDataAvailabilityBoundary) => {
-                    error!(
-                        self.log,
-                        "Failed loading blobs older than data availability boundary";
-                        "request" => %req,
-                        "peer" => %peer_id,
-                        "block_root" => ?root,
-                    );
-                    self.send_error_response(
-                        peer_id,
-                        RPCResponseErrorCode::ResourceUnavailable,
-                        "Blobs older than data availability boundary".into(),
                         request_id,
                     );
                     send_response = false;
