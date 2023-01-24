@@ -14,7 +14,6 @@ use slog::{debug, error};
 use slot_clock::SlotClock;
 use std::sync::Arc;
 use task_executor::TaskExecutor;
-use tokio::count;
 use types::light_client_bootstrap::LightClientBootstrap;
 use types::{Epoch, EthSpec, Hash256, Slot};
 
@@ -424,7 +423,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         send_on_drop: SendOnDrop,
         peer_id: PeerId,
         request_id: PeerRequestId,
-        mut req: BlocksByRangeRequest,
+        req: BlocksByRangeRequest,
     ) {
         debug!(self.log, "Received BlocksByRange Request";
             "peer_id" => %peer_id,
@@ -465,11 +464,17 @@ impl<T: BeaconChainTypes> Worker<T> {
                 );
             }
             Err(e) => {
+                self.send_error_response(
+                    peer_id,
+                    RPCResponseErrorCode::ServerError,
+                    "Database error".into(),
+                    request_id,
+                );
                 return error!(self.log, "Unable to obtain root iter";
                     "request" => ?req,
                     "peer" => %peer_id,
                     "error" => ?e
-                )
+                );
             }
         };
 
@@ -544,6 +549,13 @@ impl<T: BeaconChainTypes> Worker<T> {
                                 "peer" => %peer_id,
                                 "request_root" => ?root
                             );
+                            self.send_error_response(
+                                peer_id,
+                                RPCResponseErrorCode::ServerError,
+                                "Database inconsistency".into(),
+                                request_id,
+                            );
+                            send_response = false;
                             break;
                         }
                         Err(BeaconChainError::BlockHashMissingFromExecutionLayer(_)) => {
@@ -636,7 +648,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         send_on_drop: SendOnDrop,
         peer_id: PeerId,
         request_id: PeerRequestId,
-        mut req: BlobsByRangeRequest,
+        req: BlobsByRangeRequest,
     ) {
         debug!(self.log, "Received BlobsByRange Request";
             "peer_id" => %peer_id,
@@ -694,7 +706,7 @@ impl<T: BeaconChainTypes> Worker<T> {
             // Check if the request is entirely out of the data availability period. The
             // `oldest_blob_slot` is the oldest slot in the database, so includes a margin of error
             // controlled by our prune margin.
-            let end_request_slot = start_slot + count;
+            let end_request_slot = start_slot + req.count;
             if oldest_blob_slot < end_request_slot {
                 return self.send_error_response(
                     peer_id,
@@ -730,11 +742,17 @@ impl<T: BeaconChainTypes> Worker<T> {
                     );
                 }
                 Err(e) => {
+                    self.send_error_response(
+                        peer_id,
+                        RPCResponseErrorCode::ServerError,
+                        "Database error".into(),
+                        request_id,
+                    );
                     return error!(self.log, "Unable to obtain root iter";
                         "request" => ?req,
                         "peer" => %peer_id,
                         "error" => ?e
-                    )
+                    );
                 }
             };
 
@@ -800,6 +818,13 @@ impl<T: BeaconChainTypes> Worker<T> {
                         "peer" => %peer_id,
                         "block_root" => ?root
                     );
+                    self.send_error_response(
+                        peer_id,
+                        RPCResponseErrorCode::ServerError,
+                        "Database inconsistency".into(),
+                        request_id,
+                    );
+                    send_response = false;
                     break;
                 }
                 Err(BeaconChainError::BlobsUnavailable) => {
