@@ -345,7 +345,13 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
                             }
                             (Notification::Finalization(_), Notification::PruneBlobs(_)) => best,
                             (Notification::PruneBlobs(_), Notification::Finalization(_)) => other,
-                            (Notification::PruneBlobs(_), Notification::PruneBlobs(_)) => best,
+                            (Notification::PruneBlobs(dab1), Notification::PruneBlobs(dab2)) => {
+                                if dab2 > dab2 {
+                                    other
+                                } else {
+                                    best
+                                }
+                            }
                         });
 
                 match notif {
