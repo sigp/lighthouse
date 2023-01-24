@@ -109,6 +109,7 @@ pub enum HotColdDBError {
         slots_per_historical_root: u64,
         slots_per_epoch: u64,
     },
+    ZeroEpochsPerBlobPrune,
     RestorePointBlockHashError(BeaconStateError),
     IterationError {
         unexpected_key: BytesKey,
@@ -126,7 +127,7 @@ impl<E: EthSpec> HotColdDB<E, MemoryStore<E>, MemoryStore<E>> {
         spec: ChainSpec,
         log: Logger,
     ) -> Result<HotColdDB<E, MemoryStore<E>, MemoryStore<E>>, Error> {
-        Self::verify_slots_per_restore_point(config.slots_per_restore_point)?;
+        Self::verify_config(&config)?;
 
         let db = HotColdDB {
             split: RwLock::new(Split::default()),
@@ -1522,6 +1523,12 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         self.hot_db.get(state_root)
     }
 
+    /// Verify that a parsed config.
+    fn verify_config(config: &StoreConfig) -> Result<(), HotColdDBError> {
+        Self::verify_slots_per_restore_point(config.slots_per_restore_point)?;
+        Self::verify_epochs_per_blob_prune(config.epochs_per_blob_prune)
+    }
+
     /// Check that the restore point frequency is valid.
     ///
     /// Specifically, check that it is:
@@ -1549,6 +1556,16 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 slots_per_historical_root,
                 slots_per_epoch,
             })
+        }
+    }
+
+    // Check that epochs_per_blob_prune is at least 1 epoch to avoid attempting to prune the same
+    // epochs over and over again.
+    fn verify_epochs_per_blob_prune(epochs_per_blob_prune: u64) -> Result<(), HotColdDBError> {
+        if epochs_per_blob_prune > 0 {
+            Ok(())
+        } else {
+            Err(HotColdDBError::ZeroEpochsPerBlobPrune)
         }
     }
 
