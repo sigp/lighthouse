@@ -956,13 +956,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub async fn get_block_and_blobs_checking_early_attester_cache(
         &self,
         block_root: &Hash256,
-    ) -> Result<
-        Option<(
-            Arc<SignedBeaconBlock<T::EthSpec>>,
-            Arc<BlobsSidecar<T::EthSpec>>,
-        )>,
-        Error,
-    > {
+    ) -> Result<Option<SignedBeaconBlockAndBlobsSidecar<T::EthSpec>>, Error> {
         // If there is no data availability boundary, the Eip4844 fork is disabled.
         if let Some(finalized_data_availability_boundary) =
             self.finalized_data_availability_boundary()
@@ -972,13 +966,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 self.early_attester_cache.get_block(*block_root),
                 self.early_attester_cache.get_blobs(*block_root),
             ) {
-                Ok(Some((block, blobs)))
+                Ok(Some(SignedBeaconBlockAndBlobsSidecar {
+                    beacon_block: block,
+                    blobs_sidecar: blobs,
+                }))
             // Attempt to get the block and blobs from the database
             } else if let Some(block) = self.get_block(block_root).await?.map(Arc::new) {
                 let blobs = self
                     .get_blobs(block_root, finalized_data_availability_boundary)?
                     .map(Arc::new);
-                Ok(blobs.map(|blobs| (block, blobs)))
+                Ok(blobs.map(|blobs| SignedBeaconBlockAndBlobsSidecar {
+                    beacon_block: block,
+                    blobs_sidecar: blobs,
+                }))
             } else {
                 Ok(None)
             }
