@@ -1711,7 +1711,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         Ok(())
     }
 
-    /// Try to prune blobs approximating data availability boundary when it is not at hand.
+    ///  Try to prune blobs, approximating the current epoch from lower epoch numbers end (older
+    /// end) and is useful when the data availability boundary is not at hand.
     pub fn try_prune_most_blobs(&self, force: bool) -> Result<(), Error> {
         let eip4844_fork = match self.spec.eip4844_fork_epoch {
             Some(epoch) => epoch,
@@ -1722,14 +1723,13 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         };
         // At best, current_epoch = split_epoch + 2. However, if finalization doesn't advance, the
         // `split.slot` is not updated and current_epoch > split_epoch + 2.
-        let at_most_current_epoch =
-            self.get_split_slot().epoch(E::slots_per_epoch()) + Epoch::new(2);
-        let at_most_data_availability_boundary = std::cmp::max(
+        let min_current_epoch = self.get_split_slot().epoch(E::slots_per_epoch()) + Epoch::new(2);
+        let min_data_availability_boundary = std::cmp::max(
             eip4844_fork,
-            at_most_current_epoch.saturating_sub(*MIN_EPOCHS_FOR_BLOBS_SIDECARS_REQUESTS),
+            min_current_epoch.saturating_sub(*MIN_EPOCHS_FOR_BLOBS_SIDECARS_REQUESTS),
         );
 
-        self.try_prune_blobs(force, Some(at_most_data_availability_boundary))
+        self.try_prune_blobs(force, Some(min_data_availability_boundary))
     }
 
     /// Try to prune blobs older than the data availability boundary.
