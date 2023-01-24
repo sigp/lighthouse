@@ -1701,44 +1701,39 @@ pub fn serve<T: BeaconChainTypes>(
             },
         );
 
-    // POST beacon/rewards/attestations/{epoch}
-    let beacon_rewards_path = eth_v1
+        
+        /*
+        * beacon/rewards
+        */
+        
+        let beacon_rewards_path = eth_v1
         .and(warp::path("beacon"))
         .and(warp::path("rewards"))
         .and(chain_filter.clone());
-
-    // POST beacon/rewards/attestations/{epoch}
-    let post_beacon_rewards_attestation = beacon_rewards_path
-        .clone()
-        .and(warp::path("attestation"))
-        .and(warp::path::param::<Epoch>())
-        .and(warp::path::end())
-        .and(warp::body::json())
-        .and(log_filter.clone())
-        .and_then(
-            |chain: Arc<BeaconChain<T>>, epoch: Epoch, validators: Vec<usize>, log: Logger| {
-                blocking_json_task(move || {
-                    let (attestation_rewards, execution_optimistic) =
-                        attestation_rewards::compute_attestation_rewards(
-                            chain, epoch, validators, log,
-                        )
-                        .unwrap();
-                    Ok(attestation_rewards)
-                        .map(api_types::GenericResponse::from)
-                        .map(|resp| resp.add_execution_optimistic(execution_optimistic))
-                })
-            },
-        );
-
-    /*
-     * beacon/rewards
-     */
-
-    let beacon_rewards_path = eth_v1
-        .and(warp::path("beacon"))
-        .and(warp::path("rewards"))
-        .and(chain_filter.clone());
-
+        
+        // POST beacon/rewards/attestations/{epoch}
+        let post_beacon_rewards_attestation = beacon_rewards_path
+            .clone()
+            .and(warp::path("attestation"))
+            .and(warp::path::param::<Epoch>())
+            .and(warp::path::end())
+            .and(warp::body::json())
+            .and(log_filter.clone())
+            .and_then(
+                |chain: Arc<BeaconChain<T>>, epoch: Epoch, validators: Vec<usize>, log: Logger| {
+                    blocking_json_task(move || {
+                        let (attestation_rewards, execution_optimistic) =
+                            attestation_rewards::compute_attestation_rewards(
+                                chain, epoch, validators, log,
+                            )
+                            .unwrap();
+                        Ok(attestation_rewards)
+                            .map(api_types::GenericResponse::from)
+                            .map(|resp| resp.add_execution_optimistic(execution_optimistic))
+                    })
+                },
+            );
+            
     // POST beacon/rewards/sync_committee/{block_id}
     let post_beacon_rewards_sync_committee = beacon_rewards_path
         .clone()

@@ -30,8 +30,8 @@ pub struct TotalAttestationRewards {
     pub target: i64,
     // attester's reward for source vote in gwei
     pub source: i64,
-    // attester's inclusion_delay reward in gwei (phase0 only)
-    pub inclusion_delay: u64,
+    // TBD attester's inclusion_delay reward in gwei (phase0 only)
+    // pub inclusion_delay: u64,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
