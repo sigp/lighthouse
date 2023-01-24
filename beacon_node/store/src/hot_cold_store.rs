@@ -1779,18 +1779,12 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         // middle of an epoch otherwise the oldest blob slot is a start slot.
         let last_pruned_epoch = oldest_blob_slot.epoch(E::slots_per_epoch()) - 1;
 
-        // At most prune up until the data availability boundary epoch, leaving at least blobs in
-        // the data availability boundary epoch and younger.
-        let end_epoch = {
-            let earliest_prunable_epoch = data_availability_boundary - 1;
-            // Stop pruning before reaching the data availability boundary if a margin is
-            // configured.
-            if let Some(margin) = self.get_config().blob_prune_margin_epochs {
-                earliest_prunable_epoch - margin
-            } else {
-                earliest_prunable_epoch
-            }
-        };
+        // At most prune blobs up until the data availability boundary epoch, leaving at least
+        // blobs of the data availability boundary epoch and younger.
+        let earliest_prunable_epoch = data_availability_boundary - 1;
+        // Stop pruning before reaching the data availability boundary if a margin is configured.
+        let margin_epochs = self.get_config().blob_prune_margin_epochs;
+        let end_epoch = earliest_prunable_epoch - margin_epochs;
 
         if !force {
             if last_pruned_epoch.as_u64() + self.get_config().epochs_per_blob_prune

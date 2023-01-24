@@ -3018,10 +3018,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Only consider blobs if the eip4844 fork is enabled.
         if let Some(data_availability_boundary) = self.data_availability_boundary() {
             let block_epoch = block.slot().epoch(T::EthSpec::slots_per_epoch());
-            let import_boundary = match self.store.get_config().blob_prune_margin_epochs {
-                Some(margin_epochs) => data_availability_boundary - margin_epochs,
-                None => data_availability_boundary,
-            };
+            let margin_epochs = self.store.get_config().blob_prune_margin_epochs;
+            let import_boundary = data_availability_boundary - margin_epochs;
 
             // Only store blobs at the data availability boundary, minus any configured epochs
             // margin, or younger (of higher epoch number).

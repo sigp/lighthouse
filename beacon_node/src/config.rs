@@ -424,9 +424,7 @@ pub fn get_config<E: EthSpec>(
     if let Some(blob_prune_margin_epochs) =
         clap_utils::parse_optional(cli_args, "blob-prune-margin-epochs")?
     {
-        if blob_prune_margin_epochs > 0 {
-            client_config.store.blob_prune_margin_epochs = Some(blob_prune_margin_epochs);
-        }
+        client_config.store.blob_prune_margin_epochs = blob_prune_margin_epochs;
     }
 
     /*

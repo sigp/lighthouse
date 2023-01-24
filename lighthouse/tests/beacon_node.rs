@@ -1370,7 +1370,7 @@ fn epochs_per_blob_prune_on_startup_five() {
 fn blob_prune_margin_epochs_default() {
     CommandLineTest::new()
         .run_with_zero_port()
-        .with_config(|config| assert!(config.blob_prune_margin_epochs.is_none()));
+        .with_config(|config| assert!(config.blob_prune_margin_epochs == 0));
 }
 #[test]
 fn blob_prune_margin_epochs_on_startup_ten() {
