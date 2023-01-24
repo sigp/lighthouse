@@ -1046,8 +1046,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     /// Returns the blobs at the given root, if any.
     ///
-    /// Returns `Ok(None)` if the blobs and associated block are not found. The block referenced by
-    /// the blob doesn't exist in our database.
+    /// Returns `Ok(None)` if the blobs and associated block are not found. 
     ///
     /// If we can find the corresponding block in our database, we know whether we *should* have
     /// blobs. If we should have blobs and no blobs are found, this will error. If we shouldn't,
