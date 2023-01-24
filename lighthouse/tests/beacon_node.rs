@@ -1354,6 +1354,32 @@ fn prune_blobs_on_startup_false() {
         .with_config(|config| assert!(!config.store.prune_blobs));
 }
 #[test]
+fn epochs_per_blob_prune_default() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| assert!(config.epochs_per_blob_prune == 1));
+}
+#[test]
+fn epochs_per_blob_prune_on_startup_five() {
+    CommandLineTest::new()
+        .flag("epochs-per-blob-prune", Some(5))
+        .run_with_zero_port()
+        .with_config(|config| assert!(!config.epochs_per_blob_prune == 5));
+}
+#[test]
+fn blob_prune_margin_epochs_default() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| assert!(config.blob_prune_margin_epochs.is_none()));
+}
+#[test]
+fn blob_prune_margin_epochs_on_startup_ten() {
+    CommandLineTest::new()
+        .flag("blob-prune-margin-epochs", Some(10))
+        .run_with_zero_port()
+        .with_config(|config| assert!(!config.blob_prune_margin_epochs == Some(10)));
+}
+#[test]
 fn reconstruct_historic_states_flag() {
     CommandLineTest::new()
         .flag("reconstruct-historic-states", None)
