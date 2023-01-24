@@ -179,7 +179,7 @@ pub enum DBColumn {
     #[strum(serialize = "blb")]
     BeaconBlob,
     /// Block roots of orphaned beacon blobs.
-    #[strum(serialize = "blbo")]
+    #[strum(serialize = "blo")]
     BeaconBlobOrphan,
     /// For full `BeaconState`s in the hot database (finalized or fork-boundary states).
     #[strum(serialize = "ste")]
