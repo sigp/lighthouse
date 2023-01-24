@@ -1074,6 +1074,24 @@ impl BeaconNodeHttpClient {
             .transpose()
     }
 
+    /// `POST beacon/rewards/sync_committee`
+    pub async fn post_beacon_rewards_sync_committee(
+        &self,
+        rewards: &[Option<Vec<lighthouse::SyncCommitteeReward>>],
+    ) -> Result<(), Error> {
+        let mut path = self.eth_path(V1)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("beacon")
+            .push("rewards")
+            .push("sync_committee");
+
+        self.post(path, &rewards).await?;
+
+        Ok(())
+    }
+
     /// `POST validator/contribution_and_proofs`
     pub async fn post_validator_contribution_and_proofs<T: EthSpec>(
         &self,

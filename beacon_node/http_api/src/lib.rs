@@ -16,6 +16,7 @@ mod metrics;
 mod proposer_duties;
 mod publish_blocks;
 mod state_id;
+mod sync_committee_rewards;
 mod sync_committees;
 mod ui;
 mod validator_inclusion;
@@ -1795,6 +1796,41 @@ pub fn serve<T: BeaconChainTypes>(
         );
 
     /*
+     * beacon/rewards
+     */
+
+    let beacon_rewards_path = eth_v1
+        .and(warp::path("beacon"))
+        .and(warp::path("rewards"))
+        .and(chain_filter.clone());
+
+    // POST beacon/rewards/sync_committee/{block_id}
+    let post_beacon_rewards_sync_committee = beacon_rewards_path
+        .clone()
+        .and(warp::path("sync_committee"))
+        .and(block_id_or_err)
+        .and(warp::path::end())
+        .and(warp::body::json())
+        .and(log_filter.clone())
+        .and_then(
+            |chain: Arc<BeaconChain<T>>,
+             block_id: BlockId,
+             validators: Vec<ValidatorId>,
+             log: Logger| {
+                blocking_json_task(move || {
+                    let (rewards, execution_optimistic) =
+                        sync_committee_rewards::compute_sync_committee_rewards(
+                            chain, block_id, validators, log,
+                        )?;
+
+                    Ok(rewards)
+                        .map(api_types::GenericResponse::from)
+                        .map(|resp| resp.add_execution_optimistic(execution_optimistic))
+                })
+            },
+        );
+
+    /*
      * config
      */
 
@@ -3528,6 +3564,7 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(post_beacon_pool_proposer_slashings.boxed())
                 .or(post_beacon_pool_voluntary_exits.boxed())
                 .or(post_beacon_pool_sync_committees.boxed())
+                .or(post_beacon_rewards_sync_committee.boxed())
                 .or(post_beacon_pool_bls_to_execution_changes.boxed())
                 .or(post_validator_duties_attester.boxed())
                 .or(post_validator_duties_sync.boxed())
