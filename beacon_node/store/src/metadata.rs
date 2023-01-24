@@ -123,7 +123,7 @@ impl StoreItem for AnchorInfo {
 #[derive(Debug, PartialEq, Eq, Clone, Encode, Decode, Serialize, Deserialize, Default)]
 pub struct BlobInfo {
     /// The slot after which blobs are available (>=).
-    pub oldest_blob_slot: Slot,
+    pub oldest_blob_slot: Option<Slot>,
 }
 
 impl StoreItem for BlobInfo {
