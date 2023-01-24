@@ -2527,7 +2527,6 @@ dependencies = [
  "sensitive_url",
  "serde",
  "serde_json",
- "serde_with",
  "slog",
  "slot_clock",
  "ssz-rs",

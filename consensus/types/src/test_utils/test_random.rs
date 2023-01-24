@@ -86,6 +86,18 @@ where
     }
 }
 
+impl<T> TestRandom for Option<T>
+where
+    T: TestRandom,
+{
+    fn random_for_test(rng: &mut impl RngCore) -> Self {
+        match bool::random_for_test(rng) {
+            false => None,
+            true => Some(T::random_for_test(rng)),
+        }
+    }
+}
+
 impl<T, N: Unsigned> TestRandom for FixedVector<T, N>
 where
     T: TestRandom,

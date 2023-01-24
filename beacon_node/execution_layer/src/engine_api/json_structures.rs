@@ -1,6 +1,5 @@
 use super::*;
 use serde::{Deserialize, Serialize};
-use serde_with::{serde_as, DefaultOnNull, Same};
 use strum::EnumString;
 use types::{EthSpec, ExecutionBlockHash, FixedVector, Transaction, Unsigned, VariableList};
 
@@ -128,7 +127,6 @@ impl<T: EthSpec> From<JsonExecutionPayloadHeaderV1<T>> for ExecutionPayloadHeade
     }
 }
 
-#[serde_as]
 #[derive(Debug, PartialEq, Default, Serialize, Deserialize)]
 #[serde(bound = "T: EthSpec", rename_all = "camelCase")]
 pub struct JsonExecutionPayloadV1<T: EthSpec> {
@@ -155,10 +153,8 @@ pub struct JsonExecutionPayloadV1<T: EthSpec> {
     #[serde(with = "ssz_types::serde_utils::list_of_hex_var_list")]
     pub transactions:
         VariableList<Transaction<T::MaxBytesPerTransaction>, T::MaxTransactionsPerPayload>,
-    #[serde_as(as = "DefaultOnNull<Same>")]
-    pub verkle_proof: VerkleProof<T>,
-    #[serde_as(as = "DefaultOnNull<Same>")]
-    pub verkle_key_vals: VariableList<VerkleMap<T>, T::MaxVerkleProofKeyVals>,
+    pub verkle_proof: Option<VerkleProof<T>>,
+    pub verkle_key_vals: Option<VariableList<VerkleMap<T>, T::MaxVerkleProofKeyVals>>,
 }
 
 impl<T: EthSpec> From<ExecutionPayload<T>> for JsonExecutionPayloadV1<T> {
