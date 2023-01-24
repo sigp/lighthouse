@@ -1,6 +1,6 @@
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use eth2::lighthouse::attestation_rewards::{IdealAttestationRewards, TotalAttestationRewards};
-use eth2::{lighthouse::StandardAttestationRewards, types::ValidatorId};
+use eth2::lighthouse::StandardAttestationRewards;
 use participation_cache::ParticipationCache;
 use safe_arith::SafeArith;
 use slog::{debug, Logger};
@@ -21,7 +21,7 @@ use crate::ExecutionOptimistic;
 pub fn compute_attestation_rewards<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
     epoch: Epoch,
-    validators: Vec<ValidatorId>,
+    validators: Vec<usize>,
     log: Logger,
 ) -> Result<(StandardAttestationRewards, ExecutionOptimistic), warp::Rejection> {
     debug!(log, "computing attestation rewards"; "epoch" => epoch, "validator_count" => validators.len());
@@ -40,7 +40,7 @@ pub fn compute_attestation_rewards<T: BeaconChainTypes>(
         .map_err(warp_utils::reject::beacon_chain_error)?
         .ok_or_else(|| warp_utils::reject::custom_not_found("State root not found".to_owned()))?;
 
-    let mut state = chain
+    let state = chain
         .get_state(&state_root, Some(state_slot))
         .map_err(warp_utils::reject::beacon_chain_error)?
         .ok_or_else(|| warp_utils::reject::custom_not_found("State not found".to_owned()))?;
@@ -148,7 +148,7 @@ pub fn compute_attestation_rewards<T: BeaconChainTypes>(
                 let entry =
                     acc.entry(*effective_balance_eth as u32)
                         .or_insert(IdealAttestationRewards {
-                            effective_balance: *effective_balance_eth as u64,
+                            effective_balance: *effective_balance_eth,
                             head: 0,
                             target: 0,
                             source: 0,
@@ -168,7 +168,12 @@ pub fn compute_attestation_rewards<T: BeaconChainTypes>(
     //--- Calculate total rewards ---//
     let mut total_rewards = Vec::new();
 
-    let index = participation_cache.eligible_validator_indices();
+    let index;
+    if validators.is_empty() {
+        index = participation_cache.eligible_validator_indices();
+    } else {
+        index = &validators;
+    }
 
     for validator_index in index {
         let eligible = state
@@ -177,10 +182,9 @@ pub fn compute_attestation_rewards<T: BeaconChainTypes>(
                 warp_utils::reject::custom_server_error("Unable to get eligible".to_owned())
             })?;
 
-        let balance = state.get_balance_mut(*validator_index).map_err(|_| {
-            warp_utils::reject::custom_server_error("Unable to get balance".to_owned())
-        })?;
-        *balance = (*balance as f64).round().clamp(0.0, 32.0) as u64;
+        let effective_balance = state.get_effective_balance(*validator_index).unwrap();
+
+        let effective_balance_eth = effective_balance.safe_div(spec.effective_balance_increment);
 
         let mut head_reward = 0u64;
         let mut target_reward = 0u64;
@@ -200,7 +204,9 @@ pub fn compute_attestation_rewards<T: BeaconChainTypes>(
                 if voted_correctly {
                     let _ideal_reward = &ideal_rewards
                         .iter()
-                        .find(|reward| reward.effective_balance == *balance)
+                        .find(|reward| {
+                            reward.effective_balance == effective_balance_eth.ok().unwrap()
+                        })
                         .map(|reward| {
                             head_reward = reward.head;
                             target_reward = reward.target;
@@ -208,7 +214,7 @@ pub fn compute_attestation_rewards<T: BeaconChainTypes>(
                             reward
                         })
                         .unwrap_or(&IdealAttestationRewards {
-                            effective_balance: *balance,
+                            effective_balance: effective_balance_eth.ok().unwrap_or(0),
                             head: 0,
                             target: 0,
                             source: 0,
@@ -240,10 +246,6 @@ pub fn compute_attestation_rewards<T: BeaconChainTypes>(
             });
         }
     }
-
-    //TODO Check inclusion delay. Where do I get attestation data from?
-    //let att_data = attestations.attestation_data();
-    //let inclusion_delay = state.slot().as_u64().checked_sub(att_data.slot.as_u64())?;
 
     Ok((
         StandardAttestationRewards {

@@ -1716,10 +1716,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::body::json())
         .and(log_filter.clone())
         .and_then(
-            |chain: Arc<BeaconChain<T>>,
-             epoch: Epoch,
-             validators: Vec<ValidatorId>,
-             log: Logger| {
+            |chain: Arc<BeaconChain<T>>, epoch: Epoch, validators: Vec<usize>, log: Logger| {
                 blocking_json_task(move || {
                     let (attestation_rewards, execution_optimistic) =
                         attestation_rewards::compute_attestation_rewards(
