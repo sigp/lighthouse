@@ -1801,7 +1801,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             }
         }
 
-        // Iterate block roots backwards to oldest blob slot.
+        // Iterate block roots forwards from the oldest blob slot.
         warn!(
             self.log,
             "Pruning blobs sidecars stored longer than data availability boundary";
