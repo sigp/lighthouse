@@ -1,11 +1,11 @@
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use eth2::lighthouse::attestation_rewards::{IdealAttestationRewards, TotalAttestationRewards};
-use eth2::{lighthouse::AttestationRewardsV2, types::ValidatorId};
+use eth2::{lighthouse::StandardAttestationRewards, types::ValidatorId};
 use participation_cache::ParticipationCache;
 use safe_arith::SafeArith;
 use slog::{debug, Logger};
 use state_processing::{
-    common::altair::{get_base_reward, BaseRewardPerIncrement},
+    common::altair::BaseRewardPerIncrement,
     per_epoch_processing::altair::{participation_cache, rewards_and_penalties::get_flag_weight},
 };
 use std::{collections::HashMap, sync::Arc};
@@ -23,7 +23,7 @@ pub fn compute_attestation_rewards<T: BeaconChainTypes>(
     epoch: Epoch,
     validators: Vec<ValidatorId>,
     log: Logger,
-) -> Result<(AttestationRewardsV2, ExecutionOptimistic), warp::Rejection> {
+) -> Result<(StandardAttestationRewards, ExecutionOptimistic), warp::Rejection> {
     debug!(log, "computing attestation rewards"; "epoch" => epoch, "validator_count" => validators.len());
 
     //--- Get state ---//
@@ -106,12 +106,7 @@ pub fn compute_attestation_rewards<T: BeaconChainTypes>(
             })?;
 
         for effective_balance_eth in 0..=32 {
-            let base_reward = get_base_reward(
-                &state,
-                effective_balance_eth,
-                base_reward_per_increment,
-                spec,
-            );
+            let base_reward = effective_balance_eth.safe_mul(base_reward_per_increment.as_u64());
 
             let base_reward = base_reward.map_err(|e| {
                 warp_utils::reject::custom_not_found(format!("Unable to get base_reward! {:?}", e))
@@ -251,7 +246,7 @@ pub fn compute_attestation_rewards<T: BeaconChainTypes>(
     //let inclusion_delay = state.slot().as_u64().checked_sub(att_data.slot.as_u64())?;
 
     Ok((
-        AttestationRewardsV2 {
+        StandardAttestationRewards {
             ideal_rewards,
             total_rewards,
         },

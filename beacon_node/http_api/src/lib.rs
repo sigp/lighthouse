@@ -1701,13 +1701,13 @@ pub fn serve<T: BeaconChainTypes>(
             },
         );
 
-    // TODO: POST beacon/rewards/attestations/{epoch}
+    // POST beacon/rewards/attestations/{epoch}
     let beacon_rewards_path = eth_v1
         .and(warp::path("beacon"))
         .and(warp::path("rewards"))
         .and(chain_filter.clone());
 
-    // TODO: POST beacon/rewards/attestations/{epoch}
+    // POST beacon/rewards/attestations/{epoch}
     let post_beacon_rewards_attestation = beacon_rewards_path
         .clone()
         .and(warp::path("attestation"))
