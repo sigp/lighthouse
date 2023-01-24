@@ -1817,7 +1817,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             oldest_blob_slot,
             end_slot,
             || {
-                // todo(emhane): In the future, if the data availability boundary is less than the
+                // todo(emhane): In the future, if the data availability boundary is more recent than the
                 // split (finalized) epoch, this code will have to change to decide what to do
                 // with pruned blobs in our not-yet-finalized canonical chain and not-yet-orphaned
                 // forks (see DBColumn::BeaconBlobOrphan).
