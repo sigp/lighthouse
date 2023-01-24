@@ -81,7 +81,6 @@ pub enum HotColdDBError {
         target_version: SchemaVersion,
         current_version: SchemaVersion,
     },
-    UnsupportedDataAvailabilityBoundary,
     /// Recoverable error indicating that the database freeze point couldn't be updated
     /// due to the finalized block not lying on an epoch boundary (should be infrequent).
     FreezeSlotUnaligned(Slot),
@@ -1775,8 +1774,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             }
         }();
 
-        // todo(emhane): Should we add a marginal for how old blobs we import? If so needs to be
-        // reflected here when choosing which oldest slot to prune from.
         let oldest_blob_slot = blob_info.oldest_blob_slot;
         // The last entirely pruned epoch, blobs sidecar pruning may have stopped early in the
         // middle of an epoch otherwise the oldest blob slot is a start slot.
