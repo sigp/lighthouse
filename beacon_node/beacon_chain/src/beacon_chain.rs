@@ -3015,17 +3015,23 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         ops.push(StoreOp::PutBlock(block_root, signed_block.clone()));
         ops.push(StoreOp::PutState(block.state_root(), &state));
 
-        // Only store blobs at the data availability boundary or younger.
-        //
-        // todo(emhane): Should we add a marginal of one epoch here to ensure data availability
-        // consistency across network at epoch boundaries?
-        let block_epoch = block.slot().epoch(T::EthSpec::slots_per_epoch());
-        if Some(block_epoch) >= self.data_availability_boundary() {
-            if let Some(blobs) = blobs? {
-                if blobs.blobs.len() > 0 {
-                    //FIXME(sean) using this for debugging for now
-                    info!(self.log, "Writing blobs to store"; "block_root" => ?block_root);
-                    ops.push(StoreOp::PutBlobs(block_root, blobs));
+        // Only consider blobs if the eip4844 fork is enabled.
+        if let Some(data_availability_boundary) = self.data_availability_boundary() {
+            let block_epoch = block.slot().epoch(T::EthSpec::slots_per_epoch());
+            let import_boundary = match self.store.get_config().blob_prune_margin_epochs {
+                Some(margin_epochs) => data_availability_boundary - margin_epochs,
+                None => data_availability_boundary,
+            };
+
+            // Only store blobs at the data availability boundary, minus any configured epochs
+            // margin, or younger (of higher epoch number).
+            if block_epoch >= import_boundary {
+                if let Some(blobs) = blobs? {
+                    if blobs.blobs.len() > 0 {
+                        //FIXME(sean) using this for debugging for now
+                        info!(self.log, "Writing blobs to store"; "block_root" => ?block_root);
+                        ops.push(StoreOp::PutBlobs(block_root, blobs));
+                    }
                 }
             }
         }
