@@ -19,7 +19,7 @@ use futures::task::Poll;
 use futures::{Stream, StreamExt};
 use lighthouse_network::{MessageId, PeerId};
 use logging::TimeLatch;
-use slog::{crit, debug, error, warn, Logger};
+use slog::{crit, debug, error, trace, warn, Logger};
 use slot_clock::SlotClock;
 use std::collections::{HashMap, HashSet};
 use std::pin::Pin;
@@ -121,6 +121,7 @@ pub struct QueuedLightClientUpdate<T: EthSpec> {
     pub peer_id: PeerId,
     pub message_id: MessageId,
     pub light_client_optimistic_update: Box<LightClientOptimisticUpdate<T>>,
+    pub parent_root: Hash256,
     pub seen_timestamp: Duration,
 }
 
@@ -554,12 +555,7 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
 
                 // Register the light client update for the corresponding root.
                 self.awaiting_lc_updates_per_parent_root
-                    .entry(
-                        queued_light_client_optimistic_update
-                            .light_client_optimistic_update
-                            .attested_header
-                            .canonical_root(),
-                    )
+                    .entry(queued_light_client_optimistic_update.parent_root)
                     .or_default()
                     .push(lc_id);
 
@@ -625,11 +621,11 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
                 {
                     debug!(
                         log,
-                        "unqueue light client optimistic updates";
+                        "Dequeuing light client optimistic updates";
                         "parent_root" => %parent_root,
                     );
 
-                    for lc_id in queued_lc_id {
+                    for lc_id in queued_lc_id.iter() {
                         metrics::inc_counter(
                             &metrics::BEACON_PROCESSOR_REPROCESSING_QUEUE_MATCHED_OPTIMISTIC_UPDATES,
                         );
@@ -646,7 +642,11 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
 
                             // Send the work
                             match self.ready_work_tx.try_send(work) {
-                                Ok(_) => debug!(log, "reprocessing light client update sent"),
+                                Ok(_) => trace!(
+                                    log,
+                                    "reprocessing light client update sent";
+                                    "count" => queued_lc_id.len(),
+                                ),
                                 Err(_) => error!(
                                     log,
                                     "Failed to send scheduled light client update";
@@ -746,10 +746,7 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
                 if let Some((parent_root, work)) = self.queued_lc_updates.remove(&queued_id).map(
                     |(queued_lc_update, _delay_key)| {
                         (
-                            queued_lc_update
-                                .light_client_optimistic_update
-                                .attested_header
-                                .canonical_root(),
+                            queued_lc_update.parent_root,
                             ReadyWork::LightClientUpdate(queued_lc_update),
                         )
                     },

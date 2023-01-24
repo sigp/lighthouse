@@ -1419,6 +1419,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                                     light_client_optimistic_update: Box::new(
                                         light_client_optimistic_update,
                                     ),
+                                    parent_root,
                                     seen_timestamp,
                                 },
                             );
@@ -1432,7 +1433,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                         } else {
                             debug!(
                                 self.log,
-                                "Not sendinglight clientupdate because it had been reprocessed";
+                                "Not sending light client update because it had been reprocessed";
                                 "peer_id" => %peer_id,
                                 "parent_root" => ?parent_root
                             );

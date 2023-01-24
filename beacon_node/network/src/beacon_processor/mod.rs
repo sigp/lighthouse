@@ -705,6 +705,7 @@ impl<T: BeaconChainTypes> std::convert::From<ReadyWork<T>> for WorkEvent<T> {
                 message_id,
                 light_client_optimistic_update,
                 seen_timestamp,
+                ..
             }) => Self {
                 drop_during_sync: true,
                 work: Work::UnknownLightClientOptimisticUpdate {
