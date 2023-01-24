@@ -70,7 +70,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .filter_map(|(i, new_balance)| {
                 let reward = if *i != proposer_index {
                     *new_balance as i64 - state.balances()[*i] as i64
-                } else if sync_committee_indices.contains(&i) {
+                } else if sync_committee_indices.contains(i) {
                     *new_balance as i64
                         - state.balances()[*i] as i64
                         - total_proposer_rewards as i64
