@@ -122,7 +122,7 @@ impl StoreItem for AnchorInfo {
 /// Database parameters relevant to blob sync.
 #[derive(Debug, PartialEq, Eq, Clone, Encode, Decode, Serialize, Deserialize, Default)]
 pub struct BlobInfo {
-    /// The slot before which blobs are available.
+    /// The slot after which blobs are available (>=).
     pub oldest_blob_slot: Slot,
 }
 
