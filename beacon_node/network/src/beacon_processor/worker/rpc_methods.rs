@@ -267,9 +267,9 @@ impl<T: BeaconChainTypes> Worker<T> {
                             break;
                         }
                         Err(BeaconChainError::NoKzgCommitmentsFieldOnBlock) => {
-                            error!(
+                            debug!(
                                 self.log,
-                                "No kzg_commitments field in block";
+                                "Peer requested blobs for a pre-eip4844 block";
                                 "peer" => %peer_id,
                                 "block_root" => ?root,
                             );
@@ -283,49 +283,22 @@ impl<T: BeaconChainTypes> Worker<T> {
                             break;
                         }
                         Err(BeaconChainError::BlobsOlderThanDataAvailabilityBoundary(block_epoch)) => {
-                            let finalized_data_availability_boundary = self.chain.finalized_data_availability_boundary();
-
-                            match finalized_data_availability_boundary {
-                                Some(boundary_epoch) => {
-                                    if block_epoch >= boundary_epoch {
-                                        error!(
-                                            self.log,
-                                            "Peer requested block and blob that should be available, but no blob found";
-                                            "request" => %request,
-                                            "peer" => %peer_id,
-                                            "request_root" => ?root,
-                                            "finalized_data_availability_boundary" => %boundary_epoch,
-                                        );
-                                        self.send_error_response(
-                                            peer_id,
-                                            RPCResponseErrorCode::ResourceUnavailable,
-                                            "Blobs older than data availability boundary".into(),
-                                            request_id,
-                                        );
-                                        send_response = false;
-                                        break;
-                                    } else {
-                                        debug!(
-                                            self.log,
-                                            "Peer requested block and blob older than the data availability \
-                                            boundary for ByRoot request, no blob found";
-                                            "peer" => %peer_id,
-                                            "request_root" => ?root,
-                                            "finalized_data_availability_boundary" => ?finalized_data_availability_boundary,
-                                        );
-                                    }
-                                }
-                                None => {
-                                    debug!(self.log, "Eip4844 fork is disabled");
-                                    self.send_error_response(
-                                        peer_id,
-                                        RPCResponseErrorCode::ResourceUnavailable,
-                                        "Eip4844 fork is disabled".into(),
-                                        request_id,
-                                    );
-                                    return;
-                                }
-                            }
+                            debug!(
+                                    self.log,
+                                    "Peer requested block and blobs older than the data availability \
+                                    boundary for ByRoot request, no blob found";
+                                    "peer" => %peer_id,
+                                    "request_root" => ?root,
+                                    "block_epoch" => ?block_epoch,
+                                );
+                            self.send_error_response(
+                                peer_id,
+                                RPCResponseErrorCode::ResourceUnavailable,
+                                "Blobs older than data availability boundary".into(),
+                                request_id,
+                            );
+                            send_response = false;
+                            break;
                         }
                         Err(BeaconChainError::BlockHashMissingFromExecutionLayer(_)) => {
                             debug!(
@@ -670,40 +643,38 @@ impl<T: BeaconChainTypes> Worker<T> {
 
         let start_slot = Slot::from(req.start_slot);
         let start_epoch = start_slot.epoch(T::EthSpec::slots_per_epoch());
-        let data_availability_boundary = self.chain.data_availability_boundary();
-
-        let serve_blobs_from_slot = match data_availability_boundary {
-            Some(data_availability_boundary_epoch) => {
-                if Some(start_epoch) < data_availability_boundary {
-                    let oldest_blob_slot = self
-                        .chain
-                        .store
-                        .get_blob_info()
-                        .map(|blob_info| blob_info.oldest_blob_slot);
-
-                    debug!(
-                        self.log,
-                        "Range request start slot is older than data availability boundary";
-                        "requested_slot" => %req.start_slot,
-                        "oldest_known_slot" => oldest_blob_slot,
-                        "data_availability_boundary" => data_availability_boundary
-                    );
-
-                    data_availability_boundary_epoch.start_slot(T::EthSpec::slots_per_epoch())
-                } else {
-                    start_slot
-                }
-            }
+        let data_availability_boundary = match self.chain.data_availability_boundary() {
+            Some(boundary) => boundary,
             None => {
                 debug!(self.log, "Eip4844 fork is disabled");
                 self.send_error_response(
                     peer_id,
-                    RPCResponseErrorCode::ResourceUnavailable,
+                    RPCResponseErrorCode::ServerError,
                     "Eip4844 fork is disabled".into(),
                     request_id,
                 );
                 return;
             }
+        };
+
+        let serve_blobs_from_slot = if start_epoch < data_availability_boundary {
+            let oldest_blob_slot = self
+                .chain
+                .store
+                .get_blob_info()
+                .map(|blob_info| blob_info.oldest_blob_slot);
+
+            debug!(
+                self.log,
+                "Range request start slot is older than data availability boundary";
+                "requested_slot" => %req.start_slot,
+                "oldest_known_slot" => oldest_blob_slot,
+                "data_availability_boundary" => data_availability_boundary
+            );
+
+            data_availability_boundary.start_slot(T::EthSpec::slots_per_epoch())
+        } else {
+            start_slot
         };
 
         // Should not send more than max request blocks
@@ -785,7 +756,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         let mut send_response = true;
 
         for root in block_roots {
-            match self.chain.get_blobs(&root) {
+            match self.chain.get_blobs(&root, data_availability_boundary) {
                 Ok(Some(blobs)) => {
                     blobs_sent += 1;
                     self.send_network_message(NetworkMessage::SendResponse {

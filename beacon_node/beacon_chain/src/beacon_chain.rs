@@ -963,15 +963,25 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         )>,
         Error,
     > {
-        if let (Some(block), Some(blobs)) = (
-            self.early_attester_cache.get_block(*block_root),
-            self.early_attester_cache.get_blobs(*block_root),
-        ) {
-            return Ok(Some((block, blobs)));
-        }
-        if let Some(block) = self.get_block(block_root).await?.map(Arc::new) {
-            let blobs = self.get_blobs(block_root)?.map(Arc::new);
-            Ok(blobs.map(|blobs| (block, blobs)))
+        // If there is no data availability boundary, the Eip4844 fork is disabled.
+        if let Some(finalized_data_availability_boundary) =
+            self.finalized_data_availability_boundary()
+        {
+            // Only use the attester cache if we can find both the block and blob
+            if let (Some(block), Some(blobs)) = (
+                self.early_attester_cache.get_block(*block_root),
+                self.early_attester_cache.get_blobs(*block_root),
+            ) {
+                Ok(Some((block, blobs)))
+            // Attempt to get the block and blobs from the database
+            } else if let Some(block) = self.get_block(block_root).await?.map(Arc::new) {
+                let blobs = self
+                    .get_blobs(block_root, finalized_data_availability_boundary)?
+                    .map(Arc::new);
+                Ok(blobs.map(|blobs| (block, blobs)))
+            } else {
+                Ok(None)
+            }
         } else {
             Ok(None)
         }
@@ -1046,7 +1056,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     /// Returns the blobs at the given root, if any.
     ///
-    /// Returns `Ok(None)` if the blobs and associated block are not found. 
+    /// Returns `Ok(None)` if the blobs and associated block are not found.
     ///
     /// If we can find the corresponding block in our database, we know whether we *should* have
     /// blobs. If we should have blobs and no blobs are found, this will error. If we shouldn't,
@@ -1060,6 +1070,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn get_blobs(
         &self,
         block_root: &Hash256,
+        data_availability_boundary: Epoch,
     ) -> Result<Option<BlobsSidecar<T::EthSpec>>, Error> {
         match self.store.get_blobs(block_root)? {
             Some(blobs) => Ok(Some(blobs)),
@@ -1076,13 +1087,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             };
                         if expected_kzg_commitments.is_empty() {
                             Ok(BlobsSidecar::empty_from_parts(*block_root, block.slot()))
+                        } else if data_availability_boundary <= block.epoch() {
+                            // We should have blobs for all blocks younger than the boundary.
+                            Err(Error::BlobsUnavailable)
                         } else {
-                            if let Some(boundary) = self.data_availability_boundary() {
-                                // We should have blobs for all blocks younger than the boundary.
-                                if boundary <= block.epoch() {
-                                    return Err(Error::BlobsUnavailable);
-                                }
-                            }
+                            // We shouldn't have blobs for blocks older than the boundary.
                             Err(Error::BlobsOlderThanDataAvailabilityBoundary(block.epoch()))
                         }
                     })
