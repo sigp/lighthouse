@@ -623,9 +623,10 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
                         log,
                         "Dequeuing light client optimistic updates";
                         "parent_root" => %parent_root,
+                        "count" => queued_lc_id.len(),
                     );
 
-                    for lc_id in queued_lc_id.iter() {
+                    for lc_id in queued_lc_id {
                         metrics::inc_counter(
                             &metrics::BEACON_PROCESSOR_REPROCESSING_QUEUE_MATCHED_OPTIMISTIC_UPDATES,
                         );
@@ -645,7 +646,6 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
                                 Ok(_) => trace!(
                                     log,
                                     "reprocessing light client update sent";
-                                    "count" => queued_lc_id.len(),
                                 ),
                                 Err(_) => error!(
                                     log,
