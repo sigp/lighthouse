@@ -392,6 +392,21 @@ lazy_static! {
         "Number of queued attestations where as matching block has been imported."
     );
 
+    /*
+     * Light client update reprocessing queue metrics.
+     */
+    pub static ref BEACON_PROCESSOR_REPROCESSING_QUEUE_EXPIRED_OPTIMISTIC_UPDATES: Result<IntCounter> = try_create_int_counter(
+        "beacon_processor_reprocessing_queue_expired_optimistic_updates",
+        "Number of queued light client optimistic updates which have expired before a matching block has been found."
+    );
+    pub static ref BEACON_PROCESSOR_REPROCESSING_QUEUE_MATCHED_OPTIMISTIC_UPDATES: Result<IntCounter> = try_create_int_counter(
+        "beacon_processor_reprocessing_queue_matched_optimistic_updates",
+        "Number of queued light client optimistic updates where as matching block has been imported."
+    );
+    pub static ref BEACON_PROCESSOR_REPROCESSING_QUEUE_SENT_OPTIMISTIC_UPDATES: Result<IntCounter> = try_create_int_counter(
+        "beacon_processor_reprocessing_queue_sent_optimistic_updates",
+        "Number of queued light client optimistic updates where as matching block has been imported."
+    );
 }
 
 pub fn update_bandwidth_metrics(bandwidth: Arc<BandwidthSinks>) {
