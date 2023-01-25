@@ -45,6 +45,7 @@ logging = { path = "../../common/logging" }
 serde_json = "1.0.58"
 proto_array = { path = "../../consensus/proto_array" }
 unused_port = {path = "../../common/unused_port"}
+genesis = { path = "../genesis" }
 
 [[test]]
 name = "bn_http_api_tests"

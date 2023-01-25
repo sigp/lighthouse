@@ -278,9 +278,10 @@ pub async fn proposer_boost_re_org_test(
     let num_empty_votes = Some(attesters_per_slot * percent_empty_votes / 100);
     let num_head_votes = Some(attesters_per_slot * percent_head_votes / 100);
 
-    let tester = InteractiveTester::<E>::new_with_mutator(
+    let tester = InteractiveTester::<E>::new_with_initializer_and_mutator(
         Some(spec),
         validator_count,
+        None,
         Some(Box::new(move |builder| {
             builder
                 .proposer_re_org_threshold(Some(ReOrgThreshold(re_org_threshold)))

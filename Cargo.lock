@@ -3229,6 +3229,7 @@ dependencies = [
  "eth2_ssz",
  "execution_layer",
  "futures",
+ "genesis",
  "hex",
  "lazy_static",
  "lighthouse_metrics",
