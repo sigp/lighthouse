@@ -31,8 +31,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let state_slot = (epoch + 1).end_slot(T::EthSpec::slots_per_epoch());
 
         let state_root = self
-            .state_root_at_slot(state_slot)
-            .map_err(|e| e)?
+            .state_root_at_slot(state_slot)?
             .ok_or(BeaconChainError::UnableToFindTargetRoot(state_slot))?;
 
         let state = self
