@@ -7,6 +7,7 @@ use crate::attester_cache::{AttesterCache, AttesterCacheKey};
 use crate::beacon_proposer_cache::compute_proposer_duties_from_head;
 use crate::beacon_proposer_cache::BeaconProposerCache;
 use crate::blob_cache::BlobCache;
+use crate::blob_verification::{AsBlock, AvailableBlock, BlockWrapper};
 use crate::block_times_cache::BlockTimesCache;
 use crate::block_verification::{
     check_block_is_finalized_descendant, check_block_relevancy, get_block_root,
@@ -107,7 +108,6 @@ use tree_hash::TreeHash;
 use types::beacon_state::CloneConfig;
 use types::consts::eip4844::MIN_EPOCHS_FOR_BLOBS_SIDECARS_REQUESTS;
 use types::consts::merge::INTERVALS_PER_SLOT;
-use types::signed_block_and_blobs::BlockWrapper;
 use types::*;
 
 pub type ForkChoiceError = fork_choice::Error<crate::ForkChoiceStoreError>;
@@ -2367,19 +2367,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let children = chain_segment
             .iter()
             .skip(1)
-            .map(|block| (block.block().parent_root(), block.slot()))
+            .map(|block| (block.parent_root(), block.slot()))
             .collect::<Vec<_>>();
 
         for (i, block) in chain_segment.into_iter().enumerate() {
             // Ensure the block is the correct structure for the fork at `block.slot()`.
-            if let Err(e) = block.block().fork_name(&self.spec) {
+            if let Err(e) = block.as_block().fork_name(&self.spec) {
                 return Err(ChainSegmentResult::Failed {
                     imported_blocks,
                     error: BlockError::InconsistentFork(e),
                 });
             }
 
-            let block_root = get_block_root(block.block());
+            let block_root = get_block_root(block.as_block());
 
             if let Some((child_parent_root, child_slot)) = children.get(i) {
                 // If this block has a child in this chain segment, ensure that its parent root matches
@@ -2403,7 +2403,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 }
             }
 
-            match check_block_relevancy(block.block(), block_root, self) {
+            match check_block_relevancy(block.as_block(), block_root, self) {
                 // If the block is relevant, add it to the filtered chain segment.
                 Ok(_) => filtered_chain_segment.push((block_root, block)),
                 // If the block is already known, simply ignore this block.
@@ -2780,7 +2780,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     #[allow(clippy::too_many_arguments)]
     fn import_block(
         &self,
-        signed_block: BlockWrapper<T::EthSpec>,
+        signed_block: AvailableBlock<T::EthSpec>,
         block_root: Hash256,
         mut state: BeaconState<T::EthSpec>,
         confirmed_state_roots: Vec<Hash256>,
@@ -2940,7 +2940,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // If the write fails, revert fork choice to the version from disk, else we can
         // end up with blocks in fork choice that are missing from disk.
         // See https://github.com/sigp/lighthouse/issues/2028
-        let (signed_block, blobs) = signed_block.deconstruct(Some(block_root));
+        let (signed_block, blobs) = signed_block.deconstruct();
         let block = signed_block.message();
         let mut ops: Vec<_> = confirmed_state_roots
             .into_iter()
@@ -2949,7 +2949,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         ops.push(StoreOp::PutBlock(block_root, signed_block.clone()));
         ops.push(StoreOp::PutState(block.state_root(), &state));
 
-        if let Some(blobs) = blobs? {
+        if let Some(blobs) = blobs {
             if blobs.blobs.len() > 0 {
                 //FIXME(sean) using this for debugging for now
                 info!(self.log, "Writing blobs to store"; "block_root" => ?block_root);
@@ -4569,10 +4569,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         };
 
         // Use a context without block root or proposer index so that both are checked.
-        let mut ctxt = ConsensusContext::new(block.slot())
-            //FIXME(sean) This is a hack beacuse `valdiate blobs sidecar requires the block root`
-            // which we won't have until after the state root is calculated.
-            .set_blobs_sidecar_validated(true);
+        let mut ctxt = ConsensusContext::new(block.slot());
 
         per_block_processing(
             &mut state,
@@ -4594,11 +4591,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         //FIXME(sean)
         // - add a new timer for processing here
         if let Some(blobs) = blobs_opt {
-            let kzg = if let Some(kzg) = &self.kzg {
-                kzg
-            } else {
-                return Err(BlockProductionError::TrustedSetupNotInitialized);
-            };
+            let kzg = self
+                .kzg
+                .as_ref()
+                .ok_or(BlockProductionError::TrustedSetupNotInitialized)?;
             let kzg_aggregated_proof =
                 kzg_utils::compute_aggregate_kzg_proof::<T::EthSpec>(&kzg, &blobs)
                     .map_err(|e| BlockProductionError::KzgError(e))?;

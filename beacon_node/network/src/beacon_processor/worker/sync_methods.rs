@@ -7,6 +7,7 @@ use crate::beacon_processor::DuplicateCache;
 use crate::metrics;
 use crate::sync::manager::{BlockProcessType, SyncMessage};
 use crate::sync::{BatchProcessResult, ChainId};
+use beacon_chain::blob_verification::{AsBlock, BlockWrapper, IntoAvailableBlock};
 use beacon_chain::CountUnrealized;
 use beacon_chain::{
     BeaconChainError, BeaconChainTypes, BlockError, ChainSegmentResult, HistoricalBlockError,
@@ -16,7 +17,6 @@ use lighthouse_network::PeerAction;
 use slog::{debug, error, info, warn};
 use std::sync::Arc;
 use tokio::sync::mpsc;
-use types::signed_block_and_blobs::BlockWrapper;
 use types::{Epoch, Hash256, SignedBeaconBlock};
 
 /// Id associated to a batch processing request, either a sync batch or a parent lookup.
@@ -85,15 +85,23 @@ impl<T: BeaconChainTypes> Worker<T> {
             }
         };
         let slot = block.slot();
-        let result = self
-            .chain
-            .process_block(
-                block_root,
-                block,
-                CountUnrealized::True,
-                NotifyExecutionLayer::Yes,
-            )
-            .await;
+        let available_block = block
+            .into_available_block(block_root, &self.chain)
+            .map_err(BlockError::BlobValidation);
+
+        let result = match available_block {
+            Ok(block) => {
+                self.chain
+                    .process_block(
+                        block_root,
+                        block,
+                        CountUnrealized::True,
+                        NotifyExecutionLayer::Yes,
+                    )
+                    .await
+            }
+            Err(e) => Err(e),
+        };
 
         metrics::inc_counter(&metrics::BEACON_PROCESSOR_RPC_BLOCK_IMPORTED_TOTAL);
 

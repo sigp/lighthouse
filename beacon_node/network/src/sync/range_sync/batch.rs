@@ -1,11 +1,11 @@
 use crate::sync::manager::Id;
+use beacon_chain::blob_verification::{AsBlock, BlockWrapper};
 use lighthouse_network::rpc::methods::BlocksByRangeRequest;
 use lighthouse_network::PeerId;
 use std::collections::HashSet;
 use std::hash::{Hash, Hasher};
 use std::ops::Sub;
 use strum::Display;
-use types::signed_block_and_blobs::BlockWrapper;
 use types::{Epoch, EthSpec, Slot};
 
 /// The number of times to retry a batch before it is considered failed.

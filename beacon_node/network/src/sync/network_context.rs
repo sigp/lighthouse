@@ -8,6 +8,7 @@ use crate::beacon_processor::WorkEvent;
 use crate::service::{NetworkMessage, RequestId};
 use crate::status::ToStatusMessage;
 use crate::sync::block_lookups::ForceBlockRequest;
+use beacon_chain::blob_verification::BlockWrapper;
 use beacon_chain::{BeaconChain, BeaconChainTypes, EngineState};
 use fnv::FnvHashMap;
 use lighthouse_network::rpc::methods::BlobsByRangeRequest;
@@ -17,7 +18,6 @@ use slog::{debug, trace, warn};
 use std::collections::hash_map::Entry;
 use std::sync::Arc;
 use tokio::sync::mpsc;
-use types::signed_block_and_blobs::BlockWrapper;
 use types::{BlobsSidecar, EthSpec, SignedBeaconBlock};
 
 /// Wraps a Network channel to employ various RPC related network functionality for the Sync manager. This includes management of a global RPC request Id.
