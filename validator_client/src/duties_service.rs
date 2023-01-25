@@ -693,7 +693,7 @@ async fn poll_beacon_attesters_for_epoch<T: SlotClock + 'static, E: EthSpec>(
             .filter(|duty| {
                 if duties_service.per_validator_metrics() {
                     let validator_index = duty.validator_index;
-                    let slot = duty.slot;
+                    let duty_slot = duty.slot;
                     if let Some(existing_slot_gauge) =
                         get_int_gauge(&ATTESTATION_DUTY, &[&validator_index.to_string()])
                     {
@@ -705,17 +705,17 @@ async fn poll_beacon_attesters_for_epoch<T: SlotClock + 'static, E: EthSpec>(
                         // Second condition is to ensure that next epoch duties don't override
                         // current epoch duties.
                         if existing_slot < current_slot
-                            || (slot.epoch(E::slots_per_epoch()) <= existing_epoch
-                                && slot > current_slot
-                                && slot != existing_slot)
+                            || (duty_slot.epoch(E::slots_per_epoch()) <= existing_epoch
+                                && duty_slot > current_slot
+                                && duty_slot != existing_slot)
                         {
-                            existing_slot_gauge.set(slot.as_u64() as i64);
+                            existing_slot_gauge.set(duty_slot.as_u64() as i64);
                         }
                     } else {
                         set_int_gauge(
                             &ATTESTATION_DUTY,
                             &[&validator_index.to_string()],
-                            slot.as_u64() as i64,
+                            duty_slot.as_u64() as i64,
                         );
                     }
                 }
