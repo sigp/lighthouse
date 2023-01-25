@@ -494,7 +494,7 @@ mod deposit_tree {
             let mut deposit_counts = vec![];
 
             let client =
-                HttpJsonRpc::new(SensitiveUrl::parse(&eth1.endpoint()).unwrap(), None, spec)
+                HttpJsonRpc::new(SensitiveUrl::parse(&eth1.endpoint()).unwrap(), None)
                     .unwrap();
 
             // Perform deposits to the smart contract, recording it's state along the way.
@@ -602,7 +602,6 @@ mod http {
             let client = HttpJsonRpc::new(
                 SensitiveUrl::parse(&eth1.endpoint()).unwrap(),
                 None,
-                &MainnetEthSpec::default_spec(),
             )
             .unwrap();
 
@@ -720,7 +719,7 @@ mod fast {
             )
             .unwrap();
             let client =
-                HttpJsonRpc::new(SensitiveUrl::parse(&eth1.endpoint()).unwrap(), None, &spec)
+                HttpJsonRpc::new(SensitiveUrl::parse(&eth1.endpoint()).unwrap(), None)
                     .unwrap();
             let n = 10;
             let deposits: Vec<_> = (0..n).map(|_| random_deposit_data()).collect();
