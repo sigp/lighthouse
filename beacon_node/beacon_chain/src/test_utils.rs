@@ -172,17 +172,6 @@ impl<E: EthSpec> Builder<EphemeralHarnessType<E>> {
             .clone()
             .expect("cannot build without validator keypairs");
 
-        // For the interop genesis state we know that the withdrawal credentials are set equal
-        // to the validator keypairs. Check for any manually initialised credentials.
-        assert!(
-            self.withdrawal_keypairs.is_empty(),
-            "withdrawal credentials are ignored by fresh_ephemeral_store"
-        );
-        self.withdrawal_keypairs = validator_keypairs
-            .iter()
-            .map(|kp| Some(kp.clone()))
-            .collect();
-
         let store = Arc::new(
             HotColdDB::open_ephemeral(
                 self.store_config.clone().unwrap_or_default(),
@@ -318,6 +307,11 @@ where
 
     pub fn keypairs(mut self, validator_keypairs: Vec<Keypair>) -> Self {
         self.validator_keypairs = Some(validator_keypairs);
+        self
+    }
+
+    pub fn withdrawal_keypairs(mut self, withdrawal_keypairs: Vec<Option<Keypair>>) -> Self {
+        self.withdrawal_keypairs = withdrawal_keypairs;
         self
     }
 

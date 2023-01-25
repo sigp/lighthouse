@@ -1,8 +1,15 @@
 //! Tests for API behaviour across fork boundaries.
 use crate::common::*;
-use beacon_chain::{test_utils::RelativeSyncCommittee, StateSkipConfig};
+use beacon_chain::{
+    test_utils::{RelativeSyncCommittee, DEFAULT_ETH1_BLOCK_HASH, HARNESS_GENESIS_TIME},
+    StateSkipConfig,
+};
 use eth2::types::{IndexedErrorMessage, StateId, SyncSubcommittee};
-use types::{Address, ChainSpec, Epoch, EthSpec, MinimalEthSpec, Slot};
+use genesis::{bls_withdrawal_credentials, interop_genesis_state_with_withdrawal_credentials};
+use types::{
+    test_utils::{generate_deterministic_keypair, generate_deterministic_keypairs},
+    Address, ChainSpec, Epoch, EthSpec, Hash256, MinimalEthSpec, Slot,
+};
 
 type E = MinimalEthSpec;
 
@@ -338,7 +345,39 @@ async fn bls_to_execution_changes_update_all_around_capella_fork() {
     let fork_epoch = Epoch::new(2);
     let spec = capella_spec(fork_epoch);
     let max_bls_to_execution_changes = E::max_bls_to_execution_changes();
-    let tester = InteractiveTester::<E>::new(Some(spec.clone()), validator_count).await;
+
+    // Use a genesis state with entirely BLS withdrawal credentials.
+    // Offset keypairs by `validator_count` to create keys distinct from the signing keys.
+    let validator_keypairs = generate_deterministic_keypairs(validator_count);
+    let withdrawal_keypairs = (0..validator_count)
+        .map(|i| Some(generate_deterministic_keypair(i + validator_count)))
+        .collect::<Vec<_>>();
+    let withdrawal_credentials = withdrawal_keypairs
+        .iter()
+        .map(|keypair| bls_withdrawal_credentials(&keypair.as_ref().unwrap().pk, &spec))
+        .collect::<Vec<_>>();
+    let genesis_state = interop_genesis_state_with_withdrawal_credentials(
+        &validator_keypairs,
+        &withdrawal_credentials,
+        HARNESS_GENESIS_TIME,
+        Hash256::from_slice(DEFAULT_ETH1_BLOCK_HASH),
+        None,
+        &spec,
+    )
+    .unwrap();
+
+    let tester = InteractiveTester::<E>::new_with_initializer_and_mutator(
+        Some(spec.clone()),
+        validator_count,
+        Some(Box::new(|harness_builder| {
+            harness_builder
+                .keypairs(validator_keypairs)
+                .withdrawal_keypairs(withdrawal_keypairs)
+                .genesis_state_ephemeral_store(genesis_state)
+        })),
+        None,
+    )
+    .await;
     let harness = &tester.harness;
     let client = &tester.client;
 
