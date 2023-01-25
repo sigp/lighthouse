@@ -545,7 +545,7 @@ pub async fn proposer_boost_re_org_test(
 pub async fn fork_choice_before_proposal() {
     // Validator count needs to be at least 32 or proposer boost gets set to 0 when computing
     // `validator_count // 32`.
-    let validator_count = 32;
+    let validator_count = 64;
     let all_validators = (0..validator_count).collect::<Vec<_>>();
     let num_initial: u64 = 31;
 
