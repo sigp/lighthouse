@@ -1,5 +1,6 @@
 use crate::{metrics, service::NetworkMessage, sync::SyncMessage};
 
+use beacon_chain::blob_verification::{AsBlock, BlockWrapper};
 use beacon_chain::store::Error;
 use beacon_chain::{
     attestation_verification::{self, Error as AttnError, VerifiedAttestation},
@@ -18,7 +19,6 @@ use ssz::Encode;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use store::hot_cold_store::HotColdDBError;
 use tokio::sync::mpsc;
-use types::signed_block_and_blobs::BlockWrapper;
 use types::{
     Attestation, AttesterSlashing, EthSpec, Hash256, IndexedAttestation, LightClientFinalityUpdate,
     LightClientOptimisticUpdate, ProposerSlashing, SignedAggregateAndProof,
@@ -726,7 +726,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         let block_root = if let Ok(verified_block) = &verification_result {
             verified_block.block_root
         } else {
-            block.block().canonical_root()
+            block.as_block().canonical_root()
         };
 
         // Write the time the block was observed into delay cache.

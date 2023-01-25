@@ -35,8 +35,12 @@ impl From<SignedBeaconBlockHash> for Hash256 {
     }
 }
 
+#[derive(Debug)]
 pub enum BlobReconstructionError {
-    BlobsMissing,
+    /// No blobs for the specified block where we would expect blobs.
+    UnavailableBlobs,
+    /// Blobs provided for a pre-Eip4844 fork.
+    InconsistentFork,
 }
 
 /// A `BeaconBlock` and a signature from its proposer.
@@ -249,25 +253,24 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> SignedBeaconBlock<E, Payload> 
 
     /// Reconstructs an empty `BlobsSidecar`, using the given block root if provided, else calculates it.
     /// If this block has kzg commitments, an error will be returned. If this block is from prior to the
-    /// Eip4844 fork, `None` will be returned.
+    /// Eip4844 fork, this will error.
     pub fn reconstruct_empty_blobs(
         &self,
         block_root_opt: Option<Hash256>,
-    ) -> Result<Option<BlobsSidecar<E>>, BlobReconstructionError> {
-        self.message()
+    ) -> Result<BlobsSidecar<E>, BlobReconstructionError> {
+        let kzg_commitments = self
+            .message()
             .body()
             .blob_kzg_commitments()
-            .map(|kzg_commitments| {
-                if kzg_commitments.len() > 0 {
-                    Err(BlobReconstructionError::BlobsMissing)
-                } else {
-                    Ok(Some(BlobsSidecar::empty_from_parts(
-                        block_root_opt.unwrap_or(self.canonical_root()),
-                        self.slot(),
-                    )))
-                }
-            })
-            .unwrap_or(Ok(None))
+            .map_err(|_| BlobReconstructionError::InconsistentFork)?;
+        if kzg_commitments.is_empty() {
+            Ok(BlobsSidecar::empty_from_parts(
+                block_root_opt.unwrap_or(self.canonical_root()),
+                self.slot(),
+            ))
+        } else {
+            Err(BlobReconstructionError::UnavailableBlobs)
+        }
     }
 }
 

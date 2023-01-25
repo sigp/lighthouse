@@ -1,4 +1,4 @@
-use crate::BlockProcessingError;
+use crate::{BlockProcessingError, ConsensusContext};
 use eth2_hashing::hash_fixed;
 use itertools::{EitherOrBoth, Itertools};
 use safe_arith::SafeArith;
@@ -11,13 +11,17 @@ use types::{
 
 pub fn process_blob_kzg_commitments<T: EthSpec, Payload: AbstractExecPayload<T>>(
     block_body: BeaconBlockBodyRef<T, Payload>,
+    ctxt: &mut ConsensusContext<T>,
 ) -> Result<(), BlockProcessingError> {
+    // Return early if this check has already been run.
+    if ctxt.kzg_commitments_consistent() {
+        return Ok(());
+    }
     if let (Ok(payload), Ok(kzg_commitments)) = (
         block_body.execution_payload(),
         block_body.blob_kzg_commitments(),
     ) {
         if let Some(transactions) = payload.transactions() {
-            //FIXME(sean) only run if this wasn't run in gossip (use consensus context)
             if !verify_kzg_commitments_against_transactions::<T>(transactions, kzg_commitments)? {
                 return Err(BlockProcessingError::BlobVersionHashMismatch);
             }

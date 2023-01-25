@@ -2,6 +2,7 @@ use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::time::Duration;
 
+use beacon_chain::blob_verification::{AsBlock, BlockWrapper};
 use beacon_chain::{BeaconChainTypes, BlockError};
 use fnv::FnvHashMap;
 use lighthouse_network::rpc::{RPCError, RPCResponseErrorCode};
@@ -10,7 +11,6 @@ use lru_cache::LRUTimeCache;
 use slog::{debug, error, trace, warn, Logger};
 use smallvec::SmallVec;
 use store::Hash256;
-use types::signed_block_and_blobs::BlockWrapper;
 
 use crate::beacon_processor::{ChainSegmentProcessId, WorkEvent};
 use crate::metrics;

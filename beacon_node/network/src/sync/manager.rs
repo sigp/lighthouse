@@ -42,6 +42,7 @@ use crate::beacon_processor::{ChainSegmentProcessId, WorkEvent as BeaconWorkEven
 use crate::service::NetworkMessage;
 use crate::status::ToStatusMessage;
 use crate::sync::range_sync::ByRangeRequestType;
+use beacon_chain::blob_verification::{AsBlock, BlockWrapper};
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockError, EngineState};
 use futures::StreamExt;
 use lighthouse_network::rpc::methods::MAX_REQUEST_BLOCKS;
@@ -55,7 +56,6 @@ use std::ops::Sub;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
-use types::signed_block_and_blobs::BlockWrapper;
 use types::{
     BlobsSidecar, EthSpec, Hash256, SignedBeaconBlock, SignedBeaconBlockAndBlobsSidecar, Slot,
 };
