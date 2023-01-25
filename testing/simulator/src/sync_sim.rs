@@ -3,7 +3,8 @@ use crate::local_network::LocalNetwork;
 use clap::ArgMatches;
 use futures::prelude::*;
 use node_test_rig::{
-    environment::EnvironmentBuilder, testing_client_config, ClientGenesis, ValidatorFiles,
+    environment::{EnvironmentBuilder, LoggerConfig},
+    testing_client_config, ClientGenesis, ValidatorFiles,
 };
 use node_test_rig::{testing_validator_config, ClientConfig};
 use std::cmp::max;
@@ -45,7 +46,19 @@ fn syncing_sim(
     log_format: Option<&str>,
 ) -> Result<(), String> {
     let mut env = EnvironmentBuilder::minimal()
-        .async_logger(log_level, log_format)?
+        .initialize_logger(LoggerConfig {
+            path: None,
+            debug_level: String::from(log_level),
+            logfile_debug_level: String::from("debug"),
+            log_format: log_format.map(String::from),
+            logfile_format: None,
+            log_color: false,
+            disable_log_timestamp: false,
+            max_log_size: 0,
+            max_log_number: 0,
+            compression: false,
+            is_restricted: true,
+        })?
         .multi_threaded_tokio_runtime()?
         .build()?;
 
@@ -53,6 +66,9 @@ fn syncing_sim(
     let end_after_checks = true;
     let eth1_block_time = Duration::from_millis(15_000 / speed_up_factor);
 
+    // Set fork epochs to test syncing across fork boundaries
+    spec.altair_fork_epoch = Some(Epoch::new(1));
+    spec.bellatrix_fork_epoch = Some(Epoch::new(2));
     spec.seconds_per_slot /= speed_up_factor;
     spec.seconds_per_slot = max(1, spec.seconds_per_slot);
     spec.eth1_follow_distance = 16;
@@ -76,6 +92,8 @@ fn syncing_sim(
     };
     beacon_config.dummy_eth1_backend = true;
     beacon_config.sync_eth1_chain = true;
+
+    beacon_config.http_api.allow_sync_stalled = true;
 
     beacon_config.network.enr_address = Some(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)));
 

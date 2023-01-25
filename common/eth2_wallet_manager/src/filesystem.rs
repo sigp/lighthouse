@@ -2,7 +2,7 @@
 
 use eth2_wallet::Error as WalletError;
 use eth2_wallet::{Uuid, Wallet};
-use std::fs::{copy as copy_file, remove_file, OpenOptions};
+use std::fs::{copy as copy_file, remove_file, File};
 use std::io;
 use std::path::{Path, PathBuf};
 
@@ -27,7 +27,7 @@ pub fn read<P: AsRef<Path>>(wallet_dir: P, uuid: &Uuid) -> Result<Wallet, Error>
     if !json_path.exists() {
         Err(Error::WalletDoesNotExist(json_path))
     } else {
-        OpenOptions::new()
+        File::options()
             .read(true)
             .create(false)
             .open(json_path)
@@ -79,7 +79,7 @@ pub fn create<P: AsRef<Path>>(wallet_dir: P, wallet: &Wallet) -> Result<(), Erro
     if json_path.exists() {
         Err(Error::WalletAlreadyExists(json_path))
     } else {
-        OpenOptions::new()
+        File::options()
             .write(true)
             .create_new(true)
             .open(json_path)

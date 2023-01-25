@@ -3,12 +3,17 @@
 
 use crate::Error as ServerError;
 use lighthouse_network::{ConnectionDirection, Enr, Multiaddr, PeerConnectionStatus};
+use mime::{Mime, APPLICATION, JSON, OCTET_STREAM, STAR};
 use serde::{Deserialize, Serialize};
+use std::cmp::Reverse;
 use std::convert::TryFrom;
 use std::fmt;
 use std::str::{from_utf8, FromStr};
 use std::time::Duration;
 pub use types::*;
+
+#[cfg(feature = "lighthouse")]
+use crate::lighthouse::BlockReward;
 
 /// An API error serializable to JSON.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -184,6 +189,14 @@ impl fmt::Display for StateId {
 #[serde(bound = "T: Serialize + serde::de::DeserializeOwned")]
 pub struct DutiesResponse<T: Serialize + serde::de::DeserializeOwned> {
     pub dependent_root: Hash256,
+    pub execution_optimistic: Option<bool>,
+    pub data: T,
+}
+
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[serde(bound = "T: Serialize + serde::de::DeserializeOwned")]
+pub struct ExecutionOptimisticResponse<T: Serialize + serde::de::DeserializeOwned> {
+    pub execution_optimistic: Option<bool>,
     pub data: T,
 }
 
@@ -199,6 +212,18 @@ impl<T: Serialize + serde::de::DeserializeOwned> From<T> for GenericResponse<T> 
     }
 }
 
+impl<T: Serialize + serde::de::DeserializeOwned> GenericResponse<T> {
+    pub fn add_execution_optimistic(
+        self,
+        execution_optimistic: bool,
+    ) -> ExecutionOptimisticResponse<T> {
+        ExecutionOptimisticResponse {
+            execution_optimistic: Some(execution_optimistic),
+            data: self.data,
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, Clone, Serialize)]
 #[serde(bound = "T: Serialize")]
 pub struct GenericResponseRef<'a, T: Serialize> {
@@ -209,6 +234,14 @@ impl<'a, T: Serialize> From<&'a T> for GenericResponseRef<'a, T> {
     fn from(data: &'a T) -> Self {
         Self { data }
     }
+}
+
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+pub struct ExecutionOptimisticForkVersionedResponse<T> {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub version: Option<ForkName>,
+    pub execution_optimistic: Option<bool>,
+    pub data: T,
 }
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
@@ -423,15 +456,23 @@ pub struct SyncCommitteesQuery {
 }
 
 #[derive(Serialize, Deserialize)]
+pub struct RandaoQuery {
+    pub epoch: Option<Epoch>,
+}
+
+#[derive(Serialize, Deserialize)]
 pub struct AttestationPoolQuery {
     pub slot: Option<Slot>,
     pub committee_index: Option<u64>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ValidatorsQuery {
-    pub id: Option<QueryVec<ValidatorId>>,
-    pub status: Option<QueryVec<ValidatorStatus>>,
+    #[serde(default, deserialize_with = "option_query_vec")]
+    pub id: Option<Vec<ValidatorId>>,
+    #[serde(default, deserialize_with = "option_query_vec")]
+    pub status: Option<Vec<ValidatorStatus>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -448,6 +489,11 @@ pub struct SyncCommitteeByValidatorIndices {
     #[serde(with = "eth2_serde_utils::quoted_u64_vec")]
     pub validators: Vec<u64>,
     pub validator_aggregates: Vec<SyncSubcommittee>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RandaoMix {
+    pub randao: Hash256,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -487,6 +533,8 @@ pub struct DepositContractData {
 pub struct ChainHeadData {
     pub slot: Slot,
     pub root: Hash256,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub execution_optimistic: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -514,38 +562,87 @@ pub struct VersionData {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SyncingData {
     pub is_syncing: bool,
+    pub is_optimistic: Option<bool>,
     pub head_slot: Slot,
     pub sync_distance: Slot,
 }
 
 #[derive(Clone, PartialEq, Debug, Deserialize)]
 #[serde(try_from = "String", bound = "T: FromStr")]
-pub struct QueryVec<T: FromStr>(pub Vec<T>);
+pub struct QueryVec<T: FromStr> {
+    values: Vec<T>,
+}
+
+fn query_vec<'de, D, T>(deserializer: D) -> Result<Vec<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: FromStr,
+{
+    let vec: Vec<QueryVec<T>> = Deserialize::deserialize(deserializer)?;
+    Ok(Vec::from(QueryVec::from(vec)))
+}
+
+fn option_query_vec<'de, D, T>(deserializer: D) -> Result<Option<Vec<T>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: FromStr,
+{
+    let vec: Vec<QueryVec<T>> = Deserialize::deserialize(deserializer)?;
+    if vec.is_empty() {
+        return Ok(None);
+    }
+
+    Ok(Some(Vec::from(QueryVec::from(vec))))
+}
+
+impl<T: FromStr> From<Vec<QueryVec<T>>> for QueryVec<T> {
+    fn from(vecs: Vec<QueryVec<T>>) -> Self {
+        Self {
+            values: vecs.into_iter().flat_map(|qv| qv.values).collect(),
+        }
+    }
+}
 
 impl<T: FromStr> TryFrom<String> for QueryVec<T> {
     type Error = String;
 
     fn try_from(string: String) -> Result<Self, Self::Error> {
         if string.is_empty() {
-            return Ok(Self(vec![]));
+            return Ok(Self { values: vec![] });
         }
 
-        string
-            .split(',')
-            .map(|s| s.parse().map_err(|_| "unable to parse".to_string()))
-            .collect::<Result<Vec<T>, String>>()
-            .map(Self)
+        Ok(Self {
+            values: string
+                .split(',')
+                .map(|s| s.parse().map_err(|_| "unable to parse query".to_string()))
+                .collect::<Result<Vec<T>, String>>()?,
+        })
+    }
+}
+
+impl<T: FromStr> From<QueryVec<T>> for Vec<T> {
+    fn from(vec: QueryVec<T>) -> Vec<T> {
+        vec.values
     }
 }
 
 #[derive(Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ValidatorBalancesQuery {
-    pub id: Option<QueryVec<ValidatorId>>,
+    #[serde(default, deserialize_with = "option_query_vec")]
+    pub id: Option<Vec<ValidatorId>>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct ValidatorIndexData(#[serde(with = "eth2_serde_utils::quoted_u64_vec")] pub Vec<u64>);
+
+/// Borrowed variant of `ValidatorIndexData`, for serializing/sending.
+#[derive(Clone, Copy, Serialize)]
+#[serde(transparent)]
+pub struct ValidatorIndexDataRef<'a>(
+    #[serde(serialize_with = "eth2_serde_utils::quoted_u64_vec::serialize")] pub &'a [u64],
+);
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AttesterData {
@@ -571,10 +668,34 @@ pub struct ProposerData {
     pub slot: Slot,
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Deserialize)]
 pub struct ValidatorBlocksQuery {
     pub randao_reveal: SignatureBytes,
     pub graffiti: Option<Graffiti>,
+    pub skip_randao_verification: SkipRandaoVerification,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(try_from = "Option<String>")]
+pub enum SkipRandaoVerification {
+    Yes,
+    #[default]
+    No,
+}
+
+/// Parse a `skip_randao_verification` query parameter.
+impl TryFrom<Option<String>> for SkipRandaoVerification {
+    type Error = String;
+
+    fn try_from(opt: Option<String>) -> Result<Self, String> {
+        match opt.as_deref() {
+            None => Ok(SkipRandaoVerification::No),
+            Some("") => Ok(SkipRandaoVerification::Yes),
+            Some(s) => Err(format!(
+                "skip_randao_verification does not take a value, got: {s}"
+            )),
+        }
+    }
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -589,7 +710,7 @@ pub struct ValidatorAggregateAttestationQuery {
     pub slot: Slot,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
 pub struct BeaconCommitteeSubscription {
     #[serde(with = "eth2_serde_utils::quoted_u64")]
     pub validator_index: u64,
@@ -602,9 +723,12 @@ pub struct BeaconCommitteeSubscription {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct PeersQuery {
-    pub state: Option<QueryVec<PeerState>>,
-    pub direction: Option<QueryVec<PeerDirection>>,
+    #[serde(default, deserialize_with = "option_query_vec")]
+    pub state: Option<Vec<PeerState>>,
+    #[serde(default, deserialize_with = "option_query_vec")]
+    pub direction: Option<Vec<PeerDirection>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -729,6 +853,7 @@ pub struct PeerCount {
 pub struct SseBlock {
     pub slot: Slot,
     pub block: Hash256,
+    pub execution_optimistic: bool,
 }
 
 #[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
@@ -736,6 +861,7 @@ pub struct SseFinalizedCheckpoint {
     pub block: Hash256,
     pub state: Hash256,
     pub epoch: Epoch,
+    pub execution_optimistic: bool,
 }
 
 #[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
@@ -746,6 +872,7 @@ pub struct SseHead {
     pub current_duty_dependent_root: Hash256,
     pub previous_duty_dependent_root: Hash256,
     pub epoch_transition: bool,
+    pub execution_optimistic: bool,
 }
 
 #[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
@@ -758,6 +885,7 @@ pub struct SseChainReorg {
     pub new_head_block: Hash256,
     pub new_head_state: Hash256,
     pub epoch: Epoch,
+    pub execution_optimistic: bool,
 }
 
 #[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
@@ -772,12 +900,13 @@ pub struct SseLateHead {
     pub observed_delay: Option<Duration>,
     pub imported_delay: Option<Duration>,
     pub set_as_head_delay: Option<Duration>,
+    pub execution_optimistic: bool,
 }
 
 #[derive(PartialEq, Debug, Serialize, Clone)]
 #[serde(bound = "T: EthSpec", untagged)]
 pub enum EventKind<T: EthSpec> {
-    Attestation(Attestation<T>),
+    Attestation(Box<Attestation<T>>),
     Block(SseBlock),
     FinalizedCheckpoint(SseFinalizedCheckpoint),
     Head(SseHead),
@@ -785,6 +914,8 @@ pub enum EventKind<T: EthSpec> {
     ChainReorg(SseChainReorg),
     ContributionAndProof(Box<SignedContributionAndProof<T>>),
     LateHead(SseLateHead),
+    #[cfg(feature = "lighthouse")]
+    BlockReward(BlockReward),
 }
 
 impl<T: EthSpec> EventKind<T> {
@@ -798,6 +929,8 @@ impl<T: EthSpec> EventKind<T> {
             EventKind::ChainReorg(_) => "chain_reorg",
             EventKind::ContributionAndProof(_) => "contribution_and_proof",
             EventKind::LateHead(_) => "late_head",
+            #[cfg(feature = "lighthouse")]
+            EventKind::BlockReward(_) => "block_reward",
         }
     }
 
@@ -850,6 +983,10 @@ impl<T: EthSpec> EventKind<T> {
                     ServerError::InvalidServerSentEvent(format!("Contribution and Proof: {:?}", e))
                 })?,
             ))),
+            #[cfg(feature = "lighthouse")]
+            "block_reward" => Ok(EventKind::BlockReward(serde_json::from_str(data).map_err(
+                |e| ServerError::InvalidServerSentEvent(format!("Block Reward: {:?}", e)),
+            )?)),
             _ => Err(ServerError::InvalidServerSentEvent(
                 "Could not parse event tag".to_string(),
             )),
@@ -858,8 +995,10 @@ impl<T: EthSpec> EventKind<T> {
 }
 
 #[derive(Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct EventQuery {
-    pub topics: QueryVec<EventTopic>,
+    #[serde(deserialize_with = "query_vec")]
+    pub topics: Vec<EventTopic>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
@@ -873,6 +1012,8 @@ pub enum EventTopic {
     ChainReorg,
     ContributionAndProof,
     LateHead,
+    #[cfg(feature = "lighthouse")]
+    BlockReward,
 }
 
 impl FromStr for EventTopic {
@@ -888,6 +1029,8 @@ impl FromStr for EventTopic {
             "chain_reorg" => Ok(EventTopic::ChainReorg),
             "contribution_and_proof" => Ok(EventTopic::ContributionAndProof),
             "late_head" => Ok(EventTopic::LateHead),
+            #[cfg(feature = "lighthouse")]
+            "block_reward" => Ok(EventTopic::BlockReward),
             _ => Err("event topic cannot be parsed.".to_string()),
         }
     }
@@ -904,6 +1047,8 @@ impl fmt::Display for EventTopic {
             EventTopic::ChainReorg => write!(f, "chain_reorg"),
             EventTopic::ContributionAndProof => write!(f, "contribution_and_proof"),
             EventTopic::LateHead => write!(f, "late_head"),
+            #[cfg(feature = "lighthouse")]
+            EventTopic::BlockReward => write!(f, "block_reward"),
         }
     }
 }
@@ -929,13 +1074,35 @@ impl FromStr for Accept {
     type Err = String;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "application/octet-stream" => Ok(Accept::Ssz),
-            "application/json" => Ok(Accept::Json),
-            "*/*" => Ok(Accept::Any),
-            _ => Err("accept header cannot be parsed.".to_string()),
-        }
+        let mut mimes = parse_accept(s)?;
+
+        // [q-factor weighting]: https://datatracker.ietf.org/doc/html/rfc7231#section-5.3.2
+        // find the highest q-factor supported accept type
+        mimes.sort_by_key(|m| {
+            Reverse(m.get_param("q").map_or(1000_u16, |n| {
+                (n.as_ref().parse::<f32>().unwrap_or(0_f32) * 1000_f32) as u16
+            }))
+        });
+        mimes
+            .into_iter()
+            .find_map(|m| match (m.type_(), m.subtype()) {
+                (APPLICATION, OCTET_STREAM) => Some(Accept::Ssz),
+                (APPLICATION, JSON) => Some(Accept::Json),
+                (STAR, STAR) => Some(Accept::Any),
+                _ => None,
+            })
+            .ok_or_else(|| "accept header is not supported".to_string())
     }
+}
+
+fn parse_accept(accept: &str) -> Result<Vec<Mime>, String> {
+    accept
+        .split(',')
+        .map(|part| {
+            part.parse()
+                .map_err(|e| format!("error parsing Accept header: {}", e))
+        })
+        .collect()
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -961,7 +1128,28 @@ mod tests {
     fn query_vec() {
         assert_eq!(
             QueryVec::try_from("0,1,2".to_string()).unwrap(),
-            QueryVec(vec![0_u64, 1, 2])
+            QueryVec {
+                values: vec![0_u64, 1, 2]
+            }
         );
+    }
+
+    #[test]
+    fn parse_accept_header_content() {
+        assert_eq!(
+            Accept::from_str("application/json; charset=utf-8").unwrap(),
+            Accept::Json
+        );
+
+        assert_eq!(
+            Accept::from_str("text/plain,application/octet-stream;q=0.3,application/json;q=0.9")
+                .unwrap(),
+            Accept::Json
+        );
+
+        assert_eq!(
+            Accept::from_str("text/plain"),
+            Err("accept header is not supported".to_string())
+        )
     }
 }

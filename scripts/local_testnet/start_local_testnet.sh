@@ -1,16 +1,23 @@
 #!/usr/bin/env bash
 # Start all processes necessary to create a local testnet
 
+set -Eeuo pipefail
+
 source ./vars.env
+
+# Set a higher ulimit in case we want to import 1000s of validators.
+ulimit -n 65536
 
 # VC_COUNT is defaulted in vars.env
 DEBUG_LEVEL=${DEBUG_LEVEL:-info}
+BUILDER_PROPOSALS=
 
 # Get options
-while getopts "v:d:h" flag; do
+while getopts "v:d:ph" flag; do
   case "${flag}" in
     v) VC_COUNT=${OPTARG};;
     d) DEBUG_LEVEL=${OPTARG};;
+    p) BUILDER_PROPOSALS="-p";;
     h)
         validators=$(( $VALIDATOR_COUNT / $BN_COUNT ))
         echo "Start local testnet, defaults: 1 eth1 node, $BN_COUNT beacon nodes,"
@@ -21,6 +28,7 @@ while getopts "v:d:h" flag; do
         echo "Options:"
         echo "   -v: VC_COUNT    default: $VC_COUNT"
         echo "   -d: DEBUG_LEVEL default: info"
+        echo "   -p:             enable private tx proposals"
         echo "   -h:             this help"
         exit
         ;;
@@ -49,7 +57,7 @@ for (( bn=1; bn<=$BN_COUNT; bn++ )); do
 done
 for (( vc=1; vc<=$VC_COUNT; vc++ )); do
     touch $LOG_DIR/validator_node_$vc.log
-done 
+done
 
 # Sleep with a message
 sleeping() {
@@ -67,7 +75,7 @@ execute_command() {
     EX_NAME=$2
     shift
     shift
-    CMD="$EX_NAME $@ &>> $LOG_DIR/$LOG_NAME"
+    CMD="$EX_NAME $@ >> $LOG_DIR/$LOG_NAME 2>&1"
     echo "executing: $CMD"
     echo "$CMD" > "$LOG_DIR/$LOG_NAME"
     eval "$CMD &"
@@ -84,16 +92,16 @@ execute_command_add_PID() {
     echo "$!" >> $PID_FILE
 }
 
-# Start ganache-cli, setup things up and start the bootnode.
+# Start ganache, setup things up and start the bootnode.
 # The delays are necessary, hopefully there is a better way :(
 
-# Delay to let ganache-cli to get started
+# Delay to let ganache to get started
 execute_command_add_PID ganache_test_node.log ./ganache_test_node.sh
-sleeping 2
+sleeping 10
 
-# Delay to get data setup
-execute_command setup.log ./setup.sh
-sleeping 15
+# Setup data
+echo "executing: ./setup.sh >> $LOG_DIR/setup.log"
+./setup.sh >> $LOG_DIR/setup.log 2>&1
 
 # Delay to let boot_enr.yaml to be created
 execute_command_add_PID bootnode.log ./bootnode.sh
@@ -111,7 +119,7 @@ done
 
 # Start requested number of validator clients
 for (( vc=1; vc<=$VC_COUNT; vc++ )); do
-    execute_command_add_PID validator_node_$vc.log ./validator_client.sh $DATADIR/node_$vc http://localhost:$((BN_http_port_base + $vc)) $DEBUG_LEVEL
+    execute_command_add_PID validator_node_$vc.log ./validator_client.sh $BUILDER_PROPOSALS -d $DEBUG_LEVEL $DATADIR/node_$vc http://localhost:$((BN_http_port_base + $vc))
 done
 
 echo "Started!"

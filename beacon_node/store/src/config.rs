@@ -4,7 +4,8 @@ use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use types::{EthSpec, MinimalEthSpec};
 
-pub const DEFAULT_SLOTS_PER_RESTORE_POINT: u64 = 2048;
+pub const PREV_DEFAULT_SLOTS_PER_RESTORE_POINT: u64 = 2048;
+pub const DEFAULT_SLOTS_PER_RESTORE_POINT: u64 = 8192;
 pub const DEFAULT_BLOCK_CACHE_SIZE: usize = 5;
 
 /// Database configuration parameters.
@@ -12,12 +13,16 @@ pub const DEFAULT_BLOCK_CACHE_SIZE: usize = 5;
 pub struct StoreConfig {
     /// Number of slots to wait between storing restore points in the freezer database.
     pub slots_per_restore_point: u64,
+    /// Flag indicating whether the `slots_per_restore_point` was set explicitly by the user.
+    pub slots_per_restore_point_set_explicitly: bool,
     /// Maximum number of blocks to store in the in-memory block cache.
     pub block_cache_size: usize,
     /// Whether to compact the database on initialization.
     pub compact_on_init: bool,
     /// Whether to compact the database during database pruning.
     pub compact_on_prune: bool,
+    /// Whether to prune payloads on initialization and finalization.
+    pub prune_payloads: bool,
 }
 
 /// Variant of `StoreConfig` that gets written to disk. Contains immutable configuration params.
@@ -36,9 +41,11 @@ impl Default for StoreConfig {
         Self {
             // Safe default for tests, shouldn't ever be read by a CLI node.
             slots_per_restore_point: MinimalEthSpec::slots_per_historical_root() as u64,
+            slots_per_restore_point_set_explicitly: false,
             block_cache_size: DEFAULT_BLOCK_CACHE_SIZE,
             compact_on_init: false,
             compact_on_prune: true,
+            prune_payloads: true,
         }
     }
 }

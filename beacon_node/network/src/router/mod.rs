@@ -8,12 +8,11 @@
 mod processor;
 
 use crate::error;
-use crate::service::NetworkMessage;
+use crate::service::{NetworkMessage, RequestId};
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use futures::prelude::*;
 use lighthouse_network::{
-    rpc::RequestId, MessageId, NetworkGlobals, PeerId, PeerRequestId, PubsubMessage, Request,
-    Response,
+    MessageId, NetworkGlobals, PeerId, PeerRequestId, PubsubMessage, Request, Response,
 };
 use processor::Processor;
 use slog::{debug, o, trace};
@@ -169,6 +168,9 @@ impl<T: BeaconChainTypes> Router<T> {
             Request::BlocksByRoot(request) => self
                 .processor
                 .on_blocks_by_root_request(peer_id, id, request),
+            Request::LightClientBootstrap(request) => self
+                .processor
+                .on_lightclient_bootstrap(peer_id, id, request),
         }
     }
 
@@ -193,6 +195,7 @@ impl<T: BeaconChainTypes> Router<T> {
                 self.processor
                     .on_blocks_by_root_response(peer_id, request_id, beacon_block);
             }
+            Response::LightClientBootstrap(_) => unreachable!(),
         }
     }
 
@@ -275,6 +278,30 @@ impl<T: BeaconChainTypes> Router<T> {
                     peer_id,
                     sync_committtee_msg.1,
                     sync_committtee_msg.0,
+                );
+            }
+            PubsubMessage::LightClientFinalityUpdate(light_client_finality_update) => {
+                trace!(
+                    self.log,
+                    "Received light client finality update";
+                    "peer_id" => %peer_id
+                );
+                self.processor.on_light_client_finality_update_gossip(
+                    id,
+                    peer_id,
+                    light_client_finality_update,
+                );
+            }
+            PubsubMessage::LightClientOptimisticUpdate(light_client_optimistic_update) => {
+                trace!(
+                    self.log,
+                    "Received light client optimistic update";
+                    "peer_id" => %peer_id
+                );
+                self.processor.on_light_client_optimistic_update_gossip(
+                    id,
+                    peer_id,
+                    light_client_optimistic_update,
                 );
             }
         }

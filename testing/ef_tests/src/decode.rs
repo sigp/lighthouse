@@ -18,7 +18,7 @@ pub fn log_file_access<P: AsRef<Path>>(file_accessed: P) {
     let passed_test_list_path =
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(ACCESSED_FILE_LOG_FILENAME);
 
-    let mut file = fs::OpenOptions::new()
+    let mut file = fs::File::options()
         .append(true)
         .create(true)
         .open(passed_test_list_path)

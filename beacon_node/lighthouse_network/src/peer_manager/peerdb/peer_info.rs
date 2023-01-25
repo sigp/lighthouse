@@ -1,6 +1,7 @@
 use super::client::Client;
 use super::score::{PeerAction, Score, ScoreState};
 use super::sync_status::SyncStatus;
+use crate::discovery::Eth2Enr;
 use crate::Multiaddr;
 use crate::{rpc::MetaData, types::Subnet};
 use discv5::Enr;
@@ -19,8 +20,6 @@ use PeerConnectionStatus::*;
 #[derive(Clone, Debug, Serialize)]
 #[serde(bound = "T: EthSpec")]
 pub struct PeerInfo<T: EthSpec> {
-    /// The connection status of the peer
-    _status: PeerStatus,
     /// The peers reputation
     score: Score,
     /// Client managing this peer
@@ -57,7 +56,6 @@ pub struct PeerInfo<T: EthSpec> {
 impl<TSpec: EthSpec> Default for PeerInfo<TSpec> {
     fn default() -> PeerInfo<TSpec> {
         PeerInfo {
-            _status: Default::default(),
             score: Score::default(),
             client: Client::default(),
             connection_status: Default::default(),
@@ -142,9 +140,90 @@ impl<T: EthSpec> PeerInfo<T> {
         self.enr.as_ref()
     }
 
+    /// An iterator over all the subnets this peer is subscribed to.
+    pub fn subnets(&self) -> impl Iterator<Item = &Subnet> {
+        self.subnets.iter()
+    }
+
+    /// Returns the number of long lived subnets a peer is subscribed to.
+    // NOTE: This currently excludes sync committee subnets
+    pub fn long_lived_subnet_count(&self) -> usize {
+        if let Some(meta_data) = self.meta_data.as_ref() {
+            return meta_data.attnets().num_set_bits();
+        } else if let Some(enr) = self.enr.as_ref() {
+            if let Ok(attnets) = enr.attestation_bitfield::<T>() {
+                return attnets.num_set_bits();
+            }
+        }
+        0
+    }
+
+    /// Returns an iterator over the long-lived subnets if it has any.
+    pub fn long_lived_subnets(&self) -> Vec<Subnet> {
+        let mut long_lived_subnets = Vec::new();
+        // Check the meta_data
+        if let Some(meta_data) = self.meta_data.as_ref() {
+            for subnet in 0..=meta_data.attnets().highest_set_bit().unwrap_or(0) {
+                if meta_data.attnets().get(subnet).unwrap_or(false) {
+                    long_lived_subnets.push(Subnet::Attestation((subnet as u64).into()));
+                }
+            }
+
+            if let Ok(syncnet) = meta_data.syncnets() {
+                for subnet in 0..=syncnet.highest_set_bit().unwrap_or(0) {
+                    if syncnet.get(subnet).unwrap_or(false) {
+                        long_lived_subnets.push(Subnet::SyncCommittee((subnet as u64).into()));
+                    }
+                }
+            }
+        } else if let Some(enr) = self.enr.as_ref() {
+            if let Ok(attnets) = enr.attestation_bitfield::<T>() {
+                for subnet in 0..=attnets.highest_set_bit().unwrap_or(0) {
+                    if attnets.get(subnet).unwrap_or(false) {
+                        long_lived_subnets.push(Subnet::Attestation((subnet as u64).into()));
+                    }
+                }
+            }
+
+            if let Ok(syncnets) = enr.sync_committee_bitfield::<T>() {
+                for subnet in 0..=syncnets.highest_set_bit().unwrap_or(0) {
+                    if syncnets.get(subnet).unwrap_or(false) {
+                        long_lived_subnets.push(Subnet::SyncCommittee((subnet as u64).into()));
+                    }
+                }
+            }
+        }
+        long_lived_subnets
+    }
+
     /// Returns if the peer is subscribed to a given `Subnet` from the gossipsub subscriptions.
     pub fn on_subnet_gossipsub(&self, subnet: &Subnet) -> bool {
         self.subnets.contains(subnet)
+    }
+
+    /// Returns true if the peer is connected to a long-lived subnet.
+    pub fn has_long_lived_subnet(&self) -> bool {
+        // Check the meta_data
+        if let Some(meta_data) = self.meta_data.as_ref() {
+            if !meta_data.attnets().is_zero() && !self.subnets.is_empty() {
+                return true;
+            }
+            if let Ok(sync) = meta_data.syncnets() {
+                if !sync.is_zero() {
+                    return true;
+                }
+            }
+        }
+
+        // We may not have the metadata but may have an ENR. Lets check that
+        if let Some(enr) = self.enr.as_ref() {
+            if let Ok(attnets) = enr.attestation_bitfield::<T>() {
+                if !attnets.is_zero() && !self.subnets.is_empty() {
+                    return true;
+                }
+            }
+        }
+        false
     }
 
     /// Returns the seen addresses of the peer.
@@ -321,7 +400,7 @@ impl<T: EthSpec> PeerInfo<T> {
 
     /// Modifies the status to Dialing
     /// Returns an error if the current state is unexpected.
-    pub(super) fn dialing_peer(&mut self) -> Result<(), &'static str> {
+    pub(super) fn set_dialing_peer(&mut self) -> Result<(), &'static str> {
         match &mut self.connection_status {
             Connected { .. } => return Err("Dialing connected peer"),
             Dialing { .. } => return Err("Dialing an already dialing peer"),
@@ -387,21 +466,6 @@ impl<T: EthSpec> PeerInfo<T> {
     }
 }
 
-#[derive(Clone, Debug, Serialize)]
-/// The current health status of the peer.
-pub enum PeerStatus {
-    /// The peer is healthy.
-    Healthy,
-    /// The peer is clogged. It has not been responding to requests on time.
-    _Clogged,
-}
-
-impl Default for PeerStatus {
-    fn default() -> Self {
-        PeerStatus::Healthy
-    }
-}
-
 /// Connection Direction of connection.
 #[derive(Debug, Clone, Serialize, AsRefStr)]
 #[strum(serialize_all = "snake_case")]
@@ -413,7 +477,7 @@ pub enum ConnectionDirection {
 }
 
 /// Connection Status of the peer.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub enum PeerConnectionStatus {
     /// The peer is connected.
     Connected {
@@ -443,6 +507,7 @@ pub enum PeerConnectionStatus {
         since: Instant,
     },
     /// The connection status has not been specified.
+    #[default]
     Unknown,
 }
 
@@ -495,11 +560,5 @@ impl Serialize for PeerConnectionStatus {
                 s.end()
             }
         }
-    }
-}
-
-impl Default for PeerConnectionStatus {
-    fn default() -> Self {
-        PeerConnectionStatus::Unknown
     }
 }

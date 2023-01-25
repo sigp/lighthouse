@@ -9,20 +9,19 @@
 
 use eth2_config::Eth2Config;
 use eth2_network_config::Eth2NetworkConfig;
-use filesystem::restrict_file_permissions;
 use futures::channel::mpsc::{channel, Receiver, Sender};
 use futures::{future, StreamExt};
 
-use slog::{error, info, o, warn, Drain, Level, Logger};
-use sloggers::{null::NullLoggerBuilder, Build};
-use std::ffi::OsStr;
-use std::fs::{rename as FsRename, OpenOptions};
+use serde_derive::{Deserialize, Serialize};
+use slog::{error, info, o, warn, Drain, Duplicate, Level, Logger};
+use sloggers::{file::FileLoggerBuilder, types::Format, types::Severity, Build};
+use std::fs::create_dir_all;
+use std::io::{Result as IOResult, Write};
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
 use task_executor::{ShutdownReason, TaskExecutor};
 use tokio::runtime::{Builder as RuntimeBuilder, Runtime};
-use types::{EthSpec, MainnetEthSpec, MinimalEthSpec};
+use types::{EthSpec, GnosisEthSpec, MainnetEthSpec, MinimalEthSpec};
 
 #[cfg(target_family = "unix")]
 use {
@@ -34,9 +33,48 @@ use {
 #[cfg(not(target_family = "unix"))]
 use {futures::channel::oneshot, std::cell::RefCell};
 
+pub use task_executor::test_utils::null_logger;
+
 const LOG_CHANNEL_SIZE: usize = 2048;
 /// The maximum time in seconds the client will wait for all internal tasks to shutdown.
 const MAXIMUM_SHUTDOWN_TIME: u64 = 15;
+
+/// Configuration for logging.
+/// Background file logging is disabled if one of:
+/// - `path` == None,
+/// - `max_log_size` == 0,
+/// - `max_log_number` == 0,
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LoggerConfig {
+    pub path: Option<PathBuf>,
+    pub debug_level: String,
+    pub logfile_debug_level: String,
+    pub log_format: Option<String>,
+    pub logfile_format: Option<String>,
+    pub log_color: bool,
+    pub disable_log_timestamp: bool,
+    pub max_log_size: u64,
+    pub max_log_number: usize,
+    pub compression: bool,
+    pub is_restricted: bool,
+}
+impl Default for LoggerConfig {
+    fn default() -> Self {
+        LoggerConfig {
+            path: None,
+            debug_level: String::from("info"),
+            logfile_debug_level: String::from("debug"),
+            log_format: None,
+            logfile_format: None,
+            log_color: false,
+            disable_log_timestamp: false,
+            max_log_size: 200,
+            max_log_number: 5,
+            compression: false,
+            is_restricted: true,
+        }
+    }
+}
 
 /// Builds an `Environment`.
 pub struct EnvironmentBuilder<E: EthSpec> {
@@ -44,7 +82,7 @@ pub struct EnvironmentBuilder<E: EthSpec> {
     log: Option<Logger>,
     eth_spec_instance: E,
     eth2_config: Eth2Config,
-    testnet: Option<Eth2NetworkConfig>,
+    eth2_network_config: Option<Eth2NetworkConfig>,
 }
 
 impl EnvironmentBuilder<MinimalEthSpec> {
@@ -55,7 +93,7 @@ impl EnvironmentBuilder<MinimalEthSpec> {
             log: None,
             eth_spec_instance: MinimalEthSpec,
             eth2_config: Eth2Config::minimal(),
-            testnet: None,
+            eth2_network_config: None,
         }
     }
 }
@@ -68,7 +106,20 @@ impl EnvironmentBuilder<MainnetEthSpec> {
             log: None,
             eth_spec_instance: MainnetEthSpec,
             eth2_config: Eth2Config::mainnet(),
-            testnet: None,
+            eth2_network_config: None,
+        }
+    }
+}
+
+impl EnvironmentBuilder<GnosisEthSpec> {
+    /// Creates a new builder using the `gnosis` eth2 specification.
+    pub fn gnosis() -> Self {
+        Self {
+            runtime: None,
+            log: None,
+            eth_spec_instance: GnosisEthSpec,
+            eth2_config: Eth2Config::gnosis(),
+            eth2_network_config: None,
         }
     }
 }
@@ -93,118 +144,129 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
         Ok(self)
     }
 
-    /// Specifies that the `slog` asynchronous logger should be used. Ideal for production.
-    ///
+    fn log_nothing(_: &mut dyn Write) -> IOResult<()> {
+        Ok(())
+    }
+
+    /// Initializes the logger using the specified configuration.
     /// The logger is "async" because it has a dedicated thread that accepts logs and then
     /// asynchronously flushes them to stdout/files/etc. This means the thread that raised the log
     /// does not have to wait for the logs to be flushed.
-    pub fn async_logger(
-        mut self,
-        debug_level: &str,
-        log_format: Option<&str>,
-    ) -> Result<Self, String> {
-        // Setting up the initial logger format and building it.
-        let drain = if let Some(format) = log_format {
+    /// The logger can be duplicated and more detailed logs can be output to `logfile`.
+    /// Note that background file logging will spawn a new thread.
+    pub fn initialize_logger(mut self, config: LoggerConfig) -> Result<Self, String> {
+        // Setting up the initial logger format and build it.
+        let stdout_drain = if let Some(ref format) = config.log_format {
             match format.to_uppercase().as_str() {
                 "JSON" => {
-                    let drain = slog_json::Json::default(std::io::stdout()).fuse();
-                    slog_async::Async::new(drain)
+                    let stdout_drain = slog_json::Json::default(std::io::stdout()).fuse();
+                    slog_async::Async::new(stdout_drain)
                         .chan_size(LOG_CHANNEL_SIZE)
                         .build()
                 }
                 _ => return Err("Logging format provided is not supported".to_string()),
             }
         } else {
-            let decorator = slog_term::TermDecorator::new().build();
-            let decorator =
-                logging::AlignedTermDecorator::new(decorator, logging::MAX_MESSAGE_WIDTH);
-            let drain = slog_term::FullFormat::new(decorator).build().fuse();
-            slog_async::Async::new(drain)
+            let stdout_decorator_builder = slog_term::TermDecorator::new();
+            let stdout_decorator = if config.log_color {
+                stdout_decorator_builder.force_color()
+            } else {
+                stdout_decorator_builder
+            }
+            .build();
+            let stdout_decorator =
+                logging::AlignedTermDecorator::new(stdout_decorator, logging::MAX_MESSAGE_WIDTH);
+            let stdout_drain = slog_term::FullFormat::new(stdout_decorator);
+            let stdout_drain = if config.disable_log_timestamp {
+                stdout_drain.use_custom_timestamp(Self::log_nothing)
+            } else {
+                stdout_drain
+            }
+            .build()
+            .fuse();
+            slog_async::Async::new(stdout_drain)
                 .chan_size(LOG_CHANNEL_SIZE)
                 .build()
         };
 
-        let drain = match debug_level {
-            "info" => drain.filter_level(Level::Info),
-            "debug" => drain.filter_level(Level::Debug),
-            "trace" => drain.filter_level(Level::Trace),
-            "warn" => drain.filter_level(Level::Warning),
-            "error" => drain.filter_level(Level::Error),
-            "crit" => drain.filter_level(Level::Critical),
+        let stdout_drain = match config.debug_level.as_str() {
+            "info" => stdout_drain.filter_level(Level::Info),
+            "debug" => stdout_drain.filter_level(Level::Debug),
+            "trace" => stdout_drain.filter_level(Level::Trace),
+            "warn" => stdout_drain.filter_level(Level::Warning),
+            "error" => stdout_drain.filter_level(Level::Error),
+            "crit" => stdout_drain.filter_level(Level::Critical),
             unknown => return Err(format!("Unknown debug-level: {}", unknown)),
         };
 
-        self.log = Some(Logger::root(drain.fuse(), o!()));
-        Ok(self)
-    }
+        let stdout_logger = Logger::root(stdout_drain.fuse(), o!());
 
-    /// Sets the logger (and all child loggers) to log to a file.
-    pub fn log_to_file(
-        mut self,
-        path: PathBuf,
-        debug_level: &str,
-        log_format: Option<&str>,
-    ) -> Result<Self, String> {
-        // Creating a backup if the logfile already exists.
-        if path.exists() {
-            let start = SystemTime::now();
-            let timestamp = start
-                .duration_since(UNIX_EPOCH)
-                .map_err(|e| e.to_string())?
-                .as_secs();
-            let file_stem = path
-                .file_stem()
-                .ok_or("Invalid file name")?
-                .to_str()
-                .ok_or("Failed to create str from filename")?;
-            let file_ext = path.extension().unwrap_or_else(|| OsStr::new(""));
-            let backup_name = format!("{}_backup_{}", file_stem, timestamp);
-            let backup_path = path.with_file_name(backup_name).with_extension(file_ext);
-            FsRename(&path, &backup_path).map_err(|e| e.to_string())?;
+        // Disable file logging if values set to 0.
+        if config.max_log_size == 0 || config.max_log_number == 0 {
+            self.log = Some(stdout_logger);
+            return Ok(self);
         }
 
-        let file = OpenOptions::new()
-            .create(true)
-            .write(true)
-            .truncate(true)
-            .open(&path)
-            .map_err(|e| format!("Unable to open logfile: {:?}", e))?;
-
-        restrict_file_permissions(&path)
-            .map_err(|e| format!("Unable to set file permissions for {:?}: {:?}", path, e))?;
-
-        // Setting up the initial logger format and building it.
-        let drain = if let Some(format) = log_format {
-            match format.to_uppercase().as_str() {
-                "JSON" => {
-                    let drain = slog_json::Json::default(file).fuse();
-                    slog_async::Async::new(drain)
-                        .chan_size(LOG_CHANNEL_SIZE)
-                        .build()
-                }
-                _ => return Err("Logging format provided is not supported".to_string()),
+        // Disable file logging if no path is specified.
+        let path = match config.path {
+            Some(path) => path,
+            None => {
+                self.log = Some(stdout_logger);
+                return Ok(self);
             }
-        } else {
-            let decorator = slog_term::PlainDecorator::new(file);
-            let decorator =
-                logging::AlignedTermDecorator::new(decorator, logging::MAX_MESSAGE_WIDTH);
-            let drain = slog_term::FullFormat::new(decorator).build().fuse();
-            slog_async::Async::new(drain)
-                .chan_size(LOG_CHANNEL_SIZE)
-                .build()
         };
 
-        let drain = match debug_level {
-            "info" => drain.filter_level(Level::Info),
-            "debug" => drain.filter_level(Level::Debug),
-            "trace" => drain.filter_level(Level::Trace),
-            "warn" => drain.filter_level(Level::Warning),
-            "error" => drain.filter_level(Level::Error),
-            "crit" => drain.filter_level(Level::Critical),
-            unknown => return Err(format!("Unknown debug-level: {}", unknown)),
+        // Ensure directories are created becfore the logfile.
+        if !path.exists() {
+            let mut dir = path.clone();
+            dir.pop();
+
+            // Create the necessary directories for the correct service and network.
+            if !dir.exists() {
+                let res = create_dir_all(dir);
+
+                // If the directories cannot be created, warn and disable the logger.
+                match res {
+                    Ok(_) => (),
+                    Err(e) => {
+                        let log = stdout_logger;
+                        warn!(
+                            log,
+                            "Background file logging is disabled";
+                            "error" => e);
+                        self.log = Some(log);
+                        return Ok(self);
+                    }
+                }
+            }
+        }
+
+        let logfile_level = match config.logfile_debug_level.as_str() {
+            "info" => Severity::Info,
+            "debug" => Severity::Debug,
+            "trace" => Severity::Trace,
+            "warn" => Severity::Warning,
+            "error" => Severity::Error,
+            "crit" => Severity::Critical,
+            unknown => return Err(format!("Unknown loglevel-debug-level: {}", unknown)),
         };
 
-        let log = Logger::root(drain.fuse(), o!());
+        let file_logger = FileLoggerBuilder::new(&path)
+            .level(logfile_level)
+            .channel_size(LOG_CHANNEL_SIZE)
+            .format(match config.logfile_format.as_deref() {
+                Some("JSON") => Format::Json,
+                _ => Format::default(),
+            })
+            .rotate_size(config.max_log_size)
+            .rotate_keep(config.max_log_number)
+            .rotate_compress(config.compression)
+            .restrict_permissions(config.is_restricted)
+            .build()
+            .map_err(|e| format!("Unable to build file logger: {}", e))?;
+
+        let log = Logger::root(Duplicate::new(stdout_logger, file_logger).fuse(), o!());
+
         info!(
             log,
             "Logging to file";
@@ -216,19 +278,19 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
         Ok(self)
     }
 
-    /// Adds a testnet configuration to the environment.
+    /// Adds a network configuration to the environment.
     pub fn eth2_network_config(
         mut self,
         eth2_network_config: Eth2NetworkConfig,
     ) -> Result<Self, String> {
         // Create a new chain spec from the default configuration.
         self.eth2_config.spec = eth2_network_config.chain_spec::<E>()?;
-        self.testnet = Some(eth2_network_config);
+        self.eth2_network_config = Some(eth2_network_config);
 
         Ok(self)
     }
 
-    /// Optionally adds a testnet configuration to the environment.
+    /// Optionally adds a network configuration to the environment.
     pub fn optional_eth2_network_config(
         self,
         optional_config: Option<Eth2NetworkConfig>,
@@ -255,7 +317,7 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
             log: self.log.ok_or("Cannot build environment without log")?,
             eth_spec_instance: self.eth_spec_instance,
             eth2_config: self.eth2_config,
-            testnet: self.testnet,
+            eth2_network_config: self.eth2_network_config.map(Arc::new),
         })
     }
 }
@@ -269,6 +331,7 @@ pub struct RuntimeContext<E: EthSpec> {
     pub executor: TaskExecutor,
     pub eth_spec_instance: E,
     pub eth2_config: Eth2Config,
+    pub eth2_network_config: Option<Arc<Eth2NetworkConfig>>,
 }
 
 impl<E: EthSpec> RuntimeContext<E> {
@@ -280,6 +343,7 @@ impl<E: EthSpec> RuntimeContext<E> {
             executor: self.executor.clone_with_name(service_name),
             eth_spec_instance: self.eth_spec_instance.clone(),
             eth2_config: self.eth2_config.clone(),
+            eth2_network_config: self.eth2_network_config.clone(),
         }
     }
 
@@ -307,7 +371,7 @@ pub struct Environment<E: EthSpec> {
     log: Logger,
     eth_spec_instance: E,
     pub eth2_config: Eth2Config,
-    pub testnet: Option<Eth2NetworkConfig>,
+    pub eth2_network_config: Option<Arc<Eth2NetworkConfig>>,
 }
 
 impl<E: EthSpec> Environment<E> {
@@ -320,7 +384,7 @@ impl<E: EthSpec> Environment<E> {
     }
 
     /// Returns a `Context` where no "service" has been added to the logger output.
-    pub fn core_context(&mut self) -> RuntimeContext<E> {
+    pub fn core_context(&self) -> RuntimeContext<E> {
         RuntimeContext {
             executor: TaskExecutor::new(
                 Arc::downgrade(self.runtime()),
@@ -330,11 +394,12 @@ impl<E: EthSpec> Environment<E> {
             ),
             eth_spec_instance: self.eth_spec_instance.clone(),
             eth2_config: self.eth2_config.clone(),
+            eth2_network_config: self.eth2_network_config.clone(),
         }
     }
 
     /// Returns a `Context` where the `service_name` is added to the logger output.
-    pub fn service_context(&mut self, service_name: String) -> RuntimeContext<E> {
+    pub fn service_context(&self, service_name: String) -> RuntimeContext<E> {
         RuntimeContext {
             executor: TaskExecutor::new(
                 Arc::downgrade(self.runtime()),
@@ -344,6 +409,7 @@ impl<E: EthSpec> Environment<E> {
             ),
             eth_spec_instance: self.eth_spec_instance.clone(),
             eth2_config: self.eth2_config.clone(),
+            eth2_network_config: self.eth2_network_config.clone(),
         }
     }
 
@@ -479,13 +545,6 @@ impl<E: EthSpec> Environment<E> {
     pub fn eth2_config(&self) -> &Eth2Config {
         &self.eth2_config
     }
-}
-
-pub fn null_logger() -> Result<Logger, String> {
-    let log_builder = NullLoggerBuilder;
-    log_builder
-        .build()
-        .map_err(|e| format!("Failed to start null logger: {:?}", e))
 }
 
 #[cfg(target_family = "unix")]

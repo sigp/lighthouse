@@ -1,4 +1,5 @@
 # Contributors Guide
+[![GitPOAP badge](https://public-api.gitpoap.io/v1/repo/sigp/lighthouse/badge)](https://www.gitpoap.io/gh/sigp/lighthouse)
 
 Lighthouse is an open-source Ethereum 2.0 client. We're community driven and
 welcome all contribution. We aim to provide a constructive, respectful and fun
@@ -45,7 +46,7 @@ questions.
    (github.com/YOUR_NAME/lighthouse) of the main repository
    (github.com/sigp/lighthouse).
 3. Once you feel you have addressed the issue, **create a pull-request** to merge
-   your changes in to the main repository.
+   your changes into the main repository.
 4. Wait for the repository maintainers to **review your changes** to ensure the
    issue is addressed satisfactorily. Optionally, mention your PR on
 [discord](https://discord.gg/cyAszAh).

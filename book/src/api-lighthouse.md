@@ -62,6 +62,92 @@ curl -X GET "http://localhost:5052/lighthouse/health" -H  "accept: application/j
 
 ```
 
+### `/lighthouse/ui/health`
+
+
+```bash
+curl -X GET "http://localhost:5052/lighthouse/ui/health" -H  "accept: application/json" | jq
+```
+
+```json
+{
+  "data": {
+    "total_memory": 16443219968,
+    "free_memory": 1283739648,
+    "used_memory": 5586264064,
+    "sys_loadavg_1": 0.59,
+    "sys_loadavg_5": 1.13,
+    "sys_loadavg_15": 2.41,
+    "cpu_cores": 4,
+    "cpu_threads": 8,
+    "global_cpu_frequency": 3.4,
+    "disk_bytes_total": 502390845440,
+    "disk_bytes_free": 9981386752,
+    "network_name": "wlp0s20f3",
+    "network_bytes_total_received": 14105556611,
+    "network_bytes_total_transmit": 3649489389,
+    "nat_open": true,
+    "connected_peers": 80,
+    "sync_state": "Synced",
+    "system_uptime": 660706,
+    "app_uptime": 105,
+    "system_name": "Arch Linux",
+    "kernel_version": "5.19.13-arch1-1",
+    "os_version": "Linux rolling Arch Linux",
+    "host_name": "Computer1"
+  }
+}
+```
+
+### `/lighthouse/ui/validator_count`
+
+```bash
+curl -X GET "http://localhost:5052/lighthouse/ui/validator_count" -H "accept: application/json" | jq
+```
+
+```json
+{
+  "data": {
+    "active_ongoing":479508,
+    "active_exiting":0,
+    "active_slashed":0,
+    "pending_initialized":28,
+    "pending_queued":0,
+    "withdrawal_possible":933,
+    "withdrawal_done":0,
+    "exited_unslashed":0,
+    "exited_slashed":3
+  }
+}
+```
+
+### `/lighthouse/ui/validator_metrics`
+Re-exposes certain metrics from the validator monitor to the HTTP API.
+Will only return metrics for the validators currently being monitored and are present in the POST data.
+```bash
+curl -X POST "http://localhost:5052/lighthouse/ui/validator_metrics" -d '{"indices": [12345]}' -H "Content-Type: application/json" | jq
+```
+
+```json
+{
+  "data": {
+    "validators": {
+      "12345": {
+        "attestation_hits": 10,
+        "attestation_misses": 0,
+        "attestation_hit_percentage": 100,
+        "attestation_head_hits": 10,
+        "attestation_head_misses": 0,
+        "attestation_head_hit_percentage": 100,
+        "attestation_target_hits": 5,
+        "attestation_target_misses": 5,
+        "attestation_target_hit_percentage": 50 
+      }
+    }
+  }
+}
+```
+
 ### `/lighthouse/syncing`
 
 ```bash
@@ -199,23 +285,23 @@ See [Validator Inclusion APIs](./validator-inclusion.md).
 
 ### `/lighthouse/eth1/syncing`
 
-Returns information regarding the Eth1 network, as it is required for use in
-Eth2
+Returns information regarding execution layer, as it is required for use in
+consensus layer
 
 #### Fields
 
 - `head_block_number`, `head_block_timestamp`: the block number and timestamp
-from the very head of the Eth1 chain. Useful for understanding the immediate
-health of the Eth1 node that the beacon node is connected to.
+from the very head of the execution chain. Useful for understanding the immediate
+health of the execution node that the beacon node is connected to.
 - `latest_cached_block_number` & `latest_cached_block_timestamp`: the block
 number and timestamp of the latest block we have in our block cache.
-	- For correct Eth1 voting this timestamp should be later than the
+	- For correct execution client voting this timestamp should be later than the
 `voting_period_start_timestamp`.
-- `voting_target_timestamp`: The latest timestamp allowed for an eth1 block in this voting period.
+- `voting_target_timestamp`: The latest timestamp allowed for an execution layer block in this voting period.
 - `eth1_node_sync_status_percentage` (float): An estimate of how far the head of the
-	Eth1 node is from the head of the Eth1 chain.
-	- `100.0` indicates a fully synced Eth1 node.
-	- `0.0` indicates an Eth1 node that has not verified any blocks past the
+  execution node is from the head of the execution chain.
+	- `100.0` indicates a fully synced execution node.
+	- `0.0` indicates an execution node that has not verified any blocks past the
 		genesis block.
 - `lighthouse_is_cached_and_ready`: Is set to `true` if the caches in the
 	beacon node are ready for block production.
@@ -248,7 +334,7 @@ curl -X GET "http://localhost:5052/lighthouse/eth1/syncing" -H  "accept: applica
 
 ### `/lighthouse/eth1/block_cache`
 
-Returns a list of all the Eth1 blocks in the Eth1 voting cache.
+Returns a list of all the execution layer blocks in the execution client voting cache.
 
 #### Example
 
@@ -320,7 +406,7 @@ curl -X GET "http://localhost:5052/lighthouse/eth1/deposit_cache" -H  "accept: a
 
 Obtains a `BeaconState` in SSZ bytes. Useful for obtaining a genesis state.
 
-The `state_id` parameter is identical to that used in the [Standard Eth2.0 Beacon Node API
+The `state_id` parameter is identical to that used in the [Standard Beacon Node API
 `beacon/state`
 routes](https://ethereum.github.io/beacon-APIs/#/Beacon/getStateRoot).
 
@@ -366,6 +452,12 @@ curl "http://localhost:5052/lighthouse/database/info" | jq
 ```json
 {
   "schema_version": 5,
+  "config": {
+    "slots_per_restore_point": 2048,
+    "block_cache_size": 5,
+    "compact_on_init": false,
+    "compact_on_prune": true
+  },
   "split": {
     "slot": "2034912",
     "state_root": "0x11c8516aa7d4d1613e84121e3a557ceca34618b4c1a38f05b66ad045ff82b33b"
@@ -408,3 +500,180 @@ The endpoint will return immediately. See the beacon node logs for an indication
 
 Manually provide `SignedBeaconBlock`s to backfill the database. This is intended
 for use by Lighthouse developers during testing only.
+
+### `/lighthouse/merge_readiness`
+
+```bash
+curl -X GET "http://localhost:5052/lighthouse/merge_readiness" | jq
+```
+
+```
+{
+    "data":{
+       "type":"ready",
+       "config":{
+          "terminal_total_difficulty":"6400"
+       },
+       "current_difficulty":"4800"
+    }
+ }
+```
+
+### `/lighthouse/analysis/attestation_performance/{index}`
+
+Fetch information about the attestation performance of a validator index or all validators for a
+range of consecutive epochs.
+
+Two query parameters are required:
+
+* `start_epoch` (inclusive): the first epoch to compute attestation performance for.
+* `end_epoch` (inclusive): the final epoch to compute attestation performance for.
+
+Example:
+
+```bash
+curl -X GET "http://localhost:5052/lighthouse/analysis/attestation_performance/1?start_epoch=1&end_epoch=1" | jq
+```
+
+```json
+[
+  {
+    "index": 1,
+    "epochs": {
+      "1": {
+        "active": true,
+        "head": true,
+        "target": true,
+        "source": true,
+        "delay": 1
+      }
+    }
+  }
+]
+```
+
+Instead of specifying a validator index, you can specify the entire validator set by using `global`:
+
+```bash
+curl -X GET "http://localhost:5052/lighthouse/analysis/attestation_performance/global?start_epoch=1&end_epoch=1" | jq
+```
+
+```json
+[
+  {
+    "index": 0,
+    "epochs": {
+      "1": {
+        "active": true,
+        "head": true,
+        "target": true,
+        "source": true,
+        "delay": 1
+      }
+    }
+  },
+  {
+    "index": 1,
+    "epochs": {
+      "1": {
+        "active": true,
+        "head": true,
+        "target": true,
+        "source": true,
+        "delay": 1
+      }
+    }
+  },
+  {
+    ..
+  }
+]
+
+```
+
+Caveats:
+
+* For maximum efficiency the start_epoch should satisfy `(start_epoch * slots_per_epoch) % slots_per_restore_point == 1`.
+  This is because the state _prior_ to the `start_epoch` needs to be loaded from the database,
+  and loading a state on a boundary is most efficient.
+
+### `/lighthouse/analysis/block_rewards`
+
+Fetch information about the block rewards paid to proposers for a range of consecutive blocks.
+
+Two query parameters are required:
+
+* `start_slot` (inclusive): the slot of the first block to compute rewards for.
+* `end_slot` (inclusive): the slot of the last block to compute rewards for.
+
+Example:
+
+```bash
+curl -X GET "http://localhost:5052/lighthouse/analysis/block_rewards?start_slot=1&end_slot=32" | jq
+```
+
+```json
+[
+  {
+    "block_root": "0x51576c2fcf0ab68d7d93c65e6828e620efbb391730511ffa35584d6c30e51410",
+    "attestation_rewards": {
+      "total": 4941156,
+    },
+    ..
+  },
+  ..
+]
+```
+
+Caveats:
+
+* Presently only attestation and sync committee rewards are computed.
+* The output format is verbose and subject to change. Please see [`BlockReward`][block_reward_src]
+  in the source.
+* For maximum efficiency the `start_slot` should satisfy `start_slot % slots_per_restore_point == 1`.
+  This is because the state _prior_ to the `start_slot` needs to be loaded from the database, and
+  loading a state on a boundary is most efficient.
+
+[block_reward_src]:
+https://github.com/sigp/lighthouse/tree/unstable/common/eth2/src/lighthouse/block_rewards.rs
+
+### `/lighthouse/analysis/block_packing`
+
+Fetch information about the block packing efficiency of blocks for a range of consecutive
+epochs.
+
+Two query parameters are required:
+
+* `start_epoch` (inclusive): the epoch of the first block to compute packing efficiency for.
+* `end_epoch` (inclusive): the epoch of the last block to compute packing efficiency for.
+
+```bash
+curl -X GET "http://localhost:5052/lighthouse/analysis/block_packing_efficiency?start_epoch=1&end_epoch=1" | jq
+```
+
+```json
+[
+  {
+    "slot": "33",
+    "block_hash": "0xb20970bb97c6c6de6b1e2b689d6381dd15b3d3518fbaee032229495f963bd5da",
+    "proposer_info": {
+      "validator_index": 855,
+      "graffiti": "poapZoJ7zWNfK7F3nWjEausWVBvKa6gA"
+    },
+    "available_attestations": 3805,
+    "included_attestations": 1143,
+    "prior_skip_slots": 1
+  },
+  {
+    ..
+  }
+]
+```
+
+Caveats:
+
+* `start_epoch` must not be `0`.
+* For maximum efficiency the `start_epoch` should satisfy `(start_epoch * slots_per_epoch) % slots_per_restore_point == 1`.
+  This is because the state _prior_ to the `start_epoch` needs to be loaded from the database, and
+  loading a state on a boundary is most efficient.
+

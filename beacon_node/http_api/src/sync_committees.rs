@@ -11,7 +11,7 @@ use beacon_chain::{
 use eth2::types::{self as api_types};
 use lighthouse_network::PubsubMessage;
 use network::NetworkMessage;
-use slog::{error, warn, Logger};
+use slog::{debug, error, warn, Logger};
 use slot_clock::SlotClock;
 use std::cmp::max;
 use std::collections::HashMap;
@@ -22,7 +22,7 @@ use types::{
 };
 
 /// The struct that is returned to the requesting HTTP client.
-type SyncDuties = api_types::GenericResponse<Vec<SyncDuty>>;
+type SyncDuties = api_types::ExecutionOptimisticResponse<Vec<SyncDuty>>;
 
 /// Handles a request from the HTTP API for sync committee duties.
 pub fn sync_committee_duties<T: BeaconChainTypes>(
@@ -34,14 +34,20 @@ pub fn sync_committee_duties<T: BeaconChainTypes>(
         altair_fork_epoch
     } else {
         // Empty response for networks with Altair disabled.
-        return Ok(convert_to_response(vec![]));
+        return Ok(convert_to_response(vec![], false));
     };
+
+    // Even when computing duties from state, any block roots pulled using the request epoch are
+    // still dependent on the head. So using `is_optimistic_head` is fine for both cases.
+    let execution_optimistic = chain
+        .is_optimistic_or_invalid_head()
+        .map_err(warp_utils::reject::beacon_chain_error)?;
 
     // Try using the head's sync committees to satisfy the request. This should be sufficient for
     // the vast majority of requests. Rather than checking if we think the request will succeed in a
     // way prone to data races, we attempt the request immediately and check the error code.
     match chain.sync_committee_duties_from_head(request_epoch, request_indices) {
-        Ok(duties) => return Ok(convert_to_response(duties)),
+        Ok(duties) => return Ok(convert_to_response(duties, execution_optimistic)),
         Err(BeaconChainError::SyncDutiesError(BeaconStateError::SyncCommitteeNotKnown {
             ..
         }))
@@ -60,7 +66,7 @@ pub fn sync_committee_duties<T: BeaconChainTypes>(
         )),
         e => warp_utils::reject::beacon_chain_error(e),
     })?;
-    Ok(convert_to_response(duties))
+    Ok(convert_to_response(duties, execution_optimistic))
 }
 
 /// Slow path for duties: load a state and use it to compute the duties.
@@ -117,8 +123,9 @@ fn duties_from_state_load<T: BeaconChainTypes>(
     }
 }
 
-fn convert_to_response(duties: Vec<Option<SyncDuty>>) -> SyncDuties {
+fn convert_to_response(duties: Vec<Option<SyncDuty>>, execution_optimistic: bool) -> SyncDuties {
     api_types::GenericResponse::from(duties.into_iter().flatten().collect::<Vec<_>>())
+        .add_execution_optimistic(execution_optimistic)
 }
 
 /// Receive sync committee duties, storing them in the pools & broadcasting them.
@@ -181,6 +188,24 @@ pub fn process_sync_committee_signatures<T: BeaconChainTypes>(
                         );
 
                     verified_for_pool = Some(verified);
+                }
+                // If this validator has already published a sync message, just ignore this message
+                // without returning an error.
+                //
+                // This is likely to happen when a VC uses fallback BNs. If the first BN publishes
+                // the message and then fails to respond in a timely fashion then the VC will move
+                // to the second BN. The BN will then report that this message has already been
+                // seen, which is not actually an error as far as the network or user are concerned.
+                Err(SyncVerificationError::PriorSyncCommitteeMessageKnown {
+                    validator_index,
+                    slot,
+                }) => {
+                    debug!(
+                        log,
+                        "Ignoring already-known sync message";
+                        "slot" => slot,
+                        "validator_index" => validator_index,
+                    );
                 }
                 Err(e) => {
                     error!(
@@ -276,6 +301,16 @@ pub fn process_signed_contribution_and_proofs<T: BeaconChainTypes>(
             // If we already know the contribution, don't broadcast it or attempt to
             // further verify it. Return success.
             Err(SyncVerificationError::SyncContributionAlreadyKnown(_)) => continue,
+            // If we've already seen this aggregator produce an aggregate, just
+            // skip this one.
+            //
+            // We're likely to see this with VCs that use fallback BNs. The first
+            // BN might time-out *after* publishing the aggregate and then the
+            // second BN will indicate it's already seen the aggregate.
+            //
+            // There's no actual error for the user or the network since the
+            // aggregate has been successfully published by some other node.
+            Err(SyncVerificationError::AggregatorAlreadyKnown(_)) => continue,
             Err(e) => {
                 error!(
                     log,

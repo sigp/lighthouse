@@ -1,6 +1,7 @@
 # Contributing to Lighthouse
 
 [![Chat Badge]][Chat Link]
+[![GitPOAP Badge](https://public-api.gitpoap.io/v1/repo/sigp/lighthouse/badge)](https://www.gitpoap.io/gh/sigp/lighthouse)
 
 [Chat Badge]: https://img.shields.io/badge/chat-discord-%237289da
 [Chat Link]: https://discord.gg/cyAszAh
@@ -33,12 +34,12 @@ Lighthouse maintains two permanent branches:
 - [`stable`][stable]: Always points to the latest stable release.
   - This is ideal for most users.
 - [`unstable`][unstable]: Used for development, contains the latest PRs.
-  - Developers should base thier PRs on this branch.
+  - Developers should base their PRs on this branch.
 
-## Ethereum 2.0
+## Ethereum consensus client
 
-Lighthouse is an implementation of the Ethereum 2.0 specification, as defined
-in the  [ethereum/eth2.0-specs](https://github.com/ethereum/eth2.0-specs)
+Lighthouse is an implementation of the Ethereum proof-of-stake consensus specification, as defined
+in the  [ethereum/consensus-specs](https://github.com/ethereum/consensus-specs)
 repository.
 
 We recommend reading Danny Ryan's (incomplete) [Phase 0 for

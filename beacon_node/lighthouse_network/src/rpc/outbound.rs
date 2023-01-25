@@ -29,14 +29,16 @@ use types::{EthSpec, ForkContext};
 pub struct OutboundRequestContainer<TSpec: EthSpec> {
     pub req: OutboundRequest<TSpec>,
     pub fork_context: Arc<ForkContext>,
+    pub max_rpc_size: usize,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum OutboundRequest<TSpec: EthSpec> {
     Status(StatusMessage),
     Goodbye(GoodbyeReason),
-    BlocksByRange(BlocksByRangeRequest),
+    BlocksByRange(OldBlocksByRangeRequest),
     BlocksByRoot(BlocksByRootRequest),
+    LightClientBootstrap(LightClientBootstrapRequest),
     Ping(Ping),
     MetaData(PhantomData<TSpec>),
 }
@@ -83,9 +85,12 @@ impl<TSpec: EthSpec> OutboundRequest<TSpec> {
                 ProtocolId::new(Protocol::MetaData, Version::V2, Encoding::SSZSnappy),
                 ProtocolId::new(Protocol::MetaData, Version::V1, Encoding::SSZSnappy),
             ],
+            // Note: This match arm is technically unreachable as we only respond to light client requests
+            // that we generate from the beacon state.
+            // We do not make light client rpc requests from the beacon node
+            OutboundRequest::LightClientBootstrap(_) => vec![],
         }
     }
-
     /* These functions are used in the handler for stream management */
 
     /// Number of responses expected for this request.
@@ -97,6 +102,7 @@ impl<TSpec: EthSpec> OutboundRequest<TSpec> {
             OutboundRequest::BlocksByRoot(req) => req.block_roots.len() as u64,
             OutboundRequest::Ping(_) => 1,
             OutboundRequest::MetaData(_) => 1,
+            OutboundRequest::LightClientBootstrap(_) => 1,
         }
     }
 
@@ -109,6 +115,7 @@ impl<TSpec: EthSpec> OutboundRequest<TSpec> {
             OutboundRequest::BlocksByRoot(_) => Protocol::BlocksByRoot,
             OutboundRequest::Ping(_) => Protocol::Ping,
             OutboundRequest::MetaData(_) => Protocol::MetaData,
+            OutboundRequest::LightClientBootstrap(_) => Protocol::LightClientBootstrap,
         }
     }
 
@@ -120,6 +127,7 @@ impl<TSpec: EthSpec> OutboundRequest<TSpec> {
             // variants that have `multiple_responses()` can have values.
             OutboundRequest::BlocksByRange(_) => ResponseTermination::BlocksByRange,
             OutboundRequest::BlocksByRoot(_) => ResponseTermination::BlocksByRoot,
+            OutboundRequest::LightClientBootstrap(_) => unreachable!(),
             OutboundRequest::Status(_) => unreachable!(),
             OutboundRequest::Goodbye(_) => unreachable!(),
             OutboundRequest::Ping(_) => unreachable!(),
@@ -150,7 +158,7 @@ where
             Encoding::SSZSnappy => {
                 let ssz_snappy_codec = BaseOutboundCodec::new(SSZSnappyOutboundCodec::new(
                     protocol,
-                    usize::max_value(),
+                    self.max_rpc_size,
                     self.fork_context.clone(),
                 ));
                 OutboundCodec::SSZSnappy(ssz_snappy_codec)
@@ -177,6 +185,9 @@ impl<TSpec: EthSpec> std::fmt::Display for OutboundRequest<TSpec> {
             OutboundRequest::BlocksByRoot(req) => write!(f, "Blocks by root: {:?}", req),
             OutboundRequest::Ping(ping) => write!(f, "Ping: {}", ping.data),
             OutboundRequest::MetaData(_) => write!(f, "MetaData request"),
+            OutboundRequest::LightClientBootstrap(bootstrap) => {
+                write!(f, "Lightclient Bootstrap: {}", bootstrap.root)
+            }
         }
     }
 }

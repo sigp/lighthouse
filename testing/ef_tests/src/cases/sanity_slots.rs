@@ -50,10 +50,7 @@ impl<E: EthSpec> LoadCase for SanitySlots<E> {
 
 impl<E: EthSpec> Case for SanitySlots<E> {
     fn description(&self) -> String {
-        self.metadata
-            .description
-            .clone()
-            .unwrap_or_else(String::new)
+        self.metadata.description.clone().unwrap_or_default()
     }
 
     fn result(&self, _case_index: usize, fork_name: ForkName) -> Result<(), Error> {

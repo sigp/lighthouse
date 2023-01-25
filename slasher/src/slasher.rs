@@ -1,13 +1,13 @@
 use crate::batch_stats::{AttestationStats, BatchStats, BlockStats};
 use crate::metrics::{
     self, SLASHER_NUM_ATTESTATIONS_DEFERRED, SLASHER_NUM_ATTESTATIONS_DROPPED,
-    SLASHER_NUM_ATTESTATIONS_VALID, SLASHER_NUM_BLOCKS_PROCESSED,
+    SLASHER_NUM_ATTESTATIONS_STORED_PER_BATCH, SLASHER_NUM_ATTESTATIONS_VALID,
+    SLASHER_NUM_BLOCKS_PROCESSED,
 };
 use crate::{
     array, AttestationBatch, AttestationQueue, AttesterRecord, BlockQueue, Config, Error,
-    ProposerSlashingStatus, SlasherDB,
+    IndexedAttestationId, ProposerSlashingStatus, RwTransaction, SimpleBatch, SlasherDB,
 };
-use lmdb::{RwTransaction, Transaction};
 use parking_lot::Mutex;
 use slog::{debug, error, info, Logger};
 use std::collections::HashSet;
@@ -31,7 +31,7 @@ impl<E: EthSpec> Slasher<E> {
     pub fn open(config: Config, log: Logger) -> Result<Self, Error> {
         config.validate()?;
         let config = Arc::new(config);
-        let db = SlasherDB::open(config.clone())?;
+        let db = SlasherDB::open(config.clone(), log.clone())?;
         let attester_slashings = Mutex::new(HashSet::new());
         let proposer_slashings = Mutex::new(HashSet::new());
         let attestation_queue = AttestationQueue::default();
@@ -132,34 +132,71 @@ impl<E: EthSpec> Slasher<E> {
 
         // Filter attestations for relevance.
         let (snapshot, deferred, num_dropped) = self.validate(snapshot, current_epoch);
+        let num_valid = snapshot.len();
         let num_deferred = deferred.len();
         self.attestation_queue.requeue(deferred);
 
-        // Insert attestations into database.
         debug!(
             self.log,
-            "Storing attestations in slasher DB";
-            "num_valid" => snapshot.len(),
+            "Pre-processing attestations for slasher";
+            "num_valid" => num_valid,
             "num_deferred" => num_deferred,
             "num_dropped" => num_dropped,
         );
-        metrics::set_gauge(&SLASHER_NUM_ATTESTATIONS_VALID, snapshot.len() as i64);
+        metrics::set_gauge(&SLASHER_NUM_ATTESTATIONS_VALID, num_valid as i64);
         metrics::set_gauge(&SLASHER_NUM_ATTESTATIONS_DEFERRED, num_deferred as i64);
         metrics::set_gauge(&SLASHER_NUM_ATTESTATIONS_DROPPED, num_dropped as i64);
 
-        for attestation in snapshot.attestations.iter() {
-            self.db.store_indexed_attestation(
-                txn,
-                attestation.1.indexed_attestation_hash,
-                &attestation.0,
-            )?;
+        // De-duplicate attestations and sort by validator index.
+        let mut batch = AttestationBatch::default();
+
+        for indexed_record in snapshot {
+            batch.queue(indexed_record);
         }
 
-        // Group attestations into batches and process them.
-        let grouped_attestations = snapshot.group_by_validator_index(&self.config);
-        for (subqueue_id, subqueue) in grouped_attestations.subqueues.into_iter().enumerate() {
-            self.process_batch(txn, subqueue_id, subqueue.attestations, current_epoch)?;
+        // Insert relevant attestations into database.
+        let mut num_stored = 0;
+        for weak_record in &batch.attestations {
+            if let Some(indexed_record) = weak_record.upgrade() {
+                let indexed_attestation_id = self.db.store_indexed_attestation(
+                    txn,
+                    indexed_record.record.indexed_attestation_hash,
+                    &indexed_record.indexed,
+                )?;
+                indexed_record.set_id(indexed_attestation_id);
+
+                // Prime the attestation data root LRU cache.
+                self.db.cache_attestation_data_root(
+                    IndexedAttestationId::new(indexed_attestation_id),
+                    indexed_record.record.attestation_data_hash,
+                );
+
+                num_stored += 1;
+            }
         }
+
+        debug!(
+            self.log,
+            "Stored attestations in slasher DB";
+            "num_stored" => num_stored,
+            "num_valid" => num_valid,
+        );
+        metrics::set_gauge(
+            &SLASHER_NUM_ATTESTATIONS_STORED_PER_BATCH,
+            num_stored as i64,
+        );
+
+        // Group attestations into chunked batches and process them.
+        let grouped_attestations = batch.group_by_validator_chunk_index(&self.config);
+        for (subqueue_id, subqueue) in grouped_attestations.subqueues.into_iter().enumerate() {
+            self.process_batch(txn, subqueue_id, subqueue, current_epoch)?;
+        }
+
+        metrics::set_gauge(
+            &metrics::SLASHER_ATTESTATION_ROOT_CACHE_SIZE,
+            self.db.attestation_root_cache_size() as i64,
+        );
+
         Ok(AttestationStats { num_processed })
     }
 
@@ -168,12 +205,19 @@ impl<E: EthSpec> Slasher<E> {
         &self,
         txn: &mut RwTransaction<'_>,
         subqueue_id: usize,
-        batch: Vec<Arc<(IndexedAttestation<E>, AttesterRecord)>>,
+        batch: SimpleBatch<E>,
         current_epoch: Epoch,
     ) -> Result<(), Error> {
         // First, check for double votes.
         for attestation in &batch {
-            match self.check_double_votes(txn, subqueue_id, &attestation.0, attestation.1) {
+            let indexed_attestation_id = IndexedAttestationId::new(attestation.get_id());
+            match self.check_double_votes(
+                txn,
+                subqueue_id,
+                &attestation.indexed,
+                &attestation.record,
+                indexed_attestation_id,
+            ) {
                 Ok(slashings) => {
                     if !slashings.is_empty() {
                         info!(
@@ -233,7 +277,8 @@ impl<E: EthSpec> Slasher<E> {
         txn: &mut RwTransaction<'_>,
         subqueue_id: usize,
         attestation: &IndexedAttestation<E>,
-        attester_record: AttesterRecord,
+        attester_record: &AttesterRecord,
+        indexed_attestation_id: IndexedAttestationId,
     ) -> Result<HashSet<AttesterSlashing<E>>, Error> {
         let mut slashings = HashSet::new();
 
@@ -246,6 +291,7 @@ impl<E: EthSpec> Slasher<E> {
                 validator_index,
                 attestation,
                 attester_record,
+                indexed_attestation_id,
             )?;
 
             if let Some(slashing) = slashing_status.into_slashing(attestation) {
@@ -270,15 +316,15 @@ impl<E: EthSpec> Slasher<E> {
     /// Returns `(valid, deferred, num_dropped)`.
     fn validate(
         &self,
-        batch: AttestationBatch<E>,
+        batch: SimpleBatch<E>,
         current_epoch: Epoch,
-    ) -> (AttestationBatch<E>, AttestationBatch<E>, usize) {
+    ) -> (SimpleBatch<E>, SimpleBatch<E>, usize) {
         let mut keep = Vec::with_capacity(batch.len());
         let mut defer = vec![];
         let mut drop_count = 0;
 
-        for tuple in batch.attestations.into_iter() {
-            let attestation = &tuple.0;
+        for indexed_record in batch {
+            let attestation = &indexed_record.indexed;
             let target_epoch = attestation.data.target.epoch;
             let source_epoch = attestation.data.source.epoch;
 
@@ -292,20 +338,14 @@ impl<E: EthSpec> Slasher<E> {
             // Check that the attestation's target epoch is acceptable, and defer it
             // if it's not.
             if target_epoch > current_epoch {
-                defer.push(tuple);
+                defer.push(indexed_record);
             } else {
                 // Otherwise the attestation is OK to process.
-                keep.push(tuple);
+                keep.push(indexed_record);
             }
         }
 
-        (
-            AttestationBatch { attestations: keep },
-            AttestationBatch {
-                attestations: defer,
-            },
-            drop_count,
-        )
+        (keep, defer, drop_count)
     }
 
     /// Prune unnecessary attestations and blocks from the on-disk database.

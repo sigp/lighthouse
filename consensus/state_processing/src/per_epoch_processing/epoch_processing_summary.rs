@@ -101,7 +101,9 @@ impl<T: EthSpec> EpochProcessingSummary<T> {
             EpochProcessingSummary::Altair {
                 participation_cache,
                 ..
-            } => participation_cache.is_active_unslashed_in_current_epoch(val_index),
+            } => participation_cache
+                .is_active_unslashed_in_current_epoch(val_index)
+                .unwrap_or(false),
         }
     }
 
@@ -127,7 +129,12 @@ impl<T: EthSpec> EpochProcessingSummary<T> {
             EpochProcessingSummary::Altair {
                 participation_cache,
                 ..
-            } => participation_cache.is_current_epoch_timely_target_attester(val_index),
+            } => participation_cache
+                .is_current_epoch_timely_target_attester(val_index)
+                .or_else(|e| match e {
+                    ParticipationCacheError::InvalidValidatorIndex(_) => Ok(false),
+                    e => Err(e),
+                }),
         }
     }
 
@@ -197,7 +204,9 @@ impl<T: EthSpec> EpochProcessingSummary<T> {
             EpochProcessingSummary::Altair {
                 participation_cache,
                 ..
-            } => participation_cache.is_active_unslashed_in_previous_epoch(val_index),
+            } => participation_cache
+                .is_active_unslashed_in_previous_epoch(val_index)
+                .unwrap_or(false),
         }
     }
 
@@ -218,7 +227,12 @@ impl<T: EthSpec> EpochProcessingSummary<T> {
             EpochProcessingSummary::Altair {
                 participation_cache,
                 ..
-            } => participation_cache.is_previous_epoch_timely_target_attester(val_index),
+            } => participation_cache
+                .is_previous_epoch_timely_target_attester(val_index)
+                .or_else(|e| match e {
+                    ParticipationCacheError::InvalidValidatorIndex(_) => Ok(false),
+                    e => Err(e),
+                }),
         }
     }
 
@@ -244,7 +258,12 @@ impl<T: EthSpec> EpochProcessingSummary<T> {
             EpochProcessingSummary::Altair {
                 participation_cache,
                 ..
-            } => participation_cache.is_previous_epoch_timely_head_attester(val_index),
+            } => participation_cache
+                .is_previous_epoch_timely_head_attester(val_index)
+                .or_else(|e| match e {
+                    ParticipationCacheError::InvalidValidatorIndex(_) => Ok(false),
+                    e => Err(e),
+                }),
         }
     }
 
@@ -270,7 +289,12 @@ impl<T: EthSpec> EpochProcessingSummary<T> {
             EpochProcessingSummary::Altair {
                 participation_cache,
                 ..
-            } => participation_cache.is_previous_epoch_timely_source_attester(val_index),
+            } => participation_cache
+                .is_previous_epoch_timely_source_attester(val_index)
+                .or_else(|e| match e {
+                    ParticipationCacheError::InvalidValidatorIndex(_) => Ok(false),
+                    e => Err(e),
+                }),
         }
     }
 

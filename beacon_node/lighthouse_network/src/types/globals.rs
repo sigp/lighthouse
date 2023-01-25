@@ -1,6 +1,6 @@
 //! A collection of variables that are accessible outside of the network thread itself.
 use crate::peer_manager::peerdb::PeerDB;
-use crate::rpc::MetaData;
+use crate::rpc::{MetaData, MetaDataV2};
 use crate::types::{BackFillState, SyncState};
 use crate::Client;
 use crate::EnrExt;
@@ -126,5 +126,26 @@ impl<TSpec: EthSpec> NetworkGlobals<TSpec> {
     /// The old state is returned
     pub fn set_sync_state(&self, new_state: SyncState) -> SyncState {
         std::mem::replace(&mut *self.sync_state.write(), new_state)
+    }
+
+    /// TESTING ONLY. Build a dummy NetworkGlobals instance.
+    pub fn new_test_globals(log: &slog::Logger) -> NetworkGlobals<TSpec> {
+        use crate::CombinedKeyExt;
+        let keypair = libp2p::identity::Keypair::generate_secp256k1();
+        let enr_key: discv5::enr::CombinedKey =
+            discv5::enr::CombinedKey::from_libp2p(&keypair).unwrap();
+        let enr = discv5::enr::EnrBuilder::new("v4").build(&enr_key).unwrap();
+        NetworkGlobals::new(
+            enr,
+            9000,
+            9000,
+            MetaData::V2(MetaDataV2 {
+                seq_number: 0,
+                attnets: Default::default(),
+                syncnets: Default::default(),
+            }),
+            vec![],
+            log,
+        )
     }
 }

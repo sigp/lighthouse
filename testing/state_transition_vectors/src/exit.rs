@@ -2,7 +2,7 @@ use super::*;
 use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
 use state_processing::{
     per_block_processing, per_block_processing::errors::ExitInvalid, BlockProcessingError,
-    BlockSignatureStrategy,
+    BlockSignatureStrategy, ConsensusContext, VerifyBlockRoot,
 };
 use types::{BeaconBlock, BeaconState, Epoch, EthSpec, SignedBeaconBlock};
 
@@ -15,6 +15,7 @@ struct ExitTest {
     validator_index: u64,
     exit_epoch: Epoch,
     state_epoch: Epoch,
+    #[allow(clippy::type_complexity)]
     state_modifier: Box<dyn FnOnce(&mut BeaconState<E>)>,
     #[allow(clippy::type_complexity)]
     block_modifier:
@@ -37,11 +38,12 @@ impl Default for ExitTest {
 }
 
 impl ExitTest {
-    fn block_and_pre_state(self) -> (SignedBeaconBlock<E>, BeaconState<E>) {
+    async fn block_and_pre_state(self) -> (SignedBeaconBlock<E>, BeaconState<E>) {
         let harness = get_harness::<E>(
             self.state_epoch.start_slot(E::slots_per_epoch()),
             VALIDATOR_COUNT,
-        );
+        )
+        .await;
         let mut state = harness.get_current_state();
         (self.state_modifier)(&mut state);
 
@@ -49,11 +51,12 @@ impl ExitTest {
         let validator_index = self.validator_index;
         let exit_epoch = self.exit_epoch;
 
-        let (signed_block, state) =
-            harness.make_block_with_modifier(state.clone(), state.slot() + 1, |block| {
+        let (signed_block, state) = harness
+            .make_block_with_modifier(state.clone(), state.slot() + 1, |block| {
                 harness.add_voluntary_exit(block, validator_index, exit_epoch);
                 block_modifier(&harness, block);
-            });
+            })
+            .await;
         (signed_block, state)
     }
 
@@ -61,22 +64,24 @@ impl ExitTest {
         block: &SignedBeaconBlock<E>,
         state: &mut BeaconState<E>,
     ) -> Result<(), BlockProcessingError> {
+        let mut ctxt = ConsensusContext::new(block.slot());
         per_block_processing(
             state,
             block,
-            None,
             BlockSignatureStrategy::VerifyIndividual,
+            VerifyBlockRoot::True,
+            &mut ctxt,
             &E::default_spec(),
         )
     }
 
     #[cfg(all(test, not(debug_assertions)))]
-    fn run(self) -> BeaconState<E> {
+    async fn run(self) -> BeaconState<E> {
         let spec = &E::default_spec();
         let expected = self.expected.clone();
         assert_eq!(STATE_EPOCH, spec.shard_committee_period);
 
-        let (block, mut state) = self.block_and_pre_state();
+        let (block, mut state) = self.block_and_pre_state().await;
 
         let result = Self::process(&block, &mut state);
 
@@ -85,8 +90,8 @@ impl ExitTest {
         state
     }
 
-    fn test_vector(self, title: String) -> TestVector {
-        let (block, pre_state) = self.block_and_pre_state();
+    async fn test_vector(self, title: String) -> TestVector {
+        let (block, pre_state) = self.block_and_pre_state().await;
         let mut post_state = pre_state.clone();
         let (post_state, error) = match Self::process(&block, &mut post_state) {
             Ok(_) => (Some(post_state), None),
@@ -121,7 +126,7 @@ vectors_and_tests!(
     ExitTest {
         block_modifier: Box::new(|_, block| {
             // Duplicate the exit
-            let exit = block.body().voluntary_exits()[0].clone();
+            let exit = block.body().voluntary_exits().get(0).unwrap().clone();
             block.body_mut().voluntary_exits_mut().push(exit).unwrap();
         }),
         expected: Err(BlockProcessingError::ExitInvalid {
@@ -140,7 +145,11 @@ vectors_and_tests!(
     invalid_validator_unknown,
     ExitTest {
         block_modifier: Box::new(|_, block| {
-            block.body_mut().voluntary_exits_mut()[0]
+            block
+                .body_mut()
+                .voluntary_exits_mut()
+                .get_mut(0)
+                .unwrap()
                 .message
                 .validator_index = VALIDATOR_COUNT as u64;
         }),
@@ -161,7 +170,7 @@ vectors_and_tests!(
     invalid_exit_already_initiated,
     ExitTest {
         state_modifier: Box::new(|state| {
-            state.validators_mut()[0].exit_epoch = STATE_EPOCH + 1;
+            state.validators_mut().get_mut(0).unwrap().exit_epoch = STATE_EPOCH + 1;
         }),
         expected: Err(BlockProcessingError::ExitInvalid {
             index: 0,
@@ -180,7 +189,8 @@ vectors_and_tests!(
     invalid_not_active_before_activation_epoch,
     ExitTest {
         state_modifier: Box::new(|state| {
-            state.validators_mut()[0].activation_epoch = E::default_spec().far_future_epoch;
+            state.validators_mut().get_mut(0).unwrap().activation_epoch =
+                E::default_spec().far_future_epoch;
         }),
         expected: Err(BlockProcessingError::ExitInvalid {
             index: 0,
@@ -199,7 +209,7 @@ vectors_and_tests!(
     invalid_not_active_after_exit_epoch,
     ExitTest {
         state_modifier: Box::new(|state| {
-            state.validators_mut()[0].exit_epoch = STATE_EPOCH;
+            state.validators_mut().get_mut(0).unwrap().exit_epoch = STATE_EPOCH;
         }),
         expected: Err(BlockProcessingError::ExitInvalid {
             index: 0,
@@ -299,7 +309,11 @@ vectors_and_tests!(
         block_modifier: Box::new(|_, block| {
             // Shift the validator index by 1 so that it's mismatched from the key that was
             // used to sign.
-            block.body_mut().voluntary_exits_mut()[0]
+            block
+                .body_mut()
+                .voluntary_exits_mut()
+                .get_mut(0)
+                .unwrap()
                 .message
                 .validator_index = VALIDATOR_INDEX + 1;
         }),
@@ -333,14 +347,14 @@ mod custom_tests {
         );
     }
 
-    #[test]
-    fn valid() {
-        let state = ExitTest::default().run();
+    #[tokio::test]
+    async fn valid() {
+        let state = ExitTest::default().run().await;
         assert_exited(&state, VALIDATOR_INDEX as usize);
     }
 
-    #[test]
-    fn valid_three() {
+    #[tokio::test]
+    async fn valid_three() {
         let state = ExitTest {
             block_modifier: Box::new(|harness, block| {
                 harness.add_voluntary_exit(block, 1, STATE_EPOCH);
@@ -348,7 +362,8 @@ mod custom_tests {
             }),
             ..ExitTest::default()
         }
-        .run();
+        .run()
+        .await;
 
         for i in &[VALIDATOR_INDEX, 1, 2] {
             assert_exited(&state, *i as usize);

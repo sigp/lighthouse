@@ -1,6 +1,7 @@
 use crate::consts::altair::SYNC_COMMITTEE_SUBNET_COUNT;
 use crate::test_utils::TestRandom;
 use crate::{AggregateSignature, BitVector, EthSpec, SyncCommitteeContribution};
+use derivative::Derivative;
 use safe_arith::{ArithError, SafeArith};
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
@@ -20,7 +21,10 @@ impl From<ArithError> for Error {
 }
 
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom)]
+#[derive(
+    Debug, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom, Derivative,
+)]
+#[derivative(PartialEq, Hash(bound = "T: EthSpec"))]
 #[serde(bound = "T: EthSpec")]
 pub struct SyncAggregate<T: EthSpec> {
     pub sync_committee_bits: BitVector<T::SyncCommitteeSize>,

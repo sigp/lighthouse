@@ -1,3 +1,4 @@
+use crate::beacon_node_fallback::OfflineOnFailure;
 use crate::{
     doppelganger_service::DoppelgangerStatus,
     duties_service::{DutiesService, Error},
@@ -399,6 +400,16 @@ pub async fn poll_sync_committee_duties_for_period<T: SlotClock + 'static, E: Et
     let spec = &duties_service.spec;
     let log = duties_service.context.log();
 
+    // no local validators don't need to poll for sync committee
+    if local_indices.is_empty() {
+        debug!(
+            duties_service.context.log(),
+            "No validators, not polling for sync committee duties";
+            "sync_committee_period" => sync_committee_period,
+        );
+        return Ok(());
+    }
+
     debug!(
         log,
         "Fetching sync committee duties";
@@ -410,11 +421,15 @@ pub async fn poll_sync_committee_duties_for_period<T: SlotClock + 'static, E: Et
 
     let duties_response = duties_service
         .beacon_nodes
-        .first_success(duties_service.require_synced, |beacon_node| async move {
-            beacon_node
-                .post_validator_duties_sync(period_start_epoch, local_indices)
-                .await
-        })
+        .first_success(
+            duties_service.require_synced,
+            OfflineOnFailure::Yes,
+            |beacon_node| async move {
+                beacon_node
+                    .post_validator_duties_sync(period_start_epoch, local_indices)
+                    .await
+            },
+        )
         .await;
 
     let duties = match duties_response {

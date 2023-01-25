@@ -3,7 +3,10 @@ use crate::hot_cold_store::{HotColdDB, HotColdDBError};
 use crate::{Error, ItemStore, KeyValueStore};
 use itertools::{process_results, Itertools};
 use slog::info;
-use state_processing::{per_block_processing, per_slot_processing, BlockSignatureStrategy};
+use state_processing::{
+    per_block_processing, per_slot_processing, BlockSignatureStrategy, ConsensusContext,
+    VerifyBlockRoot,
+};
 use std::sync::Arc;
 use types::{EthSpec, Hash256};
 
@@ -48,8 +51,7 @@ where
         // Use a dummy root, as we never read the block for the upper limit state.
         let upper_limit_block_root = Hash256::repeat_byte(0xff);
 
-        let block_root_iter = Self::forwards_block_roots_iterator(
-            self.clone(),
+        let block_root_iter = self.forwards_block_roots_iterator(
             lower_limit_slot,
             upper_limit_state,
             upper_limit_block_root,
@@ -75,7 +77,7 @@ where
                     None
                 } else {
                     Some(
-                        self.get_block(&block_root)?
+                        self.get_blinded_block(&block_root)?
                             .ok_or(Error::BlockNotFound(block_root))?,
                     )
                 };
@@ -86,11 +88,16 @@ where
 
                 // Apply block.
                 if let Some(block) = block {
+                    let mut ctxt = ConsensusContext::new(block.slot())
+                        .set_current_block_root(block_root)
+                        .set_proposer_index(block.message().proposer_index());
+
                     per_block_processing(
                         &mut state,
                         &block,
-                        Some(block_root),
                         BlockSignatureStrategy::NoVerification,
+                        VerifyBlockRoot::True,
+                        &mut ctxt,
                         &self.spec,
                     )
                     .map_err(HotColdDBError::BlockReplayBlockError)?;

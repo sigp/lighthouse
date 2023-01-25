@@ -8,7 +8,7 @@ use syn::{parse_macro_input, DeriveInput};
 fn is_slice(field: &syn::Field) -> bool {
     field.attrs.iter().any(|attr| {
         attr.path.is_ident("compare_fields")
-            && attr.tokens.to_string().replace(" ", "") == "(as_slice)"
+            && attr.tokens.to_string().replace(' ', "") == "(as_slice)"
     })
 }
 

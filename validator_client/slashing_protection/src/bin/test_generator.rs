@@ -225,6 +225,19 @@ fn main() {
             ],
         ),
         MultiTestCase::new(
+            "multiple_interchanges_single_validator_multiple_blocks_out_of_order",
+            vec![
+                TestCase::new(interchange(vec![(0, vec![0], vec![])])).with_blocks(vec![
+                    (0, 10, true),
+                    (0, 20, true),
+                    (0, 30, true),
+                ]),
+                TestCase::new(interchange(vec![(0, vec![20], vec![])]))
+                    .contains_slashable_data()
+                    .with_blocks(vec![(0, 29, false)]),
+            ],
+        ),
+        MultiTestCase::new(
             "multiple_interchanges_single_validator_fail_iff_imported",
             vec![
                 TestCase::new(interchange(vec![(0, vec![40], vec![])])),

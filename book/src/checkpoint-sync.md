@@ -1,7 +1,7 @@
 # Checkpoint Sync
 
-Lighthouse supports syncing from a recent finalized checkpoint. This is substantially faster
-than syncing from genesis, while still providing all the same features.
+Since version 2.0.0 Lighthouse supports syncing from a recent finalized checkpoint. This is
+substantially faster than syncing from genesis, while still providing all the same features.
 
 If you would like to quickly get started with checkpoint sync, read the sections below on:
 
@@ -40,6 +40,13 @@ Once the checkpoint is loaded Lighthouse will sync forwards to the head of the c
 
 If a validator client is connected to the node then it will be able to start completing its duties
 as soon as forwards sync completes.
+
+### Use a community checkpoint sync endpoint
+
+The Ethereum community provides various [public endpoints](https://eth-clients.github.io/checkpoint-sync-endpoints/) for you to choose from for your initial checkpoint state. Select one for your network and use it as the url for the `--checkpoint-sync-url` flag.  e.g.
+```
+lighthouse bn --checkpoint-sync-url https://example.com/ ...
+```
 
 ## Backfilling Blocks
 
@@ -90,7 +97,7 @@ You can opt-in to reconstructing all of the historic states by providing the
 The database keeps track of three markers to determine the availability of historic blocks and
 states:
 
-* `oldest_block_slot`: All blocks with slots less than or equal to this value are available in the
+* `oldest_block_slot`: All blocks with slots greater than or equal to this value are available in the
   database. Additionally, the genesis block is always available.
 * `state_lower_limit`: All states with slots _less than or equal to_ this value are available in
   the database. The minimum value is 0, indicating that the genesis state is always available.

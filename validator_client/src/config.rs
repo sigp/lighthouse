@@ -1,7 +1,7 @@
 use crate::graffiti_file::GraffitiFile;
 use crate::{http_api, http_metrics};
 use clap::ArgMatches;
-use clap_utils::{parse_optional, parse_required};
+use clap_utils::{flags::DISABLE_MALLOC_TUNING_FLAG, parse_optional, parse_required};
 use directory::{
     get_network_dir, DEFAULT_HARDCODED_NETWORK, DEFAULT_ROOT_DIR, DEFAULT_SECRET_DIR,
     DEFAULT_VALIDATOR_DIR,
@@ -11,9 +11,10 @@ use sensitive_url::SensitiveUrl;
 use serde_derive::{Deserialize, Serialize};
 use slog::{info, warn, Logger};
 use std::fs;
-use std::net::Ipv4Addr;
+use std::net::IpAddr;
 use std::path::PathBuf;
-use types::GRAFFITI_BYTES_LEN;
+use std::time::Duration;
+use types::{Address, GRAFFITI_BYTES_LEN};
 
 pub const DEFAULT_BEACON_NODE: &str = "http://localhost:5052/";
 
@@ -41,6 +42,8 @@ pub struct Config {
     pub graffiti: Option<Graffiti>,
     /// Graffiti file to load per validator graffitis.
     pub graffiti_file: Option<GraffitiFile>,
+    /// Fallback fallback address.
+    pub fee_recipient: Option<Address>,
     /// Configuration for the HTTP REST API.
     pub http_api: http_api::Config,
     /// Configuration for the HTTP REST API.
@@ -55,9 +58,21 @@ pub struct Config {
     /// Note: We publish validator specific metrics for low validator counts without this flag
     /// (<= 64 validators)
     pub enable_high_validator_count_metrics: bool,
+    /// Enable use of the blinded block endpoints during proposals.
+    pub builder_proposals: bool,
+    /// Overrides the timestamp field in builder api ValidatorRegistrationV1
+    pub builder_registration_timestamp_override: Option<u64>,
+    /// Fallback gas limit.
+    pub gas_limit: Option<u64>,
     /// A list of custom certificates that the validator client will additionally use when
     /// connecting to a beacon node over SSL/TLS.
     pub beacon_nodes_tls_certs: Option<Vec<PathBuf>>,
+    /// Delay from the start of the slot to wait before publishing a block.
+    ///
+    /// This is *not* recommended in prod and should only be used for testing.
+    pub block_delay: Option<Duration>,
+    /// Disables publishing http api requests to all beacon nodes for select api calls.
+    pub disable_run_on_all: bool,
 }
 
 impl Default for Config {
@@ -84,12 +99,18 @@ impl Default for Config {
             use_long_timeouts: false,
             graffiti: None,
             graffiti_file: None,
+            fee_recipient: None,
             http_api: <_>::default(),
             http_metrics: <_>::default(),
             monitoring_api: None,
             enable_doppelganger_protection: false,
             enable_high_validator_count_metrics: false,
             beacon_nodes_tls_certs: None,
+            block_delay: None,
+            builder_proposals: false,
+            builder_registration_timestamp_override: None,
+            gas_limit: None,
+            disable_run_on_all: false,
         }
     }
 }
@@ -137,7 +158,7 @@ impl Config {
         if let Some(beacon_nodes) = parse_optional::<String>(cli_args, "beacon-nodes")? {
             config.beacon_nodes = beacon_nodes
                 .split(',')
-                .map(|s| SensitiveUrl::parse(s))
+                .map(SensitiveUrl::parse)
                 .collect::<Result<_, _>>()
                 .map_err(|e| format!("Unable to parse beacon node URL: {:?}", e))?;
         }
@@ -171,6 +192,7 @@ impl Config {
         }
 
         config.allow_unsynced_beacon_node = cli_args.is_present("allow-unsynced");
+        config.disable_run_on_all = cli_args.is_present("disable-run-on-all");
         config.disable_auto_discover = cli_args.is_present("disable-auto-discover");
         config.init_slashing_protection = cli_args.is_present("init-slashing-protection");
         config.use_long_timeouts = cli_args.is_present("use-long-timeouts");
@@ -203,6 +225,12 @@ impl Config {
             }
         }
 
+        if let Some(input_fee_recipient) =
+            parse_optional::<Address>(cli_args, "suggested-fee-recipient")?
+        {
+            config.fee_recipient = Some(input_fee_recipient);
+        }
+
         if let Some(tls_certs) = parse_optional::<String>(cli_args, "beacon-nodes-tls-certs")? {
             config.beacon_nodes_tls_certs = Some(tls_certs.split(',').map(PathBuf::from).collect());
         }
@@ -218,8 +246,8 @@ impl Config {
         if let Some(address) = cli_args.value_of("http-address") {
             if cli_args.is_present("unencrypted-http-transport") {
                 config.http_api.listen_addr = address
-                    .parse::<Ipv4Addr>()
-                    .map_err(|_| "http-address is not a valid IPv4 address.")?;
+                    .parse::<IpAddr>()
+                    .map_err(|_| "http-address is not a valid IP address.")?;
             } else {
                 return Err(
                     "While using `--http-address`, you must also use `--unencrypted-http-transport`."
@@ -257,8 +285,8 @@ impl Config {
 
         if let Some(address) = cli_args.value_of("metrics-address") {
             config.http_metrics.listen_addr = address
-                .parse::<Ipv4Addr>()
-                .map_err(|_| "metrics-address is not a valid IPv4 address.")?;
+                .parse::<IpAddr>()
+                .map_err(|_| "metrics-address is not a valid IP address.")?;
         }
 
         if let Some(port) = cli_args.value_of("metrics-port") {
@@ -275,19 +303,65 @@ impl Config {
 
             config.http_metrics.allow_origin = Some(allow_origin.to_string());
         }
+
+        if cli_args.is_present(DISABLE_MALLOC_TUNING_FLAG) {
+            config.http_metrics.allocator_metrics_enabled = false;
+        }
+
         /*
          * Explorer metrics
          */
         if let Some(monitoring_endpoint) = cli_args.value_of("monitoring-endpoint") {
+            let update_period_secs =
+                clap_utils::parse_optional(cli_args, "monitoring-endpoint-period")?;
             config.monitoring_api = Some(monitoring_api::Config {
                 db_path: None,
                 freezer_db_path: None,
+                update_period_secs,
                 monitoring_endpoint: monitoring_endpoint.to_string(),
             });
         }
 
         if cli_args.is_present("enable-doppelganger-protection") {
             config.enable_doppelganger_protection = true;
+        }
+
+        if cli_args.is_present("builder-proposals") {
+            config.builder_proposals = true;
+        }
+
+        config.gas_limit = cli_args
+            .value_of("gas-limit")
+            .map(|gas_limit| {
+                gas_limit
+                    .parse::<u64>()
+                    .map_err(|_| "gas-limit is not a valid u64.")
+            })
+            .transpose()?;
+
+        if let Some(registration_timestamp_override) =
+            cli_args.value_of("builder-registration-timestamp-override")
+        {
+            config.builder_registration_timestamp_override = Some(
+                registration_timestamp_override
+                    .parse::<u64>()
+                    .map_err(|_| "builder-registration-timestamp-override is not a valid u64.")?,
+            );
+        }
+
+        if cli_args.is_present("strict-fee-recipient") {
+            warn!(
+                log,
+                "The flag `--strict-fee-recipient` has been deprecated due to a bug causing \
+                missed proposals. The flag will be ignored."
+            );
+        }
+
+        /*
+         * Experimental
+         */
+        if let Some(delay_ms) = parse_optional::<u64>(cli_args, "block-delay-ms")? {
+            config.block_delay = Some(Duration::from_millis(delay_ms));
         }
 
         Ok(config)

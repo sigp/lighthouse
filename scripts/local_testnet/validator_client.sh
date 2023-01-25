@@ -6,15 +6,28 @@
 #
 # Usage: ./validator_client.sh <DATADIR> <BEACON-NODE-HTTP> <OPTIONAL-DEBUG-LEVEL>
 
+set -Eeuo pipefail
+
 source ./vars.env
 
-DEBUG_LEVEL=${3:-info}
+DEBUG_LEVEL=info
+
+BUILDER_PROPOSALS=
+
+# Get options
+while getopts "pd:" flag; do
+  case "${flag}" in
+    p) BUILDER_PROPOSALS="--builder-proposals";;
+    d) DEBUG_LEVEL=${OPTARG};;
+  esac
+done
 
 exec lighthouse \
 	--debug-level $DEBUG_LEVEL \
 	vc \
-	--datadir $1 \
+	$BUILDER_PROPOSALS \
+	--datadir ${@:$OPTIND:1} \
 	--testnet-dir $TESTNET_DIR \
 	--init-slashing-protection \
-	--beacon-nodes $2 \
+	--beacon-nodes ${@:$OPTIND+1:1} \
 	$VC_ARGS

@@ -6,6 +6,7 @@ use types::ForkName;
 
 mod bls_aggregate_sigs;
 mod bls_aggregate_verify;
+mod bls_batch_verify;
 mod bls_eth_aggregate_pubkeys;
 mod bls_eth_fast_aggregate_verify;
 mod bls_fast_aggregate_verify;
@@ -14,8 +15,10 @@ mod bls_verify_msg;
 mod common;
 mod epoch_processing;
 mod fork;
+mod fork_choice;
 mod genesis_initialization;
 mod genesis_validity;
+mod merkle_proof_validity;
 mod operations;
 mod rewards;
 mod sanity_blocks;
@@ -25,8 +28,10 @@ mod ssz_generic;
 mod ssz_static;
 mod transition;
 
+pub use self::fork_choice::*;
 pub use bls_aggregate_sigs::*;
 pub use bls_aggregate_verify::*;
+pub use bls_batch_verify::*;
 pub use bls_eth_aggregate_pubkeys::*;
 pub use bls_eth_fast_aggregate_verify::*;
 pub use bls_fast_aggregate_verify::*;
@@ -37,6 +42,7 @@ pub use epoch_processing::*;
 pub use fork::ForkTest;
 pub use genesis_initialization::*;
 pub use genesis_validity::*;
+pub use merkle_proof_validity::*;
 pub use operations::*;
 pub use rewards::RewardsTest;
 pub use sanity_blocks::*;
@@ -79,11 +85,23 @@ pub struct Cases<T> {
 }
 
 impl<T: Case> Cases<T> {
-    pub fn test_results(&self, fork_name: ForkName) -> Vec<CaseResult> {
-        self.test_cases
-            .into_par_iter()
-            .enumerate()
-            .map(|(i, (ref path, ref tc))| CaseResult::new(i, path, tc, tc.result(i, fork_name)))
-            .collect()
+    pub fn test_results(&self, fork_name: ForkName, use_rayon: bool) -> Vec<CaseResult> {
+        if use_rayon {
+            self.test_cases
+                .into_par_iter()
+                .enumerate()
+                .map(|(i, (ref path, ref tc))| {
+                    CaseResult::new(i, path, tc, tc.result(i, fork_name))
+                })
+                .collect()
+        } else {
+            self.test_cases
+                .iter()
+                .enumerate()
+                .map(|(i, (ref path, ref tc))| {
+                    CaseResult::new(i, path, tc, tc.result(i, fork_name))
+                })
+                .collect()
+        }
     }
 }

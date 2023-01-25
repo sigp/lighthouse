@@ -1,11 +1,11 @@
-FROM rust:1.53.0 AS builder
-RUN apt-get update && apt-get -y upgrade && apt-get install -y cmake
+FROM rust:1.62.1-bullseye AS builder
+RUN apt-get update && apt-get -y upgrade && apt-get install -y cmake libclang-dev protobuf-compiler
 COPY . lighthouse
-ARG PORTABLE
-ENV PORTABLE $PORTABLE
+ARG FEATURES
+ENV FEATURES $FEATURES
 RUN cd lighthouse && make
 
-FROM debian:buster-slim
+FROM ubuntu:22.04
 RUN apt-get update && apt-get -y upgrade && apt-get install -y --no-install-recommends \
   libssl-dev \
   ca-certificates \

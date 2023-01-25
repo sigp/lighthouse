@@ -6,7 +6,10 @@ use types::consts::altair::{
 };
 use types::{BeaconState, ChainSpec, EthSpec};
 
-use crate::common::{altair::get_base_reward, decrease_balance, increase_balance};
+use crate::common::{
+    altair::{get_base_reward, BaseRewardPerIncrement},
+    decrease_balance, increase_balance,
+};
 use crate::per_epoch_processing::{Delta, Error};
 
 /// Apply attester and proposer rewards.
@@ -52,7 +55,7 @@ pub fn process_rewards_and_penalties<T: EthSpec>(
 ///
 /// Spec v1.1.0
 pub fn get_flag_index_deltas<T: EthSpec>(
-    deltas: &mut Vec<Delta>,
+    deltas: &mut [Delta],
     state: &BeaconState<T>,
     flag_index: usize,
     total_active_balance: u64,
@@ -67,13 +70,14 @@ pub fn get_flag_index_deltas<T: EthSpec>(
     let unslashed_participating_increments =
         unslashed_participating_balance.safe_div(spec.effective_balance_increment)?;
     let active_increments = total_active_balance.safe_div(spec.effective_balance_increment)?;
+    let base_reward_per_increment = BaseRewardPerIncrement::new(total_active_balance, spec)?;
 
     for &index in participation_cache.eligible_validator_indices() {
-        let base_reward = get_base_reward(state, index, total_active_balance, spec)?;
+        let base_reward = get_base_reward(state, index, base_reward_per_increment, spec)?;
         let mut delta = Delta::default();
 
-        if unslashed_participating_indices.contains(index as usize)? {
-            if !state.is_in_inactivity_leak(spec) {
+        if unslashed_participating_indices.contains(index)? {
+            if !state.is_in_inactivity_leak(previous_epoch, spec) {
                 let reward_numerator = base_reward
                     .safe_mul(weight)?
                     .safe_mul(unslashed_participating_increments)?;
@@ -85,8 +89,8 @@ pub fn get_flag_index_deltas<T: EthSpec>(
             delta.penalize(base_reward.safe_mul(weight)?.safe_div(WEIGHT_DENOMINATOR)?)?;
         }
         deltas
-            .get_mut(index as usize)
-            .ok_or(Error::DeltaOutOfBounds(index as usize))?
+            .get_mut(index)
+            .ok_or(Error::DeltaOutOfBounds(index))?
             .combine(delta)?;
     }
     Ok(())
@@ -101,7 +105,7 @@ pub fn get_flag_weight(flag_index: usize) -> Result<u64, Error> {
 }
 
 pub fn get_inactivity_penalty_deltas<T: EthSpec>(
-    deltas: &mut Vec<Delta>,
+    deltas: &mut [Delta],
     state: &BeaconState<T>,
     participation_cache: &ParticipationCache,
     spec: &ChainSpec,
@@ -119,7 +123,7 @@ pub fn get_inactivity_penalty_deltas<T: EthSpec>(
                 .safe_mul(state.get_inactivity_score(index)?)?;
             let penalty_denominator = spec
                 .inactivity_score_bias
-                .safe_mul(spec.inactivity_penalty_quotient_altair)?;
+                .safe_mul(spec.inactivity_penalty_quotient_for_state(state))?;
             delta.penalize(penalty_numerator.safe_div(penalty_denominator)?)?;
         }
         deltas

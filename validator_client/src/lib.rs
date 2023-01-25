@@ -9,6 +9,7 @@ mod graffiti_file;
 mod http_metrics;
 mod key_cache;
 mod notifier;
+mod preparation_service;
 mod signing_method;
 mod sync_committee_service;
 
@@ -25,19 +26,23 @@ use monitoring_api::{MonitoringHttpClient, ProcessType};
 pub use slashing_protection::{SlashingDatabase, SLASHING_PROTECTION_FILENAME};
 
 use crate::beacon_node_fallback::{
-    start_fallback_updater_service, BeaconNodeFallback, CandidateBeaconNode, RequireSynced,
+    start_fallback_updater_service, BeaconNodeFallback, CandidateBeaconNode, OfflineOnFailure,
+    RequireSynced,
 };
 use crate::doppelganger_service::DoppelgangerService;
+use crate::graffiti_file::GraffitiFile;
+use crate::initialized_validators::Error::UnableToOpenVotingKeystore;
 use account_utils::validator_definitions::ValidatorDefinitions;
 use attestation_service::{AttestationService, AttestationServiceBuilder};
 use block_service::{BlockService, BlockServiceBuilder};
 use clap::ArgMatches;
 use duties_service::DutiesService;
 use environment::RuntimeContext;
-use eth2::{reqwest::ClientBuilder, BeaconNodeHttpClient, StatusCode, Timeouts};
+use eth2::{reqwest::ClientBuilder, types::Graffiti, BeaconNodeHttpClient, StatusCode, Timeouts};
 use http_api::ApiSecret;
 use notifier::spawn_notifier;
 use parking_lot::RwLock;
+use preparation_service::{PreparationService, PreparationServiceBuilder};
 use reqwest::Certificate;
 use slog::{error, info, warn, Logger};
 use slot_clock::SlotClock;
@@ -54,7 +59,7 @@ use tokio::{
     sync::mpsc,
     time::{sleep, Duration},
 };
-use types::{EthSpec, Hash256};
+use types::{EthSpec, Hash256, PublicKeyBytes};
 use validator_store::ValidatorStore;
 
 /// The interval between attempts to contact the beacon node during startup.
@@ -70,7 +75,11 @@ const HTTP_ATTESTER_DUTIES_TIMEOUT_QUOTIENT: u32 = 4;
 const HTTP_LIVENESS_TIMEOUT_QUOTIENT: u32 = 4;
 const HTTP_PROPOSAL_TIMEOUT_QUOTIENT: u32 = 2;
 const HTTP_PROPOSER_DUTIES_TIMEOUT_QUOTIENT: u32 = 4;
+const HTTP_SYNC_COMMITTEE_CONTRIBUTION_TIMEOUT_QUOTIENT: u32 = 4;
 const HTTP_SYNC_DUTIES_TIMEOUT_QUOTIENT: u32 = 4;
+const HTTP_GET_BEACON_BLOCK_SSZ_TIMEOUT_QUOTIENT: u32 = 4;
+const HTTP_GET_DEBUG_BEACON_STATE_QUOTIENT: u32 = 4;
+const HTTP_GET_DEPOSIT_SNAPSHOT_QUOTIENT: u32 = 4;
 
 const DOPPELGANGER_SERVICE_NAME: &str = "doppelganger";
 
@@ -82,9 +91,9 @@ pub struct ProductionValidatorClient<T: EthSpec> {
     attestation_service: AttestationService<SystemTimeSlotClock, T>,
     sync_committee_service: SyncCommitteeService<SystemTimeSlotClock, T>,
     doppelganger_service: Option<Arc<DoppelgangerService>>,
+    preparation_service: PreparationService<SystemTimeSlotClock, T>,
     validator_store: Arc<ValidatorStore<SystemTimeSlotClock, T>>,
     http_api_listen_addr: Option<SocketAddr>,
-    http_metrics_ctx: Option<Arc<http_metrics::Context<T>>>,
     config: Config,
 }
 
@@ -176,7 +185,16 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             log.clone(),
         )
         .await
-        .map_err(|e| format!("Unable to initialize validators: {:?}", e))?;
+        .map_err(|e| {
+            match e {
+                UnableToOpenVotingKeystore(err) => {
+                    format!("Unable to initialize validators: {:?}. If you have recently moved the location of your data directory \
+                    make sure to update the location of voting_keystore_path in your validator_definitions.yml", err)
+                },
+                err => {
+                    format!("Unable to initialize validators: {:?}", err)}
+                }
+            })?;
 
         let voting_pubkeys: Vec<_> = validators.iter_voting_pubkeys().collect();
 
@@ -278,7 +296,14 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
                         liveness: slot_duration / HTTP_LIVENESS_TIMEOUT_QUOTIENT,
                         proposal: slot_duration / HTTP_PROPOSAL_TIMEOUT_QUOTIENT,
                         proposer_duties: slot_duration / HTTP_PROPOSER_DUTIES_TIMEOUT_QUOTIENT,
+                        sync_committee_contribution: slot_duration
+                            / HTTP_SYNC_COMMITTEE_CONTRIBUTION_TIMEOUT_QUOTIENT,
                         sync_duties: slot_duration / HTTP_SYNC_DUTIES_TIMEOUT_QUOTIENT,
+                        get_beacon_blocks_ssz: slot_duration
+                            / HTTP_GET_BEACON_BLOCK_SSZ_TIMEOUT_QUOTIENT,
+                        get_debug_beacon_states: slot_duration
+                            / HTTP_GET_DEBUG_BEACON_STATE_QUOTIENT,
+                        get_deposit_snapshot: slot_duration / HTTP_GET_DEPOSIT_SNAPSHOT_QUOTIENT,
                     }
                 } else {
                     Timeouts::set_all(slot_duration)
@@ -303,10 +328,24 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             &http_metrics::metrics::ETH2_FALLBACK_CONFIGURED,
             num_nodes.saturating_sub(1) as i64,
         );
-        // Initialize the number of connected, synced fallbacks to 0.
+        // Set the total beacon node count.
+        set_gauge(
+            &http_metrics::metrics::TOTAL_BEACON_NODES_COUNT,
+            num_nodes as i64,
+        );
+
+        // Initialize the number of connected, synced beacon nodes to 0.
         set_gauge(&http_metrics::metrics::ETH2_FALLBACK_CONNECTED, 0);
-        let mut beacon_nodes: BeaconNodeFallback<_, T> =
-            BeaconNodeFallback::new(candidates, context.eth2_config.spec.clone(), log.clone());
+        set_gauge(&http_metrics::metrics::SYNCED_BEACON_NODES_COUNT, 0);
+        // Initialize the number of connected, avaliable beacon nodes to 0.
+        set_gauge(&http_metrics::metrics::AVAILABLE_BEACON_NODES_COUNT, 0);
+
+        let mut beacon_nodes: BeaconNodeFallback<_, T> = BeaconNodeFallback::new(
+            candidates,
+            config.disable_run_on_all,
+            context.eth2_config.spec.clone(),
+            log.clone(),
+        );
 
         // Perform some potentially long-running initialization tasks.
         let (genesis_time, genesis_validators_root) = tokio::select! {
@@ -347,6 +386,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             context.eth2_config.spec.clone(),
             doppelganger_service.clone(),
             slot_clock.clone(),
+            &config,
             context.executor.clone(),
             log.clone(),
         ));
@@ -398,6 +438,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             .runtime_context(context.service_context("block".into()))
             .graffiti(config.graffiti)
             .graffiti_file(config.graffiti_file.clone())
+            .block_delay(config.block_delay)
             .build()?;
 
         let attestation_service = AttestationServiceBuilder::new()
@@ -408,6 +449,14 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             .runtime_context(context.service_context("attestation".into()))
             .build()?;
 
+        let preparation_service = PreparationServiceBuilder::new()
+            .slot_clock(slot_clock.clone())
+            .validator_store(validator_store.clone())
+            .beacon_nodes(beacon_nodes.clone())
+            .runtime_context(context.service_context("preparation".into()))
+            .builder_registration_timestamp_override(config.builder_registration_timestamp_override)
+            .build()?;
+
         let sync_committee_service = SyncCommitteeService::new(
             duties_service.clone(),
             validator_store.clone(),
@@ -416,7 +465,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             context.service_context("sync_committee".into()),
         );
 
-        // Wait until genesis has occured.
+        // Wait until genesis has occurred.
         //
         // It seems most sensible to move this into the `start_service` function, but I'm caution
         // of making too many changes this close to genesis (<1 week).
@@ -429,10 +478,10 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             attestation_service,
             sync_committee_service,
             doppelganger_service,
+            preparation_service,
             validator_store,
             config,
             http_api_listen_addr: None,
-            http_metrics_ctx,
         })
     }
 
@@ -461,6 +510,11 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             .start_update_service(&self.context.eth2_config.spec)
             .map_err(|e| format!("Unable to start sync committee service: {}", e))?;
 
+        self.preparation_service
+            .clone()
+            .start_update_service(&self.context.eth2_config.spec)
+            .map_err(|e| format!("Unable to start preparation service: {}", e))?;
+
         if let Some(doppelganger_service) = self.doppelganger_service.clone() {
             DoppelgangerService::start_update_service(
                 doppelganger_service,
@@ -481,10 +535,12 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
 
         self.http_api_listen_addr = if self.config.http_api.enabled {
             let ctx = Arc::new(http_api::Context {
-                runtime: self.context.executor.runtime(),
+                task_executor: self.context.executor.clone(),
                 api_secret,
                 validator_store: Some(self.validator_store.clone()),
                 validator_dir: Some(self.config.validator_dir.clone()),
+                graffiti_file: self.config.graffiti_file.clone(),
+                graffiti_flag: self.config.graffiti,
                 spec: self.context.eth2_config.spec.clone(),
                 config: self.config.http_api.clone(),
                 log: log.clone(),
@@ -541,9 +597,11 @@ async fn init_from_beacon_node<E: EthSpec>(
 
     let genesis = loop {
         match beacon_nodes
-            .first_success(RequireSynced::No, |node| async move {
-                node.get_beacon_genesis().await
-            })
+            .first_success(
+                RequireSynced::No,
+                OfflineOnFailure::Yes,
+                |node| async move { node.get_beacon_genesis().await },
+            )
             .await
         {
             Ok(genesis) => break genesis.data,
@@ -630,9 +688,11 @@ async fn poll_whilst_waiting_for_genesis<E: EthSpec>(
 ) -> Result<(), String> {
     loop {
         match beacon_nodes
-            .first_success(RequireSynced::No, |beacon_node| async move {
-                beacon_node.get_lighthouse_staking().await
-            })
+            .first_success(
+                RequireSynced::No,
+                OfflineOnFailure::Yes,
+                |beacon_node| async move { beacon_node.get_lighthouse_staking().await },
+            )
             .await
         {
             Ok(is_staking) => {
@@ -680,4 +740,25 @@ pub fn load_pem_certificate<P: AsRef<Path>>(pem_path: P) -> Result<Certificate, 
         .read_to_end(&mut buf)
         .map_err(|e| format!("Unable to read certificate file: {}", e))?;
     Certificate::from_pem(&buf).map_err(|e| format!("Unable to parse certificate: {}", e))
+}
+
+// Given the various graffiti control methods, determine the graffiti that will be used for
+// the next block produced by the validator with the given public key.
+pub fn determine_graffiti(
+    validator_pubkey: &PublicKeyBytes,
+    log: &Logger,
+    graffiti_file: Option<GraffitiFile>,
+    validator_definition_graffiti: Option<Graffiti>,
+    graffiti_flag: Option<Graffiti>,
+) -> Option<Graffiti> {
+    graffiti_file
+        .and_then(|mut g| match g.load_graffiti(validator_pubkey) {
+            Ok(g) => g,
+            Err(e) => {
+                warn!(log, "Failed to read graffiti file"; "error" => ?e);
+                None
+            }
+        })
+        .or(validator_definition_graffiti)
+        .or(graffiti_flag)
 }

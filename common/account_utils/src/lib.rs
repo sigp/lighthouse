@@ -85,15 +85,23 @@ pub fn write_file_via_temporary(
     Ok(())
 }
 
-/// Generates a random alphanumeric password of length `DEFAULT_PASSWORD_LEN`.
+/// Generates a random alphanumeric password of length `DEFAULT_PASSWORD_LEN` as `PlainText`.
 pub fn random_password() -> PlainText {
+    random_password_raw_string().into_bytes().into()
+}
+
+/// Generates a random alphanumeric password of length `DEFAULT_PASSWORD_LEN` as `ZeroizeString`.
+pub fn random_password_string() -> ZeroizeString {
+    random_password_raw_string().into()
+}
+
+/// Common implementation for `random_password` and `random_password_string`.
+fn random_password_raw_string() -> String {
     rand::thread_rng()
         .sample_iter(&Alphanumeric)
         .take(DEFAULT_PASSWORD_LEN)
         .map(char::from)
-        .collect::<String>()
-        .into_bytes()
-        .into()
+        .collect()
 }
 
 /// Remove any number of newline or carriage returns from the end of a vector of bytes.

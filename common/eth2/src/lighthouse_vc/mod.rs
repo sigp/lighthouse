@@ -1,4 +1,5 @@
 pub mod http_client;
+pub mod std_types;
 pub mod types;
 
 /// The number of bytes in the secp256k1 public key used as the authorization token for the VC API.

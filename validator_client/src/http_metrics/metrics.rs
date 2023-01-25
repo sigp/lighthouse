@@ -1,4 +1,5 @@
 use super::Context;
+use malloc_utils::scrape_allocator_metrics;
 use slot_clock::SlotClock;
 use std::time::{SystemTime, UNIX_EPOCH};
 use types::EthSpec;
@@ -10,7 +11,9 @@ pub const UNREGISTERED: &str = "unregistered";
 pub const FULL_UPDATE: &str = "full_update";
 pub const BEACON_BLOCK: &str = "beacon_block";
 pub const BEACON_BLOCK_HTTP_GET: &str = "beacon_block_http_get";
+pub const BLINDED_BEACON_BLOCK_HTTP_GET: &str = "blinded_beacon_block_http_get";
 pub const BEACON_BLOCK_HTTP_POST: &str = "beacon_block_http_post";
+pub const BLINDED_BEACON_BLOCK_HTTP_POST: &str = "blinded_beacon_block_http_post";
 pub const ATTESTATIONS: &str = "attestations";
 pub const ATTESTATIONS_HTTP_GET: &str = "attestations_http_get";
 pub const ATTESTATIONS_HTTP_POST: &str = "attestations_http_post";
@@ -84,6 +87,11 @@ lazy_static::lazy_static! {
         "Total count of attempted SyncSelectionProof signings",
         &["status"]
     );
+    pub static ref SIGNED_VALIDATOR_REGISTRATIONS_TOTAL: Result<IntCounterVec> = try_create_int_counter_vec(
+        "builder_validator_registrations_total",
+        "Total count of ValidatorRegistrationData signings",
+        &["status"]
+    );
     pub static ref DUTIES_SERVICE_TIMES: Result<HistogramVec> = try_create_histogram_vec(
         "vc_duties_service_task_times_seconds",
         "Duration to perform duties service tasks",
@@ -129,6 +137,22 @@ lazy_static::lazy_static! {
         "bn_endpoint_requests",
         "The number of beacon node requests for each endpoint",
         &["endpoint"]
+    );
+
+    /*
+    * Beacon node availability metrics
+    */
+    pub static ref AVAILABLE_BEACON_NODES_COUNT: Result<IntGauge> = try_create_int_gauge(
+        "vc_beacon_nodes_available_count",
+        "Number of available beacon nodes",
+    );
+    pub static ref SYNCED_BEACON_NODES_COUNT: Result<IntGauge> = try_create_int_gauge(
+        "vc_beacon_nodes_synced_count",
+        "Number of synced beacon nodes",
+    );
+    pub static ref TOTAL_BEACON_NODES_COUNT: Result<IntGauge> = try_create_int_gauge(
+        "vc_beacon_nodes_total_count",
+        "Total number of beacon nodes",
     );
 
     pub static ref ETH2_FALLBACK_CONFIGURED: Result<IntGauge> = try_create_int_gauge(
@@ -194,6 +218,12 @@ pub fn gather_prometheus_metrics<T: EthSpec>(
                 );
             }
         }
+    }
+
+    // It's important to ensure these metrics are explicitly enabled in the case that users aren't
+    // using glibc and this function causes panics.
+    if ctx.config.allocator_metrics_enabled {
+        scrape_allocator_metrics();
     }
 
     warp_utils::metrics::scrape_health_metrics();

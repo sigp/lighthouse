@@ -2,8 +2,8 @@ use crate::{checks, LocalNetwork};
 use clap::ArgMatches;
 use futures::prelude::*;
 use node_test_rig::{
-    environment::EnvironmentBuilder, testing_client_config, testing_validator_config,
-    ClientGenesis, ValidatorFiles,
+    environment::{EnvironmentBuilder, LoggerConfig},
+    testing_client_config, testing_validator_config, ClientGenesis, ValidatorFiles,
 };
 use rayon::prelude::*;
 use std::cmp::max;
@@ -41,11 +41,20 @@ pub fn run_no_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
         })
         .collect::<Vec<_>>();
 
-    let log_level = "debug";
-    let log_format = None;
-
     let mut env = EnvironmentBuilder::mainnet()
-        .async_logger(log_level, log_format)?
+        .initialize_logger(LoggerConfig {
+            path: None,
+            debug_level: String::from("debug"),
+            logfile_debug_level: String::from("debug"),
+            log_format: None,
+            logfile_format: None,
+            log_color: false,
+            disable_log_timestamp: false,
+            max_log_size: 0,
+            max_log_number: 0,
+            compression: false,
+            is_restricted: true,
+        })?
         .multi_threaded_tokio_runtime()?
         .build()?;
 

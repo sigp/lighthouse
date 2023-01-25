@@ -1,4 +1,5 @@
-[build.env]
-passthrough = [
-    "RUSTFLAGS",
-]
+[target.x86_64-unknown-linux-gnu]
+dockerfile = './scripts/cross/Dockerfile'
+
+[target.aarch64-unknown-linux-gnu]
+dockerfile = './scripts/cross/Dockerfile'

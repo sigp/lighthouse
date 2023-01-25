@@ -4,16 +4,18 @@ members = [
 
     "beacon_node",
     "beacon_node/beacon_chain",
+    "beacon_node/builder_client",
     "beacon_node/client",
     "beacon_node/eth1",
     "beacon_node/lighthouse_network",
+    "beacon_node/execution_layer",
     "beacon_node/http_api",
     "beacon_node/http_metrics",
     "beacon_node/network",
     "beacon_node/store",
     "beacon_node/timer",
 
-	"boot_node",
+    "boot_node",
 
     "common/account_utils",
     "common/clap_utils",
@@ -26,22 +28,25 @@ members = [
     "common/eth2_interop_keypairs",
     "common/eth2_network_config",
     "common/eth2_wallet_manager",
-    "common/hashset_delay",
     "common/lighthouse_metrics",
     "common/lighthouse_version",
     "common/lockfile",
     "common/logging",
     "common/lru_cache",
     "common/malloc_utils",
+    "common/oneshot_broadcast",
     "common/sensitive_url",
     "common/slot_clock",
+    "common/system_health",
     "common/task_executor",
     "common/target_check",
     "common/test_random_derive",
+    "common/unused_port",
     "common/validator_dir",
     "common/warp_utils",
-    "common/fallback",
     "common/monitoring_api",
+
+    "database_manager",
 
     "consensus/cached_tree_hash",
     "consensus/int_to_bytes",
@@ -73,6 +78,7 @@ members = [
 
     "testing/ef_tests",
     "testing/eth1_test_rig",
+    "testing/execution_engine_integration",
     "testing/node_test_rig",
     "testing/simulator",
     "testing/test-test_logger",
@@ -82,12 +88,22 @@ members = [
     "validator_client",
     "validator_client/slashing_protection",
 ]
+resolver = "2"
 
 [patch]
 [patch.crates-io]
+fixed-hash = { git = "https://github.com/paritytech/parity-common", rev="df638ab0885293d21d656dc300d39236b69ce57d" }
+warp = { git = "https://github.com/macladson/warp", rev="7e75acc368229a46a236a8c991bf251fe7fe50ef" }
 eth2_ssz = { path = "consensus/ssz" }
-eth2_ssz_types = { path = "consensus/ssz_types" }
 eth2_ssz_derive = { path = "consensus/ssz_derive" }
+eth2_ssz_types = { path = "consensus/ssz_types" }
+eth2_hashing = { path = "crypto/eth2_hashing" }
 tree_hash = { path = "consensus/tree_hash" }
 tree_hash_derive = { path = "consensus/tree_hash_derive" }
-fixed-hash = { git = "https://github.com/paritytech/parity-common", rev="df638ab0885293d21d656dc300d39236b69ce57d" }
+eth2_serde_utils = { path = "consensus/serde_utils" }
+
+[profile.maxperf]
+inherits = "release"
+lto = "fat"
+codegen-units = 1
+incremental = false

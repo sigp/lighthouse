@@ -4,7 +4,7 @@ The `/lighthouse/validator_inclusion` API endpoints provide information on
 results of the proof-of-stake voting process used for finality/justification
 under Casper FFG.
 
-These endpoints are not stable or included in the Eth2 standard API. As such,
+These endpoints are not stable or included in the Ethereum consensus standard API. As such,
 they are subject to change or removal without a change in major release
 version.
 
@@ -98,7 +98,7 @@ curl -X GET "http://localhost:5052/lighthouse/validator_inclusion/0/global" -H  
 Returns a per-validator summary of how that validator performed during the
 current epoch.
 
-The [Global Votes](#consensusglobal_votes) endpoint is the summation of all of these
+The [Global Votes](#global) endpoint is the summation of all of these
 individual values, please see it for definitions of terms like "current_epoch",
 "previous_epoch" and "target_attester".
 

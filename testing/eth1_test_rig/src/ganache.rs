@@ -1,9 +1,9 @@
 use serde_json::json;
 use std::io::prelude::*;
 use std::io::BufReader;
-use std::net::TcpListener;
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
+use unused_port::unused_tcp_port;
 use web3::{transports::Http, Transport, Web3};
 
 /// How long we will wait for ganache to indicate that it is ready.
@@ -16,17 +16,11 @@ pub struct GanacheInstance {
     pub port: u16,
     child: Child,
     pub web3: Web3<Http>,
-    network_id: u64,
     chain_id: u64,
 }
 
 impl GanacheInstance {
-    fn new_from_child(
-        mut child: Child,
-        port: u16,
-        network_id: u64,
-        chain_id: u64,
-    ) -> Result<Self, String> {
+    fn new_from_child(mut child: Child, port: u16, chain_id: u64) -> Result<Self, String> {
         let stdout = child
             .stdout
             .ok_or("Unable to get stdout for ganache child process")?;
@@ -36,14 +30,14 @@ impl GanacheInstance {
         loop {
             if start + Duration::from_millis(GANACHE_STARTUP_TIMEOUT_MILLIS) <= Instant::now() {
                 break Err(
-                    "Timed out waiting for ganache to start. Is ganache-cli installed?".to_string(),
+                    "Timed out waiting for ganache to start. Is ganache installed?".to_string(),
                 );
             }
 
             let mut line = String::new();
             if let Err(e) = reader.read_line(&mut line) {
                 break Err(format!("Failed to read line from ganache process: {:?}", e));
-            } else if line.starts_with("Listening on") {
+            } else if line.starts_with("RPC Listening on") {
                 break Ok(());
             } else {
                 continue;
@@ -64,18 +58,17 @@ impl GanacheInstance {
             port,
             child,
             web3,
-            network_id,
             chain_id,
         })
     }
 
-    /// Start a new `ganache-cli` process, waiting until it indicates that it is ready to accept
+    /// Start a new `ganache` process, waiting until it indicates that it is ready to accept
     /// RPC connections.
-    pub fn new(network_id: u64, chain_id: u64) -> Result<Self, String> {
-        let port = unused_port()?;
+    pub fn new(chain_id: u64) -> Result<Self, String> {
+        let port = unused_tcp_port()?;
         let binary = match cfg!(windows) {
-            true => "ganache-cli.cmd",
-            false => "ganache-cli",
+            true => "ganache.cmd",
+            false => "ganache",
         };
         let child = Command::new(binary)
             .stdout(Stdio::piped())
@@ -85,15 +78,11 @@ impl GanacheInstance {
             .arg("1000000000")
             .arg("--accounts")
             .arg("10")
-            .arg("--keepAliveTimeout")
-            .arg("0")
             .arg("--port")
             .arg(format!("{}", port))
             .arg("--mnemonic")
             .arg("\"vast thought differ pull jewel broom cook wrist tribe word before omit\"")
-            .arg("--networkId")
-            .arg(format!("{}", network_id))
-            .arg("--chainId")
+            .arg("--chain.chainId")
             .arg(format!("{}", chain_id))
             .spawn()
             .map_err(|e| {
@@ -104,14 +93,14 @@ impl GanacheInstance {
                 )
             })?;
 
-        Self::new_from_child(child, port, network_id, chain_id)
+        Self::new_from_child(child, port, chain_id)
     }
 
     pub fn fork(&self) -> Result<Self, String> {
-        let port = unused_port()?;
+        let port = unused_tcp_port()?;
         let binary = match cfg!(windows) {
-            true => "ganache-cli.cmd",
-            false => "ganache-cli",
+            true => "ganache.cmd",
+            false => "ganache",
         };
         let child = Command::new(binary)
             .stdout(Stdio::piped())
@@ -119,9 +108,7 @@ impl GanacheInstance {
             .arg(self.endpoint())
             .arg("--port")
             .arg(format!("{}", port))
-            .arg("--keepAliveTimeout")
-            .arg("0")
-            .arg("--chainId")
+            .arg("--chain.chainId")
             .arg(format!("{}", self.chain_id))
             .spawn()
             .map_err(|e| {
@@ -132,17 +119,12 @@ impl GanacheInstance {
                 )
             })?;
 
-        Self::new_from_child(child, port, self.network_id, self.chain_id)
+        Self::new_from_child(child, port, self.chain_id)
     }
 
     /// Returns the endpoint that this instance is listening on.
     pub fn endpoint(&self) -> String {
         endpoint(self.port)
-    }
-
-    /// Returns the network id of the ganache instance
-    pub fn network_id(&self) -> u64 {
-        self.network_id
     }
 
     /// Returns the chain id of the ganache instance
@@ -178,32 +160,13 @@ impl GanacheInstance {
             .await
             .map(|_| ())
             .map_err(|_| {
-                "utils should mine new block with evm_mine (only works with ganache-cli!)"
-                    .to_string()
+                "utils should mine new block with evm_mine (only works with ganache!)".to_string()
             })
     }
 }
 
 fn endpoint(port: u16) -> String {
-    format!("http://localhost:{}", port)
-}
-
-/// A bit of hack to find an unused TCP port.
-///
-/// Does not guarantee that the given port is unused after the function exists, just that it was
-/// unused before the function started (i.e., it does not reserve a port).
-pub fn unused_port() -> Result<u16, String> {
-    let listener = TcpListener::bind("127.0.0.1:0")
-        .map_err(|e| format!("Failed to create TCP listener to find unused port: {:?}", e))?;
-
-    let local_addr = listener.local_addr().map_err(|e| {
-        format!(
-            "Failed to read TCP listener local_addr to find unused port: {:?}",
-            e
-        )
-    })?;
-
-    Ok(local_addr.port())
+    format!("http://127.0.0.1:{}", port)
 }
 
 impl Drop for GanacheInstance {

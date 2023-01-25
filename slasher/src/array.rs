@@ -1,8 +1,11 @@
 use crate::metrics::{self, SLASHER_COMPRESSION_RATIO, SLASHER_NUM_CHUNKS_UPDATED};
-use crate::{AttesterRecord, AttesterSlashingStatus, Config, Error, SlasherDB};
+use crate::{
+    AttesterSlashingStatus, Config, Database, Error, IndexedAttesterRecord, RwTransaction,
+    SlasherDB,
+};
 use flate2::bufread::{ZlibDecoder, ZlibEncoder};
-use lmdb::{RwTransaction, Transaction};
 use serde_derive::{Deserialize, Serialize};
+use std::borrow::Borrow;
 use std::collections::{btree_map::Entry, BTreeMap, HashSet};
 use std::convert::TryFrom;
 use std::io::Read;
@@ -146,7 +149,7 @@ pub trait TargetArrayChunk: Sized + serde::Serialize + serde::de::DeserializeOwn
 
     fn next_start_epoch(start_epoch: Epoch, config: &Config) -> Epoch;
 
-    fn select_db<E: EthSpec>(db: &SlasherDB<E>) -> lmdb::Database;
+    fn select_db<E: EthSpec>(db: &SlasherDB<E>) -> &Database;
 
     fn load<E: EthSpec>(
         db: &SlasherDB<E>,
@@ -156,13 +159,12 @@ pub trait TargetArrayChunk: Sized + serde::Serialize + serde::de::DeserializeOwn
         config: &Config,
     ) -> Result<Option<Self>, Error> {
         let disk_key = config.disk_key(validator_chunk_index, chunk_index);
-        let chunk_bytes = match txn.get(Self::select_db(db), &disk_key.to_be_bytes()) {
-            Ok(chunk_bytes) => chunk_bytes,
-            Err(lmdb::Error::NotFound) => return Ok(None),
-            Err(e) => return Err(e.into()),
+        let chunk_bytes = match txn.get(Self::select_db(db), &disk_key.to_be_bytes())? {
+            Some(chunk_bytes) => chunk_bytes,
+            None => return Ok(None),
         };
 
-        let chunk = bincode::deserialize_from(ZlibDecoder::new(chunk_bytes))?;
+        let chunk = bincode::deserialize_from(ZlibDecoder::new(chunk_bytes.borrow()))?;
 
         Ok(Some(chunk))
     }
@@ -186,9 +188,8 @@ pub trait TargetArrayChunk: Sized + serde::Serialize + serde::de::DeserializeOwn
 
         txn.put(
             Self::select_db(db),
-            &disk_key.to_be_bytes(),
+            disk_key.to_be_bytes(),
             &compressed_value,
-            SlasherDB::<E>::write_flags(),
         )?;
         Ok(())
     }
@@ -292,8 +293,8 @@ impl TargetArrayChunk for MinTargetChunk {
         start_epoch / chunk_size * chunk_size - 1
     }
 
-    fn select_db<E: EthSpec>(db: &SlasherDB<E>) -> lmdb::Database {
-        db.min_targets_db
+    fn select_db<E: EthSpec>(db: &SlasherDB<E>) -> &Database {
+        &db.databases.min_targets_db
     }
 }
 
@@ -391,8 +392,8 @@ impl TargetArrayChunk for MaxTargetChunk {
         (start_epoch / chunk_size + 1) * chunk_size
     }
 
-    fn select_db<E: EthSpec>(db: &SlasherDB<E>) -> lmdb::Database {
-        db.max_targets_db
+    fn select_db<E: EthSpec>(db: &SlasherDB<E>) -> &Database {
+        &db.databases.max_targets_db
     }
 }
 
@@ -486,7 +487,7 @@ pub fn update<E: EthSpec>(
     db: &SlasherDB<E>,
     txn: &mut RwTransaction<'_>,
     validator_chunk_index: usize,
-    batch: Vec<Arc<(IndexedAttestation<E>, AttesterRecord)>>,
+    batch: Vec<Arc<IndexedAttesterRecord<E>>>,
     current_epoch: Epoch,
     config: &Config,
 ) -> Result<HashSet<AttesterSlashing<E>>, Error> {
@@ -496,7 +497,7 @@ pub fn update<E: EthSpec>(
     let mut chunk_attestations = BTreeMap::new();
     for attestation in batch {
         chunk_attestations
-            .entry(config.chunk_index(attestation.0.data.source.epoch))
+            .entry(config.chunk_index(attestation.indexed.data.source.epoch))
             .or_insert_with(Vec::new)
             .push(attestation);
     }
@@ -573,7 +574,7 @@ pub fn update_array<E: EthSpec, T: TargetArrayChunk>(
     db: &SlasherDB<E>,
     txn: &mut RwTransaction<'_>,
     validator_chunk_index: usize,
-    chunk_attestations: &BTreeMap<usize, Vec<Arc<(IndexedAttestation<E>, AttesterRecord)>>>,
+    chunk_attestations: &BTreeMap<usize, Vec<Arc<IndexedAttesterRecord<E>>>>,
     current_epoch: Epoch,
     config: &Config,
 ) -> Result<HashSet<AttesterSlashing<E>>, Error> {
@@ -597,7 +598,7 @@ pub fn update_array<E: EthSpec, T: TargetArrayChunk>(
     for attestations in chunk_attestations.values() {
         for attestation in attestations {
             for validator_index in
-                config.attesting_validators_in_chunk(&attestation.0, validator_chunk_index)
+                config.attesting_validators_in_chunk(&attestation.indexed, validator_chunk_index)
             {
                 let slashing_status = apply_attestation_for_validator::<E, T>(
                     db,
@@ -605,11 +606,11 @@ pub fn update_array<E: EthSpec, T: TargetArrayChunk>(
                     &mut updated_chunks,
                     validator_chunk_index,
                     validator_index,
-                    &attestation.0,
+                    &attestation.indexed,
                     current_epoch,
                     config,
                 )?;
-                if let Some(slashing) = slashing_status.into_slashing(&attestation.0) {
+                if let Some(slashing) = slashing_status.into_slashing(&attestation.indexed) {
                     slashings.insert(slashing);
                 }
             }

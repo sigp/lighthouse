@@ -3,12 +3,12 @@
 //! Each chain type is stored in it's own map. A variety of helper functions are given along with
 //! this struct to simplify the logic of the other layers of sync.
 
+use super::block_storage::BlockStorage;
 use super::chain::{ChainId, ProcessingResult, RemoveChain, SyncingChain};
 use super::sync_type::RangeSyncType;
-use crate::beacon_processor::WorkEvent as BeaconWorkEvent;
 use crate::metrics;
 use crate::sync::network_context::SyncNetworkContext;
-use beacon_chain::{BeaconChain, BeaconChainTypes};
+use beacon_chain::BeaconChainTypes;
 use fnv::FnvHashMap;
 use lighthouse_network::PeerId;
 use lighthouse_network::SyncInfo;
@@ -17,7 +17,6 @@ use smallvec::SmallVec;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::mpsc;
 use types::EthSpec;
 use types::{Epoch, Hash256, Slot};
 
@@ -39,9 +38,9 @@ pub enum RangeSyncState {
 }
 
 /// A collection of finalized and head chains currently being processed.
-pub struct ChainCollection<T: BeaconChainTypes> {
+pub struct ChainCollection<T: BeaconChainTypes, C> {
     /// The beacon chain for processing.
-    beacon_chain: Arc<BeaconChain<T>>,
+    beacon_chain: Arc<C>,
     /// The set of finalized chains being synced.
     finalized_chains: FnvHashMap<ChainId, SyncingChain<T>>,
     /// The set of head chains being synced.
@@ -52,8 +51,8 @@ pub struct ChainCollection<T: BeaconChainTypes> {
     log: slog::Logger,
 }
 
-impl<T: BeaconChainTypes> ChainCollection<T> {
-    pub fn new(beacon_chain: Arc<BeaconChain<T>>, log: slog::Logger) -> Self {
+impl<T: BeaconChainTypes, C: BlockStorage> ChainCollection<T, C> {
+    pub fn new(beacon_chain: Arc<C>, log: slog::Logger) -> Self {
         ChainCollection {
             beacon_chain,
             finalized_chains: FnvHashMap::default(),
@@ -72,7 +71,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
             RangeSyncState::Finalized(ref syncing_id) => {
                 if syncing_id == id {
                     // the finalized chain that was syncing was removed
-                    debug_assert!(was_syncing);
+                    debug_assert!(was_syncing && sync_type == RangeSyncType::Finalized);
                     let syncing_head_ids: SmallVec<[u64; PARALLEL_HEAD_CHAINS]> = self
                         .head_chains
                         .iter()
@@ -85,7 +84,8 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
                         RangeSyncState::Head(syncing_head_ids)
                     };
                 } else {
-                    debug_assert!(!was_syncing);
+                    // we removed a head chain, or an stoped finalized chain
+                    debug_assert!(!was_syncing || sync_type != RangeSyncType::Finalized);
                 }
             }
             RangeSyncState::Head(ref mut syncing_head_ids) => {
@@ -191,10 +191,9 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
     /// do so.
     pub fn update(
         &mut self,
-        network: &mut SyncNetworkContext<T::EthSpec>,
+        network: &mut SyncNetworkContext<T>,
         local: &SyncInfo,
         awaiting_head_peers: &mut HashMap<PeerId, SyncInfo>,
-        beacon_processor_send: &mpsc::Sender<BeaconWorkEvent<T>>,
     ) {
         // Remove any outdated finalized/head chains
         self.purge_outdated_chains(local, awaiting_head_peers);
@@ -210,7 +209,6 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
                 local.finalized_epoch,
                 local_head_epoch,
                 awaiting_head_peers,
-                beacon_processor_send,
             );
         }
     }
@@ -255,7 +253,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
     /// or not.
     fn update_finalized_chains(
         &mut self,
-        network: &mut SyncNetworkContext<T::EthSpec>,
+        network: &mut SyncNetworkContext<T>,
         local_epoch: Epoch,
         local_head_epoch: Epoch,
     ) {
@@ -324,11 +322,10 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
     /// Start syncing any head chains if required.
     fn update_head_chains(
         &mut self,
-        network: &mut SyncNetworkContext<T::EthSpec>,
+        network: &mut SyncNetworkContext<T>,
         local_epoch: Epoch,
         local_head_epoch: Epoch,
         awaiting_head_peers: &mut HashMap<PeerId, SyncInfo>,
-        beacon_processor_send: &mpsc::Sender<BeaconWorkEvent<T>>,
     ) {
         // Include the awaiting head peers
         for (peer_id, peer_sync_info) in awaiting_head_peers.drain() {
@@ -339,7 +336,6 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
                 peer_sync_info.head_slot,
                 peer_id,
                 RangeSyncType::Head,
-                beacon_processor_send,
                 network,
             );
         }
@@ -413,8 +409,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
         let log_ref = &self.log;
 
         let is_outdated = |target_slot: &Slot, target_root: &Hash256| {
-            target_slot <= &local_finalized_slot
-                || beacon_chain.fork_choice.read().contains_block(target_root)
+            target_slot <= &local_finalized_slot || beacon_chain.is_block_known(target_root)
         };
 
         // Retain only head peers that remain relevant
@@ -424,31 +419,35 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
 
         // Remove chains that are out-dated
         let mut removed_chains = Vec::new();
-        self.finalized_chains.retain(|id, chain| {
+        removed_chains.extend(self.finalized_chains.iter().filter_map(|(id, chain)| {
             if is_outdated(&chain.target_head_slot, &chain.target_head_root)
                 || chain.available_peers() == 0
             {
                 debug!(log_ref, "Purging out of finalized chain"; &chain);
-                removed_chains.push((*id, chain.is_syncing(), RangeSyncType::Finalized));
-                false
+                Some((*id, chain.is_syncing(), RangeSyncType::Finalized))
             } else {
-                true
+                None
             }
-        });
-        self.head_chains.retain(|id, chain| {
+        }));
+
+        removed_chains.extend(self.head_chains.iter().filter_map(|(id, chain)| {
             if is_outdated(&chain.target_head_slot, &chain.target_head_root)
                 || chain.available_peers() == 0
             {
                 debug!(log_ref, "Purging out of date head chain"; &chain);
-                removed_chains.push((*id, chain.is_syncing(), RangeSyncType::Head));
-                false
+                Some((*id, chain.is_syncing(), RangeSyncType::Head))
             } else {
-                true
+                None
             }
-        });
+        }));
 
         // update the state of the collection
         for (id, was_syncing, sync_type) in removed_chains {
+            // remove each chain, updating the state for each removal.
+            match sync_type {
+                RangeSyncType::Finalized => self.finalized_chains.remove(&id),
+                RangeSyncType::Head => self.head_chains.remove(&id),
+            };
             self.on_chain_removed(&id, was_syncing, sync_type);
         }
     }
@@ -463,14 +462,13 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
         target_head_slot: Slot,
         peer: PeerId,
         sync_type: RangeSyncType,
-        beacon_processor_send: &mpsc::Sender<BeaconWorkEvent<T>>,
-        network: &mut SyncNetworkContext<T::EthSpec>,
+        network: &mut SyncNetworkContext<T>,
     ) {
         let id = SyncingChain::<T>::id(&target_head_root, &target_head_slot);
-        let collection = if let RangeSyncType::Finalized = sync_type {
-            &mut self.finalized_chains
+        let (collection, is_finalized) = if let RangeSyncType::Finalized = sync_type {
+            (&mut self.finalized_chains, true)
         } else {
-            &mut self.head_chains
+            (&mut self.head_chains, false)
         };
         match collection.entry(id) {
             Entry::Occupied(mut entry) => {
@@ -495,7 +493,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
                     target_head_slot,
                     target_head_root,
                     peer,
-                    beacon_processor_send.clone(),
+                    is_finalized,
                     &self.log,
                 );
                 debug_assert_eq!(new_chain.get_id(), id);

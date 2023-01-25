@@ -1,3 +1,4 @@
+use crate::application_domain::{ApplicationDomain, APPLICATION_DOMAIN_BUILDER};
 use crate::*;
 use eth2_serde_utils::quoted_u64::MaybeQuoted;
 use int_to_bytes::int_to_bytes4;
@@ -20,6 +21,7 @@ pub enum Domain {
     SyncCommittee,
     ContributionAndProof,
     SyncCommitteeSelectionProof,
+    ApplicationMask(ApplicationDomain),
 }
 
 /// Lighthouse's internal configuration struct.
@@ -28,6 +30,11 @@ pub enum Domain {
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 #[derive(PartialEq, Debug, Clone)]
 pub struct ChainSpec {
+    /*
+     * Config name
+     */
+    pub config_name: Option<String>,
+
     /*
      * Constants
      */
@@ -101,6 +108,7 @@ pub struct ChainSpec {
      * Fork choice
      */
     pub safe_slots_to_update_justified: u64,
+    pub proposer_score_boost: Option<u64>,
 
     /*
      * Eth1
@@ -129,6 +137,20 @@ pub struct ChainSpec {
     pub altair_fork_epoch: Option<Epoch>,
 
     /*
+     * Merge hard fork params
+     */
+    pub inactivity_penalty_quotient_bellatrix: u64,
+    pub min_slashing_penalty_quotient_bellatrix: u64,
+    pub proportional_slashing_multiplier_bellatrix: u64,
+    pub bellatrix_fork_version: [u8; 4],
+    /// The Merge fork epoch is optional, with `None` representing "Merge never happens".
+    pub bellatrix_fork_epoch: Option<Epoch>,
+    pub terminal_total_difficulty: Uint256,
+    pub terminal_block_hash: ExecutionBlockHash,
+    pub terminal_block_hash_activation_epoch: Epoch,
+    pub safe_slots_to_import_optimistically: u64,
+
+    /*
      * Networking
      */
     pub boot_nodes: Vec<String>,
@@ -139,6 +161,14 @@ pub struct ChainSpec {
     pub attestation_subnet_count: u64,
     pub random_subnets_per_validator: u64,
     pub epochs_per_random_subnet_subscription: u64,
+    pub subnets_per_node: u8,
+    pub epochs_per_subnet_subscription: u64,
+    attestation_subnet_extra_bits: u8,
+
+    /*
+     * Application params
+     */
+    pub(crate) domain_application_mask: u32,
 }
 
 impl ChainSpec {
@@ -156,7 +186,7 @@ impl ChainSpec {
     ) -> EnrForkId {
         EnrForkId {
             fork_digest: self.fork_digest::<T>(slot, genesis_validators_root),
-            next_fork_version: self.next_fork_version(),
+            next_fork_version: self.next_fork_version::<T>(slot),
             next_fork_epoch: self
                 .next_fork_epoch::<T>(slot)
                 .map(|(_, e)| e)
@@ -178,10 +208,12 @@ impl ChainSpec {
 
     /// Returns the `next_fork_version`.
     ///
-    /// Since `next_fork_version = current_fork_version` if no future fork is planned,
-    /// this function returns `altair_fork_version` until the next fork is planned.
-    pub fn next_fork_version(&self) -> [u8; 4] {
-        self.altair_fork_version
+    /// `next_fork_version = current_fork_version` if no future fork is planned,
+    pub fn next_fork_version<E: EthSpec>(&self, slot: Slot) -> [u8; 4] {
+        match self.next_fork_epoch::<E>(slot) {
+            Some((fork, _)) => self.fork_version_for_name(fork),
+            None => self.fork_version_for_name(self.fork_name_at_slot::<E>(slot)),
+        }
     }
 
     /// Returns the epoch of the next scheduled fork along with its corresponding `ForkName`.
@@ -201,9 +233,12 @@ impl ChainSpec {
 
     /// Returns the name of the fork which is active at `epoch`.
     pub fn fork_name_at_epoch(&self, epoch: Epoch) -> ForkName {
-        match self.altair_fork_epoch {
-            Some(fork_epoch) if epoch >= fork_epoch => ForkName::Altair,
-            _ => ForkName::Base,
+        match self.bellatrix_fork_epoch {
+            Some(fork_epoch) if epoch >= fork_epoch => ForkName::Merge,
+            _ => match self.altair_fork_epoch {
+                Some(fork_epoch) if epoch >= fork_epoch => ForkName::Altair,
+                _ => ForkName::Base,
+            },
         }
     }
 
@@ -212,6 +247,7 @@ impl ChainSpec {
         match fork_name {
             ForkName::Base => self.genesis_fork_version,
             ForkName::Altair => self.altair_fork_version,
+            ForkName::Merge => self.bellatrix_fork_version,
         }
     }
 
@@ -220,6 +256,40 @@ impl ChainSpec {
         match fork_name {
             ForkName::Base => Some(Epoch::new(0)),
             ForkName::Altair => self.altair_fork_epoch,
+            ForkName::Merge => self.bellatrix_fork_epoch,
+        }
+    }
+
+    /// For a given `BeaconState`, return the inactivity penalty quotient associated with its variant.
+    pub fn inactivity_penalty_quotient_for_state<T: EthSpec>(&self, state: &BeaconState<T>) -> u64 {
+        match state {
+            BeaconState::Base(_) => self.inactivity_penalty_quotient,
+            BeaconState::Altair(_) => self.inactivity_penalty_quotient_altair,
+            BeaconState::Merge(_) => self.inactivity_penalty_quotient_bellatrix,
+        }
+    }
+
+    /// For a given `BeaconState`, return the proportional slashing multiplier associated with its variant.
+    pub fn proportional_slashing_multiplier_for_state<T: EthSpec>(
+        &self,
+        state: &BeaconState<T>,
+    ) -> u64 {
+        match state {
+            BeaconState::Base(_) => self.proportional_slashing_multiplier,
+            BeaconState::Altair(_) => self.proportional_slashing_multiplier_altair,
+            BeaconState::Merge(_) => self.proportional_slashing_multiplier_bellatrix,
+        }
+    }
+
+    /// For a given `BeaconState`, return the minimum slashing penalty quotient associated with its variant.
+    pub fn min_slashing_penalty_quotient_for_state<T: EthSpec>(
+        &self,
+        state: &BeaconState<T>,
+    ) -> u64 {
+        match state {
+            BeaconState::Base(_) => self.min_slashing_penalty_quotient,
+            BeaconState::Altair(_) => self.min_slashing_penalty_quotient_altair,
+            BeaconState::Merge(_) => self.min_slashing_penalty_quotient_bellatrix,
         }
     }
 
@@ -266,6 +336,7 @@ impl ChainSpec {
             Domain::SyncCommittee => self.domain_sync_committee,
             Domain::ContributionAndProof => self.domain_contribution_and_proof,
             Domain::SyncCommitteeSelectionProof => self.domain_sync_committee_selection_proof,
+            Domain::ApplicationMask(application_domain) => application_domain.get_domain_constant(),
         }
     }
 
@@ -291,6 +362,17 @@ impl ChainSpec {
     /// Spec v0.12.1
     pub fn get_deposit_domain(&self) -> Hash256 {
         self.compute_domain(Domain::Deposit, self.genesis_fork_version, Hash256::zero())
+    }
+
+    // This should be updated to include the current fork and the genesis validators root, but discussion is ongoing:
+    //
+    // https://github.com/ethereum/builder-specs/issues/14
+    pub fn get_builder_domain(&self) -> Hash256 {
+        self.compute_domain(
+            Domain::ApplicationMask(ApplicationDomain::Builder),
+            self.genesis_fork_version,
+            Hash256::zero(),
+        )
     }
 
     /// Return the 32-byte fork data root for the `current_version` and `genesis_validators_root`.
@@ -348,14 +430,34 @@ impl ChainSpec {
         Hash256::from(domain)
     }
 
+    #[allow(clippy::integer_arithmetic)]
+    pub const fn attestation_subnet_prefix_bits(&self) -> u32 {
+        // maybe use log2 when stable https://github.com/rust-lang/rust/issues/70887
+
+        // NOTE: this line is here simply to guarantee that if self.attestation_subnet_count type
+        // is changed, a compiler warning will be raised. This code depends on the type being u64.
+        let attestation_subnet_count: u64 = self.attestation_subnet_count;
+        let attestation_subnet_count_bits = if attestation_subnet_count == 0 {
+            0
+        } else {
+            63 - attestation_subnet_count.leading_zeros()
+        };
+
+        self.attestation_subnet_extra_bits as u32 + attestation_subnet_count_bits
+    }
+
     /// Returns a `ChainSpec` compatible with the Ethereum Foundation specification.
     pub fn mainnet() -> Self {
         Self {
             /*
+             * Config name
+             */
+            config_name: Some("mainnet".to_string()),
+            /*
              * Constants
              */
             genesis_slot: Slot::new(0),
-            far_future_epoch: Epoch::new(u64::max_value()),
+            far_future_epoch: Epoch::new(u64::MAX),
             base_rewards_per_epoch: 4,
             deposit_contract_tree_depth: 32,
 
@@ -436,6 +538,7 @@ impl ChainSpec {
              * Fork choice
              */
             safe_slots_to_update_justified: 8,
+            proposer_score_boost: Some(40),
 
             /*
              * Eth1
@@ -469,6 +572,22 @@ impl ChainSpec {
             altair_fork_epoch: Some(Epoch::new(74240)),
 
             /*
+             * Merge hard fork params
+             */
+            inactivity_penalty_quotient_bellatrix: u64::checked_pow(2, 24)
+                .expect("pow does not overflow"),
+            min_slashing_penalty_quotient_bellatrix: u64::checked_pow(2, 5)
+                .expect("pow does not overflow"),
+            proportional_slashing_multiplier_bellatrix: 3,
+            bellatrix_fork_version: [0x02, 0x00, 0x00, 0x00],
+            bellatrix_fork_epoch: Some(Epoch::new(144896)),
+            terminal_total_difficulty: Uint256::from_dec_str("58750000000000000000000")
+                .expect("terminal_total_difficulty is a valid integer"),
+            terminal_block_hash: ExecutionBlockHash::zero(),
+            terminal_block_hash_activation_epoch: Epoch::new(u64::MAX),
+            safe_slots_to_import_optimistically: 128u64,
+
+            /*
              * Network specific
              */
             boot_nodes: vec![],
@@ -476,9 +595,17 @@ impl ChainSpec {
             attestation_propagation_slot_range: 32,
             attestation_subnet_count: 64,
             random_subnets_per_validator: 1,
+            subnets_per_node: 1,
             maximum_gossip_clock_disparity_millis: 500,
             target_aggregators_per_committee: 16,
             epochs_per_random_subnet_subscription: 256,
+            epochs_per_subnet_subscription: 256,
+            attestation_subnet_extra_bits: 6,
+
+            /*
+             * Application specific
+             */
+            domain_application_mask: APPLICATION_DOMAIN_BUILDER,
         }
     }
 
@@ -488,6 +615,7 @@ impl ChainSpec {
         let boot_nodes = vec![];
 
         Self {
+            config_name: None,
             max_committees_per_slot: 4,
             target_committee_size: 4,
             churn_limit_quotient: 32,
@@ -507,6 +635,16 @@ impl ChainSpec {
             epochs_per_sync_committee_period: Epoch::new(8),
             altair_fork_version: [0x01, 0x00, 0x00, 0x01],
             altair_fork_epoch: None,
+            // Merge
+            bellatrix_fork_version: [0x02, 0x00, 0x00, 0x01],
+            bellatrix_fork_epoch: None,
+            terminal_total_difficulty: Uint256::MAX
+                .checked_sub(Uint256::from(2u64.pow(10)))
+                .expect("subtraction does not overflow")
+                // Add 1 since the spec declares `2**256 - 2**10` and we use
+                // `Uint256::MAX` which is `2*256- 1`.
+                .checked_add(Uint256::one())
+                .expect("addition does not overflow"),
             // Other
             network_id: 2, // lighthouse testnet network id
             deposit_chain_id: 5,
@@ -518,6 +656,168 @@ impl ChainSpec {
             ..ChainSpec::mainnet()
         }
     }
+
+    /// Returns a `ChainSpec` compatible with the Gnosis Beacon Chain specification.
+    pub fn gnosis() -> Self {
+        Self {
+            config_name: Some("gnosis".to_string()),
+            /*
+             * Constants
+             */
+            genesis_slot: Slot::new(0),
+            far_future_epoch: Epoch::new(u64::MAX),
+            base_rewards_per_epoch: 4,
+            deposit_contract_tree_depth: 32,
+
+            /*
+             * Misc
+             */
+            max_committees_per_slot: 64,
+            target_committee_size: 128,
+            min_per_epoch_churn_limit: 4,
+            churn_limit_quotient: 4_096,
+            shuffle_round_count: 90,
+            min_genesis_active_validator_count: 4_096,
+            min_genesis_time: 1638968400, // Dec 8, 2020
+            hysteresis_quotient: 4,
+            hysteresis_downward_multiplier: 1,
+            hysteresis_upward_multiplier: 5,
+
+            /*
+             *  Gwei values
+             */
+            min_deposit_amount: option_wrapper(|| {
+                u64::checked_pow(2, 0)?.checked_mul(u64::checked_pow(10, 9)?)
+            })
+            .expect("calculation does not overflow"),
+            max_effective_balance: option_wrapper(|| {
+                u64::checked_pow(2, 5)?.checked_mul(u64::checked_pow(10, 9)?)
+            })
+            .expect("calculation does not overflow"),
+            ejection_balance: option_wrapper(|| {
+                u64::checked_pow(2, 4)?.checked_mul(u64::checked_pow(10, 9)?)
+            })
+            .expect("calculation does not overflow"),
+            effective_balance_increment: option_wrapper(|| {
+                u64::checked_pow(2, 0)?.checked_mul(u64::checked_pow(10, 9)?)
+            })
+            .expect("calculation does not overflow"),
+
+            /*
+             * Initial Values
+             */
+            genesis_fork_version: [0x00, 0x00, 0x00, 0x64],
+            bls_withdrawal_prefix_byte: 0,
+
+            /*
+             * Time parameters
+             */
+            genesis_delay: 6000, // 100 minutes
+            seconds_per_slot: 5,
+            min_attestation_inclusion_delay: 1,
+            min_seed_lookahead: Epoch::new(1),
+            max_seed_lookahead: Epoch::new(4),
+            min_epochs_to_inactivity_penalty: 4,
+            min_validator_withdrawability_delay: Epoch::new(256),
+            shard_committee_period: 256,
+
+            /*
+             * Reward and penalty quotients
+             */
+            base_reward_factor: 25,
+            whistleblower_reward_quotient: 512,
+            proposer_reward_quotient: 8,
+            inactivity_penalty_quotient: u64::checked_pow(2, 26).expect("pow does not overflow"),
+            min_slashing_penalty_quotient: 128,
+            proportional_slashing_multiplier: 1,
+
+            /*
+             * Signature domains
+             */
+            domain_beacon_proposer: 0,
+            domain_beacon_attester: 1,
+            domain_randao: 2,
+            domain_deposit: 3,
+            domain_voluntary_exit: 4,
+            domain_selection_proof: 5,
+            domain_aggregate_and_proof: 6,
+
+            /*
+             * Fork choice
+             */
+            safe_slots_to_update_justified: 8,
+            proposer_score_boost: Some(40),
+
+            /*
+             * Eth1
+             */
+            eth1_follow_distance: 1024,
+            seconds_per_eth1_block: 6,
+            deposit_chain_id: 100,
+            deposit_network_id: 100,
+            deposit_contract_address: "0B98057eA310F4d31F2a452B414647007d1645d9"
+                .parse()
+                .expect("chain spec deposit contract address"),
+
+            /*
+             * Altair hard fork params
+             */
+            inactivity_penalty_quotient_altair: option_wrapper(|| {
+                u64::checked_pow(2, 24)?.checked_mul(3)
+            })
+            .expect("calculation does not overflow"),
+            min_slashing_penalty_quotient_altair: u64::checked_pow(2, 6)
+                .expect("pow does not overflow"),
+            proportional_slashing_multiplier_altair: 2,
+            inactivity_score_bias: 4,
+            inactivity_score_recovery_rate: 16,
+            min_sync_committee_participants: 1,
+            epochs_per_sync_committee_period: Epoch::new(512),
+            domain_sync_committee: 7,
+            domain_sync_committee_selection_proof: 8,
+            domain_contribution_and_proof: 9,
+            altair_fork_version: [0x01, 0x00, 0x00, 0x64],
+            altair_fork_epoch: Some(Epoch::new(512)),
+
+            /*
+             * Merge hard fork params
+             */
+            inactivity_penalty_quotient_bellatrix: u64::checked_pow(2, 24)
+                .expect("pow does not overflow"),
+            min_slashing_penalty_quotient_bellatrix: u64::checked_pow(2, 5)
+                .expect("pow does not overflow"),
+            proportional_slashing_multiplier_bellatrix: 3,
+            bellatrix_fork_version: [0x02, 0x00, 0x00, 0x64],
+            bellatrix_fork_epoch: Some(Epoch::new(385536)),
+            terminal_total_difficulty: Uint256::from_dec_str(
+                "8626000000000000000000058750000000000000000000",
+            )
+            .expect("terminal_total_difficulty is a valid integer"),
+            terminal_block_hash: ExecutionBlockHash::zero(),
+            terminal_block_hash_activation_epoch: Epoch::new(u64::MAX),
+            safe_slots_to_import_optimistically: 128u64,
+
+            /*
+             * Network specific
+             */
+            boot_nodes: vec![],
+            network_id: 100, // Gnosis Chain network id
+            attestation_propagation_slot_range: 32,
+            attestation_subnet_count: 64,
+            random_subnets_per_validator: 1,
+            subnets_per_node: 1,
+            maximum_gossip_clock_disparity_millis: 500,
+            target_aggregators_per_committee: 16,
+            epochs_per_random_subnet_subscription: 256,
+            epochs_per_subnet_subscription: 256,
+            attestation_subnet_extra_bits: 6,
+
+            /*
+             * Application specific
+             */
+            domain_application_mask: APPLICATION_DOMAIN_BUILDER,
+        }
+    }
 }
 
 impl Default for ChainSpec {
@@ -527,11 +827,30 @@ impl Default for ChainSpec {
 }
 
 /// Exact implementation of the *config* object from the Ethereum spec (YAML/JSON).
+///
+/// Fields relevant to hard forks after Altair should be optional so that we can continue
+/// to parse Altair configs. This default approach turns out to be much simpler than trying to
+/// make `Config` a superstruct because of the hassle of deserializing an untagged enum.
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 #[serde(rename_all = "UPPERCASE")]
 pub struct Config {
     #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub config_name: Option<String>,
+
+    #[serde(default)]
     pub preset_base: String,
+
+    #[serde(default = "default_terminal_total_difficulty")]
+    #[serde(with = "eth2_serde_utils::quoted_u256")]
+    pub terminal_total_difficulty: Uint256,
+    #[serde(default = "default_terminal_block_hash")]
+    pub terminal_block_hash: ExecutionBlockHash,
+    #[serde(default = "default_terminal_block_hash_activation_epoch")]
+    pub terminal_block_hash_activation_epoch: Epoch,
+    #[serde(default = "default_safe_slots_to_import_optimistically")]
+    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    pub safe_slots_to_import_optimistically: u64,
 
     #[serde(with = "eth2_serde_utils::quoted_u64")]
     min_genesis_active_validator_count: u64,
@@ -547,6 +866,14 @@ pub struct Config {
     #[serde(serialize_with = "serialize_fork_epoch")]
     #[serde(deserialize_with = "deserialize_fork_epoch")]
     pub altair_fork_epoch: Option<MaybeQuoted<Epoch>>,
+
+    #[serde(default = "default_bellatrix_fork_version")]
+    #[serde(with = "eth2_serde_utils::bytes_4_hex")]
+    bellatrix_fork_version: [u8; 4],
+    #[serde(default)]
+    #[serde(serialize_with = "serialize_fork_epoch")]
+    #[serde(deserialize_with = "deserialize_fork_epoch")]
+    pub bellatrix_fork_epoch: Option<MaybeQuoted<Epoch>>,
 
     #[serde(with = "eth2_serde_utils::quoted_u64")]
     seconds_per_slot: u64,
@@ -570,11 +897,43 @@ pub struct Config {
     #[serde(with = "eth2_serde_utils::quoted_u64")]
     churn_limit_quotient: u64,
 
+    #[serde(skip_serializing_if = "Option::is_none")]
+    proposer_score_boost: Option<MaybeQuoted<u64>>,
+
     #[serde(with = "eth2_serde_utils::quoted_u64")]
     deposit_chain_id: u64,
     #[serde(with = "eth2_serde_utils::quoted_u64")]
     deposit_network_id: u64,
     deposit_contract_address: Address,
+}
+
+fn default_bellatrix_fork_version() -> [u8; 4] {
+    // This value shouldn't be used.
+    [0xff, 0xff, 0xff, 0xff]
+}
+
+/// Placeholder value: 2^256-2^10 (115792089237316195423570985008687907853269984665640564039457584007913129638912).
+///
+/// Taken from https://github.com/ethereum/consensus-specs/blob/d5e4828aecafaf1c57ef67a5f23c4ae7b08c5137/configs/mainnet.yaml#L15-L16
+const fn default_terminal_total_difficulty() -> Uint256 {
+    ethereum_types::U256([
+        18446744073709550592,
+        18446744073709551615,
+        18446744073709551615,
+        18446744073709551615,
+    ])
+}
+
+fn default_terminal_block_hash() -> ExecutionBlockHash {
+    ExecutionBlockHash::zero()
+}
+
+fn default_terminal_block_hash_activation_epoch() -> Epoch {
+    Epoch::new(u64::MAX)
+}
+
+fn default_safe_slots_to_import_optimistically() -> u64 {
+    128u64
 }
 
 impl Default for Config {
@@ -621,13 +980,20 @@ impl Config {
         match self.preset_base.as_str() {
             "minimal" => Some(EthSpecId::Minimal),
             "mainnet" => Some(EthSpecId::Mainnet),
+            "gnosis" => Some(EthSpecId::Gnosis),
             _ => None,
         }
     }
 
     pub fn from_chain_spec<T: EthSpec>(spec: &ChainSpec) -> Self {
         Self {
+            config_name: spec.config_name.clone(),
             preset_base: T::spec_name().to_string(),
+
+            terminal_total_difficulty: spec.terminal_total_difficulty,
+            terminal_block_hash: spec.terminal_block_hash,
+            terminal_block_hash_activation_epoch: spec.terminal_block_hash_activation_epoch,
+            safe_slots_to_import_optimistically: spec.safe_slots_to_import_optimistically,
 
             min_genesis_active_validator_count: spec.min_genesis_active_validator_count,
             min_genesis_time: spec.min_genesis_time,
@@ -637,6 +1003,10 @@ impl Config {
             altair_fork_version: spec.altair_fork_version,
             altair_fork_epoch: spec
                 .altair_fork_epoch
+                .map(|epoch| MaybeQuoted { value: epoch }),
+            bellatrix_fork_version: spec.bellatrix_fork_version,
+            bellatrix_fork_epoch: spec
+                .bellatrix_fork_epoch
                 .map(|epoch| MaybeQuoted { value: epoch }),
 
             seconds_per_slot: spec.seconds_per_slot,
@@ -650,6 +1020,8 @@ impl Config {
             ejection_balance: spec.ejection_balance,
             churn_limit_quotient: spec.churn_limit_quotient,
             min_per_epoch_churn_limit: spec.min_per_epoch_churn_limit,
+
+            proposer_score_boost: spec.proposer_score_boost.map(|value| MaybeQuoted { value }),
 
             deposit_chain_id: spec.deposit_chain_id,
             deposit_network_id: spec.deposit_network_id,
@@ -667,13 +1039,20 @@ impl Config {
     pub fn apply_to_chain_spec<T: EthSpec>(&self, chain_spec: &ChainSpec) -> Option<ChainSpec> {
         // Pattern match here to avoid missing any fields.
         let &Config {
+            ref config_name,
             ref preset_base,
+            terminal_total_difficulty,
+            terminal_block_hash,
+            terminal_block_hash_activation_epoch,
+            safe_slots_to_import_optimistically,
             min_genesis_active_validator_count,
             min_genesis_time,
             genesis_fork_version,
             genesis_delay,
             altair_fork_version,
             altair_fork_epoch,
+            bellatrix_fork_epoch,
+            bellatrix_fork_version,
             seconds_per_slot,
             seconds_per_eth1_block,
             min_validator_withdrawability_delay,
@@ -684,6 +1063,7 @@ impl Config {
             ejection_balance,
             min_per_epoch_churn_limit,
             churn_limit_quotient,
+            proposer_score_boost,
             deposit_chain_id,
             deposit_network_id,
             deposit_contract_address,
@@ -694,12 +1074,15 @@ impl Config {
         }
 
         Some(ChainSpec {
+            config_name: config_name.clone(),
             min_genesis_active_validator_count,
             min_genesis_time,
             genesis_fork_version,
             genesis_delay,
             altair_fork_version,
             altair_fork_epoch: altair_fork_epoch.map(|q| q.value),
+            bellatrix_fork_epoch: bellatrix_fork_epoch.map(|q| q.value),
+            bellatrix_fork_version,
             seconds_per_slot,
             seconds_per_eth1_block,
             min_validator_withdrawability_delay,
@@ -710,9 +1093,14 @@ impl Config {
             ejection_balance,
             min_per_epoch_churn_limit,
             churn_limit_quotient,
+            proposer_score_boost: proposer_score_boost.map(|q| q.value),
             deposit_chain_id,
             deposit_network_id,
             deposit_contract_address,
+            terminal_total_difficulty,
+            terminal_block_hash,
+            terminal_block_hash_activation_epoch,
+            safe_slots_to_import_optimistically,
             ..chain_spec.clone()
         })
     }
@@ -778,6 +1166,27 @@ mod tests {
             &spec,
         );
         test_domain(Domain::SyncCommittee, spec.domain_sync_committee, &spec);
+
+        // The builder domain index is zero
+        let builder_domain_pre_mask = [0; 4];
+        test_domain(
+            Domain::ApplicationMask(ApplicationDomain::Builder),
+            apply_bit_mask(builder_domain_pre_mask, &spec),
+            &spec,
+        );
+    }
+
+    fn apply_bit_mask(domain_bytes: [u8; 4], spec: &ChainSpec) -> u32 {
+        let mut domain = [0; 4];
+        let mask_bytes = int_to_bytes4(spec.domain_application_mask);
+
+        // Apply application bit mask
+        for (i, (domain_byte, mask_byte)) in domain_bytes.iter().zip(mask_bytes.iter()).enumerate()
+        {
+            domain[i] = domain_byte | mask_byte;
+        }
+
+        u32::from_le_bytes(domain)
     }
 
     // Test that `fork_name_at_epoch` and `fork_epoch` are consistent.
@@ -823,14 +1232,13 @@ mod tests {
 #[cfg(test)]
 mod yaml_tests {
     use super::*;
-    use std::fs::OpenOptions;
     use tempfile::NamedTempFile;
 
     #[test]
     fn minimal_round_trip() {
         // create temp file
         let tmp_file = NamedTempFile::new().expect("failed to create temp file");
-        let writer = OpenOptions::new()
+        let writer = File::options()
             .read(false)
             .write(true)
             .open(tmp_file.as_ref())
@@ -841,7 +1249,7 @@ mod yaml_tests {
         // write fresh minimal config to file
         serde_yaml::to_writer(writer, &yamlconfig).expect("failed to write or serialize");
 
-        let reader = OpenOptions::new()
+        let reader = File::options()
             .read(true)
             .write(false)
             .open(tmp_file.as_ref())
@@ -854,7 +1262,7 @@ mod yaml_tests {
     #[test]
     fn mainnet_round_trip() {
         let tmp_file = NamedTempFile::new().expect("failed to create temp file");
-        let writer = OpenOptions::new()
+        let writer = File::options()
             .read(false)
             .write(true)
             .open(tmp_file.as_ref())
@@ -863,7 +1271,7 @@ mod yaml_tests {
         let yamlconfig = Config::from_chain_spec::<MainnetEthSpec>(&mainnet_spec);
         serde_yaml::to_writer(writer, &yamlconfig).expect("failed to write or serialize");
 
-        let reader = OpenOptions::new()
+        let reader = File::options()
             .read(true)
             .write(false)
             .open(tmp_file.as_ref())
@@ -890,5 +1298,84 @@ mod yaml_tests {
             .apply_to_chain_spec::<MinimalEthSpec>(&spec)
             .expect("should have applied spec");
         assert_eq!(new_spec, ChainSpec::minimal());
+    }
+
+    #[test]
+    fn test_defaults() {
+        // Spec yaml string. Fields that serialize/deserialize with a default value are commented out.
+        let spec = r#"
+        PRESET_BASE: 'mainnet'
+        #TERMINAL_TOTAL_DIFFICULTY: 115792089237316195423570985008687907853269984665640564039457584007913129638911
+        #TERMINAL_BLOCK_HASH: 0x0000000000000000000000000000000000000000000000000000000000000001
+        #TERMINAL_BLOCK_HASH_ACTIVATION_EPOCH: 18446744073709551614
+        #SAFE_SLOTS_TO_IMPORT_OPTIMISTICALLY: 2
+        MIN_GENESIS_ACTIVE_VALIDATOR_COUNT: 16384
+        MIN_GENESIS_TIME: 1606824000
+        GENESIS_FORK_VERSION: 0x00000000
+        GENESIS_DELAY: 604800
+        ALTAIR_FORK_VERSION: 0x01000000
+        ALTAIR_FORK_EPOCH: 74240
+        #BELLATRIX_FORK_VERSION: 0x02000000
+        #BELLATRIX_FORK_EPOCH: 18446744073709551614
+        SHARDING_FORK_VERSION: 0x03000000
+        SHARDING_FORK_EPOCH: 18446744073709551615
+        SECONDS_PER_SLOT: 12
+        SECONDS_PER_ETH1_BLOCK: 14
+        MIN_VALIDATOR_WITHDRAWABILITY_DELAY: 256
+        SHARD_COMMITTEE_PERIOD: 256
+        ETH1_FOLLOW_DISTANCE: 2048
+        INACTIVITY_SCORE_BIAS: 4
+        INACTIVITY_SCORE_RECOVERY_RATE: 16
+        EJECTION_BALANCE: 16000000000
+        MIN_PER_EPOCH_CHURN_LIMIT: 4
+        CHURN_LIMIT_QUOTIENT: 65536
+        PROPOSER_SCORE_BOOST: 40
+        DEPOSIT_CHAIN_ID: 1
+        DEPOSIT_NETWORK_ID: 1
+        DEPOSIT_CONTRACT_ADDRESS: 0x00000000219ab540356cBB839Cbe05303d7705Fa
+        "#;
+
+        let chain_spec: Config = serde_yaml::from_str(spec).unwrap();
+        assert_eq!(
+            chain_spec.terminal_total_difficulty,
+            default_terminal_total_difficulty()
+        );
+        assert_eq!(
+            chain_spec.terminal_block_hash,
+            default_terminal_block_hash()
+        );
+        assert_eq!(
+            chain_spec.terminal_block_hash_activation_epoch,
+            default_terminal_block_hash_activation_epoch()
+        );
+        assert_eq!(
+            chain_spec.safe_slots_to_import_optimistically,
+            default_safe_slots_to_import_optimistically()
+        );
+
+        assert_eq!(chain_spec.bellatrix_fork_epoch, None);
+
+        assert_eq!(
+            chain_spec.bellatrix_fork_version,
+            default_bellatrix_fork_version()
+        );
+    }
+
+    #[test]
+    fn test_total_terminal_difficulty() {
+        assert_eq!(
+            Ok(default_terminal_total_difficulty()),
+            Uint256::from_dec_str(
+                "115792089237316195423570985008687907853269984665640564039457584007913129638912"
+            )
+        );
+    }
+
+    #[test]
+    fn test_domain_builder() {
+        assert_eq!(
+            int_to_bytes4(ApplicationDomain::Builder.get_domain_constant()),
+            [0, 0, 0, 1]
+        );
     }
 }

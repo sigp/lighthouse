@@ -6,7 +6,7 @@ use eth2_wallet::{bip39::Mnemonic, Error as WalletError, Uuid, Wallet, WalletBui
 use lockfile::LockfileError;
 use std::collections::HashMap;
 use std::ffi::OsString;
-use std::fs::{create_dir_all, read_dir, OpenOptions};
+use std::fs::{create_dir_all, read_dir, File};
 use std::io;
 use std::path::{Path, PathBuf};
 
@@ -172,7 +172,7 @@ impl WalletManager {
                 // Ignore any paths that don't parse as a UUID.
                 if let Ok(uuid) = Uuid::parse_str(&file_name) {
                     let wallet_path = f.path().join(format!("{}", uuid));
-                    let wallet = OpenOptions::new()
+                    let wallet = File::options()
                         .read(true)
                         .create(false)
                         .open(wallet_path)

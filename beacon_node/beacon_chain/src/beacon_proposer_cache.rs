@@ -8,9 +8,16 @@
 //! very simple to reason about, but it might store values that are useless due to finalization. The
 //! values it stores are very small, so this should not be an issue.
 
+use crate::{BeaconChain, BeaconChainError, BeaconChainTypes};
+use fork_choice::ExecutionStatus;
 use lru::LruCache;
 use smallvec::SmallVec;
-use types::{BeaconStateError, Epoch, EthSpec, Fork, Hash256, Slot, Unsigned};
+use state_processing::state_advance::partial_state_advance;
+use std::cmp::Ordering;
+use types::{
+    BeaconState, BeaconStateError, ChainSpec, CloneConfig, Epoch, EthSpec, Fork, Hash256, Slot,
+    Unsigned,
+};
 
 /// The number of sets of proposer indices that should be cached.
 const CACHE_SIZE: usize = 16;
@@ -123,5 +130,73 @@ impl BeaconProposerCache {
         }
 
         Ok(())
+    }
+}
+
+/// Compute the proposer duties using the head state without cache.
+pub fn compute_proposer_duties_from_head<T: BeaconChainTypes>(
+    current_epoch: Epoch,
+    chain: &BeaconChain<T>,
+) -> Result<(Vec<usize>, Hash256, ExecutionStatus, Fork), BeaconChainError> {
+    // Atomically collect information about the head whilst holding the canonical head `Arc` as
+    // short as possible.
+    let (mut state, head_state_root, head_block_root) = {
+        let head = chain.canonical_head.cached_head();
+        // Take a copy of the head state.
+        let head_state = head
+            .snapshot
+            .beacon_state
+            .clone_with(CloneConfig::committee_caches_only());
+        let head_state_root = head.head_state_root();
+        let head_block_root = head.head_block_root();
+        (head_state, head_state_root, head_block_root)
+    };
+
+    let execution_status = chain
+        .canonical_head
+        .fork_choice_read_lock()
+        .get_block_execution_status(&head_block_root)
+        .ok_or(BeaconChainError::HeadMissingFromForkChoice(head_block_root))?;
+
+    // Advance the state into the requested epoch.
+    ensure_state_is_in_epoch(&mut state, head_state_root, current_epoch, &chain.spec)?;
+
+    let indices = state
+        .get_beacon_proposer_indices(&chain.spec)
+        .map_err(BeaconChainError::from)?;
+
+    let dependent_root = state
+        // The only block which decides its own shuffling is the genesis block.
+        .proposer_shuffling_decision_root(chain.genesis_block_root)
+        .map_err(BeaconChainError::from)?;
+
+    Ok((indices, dependent_root, execution_status, state.fork()))
+}
+
+/// If required, advance `state` to `target_epoch`.
+///
+/// ## Details
+///
+/// - Returns an error if `state.current_epoch() > target_epoch`.
+/// - No-op if `state.current_epoch() == target_epoch`.
+/// - It must be the case that `state.canonical_root() == state_root`, but this function will not
+///     check that.
+pub fn ensure_state_is_in_epoch<E: EthSpec>(
+    state: &mut BeaconState<E>,
+    state_root: Hash256,
+    target_epoch: Epoch,
+    spec: &ChainSpec,
+) -> Result<(), BeaconChainError> {
+    match state.current_epoch().cmp(&target_epoch) {
+        // Protects against an inconsistent slot clock.
+        Ordering::Greater => Err(BeaconStateError::SlotOutOfBounds.into()),
+        // The state needs to be advanced.
+        Ordering::Less => {
+            let target_slot = target_epoch.start_slot(E::slots_per_epoch());
+            partial_state_advance(state, Some(state_root), target_slot, spec)
+                .map_err(BeaconChainError::from)
+        }
+        // The state is suitable, nothing to do.
+        Ordering::Equal => Ok(()),
     }
 }

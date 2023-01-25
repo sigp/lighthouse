@@ -1,21 +1,27 @@
 use crate::Error;
 use serde_derive::{Deserialize, Serialize};
 use std::path::PathBuf;
+use strum::{Display, EnumString, EnumVariantNames};
 use types::{Epoch, EthSpec, IndexedAttestation};
 
 pub const DEFAULT_CHUNK_SIZE: usize = 16;
 pub const DEFAULT_VALIDATOR_CHUNK_SIZE: usize = 256;
 pub const DEFAULT_HISTORY_LENGTH: usize = 4096;
 pub const DEFAULT_UPDATE_PERIOD: u64 = 12;
+pub const DEFAULT_SLOT_OFFSET: f64 = 10.5;
 pub const DEFAULT_MAX_DB_SIZE: usize = 256 * 1024; // 256 GiB
+pub const DEFAULT_ATTESTATION_ROOT_CACHE_SIZE: usize = 100_000;
 pub const DEFAULT_BROADCAST: bool = false;
 
-/// Database size to use for tests.
-///
-/// Mostly a workaround for Windows due to a bug in LMDB, see:
-///
-/// https://github.com/sigp/lighthouse/issues/2342
-pub const TESTING_MAX_DB_SIZE: usize = 16; // MiB
+#[cfg(feature = "mdbx")]
+pub const DEFAULT_BACKEND: DatabaseBackend = DatabaseBackend::Mdbx;
+#[cfg(all(feature = "lmdb", not(feature = "mdbx")))]
+pub const DEFAULT_BACKEND: DatabaseBackend = DatabaseBackend::Lmdb;
+#[cfg(not(any(feature = "mdbx", feature = "lmdb")))]
+pub const DEFAULT_BACKEND: DatabaseBackend = DatabaseBackend::Disabled;
+
+pub const MAX_HISTORY_LENGTH: usize = 1 << 16;
+pub const MEGABYTE: usize = 1 << 20;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
@@ -26,10 +32,36 @@ pub struct Config {
     pub history_length: usize,
     /// Update frequency in seconds.
     pub update_period: u64,
-    /// Maximum size of the LMDB database in megabytes.
+    /// Offset from the start of the slot to begin processing.
+    pub slot_offset: f64,
+    /// Maximum size of the database in megabytes.
     pub max_db_size_mbs: usize,
+    /// Maximum size of the in-memory cache for attestation roots.
+    pub attestation_root_cache_size: usize,
     /// Whether to broadcast slashings found to the network.
     pub broadcast: bool,
+    /// Database backend to use.
+    pub backend: DatabaseBackend,
+}
+
+/// Immutable configuration parameters which are stored on disk and checked for consistency.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DiskConfig {
+    pub chunk_size: usize,
+    pub validator_chunk_size: usize,
+    pub history_length: usize,
+}
+
+#[derive(
+    Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Display, EnumString, EnumVariantNames,
+)]
+#[strum(serialize_all = "lowercase")]
+pub enum DatabaseBackend {
+    #[cfg(feature = "mdbx")]
+    Mdbx,
+    #[cfg(feature = "lmdb")]
+    Lmdb,
+    Disabled,
 }
 
 impl Config {
@@ -40,15 +72,12 @@ impl Config {
             validator_chunk_size: DEFAULT_VALIDATOR_CHUNK_SIZE,
             history_length: DEFAULT_HISTORY_LENGTH,
             update_period: DEFAULT_UPDATE_PERIOD,
+            slot_offset: DEFAULT_SLOT_OFFSET,
             max_db_size_mbs: DEFAULT_MAX_DB_SIZE,
+            attestation_root_cache_size: DEFAULT_ATTESTATION_ROOT_CACHE_SIZE,
             broadcast: DEFAULT_BROADCAST,
+            backend: DEFAULT_BACKEND,
         }
-    }
-
-    /// Use a smaller max DB size for testing.
-    pub fn for_testing(mut self) -> Self {
-        self.max_db_size_mbs = TESTING_MAX_DB_SIZE;
-        self
     }
 
     pub fn validate(&self) -> Result<(), Error> {
@@ -65,15 +94,22 @@ impl Config {
                 chunk_size: self.chunk_size,
                 history_length: self.history_length,
             })
+        } else if self.history_length > MAX_HISTORY_LENGTH {
+            Err(Error::ConfigInvalidHistoryLength {
+                history_length: self.history_length,
+                max_history_length: MAX_HISTORY_LENGTH,
+            })
         } else {
             Ok(())
         }
     }
 
-    pub fn is_compatible(&self, other: &Config) -> bool {
-        self.chunk_size == other.chunk_size
-            && self.validator_chunk_size == other.validator_chunk_size
-            && self.history_length == other.history_length
+    pub fn disk_config(&self) -> DiskConfig {
+        DiskConfig {
+            chunk_size: self.chunk_size,
+            validator_chunk_size: self.validator_chunk_size,
+            history_length: self.history_length,
+        }
     }
 
     pub fn chunk_index(&self, epoch: Epoch) -> usize {

@@ -2,22 +2,24 @@ use super::*;
 use beacon_chain::{
     builder::{BeaconChainBuilder, Witness},
     eth1_chain::CachingEth1Backend,
+    validator_monitor::DEFAULT_INDIVIDUAL_TRACKING_THRESHOLD,
     BeaconChain,
 };
 use futures::prelude::*;
-use genesis::{generate_deterministic_keypairs, interop_genesis_state};
+use genesis::{generate_deterministic_keypairs, interop_genesis_state, DEFAULT_ETH1_BLOCK_HASH};
 use lazy_static::lazy_static;
 use lighthouse_network::NetworkConfig;
-use slog::Logger;
+use slog::{o, Drain, Logger};
 use sloggers::{null::NullLoggerBuilder, Build};
 use slot_clock::{SlotClock, SystemTimeSlotClock};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 use store::config::StoreConfig;
 use store::{HotColdDB, MemoryStore};
+use task_executor::test_utils::TestRuntime;
 use types::{
-    CommitteeIndex, Epoch, EthSpec, MainnetEthSpec, Slot, SubnetId, SyncCommitteeSubscription,
-    SyncSubnetId, ValidatorSubscription,
+    CommitteeIndex, Epoch, EthSpec, Hash256, MainnetEthSpec, Slot, SubnetId,
+    SyncCommitteeSubscription, SyncSubnetId, ValidatorSubscription,
 };
 
 const SLOT_DURATION_MILLIS: u64 = 400;
@@ -32,6 +34,7 @@ type TestBeaconChainType = Witness<
 
 pub struct TestBeaconChain {
     chain: Arc<BeaconChain<TestBeaconChainType>>,
+    _test_runtime: TestRuntime,
 }
 
 impl TestBeaconChain {
@@ -40,20 +43,29 @@ impl TestBeaconChain {
 
         let keypairs = generate_deterministic_keypairs(1);
 
-        let log = get_logger();
+        let log = get_logger(None);
         let store =
             HotColdDB::open_ephemeral(StoreConfig::default(), spec.clone(), log.clone()).unwrap();
 
         let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
+
+        let test_runtime = TestRuntime::default();
 
         let chain = Arc::new(
             BeaconChainBuilder::new(MainnetEthSpec)
                 .logger(log.clone())
                 .custom_spec(spec.clone())
                 .store(Arc::new(store))
+                .task_executor(test_runtime.task_executor.clone())
                 .genesis_state(
-                    interop_genesis_state::<MainnetEthSpec>(&keypairs, 0, &spec)
-                        .expect("should generate interop state"),
+                    interop_genesis_state::<MainnetEthSpec>(
+                        &keypairs,
+                        0,
+                        Hash256::from_slice(DEFAULT_ETH1_BLOCK_HASH),
+                        None,
+                        &spec,
+                    )
+                    .expect("should generate interop state"),
                 )
                 .expect("should build state using recent genesis")
                 .dummy_eth1_backend()
@@ -64,11 +76,14 @@ impl TestBeaconChain {
                     Duration::from_millis(SLOT_DURATION_MILLIS),
                 ))
                 .shutdown_sender(shutdown_tx)
-                .monitor_validators(true, vec![], log)
+                .monitor_validators(true, vec![], DEFAULT_INDIVIDUAL_TRACKING_THRESHOLD, log)
                 .build()
                 .expect("should build"),
         );
-        Self { chain }
+        Self {
+            chain,
+            _test_runtime: test_runtime,
+        }
     }
 }
 
@@ -79,25 +94,49 @@ pub fn recent_genesis_time() -> u64 {
         .as_secs()
 }
 
-fn get_logger() -> Logger {
-    NullLoggerBuilder.build().expect("logger should build")
+fn get_logger(log_level: Option<slog::Level>) -> Logger {
+    if let Some(level) = log_level {
+        let drain = {
+            let decorator = slog_term::TermDecorator::new().build();
+            let decorator =
+                logging::AlignedTermDecorator::new(decorator, logging::MAX_MESSAGE_WIDTH);
+            let drain = slog_term::FullFormat::new(decorator).build().fuse();
+            let drain = slog_async::Async::new(drain).chan_size(2048).build();
+            drain.filter_level(level)
+        };
+
+        Logger::root(drain.fuse(), o!())
+    } else {
+        let builder = NullLoggerBuilder;
+        builder.build().expect("should build logger")
+    }
 }
 
 lazy_static! {
     static ref CHAIN: TestBeaconChain = TestBeaconChain::new_with_system_clock();
 }
 
-fn get_attestation_service() -> AttestationService<TestBeaconChainType> {
-    let log = get_logger();
+fn get_attestation_service(
+    log_level: Option<slog::Level>,
+) -> AttestationService<TestBeaconChainType> {
+    let log = get_logger(log_level);
     let config = NetworkConfig::default();
 
     let beacon_chain = CHAIN.chain.clone();
 
-    AttestationService::new(beacon_chain, &config, &log)
+    AttestationService::new(
+        beacon_chain,
+        #[cfg(feature = "deterministic_long_lived_attnets")]
+        lighthouse_network::discv5::enr::NodeId::random()
+            .raw()
+            .into(),
+        &config,
+        &log,
+    )
 }
 
 fn get_sync_committee_service() -> SyncCommitteeService<TestBeaconChainType> {
-    let log = get_logger();
+    let log = get_logger(None);
     let config = NetworkConfig::default();
 
     let beacon_chain = CHAIN.chain.clone();
@@ -114,28 +153,37 @@ async fn get_events<S: Stream<Item = SubnetServiceMessage> + Unpin>(
 ) -> Vec<SubnetServiceMessage> {
     let mut events = Vec::new();
 
-    let collect_stream_fut = async {
-        loop {
-            if let Some(result) = stream.next().await {
-                events.push(result);
+    let timeout =
+        tokio::time::sleep(Duration::from_millis(SLOT_DURATION_MILLIS) * num_slots_before_timeout);
+    futures::pin_mut!(timeout);
+
+    loop {
+        tokio::select! {
+            Some(event) = stream.next() => {
+                events.push(event);
                 if let Some(num) = num_events {
                     if events.len() == num {
-                        return;
+                        break;
                     }
                 }
             }
-        }
-    };
+            _ = timeout.as_mut() => {
+                break;
+            }
 
-    tokio::select! {
-        _ = collect_stream_fut => events,
-        _ = tokio::time::sleep(
-        Duration::from_millis(SLOT_DURATION_MILLIS) * num_slots_before_timeout,
-    ) => events
+        }
     }
+
+    events
 }
 
 mod attestation_service {
+
+    #[cfg(feature = "deterministic_long_lived_attnets")]
+    use std::collections::HashSet;
+
+    use crate::subnet_service::attestation_subnets::MIN_PEER_DISCOVERY_SLOT_LOOK_AHEAD;
+
     use super::*;
 
     fn get_subscription(
@@ -154,6 +202,7 @@ mod attestation_service {
         }
     }
 
+    #[cfg(not(feature = "deterministic_long_lived_attnets"))]
     fn get_subscriptions(
         validator_count: u64,
         slot: Slot,
@@ -181,7 +230,7 @@ mod attestation_service {
         let committee_count = 1;
 
         // create the attestation service and subscriptions
-        let mut attestation_service = get_attestation_service();
+        let mut attestation_service = get_attestation_service(None);
         let current_slot = attestation_service
             .beacon_chain
             .slot_clock
@@ -223,15 +272,17 @@ mod attestation_service {
         matches::assert_matches!(
             events[..3],
             [
-                SubnetServiceMessage::DiscoverPeers(_),
                 SubnetServiceMessage::Subscribe(_any1),
-                SubnetServiceMessage::EnrAdd(_any3)
+                SubnetServiceMessage::EnrAdd(_any3),
+                SubnetServiceMessage::DiscoverPeers(_),
             ]
         );
 
         // If the long lived and short lived subnets are the same, there should be no more events
         // as we don't resubscribe already subscribed subnets.
-        if !attestation_service.random_subnets.contains(&subnet_id) {
+        if !attestation_service
+            .is_subscribed(&subnet_id, attestation_subnets::SubscriptionKind::LongLived)
+        {
             assert_eq!(expected[..], events[3..]);
         }
         // Should be subscribed to only 1 long lived subnet after unsubscription.
@@ -253,7 +304,7 @@ mod attestation_service {
         let com2 = 0;
 
         // create the attestation service and subscriptions
-        let mut attestation_service = get_attestation_service();
+        let mut attestation_service = get_attestation_service(None);
         let current_slot = attestation_service
             .beacon_chain
             .slot_clock
@@ -305,16 +356,20 @@ mod attestation_service {
         matches::assert_matches!(
             events[..3],
             [
-                SubnetServiceMessage::DiscoverPeers(_),
                 SubnetServiceMessage::Subscribe(_any1),
-                SubnetServiceMessage::EnrAdd(_any3)
+                SubnetServiceMessage::EnrAdd(_any3),
+                SubnetServiceMessage::DiscoverPeers(_),
             ]
         );
 
         let expected = SubnetServiceMessage::Subscribe(Subnet::Attestation(subnet_id1));
 
-        // Should be still subscribed to 1 long lived and 1 short lived subnet if both are different.
-        if !attestation_service.random_subnets.contains(&subnet_id1) {
+        // Should be still subscribed to 1 long lived and 1 short lived subnet if both are
+        // different.
+        if !attestation_service.is_subscribed(
+            &subnet_id1,
+            attestation_subnets::SubscriptionKind::LongLived,
+        ) {
             assert_eq!(expected, events[3]);
             assert_eq!(attestation_service.subscription_count(), 2);
         } else {
@@ -324,8 +379,12 @@ mod attestation_service {
         // Get event for 1 more slot duration, we should get the unsubscribe event now.
         let unsubscribe_event = get_events(&mut attestation_service, None, 1).await;
 
-        // If the long lived and short lived subnets are different, we should get an unsubscription event.
-        if !attestation_service.random_subnets.contains(&subnet_id1) {
+        // If the long lived and short lived subnets are different, we should get an unsubscription
+        // event.
+        if !attestation_service.is_subscribed(
+            &subnet_id1,
+            attestation_subnets::SubscriptionKind::LongLived,
+        ) {
             assert_eq!(
                 [SubnetServiceMessage::Unsubscribe(Subnet::Attestation(
                     subnet_id1
@@ -338,6 +397,7 @@ mod attestation_service {
         assert_eq!(attestation_service.subscription_count(), 1);
     }
 
+    #[cfg(not(feature = "deterministic_long_lived_attnets"))]
     #[tokio::test]
     async fn subscribe_all_random_subnets() {
         let attestation_subnet_count = MainnetEthSpec::default_spec().attestation_subnet_count;
@@ -346,7 +406,7 @@ mod attestation_service {
         let committee_count = 1;
 
         // create the attestation service and subscriptions
-        let mut attestation_service = get_attestation_service();
+        let mut attestation_service = get_attestation_service(None);
         let current_slot = attestation_service
             .beacon_chain
             .slot_clock
@@ -395,6 +455,7 @@ mod attestation_service {
         // test completed successfully
     }
 
+    #[cfg(not(feature = "deterministic_long_lived_attnets"))]
     #[tokio::test]
     async fn subscribe_all_random_subnets_plus_one() {
         let attestation_subnet_count = MainnetEthSpec::default_spec().attestation_subnet_count;
@@ -404,7 +465,7 @@ mod attestation_service {
         let committee_count = 1;
 
         // create the attestation service and subscriptions
-        let mut attestation_service = get_attestation_service();
+        let mut attestation_service = get_attestation_service(None);
         let current_slot = attestation_service
             .beacon_chain
             .slot_clock
@@ -450,6 +511,159 @@ mod attestation_service {
         assert_eq!(attestation_service.subscription_count(), 64);
         assert_eq!(enr_add_count, 64);
         assert_eq!(unexpected_msg_count, 0);
+    }
+
+    #[tokio::test]
+    async fn test_subscribe_same_subnet_several_slots_apart() {
+        // subscription config
+        let validator_index = 1;
+        let committee_count = 1;
+
+        // Makes 2 validator subscriptions to the same subnet but at different slots.
+        // There should be just 1 unsubscription event for the later slot subscription (subscription_slot2).
+        let subscription_slot1 = 0;
+        let subscription_slot2 = MIN_PEER_DISCOVERY_SLOT_LOOK_AHEAD + 4;
+        let com1 = MIN_PEER_DISCOVERY_SLOT_LOOK_AHEAD + 4;
+        let com2 = 0;
+
+        // create the attestation service and subscriptions
+        let mut attestation_service = get_attestation_service(None);
+        let current_slot = attestation_service
+            .beacon_chain
+            .slot_clock
+            .now()
+            .expect("Could not get current slot");
+
+        let sub1 = get_subscription(
+            validator_index,
+            com1,
+            current_slot + Slot::new(subscription_slot1),
+            committee_count,
+        );
+
+        let sub2 = get_subscription(
+            validator_index,
+            com2,
+            current_slot + Slot::new(subscription_slot2),
+            committee_count,
+        );
+
+        let subnet_id1 = SubnetId::compute_subnet::<MainnetEthSpec>(
+            current_slot + Slot::new(subscription_slot1),
+            com1,
+            committee_count,
+            &attestation_service.beacon_chain.spec,
+        )
+        .unwrap();
+
+        let subnet_id2 = SubnetId::compute_subnet::<MainnetEthSpec>(
+            current_slot + Slot::new(subscription_slot2),
+            com2,
+            committee_count,
+            &attestation_service.beacon_chain.spec,
+        )
+        .unwrap();
+
+        // Assert that subscriptions are different but their subnet is the same
+        assert_ne!(sub1, sub2);
+        assert_eq!(subnet_id1, subnet_id2);
+
+        // submit the subscriptions
+        attestation_service
+            .validator_subscriptions(vec![sub1, sub2])
+            .unwrap();
+
+        // Unsubscription event should happen at the end of the slot.
+        let events = get_events(&mut attestation_service, None, 1).await;
+        matches::assert_matches!(
+            events[..3],
+            [
+                SubnetServiceMessage::Subscribe(_any1),
+                SubnetServiceMessage::EnrAdd(_any3),
+                SubnetServiceMessage::DiscoverPeers(_),
+            ]
+        );
+
+        let expected_subscription =
+            SubnetServiceMessage::Subscribe(Subnet::Attestation(subnet_id1));
+        let expected_unsubscription =
+            SubnetServiceMessage::Unsubscribe(Subnet::Attestation(subnet_id1));
+
+        if !attestation_service.is_subscribed(
+            &subnet_id1,
+            attestation_subnets::SubscriptionKind::LongLived,
+        ) {
+            assert_eq!(expected_subscription, events[3]);
+            // fourth is a discovery event
+            assert_eq!(expected_unsubscription, events[5]);
+        }
+        assert_eq!(attestation_service.subscription_count(), 1);
+
+        println!("{events:?}");
+        let subscription_slot = current_slot + subscription_slot2 - 1; // one less do to the
+                                                                       // advance subscription time
+        let wait_slots = attestation_service
+            .beacon_chain
+            .slot_clock
+            .duration_to_slot(subscription_slot)
+            .unwrap()
+            .as_millis() as u64
+            / SLOT_DURATION_MILLIS;
+
+        let no_events = dbg!(get_events(&mut attestation_service, None, wait_slots as u32).await);
+
+        assert_eq!(no_events, []);
+
+        let second_subscribe_event = get_events(&mut attestation_service, None, 2).await;
+        // If the long lived and short lived subnets are different, we should get an unsubscription event.
+        if !attestation_service.is_subscribed(
+            &subnet_id1,
+            attestation_subnets::SubscriptionKind::LongLived,
+        ) {
+            assert_eq!(
+                [SubnetServiceMessage::Subscribe(Subnet::Attestation(
+                    subnet_id1
+                ))],
+                second_subscribe_event[..]
+            );
+        }
+    }
+
+    #[tokio::test]
+    #[cfg(feature = "deterministic_long_lived_attnets")]
+    async fn test_update_deterministic_long_lived_subnets() {
+        let mut attestation_service = get_attestation_service(None);
+        let new_subnet = SubnetId::new(1);
+        let maintained_subnet = SubnetId::new(2);
+        let removed_subnet = SubnetId::new(3);
+
+        attestation_service
+            .set_long_lived_subscriptions(HashSet::from([removed_subnet, maintained_subnet]));
+        // clear initial events
+        let _events = get_events(&mut attestation_service, None, 1).await;
+
+        attestation_service
+            .update_long_lived_subnets_testing(HashSet::from([maintained_subnet, new_subnet]));
+
+        let events = get_events(&mut attestation_service, None, 1).await;
+        let new_subnet = Subnet::Attestation(new_subnet);
+        let removed_subnet = Subnet::Attestation(removed_subnet);
+        assert_eq!(
+            events,
+            [
+                // events for the new subnet
+                SubnetServiceMessage::Subscribe(new_subnet),
+                SubnetServiceMessage::EnrAdd(new_subnet),
+                SubnetServiceMessage::DiscoverPeers(vec![SubnetDiscovery {
+                    subnet: new_subnet,
+                    min_ttl: None
+                }]),
+                // events for the removed subnet
+                SubnetServiceMessage::Unsubscribe(removed_subnet),
+                SubnetServiceMessage::EnrRemove(removed_subnet),
+            ]
+        );
+        println!("{events:?}")
     }
 }
 

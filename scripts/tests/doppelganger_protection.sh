@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# Requires `lighthouse`, ``lcli`, `ganache-cli`, `curl`, `jq`
+# Requires `lighthouse`, ``lcli`, `ganache`, `curl`, `jq`
 
 BEHAVIOR=$1
 

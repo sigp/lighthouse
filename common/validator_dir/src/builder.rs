@@ -4,7 +4,7 @@ use deposit_contract::{encode_eth1_tx_data, Error as DepositError};
 use eth2_keystore::{Error as KeystoreError, Keystore, KeystoreBuilder, PlainText};
 use filesystem::create_with_600_perms;
 use rand::{distributions::Alphanumeric, Rng};
-use std::fs::{create_dir_all, OpenOptions};
+use std::fs::{create_dir_all, File};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use types::{ChainSpec, DepositData, Hash256, Keypair, Signature};
@@ -134,15 +134,18 @@ impl<'a> Builder<'a> {
         self
     }
 
+    /// Return the path to the validator dir to be built, i.e. `base_dir/pubkey`.
+    pub fn get_dir_path(base_validators_dir: &Path, voting_keystore: &Keystore) -> PathBuf {
+        base_validators_dir.join(format!("0x{}", voting_keystore.pubkey()))
+    }
+
     /// Consumes `self`, returning a `ValidatorDir` if no error is encountered.
     pub fn build(self) -> Result<ValidatorDir, Error> {
         let (voting_keystore, voting_password) = self
             .voting_keystore
             .ok_or(Error::UninitializedVotingKeystore)?;
 
-        let dir = self
-            .base_validators_dir
-            .join(format!("0x{}", voting_keystore.pubkey()));
+        let dir = Self::get_dir_path(&self.base_validators_dir, &voting_keystore);
 
         if dir.exists() {
             return Err(Error::DirectoryAlreadyExists(dir));
@@ -193,8 +196,8 @@ impl<'a> Builder<'a> {
                 if path.exists() {
                     return Err(Error::DepositDataAlreadyExists(path));
                 } else {
-                    let hex = format!("0x{}", hex::encode(&deposit_data));
-                    OpenOptions::new()
+                    let hex = format!("0x{}", hex::encode(deposit_data));
+                    File::options()
                         .write(true)
                         .read(true)
                         .create(true)
@@ -211,7 +214,7 @@ impl<'a> Builder<'a> {
                 if path.exists() {
                     return Err(Error::DepositAmountAlreadyExists(path));
                 } else {
-                    OpenOptions::new()
+                    File::options()
                         .write(true)
                         .read(true)
                         .create(true)
@@ -264,7 +267,7 @@ fn write_keystore_to_file(path: PathBuf, keystore: &Keystore) -> Result<(), Erro
     if path.exists() {
         Err(Error::KeystoreAlreadyExists(path))
     } else {
-        let file = OpenOptions::new()
+        let file = File::options()
             .write(true)
             .read(true)
             .create_new(true)

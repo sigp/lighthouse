@@ -6,7 +6,7 @@ use deposit_contract::decode_eth1_tx_data;
 use derivative::Derivative;
 use eth2_keystore::{Error as KeystoreError, Keystore, PlainText};
 use lockfile::{Lockfile, LockfileError};
-use std::fs::{read, write, OpenOptions};
+use std::fs::{read, write, File};
 use std::io;
 use std::path::{Path, PathBuf};
 use tree_hash::TreeHash;
@@ -63,7 +63,7 @@ pub struct Eth1DepositData {
 pub struct ValidatorDir {
     dir: PathBuf,
     #[derivative(PartialEq = "ignore")]
-    lockfile: Lockfile,
+    _lockfile: Lockfile,
 }
 
 impl ValidatorDir {
@@ -85,7 +85,10 @@ impl ValidatorDir {
         let lockfile_path = dir.join(format!("{}.lock", VOTING_KEYSTORE_FILE));
         let lockfile = Lockfile::new(lockfile_path).map_err(Error::LockfileError)?;
 
-        Ok(Self { dir, lockfile })
+        Ok(Self {
+            dir,
+            _lockfile: lockfile,
+        })
     }
 
     /// Returns the `dir` provided to `Self::open`.
@@ -208,7 +211,7 @@ pub fn unlock_keypair<P: AsRef<Path>>(
     password_dir: P,
 ) -> Result<Keypair, Error> {
     let keystore = Keystore::from_json_reader(
-        &mut OpenOptions::new()
+        &mut File::options()
             .read(true)
             .create(false)
             .open(keystore_path)
@@ -233,7 +236,7 @@ pub fn unlock_keypair_from_password_path(
     password_path: &Path,
 ) -> Result<Keypair, Error> {
     let keystore = Keystore::from_json_reader(
-        &mut OpenOptions::new()
+        &mut File::options()
             .read(true)
             .create(false)
             .open(keystore_path)

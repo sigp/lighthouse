@@ -25,7 +25,7 @@ pub const BASE_CONFIG_FILE: &str = "config.yaml";
 
 // Creates definitions for:
 //
-// - Each of the `HardcodedNet` values (e.g., `MAINNET`, `PYRMONT`, etc).
+// - Each of the `HardcodedNet` values (e.g., `MAINNET`, `PRATER`, etc).
 // - `HARDCODED_NETS: &[HardcodedNet]`
 // - `HARDCODED_NET_NAMES: &[&'static str]`
 instantiate_hardcoded_nets!(eth2_config);
@@ -226,7 +226,7 @@ mod tests {
     use super::*;
     use ssz::Encode;
     use tempfile::Builder as TempBuilder;
-    use types::{Config, Eth1Data, Hash256, MainnetEthSpec};
+    use types::{Config, Eth1Data, GnosisEthSpec, Hash256, MainnetEthSpec};
 
     type E = MainnetEthSpec;
 
@@ -251,9 +251,23 @@ mod tests {
     }
 
     #[test]
+    fn gnosis_config_eq_chain_spec() {
+        let config = Eth2NetworkConfig::from_hardcoded_net(&GNOSIS).unwrap();
+        let spec = ChainSpec::gnosis();
+        assert_eq!(spec, config.chain_spec::<GnosisEthSpec>().unwrap());
+    }
+
+    #[test]
     fn mainnet_genesis_state() {
         let config = Eth2NetworkConfig::from_hardcoded_net(&MAINNET).unwrap();
         config.beacon_state::<E>().expect("beacon state can decode");
+    }
+
+    #[test]
+    fn prater_and_goerli_are_equal() {
+        let goerli = Eth2NetworkConfig::from_hardcoded_net(&GOERLI).unwrap();
+        let prater = Eth2NetworkConfig::from_hardcoded_net(&PRATER).unwrap();
+        assert_eq!(goerli, prater);
     }
 
     #[test]
@@ -263,7 +277,11 @@ mod tests {
                 .unwrap_or_else(|_| panic!("{:?}", net.name));
 
             // Ensure we can parse the YAML config to a chain spec.
-            config.chain_spec::<MainnetEthSpec>().unwrap();
+            if net.name == types::GNOSIS {
+                config.chain_spec::<GnosisEthSpec>().unwrap();
+            } else {
+                config.chain_spec::<MainnetEthSpec>().unwrap();
+            }
 
             assert_eq!(
                 config.genesis_state_bytes.is_some(),
@@ -271,6 +289,7 @@ mod tests {
                 "{:?}",
                 net.name
             );
+            assert_eq!(config.config.config_name, Some(net.config_dir.to_string()));
         }
     }
 

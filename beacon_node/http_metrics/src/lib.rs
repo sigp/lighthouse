@@ -4,11 +4,12 @@
 mod metrics;
 
 use beacon_chain::{BeaconChain, BeaconChainTypes};
+use lighthouse_network::prometheus_client::registry::Registry;
 use lighthouse_version::version_with_platform;
 use serde::{Deserialize, Serialize};
 use slog::{crit, info, Logger};
 use std::future::Future;
-use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use std::sync::Arc;
 use warp::{http::Response, Filter};
@@ -39,6 +40,7 @@ pub struct Context<T: BeaconChainTypes> {
     pub chain: Option<Arc<BeaconChain<T>>>,
     pub db_path: Option<PathBuf>,
     pub freezer_db_path: Option<PathBuf>,
+    pub gossipsub_registry: Option<std::sync::Mutex<Registry>>,
     pub log: Logger,
 }
 
@@ -46,7 +48,7 @@ pub struct Context<T: BeaconChainTypes> {
 #[derive(PartialEq, Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
     pub enabled: bool,
-    pub listen_addr: Ipv4Addr,
+    pub listen_addr: IpAddr,
     pub listen_port: u16,
     pub allow_origin: Option<String>,
     pub allocator_metrics_enabled: bool,
@@ -56,7 +58,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             enabled: false,
-            listen_addr: Ipv4Addr::new(127, 0, 0, 1),
+            listen_addr: IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
             listen_port: 5054,
             allow_origin: None,
             allocator_metrics_enabled: true,
@@ -129,7 +131,7 @@ pub fn serve<T: BeaconChainTypes>(
         .with(cors_builder.build());
 
     let (listening_socket, server) = warp::serve(routes).try_bind_with_graceful_shutdown(
-        SocketAddrV4::new(config.listen_addr, config.listen_port),
+        SocketAddr::new(config.listen_addr, config.listen_port),
         async {
             shutdown.await;
         },

@@ -368,7 +368,7 @@ mod test {
     fn context_size() {
         assert_eq!(
             mem::size_of::<HalfNode>(),
-            232,
+            224,
             "Halfnode size should be as expected"
         );
     }
@@ -376,8 +376,8 @@ mod test {
     fn compare_with_reference(leaves: &[Hash256], depth: usize) {
         let reference_bytes = leaves
             .iter()
-            .map(|hash| hash.as_bytes().to_vec())
-            .flatten()
+            .flat_map(|hash| hash.as_bytes())
+            .copied()
             .collect::<Vec<_>>();
 
         let reference_root = merkleize_padded(&reference_bytes, 1 << (depth - 1));

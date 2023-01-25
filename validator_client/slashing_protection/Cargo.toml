@@ -2,7 +2,12 @@
 name = "slashing_protection"
 version = "0.1.0"
 authors = ["Michael Sproul <michael@sigmaprime.io>", "pscott <scottpiriou@gmail.com>"]
-edition = "2018"
+edition = "2021"
+autotests = false
+
+[[test]]
+name = "slashing_protection_tests"
+path = "tests/main.rs"
 
 [dependencies]
 tempfile = "3.1.0"
@@ -13,9 +18,13 @@ r2d2_sqlite = "0.18.0"
 serde = "1.0.116"
 serde_derive = "1.0.116"
 serde_json = "1.0.58"
-eth2_serde_utils = "0.1.0"
+eth2_serde_utils = "0.1.1"
 filesystem = { path = "../../common/filesystem" }
+arbitrary = { version = "1.0", features = ["derive"], optional = true }
 
 [dev-dependencies]
 lazy_static = "1.4.0"
 rayon = "1.4.1"
+
+[features]
+arbitrary-fuzz = ["arbitrary", "types/arbitrary-fuzz"]

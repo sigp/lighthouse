@@ -20,11 +20,11 @@ sync.
 
 Having a large peer count means that your node must act as an honest RPC server
 to all your connected peers. If there are many that are syncing, they will
-often be requesting a large number of blocks from your node. This means you
-node must perform a lot of work reading and responding to these peers. If you
-node is over-loaded with peers and cannot respond in time, other Lighthouse
+often be requesting a large number of blocks from your node. This means your
+node must perform a lot of work reading and responding to these peers. If your
+node is overloaded with peers and cannot respond in time, other Lighthouse
 peers will consider you non-performant and disfavour you from their peer
-stores. You node will also have to handle and manage the gossip and extra
+stores. Your node will also have to handle and manage the gossip and extra
 bandwidth that comes from having these extra peers. Having a non-responsive
 node (due to overloading of connected peers), degrades the network as a whole.
 
@@ -46,7 +46,7 @@ still function if it is behind a NAT without any port mappings. Although
 Lighthouse still functions, we recommend that some mechanism is used to ensure
 that your Lighthouse node is publicly accessible. This will typically improve
 your peer count, allow the scoring system to find the best/most favourable
-peers for your node and overall improve the eth2 network.
+peers for your node and overall improve the Ethereum consensus network.
 
 Lighthouse currently supports UPnP. If UPnP is enabled on your router,
 Lighthouse will automatically establish the port mappings for you (the beacon
@@ -59,14 +59,14 @@ TCP and UDP ports (9000 by default).
 Lighthouse has a number of CLI parameters for constructing and modifying the
 local Ethereum Node Record (ENR). Examples are `--enr-address`,
 `--enr-udp-port`, `--enr-tcp-port` and `--disable-enr-auto-update`. These
-settings allow you construct your initial ENR. Their primary intention is for
+settings allow you to construct your initial ENR. Their primary intention is for
 setting up boot-like nodes and having a contactable ENR on boot. On normal
 operation of a Lighthouse node, none of these flags need to be set. Setting
 these flags incorrectly can lead to your node being incorrectly added to the
-global DHT which will degrades the discovery process for all Eth2 peers.
+global DHT which will degrade the discovery process for all Ethereum consensus peers.
 
 The ENR of a Lighthouse node is initially set to be non-contactable. The
-in-built discovery mechanism can determine if you node is publicly accessible,
+in-built discovery mechanism can determine if your node is publicly accessible,
 and if it is, it will update your ENR to the correct public IP and port address
 (meaning you do not need to set it manually). Lighthouse persists its ENR, so
 on reboot it will re-load the settings it had discovered previously.

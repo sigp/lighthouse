@@ -73,6 +73,8 @@ pub struct RPCRateLimiter {
     bbrange_rl: Limiter<PeerId>,
     /// BlocksByRoot rate limiter.
     bbroots_rl: Limiter<PeerId>,
+    /// LightClientBootstrap rate limiter.
+    lcbootstrap_rl: Limiter<PeerId>,
 }
 
 /// Error type for non conformant requests
@@ -98,6 +100,8 @@ pub struct RPCRateLimiterBuilder {
     bbrange_quota: Option<Quota>,
     /// Quota for the BlocksByRoot protocol.
     bbroots_quota: Option<Quota>,
+    /// Quota for the LightClientBootstrap protocol.
+    lcbootstrap_quota: Option<Quota>,
 }
 
 impl RPCRateLimiterBuilder {
@@ -116,6 +120,7 @@ impl RPCRateLimiterBuilder {
             Protocol::Goodbye => self.goodbye_quota = q,
             Protocol::BlocksByRange => self.bbrange_quota = q,
             Protocol::BlocksByRoot => self.bbroots_quota = q,
+            Protocol::LightClientBootstrap => self.lcbootstrap_quota = q,
         }
         self
     }
@@ -155,6 +160,9 @@ impl RPCRateLimiterBuilder {
         let bbrange_quota = self
             .bbrange_quota
             .ok_or("BlocksByRange quota not specified")?;
+        let lcbootstrap_quote = self
+            .lcbootstrap_quota
+            .ok_or("LightClientBootstrap quota not specified")?;
 
         // create the rate limiters
         let ping_rl = Limiter::from_quota(ping_quota)?;
@@ -163,6 +171,7 @@ impl RPCRateLimiterBuilder {
         let goodbye_rl = Limiter::from_quota(goodbye_quota)?;
         let bbroots_rl = Limiter::from_quota(bbroots_quota)?;
         let bbrange_rl = Limiter::from_quota(bbrange_quota)?;
+        let lcbootstrap_rl = Limiter::from_quota(lcbootstrap_quote)?;
 
         // check for peers to prune every 30 seconds, starting in 30 seconds
         let prune_every = tokio::time::Duration::from_secs(30);
@@ -176,6 +185,7 @@ impl RPCRateLimiterBuilder {
             goodbye_rl,
             bbroots_rl,
             bbrange_rl,
+            lcbootstrap_rl,
             init_time: Instant::now(),
         })
     }
@@ -188,29 +198,7 @@ impl RPCRateLimiter {
         request: &InboundRequest<T>,
     ) -> Result<(), RateLimitedErr> {
         let time_since_start = self.init_time.elapsed();
-        let mut tokens = request.expected_responses().max(1);
-
-        // Increase the rate limit for blocks by range requests with large step counts.
-        // We count to tokens as a quadratic increase with step size.
-        // Using (step_size/5)^2 + 1 as penalty factor allows step sizes of 1-4 to have no penalty
-        // but step sizes higher than this add a quadratic penalty.
-        // Penalty's go:
-        // Step size | Penalty Factor
-        //     1     |   1
-        //     2     |   1
-        //     3     |   1
-        //     4     |   1
-        //     5     |   2
-        //     6     |   2
-        //     7     |   2
-        //     8     |   3
-        //     9     |   4
-        //     10    |   5
-
-        if let InboundRequest::BlocksByRange(bbr_req) = request {
-            let penalty_factor = (bbr_req.step as f64 / 5.0).powi(2) as u64 + 1;
-            tokens *= penalty_factor;
-        }
+        let tokens = request.expected_responses().max(1);
 
         let check =
             |limiter: &mut Limiter<PeerId>| limiter.allows(time_since_start, peer_id, tokens);
@@ -221,6 +209,7 @@ impl RPCRateLimiter {
             Protocol::Goodbye => &mut self.goodbye_rl,
             Protocol::BlocksByRange => &mut self.bbrange_rl,
             Protocol::BlocksByRoot => &mut self.bbroots_rl,
+            Protocol::LightClientBootstrap => &mut self.lcbootstrap_rl,
         };
         check(limiter)
     }

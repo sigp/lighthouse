@@ -3,13 +3,11 @@ use std::process::Command;
 use std::process::Output;
 
 fn run_cmd(cmd_line: &str) -> Result<Output, std::io::Error> {
-    let output;
     if cfg!(target_os = "windows") {
-        output = Command::new(r#"cmd"#).args(["/C", cmd_line]).output();
+        Command::new(r#"cmd"#).args(["/C", cmd_line]).output()
     } else {
-        output = Command::new(r#"sh"#).args(["-c", cmd_line]).output();
+        Command::new(r#"sh"#).args(["-c", cmd_line]).output()
     }
-    output
 }
 
 #[test]

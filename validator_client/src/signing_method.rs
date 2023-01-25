@@ -6,6 +6,7 @@
 use crate::http_metrics::metrics;
 use eth2_keystore::Keystore;
 use lockfile::Lockfile;
+use parking_lot::Mutex;
 use reqwest::Client;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -28,12 +29,14 @@ pub enum Error {
     Web3SignerJsonParsingFailed(String),
     ShuttingDown,
     TokioJoin(String),
+    MergeForkNotSupported,
+    GenesisForkVersionRequired,
 }
 
 /// Enumerates all messages that can be signed by a validator.
-pub enum SignableMessage<'a, T: EthSpec> {
+pub enum SignableMessage<'a, T: EthSpec, Payload: ExecPayload<T> = FullPayload<T>> {
     RandaoReveal(Epoch),
-    BeaconBlock(&'a BeaconBlock<T>),
+    BeaconBlock(&'a BeaconBlock<T, Payload>),
     AttestationData(&'a AttestationData),
     SignedAggregateAndProof(&'a AggregateAndProof<T>),
     SelectionProof(Slot),
@@ -43,9 +46,10 @@ pub enum SignableMessage<'a, T: EthSpec> {
         slot: Slot,
     },
     SignedContributionAndProof(&'a ContributionAndProof<T>),
+    ValidatorRegistration(&'a ValidatorRegistrationData),
 }
 
-impl<'a, T: EthSpec> SignableMessage<'a, T> {
+impl<'a, T: EthSpec, Payload: ExecPayload<T>> SignableMessage<'a, T, Payload> {
     /// Returns the `SignedRoot` for the contained message.
     ///
     /// The actual `SignedRoot` trait is not used since it also requires a `TreeHash` impl, which is
@@ -62,6 +66,7 @@ impl<'a, T: EthSpec> SignableMessage<'a, T> {
                 beacon_block_root, ..
             } => beacon_block_root.signing_root(domain),
             SignableMessage::SignedContributionAndProof(c) => c.signing_root(domain),
+            SignableMessage::ValidatorRegistration(v) => v.signing_root(domain),
         }
     }
 }
@@ -74,7 +79,7 @@ pub enum SigningMethod {
     /// A validator that is defined by an EIP-2335 keystore on the local filesystem.
     LocalKeystore {
         voting_keystore_path: PathBuf,
-        voting_keystore_lockfile: Lockfile,
+        voting_keystore_lockfile: Mutex<Option<Lockfile>>,
         voting_keystore: Keystore,
         voting_keypair: Arc<Keypair>,
     },
@@ -111,9 +116,9 @@ impl SigningContext {
 
 impl SigningMethod {
     /// Return the signature of `signable_message`, with respect to the `signing_context`.
-    pub async fn get_signature<T: EthSpec>(
+    pub async fn get_signature<T: EthSpec, Payload: ExecPayload<T>>(
         &self,
-        signable_message: SignableMessage<'_, T>,
+        signable_message: SignableMessage<'_, T, Payload>,
         signing_context: SigningContext,
         spec: &ChainSpec,
         executor: &TaskExecutor,
@@ -127,6 +132,22 @@ impl SigningMethod {
 
         let signing_root = signable_message.signing_root(domain_hash);
 
+        let fork_info = Some(ForkInfo {
+            fork,
+            genesis_validators_root,
+        });
+
+        self.get_signature_from_root(signable_message, signing_root, executor, fork_info)
+            .await
+    }
+
+    pub async fn get_signature_from_root<T: EthSpec, Payload: ExecPayload<T>>(
+        &self,
+        signable_message: SignableMessage<'_, T, Payload>,
+        signing_root: Hash256,
+        executor: &TaskExecutor,
+        fork_info: Option<ForkInfo>,
+    ) -> Result<Signature, Error> {
         match self {
             SigningMethod::LocalKeystore { voting_keypair, .. } => {
                 let _timer =
@@ -158,7 +179,7 @@ impl SigningMethod {
                     SignableMessage::RandaoReveal(epoch) => {
                         Web3SignerObject::RandaoReveal { epoch }
                     }
-                    SignableMessage::BeaconBlock(block) => Web3SignerObject::beacon_block(block),
+                    SignableMessage::BeaconBlock(block) => Web3SignerObject::beacon_block(block)?,
                     SignableMessage::AttestationData(a) => Web3SignerObject::Attestation(a),
                     SignableMessage::SignedAggregateAndProof(a) => {
                         Web3SignerObject::AggregateAndProof(a)
@@ -179,21 +200,21 @@ impl SigningMethod {
                     SignableMessage::SignedContributionAndProof(c) => {
                         Web3SignerObject::ContributionAndProof(c)
                     }
+                    SignableMessage::ValidatorRegistration(v) => {
+                        Web3SignerObject::ValidatorRegistration(v)
+                    }
                 };
 
                 // Determine the Web3Signer message type.
                 let message_type = object.message_type();
 
-                // The `fork_info` field is not required for deposits since they sign across the
-                // genesis fork version.
-                let fork_info = if let Web3SignerObject::Deposit { .. } = &object {
-                    None
-                } else {
-                    Some(ForkInfo {
-                        fork,
-                        genesis_validators_root,
-                    })
-                };
+                if matches!(
+                    object,
+                    Web3SignerObject::Deposit { .. } | Web3SignerObject::ValidatorRegistration(_)
+                ) && fork_info.is_some()
+                {
+                    return Err(Error::GenesisForkVersionRequired);
+                }
 
                 let request = SigningRequest {
                     message_type,

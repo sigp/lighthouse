@@ -10,7 +10,8 @@ use types::{BeaconBlock, BeaconState, ForkName, Hash256, SignedBeaconBlock};
 #[derive(Debug, Clone, Deserialize)]
 struct SszStaticRoots {
     root: String,
-    signing_root: Option<String>,
+    #[serde(rename(deserialize = "signing_root"))]
+    _signing_root: Option<String>,
 }
 
 /// Runner for types that implement `ssz::Decode`.

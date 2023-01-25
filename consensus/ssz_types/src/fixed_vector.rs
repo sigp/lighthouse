@@ -1,5 +1,6 @@
 use crate::tree_hash::vec_tree_hash_root;
 use crate::Error;
+use derivative::Derivative;
 use serde_derive::{Deserialize, Serialize};
 use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut, Index, IndexMut};
@@ -44,7 +45,8 @@ pub use typenum;
 /// let long: FixedVector<_, typenum::U5> = FixedVector::from(base);
 /// assert_eq!(&long[..], &[1, 2, 3, 4, 0]);
 /// ```
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Derivative)]
+#[derivative(PartialEq, Hash(bound = "T: std::hash::Hash"))]
 #[serde(transparent)]
 pub struct FixedVector<T, N> {
     vec: Vec<T>,
@@ -165,7 +167,7 @@ where
         tree_hash::TreeHashType::Vector
     }
 
-    fn tree_hash_packed_encoding(&self) -> Vec<u8> {
+    fn tree_hash_packed_encoding(&self) -> tree_hash::PackedEncoding {
         unreachable!("Vector should never be packed.")
     }
 
@@ -324,7 +326,7 @@ mod test {
 
         assert_eq!(fixed[0], 1);
         assert_eq!(&fixed[0..1], &vec[0..1]);
-        assert_eq!((&fixed[..]).len(), 8192);
+        assert_eq!((fixed[..]).len(), 8192);
 
         fixed[1] = 3;
         assert_eq!(fixed[1], 3);
@@ -351,7 +353,7 @@ mod test {
         let vec = vec![0, 2, 4, 6];
         let fixed: FixedVector<u64, U4> = FixedVector::from(vec);
 
-        assert_eq!(fixed.get(0), Some(&0));
+        assert_eq!(fixed.first(), Some(&0));
         assert_eq!(fixed.get(3), Some(&6));
         assert_eq!(fixed.get(4), None);
     }

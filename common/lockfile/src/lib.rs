@@ -1,5 +1,5 @@
 use fs2::FileExt;
-use std::fs::{self, File, OpenOptions};
+use std::fs::{self, File};
 use std::io::{self, ErrorKind};
 use std::path::{Path, PathBuf};
 
@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 /// outage) caused the lockfile not to be deleted.
 #[derive(Debug)]
 pub struct Lockfile {
-    file: File,
+    _file: File,
     path: PathBuf,
     file_existed: bool,
 }
@@ -30,7 +30,7 @@ impl Lockfile {
         let file = if file_existed {
             File::open(&path)
         } else {
-            OpenOptions::new()
+            File::options()
                 .read(true)
                 .write(true)
                 .create_new(true)
@@ -43,7 +43,7 @@ impl Lockfile {
             _ => LockfileError::IoError(path.clone(), e),
         })?;
         Ok(Self {
-            file,
+            _file: file,
             path,
             file_existed,
         })

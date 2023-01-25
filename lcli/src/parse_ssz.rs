@@ -1,7 +1,9 @@
 use clap::ArgMatches;
 use clap_utils::parse_required;
 use serde::Serialize;
+use snap::raw::Decoder;
 use ssz::Decode;
+use std::fs;
 use std::fs::File;
 use std::io::Read;
 use std::str::FromStr;
@@ -29,11 +31,18 @@ pub fn run_parse_ssz<T: EthSpec>(matches: &ArgMatches) -> Result<(), String> {
     let filename = matches.value_of("ssz-file").ok_or("No file supplied")?;
     let format = parse_required(matches, "format")?;
 
-    let mut bytes = vec![];
-    let mut file =
-        File::open(filename).map_err(|e| format!("Unable to open {}: {}", filename, e))?;
-    file.read_to_end(&mut bytes)
-        .map_err(|e| format!("Unable to read {}: {}", filename, e))?;
+    let bytes = if filename.ends_with("ssz_snappy") {
+        let bytes = fs::read(filename).unwrap();
+        let mut decoder = Decoder::new();
+        decoder.decompress_vec(&bytes).unwrap()
+    } else {
+        let mut bytes = vec![];
+        let mut file =
+            File::open(filename).map_err(|e| format!("Unable to open {}: {}", filename, e))?;
+        file.read_to_end(&mut bytes)
+            .map_err(|e| format!("Unable to read {}: {}", filename, e))?;
+        bytes
+    };
 
     info!("Using {} spec", T::spec_name());
     info!("Type: {:?}", type_str);
@@ -41,10 +50,13 @@ pub fn run_parse_ssz<T: EthSpec>(matches: &ArgMatches) -> Result<(), String> {
     match type_str {
         "signed_block_base" => decode_and_print::<SignedBeaconBlockBase<T>>(&bytes, format)?,
         "signed_block_altair" => decode_and_print::<SignedBeaconBlockAltair<T>>(&bytes, format)?,
+        "signed_block_merge" => decode_and_print::<SignedBeaconBlockMerge<T>>(&bytes, format)?,
         "block_base" => decode_and_print::<BeaconBlockBase<T>>(&bytes, format)?,
         "block_altair" => decode_and_print::<BeaconBlockAltair<T>>(&bytes, format)?,
+        "block_merge" => decode_and_print::<BeaconBlockMerge<T>>(&bytes, format)?,
         "state_base" => decode_and_print::<BeaconStateBase<T>>(&bytes, format)?,
         "state_altair" => decode_and_print::<BeaconStateAltair<T>>(&bytes, format)?,
+        "state_merge" => decode_and_print::<BeaconStateMerge<T>>(&bytes, format)?,
         other => return Err(format!("Unknown type: {}", other)),
     };
 

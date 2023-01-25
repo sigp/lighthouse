@@ -3,7 +3,7 @@
 [launchpad]: https://launchpad.ethereum.org/
 
 >
-> **Note: we recommend using the [Eth2 launchpad][launchpad] to create validators.**
+> **Note: we recommend using the [Staking launchpad][launchpad] to create validators.**
 
 A wallet allows for generating practically unlimited validators from an
 easy-to-remember 24-word string (a mnemonic). As long as that mnemonic is
@@ -11,7 +11,7 @@ backed up, all validator keys can be trivially re-generated.
 
 The 24-word string is randomly generated during wallet creation and printed out
 to the terminal. It's important to **make one or more backups of the mnemonic**
-to ensure your ETH is not lost in the case of data loss. It very important to
+to ensure your ETH is not lost in the case of data loss. It is very important to
 **keep your mnemonic private** as it represents the ultimate control of your
 ETH.
 
@@ -59,11 +59,11 @@ OPTIONS:
 
 ## Example
 
-Creates a new wallet named `wally` and saves it in `~/.lighthouse/pyrmont/wallets` with a randomly generated password saved
+Creates a new wallet named `wally` and saves it in `~/.lighthouse/prater/wallets` with a randomly generated password saved
 to `./wallet.pass`:
 
 ```bash
-lighthouse --network pyrmont account wallet create --name wally --password-file wally.pass
+lighthouse --network prater account wallet create --name wally --password-file wally.pass
 ```
 
 > Notes:

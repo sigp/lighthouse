@@ -16,6 +16,7 @@
 use crate::validator_monitor::HISTORIC_EPOCHS as VALIDATOR_MONITOR_HISTORIC_EPOCHS;
 use crate::{
     beacon_chain::{ATTESTATION_CACHE_LOCK_TIMEOUT, BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT},
+    chain_config::FORK_CHOICE_LOOKAHEAD_FACTOR,
     snapshot_cache::StateAdvance,
     BeaconChain, BeaconChainError, BeaconChainTypes,
 };
@@ -27,7 +28,7 @@ use std::sync::{
     Arc,
 };
 use task_executor::TaskExecutor;
-use tokio::time::sleep;
+use tokio::time::{sleep, sleep_until, Instant};
 use types::{AttestationShufflingId, EthSpec, Hash256, RelativeEpoch, Slot};
 
 /// If the head slot is more than `MAX_ADVANCE_DISTANCE` from the current slot, then don't perform
@@ -37,13 +38,28 @@ use types::{AttestationShufflingId, EthSpec, Hash256, RelativeEpoch, Slot};
 /// for some period of time.
 const MAX_ADVANCE_DISTANCE: u64 = 4;
 
+/// Similarly for fork choice: avoid the fork choice lookahead during sync.
+///
+/// The value is set to 256 since this would be just over one slot (12.8s) when syncing at
+/// 20 slots/second. Having a single fork-choice run interrupt syncing would have very little
+/// impact whilst having 8 epochs without a block is a comfortable grace period.
+const MAX_FORK_CHOICE_DISTANCE: u64 = 256;
+
 #[derive(Debug)]
 enum Error {
     BeaconChain(BeaconChainError),
     HeadMissingFromSnapshotCache(Hash256),
-    MaxDistanceExceeded { current_slot: Slot, head_slot: Slot },
-    StateAlreadyAdvanced { block_root: Hash256 },
-    BadStateSlot { state_slot: Slot, block_slot: Slot },
+    MaxDistanceExceeded {
+        current_slot: Slot,
+        head_slot: Slot,
+    },
+    StateAlreadyAdvanced {
+        block_root: Hash256,
+    },
+    BadStateSlot {
+        _state_slot: Slot,
+        _block_slot: Slot,
+    },
 }
 
 impl From<BeaconChainError> for Error {
@@ -97,8 +113,8 @@ async fn state_advance_timer<T: BeaconChainTypes>(
     let slot_duration = slot_clock.slot_duration();
 
     loop {
-        match beacon_chain.slot_clock.duration_to_next_slot() {
-            Some(duration) => sleep(duration + (slot_duration / 4) * 3).await,
+        let duration_to_next_slot = match beacon_chain.slot_clock.duration_to_next_slot() {
+            Some(duration) => duration,
             None => {
                 error!(log, "Failed to read slot clock");
                 // If we can't read the slot clock, just wait another slot.
@@ -107,7 +123,45 @@ async fn state_advance_timer<T: BeaconChainTypes>(
             }
         };
 
-        // Only start spawn the state advance task if the lock was previously free.
+        // Run the state advance 3/4 of the way through the slot (9s on mainnet).
+        let state_advance_offset = slot_duration / 4;
+        let state_advance_instant = if duration_to_next_slot > state_advance_offset {
+            Instant::now() + duration_to_next_slot - state_advance_offset
+        } else {
+            // Skip the state advance for the current slot and wait until the next one.
+            Instant::now() + duration_to_next_slot + slot_duration - state_advance_offset
+        };
+
+        // Run fork choice 23/24s of the way through the slot (11.5s on mainnet).
+        // We need to run after the state advance, so use the same condition as above.
+        let fork_choice_offset = slot_duration / FORK_CHOICE_LOOKAHEAD_FACTOR;
+        let fork_choice_instant = if duration_to_next_slot > state_advance_offset {
+            Instant::now() + duration_to_next_slot - fork_choice_offset
+        } else {
+            Instant::now() + duration_to_next_slot + slot_duration - fork_choice_offset
+        };
+
+        // Wait for the state advance.
+        sleep_until(state_advance_instant).await;
+
+        // Compute the current slot here at approx 3/4 through the slot. Even though this slot is
+        // only used by fork choice we need to calculate it here rather than after the state
+        // advance, in case the state advance flows over into the next slot.
+        let current_slot = match beacon_chain.slot() {
+            Ok(slot) => slot,
+            Err(e) => {
+                warn!(
+                    log,
+                    "Unable to determine slot in state advance timer";
+                    "error" => ?e
+                );
+                // If we can't read the slot clock, just wait another slot.
+                sleep(slot_duration).await;
+                continue;
+            }
+        };
+
+        // Only spawn the state advance task if the lock was previously free.
         if !is_running.lock() {
             let log = log.clone();
             let beacon_chain = beacon_chain.clone();
@@ -155,6 +209,57 @@ async fn state_advance_timer<T: BeaconChainTypes>(
                 "msg" => "system resources may be overloaded"
             )
         }
+
+        // Run fork choice pre-emptively for the next slot. This processes most of the attestations
+        // from this slot off the hot path of block verification and production.
+        // Wait for the fork choice instant (which may already be past).
+        sleep_until(fork_choice_instant).await;
+
+        let log = log.clone();
+        let beacon_chain = beacon_chain.clone();
+        let next_slot = current_slot + 1;
+        executor.spawn(
+            async move {
+                // Don't run fork choice during sync.
+                if beacon_chain.best_slot() + MAX_FORK_CHOICE_DISTANCE < current_slot {
+                    return;
+                }
+
+                // Re-compute the head, dequeuing attestations for the current slot early.
+                beacon_chain.recompute_head_at_slot(next_slot).await;
+
+                // Prepare proposers so that the node can send payload attributes in the case where
+                // it decides to abandon a proposer boost re-org.
+                if let Err(e) = beacon_chain.prepare_beacon_proposer(current_slot).await {
+                    warn!(
+                        log,
+                        "Unable to prepare proposer with lookahead";
+                        "error" => ?e,
+                        "slot" => next_slot,
+                    );
+                }
+
+                // Use a blocking task to avoid blocking the core executor whilst waiting for locks
+                // in `ForkChoiceSignalTx`.
+                beacon_chain.task_executor.clone().spawn_blocking(
+                    move || {
+                        // Signal block proposal for the next slot (if it happens to be waiting).
+                        if let Some(tx) = &beacon_chain.fork_choice_signal_tx {
+                            if let Err(e) = tx.notify_fork_choice_complete(next_slot) {
+                                warn!(
+                                    log,
+                                    "Error signalling fork choice waiter";
+                                    "error" => ?e,
+                                    "slot" => next_slot,
+                                );
+                            }
+                        }
+                    },
+                    "fork_choice_advance_signal_tx",
+                );
+            },
+            "fork_choice_advance",
+        );
     }
 }
 
@@ -164,7 +269,7 @@ async fn state_advance_timer<T: BeaconChainTypes>(
 ///
 /// See the module-level documentation for rationale.
 fn advance_head<T: BeaconChainTypes>(
-    beacon_chain: &BeaconChain<T>,
+    beacon_chain: &Arc<BeaconChain<T>>,
     log: &Logger,
 ) -> Result<(), Error> {
     let current_slot = beacon_chain.slot()?;
@@ -174,7 +279,7 @@ fn advance_head<T: BeaconChainTypes>(
     //
     // Fork-choice is not run *before* this function to avoid unnecessary calls whilst syncing.
     {
-        let head_slot = beacon_chain.head_info()?.slot;
+        let head_slot = beacon_chain.best_slot();
 
         // Don't run this when syncing or if lagging too far behind.
         if head_slot + MAX_ADVANCE_DISTANCE < current_slot {
@@ -185,14 +290,7 @@ fn advance_head<T: BeaconChainTypes>(
         }
     }
 
-    // Run fork choice so we get the latest view of the head.
-    //
-    // This is useful since it's quite likely that the last time we ran fork choice was shortly
-    // after receiving the latest gossip block, but not necessarily after we've received the
-    // majority of attestations.
-    beacon_chain.fork_choice()?;
-
-    let head_root = beacon_chain.head_info()?.block_root;
+    let head_root = beacon_chain.head_beacon_block_root();
 
     let (head_slot, head_state_root, mut state) = match beacon_chain
         .snapshot_cache
@@ -224,8 +322,8 @@ fn advance_head<T: BeaconChainTypes>(
         // Advancing more than one slot without storing the intermediate state would corrupt the
         // database. Future works might store temporary, intermediate states inside this function.
         return Err(Error::BadStateSlot {
-            block_slot: head_slot,
-            state_slot: state.slot(),
+            _block_slot: head_slot,
+            _state_slot: state.slot(),
         });
     };
 
@@ -309,7 +407,7 @@ fn advance_head<T: BeaconChainTypes>(
             .shuffling_cache
             .try_write_for(ATTESTATION_CACHE_LOCK_TIMEOUT)
             .ok_or(BeaconChainError::AttestationCacheLockTimeout)?
-            .insert(shuffling_id.clone(), committee_cache);
+            .insert_committee_cache(shuffling_id.clone(), committee_cache);
 
         debug!(
             log,

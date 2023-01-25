@@ -75,7 +75,7 @@ impl From<BeaconChainError> for Error {
 
 /// Stores the minimal amount of data required to compute the committee length for any committee at any
 /// slot in a given `epoch`.
-struct CommitteeLengths {
+pub struct CommitteeLengths {
     /// The `epoch` to which the lengths pertain.
     epoch: Epoch,
     /// The length of the shuffling in `self.epoch`.
@@ -84,7 +84,7 @@ struct CommitteeLengths {
 
 impl CommitteeLengths {
     /// Instantiate `Self` using `state.current_epoch()`.
-    fn new<T: EthSpec>(state: &BeaconState<T>, spec: &ChainSpec) -> Result<Self, Error> {
+    pub fn new<T: EthSpec>(state: &BeaconState<T>, spec: &ChainSpec) -> Result<Self, Error> {
         let active_validator_indices_len = if let Ok(committee_cache) =
             state.committee_cache(RelativeEpoch::Current)
         {
@@ -101,8 +101,16 @@ impl CommitteeLengths {
         })
     }
 
+    /// Get the count of committees per each slot of `self.epoch`.
+    pub fn get_committee_count_per_slot<T: EthSpec>(
+        &self,
+        spec: &ChainSpec,
+    ) -> Result<usize, Error> {
+        T::get_committee_count_per_slot(self.active_validator_indices_len, spec).map_err(Into::into)
+    }
+
     /// Get the length of the committee at the given `slot` and `committee_index`.
-    fn get<T: EthSpec>(
+    pub fn get_committee_length<T: EthSpec>(
         &self,
         slot: Slot,
         committee_index: CommitteeIndex,
@@ -120,8 +128,7 @@ impl CommitteeLengths {
         }
 
         let slots_per_epoch = slots_per_epoch as usize;
-        let committees_per_slot =
-            T::get_committee_count_per_slot(self.active_validator_indices_len, spec)?;
+        let committees_per_slot = self.get_committee_count_per_slot::<T>(spec)?;
         let index_in_epoch = compute_committee_index_in_epoch(
             slot,
             slots_per_epoch,
@@ -172,7 +179,7 @@ impl AttesterCacheValue {
         spec: &ChainSpec,
     ) -> Result<(JustifiedCheckpoint, CommitteeLength), Error> {
         self.committee_lengths
-            .get::<T>(slot, committee_index, spec)
+            .get_committee_length::<T>(slot, committee_index, spec)
             .map(|committee_length| (self.current_justified_checkpoint, committee_length))
     }
 }

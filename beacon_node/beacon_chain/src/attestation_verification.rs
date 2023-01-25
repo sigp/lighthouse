@@ -141,6 +141,14 @@ pub enum Error {
     /// The attestation points to a block we have not yet imported. It's unclear if the attestation
     /// is valid or not.
     UnknownHeadBlock { beacon_block_root: Hash256 },
+    /// The `attestation.data.beacon_block_root` block is from before the finalized checkpoint.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The attestation is not descended from the finalized checkpoint, which is a REJECT according
+    /// to the spec. We downscore lightly because this could also happen if we are processing
+    /// attestations extremely slowly.
+    HeadBlockFinalized { beacon_block_root: Hash256 },
     /// The `attestation.data.slot` is not from the same epoch as `data.target.epoch`.
     ///
     /// ## Peer scoring
@@ -183,24 +191,6 @@ pub enum Error {
     /// single-participant attestation from this validator for this epoch and should not observe
     /// another.
     PriorAttestationKnown { validator_index: u64, epoch: Epoch },
-    /// The attestation is for an epoch in the future (with respect to the gossip clock disparity).
-    ///
-    /// ## Peer scoring
-    ///
-    /// Assuming the local clock is correct, the peer has sent an invalid message.
-    FutureEpoch {
-        attestation_epoch: Epoch,
-        current_epoch: Epoch,
-    },
-    /// The attestation is for an epoch in the past (with respect to the gossip clock disparity).
-    ///
-    /// ## Peer scoring
-    ///
-    /// Assuming the local clock is correct, the peer has sent an invalid message.
-    PastEpoch {
-        attestation_epoch: Epoch,
-        current_epoch: Epoch,
-    },
     /// The attestation is attesting to a state that is later than itself. (Viz., attesting to the
     /// future).
     ///
@@ -328,10 +318,17 @@ impl<'a, T: BeaconChainTypes> Clone for IndexedUnaggregatedAttestation<'a, T> {
 
 /// A helper trait implemented on wrapper types that can be progressed to a state where they can be
 /// verified for application to fork choice.
-pub trait VerifiedAttestation<T: BeaconChainTypes> {
+pub trait VerifiedAttestation<T: BeaconChainTypes>: Sized {
     fn attestation(&self) -> &Attestation<T::EthSpec>;
 
     fn indexed_attestation(&self) -> &IndexedAttestation<T::EthSpec>;
+
+    // Inefficient default implementation. This is overridden for gossip verified attestations.
+    fn into_attestation_and_indices(self) -> (Attestation<T::EthSpec>, Vec<u64>) {
+        let attestation = self.attestation().clone();
+        let attesting_indices = self.indexed_attestation().attesting_indices.clone().into();
+        (attestation, attesting_indices)
+    }
 }
 
 impl<'a, T: BeaconChainTypes> VerifiedAttestation<T> for VerifiedAggregatedAttestation<'a, T> {
@@ -452,7 +449,7 @@ impl<'a, T: BeaconChainTypes> IndexedAggregatedAttestation<'a, T> {
         // MAXIMUM_GOSSIP_CLOCK_DISPARITY allowance).
         //
         // We do not queue future attestations for later processing.
-        verify_propagation_slot_range(chain, attestation)?;
+        verify_propagation_slot_range(&chain.slot_clock, attestation)?;
 
         // Check the attestation's epoch matches its target.
         if attestation.data.slot.epoch(T::EthSpec::slots_per_epoch())
@@ -716,7 +713,7 @@ impl<'a, T: BeaconChainTypes> IndexedUnaggregatedAttestation<'a, T> {
         // MAXIMUM_GOSSIP_CLOCK_DISPARITY allowance).
         //
         // We do not queue future attestations for later processing.
-        verify_propagation_slot_range(chain, attestation)?;
+        verify_propagation_slot_range(&chain.slot_clock, attestation)?;
 
         // Check to ensure that the attestation is "unaggregated". I.e., it has exactly one
         // aggregation bit set.
@@ -971,7 +968,6 @@ impl<'a, T: BeaconChainTypes> VerifiedUnaggregatedAttestation<'a, T> {
 }
 
 /// Returns `Ok(())` if the `attestation.data.beacon_block_root` is known to this chain.
-/// You can use this `shuffling_id` to read from the shuffling cache.
 ///
 /// The block root may not be known for two reasons:
 ///
@@ -986,11 +982,17 @@ fn verify_head_block_is_known<T: BeaconChainTypes>(
     attestation: &Attestation<T::EthSpec>,
     max_skip_slots: Option<u64>,
 ) -> Result<ProtoBlock, Error> {
-    if let Some(block) = chain
-        .fork_choice
-        .read()
+    let block_opt = chain
+        .canonical_head
+        .fork_choice_read_lock()
         .get_block(&attestation.data.beacon_block_root)
-    {
+        .or_else(|| {
+            chain
+                .early_attester_cache
+                .get_proto_block(attestation.data.beacon_block_root)
+        });
+
+    if let Some(block) = block_opt {
         // Reject any block that exceeds our limit on skipped slots.
         if let Some(max_skip_slots) = max_skip_slots {
             if attestation.data.slot > block.slot + max_skip_slots {
@@ -1002,7 +1004,17 @@ fn verify_head_block_is_known<T: BeaconChainTypes>(
         }
 
         Ok(block)
+    } else if chain.is_pre_finalization_block(attestation.data.beacon_block_root)? {
+        Err(Error::HeadBlockFinalized {
+            beacon_block_root: attestation.data.beacon_block_root,
+        })
     } else {
+        // The block is either:
+        //
+        // 1) A pre-finalization block that has been pruned. We'll do one network lookup
+        //    for it and when it fails we will penalise all involved peers.
+        // 2) A post-finalization block that we don't know about yet. We'll queue
+        //    the attestation until the block becomes available (or we time out).
         Err(Error::UnknownHeadBlock {
             beacon_block_root: attestation.data.beacon_block_root,
         })
@@ -1013,14 +1025,13 @@ fn verify_head_block_is_known<T: BeaconChainTypes>(
 /// to the current slot of the `chain`.
 ///
 /// Accounts for `MAXIMUM_GOSSIP_CLOCK_DISPARITY`.
-pub fn verify_propagation_slot_range<T: BeaconChainTypes>(
-    chain: &BeaconChain<T>,
-    attestation: &Attestation<T::EthSpec>,
+pub fn verify_propagation_slot_range<S: SlotClock, E: EthSpec>(
+    slot_clock: &S,
+    attestation: &Attestation<E>,
 ) -> Result<(), Error> {
     let attestation_slot = attestation.data.slot;
 
-    let latest_permissible_slot = chain
-        .slot_clock
+    let latest_permissible_slot = slot_clock
         .now_with_future_tolerance(MAXIMUM_GOSSIP_CLOCK_DISPARITY)
         .ok_or(BeaconChainError::UnableToReadSlot)?;
     if attestation_slot > latest_permissible_slot {
@@ -1031,11 +1042,10 @@ pub fn verify_propagation_slot_range<T: BeaconChainTypes>(
     }
 
     // Taking advantage of saturating subtraction on `Slot`.
-    let earliest_permissible_slot = chain
-        .slot_clock
+    let earliest_permissible_slot = slot_clock
         .now_with_past_tolerance(MAXIMUM_GOSSIP_CLOCK_DISPARITY)
         .ok_or(BeaconChainError::UnableToReadSlot)?
-        - T::EthSpec::slots_per_epoch();
+        - E::slots_per_epoch();
     if attestation_slot < earliest_permissible_slot {
         return Err(Error::PastSlot {
             attestation_slot,
@@ -1203,7 +1213,7 @@ type CommitteesPerSlot = u64;
 
 /// Returns the `indexed_attestation` and committee count per slot for the `attestation` using the
 /// public keys cached in the `chain`.
-fn obtain_indexed_attestation_and_committees_per_slot<T: BeaconChainTypes>(
+pub fn obtain_indexed_attestation_and_committees_per_slot<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
     attestation: &Attestation<T::EthSpec>,
 ) -> Result<(IndexedAttestation<T::EthSpec>, CommitteesPerSlot), Error> {
@@ -1242,7 +1252,12 @@ where
     // processing an attestation that does not include our latest finalized block in its chain.
     //
     // We do not delay consideration for later, we simply drop the attestation.
-    if !chain.fork_choice.read().contains_block(&target.root) {
+    if !chain
+        .canonical_head
+        .fork_choice_read_lock()
+        .contains_block(&target.root)
+        && !chain.early_attester_cache.contains_block(target.root)
+    {
         return Err(Error::UnknownTargetRoot(target.root));
     }
 

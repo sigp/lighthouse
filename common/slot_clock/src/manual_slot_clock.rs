@@ -154,6 +154,10 @@ impl SlotClock for ManualSlotClock {
     fn genesis_slot(&self) -> Slot {
         self.genesis_slot
     }
+
+    fn genesis_duration(&self) -> Duration {
+        self.genesis_duration
+    }
 }
 
 #[cfg(test)]

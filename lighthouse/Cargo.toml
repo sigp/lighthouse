@@ -1,11 +1,13 @@
 [package]
 name = "lighthouse"
-version = "2.0.1"
+version = "3.4.0"
 authors = ["Sigma Prime <contact@sigmaprime.io>"]
-edition = "2018"
+edition = "2021"
 autotests = false
+rust-version = "1.62"
 
 [features]
+default = ["slasher-mdbx"]
 # Writes debugging .ssz files to /tmp during block processing.
 write_ssz_files = ["beacon_node/write_ssz_files"]
 # Compiles the BLS crypto code so that the binary is portable across machines.
@@ -16,14 +18,22 @@ modern = ["bls/supranational-force-adx"]
 milagro = ["bls/milagro"]
 # Support minimal spec (used for testing only).
 spec-minimal = []
+# Support Gnosis spec and Gnosis Beacon Chain.
+gnosis = []
+# Support slasher MDBX backend.
+slasher-mdbx = ["slasher/mdbx"]
+# Support slasher LMDB backend.
+slasher-lmdb = ["slasher/lmdb"]
+# Use jemalloc.
+jemalloc = ["malloc_utils/jemalloc"]
 
 [dependencies]
 beacon_node = { "path" = "../beacon_node" }
 slog = { version = "2.5.2", features = ["max_level_trace"] }
-sloggers = "2.0.2"
+sloggers = { version = "2.1.1", features = ["json"] }
 types = { "path" = "../consensus/types" }
 bls = { path = "../crypto/bls" }
-eth2_hashing = "0.2.0"
+eth2_hashing = "0.3.0"
 clap = "2.33.3"
 env_logger = "0.9.0"
 environment = { path = "./environment" }
@@ -37,15 +47,23 @@ lighthouse_version = { path = "../common/lighthouse_version" }
 account_utils = { path = "../common/account_utils" }
 lighthouse_metrics = { path = "../common/lighthouse_metrics" }
 lazy_static = "1.4.0"
+serde = { version = "1.0.116", features = ["derive"] }
 serde_json = "1.0.59"
+serde_yaml = "0.8.13"
 task_executor = { path = "../common/task_executor" }
 malloc_utils = { path = "../common/malloc_utils" }
+directory = { path = "../common/directory" }
+unused_port = { path = "../common/unused_port" }
+database_manager = { path = "../database_manager" }
+slasher = { path = "../slasher" }
 
 [dev-dependencies]
 tempfile = "3.1.0"
 validator_dir = { path = "../common/validator_dir" }
 slashing_protection = { path = "../validator_client/slashing_protection" }
 lighthouse_network = { path = "../beacon_node/lighthouse_network" }
+sensitive_url = { path = "../common/sensitive_url" }
+eth1 = { path = "../beacon_node/eth1" }
 
 [[test]]
 name = "lighthouse_tests"

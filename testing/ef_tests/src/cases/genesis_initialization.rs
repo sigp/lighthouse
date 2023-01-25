@@ -4,11 +4,12 @@ use crate::decode::{ssz_decode_file, ssz_decode_state, yaml_decode_file};
 use serde_derive::Deserialize;
 use state_processing::initialize_beacon_state_from_eth1;
 use std::path::PathBuf;
-use types::{BeaconState, Deposit, EthSpec, ForkName, Hash256};
+use types::{BeaconState, Deposit, EthSpec, ExecutionPayloadHeader, ForkName, Hash256};
 
 #[derive(Debug, Clone, Deserialize)]
 struct Metadata {
     deposits_count: usize,
+    execution_payload_header: Option<bool>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -24,6 +25,7 @@ pub struct GenesisInitialization<E: EthSpec> {
     pub eth1_block_hash: Hash256,
     pub eth1_timestamp: u64,
     pub deposits: Vec<Deposit>,
+    pub execution_payload_header: Option<ExecutionPayloadHeader<E>>,
     pub state: Option<BeaconState<E>>,
 }
 
@@ -34,6 +36,14 @@ impl<E: EthSpec> LoadCase for GenesisInitialization<E> {
             eth1_timestamp,
         } = yaml_decode_file(&path.join("eth1.yaml"))?;
         let meta: Metadata = yaml_decode_file(&path.join("meta.yaml"))?;
+        let execution_payload_header: Option<ExecutionPayloadHeader<E>> =
+            if meta.execution_payload_header.unwrap_or(false) {
+                Some(ssz_decode_file(
+                    &path.join("execution_payload_header.ssz_snappy"),
+                )?)
+            } else {
+                None
+            };
         let deposits: Vec<Deposit> = (0..meta.deposits_count)
             .map(|i| {
                 let filename = format!("deposits_{}.ssz_snappy", i);
@@ -48,6 +58,7 @@ impl<E: EthSpec> LoadCase for GenesisInitialization<E> {
             eth1_block_hash,
             eth1_timestamp,
             deposits,
+            execution_payload_header,
             state: Some(state),
         })
     }
@@ -66,6 +77,7 @@ impl<E: EthSpec> Case for GenesisInitialization<E> {
             self.eth1_block_hash,
             self.eth1_timestamp,
             self.deposits.clone(),
+            self.execution_payload_header.clone(),
             spec,
         );
 

@@ -7,8 +7,12 @@ use lighthouse_metrics::{
 use slog::Logger;
 use slog_term::Decorator;
 use std::io::{Result, Write};
+use std::time::{Duration, Instant};
 
 pub const MAX_MESSAGE_WIDTH: usize = 40;
+
+/// The minimum interval between log messages indicating that a queue is full.
+const LOG_DEBOUNCE_INTERVAL: Duration = Duration::from_secs(30);
 
 lazy_static! {
     pub static ref INFOS_TOTAL: MetricsResult<IntCounter> =
@@ -80,10 +84,8 @@ impl<'a> AlignedRecordDecorator<'a> {
             message_width,
         }
     }
-}
 
-impl<'a> Write for AlignedRecordDecorator<'a> {
-    fn write(&mut self, buf: &[u8]) -> Result<usize> {
+    fn filtered_write(&mut self, buf: &[u8]) -> Result<usize> {
         if self.ignore_comma {
             //don't write comma
             self.ignore_comma = false;
@@ -95,6 +97,21 @@ impl<'a> Write for AlignedRecordDecorator<'a> {
             })
         } else {
             self.wrapped.write(buf)
+        }
+    }
+}
+
+impl<'a> Write for AlignedRecordDecorator<'a> {
+    fn write(&mut self, buf: &[u8]) -> Result<usize> {
+        if buf.iter().any(u8::is_ascii_control) {
+            let filtered = buf
+                .iter()
+                .cloned()
+                .map(|c| if !is_ascii_control(&c) { c } else { b'_' })
+                .collect::<Vec<u8>>();
+            self.filtered_write(&filtered)
+        } else {
+            self.filtered_write(buf)
         }
     }
 
@@ -156,6 +173,40 @@ impl<'a> slog_term::RecordDecorator for AlignedRecordDecorator<'a> {
 
     fn start_separator(&mut self) -> Result<()> {
         self.wrapped.start_separator()
+    }
+}
+
+/// Function to filter out ascii control codes.
+///
+/// This helps to keep log formatting consistent.
+/// Whitespace and padding control codes are excluded.
+fn is_ascii_control(character: &u8) -> bool {
+    matches!(
+        character,
+        b'\x00'..=b'\x08' |
+        b'\x0b'..=b'\x0c' |
+        b'\x0e'..=b'\x1f' |
+        b'\x7f' |
+        b'\x81'..=b'\x9f'
+    )
+}
+
+/// Provides de-bounce functionality for logging.
+#[derive(Default)]
+pub struct TimeLatch(Option<Instant>);
+
+impl TimeLatch {
+    /// Only returns true once every `LOG_DEBOUNCE_INTERVAL`.
+    pub fn elapsed(&mut self) -> bool {
+        let now = Instant::now();
+
+        let is_elapsed = self.0.map_or(false, |elapse_time| now > elapse_time);
+
+        if is_elapsed || self.0.is_none() {
+            self.0 = Some(now + LOG_DEBOUNCE_INTERVAL);
+        }
+
+        is_elapsed
     }
 }
 

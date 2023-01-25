@@ -127,7 +127,7 @@ pub fn use_or_load_enr(
 pub fn build_or_load_enr<T: EthSpec>(
     local_key: Keypair,
     config: &NetworkConfig,
-    enr_fork_id: EnrForkId,
+    enr_fork_id: &EnrForkId,
     log: &slog::Logger,
 ) -> Result<Enr, String> {
     // Build the local ENR.
@@ -149,12 +149,12 @@ pub fn create_enr_builder_from_config<T: EnrKey>(
         builder.ip(enr_address);
     }
     if let Some(udp_port) = config.enr_udp_port {
-        builder.udp(udp_port);
+        builder.udp4(udp_port);
     }
     // we always give it our listening tcp port
     if enable_tcp {
         let tcp_port = config.enr_tcp_port.unwrap_or(config.libp2p_port);
-        builder.tcp(tcp_port);
+        builder.tcp4(tcp_port);
     }
     builder
 }
@@ -163,7 +163,7 @@ pub fn create_enr_builder_from_config<T: EnrKey>(
 pub fn build_enr<T: EthSpec>(
     enr_key: &CombinedKey,
     config: &NetworkConfig,
-    enr_fork_id: EnrForkId,
+    enr_fork_id: &EnrForkId,
 ) -> Result<Enr, String> {
     let mut builder = create_enr_builder_from_config(config, true);
 
@@ -189,13 +189,13 @@ pub fn build_enr<T: EthSpec>(
 /// If this function returns true, we use the `disk_enr`.
 fn compare_enr(local_enr: &Enr, disk_enr: &Enr) -> bool {
     // take preference over disk_enr address if one is not specified
-    (local_enr.ip().is_none() || local_enr.ip() == disk_enr.ip())
+    (local_enr.ip4().is_none() || local_enr.ip4() == disk_enr.ip4())
         // tcp ports must match
-        && local_enr.tcp() == disk_enr.tcp()
+        && local_enr.tcp4() == disk_enr.tcp4()
         // must match on the same fork
         && local_enr.get(ETH2_ENR_KEY) == disk_enr.get(ETH2_ENR_KEY)
         // take preference over disk udp port if one is not specified
-        && (local_enr.udp().is_none() || local_enr.udp() == disk_enr.udp())
+        && (local_enr.udp4().is_none() || local_enr.udp4() == disk_enr.udp4())
         // we need the ATTESTATION_BITFIELD_ENR_KEY and SYNC_COMMITTEE_BITFIELD_ENR_KEY key to match, 
         // otherwise we use a new ENR. This will likely only be true for non-validating nodes
         && local_enr.get(ATTESTATION_BITFIELD_ENR_KEY) == disk_enr.get(ATTESTATION_BITFIELD_ENR_KEY)
@@ -210,10 +210,8 @@ pub fn load_enr_from_disk(dir: &Path) -> Result<Enr, String> {
     let mut enr_string = String::new();
     match enr_file.read_to_string(&mut enr_string) {
         Err(_) => Err("Could not read ENR from file".to_string()),
-        Ok(_) => match Enr::from_str(&enr_string) {
-            Ok(disk_enr) => Ok(disk_enr),
-            Err(e) => Err(format!("ENR from file could not be decoded: {:?}", e)),
-        },
+        Ok(_) => Enr::from_str(&enr_string)
+            .map_err(|e| format!("ENR from file could not be decoded: {:?}", e)),
     }
 }
 

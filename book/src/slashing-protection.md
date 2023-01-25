@@ -1,6 +1,6 @@
 # Slashing Protection
 
-The security of Ethereum 2.0's proof of stake protocol depends on penalties for misbehaviour, known
+The security of the Ethereum proof-of-stake protocol depends on penalties for misbehaviour, known
 as _slashings_. Validators that sign conflicting messages (blocks or attestations), can be slashed
 by other validators through the inclusion of a `ProposerSlashing` or `AttesterSlashing` on chain.
 
@@ -54,7 +54,7 @@ Examples where it is **ineffective** are:
   clients (e.g. Lighthouse and Prysm) running on the same machine, two Lighthouse instances using
   different datadirs, or two clients on completely different machines (e.g. one on a cloud server
   and one running locally). You are responsible for ensuring that your validator keys are never
-  running simultanously – the slashing protection DB **cannot protect you in this case**.
+  running simultaneously – the slashing protection DB **cannot protect you in this case**.
 * Importing keys from another client without also importing voting history.
 * If you use `--init-slashing-protection` to recreate a missing slashing protection database.
 

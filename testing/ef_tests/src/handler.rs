@@ -2,7 +2,7 @@ use crate::cases::{self, Case, Cases, EpochTransition, LoadCase, Operation};
 use crate::type_name;
 use crate::type_name::TypeName;
 use derivative::Derivative;
-use std::fs;
+use std::fs::{self, DirEntry};
 use std::marker::PhantomData;
 use std::path::PathBuf;
 use types::{BeaconState, EthSpec, ForkName};
@@ -30,38 +30,42 @@ pub trait Handler {
         }
     }
 
+    fn use_rayon() -> bool {
+        true
+    }
+
     fn run_for_fork(&self, fork_name: ForkName) {
-        let fork_name_str = match fork_name {
-            ForkName::Base => "phase0",
-            ForkName::Altair => "altair",
-        };
+        let fork_name_str = fork_name.to_string();
 
         let handler_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("consensus-spec-tests")
             .join("tests")
             .join(Self::config_name())
-            .join(fork_name_str)
+            .join(&fork_name_str)
             .join(Self::runner_name())
             .join(self.handler_name());
 
         // Iterate through test suites
+        let as_directory = |entry: Result<DirEntry, std::io::Error>| -> Option<DirEntry> {
+            entry
+                .ok()
+                .filter(|e| e.file_type().map(|ty| ty.is_dir()).unwrap())
+        };
+
         let test_cases = fs::read_dir(&handler_path)
-            .expect("handler dir exists")
-            .flat_map(|entry| {
-                entry
-                    .ok()
-                    .filter(|e| e.file_type().map(|ty| ty.is_dir()).unwrap_or(false))
-            })
+            .unwrap_or_else(|e| panic!("handler dir {} exists: {:?}", handler_path.display(), e))
+            .filter_map(as_directory)
             .flat_map(|suite| fs::read_dir(suite.path()).expect("suite dir exists"))
-            .flat_map(Result::ok)
+            .filter_map(as_directory)
             .map(|test_case_dir| {
                 let path = test_case_dir.path();
+
                 let case = Self::Case::load_from_dir(&path, fork_name).expect("test should load");
                 (path, case)
             })
             .collect();
 
-        let results = Cases { test_cases }.test_results(fork_name);
+        let results = Cases { test_cases }.test_results(fork_name, Self::use_rayon());
 
         let name = format!(
             "{}/{}/{}",
@@ -73,7 +77,7 @@ pub trait Handler {
     }
 }
 
-macro_rules! bls_handler {
+macro_rules! bls_eth_handler {
     ($runner_name: ident, $case_name:ident, $handler_name:expr) => {
         #[derive(Derivative)]
         #[derivative(Default(bound = ""))]
@@ -93,8 +97,69 @@ macro_rules! bls_handler {
     };
 }
 
+macro_rules! bls_handler {
+    ($runner_name: ident, $case_name:ident, $handler_name:expr) => {
+        #[derive(Derivative)]
+        #[derivative(Default(bound = ""))]
+        pub struct $runner_name;
+
+        impl Handler for $runner_name {
+            type Case = cases::$case_name;
+
+            fn runner_name() -> &'static str {
+                "bls"
+            }
+
+            fn config_name() -> &'static str {
+                "bls12-381-tests"
+            }
+
+            fn handler_name(&self) -> String {
+                $handler_name.into()
+            }
+
+            fn run(&self) {
+                let fork_name = ForkName::Base;
+                let fork_name_str = fork_name.to_string();
+                let handler_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                    .join("consensus-spec-tests")
+                    .join(Self::config_name())
+                    .join(self.handler_name());
+
+                let as_file = |entry: Result<DirEntry, std::io::Error>| -> Option<DirEntry> {
+                    entry
+                        .ok()
+                        .filter(|e| e.file_type().map(|ty| ty.is_file()).unwrap_or(false))
+                };
+                let test_cases: Vec<(PathBuf, Self::Case)> = fs::read_dir(&handler_path)
+                    .expect("handler dir exists")
+                    .filter_map(as_file)
+                    .map(|test_case_path| {
+                        let path = test_case_path.path();
+                        let case =
+                            Self::Case::load_from_dir(&path, fork_name).expect("test should load");
+
+                        (path, case)
+                    })
+                    .collect();
+
+                let results = Cases { test_cases }.test_results(fork_name, Self::use_rayon());
+
+                let name = format!(
+                    "{}/{}/{}",
+                    fork_name_str,
+                    Self::runner_name(),
+                    self.handler_name()
+                );
+                crate::results::assert_tests_pass(&name, &handler_path, &results);
+            }
+        }
+    };
+}
+
 bls_handler!(BlsAggregateSigsHandler, BlsAggregateSigs, "aggregate");
 bls_handler!(BlsSignMsgHandler, BlsSign, "sign");
+bls_handler!(BlsBatchVerifyHandler, BlsBatchVerify, "batch_verify");
 bls_handler!(BlsVerifyMsgHandler, BlsVerify, "verify");
 bls_handler!(
     BlsAggregateVerifyHandler,
@@ -106,12 +171,12 @@ bls_handler!(
     BlsFastAggregateVerify,
     "fast_aggregate_verify"
 );
-bls_handler!(
+bls_eth_handler!(
     BlsEthAggregatePubkeysHandler,
     BlsEthAggregatePubkeys,
     "eth_aggregate_pubkeys"
 );
-bls_handler!(
+bls_eth_handler!(
     BlsEthFastAggregateVerifyHandler,
     BlsEthFastAggregateVerify,
     "eth_fast_aggregate_verify"
@@ -143,6 +208,18 @@ impl<T, E> SszStaticHandler<T, E> {
 
     pub fn altair_only() -> Self {
         Self::for_forks(vec![ForkName::Altair])
+    }
+
+    pub fn altair_and_later() -> Self {
+        Self::for_forks(ForkName::list_all()[1..].to_vec())
+    }
+
+    pub fn merge_only() -> Self {
+        Self::for_forks(vec![ForkName::Merge])
+    }
+
+    pub fn merge_and_later() -> Self {
+        Self::for_forks(ForkName::list_all()[2..].to_vec())
     }
 }
 
@@ -421,6 +498,85 @@ impl<E: EthSpec + TypeName> Handler for FinalityHandler<E> {
     }
 }
 
+pub struct ForkChoiceHandler<E> {
+    handler_name: String,
+    _phantom: PhantomData<E>,
+}
+
+impl<E: EthSpec> ForkChoiceHandler<E> {
+    pub fn new(handler_name: &str) -> Self {
+        Self {
+            handler_name: handler_name.into(),
+            _phantom: PhantomData,
+        }
+    }
+}
+
+impl<E: EthSpec + TypeName> Handler for ForkChoiceHandler<E> {
+    type Case = cases::ForkChoiceTest<E>;
+
+    fn config_name() -> &'static str {
+        E::name()
+    }
+
+    fn runner_name() -> &'static str {
+        "fork_choice"
+    }
+
+    fn handler_name(&self) -> String {
+        self.handler_name.clone()
+    }
+
+    fn use_rayon() -> bool {
+        // The fork choice tests use `block_on` which can cause panics with rayon.
+        false
+    }
+
+    fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
+        // Merge block tests are only enabled for Bellatrix or later.
+        if self.handler_name == "on_merge_block"
+            && (fork_name == ForkName::Base || fork_name == ForkName::Altair)
+        {
+            return false;
+        }
+
+        // These tests check block validity (which may include signatures) and there is no need to
+        // run them with fake crypto.
+        cfg!(not(feature = "fake_crypto"))
+    }
+}
+
+#[derive(Derivative)]
+#[derivative(Default(bound = ""))]
+pub struct OptimisticSyncHandler<E>(PhantomData<E>);
+
+impl<E: EthSpec + TypeName> Handler for OptimisticSyncHandler<E> {
+    type Case = cases::ForkChoiceTest<E>;
+
+    fn config_name() -> &'static str {
+        E::name()
+    }
+
+    fn runner_name() -> &'static str {
+        "sync"
+    }
+
+    fn handler_name(&self) -> String {
+        "optimistic".into()
+    }
+
+    fn use_rayon() -> bool {
+        // The opt sync tests use `block_on` which can cause panics with rayon.
+        false
+    }
+
+    fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
+        fork_name != ForkName::Base
+            && fork_name != ForkName::Altair
+            && cfg!(not(feature = "fake_crypto"))
+    }
+}
+
 #[derive(Derivative)]
 #[derivative(Default(bound = ""))]
 pub struct GenesisValidityHandler<E>(PhantomData<E>);
@@ -458,6 +614,30 @@ impl<E: EthSpec + TypeName> Handler for GenesisInitializationHandler<E> {
 
     fn handler_name(&self) -> String {
         "initialization".into()
+    }
+}
+
+#[derive(Derivative)]
+#[derivative(Default(bound = ""))]
+pub struct MerkleProofValidityHandler<E>(PhantomData<E>);
+
+impl<E: EthSpec + TypeName> Handler for MerkleProofValidityHandler<E> {
+    type Case = cases::MerkleProofValidity<E>;
+
+    fn config_name() -> &'static str {
+        E::name()
+    }
+
+    fn runner_name() -> &'static str {
+        "light_client"
+    }
+
+    fn handler_name(&self) -> String {
+        "single_merkle_proof".into()
+    }
+
+    fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
+        fork_name != ForkName::Base
     }
 }
 

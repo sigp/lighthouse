@@ -6,7 +6,7 @@
 
 From Lighthouse `v1.5.0`, the *Doppelganger Protection* feature is available for the Validator
 Client. Taken from the German *[doppelgänger]*, which translates literally to "double-walker", a
-"doppelganger" in Eth2 refers to another instance of a validator running in a separate validator
+"doppelganger" in the context of Ethereum proof-of-stake refers to another instance of a validator running in a separate validator
 process. As detailed in [Slashing Protection], running the same validator twice will inevitably
 result in slashing.
 

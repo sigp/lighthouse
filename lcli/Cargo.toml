@@ -1,13 +1,14 @@
 [package]
 name = "lcli"
 description = "Lighthouse CLI (modeled after zcli)"
-version = "2.0.1"
+version = "3.4.0"
 authors = ["Paul Hauner <paul@paulhauner.com>"]
-edition = "2018"
+edition = "2021"
 
 [features]
 portable = ["bls/supranational-portable"]
 fake_crypto = ['bls/fake_crypto']
+jemalloc = ["malloc_utils/jemalloc"]
 
 [dependencies]
 bls = { path = "../crypto/bls" }
@@ -19,12 +20,13 @@ serde_json = "1.0.66"
 env_logger = "0.9.0"
 types = { path = "../consensus/types" }
 state_processing = { path = "../consensus/state_processing" }
-eth2_ssz = "0.4.0"
+int_to_bytes = { path = "../consensus/int_to_bytes" }
+eth2_ssz = "0.4.1"
 environment = { path = "../lighthouse/environment" }
 eth2_network_config = { path = "../common/eth2_network_config" }
 genesis = { path = "../beacon_node/genesis" }
 deposit_contract = { path = "../common/deposit_contract" }
-tree_hash = "0.4.0"
+tree_hash = "0.4.1"
 clap_utils = { path = "../common/clap_utils" }
 lighthouse_network = { path = "../beacon_node/lighthouse_network" }
 validator_dir = { path = "../common/validator_dir", features = ["insecure_keys"] }
@@ -32,7 +34,14 @@ lighthouse_version = { path = "../common/lighthouse_version" }
 directory = { path = "../common/directory" }
 account_utils = { path = "../common/account_utils" }
 eth2_wallet = { path = "../crypto/eth2_wallet" }
-web3 = { version = "0.17.0", default-features = false, features = ["http-tls", "signing", "ws-tls-tokio"] }
+web3 = { version = "0.18.0", default-features = false, features = ["http-tls", "signing", "ws-tls-tokio"] }
 eth1_test_rig = { path = "../testing/eth1_test_rig" }
 sensitive_url = { path = "../common/sensitive_url" }
 eth2 = { path = "../common/eth2" }
+snap = "1.0.1"
+beacon_chain = { path = "../beacon_node/beacon_chain" }
+store = { path = "../beacon_node/store" }
+malloc_utils = { path = "../common/malloc_utils" }
+
+[package.metadata.cargo-udeps.ignore]
+normal = ["malloc_utils"]

@@ -8,10 +8,11 @@ use std::borrow::Cow;
 use tree_hash::TreeHash;
 use types::{
     AggregateSignature, AttesterSlashing, BeaconBlockRef, BeaconState, BeaconStateError, ChainSpec,
-    DepositData, Domain, Epoch, EthSpec, Fork, Hash256, InconsistentFork, IndexedAttestation,
-    ProposerSlashing, PublicKey, PublicKeyBytes, Signature, SignedAggregateAndProof,
-    SignedBeaconBlock, SignedBeaconBlockHeader, SignedContributionAndProof, SignedRoot,
-    SignedVoluntaryExit, SigningData, Slot, SyncAggregate, SyncAggregatorSelectionData, Unsigned,
+    DepositData, Domain, Epoch, EthSpec, ExecPayload, Fork, Hash256, InconsistentFork,
+    IndexedAttestation, ProposerSlashing, PublicKey, PublicKeyBytes, Signature,
+    SignedAggregateAndProof, SignedBeaconBlock, SignedBeaconBlockHeader,
+    SignedContributionAndProof, SignedRoot, SignedVoluntaryExit, SigningData, Slot, SyncAggregate,
+    SyncAggregatorSelectionData, Unsigned,
 };
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -70,11 +71,12 @@ where
 }
 
 /// A signature set that is valid if a block was signed by the expected block producer.
-pub fn block_proposal_signature_set<'a, T, F>(
+pub fn block_proposal_signature_set<'a, T, F, Payload: ExecPayload<T>>(
     state: &'a BeaconState<T>,
     get_pubkey: F,
-    signed_block: &'a SignedBeaconBlock<T>,
+    signed_block: &'a SignedBeaconBlock<T, Payload>,
     block_root: Option<Hash256>,
+    verified_proposer_index: Option<u64>,
     spec: &'a ChainSpec,
 ) -> Result<SignatureSet<'a>>
 where
@@ -82,8 +84,12 @@ where
     F: Fn(usize) -> Option<Cow<'a, PublicKey>>,
 {
     let block = signed_block.message();
-    let proposer_index = state.get_beacon_proposer_index(block.slot(), spec)? as u64;
 
+    let proposer_index = if let Some(proposer_index) = verified_proposer_index {
+        proposer_index
+    } else {
+        state.get_beacon_proposer_index(block.slot(), spec)? as u64
+    };
     if proposer_index != block.proposer_index() {
         return Err(Error::IncorrectBlockProposer {
             block: block.proposer_index(),
@@ -107,8 +113,8 @@ where
 /// Unlike `block_proposal_signature_set` this does **not** check that the proposer index is
 /// correct according to the shuffling. It should only be used if no suitable `BeaconState` is
 /// available.
-pub fn block_proposal_signature_set_from_parts<'a, T, F>(
-    signed_block: &'a SignedBeaconBlock<T>,
+pub fn block_proposal_signature_set_from_parts<'a, T, F, Payload: ExecPayload<T>>(
+    signed_block: &'a SignedBeaconBlock<T, Payload>,
     block_root: Option<Hash256>,
     proposer_index: u64,
     fork: &Fork,
@@ -151,17 +157,22 @@ where
 }
 
 /// A signature set that is valid if the block proposers randao reveal signature is correct.
-pub fn randao_signature_set<'a, T, F>(
+pub fn randao_signature_set<'a, T, F, Payload: ExecPayload<T>>(
     state: &'a BeaconState<T>,
     get_pubkey: F,
-    block: BeaconBlockRef<'a, T>,
+    block: BeaconBlockRef<'a, T, Payload>,
+    verified_proposer_index: Option<u64>,
     spec: &'a ChainSpec,
 ) -> Result<SignatureSet<'a>>
 where
     T: EthSpec,
     F: Fn(usize) -> Option<Cow<'a, PublicKey>>,
 {
-    let proposer_index = state.get_beacon_proposer_index(block.slot(), spec)?;
+    let proposer_index = if let Some(proposer_index) = verified_proposer_index {
+        proposer_index
+    } else {
+        state.get_beacon_proposer_index(block.slot(), spec)? as u64
+    };
 
     let domain = spec.get_domain(
         block.slot().epoch(T::slots_per_epoch()),
@@ -177,7 +188,7 @@ where
 
     Ok(SignatureSet::single_pubkey(
         block.body().randao_reveal(),
-        get_pubkey(proposer_index).ok_or_else(|| Error::ValidatorUnknown(proposer_index as u64))?,
+        get_pubkey(proposer_index as usize).ok_or(Error::ValidatorUnknown(proposer_index))?,
         message,
     ))
 }
@@ -199,15 +210,13 @@ where
         block_header_signature_set(
             state,
             &proposer_slashing.signed_header_1,
-            get_pubkey(proposer_index)
-                .ok_or_else(|| Error::ValidatorUnknown(proposer_index as u64))?,
+            get_pubkey(proposer_index).ok_or(Error::ValidatorUnknown(proposer_index as u64))?,
             spec,
         ),
         block_header_signature_set(
             state,
             &proposer_slashing.signed_header_2,
-            get_pubkey(proposer_index)
-                .ok_or_else(|| Error::ValidatorUnknown(proposer_index as u64))?,
+            get_pubkey(proposer_index).ok_or(Error::ValidatorUnknown(proposer_index as u64))?,
             spec,
         ),
     ))
@@ -363,7 +372,7 @@ where
 
     Ok(SignatureSet::single_pubkey(
         &signed_exit.signature,
-        get_pubkey(proposer_index).ok_or_else(|| Error::ValidatorUnknown(proposer_index as u64))?,
+        get_pubkey(proposer_index).ok_or(Error::ValidatorUnknown(proposer_index as u64))?,
         message,
     ))
 }
@@ -521,7 +530,7 @@ where
 {
     let mut pubkeys = Vec::with_capacity(T::SyncSubcommitteeSize::to_usize());
     for pubkey in pubkey_bytes {
-        pubkeys.push(get_pubkey(pubkey).ok_or_else(|| Error::ValidatorPubkeyUnknown(*pubkey))?);
+        pubkeys.push(get_pubkey(pubkey).ok_or(Error::ValidatorPubkeyUnknown(*pubkey))?);
     }
 
     let domain = spec.get_domain(epoch, Domain::SyncCommittee, fork, genesis_validators_root);

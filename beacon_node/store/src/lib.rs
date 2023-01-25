@@ -30,7 +30,7 @@ pub mod iter;
 
 pub use self::chunk_writer::ChunkWriter;
 pub use self::config::StoreConfig;
-pub use self::hot_cold_store::{BlockReplay, HotColdDB, HotStateSummary, Split};
+pub use self::hot_cold_store::{HotColdDB, HotStateSummary, Split};
 pub use self::leveldb_store::LevelDB;
 pub use self::memory_store::MemoryStore;
 pub use self::partial_beacon_state::PartialBeaconState;
@@ -39,7 +39,12 @@ pub use impls::beacon_state::StorageContainer as BeaconStateStorageContainer;
 pub use metadata::AnchorInfo;
 pub use metrics::scrape_for_metrics;
 use parking_lot::MutexGuard;
+use std::sync::Arc;
+use strum::{EnumString, IntoStaticStr};
 pub use types::*;
+
+pub type ColumnIter<'a> = Box<dyn Iterator<Item = Result<(Hash256, Vec<u8>), Error>> + 'a>;
+pub type ColumnKeyIter<'a> = Box<dyn Iterator<Item = Result<Hash256, Error>> + 'a>;
 
 pub trait KeyValueStore<E: EthSpec>: Sync + Send + Sized + 'static {
     /// Retrieve some bytes in `column` with `key`.
@@ -73,6 +78,18 @@ pub trait KeyValueStore<E: EthSpec>: Sync + Send + Sized + 'static {
 
     /// Compact the database, freeing space used by deleted items.
     fn compact(&self) -> Result<(), Error>;
+
+    /// Iterate through all keys and values in a particular column.
+    fn iter_column(&self, _column: DBColumn) -> ColumnIter {
+        // Default impl for non LevelDB databases
+        Box::new(std::iter::empty())
+    }
+
+    /// Iterate through all keys in a particular column.
+    fn iter_column_keys(&self, _column: DBColumn) -> ColumnKeyIter {
+        // Default impl for non LevelDB databases
+        Box::new(std::iter::empty())
+    }
 }
 
 pub fn get_key_for_col(column: &str, key: &[u8]) -> Vec<u8> {
@@ -136,64 +153,70 @@ pub trait ItemStore<E: EthSpec>: KeyValueStore<E> + Sync + Send + Sized + 'stati
 /// Reified key-value storage operation.  Helps in modifying the storage atomically.
 /// See also https://github.com/sigp/lighthouse/issues/692
 pub enum StoreOp<'a, E: EthSpec> {
-    PutBlock(Hash256, Box<SignedBeaconBlock<E>>),
+    PutBlock(Hash256, Arc<SignedBeaconBlock<E>>),
     PutState(Hash256, &'a BeaconState<E>),
     PutStateSummary(Hash256, HotStateSummary),
     PutStateTemporaryFlag(Hash256),
     DeleteStateTemporaryFlag(Hash256),
     DeleteBlock(Hash256),
     DeleteState(Hash256, Option<Slot>),
+    DeleteExecutionPayload(Hash256),
 }
 
 /// A unique column identifier.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, IntoStaticStr, EnumString)]
 pub enum DBColumn {
     /// For data related to the database itself.
+    #[strum(serialize = "bma")]
     BeaconMeta,
+    #[strum(serialize = "blk")]
     BeaconBlock,
+    /// For full `BeaconState`s in the hot database (finalized or fork-boundary states).
+    #[strum(serialize = "ste")]
     BeaconState,
-    /// For persisting in-memory state to the database.
-    BeaconChain,
-    OpPool,
-    Eth1Cache,
-    ForkChoice,
-    PubkeyCache,
-    /// For the table mapping restore point numbers to state roots.
-    BeaconRestorePoint,
     /// For the mapping from state roots to their slots or summaries.
+    #[strum(serialize = "bss")]
     BeaconStateSummary,
     /// For the list of temporary states stored during block import,
     /// and then made non-temporary by the deletion of their state root from this column.
+    #[strum(serialize = "bst")]
     BeaconStateTemporary,
+    /// Execution payloads for blocks more recent than the finalized checkpoint.
+    #[strum(serialize = "exp")]
+    ExecPayload,
+    /// For persisting in-memory state to the database.
+    #[strum(serialize = "bch")]
+    BeaconChain,
+    #[strum(serialize = "opo")]
+    OpPool,
+    #[strum(serialize = "etc")]
+    Eth1Cache,
+    #[strum(serialize = "frk")]
+    ForkChoice,
+    #[strum(serialize = "pkc")]
+    PubkeyCache,
+    /// For the table mapping restore point numbers to state roots.
+    #[strum(serialize = "brp")]
+    BeaconRestorePoint,
+    #[strum(serialize = "bbr")]
     BeaconBlockRoots,
+    #[strum(serialize = "bsr")]
     BeaconStateRoots,
+    #[strum(serialize = "bhr")]
     BeaconHistoricalRoots,
+    #[strum(serialize = "brm")]
     BeaconRandaoMixes,
+    #[strum(serialize = "dht")]
     DhtEnrs,
+    /// For Optimistically Imported Merge Transition Blocks
+    #[strum(serialize = "otb")]
+    OptimisticTransitionBlock,
 }
 
-impl Into<&'static str> for DBColumn {
-    /// Returns a `&str` prefix to be added to keys before they hit the key-value database.
-    fn into(self) -> &'static str {
-        match self {
-            DBColumn::BeaconMeta => "bma",
-            DBColumn::BeaconBlock => "blk",
-            DBColumn::BeaconState => "ste",
-            DBColumn::BeaconChain => "bch",
-            DBColumn::OpPool => "opo",
-            DBColumn::Eth1Cache => "etc",
-            DBColumn::ForkChoice => "frk",
-            DBColumn::PubkeyCache => "pkc",
-            DBColumn::BeaconRestorePoint => "brp",
-            DBColumn::BeaconStateSummary => "bss",
-            DBColumn::BeaconStateTemporary => "bst",
-            DBColumn::BeaconBlockRoots => "bbr",
-            DBColumn::BeaconStateRoots => "bsr",
-            DBColumn::BeaconHistoricalRoots => "bhr",
-            DBColumn::BeaconRandaoMixes => "brm",
-            DBColumn::DhtEnrs => "dht",
-        }
-    }
+/// A block from the database, which might have an execution payload or not.
+pub enum DatabaseBlock<E: EthSpec> {
+    Full(SignedBeaconBlock<E>),
+    Blinded(SignedBeaconBlock<E, BlindedPayload<E>>),
 }
 
 impl DBColumn {

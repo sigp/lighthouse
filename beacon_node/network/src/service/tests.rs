@@ -59,6 +59,7 @@ mod tests {
         );
 
         let mut config = NetworkConfig::default();
+        config.discv5_config.table_filter = |_| true; // Do not ignore local IPs
         config.libp2p_port = 21212;
         config.upnp_enabled = false;
         config.discovery_port = 21212;
@@ -67,9 +68,10 @@ mod tests {
             // Create a new network service which implicitly gets dropped at the
             // end of the block.
 
-            let _network_service = NetworkService::start(beacon_chain.clone(), &config, executor)
-                .await
-                .unwrap();
+            let _network_service =
+                NetworkService::start(beacon_chain.clone(), &config, executor, None)
+                    .await
+                    .unwrap();
             drop(signal);
         });
 

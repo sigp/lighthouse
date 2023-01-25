@@ -3,7 +3,7 @@
 [launchpad]: https://launchpad.ethereum.org/
 
 >
-> **Note: we recommend using the [Eth2 launchpad][launchpad] to create validators.**
+> **Note: we recommend using the [Staking launchpad][launchpad] to create validators.**
 
 Lighthouse uses a _hierarchical_ key management system for producing validator
 keys. It is hierarchical because each validator key can be _derived_ from a
@@ -42,9 +42,9 @@ items, starting at one easy-to-backup mnemonic and ending with multiple
 keypairs. Creating a single validator looks like this:
 
 1. Create a **wallet** and record the **mnemonic**:
-    - `lighthouse --network pyrmont account wallet create --name wally --password-file wally.pass`
+    - `lighthouse --network prater account wallet create --name wally --password-file wally.pass`
 1. Create the voting and withdrawal **keystores** for one validator:
-	- `lighthouse --network pyrmont account validator create --wallet-name wally --wallet-password wally.pass --count 1`
+	- `lighthouse --network prater account validator create --wallet-name wally --wallet-password wally.pass --count 1`
 
 
 In step (1), we created a wallet in `~/.lighthouse/{network}/wallets` with the name
@@ -92,7 +92,7 @@ leaking private key data.
 
 ### Withdrawal Keypairs
 
-In Eth2 Phase 0, withdrawal keypairs do not serve any immediate purpose.
+In Ethereum consensus Phase 0, withdrawal keypairs do not serve any immediate purpose.
 However, they become very important _after_ Phase 0: they will provide the
 ultimate control of the ETH of withdrawn validators.
 
@@ -103,7 +103,7 @@ opt-in). Instead, we assert that since the withdrawal keys can be regenerated
 from a mnemonic, having them lying around on the file-system only presents risk
 and complexity.
 
-At the time or writing, we do not expose the commands to regenerate keys from
+At the time of writing, we do not expose the commands to regenerate keys from
 mnemonics. However, key regeneration is tested on the public Lighthouse
 repository and will be exposed prior to mainnet launch.
 

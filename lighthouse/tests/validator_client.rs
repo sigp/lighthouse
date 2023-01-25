@@ -1,22 +1,18 @@
 use validator_client::Config;
 
+use crate::exec::CommandLineTestExec;
 use bls::{Keypair, PublicKeyBytes};
-use serde_json::from_reader;
 use std::fs::File;
 use std::io::Write;
-use std::net::Ipv4Addr;
+use std::net::IpAddr;
 use std::path::PathBuf;
-use std::process::{Command, Output};
-use std::str::from_utf8;
+use std::process::Command;
+use std::str::FromStr;
 use std::string::ToString;
 use tempfile::TempDir;
+use types::Address;
 
-const VALIDATOR_CMD: &str = "validator_client";
-const CONFIG_NAME: &str = "vc_dump.json";
-const DUMP_CONFIG_CMD: &str = "dump-config";
-const IMMEDIATE_SHUTDOWN_CMD: &str = "immediate-shutdown";
-
-/// Returns the `lighthouse validator_client --immediate-shutdown` command.
+/// Returns the `lighthouse validator_client` command.
 fn base_cmd() -> Command {
     let lighthouse_bin = env!("CARGO_BIN_EXE_lighthouse");
     let path = lighthouse_bin
@@ -24,23 +20,8 @@ fn base_cmd() -> Command {
         .expect("should parse CARGO_TARGET_DIR");
 
     let mut cmd = Command::new(path);
-    cmd.arg(VALIDATOR_CMD)
-        .arg(format!("--{}", IMMEDIATE_SHUTDOWN_CMD));
-
+    cmd.arg("validator_client");
     cmd
-}
-
-/// Executes a `Command`, returning a `Result` based upon the success exit code of the command.
-fn output_result(cmd: &mut Command) -> Result<Output, String> {
-    let output = cmd.output().expect("should run command");
-
-    if output.status.success() {
-        Ok(output)
-    } else {
-        Err(from_utf8(&output.stderr)
-            .expect("stderr is not utf8")
-            .to_string())
-    }
 }
 
 // Wrapper around `Command` for easier Command Line Testing.
@@ -52,76 +33,13 @@ impl CommandLineTest {
         let base_cmd = base_cmd();
         CommandLineTest { cmd: base_cmd }
     }
-
-    fn flag(mut self, flag: &str, value: Option<&str>) -> Self {
-        // Build the command by adding the flag and any values.
-        self.cmd.arg(format!("--{}", flag));
-        if let Some(value) = value {
-            self.cmd.arg(value);
-        }
-        self
-    }
-
-    fn run(&mut self) -> CompletedTest {
-        // Setup temp directories.
-        let tmp_dir = TempDir::new().expect("Unable to create temporary directory");
-        let tmp_path: PathBuf = tmp_dir.path().join(CONFIG_NAME);
-
-        // Add --datadir <temp_dir> --dump-config <temp_path> to cmd.
-        self.cmd
-            .arg("--datadir")
-            .arg(tmp_dir.path().as_os_str())
-            .arg(format!("--{}", DUMP_CONFIG_CMD))
-            .arg(tmp_path.as_os_str());
-
-        // Run the command.
-        let _output = output_result(&mut self.cmd).expect("Unable to run command");
-
-        // Grab the config.
-        let config: Config =
-            from_reader(File::open(tmp_path).expect("Unable to open dumped config"))
-                .expect("Unable to deserialize to ClientConfig");
-        CompletedTest {
-            config,
-            dir: tmp_dir,
-        }
-    }
-
-    // In order to test custom validator and secrets directory flags,
-    // datadir cannot be defined.
-    fn run_with_no_datadir(&mut self) -> CompletedTest {
-        // Setup temp directories
-        let tmp_dir = TempDir::new().expect("Unable to create temporary directory");
-        let tmp_path: PathBuf = tmp_dir.path().join(CONFIG_NAME);
-
-        // Add --dump-config <temp_path> to cmd.
-        self.cmd
-            .arg(format!("--{}", DUMP_CONFIG_CMD))
-            .arg(tmp_path.as_os_str());
-
-        // Run the command.
-        let _output = output_result(&mut self.cmd).expect("Unable to run command");
-
-        // Grab the config.
-        let config: Config =
-            from_reader(File::open(tmp_path).expect("Unable to open dumped config"))
-                .expect("Unable to deserialize to ClientConfig");
-        CompletedTest {
-            config,
-            dir: tmp_dir,
-        }
-    }
 }
-struct CompletedTest {
-    config: Config,
-    dir: TempDir,
-}
-impl CompletedTest {
-    fn with_config<F: Fn(&Config)>(self, func: F) {
-        func(&self.config);
-    }
-    fn with_config_and_dir<F: Fn(&Config, &TempDir)>(self, func: F) {
-        func(&self.config, &self.dir);
+
+impl CommandLineTestExec for CommandLineTest {
+    type Config = Config;
+
+    fn cmd_mut(&mut self) -> &mut Command {
+        &mut self.cmd
     }
 }
 
@@ -140,6 +58,19 @@ fn validators_and_secrets_dir_flags() {
     let dir = TempDir::new().expect("Unable to create temporary directory");
     CommandLineTest::new()
         .flag("validators-dir", dir.path().join("validators").to_str())
+        .flag("secrets-dir", dir.path().join("secrets").to_str())
+        .run_with_no_datadir()
+        .with_config(|config| {
+            assert_eq!(config.validator_dir, dir.path().join("validators"));
+            assert_eq!(config.secrets_dir, dir.path().join("secrets"));
+        });
+}
+
+#[test]
+fn validators_dir_alias_flags() {
+    let dir = TempDir::new().expect("Unable to create temporary directory");
+    CommandLineTest::new()
+        .flag("validator-dir", dir.path().join("validators").to_str())
         .flag("secrets-dir", dir.path().join("secrets").to_str())
         .run_with_no_datadir()
         .with_config(|config| {
@@ -302,6 +233,23 @@ fn graffiti_file_with_pk_flag() {
         });
 }
 
+// Tests for suggested-fee-recipient flags.
+#[test]
+fn fee_recipient_flag() {
+    CommandLineTest::new()
+        .flag(
+            "suggested-fee-recipient",
+            Some("0x00000000219ab540356cbb839cbe05303d7705fa"),
+        )
+        .run()
+        .with_config(|config| {
+            assert_eq!(
+                config.fee_recipient,
+                Some(Address::from_str("0x00000000219ab540356cbb839cbe05303d7705fa").unwrap())
+            )
+        });
+}
+
 // Tests for HTTP flags.
 #[test]
 fn http_flag() {
@@ -312,7 +260,7 @@ fn http_flag() {
 }
 #[test]
 fn http_address_flag() {
-    let addr = "127.0.0.99".parse::<Ipv4Addr>().unwrap();
+    let addr = "127.0.0.99".parse::<IpAddr>().unwrap();
     CommandLineTest::new()
         .flag("http-address", Some("127.0.0.99"))
         .flag("unencrypted-http-transport", None)
@@ -320,9 +268,18 @@ fn http_address_flag() {
         .with_config(|config| assert_eq!(config.http_api.listen_addr, addr));
 }
 #[test]
+fn http_address_ipv6_flag() {
+    let addr = "::1".parse::<IpAddr>().unwrap();
+    CommandLineTest::new()
+        .flag("http-address", Some("::1"))
+        .flag("unencrypted-http-transport", None)
+        .run()
+        .with_config(|config| assert_eq!(config.http_api.listen_addr, addr));
+}
+#[test]
 #[should_panic]
 fn missing_unencrypted_http_transport_flag() {
-    let addr = "127.0.0.99".parse::<Ipv4Addr>().unwrap();
+    let addr = "127.0.0.99".parse::<IpAddr>().unwrap();
     CommandLineTest::new()
         .flag("http-address", Some("127.0.0.99"))
         .run()
@@ -365,9 +322,17 @@ fn metrics_flag() {
 }
 #[test]
 fn metrics_address_flag() {
-    let addr = "127.0.0.99".parse::<Ipv4Addr>().unwrap();
+    let addr = "127.0.0.99".parse::<IpAddr>().unwrap();
     CommandLineTest::new()
         .flag("metrics-address", Some("127.0.0.99"))
+        .run()
+        .with_config(|config| assert_eq!(config.http_metrics.listen_addr, addr));
+}
+#[test]
+fn metrics_address_ipv6_flag() {
+    let addr = "::1".parse::<IpAddr>().unwrap();
+    CommandLineTest::new()
+        .flag("metrics-address", Some("::1"))
         .run()
         .with_config(|config| assert_eq!(config.http_metrics.listen_addr, addr));
 }
@@ -401,9 +366,14 @@ fn metrics_allow_origin_all_flag() {
 pub fn malloc_tuning_flag() {
     CommandLineTest::new()
         .flag("disable-malloc-tuning", None)
-        // Simply ensure that the node can start with this flag, it's very difficult to observe the
-        // effects of it.
-        .run();
+        .run()
+        .with_config(|config| assert_eq!(config.http_metrics.allocator_metrics_enabled, false));
+}
+#[test]
+pub fn malloc_tuning_default() {
+    CommandLineTest::new()
+        .run()
+        .with_config(|config| assert_eq!(config.http_metrics.allocator_metrics_enabled, true));
 }
 #[test]
 fn doppelganger_protection_flag() {
@@ -417,4 +387,92 @@ fn no_doppelganger_protection_flag() {
     CommandLineTest::new()
         .run()
         .with_config(|config| assert!(!config.enable_doppelganger_protection));
+}
+#[test]
+fn block_delay_ms() {
+    CommandLineTest::new()
+        .flag("block-delay-ms", Some("2000"))
+        .run()
+        .with_config(|config| {
+            assert_eq!(
+                config.block_delay,
+                Some(std::time::Duration::from_millis(2000))
+            )
+        });
+}
+#[test]
+fn no_block_delay_ms() {
+    CommandLineTest::new()
+        .run()
+        .with_config(|config| assert_eq!(config.block_delay, None));
+}
+#[test]
+fn no_gas_limit_flag() {
+    CommandLineTest::new()
+        .run()
+        .with_config(|config| assert!(config.gas_limit.is_none()));
+}
+#[test]
+fn gas_limit_flag() {
+    CommandLineTest::new()
+        .flag("gas-limit", Some("600"))
+        .flag("builder-proposals", None)
+        .run()
+        .with_config(|config| assert_eq!(config.gas_limit, Some(600)));
+}
+#[test]
+fn no_builder_proposals_flag() {
+    CommandLineTest::new()
+        .run()
+        .with_config(|config| assert!(!config.builder_proposals));
+}
+#[test]
+fn builder_proposals_flag() {
+    CommandLineTest::new()
+        .flag("builder-proposals", None)
+        .run()
+        .with_config(|config| assert!(config.builder_proposals));
+}
+#[test]
+fn no_builder_registration_timestamp_override_flag() {
+    CommandLineTest::new()
+        .run()
+        .with_config(|config| assert!(config.builder_registration_timestamp_override.is_none()));
+}
+#[test]
+fn builder_registration_timestamp_override_flag() {
+    CommandLineTest::new()
+        .flag("builder-registration-timestamp-override", Some("100"))
+        .run()
+        .with_config(|config| {
+            assert_eq!(config.builder_registration_timestamp_override, Some(100))
+        });
+}
+#[test]
+fn monitoring_endpoint() {
+    CommandLineTest::new()
+        .flag("monitoring-endpoint", Some("http://example:8000"))
+        .flag("monitoring-endpoint-period", Some("30"))
+        .run()
+        .with_config(|config| {
+            let api_conf = config.monitoring_api.as_ref().unwrap();
+            assert_eq!(api_conf.monitoring_endpoint.as_str(), "http://example:8000");
+            assert_eq!(api_conf.update_period_secs, Some(30));
+        });
+}
+#[test]
+fn disable_run_on_all_default() {
+    CommandLineTest::new().run().with_config(|config| {
+        assert!(!config.disable_run_on_all);
+    });
+}
+
+#[test]
+fn disable_run_on_all() {
+    CommandLineTest::new()
+        .flag("disable-run-on-all", None)
+        .run()
+        .with_config(|config| {
+            assert!(config.disable_run_on_all);
+        });
 }

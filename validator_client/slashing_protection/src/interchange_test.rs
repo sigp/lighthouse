@@ -9,6 +9,7 @@ use tempfile::tempdir;
 use types::{Epoch, Hash256, PublicKeyBytes, Slot};
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct MultiTestCase {
     pub name: String,
     pub genesis_validators_root: Hash256,
@@ -16,6 +17,7 @@ pub struct MultiTestCase {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct TestCase {
     pub should_succeed: bool,
     pub contains_slashable_data: bool,
@@ -25,6 +27,7 @@ pub struct TestCase {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct TestBlock {
     pub pubkey: PublicKeyBytes,
     pub slot: Slot,
@@ -33,6 +36,7 @@ pub struct TestBlock {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct TestAttestation {
     pub pubkey: PublicKeyBytes,
     pub source_epoch: Epoch,
@@ -230,7 +234,7 @@ impl TestCase {
     }
 }
 
-fn check_minification_invariants(interchange: &Interchange, minified: &Interchange) {
+pub fn check_minification_invariants(interchange: &Interchange, minified: &Interchange) {
     // Metadata should be unchanged.
     assert_eq!(interchange.metadata, minified.metadata);
 

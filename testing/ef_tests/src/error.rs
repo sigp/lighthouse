@@ -12,6 +12,8 @@ pub enum Error {
     SkippedBls,
     /// Skipped the test because it's known to fail.
     SkippedKnownFailure,
+    /// The test failed due to some internal error preventing the test from running.
+    InternalError(String),
 }
 
 impl Error {
@@ -23,6 +25,7 @@ impl Error {
             Error::InvalidBLSInput(_) => "InvalidBLSInput",
             Error::SkippedBls => "SkippedBls",
             Error::SkippedKnownFailure => "SkippedKnownFailure",
+            Error::InternalError(_) => "InternalError",
         }
     }
 
@@ -32,6 +35,7 @@ impl Error {
             Error::DidntFail(m) => m.as_str(),
             Error::FailedToParseTest(m) => m.as_str(),
             Error::InvalidBLSInput(m) => m.as_str(),
+            Error::InternalError(m) => m.as_str(),
             _ => self.name(),
         }
     }

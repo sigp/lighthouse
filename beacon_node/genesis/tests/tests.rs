@@ -1,10 +1,10 @@
-//! NOTE: These tests will not pass unless ganache-cli is running on `ENDPOINT` (see below).
+//! NOTE: These tests will not pass unless ganache is running on `ENDPOINT` (see below).
 //!
 //! You can start a suitable instance using the `ganache_test_node.sh` script in the `scripts`
 //! dir in the root of the `lighthouse` repo.
 #![cfg(test)]
 use environment::{Environment, EnvironmentBuilder};
-use eth1::{DEFAULT_CHAIN_ID, DEFAULT_NETWORK_ID};
+use eth1::{Eth1Endpoint, DEFAULT_CHAIN_ID};
 use eth1_test_rig::{DelayThenDeposit, GanacheEth1Instance};
 use genesis::{Eth1Config, Eth1GenesisService};
 use sensitive_url::SensitiveUrl;
@@ -24,12 +24,12 @@ pub fn new_env() -> Environment<MinimalEthSpec> {
 
 #[test]
 fn basic() {
-    let mut env = new_env();
+    let env = new_env();
     let log = env.core_context().log().clone();
     let mut spec = env.eth2_config().spec.clone();
 
     env.runtime().block_on(async {
-        let eth1 = GanacheEth1Instance::new(DEFAULT_NETWORK_ID.into(), DEFAULT_CHAIN_ID.into())
+        let eth1 = GanacheEth1Instance::new(DEFAULT_CHAIN_ID.into())
             .await
             .expect("should start eth1 environment");
         let deposit_contract = &eth1.deposit_contract;
@@ -44,7 +44,9 @@ fn basic() {
 
         let service = Eth1GenesisService::new(
             Eth1Config {
-                endpoints: vec![SensitiveUrl::parse(eth1.endpoint().as_str()).unwrap()],
+                endpoint: Eth1Endpoint::NoAuth(
+                    SensitiveUrl::parse(eth1.endpoint().as_str()).unwrap(),
+                ),
                 deposit_contract_address: deposit_contract.address(),
                 deposit_contract_deploy_block: now,
                 lowest_cached_block_number: now,
@@ -54,7 +56,8 @@ fn basic() {
             },
             log,
             spec.clone(),
-        );
+        )
+        .unwrap();
 
         // NOTE: this test is sensitive to the response speed of the external web3 server. If
         // you're experiencing failures, try increasing the update_interval.

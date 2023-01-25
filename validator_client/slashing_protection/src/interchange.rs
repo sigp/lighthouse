@@ -7,6 +7,7 @@ use types::{Epoch, Hash256, PublicKeyBytes, Slot};
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct InterchangeMetadata {
     #[serde(with = "eth2_serde_utils::quoted_u64::require_quotes")]
     pub interchange_format_version: u64,
@@ -15,6 +16,7 @@ pub struct InterchangeMetadata {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct InterchangeData {
     pub pubkey: PublicKeyBytes,
     pub signed_blocks: Vec<SignedBlock>,
@@ -23,6 +25,7 @@ pub struct InterchangeData {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct SignedBlock {
     #[serde(with = "eth2_serde_utils::quoted_u64::require_quotes")]
     pub slot: Slot,
@@ -32,6 +35,7 @@ pub struct SignedBlock {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct SignedAttestation {
     #[serde(with = "eth2_serde_utils::quoted_u64::require_quotes")]
     pub source_epoch: Epoch,
@@ -42,6 +46,7 @@ pub struct SignedAttestation {
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct Interchange {
     pub metadata: InterchangeMetadata,
     pub data: Vec<InterchangeData>,

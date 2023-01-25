@@ -1,4 +1,5 @@
 use crate::wallet::create::{PASSWORD_FLAG, STDIN_INPUTS_FLAG};
+use account_utils::validator_definitions::SigningDefinition;
 use account_utils::{
     eth2_keystore::Keystore,
     read_password_from_user,
@@ -175,7 +176,7 @@ pub fn cli_run(matches: &ArgMatches, validator_dir: PathBuf) -> Result<(), Strin
 
             let password = match keystore_password_path.as_ref() {
                 Some(path) => {
-                    let password_from_file: ZeroizeString = fs::read_to_string(&path)
+                    let password_from_file: ZeroizeString = fs::read_to_string(path)
                         .map_err(|e| format!("Unable to read {:?}: {:?}", path, e))?
                         .into();
                     password_from_file.without_newlines()
@@ -208,10 +209,35 @@ pub fn cli_run(matches: &ArgMatches, validator_dir: PathBuf) -> Result<(), Strin
             }
         };
 
+        let voting_pubkey = keystore
+            .public_key()
+            .ok_or_else(|| format!("Keystore public key is invalid: {}", keystore.pubkey()))?;
+
         // The keystore is placed in a directory that matches the name of the public key. This
         // provides some loose protection against adding the same keystore twice.
         let dest_dir = validator_dir.join(format!("0x{}", keystore.pubkey()));
         if dest_dir.exists() {
+            // Check if we should update password for existing validator in case if it was provided via reimport: #2854
+            let old_validator_def_opt = defs
+                .as_mut_slice()
+                .iter_mut()
+                .find(|def| def.voting_public_key == voting_pubkey);
+            if let Some(ValidatorDefinition {
+                signing_definition:
+                    SigningDefinition::LocalKeystore {
+                        voting_keystore_password: ref mut old_passwd,
+                        ..
+                    },
+                ..
+            }) = old_validator_def_opt
+            {
+                if old_passwd.is_none() && password_opt.is_some() {
+                    *old_passwd = password_opt;
+                    defs.save(&validator_dir)
+                        .map_err(|e| format!("Unable to save {}: {:?}", CONFIG_FILENAME, e))?;
+                    eprintln!("Password updated for public key {}", voting_pubkey);
+                }
+            }
             eprintln!(
                 "Skipping import of keystore for existing public key: {:?}",
                 src_keystore
@@ -230,13 +256,10 @@ pub fn cli_run(matches: &ArgMatches, validator_dir: PathBuf) -> Result<(), Strin
             .ok_or_else(|| format!("Badly formatted file name: {:?}", src_keystore))?;
 
         // Copy the keystore to the new location.
-        fs::copy(&src_keystore, &dest_keystore)
+        fs::copy(src_keystore, &dest_keystore)
             .map_err(|e| format!("Unable to copy keystore: {:?}", e))?;
 
         // Register with slashing protection.
-        let voting_pubkey = keystore
-            .public_key()
-            .ok_or_else(|| format!("Keystore public key is invalid: {}", keystore.pubkey()))?;
         slashing_protection
             .register_validator(voting_pubkey.compress())
             .map_err(|e| {
@@ -250,9 +273,17 @@ pub fn cli_run(matches: &ArgMatches, validator_dir: PathBuf) -> Result<(), Strin
         eprintln!("Successfully imported keystore.");
         num_imported_keystores += 1;
 
-        let validator_def =
-            ValidatorDefinition::new_keystore_with_password(&dest_keystore, password_opt, None)
-                .map_err(|e| format!("Unable to create new validator definition: {:?}", e))?;
+        let graffiti = None;
+        let suggested_fee_recipient = None;
+        let validator_def = ValidatorDefinition::new_keystore_with_password(
+            &dest_keystore,
+            password_opt,
+            graffiti,
+            suggested_fee_recipient,
+            None,
+            None,
+        )
+        .map_err(|e| format!("Unable to create new validator definition: {:?}", e))?;
 
         defs.push(validator_def);
 

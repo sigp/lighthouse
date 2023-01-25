@@ -9,9 +9,12 @@ use ssz_types::{
     VariableList,
 };
 use std::ops::Deref;
-use strum::AsStaticStr;
+use std::sync::Arc;
+use strum::IntoStaticStr;
 use superstruct::superstruct;
-use types::{Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot};
+use types::{
+    light_client_bootstrap::LightClientBootstrap, Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot,
+};
 
 /// Maximum number of blocks in a single request.
 pub type MaxRequestBlocks = U1024;
@@ -55,17 +58,6 @@ impl ToString for ErrorType {
 /* Request/Response data structures for RPC methods */
 
 /* Requests */
-
-/// Identifier of a request.
-///
-// NOTE: The handler stores the `RequestId` to inform back of responses and errors, but it's execution
-// is independent of the contents on this type.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RequestId {
-    Router,
-    Sync(usize),
-    Behaviour,
-}
 
 /// The STATUS request/response handshake message.
 #[derive(Encode, Decode, Clone, Debug, PartialEq)]
@@ -212,6 +204,16 @@ pub struct BlocksByRangeRequest {
 
     /// The number of blocks from the start slot.
     pub count: u64,
+}
+
+/// Request a number of beacon block roots from a peer.
+#[derive(Encode, Decode, Clone, Debug, PartialEq)]
+pub struct OldBlocksByRangeRequest {
+    /// The starting slot to request blocks.
+    pub start_slot: u64,
+
+    /// The number of blocks from the start slot.
+    pub count: u64,
 
     /// The step increment to receive blocks.
     ///
@@ -238,10 +240,13 @@ pub enum RPCResponse<T: EthSpec> {
 
     /// A response to a get BLOCKS_BY_RANGE request. A None response signifies the end of the
     /// batch.
-    BlocksByRange(Box<SignedBeaconBlock<T>>),
+    BlocksByRange(Arc<SignedBeaconBlock<T>>),
 
     /// A response to a get BLOCKS_BY_ROOT request.
-    BlocksByRoot(Box<SignedBeaconBlock<T>>),
+    BlocksByRoot(Arc<SignedBeaconBlock<T>>),
+
+    /// A response to a get LIGHTCLIENT_BOOTSTRAP request.
+    LightClientBootstrap(LightClientBootstrap<T>),
 
     /// A PONG response to a PING request.
     Pong(Ping),
@@ -273,8 +278,14 @@ pub enum RPCCodedResponse<T: EthSpec> {
     StreamTermination(ResponseTermination),
 }
 
+/// Request a light_client_bootstrap for lightclients peers.
+#[derive(Encode, Decode, Clone, Debug, PartialEq)]
+pub struct LightClientBootstrapRequest {
+    pub root: Hash256,
+}
+
 /// The code assigned to an erroneous `RPCResponse`.
-#[derive(Debug, Clone, Copy, PartialEq, AsStaticStr)]
+#[derive(Debug, Clone, Copy, PartialEq, IntoStaticStr)]
 #[strum(serialize_all = "snake_case")]
 pub enum RPCResponseErrorCode {
     RateLimited,
@@ -321,6 +332,7 @@ impl<T: EthSpec> RPCCodedResponse<T> {
                 RPCResponse::BlocksByRoot(_) => true,
                 RPCResponse::Pong(_) => false,
                 RPCResponse::MetaData(_) => false,
+                RPCResponse::LightClientBootstrap(_) => false,
             },
             RPCCodedResponse::Error(_, _) => true,
             // Stream terminations are part of responses that have chunks
@@ -342,6 +354,20 @@ impl RPCResponseErrorCode {
             RPCResponseErrorCode::ResourceUnavailable => 3,
             RPCResponseErrorCode::Unknown => 255,
             RPCResponseErrorCode::RateLimited => 139,
+        }
+    }
+}
+
+use super::Protocol;
+impl<T: EthSpec> RPCResponse<T> {
+    pub fn protocol(&self) -> Protocol {
+        match self {
+            RPCResponse::Status(_) => Protocol::Status,
+            RPCResponse::BlocksByRange(_) => Protocol::BlocksByRange,
+            RPCResponse::BlocksByRoot(_) => Protocol::BlocksByRoot,
+            RPCResponse::Pong(_) => Protocol::Ping,
+            RPCResponse::MetaData(_) => Protocol::MetaData,
+            RPCResponse::LightClientBootstrap(_) => Protocol::LightClientBootstrap,
         }
     }
 }
@@ -377,6 +403,9 @@ impl<T: EthSpec> std::fmt::Display for RPCResponse<T> {
             }
             RPCResponse::Pong(ping) => write!(f, "Pong: {}", ping.data),
             RPCResponse::MetaData(metadata) => write!(f, "Metadata: {}", metadata.seq_number()),
+            RPCResponse::LightClientBootstrap(bootstrap) => {
+                write!(f, "LightClientBootstrap Slot: {}", bootstrap.header.slot)
+            }
         }
     }
 }
@@ -409,6 +438,12 @@ impl std::fmt::Display for GoodbyeReason {
 
 impl std::fmt::Display for BlocksByRangeRequest {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Start Slot: {}, Count: {}", self.start_slot, self.count)
+    }
+}
+
+impl std::fmt::Display for OldBlocksByRangeRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
             "Start Slot: {}, Count: {}, Step: {}",
@@ -430,20 +465,5 @@ impl slog::KV for StatusMessage {
         Value::serialize(&self.head_slot, record, "head_slot", serializer)?;
         serializer.emit_arguments("head_root", &format_args!("{}", self.head_root))?;
         slog::Result::Ok(())
-    }
-}
-
-impl slog::Value for RequestId {
-    fn serialize(
-        &self,
-        record: &slog::Record,
-        key: slog::Key,
-        serializer: &mut dyn slog::Serializer,
-    ) -> slog::Result {
-        match self {
-            RequestId::Behaviour => slog::Value::serialize("Behaviour", record, key, serializer),
-            RequestId::Router => slog::Value::serialize("Router", record, key, serializer),
-            RequestId::Sync(ref id) => slog::Value::serialize(id, record, key, serializer),
-        }
     }
 }

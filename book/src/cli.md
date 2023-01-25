@@ -1,6 +1,6 @@
 # Command-Line Interface (CLI)
 
-The `lighthouse` binary provides all necessary Ethereum 2.0 functionality. It
+The `lighthouse` binary provides all necessary Ethereum consensus client functionality. It
 has two primary sub-commands:
 
 - `$ lighthouse beacon_node`: the largest and most fundamental component which connects to
@@ -48,7 +48,7 @@ maintained by Sigma Prime.
 
 However, for developers, testnets can be created by following the instructions
 outlined in [testnets](./testnets.md). The steps listed here will create a
-local database specified to a new testnet. 
+local database specified to a new testnet.
 
 ## Resuming from an existing database
 

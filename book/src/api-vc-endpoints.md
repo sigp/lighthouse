@@ -4,15 +4,20 @@
 
 HTTP Path | Description |
 | --- | -- |
-[`GET /lighthouse/version`](#get-lighthouseversion) | Get the Lighthouse software version
-[`GET /lighthouse/health`](#get-lighthousehealth) | Get information about the host machine
-[`GET /lighthouse/spec`](#get-lighthousespec) | Get the Eth2 specification used by the validator
-[`GET /lighthouse/validators`](#get-lighthousevalidators) | List all validators
-[`GET /lighthouse/validators/:voting_pubkey`](#get-lighthousevalidatorsvoting_pubkey) | Get a specific validator
-[`PATCH /lighthouse/validators/:voting_pubkey`](#patch-lighthousevalidatorsvoting_pubkey) | Update a specific validator
+[`GET /lighthouse/version`](#get-lighthouseversion) | Get the Lighthouse software version.
+[`GET /lighthouse/health`](#get-lighthousehealth) | Get information about the host machine.
+[`GET /lighthouse/ui/health`](#get-lighthouseuihealth) | Get information about the host machine. Focused for UI applications.
+[`GET /lighthouse/spec`](#get-lighthousespec) | Get the Ethereum proof-of-stake consensus specification used by the validator.
+[`GET /lighthouse/auth`](#get-lighthouseauth) | Get the location of the authorization token.
+[`GET /lighthouse/validators`](#get-lighthousevalidators) | List all validators.
+[`GET /lighthouse/validators/:voting_pubkey`](#get-lighthousevalidatorsvoting_pubkey) | Get a specific validator.
+[`PATCH /lighthouse/validators/:voting_pubkey`](#patch-lighthousevalidatorsvoting_pubkey) | Update a specific validator.
 [`POST /lighthouse/validators`](#post-lighthousevalidators) | Create a new validator and mnemonic.
 [`POST /lighthouse/validators/keystore`](#post-lighthousevalidatorskeystore) | Import a keystore.
 [`POST /lighthouse/validators/mnemonic`](#post-lighthousevalidatorsmnemonic) | Create a new validator from an existing mnemonic.
+[`POST /lighthouse/validators/web3signer`](#post-lighthousevalidatorsweb3signer) | Add web3signer validators.
+
+In addition to the above endpoints Lighthouse also supports all of the [standard keymanager APIs](https://ethereum.github.io/keymanager-APIs/).
 
 ## `GET /lighthouse/version`
 
@@ -20,12 +25,12 @@ Returns the software version and `git` commit hash for the Lighthouse binary.
 
 ### HTTP Specification
 
-| Property | Specification |
-| --- |--- |
-Path | `/lighthouse/version`
-Method | GET
-Required Headers | [`Authorization`](./api-vc-auth-header.md)
-Typical Responses | 200
+| Property          | Specification                              |
+|-------------------|--------------------------------------------|
+| Path              | `/lighthouse/version`                      |
+| Method            | GET                                        |
+| Required Headers  | [`Authorization`](./api-vc-auth-header.md) |
+| Typical Responses | 200                                        |
 
 ### Example Response Body
 
@@ -43,12 +48,12 @@ Returns information regarding the health of the host machine.
 
 ### HTTP Specification
 
-| Property | Specification |
-| --- |--- |
-Path | `/lighthouse/health`
-Method | GET
-Required Headers | [`Authorization`](./api-vc-auth-header.md)
-Typical Responses | 200
+| Property          | Specification                              |
+|-------------------|--------------------------------------------|
+| Path              | `/lighthouse/health`                       |
+| Method            | GET                                        |
+| Required Headers  | [`Authorization`](./api-vc-auth-header.md) |
+| Typical Responses | 200                                        |
 
 *Note: this endpoint is presently only available on Linux.*
 
@@ -73,18 +78,82 @@ Typical Responses | 200
 }
 ```
 
-## `GET /lighthouse/spec`
+## `GET /lighthouse/ui/health`
 
-Returns the Eth2 specification loaded for this validator.
+Returns information regarding the health of the host machine.
 
 ### HTTP Specification
 
-| Property | Specification |
-| --- |--- |
-Path | `/lighthouse/spec`
-Method | GET
-Required Headers | [`Authorization`](./api-vc-auth-header.md)
-Typical Responses | 200
+| Property          | Specification                              |
+|-------------------|--------------------------------------------|
+| Path              | `/lighthouse/ui/health`                       |
+| Method            | GET                                        |
+| Required Headers  | [`Authorization`](./api-vc-auth-header.md) |
+| Typical Responses | 200                                        |
+
+### Example Response Body
+
+```json
+{
+  "data": {
+    "total_memory": 16443219968,
+    "free_memory": 1283739648,
+    "used_memory": 5586264064,
+    "sys_loadavg_1": 0.59,
+    "sys_loadavg_5": 1.13,
+    "sys_loadavg_15": 2.41,
+    "cpu_cores": 4,
+    "cpu_threads": 8,
+    "global_cpu_frequency": 3.4,
+    "disk_bytes_total": 502390845440,
+    "disk_bytes_free": 9981386752,
+    "system_uptime": 660706,
+    "app_uptime": 105,
+    "system_name": "Arch Linux",
+    "kernel_version": "5.19.13-arch1-1",
+    "os_version": "Linux rolling Arch Linux",
+    "host_name": "Computer1"
+  }
+}
+```
+
+## `GET /lighthouse/ui/graffiti`
+
+Returns the graffiti that will be used for the next block proposal of each validator.
+
+### HTTP Specification
+
+| Property          | Specification                              |
+|-------------------|--------------------------------------------|
+| Path              | `/lighthouse/ui/graffiti`                    |
+| Method            | GET                                        |
+| Required Headers  | [`Authorization`](./api-vc-auth-header.md) |
+| Typical Responses | 200                                        |
+
+### Example Response Body
+
+```json
+{
+  "data": {
+    "0x81283b7a20e1ca460ebd9bbd77005d557370cabb1f9a44f530c4c4c66230f675f8df8b4c2818851aa7d77a80ca5a4a5e": "mr f was here",
+    "0xa3a32b0f8b4ddb83f1a0a853d81dd725dfe577d4f4c3db8ece52ce2b026eca84815c1a7e8e92a4de3d755733bf7e4a9b": "mr v was here",
+    "0x872c61b4a7f8510ec809e5b023f5fdda2105d024c470ddbbeca4bc74e8280af0d178d749853e8f6a841083ac1b4db98f": null
+  }
+}
+```
+
+## `GET /lighthouse/spec`
+
+Returns the Ethereum proof-of-stake consensus specification loaded for this validator.
+
+### HTTP Specification
+
+| Property          | Specification                              |
+|-------------------|--------------------------------------------|
+| Path              | `/lighthouse/spec`                         |
+| Method            | GET                                        |
+| Required Headers  | [`Authorization`](./api-vc-auth-header.md) |
+| Typical Responses | 200                                        |
 
 ### Example Response Body
 
@@ -130,6 +199,7 @@ Typical Responses | 200
         "DOMAIN_VOLUNTARY_EXIT": "0x04000000",
         "DOMAIN_SELECTION_PROOF": "0x05000000",
         "DOMAIN_AGGREGATE_AND_PROOF": "0x06000000",
+        "DOMAIN_APPLICATION_MASK": "0x00000001",
         "MAX_VALIDATORS_PER_COMMITTEE": "2048",
         "SLOTS_PER_EPOCH": "32",
         "EPOCHS_PER_ETH1_VOTING_PERIOD": "32",
@@ -153,18 +223,49 @@ Typical Responses | 200
 }
 ```
 
+## `GET /lighthouse/auth`
+
+Fetch the filesystem path of the [authorization token](./api-vc-auth-header.md).
+Unlike the other endpoints this may be called _without_ providing an authorization token.
+
+This API is intended to be called from the same machine as the validator client, so that the token
+file may be read by a local user with access rights.
+
+### HTTP Specification
+
+| Property          | Specification      |
+|-------------------|--------------------|
+| Path              | `/lighthouse/auth` |
+| Method            | GET                |
+| Required Headers  | -                  |
+| Typical Responses | 200                |
+
+### Example Path
+
+```
+localhost:5062/lighthouse/auth
+```
+
+### Example Response Body
+
+```json
+{
+    "token_path": "/home/karlm/.lighthouse/prater/validators/api-token.txt"
+}
+```
+
 ## `GET /lighthouse/validators`
 
 Lists all validators managed by this validator client.
 
 ### HTTP Specification
 
-| Property | Specification |
-| --- |--- |
-Path | `/lighthouse/validators`
-Method | GET
-Required Headers | [`Authorization`](./api-vc-auth-header.md)
-Typical Responses | 200
+| Property          | Specification                              |
+|-------------------|--------------------------------------------|
+| Path              | `/lighthouse/validators`                   |
+| Method            | GET                                        |
+| Required Headers  | [`Authorization`](./api-vc-auth-header.md) |
+| Typical Responses | 200                                        |
 
 ### Example Response Body
 
@@ -196,12 +297,12 @@ Get a validator by their `voting_pubkey`.
 
 ### HTTP Specification
 
-| Property | Specification |
-| --- |--- |
-Path | `/lighthouse/validators/:voting_pubkey`
-Method | GET
-Required Headers | [`Authorization`](./api-vc-auth-header.md)
-Typical Responses | 200, 400
+| Property          | Specification                              |
+|-------------------|--------------------------------------------|
+| Path              | `/lighthouse/validators/:voting_pubkey`    |
+| Method            | GET                                        |
+| Required Headers  | [`Authorization`](./api-vc-auth-header.md) |
+| Typical Responses | 200, 400                                   |
 
 ### Example Path
 
@@ -226,12 +327,12 @@ Update some values for the validator with `voting_pubkey`.
 
 ### HTTP Specification
 
-| Property | Specification |
-| --- |--- |
-Path | `/lighthouse/validators/:voting_pubkey`
-Method | PATCH
-Required Headers | [`Authorization`](./api-vc-auth-header.md)
-Typical Responses | 200, 400
+| Property          | Specification                              |
+|-------------------|--------------------------------------------|
+| Path              | `/lighthouse/validators/:voting_pubkey`    |
+| Method            | PATCH                                      |
+| Required Headers  | [`Authorization`](./api-vc-auth-header.md) |
+| Typical Responses | 200, 400                                   |
 
 ### Example Path
 
@@ -265,12 +366,12 @@ Validators are generated from the mnemonic according to
 
 ### HTTP Specification
 
-| Property | Specification |
-| --- |--- |
-Path | `/lighthouse/validators`
-Method | POST
-Required Headers | [`Authorization`](./api-vc-auth-header.md)
-Typical Responses | 200
+| Property          | Specification                              |
+|-------------------|--------------------------------------------|
+| Path              | `/lighthouse/validators`                   |
+| Method            | POST                                       |
+| Required Headers  | [`Authorization`](./api-vc-auth-header.md) |
+| Typical Responses | 200                                        |
 
 ### Example Request Body
 
@@ -280,7 +381,8 @@ Typical Responses | 200
         "enable": true,
         "description": "validator_one",
         "deposit_gwei": "32000000000",
-        "graffiti": "Mr F was here"
+        "graffiti": "Mr F was here",
+        "suggested_fee_recipient": "0xa2e334e71511686bcfe38bb3ee1ad8f6babcc03d"
     },
     {
         "enable": false,
@@ -322,12 +424,12 @@ Import a keystore into the validator client.
 
 ### HTTP Specification
 
-| Property | Specification |
-| --- |--- |
-Path | `/lighthouse/validators/keystore`
-Method | POST
-Required Headers | [`Authorization`](./api-vc-auth-header.md)
-Typical Responses | 200
+| Property          | Specification                              |
+|-------------------|--------------------------------------------|
+| Path              | `/lighthouse/validators/keystore`          |
+| Method            | POST                                       |
+| Required Headers  | [`Authorization`](./api-vc-auth-header.md) |
+| Typical Responses | 200                                        |
 
 ### Example Request Body
 
@@ -396,12 +498,12 @@ generated with the path `m/12381/3600/i/42`.
 
 ### HTTP Specification
 
-| Property | Specification |
-| --- |--- |
-Path | `/lighthouse/validators/mnemonic`
-Method | POST
-Required Headers | [`Authorization`](./api-vc-auth-header.md)
-Typical Responses | 200
+| Property          | Specification                              |
+|-------------------|--------------------------------------------|
+| Path              | `/lighthouse/validators/mnemonic`          |
+| Method            | POST                                       |
+| Required Headers  | [`Authorization`](./api-vc-auth-header.md) |
+| Typical Responses | 200                                        |
 
 ### Example Request Body
 
@@ -442,12 +544,12 @@ Create any number of new validators, all of which will refer to a
 
 ### HTTP Specification
 
-| Property | Specification |
-| --- |--- |
-Path | `/lighthouse/validators/web3signer`
-Method | POST
-Required Headers | [`Authorization`](./api-vc-auth-header.md)
-Typical Responses | 200, 400
+| Property          | Specification                              |
+|-------------------|--------------------------------------------|
+| Path              | `/lighthouse/validators/web3signer`        |
+| Method            | POST                                       |
+| Required Headers  | [`Authorization`](./api-vc-auth-header.md) |
+| Typical Responses | 200, 400                                   |
 
 ### Example Request Body
 
@@ -457,6 +559,7 @@ Typical Responses | 200, 400
         "enable": true,
         "description": "validator_one",
         "graffiti": "Mr F was here",
+        "suggested_fee_recipient": "0xa2e334e71511686bcfe38bb3ee1ad8f6babcc03d",
         "voting_public_key": "0xa062f95fee747144d5e511940624bc6546509eeaeae9383257a9c43e7ddc58c17c2bab4ae62053122184c381b90db380",
         "url": "http://path-to-web3signer.com",
         "root_certificate_path": "/path/on/vc/filesystem/to/certificate.pem",
@@ -468,6 +571,7 @@ Typical Responses | 200, 400
 The following fields may be omitted or nullified to obtain default values:
 
 - `graffiti`
+- `suggested_fee_recipient`
 - `root_certificate_path`
 - `request_timeout_ms`
 

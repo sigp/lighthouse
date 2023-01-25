@@ -1,9 +1,9 @@
 #![cfg(test)]
 use environment::{Environment, EnvironmentBuilder};
-use eth1::http::{get_deposit_count, get_deposit_logs_in_range, get_deposit_root, Block, Log};
-use eth1::{Config, Service};
-use eth1::{DepositCache, DEFAULT_CHAIN_ID, DEFAULT_NETWORK_ID};
+use eth1::{Config, Eth1Endpoint, Service};
+use eth1::{DepositCache, DEFAULT_CHAIN_ID};
 use eth1_test_rig::GanacheEth1Instance;
+use execution_layer::http::{deposit_methods::*, HttpJsonRpc, Log};
 use merkle_proof::verify_merkle_proof;
 use sensitive_url::SensitiveUrl;
 use slog::Logger;
@@ -51,39 +51,39 @@ fn random_deposit_data() -> DepositData {
 }
 
 /// Blocking operation to get the deposit logs from the `deposit_contract`.
-async fn blocking_deposit_logs(eth1: &GanacheEth1Instance, range: Range<u64>) -> Vec<Log> {
-    get_deposit_logs_in_range(
-        &SensitiveUrl::parse(eth1.endpoint().as_str()).unwrap(),
-        &eth1.deposit_contract.address(),
-        range,
-        timeout(),
-    )
-    .await
-    .expect("should get logs")
+async fn blocking_deposit_logs(
+    client: &HttpJsonRpc,
+    eth1: &GanacheEth1Instance,
+    range: Range<u64>,
+) -> Vec<Log> {
+    client
+        .get_deposit_logs_in_range(&eth1.deposit_contract.address(), range, timeout())
+        .await
+        .expect("should get logs")
 }
 
 /// Blocking operation to get the deposit root from the `deposit_contract`.
-async fn blocking_deposit_root(eth1: &GanacheEth1Instance, block_number: u64) -> Option<Hash256> {
-    get_deposit_root(
-        &SensitiveUrl::parse(eth1.endpoint().as_str()).unwrap(),
-        &eth1.deposit_contract.address(),
-        block_number,
-        timeout(),
-    )
-    .await
-    .expect("should get deposit root")
+async fn blocking_deposit_root(
+    client: &HttpJsonRpc,
+    eth1: &GanacheEth1Instance,
+    block_number: u64,
+) -> Option<Hash256> {
+    client
+        .get_deposit_root(&eth1.deposit_contract.address(), block_number, timeout())
+        .await
+        .expect("should get deposit root")
 }
 
 /// Blocking operation to get the deposit count from the `deposit_contract`.
-async fn blocking_deposit_count(eth1: &GanacheEth1Instance, block_number: u64) -> Option<u64> {
-    get_deposit_count(
-        &SensitiveUrl::parse(eth1.endpoint().as_str()).unwrap(),
-        &eth1.deposit_contract.address(),
-        block_number,
-        timeout(),
-    )
-    .await
-    .expect("should get deposit count")
+async fn blocking_deposit_count(
+    client: &HttpJsonRpc,
+    eth1: &GanacheEth1Instance,
+    block_number: u64,
+) -> Option<u64> {
+    client
+        .get_deposit_count(&eth1.deposit_contract.address(), block_number, timeout())
+        .await
+        .expect("should get deposit count")
 }
 
 async fn get_block_number(web3: &Web3<Http>) -> u64 {
@@ -95,7 +95,7 @@ async fn get_block_number(web3: &Web3<Http>) -> u64 {
 }
 
 async fn new_ganache_instance() -> Result<GanacheEth1Instance, String> {
-    GanacheEth1Instance::new(DEFAULT_NETWORK_ID.into(), DEFAULT_CHAIN_ID.into()).await
+    GanacheEth1Instance::new(DEFAULT_CHAIN_ID.into()).await
 }
 
 mod eth1_cache {
@@ -107,7 +107,7 @@ mod eth1_cache {
         async {
             let log = null_logger();
 
-            for follow_distance in 0..2 {
+            for follow_distance in 0..3 {
                 let eth1 = new_ganache_instance()
                     .await
                     .expect("should start eth1 environment");
@@ -116,17 +116,19 @@ mod eth1_cache {
 
                 let initial_block_number = get_block_number(&web3).await;
 
-                let service = Service::new(
-                    Config {
-                        endpoints: vec![SensitiveUrl::parse(eth1.endpoint().as_str()).unwrap()],
-                        deposit_contract_address: deposit_contract.address(),
-                        lowest_cached_block_number: initial_block_number,
-                        follow_distance,
-                        ..Config::default()
-                    },
-                    log.clone(),
-                    MainnetEthSpec::default_spec(),
-                );
+                let config = Config {
+                    endpoint: Eth1Endpoint::NoAuth(
+                        SensitiveUrl::parse(eth1.endpoint().as_str()).unwrap(),
+                    ),
+                    deposit_contract_address: deposit_contract.address(),
+                    lowest_cached_block_number: initial_block_number,
+                    follow_distance,
+                    ..Config::default()
+                };
+                let cache_follow_distance = config.cache_follow_distance();
+
+                let service =
+                    Service::new(config, log.clone(), MainnetEthSpec::default_spec()).unwrap();
 
                 // Create some blocks and then consume them, performing the test `rounds` times.
                 for round in 0..2 {
@@ -139,7 +141,7 @@ mod eth1_cache {
                             .blocks()
                             .read()
                             .highest_block_number()
-                            .map(|n| n + follow_distance)
+                            .map(|n| n + cache_follow_distance)
                             .expect("should have a latest block after the first round")
                     };
 
@@ -147,19 +149,17 @@ mod eth1_cache {
                         eth1.ganache.evm_mine().await.expect("should mine block");
                     }
 
-                    let endpoints = service.init_endpoints();
-
                     service
-                        .update_deposit_cache(None, &endpoints)
+                        .update_deposit_cache(None)
                         .await
                         .expect("should update deposit cache");
                     service
-                        .update_block_cache(None, &endpoints)
+                        .update_block_cache(None)
                         .await
                         .expect("should update block cache");
 
                     service
-                        .update_block_cache(None, &endpoints)
+                        .update_block_cache(None)
                         .await
                         .expect("should update cache when nothing has changed");
 
@@ -168,12 +168,13 @@ mod eth1_cache {
                             .blocks()
                             .read()
                             .highest_block_number()
-                            .map(|n| n + follow_distance),
+                            .map(|n| n + cache_follow_distance),
                         Some(initial + blocks),
-                        "should update {} blocks in round {} (follow {})",
+                        "should update {} blocks in round {} (follow {} i.e. {})",
                         blocks,
                         round,
                         follow_distance,
+                        cache_follow_distance
                     );
                 }
             }
@@ -198,7 +199,9 @@ mod eth1_cache {
 
             let service = Service::new(
                 Config {
-                    endpoints: vec![SensitiveUrl::parse(eth1.endpoint().as_str()).unwrap()],
+                    endpoint: Eth1Endpoint::NoAuth(
+                        SensitiveUrl::parse(eth1.endpoint().as_str()).unwrap(),
+                    ),
                     deposit_contract_address: deposit_contract.address(),
                     lowest_cached_block_number: get_block_number(&web3).await,
                     follow_distance: 0,
@@ -207,7 +210,8 @@ mod eth1_cache {
                 },
                 log,
                 MainnetEthSpec::default_spec(),
-            );
+            )
+            .unwrap();
 
             let blocks = cache_len * 2;
 
@@ -215,14 +219,12 @@ mod eth1_cache {
                 eth1.ganache.evm_mine().await.expect("should mine block")
             }
 
-            let endpoints = service.init_endpoints();
-
             service
-                .update_deposit_cache(None, &endpoints)
+                .update_deposit_cache(None)
                 .await
                 .expect("should update deposit cache");
             service
-                .update_block_cache(None, &endpoints)
+                .update_block_cache(None)
                 .await
                 .expect("should update block cache");
 
@@ -252,7 +254,9 @@ mod eth1_cache {
 
             let service = Service::new(
                 Config {
-                    endpoints: vec![SensitiveUrl::parse(eth1.endpoint().as_str()).unwrap()],
+                    endpoint: Eth1Endpoint::NoAuth(
+                        SensitiveUrl::parse(eth1.endpoint().as_str()).unwrap(),
+                    ),
                     deposit_contract_address: deposit_contract.address(),
                     lowest_cached_block_number: get_block_number(&web3).await,
                     follow_distance: 0,
@@ -261,19 +265,19 @@ mod eth1_cache {
                 },
                 log,
                 MainnetEthSpec::default_spec(),
-            );
+            )
+            .unwrap();
 
             for _ in 0..4u8 {
                 for _ in 0..cache_len / 2 {
                     eth1.ganache.evm_mine().await.expect("should mine block")
                 }
-                let endpoints = service.init_endpoints();
                 service
-                    .update_deposit_cache(None, &endpoints)
+                    .update_deposit_cache(None)
                     .await
                     .expect("should update deposit cache");
                 service
-                    .update_block_cache(None, &endpoints)
+                    .update_block_cache(None)
                     .await
                     .expect("should update block cache");
             }
@@ -302,7 +306,9 @@ mod eth1_cache {
 
             let service = Service::new(
                 Config {
-                    endpoints: vec![SensitiveUrl::parse(eth1.endpoint().as_str()).unwrap()],
+                    endpoint: Eth1Endpoint::NoAuth(
+                        SensitiveUrl::parse(eth1.endpoint().as_str()).unwrap(),
+                    ),
                     deposit_contract_address: deposit_contract.address(),
                     lowest_cached_block_number: get_block_number(&web3).await,
                     follow_distance: 0,
@@ -310,21 +316,21 @@ mod eth1_cache {
                 },
                 log,
                 MainnetEthSpec::default_spec(),
-            );
+            )
+            .unwrap();
 
             for _ in 0..n {
                 eth1.ganache.evm_mine().await.expect("should mine block")
             }
 
-            let endpoints = service.init_endpoints();
             futures::try_join!(
-                service.update_deposit_cache(None, &endpoints),
-                service.update_deposit_cache(None, &endpoints)
+                service.update_deposit_cache(None),
+                service.update_deposit_cache(None)
             )
             .expect("should perform two simultaneous updates of deposit cache");
             futures::try_join!(
-                service.update_block_cache(None, &endpoints),
-                service.update_block_cache(None, &endpoints)
+                service.update_block_cache(None),
+                service.update_block_cache(None)
             )
             .expect("should perform two simultaneous updates of block cache");
 
@@ -354,7 +360,9 @@ mod deposit_tree {
 
             let service = Service::new(
                 Config {
-                    endpoints: vec![SensitiveUrl::parse(eth1.endpoint().as_str()).unwrap()],
+                    endpoint: Eth1Endpoint::NoAuth(
+                        SensitiveUrl::parse(eth1.endpoint().as_str()).unwrap(),
+                    ),
                     deposit_contract_address: deposit_contract.address(),
                     deposit_contract_deploy_block: start_block,
                     follow_distance: 0,
@@ -362,7 +370,8 @@ mod deposit_tree {
                 },
                 log,
                 MainnetEthSpec::default_spec(),
-            );
+            )
+            .unwrap();
 
             for round in 0..3 {
                 let deposits: Vec<_> = (0..n).map(|_| random_deposit_data()).collect();
@@ -374,15 +383,13 @@ mod deposit_tree {
                         .expect("should perform a deposit");
                 }
 
-                let endpoints = service.init_endpoints();
-
                 service
-                    .update_deposit_cache(None, &endpoints)
+                    .update_deposit_cache(None)
                     .await
                     .expect("should perform update");
 
                 service
-                    .update_deposit_cache(None, &endpoints)
+                    .update_deposit_cache(None)
                     .await
                     .expect("should perform update when nothing has changed");
 
@@ -393,7 +400,7 @@ mod deposit_tree {
                     .deposits()
                     .read()
                     .cache
-                    .get_deposits(first, last, last, 32)
+                    .get_deposits(first, last, last)
                     .unwrap_or_else(|_| panic!("should get deposits in round {}", round));
 
                 assert_eq!(
@@ -434,7 +441,9 @@ mod deposit_tree {
 
             let service = Service::new(
                 Config {
-                    endpoints: vec![SensitiveUrl::parse(eth1.endpoint().as_str()).unwrap()],
+                    endpoint: Eth1Endpoint::NoAuth(
+                        SensitiveUrl::parse(eth1.endpoint().as_str()).unwrap(),
+                    ),
                     deposit_contract_address: deposit_contract.address(),
                     deposit_contract_deploy_block: start_block,
                     lowest_cached_block_number: start_block,
@@ -443,7 +452,8 @@ mod deposit_tree {
                 },
                 log,
                 MainnetEthSpec::default_spec(),
-            );
+            )
+            .unwrap();
 
             let deposits: Vec<_> = (0..n).map(|_| random_deposit_data()).collect();
 
@@ -454,10 +464,9 @@ mod deposit_tree {
                     .expect("should perform a deposit");
             }
 
-            let endpoints = service.init_endpoints();
             futures::try_join!(
-                service.update_deposit_cache(None, &endpoints),
-                service.update_deposit_cache(None, &endpoints)
+                service.update_deposit_cache(None),
+                service.update_deposit_cache(None)
             )
             .expect("should perform two updates concurrently");
 
@@ -484,6 +493,9 @@ mod deposit_tree {
             let mut deposit_roots = vec![];
             let mut deposit_counts = vec![];
 
+            let client =
+                HttpJsonRpc::new(SensitiveUrl::parse(&eth1.endpoint()).unwrap(), None).unwrap();
+
             // Perform deposits to the smart contract, recording it's state along the way.
             for deposit in &deposits {
                 deposit_contract
@@ -492,12 +504,12 @@ mod deposit_tree {
                     .expect("should perform a deposit");
                 let block_number = get_block_number(&web3).await;
                 deposit_roots.push(
-                    blocking_deposit_root(&eth1, block_number)
+                    blocking_deposit_root(&client, &eth1, block_number)
                         .await
                         .expect("should get root if contract exists"),
                 );
                 deposit_counts.push(
-                    blocking_deposit_count(&eth1, block_number)
+                    blocking_deposit_count(&client, &eth1, block_number)
                         .await
                         .expect("should get count if contract exists"),
                 );
@@ -507,7 +519,7 @@ mod deposit_tree {
 
             // Pull all the deposit logs from the contract.
             let block_number = get_block_number(&web3).await;
-            let logs: Vec<_> = blocking_deposit_logs(&eth1, 0..block_number)
+            let logs: Vec<_> = blocking_deposit_logs(&client, &eth1, 0..block_number)
                 .await
                 .iter()
                 .map(|raw| raw.to_deposit_log(spec).expect("should parse deposit log"))
@@ -539,7 +551,7 @@ mod deposit_tree {
 
                 // Ensure that the root from the deposit tree matches what the contract reported.
                 let (root, deposits) = tree
-                    .get_deposits(0, i as u64, deposit_counts[i], DEPOSIT_CONTRACT_TREE_DEPTH)
+                    .get_deposits(0, i as u64, deposit_counts[i])
                     .expect("should get deposits");
                 assert_eq!(
                     root, deposit_roots[i],
@@ -570,16 +582,12 @@ mod deposit_tree {
 /// Tests for the base HTTP requests and response handlers.
 mod http {
     use super::*;
-    use eth1::http::BlockQuery;
 
-    async fn get_block(eth1: &GanacheEth1Instance, block_number: u64) -> Block {
-        eth1::http::get_block(
-            &SensitiveUrl::parse(eth1.endpoint().as_str()).unwrap(),
-            BlockQuery::Number(block_number),
-            timeout(),
-        )
-        .await
-        .expect("should get block number")
+    async fn get_block(client: &HttpJsonRpc, block_number: u64) -> Block {
+        client
+            .get_block(BlockQuery::Number(block_number), timeout())
+            .await
+            .expect("should get block number")
     }
 
     #[tokio::test]
@@ -590,17 +598,19 @@ mod http {
                 .expect("should start eth1 environment");
             let deposit_contract = &eth1.deposit_contract;
             let web3 = eth1.web3();
+            let client =
+                HttpJsonRpc::new(SensitiveUrl::parse(&eth1.endpoint()).unwrap(), None).unwrap();
 
             let block_number = get_block_number(&web3).await;
-            let logs = blocking_deposit_logs(&eth1, 0..block_number).await;
+            let logs = blocking_deposit_logs(&client, &eth1, 0..block_number).await;
             assert_eq!(logs.len(), 0);
 
-            let mut old_root = blocking_deposit_root(&eth1, block_number).await;
-            let mut old_block = get_block(&eth1, block_number).await;
+            let mut old_root = blocking_deposit_root(&client, &eth1, block_number).await;
+            let mut old_block = get_block(&client, block_number).await;
             let mut old_block_number = block_number;
 
             assert_eq!(
-                blocking_deposit_count(&eth1, block_number).await,
+                blocking_deposit_count(&client, &eth1, block_number).await,
                 Some(0),
                 "should have deposit count zero"
             );
@@ -618,18 +628,18 @@ mod http {
 
                 // Check the logs.
                 let block_number = get_block_number(&web3).await;
-                let logs = blocking_deposit_logs(&eth1, 0..block_number).await;
+                let logs = blocking_deposit_logs(&client, &eth1, 0..block_number).await;
                 assert_eq!(logs.len(), i, "the number of logs should be as expected");
 
                 // Check the deposit count.
                 assert_eq!(
-                    blocking_deposit_count(&eth1, block_number).await,
+                    blocking_deposit_count(&client, &eth1, block_number).await,
                     Some(i as u64),
                     "should have a correct deposit count"
                 );
 
                 // Check the deposit root.
-                let new_root = blocking_deposit_root(&eth1, block_number).await;
+                let new_root = blocking_deposit_root(&client, &eth1, block_number).await;
                 assert_ne!(
                     new_root, old_root,
                     "deposit root should change with each deposit"
@@ -637,7 +647,7 @@ mod http {
                 old_root = new_root;
 
                 // Check the block hash.
-                let new_block = get_block(&eth1, block_number).await;
+                let new_block = get_block(&client, block_number).await;
                 assert_ne!(
                     new_block.hash, old_block.hash,
                     "block hash should change with each deposit"
@@ -689,7 +699,9 @@ mod fast {
             let now = get_block_number(&web3).await;
             let service = Service::new(
                 Config {
-                    endpoints: vec![SensitiveUrl::parse(eth1.endpoint().as_str()).unwrap()],
+                    endpoint: Eth1Endpoint::NoAuth(
+                        SensitiveUrl::parse(eth1.endpoint().as_str()).unwrap(),
+                    ),
                     deposit_contract_address: deposit_contract.address(),
                     deposit_contract_deploy_block: now,
                     lowest_cached_block_number: now,
@@ -699,7 +711,10 @@ mod fast {
                 },
                 log,
                 MainnetEthSpec::default_spec(),
-            );
+            )
+            .unwrap();
+            let client =
+                HttpJsonRpc::new(SensitiveUrl::parse(&eth1.endpoint()).unwrap(), None).unwrap();
             let n = 10;
             let deposits: Vec<_> = (0..n).map(|_| random_deposit_data()).collect();
             for deposit in &deposits {
@@ -711,9 +726,8 @@ mod fast {
                 eth1.ganache.evm_mine().await.expect("should mine block");
             }
 
-            let endpoints = service.init_endpoints();
             service
-                .update_deposit_cache(None, &endpoints)
+                .update_deposit_cache(None)
                 .await
                 .expect("should perform update");
 
@@ -723,8 +737,9 @@ mod fast {
             );
 
             for block_num in 0..=get_block_number(&web3).await {
-                let expected_deposit_count = blocking_deposit_count(&eth1, block_num).await;
-                let expected_deposit_root = blocking_deposit_root(&eth1, block_num).await;
+                let expected_deposit_count =
+                    blocking_deposit_count(&client, &eth1, block_num).await;
+                let expected_deposit_root = blocking_deposit_root(&client, &eth1, block_num).await;
 
                 let deposit_count = service
                     .deposits()
@@ -765,7 +780,9 @@ mod persist {
 
             let now = get_block_number(&web3).await;
             let config = Config {
-                endpoints: vec![SensitiveUrl::parse(eth1.endpoint().as_str()).unwrap()],
+                endpoint: Eth1Endpoint::NoAuth(
+                    SensitiveUrl::parse(eth1.endpoint().as_str()).unwrap(),
+                ),
                 deposit_contract_address: deposit_contract.address(),
                 deposit_contract_deploy_block: now,
                 lowest_cached_block_number: now,
@@ -773,7 +790,8 @@ mod persist {
                 block_cache_truncation: None,
                 ..Config::default()
             };
-            let service = Service::new(config.clone(), log.clone(), MainnetEthSpec::default_spec());
+            let service =
+                Service::new(config.clone(), log.clone(), MainnetEthSpec::default_spec()).unwrap();
             let n = 10;
             let deposits: Vec<_> = (0..n).map(|_| random_deposit_data()).collect();
             for deposit in &deposits {
@@ -783,9 +801,8 @@ mod persist {
                     .expect("should perform a deposit");
             }
 
-            let endpoints = service.init_endpoints();
             service
-                .update_deposit_cache(None, &endpoints)
+                .update_deposit_cache(None)
                 .await
                 .expect("should perform update");
 
@@ -797,7 +814,7 @@ mod persist {
             let deposit_count = service.deposit_cache_len();
 
             service
-                .update_block_cache(None, &endpoints)
+                .update_block_cache(None)
                 .await
                 .expect("should perform update");
 
@@ -825,300 +842,6 @@ mod persist {
                 recovered_service.deposit_cache_len(),
                 deposit_count,
                 "Should have equal cached deposits as before recovery"
-            );
-        }
-        .await;
-    }
-}
-
-/// Tests for eth1 fallback
-mod fallbacks {
-    use super::*;
-    use tokio::time::sleep;
-
-    #[tokio::test]
-    async fn test_fallback_when_offline() {
-        async {
-            let log = null_logger();
-            let endpoint2 = new_ganache_instance()
-                .await
-                .expect("should start eth1 environment");
-            let deposit_contract = &endpoint2.deposit_contract;
-
-            let initial_block_number = get_block_number(&endpoint2.web3()).await;
-
-            // Create some blocks and then consume them, performing the test `rounds` times.
-            let new_blocks = 4;
-
-            for _ in 0..new_blocks {
-                endpoint2
-                    .ganache
-                    .evm_mine()
-                    .await
-                    .expect("should mine block");
-            }
-
-            let endpoint1 = endpoint2
-                .ganache
-                .fork()
-                .expect("should start eth1 environment");
-
-            //mine additional blocks on top of the original endpoint
-            for _ in 0..new_blocks {
-                endpoint2
-                    .ganache
-                    .evm_mine()
-                    .await
-                    .expect("should mine block");
-            }
-
-            let service = Service::new(
-                Config {
-                    endpoints: vec![
-                        SensitiveUrl::parse(endpoint1.endpoint().as_str()).unwrap(),
-                        SensitiveUrl::parse(endpoint2.endpoint().as_str()).unwrap(),
-                    ],
-                    deposit_contract_address: deposit_contract.address(),
-                    lowest_cached_block_number: initial_block_number,
-                    follow_distance: 0,
-                    ..Config::default()
-                },
-                log.clone(),
-                MainnetEthSpec::default_spec(),
-            );
-
-            let endpoint1_block_number = get_block_number(&endpoint1.web3).await;
-            //the first call will only query endpoint1
-            service.update().await.expect("should update deposit cache");
-            assert_eq!(
-                service.deposits().read().last_processed_block.unwrap(),
-                endpoint1_block_number
-            );
-
-            drop(endpoint1);
-
-            let endpoint2_block_number = get_block_number(&endpoint2.web3()).await;
-            assert!(endpoint1_block_number < endpoint2_block_number);
-            //endpoint1 is offline => query will import blocks from endpoint2
-            service.update().await.expect("should update deposit cache");
-            assert_eq!(
-                service.deposits().read().last_processed_block.unwrap(),
-                endpoint2_block_number
-            );
-        }
-        .await;
-    }
-
-    #[tokio::test]
-    async fn test_fallback_when_wrong_network_id() {
-        async {
-            let log = null_logger();
-            let correct_network_id: u64 = DEFAULT_NETWORK_ID.into();
-            let wrong_network_id = correct_network_id + 1;
-            let endpoint1 = GanacheEth1Instance::new(wrong_network_id, DEFAULT_CHAIN_ID.into())
-                .await
-                .expect("should start eth1 environment");
-            let endpoint2 = new_ganache_instance()
-                .await
-                .expect("should start eth1 environment");
-            let deposit_contract = &endpoint2.deposit_contract;
-
-            let initial_block_number = get_block_number(&endpoint2.web3()).await;
-
-            // Create some blocks and then consume them, performing the test `rounds` times.
-            let new_blocks = 4;
-
-            for _ in 0..new_blocks {
-                endpoint1
-                    .ganache
-                    .evm_mine()
-                    .await
-                    .expect("should mine block");
-                endpoint2
-                    .ganache
-                    .evm_mine()
-                    .await
-                    .expect("should mine block");
-            }
-
-            //additional blocks for endpoint1 to be able to distinguish
-            for _ in 0..new_blocks {
-                endpoint1
-                    .ganache
-                    .evm_mine()
-                    .await
-                    .expect("should mine block");
-            }
-
-            let service = Service::new(
-                Config {
-                    endpoints: vec![
-                        SensitiveUrl::parse(endpoint2.endpoint().as_str()).unwrap(),
-                        SensitiveUrl::parse(endpoint1.endpoint().as_str()).unwrap(),
-                    ],
-                    deposit_contract_address: deposit_contract.address(),
-                    lowest_cached_block_number: initial_block_number,
-                    follow_distance: 0,
-                    ..Config::default()
-                },
-                log.clone(),
-                MainnetEthSpec::default_spec(),
-            );
-
-            let endpoint1_block_number = get_block_number(&endpoint1.web3()).await;
-            let endpoint2_block_number = get_block_number(&endpoint2.web3()).await;
-            assert!(endpoint2_block_number < endpoint1_block_number);
-            //the call will fallback to endpoint2
-            service.update().await.expect("should update deposit cache");
-            assert_eq!(
-                service.deposits().read().last_processed_block.unwrap(),
-                endpoint2_block_number
-            );
-        }
-        .await;
-    }
-
-    #[tokio::test]
-    async fn test_fallback_when_wrong_chain_id() {
-        async {
-            let log = null_logger();
-            let correct_chain_id: u64 = DEFAULT_CHAIN_ID.into();
-            let wrong_chain_id = correct_chain_id + 1;
-            let endpoint1 = GanacheEth1Instance::new(DEFAULT_NETWORK_ID.into(), wrong_chain_id)
-                .await
-                .expect("should start eth1 environment");
-            let endpoint2 = new_ganache_instance()
-                .await
-                .expect("should start eth1 environment");
-            let deposit_contract = &endpoint2.deposit_contract;
-
-            let initial_block_number = get_block_number(&endpoint2.web3()).await;
-
-            // Create some blocks and then consume them, performing the test `rounds` times.
-            let new_blocks = 4;
-
-            for _ in 0..new_blocks {
-                endpoint1
-                    .ganache
-                    .evm_mine()
-                    .await
-                    .expect("should mine block");
-                endpoint2
-                    .ganache
-                    .evm_mine()
-                    .await
-                    .expect("should mine block");
-            }
-
-            //additional blocks for endpoint1 to be able to distinguish
-            for _ in 0..new_blocks {
-                endpoint1
-                    .ganache
-                    .evm_mine()
-                    .await
-                    .expect("should mine block");
-            }
-
-            let service = Service::new(
-                Config {
-                    endpoints: vec![
-                        SensitiveUrl::parse(endpoint2.endpoint().as_str()).unwrap(),
-                        SensitiveUrl::parse(endpoint1.endpoint().as_str()).unwrap(),
-                    ],
-                    deposit_contract_address: deposit_contract.address(),
-                    lowest_cached_block_number: initial_block_number,
-                    follow_distance: 0,
-                    ..Config::default()
-                },
-                log.clone(),
-                MainnetEthSpec::default_spec(),
-            );
-
-            let endpoint1_block_number = get_block_number(&endpoint1.web3()).await;
-            let endpoint2_block_number = get_block_number(&endpoint2.web3()).await;
-            assert!(endpoint2_block_number < endpoint1_block_number);
-            //the call will fallback to endpoint2
-            service.update().await.expect("should update deposit cache");
-            assert_eq!(
-                service.deposits().read().last_processed_block.unwrap(),
-                endpoint2_block_number
-            );
-        }
-        .await;
-    }
-
-    #[tokio::test]
-    async fn test_fallback_when_node_far_behind() {
-        async {
-            let log = null_logger();
-            let endpoint2 = new_ganache_instance()
-                .await
-                .expect("should start eth1 environment");
-            let deposit_contract = &endpoint2.deposit_contract;
-
-            let initial_block_number = get_block_number(&endpoint2.web3()).await;
-
-            // Create some blocks and then consume them, performing the test `rounds` times.
-            let new_blocks = 4;
-
-            for _ in 0..new_blocks {
-                endpoint2
-                    .ganache
-                    .evm_mine()
-                    .await
-                    .expect("should mine block");
-            }
-
-            let endpoint1 = endpoint2
-                .ganache
-                .fork()
-                .expect("should start eth1 environment");
-
-            let service = Service::new(
-                Config {
-                    endpoints: vec![
-                        SensitiveUrl::parse(endpoint1.endpoint().as_str()).unwrap(),
-                        SensitiveUrl::parse(endpoint2.endpoint().as_str()).unwrap(),
-                    ],
-                    deposit_contract_address: deposit_contract.address(),
-                    lowest_cached_block_number: initial_block_number,
-                    follow_distance: 0,
-                    node_far_behind_seconds: 5,
-                    ..Config::default()
-                },
-                log.clone(),
-                MainnetEthSpec::default_spec(),
-            );
-
-            let endpoint1_block_number = get_block_number(&endpoint1.web3).await;
-            //the first call will only query endpoint1
-            service.update().await.expect("should update deposit cache");
-            assert_eq!(
-                service.deposits().read().last_processed_block.unwrap(),
-                endpoint1_block_number
-            );
-
-            sleep(Duration::from_secs(7)).await;
-
-            //both endpoints don't have recent blocks => should return error
-            assert!(service.update().await.is_err());
-
-            //produce some new blocks on endpoint2
-            for _ in 0..new_blocks {
-                endpoint2
-                    .ganache
-                    .evm_mine()
-                    .await
-                    .expect("should mine block");
-            }
-
-            let endpoint2_block_number = get_block_number(&endpoint2.web3()).await;
-
-            //endpoint1 is far behind + endpoint2 not => update will import blocks from endpoint2
-            service.update().await.expect("should update deposit cache");
-            assert_eq!(
-                service.deposits().read().last_processed_block.unwrap(),
-                endpoint2_block_number
             );
         }
         .await;

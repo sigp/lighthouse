@@ -55,11 +55,18 @@ impl<T: BeaconChainTypes> SlasherService<T> {
         // don't need to burden them with more work (we can wait).
         let (notif_sender, notif_receiver) = sync_channel(1);
         let update_period = slasher.config().update_period;
+        let slot_offset = slasher.config().slot_offset;
         let beacon_chain = self.beacon_chain.clone();
         let network_sender = self.network_sender.clone();
 
         executor.spawn(
-            Self::run_notifier(beacon_chain.clone(), update_period, notif_sender, log),
+            Self::run_notifier(
+                beacon_chain.clone(),
+                update_period,
+                slot_offset,
+                notif_sender,
+                log,
+            ),
             "slasher_server_notifier",
         );
 
@@ -75,12 +82,19 @@ impl<T: BeaconChainTypes> SlasherService<T> {
     async fn run_notifier(
         beacon_chain: Arc<BeaconChain<T>>,
         update_period: u64,
+        slot_offset: f64,
         notif_sender: SyncSender<Epoch>,
         log: Logger,
     ) {
-        // NOTE: could align each run to some fixed point in each slot, see:
-        // https://github.com/sigp/lighthouse/issues/1861
-        let mut interval = interval_at(Instant::now(), Duration::from_secs(update_period));
+        let slot_offset = Duration::from_secs_f64(slot_offset);
+        let start_instant =
+            if let Some(duration_to_next_slot) = beacon_chain.slot_clock.duration_to_next_slot() {
+                Instant::now() + duration_to_next_slot + slot_offset
+            } else {
+                error!(log, "Error aligning slasher to slot clock");
+                Instant::now()
+            };
+        let mut interval = interval_at(start_instant, Duration::from_secs(update_period));
 
         loop {
             interval.tick().await;
@@ -114,7 +128,7 @@ impl<T: BeaconChainTypes> SlasherService<T> {
                         log,
                         "Error during scheduled slasher processing";
                         "epoch" => current_epoch,
-                        "error" => format!("{:?}", e)
+                        "error" => ?e,
                     );
                     None
                 }
@@ -122,13 +136,13 @@ impl<T: BeaconChainTypes> SlasherService<T> {
             drop(batch_timer);
 
             // Prune the database, even in the case where batch processing failed.
-            // If the LMDB database is full then pruning could help to free it up.
+            // If the database is full then pruning could help to free it up.
             if let Err(e) = slasher.prune_database(current_epoch) {
                 error!(
                     log,
                     "Error during slasher database pruning";
                     "epoch" => current_epoch,
-                    "error" => format!("{:?}", e),
+                    "error" => ?e,
                 );
                 continue;
             };
@@ -202,14 +216,7 @@ impl<T: BeaconChainTypes> SlasherService<T> {
             };
 
             // Add to local op pool.
-            if let Err(e) = beacon_chain.import_attester_slashing(verified_slashing) {
-                error!(
-                    log,
-                    "Beacon chain refused attester slashing";
-                    "error" => ?e,
-                    "slashing" => ?slashing,
-                );
-            }
+            beacon_chain.import_attester_slashing(verified_slashing);
 
             // Publish to the network if broadcast is enabled.
             if slasher.config().broadcast {

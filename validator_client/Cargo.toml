@@ -2,17 +2,18 @@
 name = "validator_client"
 version = "0.3.5"
 authors = ["Paul Hauner <paul@paulhauner.com>", "Age Manning <Age@AgeManning.com>", "Luke Anderson <luke@lukeanderson.com.au>"]
-edition = "2018"
+edition = "2021"
 
 [lib]
 name = "validator_client"
 path = "src/lib.rs"
 
 [dev-dependencies]
-tokio = { version = "1.10.0", features = ["time", "rt-multi-thread", "macros"] }
+tokio = { version = "1.14.0", features = ["time", "rt-multi-thread", "macros"] }
+logging = { path = "../common/logging" }
 
 [dependencies]
-tree_hash = "0.4.0"
+tree_hash = "0.4.1"
 clap = "2.33.3"
 slashing_protection = { path = "./slashing_protection" }
 slot_clock = { path = "../common/slot_clock" }
@@ -23,13 +24,13 @@ serde_derive = "1.0.116"
 bincode = "1.3.1"
 serde_json = "1.0.58"
 slog = { version = "2.5.2", features = ["max_level_trace", "release_max_level_trace"] }
-tokio = { version = "1.10.0", features = ["time"] }
+tokio = { version = "1.14.0", features = ["time"] }
 futures = "0.3.7"
 dirs = "3.0.1"
 directory = { path = "../common/directory" }
 lockfile = { path = "../common/lockfile" }
 environment = { path = "../lighthouse/environment" }
-parking_lot = "0.11.0"
+parking_lot = "0.12.0"
 exit-future = "0.2.0"
 filesystem = { path = "../common/filesystem" }
 hex = "0.4.2"
@@ -43,12 +44,12 @@ eth2_keystore = { path = "../crypto/eth2_keystore" }
 account_utils = { path = "../common/account_utils" }
 lighthouse_version = { path = "../common/lighthouse_version" }
 warp_utils = { path = "../common/warp_utils" }
-warp = { git = "https://github.com/macladson/warp", rev ="dfa259e" }
+warp = "0.3.2"
 hyper = "0.14.4"
-eth2_serde_utils = "0.1.0"
-libsecp256k1 = "0.6.0"
+eth2_serde_utils = "0.1.1"
+libsecp256k1 = "0.7.0"
 ring = "0.16.19"
-rand = "0.7.3"
+rand = { version = "0.8.5", features = ["small_rng"] }
 lighthouse_metrics = { path = "../common/lighthouse_metrics" }
 lazy_static = "1.4.0"
 itertools = "0.10.0"
@@ -57,3 +58,7 @@ sensitive_url = { path = "../common/sensitive_url" }
 task_executor = { path = "../common/task_executor" }
 reqwest = { version = "0.11.0", features = ["json","stream"] }
 url = "2.2.2"
+malloc_utils = { path = "../common/malloc_utils" }
+sysinfo = "0.26.5"
+system_health = { path = "../common/system_health" }
+

@@ -8,13 +8,16 @@ pub use merkleize_padded::merkleize_padded;
 pub use merkleize_standard::merkleize_standard;
 
 use eth2_hashing::{hash_fixed, ZERO_HASHES, ZERO_HASHES_MAX_INDEX};
+use smallvec::SmallVec;
 
 pub const BYTES_PER_CHUNK: usize = 32;
 pub const HASHSIZE: usize = 32;
 pub const MERKLE_HASH_CHUNK: usize = 2 * BYTES_PER_CHUNK;
 pub const MAX_UNION_SELECTOR: u8 = 127;
+pub const SMALLVEC_SIZE: usize = 32;
 
 pub type Hash256 = ethereum_types::H256;
+pub type PackedEncoding = SmallVec<[u8; SMALLVEC_SIZE]>;
 
 /// Convenience method for `MerkleHasher` which also provides some fast-paths for small trees.
 ///
@@ -109,7 +112,7 @@ pub enum TreeHashType {
 pub trait TreeHash {
     fn tree_hash_type() -> TreeHashType;
 
-    fn tree_hash_packed_encoding(&self) -> Vec<u8>;
+    fn tree_hash_packed_encoding(&self) -> PackedEncoding;
 
     fn tree_hash_packing_factor() -> usize;
 
@@ -125,7 +128,7 @@ where
         T::tree_hash_type()
     }
 
-    fn tree_hash_packed_encoding(&self) -> Vec<u8> {
+    fn tree_hash_packed_encoding(&self) -> PackedEncoding {
         T::tree_hash_packed_encoding(*self)
     }
 
@@ -146,7 +149,7 @@ macro_rules! tree_hash_ssz_encoding_as_vector {
                 tree_hash::TreeHashType::Vector
             }
 
-            fn tree_hash_packed_encoding(&self) -> Vec<u8> {
+            fn tree_hash_packed_encoding(&self) -> PackedEncoding {
                 unreachable!("Vector should never be packed.")
             }
 
@@ -169,7 +172,7 @@ macro_rules! tree_hash_ssz_encoding_as_list {
                 tree_hash::TreeHashType::List
             }
 
-            fn tree_hash_packed_encoding(&self) -> Vec<u8> {
+            fn tree_hash_packed_encoding(&self) -> PackedEncoding {
                 unreachable!("List should never be packed.")
             }
 

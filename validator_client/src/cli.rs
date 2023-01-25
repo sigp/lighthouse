@@ -26,6 +26,16 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 )
                 .takes_value(true),
         )
+        .arg(
+            Arg::with_name("disable-run-on-all")
+                .long("disable-run-on-all")
+                .value_name("DISABLE_RUN_ON_ALL")
+                .help("By default, Lighthouse publishes attestation, sync committee subscriptions \
+                       and proposer preparation messages to all beacon nodes provided in the \
+                       `--beacon-nodes flag`. This option changes that behaviour such that these \
+                       api calls only go out to the first available and synced beacon node")
+                .takes_value(false)
+        )
         // This argument is deprecated, use `--beacon-nodes` instead.
         .arg(
             Arg::with_name("server")
@@ -38,6 +48,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .arg(
             Arg::with_name("validators-dir")
                 .long("validators-dir")
+                .alias("validator-dir")
                 .value_name("VALIDATORS_DIR")
                 .help(
                     "The directory which contains the validator keystores, deposit data for \
@@ -126,6 +137,15 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .value_name("GRAFFITI-FILE")
                 .takes_value(true)
                 .conflicts_with("graffiti")
+        )
+        .arg(
+            Arg::with_name("suggested-fee-recipient")
+                .long("suggested-fee-recipient")
+                .help("Once the merge has happened, this address will receive transaction fees \
+                       from blocks proposed by this validator client. If a fee recipient is \
+                       configured in the validator definitions it takes priority over this value.")
+                .value_name("FEE-RECIPIENT")
+                .takes_value(true)
         )
         /* REST API related arguments */
         .arg(
@@ -236,6 +256,15 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true),
         )
         .arg(
+            Arg::with_name("monitoring-endpoint-period")
+                .long("monitoring-endpoint-period")
+                .value_name("SECONDS")
+                .help("Defines how many seconds to wait between each message sent to \
+                       the monitoring-endpoint. Default: 60s")
+                .requires("monitoring-endpoint")
+                .takes_value(true),
+        )
+        .arg(
             Arg::with_name("enable-doppelganger-protection")
                 .long("enable-doppelganger-protection")
                 .value_name("ENABLE_DOPPELGANGER_PROTECTION")
@@ -249,5 +278,56 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     ENABLE this functionality, without this flag Lighthouse will begin attesting \
                     immediately.")
                 .takes_value(false),
+        )
+        .arg(
+            Arg::with_name("builder-proposals")
+                .long("builder-proposals")
+                .alias("private-tx-proposals")
+                .help("If this flag is set, Lighthouse will query the Beacon Node for only block \
+                    headers during proposals and will sign over headers. Useful for outsourcing \
+                    execution payload construction during proposals.")
+                .takes_value(false),
+        ).arg(
+            Arg::with_name("strict-fee-recipient")
+                .long("strict-fee-recipient")
+                .help("[DEPRECATED] If this flag is set, Lighthouse will refuse to sign any block whose \
+                        `fee_recipient` does not match the `suggested_fee_recipient` sent by this validator. \
+                         This applies to both the normal block proposal flow, as well as block proposals \
+                         through the builder API. Proposals through the builder API are more likely to have a \
+                         discrepancy in `fee_recipient` so you should be aware of how your connected relay \
+                         sends proposer payments before using this flag. If this flag is used, a fee recipient \
+                         mismatch in the builder API flow will result in a fallback to the local execution engine \
+                         for payload construction, where a strict fee recipient check will still be applied.")
+                .takes_value(false),
+        )
+        .arg(
+            Arg::with_name("builder-registration-timestamp-override")
+                .long("builder-registration-timestamp-override")
+                .alias("builder-registration-timestamp-override")
+                .help("This flag takes a unix timestamp value that will be used to override the \
+                    timestamp used in the builder api registration")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("gas-limit")
+                .long("gas-limit")
+                .value_name("INTEGER")
+                .takes_value(true)
+                .help("The gas limit to be used in all builder proposals for all validators managed \
+                    by this validator client. Note this will not necessarily be used if the gas limit \
+                    set here moves too far from the previous block's gas limit. [default: 30,000,000]")
+                .requires("builder-proposals"),
+        )
+        /*
+         * Experimental/development options.
+         */
+        .arg(
+            Arg::with_name("block-delay-ms")
+                .long("block-delay-ms")
+                .value_name("MILLIS")
+                .hidden(true)
+                .help("Time to delay block production from the start of the slot. Should only be \
+                       used for testing.")
+                .takes_value(true),
         )
 }

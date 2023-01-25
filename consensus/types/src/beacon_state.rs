@@ -124,6 +124,8 @@ pub enum Error {
         current_epoch: Epoch,
         epoch: Epoch,
     },
+    IndexNotSupported(usize),
+    MerkleTreeError(merkle_proof::MerkleTreeError),
 }
 
 /// Control whether an epoch-indexed field can be indexed at the next epoch or not.
@@ -172,7 +174,7 @@ impl From<BeaconStateHash> for Hash256 {
 
 /// The state of the `BeaconChain` at some slot.
 #[superstruct(
-    variants(Base, Altair),
+    variants(Base, Altair, Merge),
     variant_attributes(
         derive(
             Derivative,
@@ -250,9 +252,9 @@ where
     pub current_epoch_attestations: VariableList<PendingAttestation<T>, T::MaxPendingAttestations>,
 
     // Participation (Altair and later)
-    #[superstruct(only(Altair))]
+    #[superstruct(only(Altair, Merge))]
     pub previous_epoch_participation: VariableList<ParticipationFlags, T::ValidatorRegistryLimit>,
-    #[superstruct(only(Altair))]
+    #[superstruct(only(Altair, Merge))]
     pub current_epoch_participation: VariableList<ParticipationFlags, T::ValidatorRegistryLimit>,
 
     // Finality
@@ -267,14 +269,18 @@ where
 
     // Inactivity
     #[serde(with = "ssz_types::serde_utils::quoted_u64_var_list")]
-    #[superstruct(only(Altair))]
+    #[superstruct(only(Altair, Merge))]
     pub inactivity_scores: VariableList<u64, T::ValidatorRegistryLimit>,
 
     // Light-client sync committees
-    #[superstruct(only(Altair))]
+    #[superstruct(only(Altair, Merge))]
     pub current_sync_committee: Arc<SyncCommittee<T>>,
-    #[superstruct(only(Altair))]
+    #[superstruct(only(Altair, Merge))]
     pub next_sync_committee: Arc<SyncCommittee<T>>,
+
+    // Execution
+    #[superstruct(only(Merge))]
+    pub latest_execution_payload_header: ExecutionPayloadHeader<T>,
 
     // Caching (not in the spec)
     #[serde(skip_serializing, skip_deserializing)]
@@ -384,6 +390,7 @@ impl<T: EthSpec> BeaconState<T> {
         let object_fork = match self {
             BeaconState::Base { .. } => ForkName::Base,
             BeaconState::Altair { .. } => ForkName::Altair,
+            BeaconState::Merge { .. } => ForkName::Merge,
         };
 
         if fork_at_slot == object_fork {
@@ -475,7 +482,7 @@ impl<T: EthSpec> BeaconState<T> {
     /// Spec v0.12.1
     pub fn get_committee_count_at_slot(&self, slot: Slot) -> Result<u64, Error> {
         let cache = self.committee_cache_at_slot(slot)?;
-        Ok(cache.committees_per_slot() as u64)
+        Ok(cache.committees_per_slot())
     }
 
     /// Compute the number of committees in an entire epoch.
@@ -774,14 +781,14 @@ impl<T: EthSpec> BeaconState<T> {
         &mut self,
         sync_committee: &SyncCommittee<T>,
     ) -> Result<Vec<usize>, Error> {
-        sync_committee
-            .pubkeys
-            .iter()
-            .map(|pubkey| {
+        let mut indices = Vec::with_capacity(sync_committee.pubkeys.len());
+        for pubkey in sync_committee.pubkeys.iter() {
+            indices.push(
                 self.get_validator_index(pubkey)?
-                    .ok_or(Error::PubkeyCacheInconsistent)
-            })
-            .collect()
+                    .ok_or(Error::PubkeyCacheInconsistent)?,
+            )
+        }
+        Ok(indices)
     }
 
     /// Compute the sync committee indices for the next sync committee.
@@ -958,6 +965,13 @@ impl<T: EthSpec> BeaconState<T> {
         }
     }
 
+    /// Return the minimum epoch for which `get_randao_mix` will return a non-error value.
+    pub fn min_randao_epoch(&self) -> Epoch {
+        self.current_epoch()
+            .saturating_add(1u64)
+            .saturating_sub(T::EpochsPerHistoricalVector::to_u64())
+    }
+
     /// XOR-assigns the existing `epoch` randao mix with the hash of the `signature`.
     ///
     /// # Errors:
@@ -1089,6 +1103,7 @@ impl<T: EthSpec> BeaconState<T> {
         match self {
             BeaconState::Base(state) => (&mut state.validators, &mut state.balances),
             BeaconState::Altair(state) => (&mut state.validators, &mut state.balances),
+            BeaconState::Merge(state) => (&mut state.validators, &mut state.balances),
         }
     }
 
@@ -1284,11 +1299,13 @@ impl<T: EthSpec> BeaconState<T> {
             match self {
                 BeaconState::Base(_) => Err(BeaconStateError::IncorrectStateVariant),
                 BeaconState::Altair(state) => Ok(&mut state.current_epoch_participation),
+                BeaconState::Merge(state) => Ok(&mut state.current_epoch_participation),
             }
         } else if epoch == self.previous_epoch() {
             match self {
                 BeaconState::Base(_) => Err(BeaconStateError::IncorrectStateVariant),
                 BeaconState::Altair(state) => Ok(&mut state.previous_epoch_participation),
+                BeaconState::Merge(state) => Ok(&mut state.previous_epoch_participation),
             }
         } else {
             Err(BeaconStateError::EpochOutOfBounds)
@@ -1483,6 +1500,26 @@ impl<T: EthSpec> BeaconState<T> {
         }
     }
 
+    /// Returns the cache for some `RelativeEpoch`, replacing the existing cache with an
+    /// un-initialized cache. Returns an error if the existing cache has not been initialized.
+    pub fn take_committee_cache(
+        &mut self,
+        relative_epoch: RelativeEpoch,
+    ) -> Result<CommitteeCache, Error> {
+        let i = Self::committee_cache_index(relative_epoch);
+        let current_epoch = self.current_epoch();
+        let cache = self
+            .committee_caches_mut()
+            .get_mut(i)
+            .ok_or(Error::CommitteeCachesOutOfBounds(i))?;
+
+        if cache.is_initialized_at(relative_epoch.into_epoch(current_epoch)) {
+            Ok(mem::take(cache))
+        } else {
+            Err(Error::CommitteeCacheUninitialized(Some(relative_epoch)))
+        }
+    }
+
     /// Drops the cache, leaving it in an uninitialized state.
     pub fn drop_committee_cache(&mut self, relative_epoch: RelativeEpoch) -> Result<(), Error> {
         *self.committee_cache_at_index_mut(Self::committee_cache_index(relative_epoch))? =
@@ -1572,6 +1609,7 @@ impl<T: EthSpec> BeaconState<T> {
         let mut res = match self {
             BeaconState::Base(inner) => BeaconState::Base(inner.clone()),
             BeaconState::Altair(inner) => BeaconState::Altair(inner.clone()),
+            BeaconState::Merge(inner) => BeaconState::Merge(inner.clone()),
         };
         if config.committee_caches {
             *res.committee_caches_mut() = self.committee_caches().clone();
@@ -1593,17 +1631,23 @@ impl<T: EthSpec> BeaconState<T> {
         self.clone_with(CloneConfig::committee_caches_only())
     }
 
-    pub fn is_eligible_validator(&self, val_index: usize) -> Result<bool, Error> {
-        let previous_epoch = self.previous_epoch();
+    /// Passing `previous_epoch` to this function rather than computing it internally provides
+    /// a tangible speed improvement in state processing.
+    pub fn is_eligible_validator(
+        &self,
+        previous_epoch: Epoch,
+        val_index: usize,
+    ) -> Result<bool, Error> {
         self.get_validator(val_index).map(|val| {
             val.is_active_at(previous_epoch)
                 || (val.slashed && previous_epoch + Epoch::new(1) < val.withdrawable_epoch)
         })
     }
 
-    pub fn is_in_inactivity_leak(&self, spec: &ChainSpec) -> bool {
-        (self.previous_epoch() - self.finalized_checkpoint().epoch)
-            > spec.min_epochs_to_inactivity_penalty
+    /// Passing `previous_epoch` to this function rather than computing it internally provides
+    /// a tangible speed improvement in state processing.
+    pub fn is_in_inactivity_leak(&self, previous_epoch: Epoch, spec: &ChainSpec) -> bool {
+        (previous_epoch - self.finalized_checkpoint().epoch) > spec.min_epochs_to_inactivity_penalty
     }
 
     /// Get the `SyncCommittee` associated with the next slot. Useful because sync committees
@@ -1626,6 +1670,57 @@ impl<T: EthSpec> BeaconState<T> {
             self.next_sync_committee()?.clone()
         };
         Ok(sync_committee)
+    }
+
+    pub fn compute_merkle_proof(
+        &mut self,
+        generalized_index: usize,
+    ) -> Result<Vec<Hash256>, Error> {
+        // 1. Convert generalized index to field index.
+        let field_index = match generalized_index {
+            light_client_update::CURRENT_SYNC_COMMITTEE_INDEX
+            | light_client_update::NEXT_SYNC_COMMITTEE_INDEX => {
+                // Sync committees are top-level fields, subtract off the generalized indices
+                // for the internal nodes. Result should be 22 or 23, the field offset of the committee
+                // in the `BeaconState`:
+                // https://github.com/ethereum/consensus-specs/blob/dev/specs/altair/beacon-chain.md#beaconstate
+                generalized_index
+                    .checked_sub(tree_hash_cache::NUM_BEACON_STATE_HASH_TREE_ROOT_LEAVES)
+                    .ok_or(Error::IndexNotSupported(generalized_index))?
+            }
+            light_client_update::FINALIZED_ROOT_INDEX => {
+                // Finalized root is the right child of `finalized_checkpoint`, divide by two to get
+                // the generalized index of `state.finalized_checkpoint`.
+                let finalized_checkpoint_generalized_index = generalized_index / 2;
+                // Subtract off the internal nodes. Result should be 105/2 - 32 = 20 which matches
+                // position of `finalized_checkpoint` in `BeaconState`.
+                finalized_checkpoint_generalized_index
+                    .checked_sub(tree_hash_cache::NUM_BEACON_STATE_HASH_TREE_ROOT_LEAVES)
+                    .ok_or(Error::IndexNotSupported(generalized_index))?
+            }
+            _ => return Err(Error::IndexNotSupported(generalized_index)),
+        };
+
+        // 2. Get all `BeaconState` leaves.
+        let mut cache = self
+            .tree_hash_cache_mut()
+            .take()
+            .ok_or(Error::TreeHashCacheNotInitialized)?;
+        let leaves = cache.recalculate_tree_hash_leaves(self)?;
+        self.tree_hash_cache_mut().restore(cache);
+
+        // 3. Make deposit tree.
+        // Use the depth of the `BeaconState` fields (i.e. `log2(32) = 5`).
+        let depth = light_client_update::CURRENT_SYNC_COMMITTEE_PROOF_LEN;
+        let tree = merkle_proof::MerkleTree::create(&leaves, depth);
+        let (_, mut proof) = tree.generate_proof(field_index, depth)?;
+
+        // 4. If we're proving the finalized root, patch in the finalized epoch to complete the proof.
+        if generalized_index == light_client_update::FINALIZED_ROOT_INDEX {
+            proof.insert(0, self.finalized_checkpoint().epoch.tree_hash_root());
+        }
+
+        Ok(proof)
     }
 }
 
@@ -1659,6 +1754,12 @@ impl From<tree_hash::Error> for Error {
     }
 }
 
+impl From<merkle_proof::MerkleTreeError> for Error {
+    fn from(e: merkle_proof::MerkleTreeError) -> Error {
+        Error::MerkleTreeError(e)
+    }
+}
+
 impl From<ArithError> for Error {
     fn from(e: ArithError) -> Error {
         Error::ArithError(e)
@@ -1675,7 +1776,8 @@ impl<T: EthSpec> CompareFields for BeaconState<T> {
         match (self, other) {
             (BeaconState::Base(x), BeaconState::Base(y)) => x.compare_fields(y),
             (BeaconState::Altair(x), BeaconState::Altair(y)) => x.compare_fields(y),
-            _ => panic!("compare_fields: mismatched state variants"),
+            (BeaconState::Merge(x), BeaconState::Merge(y)) => x.compare_fields(y),
+            _ => panic!("compare_fields: mismatched state variants",),
         }
     }
 }

@@ -2,13 +2,11 @@
 
 #![cfg(not(debug_assertions))]
 
-#[macro_use]
-extern crate lazy_static;
-
 use beacon_chain::observed_operations::ObservationOutcome;
 use beacon_chain::test_utils::{
     test_spec, AttestationStrategy, BeaconChainHarness, BlockStrategy, DiskHarnessType,
 };
+use lazy_static::lazy_static;
 use sloggers::{null::NullLoggerBuilder, Build};
 use std::sync::Arc;
 use store::{LevelDB, StoreConfig};
@@ -42,23 +40,26 @@ fn get_harness(store: Arc<HotColdDB>, validator_count: usize) -> TestHarness {
         .default_spec()
         .keypairs(KEYPAIRS[0..validator_count].to_vec())
         .fresh_disk_store(store)
+        .mock_execution_layer()
         .build();
     harness.advance_slot();
     harness
 }
 
-#[test]
-fn voluntary_exit() {
+#[tokio::test]
+async fn voluntary_exit() {
     let db_path = tempdir().unwrap();
     let store = get_store(&db_path);
     let harness = get_harness(store.clone(), VALIDATOR_COUNT);
     let spec = &harness.chain.spec.clone();
 
-    harness.extend_chain(
-        (E::slots_per_epoch() * (spec.shard_committee_period + 1)) as usize,
-        BlockStrategy::OnCanonicalHead,
-        AttestationStrategy::AllValidators,
-    );
+    harness
+        .extend_chain(
+            (E::slots_per_epoch() * (spec.shard_committee_period + 1)) as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
 
     let validator_index1 = VALIDATOR_COUNT - 1;
     let validator_index2 = VALIDATOR_COUNT - 2;

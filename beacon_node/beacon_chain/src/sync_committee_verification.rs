@@ -273,7 +273,7 @@ impl<T: BeaconChainTypes> VerifiedSyncContribution<T> {
         let subcommittee_index = contribution.subcommittee_index as usize;
 
         // Ensure sync committee contribution is within the MAXIMUM_GOSSIP_CLOCK_DISPARITY allowance.
-        verify_propagation_slot_range(chain, contribution)?;
+        verify_propagation_slot_range(&chain.slot_clock, contribution)?;
 
         // Validate subcommittee index.
         if contribution.subcommittee_index >= SYNC_COMMITTEE_SUBNET_COUNT {
@@ -343,7 +343,7 @@ impl<T: BeaconChainTypes> VerifiedSyncContribution<T> {
         let participant_pubkeys = sync_subcommittee_pubkeys
             .into_iter()
             .zip(contribution.aggregation_bits.iter())
-            .filter_map(|(pubkey, bit)| bit.then(|| pubkey))
+            .filter_map(|(pubkey, bit)| bit.then_some(pubkey))
             .collect::<Vec<_>>();
 
         // Ensure that all signatures are valid.
@@ -428,7 +428,7 @@ impl VerifiedSyncCommitteeMessage {
         // MAXIMUM_GOSSIP_CLOCK_DISPARITY allowance).
         //
         // We do not queue future sync committee messages for later processing.
-        verify_propagation_slot_range(chain, &sync_message)?;
+        verify_propagation_slot_range(&chain.slot_clock, &sync_message)?;
 
         // Ensure the `subnet_id` is valid for the given validator.
         let pubkey = chain
@@ -516,14 +516,13 @@ impl VerifiedSyncCommitteeMessage {
 /// to the current slot of the `chain`.
 ///
 /// Accounts for `MAXIMUM_GOSSIP_CLOCK_DISPARITY`.
-pub fn verify_propagation_slot_range<T: BeaconChainTypes, U: SlotData>(
-    chain: &BeaconChain<T>,
+pub fn verify_propagation_slot_range<S: SlotClock, U: SlotData>(
+    slot_clock: &S,
     sync_contribution: &U,
 ) -> Result<(), Error> {
     let message_slot = sync_contribution.get_slot();
 
-    let latest_permissible_slot = chain
-        .slot_clock
+    let latest_permissible_slot = slot_clock
         .now_with_future_tolerance(MAXIMUM_GOSSIP_CLOCK_DISPARITY)
         .ok_or(BeaconChainError::UnableToReadSlot)?;
     if message_slot > latest_permissible_slot {
@@ -533,8 +532,7 @@ pub fn verify_propagation_slot_range<T: BeaconChainTypes, U: SlotData>(
         });
     }
 
-    let earliest_permissible_slot = chain
-        .slot_clock
+    let earliest_permissible_slot = slot_clock
         .now_with_past_tolerance(MAXIMUM_GOSSIP_CLOCK_DISPARITY)
         .ok_or(BeaconChainError::UnableToReadSlot)?;
 
@@ -637,7 +635,7 @@ pub fn verify_sync_committee_message<T: BeaconChainTypes>(
     let pubkey = pubkey_cache
         .get_pubkey_from_pubkey_bytes(pubkey_bytes)
         .map(Cow::Borrowed)
-        .ok_or_else(|| Error::UnknownValidatorPubkey(*pubkey_bytes))?;
+        .ok_or(Error::UnknownValidatorPubkey(*pubkey_bytes))?;
 
     let next_slot_epoch = (sync_message.get_slot() + 1).epoch(T::EthSpec::slots_per_epoch());
     let fork = chain.spec.fork_at_epoch(next_slot_epoch);

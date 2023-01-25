@@ -70,13 +70,13 @@ pub fn decode_eth1_tx_data(
         };
     }
 
-    let root = decode_token!(Hash256, to_fixed_bytes);
+    let root = decode_token!(Hash256, into_fixed_bytes);
 
     let deposit_data = DepositData {
         amount,
-        signature: decode_token!(SignatureBytes, to_bytes),
-        withdrawal_credentials: decode_token!(Hash256, to_bytes),
-        pubkey: decode_token!(PublicKeyBytes, to_bytes),
+        signature: decode_token!(SignatureBytes, into_bytes),
+        withdrawal_credentials: decode_token!(Hash256, into_bytes),
+        pubkey: decode_token!(PublicKeyBytes, into_bytes),
     };
 
     Ok((deposit_data, root))

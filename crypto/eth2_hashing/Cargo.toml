@@ -1,16 +1,16 @@
 [package]
 name = "eth2_hashing"
-version = "0.2.0"
+version = "0.3.0"
 authors = ["Paul Hauner <paul@paulhauner.com>"]
-edition = "2018"
+edition = "2021"
 license = "Apache-2.0"
 description = "Hashing primitives used in Ethereum 2.0"
 
 [dependencies]
 lazy_static = { version = "1.4.0", optional = true }
+cpufeatures = { version = "0.2.5", optional = true }
 ring = "0.16.19"
-sha2 = "0.9.5"
-cpufeatures = "0.1.5"
+sha2 = "0.10"
 
 [dev-dependencies]
 rustc-hex = "2.1.0"
@@ -19,5 +19,6 @@ rustc-hex = "2.1.0"
 wasm-bindgen-test = "0.3.18"
 
 [features]
-default = ["zero_hash_cache"]
+default = ["zero_hash_cache", "detect-cpufeatures"]
 zero_hash_cache = ["lazy_static"]
+detect-cpufeatures = ["cpufeatures"]

@@ -1,5 +1,5 @@
 use crate::beacon_node_fallback::{BeaconNodeFallback, RequireSynced};
-use crate::{duties_service::DutiesService, validator_store::ValidatorStore};
+use crate::{duties_service::DutiesService, validator_store::ValidatorStore, OfflineOnFailure};
 use environment::RuntimeContext;
 use eth2::types::BlockId;
 use futures::future::join_all;
@@ -154,11 +154,16 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
                 .checked_sub(slot_duration / 3)
                 .unwrap_or_else(|| Duration::from_secs(0));
 
-        let slot_duties = self
+        let slot_duties = if let Some(duties) = self
             .duties_service
             .sync_duties
             .get_duties_for_slot::<E>(slot, &self.duties_service.spec)
-            .ok_or_else(|| format!("Error fetching duties for slot {}", slot))?;
+        {
+            duties
+        } else {
+            debug!(log, "No duties known for slot {}", slot);
+            return Ok(());
+        };
 
         if slot_duties.duties.is_empty() {
             debug!(
@@ -169,17 +174,40 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
             return Ok(());
         }
 
-        // Fetch block root for `SyncCommitteeContribution`.
-        let block_root = self
+        // Fetch `block_root` with non optimistic execution for `SyncCommitteeContribution`.
+        let response = self
             .beacon_nodes
-            .first_success(RequireSynced::Yes, |beacon_node| async move {
-                beacon_node.get_beacon_blocks_root(BlockId::Head).await
-            })
-            .await
-            .map_err(|e| e.to_string())?
-            .ok_or_else(|| format!("No block root found for slot {}", slot))?
-            .data
-            .root;
+            .first_success(
+                RequireSynced::Yes,
+                OfflineOnFailure::Yes,
+                |beacon_node| async move {
+                    match beacon_node.get_beacon_blocks_root(BlockId::Head).await {
+                        Ok(Some(block)) if block.execution_optimistic == Some(false) => {
+                            Ok(block)
+                        }
+                        Ok(Some(_)) => {
+                            Err(format!("To sign sync committee messages for slot {slot} a non-optimistic head block is required"))
+                        }
+                        Ok(None) => Err(format!("No block root found for slot {}", slot)),
+                        Err(e) => Err(e.to_string()),
+                    }
+                },
+            )
+            .await;
+
+        let block_root = match response {
+            Ok(block) => block.data.root,
+            Err(errs) => {
+                warn!(
+                    log,
+                    "Refusing to sign sync committee messages for an optimistic head block or \
+                    a block head with unknown optimistic status";
+                    "errors" => errs.to_string(),
+                    "slot" => slot,
+                );
+                return Ok(());
+            }
+        };
 
         // Spawn one task to publish all of the sync committee signatures.
         let validator_duties = slot_duties.duties;
@@ -257,11 +285,15 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
             .collect::<Vec<_>>();
 
         self.beacon_nodes
-            .first_success(RequireSynced::No, |beacon_node| async move {
-                beacon_node
-                    .post_beacon_pool_sync_committee_signatures(committee_signatures)
-                    .await
-            })
+            .first_success(
+                RequireSynced::No,
+                OfflineOnFailure::Yes,
+                |beacon_node| async move {
+                    beacon_node
+                        .post_beacon_pool_sync_committee_signatures(committee_signatures)
+                        .await
+                },
+            )
             .await
             .map_err(|e| {
                 error!(
@@ -324,17 +356,21 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
 
         let contribution = &self
             .beacon_nodes
-            .first_success(RequireSynced::No, |beacon_node| async move {
-                let sync_contribution_data = SyncContributionData {
-                    slot,
-                    beacon_block_root,
-                    subcommittee_index: subnet_id.into(),
-                };
+            .first_success(
+                RequireSynced::No,
+                OfflineOnFailure::Yes,
+                |beacon_node| async move {
+                    let sync_contribution_data = SyncContributionData {
+                        slot,
+                        beacon_block_root,
+                        subcommittee_index: subnet_id.into(),
+                    };
 
-                beacon_node
-                    .get_validator_sync_committee_contribution::<E>(&sync_contribution_data)
-                    .await
-            })
+                    beacon_node
+                        .get_validator_sync_committee_contribution::<E>(&sync_contribution_data)
+                        .await
+                },
+            )
             .await
             .map_err(|e| {
                 crit!(
@@ -391,11 +427,15 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
 
         // Publish to the beacon node.
         self.beacon_nodes
-            .first_success(RequireSynced::No, |beacon_node| async move {
-                beacon_node
-                    .post_validator_contribution_and_proofs(signed_contributions)
-                    .await
-            })
+            .first_success(
+                RequireSynced::No,
+                OfflineOnFailure::Yes,
+                |beacon_node| async move {
+                    beacon_node
+                        .post_validator_contribution_and_proofs(signed_contributions)
+                        .await
+                },
+            )
             .await
             .map_err(|e| {
                 error!(
@@ -490,14 +530,23 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
                     spec,
                 )),
                 None => {
-                    warn!(
+                    debug!(
                         log,
-                        "Missing duties for subscription";
+                        "No duties for subscription";
                         "slot" => duty_slot,
                     );
                     all_succeeded = false;
                 }
             }
+        }
+
+        if subscriptions.is_empty() {
+            debug!(
+                log,
+                "No sync subscriptions to send";
+                "slot" => slot,
+            );
+            return Ok(());
         }
 
         // Post subscriptions to BN.
@@ -520,11 +569,15 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
 
         if let Err(e) = self
             .beacon_nodes
-            .first_success(RequireSynced::No, |beacon_node| async move {
-                beacon_node
-                    .post_validator_sync_committee_subscriptions(subscriptions_slice)
-                    .await
-            })
+            .run(
+                RequireSynced::No,
+                OfflineOnFailure::Yes,
+                |beacon_node| async move {
+                    beacon_node
+                        .post_validator_sync_committee_subscriptions(subscriptions_slice)
+                        .await
+                },
+            )
             .await
         {
             error!(

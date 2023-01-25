@@ -1,7 +1,16 @@
 # Mainnet config
 
 # Extends the mainnet preset
+CONFIG_NAME: 'mainnet'
 PRESET_BASE: 'mainnet'
+
+# Transition
+# ---------------------------------------------------------------
+# Estimated on Sept 15, 2022
+TERMINAL_TOTAL_DIFFICULTY: 58750000000000000000000
+# By default, don't use these params
+TERMINAL_BLOCK_HASH: 0x0000000000000000000000000000000000000000000000000000000000000000
+TERMINAL_BLOCK_HASH_ACTIVATION_EPOCH: 18446744073709551615
 
 # Genesis
 # ---------------------------------------------------------------
@@ -25,8 +34,8 @@ GENESIS_DELAY: 604800
 ALTAIR_FORK_VERSION: 0x01000000
 ALTAIR_FORK_EPOCH: 74240
 # Merge
-MERGE_FORK_VERSION: 0x02000000
-MERGE_FORK_EPOCH: 18446744073709551615
+BELLATRIX_FORK_VERSION: 0x02000000
+BELLATRIX_FORK_EPOCH: 144896 # Sept 6, 2022, 11:34:47am UTC
 # Sharding
 SHARDING_FORK_VERSION: 0x03000000
 SHARDING_FORK_EPOCH: 18446744073709551615
@@ -62,6 +71,11 @@ MIN_PER_EPOCH_CHURN_LIMIT: 4
 # 2**16 (= 65,536)
 CHURN_LIMIT_QUOTIENT: 65536
 
+
+# Fork choice
+# ---------------------------------------------------------------
+# 40%
+PROPOSER_SCORE_BOOST: 40
 
 # Deposit contract
 # ---------------------------------------------------------------

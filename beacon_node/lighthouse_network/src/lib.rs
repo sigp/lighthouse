@@ -5,16 +5,17 @@
 #[macro_use]
 extern crate lazy_static;
 
-pub mod behaviour;
 mod config;
+pub mod service;
 
 #[allow(clippy::mutable_key_type)] // PeerId in hashmaps are no longer permitted by clippy
 pub mod discovery;
-mod metrics;
-mod peer_manager;
+pub mod metrics;
+pub mod peer_manager;
 pub mod rpc;
-mod service;
 pub mod types;
+
+pub use config::gossip_max_size;
 
 use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
 use std::str::FromStr;
@@ -64,12 +65,15 @@ pub use crate::types::{
     error, Enr, EnrSyncCommitteeBitfield, GossipTopic, NetworkGlobals, PubsubMessage, Subnet,
     SubnetDiscovery,
 };
-pub use behaviour::{BehaviourEvent, Gossipsub, PeerRequestId, Request, Response};
+
+pub use prometheus_client;
+
 pub use config::Config as NetworkConfig;
 pub use discovery::{CombinedKeyExt, EnrExt, Eth2Enr};
 pub use discv5;
+pub use libp2p;
 pub use libp2p::bandwidth::BandwidthSinks;
-pub use libp2p::gossipsub::{MessageAcceptance, MessageId, Topic, TopicHash};
+pub use libp2p::gossipsub::{IdentTopic, MessageAcceptance, MessageId, Topic, TopicHash};
 pub use libp2p::{core::ConnectedPoint, PeerId, Swarm};
 pub use libp2p::{multiaddr, Multiaddr};
 pub use metrics::scrape_discovery_metrics;
@@ -79,4 +83,7 @@ pub use peer_manager::{
     peerdb::PeerDB,
     ConnectionDirection, PeerConnectionStatus, PeerInfo, PeerManager, SyncInfo, SyncStatus,
 };
-pub use service::{load_private_key, Libp2pEvent, Service, NETWORK_KEY_FILENAME};
+// pub use service::{load_private_key, Context, Libp2pEvent, Service, NETWORK_KEY_FILENAME};
+pub use service::api_types::{PeerRequestId, Request, Response};
+pub use service::utils::*;
+pub use service::{Gossipsub, NetworkEvent};

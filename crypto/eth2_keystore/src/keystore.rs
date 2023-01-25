@@ -21,7 +21,7 @@ use scrypt::{
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::fs::OpenOptions;
+use std::fs::File;
 use std::io::{Read, Write};
 use std::iter::FromIterator;
 use std::path::Path;
@@ -329,7 +329,7 @@ impl Keystore {
 
     /// Instantiates `self` by reading a JSON file at `path`.
     pub fn from_json_file<P: AsRef<Path>>(path: P) -> Result<Self, Error> {
-        OpenOptions::new()
+        File::options()
             .read(true)
             .write(false)
             .create(false)

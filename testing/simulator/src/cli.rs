@@ -10,7 +10,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             .about(
                 "Lighthouse Beacon Chain Simulator creates `n` beacon node and validator clients, \
                     each with `v` validators. A deposit contract is deployed at the start of the \
-                    simulation using a local `ganache-cli` instance (you must have `ganache-cli` \
+                    simulation using a local `ganache` instance (you must have `ganache` \
                     installed and avaliable on your path). All beacon nodes independently listen \
                     for genesis from the deposit contract, then start operating. \
                     \
@@ -36,6 +36,11 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                         .takes_value(true)
                         .default_value("3")
                         .help("Speed up factor. Please use a divisor of 12."))
+                    .arg(Arg::with_name("post-merge")
+                        .short("m")
+                        .long("post-merge")
+                        .takes_value(false)
+                        .help("Simulate the merge transition"))
                     .arg(Arg::with_name("continue_after_checks")
                         .short("c")
                         .long("continue_after_checks")

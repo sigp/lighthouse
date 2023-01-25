@@ -2,17 +2,17 @@
 
 mod metrics;
 
-use beacon_node::{get_eth2_network_config, ProductionBeaconNode};
+use beacon_node::ProductionBeaconNode;
 use clap::{App, Arg, ArgMatches};
-use clap_utils::flags::DISABLE_MALLOC_TUNING_FLAG;
+use clap_utils::{flags::DISABLE_MALLOC_TUNING_FLAG, get_eth2_network_config};
+use directory::{parse_path_or_default, DEFAULT_BEACON_NODE_DIR, DEFAULT_VALIDATOR_DIR};
 use env_logger::{Builder, Env};
-use environment::EnvironmentBuilder;
+use environment::{EnvironmentBuilder, LoggerConfig};
 use eth2_hashing::have_sha_extensions;
 use eth2_network_config::{Eth2NetworkConfig, DEFAULT_HARDCODED_NETWORK, HARDCODED_NET_NAMES};
 use lighthouse_version::VERSION;
 use malloc_utils::configure_memory_allocator;
 use slog::{crit, info, warn};
-use std::fs::File;
 use std::path::PathBuf;
 use std::process::exit;
 use task_executor::ShutdownReason;
@@ -28,6 +28,14 @@ fn bls_library_name() -> &'static str {
         "milagro"
     } else {
         "blst"
+    }
+}
+
+fn allocator_name() -> &'static str {
+    if cfg!(feature = "jemalloc") {
+        "jemalloc"
+    } else {
+        "system"
     }
 }
 
@@ -51,11 +59,14 @@ fn main() {
                 "{}\n\
                  BLS library: {}\n\
                  SHA256 hardware acceleration: {}\n\
-                 Specs: mainnet (true), minimal ({})",
+                 Allocator: {}\n\
+                 Specs: mainnet (true), minimal ({}), gnosis ({})",
                  VERSION.replace("Lighthouse/", ""),
                  bls_library_name(),
                  have_sha_extensions(),
+                 allocator_name(),
                  cfg!(feature = "spec-minimal"),
+                 cfg!(feature = "gnosis"),
             ).as_str()
         )
         .arg(
@@ -80,23 +91,99 @@ fn main() {
                 .long("logfile")
                 .value_name("FILE")
                 .help(
-                    "File path where output will be written.",
-                )
-                .takes_value(true),
+                    "File path where the log file will be stored. Once it grows to the \
+                    value specified in `--logfile-max-size` a new log file is generated where \
+                    future logs are stored. \
+                    Once the number of log files exceeds the value specified in \
+                    `--logfile-max-number` the oldest log file will be overwritten.")
+                .takes_value(true)
+                .global(true),
+        )
+        .arg(
+            Arg::with_name("logfile-debug-level")
+                .long("logfile-debug-level")
+                .value_name("LEVEL")
+                .help("The verbosity level used when emitting logs to the log file.")
+                .takes_value(true)
+                .possible_values(&["info", "debug", "trace", "warn", "error", "crit"])
+                .default_value("debug")
+                .global(true),
+        )
+        .arg(
+            Arg::with_name("logfile-format")
+                .long("logfile-format")
+                .value_name("FORMAT")
+                .help("Specifies the log format used when emitting logs to the logfile.")
+                .possible_values(&["DEFAULT", "JSON"])
+                .takes_value(true)
+                .global(true)
+        )
+        .arg(
+            Arg::with_name("logfile-max-size")
+                .long("logfile-max-size")
+                .value_name("SIZE")
+                .help(
+                    "The maximum size (in MB) each log file can grow to before rotating. If set \
+                    to 0, background file logging is disabled.")
+                .takes_value(true)
+                .default_value("200")
+                .global(true),
+        )
+        .arg(
+            Arg::with_name("logfile-max-number")
+                .long("logfile-max-number")
+                .value_name("COUNT")
+                .help(
+                    "The maximum number of log files that will be stored. If set to 0, \
+                    background file logging is disabled.")
+                .takes_value(true)
+                .default_value("5")
+                .global(true),
+        )
+        .arg(
+            Arg::with_name("logfile-compress")
+                .long("logfile-compress")
+                .help(
+                    "If present, compress old log files. This can help reduce the space needed \
+                    to store old logs.")
+                .global(true),
+        )
+        .arg(
+            Arg::with_name("logfile-no-restricted-perms")
+                .long("logfile-no-restricted-perms")
+                .help(
+                    "If present, log files will be generated as world-readable meaning they can be read by \
+                    any user on the machine. Note that logs can often contain sensitive information \
+                    about your validator and so this flag should be used with caution.")
+                .global(true),
         )
         .arg(
             Arg::with_name("log-format")
                 .long("log-format")
                 .value_name("FORMAT")
-                .help("Specifies the format used for logging.")
+                .help("Specifies the log format used when emitting logs to the terminal.")
                 .possible_values(&["JSON"])
-                .takes_value(true),
+                .takes_value(true)
+                .global(true),
+        )
+        .arg(
+            Arg::with_name("log-color")
+                .long("log-color")
+                .alias("log-colour")
+                .help("Force outputting colors when emitting logs to the terminal.")
+                .global(true),
+        )
+        .arg(
+            Arg::with_name("disable-log-timestamp")
+            .long("disable-log-timestamp")
+            .help("If present, do not include timestamps in logging output.")
+            .global(true),
         )
         .arg(
             Arg::with_name("debug-level")
                 .long("debug-level")
                 .value_name("LEVEL")
-                .help("The verbosity level for emitting logs.")
+                .help("Specifies the verbosity level used when emitting logs to the terminal.")
                 .takes_value(true)
                 .possible_values(&["info", "debug", "trace", "warn", "error", "crit"])
                 .global(true)
@@ -147,6 +234,14 @@ fn main() {
                 .global(true)
         )
         .arg(
+            Arg::with_name("dump-chain-config")
+                .long("dump-chain-config")
+                .hidden(true)
+                .help("Dumps the chain config to a desired location. Used for testing only.")
+                .takes_value(true)
+                .global(true)
+        )
+        .arg(
             Arg::with_name("immediate-shutdown")
                 .long("immediate-shutdown")
                 .hidden(true)
@@ -165,10 +260,63 @@ fn main() {
                 )
                 .global(true),
         )
+        .arg(
+            Arg::with_name("terminal-total-difficulty-override")
+                .long("terminal-total-difficulty-override")
+                .value_name("INTEGER")
+                .help("Used to coordinate manual overrides to the TERMINAL_TOTAL_DIFFICULTY parameter. \
+                       Accepts a 256-bit decimal integer (not a hex value). \
+                       This flag should only be used if the user has a clear understanding that \
+                       the broad Ethereum community has elected to override the terminal difficulty. \
+                       Incorrect use of this flag will cause your node to experience a consensus \
+                       failure. Be extremely careful with this flag.")
+                .takes_value(true)
+                .global(true)
+        )
+        .arg(
+            Arg::with_name("terminal-block-hash-override")
+                .long("terminal-block-hash-override")
+                .value_name("TERMINAL_BLOCK_HASH")
+                .help("Used to coordinate manual overrides to the TERMINAL_BLOCK_HASH parameter. \
+                       This flag should only be used if the user has a clear understanding that \
+                       the broad Ethereum community has elected to override the terminal PoW block. \
+                       Incorrect use of this flag will cause your node to experience a consensus \
+                       failure. Be extremely careful with this flag.")
+                .requires("terminal-block-hash-epoch-override")
+                .takes_value(true)
+                .global(true)
+        )
+        .arg(
+            Arg::with_name("terminal-block-hash-epoch-override")
+                .long("terminal-block-hash-epoch-override")
+                .value_name("EPOCH")
+                .help("Used to coordinate manual overrides to the TERMINAL_BLOCK_HASH_ACTIVATION_EPOCH \
+                       parameter. This flag should only be used if the user has a clear understanding \
+                       that the broad Ethereum community has elected to override the terminal PoW block. \
+                       Incorrect use of this flag will cause your node to experience a consensus \
+                       failure. Be extremely careful with this flag.")
+                .requires("terminal-block-hash-override")
+                .takes_value(true)
+                .global(true)
+        )
+        .arg(
+            Arg::with_name("safe-slots-to-import-optimistically")
+                .long("safe-slots-to-import-optimistically")
+                .value_name("INTEGER")
+                .help("Used to coordinate manual overrides of the SAFE_SLOTS_TO_IMPORT_OPTIMISTICALLY \
+                      parameter. This flag should only be used if the user has a clear understanding \
+                      that the broad Ethereum community has elected to override this parameter in the event \
+                      of an attack at the PoS transition block. Incorrect use of this flag can cause your \
+                      node to possibly accept an invalid chain or sync more slowly. Be extremely careful with \
+                      this flag.")
+                .takes_value(true)
+                .global(true)
+        )
         .subcommand(beacon_node::cli_app())
         .subcommand(boot_node::cli_app())
         .subcommand(validator_client::cli_app())
         .subcommand(account_manager::cli_app())
+        .subcommand(database_manager::cli_app())
         .get_matches();
 
     // Configure the allocator early in the process, before it has the chance to use the default values for
@@ -193,8 +341,8 @@ fn main() {
         Builder::from_env(Env::default()).init();
     }
 
-    let result = get_eth2_network_config(&matches).and_then(|testnet_config| {
-        let eth_spec_id = testnet_config.eth_spec_id()?;
+    let result = get_eth2_network_config(&matches).and_then(|eth2_network_config| {
+        let eth_spec_id = eth2_network_config.eth_spec_id()?;
 
         // boot node subcommand circumvents the environment
         if let Some(bootnode_matches) = matches.subcommand_matches("boot_node") {
@@ -204,16 +352,24 @@ fn main() {
                 .expect("Debug-level must be present")
                 .into();
 
-            boot_node::run(bootnode_matches, eth_spec_id, debug_info);
+            boot_node::run(
+                &matches,
+                bootnode_matches,
+                eth_spec_id,
+                &eth2_network_config,
+                debug_info,
+            );
 
             return Ok(());
         }
 
         match eth_spec_id {
-            EthSpecId::Mainnet => run(EnvironmentBuilder::mainnet(), &matches, testnet_config),
+            EthSpecId::Mainnet => run(EnvironmentBuilder::mainnet(), &matches, eth2_network_config),
+            #[cfg(feature = "gnosis")]
+            EthSpecId::Gnosis => run(EnvironmentBuilder::gnosis(), &matches, eth2_network_config),
             #[cfg(feature = "spec-minimal")]
-            EthSpecId::Minimal => run(EnvironmentBuilder::minimal(), &matches, testnet_config),
-            #[cfg(not(feature = "spec-minimal"))]
+            EthSpecId::Minimal => run(EnvironmentBuilder::minimal(), &matches, eth2_network_config),
+            #[cfg(not(all(feature = "spec-minimal", feature = "gnosis")))]
             other => {
                 eprintln!(
                     "Eth spec `{}` is not supported by this build of Lighthouse",
@@ -242,7 +398,7 @@ fn main() {
 fn run<E: EthSpec>(
     environment_builder: EnvironmentBuilder<E>,
     matches: &ArgMatches,
-    testnet_config: Eth2NetworkConfig,
+    eth2_network_config: Eth2NetworkConfig,
 ) -> Result<(), String> {
     if std::mem::size_of::<usize>() != 8 {
         return Err(format!(
@@ -257,18 +413,83 @@ fn run<E: EthSpec>(
 
     let log_format = matches.value_of("log-format");
 
-    let builder = if let Some(log_path) = matches.value_of("logfile") {
-        let path = log_path
-            .parse::<PathBuf>()
-            .map_err(|e| format!("Failed to parse log path: {:?}", e))?;
-        environment_builder.log_to_file(path, debug_level, log_format)?
-    } else {
-        environment_builder.async_logger(debug_level, log_format)?
+    let log_color = matches.is_present("log-color");
+
+    let disable_log_timestamp = matches.is_present("disable-log-timestamp");
+
+    let logfile_debug_level = matches
+        .value_of("logfile-debug-level")
+        .ok_or("Expected --logfile-debug-level flag")?;
+
+    let logfile_format = matches
+        .value_of("logfile-format")
+        // Ensure that `logfile-format` defaults to the value of `log-format`.
+        .or_else(|| matches.value_of("log-format"));
+
+    let logfile_max_size: u64 = matches
+        .value_of("logfile-max-size")
+        .ok_or("Expected --logfile-max-size flag")?
+        .parse()
+        .map_err(|e| format!("Failed to parse `logfile-max-size`: {:?}", e))?;
+
+    let logfile_max_number: usize = matches
+        .value_of("logfile-max-number")
+        .ok_or("Expected --logfile-max-number flag")?
+        .parse()
+        .map_err(|e| format!("Failed to parse `logfile-max-number`: {:?}", e))?;
+
+    let logfile_compress = matches.is_present("logfile-compress");
+
+    let logfile_restricted = !matches.is_present("logfile-no-restricted-perms");
+
+    // Construct the path to the log file.
+    let mut log_path: Option<PathBuf> = clap_utils::parse_optional(matches, "logfile")?;
+    if log_path.is_none() {
+        log_path = match matches.subcommand() {
+            ("beacon_node", _) => Some(
+                parse_path_or_default(matches, "datadir")?
+                    .join(DEFAULT_BEACON_NODE_DIR)
+                    .join("logs")
+                    .join("beacon")
+                    .with_extension("log"),
+            ),
+            ("validator_client", Some(vc_matches)) => {
+                let base_path = if vc_matches.is_present("validators-dir") {
+                    parse_path_or_default(vc_matches, "validators-dir")?
+                } else {
+                    parse_path_or_default(matches, "datadir")?.join(DEFAULT_VALIDATOR_DIR)
+                };
+
+                Some(
+                    base_path
+                        .join("logs")
+                        .join("validator")
+                        .with_extension("log"),
+                )
+            }
+            _ => None,
+        };
+    }
+
+    let logger_config = LoggerConfig {
+        path: log_path,
+        debug_level: String::from(debug_level),
+        logfile_debug_level: String::from(logfile_debug_level),
+        log_format: log_format.map(String::from),
+        logfile_format: logfile_format.map(String::from),
+        log_color,
+        disable_log_timestamp,
+        max_log_size: logfile_max_size * 1_024 * 1_024,
+        max_log_number: logfile_max_number,
+        compression: logfile_compress,
+        is_restricted: logfile_restricted,
     };
+
+    let builder = environment_builder.initialize_logger(logger_config.clone())?;
 
     let mut environment = builder
         .multi_threaded_tokio_runtime()?
-        .optional_eth2_network_config(Some(testnet_config))?
+        .optional_eth2_network_config(Some(eth2_network_config))?
         .build()?;
 
     let log = environment.core_context().log().clone();
@@ -321,7 +542,16 @@ fn run<E: EthSpec>(
 
         // Exit as soon as account manager returns control.
         return Ok(());
-    };
+    }
+
+    if let Some(sub_matches) = matches.subcommand_matches(database_manager::CMD) {
+        info!(log, "Running database manager for {} network", network_name);
+        // Pass the entire `environment` to the database manager so it can run blocking operations.
+        database_manager::run(sub_matches, environment)?;
+
+        // Exit as soon as database manager returns control.
+        return Ok(());
+    }
 
     info!(log, "Lighthouse started"; "version" => VERSION);
     info!(
@@ -335,20 +565,11 @@ fn run<E: EthSpec>(
             let context = environment.core_context();
             let log = context.log().clone();
             let executor = context.executor.clone();
-            let config = beacon_node::get_config::<E>(
-                matches,
-                &context.eth2_config().spec,
-                context.log().clone(),
-            )?;
+            let mut config = beacon_node::get_config::<E>(matches, &context)?;
+            config.logger_config = logger_config;
             let shutdown_flag = matches.is_present("immediate-shutdown");
-            if let Some(dump_path) = clap_utils::parse_optional::<PathBuf>(matches, "dump-config")?
-            {
-                let mut file = File::create(dump_path)
-                    .map_err(|e| format!("Failed to create dumped config: {:?}", e))?;
-                serde_json::to_writer(&mut file, &config)
-                    .map_err(|e| format!("Error serializing config: {:?}", e))?;
-            };
-
+            // Dump configs if `dump-config` or `dump-chain-config` flags are set
+            clap_utils::check_dump_configs::<_, E>(matches, &config, &context.eth2_config.spec)?;
             executor.clone().spawn(
                 async move {
                     if let Err(e) = ProductionBeaconNode::new(context.clone(), config).await {
@@ -374,13 +595,8 @@ fn run<E: EthSpec>(
             let config = validator_client::Config::from_cli(matches, context.log())
                 .map_err(|e| format!("Unable to initialize validator config: {}", e))?;
             let shutdown_flag = matches.is_present("immediate-shutdown");
-            if let Some(dump_path) = clap_utils::parse_optional::<PathBuf>(matches, "dump-config")?
-            {
-                let mut file = File::create(dump_path)
-                    .map_err(|e| format!("Failed to create dumped config: {:?}", e))?;
-                serde_json::to_writer(&mut file, &config)
-                    .map_err(|e| format!("Error serializing config: {:?}", e))?;
-            };
+            // Dump configs if `dump-config` or `dump-chain-config` flags are set
+            clap_utils::check_dump_configs::<_, E>(matches, &config, &context.eth2_config.spec)?;
             if !shutdown_flag {
                 executor.clone().spawn(
                     async move {

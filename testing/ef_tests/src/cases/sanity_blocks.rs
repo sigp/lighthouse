@@ -5,6 +5,7 @@ use crate::decode::{ssz_decode_file_with, ssz_decode_state, yaml_decode_file};
 use serde_derive::Deserialize;
 use state_processing::{
     per_block_processing, per_slot_processing, BlockProcessingError, BlockSignatureStrategy,
+    ConsensusContext, VerifyBlockRoot,
 };
 use types::{BeaconState, EthSpec, ForkName, RelativeEpoch, SignedBeaconBlock};
 
@@ -55,10 +56,7 @@ impl<E: EthSpec> LoadCase for SanityBlocks<E> {
 
 impl<E: EthSpec> Case for SanityBlocks<E> {
     fn description(&self) -> String {
-        self.metadata
-            .description
-            .clone()
-            .unwrap_or_else(String::new)
+        self.metadata.description.clone().unwrap_or_default()
     }
 
     fn result(&self, _case_index: usize, fork_name: ForkName) -> Result<(), Error> {
@@ -93,24 +91,28 @@ impl<E: EthSpec> Case for SanityBlocks<E> {
                     .build_committee_cache(RelativeEpoch::Current, spec)
                     .unwrap();
 
+                let mut ctxt = ConsensusContext::new(indiv_state.slot());
                 per_block_processing(
                     &mut indiv_state,
                     signed_block,
-                    None,
                     BlockSignatureStrategy::VerifyIndividual,
+                    VerifyBlockRoot::True,
+                    &mut ctxt,
                     spec,
                 )?;
 
+                let mut ctxt = ConsensusContext::new(indiv_state.slot());
                 per_block_processing(
                     &mut bulk_state,
                     signed_block,
-                    None,
                     BlockSignatureStrategy::VerifyBulk,
+                    VerifyBlockRoot::True,
+                    &mut ctxt,
                     spec,
                 )?;
 
-                if block.state_root() == bulk_state.canonical_root()
-                    && block.state_root() == indiv_state.canonical_root()
+                if block.state_root() == bulk_state.update_tree_hash_cache().unwrap()
+                    && block.state_root() == indiv_state.update_tree_hash_cache().unwrap()
                 {
                     Ok(())
                 } else {

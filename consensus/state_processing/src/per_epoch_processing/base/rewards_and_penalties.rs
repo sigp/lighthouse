@@ -4,7 +4,6 @@ use crate::per_epoch_processing::{
     Delta, Error,
 };
 use safe_arith::SafeArith;
-use std::array::IntoIter as ArrayIter;
 use types::{BeaconState, ChainSpec, EthSpec};
 
 /// Combination of several deltas for different components of an attestation reward.
@@ -30,13 +29,13 @@ impl AttestationDelta {
             inactivity_penalty_delta,
         } = self;
         let mut result = Delta::default();
-        for delta in ArrayIter::new([
+        for delta in [
             source_delta,
             target_delta,
             head_delta,
             inclusion_delay_delta,
             inactivity_penalty_delta,
-        ]) {
+        ] {
             result.combine(delta)?;
         }
         Ok(result)
@@ -79,6 +78,7 @@ pub fn get_attestation_deltas<T: EthSpec>(
     validator_statuses: &ValidatorStatuses,
     spec: &ChainSpec,
 ) -> Result<Vec<AttestationDelta>, Error> {
+    let previous_epoch = state.previous_epoch();
     let finality_delay = state
         .previous_epoch()
         .safe_sub(state.finalized_checkpoint().epoch)?
@@ -93,7 +93,7 @@ pub fn get_attestation_deltas<T: EthSpec>(
         // `get_inclusion_delay_deltas`. It's safe to do so here because any validator that is in
         // the unslashed indices of the matching source attestations is active, and therefore
         // eligible.
-        if !state.is_eligible_validator(index)? {
+        if !state.is_eligible_validator(previous_epoch, index)? {
             continue;
         }
 
@@ -235,7 +235,7 @@ fn get_inclusion_delay_delta(
         let max_attester_reward = base_reward.safe_sub(proposer_reward)?;
         delta.reward(max_attester_reward.safe_div(inclusion_info.delay)?)?;
 
-        let proposer_index = inclusion_info.proposer_index as usize;
+        let proposer_index = inclusion_info.proposer_index;
         Ok((delta, Some((proposer_index, proposer_delta))))
     } else {
         Ok((Delta::default(), None))

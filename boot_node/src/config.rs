@@ -1,12 +1,15 @@
-use beacon_node::{get_data_dir, get_eth2_network_config, set_network_config};
+use beacon_node::{get_data_dir, set_network_config};
 use clap::ArgMatches;
+use eth2_network_config::Eth2NetworkConfig;
+use lighthouse_network::discv5::enr::EnrBuilder;
+use lighthouse_network::discv5::IpMode;
 use lighthouse_network::discv5::{enr::CombinedKey, Discv5Config, Enr};
 use lighthouse_network::{
-    discovery::{create_enr_builder_from_config, load_enr_from_disk, use_or_load_enr},
+    discovery::{load_enr_from_disk, use_or_load_enr},
     load_private_key, CombinedKeyExt, NetworkConfig,
 };
+use serde_derive::{Deserialize, Serialize};
 use ssz::Encode;
-use std::convert::TryFrom;
 use std::net::SocketAddr;
 use std::{marker::PhantomData, path::PathBuf};
 use types::EthSpec;
@@ -22,14 +25,12 @@ pub struct BootNodeConfig<T: EthSpec> {
     phantom: PhantomData<T>,
 }
 
-impl<T: EthSpec> TryFrom<&ArgMatches<'_>> for BootNodeConfig<T> {
-    type Error = String;
-
-    fn try_from(matches: &ArgMatches<'_>) -> Result<Self, Self::Error> {
+impl<T: EthSpec> BootNodeConfig<T> {
+    pub fn new(
+        matches: &ArgMatches<'_>,
+        eth2_network_config: &Eth2NetworkConfig,
+    ) -> Result<Self, String> {
         let data_dir = get_data_dir(matches);
-
-        // Try and grab network config from input CLI params
-        let eth2_network_config = get_eth2_network_config(matches)?;
 
         // Try and obtain bootnodes
 
@@ -71,6 +72,15 @@ impl<T: EthSpec> TryFrom<&ArgMatches<'_>> for BootNodeConfig<T> {
         // the address to listen on
         let listen_socket =
             SocketAddr::new(network_config.listen_address, network_config.discovery_port);
+        if listen_socket.is_ipv6() {
+            // create ipv6 sockets and enable ipv4 mapped addresses.
+            network_config.discv5_config.ip_mode = IpMode::Ip6 {
+                enable_mapped_addresses: true,
+            };
+        } else {
+            // Set explicitly as ipv4 otherwise
+            network_config.discv5_config.ip_mode = IpMode::Ip4;
+        }
 
         let private_key = load_private_key(&network_config, &logger);
         let local_key = CombinedKey::from_libp2p(&private_key)?;
@@ -105,7 +115,29 @@ impl<T: EthSpec> TryFrom<&ArgMatches<'_>> for BootNodeConfig<T> {
             // Build the local ENR
 
             let mut local_enr = {
-                let mut builder = create_enr_builder_from_config(&network_config, false);
+                let mut builder = EnrBuilder::new("v4");
+                // Set the enr address if specified. Set also the port.
+                // NOTE: if the port is specified but the the address is not, the port won't be
+                // set since it can't be known if it's an ipv6 or ipv4 udp port.
+                if let Some(enr_address) = network_config.enr_address {
+                    match enr_address {
+                        std::net::IpAddr::V4(ipv4_addr) => {
+                            builder.ip4(ipv4_addr);
+                            if let Some(port) = network_config.enr_udp_port {
+                                builder.udp4(port);
+                            }
+                        }
+                        std::net::IpAddr::V6(ipv6_addr) => {
+                            builder.ip6(ipv6_addr);
+                            if let Some(port) = network_config.enr_udp_port {
+                                builder.udp6(port);
+                                // We are enabling mapped addresses in the boot node in this case,
+                                // so advertise an udp4 port as well.
+                                builder.udp4(port);
+                            }
+                        }
+                    }
+                };
 
                 // If we know of the ENR field, add it to the initial construction
                 if let Some(enr_fork_bytes) = enr_fork {
@@ -128,5 +160,41 @@ impl<T: EthSpec> TryFrom<&ArgMatches<'_>> for BootNodeConfig<T> {
             discv5_config: network_config.discv5_config,
             phantom: PhantomData,
         })
+    }
+}
+
+/// The set of configuration parameters that can safely be (de)serialized.
+///
+/// Its fields are a subset of the fields of `BootNodeConfig`, some of them are copied from `Discv5Config`.
+#[derive(Serialize, Deserialize)]
+pub struct BootNodeConfigSerialization {
+    pub listen_socket: SocketAddr,
+    // TODO: Generalise to multiaddr
+    pub boot_nodes: Vec<Enr>,
+    pub local_enr: Enr,
+    pub disable_packet_filter: bool,
+    pub enable_enr_auto_update: bool,
+}
+
+impl BootNodeConfigSerialization {
+    /// Returns a `BootNodeConfigSerialization` obtained from copying resp. cloning the
+    /// relevant fields of `config`
+    pub fn from_config_ref<T: EthSpec>(config: &BootNodeConfig<T>) -> Self {
+        let BootNodeConfig {
+            listen_socket,
+            boot_nodes,
+            local_enr,
+            local_key: _,
+            discv5_config,
+            phantom: _,
+        } = config;
+
+        BootNodeConfigSerialization {
+            listen_socket: *listen_socket,
+            boot_nodes: boot_nodes.clone(),
+            local_enr: local_enr.clone(),
+            disable_packet_filter: !discv5_config.enable_packet_filter,
+            enable_enr_auto_update: discv5_config.enr_update,
+        }
     }
 }

@@ -61,6 +61,10 @@ impl SlotClock for SystemTimeSlotClock {
     fn genesis_slot(&self) -> Slot {
         self.clock.genesis_slot()
     }
+
+    fn genesis_duration(&self) -> Duration {
+        *self.clock.genesis_duration()
+    }
 }
 
 #[cfg(test)]

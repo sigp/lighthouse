@@ -2,7 +2,7 @@
 name = "validator_dir"
 version = "0.1.0"
 authors = ["Paul Hauner <paul@paulhauner.com>"]
-edition = "2018"
+edition = "2021"
 
 [features]
 insecure_keys = []
@@ -14,9 +14,9 @@ bls = { path = "../../crypto/bls" }
 eth2_keystore = { path = "../../crypto/eth2_keystore" }
 filesystem = { path = "../filesystem" }
 types = { path = "../../consensus/types" }
-rand = "0.7.3"
+rand = "0.8.5"
 deposit_contract = { path = "../deposit_contract" }
-tree_hash = "0.4.0"
+tree_hash = "0.4.1"
 hex = "0.4.2"
 derivative = "2.1.1"
 lockfile = { path = "../lockfile" }

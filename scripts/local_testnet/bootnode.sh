@@ -5,6 +5,8 @@
 # Starts a bootnode from the generated enr.
 #
 
+set -Eeuo pipefail
+
 source ./vars.env
 
 echo "Generating bootnode enr"

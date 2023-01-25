@@ -1,13 +1,16 @@
 use crate::metrics;
-use beacon_chain::{BeaconChain, BeaconChainTypes};
+use beacon_chain::{
+    merge_readiness::{MergeConfig, MergeReadiness},
+    BeaconChain, BeaconChainTypes, ExecutionStatus,
+};
 use lighthouse_network::{types::SyncState, NetworkGlobals};
-use parking_lot::Mutex;
-use slog::{debug, error, info, warn, Logger};
+use slog::{crit, debug, error, info, warn, Logger};
 use slot_clock::SlotClock;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use tokio::sync::Mutex;
 use tokio::time::sleep;
-use types::{EthSpec, Slot};
+use types::*;
 
 /// Create a warning log whenever the peer count is at or below this value.
 pub const WARN_PEER_COUNT: usize = 1;
@@ -30,20 +33,9 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
     seconds_per_slot: u64,
 ) -> Result<(), String> {
     let slot_duration = Duration::from_secs(seconds_per_slot);
-    let duration_to_next_slot = beacon_chain
-        .slot_clock
-        .duration_to_next_slot()
-        .ok_or("slot_notifier unable to determine time to next slot")?;
-
-    // Run this half way through each slot.
-    let start_instant = tokio::time::Instant::now() + duration_to_next_slot + (slot_duration / 2);
-
-    // Run this each slot.
-    let interval_duration = slot_duration;
 
     let speedo = Mutex::new(Speedo::default());
     let log = executor.log().clone();
-    let mut interval = tokio::time::interval_at(start_instant, interval_duration);
 
     // Keep track of sync state and reset the speedo on specific sync state changes.
     // Specifically, if we switch between a sync and a backfill sync, reset the speedo.
@@ -77,8 +69,22 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
 
         // Perform post-genesis logging.
         let mut last_backfill_log_slot = None;
+
         loop {
-            interval.tick().await;
+            // Run the notifier half way through each slot.
+            //
+            // Keep remeasuring the offset rather than using an interval, so that we can correct
+            // for system time clock adjustments.
+            let wait = match beacon_chain.slot_clock.duration_to_next_slot() {
+                Some(duration) => duration + slot_duration / 2,
+                None => {
+                    warn!(log, "Unable to read current slot");
+                    sleep(slot_duration).await;
+                    continue;
+                }
+            };
+            sleep(wait).await;
+
             let connected_peer_count = network.connected_peers();
             let sync_state = network.sync_state();
 
@@ -87,12 +93,12 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                 match (current_sync_state, &sync_state) {
                     (_, SyncState::BackFillSyncing { .. }) => {
                         // We have transitioned to a backfill sync. Reset the speedo.
-                        let mut speedo = speedo.lock();
+                        let mut speedo = speedo.lock().await;
                         speedo.clear();
                     }
                     (SyncState::BackFillSyncing { .. }, _) => {
                         // We have transitioned from a backfill sync, reset the speedo
-                        let mut speedo = speedo.lock();
+                        let mut speedo = speedo.lock().await;
                         speedo.clear();
                     }
                     (_, _) => {}
@@ -100,15 +106,10 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                 current_sync_state = sync_state;
             }
 
-            let head_info = match beacon_chain.head_info() {
-                Ok(head_info) => head_info,
-                Err(e) => {
-                    error!(log, "Failed to get beacon chain head info"; "error" => format!("{:?}", e));
-                    break;
-                }
-            };
-
-            let head_slot = head_info.slot;
+            let cached_head = beacon_chain.canonical_head.cached_head();
+            let head_slot = cached_head.head_slot();
+            let head_root = cached_head.head_block_root();
+            let finalized_checkpoint = cached_head.finalized_checkpoint();
 
             metrics::set_gauge(&metrics::NOTIFIER_HEAD_SLOT, head_slot.as_u64() as i64);
 
@@ -125,15 +126,12 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
             };
 
             let current_epoch = current_slot.epoch(T::EthSpec::slots_per_epoch());
-            let finalized_epoch = head_info.finalized_checkpoint.epoch;
-            let finalized_root = head_info.finalized_checkpoint.root;
-            let head_root = head_info.block_root;
 
             // The default is for regular sync but this gets modified if backfill sync is in
             // progress.
             let mut sync_distance = current_slot - head_slot;
 
-            let mut speedo = speedo.lock();
+            let mut speedo = speedo.lock().await;
             match current_sync_state {
                 SyncState::BackFillSyncing { .. } => {
                     // Observe backfilling sync info.
@@ -177,8 +175,8 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                 log,
                 "Slot timer";
                 "peers" => peer_count_pretty(connected_peer_count),
-                "finalized_root" => format!("{}", finalized_root),
-                "finalized_epoch" => finalized_epoch,
+                "finalized_root" => format!("{}", finalized_checkpoint.root),
+                "finalized_epoch" => finalized_checkpoint.epoch,
                 "head_block" => format!("{}", head_root),
                 "head_slot" => head_slot,
                 "current_slot" => current_slot,
@@ -263,12 +261,39 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                 } else {
                     head_root.to_string()
                 };
+
+                let block_hash = match beacon_chain.canonical_head.head_execution_status() {
+                    Ok(ExecutionStatus::Irrelevant(_)) => "n/a".to_string(),
+                    Ok(ExecutionStatus::Valid(hash)) => format!("{} (verified)", hash),
+                    Ok(ExecutionStatus::Optimistic(hash)) => {
+                        warn!(
+                            log,
+                            "Head is optimistic";
+                            "info" => "chain not fully verified, \
+                                block and attestation production disabled until execution engine syncs",
+                            "execution_block_hash" => ?hash,
+                        );
+                        format!("{} (unverified)", hash)
+                    }
+                    Ok(ExecutionStatus::Invalid(hash)) => {
+                        crit!(
+                            log,
+                            "Head execution payload is invalid";
+                            "msg" => "this scenario may be unrecoverable",
+                            "execution_block_hash" => ?hash,
+                        );
+                        format!("{} (invalid)", hash)
+                    }
+                    Err(_) => "unknown".to_string(),
+                };
+
                 info!(
                     log,
                     "Synced";
                     "peers" => peer_count_pretty(connected_peer_count),
-                    "finalized_root" => format!("{}", finalized_root),
-                    "finalized_epoch" => finalized_epoch,
+                    "exec_hash" => block_hash,
+                    "finalized_root" => format!("{}", finalized_checkpoint.root),
+                    "finalized_epoch" => finalized_checkpoint.epoch,
                     "epoch" => current_epoch,
                     "block" => block_info,
                     "slot" => current_slot,
@@ -279,14 +304,15 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                     log,
                     "Searching for peers";
                     "peers" => peer_count_pretty(connected_peer_count),
-                    "finalized_root" => format!("{}", finalized_root),
-                    "finalized_epoch" => finalized_epoch,
+                    "finalized_root" => format!("{}", finalized_checkpoint.root),
+                    "finalized_epoch" => finalized_checkpoint.epoch,
                     "head_slot" => head_slot,
                     "current_slot" => current_slot,
                 );
             }
 
             eth1_logging(&beacon_chain, &log);
+            merge_readiness_logging(current_slot, &beacon_chain, &log).await;
         }
     };
 
@@ -296,55 +322,152 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
     Ok(())
 }
 
+/// Provides some helpful logging to users to indicate if their node is ready for the Bellatrix
+/// fork and subsequent merge transition.
+async fn merge_readiness_logging<T: BeaconChainTypes>(
+    current_slot: Slot,
+    beacon_chain: &BeaconChain<T>,
+    log: &Logger,
+) {
+    let merge_completed = beacon_chain
+        .canonical_head
+        .cached_head()
+        .snapshot
+        .beacon_block
+        .message()
+        .body()
+        .execution_payload()
+        .map_or(false, |payload| {
+            payload.parent_hash() != ExecutionBlockHash::zero()
+        });
+
+    let has_execution_layer = beacon_chain.execution_layer.is_some();
+
+    if merge_completed && has_execution_layer
+        || !beacon_chain.is_time_to_prepare_for_bellatrix(current_slot)
+    {
+        return;
+    }
+
+    if merge_completed && !has_execution_layer {
+        error!(
+            log,
+            "Execution endpoint required";
+            "info" => "you need an execution engine to validate blocks, see: \
+                       https://lighthouse-book.sigmaprime.io/merge-migration.html"
+        );
+        return;
+    }
+
+    match beacon_chain.check_merge_readiness().await {
+        MergeReadiness::Ready {
+            config,
+            current_difficulty,
+        } => match config {
+            MergeConfig {
+                terminal_total_difficulty: Some(ttd),
+                terminal_block_hash: None,
+                terminal_block_hash_epoch: None,
+            } => {
+                info!(
+                    log,
+                    "Ready for the merge";
+                    "terminal_total_difficulty" => %ttd,
+                    "current_difficulty" => current_difficulty
+                        .map(|d| d.to_string())
+                        .unwrap_or_else(|| "??".into()),
+                )
+            }
+            MergeConfig {
+                terminal_total_difficulty: _,
+                terminal_block_hash: Some(terminal_block_hash),
+                terminal_block_hash_epoch: Some(terminal_block_hash_epoch),
+            } => {
+                info!(
+                    log,
+                    "Ready for the merge";
+                    "info" => "you are using override parameters, please ensure that you \
+                        understand these parameters and their implications.",
+                    "terminal_block_hash" => ?terminal_block_hash,
+                    "terminal_block_hash_epoch" => ?terminal_block_hash_epoch,
+                )
+            }
+            other => error!(
+                log,
+                "Inconsistent merge configuration";
+                "config" => ?other
+            ),
+        },
+        readiness @ MergeReadiness::ExchangeTransitionConfigurationFailed { error: _ } => {
+            error!(
+                log,
+                "Not ready for merge";
+                "info" => %readiness,
+                "hint" => "try updating Lighthouse and/or the execution layer",
+            )
+        }
+        readiness @ MergeReadiness::NotSynced => warn!(
+            log,
+            "Not ready for merge";
+            "info" => %readiness,
+        ),
+        readiness @ MergeReadiness::NoExecutionEndpoint => warn!(
+            log,
+            "Not ready for merge";
+            "info" => %readiness,
+        ),
+    }
+}
+
 fn eth1_logging<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>, log: &Logger) {
     let current_slot_opt = beacon_chain.slot().ok();
 
-    if let Ok(head_info) = beacon_chain.head_info() {
-        // Perform some logging about the eth1 chain
-        if let Some(eth1_chain) = beacon_chain.eth1_chain.as_ref() {
-            if let Some(status) =
-                eth1_chain.sync_status(head_info.genesis_time, current_slot_opt, &beacon_chain.spec)
-            {
-                debug!(
+    // Perform some logging about the eth1 chain
+    if let Some(eth1_chain) = beacon_chain.eth1_chain.as_ref() {
+        // No need to do logging if using the dummy backend.
+        if eth1_chain.is_dummy_backend() {
+            return;
+        }
+
+        if let Some(status) = eth1_chain.sync_status(
+            beacon_chain.genesis_time,
+            current_slot_opt,
+            &beacon_chain.spec,
+        ) {
+            debug!(
+                log,
+                "Eth1 cache sync status";
+                "eth1_head_block" => status.head_block_number,
+                "latest_cached_block_number" => status.latest_cached_block_number,
+                "latest_cached_timestamp" => status.latest_cached_block_timestamp,
+                "voting_target_timestamp" => status.voting_target_timestamp,
+                "ready" => status.lighthouse_is_cached_and_ready
+            );
+
+            if !status.lighthouse_is_cached_and_ready {
+                let voting_target_timestamp = status.voting_target_timestamp;
+
+                let distance = status
+                    .latest_cached_block_timestamp
+                    .map(|latest| {
+                        voting_target_timestamp.saturating_sub(latest)
+                            / beacon_chain.spec.seconds_per_eth1_block
+                    })
+                    .map(|distance| distance.to_string())
+                    .unwrap_or_else(|| "initializing deposits".to_string());
+
+                warn!(
                     log,
-                    "Eth1 cache sync status";
-                    "eth1_head_block" => status.head_block_number,
-                    "latest_cached_block_number" => status.latest_cached_block_number,
-                    "latest_cached_timestamp" => status.latest_cached_block_timestamp,
-                    "voting_target_timestamp" => status.voting_target_timestamp,
-                    "ready" => status.lighthouse_is_cached_and_ready
-                );
-
-                if !status.lighthouse_is_cached_and_ready {
-                    let voting_target_timestamp = status.voting_target_timestamp;
-
-                    let distance = status
-                        .latest_cached_block_timestamp
-                        .map(|latest| {
-                            voting_target_timestamp.saturating_sub(latest)
-                                / beacon_chain.spec.seconds_per_eth1_block
-                        })
-                        .map(|distance| distance.to_string())
-                        .unwrap_or_else(|| "initializing deposits".to_string());
-
-                    warn!(
-                        log,
-                        "Syncing eth1 block cache";
-                        "est_blocks_remaining" => distance,
-                    );
-                }
-            } else {
-                error!(
-                    log,
-                    "Unable to determine eth1 sync status";
+                    "Syncing deposit contract block cache";
+                    "est_blocks_remaining" => distance,
                 );
             }
+        } else {
+            error!(
+                log,
+                "Unable to determine deposit contract sync status";
+            );
         }
-    } else {
-        error!(
-            log,
-            "Unable to get head info";
-        );
     }
 }
 
