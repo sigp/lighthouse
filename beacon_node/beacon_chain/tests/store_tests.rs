@@ -11,7 +11,9 @@ use beacon_chain::{
     BeaconChainError, BeaconChainTypes, BeaconSnapshot, ChainConfig, NotifyExecutionLayer,
     ServerSentEventHandler, WhenSlotSkipped,
 };
+use eth2_network_config::TRUSTED_SETUP;
 use fork_choice::CountUnrealized;
+use kzg::TrustedSetup;
 use lazy_static::lazy_static;
 use logging::test_logger;
 use maplit::hashset;
@@ -2101,6 +2103,9 @@ async fn weak_subjectivity_sync() {
     let store = get_store(&temp2);
     let spec = test_spec::<E>();
     let seconds_per_slot = spec.seconds_per_slot;
+    let trusted_setup: TrustedSetup = serde_json::from_reader(TRUSTED_SETUP)
+        .map_err(|e| println!("Unable to read trusted setup file: {}", e))
+        .unwrap();
 
     // Initialise a new beacon chain from the finalized checkpoint
     let beacon_chain = Arc::new(
@@ -2123,6 +2128,7 @@ async fn weak_subjectivity_sync() {
                 1,
             )))
             .monitor_validators(true, vec![], DEFAULT_INDIVIDUAL_TRACKING_THRESHOLD, log)
+            .trusted_setup(trusted_setup)
             .build()
             .expect("should build"),
     );
