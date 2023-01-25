@@ -6,12 +6,12 @@ use crate::beacon_chain::{BeaconChain, BeaconChainTypes, MAXIMUM_GOSSIP_CLOCK_DI
 use crate::{kzg_utils, BeaconChainError};
 use state_processing::per_block_processing::eip4844::eip4844::verify_kzg_commitments_against_transactions;
 use types::signed_beacon_block::BlobReconstructionError;
-use types::ExecPayload;
 use types::{
     BeaconBlockRef, BeaconStateError, BlobsSidecar, EthSpec, Hash256, KzgCommitment,
     SignedBeaconBlock, SignedBeaconBlockAndBlobsSidecar, SignedBeaconBlockHeader, Slot,
     Transactions,
 };
+use types::{Epoch, ExecPayload};
 
 #[derive(Debug)]
 pub enum BlobError {
@@ -384,6 +384,7 @@ impl<E: EthSpec> IntoBlockWrapper<E> for AvailableBlock<E> {
 
 pub trait AsBlock<E: EthSpec> {
     fn slot(&self) -> Slot;
+    fn epoch(&self) -> Epoch;
     fn parent_root(&self) -> Hash256;
     fn state_root(&self) -> Hash256;
     fn signed_block_header(&self) -> SignedBeaconBlockHeader;
@@ -397,6 +398,12 @@ impl<E: EthSpec> AsBlock<E> for BlockWrapper<E> {
         match self {
             BlockWrapper::Block(block) => block.slot(),
             BlockWrapper::BlockAndBlob(block, _) => block.slot(),
+        }
+    }
+    fn epoch(&self) -> Epoch {
+        match self {
+            BlockWrapper::Block(block) => block.epoch(),
+            BlockWrapper::BlockAndBlob(block, _) => block.epoch(),
         }
     }
     fn parent_root(&self) -> Hash256 {
@@ -444,6 +451,12 @@ impl<E: EthSpec> AsBlock<E> for &BlockWrapper<E> {
             BlockWrapper::BlockAndBlob(block, _) => block.slot(),
         }
     }
+    fn epoch(&self) -> Epoch {
+        match self {
+            BlockWrapper::Block(block) => block.epoch(),
+            BlockWrapper::BlockAndBlob(block, _) => block.epoch(),
+        }
+    }
     fn parent_root(&self) -> Hash256 {
         match self {
             BlockWrapper::Block(block) => block.parent_root(),
@@ -488,6 +501,14 @@ impl<E: EthSpec> AsBlock<E> for AvailableBlock<E> {
             AvailableBlockInner::Block(block) => block.slot(),
             AvailableBlockInner::BlockAndBlob(block_sidecar_pair) => {
                 block_sidecar_pair.beacon_block.slot()
+            }
+        }
+    }
+    fn epoch(&self) -> Epoch {
+        match &self.0 {
+            AvailableBlockInner::Block(block) => block.epoch(),
+            AvailableBlockInner::BlockAndBlob(block_sidecar_pair) => {
+                block_sidecar_pair.beacon_block.epoch()
             }
         }
     }

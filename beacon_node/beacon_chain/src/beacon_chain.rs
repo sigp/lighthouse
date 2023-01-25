@@ -956,23 +956,35 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub async fn get_block_and_blobs_checking_early_attester_cache(
         &self,
         block_root: &Hash256,
-    ) -> Result<
-        (
-            Option<Arc<SignedBeaconBlock<T::EthSpec>>>,
-            Option<Arc<BlobsSidecar<T::EthSpec>>>,
-        ),
-        Error,
-    > {
-        if let (Some(block), Some(blobs)) = (
-            self.early_attester_cache.get_block(*block_root),
-            self.early_attester_cache.get_blobs(*block_root),
-        ) {
-            return Ok((Some(block), Some(blobs)));
+    ) -> Result<Option<SignedBeaconBlockAndBlobsSidecar<T::EthSpec>>, Error> {
+        // If there is no data availability boundary, the Eip4844 fork is disabled.
+        if let Some(finalized_data_availability_boundary) =
+            self.finalized_data_availability_boundary()
+        {
+            // Only use the attester cache if we can find both the block and blob
+            if let (Some(block), Some(blobs)) = (
+                self.early_attester_cache.get_block(*block_root),
+                self.early_attester_cache.get_blobs(*block_root),
+            ) {
+                Ok(Some(SignedBeaconBlockAndBlobsSidecar {
+                    beacon_block: block,
+                    blobs_sidecar: blobs,
+                }))
+            // Attempt to get the block and blobs from the database
+            } else if let Some(block) = self.get_block(block_root).await?.map(Arc::new) {
+                let blobs = self
+                    .get_blobs(block_root, finalized_data_availability_boundary)?
+                    .map(Arc::new);
+                Ok(blobs.map(|blobs| SignedBeaconBlockAndBlobsSidecar {
+                    beacon_block: block,
+                    blobs_sidecar: blobs,
+                }))
+            } else {
+                Ok(None)
+            }
+        } else {
+            Ok(None)
         }
-        Ok((
-            self.get_block(block_root).await?.map(Arc::new),
-            self.get_blobs(block_root).ok().flatten().map(Arc::new),
-        ))
     }
 
     /// Returns the block at the given root, if any.
@@ -1044,33 +1056,46 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     /// Returns the blobs at the given root, if any.
     ///
-    /// ## Errors
+    /// Returns `Ok(None)` if the blobs and associated block are not found.
     ///
-    /// May return a database error.
+    /// If we can find the corresponding block in our database, we know whether we *should* have
+    /// blobs. If we should have blobs and no blobs are found, this will error. If we shouldn't,
+    /// this will reconstruct an empty `BlobsSidecar`.
+    ///
+    /// ## Errors
+    /// - any database read errors
+    /// - block and blobs are inconsistent in the database
+    /// - this method is called with a pre-eip4844 block root
+    /// - this method is called for a blob that is beyond the prune depth
     pub fn get_blobs(
         &self,
         block_root: &Hash256,
+        data_availability_boundary: Epoch,
     ) -> Result<Option<BlobsSidecar<T::EthSpec>>, Error> {
         match self.store.get_blobs(block_root)? {
             Some(blobs) => Ok(Some(blobs)),
             None => {
-                if let Ok(Some(block)) = self.get_blinded_block(block_root) {
-                    let expected_kzg_commitments = block.message().body().blob_kzg_commitments()?;
-
-                    if expected_kzg_commitments.len() > 0 {
-                        Err(Error::DBInconsistent(format!(
-                            "Expected kzg commitments but no blobs stored for block root {}",
-                            block_root
-                        )))
-                    } else {
-                        Ok(Some(BlobsSidecar::empty_from_parts(
-                            *block_root,
-                            block.slot(),
-                        )))
-                    }
-                } else {
-                    Ok(None)
-                }
+                // Check for the corresponding block to understand whether we *should* have blobs.
+                self.get_blinded_block(block_root)?
+                    .map(|block| {
+                        // If there are no KZG commitments in the block, we know the sidecar should
+                        // be empty.
+                        let expected_kzg_commitments =
+                            match block.message().body().blob_kzg_commitments() {
+                                Ok(kzg_commitments) => kzg_commitments,
+                                Err(_) => return Err(Error::NoKzgCommitmentsFieldOnBlock),
+                            };
+                        if expected_kzg_commitments.is_empty() {
+                            Ok(BlobsSidecar::empty_from_parts(*block_root, block.slot()))
+                        } else if data_availability_boundary <= block.epoch() {
+                            // We should have blobs for all blocks younger than the boundary.
+                            Err(Error::BlobsUnavailable)
+                        } else {
+                            // We shouldn't have blobs for blocks older than the boundary.
+                            Err(Error::BlobsOlderThanDataAvailabilityBoundary(block.epoch()))
+                        }
+                    })
+                    .transpose()
             }
         }
     }
@@ -2486,7 +2511,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         while let Some((_root, block)) = filtered_chain_segment.first() {
             // Determine the epoch of the first block in the remaining segment.
-            let start_epoch = block.slot().epoch(T::EthSpec::slots_per_epoch());
+            let start_epoch = block.epoch();
 
             // The `last_index` indicates the position of the first block in an epoch greater
             // than the current epoch: partitioning the blocks into a run of blocks in the same
@@ -2494,9 +2519,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             // the same `BeaconState`.
             let last_index = filtered_chain_segment
                 .iter()
-                .position(|(_root, block)| {
-                    block.slot().epoch(T::EthSpec::slots_per_epoch()) > start_epoch
-                })
+                .position(|(_root, block)| block.epoch() > start_epoch)
                 .unwrap_or(filtered_chain_segment.len());
 
             let mut blocks = filtered_chain_segment.split_off(last_index);
@@ -3162,7 +3185,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Sync aggregate.
         if let Ok(sync_aggregate) = block.body().sync_aggregate() {
             // `SyncCommittee` for the sync_aggregate should correspond to the duty slot
-            let duty_epoch = block.slot().epoch(T::EthSpec::slots_per_epoch());
+            let duty_epoch = block.epoch();
 
             match self.sync_committee_at_epoch(duty_epoch) {
                 Ok(sync_committee) => {
@@ -3429,7 +3452,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         parent_block_slot: Slot,
     ) {
         // Do not write to eth1 finalization cache for blocks older than 5 epochs.
-        if block.slot().epoch(T::EthSpec::slots_per_epoch()) + 5 < current_epoch {
+        if block.epoch() + 5 < current_epoch {
             return;
         }
 
@@ -5854,6 +5877,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 })
             })
             .flatten()
+    }
+
+    /// The epoch that is a data availability boundary, or the latest finalized epoch.
+    /// `None` if the `Eip4844` fork is disabled.
+    pub fn finalized_data_availability_boundary(&self) -> Option<Epoch> {
+        self.data_availability_boundary().map(|boundary| {
+            std::cmp::max(
+                boundary,
+                self.canonical_head
+                    .cached_head()
+                    .finalized_checkpoint()
+                    .epoch,
+            )
+        })
     }
 
     /// Returns `true` if we are at or past the `Eip4844` fork. This will always return `false` if
