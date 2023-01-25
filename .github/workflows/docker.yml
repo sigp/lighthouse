@@ -43,7 +43,7 @@ jobs:
             VERSION: ${{ env.VERSION }}
             VERSION_SUFFIX: ${{ env.VERSION_SUFFIX }}
     build-docker-single-arch:
-        name: build-docker-${{ matrix.binary }}-${{ matrix.features.version_suffix }}
+        name: build-docker-${{ matrix.binary }}${{ matrix.features.version_suffix }}
         runs-on: ubuntu-22.04
         strategy:
             matrix:
