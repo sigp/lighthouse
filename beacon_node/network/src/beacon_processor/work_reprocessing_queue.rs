@@ -32,7 +32,7 @@ use tokio::time::error::Error as TimeError;
 use tokio_util::time::delay_queue::{DelayQueue, Key as DelayKey};
 use types::{
     Attestation, EthSpec, Hash256, LightClientOptimisticUpdate, SignedAggregateAndProof,
-    SignedBeaconBlock, SubnetId,
+    SubnetId,
 };
 
 const TASK_NAME: &str = "beacon_processor_reprocess_queue";
