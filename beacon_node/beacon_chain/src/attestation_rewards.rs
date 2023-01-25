@@ -46,7 +46,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let total_rewards = Vec::new();
 
         for flag_index in PARTICIPATION_FLAG_WEIGHTS {
-            let weight = get_flag_weight(flag_index.try_into().unwrap()).unwrap_or_default();
+            let weight = get_flag_weight(flag_index as usize)
+                .map_err(|_| BeaconChainError::AttestationRewardsSyncError)?;
 
             let unslashed_participating_indices = participation_cache
                 .get_unslashed_participating_indices(
@@ -73,15 +74,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     effective_balance_eth.safe_mul(base_reward_per_increment.as_u64())?;
 
                 let reward_numerator = base_reward
-                    .safe_mul(weight)
-                    .and_then(|reward_numerator| {
-                        reward_numerator.safe_mul(unslashed_participating_increments)
-                    })
-                    .unwrap();
+                    .safe_mul(weight)?
+                    .safe_mul(unslashed_participating_increments)?;
 
                 let ideal_reward = reward_numerator
-                    .safe_div(active_increments)
-                    .and_then(|ideal_reward| ideal_reward.safe_div(WEIGHT_DENOMINATOR))?;
+                    .safe_div(active_increments)?
+                    .safe_div(WEIGHT_DENOMINATOR)?;
                 match state {
                     Some(ref state) => {
                         if !state.is_in_inactivity_leak(previous_epoch, spec) {
@@ -130,8 +128,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             if voted_correctly {
                                 let reward = *ideal_rewards_hashmap
                                     .get(&(flag_index, effective_balance_eth))
-                                    .unwrap_or(&0)
-                                    as u64;
+                                    .unwrap_or(&0);
 
                                 if flag_index == 0 {
                                     head_reward += reward;

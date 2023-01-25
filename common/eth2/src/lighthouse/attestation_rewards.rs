@@ -35,7 +35,6 @@ pub struct TotalAttestationRewards {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
-//TODO: AttestationRewards already exists
 pub struct StandardAttestationRewards {
     pub ideal_rewards: Vec<IdealAttestationRewards>,
     pub total_rewards: Vec<TotalAttestationRewards>,
