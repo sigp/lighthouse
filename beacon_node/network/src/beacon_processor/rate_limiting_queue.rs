@@ -26,23 +26,21 @@ pub fn spawn_rate_limiting_scheduler<T: BeaconChainTypes>(
     executor.spawn(
         async move {
             loop {
-                match work_rate_limiting_rx.recv().await {
-                    Some(event) => {
-                        debug!(
+                if let Some(event) = work_rate_limiting_rx.recv().await {
+                    debug!(
+                        log,
+                        "Sending scheduled backfill work event to BeaconProcessor"
+                    );
+
+                    if schedule_work_tx
+                        .try_send(ScheduledWork::BackfillSync(event))
+                        .is_err()
+                    {
+                        error!(
                             log,
-                            "Sending scheduled backfill work event to BeaconProcessor"
+                            "Failed to send scheduled backfill work event";
                         );
-                        if schedule_work_tx
-                            .try_send(ScheduledWork::BackfillSync(event))
-                            .is_err()
-                        {
-                            error!(
-                                log,
-                                "Failed to send scheduled backfill work event";
-                            );
-                        }
                     }
-                    None => {}
                 }
 
                 let slot_duration = slot_clock.slot_duration();
