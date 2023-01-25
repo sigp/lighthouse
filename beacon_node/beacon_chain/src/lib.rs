@@ -41,6 +41,7 @@ pub mod schema_change;
 mod shuffling_cache;
 mod snapshot_cache;
 pub mod state_advance_timer;
+pub mod sync_committee_rewards;
 pub mod sync_committee_verification;
 pub mod test_utils;
 mod timeout_rw_lock;
