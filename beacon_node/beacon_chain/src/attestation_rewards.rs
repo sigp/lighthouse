@@ -8,7 +8,7 @@ use state_processing::{
     common::altair::BaseRewardPerIncrement,
     per_epoch_processing::altair::{participation_cache, rewards_and_penalties::get_flag_weight},
 };
-use std::{collections::HashMap, sync::Arc};
+use std::collections::HashMap;
 use store::consts::altair::PARTICIPATION_FLAG_WEIGHTS;
 use types::consts::altair::WEIGHT_DENOMINATOR;
 
@@ -20,22 +20,21 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn compute_attestation_rewards(
         &self,
         epoch: Epoch,
-        chain: Arc<BeaconChain<T>>,
         mut validators: Vec<usize>,
         log: Logger,
     ) -> Result<StandardAttestationRewards, BeaconChainError> {
         debug!(log, "computing attestation rewards"; "epoch" => epoch, "validator_count" => validators.len());
 
         //--- Get state ---//
-        let spec = &chain.spec;
+        let spec = &self.spec;
 
-        let execution_optimistic = chain.is_optimistic_or_invalid_head()?;
+        let _execution_optimistic = self.is_optimistic_or_invalid_head()?;
 
         let state_slot = (epoch + 1).end_slot(T::EthSpec::slots_per_epoch());
 
-        let state_root = chain.state_root_at_slot(state_slot)?;
+        let state_root = self.state_root_at_slot(state_slot)?;
 
-        let state = chain.get_state(&state_root.unwrap(), Some(state_slot))?;
+        let state = self.get_state(&state_root.unwrap(), Some(state_slot))?;
 
         //--- Calculate ideal_rewards ---//
         let participation_cache = ParticipationCache::new(state.as_ref().unwrap(), spec)?;
@@ -43,6 +42,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let previous_epoch = state.as_ref().unwrap().previous_epoch();
 
         let mut ideal_rewards_hashmap = HashMap::new();
+
+        let total_rewards = Vec::new();
 
         for flag_index in PARTICIPATION_FLAG_WEIGHTS {
             let weight = get_flag_weight(flag_index.try_into().unwrap()).unwrap_or_default();
@@ -92,64 +93,78 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     }
                     None => return Err(BeaconChainError::AttestationRewardsSyncError),
                 }
-            }
-        }
+                //--- Calculate total rewards ---//
+                let mut total_rewards = Vec::new();
 
-        //--- Calculate total rewards ---//
-        let mut total_rewards = Vec::new();
+                if validators.is_empty() {
+                    validators = participation_cache.eligible_validator_indices().to_vec();
+                }
 
-        if validators.is_empty() {
-            validators = participation_cache.eligible_validator_indices().to_vec();
-        }
+                for validator_index in &validators {
+                    let eligible = state
+                        .as_ref()
+                        .expect("State variable is None")
+                        .is_eligible_validator(previous_epoch, *validator_index)?;
 
-        for validator_index in validators {
-            let eligible = state
-                .as_ref()
-                .expect("State variable is None")
-                .is_eligible_validator(previous_epoch, validator_index)?;
+                    let effective_balance = state
+                        .as_ref()
+                        .expect("State variable is None")
+                        .get_effective_balance(*validator_index)
+                        .unwrap();
 
-            let effective_balance = state
-                .as_ref()
-                .expect("State variable is None")
-                .get_effective_balance(validator_index)
-                .unwrap();
+                    let effective_balance_eth =
+                        effective_balance.safe_div(spec.effective_balance_increment)?;
 
-            let effective_balance_eth =
-                effective_balance.safe_div(spec.effective_balance_increment)?;
+                    let mut head_reward = 0u64;
+                    let mut target_reward = 0i64;
+                    let mut source_reward = 0i64;
 
-            let mut head_reward = 0u64;
-            let mut target_reward = 0u64;
-            let mut source_reward = 0u64;
+                    for flag_index in PARTICIPATION_FLAG_WEIGHTS {
+                        if eligible {
+                            let voted_correctly = participation_cache
+                                .get_unslashed_participating_indices(
+                                    flag_index.try_into().unwrap(),
+                                    previous_epoch,
+                                )
+                                .is_ok();
+                            if voted_correctly {
+                                let reward = *ideal_rewards_hashmap
+                                    .get(&(flag_index, effective_balance_eth))
+                                    .unwrap_or(&0)
+                                    as u64;
 
-            for flag_index in PARTICIPATION_FLAG_WEIGHTS {
-                if eligible {
-                    let voted_correctly = participation_cache
-                        .get_unslashed_participating_indices(
-                            flag_index.try_into().unwrap(),
-                            previous_epoch,
-                        )
-                        .is_ok();
-                    if voted_correctly {
-                        let reward = ideal_rewards_hashmap
-                            .get(&(flag_index, effective_balance_eth))
-                            .unwrap_or(&0);
-
-                        if flag_index == 0 {
-                            head_reward += reward;
-                        } else if flag_index == 1 {
-                            target_reward += reward;
-                        } else if flag_index == 2 {
-                            source_reward += reward;
+                                if flag_index == 0 {
+                                    head_reward += reward;
+                                } else if flag_index == 1 {
+                                    target_reward += reward as i64;
+                                } else if flag_index == 2 {
+                                    source_reward += reward as i64;
+                                }
+                            } else {
+                                let penalty = if flag_index == 1 || flag_index == 2 {
+                                    !0 * base_reward
+                                        .safe_mul(weight)?
+                                        .safe_div(WEIGHT_DENOMINATOR)?
+                                        as i64
+                                } else {
+                                    0
+                                };
+                                if flag_index == 1 {
+                                    target_reward = penalty;
+                                } else if flag_index == 0 {
+                                    source_reward = penalty;
+                                }
+                            }
                         }
                     }
+                    total_rewards.push(TotalAttestationRewards {
+                        validator_index: *validator_index as u64,
+                        head: head_reward as i64,
+                        target: target_reward,
+                        source: source_reward,
+                    });
                 }
             }
-            total_rewards.push(TotalAttestationRewards {
-                validator_index: validator_index as u64,
-                head: head_reward as i64,
-                target: target_reward as i64,
-                source: source_reward as i64,
-            });
         }
 
         let ideal_rewards: Vec<IdealAttestationRewards> = ideal_rewards_hashmap
