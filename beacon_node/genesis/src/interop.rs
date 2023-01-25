@@ -10,7 +10,7 @@ use types::{
 
 pub const DEFAULT_ETH1_BLOCK_HASH: &[u8] = &[0x42; 32];
 
-fn bls_withdrawal_credentials(pubkey: &PublicKey, spec: &ChainSpec) -> Hash256 {
+pub fn bls_withdrawal_credentials(pubkey: &PublicKey, spec: &ChainSpec) -> Hash256 {
     let mut credentials = hash(&pubkey.as_ssz_bytes());
     credentials[0] = spec.bls_withdrawal_prefix_byte;
     Hash256::from_slice(&credentials)
@@ -35,42 +35,18 @@ pub fn interop_genesis_state<T: EthSpec>(
     execution_payload_header: Option<ExecutionPayloadHeader<T>>,
     spec: &ChainSpec,
 ) -> Result<BeaconState<T>, String> {
-    let eth1_timestamp = 2_u64.pow(40);
-    let amount = spec.max_effective_balance;
-
-    let datas = keypairs
-        .into_par_iter()
-        .map(|keypair| {
-            let mut data = DepositData {
-                withdrawal_credentials: bls_withdrawal_credentials(&keypair.pk, spec),
-                pubkey: keypair.pk.clone().into(),
-                amount,
-                signature: Signature::empty().into(),
-            };
-
-            data.signature = data.create_signature(&keypair.sk, spec);
-
-            data
-        })
+    let withdrawal_credentials = keypairs
+        .iter()
+        .map(|keypair| bls_withdrawal_credentials(&keypair.pk, spec))
         .collect::<Vec<_>>();
-
-    let mut state = initialize_beacon_state_from_eth1(
+    interop_genesis_state_with_withdrawal_credentials::<T>(
+        keypairs,
+        &withdrawal_credentials,
+        genesis_time,
         eth1_block_hash,
-        eth1_timestamp,
-        genesis_deposits(datas, spec)?,
         execution_payload_header,
         spec,
     )
-    .map_err(|e| format!("Unable to initialize genesis state: {:?}", e))?;
-
-    *state.genesis_time_mut() = genesis_time;
-
-    // Invalidate all the caches after all the manual state surgery.
-    state
-        .drop_all_caches()
-        .map_err(|e| format!("Unable to drop caches: {:?}", e))?;
-
-    Ok(state)
 }
 
 // returns an interop genesis state except every other
@@ -82,23 +58,52 @@ pub fn interop_genesis_state_with_eth1<T: EthSpec>(
     execution_payload_header: Option<ExecutionPayloadHeader<T>>,
     spec: &ChainSpec,
 ) -> Result<BeaconState<T>, String> {
+    let withdrawal_credentials = keypairs
+        .iter()
+        .enumerate()
+        .map(|(index, keypair)| {
+            if index % 2 == 0 {
+                bls_withdrawal_credentials(&keypair.pk, spec)
+            } else {
+                eth1_withdrawal_credentials(&keypair.pk, spec)
+            }
+        })
+        .collect::<Vec<_>>();
+    interop_genesis_state_with_withdrawal_credentials::<T>(
+        keypairs,
+        &withdrawal_credentials,
+        genesis_time,
+        eth1_block_hash,
+        execution_payload_header,
+        spec,
+    )
+}
+
+pub fn interop_genesis_state_with_withdrawal_credentials<T: EthSpec>(
+    keypairs: &[Keypair],
+    withdrawal_credentials: &[Hash256],
+    genesis_time: u64,
+    eth1_block_hash: Hash256,
+    execution_payload_header: Option<ExecutionPayloadHeader<T>>,
+    spec: &ChainSpec,
+) -> Result<BeaconState<T>, String> {
+    if keypairs.len() != withdrawal_credentials.len() {
+        return Err(format!(
+            "wrong number of withdrawal credentials, expected: {}, got: {}",
+            keypairs.len(),
+            withdrawal_credentials.len()
+        ));
+    }
+
     let eth1_timestamp = 2_u64.pow(40);
     let amount = spec.max_effective_balance;
 
-    let withdrawal_credentials = |index: usize, pubkey: &PublicKey| {
-        if index % 2 == 0 {
-            bls_withdrawal_credentials(pubkey, spec)
-        } else {
-            eth1_withdrawal_credentials(pubkey, spec)
-        }
-    };
-
     let datas = keypairs
         .into_par_iter()
-        .enumerate()
-        .map(|(index, keypair)| {
+        .zip(withdrawal_credentials.into_par_iter())
+        .map(|(keypair, &withdrawal_credentials)| {
             let mut data = DepositData {
-                withdrawal_credentials: withdrawal_credentials(index, &keypair.pk),
+                withdrawal_credentials,
                 pubkey: keypair.pk.clone().into(),
                 amount,
                 signature: Signature::empty().into(),
