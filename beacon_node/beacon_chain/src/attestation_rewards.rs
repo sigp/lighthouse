@@ -1,4 +1,4 @@
-use beacon_chain::{BeaconChain, BeaconChainTypes};
+use crate::{BeaconChain, BeaconChainError, BeaconChainTypes};
 use eth2::lighthouse::attestation_rewards::{IdealAttestationRewards, TotalAttestationRewards};
 use eth2::lighthouse::StandardAttestationRewards;
 use participation_cache::ParticipationCache;
@@ -13,8 +13,6 @@ use store::consts::altair::PARTICIPATION_FLAG_WEIGHTS;
 use types::consts::altair::WEIGHT_DENOMINATOR;
 
 use types::{Epoch, EthSpec};
-
-use crate::{beacon_chain, BeaconChainError};
 
 impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn compute_attestation_rewards(
@@ -32,14 +30,21 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let state_slot = (epoch + 1).end_slot(T::EthSpec::slots_per_epoch());
 
-        let state_root = self.state_root_at_slot(state_slot)?;
+        let state_root = self
+            .state_root_at_slot(state_slot)
+            .map_err(|e| e)?
+            .ok_or(BeaconChainError::UnableToFindTargetRoot(state_slot))?;
 
-        let state = self.get_state(&state_root.unwrap(), Some(state_slot))?;
+        let state = self
+            .get_state(&state_root, Some(state_slot))
+            .and_then(|maybe_state| {
+                maybe_state.ok_or(BeaconChainError::MissingBeaconState(state_root))
+            })?;
 
         //--- Calculate ideal_rewards ---//
-        let participation_cache = ParticipationCache::new(state.as_ref().unwrap(), spec)?;
+        let participation_cache = ParticipationCache::new(&state, spec)?;
 
-        let previous_epoch = state.as_ref().unwrap().previous_epoch();
+        let previous_epoch = state.previous_epoch();
 
         let mut ideal_rewards_hashmap = HashMap::new();
 
@@ -50,10 +55,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .map_err(|_| BeaconChainError::AttestationRewardsSyncError)?;
 
             let unslashed_participating_indices = participation_cache
-                .get_unslashed_participating_indices(
-                    flag_index.try_into().unwrap(),
-                    previous_epoch,
-                )?;
+                .get_unslashed_participating_indices(flag_index as usize, previous_epoch)?;
 
             let unslashed_participating_balance =
                 unslashed_participating_indices.total_balance().unwrap();
@@ -80,16 +82,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 let ideal_reward = reward_numerator
                     .safe_div(active_increments)?
                     .safe_div(WEIGHT_DENOMINATOR)?;
-                match state {
-                    Some(ref state) => {
-                        if !state.is_in_inactivity_leak(previous_epoch, spec) {
-                            ideal_rewards_hashmap
-                                .insert((flag_index, effective_balance_eth), ideal_reward);
-                        } else {
-                            ideal_rewards_hashmap.insert((flag_index, effective_balance_eth), 0);
-                        }
-                    }
-                    None => return Err(BeaconChainError::AttestationRewardsSyncError),
+                if !state.is_in_inactivity_leak(previous_epoch, spec) {
+                    ideal_rewards_hashmap.insert((flag_index, effective_balance_eth), ideal_reward);
+                } else {
+                    ideal_rewards_hashmap.insert((flag_index, effective_balance_eth), 0);
                 }
                 //--- Calculate total rewards ---//
                 let mut total_rewards = Vec::new();
@@ -99,16 +95,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 }
 
                 for validator_index in &validators {
-                    let eligible = state
-                        .as_ref()
-                        .expect("State variable is None")
-                        .is_eligible_validator(previous_epoch, *validator_index)?;
+                    let eligible = state.is_eligible_validator(previous_epoch, *validator_index)?;
 
-                    let effective_balance = state
-                        .as_ref()
-                        .expect("State variable is None")
-                        .get_effective_balance(*validator_index)
-                        .unwrap();
+                    let effective_balance = state.get_effective_balance(*validator_index)?;
 
                     let effective_balance_eth =
                         effective_balance.safe_div(spec.effective_balance_increment)?;
@@ -121,7 +110,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         if eligible {
                             let voted_correctly = participation_cache
                                 .get_unslashed_participating_indices(
-                                    flag_index.try_into().unwrap(),
+                                    flag_index as usize,
                                     previous_epoch,
                                 )
                                 .is_ok();
