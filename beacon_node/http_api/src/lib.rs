@@ -35,6 +35,7 @@ use eth2::types::{
 use lighthouse_network::{types::SyncState, EnrExt, NetworkGlobals, PeerId, PubsubMessage};
 use lighthouse_version::version_with_platform;
 use network::{NetworkMessage, NetworkSenders, ValidatorSubscriptionMessage};
+use operation_pool::CapellaBroadcast;
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use slog::{crit, debug, error, info, warn, Logger};
@@ -1696,8 +1697,12 @@ pub fn serve<T: BeaconChainTypes>(
                                     .to_execution_address;
 
                                 // New to P2P *and* op pool, gossip immediately if post-Capella.
-                                let publish = chain.current_slot_is_post_capella().unwrap_or(false);
-                                if publish {
+                                let capella_broadcast = if chain.current_slot_is_post_capella().unwrap_or(false) {
+                                    CapellaBroadcast::No
+                                } else {
+                                    CapellaBroadcast::Yes
+                                };
+                                if matches!(capella_broadcast, CapellaBroadcast::Yes) {
                                     publish_pubsub_message(
                                         &network_tx,
                                         PubsubMessage::BlsToExecutionChange(Box::new(
@@ -1708,14 +1713,14 @@ pub fn serve<T: BeaconChainTypes>(
 
                                 // Import to op pool (may return `false` if there's a race).
                                 let imported =
-                                    chain.import_bls_to_execution_change(verified_address_change);
+                                    chain.import_bls_to_execution_change(verified_address_change, capella_broadcast);
 
                                 info!(
                                     log,
                                     "Processed BLS to execution change";
                                     "validator_index" => validator_index,
                                     "address" => ?address,
-                                    "published" => publish,
+                                    "published" => matches!(capella_broadcast, CapellaBroadcast::Yes),
                                     "imported" => imported,
                                 );
                             }

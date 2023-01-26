@@ -1,10 +1,34 @@
 use state_processing::SigVerifiedOp;
-use std::collections::{hash_map::Entry, HashMap};
+use std::collections::{hash_map::Entry, HashMap, HashSet};
 use std::sync::Arc;
 use types::{
-    AbstractExecPayload, BeaconState, ChainSpec, EthSpec, SignedBeaconBlock,
+    AbstractExecPayload, BeaconState, ChainSpec, Epoch, EthSpec, SignedBeaconBlock,
     SignedBlsToExecutionChange,
 };
+
+/// Indicates if a `BlsToExecutionChange` should be broadcast at the Capella
+/// fork epoch.
+#[derive(Copy, Clone)]
+pub enum CapellaBroadcast {
+    Yes,
+    No,
+}
+
+impl CapellaBroadcast {
+    /// Be instantiate to `CapellaBroadcast::Yes` if the `received_epoch` is
+    /// prior to the Capella fork epoch (or if the Capella fork epoch is not yet
+    /// defined).
+    pub fn new(received_epoch: Epoch, spec: &ChainSpec) -> Self {
+        if spec
+            .capella_fork_epoch
+            .map_or(true, |capella| received_epoch < capella)
+        {
+            CapellaBroadcast::Yes
+        } else {
+            CapellaBroadcast::No
+        }
+    }
+}
 
 /// Pool of BLS to execution changes that maintains a LIFO queue and an index by validator.
 ///
@@ -16,6 +40,9 @@ pub struct BlsToExecutionChanges<T: EthSpec> {
     by_validator_index: HashMap<u64, Arc<SigVerifiedOp<SignedBlsToExecutionChange, T>>>,
     /// Last-in-first-out (LIFO) queue of verified messages.
     queue: Vec<Arc<SigVerifiedOp<SignedBlsToExecutionChange, T>>>,
+    /// Contains a set of validator indices which need to have their changes
+    /// broadcast at the capella epoch.
+    capella_broadcast_indices: HashSet<u64>,
 }
 
 impl<T: EthSpec> BlsToExecutionChanges<T> {
@@ -31,16 +58,18 @@ impl<T: EthSpec> BlsToExecutionChanges<T> {
     pub fn insert(
         &mut self,
         verified_change: SigVerifiedOp<SignedBlsToExecutionChange, T>,
+        capella_broadcast: CapellaBroadcast,
     ) -> bool {
+        let validator_index = verified_change.as_inner().message.validator_index;
         // Wrap in an `Arc` once on insert.
         let verified_change = Arc::new(verified_change);
-        match self
-            .by_validator_index
-            .entry(verified_change.as_inner().message.validator_index)
-        {
+        match self.by_validator_index.entry(validator_index) {
             Entry::Vacant(entry) => {
                 self.queue.push(verified_change.clone());
                 entry.insert(verified_change);
+                if matches!(capella_broadcast, CapellaBroadcast::Yes) {
+                    self.capella_broadcast_indices.insert(validator_index);
+                }
                 true
             }
             Entry::Occupied(_) => false,

@@ -12,6 +12,7 @@ use beacon_chain::{
     GossipVerifiedBlock, NotifyExecutionLayer,
 };
 use lighthouse_network::{Client, MessageAcceptance, MessageId, PeerAction, PeerId, ReportSource};
+use operation_pool::CapellaBroadcast;
 use slog::{crit, debug, error, info, trace, warn};
 use slot_clock::SlotClock;
 use ssz::Encode;
@@ -1251,7 +1252,11 @@ impl<T: BeaconChainTypes> Worker<T> {
 
         self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
 
-        self.chain.import_bls_to_execution_change(change);
+        // Messages received from gossip don't need to be re-broadcast.
+        let capella_broadcast = CapellaBroadcast::No;
+
+        self.chain
+            .import_bls_to_execution_change(change, capella_broadcast);
 
         debug!(
             self.log,

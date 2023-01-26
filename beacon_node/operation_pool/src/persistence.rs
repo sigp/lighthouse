@@ -1,6 +1,6 @@
 use crate::attestation_id::AttestationId;
 use crate::attestation_storage::AttestationMap;
-use crate::bls_to_execution_changes::BlsToExecutionChanges;
+use crate::bls_to_execution_changes::{BlsToExecutionChanges, CapellaBroadcast};
 use crate::sync_aggregate_id::SyncAggregateId;
 use crate::OpPoolError;
 use crate::OperationPool;
@@ -9,6 +9,8 @@ use parking_lot::RwLock;
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use state_processing::SigVerifiedOp;
+use std::collections::HashSet;
+use std::mem;
 use store::{DBColumn, Error as StoreError, StoreItem};
 use types::*;
 
@@ -19,7 +21,7 @@ type PersistedSyncContributions<T> = Vec<(SyncAggregateId, Vec<SyncCommitteeCont
 /// Operations are stored in arbitrary order, so it's not a good idea to compare instances
 /// of this type (or its encoded form) for equality. Convert back to an `OperationPool` first.
 #[superstruct(
-    variants(V5, V12, V14),
+    variants(V5, V12, V14, V15),
     variant_attributes(
         derive(Derivative, PartialEq, Debug, Encode, Decode),
         derivative(Clone),
@@ -58,6 +60,10 @@ pub struct PersistedOperationPool<T: EthSpec> {
     /// BLS to Execution Changes
     #[superstruct(only(V14))]
     pub bls_to_execution_changes: Vec<SigVerifiedOp<SignedBlsToExecutionChange, T>>,
+    /// Validator indices with BLS to Execution Changes to be broadcast at the
+    /// Capella fork.
+    #[superstruct(only(V15))]
+    pub capella_bls_change_broadcast_indices: Vec<u64>,
 }
 
 impl<T: EthSpec> PersistedOperationPool<T> {
@@ -121,7 +127,7 @@ impl<T: EthSpec> PersistedOperationPool<T> {
     }
 
     /// Reconstruct an `OperationPool`.
-    pub fn into_operation_pool(self) -> Result<OperationPool<T>, OpPoolError> {
+    pub fn into_operation_pool(mut self) -> Result<OperationPool<T>, OpPoolError> {
         let attester_slashings = RwLock::new(self.attester_slashings()?.iter().cloned().collect());
         let proposer_slashings = RwLock::new(
             self.proposer_slashings()?
@@ -142,33 +148,70 @@ impl<T: EthSpec> PersistedOperationPool<T> {
             PersistedOperationPool::V5(_) | PersistedOperationPool::V12(_) => {
                 return Err(OpPoolError::IncorrectOpPoolVariant)
             }
-            PersistedOperationPool::V14(ref pool) => {
+            PersistedOperationPool::V14(_) | PersistedOperationPool::V15(_) => {
                 let mut map = AttestationMap::default();
-                for (att, attesting_indices) in pool.attestations.clone() {
+                for (att, attesting_indices) in self.attestations()?.clone() {
                     map.insert(att, attesting_indices);
                 }
                 RwLock::new(map)
             }
         };
+        let mut bls_to_execution_changes = BlsToExecutionChanges::default();
+        if let Ok(persisted_changes) = self.bls_to_execution_changes_mut() {
+            let persisted_changes = mem::take(persisted_changes);
+
+            let broadcast_indices =
+                if let Ok(indices) = self.capella_bls_change_broadcast_indices_mut() {
+                    mem::take(indices).into_iter().collect()
+                } else {
+                    HashSet::new()
+                };
+
+            for bls_to_execution_change in persisted_changes {
+                let capella_broadcast = if broadcast_indices
+                    .contains(&bls_to_execution_change.as_inner().message.validator_index)
+                {
+                    CapellaBroadcast::Yes
+                } else {
+                    CapellaBroadcast::No
+                };
+                bls_to_execution_changes.insert(bls_to_execution_change, capella_broadcast);
+            }
+        }
+        /*
         let bls_to_execution_changes = match self {
             PersistedOperationPool::V5(_) | PersistedOperationPool::V12(_) => {
                 return Err(OpPoolError::IncorrectOpPoolVariant)
             }
-            PersistedOperationPool::V14(pool) => {
+            PersistedOperationPool::V14(pool) | PersistedOperationPool::V15(pool) => {
                 let mut bls_to_execution_changes = BlsToExecutionChanges::default();
+                let broadcast_indices =
+                    if let Some(indices) = pool.capella_bls_change_broadcast_indices() {
+                        indices
+                    } else {
+                        HashSet::new()
+                    };
                 for bls_to_execution_change in pool.bls_to_execution_changes {
-                    bls_to_execution_changes.insert(bls_to_execution_change);
+                    let capella_broadcast = if broadcast_indices
+                        .contains(bls_to_execution_change.message.validator_index)
+                    {
+                        CapellaBroadcast::Yes
+                    } else {
+                        CapellaBroadcast::No
+                    };
+                    bls_to_execution_changes.insert(bls_to_execution_change, capella_broadcast);
                 }
                 RwLock::new(bls_to_execution_changes)
             }
         };
+        */
         let op_pool = OperationPool {
             attestations,
             sync_contributions,
             attester_slashings,
             proposer_slashings,
             voluntary_exits,
-            bls_to_execution_changes,
+            bls_to_execution_changes: RwLock::new(bls_to_execution_changes),
             reward_cache: Default::default(),
             _phantom: Default::default(),
         };

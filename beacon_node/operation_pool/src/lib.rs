@@ -9,6 +9,7 @@ mod persistence;
 mod reward_cache;
 mod sync_aggregate_id;
 
+pub use crate::bls_to_execution_changes::CapellaBroadcast;
 pub use attestation::AttMaxCover;
 pub use attestation_storage::{AttestationRef, SplitAttestation};
 pub use max_cover::MaxCover;
@@ -533,10 +534,11 @@ impl<T: EthSpec> OperationPool<T> {
     pub fn insert_bls_to_execution_change(
         &self,
         verified_change: SigVerifiedOp<SignedBlsToExecutionChange, T>,
+        capella_broadcast: CapellaBroadcast,
     ) -> bool {
         self.bls_to_execution_changes
             .write()
-            .insert(verified_change)
+            .insert(verified_change, capella_broadcast)
     }
 
     /// Get a list of execution changes for inclusion in a block.
