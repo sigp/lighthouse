@@ -26,8 +26,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         //--- Get state ---//
         let spec = &self.spec;
 
-        let _execution_optimistic = self.is_optimistic_or_invalid_head()?;
-
         let state_slot = (epoch + 1).end_slot(T::EthSpec::slots_per_epoch());
 
         let state_root = self
@@ -114,16 +112,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                                 )
                                 .is_ok();
                             if voted_correctly {
-                                let reward = *ideal_rewards_hashmap
+                                let reward = ideal_rewards_hashmap
                                     .get(&(flag_index, effective_balance_eth))
-                                    .unwrap_or(&0);
+                                    .ok_or(BeaconChainError::AttestationRewardsSyncError)?;
 
                                 if flag_index == 0 {
                                     head_reward += reward;
                                 } else if flag_index == 1 {
-                                    target_reward += reward as i64;
+                                    target_reward += *reward as i64;
                                 } else if flag_index == 2 {
-                                    source_reward += reward as i64;
+                                    source_reward += *reward as i64;
                                 }
                             } else {
                                 let penalty = if flag_index == 1 || flag_index == 2 {

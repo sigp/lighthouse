@@ -1734,8 +1734,12 @@ pub fn serve<T: BeaconChainTypes>(
                                 e
                             )),
                         })?;
+                    let execution_optimistic =
+                        chain.is_optimistic_or_invalid_head().unwrap_or_default();
 
-                    Ok(attestation_rewards).map(api_types::GenericResponse::from)
+                    Ok(attestation_rewards)
+                        .map(api_types::GenericResponse::from)
+                        .map(|resp| resp.add_execution_optimistic(execution_optimistic))
                 })
             },
         );
