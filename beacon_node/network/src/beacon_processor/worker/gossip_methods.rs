@@ -726,7 +726,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         let verification_result = self
             .chain
             .clone()
-            .verify_block_for_gossip(block.clone().into())
+            .verify_block_for_gossip(block.clone())
             .await;
 
         let block_root = if let Ok(verified_block) = &verification_result {

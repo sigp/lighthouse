@@ -409,14 +409,14 @@ impl ProtocolId {
     /// beginning of the stream, else returns `false`.
     pub fn has_context_bytes(&self) -> bool {
         match self.version {
-            Version::V2 => match self.message_name {
-                Protocol::BlocksByRange | Protocol::BlocksByRoot => return true,
-                _ => return false,
-            },
-            Version::V1 => match self.message_name {
-                Protocol::BlobsByRange | Protocol::BlobsByRoot => return true,
-                _ => return false,
-            },
+            Version::V2 => matches!(
+                self.message_name,
+                Protocol::BlobsByRange | Protocol::BlobsByRoot
+            ),
+            Version::V1 => matches!(
+                self.message_name,
+                Protocol::BlobsByRange | Protocol::BlobsByRoot
+            ),
         }
     }
 }

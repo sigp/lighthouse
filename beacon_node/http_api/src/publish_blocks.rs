@@ -46,9 +46,9 @@ pub async fn publish_block<T: BeaconChainTypes>(
                 block_and_blobs.into()
             } else {
                 //FIXME(sean): This should probably return a specific no-blob-cached error code, beacon API coordination required
-                return Err(warp_utils::reject::broadcast_without_import(format!(
-                    "no blob cached for block"
-                )));
+                return Err(warp_utils::reject::broadcast_without_import(
+                    "no blob cached for block".into(),
+                ));
             }
         } else {
             crate::publish_pubsub_message(network_tx, PubsubMessage::BeaconBlock(block.clone()))?;

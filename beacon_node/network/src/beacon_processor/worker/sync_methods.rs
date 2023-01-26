@@ -282,10 +282,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         count_unrealized: CountUnrealized,
         notify_execution_layer: NotifyExecutionLayer,
     ) -> (usize, Result<(), ChainSegmentFailed>) {
-        let blocks: Vec<_> = downloaded_blocks
-            .cloned()
-            .map(|block| block.into())
-            .collect();
+        let blocks: Vec<_> = downloaded_blocks.cloned().collect();
         match self
             .chain
             .process_chain_segment(blocks, count_unrealized, notify_execution_layer)

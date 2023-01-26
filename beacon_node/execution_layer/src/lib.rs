@@ -38,16 +38,21 @@ use tokio::{
     time::sleep,
 };
 use tokio_stream::wrappers::WatchStream;
+<<<<<<< HEAD
 use types::consts::eip4844::BLOB_TX_TYPE;
 use types::transaction::{AccessTuple, BlobTransaction};
 use types::{AbstractExecPayload, BeaconStateError, Blob, ExecPayload, KzgCommitment};
+=======
+use types::{
+    blobs_sidecar::{Blobs, KzgCommitments},
+    ExecutionPayload, ExecutionPayloadCapella, ExecutionPayloadEip4844, ExecutionPayloadMerge,
+};
+use types::{AbstractExecPayload, BeaconStateError, ExecPayload};
+>>>>>>> d1678db12 (Fix rebase conflicts)
 use types::{
     BlindedPayload, BlockType, ChainSpec, Epoch, ExecutionBlockHash, ForkName,
     ProposerPreparationData, PublicKeyBytes, Signature, SignedBeaconBlock, Slot, Transaction,
     Uint256,
-};
-use types::{
-    ExecutionPayload, ExecutionPayloadCapella, ExecutionPayloadEip4844, ExecutionPayloadMerge,
 };
 
 mod block_hash;
@@ -130,31 +135,53 @@ pub enum BlockProposalContents<T: EthSpec, Payload: AbstractExecPayload<T>> {
     },
     PayloadAndBlobs {
         payload: Payload,
+<<<<<<< HEAD
         block_value: Uint256,
         kzg_commitments: VariableList<KzgCommitment, T::MaxBlobsPerBlock>,
         blobs: VariableList<Blob<T>, T::MaxBlobsPerBlock>,
+=======
+        kzg_commitments: KzgCommitments<T>,
+        blobs: Blobs<T>,
+>>>>>>> d1678db12 (Fix rebase conflicts)
     },
 }
 
+pub struct BlockProposalBlobsContents<T: EthSpec> {
+    pub kzg_commitments: KzgCommitments<T>,
+    pub blobs: Blobs<T>,
+}
+
+pub struct BlockProposalContentsDeconstructed<T: EthSpec, Payload: AbstractExecPayload<T>> {
+    pub payload: Payload,
+    pub blobs_content: Option<BlockProposalBlobsContents<T>>,
+}
+
 impl<T: EthSpec, Payload: AbstractExecPayload<T>> BlockProposalContents<T, Payload> {
-    pub fn deconstruct(
-        self,
-    ) -> (
-        Payload,
-        Option<VariableList<KzgCommitment, T::MaxBlobsPerBlock>>,
-        Option<VariableList<Blob<T>, T::MaxBlobsPerBlock>>,
-    ) {
+    pub fn deconstruct(self) -> BlockProposalContentsDeconstructed<T, Payload> {
         match self {
+<<<<<<< HEAD
             Self::Payload {
                 payload,
                 block_value: _,
             } => (payload, None, None),
+=======
+            Self::Payload(payload) => BlockProposalContentsDeconstructed {
+                payload,
+                blobs_content: None,
+            },
+>>>>>>> d1678db12 (Fix rebase conflicts)
             Self::PayloadAndBlobs {
                 payload,
                 block_value: _,
                 kzg_commitments,
                 blobs,
-            } => (payload, Some(kzg_commitments), Some(blobs)),
+            } => BlockProposalContentsDeconstructed {
+                payload,
+                blobs_content: Some(BlockProposalBlobsContents {
+                    kzg_commitments,
+                    blobs,
+                }),
+            },
         }
     }
 

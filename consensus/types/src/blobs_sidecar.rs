@@ -1,5 +1,5 @@
 use crate::test_utils::TestRandom;
-use crate::{Blob, EthSpec, Hash256, SignedRoot, Slot};
+use crate::{Blob, EthSpec, Hash256, KzgCommitment, SignedRoot, Slot};
 use derivative::Derivative;
 use kzg::KzgProof;
 use serde_derive::{Deserialize, Serialize};
@@ -8,6 +8,9 @@ use ssz_derive::{Decode, Encode};
 use ssz_types::VariableList;
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
+
+pub type KzgCommitments<T> = VariableList<KzgCommitment, <T as EthSpec>::MaxBlobsPerBlock>;
+pub type Blobs<T> = VariableList<Blob<T>, <T as EthSpec>::MaxBlobsPerBlock>;
 
 #[derive(
     Debug,
@@ -29,7 +32,7 @@ pub struct BlobsSidecar<T: EthSpec> {
     pub beacon_block_root: Hash256,
     pub beacon_block_slot: Slot,
     #[serde(with = "ssz_types::serde_utils::list_of_hex_fixed_vec")]
-    pub blobs: VariableList<Blob<T>, T::MaxBlobsPerBlock>,
+    pub blobs: Blobs<T>,
     pub kzg_aggregated_proof: KzgProof,
 }
 
