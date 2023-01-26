@@ -38,13 +38,13 @@ use tokio::{
     time::sleep,
 };
 use tokio_stream::wrappers::WatchStream;
+use types::consts::eip4844::BLOB_TX_TYPE;
+use types::transaction::{AccessTuple, BlobTransaction};
 use types::{
     blobs_sidecar::{Blobs, KzgCommitments},
     ExecutionPayload, ExecutionPayloadCapella, ExecutionPayloadEip4844, ExecutionPayloadMerge,
 };
 use types::{AbstractExecPayload, BeaconStateError, ExecPayload};
-use types::consts::eip4844::BLOB_TX_TYPE;
-use types::transaction::{AccessTuple, BlobTransaction};
 use types::{
     BlindedPayload, BlockType, ChainSpec, Epoch, ExecutionBlockHash, ForkName,
     ProposerPreparationData, PublicKeyBytes, Signature, SignedBeaconBlock, Slot, Transaction,
@@ -131,7 +131,7 @@ pub enum BlockProposalContents<T: EthSpec, Payload: AbstractExecPayload<T>> {
     },
     PayloadAndBlobs {
         payload: Payload,
-block_value: Uint256,
+        block_value: Uint256,
         kzg_commitments: KzgCommitments<T>,
     },
 }

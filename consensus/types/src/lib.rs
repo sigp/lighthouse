@@ -177,8 +177,8 @@ pub use crate::signed_beacon_block::{
     SignedBlindedBeaconBlock,
 };
 pub use crate::signed_beacon_block_header::SignedBeaconBlockHeader;
+pub use crate::signed_block_and_blobs::SignedBeaconBlockAndBlobsSidecar;
 pub use crate::signed_block_and_blobs::SignedBeaconBlockAndBlobsSidecarDecode;
-pub use crate::signed_block_and_blobs::{BlockWrapper, SignedBeaconBlockAndBlobsSidecar};
 pub use crate::signed_bls_to_execution_change::SignedBlsToExecutionChange;
 pub use crate::signed_contribution_and_proof::SignedContributionAndProof;
 pub use crate::signed_voluntary_exit::SignedVoluntaryExit;

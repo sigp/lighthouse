@@ -1,7 +1,11 @@
 #![cfg(not(debug_assertions))]
 
-use beacon_chain::test_utils::{
-    AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralTestingSlotClockHarnessType,
+use beacon_chain::{
+    blob_verification::{AsBlock, BlockWrapper},
+    test_utils::{
+        AttestationStrategy, BeaconChainHarness, BlockStrategy,
+        EphemeralTestingSlotClockHarnessType,
+    },
 };
 use beacon_chain::{BeaconSnapshot, BlockError, ChainSegmentResult, NotifyExecutionLayer};
 use fork_choice::CountUnrealized;
@@ -16,7 +20,6 @@ use state_processing::{
 use std::marker::PhantomData;
 use std::sync::Arc;
 use tempfile::tempdir;
-use types::signed_block_and_blobs::BlockWrapper;
 use types::{test_utils::generate_deterministic_keypair, *};
 
 type E = MainnetEthSpec;
@@ -173,7 +176,7 @@ async fn chain_segment_full_segment() {
 
     assert_eq!(
         harness.head_block_root(),
-        blocks.last().unwrap().block().canonical_root(),
+        blocks.last().unwrap().canonical_root(),
         "harness should have last block as head"
     );
 }
@@ -210,7 +213,7 @@ async fn chain_segment_varying_chunk_size() {
 
         assert_eq!(
             harness.head_block_root(),
-            blocks.last().unwrap().block().canonical_root(),
+            blocks.last().unwrap().canonical_root(),
             "harness should have last block as head"
         );
     }
@@ -254,7 +257,8 @@ async fn chain_segment_non_linear_parent_roots() {
         .into_iter()
         .map(|block| block.into())
         .collect();
-    let (mut block, signature) = blocks[3].block().clone().deconstruct();
+
+    let (mut block, signature) = blocks[3].as_block().clone().deconstruct();
     *block.parent_root_mut() = Hash256::zero();
     blocks[3] = Arc::new(SignedBeaconBlock::from_block(block, signature)).into();
 
@@ -288,7 +292,7 @@ async fn chain_segment_non_linear_slots() {
         .into_iter()
         .map(|block| block.into())
         .collect();
-    let (mut block, signature) = blocks[3].block().clone().deconstruct();
+    let (mut block, signature) = blocks[3].as_block().clone().deconstruct();
     *block.slot_mut() = Slot::new(0);
     blocks[3] = Arc::new(SignedBeaconBlock::from_block(block, signature)).into();
 
@@ -312,7 +316,7 @@ async fn chain_segment_non_linear_slots() {
         .into_iter()
         .map(|block| block.into())
         .collect();
-    let (mut block, signature) = blocks[3].block().clone().deconstruct();
+    let (mut block, signature) = blocks[3].as_block().clone().deconstruct();
     *block.slot_mut() = blocks[2].slot();
     blocks[3] = Arc::new(SignedBeaconBlock::from_block(block, signature)).into();
 
