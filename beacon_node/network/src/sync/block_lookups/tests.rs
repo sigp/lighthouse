@@ -9,11 +9,12 @@ use super::*;
 use beacon_chain::{
     builder::Witness,
     eth1_chain::CachingEth1Backend,
-    test_utils::{BeaconChainHarness, EphemeralSystemTimeSlotClockHarnessType as HarnessType},
+    test_utils::{
+        build_log, BeaconChainHarness, EphemeralSystemTimeSlotClockHarnessType as HarnessType,
+    },
 };
 pub use genesis::{interop_genesis_state, DEFAULT_ETH1_BLOCK_HASH};
 use lighthouse_network::{NetworkGlobals, Request};
-use slog::{Drain, Level};
 use slot_clock::SystemTimeSlotClock;
 use std::time::Duration;
 use store::MemoryStore;
@@ -34,24 +35,14 @@ struct TestRig {
 const D: Duration = Duration::new(0, 0);
 
 impl TestRig {
-    fn test_setup(log_level: Option<Level>) -> (BlockLookups<T>, SyncNetworkContext<T>, Self) {
-        let log = {
-            let decorator = slog_term::TermDecorator::new().build();
-            let drain = slog_term::FullFormat::new(decorator).build().fuse();
-            let drain = slog_async::Async::new(drain).build().fuse();
-
-            if let Some(log_level) = log_level {
-                slog::Logger::root(drain.filter_level(log_level).fuse(), slog::o!())
-            } else {
-                slog::Logger::root(drain.filter(|_| false).fuse(), slog::o!())
-            }
-        };
+    fn test_setup(enable_log: bool) -> (BlockLookups<T>, SyncNetworkContext<T>, Self) {
+        let log = build_log(slog::Level::Debug, enable_log);
 
         // Initialise a new beacon chain
         let harness = BeaconChainHarness::<HarnessType<E>>::builder(E::default())
             .default_spec()
             .logger(log.clone())
-            .deterministic_keypairs(8)
+            .deterministic_keypairs(1)
             .fresh_ephemeral_store()
             .build();
 
@@ -164,7 +155,7 @@ impl TestRig {
 
 #[test]
 fn test_single_block_lookup_happy_path() {
-    let (mut bl, mut cx, mut rig) = TestRig::test_setup(None);
+    let (mut bl, mut cx, mut rig) = TestRig::test_setup(false);
 
     let block = rig.rand_block();
     let peer_id = PeerId::random();
@@ -192,7 +183,7 @@ fn test_single_block_lookup_happy_path() {
 
 #[test]
 fn test_single_block_lookup_empty_response() {
-    let (mut bl, mut cx, mut rig) = TestRig::test_setup(None);
+    let (mut bl, mut cx, mut rig) = TestRig::test_setup(false);
 
     let block_hash = Hash256::random();
     let peer_id = PeerId::random();
@@ -210,7 +201,7 @@ fn test_single_block_lookup_empty_response() {
 
 #[test]
 fn test_single_block_lookup_wrong_response() {
-    let (mut bl, mut cx, mut rig) = TestRig::test_setup(None);
+    let (mut bl, mut cx, mut rig) = TestRig::test_setup(false);
 
     let block_hash = Hash256::random();
     let peer_id = PeerId::random();
@@ -232,7 +223,7 @@ fn test_single_block_lookup_wrong_response() {
 
 #[test]
 fn test_single_block_lookup_failure() {
-    let (mut bl, mut cx, mut rig) = TestRig::test_setup(None);
+    let (mut bl, mut cx, mut rig) = TestRig::test_setup(false);
 
     let block_hash = Hash256::random();
     let peer_id = PeerId::random();
@@ -249,7 +240,7 @@ fn test_single_block_lookup_failure() {
 
 #[test]
 fn test_single_block_lookup_becomes_parent_request() {
-    let (mut bl, mut cx, mut rig) = TestRig::test_setup(None);
+    let (mut bl, mut cx, mut rig) = TestRig::test_setup(false);
 
     let block = rig.rand_block();
     let peer_id = PeerId::random();
@@ -278,7 +269,7 @@ fn test_single_block_lookup_becomes_parent_request() {
 
 #[test]
 fn test_parent_lookup_happy_path() {
-    let (mut bl, mut cx, mut rig) = TestRig::test_setup(None);
+    let (mut bl, mut cx, mut rig) = TestRig::test_setup(false);
 
     let parent = rig.rand_block();
     let block = rig.block_with_parent(parent.canonical_root());
@@ -306,7 +297,7 @@ fn test_parent_lookup_happy_path() {
 
 #[test]
 fn test_parent_lookup_wrong_response() {
-    let (mut bl, mut cx, mut rig) = TestRig::test_setup(None);
+    let (mut bl, mut cx, mut rig) = TestRig::test_setup(false);
 
     let parent = rig.rand_block();
     let block = rig.block_with_parent(parent.canonical_root());
@@ -343,7 +334,7 @@ fn test_parent_lookup_wrong_response() {
 
 #[test]
 fn test_parent_lookup_empty_response() {
-    let (mut bl, mut cx, mut rig) = TestRig::test_setup(None);
+    let (mut bl, mut cx, mut rig) = TestRig::test_setup(false);
 
     let parent = rig.rand_block();
     let block = rig.block_with_parent(parent.canonical_root());
@@ -375,7 +366,7 @@ fn test_parent_lookup_empty_response() {
 
 #[test]
 fn test_parent_lookup_rpc_failure() {
-    let (mut bl, mut cx, mut rig) = TestRig::test_setup(None);
+    let (mut bl, mut cx, mut rig) = TestRig::test_setup(false);
 
     let parent = rig.rand_block();
     let block = rig.block_with_parent(parent.canonical_root());
@@ -414,7 +405,7 @@ fn test_parent_lookup_rpc_failure() {
 
 #[test]
 fn test_parent_lookup_too_many_attempts() {
-    let (mut bl, mut cx, mut rig) = TestRig::test_setup(None);
+    let (mut bl, mut cx, mut rig) = TestRig::test_setup(false);
 
     let parent = rig.rand_block();
     let block = rig.block_with_parent(parent.canonical_root());
@@ -458,7 +449,7 @@ fn test_parent_lookup_too_many_attempts() {
 
 #[test]
 fn test_parent_lookup_too_many_download_attempts_no_blacklist() {
-    let (mut bl, mut cx, mut rig) = TestRig::test_setup(None);
+    let (mut bl, mut cx, mut rig) = TestRig::test_setup(false);
 
     let parent = rig.rand_block();
     let block = rig.block_with_parent(parent.canonical_root());
@@ -500,7 +491,7 @@ fn test_parent_lookup_too_many_download_attempts_no_blacklist() {
 #[test]
 fn test_parent_lookup_too_many_processing_attempts_must_blacklist() {
     const PROCESSING_FAILURES: u8 = parent_lookup::PARENT_FAIL_TOLERANCE / 2 + 1;
-    let (mut bl, mut cx, mut rig) = TestRig::test_setup(None);
+    let (mut bl, mut cx, mut rig) = TestRig::test_setup(false);
 
     let parent = Arc::new(rig.rand_block());
     let block = rig.block_with_parent(parent.canonical_root());
@@ -542,7 +533,7 @@ fn test_parent_lookup_too_many_processing_attempts_must_blacklist() {
 
 #[test]
 fn test_parent_lookup_too_deep() {
-    let (mut bl, mut cx, mut rig) = TestRig::test_setup(None);
+    let (mut bl, mut cx, mut rig) = TestRig::test_setup(false);
     let mut blocks =
         Vec::<SignedBeaconBlock<E>>::with_capacity(parent_lookup::PARENT_DEPTH_TOLERANCE);
     while blocks.len() < parent_lookup::PARENT_DEPTH_TOLERANCE {
@@ -581,7 +572,7 @@ fn test_parent_lookup_too_deep() {
 
 #[test]
 fn test_parent_lookup_disconnection() {
-    let (mut bl, mut cx, mut rig) = TestRig::test_setup(None);
+    let (mut bl, mut cx, mut rig) = TestRig::test_setup(false);
     let peer_id = PeerId::random();
     let trigger_block = rig.rand_block();
     bl.search_parent(
@@ -596,7 +587,7 @@ fn test_parent_lookup_disconnection() {
 
 #[test]
 fn test_single_block_lookup_ignored_response() {
-    let (mut bl, mut cx, mut rig) = TestRig::test_setup(None);
+    let (mut bl, mut cx, mut rig) = TestRig::test_setup(false);
 
     let block = rig.rand_block();
     let peer_id = PeerId::random();
@@ -625,7 +616,7 @@ fn test_single_block_lookup_ignored_response() {
 
 #[test]
 fn test_parent_lookup_ignored_response() {
-    let (mut bl, mut cx, mut rig) = TestRig::test_setup(None);
+    let (mut bl, mut cx, mut rig) = TestRig::test_setup(false);
 
     let parent = rig.rand_block();
     let block = rig.block_with_parent(parent.canonical_root());
@@ -650,7 +641,7 @@ fn test_parent_lookup_ignored_response() {
 /// This is a regression test.
 #[test]
 fn test_same_chain_race_condition() {
-    let (mut bl, mut cx, mut rig) = TestRig::test_setup(Some(Level::Debug));
+    let (mut bl, mut cx, mut rig) = TestRig::test_setup(true);
 
     #[track_caller]
     fn parent_lookups_consistency(bl: &BlockLookups<T>) {
