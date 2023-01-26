@@ -116,6 +116,7 @@ impl<T: BeaconChainTypes> VerifiedLightClientOptimisticUpdate<T> {
         // otherwise queue
         let canonical_root = light_client_optimistic_update
             .attested_header
+            .beacon
             .canonical_root();
 
         if canonical_root != head_block.message().parent_root() {
