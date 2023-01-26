@@ -13,7 +13,7 @@ const BROADCAST_CHUNK_SIZE: usize = 128;
 const BROADCAST_CHUNK_DELAY: Duration = Duration::from_millis(500);
 
 #[allow(dead_code)]
-pub async fn bls_change_broadcast<T: BeaconChainTypes>(
+pub async fn broadcast_address_changes_at_capella<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
     network_send: UnboundedSender<NetworkMessage<T::EthSpec>>,
     log: &Logger,
@@ -28,7 +28,7 @@ pub async fn bls_change_broadcast<T: BeaconChainTypes>(
         return;
     };
 
-    // Wait until the capella fork epoch.
+    // Wait until the Capella fork epoch.
     loop {
         match slot_clock.duration_to_slot(capella_fork_slot) {
             Some(duration) => {
