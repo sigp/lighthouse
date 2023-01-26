@@ -596,6 +596,8 @@ dependencies = [
  "serde_json",
  "slasher",
  "slog",
+ "slog-async",
+ "slog-term",
  "sloggers",
  "slot_clock",
  "smallvec",

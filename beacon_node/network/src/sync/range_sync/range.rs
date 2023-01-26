@@ -377,24 +377,25 @@ mod tests {
     use crate::beacon_processor::WorkEvent as BeaconWorkEvent;
     use crate::service::RequestId;
     use crate::NetworkMessage;
-    use beacon_chain::{builder::BeaconChainBuilder, test_utils::test_spec};
     use beacon_chain::{
-        builder::Witness, eth1_chain::CachingEth1Backend, parking_lot::RwLock, EngineState,
+        builder::Witness,
+        eth1_chain::CachingEth1Backend,
+        parking_lot::RwLock,
+        test_utils::{
+            build_log, BeaconChainHarness, EphemeralSystemTimeSlotClockHarnessType as HarnessType,
+        },
+        EngineState,
     };
     use lighthouse_network::{
         rpc::{BlocksByRangeRequest, StatusMessage},
         NetworkGlobals, Request,
     };
-    use slog::{o, Drain};
-    use sloggers::{null::NullLoggerBuilder, Build};
-    use slot_clock::{SlotClock, SystemTimeSlotClock};
-    use std::time::{Duration, SystemTime};
+    use slog::o;
+    use slot_clock::SystemTimeSlotClock;
     use std::{collections::HashSet, sync::Arc};
     use store::MemoryStore;
     use tokio::sync::mpsc;
     use types::{Hash256, MinimalEthSpec as E};
-
-    const SLOT_DURATION_MILLIS: u64 = 400;
 
     #[derive(Debug)]
     struct FakeStorage {
@@ -442,18 +443,6 @@ mod tests {
 
     type TestBeaconChainType =
         Witness<SystemTimeSlotClock, CachingEth1Backend<E>, E, MemoryStore<E>, MemoryStore<E>>;
-
-    fn build_log(level: slog::Level, enabled: bool) -> slog::Logger {
-        let decorator = slog_term::TermDecorator::new().build();
-        let drain = slog_term::FullFormat::new(decorator).build().fuse();
-        let drain = slog_async::Async::new(drain).build().fuse();
-
-        if enabled {
-            slog::Logger::root(drain.filter_level(level).fuse(), o!())
-        } else {
-            slog::Logger::root(drain.filter(|_| false).fuse(), o!())
-        }
-    }
 
     #[allow(unused)]
     struct TestRig {
@@ -595,37 +584,16 @@ mod tests {
     }
 
     fn range(log_enabled: bool) -> (TestRig, RangeSync<TestBeaconChainType, FakeStorage>) {
-        let builder = NullLoggerBuilder;
-        let db_log = builder.build().expect("should build logger");
-        let store = store::HotColdDB::open_ephemeral(
-            store::StoreConfig::default(),
-            E::default_spec(),
-            db_log,
-        )
-        .unwrap();
-
-        // Initialise a new beacon chain
-        let chain = Arc::new(
-            BeaconChainBuilder::new(E)
-                .custom_spec(test_spec::<E>())
-                .store(Arc::new(store))
-                .dummy_eth1_backend()
-                .expect("should build dummy backend")
-                .slot_clock(SystemTimeSlotClock::new(
-                    types::Slot::new(0),
-                    Duration::from_secs(
-                        SystemTime::now()
-                            .duration_since(SystemTime::UNIX_EPOCH)
-                            .unwrap()
-                            .as_secs(),
-                    ),
-                    Duration::from_millis(SLOT_DURATION_MILLIS),
-                ))
-                .build()
-                .expect("should build"),
-        );
-
         let log = build_log(slog::Level::Trace, log_enabled);
+        // Initialise a new beacon chain
+        let harness = BeaconChainHarness::<HarnessType<E>>::builder(E::default())
+            .default_spec()
+            .logger(log.clone())
+            .deterministic_keypairs(1)
+            .fresh_ephemeral_store()
+            .build();
+        let chain = harness.chain;
+
         let fake_store = Arc::new(FakeStorage::default());
         let (beacon_processor_tx, beacon_processor_rx) = mpsc::channel(10);
         let range_sync = RangeSync::<TestBeaconChainType, FakeStorage>::new(
