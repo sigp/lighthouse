@@ -35,7 +35,6 @@ impl LightClientHeader {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::MainnetEthSpec;
 
     ssz_tests!(LightClientHeader);
 }
