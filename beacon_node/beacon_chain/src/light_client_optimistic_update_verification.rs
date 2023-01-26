@@ -123,7 +123,7 @@ impl<T: BeaconChainTypes> VerifiedLightClientOptimisticUpdate<T> {
         }
 
         let head_state = &head.snapshot.beacon_state;
-        let update=  LightClientUpdate::new(
+        let update = LightClientUpdate::new(
             &chain.spec,
             &head_state,
             &head_block.clone_as_blinded(),
