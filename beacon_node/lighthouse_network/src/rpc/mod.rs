@@ -196,6 +196,7 @@ impl<Id: ReqId, TSpec: EthSpec> RPC<Id, TSpec> {
                     });
                 }
                 RateLimitedErr::TooSoon(duration) => {
+                    debug!(self.log, "Self rate limiting"; "protocol" => %req.protocol(), "wait_time_ms" => duration.as_millis());
                     self.queued_events.insert(
                         NetworkBehaviourAction::NotifyHandler {
                             peer_id,
