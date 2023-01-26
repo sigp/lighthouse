@@ -351,7 +351,7 @@ impl<T: EthSpec> GetPayloadResponse<T> {
 // change when this method is actually proposed
 // but I'm writing this as it has been described
 #[derive(Clone, Copy, Debug)]
-pub struct SupportedApis {
+pub struct EngineCapabilities {
     pub new_payload_v1: bool,
     pub new_payload_v2: bool,
     pub forkchoice_updated_v1: bool,
