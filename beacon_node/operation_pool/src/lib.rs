@@ -25,6 +25,8 @@ use crate::sync_aggregate_id::SyncAggregateId;
 use attester_slashing::AttesterSlashingMaxCover;
 use max_cover::maximum_cover;
 use parking_lot::{RwLock, RwLockWriteGuard};
+use rand::seq::SliceRandom;
+use rand::thread_rng;
 use state_processing::per_block_processing::errors::AttestationValidationError;
 use state_processing::per_block_processing::{
     get_slashable_indices_modular, verify_exit, VerifySignatures,
@@ -562,6 +564,34 @@ impl<T: EthSpec> OperationPool<T> {
             |address_change| address_change.as_inner().clone(),
             T::MaxBlsToExecutionChanges::to_usize(),
         )
+    }
+
+    /// Get a list of execution changes to be broadcast at the Capella fork.
+    ///
+    /// The list that is returned will be shuffled to help provide a fair
+    /// broadcast of messages.
+    pub fn get_bls_to_execution_changes_for_capella_broadcast(
+        &self,
+        state: &BeaconState<T>,
+        spec: &ChainSpec,
+    ) -> Vec<SignedBlsToExecutionChange> {
+        let mut changes = filter_limit_operations(
+            self.bls_to_execution_changes
+                .read()
+                .iter_capella_broadcast(),
+            |address_change| {
+                address_change.signature_is_still_valid(&state.fork())
+                    && state
+                        .get_validator(address_change.as_inner().message.validator_index as usize)
+                        .map_or(false, |validator| {
+                            !validator.has_eth1_withdrawal_credential(spec)
+                        })
+            },
+            |address_change| address_change.as_inner().clone(),
+            usize::max_value(),
+        );
+        changes.shuffle(&mut thread_rng());
+        changes
     }
 
     /// Prune BLS to execution changes that have been applied to the state more than 1 block ago.

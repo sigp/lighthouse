@@ -74,6 +74,17 @@ impl<T: EthSpec> BlsToExecutionChanges<T> {
         self.queue.iter().rev()
     }
 
+    /// Returns only those which are flagged for broadcasting at the Capella
+    /// fork. Uses an arbitrary ordering.
+    pub fn iter_capella_broadcast(
+        &self,
+    ) -> impl Iterator<Item = &Arc<SigVerifiedOp<SignedBlsToExecutionChange, T>>> {
+        self.queue.iter().filter(|address_change| {
+            self.capella_broadcast_indices
+                .contains(&address_change.as_inner().message.validator_index)
+        })
+    }
+
     /// Prune BLS to execution changes that have been applied to the state more than 1 block ago.
     ///
     /// The block check is necessary to avoid pruning too eagerly and losing the ability to include
