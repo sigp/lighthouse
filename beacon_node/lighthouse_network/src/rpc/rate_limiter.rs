@@ -1,4 +1,4 @@
-use crate::rpc::{InboundRequest, Protocol};
+use crate::rpc::Protocol;
 use fnv::FnvHashMap;
 use libp2p::PeerId;
 use std::convert::TryInto;
@@ -192,11 +192,35 @@ impl RPCRateLimiterBuilder {
     }
 }
 
+pub trait RateLimiterItem {
+    fn protocol(&self) -> Protocol;
+    fn expected_responses(&self) -> u64;
+}
+
+impl<T: EthSpec> RateLimiterItem for super::InboundRequest<T> {
+    fn protocol(&self) -> Protocol {
+        self.protocol()
+    }
+
+    fn expected_responses(&self) -> u64 {
+        self.expected_responses()
+    }
+}
+
+impl<T: EthSpec> RateLimiterItem for super::OutboundRequest<T> {
+    fn protocol(&self) -> Protocol {
+        self.protocol()
+    }
+
+    fn expected_responses(&self) -> u64 {
+        self.expected_responses()
+    }
+}
 impl RPCRateLimiter {
-    pub fn allows<T: EthSpec>(
+    pub fn allows<Item: RateLimiterItem>(
         &mut self,
         peer_id: &PeerId,
-        request: &InboundRequest<T>,
+        request: &Item,
     ) -> Result<(), RateLimitedErr> {
         let time_since_start = self.init_time.elapsed();
         let tokens = request.expected_responses().max(1);

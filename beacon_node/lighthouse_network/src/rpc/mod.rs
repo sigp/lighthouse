@@ -174,21 +174,38 @@ impl<Id: ReqId, TSpec: EthSpec> RPC<Id, TSpec> {
     /// Submits an RPC request.
     ///
     /// The peer must be connected for this to succeed.
-    pub fn send_request(&mut self, peer_id: PeerId, request_id: Id, event: OutboundRequest<TSpec>) {
-        let inbound_req: InboundRequest<TSpec> = event.into();
-
-        // match self.limiter.allows(&peer_id, req) {}
-        let should_delay = matches!(event, OutboundRequest::BlocksByRange(_));
-        let event = NetworkBehaviourAction::NotifyHandler {
-            peer_id,
-            handler: NotifyHandler::Any,
-            event: RPCSend::Request(request_id, event),
-        };
-
-        if should_delay {
-            self.queued_events.insert(event, Duration::from_secs(2));
-        } else {
-            self.events.push(event);
+    pub fn send_request(&mut self, peer_id: PeerId, request_id: Id, req: OutboundRequest<TSpec>) {
+        match self.self_limiter.allows(&peer_id, &req) {
+            Ok(_) => self.events.push(NetworkBehaviourAction::NotifyHandler {
+                peer_id,
+                handler: NotifyHandler::Any,
+                event: RPCSend::Request(request_id, req),
+            }),
+            Err(e) => match e {
+                RateLimitedErr::TooLarge => {
+                    // this should never happen. Let's just send the request.
+                    crit!(
+                        self.log,
+                        "Self rate limiting error for a batch that will never fit. Sending request anyway";
+                        "protocol" => %req.protocol()
+                    );
+                    self.events.push(NetworkBehaviourAction::NotifyHandler {
+                        peer_id,
+                        handler: NotifyHandler::Any,
+                        event: RPCSend::Request(request_id, req),
+                    });
+                }
+                RateLimitedErr::TooSoon(duration) => {
+                    self.queued_events.insert(
+                        NetworkBehaviourAction::NotifyHandler {
+                            peer_id,
+                            handler: NotifyHandler::Any,
+                            event: RPCSend::Request(request_id, req),
+                        },
+                        duration,
+                    );
+                }
+            },
         }
     }
 
