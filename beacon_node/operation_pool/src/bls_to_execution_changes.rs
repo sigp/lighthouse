@@ -14,22 +14,6 @@ pub enum CapellaBroadcast {
     No,
 }
 
-impl CapellaBroadcast {
-    /// Be instantiate to `CapellaBroadcast::Yes` if the `received_epoch` is
-    /// prior to the Capella fork epoch (or if the Capella fork epoch is not yet
-    /// defined).
-    pub fn new(received_epoch: Epoch, spec: &ChainSpec) -> Self {
-        if spec
-            .capella_fork_epoch
-            .map_or(true, |capella| received_epoch < capella)
-        {
-            CapellaBroadcast::Yes
-        } else {
-            CapellaBroadcast::No
-        }
-    }
-}
-
 /// Pool of BLS to execution changes that maintains a LIFO queue and an index by validator.
 ///
 /// Using the LIFO queue for block production disincentivises spam on P2P at the Capella fork,

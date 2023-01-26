@@ -178,33 +178,6 @@ impl<T: EthSpec> PersistedOperationPool<T> {
                 bls_to_execution_changes.insert(bls_to_execution_change, capella_broadcast);
             }
         }
-        /*
-        let bls_to_execution_changes = match self {
-            PersistedOperationPool::V5(_) | PersistedOperationPool::V12(_) => {
-                return Err(OpPoolError::IncorrectOpPoolVariant)
-            }
-            PersistedOperationPool::V14(pool) | PersistedOperationPool::V15(pool) => {
-                let mut bls_to_execution_changes = BlsToExecutionChanges::default();
-                let broadcast_indices =
-                    if let Some(indices) = pool.capella_bls_change_broadcast_indices() {
-                        indices
-                    } else {
-                        HashSet::new()
-                    };
-                for bls_to_execution_change in pool.bls_to_execution_changes {
-                    let capella_broadcast = if broadcast_indices
-                        .contains(bls_to_execution_change.message.validator_index)
-                    {
-                        CapellaBroadcast::Yes
-                    } else {
-                        CapellaBroadcast::No
-                    };
-                    bls_to_execution_changes.insert(bls_to_execution_change, capella_broadcast);
-                }
-                RwLock::new(bls_to_execution_changes)
-            }
-        };
-        */
         let op_pool = OperationPool {
             attestations,
             sync_contributions,
