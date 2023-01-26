@@ -1,5 +1,6 @@
 extern crate slog;
 
+mod bls_change_broadcast;
 pub mod config;
 mod metrics;
 mod notifier;

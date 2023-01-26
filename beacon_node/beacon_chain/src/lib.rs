@@ -9,7 +9,6 @@ pub mod blob_verification;
 pub mod block_reward;
 mod block_times_cache;
 mod block_verification;
-mod bls_change_broadcast;
 pub mod builder;
 pub mod canonical_head;
 pub mod chain_config;
