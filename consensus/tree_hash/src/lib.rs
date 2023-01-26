@@ -97,7 +97,7 @@ fn get_zero_hash(height: usize) -> &'static [u8] {
     if height <= ZERO_HASHES_MAX_INDEX {
         &ZERO_HASHES[height]
     } else {
-        panic!("Tree exceeds MAX_TREE_DEPTH of {}", ZERO_HASHES_MAX_INDEX)
+        panic!("Tree exceeds MAX_TREE_DEPTH of {ZERO_HASHES_MAX_INDEX}")
     }
 }
 
