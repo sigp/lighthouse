@@ -411,7 +411,7 @@ impl ProtocolId {
         match self.version {
             Version::V2 => matches!(
                 self.message_name,
-                Protocol::BlobsByRange | Protocol::BlobsByRoot
+                Protocol::BlocksByRange | Protocol::BlocksByRoot
             ),
             Version::V1 => matches!(
                 self.message_name,
