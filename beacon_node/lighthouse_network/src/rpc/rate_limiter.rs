@@ -47,6 +47,7 @@ type Nanosecs = u64;
 /// n*`replenish_all_every`/`max_tokens` units of time since their last request.
 ///
 /// To produce hard limits, set `max_tokens` to 1.
+#[derive(Clone)]
 pub struct Quota {
     /// How often are `max_tokens` fully replenished.
     replenish_all_every: Duration,
@@ -86,7 +87,7 @@ pub enum RateLimitedErr {
 }
 
 /// User-friendly builder of a `RPCRateLimiter`
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct RPCRateLimiterBuilder {
     /// Quota for the Goodbye protocol.
     goodbye_quota: Option<Quota>,

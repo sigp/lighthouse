@@ -106,8 +106,10 @@ pub struct RPCMessage<Id, TSpec: EthSpec> {
 pub struct RPC<Id: ReqId, TSpec: EthSpec> {
     /// Rate limiter
     limiter: RateLimiter,
-    /// Events we delay sending
+    /// Events we delay sending to the handler.
     queued_events: DelayQueue<NetworkBehaviourAction<RPCMessage<Id, TSpec>, RPCHandler<Id, TSpec>>>,
+    /// Rate limiter for our own requests.
+    self_limiter: RateLimiter,
     /// Queue of events to be processed.
     events: Vec<NetworkBehaviourAction<RPCMessage<Id, TSpec>, RPCHandler<Id, TSpec>>>,
     fork_context: Arc<ForkContext>,
@@ -123,7 +125,7 @@ impl<Id: ReqId, TSpec: EthSpec> RPC<Id, TSpec> {
         log: slog::Logger,
     ) -> Self {
         let log = log.new(o!("service" => "libp2p_rpc"));
-        let limiter = RPCRateLimiterBuilder::new()
+        let limiter_builder = RPCRateLimiterBuilder::new()
             .n_every(Protocol::MetaData, 2, Duration::from_secs(5))
             .n_every(Protocol::Ping, 2, Duration::from_secs(10))
             .n_every(Protocol::Status, 5, Duration::from_secs(15))
@@ -134,11 +136,17 @@ impl<Id: ReqId, TSpec: EthSpec> RPC<Id, TSpec> {
                 methods::MAX_REQUEST_BLOCKS,
                 Duration::from_secs(10),
             )
-            .n_every(Protocol::BlocksByRoot, 128, Duration::from_secs(10))
+            .n_every(Protocol::BlocksByRoot, 128, Duration::from_secs(10));
+        let self_limiter_builder = limiter_builder.clone();
+        let limiter = limiter_builder
+            .build()
+            .expect("Configuration parameters are valid");
+        let self_limiter = self_limiter_builder
             .build()
             .expect("Configuration parameters are valid");
         RPC {
             limiter,
+            self_limiter,
             events: Vec::new(),
             fork_context,
             enable_light_client_server,
@@ -167,6 +175,9 @@ impl<Id: ReqId, TSpec: EthSpec> RPC<Id, TSpec> {
     ///
     /// The peer must be connected for this to succeed.
     pub fn send_request(&mut self, peer_id: PeerId, request_id: Id, event: OutboundRequest<TSpec>) {
+        let inbound_req: InboundRequest<TSpec> = event.into();
+
+        // match self.limiter.allows(&peer_id, req) {}
         let should_delay = matches!(event, OutboundRequest::BlocksByRange(_));
         let event = NetworkBehaviourAction::NotifyHandler {
             peer_id,
