@@ -163,6 +163,7 @@ lint:
 	cargo clippy --workspace --tests -- \
 		-D clippy::fn_to_numeric_cast_any \
 		-D warnings \
+		-D clippy::uninlined-format-args \
 		-A clippy::derive_partial_eq_without_eq \
 		-A clippy::from-over-into \
 		-A clippy::upper-case-acronyms \
