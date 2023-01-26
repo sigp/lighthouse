@@ -13,8 +13,10 @@ use slog::{Drain, Level};
 use slot_clock::SystemTimeSlotClock;
 use store::MemoryStore;
 use tokio::sync::mpsc;
-use types::test_utils::{SeedableRng, TestRandom, XorShiftRng};
-use types::MinimalEthSpec as E;
+use types::{
+    test_utils::{SeedableRng, TestRandom, XorShiftRng},
+    MinimalEthSpec as E, SignedBeaconBlock,
+};
 
 type T = Witness<SystemTimeSlotClock, CachingEth1Backend<E>, E, MemoryStore<E>, MemoryStore<E>>;
 

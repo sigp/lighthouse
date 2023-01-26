@@ -372,26 +372,23 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::service::RequestId;
-    use crate::sync::range_sync::ByRangeRequestType;
-    use crate::NetworkMessage;
-
     use super::*;
-    use crate::beacon_processor::WorkEvent as BeaconWorkEvent;
-    use beacon_chain::builder::Witness;
-    use beacon_chain::eth1_chain::CachingEth1Backend;
-    use beacon_chain::parking_lot::RwLock;
-    use beacon_chain::EngineState;
-    use lighthouse_network::rpc::BlocksByRangeRequest;
-    use lighthouse_network::Request;
-    use lighthouse_network::{rpc::StatusMessage, NetworkGlobals};
-    use slog::{o, Drain};
-    use tokio::sync::mpsc;
 
+    use crate::beacon_processor::WorkEvent as BeaconWorkEvent;
+    use crate::service::RequestId;
+    use crate::NetworkMessage;
+    use beacon_chain::{
+        builder::Witness, eth1_chain::CachingEth1Backend, parking_lot::RwLock, EngineState,
+    };
+    use lighthouse_network::{
+        rpc::{BlocksByRangeRequest, StatusMessage},
+        NetworkGlobals, Request,
+    };
+    use slog::{o, Drain};
     use slot_clock::SystemTimeSlotClock;
-    use std::collections::HashSet;
-    use std::sync::Arc;
+    use std::{collections::HashSet, sync::Arc};
     use store::MemoryStore;
+    use tokio::sync::mpsc;
     use types::{Hash256, MinimalEthSpec as E};
 
     #[derive(Debug)]
