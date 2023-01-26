@@ -7,6 +7,7 @@
 use crate::payload_cache::PayloadCache;
 use auth::{strip_prefix, Auth, JwtKey};
 use builder_client::BuilderHttpClient;
+pub use engine_api::EngineCapabilities;
 use engine_api::Error as ApiError;
 pub use engine_api::*;
 pub use engine_api::{http, http::deposit_methods, http::HttpJsonRpc};
@@ -1359,6 +1360,24 @@ impl<T: EthSpec> ExecutionLayer<T> {
                 Err(Error::EngineError(Box::new(e)))
             }
         }
+    }
+
+    /// Returns the execution engine capabilities resulting from a call to
+    /// engine_exchangeCapabilities. Because the result of this call is cached,
+    /// this method accepts an optional maximum age of the cached result.
+    ///
+    /// `maximum_age.is_none()`        -> cached result returned
+    /// `cached result <= maximum_age` -> cached result returned
+    /// `cached result > maximum_age`  -> new result fetched from engine
+    pub async fn exchange_capabilities(
+        &self,
+        maximum_age: Option<Duration>,
+    ) -> Result<EngineCapabilities, Error> {
+        self.engine()
+            .request(|engine| engine.exchange_capabilities(maximum_age))
+            .await
+            .map_err(Box::new)
+            .map_err(Error::EngineError)
     }
 
     /// Used during block production to determine if the merge has been triggered.

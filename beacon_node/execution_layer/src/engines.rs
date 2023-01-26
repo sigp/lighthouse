@@ -1,13 +1,15 @@
 //! Provides generic behaviour for multiple execution engines, specifically fallback behaviour.
 
 use crate::engine_api::{
-    Error as EngineApiError, ForkchoiceUpdatedResponse, PayloadAttributes, PayloadId,
+    EngineCapabilities, Error as EngineApiError, ForkchoiceUpdatedResponse, PayloadAttributes,
+    PayloadId,
 };
 use crate::HttpJsonRpc;
 use lru::LruCache;
-use slog::{debug, error, info, Logger};
+use slog::{debug, error, info, warn, Logger};
 use std::future::Future;
 use std::sync::Arc;
+use std::time::Duration;
 use task_executor::TaskExecutor;
 use tokio::sync::{watch, Mutex, RwLock};
 use tokio_stream::wrappers::WatchStream;
@@ -18,6 +20,7 @@ use types::ExecutionBlockHash;
 /// Since the size of each value is small (~100 bytes) a large number is used for safety.
 /// FIXME: check this assumption now that the key includes entire payload attributes which now includes withdrawals
 const PAYLOAD_ID_LRU_CACHE_SIZE: usize = 512;
+const MAXIMUM_CACHED_ENGINE_CAPABILITIES_AGE: Duration = Duration::from_secs(900); // 15 minutes
 
 /// Stores the remembered state of a engine.
 #[derive(Copy, Clone, PartialEq, Debug, Eq, Default)]
@@ -249,11 +252,29 @@ impl Engine {
                     );
                 }
                 state.update(EngineStateInternal::Synced);
+                if let Err(e) = self
+                    .exchange_capabilities(Some(MAXIMUM_CACHED_ENGINE_CAPABILITIES_AGE))
+                    .await
+                {
+                    warn!(self.log,
+                        "Error during exchange capabilities";
+                        "error" => ?e,
+                    )
+                }
                 **state
             }
             Err(EngineApiError::IsSyncing) => {
                 let mut state = self.state.write().await;
                 state.update(EngineStateInternal::Syncing);
+                if let Err(e) = self
+                    .exchange_capabilities(Some(MAXIMUM_CACHED_ENGINE_CAPABILITIES_AGE))
+                    .await
+                {
+                    warn!(self.log,
+                        "Error during exchange capabilities";
+                        "error" => ?e,
+                    )
+                }
                 **state
             }
             Err(EngineApiError::Auth(err)) => {
@@ -276,6 +297,10 @@ impl Engine {
 
                 let mut state = self.state.write().await;
                 state.update(EngineStateInternal::Offline);
+                // need to clear the engine capabilities cache if we detect the
+                // execution engine is offline as it is likely the engine has gone
+                // offline because it is being updated to a later version
+                self.api.set_cached_engine_capabilities(None).await;
                 **state
             }
         };
@@ -285,6 +310,32 @@ impl Engine {
             "Execution engine upcheck complete";
             "state" => ?state,
         );
+    }
+
+    /// Returns the execution engine capabilities resulting from a call to
+    /// engine_exchangeCapabilities. Because the result of this call is cached,
+    /// this method accepts an optional maximum age of the cached result.
+    ///
+    /// `maximum_age.is_none()`        -> cached result returned
+    /// `cached result <= maximum_age` -> cached result returned
+    /// `cached result > maximum_age`  -> new result fetched from engine
+    pub async fn exchange_capabilities(
+        &self,
+        maximum_age: Option<Duration>,
+    ) -> Result<EngineCapabilities, EngineApiError> {
+        if let Some(maximum_age) = maximum_age {
+            if self
+                .api
+                .engine_capabilities_age()
+                .await
+                .map_or(false, |cached_age| cached_age > maximum_age)
+            {
+                // clear the engine_capabilities cache
+                self.api.set_cached_engine_capabilities(None).await;
+            }
+        }
+
+        self.api.cached_engine_capabilities().await
     }
 
     /// Run `func` on the node regardless of the node's current state.

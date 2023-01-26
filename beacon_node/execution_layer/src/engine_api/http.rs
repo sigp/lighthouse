@@ -10,7 +10,7 @@ use serde_json::json;
 use std::collections::HashSet;
 use tokio::sync::RwLock;
 
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 use types::EthSpec;
 
 pub use deposit_log::{DepositLog, Log};
@@ -560,7 +560,8 @@ pub struct HttpJsonRpc {
     pub client: Client,
     pub url: SensitiveUrl,
     pub execution_timeout_multiplier: u32,
-    pub cached_engine_capabilities: RwLock<Option<EngineCapabilities>>,
+    /// Cached Engine Capabilities and fetch time
+    pub cached_engine_capabilities: RwLock<Option<(EngineCapabilities, SystemTime)>>,
     auth: Option<Auth>,
 }
 
@@ -932,12 +933,13 @@ impl HttpJsonRpc {
         &self,
         engine_capabilities: Option<EngineCapabilities>,
     ) {
-        *self.cached_engine_capabilities.write().await = engine_capabilities;
+        *self.cached_engine_capabilities.write().await =
+            engine_capabilities.map(|ec| (ec, SystemTime::now()));
     }
 
-    pub async fn get_cached_engine_capabilities(&self) -> Result<EngineCapabilities, Error> {
-        let cached_opt = *self.cached_engine_capabilities.read().await;
-        if let Some(engine_capabilities) = cached_opt {
+    pub async fn cached_engine_capabilities(&self) -> Result<EngineCapabilities, Error> {
+        let cached = *self.cached_engine_capabilities.read().await;
+        if let Some((engine_capabilities, _)) = cached {
             Ok(engine_capabilities)
         } else {
             let engine_capabilities = self.exchange_capabilities().await?;
@@ -947,13 +949,18 @@ impl HttpJsonRpc {
         }
     }
 
+    pub async fn engine_capabilities_age(&self) -> Option<Duration> {
+        let cached = *self.cached_engine_capabilities.read().await;
+        cached.and_then(|(_, fetch_time)| SystemTime::now().duration_since(fetch_time).ok())
+    }
+
     // automatically selects the latest version of
     // new_payload that the execution engine supports
     pub async fn new_payload<T: EthSpec>(
         &self,
         execution_payload: ExecutionPayload<T>,
     ) -> Result<PayloadStatusV1, Error> {
-        let engine_capabilities = self.get_cached_engine_capabilities().await?;
+        let engine_capabilities = self.cached_engine_capabilities().await?;
         if engine_capabilities.new_payload_v2 {
             self.new_payload_v2(execution_payload).await
         } else if engine_capabilities.new_payload_v1 {
@@ -970,7 +977,7 @@ impl HttpJsonRpc {
         fork_name: ForkName,
         payload_id: PayloadId,
     ) -> Result<ExecutionPayload<T>, Error> {
-        let engine_capabilities = self.get_cached_engine_capabilities().await?;
+        let engine_capabilities = self.cached_engine_capabilities().await?;
         if engine_capabilities.get_payload_v2 {
             // TODO: modify this method to return GetPayloadResponse instead
             //       of throwing away the `block_value` and returning only the
@@ -993,7 +1000,7 @@ impl HttpJsonRpc {
         forkchoice_state: ForkchoiceState,
         payload_attributes: Option<PayloadAttributes>,
     ) -> Result<ForkchoiceUpdatedResponse, Error> {
-        let engine_capabilities = self.get_cached_engine_capabilities().await?;
+        let engine_capabilities = self.cached_engine_capabilities().await?;
         if engine_capabilities.forkchoice_updated_v2 {
             self.forkchoice_updated_v2(forkchoice_state, payload_attributes)
                 .await
