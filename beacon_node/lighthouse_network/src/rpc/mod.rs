@@ -18,6 +18,7 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::time::Duration;
+use tokio_util::time::DelayQueue;
 use types::{EthSpec, ForkContext};
 
 pub(crate) use handler::HandlerErr;
@@ -105,6 +106,8 @@ pub struct RPCMessage<Id, TSpec: EthSpec> {
 pub struct RPC<Id: ReqId, TSpec: EthSpec> {
     /// Rate limiter
     limiter: RateLimiter,
+    /// Events we delay sending
+    queued_events: DelayQueue<NetworkBehaviourAction<RPCMessage<Id, TSpec>, RPCHandler<Id, TSpec>>>,
     /// Queue of events to be processed.
     events: Vec<NetworkBehaviourAction<RPCMessage<Id, TSpec>, RPCHandler<Id, TSpec>>>,
     fork_context: Arc<ForkContext>,
@@ -140,6 +143,7 @@ impl<Id: ReqId, TSpec: EthSpec> RPC<Id, TSpec> {
             fork_context,
             enable_light_client_server,
             log,
+            queued_events: DelayQueue::new(),
         }
     }
 
@@ -163,11 +167,18 @@ impl<Id: ReqId, TSpec: EthSpec> RPC<Id, TSpec> {
     ///
     /// The peer must be connected for this to succeed.
     pub fn send_request(&mut self, peer_id: PeerId, request_id: Id, event: OutboundRequest<TSpec>) {
-        self.events.push(NetworkBehaviourAction::NotifyHandler {
+        let should_delay = matches!(event, OutboundRequest::BlocksByRange(_));
+        let event = NetworkBehaviourAction::NotifyHandler {
             peer_id,
             handler: NotifyHandler::Any,
             event: RPCSend::Request(request_id, event),
-        });
+        };
+
+        if should_delay {
+            self.queued_events.insert(event, Duration::from_secs(2));
+        } else {
+            self.events.push(event);
+        }
     }
 
     /// Lighthouse wishes to disconnect from this peer by sending a Goodbye message. This
@@ -276,6 +287,9 @@ where
         let _ = self.limiter.poll_unpin(cx);
         if !self.events.is_empty() {
             return Poll::Ready(self.events.remove(0));
+        }
+        if let Poll::Ready(Some(Ok(event))) = self.queued_events.poll_expired(cx) {
+            return Poll::Ready(event.into_inner());
         }
         Poll::Pending
     }
