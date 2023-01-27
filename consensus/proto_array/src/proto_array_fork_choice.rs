@@ -1047,7 +1047,7 @@ mod test_compute_deltas {
     /// *checkpoint*, not just the finalized *block*.
     #[test]
     fn finalized_descendant_edge_case() {
-        let get_block_root = |i| Hash256::from_low_u64_be(i);
+        let get_block_root = Hash256::from_low_u64_be;
         let genesis_slot = Slot::new(0);
         let junk_state_root = Hash256::zero();
         let junk_shuffling_id =
@@ -1077,7 +1077,7 @@ mod test_compute_deltas {
             parent_root: u64,
         }
 
-        let mut insert_block = |fc: &mut ProtoArrayForkChoice, block: TestBlock| {
+        let insert_block = |fc: &mut ProtoArrayForkChoice, block: TestBlock| {
             fc.proto_array
                 .on_block::<MainnetEthSpec>(
                     Block {
@@ -1162,10 +1162,9 @@ mod test_compute_deltas {
                 .is_finalized_descendant::<MainnetEthSpec>(get_block_root(canonical_slot)),
             "the canonical block is a descendant of the finalized checkpoint"
         );
-        assert_eq!(
-            fc.proto_array
+        assert!(
+            !fc.proto_array
                 .is_finalized_descendant::<MainnetEthSpec>(get_block_root(non_canonical_slot)),
-            false,
             "although the non-canonical block is a descendant of the finalized block, \
             it's not a descendant of the finalized checkpoint"
         );
