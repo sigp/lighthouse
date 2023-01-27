@@ -895,7 +895,7 @@ impl HttpJsonRpc {
     }
 
     pub async fn exchange_capabilities(&self) -> Result<EngineCapabilities, Error> {
-        let params = json!(LIGHTHOUSE_CAPABILITIES);
+        let params = json!([LIGHTHOUSE_CAPABILITIES]);
 
         let response: Result<Vec<String>, _> = self
             .rpc_request(
