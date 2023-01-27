@@ -9,7 +9,10 @@ use state_processing::{
     per_epoch_processing::altair::{participation_cache, rewards_and_penalties::get_flag_weight},
 };
 use std::collections::HashMap;
-use store::consts::altair::PARTICIPATION_FLAG_WEIGHTS;
+use store::consts::altair::{
+    PARTICIPATION_FLAG_WEIGHTS, TIMELY_HEAD_FLAG_INDEX, TIMELY_SOURCE_FLAG_INDEX,
+    TIMELY_TARGET_FLAG_INDEX,
+};
 use types::consts::altair::WEIGHT_DENOMINATOR;
 
 use types::{Epoch, EthSpec};
@@ -43,16 +46,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let mut ideal_rewards_hashmap = HashMap::new();
 
-
-        for flag_index in PARTICIPATION_FLAG_WEIGHTS {
-            let weight = get_flag_weight(flag_index as usize)
-                .map_err(|_| BeaconChainError::AttestationRewardsSyncError)?;
+        for flag_index in 0..PARTICIPATION_FLAG_WEIGHTS.len() {
+            let weight = get_flag_weight(flag_index)
+                .map_err(|_| BeaconChainError::AttestationRewardsError)?;
 
             let unslashed_participating_indices = participation_cache
-                .get_unslashed_participating_indices(flag_index as usize, previous_epoch)?;
+                .get_unslashed_participating_indices(flag_index, previous_epoch)?;
 
             let unslashed_participating_balance =
-                unslashed_participating_indices.total_balance().map_err(|_| BeaconChainError::AttestationRewardsError)?;
+                unslashed_participating_indices
+                    .total_balance()
+                    .map_err(|_| BeaconChainError::AttestationRewardsError)?;
 
             let unslashed_participating_increments =
                 unslashed_participating_balance.safe_div(spec.effective_balance_increment)?;
@@ -69,8 +73,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 let base_reward =
                     effective_balance_eth.safe_mul(base_reward_per_increment.as_u64())?;
 
-                let penalty =
-                    -1 * base_reward.safe_mul(weight)?.safe_div(WEIGHT_DENOMINATOR)? as i64;
+                let penalty = -(base_reward.safe_mul(weight)?.safe_div(WEIGHT_DENOMINATOR)? as i64);
 
                 let reward_numerator = base_reward
                     .safe_mul(weight)?
@@ -91,6 +94,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Calculate total rewards
         let mut total_rewards: Vec<TotalAttestationRewards> = Vec::new();
 
+        let penalty = 0;
+
         if validators.is_empty() {
             validators = participation_cache.eligible_validator_indices().to_vec();
         }
@@ -107,36 +112,36 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             let mut target_reward = 0i64;
             let mut source_reward = 0i64;
 
-            for flag_index in PARTICIPATION_FLAG_WEIGHTS {
+            for flag_index in 0..PARTICIPATION_FLAG_WEIGHTS.len() {
                 if eligible {
                     let voted_correctly = participation_cache
                         .get_unslashed_participating_indices(flag_index as usize, previous_epoch)
-                        .map_err(|_| Error::AttestationRewardsError)?
-                        .contains(validator_index)
-                        .map_err(|_| Error::AttestationRewardsError)?;
+                        .map_err(|_| BeaconChainError::AttestationRewardsError)?
+                        .contains(*validator_index)
+                        .map_err(|_| BeaconChainError::AttestationRewardsError)?;
                     if voted_correctly {
-                        let total_reward = ideal_rewards_hashmap
-                            .get(&(flag_index, effective_balance_eth, penalty))
-                            .ok_or(BeaconChainError::AttestationRewardsSyncError)?;
+                        let (ideal_reward, _penalty) = ideal_rewards_hashmap
+                            .get(&(flag_index, effective_balance_eth))
+                            .ok_or(BeaconChainError::AttestationRewardsError)?;
 
-                        if flag_index == 0 {
-                            head_reward += total_reward;
-                        } else if flag_index == 1 {
-                            target_reward += *total_reward as i64;
-                        } else if flag_index == 2 {
-                            source_reward += *total_reward as i64;
+                        if flag_index == TIMELY_HEAD_FLAG_INDEX {
+                            head_reward += ideal_reward;
+                        } else if flag_index == TIMELY_TARGET_FLAG_INDEX {
+                            target_reward += *ideal_reward as i64;
+                        } else if flag_index == TIMELY_SOURCE_FLAG_INDEX {
+                            source_reward += *ideal_reward as i64;
                         }
-                    } else if flag_index == 0 {
+                    } else if flag_index == TIMELY_HEAD_FLAG_INDEX {
                         head_reward = 0;
-                    } else if flag_index == 1 {
+                    } else if flag_index == TIMELY_TARGET_FLAG_INDEX {
                         target_reward = penalty;
-                    } else if flag_index == 2 {
+                    } else if flag_index == TIMELY_SOURCE_FLAG_INDEX {
                         source_reward = penalty;
                     }
                 }
                 total_rewards.push(TotalAttestationRewards {
                     validator_index: *validator_index as u64,
-                    head: head_reward as i64,
+                    head: head_reward as u64,
                     target: target_reward,
                     source: source_reward,
                 });
@@ -147,8 +152,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let ideal_rewards: Vec<IdealAttestationRewards> = ideal_rewards_hashmap
             .iter()
             .map(
-                |((flag_index, effective_balance_eth, _penalty), ideal_reward)| {
-                    (flag_index, effective_balance_eth, *ideal_reward)
+                |((flag_index, effective_balance_eth), (ideal_reward, _penalty))| {
+                    (flag_index, effective_balance_eth, ideal_reward)
                 },
             )
             .fold(
@@ -162,10 +167,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             source: 0,
                         },
                     );
-                    match flag_index {
-                        0 => entry.source += ideal_reward,
-                        1 => entry.target += ideal_reward,
-                        2 => entry.head += ideal_reward,
+                    match *flag_index {
+                        TIMELY_SOURCE_FLAG_INDEX => entry.source += ideal_reward,
+                        TIMELY_TARGET_FLAG_INDEX => entry.target += ideal_reward,
+                        TIMELY_HEAD_FLAG_INDEX => entry.head += ideal_reward,
                         _ => {}
                     }
                     acc
