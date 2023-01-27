@@ -1015,6 +1015,36 @@ mod test_compute_deltas {
         assert!(!fc.is_descendant(not_finalized_desc, unknown));
     }
 
+    /// This test covers an interesting case where a block can be a descendant
+    /// of the finalized *block*, but not a descenant of the finalized
+    /// *checkpoint*.
+    ///
+    /// ## Example
+    ///
+    /// Consider this block tree which has three blocks (`A`, `B` and `C`):
+    ///
+    /// ```ignore
+    /// [A] <--- [-] <--- [B]
+    ///       |
+    ///       |--[C]
+    /// ```
+    ///
+    /// - `A` (slot 31) is the common descendant.
+    /// - `B` (slot 33) descends from `A`, but there is a single skip slot
+    ///     between it and `A`.
+    /// - `C` (slot 32) descends from `A` and conflicts with `B`.
+    ///
+    /// Imagine that the `B` chain is finalized at epoch 1. This means that the
+    /// finalized checkpoint points to the skipped slot at 32. The root of the
+    /// finalized checkpoint is `A`.
+    ///
+    /// In this scenario, the block `C` has the finalized root (`A`) as an
+    /// ancestor whilst simultaneously conflicting with the finalized
+    /// checkpoint.
+    ///
+    /// This means that to ensure a block does not conflict with finality we
+    /// must check to ensure that it's an ancestor of the finalized
+    /// *checkpoint*, not just the finalized *block*.
     #[test]
     fn finalized_descendant_edge_case() {
         let get_block_root = |i| Hash256::from_low_u64_be(i);
@@ -1071,6 +1101,10 @@ mod test_compute_deltas {
                 )
                 .unwrap();
         };
+
+        /*
+         * Start of interesting part of tests.
+         */
 
         // Produce the 0th epoch of blocks. They should all form a chain from
         // the genesis block.
