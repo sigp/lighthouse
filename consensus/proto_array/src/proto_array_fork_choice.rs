@@ -1103,10 +1103,12 @@ mod test_compute_deltas {
             },
         );
 
+        let finalized_root = get_block_root(last_slot_of_epoch_0);
+
         // Set the finalized checkpoint to finalize the first slot of epoch 1 on
         // the canonical chain.
         fc.proto_array.finalized_checkpoint = Checkpoint {
-            root: get_block_root(last_slot_of_epoch_0),
+            root: finalized_root,
             epoch: Epoch::new(1),
         };
 
