@@ -1037,14 +1037,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 );
             }
 
-            return Err(Error::InconsistentPayloadReconstructed {
-                slot: blinded_block.slot(),
-                exec_block_hash,
-                canonical_payload_root: execution_payload_header.tree_hash_root(),
-                reconstructed_payload_root: header_from_payload.tree_hash_root(),
-                canonical_transactions_root: execution_payload_header.transactions_root(),
-                reconstructed_transactions_root: header_from_payload.transactions_root(),
-            });
+            if execution_payload_header.transactions_root()
+                != header_from_payload.transactions_root()
+            {
+                //FIXME(sean) we're not decoding blobs txs correctly yet
+            } else {
+                return Err(Error::InconsistentPayloadReconstructed {
+                    slot: blinded_block.slot(),
+                    exec_block_hash,
+                    canonical_payload_root: execution_payload_header.tree_hash_root(),
+                    reconstructed_payload_root: header_from_payload.tree_hash_root(),
+                    canonical_transactions_root: execution_payload_header.transactions_root(),
+                    reconstructed_transactions_root: header_from_payload.transactions_root(),
+                });
+            }
         }
 
         // Add the payload to the block to form a full block.
