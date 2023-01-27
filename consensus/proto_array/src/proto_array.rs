@@ -990,6 +990,60 @@ impl ProtoArray {
             .unwrap_or(false)
     }
 
+    /// Returns `true` if the `descendant_root` has an ancestor with `ancestor_root`. Always
+    /// returns `false` if either input root is unknown.
+    ///
+    /// ## Notes
+    ///
+    /// Still returns `true` if `ancestor_root` is known and `ancestor_root == descendant_root`.
+    pub fn is_finalized_descendant<E: EthSpec>(&self, root: Hash256) -> bool {
+        let finalized_root = self.finalized_checkpoint.root;
+        let finalized_slot = self
+            .finalized_checkpoint
+            .epoch
+            .start_slot(E::slots_per_epoch());
+
+        let mut node = if let Some(node) = self
+            .indices
+            .get(&root)
+            .and_then(|index| self.nodes.get(*index))
+        {
+            node
+        } else {
+            // An unknown root is not a finalized descendant. This line can only
+            // be reached if the user supplies a root that is not known to fork
+            // choice.
+            return false;
+        };
+
+        loop {
+            // If `node` is less than or equal to the finalized slot then `node`
+            // must be the finalized block.
+            if node.slot <= finalized_slot {
+                return node.root == finalized_root;
+            }
+
+            // Load the parent from the database since `node` is prior to the
+            // finalized checkpoint.
+            let parent = if let Some(parent) = node.parent.and_then(|index| self.nodes.get(index)) {
+                parent
+            } else {
+                // If `node` is not the finalized block and its parent does not
+                // exist in fork choice, then the parent must have been pruned.
+                // This indicates that the parent is not in the finalized chain.
+                return false;
+            };
+
+            // If the parent is equal to or less than the finalized slot, then
+            // it must be the finalized root.
+            if parent.slot <= finalized_slot {
+                return node.root == finalized_root;
+            }
+
+            node = parent
+        }
+    }
+
     /// Returns the first *beacon block root* which contains an execution payload with the given
     /// `block_hash`, if any.
     pub fn execution_block_hash_to_beacon_block_root(
