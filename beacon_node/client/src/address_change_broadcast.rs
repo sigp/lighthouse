@@ -1,18 +1,29 @@
 use crate::*;
-use itertools::Itertools;
 use lighthouse_network::PubsubMessage;
 use network::NetworkMessage;
 use slog::{debug, info, Logger};
 use slot_clock::SlotClock;
+use std::cmp;
 use std::time::Duration;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::time::sleep;
 use types::EthSpec;
 
+/// The size of each chunk of addresses changes to be broadcast at the Capella
+/// fork.
 const BROADCAST_CHUNK_SIZE: usize = 128;
+/// The delay between broadcasting each chunk.
 const BROADCAST_CHUNK_DELAY: Duration = Duration::from_millis(500);
 
-#[allow(dead_code)]
+/// Waits until the Capella fork epoch and then publishes any bls to execution
+/// address changes which were placed in the pool prior to the fork.
+///
+/// Does nothing if the Capella fork has already happened.
+///
+/// Address changes are published in chunks, with a delay between each chunk.
+/// This helps reduce the load on the P2P network and also helps prevent us from
+/// clogging our `network_send` channel and being late to publish
+/// blocks, attestations, etc.
 pub async fn broadcast_address_changes_at_capella<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
     network_send: UnboundedSender<NetworkMessage<T::EthSpec>>,
@@ -47,23 +58,22 @@ pub async fn broadcast_address_changes_at_capella<T: BeaconChainTypes>(
     }
 
     let head = chain.head_snapshot();
-    let changes = chain
+    let mut changes = chain
         .op_pool
         .get_bls_to_execution_changes_for_capella_broadcast(&head.beacon_state, &chain.spec);
 
-    for (i, chunk) in changes
-        .into_iter()
-        .chunks(BROADCAST_CHUNK_SIZE)
-        .into_iter()
-        .enumerate()
-    {
+    loop {
+        if changes.is_empty() {
+            break;
+        }
+        // This `split_off` approach is to allow us to have owned chunks of the
+        // `changes` vec. The `itertools` iterator that achives this isn't
+        // `Send` so it doesn't work well with the `sleep` at the end of the
+        // loop.
+        let chunk = changes.split_off(cmp::min(BROADCAST_CHUNK_SIZE, changes.len()));
+
         let mut num_ok = 0;
         let mut num_err = 0;
-
-        // Wait before publishing the chunk of messages (unless it's the first chunk).
-        if i > 0 {
-            sleep(BROADCAST_CHUNK_DELAY).await;
-        }
 
         // Publish each individual address change.
         for address_change in chunk {
@@ -92,8 +102,14 @@ pub async fn broadcast_address_changes_at_capella<T: BeaconChainTypes>(
             "Published address change messages";
             "num_unable_to_publish" => num_err,
             "num_published" => num_ok,
-        )
+        );
+
+        sleep(BROADCAST_CHUNK_DELAY).await;
     }
+
+    // Forget all the indices that should be broadcast at the Capella fork.
+    // This means that any future calls to this function will have no effect.
+    chain.op_pool.drop_capella_broadcast_indices();
 
     debug!(
         log,

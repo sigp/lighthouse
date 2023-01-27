@@ -1059,7 +1059,6 @@ dependencies = [
  "genesis",
  "http_api",
  "http_metrics",
- "itertools",
  "lazy_static",
  "lighthouse_metrics",
  "lighthouse_network",

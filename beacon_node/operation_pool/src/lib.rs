@@ -594,6 +594,14 @@ impl<T: EthSpec> OperationPool<T> {
         changes
     }
 
+    /// Forgets which bls to execution changes were scheduled to be broadcast at
+    /// the Capella fork.
+    pub fn drop_capella_broadcast_indices(&self) {
+        self.bls_to_execution_changes
+            .write()
+            .drop_capella_broadcast_indices();
+    }
+
     /// Prune BLS to execution changes that have been applied to the state more than 1 block ago.
     pub fn prune_bls_to_execution_changes<Payload: AbstractExecPayload<T>>(
         &self,

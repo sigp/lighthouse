@@ -126,4 +126,10 @@ impl<T: EthSpec> BlsToExecutionChanges<T> {
             self.by_validator_index.remove(&validator_index);
         }
     }
+
+    /// Forgets which bls to execution changes were scheduled to be broadcast at
+    /// the Capella fork.
+    pub fn drop_capella_broadcast_indices(&mut self) {
+        self.capella_broadcast_indices = <_>::default();
+    }
 }
