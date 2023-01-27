@@ -1005,6 +1005,126 @@ mod test_compute_deltas {
     }
 
     #[test]
+    fn finalized_descendant_edge_case() {
+        let get_block_root = |i| Hash256::from_low_u64_be(i);
+        let genesis_slot = Slot::new(0);
+        let junk_state_root = Hash256::zero();
+        let junk_shuffling_id =
+            AttestationShufflingId::from_components(Epoch::new(0), Hash256::zero());
+        let execution_status = ExecutionStatus::irrelevant();
+
+        let genesis_checkpoint = Checkpoint {
+            epoch: Epoch::new(0),
+            root: get_block_root(0),
+        };
+
+        let mut fc = ProtoArrayForkChoice::new::<MainnetEthSpec>(
+            genesis_slot,
+            junk_state_root,
+            genesis_checkpoint,
+            genesis_checkpoint,
+            junk_shuffling_id.clone(),
+            junk_shuffling_id.clone(),
+            execution_status,
+            CountUnrealizedFull::default(),
+        )
+        .unwrap();
+
+        struct TestBlock {
+            slot: u64,
+            root: u64,
+            parent_root: u64,
+        }
+
+        let mut insert_block = |fc: &mut ProtoArrayForkChoice, block: TestBlock| {
+            fc.proto_array
+                .on_block::<MainnetEthSpec>(
+                    Block {
+                        slot: Slot::from(block.slot),
+                        root: get_block_root(block.root),
+                        parent_root: Some(get_block_root(block.parent_root)),
+                        state_root: Hash256::zero(),
+                        target_root: Hash256::zero(),
+                        current_epoch_shuffling_id: junk_shuffling_id.clone(),
+                        next_epoch_shuffling_id: junk_shuffling_id.clone(),
+                        justified_checkpoint: Checkpoint {
+                            epoch: Epoch::new(0),
+                            root: get_block_root(0),
+                        },
+                        finalized_checkpoint: genesis_checkpoint,
+                        execution_status,
+                        unrealized_justified_checkpoint: Some(genesis_checkpoint),
+                        unrealized_finalized_checkpoint: Some(genesis_checkpoint),
+                    },
+                    Slot::from(block.slot),
+                )
+                .unwrap();
+        };
+
+        // Produce the 0th epoch of blocks. They should all form a chain from
+        // the genesis block.
+        for i in 1..MainnetEthSpec::slots_per_epoch() {
+            insert_block(
+                &mut fc,
+                TestBlock {
+                    slot: i,
+                    root: i,
+                    parent_root: i - 1,
+                },
+            )
+        }
+
+        let last_slot_of_epoch_0 = MainnetEthSpec::slots_per_epoch() - 1;
+
+        // Produce a block that descends from the last block of epoch -.
+        //
+        // This block will be non-canonical.
+        let non_canonical_slot = last_slot_of_epoch_0 + 1;
+        insert_block(
+            &mut fc,
+            TestBlock {
+                slot: non_canonical_slot,
+                root: non_canonical_slot,
+                parent_root: non_canonical_slot - 1,
+            },
+        );
+
+        // Produce a block that descends from the last block of the 0th epoch,
+        // that skips the 1st slot of the 1st epoch.
+        //
+        // This block will be canonical.
+        let canonical_slot = last_slot_of_epoch_0 + 2;
+        insert_block(
+            &mut fc,
+            TestBlock {
+                slot: canonical_slot,
+                root: canonical_slot,
+                parent_root: non_canonical_slot - 1,
+            },
+        );
+
+        // Set the finalized checkpoint to finalize the first slot of epoch 1 on
+        // the canonical chain.
+        fc.proto_array.finalized_checkpoint = Checkpoint {
+            root: get_block_root(last_slot_of_epoch_0),
+            epoch: Epoch::new(1),
+        };
+
+        assert!(
+            fc.proto_array
+                .is_finalized_descendant::<MainnetEthSpec>(get_block_root(canonical_slot)),
+            "the canonical block is a descendant of the finalized checkpoint"
+        );
+        assert_eq!(
+            fc.proto_array
+                .is_finalized_descendant::<MainnetEthSpec>(get_block_root(non_canonical_slot)),
+            false,
+            "although the non-canonical block is a descendant of the finalized block, \
+            it's not a descendant of the finalized checkpoint"
+        );
+    }
+
+    #[test]
     fn zero_hash() {
         let validator_count: usize = 16;
 

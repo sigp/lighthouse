@@ -1037,7 +1037,7 @@ impl ProtoArray {
             // If the parent is equal to or less than the finalized slot, then
             // it must be the finalized root.
             if parent.slot <= finalized_slot {
-                return node.root == finalized_root;
+                return parent.root == finalized_root;
             }
 
             node = parent
