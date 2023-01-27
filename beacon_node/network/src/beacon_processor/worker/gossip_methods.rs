@@ -1252,7 +1252,8 @@ impl<T: BeaconChainTypes> Worker<T> {
 
         self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
 
-        // Messages received from gossip don't need to be re-broadcast.
+        // Messages received from gossip don't need to be re-broadcast at the
+        // Capella fork.
         let capella_broadcast = CapellaBroadcast::No;
 
         self.chain

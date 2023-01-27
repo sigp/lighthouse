@@ -75,7 +75,8 @@ impl<T: EthSpec> BlsToExecutionChanges<T> {
     }
 
     /// Returns only those which are flagged for broadcasting at the Capella
-    /// fork. Uses an arbitrary ordering.
+    /// fork. Uses FIFO ordering, although we expect this list to be shuffled by
+    /// the caller.
     pub fn iter_capella_broadcast(
         &self,
     ) -> impl Iterator<Item = &Arc<SigVerifiedOp<SignedBlsToExecutionChange, T>>> {
