@@ -11,8 +11,12 @@ if [ -f "$1" ]; then
       # handle the case of blank lines
       [[ -n "$pid" ]] || continue
 
-      echo killing $pid
-      kill $pid
+      # Kill the process if it exists 
+      # (it might not if we stopped the start script before it finished starting all processes)
+      if test -d /proc/"$pid"/; then
+        echo killing $pid
+        kill $pid
+      fi
     done < $1
 fi
 
