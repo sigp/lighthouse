@@ -206,6 +206,22 @@ pub enum Encoding {
     SSZSnappy,
 }
 
+impl Protocol {
+    pub(crate) fn terminator(self) -> Option<ResponseTermination> {
+        match self {
+            Protocol::Status => None,
+            Protocol::Goodbye => None,
+            Protocol::BlocksByRange => Some(ResponseTermination::BlocksByRange),
+            Protocol::BlocksByRoot => Some(ResponseTermination::BlocksByRoot),
+            Protocol::BlobsByRange => Some(ResponseTermination::BlobsByRange),
+            Protocol::BlobsByRoot => Some(ResponseTermination::BlobsByRoot),
+            Protocol::Ping => None,
+            Protocol::MetaData => None,
+            Protocol::LightClientBootstrap => None,
+        }
+    }
+}
+
 impl std::fmt::Display for Protocol {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let repr = match self {
