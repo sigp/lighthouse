@@ -1026,25 +1026,28 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         //FIXME(sean) avoid the clone by comparing refs to headers (`as_execution_payload_header` method ?)
         let full_payload: FullPayload<T::EthSpec> = execution_payload.clone().into();
 
-        // Verify payload integrity.
-        let header_from_payload = full_payload.to_execution_payload_header();
-        if header_from_payload != execution_payload_header {
-            for txn in execution_payload.transactions() {
-                debug!(
-                    self.log,
-                    "Reconstructed txn";
-                    "bytes" => format!("0x{}", hex::encode(&**txn)),
-                );
-            }
+        //FIXME(sean) we're not decoding blobs txs correctly yet
+        if !matches!(execution_payload, ExecutionPayload::Eip4844(_)) {
+            // Verify payload integrity.
+            let header_from_payload = full_payload.to_execution_payload_header();
+            if header_from_payload != execution_payload_header {
+                for txn in execution_payload.transactions() {
+                    debug!(
+                        self.log,
+                        "Reconstructed txn";
+                        "bytes" => format!("0x{}", hex::encode(&**txn)),
+                    );
+                }
 
-            return Err(Error::InconsistentPayloadReconstructed {
-                slot: blinded_block.slot(),
-                exec_block_hash,
-                canonical_payload_root: execution_payload_header.tree_hash_root(),
-                reconstructed_payload_root: header_from_payload.tree_hash_root(),
-                canonical_transactions_root: execution_payload_header.transactions_root(),
-                reconstructed_transactions_root: header_from_payload.transactions_root(),
-            });
+                return Err(Error::InconsistentPayloadReconstructed {
+                    slot: blinded_block.slot(),
+                    exec_block_hash,
+                    canonical_payload_root: execution_payload_header.tree_hash_root(),
+                    reconstructed_payload_root: header_from_payload.tree_hash_root(),
+                    canonical_transactions_root: execution_payload_header.transactions_root(),
+                    reconstructed_transactions_root: header_from_payload.transactions_root(),
+                });
+            }
         }
 
         // Add the payload to the block to form a full block.

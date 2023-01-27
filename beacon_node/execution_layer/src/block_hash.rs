@@ -36,12 +36,15 @@ impl<T: EthSpec> ExecutionLayer<T> {
             None
         };
 
+        let rlp_excess_data_gas = payload.excess_data_gas().ok();
+
         // Construct the block header.
         let exec_block_header = ExecutionBlockHeader::from_payload(
             payload,
             KECCAK_EMPTY_LIST_RLP.as_fixed_bytes().into(),
             rlp_transactions_root,
             rlp_withdrawals_root,
+            rlp_excess_data_gas.copied(),
         );
 
         // Hash the RLP encoding of the block header.
@@ -80,6 +83,9 @@ pub fn rlp_encode_block_header(header: &ExecutionBlockHeader) -> Vec<u8> {
     });
     if let Some(withdrawals_root) = &header.withdrawals_root {
         rlp_header_stream.append(withdrawals_root);
+    }
+    if let Some(excess_data_gas) = &header.excess_data_gas {
+        rlp_header_stream.append(excess_data_gas);
     }
     rlp_header_stream.finalize_unbounded_list();
     rlp_header_stream.out().into()
