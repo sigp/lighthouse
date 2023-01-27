@@ -111,7 +111,7 @@ pub struct RPC<Id: ReqId, TSpec: EthSpec> {
     /// Requests queued for sending per peer. This requests are stored when the self rate limiter
     /// rejects them. Rate limiting is based on a Peer and Protocol basis, therefore are stored in
     /// the same way.
-    rate_limited_request: HashMap<(PeerId, Protocol), VecDeque<(OutboundRequest<TSpec>, Id)>>,
+    rate_limited_requests: HashMap<(PeerId, Protocol), VecDeque<(OutboundRequest<TSpec>, Id)>>,
     /// The delay required to allow a peer's outbound request per protocol.
     next_peer_request: DelayQueue<(PeerId, Protocol)>,
     /// Rate limiter for our own requests.
@@ -152,7 +152,7 @@ impl<Id: ReqId, TSpec: EthSpec> RPC<Id, TSpec> {
             .expect("Configuration parameters are valid");
         RPC {
             limiter,
-            rate_limited_request: Default::default(),
+            rate_limited_requests: Default::default(),
             next_peer_request: Default::default(),
             self_limiter,
             events: Vec::new(),
@@ -182,7 +182,12 @@ impl<Id: ReqId, TSpec: EthSpec> RPC<Id, TSpec> {
     ///
     /// The peer must be connected for this to succeed.
     pub fn send_request(&mut self, peer_id: PeerId, request_id: Id, req: OutboundRequest<TSpec>) {
-        // TODO: first check that there are no queued requests to maintain order
+        let protocol = req.protocol();
+        if let Some(queued_requests) = self.rate_limited_requests.get_mut(&(peer_id, protocol)) {
+            queued_requests.push_back((req, request_id));
+            // TODO: verify rate_limited_requests and next_peer_request are in sync
+            return;
+        }
         match self.self_limiter.allows(&peer_id, &req) {
             Ok(_) => self.events.push(NetworkBehaviourAction::NotifyHandler {
                 peer_id,
@@ -203,12 +208,11 @@ impl<Id: ReqId, TSpec: EthSpec> RPC<Id, TSpec> {
                         event: RPCSend::Request(request_id, req),
                     });
                 }
-                RateLimitedErr::TooSoon(duration) => {
-                    let protocol = req.protocol();
-                    debug!(self.log, "Self rate limiting"; "protocol" => %protocol, "wait_time_ms" => duration.as_millis(), "peer_id" => %peer_id);
+                RateLimitedErr::TooSoon(wait_time) => {
+                    debug!(self.log, "Self rate limiting"; "protocol" => %protocol, "wait_time_ms" => wait_time.as_millis(), "peer_id" => %peer_id);
                     let key = (peer_id, protocol);
-                    self.next_peer_request.insert(key, duration);
-                    self.rate_limited_request
+                    self.next_peer_request.insert(key, wait_time);
+                    self.rate_limited_requests
                         .entry(key)
                         .or_default()
                         .push_back((req, request_id));
@@ -218,21 +222,30 @@ impl<Id: ReqId, TSpec: EthSpec> RPC<Id, TSpec> {
     }
 
     fn send_rate_limited_request(&mut self, peer_id: PeerId, protocol: Protocol) {
-        if let Some(queued_requests) = self.rate_limited_request.get_mut(&(peer_id, protocol)) {
-            if let Some((next_request, id)) = queued_requests.pop_front() {
-                // Register the request with the rate limiter before sending.
-                if let Err(e) = self.self_limiter.allows(&peer_id, &next_request) {
-                    // this should never happen
-                    crit!(self.log, "Rate limited request that should be allowed was rejected. Sending anyway"; "protocol" => %protocol, "peer_id" => %peer_id, "error" => ?e);
+        if let Some(queued_requests) = self.rate_limited_requests.get_mut(&(peer_id, protocol)) {
+            loop {
+                if let Some((req, id)) = queued_requests.pop_front() {
+                    // Register the request with the rate limiter
+                    match self.self_limiter.allows(&peer_id, &req) {
+                        Ok(()) => {
+                            self.events.push(NetworkBehaviourAction::NotifyHandler {
+                                peer_id,
+                                handler: NotifyHandler::Any,
+                                event: RPCSend::Request(id, req),
+                            });
+                        }
+                        Err(e) => match e {
+                            RateLimitedErr::TooLarge => todo!(),
+                            RateLimitedErr::TooSoon(wait_time) => {
+                                let protocol = req.protocol();
+                                debug!(self.log, "Self rate limiting"; "protocol" => %protocol, "wait_time_ms" => wait_time.as_millis(), "peer_id" => %peer_id);
+                                let key = (peer_id, protocol);
+                                self.next_peer_request.insert(key, wait_time);
+                                queued_requests.push_back((req, id));
+                            }
+                        },
+                    }
                 }
-                self.events.push(NetworkBehaviourAction::NotifyHandler {
-                    peer_id,
-                    handler: NotifyHandler::Any,
-                    event: RPCSend::Request(id, next_request),
-                });
-
-                // Update the delay for this peer and protocol if there are more queued requests.
-                // UGH need to try them all. TODO
             }
         }
     }
