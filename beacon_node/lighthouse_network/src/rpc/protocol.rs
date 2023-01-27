@@ -139,7 +139,7 @@ pub fn rpc_block_limits_by_fork(current_fork: ForkName) -> RpcLimits {
 }
 
 /// Protocol names to be used.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Protocol {
     /// The Status protocol name.
     Status,

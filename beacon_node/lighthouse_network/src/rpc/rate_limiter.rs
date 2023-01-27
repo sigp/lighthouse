@@ -79,6 +79,7 @@ pub struct RPCRateLimiter {
 }
 
 /// Error type for non conformant requests
+#[derive(Debug)]
 pub enum RateLimitedErr {
     /// Required tokens for this request exceed the maximum
     TooLarge,

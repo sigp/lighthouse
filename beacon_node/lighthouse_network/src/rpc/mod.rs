@@ -14,6 +14,8 @@ use libp2p::swarm::{
 use libp2p::PeerId;
 use rate_limiter::{RPCRateLimiter as RateLimiter, RPCRateLimiterBuilder, RateLimitedErr};
 use slog::{crit, debug, o};
+use std::collections::hash_map::Entry;
+use std::collections::{HashMap, VecDeque};
 use std::marker::PhantomData;
 use std::sync::Arc;
 use std::task::{Context, Poll};
@@ -106,8 +108,12 @@ pub struct RPCMessage<Id, TSpec: EthSpec> {
 pub struct RPC<Id: ReqId, TSpec: EthSpec> {
     /// Rate limiter
     limiter: RateLimiter,
-    /// Events we delay sending to the handler.
-    queued_events: DelayQueue<NetworkBehaviourAction<RPCMessage<Id, TSpec>, RPCHandler<Id, TSpec>>>,
+    /// Requests queued for sending per peer. This requests are stored when the self rate limiter
+    /// rejects them. Rate limiting is based on a Peer and Protocol basis, therefore are stored in
+    /// the same way.
+    rate_limited_request: HashMap<(PeerId, Protocol), VecDeque<(OutboundRequest<TSpec>, Id)>>,
+    /// The delay required to allow a peer's outbound request per protocol.
+    next_peer_request: DelayQueue<(PeerId, Protocol)>,
     /// Rate limiter for our own requests.
     self_limiter: RateLimiter,
     /// Queue of events to be processed.
@@ -146,12 +152,13 @@ impl<Id: ReqId, TSpec: EthSpec> RPC<Id, TSpec> {
             .expect("Configuration parameters are valid");
         RPC {
             limiter,
+            rate_limited_request: Default::default(),
+            next_peer_request: Default::default(),
             self_limiter,
             events: Vec::new(),
             fork_context,
             enable_light_client_server,
             log,
-            queued_events: DelayQueue::new(),
         }
     }
 
@@ -175,6 +182,7 @@ impl<Id: ReqId, TSpec: EthSpec> RPC<Id, TSpec> {
     ///
     /// The peer must be connected for this to succeed.
     pub fn send_request(&mut self, peer_id: PeerId, request_id: Id, req: OutboundRequest<TSpec>) {
+        // TODO: first check that there are no queued requests to maintain order
         match self.self_limiter.allows(&peer_id, &req) {
             Ok(_) => self.events.push(NetworkBehaviourAction::NotifyHandler {
                 peer_id,
@@ -196,17 +204,36 @@ impl<Id: ReqId, TSpec: EthSpec> RPC<Id, TSpec> {
                     });
                 }
                 RateLimitedErr::TooSoon(duration) => {
-                    debug!(self.log, "Self rate limiting"; "protocol" => %req.protocol(), "wait_time_ms" => duration.as_millis());
-                    self.queued_events.insert(
-                        NetworkBehaviourAction::NotifyHandler {
-                            peer_id,
-                            handler: NotifyHandler::Any,
-                            event: RPCSend::Request(request_id, req),
-                        },
-                        duration,
-                    );
+                    let protocol = req.protocol();
+                    debug!(self.log, "Self rate limiting"; "protocol" => %protocol, "wait_time_ms" => duration.as_millis(), "peer_id" => %peer_id);
+                    let key = (peer_id, protocol);
+                    self.next_peer_request.insert(key, duration);
+                    self.rate_limited_request
+                        .entry(key)
+                        .or_default()
+                        .push_back((req, request_id));
                 }
             },
+        }
+    }
+
+    fn send_rate_limited_request(&mut self, peer_id: PeerId, protocol: Protocol) {
+        if let Some(queued_requests) = self.rate_limited_request.get_mut(&(peer_id, protocol)) {
+            if let Some((next_request, id)) = queued_requests.pop_front() {
+                // Register the request with the rate limiter before sending.
+                if let Err(e) = self.self_limiter.allows(&peer_id, &next_request) {
+                    // this should never happen
+                    crit!(self.log, "Rate limited request that should be allowed was rejected. Sending anyway"; "protocol" => %protocol, "peer_id" => %peer_id, "error" => ?e);
+                }
+                self.events.push(NetworkBehaviourAction::NotifyHandler {
+                    peer_id,
+                    handler: NotifyHandler::Any,
+                    event: RPCSend::Request(id, next_request),
+                });
+
+                // Update the delay for this peer and protocol if there are more queued requests.
+                // UGH need to try them all. TODO
+            }
         }
     }
 
@@ -317,8 +344,9 @@ where
         if !self.events.is_empty() {
             return Poll::Ready(self.events.remove(0));
         }
-        if let Poll::Ready(Some(Ok(event))) = self.queued_events.poll_expired(cx) {
-            return Poll::Ready(event.into_inner());
+        if let Poll::Ready(Some(Ok(expired))) = self.next_peer_request.poll_expired(cx) {
+            let (peer_id, protocol) = expired.into_inner();
+            self.send_rate_limited_request(peer_id, protocol)
         }
         Poll::Pending
     }
