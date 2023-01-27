@@ -935,8 +935,15 @@ where
                             // termination to the application
                             let termination = match protocol {
                                 Protocol::BlocksByRange => Some(ResponseTermination::BlocksByRange),
+                                Protocol::BlobsByRange => Some(ResponseTermination::BlobsByRange),
                                 Protocol::BlocksByRoot => Some(ResponseTermination::BlocksByRoot),
-                                _ => None, // all other protocols are do not have multiple responses and we do not inform the user, we simply drop the stream.
+                                Protocol::BlobsByRoot => Some(ResponseTermination::BlobsByRoot),
+                                // all other protocols are do not have multiple responses and we do not inform the user, we simply drop the stream.
+                                Protocol::Goodbye
+                                | Protocol::Status
+                                | Protocol::MetaData
+                                | Protocol::Ping
+                                | Protocol::LightClientBootstrap => None,
                             };
 
                             if let Some(termination) = termination {
