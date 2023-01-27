@@ -211,7 +211,7 @@ impl Protocol {
         match self {
             Protocol::Status => None,
             Protocol::Goodbye => None,
-            Protocol::BlocksByRange => Some(ResponseTermination::BlobsByRange),
+            Protocol::BlocksByRange => Some(ResponseTermination::BlocksByRange),
             Protocol::BlocksByRoot => Some(ResponseTermination::BlocksByRoot),
             Protocol::BlobsByRange => Some(ResponseTermination::BlobsByRange),
             Protocol::BlobsByRoot => Some(ResponseTermination::BlobsByRoot),
