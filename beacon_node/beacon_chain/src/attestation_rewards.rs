@@ -115,7 +115,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             for flag_index in 0..PARTICIPATION_FLAG_WEIGHTS.len() {
                 if eligible {
                     let voted_correctly = participation_cache
-                        .get_unslashed_participating_indices(flag_index as usize, previous_epoch)
+                        .get_unslashed_participating_indices(flag_index, previous_epoch)
                         .map_err(|_| BeaconChainError::AttestationRewardsError)?
                         .contains(*validator_index)
                         .map_err(|_| BeaconChainError::AttestationRewardsError)?;
@@ -141,7 +141,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 }
                 total_rewards.push(TotalAttestationRewards {
                     validator_index: *validator_index as u64,
-                    head: head_reward as u64,
+                    head: head_reward,
                     target: target_reward,
                     source: source_reward,
                 });
