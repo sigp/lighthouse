@@ -298,8 +298,8 @@ impl Engine {
                 let mut state = self.state.write().await;
                 state.update(EngineStateInternal::Offline);
                 // need to clear the engine capabilities cache if we detect the
-                // execution engine is offline as it is likely the engine has gone
-                // offline because it is being updated to a later version
+                // execution engine is offline as it is likely the engine is being
+                // updated to a newer version with new capabilities
                 self.api.set_cached_engine_capabilities(None).await;
                 **state
             }

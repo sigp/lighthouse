@@ -22,6 +22,7 @@ use tokio::{runtime, sync::oneshot};
 use types::{EthSpec, ExecutionBlockHash, Uint256};
 use warp::{http::StatusCode, Filter, Rejection};
 
+use crate::EngineCapabilities;
 pub use execution_block_generator::{generate_pow_block, Block, ExecutionBlockGenerator};
 pub use hook::Hook;
 pub use mock_builder::{Context as MockBuilderContext, MockBuilder, Operation, TestingBuilder};
@@ -31,6 +32,15 @@ pub const DEFAULT_TERMINAL_DIFFICULTY: u64 = 6400;
 pub const DEFAULT_TERMINAL_BLOCK: u64 = 64;
 pub const DEFAULT_JWT_SECRET: [u8; 32] = [42; 32];
 pub const DEFAULT_BUILDER_THRESHOLD_WEI: u128 = 1_000_000_000_000_000_000;
+pub const DEFAULT_ENGINE_CAPABILITIES: EngineCapabilities = EngineCapabilities {
+    new_payload_v1: true,
+    new_payload_v2: true,
+    forkchoice_updated_v1: true,
+    forkchoice_updated_v2: true,
+    get_payload_v1: true,
+    get_payload_v2: true,
+    exchange_transition_configuration_v1: true,
+};
 
 mod execution_block_generator;
 mod handle_rpc;
@@ -117,6 +127,7 @@ impl<T: EthSpec> MockServer<T> {
             hook: <_>::default(),
             new_payload_statuses: <_>::default(),
             fcu_payload_statuses: <_>::default(),
+            engine_capabilities: Arc::new(RwLock::new(DEFAULT_ENGINE_CAPABILITIES)),
             _phantom: PhantomData,
         });
 
@@ -145,6 +156,10 @@ impl<T: EthSpec> MockServer<T> {
             last_echo_request,
             ctx,
         }
+    }
+
+    pub fn set_engine_capabilities(&self, engine_capabilities: EngineCapabilities) {
+        *self.ctx.engine_capabilities.write() = engine_capabilities;
     }
 
     pub fn new(
@@ -469,6 +484,7 @@ pub struct Context<T: EthSpec> {
     pub new_payload_statuses: Arc<Mutex<HashMap<ExecutionBlockHash, PayloadStatusV1>>>,
     pub fcu_payload_statuses: Arc<Mutex<HashMap<ExecutionBlockHash, PayloadStatusV1>>>,
 
+    pub engine_capabilities: Arc<RwLock<EngineCapabilities>>,
     pub _phantom: PhantomData<T>,
 }
 
@@ -620,11 +636,11 @@ pub fn serve<T: EthSpec>(
                         "jsonrpc": JSONRPC_VERSION,
                         "result": result
                     }),
-                    Err(message) => json!({
+                    Err((message, code)) => json!({
                         "id": id,
                         "jsonrpc": JSONRPC_VERSION,
                         "error": {
-                            "code": -1234,   // Junk error code.
+                            "code": code,
                             "message": message
                         }
                     }),
