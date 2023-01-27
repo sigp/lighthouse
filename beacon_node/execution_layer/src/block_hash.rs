@@ -44,7 +44,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
             KECCAK_EMPTY_LIST_RLP.as_fixed_bytes().into(),
             rlp_transactions_root,
             rlp_withdrawals_root,
-            rlp_excess_data_gas,
+            rlp_excess_data_gas.copied(),
         );
 
         // Hash the RLP encoding of the block header.
@@ -78,7 +78,7 @@ pub fn rlp_encode_withdrawal(withdrawal: &JsonWithdrawal) -> Vec<u8> {
 pub fn rlp_encode_block_header(header: &ExecutionBlockHeader) -> Vec<u8> {
     let mut rlp_header_stream = RlpStream::new();
     rlp_header_stream.begin_unbounded_list();
-    map_execution_block_header_fields_except_withdrawals_excess_data_gas!(&header, |_, field| {
+    map_execution_block_header_fields_except_withdrawals!(&header, |_, field| {
         rlp_header_stream.append(field);
     });
     if let Some(withdrawals_root) = &header.withdrawals_root {

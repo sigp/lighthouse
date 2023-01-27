@@ -25,11 +25,7 @@ use metastruct::metastruct;
 /// Credit to Reth for the type definition.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[metastruct(mappings(
-    map_execution_block_header_fields_except_withdrawals(exclude(withdrawals_root)),
-    map_execution_block_header_fields_except_withdrawals_excess_data_gas(exclude(
-        withdrawals_root,
-        excess_data_gas
-    ))
+    map_execution_block_header_fields_except_withdrawals(exclude(withdrawals_root, excess_data_gas)),
 ))]
 pub struct ExecutionBlockHeader {
     pub parent_hash: Hash256,
