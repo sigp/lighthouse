@@ -877,8 +877,7 @@ mod test {
             "extraData": "0x",
             "baseFeePerGas": "0x1",
             "blockHash": HASH_01,
-            "verkleProof": "null",
-            "verkleKeyVals": "null"
+            "executionWitness": "null",
         });
         // Take advantage of the fact that we own `transactions` and don't need to reserialize it.
         json.as_object_mut()
@@ -1126,8 +1125,7 @@ mod test {
                             base_fee_per_gas: Uint256::from(1),
                             block_hash: ExecutionBlockHash::repeat_byte(1),
                             transactions: vec![].into(),
-                            verkle_proof: None::<_>,
-                            verkle_key_vals: None::<_>,
+                            execution_witness: ExecutionWitness::default(),
                         })
                         .await;
                 },
@@ -1150,8 +1148,7 @@ mod test {
                         "baseFeePerGas": "0x1",
                         "blockHash": HASH_01,
                         "transactions": [],
-                        "verkleProof": "null",
-                        "verkleKeyVals": "null",
+                        "executionWitness": "null",
                     }]
                 }),
             )
@@ -1175,8 +1172,7 @@ mod test {
                         base_fee_per_gas: Uint256::from(1),
                         block_hash: ExecutionBlockHash::repeat_byte(1),
                         transactions: vec![].into(),
-                        verkle_proof: None::<_>,
-                        verkle_key_vals: None::<_>,
+                        execution_witness: ExecutionWitness::default(),
                     })
                     .await
             })
@@ -1362,8 +1358,7 @@ mod test {
                         "baseFeePerGas":"0x7",
                         "blockHash":"0x6359b8381a370e2f54072a5784ddd78b6ed024991558c511d4452eb4f6ac898c",
                         "transactions":[],
-                        "verkleProof": "null",
-                        "verkleKeyVals":"null"
+                        "executionWitness": "null",
                     }
                 })],
                 |client| async move {
@@ -1387,8 +1382,7 @@ mod test {
                             base_fee_per_gas: Uint256::from(7),
                             block_hash: ExecutionBlockHash::from_str("0x6359b8381a370e2f54072a5784ddd78b6ed024991558c511d4452eb4f6ac898c").unwrap(),
                             transactions: vec![].into(),
-                            verkle_proof: None::<_>,
-                            verkle_key_vals: None::<_>,
+                            execution_witness: ExecutionWitness::default(),
                         };
 
                     assert_eq!(payload, expected);
@@ -1414,8 +1408,7 @@ mod test {
                             base_fee_per_gas: Uint256::from(7),
                             block_hash: ExecutionBlockHash::from_str("0x3559e851470f6e7bbed1db474980683e8c315bfce99b2a6ef47c057c04de7858").unwrap(),
                             transactions: vec![].into(),
-                            verkle_proof: None::<_>,
-                            verkle_key_vals: None::<_>,
+                            execution_witness: ExecutionWitness::default(),
                         })
                         .await;
                 },
@@ -1438,8 +1431,7 @@ mod test {
                         "baseFeePerGas":"0x7",
                         "blockHash":"0x3559e851470f6e7bbed1db474980683e8c315bfce99b2a6ef47c057c04de7858",
                         "transactions":[],
-                        "verkleProof":"null",
-                        "verkleKeyVals":"null"
+                        "executionWitness":"null",
                     }],
                 })
             )

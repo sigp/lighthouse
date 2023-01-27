@@ -43,6 +43,7 @@ pub mod eth_spec;
 pub mod execution_block_hash;
 pub mod execution_payload;
 pub mod execution_payload_header;
+pub mod execution_witness;
 pub mod fork;
 pub mod fork_data;
 pub mod fork_name;
@@ -129,10 +130,9 @@ pub use crate::eth1_data::Eth1Data;
 pub use crate::eth_spec::EthSpecId;
 pub use crate::execution_block_hash::ExecutionBlockHash;
 pub use crate::execution_block_header::ExecutionBlockHeader;
-pub use crate::execution_payload::{
-    ExecutionPayload, Transaction, Transactions, VerkleMap, VerkleProof,
-};
+pub use crate::execution_payload::{ExecutionPayload, Transaction, Transactions};
 pub use crate::execution_payload_header::ExecutionPayloadHeader;
+pub use crate::execution_witness::ExecutionWitness;
 pub use crate::fork::Fork;
 pub use crate::fork_context::ForkContext;
 pub use crate::fork_data::ForkData;

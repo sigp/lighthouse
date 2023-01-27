@@ -11,6 +11,7 @@ use tree_hash_derive::TreeHash;
     Default, Debug, Clone, Serialize, Deserialize, Derivative, Encode, Decode, TreeHash, TestRandom,
 )]
 #[derivative(PartialEq, Hash(bound = "T: EthSpec"))]
+#[serde(bound = "T: EthSpec")]
 pub struct ExecutionPayloadHeader<T: EthSpec> {
     pub parent_hash: ExecutionBlockHash,
     pub fee_recipient: Address,
@@ -33,8 +34,7 @@ pub struct ExecutionPayloadHeader<T: EthSpec> {
     pub base_fee_per_gas: Uint256,
     pub block_hash: ExecutionBlockHash,
     pub transactions_root: Hash256,
-    pub verkle_proof_root: Hash256,
-    pub verkle_key_vals_root: Hash256,
+    pub execution_witness: ExecutionWitness<T>,
 }
 
 impl<T: EthSpec> ExecutionPayloadHeader<T> {
@@ -60,8 +60,7 @@ impl<'a, T: EthSpec> From<&'a ExecutionPayload<T>> for ExecutionPayloadHeader<T>
             base_fee_per_gas: payload.base_fee_per_gas,
             block_hash: payload.block_hash,
             transactions_root: payload.transactions.tree_hash_root(),
-            verkle_proof_root: payload.verkle_proof.tree_hash_root(),
-            verkle_key_vals_root: payload.verkle_key_vals.tree_hash_root(),
+            execution_witness: payload.execution_witness.clone(),
         }
     }
 }

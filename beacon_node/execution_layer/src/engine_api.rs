@@ -6,8 +6,8 @@ use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 use strum::IntoStaticStr;
 pub use types::{
-    Address, EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadHeader, FixedVector,
-    Hash256, Uint256, VariableList, VerkleMap, VerkleProof,
+    Address, EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadHeader,
+    ExecutionWitness, FixedVector, Hash256, Uint256, VariableList,
 };
 
 pub mod auth;
@@ -139,8 +139,7 @@ pub struct ExecutionBlockWithTransactions<T: EthSpec> {
     #[serde(rename = "hash")]
     pub block_hash: ExecutionBlockHash,
     pub transactions: Vec<Transaction>,
-    pub verkle_proof: Option<VerkleProof<T>>,
-    pub verkle_key_vals: Option<VariableList<VerkleMap<T>, T::MaxVerkleProofKeyVals>>,
+    pub execution_witness: ExecutionWitness<T>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]

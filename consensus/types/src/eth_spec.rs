@@ -3,8 +3,8 @@ use crate::*;
 use safe_arith::SafeArith;
 use serde_derive::{Deserialize, Serialize};
 use ssz_types::typenum::{
-    bit::B0, UInt, Unsigned, U0, U1024, U1048576, U1073741824, U1099511627776, U128, U16,
-    U16777216, U2, U2048, U256, U32, U4, U4096, U512, U625, U64, U65536, U8, U8192,
+    bit::B0, Prod, UInt, Unsigned, U0, U1024, U1048576, U1073741824, U1099511627776, U128, U16,
+    U16777216, U2, U2048, U256, U31, U32, U33, U4, U4096, U512, U625, U64, U65536, U8, U8192,
 };
 use std::fmt::{self, Debug};
 use std::str::FromStr;
@@ -116,10 +116,14 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq +
     /*
      * New in Verkle
      */
-    type MaxVerkleProofBytes: Unsigned + Clone + Sync + Send + Debug + PartialEq;
-    type MaxVerkleProofKeyVals: Unsigned + Clone + Sync + Send + Debug + PartialEq;
-    type MaxVerkleKeyLength: Unsigned + Clone + Sync + Send + Debug + PartialEq;
-    type MaxVerkleValueLength: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+    type BytesPerBandersnatchElement: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+    type MaxStems: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+    type MaxStemLength: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+    type MaxCommittmentsPerStem: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+    type MaxCommittments: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+    type BytesPerSuffixStateDiffValue: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+    type MaxVerkleWidth: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+    type IpaProofDepth: Unsigned + Clone + Sync + Send + Debug + PartialEq;
 
     fn default_spec() -> ChainSpec;
 
@@ -273,10 +277,14 @@ impl EthSpec for MainnetEthSpec {
     type SyncSubcommitteeSize = U128; // 512 committee size / 4 sync committee subnet count
     type MaxPendingAttestations = U4096; // 128 max attestations * 32 slots per epoch
     type SlotsPerEth1VotingPeriod = U2048; // 64 epochs * 32 slots per epoch
-    type MaxVerkleProofBytes = U65536;
-    type MaxVerkleProofKeyVals = U65536;
-    type MaxVerkleKeyLength = U32;
-    type MaxVerkleValueLength = U32;
+    type BytesPerBandersnatchElement = U32;
+    type MaxStems = U65536;
+    type MaxStemLength = U31;
+    type MaxCommittmentsPerStem = U33;
+    type MaxCommittments = Prod<Self::MaxStems, Self::MaxCommittmentsPerStem>;
+    type BytesPerSuffixStateDiffValue = U32;
+    type MaxVerkleWidth = U256;
+    type IpaProofDepth = U8;
 
     fn default_spec() -> ChainSpec {
         ChainSpec::mainnet()
@@ -322,10 +330,14 @@ impl EthSpec for MinimalEthSpec {
         GasLimitDenominator,
         MinGasLimit,
         MaxExtraDataBytes,
-        MaxVerkleProofBytes,
-        MaxVerkleProofKeyVals,
-        MaxVerkleKeyLength,
-        MaxVerkleValueLength
+        BytesPerBandersnatchElement,
+        MaxStems,
+        MaxStemLength,
+        MaxCommittmentsPerStem,
+        MaxCommittments,
+        BytesPerSuffixStateDiffValue,
+        MaxVerkleWidth,
+        IpaProofDepth
     });
 
     fn default_spec() -> ChainSpec {
@@ -370,10 +382,15 @@ impl EthSpec for GnosisEthSpec {
     type SyncSubcommitteeSize = U128; // 512 committee size / 4 sync committee subnet count
     type MaxPendingAttestations = U2048; // 128 max attestations * 16 slots per epoch
     type SlotsPerEth1VotingPeriod = U1024; // 64 epochs * 16 slots per epoch
-    type MaxVerkleProofBytes = U65536;
-    type MaxVerkleProofKeyVals = U65536;
-    type MaxVerkleKeyLength = U32;
-    type MaxVerkleValueLength = U32;
+    type BytesPerBandersnatchElement = U32;
+    type MaxStems = U65536;
+    type MaxStemLength = U31;
+    type MaxCommittmentsPerStem = U33;
+    type MaxCommittments = Prod<Self::MaxStems, Self::MaxCommittmentsPerStem>;
+    //type MaxCommittments = U4194304;
+    type BytesPerSuffixStateDiffValue = U32;
+    type MaxVerkleWidth = U256;
+    type IpaProofDepth = U8;
 
     fn default_spec() -> ChainSpec {
         ChainSpec::gnosis()

@@ -12,44 +12,6 @@ pub type Transactions<T> = VariableList<
     <T as EthSpec>::MaxTransactionsPerPayload,
 >;
 
-#[derive(
-    Default, Debug, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom, Derivative,
-)]
-#[derivative(PartialEq, Hash(bound = "T: EthSpec"))]
-#[serde(bound = "T: EthSpec")]
-#[ssz(struct_behaviour = "transparent")]
-#[serde(transparent)]
-pub struct VerkleProof<T: EthSpec> {
-    #[serde(
-        with = "ssz_types::serde_utils::base64_var_list",
-        rename = "verkleProof"
-    )]
-    inner: VariableList<u8, T::MaxVerkleProofBytes>,
-}
-
-#[derive(
-    Default, Debug, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom, Derivative,
-)]
-#[derivative(PartialEq, Hash(bound = "T: EthSpec"))]
-#[serde(bound = "T: EthSpec")]
-pub struct VerkleMap<T: EthSpec> {
-    #[serde(with = "ssz_types::serde_utils::base64_fixed_vec")]
-    key: FixedVector<u8, T::MaxVerkleKeyLength>,
-    value: Option<VerkleMapValue<T>>,
-}
-
-#[derive(
-    Default, Debug, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom, Derivative,
-)]
-#[derivative(PartialEq, Hash(bound = "T: EthSpec"))]
-#[serde(bound = "T: EthSpec")]
-#[ssz(struct_behaviour = "transparent")]
-#[serde(transparent)]
-pub struct VerkleMapValue<T: EthSpec> {
-    #[serde(with = "ssz_types::serde_utils::base64_fixed_vec")]
-    inner: FixedVector<u8, T::MaxVerkleValueLength>,
-}
-
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 #[derive(
     Default, Debug, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom, Derivative,
@@ -80,8 +42,7 @@ pub struct ExecutionPayload<T: EthSpec> {
     #[serde(with = "ssz_types::serde_utils::list_of_hex_var_list")]
     pub transactions: Transactions<T>,
     // Fields for Verkle testing.
-    pub verkle_proof: Option<VerkleProof<T>>,
-    pub verkle_key_vals: Option<VariableList<VerkleMap<T>, T::MaxVerkleProofKeyVals>>,
+    pub execution_witness: ExecutionWitness<T>,
 }
 
 impl<T: EthSpec> ExecutionPayload<T> {
