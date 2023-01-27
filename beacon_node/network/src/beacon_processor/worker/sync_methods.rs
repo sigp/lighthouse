@@ -85,6 +85,7 @@ impl<T: BeaconChainTypes> Worker<T> {
             }
         };
         let slot = block.slot();
+        let parent_root = block.message().parent_root();
         let available_block = block
             .into_available_block(block_root, &self.chain)
             .map_err(BlockError::BlobValidation);
@@ -110,7 +111,10 @@ impl<T: BeaconChainTypes> Worker<T> {
             info!(self.log, "New RPC block received"; "slot" => slot, "hash" => %hash);
 
             // Trigger processing for work referencing this block.
-            let reprocess_msg = ReprocessQueueMessage::BlockImported(hash);
+            let reprocess_msg = ReprocessQueueMessage::BlockImported {
+                block_root: hash,
+                parent_root,
+            };
             if reprocess_tx.try_send(reprocess_msg).is_err() {
                 error!(self.log, "Failed to inform block import"; "source" => "rpc", "block_root" => %hash)
             };

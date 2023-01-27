@@ -1,5 +1,6 @@
 use crate::attestation_id::AttestationId;
 use crate::attestation_storage::AttestationMap;
+use crate::bls_to_execution_changes::BlsToExecutionChanges;
 use crate::sync_aggregate_id::SyncAggregateId;
 use crate::OpPoolError;
 use crate::OperationPool;
@@ -105,8 +106,8 @@ impl<T: EthSpec> PersistedOperationPool<T> {
         let bls_to_execution_changes = operation_pool
             .bls_to_execution_changes
             .read()
-            .iter()
-            .map(|(_, bls_to_execution_change)| bls_to_execution_change.clone())
+            .iter_fifo()
+            .map(|bls_to_execution_change| (**bls_to_execution_change).clone())
             .collect();
 
         PersistedOperationPool::V14(PersistedOperationPoolV14 {
@@ -153,18 +154,13 @@ impl<T: EthSpec> PersistedOperationPool<T> {
             PersistedOperationPool::V5(_) | PersistedOperationPool::V12(_) => {
                 return Err(OpPoolError::IncorrectOpPoolVariant)
             }
-            PersistedOperationPool::V14(pool) => RwLock::new(
-                pool.bls_to_execution_changes
-                    .iter()
-                    .cloned()
-                    .map(|bls_to_execution_change| {
-                        (
-                            bls_to_execution_change.as_inner().message.validator_index,
-                            bls_to_execution_change,
-                        )
-                    })
-                    .collect(),
-            ),
+            PersistedOperationPool::V14(pool) => {
+                let mut bls_to_execution_changes = BlsToExecutionChanges::default();
+                for bls_to_execution_change in pool.bls_to_execution_changes {
+                    bls_to_execution_changes.insert(bls_to_execution_change);
+                }
+                RwLock::new(bls_to_execution_changes)
+            }
         };
         let op_pool = OperationPool {
             attestations,

@@ -2,6 +2,7 @@ pub use crate::persisted_beacon_chain::PersistedBeaconChain;
 pub use crate::{
     beacon_chain::{BEACON_CHAIN_DB_KEY, ETH1_CACHE_DB_KEY, FORK_CHOICE_DB_KEY, OP_POOL_DB_KEY},
     migrate::MigratorConfig,
+    sync_committee_verification::Error as SyncCommitteeError,
     validator_monitor::DEFAULT_INDIVIDUAL_TRACKING_THRESHOLD,
     BeaconChainError, NotifyExecutionLayer, ProduceBlockVerification,
 };
@@ -22,7 +23,7 @@ use execution_layer::{
 };
 use fork_choice::CountUnrealized;
 use futures::channel::mpsc::Receiver;
-pub use genesis::{interop_genesis_state, DEFAULT_ETH1_BLOCK_HASH};
+pub use genesis::{interop_genesis_state_with_eth1, DEFAULT_ETH1_BLOCK_HASH};
 use int_to_bytes::int_to_bytes32;
 use kzg::TrustedSetup;
 use merkle_proof::MerkleTree;
@@ -149,6 +150,7 @@ pub struct Builder<T: BeaconChainTypes> {
     eth_spec_instance: T::EthSpec,
     spec: Option<ChainSpec>,
     validator_keypairs: Option<Vec<Keypair>>,
+    withdrawal_keypairs: Vec<Option<Keypair>>,
     chain_config: Option<ChainConfig>,
     store_config: Option<StoreConfig>,
     #[allow(clippy::type_complexity)]
@@ -180,7 +182,7 @@ impl<E: EthSpec> Builder<EphemeralHarnessType<E>> {
             .unwrap(),
         );
         let mutator = move |builder: BeaconChainBuilder<_>| {
-            let genesis_state = interop_genesis_state::<E>(
+            let genesis_state = interop_genesis_state_with_eth1::<E>(
                 &validator_keypairs,
                 HARNESS_GENESIS_TIME,
                 Hash256::from_slice(DEFAULT_ETH1_BLOCK_HASH),
@@ -241,7 +243,7 @@ impl<E: EthSpec> Builder<DiskHarnessType<E>> {
             .expect("cannot build without validator keypairs");
 
         let mutator = move |builder: BeaconChainBuilder<_>| {
-            let genesis_state = interop_genesis_state::<E>(
+            let genesis_state = interop_genesis_state_with_eth1::<E>(
                 &validator_keypairs,
                 HARNESS_GENESIS_TIME,
                 Hash256::from_slice(DEFAULT_ETH1_BLOCK_HASH),
@@ -283,6 +285,7 @@ where
             eth_spec_instance,
             spec: None,
             validator_keypairs: None,
+            withdrawal_keypairs: vec![],
             chain_config: None,
             store_config: None,
             store: None,
@@ -305,6 +308,11 @@ where
 
     pub fn keypairs(mut self, validator_keypairs: Vec<Keypair>) -> Self {
         self.validator_keypairs = Some(validator_keypairs);
+        self
+    }
+
+    pub fn withdrawal_keypairs(mut self, withdrawal_keypairs: Vec<Option<Keypair>>) -> Self {
+        self.withdrawal_keypairs = withdrawal_keypairs;
         self
     }
 
@@ -545,6 +553,7 @@ where
             spec: chain.spec.clone(),
             chain: Arc::new(chain),
             validator_keypairs,
+            withdrawal_keypairs: self.withdrawal_keypairs,
             shutdown_receiver: Arc::new(Mutex::new(shutdown_receiver)),
             runtime: self.runtime,
             mock_execution_layer: self.mock_execution_layer,
@@ -560,6 +569,12 @@ where
 /// Used for testing.
 pub struct BeaconChainHarness<T: BeaconChainTypes> {
     pub validator_keypairs: Vec<Keypair>,
+    /// Optional BLS withdrawal keys for each validator.
+    ///
+    /// If a validator index is missing from this vec or their entry is `None` then either
+    /// no BLS withdrawal key was set for them (they had an address from genesis) or the test
+    /// initializer neglected to set this field.
+    pub withdrawal_keypairs: Vec<Option<Keypair>>,
 
     pub chain: Arc<BeaconChain<T>>,
     pub spec: ChainSpec,
@@ -1471,6 +1486,44 @@ where
         .sign(sk, &fork, genesis_validators_root, &self.chain.spec)
     }
 
+    pub fn make_bls_to_execution_change(
+        &self,
+        validator_index: u64,
+        address: Address,
+    ) -> SignedBlsToExecutionChange {
+        let keypair = self.get_withdrawal_keypair(validator_index);
+        self.make_bls_to_execution_change_with_keys(
+            validator_index,
+            address,
+            &keypair.pk,
+            &keypair.sk,
+        )
+    }
+
+    pub fn make_bls_to_execution_change_with_keys(
+        &self,
+        validator_index: u64,
+        address: Address,
+        pubkey: &PublicKey,
+        secret_key: &SecretKey,
+    ) -> SignedBlsToExecutionChange {
+        let genesis_validators_root = self.chain.genesis_validators_root;
+        BlsToExecutionChange {
+            validator_index,
+            from_bls_pubkey: pubkey.compress(),
+            to_execution_address: address,
+        }
+        .sign(secret_key, genesis_validators_root, &self.chain.spec)
+    }
+
+    pub fn get_withdrawal_keypair(&self, validator_index: u64) -> &Keypair {
+        self.withdrawal_keypairs
+            .get(validator_index as usize)
+            .expect("BLS withdrawal key missing from harness")
+            .as_ref()
+            .expect("no withdrawal key for validator")
+    }
+
     pub fn add_voluntary_exit(
         &self,
         block: &mut BeaconBlock<E>,
@@ -2020,6 +2073,30 @@ where
         assert_ne!(honest_head, faulty_head, "forks should be distinct");
 
         (honest_head, faulty_head)
+    }
+
+    pub fn process_sync_contributions(
+        &self,
+        sync_contributions: HarnessSyncContributions<E>,
+    ) -> Result<(), SyncCommitteeError> {
+        let mut verified_contributions = Vec::with_capacity(sync_contributions.len());
+
+        for (_, contribution_and_proof) in sync_contributions {
+            let signed_contribution_and_proof = contribution_and_proof.unwrap();
+
+            let verified_contribution = self
+                .chain
+                .verify_sync_contribution_for_gossip(signed_contribution_and_proof)?;
+
+            verified_contributions.push(verified_contribution);
+        }
+
+        for verified_contribution in verified_contributions {
+            self.chain
+                .add_contribution_to_block_inclusion_pool(verified_contribution)?;
+        }
+
+        Ok(())
     }
 }
 
