@@ -25,7 +25,8 @@ pub struct TotalAttestationRewards {
     #[serde(with = "eth2_serde_utils::quoted_u64")]
     pub validator_index: u64,
     // attester's reward for head vote in gwei
-    pub head: i64,
+    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    pub head: u64,
     // attester's reward for target vote in gwei
     pub target: i64,
     // attester's reward for source vote in gwei

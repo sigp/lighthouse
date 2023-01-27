@@ -161,7 +161,7 @@ pub enum BeaconChainError {
     BlockRewardAttestationError,
     BlockRewardSyncError,
     SyncCommitteeRewardsSyncError,
-    AttestationRewardsSyncError,
+    AttestationRewardsError,
     HeadMissingFromForkChoice(Hash256),
     FinalizedBlockMissingFromForkChoice(Hash256),
     HeadBlockMissingFromForkChoice(Hash256),

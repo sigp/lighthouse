@@ -33,10 +33,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .ok_or(BeaconChainError::UnableToFindTargetRoot(state_slot))?;
 
         let state = self
-            .get_state(&state_root, Some(state_slot))
-            .and_then(|maybe_state| {
-                maybe_state.ok_or(BeaconChainError::MissingBeaconState(state_root))
-            })?;
+            .get_state(&state_root, Some(state_slot))?
+            .ok_or(BeaconChainError::MissingBeaconState(state_root))?;
 
         // Calculate ideal_rewards
         let participation_cache = ParticipationCache::new(&state, spec)?;
@@ -45,7 +43,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let mut ideal_rewards_hashmap = HashMap::new();
 
-        let penalty = 0;
 
         for flag_index in PARTICIPATION_FLAG_WEIGHTS {
             let weight = get_flag_weight(flag_index as usize)
@@ -55,7 +52,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .get_unslashed_participating_indices(flag_index as usize, previous_epoch)?;
 
             let unslashed_participating_balance =
-                unslashed_participating_indices.total_balance().unwrap();
+                unslashed_participating_indices.total_balance().map_err(|_| BeaconChainError::AttestationRewardsError)?;
 
             let unslashed_participating_increments =
                 unslashed_participating_balance.safe_div(spec.effective_balance_increment)?;
@@ -73,7 +70,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     effective_balance_eth.safe_mul(base_reward_per_increment.as_u64())?;
 
                 let penalty =
-                    !0 * base_reward.safe_mul(weight)?.safe_div(WEIGHT_DENOMINATOR)? as i64;
+                    -1 * base_reward.safe_mul(weight)?.safe_div(WEIGHT_DENOMINATOR)? as i64;
 
                 let reward_numerator = base_reward
                     .safe_mul(weight)?
@@ -84,9 +81,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     .safe_div(WEIGHT_DENOMINATOR)?;
                 if !state.is_in_inactivity_leak(previous_epoch, spec) {
                     ideal_rewards_hashmap
-                        .insert((flag_index, effective_balance_eth, penalty), ideal_reward);
+                        .insert((flag_index, effective_balance_eth), (ideal_reward, penalty));
                 } else {
-                    ideal_rewards_hashmap.insert((flag_index, effective_balance_eth, penalty), 0);
+                    ideal_rewards_hashmap.insert((flag_index, effective_balance_eth), (0, penalty));
                 }
             }
         }
@@ -114,7 +111,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 if eligible {
                     let voted_correctly = participation_cache
                         .get_unslashed_participating_indices(flag_index as usize, previous_epoch)
-                        .is_ok();
+                        .map_err(|_| Error::AttestationRewardsError)?
+                        .contains(validator_index)
+                        .map_err(|_| Error::AttestationRewardsError)?;
                     if voted_correctly {
                         let total_reward = ideal_rewards_hashmap
                             .get(&(flag_index, effective_balance_eth, penalty))
