@@ -827,6 +827,7 @@ fn run<T: EthSpec>(
             debug_level: String::from("trace"),
             logfile_debug_level: String::from("trace"),
             log_format: None,
+            logfile_format: None,
             log_color: false,
             disable_log_timestamp: false,
             max_log_size: 0,

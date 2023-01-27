@@ -50,6 +50,7 @@ pub struct LoggerConfig {
     pub debug_level: String,
     pub logfile_debug_level: String,
     pub log_format: Option<String>,
+    pub logfile_format: Option<String>,
     pub log_color: bool,
     pub disable_log_timestamp: bool,
     pub max_log_size: u64,
@@ -64,6 +65,7 @@ impl Default for LoggerConfig {
             debug_level: String::from("info"),
             logfile_debug_level: String::from("debug"),
             log_format: None,
+            logfile_format: None,
             log_color: false,
             disable_log_timestamp: false,
             max_log_size: 200,
@@ -252,7 +254,7 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
         let file_logger = FileLoggerBuilder::new(&path)
             .level(logfile_level)
             .channel_size(LOG_CHANNEL_SIZE)
-            .format(match config.log_format.as_deref() {
+            .format(match config.logfile_format.as_deref() {
                 Some("JSON") => Format::Json,
                 _ => Format::default(),
             })
