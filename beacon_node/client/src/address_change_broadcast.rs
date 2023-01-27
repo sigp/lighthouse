@@ -62,14 +62,11 @@ pub async fn broadcast_address_changes_at_capella<T: BeaconChainTypes>(
         .op_pool
         .get_bls_to_execution_changes_for_capella_broadcast(&head.beacon_state, &chain.spec);
 
-    loop {
-        if changes.is_empty() {
-            break;
-        }
+    while !changes.is_empty() {
         // This `split_off` approach is to allow us to have owned chunks of the
-        // `changes` vec. The `itertools` iterator that achives this isn't
-        // `Send` so it doesn't work well with the `sleep` at the end of the
-        // loop.
+        // `changes` vec. The `std::slice::Chunks` method uses references and
+        // the `itertools` iterator that achives this isn't `Send` so it doesn't
+        // work well with the `sleep` at the end of the loop.
         let chunk = changes.split_off(cmp::min(BROADCAST_CHUNK_SIZE, changes.len()));
 
         let mut num_ok = 0;
