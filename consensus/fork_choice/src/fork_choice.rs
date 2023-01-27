@@ -1282,7 +1282,7 @@ where
 
         if store.best_justified_checkpoint().epoch > store.justified_checkpoint().epoch {
             let store = &self.fc_store;
-            if self.is_descendant_of_finalized(store.best_justified_checkpoint().root) {
+            if self.is_descendant_of_finalized_checkpoint(store.best_justified_checkpoint().root) {
                 let store = &mut self.fc_store;
                 store
                     .set_justified_checkpoint(*store.best_justified_checkpoint())
@@ -1323,12 +1323,13 @@ where
 
     /// Returns `true` if the block is known **and** a descendant of the finalized root.
     pub fn contains_block(&self, block_root: &Hash256) -> bool {
-        self.proto_array.contains_block(block_root) && self.is_descendant_of_finalized(*block_root)
+        self.proto_array.contains_block(block_root)
+            && self.is_descendant_of_finalized_checkpoint(*block_root)
     }
 
     /// Returns a `ProtoBlock` if the block is known **and** a descendant of the finalized root.
     pub fn get_block(&self, block_root: &Hash256) -> Option<ProtoBlock> {
-        if self.is_descendant_of_finalized(*block_root) {
+        if self.is_descendant_of_finalized_checkpoint(*block_root) {
             self.proto_array.get_block(block_root)
         } else {
             None
@@ -1337,7 +1338,7 @@ where
 
     /// Returns an `ExecutionStatus` if the block is known **and** a descendant of the finalized root.
     pub fn get_block_execution_status(&self, block_root: &Hash256) -> Option<ExecutionStatus> {
-        if self.is_descendant_of_finalized(*block_root) {
+        if self.is_descendant_of_finalized_checkpoint(*block_root) {
             self.proto_array.get_block_execution_status(block_root)
         } else {
             None
@@ -1372,9 +1373,10 @@ where
             })
     }
 
-    /// Return `true` if `block_root` is equal to the finalized root, or a known descendant of it.
-    pub fn is_descendant_of_finalized(&self, block_root: Hash256) -> bool {
-        self.proto_array.is_finalized_descendant::<E>(block_root)
+    /// Return `true` if `block_root` is equal to the finalized checkpoint, or a known descendant of it.
+    pub fn is_descendant_of_finalized_checkpoint(&self, block_root: Hash256) -> bool {
+        self.proto_array
+            .is_finalized_checkpoint_descendant::<E>(block_root)
     }
 
     /// Returns `Ok(true)` if `block_root` has been imported optimistically or deemed invalid.
