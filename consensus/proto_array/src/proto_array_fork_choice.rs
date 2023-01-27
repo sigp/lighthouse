@@ -748,6 +748,12 @@ impl ProtoArrayForkChoice {
             .is_descendant(ancestor_root, descendant_root)
     }
 
+    /// See `ProtoArray` documentation.
+    pub fn is_finalized_descendant<E: EthSpec>(&self, descendant_root: Hash256) -> bool {
+        self.proto_array
+            .is_finalized_descendant::<E>(descendant_root)
+    }
+
     pub fn latest_message(&self, validator_index: usize) -> Option<(Hash256, Epoch)> {
         if validator_index < self.votes.0.len() {
             let vote = &self.votes.0[validator_index];
@@ -992,6 +998,11 @@ mod test_compute_deltas {
         assert!(fc.is_descendant(finalized_root, finalized_desc));
         assert!(!fc.is_descendant(finalized_root, not_finalized_desc));
         assert!(!fc.is_descendant(finalized_root, unknown));
+
+        assert!(fc.is_finalized_descendant::<MainnetEthSpec>(finalized_root));
+        assert!(fc.is_finalized_descendant::<MainnetEthSpec>(finalized_desc));
+        assert!(!fc.is_finalized_descendant::<MainnetEthSpec>(not_finalized_desc));
+        assert!(!fc.is_finalized_descendant::<MainnetEthSpec>(unknown));
 
         assert!(!fc.is_descendant(finalized_desc, not_finalized_desc));
         assert!(fc.is_descendant(finalized_desc, finalized_desc));

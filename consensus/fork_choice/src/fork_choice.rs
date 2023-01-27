@@ -1374,8 +1374,7 @@ where
 
     /// Return `true` if `block_root` is equal to the finalized root, or a known descendant of it.
     pub fn is_descendant_of_finalized(&self, block_root: Hash256) -> bool {
-        self.proto_array
-            .is_descendant(self.fc_store.finalized_checkpoint().root, block_root)
+        self.proto_array.is_finalized_descendant::<E>(block_root)
     }
 
     /// Returns `Ok(true)` if `block_root` has been imported optimistically or deemed invalid.

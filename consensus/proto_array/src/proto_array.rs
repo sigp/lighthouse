@@ -482,6 +482,7 @@ impl ProtoArray {
         let latest_valid_ancestor_is_descendant =
             latest_valid_ancestor_root.map_or(false, |ancestor_root| {
                 self.is_descendant(ancestor_root, head_block_root)
+                    // TODO(paul): should this be updated to the new method?
                     && self.is_descendant(self.finalized_checkpoint.root, ancestor_root)
             });
 
