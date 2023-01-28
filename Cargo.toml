@@ -88,6 +88,7 @@ members = [
     "validator_client",
     "validator_client/slashing_protection",
 ]
+resolver = "2"
 
 [patch]
 [patch.crates-io]

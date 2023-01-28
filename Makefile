@@ -14,8 +14,16 @@ BUILD_PATH_AARCH64 = "target/$(AARCH64_TAG)/release"
 PINNED_NIGHTLY ?= nightly
 CLIPPY_PINNED_NIGHTLY=nightly-2022-05-19
 
+# List of features to use when building natively. Can be overriden via the environment.
+# No jemalloc on Windows
+ifeq ($(OS),Windows_NT)
+    FEATURES?=
+else
+    FEATURES?=jemalloc
+endif
+
 # List of features to use when cross-compiling. Can be overridden via the environment.
-CROSS_FEATURES ?= gnosis,slasher-lmdb,slasher-mdbx
+CROSS_FEATURES ?= gnosis,slasher-lmdb,slasher-mdbx,jemalloc
 
 # Cargo profile for Cross builds. Default is for local builds, CI uses an override.
 CROSS_PROFILE ?= release
@@ -101,10 +109,6 @@ cargo-fmt:
 check-benches:
 	cargo check --workspace --benches
 
-# Typechecks consensus code *without* allowing deprecated legacy arithmetic or metrics.
-check-consensus:
-	cargo check -p state_processing --no-default-features
-
 # Runs only the ef-test vectors.
 run-ef-tests:
 	rm -rf $(EF_TESTS)/.accessed_file_log.txt
@@ -160,7 +164,8 @@ lint:
 		-A clippy::from-over-into \
 		-A clippy::upper-case-acronyms \
 		-A clippy::vec-init-then-push \
-	    -A clippy::question-mark
+		-A clippy::question-mark \
+		-A clippy::uninlined-format-args
 
 nightly-lint:
 	cp .github/custom/clippy.toml .

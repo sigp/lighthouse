@@ -2,6 +2,7 @@ pub use crate::persisted_beacon_chain::PersistedBeaconChain;
 pub use crate::{
     beacon_chain::{BEACON_CHAIN_DB_KEY, ETH1_CACHE_DB_KEY, FORK_CHOICE_DB_KEY, OP_POOL_DB_KEY},
     migrate::MigratorConfig,
+    sync_committee_verification::Error as SyncCommitteeError,
     validator_monitor::DEFAULT_INDIVIDUAL_TRACKING_THRESHOLD,
     BeaconChainError, NotifyExecutionLayer, ProduceBlockVerification,
 };
@@ -1979,6 +1980,30 @@ where
         assert_ne!(honest_head, faulty_head, "forks should be distinct");
 
         (honest_head, faulty_head)
+    }
+
+    pub fn process_sync_contributions(
+        &self,
+        sync_contributions: HarnessSyncContributions<E>,
+    ) -> Result<(), SyncCommitteeError> {
+        let mut verified_contributions = Vec::with_capacity(sync_contributions.len());
+
+        for (_, contribution_and_proof) in sync_contributions {
+            let signed_contribution_and_proof = contribution_and_proof.unwrap();
+
+            let verified_contribution = self
+                .chain
+                .verify_sync_contribution_for_gossip(signed_contribution_and_proof)?;
+
+            verified_contributions.push(verified_contribution);
+        }
+
+        for verified_contribution in verified_contributions {
+            self.chain
+                .add_contribution_to_block_inclusion_pool(verified_contribution)?;
+        }
+
+        Ok(())
     }
 }
 

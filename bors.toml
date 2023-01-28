@@ -10,7 +10,6 @@ status = [
     "merge-transition-ubuntu",
     "no-eth1-simulator-ubuntu",
     "check-benchmarks",
-    "check-consensus",
     "clippy",
     "arbitrary-check",
     "cargo-audit",
