@@ -1,38 +1,39 @@
 use crate::{BeaconChain, BeaconChainError, BeaconChainTypes};
-use eth2::lighthouse::{AttestationRewards, BlockReward, BlockRewardMeta};
-use operation_pool::{AttMaxCover, MaxCover, RewardCache, SplitAttestation};
+use operation_pool::{SplitAttestation, earliest_attestation_validators};
 use safe_arith::SafeArith;
-use ssz::Encode;
 use state_processing::{
-    common::{altair, base, get_attesting_indices_from_state},
+    common::{
+        altair,
+        base,
+        get_attestation_participation_flag_indices, get_attesting_indices_from_state, get_attesting_indices
+    },
     per_block_processing::{
         altair::sync_committee::compute_sync_aggregate_rewards, get_slashable_indices,
     },
 };
-use store::consts::altair::{PARTICIPATION_FLAG_WEIGHTS, WEIGHT_DENOMINATOR};
-use types::{BeaconBlockRef, BeaconState, EthSpec, ExecPayload, Hash256};
+use store::consts::altair::{PARTICIPATION_FLAG_WEIGHTS, PROPOSER_WEIGHT, WEIGHT_DENOMINATOR};
+use types::{BeaconBlockRef, BeaconState, BeaconStateError, ExecPayload, beacon_state::BeaconStateBase};
 
 impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn compute_beacon_block_reward<Payload: ExecPayload<T::EthSpec>>(
         &self,
         block: BeaconBlockRef<'_, T::EthSpec, Payload>,
-        pre_state: &BeaconState<T::EthSpec>,
-        post_state: &BeaconState<T::EthSpec>,
+        state: &mut BeaconState<T::EthSpec>,
     ) -> Result<u64, BeaconChainError> {
         let sync_aggregate_reward =
-            self.compute_beacon_block_sync_aggregate_reward(block, post_state)?;
+            self.compute_beacon_block_sync_aggregate_reward(block, state)?;
 
         let proposer_slashing_reward =
-            self.compute_beacon_block_proposer_slashing_reward(block, post_state)?;
+            self.compute_beacon_block_proposer_slashing_reward(block, state)?;
 
         let attester_slashing_reward =
-            self.compute_beacon_block_attester_slashing_reward(block, post_state)?;
+            self.compute_beacon_block_attester_slashing_reward(block, state)?;
 
-        let block_proposal_reward = if let BeaconState::Base(ref base_state) = post_state {
+        let block_proposal_reward = if let BeaconState::Base(ref base_state) = state {
             // Will need to compute for pre-altair block as well
-            0
+            self.compute_beacon_block_proposal_reward_base(block, state, base_state)?
         } else {
-            self.compute_beacon_block_proposal_reward_altair(block, pre_state, post_state)?
+            self.compute_beacon_block_proposal_reward_altair(block, state)?
         };
 
         Ok(sync_aggregate_reward
@@ -99,63 +100,97 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(attester_slashing_reward)
     }
 
+
+    fn compute_beacon_block_proposal_reward_base<Payload: ExecPayload<T::EthSpec>>(
+        &self,
+        block: BeaconBlockRef<'_, T::EthSpec, Payload>,
+        state: &BeaconState<T::EthSpec>,
+        base_state: &BeaconStateBase<T::EthSpec>,
+    ) -> Result<u64, BeaconChainError> {
+
+        let total_active_balance = state.get_total_active_balance()?;
+        let mut total_proposer_reward = 0;
+        let spec = &self.spec;
+
+        let split_attestations = block
+            .body()
+            .attestations()
+            .iter()
+            .map(|att| {
+                let attesting_indices = get_attesting_indices_from_state(state, att)?;
+                Ok(SplitAttestation::new(att.clone(), attesting_indices))
+            })
+            .collect::<Result<Vec<_>, BeaconChainError>>()?;
+        
+        for split_attestation in split_attestations {
+            let att = split_attestation.as_ref();
+            let fresh_validators = earliest_attestation_validators(&att, state, base_state);
+            let committee = state
+                .get_beacon_committee(att.data.slot, att.data.index)?;
+            let indices = get_attesting_indices::<T::EthSpec>(committee.committee, &fresh_validators)?;
+            
+            for validator_index in indices {
+                let reward = base::get_base_reward(state, validator_index as usize, total_active_balance, spec)?
+                    .safe_div(spec.proposer_reward_quotient)?;
+
+                total_proposer_reward.safe_add_assign(reward)?;
+            }
+        }
+
+        Ok(total_proposer_reward)
+    }
+
     fn compute_beacon_block_proposal_reward_altair<Payload: ExecPayload<T::EthSpec>>(
         &self,
         block: BeaconBlockRef<'_, T::EthSpec, Payload>,
-        pre_state: &BeaconState<T::EthSpec>,
-        post_state: &BeaconState<T::EthSpec>,
+        state: &mut BeaconState<T::EthSpec>,
     ) -> Result<u64, BeaconChainError> {
-        let pre_state_epoch_participation = pre_state.current_epoch_participation()?;
-        let post_state_epoch_participation = post_state.current_epoch_participation()?;
-        let total_active_balance = post_state.get_total_active_balance()?;
+        let total_active_balance = state.get_total_active_balance()?;
         let base_reward_per_increment =
             altair::BaseRewardPerIncrement::new(total_active_balance, &self.spec)?;
-        let mut epoch_participation = vec![];
 
-        // Calculate the change in epoch participation to obtain the most accurate participation
-        // num_set_bits
-        // Assert pre_state_epoch_participation.len = post_state_participation.len
-        for i in 0..pre_state_epoch_participation.len() {
-            let pre_state_participation_flags = pre_state_epoch_participation[i].as_ssz_bytes();
-            let post_state_participation_flags = post_state_epoch_participation[i].as_ssz_bytes();
-            let mut participation_flags = vec![];
+        let mut total_proposer_reward = 0;
 
-            for j in 0..pre_state_participation_flags.len() {
-                let pre_bit = pre_state_participation_flags[j];
-                let post_bit = post_state_participation_flags[j];
+        let proposer_reward_denominator = WEIGHT_DENOMINATOR
+            .safe_sub(PROPOSER_WEIGHT)?
+            .safe_mul(WEIGHT_DENOMINATOR)?
+            .safe_div(PROPOSER_WEIGHT)?;
 
-                if pre_bit != post_bit {
-                    participation_flags.push(post_bit);
-                } else {
-                    participation_flags.push(0);
-                }
-            }
+        for attestation in block.body().attestations() {
+            let data = &attestation.data;
+            let inclusion_delay = state.slot().safe_sub(data.slot)?.as_u64();
+            let participation_flag_indices = get_attestation_participation_flag_indices(
+                state,
+                data,
+                inclusion_delay,
+                &self.spec,
+            )?;
 
-            epoch_participation.push(participation_flags);
-        }
+            let attesting_indices = get_attesting_indices_from_state(&state, attestation)?;
 
-        Ok(epoch_participation
-            .iter()
-            .enumerate()
-            .filter_map(|(validator_index, participation_flags)| {
-                let mut proposer_reward_numerator: u64 = 0;
-                let base_reward = altair::get_base_reward(
-                    post_state,
-                    validator_index,
-                    base_reward_per_increment,
-                    &self.spec,
-                )
-                .ok()?;
+            let mut proposer_reward_numerator = 0;
+            for index in attesting_indices {
+                let index = index as usize;
+                for (flag_index, &weight) in PARTICIPATION_FLAG_WEIGHTS.iter().enumerate() {
+                    let epoch_participation =
+                        state.get_epoch_participation_mut(data.target.epoch)?;
+                    let validator_participation = epoch_participation
+                        .get_mut(index)
+                        .ok_or(BeaconStateError::ParticipationOutOfBounds(index))?;
 
-                for (flag_index, weight) in PARTICIPATION_FLAG_WEIGHTS.iter().enumerate() {
-                    if participation_flags[flag_index] == 1 {
-                        proposer_reward_numerator += base_reward.checked_mul(*weight)?;
+                    if participation_flag_indices.contains(&flag_index)
+                        && !validator_participation.has_flag(flag_index)?
+                    {
+                        proposer_reward_numerator.safe_add_assign(
+                            altair::get_base_reward(state, index, base_reward_per_increment, &self.spec)?
+                                .safe_mul(weight)?,
+                        )?;
                     }
                 }
-                Some(proposer_reward_numerator.checked_div(
-                    WEIGHT_DENOMINATOR.checked_mul(self.spec.proposer_reward_quotient)?,
-                )?)
-            })
-            .sum())
+            }
+            total_proposer_reward.safe_add_assign(proposer_reward_numerator.safe_div(proposer_reward_denominator)?)?;
+        }
+
+        Ok(total_proposer_reward)
     }
 }
