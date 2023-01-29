@@ -4,7 +4,7 @@ mod attestation_performance;
 mod block_packing_efficiency;
 mod block_rewards;
 mod sync_committee_rewards;
-mod block_rewards_v2;
+mod standard_block_rewards;
 
 use crate::{
     ok_or_error,
@@ -30,8 +30,7 @@ pub use block_packing_efficiency::{
 pub use block_rewards::{AttestationRewards, BlockReward, BlockRewardMeta, BlockRewardsQuery};
 pub use lighthouse_network::{types::SyncState, PeerInfo};
 pub use sync_committee_rewards::SyncCommitteeReward;
-// TODO: Discuss name
-pub use block_rewards_v2::BlockRewardsV2;
+pub use standard_block_rewards::StandardBlockReward;
 
 // Define "legacy" implementations of `Option<T>` which use four bytes for encoding the union
 // selector.

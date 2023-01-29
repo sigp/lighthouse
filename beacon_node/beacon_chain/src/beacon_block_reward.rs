@@ -1,52 +1,104 @@
 use crate::{BeaconChain, BeaconChainError, BeaconChainTypes};
-use operation_pool::{SplitAttestation, earliest_attestation_validators};
+use operation_pool::{earliest_attestation_validators, SplitAttestation};
 use safe_arith::SafeArith;
+use slog::error;
 use state_processing::{
     common::{
-        altair,
-        base,
-        get_attestation_participation_flag_indices, get_attesting_indices_from_state, get_attesting_indices
+        altair, base, get_attestation_participation_flag_indices, get_attesting_indices,
+        get_attesting_indices_from_state,
     },
     per_block_processing::{
         altair::sync_committee::compute_sync_aggregate_rewards, get_slashable_indices,
     },
 };
 use store::consts::altair::{PARTICIPATION_FLAG_WEIGHTS, PROPOSER_WEIGHT, WEIGHT_DENOMINATOR};
-use types::{BeaconBlockRef, BeaconState, BeaconStateError, ExecPayload, beacon_state::BeaconStateBase};
+use types::{
+    beacon_state::BeaconStateBase, BeaconBlockRef, BeaconState, BeaconStateError, ExecPayload,
+};
+
+type BeaconBlockSubRewardValue = u64;
 
 impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn compute_beacon_block_reward<Payload: ExecPayload<T::EthSpec>>(
         &self,
         block: BeaconBlockRef<'_, T::EthSpec, Payload>,
         state: &mut BeaconState<T::EthSpec>,
-    ) -> Result<u64, BeaconChainError> {
+    ) -> Result<
+        (
+            BeaconBlockSubRewardValue,
+            BeaconBlockSubRewardValue,
+            BeaconBlockSubRewardValue,
+            BeaconBlockSubRewardValue,
+            BeaconBlockSubRewardValue,
+        ),
+        BeaconChainError,
+    > {
+        if block.slot() != state.slot() {
+            return Err(BeaconChainError::BlockRewardSlotError);
+        }
+
         let sync_aggregate_reward =
             self.compute_beacon_block_sync_aggregate_reward(block, state)?;
 
-        let proposer_slashing_reward =
-            self.compute_beacon_block_proposer_slashing_reward(block, state)?;
+        let proposer_slashing_reward = self
+            .compute_beacon_block_proposer_slashing_reward(block, state)
+            .map_err(|e| {
+                error!(
+                self.log, "Error calculating proposer slashing reward";
+                "error" => ?e
+                );
+                BeaconChainError::BlockRewardSyncError
+            })?;
 
-        let attester_slashing_reward =
-            self.compute_beacon_block_attester_slashing_reward(block, state)?;
+        let attester_slashing_reward = self
+            .compute_beacon_block_attester_slashing_reward(block, state)
+            .map_err(|e| {
+                error!(
+                self.log, "Error calculating attester slashing reward";
+                "error" => ?e
+                );
+                BeaconChainError::BlockRewardSyncError
+            })?;
 
         let block_proposal_reward = if let BeaconState::Base(ref base_state) = state {
-            // Will need to compute for pre-altair block as well
-            self.compute_beacon_block_proposal_reward_base(block, state, base_state)?
+            self.compute_beacon_block_proposal_reward_base(block, state, base_state)
+                .map_err(|e| {
+                    error!(
+                    self.log, "Error calculating base block proposal reward";
+                    "error" => ?e
+                    );
+                    BeaconChainError::BlockRewardAttestationError
+                })?
         } else {
-            self.compute_beacon_block_proposal_reward_altair(block, state)?
+            self.compute_beacon_block_proposal_reward_altair(block, state)
+                .map_err(|e| {
+                    error!(
+                    self.log, "Error calculating altair block proposal reward";
+                    "error" => ?e
+                    );
+                    BeaconChainError::BlockRewardAttestationError
+                })?
         };
 
-        Ok(sync_aggregate_reward
+        let total_reward = sync_aggregate_reward
             .safe_add(proposer_slashing_reward)?
             .safe_add(attester_slashing_reward)?
-            .safe_add(block_proposal_reward)?)
+            .safe_add(block_proposal_reward)?;
+
+        Ok((
+            total_reward,
+            block_proposal_reward,
+            sync_aggregate_reward,
+            proposer_slashing_reward,
+            attester_slashing_reward,
+        ))
     }
 
     fn compute_beacon_block_sync_aggregate_reward<Payload: ExecPayload<T::EthSpec>>(
         &self,
         block: BeaconBlockRef<'_, T::EthSpec, Payload>,
         state: &BeaconState<T::EthSpec>,
-    ) -> Result<u64, BeaconChainError> {
+    ) -> Result<BeaconBlockSubRewardValue, BeaconChainError> {
         if let Ok(sync_aggregate) = block.body().sync_aggregate() {
             let (_, proposer_reward_per_bit) = compute_sync_aggregate_rewards(state, &self.spec)
                 .map_err(|_| BeaconChainError::BlockRewardSyncError)?;
@@ -60,7 +112,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         block: BeaconBlockRef<'_, T::EthSpec, Payload>,
         state: &BeaconState<T::EthSpec>,
-    ) -> Result<u64, BeaconChainError> {
+    ) -> Result<BeaconBlockSubRewardValue, BeaconChainError> {
         let mut proposer_slashing_reward = 0;
 
         let proposer_slashings = block.body().proposer_slashings();
@@ -81,7 +133,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         block: BeaconBlockRef<'_, T::EthSpec, Payload>,
         state: &BeaconState<T::EthSpec>,
-    ) -> Result<u64, BeaconChainError> {
+    ) -> Result<BeaconBlockSubRewardValue, BeaconChainError> {
         let mut attester_slashing_reward = 0;
 
         let attester_slashings = block.body().attester_slashings();
@@ -100,14 +152,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(attester_slashing_reward)
     }
 
-
     fn compute_beacon_block_proposal_reward_base<Payload: ExecPayload<T::EthSpec>>(
         &self,
         block: BeaconBlockRef<'_, T::EthSpec, Payload>,
         state: &BeaconState<T::EthSpec>,
         base_state: &BeaconStateBase<T::EthSpec>,
-    ) -> Result<u64, BeaconChainError> {
-
+    ) -> Result<BeaconBlockSubRewardValue, BeaconChainError> {
         let total_active_balance = state.get_total_active_balance()?;
         let mut total_proposer_reward = 0;
         let spec = &self.spec;
@@ -121,17 +171,22 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 Ok(SplitAttestation::new(att.clone(), attesting_indices))
             })
             .collect::<Result<Vec<_>, BeaconChainError>>()?;
-        
+
         for split_attestation in split_attestations {
             let att = split_attestation.as_ref();
             let fresh_validators = earliest_attestation_validators(&att, state, base_state);
-            let committee = state
-                .get_beacon_committee(att.data.slot, att.data.index)?;
-            let indices = get_attesting_indices::<T::EthSpec>(committee.committee, &fresh_validators)?;
-            
+            let committee = state.get_beacon_committee(att.data.slot, att.data.index)?;
+            let indices =
+                get_attesting_indices::<T::EthSpec>(committee.committee, &fresh_validators)?;
+
             for validator_index in indices {
-                let reward = base::get_base_reward(state, validator_index as usize, total_active_balance, spec)?
-                    .safe_div(spec.proposer_reward_quotient)?;
+                let reward = base::get_base_reward(
+                    state,
+                    validator_index as usize,
+                    total_active_balance,
+                    spec,
+                )?
+                .safe_div(spec.proposer_reward_quotient)?;
 
                 total_proposer_reward.safe_add_assign(reward)?;
             }
@@ -144,7 +199,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         block: BeaconBlockRef<'_, T::EthSpec, Payload>,
         state: &mut BeaconState<T::EthSpec>,
-    ) -> Result<u64, BeaconChainError> {
+    ) -> Result<BeaconBlockSubRewardValue, BeaconChainError> {
         let total_active_balance = state.get_total_active_balance()?;
         let base_reward_per_increment =
             altair::BaseRewardPerIncrement::new(total_active_balance, &self.spec)?;
@@ -166,7 +221,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 &self.spec,
             )?;
 
-            let attesting_indices = get_attesting_indices_from_state(&state, attestation)?;
+            let attesting_indices = get_attesting_indices_from_state(state, attestation)?;
 
             let mut proposer_reward_numerator = 0;
             for index in attesting_indices {
@@ -182,13 +237,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         && !validator_participation.has_flag(flag_index)?
                     {
                         proposer_reward_numerator.safe_add_assign(
-                            altair::get_base_reward(state, index, base_reward_per_increment, &self.spec)?
-                                .safe_mul(weight)?,
+                            altair::get_base_reward(
+                                state,
+                                index,
+                                base_reward_per_increment,
+                                &self.spec,
+                            )?
+                            .safe_mul(weight)?,
                         )?;
                     }
                 }
             }
-            total_proposer_reward.safe_add_assign(proposer_reward_numerator.safe_div(proposer_reward_denominator)?)?;
+            total_proposer_reward.safe_add_assign(
+                proposer_reward_numerator.safe_div(proposer_reward_denominator)?,
+            )?;
         }
 
         Ok(total_proposer_reward)

@@ -11,11 +11,11 @@ mod attester_duties;
 mod block_id;
 mod block_packing_efficiency;
 mod block_rewards;
-mod block_rewards_v2;
 mod database;
 mod metrics;
 mod proposer_duties;
 mod publish_blocks;
+mod standard_block_rewards;
 mod state_id;
 mod sync_committee_rewards;
 mod sync_committees;
@@ -1706,20 +1706,21 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path("rewards"))
         .and(chain_filter.clone());
 
-    // TODO: GET beacon/rewards/blocks/{block_id}
+    // GET beacon/rewards/blocks/{block_id}
     let get_beacon_rewards_blocks = beacon_rewards_path
         .clone()
         .and(warp::path("blocks"))
         .and(block_id_or_err)
         .and(warp::path::end())
-        .and(log_filter.clone())
-        .and_then(
-            |chain: Arc<BeaconChain<T>>, block_id: BlockId, log: Logger| {
-                blocking_json_task(move || {
-                    block_rewards_v2::compute_beacon_block_rewards(chain, block_id, log)
-                })
-            },
-        );
+        .and_then(|chain: Arc<BeaconChain<T>>, block_id: BlockId| {
+            blocking_json_task(move || {
+                let (rewards, execution_optimistic) =
+                    standard_block_rewards::compute_beacon_block_rewards(chain, block_id)?;
+                Ok(rewards)
+                    .map(api_types::GenericResponse::from)
+                    .map(|resp| resp.add_execution_optimistic(execution_optimistic))
+            })
+        });
 
     /*
      * beacon/rewards
