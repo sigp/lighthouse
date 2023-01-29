@@ -10,6 +10,9 @@ use types::{BeaconState, Checkpoint, EthSpec, Fork, Hash256, Slot};
 #[derive(Debug)]
 pub struct StateId(pub CoreStateId);
 
+// More clarity when returning if the state is finalized or not in the root function.
+type Finalized = bool;
+
 impl StateId {
     pub fn from_slot(slot: Slot) -> Self {
         Self(CoreStateId::Slot(slot))
@@ -19,8 +22,8 @@ impl StateId {
     pub fn root<T: BeaconChainTypes>(
         &self,
         chain: &BeaconChain<T>,
-    ) -> Result<(Hash256, ExecutionOptimistic), warp::Rejection> {
-        let (slot, execution_optimistic) = match &self.0 {
+    ) -> Result<(Hash256, ExecutionOptimistic, Finalized), warp::Rejection> {
+        let (slot, execution_optimistic, finalized) = match &self.0 {
             CoreStateId::Head => {
                 let (cached_head, execution_status) = chain
                     .canonical_head
@@ -29,24 +32,36 @@ impl StateId {
                 return Ok((
                     cached_head.head_state_root(),
                     execution_status.is_optimistic_or_invalid(),
+                    false,
                 ));
             }
-            CoreStateId::Genesis => return Ok((chain.genesis_state_root, false)),
+            CoreStateId::Genesis => return Ok((chain.genesis_state_root, false, true)),
             CoreStateId::Finalized => {
                 let finalized_checkpoint =
                     chain.canonical_head.cached_head().finalized_checkpoint();
-                checkpoint_slot_and_execution_optimistic(chain, finalized_checkpoint)?
+                let (slot, execution_optimistic) =
+                    checkpoint_slot_and_execution_optimistic(chain, finalized_checkpoint)?;
+                (slot, execution_optimistic, true)
             }
             CoreStateId::Justified => {
                 let justified_checkpoint =
                     chain.canonical_head.cached_head().justified_checkpoint();
-                checkpoint_slot_and_execution_optimistic(chain, justified_checkpoint)?
+                let (slot, execution_optimistic) =
+                    checkpoint_slot_and_execution_optimistic(chain, justified_checkpoint)?;
+                (slot, execution_optimistic, false)
             }
             CoreStateId::Slot(slot) => (
                 *slot,
                 chain
                     .is_optimistic_or_invalid_head()
                     .map_err(warp_utils::reject::beacon_chain_error)?,
+                *slot
+                    <= chain
+                        .canonical_head
+                        .cached_head()
+                        .finalized_checkpoint()
+                        .epoch
+                        .start_slot(T::EthSpec::slots_per_epoch()),
             ),
             CoreStateId::Root(root) => {
                 if let Some(hot_summary) = chain
@@ -61,7 +76,10 @@ impl StateId {
                         .is_optimistic_or_invalid_block_no_fallback(&hot_summary.latest_block_root)
                         .map_err(BeaconChainError::ForkChoiceError)
                         .map_err(warp_utils::reject::beacon_chain_error)?;
-                    return Ok((*root, execution_optimistic));
+                    let finalized = chain
+                        .is_finalized_state(root, hot_summary.slot)
+                        .map_err(warp_utils::reject::beacon_chain_error)?;
+                    return Ok((*root, execution_optimistic, finalized));
                 } else if let Some(_cold_state_slot) = chain
                     .store
                     .load_cold_state_slot(root)
@@ -77,7 +95,7 @@ impl StateId {
                         .is_optimistic_or_invalid_block_no_fallback(&finalized_root)
                         .map_err(BeaconChainError::ForkChoiceError)
                         .map_err(warp_utils::reject::beacon_chain_error)?;
-                    return Ok((*root, execution_optimistic));
+                    return Ok((*root, execution_optimistic, true));
                 } else {
                     return Err(warp_utils::reject::custom_not_found(format!(
                         "beacon state for state root {}",
@@ -94,7 +112,7 @@ impl StateId {
                 warp_utils::reject::custom_not_found(format!("beacon state at slot {}", slot))
             })?;
 
-        Ok((root, execution_optimistic))
+        Ok((root, execution_optimistic, finalized))
     }
 
     /// Return the `fork` field of the state identified by `self`.
@@ -116,10 +134,7 @@ impl StateId {
         chain: &BeaconChain<T>,
     ) -> Result<(Fork, bool, bool), warp::Rejection> {
         let (state, execution_optimistic) = self.state(chain)?;
-        let (state_root, _) = self.root(chain)?;
-        let finalized = chain
-            .is_finalized_state(&state_root, state.slot())
-            .map_err(warp_utils::reject::beacon_chain_error)?;
+        let (_, _, finalized) = self.root(chain)?;
         Ok((state.fork(), execution_optimistic, finalized))
     }
 
@@ -137,7 +152,7 @@ impl StateId {
         &self,
         chain: &BeaconChain<T>,
     ) -> Result<(BeaconState<T::EthSpec>, ExecutionOptimistic), warp::Rejection> {
-        let ((state_root, execution_optimistic), slot_opt) = match &self.0 {
+        let ((state_root, execution_optimistic, _finalized), slot_opt) = match &self.0 {
             CoreStateId::Head => {
                 let (cached_head, execution_status) = chain
                     .canonical_head
