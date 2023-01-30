@@ -91,7 +91,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
         }
 
-        // Calculate total rewards
+        // Calculate total_rewards
         let mut total_rewards: Vec<TotalAttestationRewards> = Vec::new();
 
         if validators.is_empty() {
@@ -135,6 +135,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         source_reward = *penalty;
                     }
                 }
+            } else {
+                total_rewards.push(TotalAttestationRewards {
+                    validator_index: *validator_index as u64,
+                    head: 0,
+                    target: 0,
+                    source: 0,
+                });
             }
             total_rewards.push(TotalAttestationRewards {
                 validator_index: *validator_index as u64,
