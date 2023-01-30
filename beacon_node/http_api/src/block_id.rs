@@ -52,7 +52,7 @@ impl BlockId {
                     chain.canonical_head.cached_head().justified_checkpoint();
                 let (_slot, execution_optimistic) =
                     checkpoint_slot_and_execution_optimistic(chain, justified_checkpoint)?;
-                Ok((justified_checkpoint.root, execution_optimistic, true))
+                Ok((justified_checkpoint.root, execution_optimistic, false))
             }
             CoreBlockId::Slot(slot) => {
                 let execution_optimistic = chain
