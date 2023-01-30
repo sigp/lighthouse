@@ -551,20 +551,22 @@ pub fn serve<T: BeaconChainTypes>(
         .and_then(|state_id: StateId, chain: Arc<BeaconChain<T>>| {
             blocking_json_task(move || {
                 let ((data, finalized), execution_optimistic) = state_id
-                    .map_state_and_execution_optimistic(&chain, |state, execution_optimistic| {
-                        let (_, _, finalized) = state_id.root(&chain)?;
-                        Ok((
-                            (
-                                api_types::FinalityCheckpointsData {
-                                    previous_justified: state.previous_justified_checkpoint(),
-                                    current_justified: state.current_justified_checkpoint(),
-                                    finalized: state.finalized_checkpoint(),
-                                },
-                                finalized,
-                            ),
-                            execution_optimistic,
-                        ))
-                    })?;
+                    .map_state_and_execution_optimistic(
+                        &chain,
+                        |state, execution_optimistic, finalized| {
+                            Ok((
+                                (
+                                    api_types::FinalityCheckpointsData {
+                                        previous_justified: state.previous_justified_checkpoint(),
+                                        current_justified: state.current_justified_checkpoint(),
+                                        finalized: state.finalized_checkpoint(),
+                                    },
+                                    finalized,
+                                ),
+                                execution_optimistic,
+                            ))
+                        },
+                    )?;
 
                 Ok(api_types::ExecutionOptimisticFinalizedResponse {
                     data,
@@ -589,8 +591,7 @@ pub fn serve<T: BeaconChainTypes>(
                     let ((data, finalized), execution_optimistic) = state_id
                         .map_state_and_execution_optimistic(
                             &chain,
-                            |state, execution_optimistic| {
-                                let (_, _, finalized) = state_id.root(&chain)?;
+                            |state, execution_optimistic, finalized| {
                                 Ok((
                                     (
                                         state
@@ -649,8 +650,7 @@ pub fn serve<T: BeaconChainTypes>(
                     let ((data, finalized), execution_optimistic) = state_id
                         .map_state_and_execution_optimistic(
                             &chain,
-                            |state, execution_optimistic| {
-                                let (_, _, finalized) = state_id.root(&chain)?;
+                            |state, execution_optimistic, finalized| {
                                 let epoch = state.current_epoch();
                                 let far_future_epoch = chain.spec.far_future_epoch;
 
@@ -736,8 +736,7 @@ pub fn serve<T: BeaconChainTypes>(
                     let ((data, finalized), execution_optimistic) = state_id
                         .map_state_and_execution_optimistic(
                             &chain,
-                            |state, execution_optimistic| {
-                                let (_, _, finalized) = state_id.root(&chain)?;
+                            |state, execution_optimistic, finalized| {
                                 let index_opt = match &validator_id {
                                     ValidatorId::PublicKey(pubkey) => {
                                         state.validators().iter().position(|v| v.pubkey == *pubkey)
@@ -800,8 +799,7 @@ pub fn serve<T: BeaconChainTypes>(
                     let ((data, finalized), execution_optimistic) = state_id
                         .map_state_and_execution_optimistic(
                             &chain,
-                            |state, execution_optimistic| {
-                                let (_, _, finalized) = state_id.root(&chain)?;
+                            |state, execution_optimistic, finalized| {
                                 let current_epoch = state.current_epoch();
                                 let epoch = query.epoch.unwrap_or(current_epoch);
 
@@ -910,8 +908,7 @@ pub fn serve<T: BeaconChainTypes>(
                     let ((sync_committee, finalized), execution_optimistic) = state_id
                         .map_state_and_execution_optimistic(
                             &chain,
-                            |state, execution_optimistic| {
-                                let (_, _, finalized) = state_id.root(&chain)?;
+                            |state, execution_optimistic, finalized| {
                                 let current_epoch = state.current_epoch();
                                 let epoch = query.epoch.unwrap_or(current_epoch);
                                 Ok((
@@ -977,8 +974,7 @@ pub fn serve<T: BeaconChainTypes>(
                     let ((randao, finalized), execution_optimistic) = state_id
                         .map_state_and_execution_optimistic(
                             &chain,
-                            |state, execution_optimistic| {
-                                let (_, _, finalized) = state_id.root(&chain)?;
+                            |state, execution_optimistic, finalized| {
                                 let epoch = query.epoch.unwrap_or_else(|| state.current_epoch());
                                 let randao = *state.get_randao_mix(epoch).map_err(|e| {
                                     warp_utils::reject::custom_bad_request(format!(
@@ -1835,7 +1831,7 @@ pub fn serve<T: BeaconChainTypes>(
                         // We can ignore the optimistic status for the "fork" since it's a
                         // specification constant that doesn't change across competing heads of the
                         // beacon chain.
-                        let (state, _execution_optimistic) = state_id.state(&chain)?;
+                        let (state, _execution_optimistic, _finalized) = state_id.state(&chain)?;
                         let fork_name = state
                             .fork_name(&chain.spec)
                             .map_err(inconsistent_fork_rejection)?;
@@ -1853,7 +1849,7 @@ pub fn serve<T: BeaconChainTypes>(
                     }
                     _ => state_id.map_state_and_execution_optimistic(
                         &chain,
-                        |state, execution_optimistic| {
+                        |state, execution_optimistic, _finalized| {
                             let fork_name = state
                                 .fork_name(&chain.spec)
                                 .map_err(inconsistent_fork_rejection)?;
@@ -3142,7 +3138,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and_then(|state_id: StateId, chain: Arc<BeaconChain<T>>| {
             blocking_task(move || {
                 // This debug endpoint provides no indication of optimistic status.
-                let (state, _execution_optimistic) = state_id.state(&chain)?;
+                let (state, _execution_optimistic, _finalized) = state_id.state(&chain)?;
                 Response::builder()
                     .status(200)
                     .header("Content-Type", "application/ssz")
