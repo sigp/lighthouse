@@ -959,24 +959,31 @@ impl HttpJsonRpc {
         }
     }
 
-    pub async fn set_cached_engine_capabilities(
-        &self,
-        engine_capabilities: Option<EngineCapabilities>,
-    ) {
-        let mut lock = self.engine_capabilities_cache.lock().await;
-        *lock = engine_capabilities.map(CapabilitiesCacheEntry::new)
+    pub async fn clear_exchange_capabilties_cache(&self) {
+        *self.engine_capabilities_cache.lock().await = None;
     }
 
-    /// Returns engine capabilities from the cache or fetches from the execution
-    /// engine if the cache is not populated
+    /// Returns the execution engine capabilities resulting from a call to
+    /// engine_exchangeCapabilities. If the capabilities cache is not populated,
+    /// or if it is populated with a cached result of age >= `age_limit`, this
+    /// method will fetch the result from the execution engine and populate the
+    /// cache before returning it. Otherwise it will return a cached result from
+    /// a previous call.
     ///
-    /// In the event of a cache miss, this function will hold the lock until the EE
-    /// returns the capabilities or errors so that if multiple threads get to this point
-    /// only one of them will actually send a request to the EE while the other just
-    /// use the cached result.
-    pub async fn get_engine_capabilities(&self) -> Result<EngineCapabilities, Error> {
+    /// Set `age_limit` to `Some(Duration::ZERO)` to force fetching from EE
+    pub async fn get_engine_capabilities(
+        &self,
+        age_limit: Option<Duration>,
+    ) -> Result<EngineCapabilities, Error> {
         let mut lock = self.engine_capabilities_cache.lock().await;
         if let Some(entry) = lock.as_ref() {
+            if let Some(age_limit) = age_limit {
+                if entry.age() >= age_limit {
+                    let engine_capabilities = self.exchange_capabilities().await?;
+                    *lock = Some(CapabilitiesCacheEntry::new(engine_capabilities));
+                    return Ok(engine_capabilities);
+                }
+            }
             Ok(*entry.engine_capabilities())
         } else {
             let engine_capabilities = self.exchange_capabilities().await?;
@@ -985,18 +992,13 @@ impl HttpJsonRpc {
         }
     }
 
-    pub async fn engine_capabilities_age(&self) -> Option<Duration> {
-        let cached = self.engine_capabilities_cache.lock().await;
-        cached.as_ref().map(|entry| entry.age())
-    }
-
     // automatically selects the latest version of
     // new_payload that the execution engine supports
     pub async fn new_payload<T: EthSpec>(
         &self,
         execution_payload: ExecutionPayload<T>,
     ) -> Result<PayloadStatusV1, Error> {
-        let engine_capabilities = self.get_engine_capabilities().await?;
+        let engine_capabilities = self.get_engine_capabilities(None).await?;
         if engine_capabilities.new_payload_v2 {
             self.new_payload_v2(execution_payload).await
         } else if engine_capabilities.new_payload_v1 {
@@ -1013,7 +1015,7 @@ impl HttpJsonRpc {
         fork_name: ForkName,
         payload_id: PayloadId,
     ) -> Result<ExecutionPayload<T>, Error> {
-        let engine_capabilities = self.get_engine_capabilities().await?;
+        let engine_capabilities = self.get_engine_capabilities(None).await?;
         if engine_capabilities.get_payload_v2 {
             // TODO: modify this method to return GetPayloadResponse instead
             //       of throwing away the `block_value` and returning only the
@@ -1036,7 +1038,7 @@ impl HttpJsonRpc {
         forkchoice_state: ForkchoiceState,
         payload_attributes: Option<PayloadAttributes>,
     ) -> Result<ForkchoiceUpdatedResponse, Error> {
-        let engine_capabilities = self.get_engine_capabilities().await?;
+        let engine_capabilities = self.get_engine_capabilities(None).await?;
         if engine_capabilities.forkchoice_updated_v2 {
             self.forkchoice_updated_v2(forkchoice_state, payload_attributes)
                 .await

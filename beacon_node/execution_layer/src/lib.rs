@@ -1363,18 +1363,19 @@ impl<T: EthSpec> ExecutionLayer<T> {
     }
 
     /// Returns the execution engine capabilities resulting from a call to
-    /// engine_exchangeCapabilities. Because the result of this call is cached,
-    /// this method accepts an optional maximum age of the cached result.
+    /// engine_exchangeCapabilities. If the capabilities cache is not populated,
+    /// or if it is populated with a cached result of age >= `age_limit`, this
+    /// method will fetch the result from the execution engine and populate the
+    /// cache before returning it. Otherwise it will return a cached result from
+    /// a previous call.
     ///
-    /// `maximum_age.is_none()`        -> cached result returned
-    /// `cached result <= maximum_age` -> cached result returned
-    /// `cached result > maximum_age`  -> new result fetched from engine
-    pub async fn exchange_capabilities(
+    /// Set `age_limit` to `Some(Duration::ZERO)` to force fetching from EE
+    pub async fn get_engine_capabilities(
         &self,
-        maximum_age: Option<Duration>,
+        age_limit: Option<Duration>,
     ) -> Result<EngineCapabilities, Error> {
         self.engine()
-            .request(|engine| engine.exchange_capabilities(maximum_age))
+            .request(|engine| engine.get_engine_capabilities(age_limit))
             .await
             .map_err(Box::new)
             .map_err(Error::EngineError)

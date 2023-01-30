@@ -84,7 +84,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub async fn check_capella_readiness(&self) -> CapellaReadiness {
         if let Some(el) = self.execution_layer.as_ref() {
             match el
-                .exchange_capabilities(Some(Duration::from_secs(
+                .get_engine_capabilities(Some(Duration::from_secs(
                     ENGINE_CAPABILITIES_REFRESH_INTERVAL,
                 )))
                 .await
