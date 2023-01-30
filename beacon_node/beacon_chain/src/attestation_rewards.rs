@@ -152,7 +152,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         // Convert hashmap to vector
-        let ideal_rewards: Vec<IdealAttestationRewards> = ideal_rewards_hashmap
+        let mut ideal_rewards: Vec<IdealAttestationRewards> = ideal_rewards_hashmap
             .iter()
             .map(
                 |((flag_index, effective_balance_eth), (ideal_reward, _penalty))| {
@@ -180,7 +180,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 },
             )
             .into_values()
-            .collect();
+            .collect::<Vec<IdealAttestationRewards>>();
+        ideal_rewards.sort_by(|a, b| a.effective_balance.cmp(&b.effective_balance));
 
         Ok(StandardAttestationRewards {
             ideal_rewards,

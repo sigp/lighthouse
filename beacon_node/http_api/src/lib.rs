@@ -1710,9 +1710,9 @@ pub fn serve<T: BeaconChainTypes>(
         .and(chain_filter.clone());
 
     // POST beacon/rewards/attestations/{epoch}
-    let post_beacon_rewards_attestation = beacon_rewards_path
+    let post_beacon_rewards_attestations = beacon_rewards_path
         .clone()
-        .and(warp::path("attestation"))
+        .and(warp::path("attestations"))
         .and(warp::path::param::<Epoch>())
         .and(warp::path::end())
         .and(warp::body::json())
@@ -3467,7 +3467,7 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(post_beacon_pool_proposer_slashings.boxed())
                 .or(post_beacon_pool_voluntary_exits.boxed())
                 .or(post_beacon_pool_sync_committees.boxed())
-                .or(post_beacon_rewards_attestation.boxed())
+                .or(post_beacon_rewards_attestations.boxed())
                 .or(post_beacon_rewards_sync_committee.boxed())
                 .or(post_validator_duties_attester.boxed())
                 .or(post_validator_duties_sync.boxed())
