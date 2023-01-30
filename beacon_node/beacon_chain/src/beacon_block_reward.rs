@@ -1,4 +1,5 @@
 use crate::{BeaconChain, BeaconChainError, BeaconChainTypes};
+use eth2::lighthouse::StandardBlockReward;
 use operation_pool::{earliest_attestation_validators, SplitAttestation};
 use safe_arith::SafeArith;
 use slog::error;
@@ -24,18 +25,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         block: BeaconBlockRef<'_, T::EthSpec, Payload>,
         state: &mut BeaconState<T::EthSpec>,
     ) -> Result<
-        (
-            BeaconBlockSubRewardValue,
-            BeaconBlockSubRewardValue,
-            BeaconBlockSubRewardValue,
-            BeaconBlockSubRewardValue,
-            BeaconBlockSubRewardValue,
-        ),
+        StandardBlockReward,
         BeaconChainError,
     > {
         if block.slot() != state.slot() {
             return Err(BeaconChainError::BlockRewardSlotError);
         }
+
+        let proposer_index = state
+            .get_beacon_proposer_index(block.slot(), &self.spec)? as u64;
 
         let sync_aggregate_reward =
             self.compute_beacon_block_sync_aggregate_reward(block, state)?;
@@ -44,36 +42,40 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .compute_beacon_block_proposer_slashing_reward(block, state)
             .map_err(|e| {
                 error!(
-                self.log, "Error calculating proposer slashing reward";
+                self.log,
+                "Error calculating proposer slashing reward";
                 "error" => ?e
                 );
-                BeaconChainError::BlockRewardSyncError
+                BeaconChainError::BlockRewardError
             })?;
 
         let attester_slashing_reward = self
             .compute_beacon_block_attester_slashing_reward(block, state)
             .map_err(|e| {
                 error!(
-                self.log, "Error calculating attester slashing reward";
+                self.log,
+                "Error calculating attester slashing reward";
                 "error" => ?e
                 );
-                BeaconChainError::BlockRewardSyncError
+                BeaconChainError::BlockRewardError
             })?;
 
-        let block_proposal_reward = if let BeaconState::Base(ref base_state) = state {
-            self.compute_beacon_block_proposal_reward_base(block, state, base_state)
+        let block_attestation_reward = if let BeaconState::Base(ref base_state) = state {
+            self.compute_beacon_block_attestation_reward_base(block, state, base_state)
                 .map_err(|e| {
                     error!(
-                    self.log, "Error calculating base block proposal reward";
+                    self.log,
+                    "Error calculating base block attestation reward";
                     "error" => ?e
                     );
                     BeaconChainError::BlockRewardAttestationError
                 })?
         } else {
-            self.compute_beacon_block_proposal_reward_altair(block, state)
+            self.compute_beacon_block_attestation_reward_altair(block, state)
                 .map_err(|e| {
                     error!(
-                    self.log, "Error calculating altair block proposal reward";
+                    self.log,
+                    "Error calculating altair block attestation reward";
                     "error" => ?e
                     );
                     BeaconChainError::BlockRewardAttestationError
@@ -83,15 +85,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let total_reward = sync_aggregate_reward
             .safe_add(proposer_slashing_reward)?
             .safe_add(attester_slashing_reward)?
-            .safe_add(block_proposal_reward)?;
+            .safe_add(block_attestation_reward)?;
 
-        Ok((
-            total_reward,
-            block_proposal_reward,
-            sync_aggregate_reward,
-            proposer_slashing_reward,
-            attester_slashing_reward,
-        ))
+        Ok(StandardBlockReward{
+            proposer_index,
+            total: total_reward,
+            attestations: block_attestation_reward,
+            sync_aggregate: sync_aggregate_reward,
+            proposer_slashings: proposer_slashing_reward,
+            attester_slashings: attester_slashing_reward,
+        })
     }
 
     fn compute_beacon_block_sync_aggregate_reward<Payload: ExecPayload<T::EthSpec>>(
@@ -152,7 +155,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(attester_slashing_reward)
     }
 
-    fn compute_beacon_block_proposal_reward_base<Payload: ExecPayload<T::EthSpec>>(
+    fn compute_beacon_block_attestation_reward_base<Payload: ExecPayload<T::EthSpec>>(
         &self,
         block: BeaconBlockRef<'_, T::EthSpec, Payload>,
         state: &BeaconState<T::EthSpec>,
@@ -195,7 +198,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(total_proposer_reward)
     }
 
-    fn compute_beacon_block_proposal_reward_altair<Payload: ExecPayload<T::EthSpec>>(
+    fn compute_beacon_block_attestation_reward_altair<Payload: ExecPayload<T::EthSpec>>(
         &self,
         block: BeaconBlockRef<'_, T::EthSpec, Payload>,
         state: &mut BeaconState<T::EthSpec>,
@@ -236,6 +239,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     if participation_flag_indices.contains(&flag_index)
                         && !validator_participation.has_flag(flag_index)?
                     {
+                        validator_participation.add_flag(flag_index)?;
                         proposer_reward_numerator.safe_add_assign(
                             altair::get_base_reward(
                                 state,

@@ -2,7 +2,6 @@ use serde::{Deserialize, Serialize};
 
 // Details about the rewards for a single block
 // All rewards in GWei
-
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct StandardBlockReward {
     // proposer of the block, the proposer index who receives these rewards
