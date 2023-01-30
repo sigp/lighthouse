@@ -566,6 +566,16 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .default_value("4")
                 .takes_value(true)
         )
+        .arg(
+            Arg::with_name("epochs-per-state-diff")
+                .long("epochs-per-state-diff")
+                .value_name("EPOCHS")
+                .help("Number of epochs between state diffs stored in the database. Lower values \
+                       result in more writes and more data stored, while higher values result in \
+                       more block replaying and longer load times in case of cache miss.")
+                .default_value("4")
+                .takes_value(true)
+        )
         /*
          * Misc.
          */
