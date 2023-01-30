@@ -319,12 +319,13 @@ impl Engine {
     }
 
     /// Returns the execution engine capabilities resulting from a call to
-    /// engine_exchangeCapabilities. This will return a cached result from
-    /// a previous call to this method if the cache is populated. If the
-    /// cache is not populated, or if the age of the cached result is >=
-    /// a provided optional age limit, this function will fetch the result
-    /// from the execution engine and populate the cache before returning it
+    /// engine_exchangeCapabilities. If the capabilities cache is not populated,
+    /// or if it is populated with a cached result of age >= `age_limit`, this
+    /// method will fetch the result from the execution engine and populate the
+    /// cache before returning it. Otherwise it will return a cached result from
+    /// a previous call.
     ///
+    /// Set `age_limit` to `None` to always return the cached result
     /// Set `age_limit` to `Some(Duration::ZERO)` to force fetching from EE
     pub async fn get_engine_capabilities(
         &self,

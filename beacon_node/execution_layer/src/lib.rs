@@ -1369,6 +1369,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
     /// cache before returning it. Otherwise it will return a cached result from
     /// a previous call.
     ///
+    /// Set `age_limit` to `None` to always return the cached result
     /// Set `age_limit` to `Some(Duration::ZERO)` to force fetching from EE
     pub async fn get_engine_capabilities(
         &self,
