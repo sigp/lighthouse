@@ -8,7 +8,7 @@ use sensitive_url::SensitiveUrl;
 use serde::de::DeserializeOwned;
 use serde_json::json;
 use std::collections::HashSet;
-use tokio::sync::RwLock;
+use tokio::sync::Mutex;
 
 use std::time::{Duration, SystemTime};
 use types::EthSpec;
@@ -556,12 +556,42 @@ pub mod deposit_methods {
     }
 }
 
+#[derive(Clone, Debug)]
+pub struct CapabilitiesCacheEntry {
+    engine_capabilities: EngineCapabilities,
+    fetch_time: SystemTime,
+}
+
+impl CapabilitiesCacheEntry {
+    pub fn new(engine_capabilities: EngineCapabilities) -> Self {
+        Self {
+            engine_capabilities,
+            fetch_time: SystemTime::now(),
+        }
+    }
+
+    pub fn engine_capabilities(&self) -> &EngineCapabilities {
+        &self.engine_capabilities
+    }
+
+    pub fn age(&self) -> Duration {
+        // duration_since() may fail because measurements taken earlier
+        // are not guaranteed to always be before later measurements
+        // due to anomalies such as the system clock being adjusted
+        // either forwards or backwards
+        //
+        // In such cases, we'll just say the age is zero
+        SystemTime::now()
+            .duration_since(self.fetch_time)
+            .unwrap_or(Duration::ZERO)
+    }
+}
+
 pub struct HttpJsonRpc {
     pub client: Client,
     pub url: SensitiveUrl,
     pub execution_timeout_multiplier: u32,
-    /// Cached Engine Capabilities and fetch time
-    pub cached_engine_capabilities: RwLock<Option<(EngineCapabilities, SystemTime)>>,
+    pub engine_capabilities_cache: Mutex<Option<CapabilitiesCacheEntry>>,
     auth: Option<Auth>,
 }
 
@@ -574,7 +604,7 @@ impl HttpJsonRpc {
             client: Client::builder().build()?,
             url,
             execution_timeout_multiplier: execution_timeout_multiplier.unwrap_or(1),
-            cached_engine_capabilities: RwLock::new(None),
+            engine_capabilities_cache: Mutex::new(None),
             auth: None,
         })
     }
@@ -588,7 +618,7 @@ impl HttpJsonRpc {
             client: Client::builder().build()?,
             url,
             execution_timeout_multiplier: execution_timeout_multiplier.unwrap_or(1),
-            cached_engine_capabilities: RwLock::new(None),
+            engine_capabilities_cache: Mutex::new(None),
             auth: Some(auth),
         })
     }
@@ -933,25 +963,31 @@ impl HttpJsonRpc {
         &self,
         engine_capabilities: Option<EngineCapabilities>,
     ) {
-        *self.cached_engine_capabilities.write().await =
-            engine_capabilities.map(|ec| (ec, SystemTime::now()));
+        let mut lock = self.engine_capabilities_cache.lock().await;
+        *lock = engine_capabilities.map(CapabilitiesCacheEntry::new)
     }
 
-    pub async fn cached_engine_capabilities(&self) -> Result<EngineCapabilities, Error> {
-        let cached = *self.cached_engine_capabilities.read().await;
-        if let Some((engine_capabilities, _)) = cached {
-            Ok(engine_capabilities)
+    /// Returns engine capabilities from the cache or fetches from the execution
+    /// engine if the cache is not populated
+    ///
+    /// In the event of a cache miss, this function will hold the lock until the EE
+    /// returns the capabilities or errors so that if multiple threads get to this point
+    /// only one of them will actually send a request to the EE while the other just
+    /// use the cached result.
+    pub async fn get_engine_capabilities(&self) -> Result<EngineCapabilities, Error> {
+        let mut lock = self.engine_capabilities_cache.lock().await;
+        if let Some(entry) = lock.as_ref() {
+            Ok(*entry.engine_capabilities())
         } else {
             let engine_capabilities = self.exchange_capabilities().await?;
-            self.set_cached_engine_capabilities(Some(engine_capabilities))
-                .await;
+            *lock = Some(CapabilitiesCacheEntry::new(engine_capabilities));
             Ok(engine_capabilities)
         }
     }
 
     pub async fn engine_capabilities_age(&self) -> Option<Duration> {
-        let cached = *self.cached_engine_capabilities.read().await;
-        cached.and_then(|(_, fetch_time)| SystemTime::now().duration_since(fetch_time).ok())
+        let cached = self.engine_capabilities_cache.lock().await;
+        cached.as_ref().map(|entry| entry.age())
     }
 
     // automatically selects the latest version of
@@ -960,7 +996,7 @@ impl HttpJsonRpc {
         &self,
         execution_payload: ExecutionPayload<T>,
     ) -> Result<PayloadStatusV1, Error> {
-        let engine_capabilities = self.cached_engine_capabilities().await?;
+        let engine_capabilities = self.get_engine_capabilities().await?;
         if engine_capabilities.new_payload_v2 {
             self.new_payload_v2(execution_payload).await
         } else if engine_capabilities.new_payload_v1 {
@@ -977,7 +1013,7 @@ impl HttpJsonRpc {
         fork_name: ForkName,
         payload_id: PayloadId,
     ) -> Result<ExecutionPayload<T>, Error> {
-        let engine_capabilities = self.cached_engine_capabilities().await?;
+        let engine_capabilities = self.get_engine_capabilities().await?;
         if engine_capabilities.get_payload_v2 {
             // TODO: modify this method to return GetPayloadResponse instead
             //       of throwing away the `block_value` and returning only the
@@ -1000,7 +1036,7 @@ impl HttpJsonRpc {
         forkchoice_state: ForkchoiceState,
         payload_attributes: Option<PayloadAttributes>,
     ) -> Result<ForkchoiceUpdatedResponse, Error> {
-        let engine_capabilities = self.cached_engine_capabilities().await?;
+        let engine_capabilities = self.get_engine_capabilities().await?;
         if engine_capabilities.forkchoice_updated_v2 {
             self.forkchoice_updated_v2(forkchoice_state, payload_attributes)
                 .await

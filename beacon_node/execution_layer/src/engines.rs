@@ -335,7 +335,7 @@ impl Engine {
             }
         }
 
-        self.api.cached_engine_capabilities().await
+        self.api.get_engine_capabilities().await
     }
 
     /// Run `func` on the node regardless of the node's current state.
