@@ -585,6 +585,11 @@ impl CapabilitiesCacheEntry {
             .duration_since(self.fetch_time)
             .unwrap_or(Duration::ZERO)
     }
+
+    /// returns `true` if the entry's age is >= age_limit
+    pub fn older_than(&self, age_limit: Option<Duration>) -> bool {
+        age_limit.map_or(false, |limit| self.age() >= limit)
+    }
 }
 
 pub struct HttpJsonRpc {
@@ -976,19 +981,17 @@ impl HttpJsonRpc {
         age_limit: Option<Duration>,
     ) -> Result<EngineCapabilities, Error> {
         let mut lock = self.engine_capabilities_cache.lock().await;
-        if let Some(entry) = lock.as_ref() {
-            if let Some(age_limit) = age_limit {
-                if entry.age() >= age_limit {
-                    let engine_capabilities = self.exchange_capabilities().await?;
-                    *lock = Some(CapabilitiesCacheEntry::new(engine_capabilities));
-                    return Ok(engine_capabilities);
-                }
-            }
-            Ok(*entry.engine_capabilities())
-        } else {
+
+        if lock
+            .as_ref()
+            .map_or(true, |entry| entry.older_than(age_limit))
+        {
             let engine_capabilities = self.exchange_capabilities().await?;
             *lock = Some(CapabilitiesCacheEntry::new(engine_capabilities));
             Ok(engine_capabilities)
+        } else {
+            // here entry is guaranteed to exist so unwrap() is safe
+            Ok(*lock.as_ref().unwrap().engine_capabilities())
         }
     }
 
