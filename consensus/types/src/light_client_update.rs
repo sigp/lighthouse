@@ -177,7 +177,7 @@ impl<T: EthSpec> LightClientUpdate<T> {
         let new_has_supermajority = new_num_active_participants.safe_mul(3).unwrap()
             >= max_active_participants.safe_mul(2).unwrap();
         let old_has_supermajority = old_num_active_participants.safe_mul(3).unwrap()
-            >= max_active_participants.safe_mul(3).unwrap();
+            >= max_active_participants.safe_mul(2).unwrap();
 
         if new_has_supermajority != old_has_supermajority {
             return new_has_supermajority & !old_has_supermajority;
