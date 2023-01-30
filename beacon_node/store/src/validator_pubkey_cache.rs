@@ -1,4 +1,4 @@
-use crate::{DBColumn, Error, HotColdDB, ItemStore, KeyValueStoreOp, StoreItem};
+use crate::{DBColumn, Error, HotColdDB, ItemStore, StoreItem, StoreOp};
 use bls::PUBLIC_KEY_UNCOMPRESSED_BYTES_LEN;
 use smallvec::SmallVec;
 use ssz::{Decode, Encode};
@@ -55,7 +55,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> ValidatorPubkeyCache<E, 
         };
 
         let store_ops = cache.import_new_pubkeys(state)?;
-        store.hot_db.do_atomically(store_ops)?;
+        store.do_atomically(store_ops)?;
 
         Ok(cache)
     }
@@ -96,7 +96,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> ValidatorPubkeyCache<E, 
     pub fn import_new_pubkeys(
         &mut self,
         state: &BeaconState<E>,
-    ) -> Result<Vec<KeyValueStoreOp>, Error> {
+    ) -> Result<Vec<StoreOp<'static, E>>, Error> {
         if state.validators().len() > self.validators.len() {
             self.import(
                 state
@@ -110,7 +110,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> ValidatorPubkeyCache<E, 
     }
 
     /// Adds zero or more validators to `self`.
-    fn import<I>(&mut self, validator_keys: I) -> Result<Vec<KeyValueStoreOp>, Error>
+    fn import<I>(&mut self, validator_keys: I) -> Result<Vec<StoreOp<'static, E>>, Error>
     where
         I: Iterator<Item = Arc<ValidatorImmutable>> + ExactSizeIterator,
     {
@@ -134,10 +134,10 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> ValidatorPubkeyCache<E, 
             // It will be committed atomically when the block that introduced it is written to disk.
             // Notably it is NOT written while the write lock on the cache is held.
             // See: https://github.com/sigp/lighthouse/issues/2327
-            store_ops.push(
+            store_ops.push(StoreOp::KeyValueOp(
                 DatabaseValidator::from_immutable_validator(&pubkey, &validator)
                     .as_kv_store_op(DatabaseValidator::key_for_index(i))?,
-            );
+            ));
 
             self.pubkeys.push(pubkey);
             self.indices.insert(validator.pubkey, i);
@@ -344,7 +344,7 @@ mod test {
         let ops = cache
             .import_new_pubkeys(&state)
             .expect("should import pubkeys");
-        store.hot_db.do_atomically(ops).unwrap();
+        store.do_atomically(ops).unwrap();
         check_cache_get(&cache, &keypairs[..]);
         drop(cache);
 

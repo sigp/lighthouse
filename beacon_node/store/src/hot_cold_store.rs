@@ -809,11 +809,11 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                         key_value_batch.push(KeyValueStoreOp::DeleteKey(diff_key));
                     }
                 }
-                StoreOp::KeyValueOp(kv_op) => key_value_batch.push(kv_op),
                 StoreOp::DeleteExecutionPayload(block_root) => {
                     let key = get_key_for_col(DBColumn::ExecPayload.into(), block_root.as_bytes());
                     key_value_batch.push(KeyValueStoreOp::DeleteKey(key));
                 }
+                StoreOp::KeyValueOp(kv_op) => key_value_batch.push(kv_op),
             }
         }
         Ok(key_value_batch)
@@ -845,9 +845,9 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                     self.state_cache.lock().delete_state(state_root)
                 }
 
-                StoreOp::KeyValueOp(_) => (),
-
                 StoreOp::DeleteExecutionPayload(_) => (),
+
+                StoreOp::KeyValueOp(_) => (),
             }
         }
 
