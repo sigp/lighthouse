@@ -166,7 +166,7 @@ pub enum StoreOp<'a, E: EthSpec> {
     DeleteBlobs(Hash256),
     DeleteState(Hash256, Option<Slot>),
     DeleteExecutionPayload(Hash256),
-    PutRawKVStoreOp(KeyValueStoreOp),
+    KeyValueOp(KeyValueStoreOp),
 }
 
 /// A unique column identifier.

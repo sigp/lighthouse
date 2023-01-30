@@ -824,8 +824,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                     key_value_batch.push(KeyValueStoreOp::PutKeyValue(db_key, [].into()));
                 }
 
-                StoreOp::PutRawKVStoreOp(kv_store_op) => {
-                    key_value_batch.push(kv_store_op);
+                StoreOp::KeyValueOp(kv_op) => {
+                    key_value_batch.push(kv_op);
                 }
             }
         }
@@ -870,7 +870,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
                 StoreOp::PutOrphanedBlobsKey(_) => (),
 
-                StoreOp::PutRawKVStoreOp(_) => (),
+                StoreOp::KeyValueOp(_) => (),
             }
         }
 
