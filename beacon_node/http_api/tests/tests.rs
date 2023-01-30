@@ -446,8 +446,8 @@ impl ApiTester {
                 .finalized
                 .unwrap();
 
-            let (state_root, _) = state_root.unwrap();
-            let (state, _) = state.unwrap();
+            let (state_root, _, _) = state_root.unwrap();
+            let (state, _, _) = state.unwrap();
             let state_slot = state.slot();
             let expected = self
                 .chain
@@ -483,8 +483,8 @@ impl ApiTester {
                 .finalized
                 .unwrap();
 
-            let (state_root, _) = state_root.unwrap();
-            let (state, _) = state.unwrap();
+            let (state_root, _, _) = state_root.unwrap();
+            let (state, _, _) = state.unwrap();
             let state_slot = state.slot();
             let expected = self
                 .chain
@@ -520,8 +520,8 @@ impl ApiTester {
                 .finalized
                 .unwrap();
 
-            let (state_root, _) = state_root.unwrap();
-            let (state, _) = state.unwrap();
+            let (state_root, _, _) = state_root.unwrap();
+            let (state, _, _) = state.unwrap();
             let state_slot = state.slot();
             let expected = self
                 .chain
@@ -557,7 +557,7 @@ impl ApiTester {
                 .finalized
                 .unwrap();
 
-            let (block_root, _) = block_root.unwrap();
+            let (block_root, _, _) = block_root.unwrap();
             let (block, _) = block.unwrap();
             let block_slot = block.slot();
             let expected = self
@@ -593,7 +593,7 @@ impl ApiTester {
                 .finalized
                 .unwrap();
 
-            let (block_root, _) = block_root.unwrap();
+            let (block_root, _, _) = block_root.unwrap();
             let (block, _) = block.unwrap();
             let block_slot = block.slot();
             let expected = self
@@ -629,7 +629,7 @@ impl ApiTester {
                 .finalized
                 .unwrap();
 
-            let (block_root, _) = block_root.unwrap();
+            let (block_root, _, _) = block_root.unwrap();
             let (block, _) = block.unwrap();
             let block_slot = block.slot();
             let expected = self
@@ -666,8 +666,8 @@ impl ApiTester {
                 .finalized
                 .unwrap();
 
-            let (state_root, _) = state_root.unwrap();
-            let (state, _) = state.unwrap();
+            let (state_root, _, _) = state_root.unwrap();
+            let (state, _, _) = state.unwrap();
             let state_slot = state.slot();
             let expected = self
                 .chain
@@ -692,7 +692,7 @@ impl ApiTester {
             let expected = state_id
                 .root(&self.chain)
                 .ok()
-                .map(|(root, _execution_optimistic)| root);
+                .map(|(root, _execution_optimistic, _finalized)| root);
 
             assert_eq!(result, expected, "{:?}", state_id);
         }
@@ -726,15 +726,13 @@ impl ApiTester {
                 .unwrap()
                 .map(|res| res.data);
 
-            let expected =
-                state_id
-                    .state(&self.chain)
-                    .ok()
-                    .map(|(state, _execution_optimistic)| FinalityCheckpointsData {
-                        previous_justified: state.previous_justified_checkpoint(),
-                        current_justified: state.current_justified_checkpoint(),
-                        finalized: state.finalized_checkpoint(),
-                    });
+            let expected = state_id.state(&self.chain).ok().map(
+                |(state, _execution_optimistic, _finalized)| FinalityCheckpointsData {
+                    previous_justified: state.previous_justified_checkpoint(),
+                    current_justified: state.current_justified_checkpoint(),
+                    finalized: state.finalized_checkpoint(),
+                },
+            );
 
             assert_eq!(result, expected, "{:?}", state_id);
         }
@@ -747,7 +745,9 @@ impl ApiTester {
             for validator_indices in self.interesting_validator_indices() {
                 let state_opt = state_id.state(&self.chain).ok();
                 let validators: Vec<Validator> = match state_opt.as_ref() {
-                    Some((state, _execution_optimistic)) => state.validators().clone().into(),
+                    Some((state, _execution_optimistic, _finalized)) => {
+                        state.validators().clone().into()
+                    }
                     None => vec![],
                 };
                 let validator_index_ids = validator_indices
@@ -786,7 +786,7 @@ impl ApiTester {
                     .unwrap()
                     .map(|res| res.data);
 
-                let expected = state_opt.map(|(state, _execution_optimistic)| {
+                let expected = state_opt.map(|(state, _execution_optimistic, _finalized)| {
                     let mut validators = Vec::with_capacity(validator_indices.len());
 
                     for i in validator_indices {
@@ -816,7 +816,7 @@ impl ApiTester {
                     let state_opt = state_id
                         .state(&self.chain)
                         .ok()
-                        .map(|(state, _execution_optimistic)| state);
+                        .map(|(state, _execution_optimistic, _finalized)| state);
                     let validators: Vec<Validator> = match state_opt.as_ref() {
                         Some(state) => state.validators().clone().into(),
                         None => vec![],
@@ -906,7 +906,7 @@ impl ApiTester {
             let state_opt = state_id
                 .state(&self.chain)
                 .ok()
-                .map(|(state, _execution_optimistic)| state);
+                .map(|(state, _execution_optimistic, _finalized)| state);
             let validators = match state_opt.as_ref() {
                 Some(state) => state.validators().clone().into(),
                 None => vec![],
@@ -961,7 +961,7 @@ impl ApiTester {
             let mut state_opt = state_id
                 .state(&self.chain)
                 .ok()
-                .map(|(state, _execution_optimistic)| state);
+                .map(|(state, _execution_optimistic, _finalized)| state);
 
             let epoch_opt = state_opt.as_ref().map(|state| state.current_epoch());
             let results = self
@@ -1008,7 +1008,7 @@ impl ApiTester {
             let mut state_opt = state_id
                 .state(&self.chain)
                 .ok()
-                .map(|(state, _execution_optimistic)| state);
+                .map(|(state, _execution_optimistic, _finalized)| state);
 
             let epoch_opt = state_opt.as_ref().map(|state| state.current_epoch());
             let result = self
@@ -1118,7 +1118,7 @@ impl ApiTester {
             let block_root_opt = block_id
                 .root(&self.chain)
                 .ok()
-                .map(|(root, _execution_optimistic)| root);
+                .map(|(root, _execution_optimistic, _finalized)| root);
 
             if let CoreBlockId::Slot(slot) = block_id.0 {
                 if block_root_opt.is_none() {
@@ -1178,7 +1178,7 @@ impl ApiTester {
             let expected = block_id
                 .root(&self.chain)
                 .ok()
-                .map(|(root, _execution_optimistic)| root);
+                .map(|(root, _execution_optimistic, _finalized)| root);
             if let CoreBlockId::Slot(slot) = block_id.0 {
                 if expected.is_none() {
                     assert!(SKIPPED_SLOTS.contains(&slot.as_u64()));
@@ -1811,7 +1811,7 @@ impl ApiTester {
             let mut expected = state_id
                 .state(&self.chain)
                 .ok()
-                .map(|(state, _execution_optimistic)| state);
+                .map(|(state, _execution_optimistic, _finalized)| state);
             expected.as_mut().map(|state| state.drop_all_caches());
 
             if let (Some(json), Some(expected)) = (&result_json, &expected) {
@@ -3638,7 +3638,7 @@ impl ApiTester {
             let mut expected = state_id
                 .state(&self.chain)
                 .ok()
-                .map(|(state, _execution_optimistic)| state);
+                .map(|(state, _execution_optimistic, _finalized)| state);
             expected.as_mut().map(|state| state.drop_all_caches());
 
             assert_eq!(result, expected, "{:?}", state_id);
