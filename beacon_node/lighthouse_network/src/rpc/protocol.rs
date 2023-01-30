@@ -241,6 +241,11 @@ impl<TSpec: EthSpec> UpgradeInfo for RPCProtocol<TSpec> {
                 Version::V1,
                 Encoding::SSZSnappy,
             ));
+            supported_protocols.push(ProtocolId::new(
+                Protocol::LightClientUpdatesByRange,
+                Version::V1,
+                Encoding::SSZSnappy,
+            ));
         }
         supported_protocols
     }

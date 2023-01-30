@@ -191,10 +191,10 @@ impl<TSpec: EthSpec> std::fmt::Display for OutboundRequest<TSpec> {
             OutboundRequest::Ping(ping) => write!(f, "Ping: {}", ping.data),
             OutboundRequest::MetaData(_) => write!(f, "MetaData request"),
             OutboundRequest::LightClientBootstrap(bootstrap) => {
-                write!(f, "Lightclient Bootstrap: {}", bootstrap.root)
+                write!(f, "Light client bootstrap: {}", bootstrap.root)
             }
             OutboundRequest::LightClientUpdatesByRange(req) => {
-                write!(f, "Lightclient Updates by range: {:?}", req)
+                write!(f, "Light client updates by range: {:?}", req)
             }
         }
     }
