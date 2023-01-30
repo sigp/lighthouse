@@ -2,7 +2,7 @@ use super::{EthSpec, FixedVector, Hash256, LightClientHeader, Slot, SyncAggregat
 use crate::{
     beacon_state, test_utils::TestRandom, BeaconState, ChainSpec, SignedBlindedBeaconBlock,
 };
-use safe_arith::ArithError;
+use safe_arith::{ArithError, SafeArith};
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use ssz_types::typenum::{U5, U6};
@@ -108,7 +108,7 @@ impl<T: EthSpec> LightClientUpdate<T> {
             return Err(Error::InvalidBlock);
         }
 
-        let signature_period = block.message().epoch().sync_committee_period(&chain_spec)?;
+        let signature_period = block.message().epoch().sync_committee_period(chain_spec)?;
         if attested_state.slot() != attested_state.latest_block_header().slot {
             return Err(Error::SlotMismatch);
         }
@@ -124,7 +124,7 @@ impl<T: EthSpec> LightClientUpdate<T> {
         let attested_period = attested_block
             .message()
             .epoch()
-            .sync_committee_period(&chain_spec)?;
+            .sync_committee_period(chain_spec)?;
         if attested_period != signature_period {
             return Err(Error::MismatchingPeriods);
         }
@@ -172,12 +172,13 @@ impl<T: EthSpec> LightClientUpdate<T> {
         let max_active_participants = self.sync_aggregate.sync_committee_bits.len();
         let new_num_active_participants = self.sync_aggregate.num_set_bits();
         let old_num_active_participants = old_update.sync_aggregate.num_set_bits();
-        // Compare supermajorit (> 2/3) sync committee participation
-        let new_has_supermajority = new_num_active_participants * 3 >= max_active_participants * 2;
-        let old_has_supermajority = old_num_active_participants * 3 >= max_active_participants * 2;
+        // Compare supermajority (> 2/3) sync committee participation
+        // unwrap is safe because sync committee size is small
+        let new_has_supermajority = new_num_active_participants.safe_mul(3).unwrap() >= max_active_participants.safe_mul(2).unwrap();
+        let old_has_supermajority = old_num_active_participants.safe_mul(3).unwrap() >= max_active_participants.safe_mul(3).unwrap();
 
         if new_has_supermajority != old_has_supermajority {
-            return new_has_supermajority > old_has_supermajority;
+            return new_has_supermajority & !old_has_supermajority;
         }
         if !new_has_supermajority && new_num_active_participants != old_num_active_participants {
             return new_num_active_participants > old_num_active_participants;
