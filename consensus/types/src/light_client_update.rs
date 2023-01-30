@@ -174,8 +174,10 @@ impl<T: EthSpec> LightClientUpdate<T> {
         let old_num_active_participants = old_update.sync_aggregate.num_set_bits();
         // Compare supermajority (> 2/3) sync committee participation
         // unwrap is safe because sync committee size is small
-        let new_has_supermajority = new_num_active_participants.safe_mul(3).unwrap() >= max_active_participants.safe_mul(2).unwrap();
-        let old_has_supermajority = old_num_active_participants.safe_mul(3).unwrap() >= max_active_participants.safe_mul(3).unwrap();
+        let new_has_supermajority = new_num_active_participants.safe_mul(3).unwrap()
+            >= max_active_participants.safe_mul(2).unwrap();
+        let old_has_supermajority = old_num_active_participants.safe_mul(3).unwrap()
+            >= max_active_participants.safe_mul(3).unwrap();
 
         if new_has_supermajority != old_has_supermajority {
             return new_has_supermajority & !old_has_supermajority;
