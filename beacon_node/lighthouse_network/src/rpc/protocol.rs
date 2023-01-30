@@ -639,10 +639,10 @@ impl<TSpec: EthSpec> std::fmt::Display for InboundRequest<TSpec> {
                 write!(f, "LightClientBootstrap: {}", bootstrap.root)
             }
             InboundRequest::LightClientOptimisticUpdate(_) => {
-                write!(f, "LightClientOptimisticUpdate")
+                write!(f, "Light client optimistic update request")
             }
             InboundRequest::LightClientFinalityUpdate(_) => {
-                write!(f, "LightClientFinalityUpdate")
+                write!(f, "Light client finality update request")
             }
         }
     }
