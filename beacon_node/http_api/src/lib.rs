@@ -1009,72 +1009,77 @@ pub fn serve<T: BeaconChainTypes>(
         .and_then(
             |query: api_types::HeadersQuery, chain: Arc<BeaconChain<T>>| {
                 blocking_json_task(move || {
-                    let (root, block, execution_optimistic) = match (query.slot, query.parent_root)
-                    {
-                        // No query parameters, return the canonical head block.
-                        (None, None) => {
-                            let (cached_head, execution_status) = chain
-                                .canonical_head
-                                .head_and_execution_status()
-                                .map_err(warp_utils::reject::beacon_chain_error)?;
-                            (
-                                cached_head.head_block_root(),
-                                cached_head.snapshot.beacon_block.clone_as_blinded(),
-                                execution_status.is_optimistic_or_invalid(),
-                            )
-                        }
-                        // Only the parent root parameter, do a forwards-iterator lookup.
-                        (None, Some(parent_root)) => {
-                            let (parent, execution_optimistic) =
-                                BlockId::from_root(parent_root).blinded_block(&chain)?;
-                            let (root, _slot) = chain
-                                .forwards_iter_block_roots(parent.slot())
-                                .map_err(warp_utils::reject::beacon_chain_error)?
-                                // Ignore any skip-slots immediately following the parent.
-                                .find(|res| {
-                                    res.as_ref().map_or(false, |(root, _)| *root != parent_root)
-                                })
-                                .transpose()
-                                .map_err(warp_utils::reject::beacon_chain_error)?
-                                .ok_or_else(|| {
-                                    warp_utils::reject::custom_not_found(format!(
-                                        "child of block with root {}",
-                                        parent_root
-                                    ))
-                                })?;
-
-                            BlockId::from_root(root)
-                                .blinded_block(&chain)
-                                // Ignore this `execution_optimistic` since the first value has
-                                // more information about the original request.
-                                .map(|(block, _execution_optimistic)| {
-                                    (root, block, execution_optimistic)
-                                })?
-                        }
-                        // Slot is supplied, search by slot and optionally filter by
-                        // parent root.
-                        (Some(slot), parent_root_opt) => {
-                            let (root, execution_optimistic) =
-                                BlockId::from_slot(slot).root(&chain)?;
-                            // Ignore the second `execution_optimistic`, the first one is the
-                            // most relevant since it knows that we queried by slot.
-                            let (block, _execution_optimistic) =
-                                BlockId::from_root(root).blinded_block(&chain)?;
-
-                            // If the parent root was supplied, check that it matches the block
-                            // obtained via a slot lookup.
-                            if let Some(parent_root) = parent_root_opt {
-                                if block.parent_root() != parent_root {
-                                    return Err(warp_utils::reject::custom_not_found(format!(
-                                        "no canonical block at slot {} with parent root {}",
-                                        slot, parent_root
-                                    )));
-                                }
+                    let (root, block, execution_optimistic, finalized) =
+                        match (query.slot, query.parent_root) {
+                            // No query parameters, return the canonical head block.
+                            (None, None) => {
+                                let (cached_head, execution_status) = chain
+                                    .canonical_head
+                                    .head_and_execution_status()
+                                    .map_err(warp_utils::reject::beacon_chain_error)?;
+                                (
+                                    cached_head.head_block_root(),
+                                    cached_head.snapshot.beacon_block.clone_as_blinded(),
+                                    execution_status.is_optimistic_or_invalid(),
+                                    false,
+                                )
                             }
+                            // Only the parent root parameter, do a forwards-iterator lookup.
+                            (None, Some(parent_root)) => {
+                                let (parent, execution_optimistic) =
+                                    BlockId::from_root(parent_root).blinded_block(&chain)?;
+                                let (root, slot) = chain
+                                    .forwards_iter_block_roots(parent.slot())
+                                    .map_err(warp_utils::reject::beacon_chain_error)?
+                                    // Ignore any skip-slots immediately following the parent.
+                                    .find(|res| {
+                                        res.as_ref().map_or(false, |(root, _)| *root != parent_root)
+                                    })
+                                    .transpose()
+                                    .map_err(warp_utils::reject::beacon_chain_error)?
+                                    .ok_or_else(|| {
+                                        warp_utils::reject::custom_not_found(format!(
+                                            "child of block with root {}",
+                                            parent_root
+                                        ))
+                                    })?;
 
-                            (root, block, execution_optimistic)
-                        }
-                    };
+                                let finalized = chain
+                                    .is_finalized_block(&root, slot)
+                                    .map_err(warp_utils::reject::beacon_chain_error)?;
+
+                                BlockId::from_root(root)
+                                    .blinded_block(&chain)
+                                    // Ignore this `execution_optimistic` since the first value has
+                                    // more information about the original request.
+                                    .map(|(block, _execution_optimistic)| {
+                                        (root, block, execution_optimistic, finalized)
+                                    })?
+                            }
+                            // Slot is supplied, search by slot and optionally filter by
+                            // parent root.
+                            (Some(slot), parent_root_opt) => {
+                                let (root, execution_optimistic, finalized) =
+                                    BlockId::from_slot(slot).root(&chain)?;
+                                // Ignore the second `execution_optimistic`, the first one is the
+                                // most relevant since it knows that we queried by slot.
+                                let (block, _execution_optimistic) =
+                                    BlockId::from_root(root).blinded_block(&chain)?;
+
+                                // If the parent root was supplied, check that it matches the block
+                                // obtained via a slot lookup.
+                                if let Some(parent_root) = parent_root_opt {
+                                    if block.parent_root() != parent_root {
+                                        return Err(warp_utils::reject::custom_not_found(format!(
+                                            "no canonical block at slot {} with parent root {}",
+                                            slot, parent_root
+                                        )));
+                                    }
+                                }
+
+                                (root, block, execution_optimistic, finalized)
+                            }
+                        };
 
                     let data = api_types::BlockHeaderData {
                         root,
@@ -1084,10 +1089,6 @@ pub fn serve<T: BeaconChainTypes>(
                             signature: block.signature().clone().into(),
                         },
                     };
-
-                    let finalized = chain
-                        .is_finalized_block(&root, block.slot())
-                        .map_err(warp_utils::reject::beacon_chain_error)?;
 
                     Ok(api_types::GenericResponse::from(vec![data])
                         .add_execution_optimistic_finalized(execution_optimistic, finalized))
@@ -1108,7 +1109,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(chain_filter.clone())
         .and_then(|block_id: BlockId, chain: Arc<BeaconChain<T>>| {
             blocking_json_task(move || {
-                let (root, execution_optimistic) = block_id.root(&chain)?;
+                let (root, execution_optimistic, finalized) = block_id.root(&chain)?;
                 // Ignore the second `execution_optimistic` since the first one has more
                 // information about the original request.
                 let (block, _execution_optimistic) =
@@ -1127,10 +1128,6 @@ pub fn serve<T: BeaconChainTypes>(
                         signature: block.signature().clone().into(),
                     },
                 };
-
-                let finalized = chain
-                    .is_finalized_block(&root, block.slot())
-                    .map_err(warp_utils::reject::beacon_chain_error)?;
 
                 Ok(api_types::ExecutionOptimisticFinalizedResponse {
                     execution_optimistic: Some(execution_optimistic),
@@ -1218,10 +1215,7 @@ pub fn serve<T: BeaconChainTypes>(
              accept_header: Option<api_types::Accept>| {
                 async move {
                     let (block, execution_optimistic) = block_id.full_block(&chain).await?;
-                    let (block_root, _) = block_id.root(&chain)?;
-                    let finalized = chain
-                        .is_finalized_block(&block_root, block.slot())
-                        .map_err(warp_utils::reject::beacon_chain_error)?;
+                    let (_block_root, _execution_optimistic, finalized) = block_id.root(&chain)?;
                     let fork_name = block
                         .fork_name(&chain.spec)
                         .map_err(inconsistent_fork_rejection)?;
@@ -1259,10 +1253,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and_then(|block_id: BlockId, chain: Arc<BeaconChain<T>>| {
             blocking_json_task(move || {
                 let (block, execution_optimistic) = block_id.blinded_block(&chain)?;
-                let (block_root, _) = block_id.root(&chain)?;
-                let finalized = chain
-                    .is_finalized_block(&block_root, block.slot())
-                    .map_err(warp_utils::reject::beacon_chain_error)?;
+                let (_block_root, _execution_optimistic, finalized) = block_id.root(&chain)?;
                 Ok(api_types::GenericResponse::from(api_types::RootData::from(
                     block.canonical_root(),
                 ))
@@ -1278,10 +1269,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and_then(|block_id: BlockId, chain: Arc<BeaconChain<T>>| {
             blocking_json_task(move || {
                 let (block, execution_optimistic) = block_id.blinded_block(&chain)?;
-                let (block_root, _) = block_id.root(&chain)?;
-                let finalized = chain
-                    .is_finalized_block(&block_root, block.slot())
-                    .map_err(warp_utils::reject::beacon_chain_error)?;
+                let (_block_root, _execution_optimistic, finalized) = block_id.root(&chain)?;
                 Ok(
                     api_types::GenericResponse::from(block.message().body().attestations().clone())
                         .add_execution_optimistic_finalized(execution_optimistic, finalized),
@@ -1303,10 +1291,7 @@ pub fn serve<T: BeaconChainTypes>(
              accept_header: Option<api_types::Accept>| {
                 blocking_task(move || {
                     let (block, execution_optimistic) = block_id.blinded_block(&chain)?;
-                    let (block_root, _) = block_id.root(&chain)?;
-                    let finalized = chain
-                        .is_finalized_block(&block_root, block.slot())
-                        .map_err(warp_utils::reject::beacon_chain_error)?;
+                    let (_block_root, _execution_optimistic, finalized) = block_id.root(&chain)?;
                     let fork_name = block
                         .fork_name(&chain.spec)
                         .map_err(inconsistent_fork_rejection)?;

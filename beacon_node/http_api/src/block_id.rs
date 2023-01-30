@@ -4,12 +4,14 @@ use eth2::types::BlockId as CoreBlockId;
 use std::fmt;
 use std::str::FromStr;
 use std::sync::Arc;
-use types::{Hash256, SignedBeaconBlock, SignedBlindedBeaconBlock, Slot};
+use types::{EthSpec, Hash256, SignedBeaconBlock, SignedBlindedBeaconBlock, Slot};
 
 /// Wraps `eth2::types::BlockId` and provides a simple way to obtain a block or root for a given
 /// `BlockId`.
 #[derive(Debug)]
 pub struct BlockId(pub CoreBlockId);
+
+type Finalized = bool;
 
 impl BlockId {
     pub fn from_slot(slot: Slot) -> Self {
@@ -24,7 +26,7 @@ impl BlockId {
     pub fn root<T: BeaconChainTypes>(
         &self,
         chain: &BeaconChain<T>,
-    ) -> Result<(Hash256, ExecutionOptimistic), warp::Rejection> {
+    ) -> Result<(Hash256, ExecutionOptimistic, Finalized), warp::Rejection> {
         match &self.0 {
             CoreBlockId::Head => {
                 let (cached_head, execution_status) = chain
@@ -34,22 +36,23 @@ impl BlockId {
                 Ok((
                     cached_head.head_block_root(),
                     execution_status.is_optimistic_or_invalid(),
+                    false,
                 ))
             }
-            CoreBlockId::Genesis => Ok((chain.genesis_block_root, false)),
+            CoreBlockId::Genesis => Ok((chain.genesis_block_root, false, true)),
             CoreBlockId::Finalized => {
                 let finalized_checkpoint =
                     chain.canonical_head.cached_head().finalized_checkpoint();
                 let (_slot, execution_optimistic) =
                     checkpoint_slot_and_execution_optimistic(chain, finalized_checkpoint)?;
-                Ok((finalized_checkpoint.root, execution_optimistic))
+                Ok((finalized_checkpoint.root, execution_optimistic, true))
             }
             CoreBlockId::Justified => {
                 let justified_checkpoint =
                     chain.canonical_head.cached_head().justified_checkpoint();
                 let (_slot, execution_optimistic) =
                     checkpoint_slot_and_execution_optimistic(chain, justified_checkpoint)?;
-                Ok((justified_checkpoint.root, execution_optimistic))
+                Ok((justified_checkpoint.root, execution_optimistic, true))
             }
             CoreBlockId::Slot(slot) => {
                 let execution_optimistic = chain
@@ -66,7 +69,14 @@ impl BlockId {
                             ))
                         })
                     })?;
-                Ok((root, execution_optimistic))
+                let finalized = *slot
+                    <= chain
+                        .canonical_head
+                        .cached_head()
+                        .finalized_checkpoint()
+                        .epoch
+                        .start_slot(T::EthSpec::slots_per_epoch());
+                Ok((root, execution_optimistic, finalized))
             }
             CoreBlockId::Root(root) => {
                 // This matches the behaviour of other consensus clients (e.g. Teku).
@@ -88,7 +98,20 @@ impl BlockId {
                         .is_optimistic_or_invalid_block(root)
                         .map_err(BeaconChainError::ForkChoiceError)
                         .map_err(warp_utils::reject::beacon_chain_error)?;
-                    Ok((*root, execution_optimistic))
+                    let blinded_block = chain
+                        .get_blinded_block(root)
+                        .map_err(warp_utils::reject::beacon_chain_error)?
+                        .ok_or_else(|| {
+                            warp_utils::reject::custom_not_found(format!(
+                                "beacon block with root {}",
+                                root
+                            ))
+                        })?;
+                    let block_slot = blinded_block.slot();
+                    let finalized = chain
+                        .is_finalized_block(root, block_slot)
+                        .map_err(warp_utils::reject::beacon_chain_error)?;
+                    Ok((*root, execution_optimistic, finalized))
                 } else {
                     Err(warp_utils::reject::custom_not_found(format!(
                         "beacon block with root {}",
@@ -116,7 +139,7 @@ impl BlockId {
                 ))
             }
             CoreBlockId::Slot(slot) => {
-                let (root, execution_optimistic) = self.root(chain)?;
+                let (root, execution_optimistic, _finalized) = self.root(chain)?;
                 chain
                     .get_blinded_block(&root)
                     .map_err(warp_utils::reject::beacon_chain_error)
@@ -137,7 +160,7 @@ impl BlockId {
                     })
             }
             _ => {
-                let (root, execution_optimistic) = self.root(chain)?;
+                let (root, execution_optimistic, _finalized) = self.root(chain)?;
                 let block = chain
                     .get_blinded_block(&root)
                     .map_err(warp_utils::reject::beacon_chain_error)
@@ -171,7 +194,7 @@ impl BlockId {
                 ))
             }
             CoreBlockId::Slot(slot) => {
-                let (root, execution_optimistic) = self.root(chain)?;
+                let (root, execution_optimistic, _finalized) = self.root(chain)?;
                 chain
                     .get_block(&root)
                     .await
@@ -193,7 +216,7 @@ impl BlockId {
                     })
             }
             _ => {
-                let (root, execution_optimistic) = self.root(chain)?;
+                let (root, execution_optimistic, _finalized) = self.root(chain)?;
                 chain
                     .get_block(&root)
                     .await
