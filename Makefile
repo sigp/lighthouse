@@ -35,15 +35,24 @@ PROFILE ?= release
 # they run for different forks.
 FORKS=phase0 altair merge
 
+# Extra flags for Cargo
+CARGO_INSTALL_EXTRA_FLAGS?=
+
 # Builds the Lighthouse binary in release (optimized).
 #
 # Binaries will most likely be found in `./target/release`
 install:
-	cargo install --path lighthouse --force --locked --features "$(FEATURES)" --profile "$(PROFILE)"
+	cargo install --path lighthouse --force --locked \
+		--features "$(FEATURES)" \
+		--profile "$(PROFILE)" \
+		$(CARGO_INSTALL_EXTRA_FLAGS)
 
 # Builds the lcli binary in release (optimized).
 install-lcli:
-	cargo install --path lcli --force --locked --features "$(FEATURES)" --profile "$(PROFILE)"
+	cargo install --path lcli --force --locked \
+		--features "$(FEATURES)" \
+		--profile "$(PROFILE)" \
+		$(CARGO_INSTALL_EXTRA_FLAGS)
 
 # The following commands use `cross` to build a cross-compile.
 #
