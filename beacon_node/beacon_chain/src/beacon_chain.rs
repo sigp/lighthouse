@@ -7,6 +7,7 @@ use crate::attester_cache::{AttesterCache, AttesterCacheKey};
 use crate::beacon_proposer_cache::compute_proposer_duties_from_head;
 use crate::beacon_proposer_cache::BeaconProposerCache;
 use crate::blob_cache::BlobCache;
+use crate::blob_verification::{AsBlock, AvailableBlock, BlockWrapper};
 use crate::block_times_cache::BlockTimesCache;
 use crate::block_verification::{
     check_block_is_finalized_descendant, check_block_relevancy, get_block_root,
@@ -107,7 +108,6 @@ use tree_hash::TreeHash;
 use types::beacon_state::CloneConfig;
 use types::consts::eip4844::MIN_EPOCHS_FOR_BLOBS_SIDECARS_REQUESTS;
 use types::consts::merge::INTERVALS_PER_SLOT;
-use types::signed_block_and_blobs::BlockWrapper;
 use types::*;
 
 pub type ForkChoiceError = fork_choice::Error<crate::ForkChoiceStoreError>;
@@ -366,7 +366,6 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub(crate) observed_attester_slashings:
         Mutex<ObservedOperations<AttesterSlashing<T::EthSpec>, T::EthSpec>>,
     /// Maintains a record of which validators we've seen BLS to execution changes for.
-    #[cfg(feature = "withdrawals-processing")]
     pub(crate) observed_bls_to_execution_changes:
         Mutex<ObservedOperations<SignedBlsToExecutionChange, T::EthSpec>>,
     /// The most recently validated light client finality update received on gossip.
@@ -957,23 +956,35 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub async fn get_block_and_blobs_checking_early_attester_cache(
         &self,
         block_root: &Hash256,
-    ) -> Result<
-        (
-            Option<Arc<SignedBeaconBlock<T::EthSpec>>>,
-            Option<Arc<BlobsSidecar<T::EthSpec>>>,
-        ),
-        Error,
-    > {
-        if let (Some(block), Some(blobs)) = (
-            self.early_attester_cache.get_block(*block_root),
-            self.early_attester_cache.get_blobs(*block_root),
-        ) {
-            return Ok((Some(block), Some(blobs)));
+    ) -> Result<Option<SignedBeaconBlockAndBlobsSidecar<T::EthSpec>>, Error> {
+        // If there is no data availability boundary, the Eip4844 fork is disabled.
+        if let Some(finalized_data_availability_boundary) =
+            self.finalized_data_availability_boundary()
+        {
+            // Only use the attester cache if we can find both the block and blob
+            if let (Some(block), Some(blobs)) = (
+                self.early_attester_cache.get_block(*block_root),
+                self.early_attester_cache.get_blobs(*block_root),
+            ) {
+                Ok(Some(SignedBeaconBlockAndBlobsSidecar {
+                    beacon_block: block,
+                    blobs_sidecar: blobs,
+                }))
+            // Attempt to get the block and blobs from the database
+            } else if let Some(block) = self.get_block(block_root).await?.map(Arc::new) {
+                let blobs = self
+                    .get_blobs(block_root, finalized_data_availability_boundary)?
+                    .map(Arc::new);
+                Ok(blobs.map(|blobs| SignedBeaconBlockAndBlobsSidecar {
+                    beacon_block: block,
+                    blobs_sidecar: blobs,
+                }))
+            } else {
+                Ok(None)
+            }
+        } else {
+            Ok(None)
         }
-        Ok((
-            self.get_block(block_root).await?.map(Arc::new),
-            self.get_blobs(block_root).ok().flatten().map(Arc::new),
-        ))
     }
 
     /// Returns the block at the given root, if any.
@@ -1015,25 +1026,28 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         //FIXME(sean) avoid the clone by comparing refs to headers (`as_execution_payload_header` method ?)
         let full_payload: FullPayload<T::EthSpec> = execution_payload.clone().into();
 
-        // Verify payload integrity.
-        let header_from_payload = full_payload.to_execution_payload_header();
-        if header_from_payload != execution_payload_header {
-            for txn in execution_payload.transactions() {
-                debug!(
-                    self.log,
-                    "Reconstructed txn";
-                    "bytes" => format!("0x{}", hex::encode(&**txn)),
-                );
-            }
+        //FIXME(sean) we're not decoding blobs txs correctly yet
+        if !matches!(execution_payload, ExecutionPayload::Eip4844(_)) {
+            // Verify payload integrity.
+            let header_from_payload = full_payload.to_execution_payload_header();
+            if header_from_payload != execution_payload_header {
+                for txn in execution_payload.transactions() {
+                    debug!(
+                        self.log,
+                        "Reconstructed txn";
+                        "bytes" => format!("0x{}", hex::encode(&**txn)),
+                    );
+                }
 
-            return Err(Error::InconsistentPayloadReconstructed {
-                slot: blinded_block.slot(),
-                exec_block_hash,
-                canonical_payload_root: execution_payload_header.tree_hash_root(),
-                reconstructed_payload_root: header_from_payload.tree_hash_root(),
-                canonical_transactions_root: execution_payload_header.transactions_root(),
-                reconstructed_transactions_root: header_from_payload.transactions_root(),
-            });
+                return Err(Error::InconsistentPayloadReconstructed {
+                    slot: blinded_block.slot(),
+                    exec_block_hash,
+                    canonical_payload_root: execution_payload_header.tree_hash_root(),
+                    reconstructed_payload_root: header_from_payload.tree_hash_root(),
+                    canonical_transactions_root: execution_payload_header.transactions_root(),
+                    reconstructed_transactions_root: header_from_payload.transactions_root(),
+                });
+            }
         }
 
         // Add the payload to the block to form a full block.
@@ -1045,33 +1059,46 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     /// Returns the blobs at the given root, if any.
     ///
-    /// ## Errors
+    /// Returns `Ok(None)` if the blobs and associated block are not found.
     ///
-    /// May return a database error.
+    /// If we can find the corresponding block in our database, we know whether we *should* have
+    /// blobs. If we should have blobs and no blobs are found, this will error. If we shouldn't,
+    /// this will reconstruct an empty `BlobsSidecar`.
+    ///
+    /// ## Errors
+    /// - any database read errors
+    /// - block and blobs are inconsistent in the database
+    /// - this method is called with a pre-eip4844 block root
+    /// - this method is called for a blob that is beyond the prune depth
     pub fn get_blobs(
         &self,
         block_root: &Hash256,
+        data_availability_boundary: Epoch,
     ) -> Result<Option<BlobsSidecar<T::EthSpec>>, Error> {
         match self.store.get_blobs(block_root)? {
             Some(blobs) => Ok(Some(blobs)),
             None => {
-                if let Ok(Some(block)) = self.get_blinded_block(block_root) {
-                    let expected_kzg_commitments = block.message().body().blob_kzg_commitments()?;
-
-                    if expected_kzg_commitments.len() > 0 {
-                        Err(Error::DBInconsistent(format!(
-                            "Expected kzg commitments but no blobs stored for block root {}",
-                            block_root
-                        )))
-                    } else {
-                        Ok(Some(BlobsSidecar::empty_from_parts(
-                            *block_root,
-                            block.slot(),
-                        )))
-                    }
-                } else {
-                    Ok(None)
-                }
+                // Check for the corresponding block to understand whether we *should* have blobs.
+                self.get_blinded_block(block_root)?
+                    .map(|block| {
+                        // If there are no KZG commitments in the block, we know the sidecar should
+                        // be empty.
+                        let expected_kzg_commitments =
+                            match block.message().body().blob_kzg_commitments() {
+                                Ok(kzg_commitments) => kzg_commitments,
+                                Err(_) => return Err(Error::NoKzgCommitmentsFieldOnBlock),
+                            };
+                        if expected_kzg_commitments.is_empty() {
+                            Ok(BlobsSidecar::empty_from_parts(*block_root, block.slot()))
+                        } else if data_availability_boundary <= block.epoch() {
+                            // We should have blobs for all blocks younger than the boundary.
+                            Err(Error::BlobsUnavailable)
+                        } else {
+                            // We shouldn't have blobs for blocks older than the boundary.
+                            Err(Error::BlobsOlderThanDataAvailabilityBoundary(block.epoch()))
+                        }
+                    })
+                    .transpose()
             }
         }
     }
@@ -2289,47 +2316,74 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 
     /// Verify a signed BLS to execution change before allowing it to propagate on the gossip network.
+    pub fn verify_bls_to_execution_change_for_http_api(
+        &self,
+        bls_to_execution_change: SignedBlsToExecutionChange,
+    ) -> Result<ObservationOutcome<SignedBlsToExecutionChange, T::EthSpec>, Error> {
+        // Before checking the gossip duplicate filter, check that no prior change is already
+        // in our op pool. Ignore these messages: do not gossip, do not try to override the pool.
+        match self
+            .op_pool
+            .bls_to_execution_change_in_pool_equals(&bls_to_execution_change)
+        {
+            Some(true) => return Ok(ObservationOutcome::AlreadyKnown),
+            Some(false) => return Err(Error::BlsToExecutionConflictsWithPool),
+            None => (),
+        }
+
+        // Use the head state to save advancing to the wall-clock slot unnecessarily. The message is
+        // signed with respect to the genesis fork version, and the slot check for gossip is applied
+        // separately. This `Arc` clone of the head is nice and cheap.
+        let head_snapshot = self.head().snapshot;
+        let head_state = &head_snapshot.beacon_state;
+
+        Ok(self
+            .observed_bls_to_execution_changes
+            .lock()
+            .verify_and_observe(bls_to_execution_change, head_state, &self.spec)?)
+    }
+
+    /// Verify a signed BLS to execution change before allowing it to propagate on the gossip network.
     pub fn verify_bls_to_execution_change_for_gossip(
         &self,
         bls_to_execution_change: SignedBlsToExecutionChange,
     ) -> Result<ObservationOutcome<SignedBlsToExecutionChange, T::EthSpec>, Error> {
-        #[cfg(feature = "withdrawals-processing")]
-        {
-            let current_fork = self.spec.fork_name_at_slot::<T::EthSpec>(self.slot()?);
-            if let ForkName::Base | ForkName::Altair | ForkName::Merge = current_fork {
-                // Disallow BLS to execution changes prior to the Capella fork.
-                return Err(Error::BlsToExecutionChangeBadFork(current_fork));
-            }
-
-            let wall_clock_state = self.wall_clock_state()?;
-
-            Ok(self
-                .observed_bls_to_execution_changes
-                .lock()
-                .verify_and_observe(bls_to_execution_change, &wall_clock_state, &self.spec)?)
+        // Ignore BLS to execution changes on gossip prior to Capella.
+        if !self.current_slot_is_post_capella()? {
+            return Err(Error::BlsToExecutionPriorToCapella);
         }
+        self.verify_bls_to_execution_change_for_http_api(bls_to_execution_change)
+            .or_else(|e| {
+                // On gossip treat conflicts the same as duplicates [IGNORE].
+                match e {
+                    Error::BlsToExecutionConflictsWithPool => Ok(ObservationOutcome::AlreadyKnown),
+                    e => Err(e),
+                }
+            })
+    }
 
-        // TODO: remove this whole block once withdrawals-processing is removed
-        #[cfg(not(feature = "withdrawals-processing"))]
-        {
-            #[allow(clippy::drop_non_drop)]
-            drop(bls_to_execution_change);
-            Ok(ObservationOutcome::AlreadyKnown)
+    /// Check if the current slot is greater than or equal to the Capella fork epoch.
+    pub fn current_slot_is_post_capella(&self) -> Result<bool, Error> {
+        let current_fork = self.spec.fork_name_at_slot::<T::EthSpec>(self.slot()?);
+        if let ForkName::Base | ForkName::Altair | ForkName::Merge = current_fork {
+            Ok(false)
+        } else {
+            Ok(true)
         }
     }
 
     /// Import a BLS to execution change to the op pool.
+    ///
+    /// Return `true` if the change was added to the pool.
     pub fn import_bls_to_execution_change(
         &self,
         bls_to_execution_change: SigVerifiedOp<SignedBlsToExecutionChange, T::EthSpec>,
-    ) {
+    ) -> bool {
         if self.eth1_chain.is_some() {
-            #[cfg(feature = "withdrawals-processing")]
             self.op_pool
-                .insert_bls_to_execution_change(bls_to_execution_change);
-
-            #[cfg(not(feature = "withdrawals-processing"))]
-            drop(bls_to_execution_change);
+                .insert_bls_to_execution_change(bls_to_execution_change)
+        } else {
+            false
         }
     }
 
@@ -2383,19 +2437,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let children = chain_segment
             .iter()
             .skip(1)
-            .map(|block| (block.block().parent_root(), block.slot()))
+            .map(|block| (block.parent_root(), block.slot()))
             .collect::<Vec<_>>();
 
         for (i, block) in chain_segment.into_iter().enumerate() {
             // Ensure the block is the correct structure for the fork at `block.slot()`.
-            if let Err(e) = block.block().fork_name(&self.spec) {
+            if let Err(e) = block.as_block().fork_name(&self.spec) {
                 return Err(ChainSegmentResult::Failed {
                     imported_blocks,
                     error: BlockError::InconsistentFork(e),
                 });
             }
 
-            let block_root = get_block_root(block.block());
+            let block_root = get_block_root(block.as_block());
 
             if let Some((child_parent_root, child_slot)) = children.get(i) {
                 // If this block has a child in this chain segment, ensure that its parent root matches
@@ -2419,7 +2473,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 }
             }
 
-            match check_block_relevancy(block.block(), block_root, self) {
+            match check_block_relevancy(block.as_block(), block_root, self) {
                 // If the block is relevant, add it to the filtered chain segment.
                 Ok(_) => filtered_chain_segment.push((block_root, block)),
                 // If the block is already known, simply ignore this block.
@@ -2502,7 +2556,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         while let Some((_root, block)) = filtered_chain_segment.first() {
             // Determine the epoch of the first block in the remaining segment.
-            let start_epoch = block.slot().epoch(T::EthSpec::slots_per_epoch());
+            let start_epoch = block.epoch();
 
             // The `last_index` indicates the position of the first block in an epoch greater
             // than the current epoch: partitioning the blocks into a run of blocks in the same
@@ -2510,9 +2564,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             // the same `BeaconState`.
             let last_index = filtered_chain_segment
                 .iter()
-                .position(|(_root, block)| {
-                    block.slot().epoch(T::EthSpec::slots_per_epoch()) > start_epoch
-                })
+                .position(|(_root, block)| block.epoch() > start_epoch)
                 .unwrap_or(filtered_chain_segment.len());
 
             let mut blocks = filtered_chain_segment.split_off(last_index);
@@ -2796,7 +2848,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     #[allow(clippy::too_many_arguments)]
     fn import_block(
         &self,
-        signed_block: BlockWrapper<T::EthSpec>,
+        signed_block: AvailableBlock<T::EthSpec>,
         block_root: Hash256,
         mut state: BeaconState<T::EthSpec>,
         confirmed_state_roots: Vec<Hash256>,
@@ -2956,7 +3008,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // If the write fails, revert fork choice to the version from disk, else we can
         // end up with blocks in fork choice that are missing from disk.
         // See https://github.com/sigp/lighthouse/issues/2028
-        let (signed_block, blobs) = signed_block.deconstruct(Some(block_root));
+        let (signed_block, blobs) = signed_block.deconstruct();
         let block = signed_block.message();
         let mut ops: Vec<_> = confirmed_state_roots
             .into_iter()
@@ -2965,7 +3017,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         ops.push(StoreOp::PutBlock(block_root, signed_block.clone()));
         ops.push(StoreOp::PutState(block.state_root(), &state));
 
-        if let Some(blobs) = blobs? {
+        if let Some(blobs) = blobs {
             if blobs.blobs.len() > 0 {
                 //FIXME(sean) using this for debugging for now
                 info!(self.log, "Writing blobs to store"; "block_root" => ?block_root);
@@ -3178,7 +3230,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Sync aggregate.
         if let Ok(sync_aggregate) = block.body().sync_aggregate() {
             // `SyncCommittee` for the sync_aggregate should correspond to the duty slot
-            let duty_epoch = block.slot().epoch(T::EthSpec::slots_per_epoch());
+            let duty_epoch = block.epoch();
 
             match self.sync_committee_at_epoch(duty_epoch) {
                 Ok(sync_committee) => {
@@ -3445,7 +3497,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         parent_block_slot: Slot,
     ) {
         // Do not write to eth1 finalization cache for blocks older than 5 epochs.
-        if block.slot().epoch(T::EthSpec::slots_per_epoch()) + 5 < current_epoch {
+        if block.epoch() + 5 < current_epoch {
             return;
         }
 
@@ -4585,10 +4637,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         };
 
         // Use a context without block root or proposer index so that both are checked.
-        let mut ctxt = ConsensusContext::new(block.slot())
-            //FIXME(sean) This is a hack beacuse `valdiate blobs sidecar requires the block root`
-            // which we won't have until after the state root is calculated.
-            .set_blobs_sidecar_validated(true);
+        let mut ctxt = ConsensusContext::new(block.slot());
 
         per_block_processing(
             &mut state,
@@ -4610,11 +4659,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         //FIXME(sean)
         // - add a new timer for processing here
         if let Some(blobs) = blobs_opt {
-            let kzg = if let Some(kzg) = &self.kzg {
-                kzg
-            } else {
-                return Err(BlockProductionError::TrustedSetupNotInitialized);
-            };
+            let kzg = self
+                .kzg
+                .as_ref()
+                .ok_or(BlockProductionError::TrustedSetupNotInitialized)?;
             let kzg_aggregated_proof =
                 kzg_utils::compute_aggregate_kzg_proof::<T::EthSpec>(&kzg, &blobs)
                     .map_err(|e| BlockProductionError::KzgError(e))?;
@@ -4879,9 +4927,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .ok_or(Error::InvalidSlot(prepare_slot))?
                 .as_secs(),
             pre_payload_attributes.prev_randao,
-            execution_layer
-                .get_suggested_fee_recipient(proposer as u64)
-                .await,
+            execution_layer.get_suggested_fee_recipient(proposer).await,
             withdrawals,
         );
 
@@ -5876,6 +5922,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 })
             })
             .flatten()
+    }
+
+    /// The epoch that is a data availability boundary, or the latest finalized epoch.
+    /// `None` if the `Eip4844` fork is disabled.
+    pub fn finalized_data_availability_boundary(&self) -> Option<Epoch> {
+        self.data_availability_boundary().map(|boundary| {
+            std::cmp::max(
+                boundary,
+                self.canonical_head
+                    .cached_head()
+                    .finalized_checkpoint()
+                    .epoch,
+            )
+        })
     }
 
     /// Returns `true` if we are at or past the `Eip4844` fork. This will always return `false` if

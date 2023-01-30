@@ -270,11 +270,11 @@ impl<TSpec: EthSpec> PeerScoreSettings<TSpec> {
 
         let modulo_smaller = max(
             1,
-            smaller_committee_size / self.target_aggregators_per_committee as usize,
+            smaller_committee_size / self.target_aggregators_per_committee,
         );
         let modulo_larger = max(
             1,
-            (smaller_committee_size + 1) / self.target_aggregators_per_committee as usize,
+            (smaller_committee_size + 1) / self.target_aggregators_per_committee,
         );
 
         Ok((

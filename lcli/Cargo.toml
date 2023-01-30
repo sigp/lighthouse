@@ -1,17 +1,18 @@
 [package]
 name = "lcli"
 description = "Lighthouse CLI (modeled after zcli)"
-version = "3.3.0"
+version = "3.4.0"
 authors = ["Paul Hauner <paul@paulhauner.com>"]
 edition = "2021"
 
 [features]
 portable = ["bls/supranational-portable"]
 fake_crypto = ['bls/fake_crypto']
-withdrawals-processing = ["beacon_chain/withdrawals-processing", "store/withdrawals-processing", "state_processing/withdrawals-processing"]
+jemalloc = ["malloc_utils/jemalloc"]
 
 [dependencies]
 bls = { path = "../crypto/bls" }
+kzg = { path = "../crypto/kzg" }
 clap = "2.33.3"
 log = "0.4.11"
 serde = "1.0.116"
@@ -42,3 +43,7 @@ eth2 = { path = "../common/eth2" }
 snap = "1.0.1"
 beacon_chain = { path = "../beacon_node/beacon_chain" }
 store = { path = "../beacon_node/store" }
+malloc_utils = { path = "../common/malloc_utils" }
+
+[package.metadata.cargo-udeps.ignore]
+normal = ["malloc_utils"]

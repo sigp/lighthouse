@@ -628,27 +628,6 @@ impl BeaconNodeHttpClient {
         Ok(())
     }
 
-    /// `POST beacon/blobs`
-    ///
-    /// Returns `Ok(None)` on a 404 error.
-    pub async fn post_beacon_blobs<T: EthSpec>(
-        &self,
-        block: &BlobsSidecar<T>,
-    ) -> Result<(), Error> {
-        let mut path = self.eth_path(V1)?;
-
-        path.path_segments_mut()
-            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
-            .push("beacon")
-            .push("blobs");
-
-        //FIXME(sean) should we re-use the proposal timeout? seems reasonable to..
-        self.post_with_timeout(path, block, self.timeouts.proposal)
-            .await?;
-
-        Ok(())
-    }
-
     /// `POST beacon/blinded_blocks`
     ///
     /// Returns `Ok(None)` on a 404 error.
@@ -1063,6 +1042,24 @@ impl BeaconNodeHttpClient {
         Ok(())
     }
 
+    /// `POST beacon/pool/bls_to_execution_changes`
+    pub async fn post_beacon_pool_bls_to_execution_changes(
+        &self,
+        address_changes: &[SignedBlsToExecutionChange],
+    ) -> Result<(), Error> {
+        let mut path = self.eth_path(V1)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("beacon")
+            .push("pool")
+            .push("bls_to_execution_changes");
+
+        self.post(path, &address_changes).await?;
+
+        Ok(())
+    }
+
     /// `GET beacon/deposit_snapshot`
     pub async fn get_deposit_snapshot(&self) -> Result<Option<types::DepositTreeSnapshot>, Error> {
         use ssz::Decode;
@@ -1075,6 +1072,24 @@ impl BeaconNodeHttpClient {
             .await?
             .map(|bytes| DepositTreeSnapshot::from_ssz_bytes(&bytes).map_err(Error::InvalidSsz))
             .transpose()
+    }
+
+    /// `POST beacon/rewards/sync_committee`
+    pub async fn post_beacon_rewards_sync_committee(
+        &self,
+        rewards: &[Option<Vec<lighthouse::SyncCommitteeReward>>],
+    ) -> Result<(), Error> {
+        let mut path = self.eth_path(V1)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("beacon")
+            .push("rewards")
+            .push("sync_committee");
+
+        self.post(path, &rewards).await?;
+
+        Ok(())
     }
 
     /// `POST validator/contribution_and_proofs`

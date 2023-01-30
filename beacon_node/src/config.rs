@@ -348,7 +348,6 @@ pub fn get_config<E: EthSpec>(
         let execution_timeout_multiplier =
             clap_utils::parse_required(cli_args, "execution-timeout-multiplier")?;
         el_config.execution_timeout_multiplier = Some(execution_timeout_multiplier);
-        el_config.spec = spec.clone();
 
         // If `--execution-endpoint` is provided, we should ignore any `--eth1-endpoints` values and
         // use `--execution-endpoint` instead. Also, log a deprecation warning.
@@ -693,6 +692,12 @@ pub fn get_config<E: EthSpec>(
             .extend_from_slice(&pubkeys);
     }
 
+    if let Some(count) =
+        clap_utils::parse_optional(cli_args, "validator-monitor-individual-tracking-threshold")?
+    {
+        client_config.validator_monitor_individual_tracking_threshold = count;
+    }
+
     if cli_args.is_present("disable-lock-timeouts") {
         client_config.chain.enable_lock_timeouts = false;
     }
@@ -758,6 +763,10 @@ pub fn get_config<E: EthSpec>(
         client_config.http_api.enabled = true;
         client_config.validator_monitor_auto = true;
     }
+
+    // Optimistic finalized sync.
+    client_config.chain.optimistic_finalized_sync =
+        !cli_args.is_present("disable-optimistic-finalized-sync");
 
     Ok(client_config)
 }

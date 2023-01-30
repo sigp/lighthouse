@@ -472,7 +472,7 @@ impl InitializedValidators {
 
     /// Iterate through all voting public keys in `self` that should be used when querying for duties.
     pub fn iter_voting_pubkeys(&self) -> impl Iterator<Item = &PublicKeyBytes> {
-        self.validators.iter().map(|(pubkey, _)| pubkey)
+        self.validators.keys()
     }
 
     /// Returns the voting `Keypair` for a given voting `PublicKey`, if all are true:
@@ -994,17 +994,17 @@ impl InitializedValidators {
         let mut disabled_uuids = HashSet::new();
         for def in self.definitions.as_slice() {
             if def.enabled {
+                let pubkey_bytes = def.voting_public_key.compress();
+
+                if self.validators.contains_key(&pubkey_bytes) {
+                    continue;
+                }
+
                 match &def.signing_definition {
                     SigningDefinition::LocalKeystore {
                         voting_keystore_path,
                         ..
                     } => {
-                        let pubkey_bytes = def.voting_public_key.compress();
-
-                        if self.validators.contains_key(&pubkey_bytes) {
-                            continue;
-                        }
-
                         if let Some(key_store) = key_stores.get(voting_keystore_path) {
                             disabled_uuids.remove(key_store.uuid());
                         }

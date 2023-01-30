@@ -162,6 +162,7 @@ pub enum BeaconChainError {
     BlockRewardSlotError,
     BlockRewardAttestationError,
     BlockRewardSyncError,
+    SyncCommitteeRewardsSyncError,
     HeadMissingFromForkChoice(Hash256),
     FinalizedBlockMissingFromForkChoice(Hash256),
     HeadBlockMissingFromForkChoice(Hash256),
@@ -206,9 +207,13 @@ pub enum BeaconChainError {
     MissingPersistedForkChoice,
     CommitteePromiseFailed(oneshot_broadcast::Error),
     MaxCommitteePromises(usize),
-    BlsToExecutionChangeBadFork(ForkName),
+    BlsToExecutionPriorToCapella,
+    BlsToExecutionConflictsWithPool,
     InconsistentFork(InconsistentFork),
     ProposerHeadForkChoiceError(fork_choice::Error<proto_array::Error>),
+    BlobsUnavailable,
+    NoKzgCommitmentsFieldOnBlock,
+    BlobsOlderThanDataAvailabilityBoundary(Epoch),
 }
 
 easy_from_to!(SlotProcessingError, BeaconChainError);

@@ -1,4 +1,5 @@
 use crate::metrics;
+use beacon_chain::blob_verification::{AsBlock, BlockWrapper, IntoAvailableBlock};
 use beacon_chain::validator_monitor::{get_block_delay_ms, timestamp_now};
 use beacon_chain::NotifyExecutionLayer;
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockError, CountUnrealized};
@@ -10,7 +11,6 @@ use std::sync::Arc;
 use tokio::sync::mpsc::UnboundedSender;
 use tree_hash::TreeHash;
 use types::execution_payload::PayloadWrapper;
-use types::signed_block_and_blobs::BlockWrapper;
 use types::{
     AbstractExecPayload, BlindedPayload, EthSpec, ExecPayload, ExecutionBlockHash, FullPayload,
     Hash256, SignedBeaconBlock, SignedBeaconBlockAndBlobsSidecar,
@@ -71,14 +71,27 @@ pub async fn publish_block<T: BeaconChainTypes>(
         };
 
     // Determine the delay after the start of the slot, register it with metrics.
-    let block = wrapped_block.block();
+    let block = wrapped_block.as_block();
     let delay = get_block_delay_ms(seen_timestamp, block.message(), &chain.slot_clock);
     metrics::observe_duration(&metrics::HTTP_API_BLOCK_BROADCAST_DELAY_TIMES, delay);
+
+    let available_block = match wrapped_block.into_available_block(block_root, &chain) {
+        Ok(available_block) => available_block,
+        Err(e) => {
+            let msg = format!("{:?}", e);
+            error!(
+                log,
+                "Invalid block provided to HTTP API";
+                "reason" => &msg
+            );
+            return Err(warp_utils::reject::broadcast_without_import(msg));
+        }
+    };
 
     match chain
         .process_block(
             block_root,
-            wrapped_block.clone(),
+            available_block.clone(),
             CountUnrealized::True,
             NotifyExecutionLayer::Yes,
         )
@@ -90,14 +103,14 @@ pub async fn publish_block<T: BeaconChainTypes>(
                 "Valid block from HTTP API";
                 "block_delay" => ?delay,
                 "root" => format!("{}", root),
-                "proposer_index" => block.message().proposer_index(),
-                "slot" => block.slot(),
+                "proposer_index" => available_block.message().proposer_index(),
+                "slot" => available_block.slot(),
             );
 
             // Notify the validator monitor.
             chain.validator_monitor.read().register_api_block(
                 seen_timestamp,
-                block.message(),
+                available_block.message(),
                 root,
                 &chain.slot_clock,
             );
@@ -119,7 +132,7 @@ pub async fn publish_block<T: BeaconChainTypes>(
                     "Block was broadcast too late";
                     "msg" => "system may be overloaded, block likely to be orphaned",
                     "delay_ms" => delay.as_millis(),
-                    "slot" => block.slot(),
+                    "slot" => available_block.slot(),
                     "root" => ?root,
                 )
             } else if delay >= delayed_threshold {
@@ -128,7 +141,7 @@ pub async fn publish_block<T: BeaconChainTypes>(
                     "Block broadcast was delayed";
                     "msg" => "system may be overloaded, block may be orphaned",
                     "delay_ms" => delay.as_millis(),
-                    "slot" => block.slot(),
+                    "slot" => available_block.slot(),
                     "root" => ?root,
                 )
             }
@@ -139,8 +152,8 @@ pub async fn publish_block<T: BeaconChainTypes>(
             info!(
                 log,
                 "Block from HTTP API already known";
-                "block" => ?block.canonical_root(),
-                "slot" => block.slot(),
+                "block" => ?block_root,
+                "slot" => available_block.slot(),
             );
             Ok(())
         }
@@ -205,6 +218,11 @@ async fn reconstruct_block<T: BeaconChainTypes>(
                 .spec
                 .fork_name_at_epoch(block.slot().epoch(T::EthSpec::slots_per_epoch())),
         )
+        .map_err(|e| {
+            warp_utils::reject::custom_server_error(format!(
+                "Default payload construction error: {e:?}"
+            ))
+        })?
         .into();
         block.try_into_full_block_wrapper(Some(payload), None)
         // If we already have an execution payload with this transactions root cached, use it.

@@ -1,8 +1,10 @@
 use crate::per_block_processing::{
     errors::{
-        AttesterSlashingValidationError, ExitValidationError, ProposerSlashingValidationError,
+        AttesterSlashingValidationError, BlsExecutionChangeValidationError, ExitValidationError,
+        ProposerSlashingValidationError,
     },
-    verify_attester_slashing, verify_exit, verify_proposer_slashing,
+    verify_attester_slashing, verify_bls_to_execution_change, verify_exit,
+    verify_proposer_slashing,
 };
 use crate::VerifySignatures;
 use derivative::Derivative;
@@ -12,15 +14,7 @@ use ssz_derive::{Decode, Encode};
 use std::marker::PhantomData;
 use types::{
     AttesterSlashing, BeaconState, ChainSpec, Epoch, EthSpec, Fork, ForkVersion, ProposerSlashing,
-    SignedVoluntaryExit,
-};
-
-#[cfg(feature = "withdrawals-processing")]
-use {
-    crate::per_block_processing::{
-        errors::BlsExecutionChangeValidationError, verify_bls_to_execution_change,
-    },
-    types::SignedBlsToExecutionChange,
+    SignedBlsToExecutionChange, SignedVoluntaryExit,
 };
 
 const MAX_FORKS_VERIFIED_AGAINST: usize = 2;
@@ -73,7 +67,7 @@ where
     fn new(op: T, state: &BeaconState<E>) -> Self {
         let verified_against = VerifiedAgainst {
             fork_versions: op
-                .verification_epochs(state.current_epoch())
+                .verification_epochs()
                 .into_iter()
                 .map(|epoch| state.fork().get_fork_version(epoch))
                 .collect(),
@@ -95,13 +89,9 @@ where
     }
 
     pub fn signature_is_still_valid(&self, current_fork: &Fork) -> bool {
-        // Pass the fork's epoch as the effective current epoch. If the message is a current-epoch
-        // style message like `SignedBlsToExecutionChange` then `get_fork_version` will return the
-        // current fork version and we'll check it matches the fork version the message was checked
-        // against.
-        let effective_current_epoch = current_fork.epoch;
+        // The .all() will return true if the iterator is empty.
         self.as_inner()
-            .verification_epochs(effective_current_epoch)
+            .verification_epochs()
             .into_iter()
             .zip(self.verified_against.fork_versions.iter())
             .all(|(epoch, verified_fork_version)| {
@@ -132,12 +122,8 @@ pub trait VerifyOperation<E: EthSpec>: Encode + Decode + Sized {
     ///
     /// These need to map 1-to-1 to the `SigVerifiedOp::verified_against` for this type.
     ///
-    /// If the message contains no inherent epoch it should return the `current_epoch` that is
-    /// passed in, as that's the epoch at which it was verified.
-    fn verification_epochs(
-        &self,
-        current_epoch: Epoch,
-    ) -> SmallVec<[Epoch; MAX_FORKS_VERIFIED_AGAINST]>;
+    /// If the message is valid across all forks it should return an empty smallvec.
+    fn verification_epochs(&self) -> SmallVec<[Epoch; MAX_FORKS_VERIFIED_AGAINST]>;
 }
 
 impl<E: EthSpec> VerifyOperation<E> for SignedVoluntaryExit {
@@ -153,7 +139,7 @@ impl<E: EthSpec> VerifyOperation<E> for SignedVoluntaryExit {
     }
 
     #[allow(clippy::integer_arithmetic)]
-    fn verification_epochs(&self, _: Epoch) -> SmallVec<[Epoch; MAX_FORKS_VERIFIED_AGAINST]> {
+    fn verification_epochs(&self) -> SmallVec<[Epoch; MAX_FORKS_VERIFIED_AGAINST]> {
         smallvec![self.message.epoch]
     }
 }
@@ -171,7 +157,7 @@ impl<E: EthSpec> VerifyOperation<E> for AttesterSlashing<E> {
     }
 
     #[allow(clippy::integer_arithmetic)]
-    fn verification_epochs(&self, _: Epoch) -> SmallVec<[Epoch; MAX_FORKS_VERIFIED_AGAINST]> {
+    fn verification_epochs(&self) -> SmallVec<[Epoch; MAX_FORKS_VERIFIED_AGAINST]> {
         smallvec![
             self.attestation_1.data.target.epoch,
             self.attestation_2.data.target.epoch
@@ -192,7 +178,7 @@ impl<E: EthSpec> VerifyOperation<E> for ProposerSlashing {
     }
 
     #[allow(clippy::integer_arithmetic)]
-    fn verification_epochs(&self, _: Epoch) -> SmallVec<[Epoch; MAX_FORKS_VERIFIED_AGAINST]> {
+    fn verification_epochs(&self) -> SmallVec<[Epoch; MAX_FORKS_VERIFIED_AGAINST]> {
         // Only need a single epoch because the slots of the two headers must be equal.
         smallvec![self
             .signed_header_1
@@ -202,7 +188,6 @@ impl<E: EthSpec> VerifyOperation<E> for ProposerSlashing {
     }
 }
 
-#[cfg(feature = "withdrawals-processing")]
 impl<E: EthSpec> VerifyOperation<E> for SignedBlsToExecutionChange {
     type Error = BlsExecutionChangeValidationError;
 
@@ -216,10 +201,7 @@ impl<E: EthSpec> VerifyOperation<E> for SignedBlsToExecutionChange {
     }
 
     #[allow(clippy::integer_arithmetic)]
-    fn verification_epochs(
-        &self,
-        current_epoch: Epoch,
-    ) -> SmallVec<[Epoch; MAX_FORKS_VERIFIED_AGAINST]> {
-        smallvec![current_epoch]
+    fn verification_epochs(&self) -> SmallVec<[Epoch; MAX_FORKS_VERIFIED_AGAINST]> {
+        smallvec![]
     }
 }

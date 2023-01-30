@@ -5,6 +5,7 @@ use beacon_chain::builder::BeaconChainBuilder;
 use beacon_chain::test_utils::{
     test_spec, AttestationStrategy, BeaconChainHarness, BlockStrategy, DiskHarnessType,
 };
+use beacon_chain::validator_monitor::DEFAULT_INDIVIDUAL_TRACKING_THRESHOLD;
 use beacon_chain::{
     historical_blocks::HistoricalBlockError, migrate::MigratorConfig, BeaconChain,
     BeaconChainError, BeaconChainTypes, BeaconSnapshot, ChainConfig, NotifyExecutionLayer,
@@ -1012,8 +1013,8 @@ fn check_shuffling_compatible(
 // Ensure blocks from abandoned forks are pruned from the Hot DB
 #[tokio::test]
 async fn prunes_abandoned_fork_between_two_finalized_checkpoints() {
-    const HONEST_VALIDATOR_COUNT: usize = 16 + 0;
-    const ADVERSARIAL_VALIDATOR_COUNT: usize = 8 - 0;
+    const HONEST_VALIDATOR_COUNT: usize = 32 + 0;
+    const ADVERSARIAL_VALIDATOR_COUNT: usize = 16 - 0;
     const VALIDATOR_COUNT: usize = HONEST_VALIDATOR_COUNT + ADVERSARIAL_VALIDATOR_COUNT;
     let validators_keypairs = types::test_utils::generate_deterministic_keypairs(VALIDATOR_COUNT);
     let honest_validators: Vec<usize> = (0..HONEST_VALIDATOR_COUNT).collect();
@@ -1122,8 +1123,8 @@ async fn prunes_abandoned_fork_between_two_finalized_checkpoints() {
 
 #[tokio::test]
 async fn pruning_does_not_touch_abandoned_block_shared_with_canonical_chain() {
-    const HONEST_VALIDATOR_COUNT: usize = 16 + 0;
-    const ADVERSARIAL_VALIDATOR_COUNT: usize = 8 - 0;
+    const HONEST_VALIDATOR_COUNT: usize = 32 + 0;
+    const ADVERSARIAL_VALIDATOR_COUNT: usize = 16 - 0;
     const VALIDATOR_COUNT: usize = HONEST_VALIDATOR_COUNT + ADVERSARIAL_VALIDATOR_COUNT;
     let validators_keypairs = types::test_utils::generate_deterministic_keypairs(VALIDATOR_COUNT);
     let honest_validators: Vec<usize> = (0..HONEST_VALIDATOR_COUNT).collect();
@@ -1254,8 +1255,8 @@ async fn pruning_does_not_touch_abandoned_block_shared_with_canonical_chain() {
 
 #[tokio::test]
 async fn pruning_does_not_touch_blocks_prior_to_finalization() {
-    const HONEST_VALIDATOR_COUNT: usize = 16;
-    const ADVERSARIAL_VALIDATOR_COUNT: usize = 8;
+    const HONEST_VALIDATOR_COUNT: usize = 32;
+    const ADVERSARIAL_VALIDATOR_COUNT: usize = 16;
     const VALIDATOR_COUNT: usize = HONEST_VALIDATOR_COUNT + ADVERSARIAL_VALIDATOR_COUNT;
     let validators_keypairs = types::test_utils::generate_deterministic_keypairs(VALIDATOR_COUNT);
     let honest_validators: Vec<usize> = (0..HONEST_VALIDATOR_COUNT).collect();
@@ -1349,8 +1350,8 @@ async fn pruning_does_not_touch_blocks_prior_to_finalization() {
 
 #[tokio::test]
 async fn prunes_fork_growing_past_youngest_finalized_checkpoint() {
-    const HONEST_VALIDATOR_COUNT: usize = 16 + 0;
-    const ADVERSARIAL_VALIDATOR_COUNT: usize = 8 - 0;
+    const HONEST_VALIDATOR_COUNT: usize = 32 + 0;
+    const ADVERSARIAL_VALIDATOR_COUNT: usize = 16 - 0;
     const VALIDATOR_COUNT: usize = HONEST_VALIDATOR_COUNT + ADVERSARIAL_VALIDATOR_COUNT;
     let validators_keypairs = types::test_utils::generate_deterministic_keypairs(VALIDATOR_COUNT);
     let honest_validators: Vec<usize> = (0..HONEST_VALIDATOR_COUNT).collect();
@@ -1494,8 +1495,8 @@ async fn prunes_fork_growing_past_youngest_finalized_checkpoint() {
 // This is to check if state outside of normal block processing are pruned correctly.
 #[tokio::test]
 async fn prunes_skipped_slots_states() {
-    const HONEST_VALIDATOR_COUNT: usize = 16 + 0;
-    const ADVERSARIAL_VALIDATOR_COUNT: usize = 8 - 0;
+    const HONEST_VALIDATOR_COUNT: usize = 32 + 0;
+    const ADVERSARIAL_VALIDATOR_COUNT: usize = 16 - 0;
     const VALIDATOR_COUNT: usize = HONEST_VALIDATOR_COUNT + ADVERSARIAL_VALIDATOR_COUNT;
     let validators_keypairs = types::test_utils::generate_deterministic_keypairs(VALIDATOR_COUNT);
     let honest_validators: Vec<usize> = (0..HONEST_VALIDATOR_COUNT).collect();
@@ -1623,8 +1624,8 @@ async fn prunes_skipped_slots_states() {
 // This is to check if state outside of normal block processing are pruned correctly.
 #[tokio::test]
 async fn finalizes_non_epoch_start_slot() {
-    const HONEST_VALIDATOR_COUNT: usize = 16 + 0;
-    const ADVERSARIAL_VALIDATOR_COUNT: usize = 8 - 0;
+    const HONEST_VALIDATOR_COUNT: usize = 32 + 0;
+    const ADVERSARIAL_VALIDATOR_COUNT: usize = 16 - 0;
     const VALIDATOR_COUNT: usize = HONEST_VALIDATOR_COUNT + ADVERSARIAL_VALIDATOR_COUNT;
     let validators_keypairs = types::test_utils::generate_deterministic_keypairs(VALIDATOR_COUNT);
     let honest_validators: Vec<usize> = (0..HONEST_VALIDATOR_COUNT).collect();
@@ -2121,7 +2122,7 @@ async fn weak_subjectivity_sync() {
                 log.clone(),
                 1,
             )))
-            .monitor_validators(true, vec![], log)
+            .monitor_validators(true, vec![], DEFAULT_INDIVIDUAL_TRACKING_THRESHOLD, log)
             .build()
             .expect("should build"),
     );

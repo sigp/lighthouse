@@ -60,14 +60,6 @@ impl<E: EthSpec> Case for SanityBlocks<E> {
     }
 
     fn result(&self, _case_index: usize, fork_name: ForkName) -> Result<(), Error> {
-        if cfg!(feature = "withdrawals-processing") && fork_name == ForkName::Eip4844 {
-            return Ok(());
-        }
-
-        if !cfg!(feature = "withdrawals-processing") && fork_name == ForkName::Capella {
-            return Ok(());
-        }
-
         self.metadata.bls_setting.unwrap_or_default().check()?;
 
         let mut bulk_state = self.pre.clone();

@@ -330,6 +330,7 @@ pub struct LightClientBootstrapRequest {
 #[strum(serialize_all = "snake_case")]
 pub enum RPCResponseErrorCode {
     RateLimited,
+    BlobsNotFoundForBlock,
     InvalidRequest,
     ServerError,
     /// Error spec'd to indicate that a peer does not have blocks on a requested range.
@@ -359,6 +360,7 @@ impl<T: EthSpec> RPCCodedResponse<T> {
             2 => RPCResponseErrorCode::ServerError,
             3 => RPCResponseErrorCode::ResourceUnavailable,
             139 => RPCResponseErrorCode::RateLimited,
+            140 => RPCResponseErrorCode::BlobsNotFoundForBlock,
             _ => RPCResponseErrorCode::Unknown,
         };
         RPCCodedResponse::Error(code, err)
@@ -397,6 +399,7 @@ impl RPCResponseErrorCode {
             RPCResponseErrorCode::ResourceUnavailable => 3,
             RPCResponseErrorCode::Unknown => 255,
             RPCResponseErrorCode::RateLimited => 139,
+            RPCResponseErrorCode::BlobsNotFoundForBlock => 140,
         }
     }
 }
@@ -425,6 +428,7 @@ impl std::fmt::Display for RPCResponseErrorCode {
             RPCResponseErrorCode::ServerError => "Server error occurred",
             RPCResponseErrorCode::Unknown => "Unknown error occurred",
             RPCResponseErrorCode::RateLimited => "Rate limited",
+            RPCResponseErrorCode::BlobsNotFoundForBlock => "No blobs for the given root",
         };
         f.write_str(repr)
     }
@@ -507,9 +511,23 @@ impl std::fmt::Display for OldBlocksByRangeRequest {
     }
 }
 
+impl std::fmt::Display for BlobsByRootRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Request: BlobsByRoot: Number of Requested Roots: {}",
+            self.block_roots.len()
+        )
+    }
+}
+
 impl std::fmt::Display for BlobsByRangeRequest {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Start Slot: {}, Count: {}", self.start_slot, self.count)
+        write!(
+            f,
+            "Request: BlobsByRange: Start Slot: {}, Count: {}",
+            self.start_slot, self.count
+        )
     }
 }
 

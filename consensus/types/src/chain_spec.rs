@@ -29,8 +29,7 @@ pub enum Domain {
 /// Lighthouse's internal configuration struct.
 ///
 /// Contains a mixture of "preset" and "config" values w.r.t to the EF definitions.
-#[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
-#[derive(PartialEq, Debug, Clone)]
+#[derive(arbitrary::Arbitrary, PartialEq, Debug, Clone)]
 pub struct ChainSpec {
     /*
      * Config name

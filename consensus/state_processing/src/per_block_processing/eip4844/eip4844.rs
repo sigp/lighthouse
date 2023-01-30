@@ -1,4 +1,4 @@
-use crate::BlockProcessingError;
+use crate::{BlockProcessingError, ConsensusContext};
 use eth2_hashing::hash_fixed;
 use itertools::{EitherOrBoth, Itertools};
 use safe_arith::SafeArith;
@@ -11,13 +11,17 @@ use types::{
 
 pub fn process_blob_kzg_commitments<T: EthSpec, Payload: AbstractExecPayload<T>>(
     block_body: BeaconBlockBodyRef<T, Payload>,
+    ctxt: &mut ConsensusContext<T>,
 ) -> Result<(), BlockProcessingError> {
+    // Return early if this check has already been run.
+    if ctxt.kzg_commitments_consistent() {
+        return Ok(());
+    }
     if let (Ok(payload), Ok(kzg_commitments)) = (
         block_body.execution_payload(),
         block_body.blob_kzg_commitments(),
     ) {
         if let Some(transactions) = payload.transactions() {
-            //FIXME(sean) only run if this wasn't run in gossip (use consensus context)
             if !verify_kzg_commitments_against_transactions::<T>(transactions, kzg_commitments)? {
                 return Err(BlockProcessingError::BlobVersionHashMismatch);
             }
@@ -109,7 +113,7 @@ fn tx_peek_blob_versioned_hashes<T: EthSpec>(
             .get(next_version_hash_index..next_version_hash_index.safe_add(32)?)
             .ok_or(BlockProcessingError::BlobVersionHashIndexOutOfBounds {
                 length: tx_len,
-                index: (next_version_hash_index as usize).safe_add(32)?,
+                index: (next_version_hash_index).safe_add(32)?,
             })?;
         Ok(VersionedHash::from_slice(bytes))
     }))

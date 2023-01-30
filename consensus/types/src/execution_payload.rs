@@ -28,20 +28,23 @@ pub type Withdrawals<T> = VariableList<Withdrawal, <T as EthSpec>::MaxWithdrawal
             TreeHash,
             TestRandom,
             Derivative,
+            arbitrary::Arbitrary
         ),
         derivative(PartialEq, Hash(bound = "T: EthSpec")),
         serde(bound = "T: EthSpec", deny_unknown_fields),
-        cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))
+        arbitrary(bound = "T: EthSpec")
     ),
     cast_error(ty = "Error", expr = "BeaconStateError::IncorrectStateVariant"),
     partial_getter_error(ty = "Error", expr = "BeaconStateError::IncorrectStateVariant")
 )]
-#[derive(Debug, Clone, Serialize, Encode, Deserialize, TreeHash, Derivative)]
+#[derive(
+    Debug, Clone, Serialize, Encode, Deserialize, TreeHash, Derivative, arbitrary::Arbitrary,
+)]
 #[derivative(PartialEq, Hash(bound = "T: EthSpec"))]
 #[serde(bound = "T: EthSpec", untagged)]
+#[arbitrary(bound = "T: EthSpec")]
 #[ssz(enum_behaviour = "transparent")]
 #[tree_hash(enum_behaviour = "transparent")]
-#[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 pub struct ExecutionPayload<T: EthSpec> {
     #[superstruct(getter(copy))]
     pub parent_hash: ExecutionBlockHash,

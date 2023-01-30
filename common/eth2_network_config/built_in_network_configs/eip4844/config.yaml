@@ -1,20 +1,17 @@
-CONFIG_NAME: testnet
-PRESET_BASE: mainnet
-
-# Transition
-# ---------------------------------------------------------------
-TERMINAL_TOTAL_DIFFICULTY: 2
-# By default, don't use these params
-TERMINAL_BLOCK_HASH: 0x0000000000000000000000000000000000000000000000000000000000000000
-TERMINAL_BLOCK_HASH_ACTIVATION_EPOCH: 18446744073709551615
+# Extends the mainnet preset
+PRESET_BASE: 'mainnet'
+CONFIG_NAME: testnet # needs to exist because of Prysm. Otherwise it conflicts with mainnet genesis
 
 # Genesis
 # ---------------------------------------------------------------
-# The genesis fork version looks weird for legacy reasons
-MIN_GENESIS_ACTIVE_VALIDATOR_COUNT: 2
-MIN_GENESIS_TIME: 1671528489
-GENESIS_FORK_VERSION: 0x00000ffd
-GENESIS_DELAY: 0
+# `2**14` (= 16,384)
+MIN_GENESIS_ACTIVE_VALIDATOR_COUNT: 9000
+# Mar-01-2021 08:53:32 AM +UTC
+# This is an invalid valid and should be updated when you create the genesis
+MIN_GENESIS_TIME: 1674639000
+GENESIS_FORK_VERSION: 0x10484404
+GENESIS_DELAY: 120
+
 
 # Forking
 # ---------------------------------------------------------------
@@ -23,33 +20,37 @@ GENESIS_DELAY: 0
 #  - Temporarily set to max uint64 value: 2**64 - 1
 
 # Altair
-ALTAIR_FORK_EPOCH: 2
-ALTAIR_FORK_VERSION: 0x20000090
-
+ALTAIR_FORK_VERSION: 0x20484404
+ALTAIR_FORK_EPOCH: 0
 # Merge
-BELLATRIX_FORK_EPOCH: 3
-BELLATRIX_FORK_VERSION: 0x20000091
+BELLATRIX_FORK_VERSION: 0x30484404
+BELLATRIX_FORK_EPOCH: 0
+TERMINAL_TOTAL_DIFFICULTY: 0
+TERMINAL_BLOCK_HASH: 0x0000000000000000000000000000000000000000000000000000000000000000
+TERMINAL_BLOCK_HASH_ACTIVATION_EPOCH: 18446744073709551615
 
 # Capella
-CAPELLA_FORK_EPOCH: 4
-CAPELLA_FORK_VERSION: 0x20000092
-MAX_WITHDRAWALS_PER_PAYLOAD: 4
+CAPELLA_FORK_VERSION: 0x40484404
+CAPELLA_FORK_EPOCH: 1
 
-# EIP4844
+# EIP4844/Deneb
+# TODO: Rename to Deneb once specs/clients support it
+EIP4844_FORK_VERSION: 0x50484404
 EIP4844_FORK_EPOCH: 5
-EIP4844_FORK_VERSION: 0x20000093
 
 # Time parameters
 # ---------------------------------------------------------------
 # 12 seconds
 SECONDS_PER_SLOT: 12
 # 14 (estimate from Eth1 mainnet)
-SECONDS_PER_ETH1_BLOCK: 14
+SECONDS_PER_ETH1_BLOCK: 12
+# 2**0 (= 1) epochs ~1 hours
+MIN_VALIDATOR_WITHDRAWABILITY_DELAY: 1
 # 2**8 (= 256) epochs ~27 hours
-MIN_VALIDATOR_WITHDRAWABILITY_DELAY: 256
-# 2**8 (= 256) epochs ~27 hours
-SHARD_COMMITTEE_PERIOD: 256
-ETH1_FOLLOW_DISTANCE: 1
+SHARD_COMMITTEE_PERIOD: 1
+# 2**11 (= 2,048) Eth1 blocks ~8 hours
+ETH1_FOLLOW_DISTANCE: 12
+
 
 # Validator cycle
 # ---------------------------------------------------------------
@@ -58,7 +59,7 @@ INACTIVITY_SCORE_BIAS: 4
 # 2**4 (= 16)
 INACTIVITY_SCORE_RECOVERY_RATE: 16
 # 2**4 * 10**9 (= 16,000,000,000) Gwei
-EJECTION_BALANCE: 16000000000
+EJECTION_BALANCE: 31000000000
 # 2**2 (= 4)
 MIN_PER_EPOCH_CHURN_LIMIT: 4
 # 2**16 (= 65,536)
@@ -71,7 +72,6 @@ PROPOSER_SCORE_BOOST: 40
 
 # Deposit contract
 # ---------------------------------------------------------------
+DEPOSIT_CHAIN_ID: 4844001004
+DEPOSIT_NETWORK_ID: 4844001004
 DEPOSIT_CONTRACT_ADDRESS: 0x4242424242424242424242424242424242424242
-DEPOSIT_CHAIN_ID: 1331
-DEPOSIT_NETWORK_ID: 1331
-

@@ -1,4 +1,5 @@
 //! Mapping from types to canonical string identifiers used in testing.
+use types::historical_summary::HistoricalSummary;
 use types::*;
 
 pub trait TypeName {
@@ -92,3 +93,4 @@ type_name_generic!(
     "SignedBeaconBlockAndBlobsSidecar"
 );
 type_name!(SignedBlsToExecutionChange, "SignedBLSToExecutionChange");
+type_name!(HistoricalSummary);

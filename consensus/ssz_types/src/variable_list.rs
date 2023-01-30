@@ -273,7 +273,7 @@ impl<'a, T: arbitrary::Arbitrary<'a>, N: 'static + Unsigned> arbitrary::Arbitrar
         for _ in 0..size {
             vec.push(<T>::arbitrary(u)?);
         }
-        Ok(Self::new(vec).map_err(|_| arbitrary::Error::IncorrectFormat)?)
+        Self::new(vec).map_err(|_| arbitrary::Error::IncorrectFormat)
     }
 }
 

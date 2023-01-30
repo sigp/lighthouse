@@ -6,9 +6,18 @@ use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
-#[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 #[derive(
-    Debug, PartialEq, Hash, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom,
+    arbitrary::Arbitrary,
+    Debug,
+    PartialEq,
+    Hash,
+    Clone,
+    Serialize,
+    Deserialize,
+    Encode,
+    Decode,
+    TreeHash,
+    TestRandom,
 )]
 pub struct BlsToExecutionChange {
     #[serde(with = "eth2_serde_utils::quoted_u64")]
@@ -18,6 +27,26 @@ pub struct BlsToExecutionChange {
 }
 
 impl SignedRoot for BlsToExecutionChange {}
+
+impl BlsToExecutionChange {
+    pub fn sign(
+        self,
+        secret_key: &SecretKey,
+        genesis_validators_root: Hash256,
+        spec: &ChainSpec,
+    ) -> SignedBlsToExecutionChange {
+        let domain = spec.compute_domain(
+            Domain::BlsToExecutionChange,
+            spec.genesis_fork_version,
+            genesis_validators_root,
+        );
+        let message = self.signing_root(domain);
+        SignedBlsToExecutionChange {
+            message: self,
+            signature: secret_key.sign(message),
+        }
+    }
+}
 
 #[cfg(test)]
 mod tests {

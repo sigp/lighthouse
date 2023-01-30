@@ -2,6 +2,8 @@ pub use crate::persisted_beacon_chain::PersistedBeaconChain;
 pub use crate::{
     beacon_chain::{BEACON_CHAIN_DB_KEY, ETH1_CACHE_DB_KEY, FORK_CHOICE_DB_KEY, OP_POOL_DB_KEY},
     migrate::MigratorConfig,
+    sync_committee_verification::Error as SyncCommitteeError,
+    validator_monitor::DEFAULT_INDIVIDUAL_TRACKING_THRESHOLD,
     BeaconChainError, NotifyExecutionLayer, ProduceBlockVerification,
 };
 use crate::{
@@ -11,18 +13,19 @@ use crate::{
     StateSkipConfig,
 };
 use bls::get_withdrawal_credentials;
-use execution_layer::test_utils::DEFAULT_JWT_SECRET;
 use execution_layer::{
     auth::JwtKey,
     test_utils::{
-        ExecutionBlockGenerator, MockExecutionLayer, TestingBuilder, DEFAULT_TERMINAL_BLOCK,
+        ExecutionBlockGenerator, MockExecutionLayer, TestingBuilder, DEFAULT_JWT_SECRET,
+        DEFAULT_TERMINAL_BLOCK,
     },
     ExecutionLayer,
 };
 use fork_choice::CountUnrealized;
 use futures::channel::mpsc::Receiver;
-pub use genesis::{interop_genesis_state, DEFAULT_ETH1_BLOCK_HASH};
+pub use genesis::{interop_genesis_state_with_eth1, DEFAULT_ETH1_BLOCK_HASH};
 use int_to_bytes::int_to_bytes32;
+use kzg::TrustedSetup;
 use merkle_proof::MerkleTree;
 use parking_lot::Mutex;
 use parking_lot::RwLockWriteGuard;
@@ -147,6 +150,7 @@ pub struct Builder<T: BeaconChainTypes> {
     eth_spec_instance: T::EthSpec,
     spec: Option<ChainSpec>,
     validator_keypairs: Option<Vec<Keypair>>,
+    withdrawal_keypairs: Vec<Option<Keypair>>,
     chain_config: Option<ChainConfig>,
     store_config: Option<StoreConfig>,
     #[allow(clippy::type_complexity)]
@@ -178,7 +182,7 @@ impl<E: EthSpec> Builder<EphemeralHarnessType<E>> {
             .unwrap(),
         );
         let mutator = move |builder: BeaconChainBuilder<_>| {
-            let genesis_state = interop_genesis_state::<E>(
+            let genesis_state = interop_genesis_state_with_eth1::<E>(
                 &validator_keypairs,
                 HARNESS_GENESIS_TIME,
                 Hash256::from_slice(DEFAULT_ETH1_BLOCK_HASH),
@@ -239,7 +243,7 @@ impl<E: EthSpec> Builder<DiskHarnessType<E>> {
             .expect("cannot build without validator keypairs");
 
         let mutator = move |builder: BeaconChainBuilder<_>| {
-            let genesis_state = interop_genesis_state::<E>(
+            let genesis_state = interop_genesis_state_with_eth1::<E>(
                 &validator_keypairs,
                 HARNESS_GENESIS_TIME,
                 Hash256::from_slice(DEFAULT_ETH1_BLOCK_HASH),
@@ -281,6 +285,7 @@ where
             eth_spec_instance,
             spec: None,
             validator_keypairs: None,
+            withdrawal_keypairs: vec![],
             chain_config: None,
             store_config: None,
             store: None,
@@ -303,6 +308,11 @@ where
 
     pub fn keypairs(mut self, validator_keypairs: Vec<Keypair>) -> Self {
         self.validator_keypairs = Some(validator_keypairs);
+        self
+    }
+
+    pub fn withdrawal_keypairs(mut self, withdrawal_keypairs: Vec<Option<Keypair>>) -> Self {
+        self.withdrawal_keypairs = withdrawal_keypairs;
         self
     }
 
@@ -366,6 +376,7 @@ where
             .collect::<Result<_, _>>()
             .unwrap();
 
+        let spec = MainnetEthSpec::default_spec();
         let config = execution_layer::Config {
             execution_endpoints: urls,
             secret_files: vec![],
@@ -376,6 +387,7 @@ where
             config,
             self.runtime.task_executor.clone(),
             self.log.clone(),
+            &spec,
         )
         .unwrap();
 
@@ -383,15 +395,42 @@ where
         self
     }
 
+    pub fn recalculate_fork_times_with_genesis(mut self, genesis_time: u64) -> Self {
+        let mock = self
+            .mock_execution_layer
+            .as_mut()
+            .expect("must have mock execution layer to recalculate fork times");
+        let spec = self
+            .spec
+            .clone()
+            .expect("cannot recalculate fork times without spec");
+        mock.server.execution_block_generator().shanghai_time =
+            spec.capella_fork_epoch.map(|epoch| {
+                genesis_time + spec.seconds_per_slot * E::slots_per_epoch() * epoch.as_u64()
+            });
+        mock.server.execution_block_generator().eip4844_time =
+            spec.eip4844_fork_epoch.map(|epoch| {
+                genesis_time + spec.seconds_per_slot * E::slots_per_epoch() * epoch.as_u64()
+            });
+
+        self
+    }
+
     pub fn mock_execution_layer(mut self) -> Self {
         let spec = self.spec.clone().expect("cannot build without spec");
+        let shanghai_time = spec.capella_fork_epoch.map(|epoch| {
+            HARNESS_GENESIS_TIME + spec.seconds_per_slot * E::slots_per_epoch() * epoch.as_u64()
+        });
+        let eip4844_time = spec.eip4844_fork_epoch.map(|epoch| {
+            HARNESS_GENESIS_TIME + spec.seconds_per_slot * E::slots_per_epoch() * epoch.as_u64()
+        });
         let mock = MockExecutionLayer::new(
             self.runtime.task_executor.clone(),
-            spec.terminal_total_difficulty,
             DEFAULT_TERMINAL_BLOCK,
-            spec.terminal_block_hash,
-            spec.terminal_block_hash_activation_epoch,
+            shanghai_time,
+            eip4844_time,
             Some(JwtKey::from_slice(&DEFAULT_JWT_SECRET).unwrap()),
+            spec,
             None,
         );
         self.execution_layer = Some(mock.el.clone());
@@ -405,13 +444,19 @@ where
         let builder_url = SensitiveUrl::parse(format!("http://127.0.0.1:{port}").as_str()).unwrap();
 
         let spec = self.spec.clone().expect("cannot build without spec");
+        let shanghai_time = spec.capella_fork_epoch.map(|epoch| {
+            HARNESS_GENESIS_TIME + spec.seconds_per_slot * E::slots_per_epoch() * epoch.as_u64()
+        });
+        let eip4844_time = spec.eip4844_fork_epoch.map(|epoch| {
+            HARNESS_GENESIS_TIME + spec.seconds_per_slot * E::slots_per_epoch() * epoch.as_u64()
+        });
         let mock_el = MockExecutionLayer::new(
             self.runtime.task_executor.clone(),
-            spec.terminal_total_difficulty,
             DEFAULT_TERMINAL_BLOCK,
-            spec.terminal_block_hash,
-            spec.terminal_block_hash_activation_epoch,
+            shanghai_time,
+            eip4844_time,
             Some(JwtKey::from_slice(&DEFAULT_JWT_SECRET).unwrap()),
+            spec.clone(),
             Some(builder_url.clone()),
         )
         .move_to_terminal_block();
@@ -456,6 +501,10 @@ where
         let validator_keypairs = self
             .validator_keypairs
             .expect("cannot build without validator keypairs");
+        let trusted_setup: TrustedSetup =
+            serde_json::from_reader(eth2_network_config::TRUSTED_SETUP)
+                .map_err(|e| format!("Unable to read trusted setup file: {}", e))
+                .unwrap();
 
         let mut builder = BeaconChainBuilder::new(self.eth_spec_instance)
             .logger(log.clone())
@@ -472,7 +521,8 @@ where
                 log.clone(),
                 5,
             )))
-            .monitor_validators(true, vec![], log);
+            .monitor_validators(true, vec![], DEFAULT_INDIVIDUAL_TRACKING_THRESHOLD, log)
+            .trusted_setup(trusted_setup);
 
         builder = if let Some(mutator) = self.initial_mutator {
             mutator(builder)
@@ -503,6 +553,7 @@ where
             spec: chain.spec.clone(),
             chain: Arc::new(chain),
             validator_keypairs,
+            withdrawal_keypairs: self.withdrawal_keypairs,
             shutdown_receiver: Arc::new(Mutex::new(shutdown_receiver)),
             runtime: self.runtime,
             mock_execution_layer: self.mock_execution_layer,
@@ -518,6 +569,12 @@ where
 /// Used for testing.
 pub struct BeaconChainHarness<T: BeaconChainTypes> {
     pub validator_keypairs: Vec<Keypair>,
+    /// Optional BLS withdrawal keys for each validator.
+    ///
+    /// If a validator index is missing from this vec or their entry is `None` then either
+    /// no BLS withdrawal key was set for them (they had an address from genesis) or the test
+    /// initializer neglected to set this field.
+    pub withdrawal_keypairs: Vec<Option<Keypair>>,
 
     pub chain: Arc<BeaconChain<T>>,
     pub spec: ChainSpec,
@@ -1429,6 +1486,44 @@ where
         .sign(sk, &fork, genesis_validators_root, &self.chain.spec)
     }
 
+    pub fn make_bls_to_execution_change(
+        &self,
+        validator_index: u64,
+        address: Address,
+    ) -> SignedBlsToExecutionChange {
+        let keypair = self.get_withdrawal_keypair(validator_index);
+        self.make_bls_to_execution_change_with_keys(
+            validator_index,
+            address,
+            &keypair.pk,
+            &keypair.sk,
+        )
+    }
+
+    pub fn make_bls_to_execution_change_with_keys(
+        &self,
+        validator_index: u64,
+        address: Address,
+        pubkey: &PublicKey,
+        secret_key: &SecretKey,
+    ) -> SignedBlsToExecutionChange {
+        let genesis_validators_root = self.chain.genesis_validators_root;
+        BlsToExecutionChange {
+            validator_index,
+            from_bls_pubkey: pubkey.compress(),
+            to_execution_address: address,
+        }
+        .sign(secret_key, genesis_validators_root, &self.chain.spec)
+    }
+
+    pub fn get_withdrawal_keypair(&self, validator_index: u64) -> &Keypair {
+        self.withdrawal_keypairs
+            .get(validator_index as usize)
+            .expect("BLS withdrawal key missing from harness")
+            .as_ref()
+            .expect("no withdrawal key for validator")
+    }
+
     pub fn add_voluntary_exit(
         &self,
         block: &mut BeaconBlock<E>,
@@ -1459,7 +1554,7 @@ where
         let proposer_index = state.get_beacon_proposer_index(slot, &self.spec).unwrap();
 
         let signed_block = block.sign(
-            &self.validator_keypairs[proposer_index as usize].sk,
+            &self.validator_keypairs[proposer_index].sk,
             &state.fork(),
             state.genesis_validators_root(),
             &self.spec,
@@ -1978,6 +2073,30 @@ where
         assert_ne!(honest_head, faulty_head, "forks should be distinct");
 
         (honest_head, faulty_head)
+    }
+
+    pub fn process_sync_contributions(
+        &self,
+        sync_contributions: HarnessSyncContributions<E>,
+    ) -> Result<(), SyncCommitteeError> {
+        let mut verified_contributions = Vec::with_capacity(sync_contributions.len());
+
+        for (_, contribution_and_proof) in sync_contributions {
+            let signed_contribution_and_proof = contribution_and_proof.unwrap();
+
+            let verified_contribution = self
+                .chain
+                .verify_sync_contribution_for_gossip(signed_contribution_and_proof)?;
+
+            verified_contributions.push(verified_contribution);
+        }
+
+        for verified_contribution in verified_contributions {
+            self.chain
+                .add_contribution_to_block_inclusion_pool(verified_contribution)?;
+        }
+
+        Ok(())
     }
 }
 

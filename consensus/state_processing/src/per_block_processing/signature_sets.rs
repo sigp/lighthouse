@@ -161,10 +161,9 @@ pub fn bls_execution_change_signature_set<'a, T: EthSpec>(
     signed_address_change: &'a SignedBlsToExecutionChange,
     spec: &'a ChainSpec,
 ) -> Result<SignatureSet<'a>> {
-    let domain = spec.get_domain(
-        state.current_epoch(),
+    let domain = spec.compute_domain(
         Domain::BlsToExecutionChange,
-        &state.fork(),
+        spec.genesis_fork_version,
         state.genesis_validators_root(),
     );
     let message = signed_address_change.message.signing_root(domain);

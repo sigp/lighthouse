@@ -3,6 +3,7 @@ use crate::beacon_processor::{ChainSegmentProcessId, WorkEvent as BeaconWorkEven
 use crate::sync::{
     manager::Id, network_context::SyncNetworkContext, BatchOperationOutcome, BatchProcessResult,
 };
+use beacon_chain::blob_verification::BlockWrapper;
 use beacon_chain::{BeaconChainTypes, CountUnrealized};
 use fnv::FnvHashMap;
 use lighthouse_network::{PeerAction, PeerId};
@@ -10,7 +11,6 @@ use rand::seq::SliceRandom;
 use slog::{crit, debug, o, warn};
 use std::collections::{btree_map::Entry, BTreeMap, HashSet};
 use std::hash::{Hash, Hasher};
-use types::signed_block_and_blobs::BlockWrapper;
 use types::{Epoch, EthSpec, Hash256, Slot};
 
 /// Blocks are downloaded in batches from peers. This constant specifies how many epochs worth of

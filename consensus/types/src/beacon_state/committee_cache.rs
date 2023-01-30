@@ -144,7 +144,7 @@ impl CommitteeCache {
             self.committees_per_slot as usize,
             index as usize,
         );
-        let committee = self.compute_committee(committee_index as usize)?;
+        let committee = self.compute_committee(committee_index)?;
 
         Some(BeaconCommittee {
             slot,
@@ -336,7 +336,6 @@ pub fn get_active_validator_indices(validators: &[Validator], epoch: Epoch) -> V
     active
 }
 
-#[cfg(feature = "arbitrary-fuzz")]
 impl arbitrary::Arbitrary<'_> for CommitteeCache {
     fn arbitrary(_u: &mut arbitrary::Unstructured<'_>) -> arbitrary::Result<Self> {
         Ok(Self::default())

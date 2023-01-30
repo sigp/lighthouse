@@ -119,8 +119,8 @@ lazy_static! {
 pub(crate) const MAX_RPC_SIZE: usize = 1_048_576; // 1M
 /// The maximum bytes that can be sent across the RPC post-merge.
 pub(crate) const MAX_RPC_SIZE_POST_MERGE: usize = 10 * 1_048_576; // 10M
-                                                                  //FIXME(sean) should these be the same?
 pub(crate) const MAX_RPC_SIZE_POST_CAPELLA: usize = 10 * 1_048_576; // 10M
+                                                                    // FIXME(sean) should this be increased to account for blobs?
 pub(crate) const MAX_RPC_SIZE_POST_EIP4844: usize = 10 * 1_048_576; // 10M
 /// The protocol prefix the RPC protocol id.
 const PROTOCOL_PREFIX: &str = "/eth2/beacon_chain/req";
@@ -206,6 +206,22 @@ pub enum Encoding {
     SSZSnappy,
 }
 
+impl Protocol {
+    pub(crate) fn terminator(self) -> Option<ResponseTermination> {
+        match self {
+            Protocol::Status => None,
+            Protocol::Goodbye => None,
+            Protocol::BlocksByRange => Some(ResponseTermination::BlocksByRange),
+            Protocol::BlocksByRoot => Some(ResponseTermination::BlocksByRoot),
+            Protocol::BlobsByRange => Some(ResponseTermination::BlobsByRange),
+            Protocol::BlobsByRoot => Some(ResponseTermination::BlobsByRoot),
+            Protocol::Ping => None,
+            Protocol::MetaData => None,
+            Protocol::LightClientBootstrap => None,
+        }
+    }
+}
+
 impl std::fmt::Display for Protocol {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let repr = match self {
@@ -267,9 +283,15 @@ impl<TSpec: EthSpec> UpgradeInfo for RPCProtocol<TSpec> {
             ProtocolId::new(Protocol::Ping, Version::V1, Encoding::SSZSnappy),
             ProtocolId::new(Protocol::MetaData, Version::V2, Encoding::SSZSnappy),
             ProtocolId::new(Protocol::MetaData, Version::V1, Encoding::SSZSnappy),
-            ProtocolId::new(Protocol::BlobsByRoot, Version::V1, Encoding::SSZSnappy),
-            ProtocolId::new(Protocol::BlobsByRange, Version::V1, Encoding::SSZSnappy),
         ];
+
+        if let ForkName::Eip4844 = self.fork_context.current_fork() {
+            supported_protocols.extend_from_slice(&[
+                ProtocolId::new(Protocol::BlobsByRoot, Version::V1, Encoding::SSZSnappy),
+                ProtocolId::new(Protocol::BlobsByRange, Version::V1, Encoding::SSZSnappy),
+            ]);
+        }
+
         if self.enable_light_client_server {
             supported_protocols.push(ProtocolId::new(
                 Protocol::LightClientBootstrap,

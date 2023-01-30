@@ -19,7 +19,6 @@ pub use process_operations::process_operations;
 pub use verify_attestation::{
     verify_attestation_for_block_inclusion, verify_attestation_for_state,
 };
-#[cfg(feature = "withdrawals-processing")]
 pub use verify_bls_to_execution_change::verify_bls_to_execution_change;
 pub use verify_deposit::{
     get_existing_validator_index, verify_deposit_merkle_proof, verify_deposit_signature,
@@ -36,11 +35,12 @@ pub mod signature_sets;
 pub mod tests;
 mod verify_attestation;
 mod verify_attester_slashing;
-#[cfg(feature = "withdrawals-processing")]
 mod verify_bls_to_execution_change;
 mod verify_deposit;
 mod verify_exit;
 mod verify_proposer_slashing;
+
+use crate::common::decrease_balance;
 
 #[cfg(feature = "arbitrary-fuzz")]
 use arbitrary::Arbitrary;
@@ -162,7 +162,6 @@ pub fn per_block_processing<T: EthSpec, Payload: AbstractExecPayload<T>>(
     // previous block.
     if is_execution_enabled(state, block.body()) {
         let payload = block.body().execution_payload()?;
-        #[cfg(feature = "withdrawals-processing")]
         process_withdrawals::<T, Payload>(state, payload, spec)?;
         process_execution_payload::<T, Payload>(state, payload, spec)?;
     }
@@ -181,10 +180,7 @@ pub fn per_block_processing<T: EthSpec, Payload: AbstractExecPayload<T>>(
         )?;
     }
 
-    process_blob_kzg_commitments(block.body())?;
-
-    //FIXME(sean) add `validate_blobs_sidecar` (is_data_available) and only run it if the consensus
-    // context tells us it wasnt already run
+    process_blob_kzg_commitments(block.body(), ctxt)?;
 
     Ok(())
 }
@@ -478,10 +474,6 @@ pub fn get_expected_withdrawals<T: EthSpec>(
     let mut validator_index = state.next_withdrawal_validator_index()?;
     let mut withdrawals = vec![];
 
-    if cfg!(not(feature = "withdrawals-processing")) {
-        return Ok(withdrawals.into());
-    }
-
     let bound = std::cmp::min(
         state.validators().len() as u64,
         spec.max_validators_per_withdrawals_sweep,
@@ -524,7 +516,6 @@ pub fn get_expected_withdrawals<T: EthSpec>(
 }
 
 /// Apply withdrawals to the state.
-#[cfg(feature = "withdrawals-processing")]
 pub fn process_withdrawals<'payload, T: EthSpec, Payload: AbstractExecPayload<T>>(
     state: &mut BeaconState<T>,
     payload: Payload::Ref<'payload>,

@@ -9,11 +9,21 @@ use ssz_types::VariableList;
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
-#[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 #[derive(
-    Debug, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, Default, TestRandom, Derivative,
+    Debug,
+    Clone,
+    Serialize,
+    Deserialize,
+    Encode,
+    Decode,
+    TreeHash,
+    Default,
+    TestRandom,
+    Derivative,
+    arbitrary::Arbitrary,
 )]
 #[serde(bound = "T: EthSpec")]
+#[arbitrary(bound = "T: EthSpec")]
 #[derivative(PartialEq, Hash(bound = "T: EthSpec"))]
 pub struct BlobsSidecar<T: EthSpec> {
     pub beacon_block_root: Hash256,

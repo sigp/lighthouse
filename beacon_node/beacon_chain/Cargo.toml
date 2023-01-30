@@ -10,12 +10,6 @@ default = ["participation_metrics"]
 write_ssz_files = []  # Writes debugging .ssz files to /tmp during block processing.
 participation_metrics = []  # Exposes validator participation metrics to Prometheus.
 fork_from_env = [] # Initialise the harness chain spec from the FORK_NAME env variable
-withdrawals-processing = [
-    "state_processing/withdrawals-processing",
-    "store/withdrawals-processing",
-    "execution_layer/withdrawals-processing",
-    "operation_pool/withdrawals-processing"
-]
 spec-minimal = ["kzg/minimal-spec"]
 
 [dev-dependencies]
@@ -24,6 +18,8 @@ environment = { path = "../../lighthouse/environment" }
 serde_json = "1.0.58"
 
 [dependencies]
+serde_json = "1.0.58"
+eth2_network_config = { path = "../../common/eth2_network_config"}
 merkle_proof = { path = "../../consensus/merkle_proof" }
 store = { path = "../store" }
 parking_lot = "0.12.0"

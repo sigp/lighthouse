@@ -4,9 +4,6 @@ version = "0.2.0"
 authors = ["Michael Sproul <michael@sigmaprime.io>"]
 edition = "2021"
 
-[features]
-withdrawals-processing = []
-
 [dependencies]
 derivative = "2.1.1"
 itertools = "0.10.0"
