@@ -36,7 +36,7 @@ impl fmt::Display for CapellaReadiness {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             CapellaReadiness::Ready => {
-                write!(f, "This node appears ready for the capella.")
+                write!(f, "This node appears ready for Capella.")
             }
             CapellaReadiness::ExchangeCapabilitiesFailed { error } => write!(
                 f,
