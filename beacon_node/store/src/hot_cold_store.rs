@@ -221,32 +221,33 @@ impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
         }
 
         let blob_info = db.load_blob_info()?;
-        let (open_blobs_db, path) = match (&blob_info, blobs_db_path) {
-            (Some(blob_info), Some(path)) => {
+        let open_blobs_db = match (&blob_info, &blobs_db_path) {
+            (Some(blob_info), Some(_)) => {
                 if blob_info.blobs_db {
-                    (true, path)
+                    true
                 } else {
                     return Err(HotColdDBError::BlobsPreviouslyInDefaultStore.into());
                 }
             }
-            (None, Some(path)) => (true, path),
+            (None, Some(_)) => true,
             (Some(_), None) => return Err(HotColdDBError::MissingPathToBlobsDatabase.into()),
-            (None, None) => (false, cold_path.to_path_buf()),
+            (None, None) => false,
         };
 
-        let new_blob_info = if open_blobs_db {
-            db.blobs_db = Some(LevelDB::open(path.as_path())?);
-            Some(BlobInfo { blobs_db: true })
-        } else {
-            Some(BlobInfo { blobs_db: false })
-        };
-
-        db.compare_and_set_blob_info_with_write(blob_info, new_blob_info)?;
-        info!(
-            db.log,
-            "Blobs DB initialized";
-            "path" => ?path
-        );
+        if let Some(path) = blobs_db_path {
+            let new_blob_info = if open_blobs_db {
+                db.blobs_db = Some(LevelDB::open(path.as_path())?);
+                Some(BlobInfo { blobs_db: true })
+            } else {
+                Some(BlobInfo { blobs_db: false })
+            };
+            db.compare_and_set_blob_info_with_write(blob_info, new_blob_info)?;
+            info!(
+                db.log,
+                "Blobs DB initialized";
+                "path" => ?path
+            );
+        }
 
         // Ensure that the schema version of the on-disk database matches the software.
         // If the version is mismatched, an automatic migration will be attempted.
