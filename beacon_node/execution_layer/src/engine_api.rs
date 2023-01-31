@@ -14,8 +14,8 @@ use std::convert::TryFrom;
 use strum::IntoStaticStr;
 use superstruct::superstruct;
 pub use types::{
-    Address, EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadHeader, FixedVector,
-    ForkName, Hash256, Uint256, VariableList, Withdrawal,
+    Address, EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadHeader,
+    ExecutionPayloadRef, FixedVector, ForkName, Hash256, Uint256, VariableList, Withdrawal,
 };
 use types::{ExecutionPayloadCapella, ExecutionPayloadEip4844, ExecutionPayloadMerge};
 
@@ -337,16 +337,16 @@ pub struct GetPayloadResponse<T: EthSpec> {
 }
 
 impl<T: EthSpec> GetPayloadResponse<T> {
-    pub fn execution_payload(self) -> ExecutionPayload<T> {
+    pub fn execution_payload(&self) -> ExecutionPayloadRef<T> {
         match self {
             GetPayloadResponse::Merge(response) => {
-                ExecutionPayload::Merge(response.execution_payload)
+                ExecutionPayloadRef::<T>::Merge(&response.execution_payload)
             }
             GetPayloadResponse::Capella(response) => {
-                ExecutionPayload::Capella(response.execution_payload)
+                ExecutionPayloadRef::<T>::Capella(&response.execution_payload)
             }
             GetPayloadResponse::Eip4844(response) => {
-                ExecutionPayload::Eip4844(response.execution_payload)
+                ExecutionPayloadRef::<T>::Eip4844(&response.execution_payload)
             }
         }
     }
