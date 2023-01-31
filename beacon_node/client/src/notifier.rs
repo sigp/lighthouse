@@ -352,12 +352,15 @@ async fn merge_readiness_logging<T: BeaconChainTypes>(
     }
 
     if merge_completed && !has_execution_layer {
-        error!(
-            log,
-            "Execution endpoint required";
-            "info" => "you need an execution engine to validate blocks, see: \
-                       https://lighthouse-book.sigmaprime.io/merge-migration.html"
-        );
+        if !beacon_chain.is_time_to_prepare_for_capella(current_slot) {
+            // logging of the EE being offline is handled in `capella_readiness_logging()`
+            error!(
+                log,
+                "Execution endpoint required";
+                "info" => "you need an execution engine to validate blocks, see: \
+                           https://lighthouse-book.sigmaprime.io/merge-migration.html"
+            );
+        }
         return;
     }
 
@@ -449,7 +452,7 @@ async fn capella_readiness_logging<T: BeaconChainTypes>(
         error!(
             log,
             "Execution endpoint required";
-            "info" => "you need a capella enabled execution engine to validate blocks, see: \
+            "info" => "you need a Capella enabled execution engine to validate blocks, see: \
                        https://lighthouse-book.sigmaprime.io/merge-migration.html"
         );
         return;
@@ -462,24 +465,14 @@ async fn capella_readiness_logging<T: BeaconChainTypes>(
         readiness @ CapellaReadiness::ExchangeCapabilitiesFailed { error: _ } => {
             error!(
                 log,
-                "Not ready for capella";
+                "Not ready for Capella";
                 "info" => %readiness,
                 "hint" => "try updating Lighthouse and/or the execution layer",
             )
         }
-        readiness @ CapellaReadiness::NotSynced => warn!(
+        readiness => warn!(
             log,
-            "Not ready for capella";
-            "info" => %readiness,
-        ),
-        readiness @ CapellaReadiness::NoExecutionEndpoint => warn!(
-            log,
-            "Not ready for capella";
-            "info" => %readiness,
-        ),
-        readiness @ CapellaReadiness::V2MethodsNotSupported { error: _ } => warn!(
-            log,
-            "Not ready for capella";
+            "Not ready for Capella";
             "info" => %readiness,
         ),
     }

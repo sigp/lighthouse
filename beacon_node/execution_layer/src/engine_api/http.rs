@@ -932,7 +932,7 @@ impl HttpJsonRpc {
     pub async fn exchange_capabilities(&self) -> Result<EngineCapabilities, Error> {
         let params = json!([LIGHTHOUSE_CAPABILITIES]);
 
-        let response: Result<Vec<String>, _> = self
+        let response: Result<HashSet<String>, _> = self
             .rpc_request(
                 ENGINE_EXCHANGE_CAPABILITIES,
                 params,
@@ -948,19 +948,16 @@ impl HttpJsonRpc {
                 }
                 _ => Err(error),
             },
-            Ok(response) => {
-                let capabilities = HashSet::<String>::from_iter(response.into_iter());
-                Ok(EngineCapabilities {
-                    new_payload_v1: capabilities.contains(ENGINE_NEW_PAYLOAD_V1),
-                    new_payload_v2: capabilities.contains(ENGINE_NEW_PAYLOAD_V2),
-                    forkchoice_updated_v1: capabilities.contains(ENGINE_FORKCHOICE_UPDATED_V1),
-                    forkchoice_updated_v2: capabilities.contains(ENGINE_FORKCHOICE_UPDATED_V2),
-                    get_payload_v1: capabilities.contains(ENGINE_GET_PAYLOAD_V1),
-                    get_payload_v2: capabilities.contains(ENGINE_GET_PAYLOAD_V2),
-                    exchange_transition_configuration_v1: capabilities
-                        .contains(ENGINE_EXCHANGE_TRANSITION_CONFIGURATION_V1),
-                })
-            }
+            Ok(capabilities) => Ok(EngineCapabilities {
+                new_payload_v1: capabilities.contains(ENGINE_NEW_PAYLOAD_V1),
+                new_payload_v2: capabilities.contains(ENGINE_NEW_PAYLOAD_V2),
+                forkchoice_updated_v1: capabilities.contains(ENGINE_FORKCHOICE_UPDATED_V1),
+                forkchoice_updated_v2: capabilities.contains(ENGINE_FORKCHOICE_UPDATED_V2),
+                get_payload_v1: capabilities.contains(ENGINE_GET_PAYLOAD_V1),
+                get_payload_v2: capabilities.contains(ENGINE_GET_PAYLOAD_V2),
+                exchange_transition_configuration_v1: capabilities
+                    .contains(ENGINE_EXCHANGE_TRANSITION_CONFIGURATION_V1),
+            }),
         }
     }
 

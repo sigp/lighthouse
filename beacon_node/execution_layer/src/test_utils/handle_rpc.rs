@@ -8,6 +8,8 @@ use types::{EthSpec, ForkName};
 
 pub const GENERIC_ERROR_CODE: i64 = -1234;
 pub const BAD_PARAMS_ERROR_CODE: i64 = -32602;
+pub const UNKNOWN_PAYLOAD_ERROR_CODE: i64 = -38001;
+pub const FORK_REQUEST_MISMATCH_ERROR_CODE: i64 = -32000;
 
 pub async fn handle_rpc<T: EthSpec>(
     body: JsonValue,
@@ -112,7 +114,7 @@ pub async fn handle_rpc<T: EthSpec>(
                     if matches!(request, JsonExecutionPayload::V2(_)) {
                         return Err((
                             format!(
-                                "{} called with `ExecutionPayloadV2` before capella fork!",
+                                "{} called with `ExecutionPayloadV2` before Capella fork!",
                                 method
                             ),
                             GENERIC_ERROR_CODE,
@@ -122,14 +124,14 @@ pub async fn handle_rpc<T: EthSpec>(
                 ForkName::Capella => {
                     if method == ENGINE_NEW_PAYLOAD_V1 {
                         return Err((
-                            format!("{} called after capella fork!", method),
+                            format!("{} called after Capella fork!", method),
                             GENERIC_ERROR_CODE,
                         ));
                     }
                     if matches!(request, JsonExecutionPayload::V1(_)) {
                         return Err((
                             format!(
-                                "{} called with `ExecutionPayloadV1` after capella fork!",
+                                "{} called with `ExecutionPayloadV1` after Capella fork!",
                                 method
                             ),
                             GENERIC_ERROR_CODE,
@@ -179,7 +181,12 @@ pub async fn handle_rpc<T: EthSpec>(
                 .execution_block_generator
                 .write()
                 .get_payload(&id)
-                .ok_or_else(|| (format!("no payload for id {:?}", id), -38001))?;
+                .ok_or_else(|| {
+                    (
+                        format!("no payload for id {:?}", id),
+                        UNKNOWN_PAYLOAD_ERROR_CODE,
+                    )
+                })?;
 
             // validate method called correctly according to shanghai fork time
             if ctx
@@ -189,7 +196,10 @@ pub async fn handle_rpc<T: EthSpec>(
                 == ForkName::Capella
                 && method == ENGINE_GET_PAYLOAD_V1
             {
-                return Err((format!("{} called after capella fork!", method), -32000));
+                return Err((
+                    format!("{} called after Capella fork!", method),
+                    FORK_REQUEST_MISMATCH_ERROR_CODE,
+                ));
             }
             // TODO(4844) add 4844 error checking here
 
@@ -269,7 +279,7 @@ pub async fn handle_rpc<T: EthSpec>(
                         if matches!(pa, JsonPayloadAttributes::V2(_)) {
                             return Err((
                                 format!(
-                                    "{} called with `JsonPayloadAttributesV2` before capella fork!",
+                                    "{} called with `JsonPayloadAttributesV2` before Capella fork!",
                                     method
                                 ),
                                 GENERIC_ERROR_CODE,
@@ -278,15 +288,18 @@ pub async fn handle_rpc<T: EthSpec>(
                     }
                     ForkName::Capella => {
                         if method == ENGINE_FORKCHOICE_UPDATED_V1 {
-                            return Err((format!("{} called after capella fork!", method), -32000));
+                            return Err((
+                                format!("{} called after Capella fork!", method),
+                                FORK_REQUEST_MISMATCH_ERROR_CODE,
+                            ));
                         }
                         if matches!(pa, JsonPayloadAttributes::V1(_)) {
                             return Err((
                                 format!(
-                                    "{} called with `JsonPayloadAttributesV1` after capella fork!",
+                                    "{} called with `JsonPayloadAttributesV1` after Capella fork!",
                                     method
                                 ),
-                                -32000,
+                                FORK_REQUEST_MISMATCH_ERROR_CODE,
                             ));
                         }
                     }
