@@ -57,7 +57,7 @@ impl fmt::Display for CapellaReadiness {
             CapellaReadiness::V2MethodsNotSupported { error } => write!(
                 f,
                 "The execution endpoint does not appear to support \
-                    the required engine api methods for Capella: {:?}",
+                    the required engine api methods for Capella: {}",
                 error
             ),
         }
