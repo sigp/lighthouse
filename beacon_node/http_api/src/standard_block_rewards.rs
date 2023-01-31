@@ -3,7 +3,7 @@ use crate::ExecutionOptimistic;
 use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes};
 use eth2::lighthouse::StandardBlockReward;
 use std::sync::Arc;
-use warp_utils::reject::{beacon_chain_error, beacon_state_error, custom_not_found};
+use warp_utils::reject::{beacon_chain_error, custom_not_found};
 //// The difference between block_rewards and beacon_block_rewards is the later returns block
 //// reward format that satisfies beacon-api specs
 pub fn compute_beacon_block_rewards<T: BeaconChainTypes>(
@@ -17,8 +17,6 @@ pub fn compute_beacon_block_rewards<T: BeaconChainTypes>(
     let block_root = block.canonical_root();
 
     let slot = block.slot();
-
-    let spec = &chain.spec;
 
     let mut state = chain
         .get_state(&block.state_root(), Some(slot))

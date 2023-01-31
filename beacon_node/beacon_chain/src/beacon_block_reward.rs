@@ -1,22 +1,18 @@
 use crate::{BeaconChain, BeaconChainError, BeaconChainTypes};
 use eth2::lighthouse::StandardBlockReward;
-use operation_pool::{earliest_attestation_validators, RewardCache, SplitAttestation};
+use operation_pool::RewardCache;
 use safe_arith::SafeArith;
 use slog::error;
 use state_processing::{
     common::{
-        altair, base, get_attestation_participation_flag_indices, get_attesting_indices,
-        get_attesting_indices_from_state,
+        altair, get_attestation_participation_flag_indices, get_attesting_indices_from_state,
     },
     per_block_processing::{
         altair::sync_committee::compute_sync_aggregate_rewards, get_slashable_indices,
     },
 };
 use store::consts::altair::{PARTICIPATION_FLAG_WEIGHTS, PROPOSER_WEIGHT, WEIGHT_DENOMINATOR};
-use types::{
-    beacon_state::BeaconStateBase, BeaconBlockRef, BeaconState, BeaconStateError, ExecPayload,
-    Hash256,
-};
+use types::{BeaconBlockRef, BeaconState, BeaconStateError, ExecPayload, Hash256};
 
 type BeaconBlockSubRewardValue = u64;
 
