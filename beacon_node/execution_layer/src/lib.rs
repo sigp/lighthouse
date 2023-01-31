@@ -1145,14 +1145,14 @@ impl<T: EthSpec> ExecutionLayer<T> {
                             "suggested_fee_recipient" => ?payload_attributes.suggested_fee_recipient(),
                         );
                     }
-                    if f(self, &payload_response.execution_payload().clone()).is_some() {
+                    if f(self, &payload_response.execution_payload().clone_from_ref()).is_some() {
                         warn!(
                             self.log(),
                             "Duplicate payload cached, this might indicate redundant proposal \
                                  attempts."
                         );
                     }
-                    (payload_response.execution_payload().clone().into(), *payload_response.block_value())
+                    (payload_response.execution_payload().clone_from_ref().into(), *payload_response.block_value())
                 })?;
                 if let Some(blob) = blob.transpose()? {
                     // FIXME(sean) cache blobs
