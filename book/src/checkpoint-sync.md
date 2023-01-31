@@ -97,7 +97,7 @@ You can opt-in to reconstructing all of the historic states by providing the
 The database keeps track of three markers to determine the availability of historic blocks and
 states:
 
-* `oldest_block_slot`: All blocks with slots less than or equal to this value are available in the
+* `oldest_block_slot`: All blocks with slots greater than or equal to this value are available in the
   database. Additionally, the genesis block is always available.
 * `state_lower_limit`: All states with slots _less than or equal to_ this value are available in
   the database. The minimum value is 0, indicating that the genesis state is always available.

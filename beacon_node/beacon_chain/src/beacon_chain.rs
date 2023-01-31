@@ -980,7 +980,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .ok_or(Error::ExecutionLayerMissing)?
             .get_payload_by_block_hash(exec_block_hash, fork)
             .await
-            .map_err(|e| Error::ExecutionLayerErrorPayloadReconstruction(exec_block_hash, e))?
+            .map_err(|e| {
+                Error::ExecutionLayerErrorPayloadReconstruction(exec_block_hash, Box::new(e))
+            })?
             .ok_or(Error::BlockHashMissingFromExecutionLayer(exec_block_hash))?;
 
         //FIXME(sean) avoid the clone by comparing refs to headers (`as_execution_payload_header` method ?)
@@ -1000,8 +1002,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Err(Error::InconsistentPayloadReconstructed {
                 slot: blinded_block.slot(),
                 exec_block_hash,
-                canonical_payload_root: execution_payload_header.tree_hash_root(),
-                reconstructed_payload_root: header_from_payload.tree_hash_root(),
                 canonical_transactions_root: execution_payload_header.transactions_root(),
                 reconstructed_transactions_root: header_from_payload.transactions_root(),
             });
