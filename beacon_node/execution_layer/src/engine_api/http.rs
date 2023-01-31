@@ -936,7 +936,7 @@ impl HttpJsonRpc {
             .rpc_request(
                 ENGINE_EXCHANGE_CAPABILITIES,
                 params,
-                ENGINE_EXCHANGE_CAPABILITIES_TIMEOUT,
+                ENGINE_EXCHANGE_CAPABILITIES_TIMEOUT * self.execution_timeout_multiplier,
             )
             .await;
 
