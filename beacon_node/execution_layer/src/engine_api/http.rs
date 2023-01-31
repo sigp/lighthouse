@@ -7,10 +7,11 @@ use reqwest::header::CONTENT_TYPE;
 use sensitive_url::SensitiveUrl;
 use serde::de::DeserializeOwned;
 use serde_json::json;
-use tokio::sync::RwLock;
+use std::collections::HashSet;
+use tokio::sync::Mutex;
 
-use std::time::Duration;
-use types::{ChainSpec, EthSpec};
+use std::time::{Duration, SystemTime};
+use types::EthSpec;
 
 pub use deposit_log::{DepositLog, Log};
 pub use reqwest::Client;
@@ -48,8 +49,37 @@ pub const ENGINE_EXCHANGE_TRANSITION_CONFIGURATION_V1: &str =
     "engine_exchangeTransitionConfigurationV1";
 pub const ENGINE_EXCHANGE_TRANSITION_CONFIGURATION_V1_TIMEOUT: Duration = Duration::from_secs(1);
 
+pub const ENGINE_EXCHANGE_CAPABILITIES: &str = "engine_exchangeCapabilities";
+pub const ENGINE_EXCHANGE_CAPABILITIES_TIMEOUT: Duration = Duration::from_secs(1);
+
 /// This error is returned during a `chainId` call by Geth.
 pub const EIP155_ERROR_STR: &str = "chain not synced beyond EIP-155 replay-protection fork block";
+/// This code is returned by all clients when a method is not supported
+/// (verified geth, nethermind, erigon, besu)
+pub const METHOD_NOT_FOUND_CODE: i64 = -32601;
+
+pub static LIGHTHOUSE_CAPABILITIES: &[&str] = &[
+    ENGINE_NEW_PAYLOAD_V1,
+    ENGINE_NEW_PAYLOAD_V2,
+    ENGINE_GET_PAYLOAD_V1,
+    ENGINE_GET_PAYLOAD_V2,
+    ENGINE_FORKCHOICE_UPDATED_V1,
+    ENGINE_FORKCHOICE_UPDATED_V2,
+    ENGINE_EXCHANGE_TRANSITION_CONFIGURATION_V1,
+];
+
+/// This is necessary because a user might run a capella-enabled version of
+/// lighthouse before they update to a capella-enabled execution engine.
+// TODO (mark): rip this out once we are post-capella on mainnet
+pub static PRE_CAPELLA_ENGINE_CAPABILITIES: EngineCapabilities = EngineCapabilities {
+    new_payload_v1: true,
+    new_payload_v2: false,
+    forkchoice_updated_v1: true,
+    forkchoice_updated_v2: false,
+    get_payload_v1: true,
+    get_payload_v2: false,
+    exchange_transition_configuration_v1: true,
+};
 
 /// Contains methods to convert arbitrary bytes to an ETH2 deposit contract object.
 pub mod deposit_log {
@@ -526,11 +556,47 @@ pub mod deposit_methods {
     }
 }
 
+#[derive(Clone, Debug)]
+pub struct CapabilitiesCacheEntry {
+    engine_capabilities: EngineCapabilities,
+    fetch_time: SystemTime,
+}
+
+impl CapabilitiesCacheEntry {
+    pub fn new(engine_capabilities: EngineCapabilities) -> Self {
+        Self {
+            engine_capabilities,
+            fetch_time: SystemTime::now(),
+        }
+    }
+
+    pub fn engine_capabilities(&self) -> &EngineCapabilities {
+        &self.engine_capabilities
+    }
+
+    pub fn age(&self) -> Duration {
+        // duration_since() may fail because measurements taken earlier
+        // are not guaranteed to always be before later measurements
+        // due to anomalies such as the system clock being adjusted
+        // either forwards or backwards
+        //
+        // In such cases, we'll just say the age is zero
+        SystemTime::now()
+            .duration_since(self.fetch_time)
+            .unwrap_or(Duration::ZERO)
+    }
+
+    /// returns `true` if the entry's age is >= age_limit
+    pub fn older_than(&self, age_limit: Option<Duration>) -> bool {
+        age_limit.map_or(false, |limit| self.age() >= limit)
+    }
+}
+
 pub struct HttpJsonRpc {
     pub client: Client,
     pub url: SensitiveUrl,
     pub execution_timeout_multiplier: u32,
-    pub cached_supported_apis: RwLock<Option<SupportedApis>>,
+    pub engine_capabilities_cache: Mutex<Option<CapabilitiesCacheEntry>>,
     auth: Option<Auth>,
 }
 
@@ -538,27 +604,12 @@ impl HttpJsonRpc {
     pub fn new(
         url: SensitiveUrl,
         execution_timeout_multiplier: Option<u32>,
-        spec: &ChainSpec,
     ) -> Result<Self, Error> {
-        // FIXME: remove this `cached_supported_apis` spec hack once the `engine_getCapabilities`
-        //        method is implemented in all execution clients:
-        //        https://github.com/ethereum/execution-apis/issues/321
-        let cached_supported_apis = RwLock::new(Some(SupportedApis {
-            new_payload_v1: true,
-            new_payload_v2: spec.capella_fork_epoch.is_some() || spec.eip4844_fork_epoch.is_some(),
-            forkchoice_updated_v1: true,
-            forkchoice_updated_v2: spec.capella_fork_epoch.is_some()
-                || spec.eip4844_fork_epoch.is_some(),
-            get_payload_v1: true,
-            get_payload_v2: spec.capella_fork_epoch.is_some() || spec.eip4844_fork_epoch.is_some(),
-            exchange_transition_configuration_v1: true,
-        }));
-
         Ok(Self {
             client: Client::builder().build()?,
             url,
             execution_timeout_multiplier: execution_timeout_multiplier.unwrap_or(1),
-            cached_supported_apis,
+            engine_capabilities_cache: Mutex::new(None),
             auth: None,
         })
     }
@@ -567,27 +618,12 @@ impl HttpJsonRpc {
         url: SensitiveUrl,
         auth: Auth,
         execution_timeout_multiplier: Option<u32>,
-        spec: &ChainSpec,
     ) -> Result<Self, Error> {
-        // FIXME: remove this `cached_supported_apis` spec hack once the `engine_getCapabilities`
-        //        method is implemented in all execution clients:
-        //        https://github.com/ethereum/execution-apis/issues/321
-        let cached_supported_apis = RwLock::new(Some(SupportedApis {
-            new_payload_v1: true,
-            new_payload_v2: spec.capella_fork_epoch.is_some() || spec.eip4844_fork_epoch.is_some(),
-            forkchoice_updated_v1: true,
-            forkchoice_updated_v2: spec.capella_fork_epoch.is_some()
-                || spec.eip4844_fork_epoch.is_some(),
-            get_payload_v1: true,
-            get_payload_v2: spec.capella_fork_epoch.is_some() || spec.eip4844_fork_epoch.is_some(),
-            exchange_transition_configuration_v1: true,
-        }));
-
         Ok(Self {
             client: Client::builder().build()?,
             url,
             execution_timeout_multiplier: execution_timeout_multiplier.unwrap_or(1),
-            cached_supported_apis,
+            engine_capabilities_cache: Mutex::new(None),
             auth: Some(auth),
         })
     }
@@ -893,35 +929,67 @@ impl HttpJsonRpc {
         Ok(response)
     }
 
-    // TODO: This is currently a stub for the `engine_getCapabilities`
-    //       method. This stub is unused because we set cached_supported_apis
-    //       in the constructor based on the `spec`
-    //       Implement this once the execution clients support it
-    //       https://github.com/ethereum/execution-apis/issues/321
-    pub async fn get_capabilities(&self) -> Result<SupportedApis, Error> {
-        Ok(SupportedApis {
-            new_payload_v1: true,
-            new_payload_v2: true,
-            forkchoice_updated_v1: true,
-            forkchoice_updated_v2: true,
-            get_payload_v1: true,
-            get_payload_v2: true,
-            exchange_transition_configuration_v1: true,
-        })
+    pub async fn exchange_capabilities(&self) -> Result<EngineCapabilities, Error> {
+        let params = json!([LIGHTHOUSE_CAPABILITIES]);
+
+        let response: Result<HashSet<String>, _> = self
+            .rpc_request(
+                ENGINE_EXCHANGE_CAPABILITIES,
+                params,
+                ENGINE_EXCHANGE_CAPABILITIES_TIMEOUT * self.execution_timeout_multiplier,
+            )
+            .await;
+
+        match response {
+            // TODO (mark): rip this out once we are post capella on mainnet
+            Err(error) => match error {
+                Error::ServerMessage { code, message: _ } if code == METHOD_NOT_FOUND_CODE => {
+                    Ok(PRE_CAPELLA_ENGINE_CAPABILITIES)
+                }
+                _ => Err(error),
+            },
+            Ok(capabilities) => Ok(EngineCapabilities {
+                new_payload_v1: capabilities.contains(ENGINE_NEW_PAYLOAD_V1),
+                new_payload_v2: capabilities.contains(ENGINE_NEW_PAYLOAD_V2),
+                forkchoice_updated_v1: capabilities.contains(ENGINE_FORKCHOICE_UPDATED_V1),
+                forkchoice_updated_v2: capabilities.contains(ENGINE_FORKCHOICE_UPDATED_V2),
+                get_payload_v1: capabilities.contains(ENGINE_GET_PAYLOAD_V1),
+                get_payload_v2: capabilities.contains(ENGINE_GET_PAYLOAD_V2),
+                exchange_transition_configuration_v1: capabilities
+                    .contains(ENGINE_EXCHANGE_TRANSITION_CONFIGURATION_V1),
+            }),
+        }
     }
 
-    pub async fn set_cached_supported_apis(&self, supported_apis: Option<SupportedApis>) {
-        *self.cached_supported_apis.write().await = supported_apis;
+    pub async fn clear_exchange_capabilties_cache(&self) {
+        *self.engine_capabilities_cache.lock().await = None;
     }
 
-    pub async fn get_cached_supported_apis(&self) -> Result<SupportedApis, Error> {
-        let cached_opt = *self.cached_supported_apis.read().await;
-        if let Some(supported_apis) = cached_opt {
-            Ok(supported_apis)
+    /// Returns the execution engine capabilities resulting from a call to
+    /// engine_exchangeCapabilities. If the capabilities cache is not populated,
+    /// or if it is populated with a cached result of age >= `age_limit`, this
+    /// method will fetch the result from the execution engine and populate the
+    /// cache before returning it. Otherwise it will return a cached result from
+    /// a previous call.
+    ///
+    /// Set `age_limit` to `None` to always return the cached result
+    /// Set `age_limit` to `Some(Duration::ZERO)` to force fetching from EE
+    pub async fn get_engine_capabilities(
+        &self,
+        age_limit: Option<Duration>,
+    ) -> Result<EngineCapabilities, Error> {
+        let mut lock = self.engine_capabilities_cache.lock().await;
+
+        if lock
+            .as_ref()
+            .map_or(true, |entry| entry.older_than(age_limit))
+        {
+            let engine_capabilities = self.exchange_capabilities().await?;
+            *lock = Some(CapabilitiesCacheEntry::new(engine_capabilities));
+            Ok(engine_capabilities)
         } else {
-            let supported_apis = self.get_capabilities().await?;
-            self.set_cached_supported_apis(Some(supported_apis)).await;
-            Ok(supported_apis)
+            // here entry is guaranteed to exist so unwrap() is safe
+            Ok(*lock.as_ref().unwrap().engine_capabilities())
         }
     }
 
@@ -931,10 +999,10 @@ impl HttpJsonRpc {
         &self,
         execution_payload: ExecutionPayload<T>,
     ) -> Result<PayloadStatusV1, Error> {
-        let supported_apis = self.get_cached_supported_apis().await?;
-        if supported_apis.new_payload_v2 {
+        let engine_capabilities = self.get_engine_capabilities(None).await?;
+        if engine_capabilities.new_payload_v2 {
             self.new_payload_v2(execution_payload).await
-        } else if supported_apis.new_payload_v1 {
+        } else if engine_capabilities.new_payload_v1 {
             self.new_payload_v1(execution_payload).await
         } else {
             Err(Error::RequiredMethodUnsupported("engine_newPayload"))
@@ -948,8 +1016,8 @@ impl HttpJsonRpc {
         fork_name: ForkName,
         payload_id: PayloadId,
     ) -> Result<ExecutionPayload<T>, Error> {
-        let supported_apis = self.get_cached_supported_apis().await?;
-        if supported_apis.get_payload_v2 {
+        let engine_capabilities = self.get_engine_capabilities(None).await?;
+        if engine_capabilities.get_payload_v2 {
             // TODO: modify this method to return GetPayloadResponse instead
             //       of throwing away the `block_value` and returning only the
             //       ExecutionPayload
@@ -957,7 +1025,7 @@ impl HttpJsonRpc {
                 .get_payload_v2(fork_name, payload_id)
                 .await?
                 .execution_payload())
-        } else if supported_apis.new_payload_v1 {
+        } else if engine_capabilities.new_payload_v1 {
             self.get_payload_v1(payload_id).await
         } else {
             Err(Error::RequiredMethodUnsupported("engine_getPayload"))
@@ -971,11 +1039,11 @@ impl HttpJsonRpc {
         forkchoice_state: ForkchoiceState,
         payload_attributes: Option<PayloadAttributes>,
     ) -> Result<ForkchoiceUpdatedResponse, Error> {
-        let supported_apis = self.get_cached_supported_apis().await?;
-        if supported_apis.forkchoice_updated_v2 {
+        let engine_capabilities = self.get_engine_capabilities(None).await?;
+        if engine_capabilities.forkchoice_updated_v2 {
             self.forkchoice_updated_v2(forkchoice_state, payload_attributes)
                 .await
-        } else if supported_apis.forkchoice_updated_v1 {
+        } else if engine_capabilities.forkchoice_updated_v1 {
             self.forkchoice_updated_v1(forkchoice_state, payload_attributes)
                 .await
         } else {
@@ -1003,7 +1071,6 @@ mod test {
     impl Tester {
         pub fn new(with_auth: bool) -> Self {
             let server = MockServer::unit_testing();
-            let spec = MainnetEthSpec::default_spec();
 
             let rpc_url = SensitiveUrl::parse(&server.url()).unwrap();
             let echo_url = SensitiveUrl::parse(&format!("{}/echo", server.url())).unwrap();
@@ -1014,13 +1081,13 @@ mod test {
                 let echo_auth =
                     Auth::new(JwtKey::from_slice(&DEFAULT_JWT_SECRET).unwrap(), None, None);
                 (
-                    Arc::new(HttpJsonRpc::new_with_auth(rpc_url, rpc_auth, None, &spec).unwrap()),
-                    Arc::new(HttpJsonRpc::new_with_auth(echo_url, echo_auth, None, &spec).unwrap()),
+                    Arc::new(HttpJsonRpc::new_with_auth(rpc_url, rpc_auth, None).unwrap()),
+                    Arc::new(HttpJsonRpc::new_with_auth(echo_url, echo_auth, None).unwrap()),
                 )
             } else {
                 (
-                    Arc::new(HttpJsonRpc::new(rpc_url, None, &spec).unwrap()),
-                    Arc::new(HttpJsonRpc::new(echo_url, None, &spec).unwrap()),
+                    Arc::new(HttpJsonRpc::new(rpc_url, None).unwrap()),
+                    Arc::new(HttpJsonRpc::new(echo_url, None).unwrap()),
                 )
             };
 

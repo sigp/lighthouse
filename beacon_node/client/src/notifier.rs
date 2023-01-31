@@ -1,5 +1,6 @@
 use crate::metrics;
 use beacon_chain::{
+    capella_readiness::CapellaReadiness,
     merge_readiness::{MergeConfig, MergeReadiness},
     BeaconChain, BeaconChainTypes, ExecutionStatus,
 };
@@ -313,6 +314,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
 
             eth1_logging(&beacon_chain, &log);
             merge_readiness_logging(current_slot, &beacon_chain, &log).await;
+            capella_readiness_logging(current_slot, &beacon_chain, &log).await;
         }
     };
 
@@ -350,12 +352,15 @@ async fn merge_readiness_logging<T: BeaconChainTypes>(
     }
 
     if merge_completed && !has_execution_layer {
-        error!(
-            log,
-            "Execution endpoint required";
-            "info" => "you need an execution engine to validate blocks, see: \
-                       https://lighthouse-book.sigmaprime.io/merge-migration.html"
-        );
+        if !beacon_chain.is_time_to_prepare_for_capella(current_slot) {
+            // logging of the EE being offline is handled in `capella_readiness_logging()`
+            error!(
+                log,
+                "Execution endpoint required";
+                "info" => "you need an execution engine to validate blocks, see: \
+                           https://lighthouse-book.sigmaprime.io/merge-migration.html"
+            );
+        }
         return;
     }
 
@@ -414,6 +419,60 @@ async fn merge_readiness_logging<T: BeaconChainTypes>(
         readiness @ MergeReadiness::NoExecutionEndpoint => warn!(
             log,
             "Not ready for merge";
+            "info" => %readiness,
+        ),
+    }
+}
+
+/// Provides some helpful logging to users to indicate if their node is ready for Capella
+async fn capella_readiness_logging<T: BeaconChainTypes>(
+    current_slot: Slot,
+    beacon_chain: &BeaconChain<T>,
+    log: &Logger,
+) {
+    let capella_completed = beacon_chain
+        .canonical_head
+        .cached_head()
+        .snapshot
+        .beacon_block
+        .message()
+        .body()
+        .execution_payload()
+        .map_or(false, |payload| payload.withdrawals_root().is_ok());
+
+    let has_execution_layer = beacon_chain.execution_layer.is_some();
+
+    if capella_completed && has_execution_layer
+        || !beacon_chain.is_time_to_prepare_for_capella(current_slot)
+    {
+        return;
+    }
+
+    if capella_completed && !has_execution_layer {
+        error!(
+            log,
+            "Execution endpoint required";
+            "info" => "you need a Capella enabled execution engine to validate blocks, see: \
+                       https://lighthouse-book.sigmaprime.io/merge-migration.html"
+        );
+        return;
+    }
+
+    match beacon_chain.check_capella_readiness().await {
+        CapellaReadiness::Ready => {
+            info!(log, "Ready for Capella")
+        }
+        readiness @ CapellaReadiness::ExchangeCapabilitiesFailed { error: _ } => {
+            error!(
+                log,
+                "Not ready for Capella";
+                "info" => %readiness,
+                "hint" => "try updating Lighthouse and/or the execution layer",
+            )
+        }
+        readiness => warn!(
+            log,
+            "Not ready for Capella";
             "info" => %readiness,
         ),
     }

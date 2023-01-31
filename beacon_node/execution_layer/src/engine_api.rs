@@ -1,4 +1,9 @@
 use crate::engines::ForkchoiceState;
+use crate::http::{
+    ENGINE_EXCHANGE_TRANSITION_CONFIGURATION_V1, ENGINE_FORKCHOICE_UPDATED_V1,
+    ENGINE_FORKCHOICE_UPDATED_V2, ENGINE_GET_PAYLOAD_V1, ENGINE_GET_PAYLOAD_V2,
+    ENGINE_NEW_PAYLOAD_V1, ENGINE_NEW_PAYLOAD_V2,
+};
 pub use ethers_core::types::Transaction;
 use ethers_core::utils::rlp::{self, Decodable, Rlp};
 use http::deposit_methods::RpcError;
@@ -347,11 +352,8 @@ impl<T: EthSpec> GetPayloadResponse<T> {
     }
 }
 
-// This name is work in progress, it could
-// change when this method is actually proposed
-// but I'm writing this as it has been described
 #[derive(Clone, Copy, Debug)]
-pub struct SupportedApis {
+pub struct EngineCapabilities {
     pub new_payload_v1: bool,
     pub new_payload_v2: bool,
     pub forkchoice_updated_v1: bool,
@@ -359,4 +361,33 @@ pub struct SupportedApis {
     pub get_payload_v1: bool,
     pub get_payload_v2: bool,
     pub exchange_transition_configuration_v1: bool,
+}
+
+impl EngineCapabilities {
+    pub fn to_response(&self) -> Vec<&str> {
+        let mut response = Vec::new();
+        if self.new_payload_v1 {
+            response.push(ENGINE_NEW_PAYLOAD_V1);
+        }
+        if self.new_payload_v2 {
+            response.push(ENGINE_NEW_PAYLOAD_V2);
+        }
+        if self.forkchoice_updated_v1 {
+            response.push(ENGINE_FORKCHOICE_UPDATED_V1);
+        }
+        if self.forkchoice_updated_v2 {
+            response.push(ENGINE_FORKCHOICE_UPDATED_V2);
+        }
+        if self.get_payload_v1 {
+            response.push(ENGINE_GET_PAYLOAD_V1);
+        }
+        if self.get_payload_v2 {
+            response.push(ENGINE_GET_PAYLOAD_V2);
+        }
+        if self.exchange_transition_configuration_v1 {
+            response.push(ENGINE_EXCHANGE_TRANSITION_CONFIGURATION_V1);
+        }
+
+        response
+    }
 }

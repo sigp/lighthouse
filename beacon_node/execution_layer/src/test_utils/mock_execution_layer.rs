@@ -73,8 +73,7 @@ impl<T: EthSpec> MockExecutionLayer<T> {
             ..Default::default()
         };
         let el =
-            ExecutionLayer::from_config(config, executor.clone(), executor.log().clone(), &spec)
-                .unwrap();
+            ExecutionLayer::from_config(config, executor.clone(), executor.log().clone()).unwrap();
 
         Self {
             server,
@@ -106,7 +105,7 @@ impl<T: EthSpec> MockExecutionLayer<T> {
             prev_randao,
             Address::repeat_byte(42),
             // FIXME: think about how to handle different forks / withdrawals here..
-            Some(vec![]),
+            None,
         );
 
         // Insert a proposer to ensure the fork choice updated command works.
