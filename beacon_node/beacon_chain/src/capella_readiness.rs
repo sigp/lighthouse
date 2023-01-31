@@ -41,7 +41,7 @@ impl fmt::Display for CapellaReadiness {
             CapellaReadiness::ExchangeCapabilitiesFailed { error } => write!(
                 f,
                 "Could not exchange capabilities with the \
-                    execution endpoint: {:?}",
+                    execution endpoint: {}",
                 error
             ),
             CapellaReadiness::NotSynced => write!(
