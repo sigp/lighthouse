@@ -95,13 +95,13 @@ pub enum HotColdDBError {
     MissingRestorePoint(Hash256),
     MissingColdStateSummary(Hash256),
     MissingHotStateSummary(Hash256),
-    MissingColdBlobs(Hash256),
     MissingEpochBoundaryState(Hash256),
     MissingSplitState(Hash256, Slot),
     MissingExecutionPayload(Hash256),
     MissingFullBlockExecutionPayloadPruned(Hash256, Slot),
     MissingAnchorInfo,
     MissingPathToBlobsDatabase,
+    BlobsPreviouslyInDefaultStore,
     HotStateSummaryError(BeaconStateError),
     RestorePointDecodeError(ssz::DecodeError),
     BlockReplayBeaconError(BeaconStateError),
@@ -220,30 +220,33 @@ impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
             );
         }
 
-        let blob_info_on_disk = db.load_blob_info()?;
-
-        if let Some(ref blob_info) = blob_info_on_disk {
-            let prev_blobs_db = blob_info.blobs_db;
-            if prev_blobs_db {
-                blobs_db_path
-                    .as_ref()
-                    .ok_or(HotColdDBError::MissingPathToBlobsDatabase)?;
+        let blob_info = db.load_blob_info()?;
+        let (open_blobs_db, path) = match (&blob_info, blobs_db_path) {
+            (Some(blob_info), Some(path)) => {
+                if blob_info.blobs_db {
+                    (true, path)
+                } else {
+                    return Err(HotColdDBError::BlobsPreviouslyInDefaultStore.into());
+                }
             }
-        }
+            (None, Some(path)) => (true, path),
+            (Some(_), None) => return Err(HotColdDBError::MissingPathToBlobsDatabase.into()),
+            (None, None) => (false, cold_path.to_path_buf()),
+        };
 
-        if let Some(path) = blobs_db_path {
-            if db.spec.eip4844_fork_epoch.is_some() {
-                db.blobs_db = Some(LevelDB::open(path.as_path())?);
-                db.compare_and_set_blob_info_with_write(
-                    blob_info_on_disk,
-                    Some(BlobInfo { blobs_db: true }),
-                )?;
-                info!(
-                    db.log,
-                    "Blobs DB initialized";
-                );
-            }
-        }
+        let new_blob_info = if open_blobs_db {
+            db.blobs_db = Some(LevelDB::open(path.as_path())?);
+            Some(BlobInfo { blobs_db: true })
+        } else {
+            Some(BlobInfo { blobs_db: false })
+        };
+
+        db.compare_and_set_blob_info_with_write(blob_info, new_blob_info)?;
+        info!(
+            db.log,
+            "Blobs DB initialized";
+            "path" => ?path
+        );
 
         // Ensure that the schema version of the on-disk database matches the software.
         // If the version is mismatched, an automatic migration will be attempted.
