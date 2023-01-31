@@ -1015,6 +1015,11 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             return Ok(None);
         }
 
+        // Take a read lock on the split point while we load data from prior states. We need
+        // to prevent the finalization migration from deleting the state summaries and state diffs
+        // that we are iterating back through.
+        let split_read_lock = self.split.read_recursive();
+
         // Backtrack until we reach a state that is in the cache, or in the worst case
         // the finalized state (this should only be reachable on first start-up).
         let state_summary_iter = HotStateRootIter::new(self, target_slot, *state_root);
@@ -1052,7 +1057,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
             // If the prior state is the split state and it isn't cached then load it in
             // entirety from disk. This should only happen on first start up.
-            if prior_state_root == self.get_split_info().state_root {
+            if prior_state_root == split_read_lock.state_root {
                 debug!(
                     self.log,
                     "Using split state as base state for replay";
@@ -1074,6 +1079,9 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         }
 
         let (_, mut state) = base_state.ok_or(Error::NoBaseStateFound(*state_root))?;
+
+        // Finished reading information about prior states, allow the split point to update.
+        drop(split_read_lock);
 
         // Construct a mutable iterator for the state roots, which will be iterated through
         // consecutive calls to `replay_blocks`.
@@ -1182,6 +1190,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
             // Apply state diff. Block replay should have ensured that the diff is now applicable.
             if let Some((summary, to_root, diff)) = next_state_diff {
+                let block_root = summary.latest_block_root;
                 debug!(
                     self.log,
                     "Applying state diff";
@@ -1189,6 +1198,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                     "from_slot" => summary.diff_base_slot,
                     "to_root" => ?to_root,
                     "to_slot" => summary.slot,
+                    "block_root" => ?block_root,
                 );
                 debug_assert_eq!(summary.diff_base_slot, state.slot());
 
@@ -1196,6 +1206,12 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
                 state.update_tree_hash_cache()?;
                 state.build_all_caches(&self.spec)?;
+
+                // Add state to the cache, it is by definition an epoch boundary state and likely
+                // to be useful.
+                self.state_cache
+                    .lock()
+                    .put_state(to_root, block_root, &state)?;
             }
         }
 
