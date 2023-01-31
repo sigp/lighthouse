@@ -1,6 +1,6 @@
 use crate::{BeaconChain, BeaconChainError, BeaconChainTypes};
 use eth2::lighthouse::StandardBlockReward;
-use operation_pool::{earliest_attestation_validators, SplitAttestation};
+use operation_pool::{earliest_attestation_validators, RewardCache, SplitAttestation};
 use safe_arith::SafeArith;
 use slog::error;
 use state_processing::{
@@ -15,6 +15,7 @@ use state_processing::{
 use store::consts::altair::{PARTICIPATION_FLAG_WEIGHTS, PROPOSER_WEIGHT, WEIGHT_DENOMINATOR};
 use types::{
     beacon_state::BeaconStateBase, BeaconBlockRef, BeaconState, BeaconStateError, ExecPayload,
+    Hash256,
 };
 
 type BeaconBlockSubRewardValue = u64;
@@ -23,17 +24,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn compute_beacon_block_reward<Payload: ExecPayload<T::EthSpec>>(
         &self,
         block: BeaconBlockRef<'_, T::EthSpec, Payload>,
+        block_root: Hash256,
         state: &mut BeaconState<T::EthSpec>,
-    ) -> Result<
-        StandardBlockReward,
-        BeaconChainError,
-    > {
+    ) -> Result<StandardBlockReward, BeaconChainError> {
         if block.slot() != state.slot() {
             return Err(BeaconChainError::BlockRewardSlotError);
         }
 
-        let proposer_index = state
-            .get_beacon_proposer_index(block.slot(), &self.spec)? as u64;
+        let proposer_index = block.proposer_index();
 
         let sync_aggregate_reward =
             self.compute_beacon_block_sync_aggregate_reward(block, state)?;
@@ -60,8 +58,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 BeaconChainError::BlockRewardError
             })?;
 
-        let block_attestation_reward = if let BeaconState::Base(ref base_state) = state {
-            self.compute_beacon_block_attestation_reward_base(block, state, base_state)
+        let block_attestation_reward = if let BeaconState::Base(_) = state {
+            self.compute_beacon_block_attestation_reward_base(block, block_root, state)
                 .map_err(|e| {
                     error!(
                     self.log,
@@ -87,7 +85,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .safe_add(attester_slashing_reward)?
             .safe_add(block_attestation_reward)?;
 
-        Ok(StandardBlockReward{
+        Ok(StandardBlockReward {
             proposer_index,
             total: total_reward,
             attestations: block_attestation_reward,
@@ -158,44 +156,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     fn compute_beacon_block_attestation_reward_base<Payload: ExecPayload<T::EthSpec>>(
         &self,
         block: BeaconBlockRef<'_, T::EthSpec, Payload>,
+        block_root: Hash256,
         state: &BeaconState<T::EthSpec>,
-        base_state: &BeaconStateBase<T::EthSpec>,
     ) -> Result<BeaconBlockSubRewardValue, BeaconChainError> {
-        let total_active_balance = state.get_total_active_balance()?;
-        let mut total_proposer_reward = 0;
-        let spec = &self.spec;
+        // Call compute_block_reward in the base case
+        // Since base does not have sync aggregate, we only grab attesation portion of the returned
+        // value
+        let mut reward_cache = RewardCache::default();
+        let block_attestation_reward = self
+            .compute_block_reward(block, block_root, state, &mut reward_cache, true)?
+            .attestation_rewards
+            .total;
 
-        let split_attestations = block
-            .body()
-            .attestations()
-            .iter()
-            .map(|att| {
-                let attesting_indices = get_attesting_indices_from_state(state, att)?;
-                Ok(SplitAttestation::new(att.clone(), attesting_indices))
-            })
-            .collect::<Result<Vec<_>, BeaconChainError>>()?;
-
-        for split_attestation in split_attestations {
-            let att = split_attestation.as_ref();
-            let fresh_validators = earliest_attestation_validators(&att, state, base_state);
-            let committee = state.get_beacon_committee(att.data.slot, att.data.index)?;
-            let indices =
-                get_attesting_indices::<T::EthSpec>(committee.committee, &fresh_validators)?;
-
-            for validator_index in indices {
-                let reward = base::get_base_reward(
-                    state,
-                    validator_index as usize,
-                    total_active_balance,
-                    spec,
-                )?
-                .safe_div(spec.proposer_reward_quotient)?;
-
-                total_proposer_reward.safe_add_assign(reward)?;
-            }
-        }
-
-        Ok(total_proposer_reward)
+        Ok(block_attestation_reward)
     }
 
     fn compute_beacon_block_attestation_reward_altair<Payload: ExecPayload<T::EthSpec>>(

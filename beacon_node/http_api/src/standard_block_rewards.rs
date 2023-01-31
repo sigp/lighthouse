@@ -14,6 +14,8 @@ pub fn compute_beacon_block_rewards<T: BeaconChainTypes>(
 
     let block_ref = block.message();
 
+    let block_root = block.canonical_root();
+
     let slot = block.slot();
 
     let spec = &chain.spec;
@@ -25,23 +27,9 @@ pub fn compute_beacon_block_rewards<T: BeaconChainTypes>(
         })
         .map_err(|e| custom_not_found(format!("State is not available! {:?}", e)))?;
 
-    let proposer_index = state
-        .get_beacon_proposer_index(slot, spec)
-        .map_err(beacon_state_error)? as u64;
-
-    let (total, attestations, sync_aggregate, proposer_slashings, attester_slashings) = chain
-        .compute_beacon_block_reward(block_ref, &mut state)
+    let rewards = chain
+        .compute_beacon_block_reward(block_ref, block_root, &mut state)
         .map_err(beacon_chain_error)?;
 
-    Ok((
-        StandardBlockReward {
-            proposer_index,
-            total,
-            attestations,
-            sync_aggregate,
-            proposer_slashings,
-            attester_slashings,
-        },
-        execution_optimistic,
-    ))
+    Ok((rewards, execution_optimistic))
 }
