@@ -1,4 +1,4 @@
-//! Provides tools for checking if a node is ready for the Bellatrix upgrade and following merge
+//! Provides tools for checking if a node is ready for the Capella upgrade and following merge
 //! transition.
 
 use crate::{BeaconChain, BeaconChainTypes};
