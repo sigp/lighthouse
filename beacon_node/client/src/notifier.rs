@@ -457,7 +457,7 @@ async fn capella_readiness_logging<T: BeaconChainTypes>(
 
     match beacon_chain.check_capella_readiness().await {
         CapellaReadiness::Ready => {
-            info!(log, "Ready for capella")
+            info!(log, "Ready for Capella")
         }
         readiness @ CapellaReadiness::ExchangeCapabilitiesFailed { error: _ } => {
             error!(
