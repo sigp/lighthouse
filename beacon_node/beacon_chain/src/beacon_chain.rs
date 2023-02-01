@@ -7,7 +7,7 @@ use crate::attester_cache::{AttesterCache, AttesterCacheKey};
 use crate::beacon_proposer_cache::compute_proposer_duties_from_head;
 use crate::beacon_proposer_cache::BeaconProposerCache;
 use crate::blob_cache::BlobCache;
-use crate::blob_verification::{AsBlock, AvailabilityPendingBlock, BlockWrapper};
+use crate::blob_verification::{AsBlock, AvailabilityPendingBlock, AvailableBlock, BlockWrapper, IntoAvailableBlock};
 use crate::block_times_cache::BlockTimesCache;
 use crate::block_verification::{
     check_block_is_finalized_checkpoint_or_descendant, check_block_relevancy, get_block_root,
@@ -2685,7 +2685,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// Returns an `Err` if the given block was invalid, or an error was encountered during
     /// verification.
-    pub async fn process_block<B: IntoExecutionPendingBlock<T>>(
+    pub async fn process_block<A: IntoAvailableBlock, B: IntoExecutionPendingBlock<T, A>>(
         self: &Arc<Self>,
         block_root: Hash256,
         unverified_block: B,
@@ -2764,9 +2764,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// An error is returned if the block was unable to be imported. It may be partially imported
     /// (i.e., this function is not atomic).
-    async fn import_execution_pending_block(
+    async fn import_execution_pending_block<B: IntoAvailableBlock>(
         self: Arc<Self>,
-        execution_pending_block: ExecutionPendingBlock<T>,
+        execution_pending_block: ExecutionPendingBlock<T, B>,
         count_unrealized: CountUnrealized,
     ) -> Result<Hash256, BlockError<T::EthSpec>> {
         let ExecutionPendingBlock {
@@ -2818,14 +2818,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             );
         }
 
-
+        let available_block = block.into_available_block()?;
 
         let chain = self.clone();
         let block_hash = self
             .spawn_blocking_handle(
                 move || {
                     chain.import_block(
-                        block,
+                        available_block,
                         block_root,
                         state,
                         confirmed_state_roots,
@@ -2851,7 +2851,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     #[allow(clippy::too_many_arguments)]
     fn import_block(
         &self,
-        signed_block: AvailabilityPendingBlock<T::EthSpec>,
+        signed_block: AvailableBlock<T::EthSpec>,
         block_root: Hash256,
         mut state: BeaconState<T::EthSpec>,
         confirmed_state_roots: Vec<Hash256>,

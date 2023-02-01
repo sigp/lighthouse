@@ -24,9 +24,6 @@
 //!             ▼
 //!     SignedBeaconBlock
 //!             |
-//!             ▼
-//!      AvailableBlock
-//!             |
 //!             |---------------
 //!             |              |
 //!             |              ▼
@@ -52,8 +49,8 @@
 #![allow(clippy::result_large_err)]
 
 use crate::blob_verification::{
-    validate_blob_for_gossip, AsBlock, AvailabilityPendingBlock, BlobError, BlockWrapper, IntoAvailableBlock,
-    IntoBlockWrapper,
+    validate_blob_for_gossip, AsBlock, AvailabilityPendingBlock, AvailableBlock, BlobError,
+    BlockWrapper, IntoAvailableBlock, IntoBlockWrapper,
 };
 use crate::eth1_finalization_cache::Eth1FinalizationData;
 use crate::execution_payload::{
@@ -668,7 +665,10 @@ type PayloadVerificationHandle<E> =
 /// Note: a `ExecutionPendingBlock` is not _forever_ valid to be imported, it may later become invalid
 /// due to finality or some other event. A `ExecutionPendingBlock` should be imported into the
 /// `BeaconChain` immediately after it is instantiated.
-pub struct ExecutionPendingBlock<T: BeaconChainTypes, B: IntoAvailablBlock> {
+pub struct ExecutionPendingBlock<
+    T: BeaconChainTypes,
+    B: IntoAvailablBlockk = AvailableBlock<T::EthSpec>,
+> {
     pub block: B,
     pub block_root: Hash256,
     pub state: BeaconState<T::EthSpec>,
@@ -682,13 +682,17 @@ pub struct ExecutionPendingBlock<T: BeaconChainTypes, B: IntoAvailablBlock> {
 /// Implemented on types that can be converted into a `ExecutionPendingBlock`.
 ///
 /// Used to allow functions to accept blocks at various stages of verification.
-pub trait IntoExecutionPendingBlock<T: BeaconChainTypes>: Sized {
+pub trait IntoExecutionPendingBlock<
+    T: BeaconChainTypes,
+    B: IntoAvailableBlock = AvailableBlock<T::EthSpec>,
+>: Sized
+{
     fn into_execution_pending_block(
         self,
         block_root: Hash256,
         chain: &Arc<BeaconChain<T>>,
         notify_execution_layer: NotifyExecutionLayer,
-    ) -> Result<ExecutionPendingBlock<T>, BlockError<T::EthSpec>> {
+    ) -> Result<ExecutionPendingBlock<T, B>, BlockError<T::EthSpec>> {
         self.into_execution_pending_block_slashable(block_root, chain, notify_execution_layer)
             .map(|execution_pending| {
                 // Supply valid block to slasher.
@@ -706,7 +710,7 @@ pub trait IntoExecutionPendingBlock<T: BeaconChainTypes>: Sized {
         block_root: Hash256,
         chain: &Arc<BeaconChain<T>>,
         notify_execution_layer: NotifyExecutionLayer,
-    ) -> Result<ExecutionPendingBlock<T>, BlockSlashInfo<BlockError<T::EthSpec>>>;
+    ) -> Result<ExecutionPendingBlock<T, B>, BlockSlashInfo<BlockError<T::EthSpec>>>;
 
     fn block(&self) -> &SignedBeaconBlock<T::EthSpec>;
 }

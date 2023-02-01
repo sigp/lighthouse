@@ -4,6 +4,7 @@ use std::sync::Arc;
 use tokio::task::JoinHandle;
 
 use crate::beacon_chain::{BeaconChain, BeaconChainTypes, MAXIMUM_GOSSIP_CLOCK_DISPARITY};
+use crate::block_verification::PayloadVerificationOutcome;
 use crate::{kzg_utils, BeaconChainError, BlockError};
 use state_processing::per_block_processing::eip4844::eip4844::verify_kzg_commitments_against_transactions;
 use types::signed_beacon_block::BlobReconstructionError;
@@ -13,7 +14,6 @@ use types::{
     Transactions,
 };
 use types::{Epoch, ExecPayload};
-use crate::block_verification::PayloadVerificationOutcome;
 
 #[derive(Debug)]
 pub enum BlobError {
@@ -220,7 +220,9 @@ impl<T: BeaconChainTypes> BlockWrapper<T::EthSpec> {
                 }
             });
         match self {
-            BlockWrapper::Block(block) => AvailabilityPendingBlock::new(block, block_root, da_check_required),
+            BlockWrapper::Block(block) => {
+                AvailabilityPendingBlock::new(block, block_root, da_check_required)
+            }
             BlockWrapper::BlockAndBlobs(block, blobs_sidecar) => {
                 if matches!(da_check_required, DataAvailabilityCheckRequired::Yes) {
                     let kzg_commitments = block
@@ -251,15 +253,23 @@ impl<T: BeaconChainTypes> BlockWrapper<T::EthSpec> {
     }
 }
 
+pub trait IntoAvailableBlock<T: BeaconChainTypes> {
+    fn into_available_block(
+        self,
+        block_root: Hash256,
+        chain: &BeaconChain<T>,
+    ) -> Result<AvailableBlock<T::EthSpec>, BlobError>;
+}
+
 /// A wrapper over a [`SignedBeaconBlock`] or a [`SignedBeaconBlockAndBlobsSidecar`].  An
 /// `AvailableBlock` has passed any required data availability checks and should be used in
 /// consensus. This newtype wraps `AvailableBlockInner` to ensure data availability checks
 /// cannot be circumvented on construction.
 #[derive(Clone, Debug, Derivative)]
 #[derivative(PartialEq, Hash(bound = "E: EthSpec"))]
-pub struct AvailabilityPendingBlock<E: EthSpec>{
+pub struct AvailabilityPendingBlock<E: EthSpec> {
     block: Arc<SignedBeaconBlock<E>>,
-    data_availability_handle: DataAvailabilityHandle<E>
+    data_availability_handle: DataAvailabilityHandle<E>,
 }
 
 /// Used to await the result of data availability check.
