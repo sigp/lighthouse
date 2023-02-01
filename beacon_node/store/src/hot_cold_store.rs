@@ -544,8 +544,9 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         self.hot_db
             .key_delete(DBColumn::BeaconBlock.into(), block_root.as_bytes())?;
         self.hot_db
-            .key_delete(DBColumn::ExecPayload.into(), block_root.as_bytes())
-        // todo(emhane): do we want to delete the corresponding blobs here too?
+            .key_delete(DBColumn::ExecPayload.into(), block_root.as_bytes())?;
+        let blobs_db = self.blobs_db.as_ref().unwrap_or(&self.cold_db);
+        blobs_db.key_delete(DBColumn::BeaconBlob.into(), block_root.as_bytes())
     }
 
     pub fn put_blobs(&self, block_root: &Hash256, blobs: BlobsSidecar<E>) -> Result<(), Error> {
