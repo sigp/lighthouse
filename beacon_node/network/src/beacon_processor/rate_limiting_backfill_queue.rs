@@ -18,6 +18,7 @@ pub fn spawn_backfill_scheduler<T: BeaconChainTypes>(
 ) -> Sender<WorkEvent<T>> {
     let (backfill_work_tx, mut backfill_work_rx) =
         mpsc::channel::<WorkEvent<T>>(MAX_SCHEDULED_WORK_QUEUE_LEN);
+    let backfill_work_tx_clone = backfill_work_tx.clone();
 
     executor.spawn(
         async move {
@@ -37,7 +38,7 @@ pub fn spawn_backfill_scheduler<T: BeaconChainTypes>(
                 }
 
                 let backfill_queue_total =
-                    &backfill_work_tx.max_capacity() - &backfill_work_tx.capacity();
+                    backfill_work_tx.max_capacity() - backfill_work_tx.capacity();
 
                 metrics::set_gauge(
                     &metrics::BEACON_PROCESSOR_BACKFILL_CHAIN_SEGMENT_QUEUE_TOTAL,
@@ -61,5 +62,5 @@ pub fn spawn_backfill_scheduler<T: BeaconChainTypes>(
         "backfill_scheduler",
     );
 
-    backfill_work_tx
+    backfill_work_tx_clone
 }
