@@ -533,30 +533,26 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         Ok(())
     }
 
-    pub fn get_blobs(&self, block_root: &Hash256) -> Result<Option<BlobsSidecar<E>>, Error> {
-        // FIXME(sean) I was attempting to use a blob cache here but was getting deadlocks,
-        // may want to attempt to use one again
-        if let Some(bytes) = self
-            .hot_db
-            .get_bytes(DBColumn::BeaconBlob.into(), block_root.as_bytes())?
-        {
-            let ret = BlobsSidecar::from_ssz_bytes(&bytes)?;
-            self.blob_cache.lock().put(*block_root, ret.clone());
-            Ok(Some(ret))
-        } else {
-            let blobs_freezer = if let Some(ref cold_blobs_db) = self.cold_blobs_db {
-                cold_blobs_db
-            } else {
-                &self.cold_db
-            };
-
-            if let Some(ref blobs_bytes) =
-                blobs_freezer.get_bytes(DBColumn::BeaconBlob.into(), block_root.as_bytes())?
-            {
-                Ok(Some(BlobsSidecar::from_ssz_bytes(blobs_bytes)?))
-            } else {
-                Ok(None)
+    /// Fetch a blobs sidecar from the store.
+    ///
+    /// If `slot` is provided then it will be used as a hint as to which database should
+    /// be checked first.
+    pub fn get_blobs(
+        &self,
+        block_root: &Hash256,
+        slot: Option<Slot>,
+    ) -> Result<Option<BlobsSidecar<E>>, Error> {
+        if let Some(slot) = slot {
+            if slot < self.get_split_slot() {
+                return match self.load_cold_blobs(block_root)? {
+                    Some(blobs) => Ok(Some(blobs)),
+                    None => self.load_hot_blobs(block_root),
+                };
             }
+        }
+        match self.load_hot_blobs(block_root)? {
+            Some(blobs) => Ok(Some(blobs)),
+            None => self.load_cold_blobs(block_root),
         }
     }
 
@@ -1234,6 +1230,41 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
                 block_replayer.into_state()
             })
+    }
+
+    /// Load a blobs sidecar from the hot database.
+    pub fn load_hot_blobs(&self, block_root: &Hash256) -> Result<Option<BlobsSidecar<E>>, Error> {
+        // FIXME(sean) I was attempting to use a blob cache here but was getting deadlocks,
+        // may want to attempt to use one again
+        if let Some(bytes) = self
+            .hot_db
+            .get_bytes(DBColumn::BeaconBlob.into(), block_root.as_bytes())?
+        {
+            let ret = BlobsSidecar::from_ssz_bytes(&bytes)?;
+            self.blob_cache.lock().put(*block_root, ret.clone());
+            Ok(Some(ret))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Try to load a blobs from the freezer database.
+    ///
+    /// Return `None` if no blobs sidecar with `block_root` lies in the freezer.
+    pub fn load_cold_blobs(&self, block_root: &Hash256) -> Result<Option<BlobsSidecar<E>>, Error> {
+        let blobs_freezer = if let Some(ref cold_blobs_db) = self.cold_blobs_db {
+            cold_blobs_db
+        } else {
+            &self.cold_db
+        };
+
+        if let Some(ref blobs_bytes) =
+            blobs_freezer.get_bytes(DBColumn::BeaconBlob.into(), block_root.as_bytes())?
+        {
+            Ok(Some(BlobsSidecar::from_ssz_bytes(blobs_bytes)?))
+        } else {
+            Ok(None)
+        }
     }
 
     /// Get a reference to the `ChainSpec` used by the database.
@@ -1994,7 +2025,7 @@ pub fn migrate_database<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
         }
 
         // Prepare migration of blobs to freezer.
-        if let Some(blobs) = store.get_blobs(&block_root)? {
+        if let Some(blobs) = store.get_blobs(&block_root, Some(slot))? {
             hot_db_ops.push(StoreOp::DeleteBlobs(block_root));
             cold_blobs_db_ops.push(StoreOp::PutBlobs(block_root, Arc::new(blobs)));
         }

@@ -910,7 +910,7 @@ where
 
         self.db_path = Some(hot_path.into());
         self.freezer_db_path = Some(cold_path.into());
-        self.blobs_freezer_db_path = cold_blobs_path;
+        self.blobs_freezer_db_path = cold_blobs_path.clone();
 
         let inner_spec = spec.clone();
         let deposit_contract_deploy_block = context

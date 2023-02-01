@@ -1072,7 +1072,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         block_root: &Hash256,
         data_availability_boundary: Epoch,
     ) -> Result<Option<BlobsSidecar<T::EthSpec>>, Error> {
-        match self.store.get_blobs(block_root)? {
+        match self.store.get_blobs(block_root, slot)? {
             Some(blobs) => Ok(Some(blobs)),
             None => {
                 // Check for the corresponding block to understand whether we *should* have blobs.
