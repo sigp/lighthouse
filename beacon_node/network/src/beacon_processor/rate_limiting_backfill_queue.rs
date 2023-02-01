@@ -7,7 +7,7 @@ use beacon_chain::BeaconChainTypes;
 use slot_clock::SlotClock;
 use task_executor::TaskExecutor;
 
-use crate::beacon_processor::{WorkEvent, MAX_SCHEDULED_WORK_QUEUE_LEN};
+use crate::beacon_processor::{WorkEvent, MAX_BACKFILL_WORK_QUEUE_LEN};
 
 pub fn spawn_backfill_scheduler<T: BeaconChainTypes>(
     schedule_work_tx: Sender<WorkEvent<T>>,
@@ -16,7 +16,7 @@ pub fn spawn_backfill_scheduler<T: BeaconChainTypes>(
     log: Logger,
 ) -> Sender<WorkEvent<T>> {
     let (backfill_work_tx, mut backfill_work_rx) =
-        mpsc::channel::<WorkEvent<T>>(MAX_SCHEDULED_WORK_QUEUE_LEN);
+        mpsc::channel::<WorkEvent<T>>(MAX_BACKFILL_WORK_QUEUE_LEN);
 
     executor.spawn(
         async move {
