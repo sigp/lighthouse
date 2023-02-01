@@ -322,6 +322,7 @@ pub struct ProposeBlindedBlockResponse {
 #[superstruct(
     variants(Merge, Capella, Eip4844),
     variant_attributes(derive(Clone, Debug, PartialEq),),
+    map_ref_into(ExecutionPayloadRef),
     cast_error(ty = "Error", expr = "Error::IncorrectStateVariant"),
     partial_getter_error(ty = "Error", expr = "Error::IncorrectStateVariant")
 )]
@@ -336,19 +337,36 @@ pub struct GetPayloadResponse<T: EthSpec> {
     pub block_value: Uint256,
 }
 
-impl<T: EthSpec> GetPayloadResponse<T> {
-    pub fn execution_payload(&self) -> ExecutionPayloadRef<T> {
-        match self {
-            GetPayloadResponse::Merge(response) => {
-                ExecutionPayloadRef::<T>::Merge(&response.execution_payload)
-            }
-            GetPayloadResponse::Capella(response) => {
-                ExecutionPayloadRef::<T>::Capella(&response.execution_payload)
-            }
-            GetPayloadResponse::Eip4844(response) => {
-                ExecutionPayloadRef::<T>::Eip4844(&response.execution_payload)
-            }
+impl<'a, T: EthSpec> From<GetPayloadResponseRef<'a, T>> for ExecutionPayloadRef<'a, T> {
+    fn from(response: GetPayloadResponseRef<'a, T>) -> Self {
+        map_get_payload_response_ref_into_execution_payload_ref!(&'a _, response, |inner, cons| {
+            cons(&inner.execution_payload)
+        })
+    }
+}
+
+impl<T: EthSpec> From<GetPayloadResponse<T>> for (ExecutionPayload<T>, Uint256) {
+    fn from(response: GetPayloadResponse<T>) -> Self {
+        match response {
+            GetPayloadResponse::Merge(inner) => (
+                ExecutionPayload::Merge(inner.execution_payload),
+                inner.block_value,
+            ),
+            GetPayloadResponse::Capella(inner) => (
+                ExecutionPayload::Capella(inner.execution_payload),
+                inner.block_value,
+            ),
+            GetPayloadResponse::Eip4844(inner) => (
+                ExecutionPayload::Eip4844(inner.execution_payload),
+                inner.block_value,
+            ),
         }
+    }
+}
+
+impl<T: EthSpec> GetPayloadResponse<T> {
+    pub fn execution_payload_ref(&self) -> ExecutionPayloadRef<T> {
+        self.to_ref().into()
     }
 }
 

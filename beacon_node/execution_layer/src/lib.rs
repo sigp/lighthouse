@@ -405,8 +405,8 @@ impl<T: EthSpec> ExecutionLayer<T> {
     }
 
     /// Cache a full payload, keyed on the `tree_hash_root` of its `transactions` field.
-    fn cache_payload(&self, payload: &ExecutionPayload<T>) -> Option<ExecutionPayload<T>> {
-        self.inner.payload_cache.put(payload.clone())
+    fn cache_payload(&self, payload: ExecutionPayloadRef<T>) -> Option<ExecutionPayload<T>> {
+        self.inner.payload_cache.put(payload.clone_from_ref())
     }
 
     /// Attempt to retrieve a full payload from the payload cache by the `transactions_root`.
@@ -1047,7 +1047,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
         payload_attributes: &PayloadAttributes,
         forkchoice_update_params: ForkchoiceUpdateParameters,
         current_fork: ForkName,
-        f: fn(&ExecutionLayer<T>, &ExecutionPayload<T>) -> Option<ExecutionPayload<T>>,
+        f: fn(&ExecutionLayer<T>, ExecutionPayloadRef<T>) -> Option<ExecutionPayload<T>>,
     ) -> Result<BlockProposalContents<T, Payload>, Error> {
         self.engine()
             .request(move |engine| async move {
@@ -1132,7 +1132,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                 };
                 let (blob, payload_response) = tokio::join!(blob_fut, payload_fut);
                 let (payload, block_value) = payload_response.map(|payload_response| {
-                    if payload_response.execution_payload().fee_recipient() != payload_attributes.suggested_fee_recipient() {
+                    if payload_response.execution_payload_ref().fee_recipient() != payload_attributes.suggested_fee_recipient() {
                         error!(
                             self.log(),
                             "Inconsistent fee recipient";
@@ -1141,19 +1141,20 @@ impl<T: EthSpec> ExecutionLayer<T> {
                             indicate that fees are being diverted to another address. Please \
                             ensure that the value of suggested_fee_recipient is set correctly and \
                             that the Execution Engine is trusted.",
-                            "fee_recipient" => ?payload_response.execution_payload().fee_recipient(),
+                            "fee_recipient" => ?payload_response.execution_payload_ref().fee_recipient(),
                             "suggested_fee_recipient" => ?payload_attributes.suggested_fee_recipient(),
                         );
                     }
-                    if f(self, &payload_response.execution_payload().clone_from_ref()).is_some() {
+                    if f(self, payload_response.execution_payload_ref()).is_some() {
                         warn!(
                             self.log(),
                             "Duplicate payload cached, this might indicate redundant proposal \
                                  attempts."
                         );
                     }
-                    (payload_response.execution_payload().clone_from_ref().into(), *payload_response.block_value())
-                })?;
+                    payload_response.into()
+                })
+                    .map(|(execution_payload, block_value)| (execution_payload.into(), block_value))?;
                 if let Some(blob) = blob.transpose()? {
                     // FIXME(sean) cache blobs
                     Ok(BlockProposalContents::PayloadAndBlobs {
@@ -2152,7 +2153,10 @@ mod test {
     }
 }
 
-fn noop<T: EthSpec>(_: &ExecutionLayer<T>, _: &ExecutionPayload<T>) -> Option<ExecutionPayload<T>> {
+fn noop<T: EthSpec>(
+    _: &ExecutionLayer<T>,
+    _: ExecutionPayloadRef<T>,
+) -> Option<ExecutionPayload<T>> {
     None
 }
 
