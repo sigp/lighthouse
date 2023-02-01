@@ -97,6 +97,7 @@ const MAX_IDLE_QUEUE_LEN: usize = 16_384;
 const MAX_SCHEDULED_WORK_QUEUE_LEN: usize = 3 * MAX_WORK_EVENT_QUEUE_LEN / 4;
 
 /// The maximum size of the channel for backfill work events.
+/// TODO: what should be the right size for this?
 const MAX_BACKFILL_WORK_QUEUE_LEN: usize = 3 * MAX_WORK_EVENT_QUEUE_LEN / 4;
 
 /// The maximum number of queued `Attestation` objects that will be stored before we start dropping
@@ -1103,10 +1104,13 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                         None
                     }
                     Some(InboundEvent::WorkEvent(event)) if event.is_back_fill() => {
-                        debug!(
-                            self.log,
-                            "Sending backfill work event to rate limiting queue"
+                        let backfill_queue_total =
+                            backfill_work_tx.max_capacity() - backfill_work_tx.capacity();
+                        metrics::set_gauge(
+                            &metrics::BEACON_PROCESSOR_BACKFILL_CHAIN_SEGMENT_QUEUE_TOTAL,
+                            backfill_queue_total as i64,
                         );
+
                         if let Err(e) = backfill_work_tx.try_send(event) {
                             error!(
                                 self.log,
