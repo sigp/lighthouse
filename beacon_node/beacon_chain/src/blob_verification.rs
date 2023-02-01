@@ -1,9 +1,10 @@
 use derivative::Derivative;
 use slot_clock::SlotClock;
 use std::sync::Arc;
+use tokio::task::JoinHandle;
 
 use crate::beacon_chain::{BeaconChain, BeaconChainTypes, MAXIMUM_GOSSIP_CLOCK_DISPARITY};
-use crate::{kzg_utils, BeaconChainError};
+use crate::{kzg_utils, BeaconChainError, BlockError};
 use state_processing::per_block_processing::eip4844::eip4844::verify_kzg_commitments_against_transactions;
 use types::signed_beacon_block::BlobReconstructionError;
 use types::{
@@ -12,6 +13,7 @@ use types::{
     Transactions,
 };
 use types::{Epoch, ExecPayload};
+use crate::block_verification::PayloadVerificationOutcome;
 
 #[derive(Debug)]
 pub enum BlobError {
@@ -89,8 +91,8 @@ pub fn validate_blob_for_gossip<T: BeaconChainTypes>(
     block_wrapper: BlockWrapper<T::EthSpec>,
     block_root: Hash256,
     chain: &BeaconChain<T>,
-) -> Result<AvailableBlock<T::EthSpec>, BlobError> {
-    if let BlockWrapper::BlockAndBlob(ref block, ref blobs_sidecar) = block_wrapper {
+) -> Result<AvailabilityPendingBlock<T::EthSpec>, BlobError> {
+    if let BlockWrapper::BlockAndBlobs(ref block, ref blobs_sidecar) = block_wrapper {
         let blob_slot = blobs_sidecar.beacon_block_slot;
         // Do not gossip or process blobs from future or past slots.
         let latest_permissible_slot = chain
@@ -112,7 +114,7 @@ pub fn validate_blob_for_gossip<T: BeaconChainTypes>(
         }
     }
 
-    block_wrapper.into_available_block(block_root, chain)
+    block_wrapper.into_availablilty_pending_block(block_root, chain)
 }
 
 fn verify_data_availability<T: BeaconChainTypes>(
@@ -157,7 +159,8 @@ fn verify_data_availability<T: BeaconChainTypes>(
 #[derivative(PartialEq, Hash(bound = "E: EthSpec"))]
 pub enum BlockWrapper<E: EthSpec> {
     Block(Arc<SignedBeaconBlock<E>>),
-    BlockAndBlob(Arc<SignedBeaconBlock<E>>, Arc<BlobsSidecar<E>>),
+    BlockAndBlobs(Arc<SignedBeaconBlock<E>>, Arc<BlobsSidecar<E>>),
+    BlockAndBlobsFuture(Arc<SignedBeaconBlock<E>>, DataAvailabilityHandle<E>),
 }
 
 impl<E: EthSpec> BlockWrapper<E> {
@@ -166,7 +169,7 @@ impl<E: EthSpec> BlockWrapper<E> {
         blobs_sidecar: Option<Arc<BlobsSidecar<E>>>,
     ) -> Self {
         if let Some(blobs_sidecar) = blobs_sidecar {
-            BlockWrapper::BlockAndBlob(block, blobs_sidecar)
+            BlockWrapper::BlockAndBlobs(block, blobs_sidecar)
         } else {
             BlockWrapper::Block(block)
         }
@@ -185,7 +188,7 @@ impl<E: EthSpec> From<SignedBeaconBlockAndBlobsSidecar<E>> for BlockWrapper<E> {
             beacon_block,
             blobs_sidecar,
         } = block;
-        BlockWrapper::BlockAndBlob(beacon_block, blobs_sidecar)
+        BlockWrapper::BlockAndBlobs(beacon_block, blobs_sidecar)
     }
 }
 
@@ -201,20 +204,12 @@ pub enum DataAvailabilityCheckRequired {
     No,
 }
 
-pub trait IntoAvailableBlock<T: BeaconChainTypes> {
-    fn into_available_block(
+impl<T: BeaconChainTypes> BlockWrapper<T::EthSpec> {
+    fn into_availablilty_pending_block(
         self,
         block_root: Hash256,
         chain: &BeaconChain<T>,
-    ) -> Result<AvailableBlock<T::EthSpec>, BlobError>;
-}
-
-impl<T: BeaconChainTypes> IntoAvailableBlock<T> for BlockWrapper<T::EthSpec> {
-    fn into_available_block(
-        self,
-        block_root: Hash256,
-        chain: &BeaconChain<T>,
-    ) -> Result<AvailableBlock<T::EthSpec>, BlobError> {
+    ) -> Result<AvailabilityPendingBlock<T::EthSpec>, BlobError> {
         let data_availability_boundary = chain.data_availability_boundary();
         let da_check_required =
             data_availability_boundary.map_or(DataAvailabilityCheckRequired::No, |boundary| {
@@ -225,8 +220,8 @@ impl<T: BeaconChainTypes> IntoAvailableBlock<T> for BlockWrapper<T::EthSpec> {
                 }
             });
         match self {
-            BlockWrapper::Block(block) => AvailableBlock::new(block, block_root, da_check_required),
-            BlockWrapper::BlockAndBlob(block, blobs_sidecar) => {
+            BlockWrapper::Block(block) => AvailabilityPendingBlock::new(block, block_root, da_check_required),
+            BlockWrapper::BlockAndBlobs(block, blobs_sidecar) => {
                 if matches!(da_check_required, DataAvailabilityCheckRequired::Yes) {
                     let kzg_commitments = block
                         .message()
@@ -250,7 +245,7 @@ impl<T: BeaconChainTypes> IntoAvailableBlock<T> for BlockWrapper<T::EthSpec> {
                     )?;
                 }
 
-                AvailableBlock::new_with_blobs(block, blobs_sidecar, da_check_required)
+                AvailabilityPendingBlock::new_with_blobs(block, blobs_sidecar, da_check_required)
             }
         }
     }
@@ -262,7 +257,30 @@ impl<T: BeaconChainTypes> IntoAvailableBlock<T> for BlockWrapper<T::EthSpec> {
 /// cannot be circumvented on construction.
 #[derive(Clone, Debug, Derivative)]
 #[derivative(PartialEq, Hash(bound = "E: EthSpec"))]
-pub struct AvailableBlock<E: EthSpec>(AvailableBlockInner<E>);
+pub struct AvailabilityPendingBlock<E: EthSpec>{
+    block: Arc<SignedBeaconBlock<E>>,
+    data_availability_handle: DataAvailabilityHandle<E>
+}
+
+/// Used to await the result of data availability check.
+type DataAvailabilityHandle<E> = JoinHandle<Result<Option<Arc<BlobsSidecar<E>>>, BlobError>>;
+
+#[derive(Clone, Debug, Derivative)]
+#[derivative(PartialEq, Hash(bound = "E: EthSpec"))]
+pub struct AvailableBlock<E: EthSpec> {
+    block: Arc<SignedBeaconBlock<E>>,
+    blobs: Blobs<E>,
+}
+
+pub enum Blobs<E: EthSpec> {
+    /// These blobs are available.
+    Available(Arc<BlobsSidecar<E>>),
+    /// This block is from outside the data availability boundary or the block is from prior
+    /// to the eip4844 fork.
+    NotRequired,
+    /// The block doesn't have any blob transactions.
+    None,
+}
 
 /// A wrapper over a [`SignedBeaconBlock`] or a [`SignedBeaconBlockAndBlobsSidecar`].
 #[derive(Clone, Debug, Derivative)]
@@ -272,7 +290,7 @@ enum AvailableBlockInner<E: EthSpec> {
     BlockAndBlob(SignedBeaconBlockAndBlobsSidecar<E>),
 }
 
-impl<E: EthSpec> AvailableBlock<E> {
+impl<E: EthSpec> AvailabilityPendingBlock<E> {
     pub fn new(
         beacon_block: Arc<SignedBeaconBlock<E>>,
         block_root: Hash256,
@@ -372,11 +390,11 @@ impl<E: EthSpec> IntoBlockWrapper<E> for BlockWrapper<E> {
     }
 }
 
-impl<E: EthSpec> IntoBlockWrapper<E> for AvailableBlock<E> {
+impl<E: EthSpec> IntoBlockWrapper<E> for AvailabilityPendingBlock<E> {
     fn into_block_wrapper(self) -> BlockWrapper<E> {
         let (block, blobs) = self.deconstruct();
         if let Some(blobs) = blobs {
-            BlockWrapper::BlockAndBlob(block, blobs)
+            BlockWrapper::BlockAndBlobs(block, blobs)
         } else {
             BlockWrapper::Block(block)
         }
@@ -399,49 +417,49 @@ impl<E: EthSpec> AsBlock<E> for BlockWrapper<E> {
     fn slot(&self) -> Slot {
         match self {
             BlockWrapper::Block(block) => block.slot(),
-            BlockWrapper::BlockAndBlob(block, _) => block.slot(),
+            BlockWrapper::BlockAndBlobs(block, _) => block.slot(),
         }
     }
     fn epoch(&self) -> Epoch {
         match self {
             BlockWrapper::Block(block) => block.epoch(),
-            BlockWrapper::BlockAndBlob(block, _) => block.epoch(),
+            BlockWrapper::BlockAndBlobs(block, _) => block.epoch(),
         }
     }
     fn parent_root(&self) -> Hash256 {
         match self {
             BlockWrapper::Block(block) => block.parent_root(),
-            BlockWrapper::BlockAndBlob(block, _) => block.parent_root(),
+            BlockWrapper::BlockAndBlobs(block, _) => block.parent_root(),
         }
     }
     fn state_root(&self) -> Hash256 {
         match self {
             BlockWrapper::Block(block) => block.state_root(),
-            BlockWrapper::BlockAndBlob(block, _) => block.state_root(),
+            BlockWrapper::BlockAndBlobs(block, _) => block.state_root(),
         }
     }
     fn signed_block_header(&self) -> SignedBeaconBlockHeader {
         match &self {
             BlockWrapper::Block(block) => block.signed_block_header(),
-            BlockWrapper::BlockAndBlob(block, _) => block.signed_block_header(),
+            BlockWrapper::BlockAndBlobs(block, _) => block.signed_block_header(),
         }
     }
     fn message(&self) -> BeaconBlockRef<E> {
         match &self {
             BlockWrapper::Block(block) => block.message(),
-            BlockWrapper::BlockAndBlob(block, _) => block.message(),
+            BlockWrapper::BlockAndBlobs(block, _) => block.message(),
         }
     }
     fn as_block(&self) -> &SignedBeaconBlock<E> {
         match &self {
-            BlockWrapper::Block(block) => block,
-            BlockWrapper::BlockAndBlob(block, _) => block,
+            BlockWrapper::Block(block) => &block,
+            BlockWrapper::BlockAndBlobs(block, _) => &block,
         }
     }
     fn block_cloned(&self) -> Arc<SignedBeaconBlock<E>> {
         match &self {
             BlockWrapper::Block(block) => block.clone(),
-            BlockWrapper::BlockAndBlob(block, _) => block.clone(),
+            BlockWrapper::BlockAndBlobs(block, _) => block.clone(),
         }
     }
     fn canonical_root(&self) -> Hash256 {
@@ -456,49 +474,49 @@ impl<E: EthSpec> AsBlock<E> for &BlockWrapper<E> {
     fn slot(&self) -> Slot {
         match self {
             BlockWrapper::Block(block) => block.slot(),
-            BlockWrapper::BlockAndBlob(block, _) => block.slot(),
+            BlockWrapper::BlockAndBlobs(block, _) => block.slot(),
         }
     }
     fn epoch(&self) -> Epoch {
         match self {
             BlockWrapper::Block(block) => block.epoch(),
-            BlockWrapper::BlockAndBlob(block, _) => block.epoch(),
+            BlockWrapper::BlockAndBlobs(block, _) => block.epoch(),
         }
     }
     fn parent_root(&self) -> Hash256 {
         match self {
             BlockWrapper::Block(block) => block.parent_root(),
-            BlockWrapper::BlockAndBlob(block, _) => block.parent_root(),
+            BlockWrapper::BlockAndBlobs(block, _) => block.parent_root(),
         }
     }
     fn state_root(&self) -> Hash256 {
         match self {
             BlockWrapper::Block(block) => block.state_root(),
-            BlockWrapper::BlockAndBlob(block, _) => block.state_root(),
+            BlockWrapper::BlockAndBlobs(block, _) => block.state_root(),
         }
     }
     fn signed_block_header(&self) -> SignedBeaconBlockHeader {
         match &self {
             BlockWrapper::Block(block) => block.signed_block_header(),
-            BlockWrapper::BlockAndBlob(block, _) => block.signed_block_header(),
+            BlockWrapper::BlockAndBlobs(block, _) => block.signed_block_header(),
         }
     }
     fn message(&self) -> BeaconBlockRef<E> {
         match &self {
             BlockWrapper::Block(block) => block.message(),
-            BlockWrapper::BlockAndBlob(block, _) => block.message(),
+            BlockWrapper::BlockAndBlobs(block, _) => block.message(),
         }
     }
     fn as_block(&self) -> &SignedBeaconBlock<E> {
         match &self {
-            BlockWrapper::Block(block) => block,
-            BlockWrapper::BlockAndBlob(block, _) => block,
+            BlockWrapper::Block(block) => &block,
+            BlockWrapper::BlockAndBlobs(block, _) => &block,
         }
     }
     fn block_cloned(&self) -> Arc<SignedBeaconBlock<E>> {
         match &self {
             BlockWrapper::Block(block) => block.clone(),
-            BlockWrapper::BlockAndBlob(block, _) => block.clone(),
+            BlockWrapper::BlockAndBlobs(block, _) => block.clone(),
         }
     }
     fn canonical_root(&self) -> Hash256 {
@@ -509,7 +527,7 @@ impl<E: EthSpec> AsBlock<E> for &BlockWrapper<E> {
     }
 }
 
-impl<E: EthSpec> AsBlock<E> for AvailableBlock<E> {
+impl<E: EthSpec> AsBlock<E> for AvailabilityPendingBlock<E> {
     fn slot(&self) -> Slot {
         match &self.0 {
             AvailableBlockInner::Block(block) => block.slot(),

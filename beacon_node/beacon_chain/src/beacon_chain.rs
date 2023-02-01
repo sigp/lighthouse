@@ -7,7 +7,7 @@ use crate::attester_cache::{AttesterCache, AttesterCacheKey};
 use crate::beacon_proposer_cache::compute_proposer_duties_from_head;
 use crate::beacon_proposer_cache::BeaconProposerCache;
 use crate::blob_cache::BlobCache;
-use crate::blob_verification::{AsBlock, AvailableBlock, BlockWrapper};
+use crate::blob_verification::{AsBlock, AvailabilityPendingBlock, BlockWrapper};
 use crate::block_times_cache::BlockTimesCache;
 use crate::block_verification::{
     check_block_is_finalized_checkpoint_or_descendant, check_block_relevancy, get_block_root,
@@ -2818,6 +2818,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             );
         }
 
+
+
         let chain = self.clone();
         let block_hash = self
             .spawn_blocking_handle(
@@ -2849,7 +2851,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     #[allow(clippy::too_many_arguments)]
     fn import_block(
         &self,
-        signed_block: AvailableBlock<T::EthSpec>,
+        signed_block: AvailabilityPendingBlock<T::EthSpec>,
         block_root: Hash256,
         mut state: BeaconState<T::EthSpec>,
         confirmed_state_roots: Vec<Hash256>,

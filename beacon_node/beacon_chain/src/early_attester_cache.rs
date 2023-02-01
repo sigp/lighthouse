@@ -1,4 +1,4 @@
-use crate::blob_verification::AvailableBlock;
+use crate::blob_verification::AvailabilityPendingBlock;
 use crate::{
     attester_cache::{CommitteeLengths, Error},
     metrics,
@@ -51,7 +51,7 @@ impl<E: EthSpec> EarlyAttesterCache<E> {
     pub fn add_head_block(
         &self,
         beacon_block_root: Hash256,
-        block: AvailableBlock<E>,
+        block: AvailabilityPendingBlock<E>,
         proto_block: ProtoBlock,
         state: &BeaconState<E>,
         spec: &ChainSpec,
