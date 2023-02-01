@@ -237,11 +237,15 @@ impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
         if let Some(path) = blobs_db_path {
             let new_blob_info = if open_blobs_db {
                 db.blobs_db = Some(LevelDB::open(path.as_path())?);
-                Some(BlobInfo { blobs_db: true })
+                let mut new_blob_info = blob_info.clone().unwrap_or_default();
+                new_blob_info.blobs_db = true;
+                new_blob_info
             } else {
-                Some(BlobInfo { blobs_db: false })
+                let mut new_blob_info = blob_info.clone().unwrap_or_default();
+                new_blob_info.blobs_db = false;
+                new_blob_info
             };
-            db.compare_and_set_blob_info_with_write(blob_info, new_blob_info)?;
+            db.compare_and_set_blob_info_with_write(blob_info, Some(new_blob_info))?;
             info!(
                 db.log,
                 "Blobs DB initialized";
