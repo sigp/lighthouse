@@ -463,6 +463,12 @@ fork_choice_tests!(fork_choice_standard, CONSENSUS_SPEC_TESTS);
 fork_choice_tests!(fork_choice_custom, CUSTOM_FC_TESTS);
 
 #[test]
+fn fork_choice_custom_reorg() {
+    ForkChoiceHandler::<MinimalEthSpec>::new(CUSTOM_FC_TESTS, "reorg").run();
+    ForkChoiceHandler::<MainnetEthSpec>::new(CUSTOM_FC_TESTS, "reorg").run();
+}
+
+#[test]
 fn optimistic_sync() {
     OptimisticSyncHandler::<MinimalEthSpec>::default().run();
     OptimisticSyncHandler::<MainnetEthSpec>::default().run();
