@@ -233,6 +233,7 @@ impl CombinedKeyExt for CombinedKey {
                 Ok(CombinedKey::from(ed_keypair))
             }
             Keypair::Ecdsa(_) => Err("Ecdsa keypairs not supported"),
+            _ => Err("Unknown keypair not supported.") //Should not occur
         }
     }
 }
@@ -268,6 +269,10 @@ pub fn peer_id_to_node_id(peer_id: &PeerId) -> Result<discv5::enr::NodeId, Strin
         }
         PublicKey::Ecdsa(_) => Err(format!(
             "Unsupported public key (Ecdsa) from peer {}",
+            peer_id
+        )),
+        _ => Err(format!(  //should not occur
+            "Unsupported public key (Unknown) from peer {}",
             peer_id
         )),
     }
