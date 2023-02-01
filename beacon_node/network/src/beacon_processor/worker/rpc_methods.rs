@@ -478,7 +478,6 @@ impl<T: BeaconChainTypes> Worker<T> {
         let mut send_response = true;
 
         // No async necessary here because we don't need to hit the execution layer.
-        // TODO(geemo): use database iterator.
         for i in req.start_period..req.start_period + req.count {
             match self.chain.get_light_client_update(i) {
                 Ok(Some(update)) => {
@@ -524,7 +523,7 @@ impl<T: BeaconChainTypes> Worker<T> {
             .unwrap_or_else(|_| self.chain.slot_clock.genesis_slot())
             .epoch(T::EthSpec::slots_per_epoch())
             .sync_committee_period(&self.chain.spec)
-            .unwrap_or_else(|_| 0);
+            .unwrap_or(0);
 
         if light_client_updates_sent < (req.count as usize) {
             debug!(
