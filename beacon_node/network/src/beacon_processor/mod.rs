@@ -1104,13 +1104,6 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                         None
                     }
                     Some(InboundEvent::WorkEvent(event)) if event.is_back_fill() => {
-                        let backfill_queue_total =
-                            backfill_work_tx.max_capacity() - backfill_work_tx.capacity();
-                        metrics::set_gauge(
-                            &metrics::BEACON_PROCESSOR_BACKFILL_CHAIN_SEGMENT_QUEUE_TOTAL,
-                            backfill_queue_total as i64,
-                        );
-
                         if let Err(e) = backfill_work_tx.try_send(event) {
                             error!(
                                 self.log,
@@ -1118,6 +1111,14 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                                 "error" => %e
                             )
                         }
+
+                        let backfill_queue_total =
+                            backfill_work_tx.max_capacity() - backfill_work_tx.capacity();
+                        metrics::set_gauge(
+                            &metrics::BEACON_PROCESSOR_BACKFILL_CHAIN_SEGMENT_QUEUE_TOTAL,
+                            backfill_queue_total as i64,
+                        );
+
                         continue;
                     }
                     Some(InboundEvent::WorkEvent(event))
