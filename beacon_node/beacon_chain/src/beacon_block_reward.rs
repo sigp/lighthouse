@@ -11,7 +11,10 @@ use state_processing::{
         altair::sync_committee::compute_sync_aggregate_rewards, get_slashable_indices,
     },
 };
-use store::consts::altair::{PARTICIPATION_FLAG_WEIGHTS, PROPOSER_WEIGHT, WEIGHT_DENOMINATOR};
+use store::{
+    consts::altair::{PARTICIPATION_FLAG_WEIGHTS, PROPOSER_WEIGHT, WEIGHT_DENOMINATOR},
+    RelativeEpoch,
+};
 use types::{BeaconBlockRef, BeaconState, BeaconStateError, ExecPayload, Hash256};
 
 type BeaconBlockSubRewardValue = u64;
@@ -26,6 +29,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         if block.slot() != state.slot() {
             return Err(BeaconChainError::BlockRewardSlotError);
         }
+
+        state.build_committee_cache(RelativeEpoch::Current, &self.spec)?;
 
         let proposer_index = block.proposer_index();
 
