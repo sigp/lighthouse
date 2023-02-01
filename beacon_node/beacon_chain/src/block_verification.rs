@@ -1382,7 +1382,7 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
                 };
                 chain
                     .store
-                    .do_atomically_and_update_cache(state_batch, None)?;
+                    .do_atomically_with_block_and_blobs_cache(state_batch)?;
                 drop(txn_lock);
 
                 confirmed_state_roots.push(state_root);

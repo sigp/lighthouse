@@ -95,7 +95,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true),
         )
         .arg(
-<<<<<<< HEAD
             Arg::with_name("blob-prune-margin-epochs")
                 .long("blob-prune-margin-epochs")
                 .help(
@@ -104,12 +103,10 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 )
                 .takes_value(true)
                 .default_value("0"),
-            Arg::with_name("blobs-freezer-dir")
-                .long("blobs-freezer-dir")
-=======
+        )
+        .arg(
             Arg::with_name("blobs-dir")
                 .long("blobs-dir")
->>>>>>> 43dc3a9a4 (Fix rebase conflicts)
                 .value_name("DIR")
                 .help("Data directory for the blobs database.")
                 .takes_value(true),
