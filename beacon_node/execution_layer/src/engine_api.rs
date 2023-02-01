@@ -322,6 +322,7 @@ pub struct ProposeBlindedBlockResponse {
 #[superstruct(
     variants(Merge, Capella, Eip4844),
     variant_attributes(derive(Clone, Debug, PartialEq),),
+    map_into(ExecutionPayload),
     map_ref_into(ExecutionPayloadRef),
     cast_error(ty = "Error", expr = "Error::IncorrectStateVariant"),
     partial_getter_error(ty = "Error", expr = "Error::IncorrectStateVariant")
@@ -341,6 +342,14 @@ impl<'a, T: EthSpec> From<GetPayloadResponseRef<'a, T>> for ExecutionPayloadRef<
     fn from(response: GetPayloadResponseRef<'a, T>) -> Self {
         map_get_payload_response_ref_into_execution_payload_ref!(&'a _, response, |inner, cons| {
             cons(&inner.execution_payload)
+        })
+    }
+}
+
+impl<T: EthSpec> From<GetPayloadResponse<T>> for ExecutionPayload<T> {
+    fn from(response: GetPayloadResponse<T>) -> Self {
+        map_get_payload_response_into_execution_payload!(response, |inner, cons| {
+            cons(inner.execution_payload)
         })
     }
 }

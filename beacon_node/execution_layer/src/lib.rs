@@ -1131,7 +1131,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                     engine.api.get_payload::<T>(current_fork, payload_id).await
                 };
                 let (blob, payload_response) = tokio::join!(blob_fut, payload_fut);
-                let (payload, block_value) = payload_response.map(|payload_response| {
+                let (execution_payload, block_value) = payload_response.map(|payload_response| {
                     if payload_response.execution_payload_ref().fee_recipient() != payload_attributes.suggested_fee_recipient() {
                         error!(
                             self.log(),
@@ -1153,19 +1153,18 @@ impl<T: EthSpec> ExecutionLayer<T> {
                         );
                     }
                     payload_response.into()
-                })
-                    .map(|(execution_payload, block_value)| (execution_payload.into(), block_value))?;
+                })?;
                 if let Some(blob) = blob.transpose()? {
                     // FIXME(sean) cache blobs
                     Ok(BlockProposalContents::PayloadAndBlobs {
-                        payload,
+                        payload: execution_payload.into(),
                         block_value,
                         blobs: blob.blobs,
                         kzg_commitments: blob.kzgs,
                     })
                 } else {
                     Ok(BlockProposalContents::Payload {
-                        payload,
+                        payload: execution_payload.into(),
                         block_value,
                     })
                 }

@@ -1673,10 +1673,11 @@ mod test {
                     }
                 })],
                 |client| async move {
-                    let payload = client
+                    let payload: ExecutionPayload<_> = client
                         .get_payload_v1::<MainnetEthSpec>(str_to_payload_id("0xa247243752eb10b4"))
                         .await
-                        .unwrap();
+                        .unwrap()
+                        .into();
 
                     let expected = ExecutionPayload::Merge(ExecutionPayloadMerge {
                             parent_hash: ExecutionBlockHash::from_str("0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a").unwrap(),
