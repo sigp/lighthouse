@@ -1,4 +1,4 @@
-use crate::test_utils::DEFAULT_JWT_SECRET;
+use crate::test_utils::{DEFAULT_BUILDER_PAYLOAD_VALUE_WEI, DEFAULT_JWT_SECRET};
 use crate::{Config, ExecutionLayer, PayloadAttributes};
 use async_trait::async_trait;
 use eth2::types::{BlockId, StateId, ValidatorId};
@@ -328,7 +328,7 @@ impl<E: EthSpec> mev_build_rs::BlindedBlockProvider for MockBuilder<E> {
 
         let mut message = BuilderBid {
             header,
-            value: ssz_rs::U256::default(),
+            value: to_ssz_rs(&Uint256::from(DEFAULT_BUILDER_PAYLOAD_VALUE_WEI))?,
             public_key: self.builder_sk.public_key(),
         };
 

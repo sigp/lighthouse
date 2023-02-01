@@ -1,6 +1,7 @@
 use super::Context;
 use crate::engine_api::{http::*, *};
 use crate::json_structures::*;
+use crate::test_utils::DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI;
 use serde::de::DeserializeOwned;
 use serde_json::Value as JsonValue;
 use std::sync::Arc;
@@ -211,14 +212,14 @@ pub async fn handle_rpc<T: EthSpec>(
                     JsonExecutionPayload::V1(execution_payload) => {
                         serde_json::to_value(JsonGetPayloadResponseV1 {
                             execution_payload,
-                            block_value: 0.into(),
+                            block_value: DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI.into(),
                         })
                         .unwrap()
                     }
                     JsonExecutionPayload::V2(execution_payload) => {
                         serde_json::to_value(JsonGetPayloadResponseV2 {
                             execution_payload,
-                            block_value: 0.into(),
+                            block_value: DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI.into(),
                         })
                         .unwrap()
                     }
