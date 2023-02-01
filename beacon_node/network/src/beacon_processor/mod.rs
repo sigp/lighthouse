@@ -1477,10 +1477,6 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                     chain_segment_queue.len() as i64,
                 );
                 metrics::set_gauge(
-                    &metrics::BEACON_PROCESSOR_BACKFILL_CHAIN_SEGMENT_QUEUE_TOTAL,
-                    backfill_chain_segment.len() as i64,
-                );
-                metrics::set_gauge(
                     &metrics::BEACON_PROCESSOR_EXIT_QUEUE_TOTAL,
                     gossip_voluntary_exit_queue.len() as i64,
                 );

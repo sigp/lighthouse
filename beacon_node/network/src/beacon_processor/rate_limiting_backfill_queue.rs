@@ -8,6 +8,7 @@ use slot_clock::SlotClock;
 use task_executor::TaskExecutor;
 
 use crate::beacon_processor::{WorkEvent, MAX_SCHEDULED_WORK_QUEUE_LEN};
+use crate::metrics;
 
 pub fn spawn_backfill_scheduler<T: BeaconChainTypes>(
     schedule_work_tx: Sender<WorkEvent<T>>,
@@ -35,6 +36,14 @@ pub fn spawn_backfill_scheduler<T: BeaconChainTypes>(
                     }
                 }
 
+                let backfill_queue_total =
+                    &backfill_work_tx.max_capacity() - &backfill_work_tx.capacity();
+
+                metrics::set_gauge(
+                    &metrics::BEACON_PROCESSOR_BACKFILL_CHAIN_SEGMENT_QUEUE_TOTAL,
+                    backfill_queue_total as i64,
+                );
+
                 let slot_duration = slot_clock.slot_duration();
 
                 if let Some(duration_to_next_slot) = slot_clock.duration_to_next_slot() {
@@ -44,7 +53,7 @@ pub fn spawn_backfill_scheduler<T: BeaconChainTypes>(
                 } else {
                     // Just sleep for one slot if we are unable to read the system clock, this gives
                     // us an opportunity for the clock to eventually come good.
-                    sleep(slot_clock.slot_duration()).await;
+                    sleep(slot_duration).await;
                 }
                 // TODO: finish loop when backfill sync is completed
             }
