@@ -9,33 +9,25 @@ use task_executor::TaskExecutor;
 
 use crate::beacon_processor::{WorkEvent, MAX_SCHEDULED_WORK_QUEUE_LEN};
 
-pub enum ScheduledWork<T: BeaconChainTypes> {
-    BackfillSync(WorkEvent<T>),
-}
-
-pub fn spawn_rate_limiting_scheduler<T: BeaconChainTypes>(
-    schedule_work_tx: Sender<ScheduledWork<T>>,
+pub fn spawn_backfill_scheduler<T: BeaconChainTypes>(
+    schedule_work_tx: Sender<WorkEvent<T>>,
     executor: &TaskExecutor,
     slot_clock: T::SlotClock,
     log: Logger,
 ) -> Sender<WorkEvent<T>> {
-    let (work_rate_limiting_tx, mut work_rate_limiting_rx) =
+    let (backfill_work_tx, mut backfill_work_rx) =
         mpsc::channel::<WorkEvent<T>>(MAX_SCHEDULED_WORK_QUEUE_LEN);
 
-    // FIXME(jimmy): this impl is not as generic/flexible as the module name suggested
     executor.spawn(
         async move {
             loop {
-                if let Some(event) = work_rate_limiting_rx.recv().await {
+                if let Some(event) = backfill_work_rx.recv().await {
                     debug!(
                         log,
                         "Sending scheduled backfill work event to BeaconProcessor"
                     );
 
-                    if schedule_work_tx
-                        .try_send(ScheduledWork::BackfillSync(event))
-                        .is_err()
-                    {
+                    if schedule_work_tx.try_send(event).is_err() {
                         error!(
                             log,
                             "Failed to send scheduled backfill work event";
@@ -57,8 +49,8 @@ pub fn spawn_rate_limiting_scheduler<T: BeaconChainTypes>(
                 // TODO: finish loop when backfill sync is completed
             }
         },
-        "rate_limiting_scheduler",
+        "backfill_scheduler",
     );
 
-    work_rate_limiting_tx
+    backfill_work_tx
 }
