@@ -1,7 +1,10 @@
-#![cfg(feature = "ef_tests")]
+// #![cfg(feature = "ef_tests")]
 
 use ef_tests::*;
 use types::*;
+
+const CONSENSUS_SPEC_TESTS: &str = "consensus-spec-tests";
+const CUSTOM_FC_TESTS: &str = "custom-fc-tests";
 
 // Check that the hand-computed multiplications on EthSpec are correctly computed.
 // This test lives here because one is most likely to muck these up during a spec update.
@@ -424,29 +427,40 @@ fn finality() {
     FinalityHandler::<MainnetEthSpec>::default().run();
 }
 
-#[test]
-fn fork_choice_get_head() {
-    ForkChoiceHandler::<MinimalEthSpec>::new("get_head").run();
-    ForkChoiceHandler::<MainnetEthSpec>::new("get_head").run();
+macro_rules! fork_choice_tests {
+    ($mod: ident, $tests_dir: ident) => {
+        mod $mod {
+            use super::*;
+
+            #[test]
+            fn fork_choice_get_head() {
+                ForkChoiceHandler::<MinimalEthSpec>::new($tests_dir, "get_head").run();
+                ForkChoiceHandler::<MainnetEthSpec>::new($tests_dir, "get_head").run();
+            }
+
+            #[test]
+            fn fork_choice_on_block() {
+                ForkChoiceHandler::<MinimalEthSpec>::new($tests_dir, "on_block").run();
+                ForkChoiceHandler::<MainnetEthSpec>::new($tests_dir, "on_block").run();
+            }
+
+            #[test]
+            fn fork_choice_on_merge_block() {
+                ForkChoiceHandler::<MinimalEthSpec>::new($tests_dir, "on_merge_block").run();
+                ForkChoiceHandler::<MainnetEthSpec>::new($tests_dir, "on_merge_block").run();
+            }
+
+            #[test]
+            fn fork_choice_ex_ante() {
+                ForkChoiceHandler::<MinimalEthSpec>::new($tests_dir, "ex_ante").run();
+                ForkChoiceHandler::<MainnetEthSpec>::new($tests_dir, "ex_ante").run();
+            }
+        }
+    };
 }
 
-#[test]
-fn fork_choice_on_block() {
-    ForkChoiceHandler::<MinimalEthSpec>::new("on_block").run();
-    ForkChoiceHandler::<MainnetEthSpec>::new("on_block").run();
-}
-
-#[test]
-fn fork_choice_on_merge_block() {
-    ForkChoiceHandler::<MinimalEthSpec>::new("on_merge_block").run();
-    ForkChoiceHandler::<MainnetEthSpec>::new("on_merge_block").run();
-}
-
-#[test]
-fn fork_choice_ex_ante() {
-    ForkChoiceHandler::<MinimalEthSpec>::new("ex_ante").run();
-    ForkChoiceHandler::<MainnetEthSpec>::new("ex_ante").run();
-}
+fork_choice_tests!(fork_choice_standard, CONSENSUS_SPEC_TESTS);
+fork_choice_tests!(fork_choice_custom, CUSTOM_FC_TESTS);
 
 #[test]
 fn optimistic_sync() {

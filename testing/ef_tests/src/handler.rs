@@ -18,6 +18,10 @@ pub trait Handler {
 
     fn handler_name(&self) -> String;
 
+    fn tests_dir(&self) -> String {
+        "consensus-spec-tests".to_string()
+    }
+
     fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
         Self::Case::is_enabled_for_fork(fork_name)
     }
@@ -38,7 +42,7 @@ pub trait Handler {
         let fork_name_str = fork_name.to_string();
 
         let handler_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("consensus-spec-tests")
+            .join(&self.tests_dir())
             .join("tests")
             .join(Self::config_name())
             .join(&fork_name_str)
@@ -499,13 +503,15 @@ impl<E: EthSpec + TypeName> Handler for FinalityHandler<E> {
 }
 
 pub struct ForkChoiceHandler<E> {
+    tests_dir: String,
     handler_name: String,
     _phantom: PhantomData<E>,
 }
 
 impl<E: EthSpec> ForkChoiceHandler<E> {
-    pub fn new(handler_name: &str) -> Self {
+    pub fn new(tests_dir: &str, handler_name: &str) -> Self {
         Self {
+            tests_dir: tests_dir.into(),
             handler_name: handler_name.into(),
             _phantom: PhantomData,
         }
@@ -521,6 +527,10 @@ impl<E: EthSpec + TypeName> Handler for ForkChoiceHandler<E> {
 
     fn runner_name() -> &'static str {
         "fork_choice"
+    }
+
+    fn tests_dir(&self) -> String {
+        self.tests_dir.clone()
     }
 
     fn handler_name(&self) -> String {
