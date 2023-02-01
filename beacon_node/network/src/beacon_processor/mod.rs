@@ -962,9 +962,7 @@ impl<T: BeaconChainTypes> Stream for InboundEvents<T> {
         // Check the backfill queue once all other queues are depleted
         match self.scheduled_backfill_work_rx.poll_recv(cx) {
             Poll::Ready(Some(scheduled_work)) => {
-                return Poll::Ready(Some(InboundEvent::ScheduledBackfillWork(
-                    scheduled_work.into(),
-                )));
+                return Poll::Ready(Some(InboundEvent::ScheduledBackfillWork(scheduled_work)));
             }
             Poll::Ready(None) => {
                 return Poll::Ready(None);
