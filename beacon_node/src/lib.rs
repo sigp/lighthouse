@@ -64,7 +64,7 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
         let _datadir = client_config.create_data_dir()?;
         let db_path = client_config.create_db_path()?;
         let freezer_db_path = client_config.create_freezer_db_path()?;
-        let blobs_freezer_db_path = client_config.create_blobs_freezer_db_path()?;
+        let blobs_db_path = client_config.create_blobs_db_path()?;
         let executor = context.executor.clone();
 
         if let Some(legacy_dir) = client_config.get_existing_legacy_data_dir() {
@@ -88,7 +88,7 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
             .disk_store(
                 &db_path,
                 &freezer_db_path,
-                blobs_freezer_db_path,
+                blobs_db_path,
                 store_config,
                 log.clone(),
             )?;

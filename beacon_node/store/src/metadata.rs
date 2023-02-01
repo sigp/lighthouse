@@ -124,6 +124,8 @@ impl StoreItem for AnchorInfo {
 pub struct BlobInfo {
     /// The slot after which blobs are available (>=).
     pub oldest_blob_slot: Option<Slot>,
+    /// A separate blobs database is in use.
+    pub blobs_db: bool,
 }
 
 impl StoreItem for BlobInfo {

@@ -1072,7 +1072,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         block_root: &Hash256,
         data_availability_boundary: Epoch,
     ) -> Result<Option<BlobsSidecar<T::EthSpec>>, Error> {
-        match self.store.get_blobs(block_root, slot)? {
+        match self.store.get_blobs(block_root)? {
             Some(blobs) => Ok(Some(blobs)),
             None => {
                 // Check for the corresponding block to understand whether we *should* have blobs.
@@ -3021,6 +3021,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         ops.push(StoreOp::PutBlock(block_root, signed_block.clone()));
         ops.push(StoreOp::PutState(block.state_root(), &state));
 
+<<<<<<< HEAD
         // Only consider blobs if the eip4844 fork is enabled.
         if let Some(data_availability_boundary) = self.data_availability_boundary() {
             let block_epoch = block.slot().epoch(T::EthSpec::slots_per_epoch());
@@ -3040,6 +3041,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         ops.push(StoreOp::PutBlobs(block_root, blobs));
                     }
                 }
+=======
+        if let Some(blobs) = blobs {
+            if blobs.blobs.len() > 0 {
+                //FIXME(sean) using this for debugging for now
+                info!(self.log, "Writing blobs to store"; "block_root" => ?block_root);
+                self.store.put_blobs(&block_root, (&*blobs).clone())?;
+>>>>>>> 43dc3a9a4 (Fix rebase conflicts)
             }
         }
 

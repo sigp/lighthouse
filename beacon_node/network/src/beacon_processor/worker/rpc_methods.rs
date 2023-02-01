@@ -795,14 +795,12 @@ impl<T: BeaconChainTypes> Worker<T> {
         // remove all skip slots
         let block_roots = block_roots.into_iter().flatten().collect::<Vec<_>>();
 
-        let mut slot_hint: Option<Slot> = None;
         let mut blobs_sent = 0;
         let mut send_response = true;
 
         for root in block_roots {
             match self.chain.get_blobs(&root, data_availability_boundary) {
                 Ok(Some(blobs)) => {
-                    slot_hint = Some(blobs.beacon_block_slot + 1);
                     blobs_sent += 1;
                     self.send_network_message(NetworkMessage::SendResponse {
                         peer_id,
