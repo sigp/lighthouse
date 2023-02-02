@@ -14,6 +14,7 @@ use libp2p::swarm::{
 use libp2p::PeerId;
 use rate_limiter::{RPCRateLimiter as RateLimiter, RPCRateLimiterBuilder, RateLimitedErr};
 use slog::{crit, debug, o};
+use std::collections::hash_map::Entry;
 use std::collections::{HashMap, VecDeque};
 use std::marker::PhantomData;
 use std::sync::Arc;
@@ -194,7 +195,7 @@ impl<Id: ReqId, TSpec: EthSpec> RPC<Id, TSpec> {
         let protocol = req.protocol();
         if let Some(queued_requests) = self.rate_limited_requests.get_mut(&(peer_id, protocol)) {
             queued_requests.push_back(QueuedRequest { req, request_id });
-            // TODO: verify rate_limited_requests and next_peer_request are in sync
+
             return;
         }
         match Self::try_send_request(&mut self.self_limiter, peer_id, request_id, req, &self.log) {
@@ -250,8 +251,11 @@ impl<Id: ReqId, TSpec: EthSpec> RPC<Id, TSpec> {
         }
     }
 
-    fn send_rate_limited_request(&mut self, peer_id: PeerId, protocol: Protocol) {
-        if let Some(queued_requests) = self.rate_limited_requests.get_mut(&(peer_id, protocol)) {
+    /// Checks the queued requests for this peer and protocol and sends as many as the self rate
+    /// limiter allows.
+    fn send_rate_limited_requests(&mut self, peer_id: PeerId, protocol: Protocol) {
+        if let Entry::Occupied(mut entry) = self.rate_limited_requests.entry((peer_id, protocol)) {
+            let queued_requests = entry.get_mut();
             while let Some(QueuedRequest { req, request_id }) = queued_requests.pop_front() {
                 match Self::try_send_request(
                     &mut self.self_limiter,
@@ -264,9 +268,15 @@ impl<Id: ReqId, TSpec: EthSpec> RPC<Id, TSpec> {
                         let key = (peer_id, protocol);
                         self.next_peer_request.insert(key, wait_time);
                         queued_requests.push_back(rate_limited_req);
+                        // If one fails just wait for the next windows that allows sending
+                        // requests.
+                        return;
                     }
                     Ok(event) => self.events.push(event),
                 }
+            }
+            if queued_requests.is_empty() {
+                entry.remove();
             }
         }
     }
@@ -373,14 +383,17 @@ where
         cx: &mut Context,
         _: &mut impl PollParameters,
     ) -> Poll<NetworkBehaviourAction<Self::OutEvent, Self::ConnectionHandler>> {
-        // let the rate limiter prune
+        // let the rate limiter prune.
         let _ = self.limiter.poll_unpin(cx);
-        if !self.events.is_empty() {
-            return Poll::Ready(self.events.remove(0));
-        }
+        // self rate limiter needs to be prunned as well.
+        let _ = self.self_limiter.poll_unpin(cx);
         if let Poll::Ready(Some(Ok(expired))) = self.next_peer_request.poll_expired(cx) {
             let (peer_id, protocol) = expired.into_inner();
-            self.send_rate_limited_request(peer_id, protocol)
+            self.send_rate_limited_requests(peer_id, protocol)
+        }
+
+        if !self.events.is_empty() {
+            return Poll::Ready(self.events.remove(0));
         }
         Poll::Pending
     }
