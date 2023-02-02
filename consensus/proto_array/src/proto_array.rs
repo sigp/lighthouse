@@ -103,6 +103,22 @@ pub struct ProtoNode {
     pub unrealized_finalized_checkpoint: Option<Checkpoint>,
 }
 
+impl ProtoNode {
+    fn voting_source(&self, current_epoch: Epoch, slots_per_epoch: u64) -> Option<Checkpoint> {
+        let node_epoch = self.slot.epoch(slots_per_epoch);
+        if current_epoch > node_epoch {
+            self.unrealized_justified_checkpoint
+                .or(self.justified_checkpoint)
+        } else {
+            self.justified_checkpoint
+        }
+    }
+
+    fn unrealized_justification(&self) -> Option<Checkpoint> {
+        unimplemented!()
+    }
+}
+
 #[derive(PartialEq, Debug, Encode, Decode, Serialize, Deserialize, Copy, Clone)]
 pub struct ProposerBoost {
     pub root: Hash256,
@@ -900,7 +916,33 @@ impl ProtoArray {
         }
 
         let genesis_epoch = Epoch::new(0);
+        let current_epoch = current_slot.epoch(E::slots_per_epoch());
+        let voting_source =
+            if let Some(checkpoint) = node.voting_source(current_epoch, E::slots_per_epoch()) {
+                checkpoint
+            } else {
+                // The node does not have any information about the
+                // justified/finalized checkpoint. This indicates an inconsistent
+                // proto-array.
+                return false;
+            };
 
+        let mut correct_justified = self.justified_checkpoint.epoch == genesis_epoch
+            || voting_source.epoch == self.justified_checkpoint.epoch;
+
+        if let Some(unrealized_justification) = node
+            .unrealized_justification()
+            .filter(|_| !correct_justified)
+        {
+            correct_justified = unrealized_justification.epoch >= self.justified_checkpoint.epoch
+                && voting_source.epoch + 2 >= current_epoch;
+        }
+
+        // TODO: finalized_checkpoint.
+        let correct_finalized = true;
+
+        correct_justified && correct_finalized
+        /*
         let checkpoint_match_predicate =
             |node_justified_checkpoint: Checkpoint, node_finalized_checkpoint: Checkpoint| {
                 let correct_justified = node_justified_checkpoint == self.justified_checkpoint
@@ -949,6 +991,7 @@ impl ProtoArray {
         } else {
             false
         }
+        */
     }
 
     /// Return a reverse iterator over the nodes which comprise the chain ending at `block_root`.
