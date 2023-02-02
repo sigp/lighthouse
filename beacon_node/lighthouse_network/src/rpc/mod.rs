@@ -211,8 +211,9 @@ impl<Id: ReqId, TSpec: EthSpec> RPC<Id, TSpec> {
         }
     }
 
-    /// Tries to send a request to a peer checking the rate limiter. Returns whether the request
-    /// was sent or not. If not, returns the request and the time before it can be tried again.
+    /// Auxiliary function to deal with self rate limiting outcomes. If the rate limiter allows the
+    /// request, the [`NetworkBehaviourAction`] that should be emitted is returned. If the request
+    /// should be delayed, it's returned with the duration to wait.
     fn try_send_request(
         self_rate_limiter: &mut RateLimiter,
         peer_id: PeerId,
@@ -253,7 +254,7 @@ impl<Id: ReqId, TSpec: EthSpec> RPC<Id, TSpec> {
 
     /// Checks the queued requests for this peer and protocol and sends as many as the self rate
     /// limiter allows.
-    fn send_rate_limited_requests(&mut self, peer_id: PeerId, protocol: Protocol) {
+    fn next_peer_request_ready(&mut self, peer_id: PeerId, protocol: Protocol) {
         if let Entry::Occupied(mut entry) = self.rate_limited_requests.entry((peer_id, protocol)) {
             let queued_requests = entry.get_mut();
             while let Some(QueuedRequest { req, request_id }) = queued_requests.pop_front() {
@@ -383,14 +384,18 @@ where
         cx: &mut Context,
         _: &mut impl PollParameters,
     ) -> Poll<NetworkBehaviourAction<Self::OutEvent, Self::ConnectionHandler>> {
+        // First check the requests that were self rate limited, since those might add events to
+        // the queue. Also do this this before rate limiter prunning to avoid removing and
+        // immediately adding rate limiting keys.
+        if let Poll::Ready(Some(Ok(expired))) = self.next_peer_request.poll_expired(cx) {
+            let (peer_id, protocol) = expired.into_inner();
+            self.next_peer_request_ready(peer_id, protocol)
+        }
+
         // let the rate limiter prune.
         let _ = self.limiter.poll_unpin(cx);
         // self rate limiter needs to be prunned as well.
         let _ = self.self_limiter.poll_unpin(cx);
-        if let Poll::Ready(Some(Ok(expired))) = self.next_peer_request.poll_expired(cx) {
-            let (peer_id, protocol) = expired.into_inner();
-            self.send_rate_limited_requests(peer_id, protocol)
-        }
 
         if !self.events.is_empty() {
             return Poll::Ready(self.events.remove(0));
