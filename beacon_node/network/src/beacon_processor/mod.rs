@@ -1120,14 +1120,6 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                                 "error" => %e
                             )
                         }
-
-                        let backfill_queue_total =
-                            backfill_work_tx.max_capacity() - backfill_work_tx.capacity();
-                        metrics::set_gauge(
-                            &metrics::BEACON_PROCESSOR_BACKFILL_CHAIN_SEGMENT_QUEUE_TOTAL,
-                            backfill_queue_total as i64,
-                        );
-
                         continue;
                     }
                     Some(InboundEvent::WorkEvent(event))
@@ -1489,6 +1481,16 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                 metrics::set_gauge(
                     &metrics::BEACON_PROCESSOR_CHAIN_SEGMENT_QUEUE_TOTAL,
                     chain_segment_queue.len() as i64,
+                );
+                let backfill_queue_total =
+                    if let Some(backfill_work_tx) = maybe_backfill_work_tx.clone() {
+                        (backfill_work_tx.max_capacity() - backfill_work_tx.capacity()) as i64
+                    } else {
+                        backfill_chain_segment.len()
+                    };
+                metrics::set_gauge(
+                    &metrics::BEACON_PROCESSOR_BACKFILL_CHAIN_SEGMENT_QUEUE_TOTAL,
+                    backfill_queue_total as i64,
                 );
                 metrics::set_gauge(
                     &metrics::BEACON_PROCESSOR_EXIT_QUEUE_TOTAL,
