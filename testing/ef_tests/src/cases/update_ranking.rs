@@ -36,7 +36,7 @@ impl<E: EthSpec> LoadCase for UpdateRanking<E> {
             .map(|i| {
                 let filename = format!("updates_{}.ssz_snappy", i);
                 ssz_decode_file_with(&path.join(filename), |bytes| {
-                    LightClientUpdate::from_ssz_bytes(&bytes)
+                    LightClientUpdate::from_ssz_bytes(bytes)
                 })
             })
             .collect::<Result<Vec<_>, _>>()?;
