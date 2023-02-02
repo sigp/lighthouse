@@ -404,12 +404,12 @@ impl<T: EthSpec> ExecutionLayer<T> {
         &self.inner.builder
     }
 
-    /// Cache a full payload, keyed on the `tree_hash_root` of its `transactions` field.
+    /// Cache a full payload, keyed on the `tree_hash_root` of the payload
     fn cache_payload(&self, payload: ExecutionPayloadRef<T>) -> Option<ExecutionPayload<T>> {
         self.inner.payload_cache.put(payload.clone_from_ref())
     }
 
-    /// Attempt to retrieve a full payload from the payload cache by the `transactions_root`.
+    /// Attempt to retrieve a full payload from the payload cache by the payload root
     pub fn get_payload_by_root(&self, root: &Hash256) -> Option<ExecutionPayload<T>> {
         self.inner.payload_cache.pop(root)
     }
