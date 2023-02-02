@@ -23,8 +23,8 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
 use types::{
-    Attestation, AttesterSlashing, EthSpec, MainnetEthSpec, ProposerSlashing, SignedBeaconBlock,
-    SignedVoluntaryExit, SubnetId,
+    Attestation, AttesterSlashing, Epoch, EthSpec, MainnetEthSpec, ProposerSlashing,
+    SignedBeaconBlock, SignedVoluntaryExit, SubnetId,
 };
 
 type E = MainnetEthSpec;
@@ -258,6 +258,14 @@ impl TestRig {
             self.next_block.clone(),
             std::time::Duration::default(),
             BlockProcessType::SingleBlock { id: 1 },
+        );
+        self.beacon_processor_tx.try_send(event).unwrap();
+    }
+
+    pub fn enqueue_backfill_batch(&self) {
+        let event = WorkEvent::chain_segment(
+            ChainSegmentProcessId::BackSyncBatchId(Epoch::default()),
+            Vec::default(),
         );
         self.beacon_processor_tx.try_send(event).unwrap();
     }
@@ -873,4 +881,30 @@ async fn test_rpc_block_reprocessing() {
     // head should update to next block now since the duplicate
     // cache handle was dropped.
     assert_eq!(next_block_root, rig.head_root());
+}
+
+/// Ensure that backfill batches gets rate-limited and processing is scheduled at specified intervals.
+#[tokio::test]
+async fn test_backfill_sync_processing() {
+    let mut rig = TestRig::new(SMALL_CHAIN).await;
+
+    for _ in 0..3 {
+        rig.enqueue_backfill_batch();
+    }
+
+    // only the first batch is processed
+    rig.assert_event_journal(&[CHAIN_SEGMENT, WORKER_FREED, NOTHING_TO_DO])
+        .await;
+
+    // TODO: read/compute interval from config
+    let slot_duration = rig.chain.slot_clock.slot_duration().as_secs();
+
+    // The 2nd & 3rd batches should arrive at the beacon processor after the scheduled intervals
+    tokio::time::sleep(Duration::from_secs(slot_duration)).await;
+    rig.assert_event_journal(&[CHAIN_SEGMENT, WORKER_FREED, NOTHING_TO_DO])
+        .await;
+
+    tokio::time::sleep(Duration::from_secs(slot_duration)).await;
+    rig.assert_event_journal(&[CHAIN_SEGMENT, WORKER_FREED, NOTHING_TO_DO])
+        .await;
 }
