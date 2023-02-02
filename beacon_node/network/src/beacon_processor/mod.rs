@@ -1484,7 +1484,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                 );
                 let backfill_queue_total =
                     if let Some(backfill_work_tx) = maybe_backfill_work_tx.clone() {
-                        (backfill_work_tx.max_capacity() - backfill_work_tx.capacity()) as i64
+                        backfill_work_tx.max_capacity() - backfill_work_tx.capacity()
                     } else {
                         backfill_chain_segment.len()
                     };
