@@ -17,11 +17,13 @@ use types::consts::altair::WEIGHT_DENOMINATOR;
 
 use types::{Epoch, EthSpec};
 
+use eth2::types::ValidatorId;
+
 impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn compute_attestation_rewards(
         &self,
         epoch: Epoch,
-        mut validators: Vec<usize>,
+        validators: Vec<ValidatorId>,
         log: Logger,
     ) -> Result<StandardAttestationRewards, BeaconChainError> {
         debug!(log, "computing attestation rewards"; "epoch" => epoch, "validator_count" => validators.len());
@@ -35,7 +37,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .state_root_at_slot(state_slot)?
             .ok_or(BeaconChainError::UnableToFindTargetRoot(state_slot))?;
 
-        let state = self
+        let mut state = self
             .get_state(&state_root, Some(state_slot))?
             .ok_or(BeaconChainError::MissingBeaconState(state_root))?;
 
@@ -94,9 +96,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Calculate total_rewards
         let mut total_rewards: Vec<TotalAttestationRewards> = Vec::new();
 
-        if validators.is_empty() {
-            validators = participation_cache.eligible_validator_indices().to_vec();
-        }
+        let validators = if validators.is_empty() {
+            participation_cache.eligible_validator_indices().to_vec()
+        } else {
+            validators
+                .into_iter()
+                .filter_map(|validator| match validator {
+                    ValidatorId::Index(i) => Some(i as usize),
+                    ValidatorId::PublicKey(pubkey) => match state.get_validator_index(&pubkey) {
+                        Ok(Some(i)) => Some(i as usize),
+                        _ => None,
+                    },
+                })
+                .collect::<Vec<usize>>()
+        };
 
         for validator_index in &validators {
             let eligible = state.is_eligible_validator(previous_epoch, *validator_index)?;
@@ -135,13 +148,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         source_reward = *penalty;
                     }
                 }
-            } else {
-                total_rewards.push(TotalAttestationRewards {
-                    validator_index: *validator_index as u64,
-                    head: 0,
-                    target: 0,
-                    source: 0,
-                });
             }
             total_rewards.push(TotalAttestationRewards {
                 validator_index: *validator_index as u64,
