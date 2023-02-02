@@ -104,7 +104,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .filter_map(|validator| match validator {
                     ValidatorId::Index(i) => Some(i as usize),
                     ValidatorId::PublicKey(pubkey) => match state.get_validator_index(&pubkey) {
-                        Ok(Some(i)) => Some(i as usize),
+                        Ok(Some(i)) => Some(i),
                         _ => None,
                     },
                 })
