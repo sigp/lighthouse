@@ -9,7 +9,7 @@ use crate::{service::NetworkMessage, sync::SyncMessage};
 use beacon_chain::test_utils::{
     AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
 };
-use beacon_chain::{BeaconChain, MAXIMUM_GOSSIP_CLOCK_DISPARITY};
+use beacon_chain::{BeaconChain, ChainConfig, MAXIMUM_GOSSIP_CLOCK_DISPARITY};
 use lighthouse_network::{
     discv5::enr::{CombinedKey, EnrBuilder},
     rpc::methods::{MetaData, MetaDataV2},
@@ -71,6 +71,10 @@ impl Drop for TestRig {
 
 impl TestRig {
     pub async fn new(chain_length: u64) -> Self {
+        Self::new_with_chain_config(chain_length, ChainConfig::default()).await
+    }
+
+    pub async fn new_with_chain_config(chain_length: u64, chain_config: ChainConfig) -> Self {
         // This allows for testing voluntary exits without building out a massive chain.
         let mut spec = E::default_spec();
         spec.shard_committee_period = 2;
@@ -79,6 +83,7 @@ impl TestRig {
             .spec(spec)
             .deterministic_keypairs(VALIDATOR_COUNT)
             .fresh_ephemeral_store()
+            .chain_config(chain_config)
             .build();
 
         harness.advance_slot();
@@ -907,4 +912,28 @@ async fn test_backfill_sync_processing() {
     tokio::time::sleep(Duration::from_secs(slot_duration)).await;
     rig.assert_event_journal(&[CHAIN_SEGMENT, WORKER_FREED, NOTHING_TO_DO])
         .await;
+}
+
+/// Ensure that backfill batches get processed as fast as they can when rate-limiting is disabled.
+#[tokio::test]
+async fn test_backfill_sync_processing_rate_limiting_disabled() {
+    let chain_config = ChainConfig {
+        disable_backfill_rate_limiting: true,
+        ..Default::default()
+    };
+    let mut rig = TestRig::new_with_chain_config(SMALL_CHAIN, chain_config).await;
+
+    for _ in 0..3 {
+        rig.enqueue_backfill_batch();
+    }
+
+    // ensure all batches are processed
+    rig.assert_event_journal(&[
+        CHAIN_SEGMENT,
+        CHAIN_SEGMENT,
+        CHAIN_SEGMENT,
+        WORKER_FREED,
+        NOTHING_TO_DO,
+    ])
+    .await;
 }

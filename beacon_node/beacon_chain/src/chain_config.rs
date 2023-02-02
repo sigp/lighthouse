@@ -67,6 +67,8 @@ pub struct ChainConfig {
     pub prepare_payload_lookahead: Duration,
     /// Use EL-free optimistic sync for the finalized part of the chain.
     pub optimistic_finalized_sync: bool,
+    /// Whether backfill sync rate-limiting is disabled.
+    pub disable_backfill_rate_limiting: bool,
 }
 
 impl Default for ChainConfig {
@@ -92,6 +94,7 @@ impl Default for ChainConfig {
             checkpoint_sync_url_timeout: 60,
             prepare_payload_lookahead: Duration::from_secs(4),
             optimistic_finalized_sync: true,
+            disable_backfill_rate_limiting: false,
         }
     }
 }

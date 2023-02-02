@@ -194,6 +194,12 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .help("Lighthouse by default does not discover private IP addresses. Set this flag to enable connection attempts to local addresses.")
                 .takes_value(false),
         )
+        .arg(
+            Arg::with_name("disable-backfill-rate-limiting")
+                .long("disable-backfill-rate-limiting")
+                .help("Disable the backfill sync rate-limiting. This allow users to just sync the entire chain as fast as they can.")
+                .takes_value(false),
+        )
         /* REST API related arguments */
         .arg(
             Arg::with_name("http")

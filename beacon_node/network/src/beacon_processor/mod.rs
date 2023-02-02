@@ -918,7 +918,7 @@ struct InboundEvents<T: BeaconChainTypes> {
     /// Used internally for queuing work ready to be re-processed.
     reprocess_work_rx: mpsc::Receiver<ReadyWork<T>>,
     /// Used internally for scheduling backfill work to be processed.
-    scheduled_backfill_work_rx: mpsc::Receiver<WorkEvent<T>>,
+    maybe_scheduled_backfill_work_rx: Option<mpsc::Receiver<WorkEvent<T>>>,
 }
 
 impl<T: BeaconChainTypes> Stream for InboundEvents<T> {
@@ -960,14 +960,16 @@ impl<T: BeaconChainTypes> Stream for InboundEvents<T> {
         }
 
         // Check the backfill queue once all other queues are depleted
-        match self.scheduled_backfill_work_rx.poll_recv(cx) {
-            Poll::Ready(Some(scheduled_work)) => {
-                return Poll::Ready(Some(InboundEvent::ScheduledBackfillWork(scheduled_work)));
+        if let Some(scheduled_backfill_work_rx) = self.maybe_scheduled_backfill_work_rx.as_mut() {
+            match scheduled_backfill_work_rx.poll_recv(cx) {
+                Poll::Ready(Some(scheduled_work)) => {
+                    return Poll::Ready(Some(InboundEvent::ScheduledBackfillWork(scheduled_work)));
+                }
+                Poll::Ready(None) => {
+                    return Poll::Ready(None);
+                }
+                Poll::Pending => {}
             }
-            Poll::Ready(None) => {
-                return Poll::Ready(None);
-            }
-            Poll::Pending => {}
         }
 
         Poll::Pending
@@ -1073,15 +1075,21 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
 
         // Channel for sending work to the backfill scheduler (`backfill_work_tx`) and to
         // receive them back once they are scheduled (`scheduled_backfill_work_rx`).
-        // TODO(jimmy): add option to disable rate-limiting
-        let (scheduled_backfill_work_tx, scheduled_backfill_work_rx) =
-            mpsc::channel(MAX_BACKFILL_WORK_QUEUE_LEN);
-        let backfill_work_tx = spawn_backfill_scheduler(
-            scheduled_backfill_work_tx,
-            &self.executor,
-            chain.slot_clock.clone(),
-            self.log.clone(),
-        );
+        let disable_backfill_rate_limiting = chain.config.disable_backfill_rate_limiting;
+        let (maybe_scheduled_backfill_work_rx, maybe_backfill_work_tx) =
+            if disable_backfill_rate_limiting {
+                (None, None)
+            } else {
+                let (scheduled_backfill_work_tx, scheduled_backfill_work_rx) =
+                    mpsc::channel(MAX_BACKFILL_WORK_QUEUE_LEN);
+                let backfill_work_tx = spawn_backfill_scheduler(
+                    scheduled_backfill_work_tx,
+                    &self.executor,
+                    chain.slot_clock.clone(),
+                    self.log.clone(),
+                );
+                (Some(scheduled_backfill_work_rx), Some(backfill_work_tx))
+            };
 
         let executor = self.executor.clone();
 
@@ -1092,7 +1100,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                 idle_rx,
                 event_rx,
                 reprocess_work_rx: ready_work_rx,
-                scheduled_backfill_work_rx,
+                maybe_scheduled_backfill_work_rx,
             };
 
             loop {
@@ -1101,7 +1109,10 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                         self.current_workers = self.current_workers.saturating_sub(1);
                         None
                     }
-                    Some(InboundEvent::WorkEvent(event)) if event.is_back_fill() => {
+                    Some(InboundEvent::WorkEvent(event))
+                        if maybe_backfill_work_tx.is_some() && event.is_back_fill() =>
+                    {
+                        let backfill_work_tx = maybe_backfill_work_tx.clone().unwrap();
                         if let Err(e) = backfill_work_tx.try_send(event) {
                             error!(
                                 self.log,
