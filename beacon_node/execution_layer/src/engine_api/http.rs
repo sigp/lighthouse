@@ -804,7 +804,7 @@ impl HttpJsonRpc {
     pub async fn get_payload_v1<T: EthSpec>(
         &self,
         payload_id: PayloadId,
-    ) -> Result<ExecutionPayload<T>, Error> {
+    ) -> Result<GetPayloadResponse<T>, Error> {
         let params = json!([JsonPayloadIdRequest::from(payload_id)]);
 
         let payload_v1: JsonExecutionPayloadV1<T> = self
@@ -815,7 +815,11 @@ impl HttpJsonRpc {
             )
             .await?;
 
-        Ok(JsonExecutionPayload::V1(payload_v1).into())
+        Ok(GetPayloadResponse::Merge(GetPayloadResponseMerge {
+            execution_payload: payload_v1.into(),
+            // Have to guess zero here as we don't know the value
+            block_value: Uint256::zero(),
+        }))
     }
 
     pub async fn get_payload_v2<T: EthSpec>(
@@ -1015,16 +1019,10 @@ impl HttpJsonRpc {
         &self,
         fork_name: ForkName,
         payload_id: PayloadId,
-    ) -> Result<ExecutionPayload<T>, Error> {
+    ) -> Result<GetPayloadResponse<T>, Error> {
         let engine_capabilities = self.get_engine_capabilities(None).await?;
         if engine_capabilities.get_payload_v2 {
-            // TODO: modify this method to return GetPayloadResponse instead
-            //       of throwing away the `block_value` and returning only the
-            //       ExecutionPayload
-            Ok(self
-                .get_payload_v2(fork_name, payload_id)
-                .await?
-                .execution_payload())
+            self.get_payload_v2(fork_name, payload_id).await
         } else if engine_capabilities.new_payload_v1 {
             self.get_payload_v1(payload_id).await
         } else {
@@ -1675,10 +1673,11 @@ mod test {
                     }
                 })],
                 |client| async move {
-                    let payload = client
+                    let payload: ExecutionPayload<_> = client
                         .get_payload_v1::<MainnetEthSpec>(str_to_payload_id("0xa247243752eb10b4"))
                         .await
-                        .unwrap();
+                        .unwrap()
+                        .into();
 
                     let expected = ExecutionPayload::Merge(ExecutionPayloadMerge {
                             parent_hash: ExecutionBlockHash::from_str("0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a").unwrap(),

@@ -87,6 +87,16 @@ pub struct ExecutionPayload<T: EthSpec> {
     pub withdrawals: Withdrawals<T>,
 }
 
+impl<'a, T: EthSpec> ExecutionPayloadRef<'a, T> {
+    // this emulates clone on a normal reference type
+    pub fn clone_from_ref(&self) -> ExecutionPayload<T> {
+        map_execution_payload_ref!(&'a _, self, move |payload, cons| {
+            cons(payload);
+            payload.clone().into()
+        })
+    }
+}
+
 impl<T: EthSpec> ExecutionPayload<T> {
     pub fn from_ssz_bytes(bytes: &[u8], fork_name: ForkName) -> Result<Self, ssz::DecodeError> {
         match fork_name {
