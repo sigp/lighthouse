@@ -16,7 +16,10 @@ where
     Hot: KeyValueStore<E> + ItemStore<E>,
     Cold: KeyValueStore<E> + ItemStore<E>,
 {
-    pub fn reconstruct_historic_states(self: &Arc<Self>) -> Result<(), Error> {
+    pub fn reconstruct_historic_states(
+        self: &Arc<Self>,
+        num_blocks: Option<usize>,
+    ) -> Result<(), Error> {
         let mut anchor = if let Some(anchor) = self.get_anchor_info() {
             anchor
         } else {
@@ -48,12 +51,15 @@ where
         // Use a dummy root, as we never read the block for the upper limit state.
         let upper_limit_block_root = Hash256::repeat_byte(0xff);
 
-        let block_root_iter = self.forwards_block_roots_iterator(
-            lower_limit_slot,
-            upper_limit_state,
-            upper_limit_block_root,
-            &self.spec,
-        )?;
+        // If `num_blocks` is not specified iterate all blocks.
+        let block_root_iter = self
+            .forwards_block_roots_iterator(
+                lower_limit_slot,
+                upper_limit_state,
+                upper_limit_block_root,
+                &self.spec,
+            )?
+            .take(num_blocks.unwrap_or(usize::MAX));
 
         // The state to be advanced.
         let mut state = self

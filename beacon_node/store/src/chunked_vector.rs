@@ -444,7 +444,10 @@ fn range_query<S: KeyValueStore<E>, E: EthSpec, T: Decode + Encode>(
 
     for chunk_index in range {
         let key = &chunk_key(chunk_index)[..];
-        let chunk = Chunk::load(store, column, key)?.ok_or(ChunkError::Missing { chunk_index })?;
+        let chunk = Chunk::load(store, column, key)?.ok_or(ChunkError::Missing {
+            column,
+            chunk_index,
+        })?;
         result.push(chunk);
     }
 
@@ -675,6 +678,7 @@ pub enum ChunkError {
         actual: usize,
     },
     Missing {
+        column: DBColumn,
         chunk_index: usize,
     },
     MissingGenesisValue,
