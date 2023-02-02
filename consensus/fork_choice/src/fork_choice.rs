@@ -653,58 +653,6 @@ where
         }
     }
 
-    /// Returns `true` if the given `store` should be updated to set
-    /// `state.current_justified_checkpoint` its `justified_checkpoint`.
-    ///
-    /// ## Specification
-    ///
-    /// Is equivalent to:
-    ///
-    /// https://github.com/ethereum/eth2.0-specs/blob/v0.12.1/specs/phase0/fork-choice.md#should_update_justified_checkpoint
-    fn should_update_justified_checkpoint(
-        &mut self,
-        new_justified_checkpoint: Checkpoint,
-        slots: UpdateJustifiedCheckpointSlots,
-        spec: &ChainSpec,
-    ) -> Result<bool, Error<T::Error>> {
-        self.update_time(slots.current_slot(), spec)?;
-
-        if compute_slots_since_epoch_start::<E>(self.fc_store.get_current_slot())
-            < spec.safe_slots_to_update_justified
-        {
-            return Ok(true);
-        }
-
-        let justified_slot =
-            compute_start_slot_at_epoch::<E>(self.fc_store.justified_checkpoint().epoch);
-
-        // This sanity check is not in the spec, but the invariant is implied.
-        if let Some(state_slot) = slots.state_slot() {
-            if justified_slot >= state_slot {
-                return Err(Error::AttemptToRevertJustification {
-                    store: justified_slot,
-                    state: state_slot,
-                });
-            }
-        }
-
-        // We know that the slot for `new_justified_checkpoint.root` is not greater than
-        // `state.slot`, since a state cannot justify its own slot.
-        //
-        // We know that `new_justified_checkpoint.root` is an ancestor of `state`, since a `state`
-        // only ever justifies ancestors.
-        //
-        // A prior `if` statement protects against a justified_slot that is greater than
-        // `state.slot`
-        let justified_ancestor =
-            self.get_ancestor(new_justified_checkpoint.root, justified_slot)?;
-        if justified_ancestor != Some(self.fc_store.justified_checkpoint().root) {
-            return Ok(false);
-        }
-
-        Ok(true)
-    }
-
     /// See `ProtoArrayForkChoice::process_execution_payload_validation` for documentation.
     pub fn on_valid_execution_payload(
         &mut self,
@@ -1006,23 +954,14 @@ where
     ) -> Result<(), Error<T::Error>> {
         // Update justified checkpoint.
         if justified_checkpoint.epoch > self.fc_store.justified_checkpoint().epoch {
-            if justified_checkpoint.epoch > self.fc_store.best_justified_checkpoint().epoch {
-                self.fc_store
-                    .set_best_justified_checkpoint(justified_checkpoint);
-            }
-            if self.should_update_justified_checkpoint(justified_checkpoint, slots, spec)? {
-                self.fc_store
-                    .set_justified_checkpoint(justified_checkpoint)
-                    .map_err(Error::UnableToSetJustifiedCheckpoint)?;
-            }
+            self.fc_store
+                .set_justified_checkpoint(justified_checkpoint)
+                .map_err(Error::UnableToSetJustifiedCheckpoint)?;
         }
 
         // Update finalized checkpoint.
         if finalized_checkpoint.epoch > self.fc_store.finalized_checkpoint().epoch {
             self.fc_store.set_finalized_checkpoint(finalized_checkpoint);
-            self.fc_store
-                .set_justified_checkpoint(justified_checkpoint)
-                .map_err(Error::UnableToSetJustifiedCheckpoint)?;
         }
         Ok(())
     }
