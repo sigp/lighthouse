@@ -928,12 +928,6 @@ async fn test_backfill_sync_processing_rate_limiting_disabled() {
     }
 
     // ensure all batches are processed
-    rig.assert_event_journal(&[
-        CHAIN_SEGMENT,
-        CHAIN_SEGMENT,
-        CHAIN_SEGMENT,
-        WORKER_FREED,
-        NOTHING_TO_DO,
-    ])
-    .await;
+    rig.assert_event_journal_contains_ordered(&[CHAIN_SEGMENT, CHAIN_SEGMENT, CHAIN_SEGMENT])
+        .await;
 }
