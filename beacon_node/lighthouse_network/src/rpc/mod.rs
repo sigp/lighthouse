@@ -35,7 +35,10 @@ pub use methods::{
 pub(crate) use outbound::OutboundRequest;
 pub use protocol::{max_rpc_size, Protocol, RPCError};
 
+use self::config::OutboundRateLimiterConfig;
+
 pub(crate) mod codec;
+mod config;
 mod handler;
 pub mod methods;
 mod outbound;
@@ -138,6 +141,7 @@ impl<Id: ReqId, TSpec: EthSpec> RPC<Id, TSpec> {
     pub fn new(
         fork_context: Arc<ForkContext>,
         enable_light_client_server: bool,
+        outbound_rate_limiter_config: OutboundRateLimiterConfig,
         log: slog::Logger,
     ) -> Self {
         let log = log.new(o!("service" => "libp2p_rpc"));
@@ -231,10 +235,11 @@ impl<Id: ReqId, TSpec: EthSpec> RPC<Id, TSpec> {
                 let protocol = req.protocol();
                 match e {
                     RateLimitedErr::TooLarge => {
-                        // this should never happen. Let's just send the request.
+                        // this should never happen with default parameters. Let's just send the request.
+                        // Log a crit since this is a config issue.
                         crit!(
                            log,
-                            "Self rate limiting error for a batch that will never fit. Sending request anyway";
+                            "Self rate limiting error for a batch that will never fit. Sending request anyway. Check configuration parameters.";
                             "protocol" => %req.protocol()
                         );
                         Ok(NetworkBehaviourAction::NotifyHandler {

@@ -47,13 +47,31 @@ type Nanosecs = u64;
 /// n*`replenish_all_every`/`max_tokens` units of time since their last request.
 ///
 /// To produce hard limits, set `max_tokens` to 1.
-#[derive(Clone)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Quota {
     /// How often are `max_tokens` fully replenished.
-    replenish_all_every: Duration,
+    pub(super) replenish_all_every: Duration,
     /// Token limit. This translates on how large can an instantaneous batch of
     /// tokens be.
-    max_tokens: u64,
+    pub(super) max_tokens: u64,
+}
+
+impl Quota {
+    /// A hard limit of one token every `seconds`.
+    pub const fn one_every(seconds: u64) -> Self {
+        Quota {
+            replenish_all_every: Duration::from_secs(seconds),
+            max_tokens: 1,
+        }
+    }
+
+    /// Allow `n` tokens to be use used every `seconds`.
+    pub const fn n_every(n: u64, seconds: u64) -> Self {
+        Quota {
+            replenish_all_every: Duration::from_secs(seconds),
+            max_tokens: n,
+        }
+    }
 }
 
 /// Manages rate limiting of requests per peer, with differentiated rates per protocol.
