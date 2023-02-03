@@ -79,6 +79,7 @@ pub fn build_config(port: u16, mut boot_nodes: Vec<Enr>) -> NetworkConfig {
     config.enr_address = Some("127.0.0.1".parse().unwrap());
     config.boot_nodes_enr.append(&mut boot_nodes);
     config.network_dir = path.into_path();
+    config.enable_light_client_server = true;
     // Reduce gossipsub heartbeat parameters
     config.gs_config = GossipsubConfigBuilder::from(config.gs_config)
         .heartbeat_initial_delay(Duration::from_millis(500))
