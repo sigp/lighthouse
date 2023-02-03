@@ -30,6 +30,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Err(BeaconChainError::BlockRewardSlotError);
         }
 
+        state.build_committee_cache(RelativeEpoch::Previous, &self.spec)?;
         state.build_committee_cache(RelativeEpoch::Current, &self.spec)?;
 
         let proposer_index = block.proposer_index();
