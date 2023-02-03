@@ -49,6 +49,7 @@ pub enum Error {
     UnsupportedForkVariant(String),
     BadConversion(String),
     RlpDecoderError(rlp::DecoderError),
+    BlobTxConversionError,
 }
 
 impl From<reqwest::Error> for Error {
