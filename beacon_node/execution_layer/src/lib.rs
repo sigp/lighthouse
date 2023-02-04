@@ -865,6 +865,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                                 payload_attributes.timestamp(),
                                 Some(local.payload().block_number()),
                                 self.inner.builder_profit_threshold,
+                                current_fork,
                                 spec,
                             ) {
                                 Ok(()) => Ok(ProvenancedPayload::Builder(
@@ -919,6 +920,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                                 payload_attributes.timestamp(),
                                 None,
                                 self.inner.builder_profit_threshold,
+                                current_fork,
                                 spec,
                             ) {
                                 Ok(()) => Ok(ProvenancedPayload::Builder(
@@ -1936,6 +1938,7 @@ fn verify_builder_bid<T: EthSpec, Payload: AbstractExecPayload<T>>(
     timestamp: u64,
     block_number: Option<u64>,
     profit_threshold: Uint256,
+    current_fork: ForkName,
     spec: &ChainSpec,
 ) -> Result<(), Box<InvalidBuilderPayload>> {
     let is_signature_valid = bid.data.verify_signature(spec);
@@ -1977,14 +1980,10 @@ fn verify_builder_bid<T: EthSpec, Payload: AbstractExecPayload<T>>(
             payload: header.block_number(),
             expected: block_number,
         }))
-    } else if !matches!(bid.version, Some(ForkName::Merge)) {
-        // Once fork information is added to the payload, we will need to
-        // check that the local and relay payloads match. At this point, if
-        // we are requesting a payload at all, we have to assume this is
-        // the Bellatrix fork.
+    } else if bid.version != Some(current_fork) {
         Err(Box::new(InvalidBuilderPayload::Fork {
             payload: bid.version,
-            expected: ForkName::Merge,
+            expected: current_fork,
         }))
     } else if !is_signature_valid {
         Err(Box::new(InvalidBuilderPayload::Signature {
