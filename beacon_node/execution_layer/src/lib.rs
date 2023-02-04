@@ -861,8 +861,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                             match verify_builder_bid(
                                 &relay,
                                 parent_hash,
-                                payload_attributes.prev_randao(),
-                                payload_attributes.timestamp(),
+                                payload_attributes,
                                 Some(local.payload().block_number()),
                                 self.inner.builder_profit_threshold,
                                 current_fork,
@@ -916,8 +915,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                             match verify_builder_bid(
                                 &relay,
                                 parent_hash,
-                                payload_attributes.prev_randao(),
-                                payload_attributes.timestamp(),
+                                payload_attributes,
                                 None,
                                 self.inner.builder_profit_threshold,
                                 current_fork,
@@ -1877,6 +1875,11 @@ enum InvalidBuilderPayload {
         signature: Signature,
         pubkey: PublicKeyBytes,
     },
+    #[allow(dead_code)]
+    WithdrawalsRoot {
+        payload: Hash256,
+        expected: Hash256,
+    },
 }
 
 impl InvalidBuilderPayload {
@@ -1891,6 +1894,7 @@ impl InvalidBuilderPayload {
             InvalidBuilderPayload::BlockNumber { .. } => true,
             InvalidBuilderPayload::Fork { .. } => true,
             InvalidBuilderPayload::Signature { .. } => true,
+            InvalidBuilderPayload::WithdrawalsRoot { .. } => true,
         }
     }
 }
@@ -1926,6 +1930,13 @@ impl fmt::Display for InvalidBuilderPayload {
                 "invalid payload signature {} for pubkey {}",
                 signature, pubkey
             ),
+            InvalidBuilderPayload::WithdrawalsRoot { payload, expected } => {
+                write!(
+                    f,
+                    "payload withdrawals root was {} not {}",
+                    payload, expected
+                )
+            }
         }
     }
 }
@@ -1934,8 +1945,7 @@ impl fmt::Display for InvalidBuilderPayload {
 fn verify_builder_bid<T: EthSpec, Payload: AbstractExecPayload<T>>(
     bid: &ForkVersionedResponse<SignedBuilderBid<T, Payload>>,
     parent_hash: ExecutionBlockHash,
-    prev_randao: Hash256,
-    timestamp: u64,
+    payload_attributes: &PayloadAttributes,
     block_number: Option<u64>,
     profit_threshold: Uint256,
     current_fork: ForkName,
@@ -1965,15 +1975,15 @@ fn verify_builder_bid<T: EthSpec, Payload: AbstractExecPayload<T>>(
             payload: header.parent_hash(),
             expected: parent_hash,
         }))
-    } else if header.prev_randao() != prev_randao {
+    } else if header.prev_randao() != payload_attributes.prev_randao() {
         Err(Box::new(InvalidBuilderPayload::PrevRandao {
             payload: header.prev_randao(),
-            expected: prev_randao,
+            expected: payload_attributes.prev_randao(),
         }))
-    } else if header.timestamp() != timestamp {
+    } else if header.timestamp() != payload_attributes.timestamp() {
         Err(Box::new(InvalidBuilderPayload::Timestamp {
             payload: header.timestamp(),
-            expected: timestamp,
+            expected: payload_attributes.timestamp(),
         }))
     } else if block_number.map_or(false, |n| n != header.block_number()) {
         Err(Box::new(InvalidBuilderPayload::BlockNumber {
