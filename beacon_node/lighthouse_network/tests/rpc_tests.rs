@@ -183,12 +183,12 @@ fn test_light_client_updates_by_range_chunked_rpc() {
                     } => {
                         warn!(log, "Sender received a response");
                         match response {
-                            Response::BlocksByRange(Some(_)) => {
+                            Response::LightClientUpdatesByRange(Some(_)) => {
                                 assert_eq!(response, rpc_response.clone());
                                 messages_received += 1;
                                 warn!(log, "Chunk received");
                             }
-                            Response::BlocksByRange(None) => {
+                            Response::LightClientUpdatesByRange(None) => {
                                 // should be exactly `messages_to_send` messages before terminating
                                 assert_eq!(messages_received, messages_to_send);
                                 // end the test
