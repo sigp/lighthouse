@@ -272,9 +272,14 @@ impl<T: EthSpec> LightClientUpdate<T> {
         Self {
             attested_header: LightClientHeader::zeros(),
             next_sync_committee: Arc::new(SyncCommittee::temporary().unwrap()),
-            next_sync_committee_branch: FixedVector::new(vec![Hash256::zero(); NEXT_SYNC_COMMITTEE_PROOF_LEN]).unwrap(),
+            next_sync_committee_branch: FixedVector::new(vec![
+                Hash256::zero();
+                NEXT_SYNC_COMMITTEE_PROOF_LEN
+            ])
+            .unwrap(),
             finalized_header: LightClientHeader::zeros(),
-            finality_branch: FixedVector::new(vec![Hash256::zero(); FINALIZED_ROOT_PROOF_LEN]).unwrap(),
+            finality_branch: FixedVector::new(vec![Hash256::zero(); FINALIZED_ROOT_PROOF_LEN])
+                .unwrap(),
             sync_aggregate: SyncAggregate::empty(),
             signature_slot: Slot::new(0),
         }

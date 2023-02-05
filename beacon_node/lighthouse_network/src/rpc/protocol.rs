@@ -344,7 +344,9 @@ impl ProtocolId {
                 <LightClientBootstrapRequest as Encode>::ssz_fixed_len(),
                 <LightClientBootstrapRequest as Encode>::ssz_fixed_len(),
             ),
-            Protocol::LightClientUpdatesByRange => rpc_block_limits_by_fork(fork_context.current_fork()),
+            Protocol::LightClientUpdatesByRange => {
+                rpc_block_limits_by_fork(fork_context.current_fork())
+            }
         }
     }
 

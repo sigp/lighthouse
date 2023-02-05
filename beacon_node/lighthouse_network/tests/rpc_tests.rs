@@ -10,7 +10,7 @@ use tokio::runtime::Runtime;
 use tokio::time::sleep;
 use types::{
     BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockMerge, Epoch, EthSpec, ForkContext,
-    ForkName, Hash256, MinimalEthSpec, Signature, SignedBeaconBlock, Slot, LightClientUpdate,
+    ForkName, Hash256, LightClientUpdate, MinimalEthSpec, Signature, SignedBeaconBlock, Slot,
 };
 
 mod common;
@@ -218,7 +218,11 @@ fn test_light_client_updates_by_range_chunked_rpc() {
                                 receiver.send_response(peer_id, id, rpc_response.clone());
                             }
                             // send the stream termination
-                            receiver.send_response(peer_id, id, Response::LightClientUpdatesByRange(None));
+                            receiver.send_response(
+                                peer_id,
+                                id,
+                                Response::LightClientUpdatesByRange(None),
+                            );
                         }
                     }
                     _ => {} // Ignore other events
@@ -235,7 +239,6 @@ fn test_light_client_updates_by_range_chunked_rpc() {
         }
     })
 }
-
 
 // Tests a streamed BlocksByRange RPC Message
 #[test]
