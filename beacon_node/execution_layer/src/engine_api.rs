@@ -1,4 +1,5 @@
 use crate::engines::ForkchoiceState;
+use crate::BlobTxConversionError;
 pub use ethers_core::types::Transaction;
 use ethers_core::utils::rlp::{self, Decodable, Rlp};
 use http::deposit_methods::RpcError;
@@ -48,7 +49,7 @@ pub enum Error {
     UnsupportedForkVariant(String),
     BadConversion(String),
     RlpDecoderError(rlp::DecoderError),
-    BlobTxConversionError,
+    BlobTxConversionError(BlobTxConversionError),
 }
 
 impl From<reqwest::Error> for Error {
@@ -91,6 +92,12 @@ impl From<rlp::DecoderError> for Error {
 impl From<ssz_types::Error> for Error {
     fn from(e: ssz_types::Error) -> Self {
         Error::SszError(e)
+    }
+}
+
+impl From<BlobTxConversionError> for Error {
+    fn from(e: BlobTxConversionError) -> Self {
+        Error::BlobTxConversionError(e)
     }
 }
 
