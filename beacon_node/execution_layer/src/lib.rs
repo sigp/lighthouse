@@ -2201,7 +2201,7 @@ fn ethers_tx_to_bytes<T: EthSpec>(
     } else {
         transaction.rlp().to_vec()
     };
-    Ok(VariableList::from(tx))
+    VariableList::new(tx).map_err(Into::into)
 }
 
 #[cfg(test)]
