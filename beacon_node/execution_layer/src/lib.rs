@@ -21,15 +21,14 @@ use sensitive_url::SensitiveUrl;
 use serde::{Deserialize, Serialize};
 use slog::{crit, debug, error, info, trace, warn, Logger};
 use slot_clock::SlotClock;
+use ssz::Encode;
 use std::collections::HashMap;
-use std::default::default;
 use std::fmt;
 use std::future::Future;
 use std::io::Write;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
-use ethers_core::types::transaction::eip2930::AccessListItem;
 use strum::AsRefStr;
 use task_executor::TaskExecutor;
 use tokio::{
@@ -42,7 +41,8 @@ use types::transaction::{AccessTuple, BlobTransaction};
 use types::{AbstractExecPayload, BeaconStateError, Blob, ExecPayload, KzgCommitment};
 use types::{
     BlindedPayload, BlockType, ChainSpec, Epoch, ExecutionBlockHash, ForkName,
-    ProposerPreparationData, PublicKeyBytes, Signature, SignedBeaconBlock, Slot, Uint256,
+    ProposerPreparationData, PublicKeyBytes, Signature, SignedBeaconBlock, Slot,
+    Transaction as SszTransaction, Uint256,
 };
 use types::{
     ExecutionPayload, ExecutionPayloadCapella, ExecutionPayloadEip4844, ExecutionPayloadMerge,
@@ -1616,67 +1616,13 @@ impl<T: EthSpec> ExecutionLayer<T> {
             return Ok(None);
         };
 
-        let transactions = VariableList::new(
+        let transactions = VariableList::from(
             block
                 .transactions()
-                .iter()
-                .map(|transaction: Transaction| {
-                    let tx_type = transaction
-                        .transaction_type
-                        .ok_or(ApiError::BlobTxConversionError)?.as_u64();
-                    let tx = if BLOB_TX_TYPE as u64 == tx_type {
-                            let chain_id = transaction
-                                .chain_id
-                                .ok_or(ApiError::BlobTxConversionError)?;
-                            let nonce = transaction.nonce.as_u64();
-                            let max_priority_fee_per_gas = transaction
-                                .max_priority_fee_per_gas
-                                .ok_or(ApiError::BlobTxConversionError)?;
-                            let max_fee_per_gas = transaction
-                                .max_fee_per_gas
-                                .ok_or(ApiError::BlobTxConversionError)?;
-                            let gas = transaction.gas.as_u64();
-                            let to = transaction.to;
-                            let value = transaction.value;
-                            let data = VariableList::from(transaction.input.to_vec());
-                            let access_list = VariableList::from(transaction
-                                .access_list
-                                .ok_or(ApiError::BlobTxConversionError)?
-                                .0
-                                .into_iter().map(|access_tuple| Ok(AccessTuple {
-                                    address: access_tuple.address,
-                                    storage_keys: VariableList::from(
-                                        access_tuple
-                                            .storage_keys,
-                                    ),
-                                }))
-                                .collect::<Result<Vec<AccessTuple>, ApiError>>()?);
-                            let max_fee_per_data_gas = transaction.other.get("max_fee_per_data_gas").ok_or(ApiError::BlobTxConversionError)?;
-                            let data_str = max_fee_per_data_gas.as_str().ok_or(ApiError::BlobTxConversionError)?;
-                            let blob_versioned_hashes = transaction.other.get("blob_versioned_hashes").ok_or(ApiError::BlobTxConversionError)?;
-                            Ok(BlobTransaction {
-                                chain_id,
-                                nonce,
-                                max_priority_fee_per_gas,
-                                max_fee_per_gas,
-                                gas,
-                                to,
-                                value,
-                                data,
-                                access_list,
-                                max_fee_per_data_gas,
-                                blob_versioned_hashes,
-                            });
-                        vec![]
-                    } else {
-                        transaction.rlp().to_vec()
-                    };
-                    VariableList::new(tx)
-                })
-                .collect::<Result<_, _>>()
-                .map_err(ApiError::DeserializeTransaction)?,
-        )
-        .map_err(ApiError::DeserializeTransactions)?;
+                .into_iter()
+                .map(ethers_tx_to_bytes::<T>)
+                .collect::<Result<Vec<_>, ApiError>>()?,
+        );
 
         let payload = match block {
             ExecutionBlockWithTransactions::Merge(merge_block) => {
@@ -2133,6 +2079,80 @@ mod test {
 
 fn noop<T: EthSpec>(_: &ExecutionLayer<T>, _: &ExecutionPayload<T>) -> Option<ExecutionPayload<T>> {
     None
+}
+
+fn ethers_tx_to_bytes<T: EthSpec>(
+    transaction: &Transaction,
+) -> Result<SszTransaction<T::MaxBytesPerTransaction>, ApiError> {
+
+    let tx_type = transaction
+        .transaction_type
+        .ok_or(ApiError::BlobTxConversionError)?
+        .as_u64();
+    let tx = if BLOB_TX_TYPE as u64 == tx_type {
+        let chain_id = transaction
+            .chain_id
+            .ok_or(ApiError::BlobTxConversionError)?;
+        let nonce = std::cmp::min(transaction.nonce, Uint256::from(u64::MAX)).as_u64();
+        let max_priority_fee_per_gas = transaction
+            .max_priority_fee_per_gas
+            .ok_or(ApiError::BlobTxConversionError)?;
+        let max_fee_per_gas = transaction
+            .max_fee_per_gas
+            .ok_or(ApiError::BlobTxConversionError)?;
+        let gas = std::cmp::min(transaction.gas, Uint256::from(u64::MAX)).as_u64();
+        let to = transaction.to;
+        let value = transaction.value;
+        let data = VariableList::from(transaction.input.to_vec());
+
+        let access_list = VariableList::from(
+            transaction
+                .access_list.as_ref()
+                .ok_or(ApiError::BlobTxConversionError)?
+                .0
+                .iter()
+                .map(|access_tuple| {
+                    Ok(AccessTuple {
+                        address: access_tuple.address,
+                        storage_keys: VariableList::from(access_tuple.storage_keys.clone()),
+                    })
+                })
+                .collect::<Result<Vec<AccessTuple>, ApiError>>()?,
+        );
+        let max_fee_per_data_gas = transaction
+            .other
+            .get("max_fee_per_data_gas")
+            .ok_or(ApiError::BlobTxConversionError)?
+            .as_str()
+            .ok_or(ApiError::BlobTxConversionError)?
+            .parse()
+            .map_err(|_| ApiError::BlobTxConversionError)?;
+        let blob_versioned_hashes = serde_json::from_str(
+            transaction
+                .other
+                .get("blob_versioned_hashes")
+                .ok_or(ApiError::BlobTxConversionError)?
+                .as_str()
+                .ok_or(ApiError::BlobTxConversionError)?,
+        )?;
+        BlobTransaction {
+            chain_id,
+            nonce,
+            max_priority_fee_per_gas,
+            max_fee_per_gas,
+            gas,
+            to,
+            value,
+            data,
+            access_list,
+            max_fee_per_data_gas,
+            blob_versioned_hashes,
+        }
+        .as_ssz_bytes()
+    } else {
+        transaction.rlp().to_vec()
+    };
+    Ok(VariableList::from(tx))
 }
 
 #[cfg(test)]

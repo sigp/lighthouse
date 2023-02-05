@@ -1,4 +1,4 @@
-use crate::{Hash256, Transaction, Uint256, VersionedHash};
+use crate::{Hash256, Uint256, VersionedHash};
 use ethereum_types::Address;
 use ssz_derive::{Decode, Encode};
 use ssz_types::typenum::U16777216;
