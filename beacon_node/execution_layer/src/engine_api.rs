@@ -40,8 +40,7 @@ pub enum Error {
     PayloadIdUnavailable,
     TransitionConfigurationMismatch,
     PayloadConversionLogicFlaw,
-    DeserializeTransaction(ssz_types::Error),
-    DeserializeTransactions(ssz_types::Error),
+    SszError(ssz_types::Error),
     DeserializeWithdrawals(ssz_types::Error),
     BuilderApi(builder_client::Error),
     IncorrectStateVariant,
@@ -86,6 +85,12 @@ impl From<builder_client::Error> for Error {
 impl From<rlp::DecoderError> for Error {
     fn from(e: rlp::DecoderError) -> Self {
         Error::RlpDecoderError(e)
+    }
+}
+
+impl From<ssz_types::Error> for Error {
+    fn from(e: ssz_types::Error) -> Self {
+        Error::SszError(e)
     }
 }
 

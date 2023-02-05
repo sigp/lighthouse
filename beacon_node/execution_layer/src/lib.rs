@@ -2084,7 +2084,6 @@ fn noop<T: EthSpec>(_: &ExecutionLayer<T>, _: &ExecutionPayload<T>) -> Option<Ex
 fn ethers_tx_to_bytes<T: EthSpec>(
     transaction: &Transaction,
 ) -> Result<SszTransaction<T::MaxBytesPerTransaction>, ApiError> {
-
     let tx_type = transaction
         .transaction_type
         .ok_or(ApiError::BlobTxConversionError)?
@@ -2103,22 +2102,23 @@ fn ethers_tx_to_bytes<T: EthSpec>(
         let gas = std::cmp::min(transaction.gas, Uint256::from(u64::MAX)).as_u64();
         let to = transaction.to;
         let value = transaction.value;
-        let data = VariableList::from(transaction.input.to_vec());
+        let data = VariableList::new(transaction.input.to_vec())?;
 
-        let access_list = VariableList::from(
+        let access_list = VariableList::new(
             transaction
-                .access_list.as_ref()
+                .access_list
+                .as_ref()
                 .ok_or(ApiError::BlobTxConversionError)?
                 .0
                 .iter()
                 .map(|access_tuple| {
                     Ok(AccessTuple {
                         address: access_tuple.address,
-                        storage_keys: VariableList::from(access_tuple.storage_keys.clone()),
+                        storage_keys: VariableList::new(access_tuple.storage_keys.clone())?,
                     })
                 })
                 .collect::<Result<Vec<AccessTuple>, ApiError>>()?,
-        );
+        )?;
         let max_fee_per_data_gas = transaction
             .other
             .get("max_fee_per_data_gas")
