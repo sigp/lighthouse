@@ -1698,9 +1698,9 @@ pub fn serve<T: BeaconChainTypes>(
 
                                 // New to P2P *and* op pool, gossip immediately if post-Capella.
                                 let capella_broadcast = if chain.current_slot_is_post_capella().unwrap_or(false) {
-                                    CapellaBroadcast::No
-                                } else {
                                     CapellaBroadcast::Yes
+                                } else {
+                                    CapellaBroadcast::No
                                 };
                                 if matches!(capella_broadcast, CapellaBroadcast::Yes) {
                                     publish_pubsub_message(
