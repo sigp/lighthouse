@@ -2,6 +2,8 @@ use std::{fmt::Display, str::FromStr, time::Duration};
 
 use super::{methods, rate_limiter::Quota, Protocol};
 
+use serde_derive::{Deserialize, Serialize};
+
 /// Auxiliary struct to aid on configuration parsing.
 ///
 /// A protocol's quota is specified as `protocol_name:tokens/time_in_seconds`.
@@ -53,6 +55,7 @@ impl FromStr for ProtocolQuota {
 }
 
 /// Configurations for the rate limiter applied to outbound requests (made by the node itself).
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OutboundRateLimiterConfig {
     pub(super) ping_quota: Quota,
     pub(super) meta_data_quota: Quota,

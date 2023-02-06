@@ -1,6 +1,7 @@
 use crate::rpc::Protocol;
 use fnv::FnvHashMap;
 use libp2p::PeerId;
+use serde_derive::{Deserialize, Serialize};
 use std::convert::TryInto;
 use std::future::Future;
 use std::hash::Hash;
@@ -47,7 +48,7 @@ type Nanosecs = u64;
 /// n*`replenish_all_every`/`max_tokens` units of time since their last request.
 ///
 /// To produce hard limits, set `max_tokens` to 1.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Quota {
     /// How often are `max_tokens` fully replenished.
     pub(super) replenish_all_every: Duration,
@@ -125,13 +126,8 @@ pub struct RPCRateLimiterBuilder {
 }
 
 impl RPCRateLimiterBuilder {
-    /// Get an empty `RPCRateLimiterBuilder`.
-    pub fn new() -> Self {
-        Default::default()
-    }
-
     /// Set a quota for a protocol.
-    fn set_quota(mut self, protocol: Protocol, quota: Quota) -> Self {
+    pub fn set_quota(mut self, protocol: Protocol, quota: Quota) -> Self {
         let q = Some(quota);
         match protocol {
             Protocol::Ping => self.ping_quota = q,
@@ -236,6 +232,11 @@ impl<T: EthSpec> RateLimiterItem for super::OutboundRequest<T> {
     }
 }
 impl RPCRateLimiter {
+    /// Get a builder instance.
+    pub fn builder() -> RPCRateLimiterBuilder {
+        RPCRateLimiterBuilder::default()
+    }
+
     pub fn allows<Item: RateLimiterItem>(
         &mut self,
         peer_id: &PeerId,

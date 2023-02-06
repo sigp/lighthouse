@@ -262,7 +262,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
         let eth2_rpc = RPC::new(
             ctx.fork_context.clone(),
             config.enable_light_client_server,
-            todo!(),
+            config.outbound_rate_limiter_config.clone(),
             log.clone(),
         );
 
