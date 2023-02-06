@@ -3,8 +3,8 @@
 use beacon_chain::{
     attestation_verification::Error as AttnError,
     test_utils::{
-        AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
-        OP_POOL_DB_KEY,
+        AttestationStrategy, BeaconChainHarness, BlockStrategy,
+        EphemeralTestingSlotClockHarnessType, OP_POOL_DB_KEY,
     },
     BeaconChain, NotifyExecutionLayer, StateSkipConfig, WhenSlotSkipped,
 };
@@ -26,7 +26,9 @@ lazy_static! {
     static ref KEYPAIRS: Vec<Keypair> = types::test_utils::generate_deterministic_keypairs(VALIDATOR_COUNT);
 }
 
-fn get_harness(validator_count: usize) -> BeaconChainHarness<EphemeralHarnessType<MinimalEthSpec>> {
+fn get_harness(
+    validator_count: usize,
+) -> BeaconChainHarness<EphemeralTestingSlotClockHarnessType<MinimalEthSpec>> {
     let harness = BeaconChainHarness::builder(MinimalEthSpec)
         .default_spec()
         .keypairs(KEYPAIRS[0..validator_count].to_vec())
@@ -143,7 +145,7 @@ async fn iterators() {
 }
 
 fn find_reorg_slot(
-    chain: &BeaconChain<EphemeralHarnessType<MinimalEthSpec>>,
+    chain: &BeaconChain<EphemeralTestingSlotClockHarnessType<MinimalEthSpec>>,
     new_state: &BeaconState<MinimalEthSpec>,
     new_block_root: Hash256,
 ) -> Slot {

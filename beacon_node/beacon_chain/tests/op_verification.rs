@@ -8,6 +8,7 @@ use beacon_chain::test_utils::{
 };
 use lazy_static::lazy_static;
 use sloggers::{null::NullLoggerBuilder, Build};
+use slot_clock::TestingSlotClock;
 use std::sync::Arc;
 use store::{LevelDB, StoreConfig};
 use tempfile::{tempdir, TempDir};
@@ -22,7 +23,7 @@ lazy_static! {
 }
 
 type E = MinimalEthSpec;
-type TestHarness = BeaconChainHarness<DiskHarnessType<E>>;
+type TestHarness = BeaconChainHarness<DiskHarnessType<E, TestingSlotClock>>;
 type HotColdDB = store::HotColdDB<E, LevelDB<E>, LevelDB<E>>;
 
 fn get_store(db_path: &TempDir) -> Arc<HotColdDB> {

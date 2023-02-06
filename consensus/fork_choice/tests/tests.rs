@@ -35,7 +35,7 @@ pub enum MutationDelay {
 
 /// A helper struct to make testing fork choice more ergonomic and less repetitive.
 struct ForkChoiceTest {
-    harness: BeaconChainHarness<EphemeralHarnessType<E>>,
+    harness: BeaconChainHarness<EphemeralTestingSlotClockHarnessType<E>>,
 }
 
 /// Allows us to use `unwrap` in some cases.
@@ -397,7 +397,7 @@ impl ForkChoiceTest {
         mut comparison_func: G,
     ) -> Self
     where
-        F: FnMut(&mut IndexedAttestation<E>, &BeaconChain<EphemeralHarnessType<E>>),
+        F: FnMut(&mut IndexedAttestation<E>, &BeaconChain<EphemeralTestingSlotClockHarnessType<E>>),
         G: FnMut(Result<(), BeaconChainError>),
     {
         let head = self.harness.chain.head_snapshot();

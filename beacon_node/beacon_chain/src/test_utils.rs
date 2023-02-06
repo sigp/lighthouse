@@ -69,6 +69,7 @@ pub type BaseHarnessType<TEthSpec, THotStore, TColdStore, TSlotClock> =
     Witness<TSlotClock, CachingEth1Backend<TEthSpec>, TEthSpec, THotStore, TColdStore>;
 
 pub type DiskHarnessType<E, TSlotClock> = BaseHarnessType<E, LevelDB<E>, LevelDB<E>, TSlotClock>;
+
 pub type EphemeralHarnessType<E, TSlotClock> =
     BaseHarnessType<E, MemoryStore<E>, MemoryStore<E>, TSlotClock>;
 
@@ -279,6 +280,18 @@ impl<E: EthSpec, S: SlotClock> Builder<DiskHarnessType<E, S>, S> {
         };
         self.store = Some(store);
         self.store_mutator(Box::new(mutator))
+    }
+}
+
+impl<E, Hot, Cold> Builder<TestingSlotClockHarnessType<E, Hot, Cold>, TestingSlotClock>
+where
+    E: EthSpec,
+    Hot: ItemStore<E>,
+    Cold: ItemStore<E>,
+{
+    pub fn testing_slot_clock(mut self, slot_clock: TestingSlotClock) -> Self {
+        self.testing_slot_clock = Some(slot_clock);
+        self
     }
 }
 

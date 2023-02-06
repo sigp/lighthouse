@@ -212,7 +212,7 @@ mod test {
     use types::*;
 
     type BeaconChainHarness =
-        crate::test_utils::BeaconChainHarness<EphemeralHarnessType<MinimalEthSpec>>;
+        crate::test_utils::BeaconChainHarness<EphemeralTestingSlotClockHarnessType<MinimalEthSpec>>;
 
     /// Returns two different committee caches for testing.
     fn committee_caches() -> (Arc<CommitteeCache>, Arc<CommitteeCache>) {

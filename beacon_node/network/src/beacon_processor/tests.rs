@@ -7,7 +7,7 @@ use crate::beacon_processor::work_reprocessing_queue::{
 use crate::beacon_processor::*;
 use crate::{service::NetworkMessage, sync::SyncMessage};
 use beacon_chain::test_utils::{
-    AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
+    AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralTestingSlotClockHarnessType,
 };
 use beacon_chain::{BeaconChain, MAXIMUM_GOSSIP_CLOCK_DISPARITY};
 use lighthouse_network::{
@@ -28,7 +28,7 @@ use types::{
 };
 
 type E = MainnetEthSpec;
-type T = EphemeralHarnessType<E>;
+type T = EphemeralTestingSlotClockHarnessType<E>;
 
 const SLOTS_PER_EPOCH: u64 = 32;
 const VALIDATOR_COUNT: usize = SLOTS_PER_EPOCH as usize;

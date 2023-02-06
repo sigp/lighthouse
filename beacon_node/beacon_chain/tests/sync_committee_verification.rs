@@ -1,7 +1,9 @@
 #![cfg(not(debug_assertions))]
 
 use beacon_chain::sync_committee_verification::Error as SyncCommitteeError;
-use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType, RelativeSyncCommittee};
+use beacon_chain::test_utils::{
+    BeaconChainHarness, EphemeralTestingSlotClockHarnessType, RelativeSyncCommittee,
+};
 use int_to_bytes::int_to_bytes32;
 use lazy_static::lazy_static;
 use safe_arith::SafeArith;
@@ -23,7 +25,9 @@ lazy_static! {
 }
 
 /// Returns a beacon chain harness.
-fn get_harness(validator_count: usize) -> BeaconChainHarness<EphemeralHarnessType<E>> {
+fn get_harness(
+    validator_count: usize,
+) -> BeaconChainHarness<EphemeralTestingSlotClockHarnessType<E>> {
     let mut spec = E::default_spec();
     spec.altair_fork_epoch = Some(Epoch::new(0));
     let harness = BeaconChainHarness::builder(MainnetEthSpec)
@@ -42,7 +46,7 @@ fn get_harness(validator_count: usize) -> BeaconChainHarness<EphemeralHarnessTyp
 ///
 /// Also returns some info about who created it.
 fn get_valid_sync_committee_message(
-    harness: &BeaconChainHarness<EphemeralHarnessType<E>>,
+    harness: &BeaconChainHarness<EphemeralTestingSlotClockHarnessType<E>>,
     slot: Slot,
     relative_sync_committee: RelativeSyncCommittee,
     message_index: usize,
@@ -68,7 +72,7 @@ fn get_valid_sync_committee_message(
 }
 
 fn get_valid_sync_contribution(
-    harness: &BeaconChainHarness<EphemeralHarnessType<E>>,
+    harness: &BeaconChainHarness<EphemeralTestingSlotClockHarnessType<E>>,
     relative_sync_committee: RelativeSyncCommittee,
 ) -> (SignedContributionAndProof<E>, usize, SecretKey) {
     let head_state = harness.chain.head_beacon_state_cloned();
@@ -100,7 +104,7 @@ fn get_valid_sync_contribution(
 
 /// Returns a proof and index for a validator that is **not** an aggregator for the current sync period.
 fn get_non_aggregator(
-    harness: &BeaconChainHarness<EphemeralHarnessType<E>>,
+    harness: &BeaconChainHarness<EphemeralTestingSlotClockHarnessType<E>>,
     slot: Slot,
 ) -> (usize, SecretKey) {
     let state = &harness.chain.head_snapshot().beacon_state;
