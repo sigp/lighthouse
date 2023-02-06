@@ -1,6 +1,6 @@
 [package]
 name = "lighthouse"
-version = "3.4.0-tree.1"
+version = "3.4.0-tree.2"
 authors = ["Sigma Prime <contact@sigmaprime.io>"]
 edition = "2021"
 autotests = false
