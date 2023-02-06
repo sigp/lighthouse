@@ -38,12 +38,7 @@ pub async fn broadcast_address_changes_at_capella<T: BeaconChainTypes>(
     };
 
     // Wait until the Capella fork epoch.
-    loop {
-        if chain.slot().map_or(false, |slot| slot >= capella_fork_slot) {
-            // Capella has been reached, break the loop and broadcast the changes.
-            break;
-        }
-
+    while chain.slot().map_or(true, |slot| slot < capella_fork_slot) {
         match slot_clock.duration_to_slot(capella_fork_slot) {
             Some(duration) => {
                 // Sleep until the Capella fork and then run through the loop
@@ -280,6 +275,18 @@ mod tests {
                     "messages not flagged for broadcast should not have been broadcast"
                 );
             }
+
+            let head = chain.head_snapshot();
+            assert!(
+                chain
+                    .op_pool
+                    .get_bls_to_execution_changes_for_capella_broadcast(
+                        &head.beacon_state,
+                        &chain.spec,
+                    )
+                    .is_empty(),
+                "there shouldn't be any capella broadcast changes left in the op pool"
+            );
         }
     }
 

@@ -1526,10 +1526,7 @@ where
     pub fn get_withdrawal_keypair(&self, validator_index: u64) -> &Keypair {
         self.withdrawal_keypairs
             .get(validator_index as usize)
-            .expect(&format!(
-                "BLS withdrawal key missing from harness for index {:?}",
-                validator_index,
-            ))
+            .expect("BLS withdrawal key missing from harness")
             .as_ref()
             .expect("no withdrawal key for validator")
     }
