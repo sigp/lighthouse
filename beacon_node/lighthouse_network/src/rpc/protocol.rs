@@ -147,14 +147,18 @@ pub enum Protocol {
     /// The Goodbye protocol name.
     Goodbye,
     /// The `BlocksByRange` protocol name.
+    #[strum(serialize = "beacon_block_by_range")]
     BlocksByRange,
     /// The `BlocksByRoot` protocol name.
+    #[strum(serialize = "beacon_block_by_root")]
     BlocksByRoot,
     /// The `Ping` protocol name.
     Ping,
     /// The `MetaData` protocol name.
+    #[strum(serialize = "metadata")]
     MetaData,
     /// The `LightClientBootstrap` protocol name.
+    #[strum(serialize = "light_client_bootstrap")]
     LightClientBootstrap,
 }
 
