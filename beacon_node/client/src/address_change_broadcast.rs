@@ -5,6 +5,7 @@ use slog::{debug, info, warn, Logger};
 use slot_clock::SlotClock;
 use std::cmp;
 use std::collections::HashSet;
+use std::mem;
 use std::time::Duration;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::time::sleep;
@@ -38,6 +39,11 @@ pub async fn broadcast_address_changes_at_capella<T: BeaconChainTypes>(
 
     // Wait until the Capella fork epoch.
     loop {
+        if chain.slot().map_or(false, |slot| slot >= capella_fork_slot) {
+            // Capella has been reached, break the loop and broadcast the changes.
+            break;
+        }
+
         match slot_clock.duration_to_slot(capella_fork_slot) {
             Some(duration) => {
                 // Sleep until the Capella fork and then run through the loop
@@ -46,15 +52,9 @@ pub async fn broadcast_address_changes_at_capella<T: BeaconChainTypes>(
                 sleep(duration).await;
             }
             None => {
-                if chain.slot().map_or(false, |slot| slot >= capella_fork_slot) {
-                    // Capella has been reached, break the loop and broadcast the changes.
-                    break;
-                } else {
-                    // We were unable to read the slot clock and/or the Capella
-                    // fork hasn't been reached yet, wait another slot and then
-                    // try again.
-                    sleep(slot_clock.slot_duration()).await;
-                }
+                // We were unable to read the slot clock wait another slot
+                // and then try again.
+                sleep(slot_clock.slot_duration()).await;
             }
         }
     }
@@ -89,7 +89,8 @@ pub async fn broadcast_address_changes<T: BeaconChainTypes>(
         // `changes` vec. The `std::slice::Chunks` method uses references and
         // the `itertools` iterator that achives this isn't `Send` so it doesn't
         // work well with the `sleep` at the end of the loop.
-        let chunk = changes.split_off(cmp::min(BROADCAST_CHUNK_SIZE, changes.len()));
+        let tail = changes.split_off(cmp::min(BROADCAST_CHUNK_SIZE, changes.len()));
+        let chunk = mem::replace(&mut changes, tail);
 
         let mut published_indices = HashSet::with_capacity(BROADCAST_CHUNK_SIZE);
         let mut num_ok = 0;
@@ -146,4 +147,152 @@ pub async fn broadcast_address_changes<T: BeaconChainTypes>(
         log,
         "Address change routine complete";
     );
+}
+
+// #[cfg(not(debug_assertions))] // Tests run too slow in debug.
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
+    use operation_pool::CapellaBroadcast;
+    use state_processing::{SigVerifiedOp, VerifyOperation};
+    use std::collections::HashSet;
+    use tokio::sync::mpsc;
+    use types::*;
+
+    type E = MainnetEthSpec;
+
+    pub const VALIDATOR_COUNT: usize = BROADCAST_CHUNK_SIZE * 2;
+    pub const EXECUTION_ADDRESS: Address = Address::repeat_byte(42);
+
+    struct Tester {
+        harness: BeaconChainHarness<EphemeralHarnessType<E>>,
+        capella_broadcast_changes: Vec<SigVerifiedOp<SignedBlsToExecutionChange, E>>,
+        non_capella_broadcast_changes: Vec<SigVerifiedOp<SignedBlsToExecutionChange, E>>,
+    }
+
+    impl Tester {
+        fn new() -> Self {
+            let altair_fork_epoch = Epoch::new(0);
+            let bellatrix_fork_epoch = Epoch::new(0);
+            let capella_fork_epoch = Epoch::new(2);
+
+            let mut spec = E::default_spec();
+            spec.altair_fork_epoch = Some(altair_fork_epoch);
+            spec.bellatrix_fork_epoch = Some(bellatrix_fork_epoch);
+            spec.capella_fork_epoch = Some(capella_fork_epoch);
+
+            let harness = BeaconChainHarness::builder(E::default())
+                .spec(spec)
+                .logger(logging::test_logger())
+                .deterministic_keypairs(VALIDATOR_COUNT)
+                .deterministic_withdrawal_keypairs(VALIDATOR_COUNT)
+                .fresh_ephemeral_store()
+                .mock_execution_layer()
+                .build();
+
+            Self {
+                harness,
+                capella_broadcast_changes: <_>::default(),
+                non_capella_broadcast_changes: <_>::default(),
+            }
+        }
+
+        fn produce_verified_address_change(
+            &self,
+            validator_index: u64,
+        ) -> SigVerifiedOp<SignedBlsToExecutionChange, E> {
+            let change = self
+                .harness
+                .make_bls_to_execution_change(validator_index, EXECUTION_ADDRESS);
+            let head = self.harness.chain.head_snapshot();
+
+            change
+                .validate(&head.beacon_state, &self.harness.spec)
+                .unwrap()
+        }
+
+        fn produce_capella_broadcast_changes(mut self, indices: Vec<u64>) -> Self {
+            for validator_index in indices {
+                self.capella_broadcast_changes
+                    .push(self.produce_verified_address_change(validator_index));
+            }
+            self
+        }
+
+        fn produce_non_capella_broadcast_changes(mut self, indices: Vec<u64>) -> Self {
+            for validator_index in indices {
+                self.non_capella_broadcast_changes
+                    .push(self.produce_verified_address_change(validator_index));
+            }
+            self
+        }
+
+        async fn run(self) {
+            let harness = self.harness;
+            let chain = harness.chain.clone();
+
+            let mut broadcast_indices = HashSet::new();
+            for change in self.capella_broadcast_changes {
+                broadcast_indices.insert(change.as_inner().message.validator_index);
+                chain
+                    .op_pool
+                    .insert_bls_to_execution_change(change, CapellaBroadcast::Yes);
+            }
+
+            let mut non_broadcast_indices = HashSet::new();
+            for change in self.non_capella_broadcast_changes {
+                non_broadcast_indices.insert(change.as_inner().message.validator_index);
+                chain
+                    .op_pool
+                    .insert_bls_to_execution_change(change, CapellaBroadcast::No);
+            }
+
+            harness.set_current_slot(
+                chain
+                    .spec
+                    .capella_fork_epoch
+                    .unwrap()
+                    .start_slot(E::slots_per_epoch()),
+            );
+
+            let (sender, mut receiver) = mpsc::unbounded_channel();
+
+            broadcast_address_changes_at_capella(&chain, sender, &logging::test_logger()).await;
+
+            let mut broadcasted_changes = vec![];
+            while let Some(NetworkMessage::Publish { mut messages }) = receiver.recv().await {
+                match messages.pop().unwrap() {
+                    PubsubMessage::BlsToExecutionChange(change) => broadcasted_changes.push(change),
+                    _ => panic!("unexpected message"),
+                }
+            }
+
+            assert_eq!(
+                broadcasted_changes.len(),
+                broadcast_indices.len(),
+                "all expected changes should have been broadcast"
+            );
+
+            for broadcasted in &broadcasted_changes {
+                assert!(
+                    !non_broadcast_indices.contains(&broadcasted.message.validator_index),
+                    "messages not flagged for broadcast should not have been broadcast"
+                );
+            }
+        }
+    }
+
+    fn every_second_index(start: u64, count: u64) -> Vec<u64> {
+        (start..count * 2).step_by(2).collect()
+    }
+
+    #[tokio::test]
+    async fn broadcast_address_changes() {
+        Tester::new()
+            .produce_capella_broadcast_changes(every_second_index(0, 4))
+            .produce_non_capella_broadcast_changes(every_second_index(10, 4))
+            .run()
+            .await;
+    }
 }

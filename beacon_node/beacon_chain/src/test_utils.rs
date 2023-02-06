@@ -310,6 +310,15 @@ where
         self
     }
 
+    pub fn deterministic_withdrawal_keypairs(self, num_keypairs: usize) -> Self {
+        self.withdrawal_keypairs(
+            types::test_utils::generate_deterministic_keypairs(num_keypairs)
+                .into_iter()
+                .map(Option::Some)
+                .collect(),
+        )
+    }
+
     pub fn withdrawal_keypairs(mut self, withdrawal_keypairs: Vec<Option<Keypair>>) -> Self {
         self.withdrawal_keypairs = withdrawal_keypairs;
         self
