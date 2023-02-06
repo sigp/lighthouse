@@ -1694,21 +1694,27 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     pub fn try_prune_blobs(&self, force: bool) -> Result<(), Error> {
         let mut blob_info: BlobInfo;
 
-        if let Some(old_blob_info) = self.get_blob_info() {
-            blob_info = old_blob_info;
-        } else {
-            return Ok(());
+        match self.get_blob_info() {
+            Some(old_blob_info) => {
+                blob_info = old_blob_info;
+            }
+            None => {
+                return Ok(());
+            }
         }
 
         let data_availability_breakpoint: Hash256;
 
-        if let Some(breakpoint) = blob_info.data_availability_breakpoint {
-            if breakpoint == blob_info.oldest_blob_parent {
+        match blob_info.data_availability_breakpoint {
+            Some(breakpoint) => {
+                if breakpoint == blob_info.oldest_blob_parent {
+                    return Ok(());
+                }
+                data_availability_breakpoint = breakpoint;
+            }
+            None => {
                 return Ok(());
             }
-            data_availability_breakpoint = breakpoint;
-        } else {
-            return Ok(());
         }
 
         // Load the state from which to prune blobs so we can backtrack.

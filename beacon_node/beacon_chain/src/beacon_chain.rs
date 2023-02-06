@@ -1074,12 +1074,24 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ) -> Result<Option<BlobsSidecar<T::EthSpec>>, Error> {
         match self.store.get_blobs(block_root)? {
             Some(blobs) => Ok(Some(blobs)),
+<<<<<<< HEAD
             None => {
                 // Check for the corresponding block to understand whether we *should* have blobs.
                 self.get_blinded_block(block_root)?
                     .map(|block| {
                         // If there are no KZG commitments in the block, we know the sidecar should
                         // be empty.
+=======
+            None => match self.get_blinded_block(block_root)? {
+                Some(block) => {
+                    let current_slot = self.slot()?;
+                    let current_epoch = current_slot.epoch(T::EthSpec::slots_per_epoch());
+
+                    if block.slot().epoch(T::EthSpec::slots_per_epoch())
+                        + *MIN_EPOCHS_FOR_BLOBS_SIDECARS_REQUESTS
+                        >= current_epoch
+                    {
+>>>>>>> 292426505 (Improve syntax)
                         let expected_kzg_commitments =
                             match block.message().body().blob_kzg_commitments() {
                                 Ok(kzg_commitments) => kzg_commitments,
