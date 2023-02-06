@@ -128,9 +128,13 @@ impl<T: EthSpec> BlsToExecutionChanges<T> {
         }
     }
 
-    /// Forgets which bls to execution changes were scheduled to be broadcast at
-    /// the Capella fork.
-    pub fn drop_capella_broadcast_indices(&mut self) {
-        self.capella_broadcast_indices = <_>::default();
+    /// Removes `to_forget` validators from the set of validators that should
+    /// have their BLS changes broadcast at the Capella fork boundary.
+    pub fn forget_capella_broadcast_indices(&mut self, to_forget: &HashSet<u64>) {
+        self.capella_broadcast_indices = self
+            .capella_broadcast_indices
+            .difference(&to_forget)
+            .copied()
+            .collect();
     }
 }

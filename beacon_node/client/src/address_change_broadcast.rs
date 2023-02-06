@@ -4,6 +4,7 @@ use network::NetworkMessage;
 use slog::{debug, info, Logger};
 use slot_clock::SlotClock;
 use std::cmp;
+use std::collections::HashSet;
 use std::time::Duration;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::time::sleep;
@@ -69,6 +70,7 @@ pub async fn broadcast_address_changes_at_capella<T: BeaconChainTypes>(
         // work well with the `sleep` at the end of the loop.
         let chunk = changes.split_off(cmp::min(BROADCAST_CHUNK_SIZE, changes.len()));
 
+        let mut published_indices = HashSet::with_capacity(BROADCAST_CHUNK_SIZE);
         let mut num_ok = 0;
         let mut num_err = 0;
 
@@ -91,8 +93,15 @@ pub async fn broadcast_address_changes_at_capella<T: BeaconChainTypes>(
                 num_err += 1;
             } else {
                 num_ok += 1;
+                published_indices.insert(validator_index);
             }
         }
+
+        // Forget all the indices that should be broadcast at the Capella fork.
+        // This means that any future calls to this function will have no effect.
+        chain
+            .op_pool
+            .forget_capella_broadcast_indices(&published_indices);
 
         info!(
             log,
@@ -103,10 +112,6 @@ pub async fn broadcast_address_changes_at_capella<T: BeaconChainTypes>(
 
         sleep(BROADCAST_CHUNK_DELAY).await;
     }
-
-    // Forget all the indices that should be broadcast at the Capella fork.
-    // This means that any future calls to this function will have no effect.
-    chain.op_pool.drop_capella_broadcast_indices();
 
     debug!(
         log,

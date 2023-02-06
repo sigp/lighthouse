@@ -594,12 +594,12 @@ impl<T: EthSpec> OperationPool<T> {
         changes
     }
 
-    /// Forgets which bls to execution changes were scheduled to be broadcast at
-    /// the Capella fork.
-    pub fn drop_capella_broadcast_indices(&self) {
+    /// Removes `to_forget` validators from the set of validators that should
+    /// have their BLS changes broadcast at the Capella fork boundary.
+    pub fn forget_capella_broadcast_indices(&self, to_forget: &HashSet<u64>) {
         self.bls_to_execution_changes
             .write()
-            .drop_capella_broadcast_indices();
+            .forget_capella_broadcast_indices(to_forget);
     }
 
     /// Prune BLS to execution changes that have been applied to the state more than 1 block ago.
