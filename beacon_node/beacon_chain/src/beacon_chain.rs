@@ -3024,7 +3024,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             // Only store blobs at the data availability boundary, minus any configured epochs
             // margin, or younger (of higher epoch number).
             if block_epoch >= import_boundary {
-                if let Some(blobs) = blobs? {
+                if let Some(blobs) = blobs {
                     if blobs.blobs.len() > 0 {
                         //FIXME(sean) using this for debugging for now
                         info!(self.log, "Writing blobs to store"; "block_root" => ?block_root);
