@@ -48,15 +48,23 @@ pub async fn broadcast_address_changes_at_capella<T: BeaconChainTypes>(
                 break;
             }
             None => {
-                if chain.slot().map_or(false, |slot| slot >= capella_fork_slot) {
-                    // The Capella fork has passed, exit now.
-                    return;
+                if chain.slot().map_or(true, |slot| slot < capella_fork_slot) {
+                    // We were unable to read the slot clock and/or the Capella
+                    // fork hasn't been reached yet, wait another slot and then
+                    // try again.
+                    sleep(slot_clock.slot_duration()).await;
                 }
-                // We were unable to read the slot clock, wait another slot and then try again.
-                sleep(slot_clock.slot_duration()).await;
             }
         }
     }
+
+    /*
+     * The following code will run in two scenarios:
+     *
+     * 1. The node has been running for some time and the Capella fork has just
+     *  been reached.
+     * 2. The node has just started and it is *after* the Capella fork.
+     */
 
     let head = chain.head_snapshot();
     let mut changes = chain
@@ -97,8 +105,8 @@ pub async fn broadcast_address_changes_at_capella<T: BeaconChainTypes>(
             }
         }
 
-        // Forget all the indices that should be broadcast at the Capella fork.
-        // This means that any future calls to this function will have no effect.
+        // Remove any published indices from the list of indices that need to be
+        // published.
         chain
             .op_pool
             .forget_capella_broadcast_indices(&published_indices);

@@ -133,7 +133,7 @@ impl<T: EthSpec> BlsToExecutionChanges<T> {
     pub fn forget_capella_broadcast_indices(&mut self, to_forget: &HashSet<u64>) {
         self.capella_broadcast_indices = self
             .capella_broadcast_indices
-            .difference(&to_forget)
+            .difference(to_forget)
             .copied()
             .collect();
     }
