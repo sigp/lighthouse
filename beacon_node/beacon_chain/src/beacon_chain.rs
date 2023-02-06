@@ -3044,7 +3044,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
         let txn_lock = self.store.hot_db.begin_rw_transaction();
 
-        if let Err(e) = self.store.do_atomically(ops) {
+        if let Err(e) = self.store.do_atomically_with_block_and_blobs_cache(ops) {
             error!(
                 self.log,
                 "Database write failed!";
@@ -3080,17 +3080,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             return Err(e.into());
         }
-
-        if let Some(blobs) = blobs? {
-            if blobs.blobs.len() > 0 {
-                //FIXME(sean) using this for debugging for now
-                info!(self.log, "Writing blobs to store"; "block_root" => ?block_root);
-                // WARNING! Deadlocks if the alternative to a separate blobs db is
-                // changed from the cold db to the hot db.
-                self.store.put_blobs(&block_root, (&*blobs).clone())?;
-            }
-        };
-
         drop(txn_lock);
 
         // The fork choice write-lock is dropped *after* the on-disk database has been updated.
