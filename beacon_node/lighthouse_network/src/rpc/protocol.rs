@@ -147,10 +147,10 @@ pub enum Protocol {
     /// The Goodbye protocol name.
     Goodbye,
     /// The `BlocksByRange` protocol name.
-    #[strum(serialize = "beacon_block_by_range")]
+    #[strum(serialize = "beacon_blocks_by_range")]
     BlocksByRange,
     /// The `BlocksByRoot` protocol name.
-    #[strum(serialize = "beacon_block_by_root")]
+    #[strum(serialize = "beacon_blocks_by_root")]
     BlocksByRoot,
     /// The `Ping` protocol name.
     Ping,
