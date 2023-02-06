@@ -400,6 +400,7 @@ where
         mut weak_subj_state: BeaconState<TEthSpec>,
         weak_subj_block: SignedBeaconBlock<TEthSpec>,
         genesis_state: BeaconState<TEthSpec>,
+        backfill_genesis: bool,
     ) -> Result<Self, String> {
         let store = self.store.clone().ok_or("genesis_state requires a store")?;
 
@@ -470,13 +471,36 @@ where
             .put_block(&weak_subj_block_root, weak_subj_block.clone())
             .map_err(|e| format!("Failed to store weak subjectivity block: {:?}", e))?;
 
+        // Calculate the weak subjectivity point in which to backfill blocks to.
+        let backfill_slot = if backfill_genesis {
+            Slot::new(0)
+        } else {
+            let backfill_epoch_range = (self.spec.min_validator_withdrawability_delay
+                + self.spec.churn_limit_quotient)
+                .as_u64()
+                / 2;
+            match self.slot_clock.as_ref().and_then(|clock| clock.now()) {
+                Some(current_slot) => {
+                    let backfill_epoch = current_slot
+                        .epoch(TEthSpec::slots_per_epoch())
+                        .saturating_sub(backfill_epoch_range);
+                    backfill_epoch.start_slot(TEthSpec::slots_per_epoch())
+                }
+                None => {
+                    return Err(String::from(
+                        "Cannot weak subjectivity backfill without an initialised slot clock",
+                    ));
+                }
+            }
+        };
+
         // Stage the database's metadata fields for atomic storage when `build` is called.
         // This prevents the database from restarting in an inconsistent state if the anchor
         // info or split point is written before the `PersistedBeaconChain`.
         self.pending_io_batch.push(store.store_split_in_batch());
         self.pending_io_batch.push(
             store
-                .init_anchor_info(weak_subj_block.message())
+                .init_anchor_info(weak_subj_block.message(), backfill_slot)
                 .map_err(|e| format!("Failed to initialize anchor info: {:?}", e))?,
         );
 

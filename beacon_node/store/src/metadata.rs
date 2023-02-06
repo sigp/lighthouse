@@ -95,12 +95,19 @@ pub struct AnchorInfo {
     pub state_upper_limit: Slot,
     /// The slot before which historical states are available (<=).
     pub state_lower_limit: Slot,
+    /// This represents the earliest slot that we download historical blocks to when doing a
+    /// weak-subjectivity sync.
+    /// This can be the genesis slot, if configured to download blocks all the way back to
+    /// genesis.
+    // NOTE: Although this is always an epoch boundary, we use the Slot type here to avoid
+    // extra generic type parameters.
+    pub weak_subjectivity_point: Slot,
 }
 
 impl AnchorInfo {
     /// Returns true if the block backfill has completed.
     pub fn block_backfill_complete(&self) -> bool {
-        self.oldest_block_slot == 0
+        self.oldest_block_slot <= self.weak_subjectivity_point
     }
 }
 

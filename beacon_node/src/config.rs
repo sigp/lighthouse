@@ -751,6 +751,10 @@ pub fn get_config<E: EthSpec>(
     client_config.chain.optimistic_finalized_sync =
         !cli_args.is_present("disable-optimistic-finalized-sync");
 
+    if cli_args.is_present("genesis-backfill") {
+        client_config.genesis_backfill = true;
+    }
+
     Ok(client_config)
 }
 
