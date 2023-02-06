@@ -123,6 +123,7 @@ pub enum HotColdDBError {
         request_slot: Option<Slot>,
         state_root: Hash256,
     },
+    Rollback,
 }
 
 impl<E: EthSpec> HotColdDB<E, MemoryStore<E>, MemoryStore<E>> {
@@ -906,22 +907,17 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         };
         // Rollback on failure
         if let Err(e) = tx_res {
-            let mut rollback_blob_ops: Vec<StoreOp<E>> = Vec::with_capacity(blob_cache_ops.len());
-            for blob_op in blob_cache_ops {
-                match blob_op {
-                    StoreOp::PutBlobs(block_root, _) => {
-                        rollback_blob_ops.push(StoreOp::DeleteBlobs(block_root));
-                    }
-                    StoreOp::DeleteBlobs(_) => {
-                        if let Some(blobs) = blobs_to_delete.pop() {
-                            rollback_blob_ops
-                                .push(StoreOp::PutBlobs(blobs.beacon_block_root, Arc::new(blobs)));
-                        }
-                    }
-                    _ => (),
-                }
+            for op in blob_cache_ops.iter_mut() {
+                let reverse_op = match op {
+                    StoreOp::PutBlobs(block_root, _) => StoreOp::DeleteBlobs(block_root),
+                    StoreOp::DeleteBlobs(_) => match blobs_to_delete.pop() {
+                        Some(blobs) => StoreOp::PutBlobs(blobs.beacon_block_root, Arc::new(blobs)),
+                        None => return Err(HotColdDBError::Rollback.into()),
+                    },
+                    _ => return Err(HotColdDBError::Rollback.into()),
+                };
             }
-            blobs_db.do_atomically(self.convert_to_kv_batch(rollback_blob_ops)?)?;
+            blobs_db.do_atomically(self.convert_to_kv_batch(blob_cache_ops)?)?;
             return Err(e);
         }
 
