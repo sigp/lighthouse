@@ -1732,6 +1732,11 @@ pub fn serve<T: BeaconChainTypes>(
                                     root
                                 ))
                             }
+                            BeaconChainError::BeaconStateError(
+                                BeaconStateError::UnknownValidator(_),
+                            ) => warp_utils::reject::custom_bad_request(
+                                "validator is unknown".to_string(),
+                            ),
                             e => warp_utils::reject::custom_server_error(format!(
                                 "unexpected error: {:?}",
                                 e
