@@ -38,17 +38,13 @@ use tokio::{
     time::sleep,
 };
 use tokio_stream::wrappers::WatchStream;
-<<<<<<< HEAD
-use types::consts::eip4844::BLOB_TX_TYPE;
-use types::transaction::{AccessTuple, BlobTransaction};
-use types::{AbstractExecPayload, BeaconStateError, Blob, ExecPayload, KzgCommitment};
-=======
 use types::{
     blobs_sidecar::{Blobs, KzgCommitments},
     ExecutionPayload, ExecutionPayloadCapella, ExecutionPayloadEip4844, ExecutionPayloadMerge,
 };
 use types::{AbstractExecPayload, BeaconStateError, ExecPayload};
->>>>>>> d1678db12 (Fix rebase conflicts)
+use types::consts::eip4844::BLOB_TX_TYPE;
+use types::transaction::{AccessTuple, BlobTransaction};
 use types::{
     BlindedPayload, BlockType, ChainSpec, Epoch, ExecutionBlockHash, ForkName,
     ProposerPreparationData, PublicKeyBytes, Signature, SignedBeaconBlock, Slot, Transaction,
@@ -135,14 +131,8 @@ pub enum BlockProposalContents<T: EthSpec, Payload: AbstractExecPayload<T>> {
     },
     PayloadAndBlobs {
         payload: Payload,
-<<<<<<< HEAD
-        block_value: Uint256,
-        kzg_commitments: VariableList<KzgCommitment, T::MaxBlobsPerBlock>,
-        blobs: VariableList<Blob<T>, T::MaxBlobsPerBlock>,
-=======
+block_value: Uint256,
         kzg_commitments: KzgCommitments<T>,
-        blobs: Blobs<T>,
->>>>>>> d1678db12 (Fix rebase conflicts)
     },
 }
 
@@ -159,17 +149,10 @@ pub struct BlockProposalContentsDeconstructed<T: EthSpec, Payload: AbstractExecP
 impl<T: EthSpec, Payload: AbstractExecPayload<T>> BlockProposalContents<T, Payload> {
     pub fn deconstruct(self) -> BlockProposalContentsDeconstructed<T, Payload> {
         match self {
-<<<<<<< HEAD
             Self::Payload {
                 payload,
                 block_value: _,
             } => (payload, None, None),
-=======
-            Self::Payload(payload) => BlockProposalContentsDeconstructed {
-                payload,
-                blobs_content: None,
-            },
->>>>>>> d1678db12 (Fix rebase conflicts)
             Self::PayloadAndBlobs {
                 payload,
                 block_value: _,
