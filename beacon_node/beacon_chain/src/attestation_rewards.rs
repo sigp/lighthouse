@@ -35,7 +35,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let state_root = self
             .state_root_at_slot(state_slot)?
-            .ok_or(BeaconChainError::UnableToFindTargetRoot(state_slot))?;
+            .ok_or(BeaconChainError::NoStateForSlot(state_slot))?;
 
         let mut state = self
             .get_state(&state_root, Some(state_slot))?
@@ -101,11 +101,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         } else {
             validators
                 .into_iter()
-                .filter_map(|validator| match validator {
-                    ValidatorId::Index(i) => Some(i as usize),
-                    ValidatorId::PublicKey(pubkey) => state.get_validator_index(&pubkey).ok()?,
+                .map(|validator| match validator {
+                    ValidatorId::Index(i) => Ok(i as usize),
+                    ValidatorId::PublicKey(pubkey) => state
+                        .get_validator_index(&pubkey)?
+                        .ok_or(BeaconChainError::ValidatorPubkeyUnknown(pubkey)),
                 })
-                .collect::<Vec<usize>>()
+                .collect::<Result<Vec<_>, _>>()?
         };
 
         for validator_index in &validators {

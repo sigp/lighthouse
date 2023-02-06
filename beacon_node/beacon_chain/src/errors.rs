@@ -50,7 +50,6 @@ pub enum BeaconChainError {
     },
     SlotClockDidNotStart,
     NoStateForSlot(Slot),
-    UnableToFindTargetRoot(Slot),
     BeaconStateError(BeaconStateError),
     DBInconsistent(String),
     DBError(store::Error),

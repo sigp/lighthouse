@@ -1728,15 +1728,24 @@ pub fn serve<T: BeaconChainTypes>(
                         .map_err(|e| match e {
                             BeaconChainError::MissingBeaconState(root) => {
                                 warp_utils::reject::custom_not_found(format!(
-                                    "missing state {:?}",
-                                    root
+                                    "missing state {root:?}",
+                                ))
+                            }
+                            BeaconChainError::NoStateForSlot(slot) => {
+                                warp_utils::reject::custom_not_found(format!(
+                                    "missing state at slot {slot}"
                                 ))
                             }
                             BeaconChainError::BeaconStateError(
-                                BeaconStateError::UnknownValidator(_),
-                            ) => warp_utils::reject::custom_bad_request(
-                                "validator is unknown".to_string(),
-                            ),
+                                BeaconStateError::UnknownValidator(validator_index),
+                            ) => warp_utils::reject::custom_bad_request(format!(
+                                "validator is unknown: {validator_index}"
+                            )),
+                            BeaconChainError::ValidatorPubkeyUnknown(pubkey) => {
+                                warp_utils::reject::custom_bad_request(format!(
+                                    "validator pubkey is unknown: {pubkey:?}"
+                                ))
+                            }
                             e => warp_utils::reject::custom_server_error(format!(
                                 "unexpected error: {:?}",
                                 e
