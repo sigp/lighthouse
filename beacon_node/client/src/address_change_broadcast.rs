@@ -1,7 +1,7 @@
 use crate::*;
 use lighthouse_network::PubsubMessage;
 use network::NetworkMessage;
-use slog::{debug, info, Logger};
+use slog::{debug, info, warn, Logger};
 use slot_clock::SlotClock;
 use std::cmp;
 use std::collections::HashSet;
@@ -16,15 +16,11 @@ const BROADCAST_CHUNK_SIZE: usize = 128;
 /// The delay between broadcasting each chunk.
 const BROADCAST_CHUNK_DELAY: Duration = Duration::from_millis(500);
 
-/// Waits until the Capella fork epoch and then publishes any bls to execution
-/// address changes which were placed in the pool prior to the fork.
+/// If the Capella fork has already been reached, `broadcast_address_changes` is
+/// called immediately.
 ///
-/// Does nothing if the Capella fork has already happened.
-///
-/// Address changes are published in chunks, with a delay between each chunk.
-/// This helps reduce the load on the P2P network and also helps prevent us from
-/// clogging our `network_send` channel and being late to publish
-/// blocks, attestations, etc.
+/// If the Capella fork has not been reached, waits until the start of the fork
+/// epoch and then calls `broadcast_address_changes`.
 pub async fn broadcast_address_changes_at_capella<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
     network_send: UnboundedSender<NetworkMessage<T::EthSpec>>,
@@ -44,11 +40,16 @@ pub async fn broadcast_address_changes_at_capella<T: BeaconChainTypes>(
     loop {
         match slot_clock.duration_to_slot(capella_fork_slot) {
             Some(duration) => {
+                // Sleep until the Capella fork and then run through the loop
+                // again. Running the loop again helps us use the
+                // `TestingSlotClock` in tests.
                 sleep(duration).await;
-                break;
             }
             None => {
-                if chain.slot().map_or(true, |slot| slot < capella_fork_slot) {
+                if chain.slot().map_or(false, |slot| slot >= capella_fork_slot) {
+                    // Capella has been reached, break the loop and broadcast the changes.
+                    break;
+                } else {
                     // We were unable to read the slot clock and/or the Capella
                     // fork hasn't been reached yet, wait another slot and then
                     // try again.
@@ -58,14 +59,26 @@ pub async fn broadcast_address_changes_at_capella<T: BeaconChainTypes>(
         }
     }
 
-    /*
-     * The following code will run in two scenarios:
-     *
-     * 1. The node has been running for some time and the Capella fork has just
-     *  been reached.
-     * 2. The node has just started and it is *after* the Capella fork.
-     */
+    // The following function will be called in two scenarios:
+    //
+    // 1. The node has been running for some time and the Capella fork has just
+    //  been reached.
+    // 2. The node has just started and it is *after* the Capella fork.
+    broadcast_address_changes(chain, network_send, log).await
+}
 
+/// Broadcasts any address changes that are flagged for broadcasting at the
+/// Capella fork epoch.
+///
+/// Address changes are published in chunks, with a delay between each chunk.
+/// This helps reduce the load on the P2P network and also helps prevent us from
+/// clogging our `network_send` channel and being late to publish
+/// blocks, attestations, etc.
+pub async fn broadcast_address_changes<T: BeaconChainTypes>(
+    chain: &BeaconChain<T>,
+    network_send: UnboundedSender<NetworkMessage<T::EthSpec>>,
+    log: &Logger,
+) {
     let head = chain.head_snapshot();
     let mut changes = chain
         .op_pool
@@ -114,9 +127,17 @@ pub async fn broadcast_address_changes_at_capella<T: BeaconChainTypes>(
         info!(
             log,
             "Published address change messages";
-            "num_unable_to_publish" => num_err,
             "num_published" => num_ok,
         );
+
+        if num_err > 0 {
+            warn!(
+                log,
+                "Failed to publish address changes";
+                "info" => "failed messages will be retried",
+                "num_unable_to_publish" => num_err,
+            );
+        }
 
         sleep(BROADCAST_CHUNK_DELAY).await;
     }
