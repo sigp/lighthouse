@@ -861,10 +861,10 @@ impl<T: EthSpec> ExecutionLayer<T> {
                             match verify_builder_bid(
                                 &relay,
                                 parent_hash,
-                                payload_attributes.prev_randao(),
-                                payload_attributes.timestamp(),
+                                payload_attributes,
                                 Some(local.payload().block_number()),
                                 self.inner.builder_profit_threshold,
+                                current_fork,
                                 spec,
                             ) {
                                 Ok(()) => Ok(ProvenancedPayload::Builder(
@@ -915,10 +915,10 @@ impl<T: EthSpec> ExecutionLayer<T> {
                             match verify_builder_bid(
                                 &relay,
                                 parent_hash,
-                                payload_attributes.prev_randao(),
-                                payload_attributes.timestamp(),
+                                payload_attributes,
                                 None,
                                 self.inner.builder_profit_threshold,
+                                current_fork,
                                 spec,
                             ) {
                                 Ok(()) => Ok(ProvenancedPayload::Builder(
@@ -1875,6 +1875,11 @@ enum InvalidBuilderPayload {
         signature: Signature,
         pubkey: PublicKeyBytes,
     },
+    #[allow(dead_code)]
+    WithdrawalsRoot {
+        payload: Hash256,
+        expected: Hash256,
+    },
 }
 
 impl InvalidBuilderPayload {
@@ -1889,6 +1894,7 @@ impl InvalidBuilderPayload {
             InvalidBuilderPayload::BlockNumber { .. } => true,
             InvalidBuilderPayload::Fork { .. } => true,
             InvalidBuilderPayload::Signature { .. } => true,
+            InvalidBuilderPayload::WithdrawalsRoot { .. } => true,
         }
     }
 }
@@ -1924,6 +1930,13 @@ impl fmt::Display for InvalidBuilderPayload {
                 "invalid payload signature {} for pubkey {}",
                 signature, pubkey
             ),
+            InvalidBuilderPayload::WithdrawalsRoot { payload, expected } => {
+                write!(
+                    f,
+                    "payload withdrawals root was {} not {}",
+                    payload, expected
+                )
+            }
         }
     }
 }
@@ -1932,10 +1945,10 @@ impl fmt::Display for InvalidBuilderPayload {
 fn verify_builder_bid<T: EthSpec, Payload: AbstractExecPayload<T>>(
     bid: &ForkVersionedResponse<SignedBuilderBid<T, Payload>>,
     parent_hash: ExecutionBlockHash,
-    prev_randao: Hash256,
-    timestamp: u64,
+    payload_attributes: &PayloadAttributes,
     block_number: Option<u64>,
     profit_threshold: Uint256,
+    current_fork: ForkName,
     spec: &ChainSpec,
 ) -> Result<(), Box<InvalidBuilderPayload>> {
     let is_signature_valid = bid.data.verify_signature(spec);
@@ -1962,29 +1975,25 @@ fn verify_builder_bid<T: EthSpec, Payload: AbstractExecPayload<T>>(
             payload: header.parent_hash(),
             expected: parent_hash,
         }))
-    } else if header.prev_randao() != prev_randao {
+    } else if header.prev_randao() != payload_attributes.prev_randao() {
         Err(Box::new(InvalidBuilderPayload::PrevRandao {
             payload: header.prev_randao(),
-            expected: prev_randao,
+            expected: payload_attributes.prev_randao(),
         }))
-    } else if header.timestamp() != timestamp {
+    } else if header.timestamp() != payload_attributes.timestamp() {
         Err(Box::new(InvalidBuilderPayload::Timestamp {
             payload: header.timestamp(),
-            expected: timestamp,
+            expected: payload_attributes.timestamp(),
         }))
     } else if block_number.map_or(false, |n| n != header.block_number()) {
         Err(Box::new(InvalidBuilderPayload::BlockNumber {
             payload: header.block_number(),
             expected: block_number,
         }))
-    } else if !matches!(bid.version, Some(ForkName::Merge)) {
-        // Once fork information is added to the payload, we will need to
-        // check that the local and relay payloads match. At this point, if
-        // we are requesting a payload at all, we have to assume this is
-        // the Bellatrix fork.
+    } else if bid.version != Some(current_fork) {
         Err(Box::new(InvalidBuilderPayload::Fork {
             payload: bid.version,
-            expected: ForkName::Merge,
+            expected: current_fork,
         }))
     } else if !is_signature_valid {
         Err(Box::new(InvalidBuilderPayload::Signature {
