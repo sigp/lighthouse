@@ -206,8 +206,8 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 present in the configuration, the quotas used for the inbound rate limiter will be \
                 used."
             )
-            .takes_value(true)
             .hidden(true)
+            .min_values(0)
         )
         /* REST API related arguments */
         .arg(
