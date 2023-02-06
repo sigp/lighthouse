@@ -9,7 +9,7 @@ use types::{
 /// Indicates if a `BlsToExecutionChange` should be broadcast at the Capella
 /// fork epoch.
 #[derive(Copy, Clone)]
-pub enum CapellaBroadcast {
+pub enum QueueForCapellaBroadcast {
     Yes,
     No,
 }
@@ -42,7 +42,7 @@ impl<T: EthSpec> BlsToExecutionChanges<T> {
     pub fn insert(
         &mut self,
         verified_change: SigVerifiedOp<SignedBlsToExecutionChange, T>,
-        capella_broadcast: CapellaBroadcast,
+        capella_broadcast: QueueForCapellaBroadcast,
     ) -> bool {
         let validator_index = verified_change.as_inner().message.validator_index;
         // Wrap in an `Arc` once on insert.
@@ -51,7 +51,7 @@ impl<T: EthSpec> BlsToExecutionChanges<T> {
             Entry::Vacant(entry) => {
                 self.queue.push(verified_change.clone());
                 entry.insert(verified_change);
-                if matches!(capella_broadcast, CapellaBroadcast::Yes) {
+                if matches!(capella_broadcast, QueueForCapellaBroadcast::Yes) {
                     self.capella_broadcast_indices.insert(validator_index);
                 }
                 true

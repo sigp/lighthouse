@@ -155,7 +155,7 @@ pub async fn broadcast_address_changes<T: BeaconChainTypes>(
 mod tests {
     use super::*;
     use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
-    use operation_pool::CapellaBroadcast;
+    use operation_pool::QueueForCapellaBroadcast;
     use state_processing::{SigVerifiedOp, VerifyOperation};
     use std::collections::HashSet;
     use tokio::sync::mpsc;
@@ -240,7 +240,7 @@ mod tests {
                 broadcast_indices.insert(change.as_inner().message.validator_index);
                 chain
                     .op_pool
-                    .insert_bls_to_execution_change(change, CapellaBroadcast::Yes);
+                    .insert_bls_to_execution_change(change, QueueForCapellaBroadcast::Yes);
             }
 
             let mut non_broadcast_indices = HashSet::new();
@@ -248,7 +248,7 @@ mod tests {
                 non_broadcast_indices.insert(change.as_inner().message.validator_index);
                 chain
                     .op_pool
-                    .insert_bls_to_execution_change(change, CapellaBroadcast::No);
+                    .insert_bls_to_execution_change(change, QueueForCapellaBroadcast::No);
             }
 
             harness.set_current_slot(

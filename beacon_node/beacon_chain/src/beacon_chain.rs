@@ -70,7 +70,9 @@ use fork_choice::{
 use futures::channel::mpsc::Sender;
 use itertools::process_results;
 use itertools::Itertools;
-use operation_pool::{AttestationRef, CapellaBroadcast, OperationPool, PersistedOperationPool};
+use operation_pool::{
+    AttestationRef, OperationPool, PersistedOperationPool, QueueForCapellaBroadcast,
+};
 use parking_lot::{Mutex, RwLock};
 use proto_array::{CountUnrealizedFull, DoNotReOrg, ProposerHeadError};
 use safe_arith::SafeArith;
@@ -2289,7 +2291,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn import_bls_to_execution_change(
         &self,
         bls_to_execution_change: SigVerifiedOp<SignedBlsToExecutionChange, T::EthSpec>,
-        capella_broadcast: CapellaBroadcast,
+        capella_broadcast: QueueForCapellaBroadcast,
     ) -> bool {
         if self.eth1_chain.is_some() {
             self.op_pool
