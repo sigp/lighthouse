@@ -1,4 +1,4 @@
-use beacon_chain::test_utils::EphemeralHarnessType;
+use beacon_chain::test_utils::EphemeralTestingSlotClockHarnessType;
 use environment::null_logger;
 use http_metrics::Config;
 use reqwest::StatusCode;
@@ -7,7 +7,7 @@ use std::sync::Arc;
 use tokio::sync::oneshot;
 use types::MainnetEthSpec;
 
-type Context = http_metrics::Context<EphemeralHarnessType<MainnetEthSpec>>;
+type Context = http_metrics::Context<EphemeralTestingSlotClockHarnessType<MainnetEthSpec>>;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn returns_200_ok() {

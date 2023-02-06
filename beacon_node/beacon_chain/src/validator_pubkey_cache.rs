@@ -191,14 +191,14 @@ impl DatabasePubkey {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::test_utils::{BeaconChainHarness, EphemeralHarnessType};
+    use crate::test_utils::{BeaconChainHarness, EphemeralTestingSlotClockHarnessType};
     use logging::test_logger;
     use std::sync::Arc;
     use store::HotColdDB;
     use types::{BeaconState, EthSpec, Keypair, MainnetEthSpec};
 
     type E = MainnetEthSpec;
-    type T = EphemeralHarnessType<E>;
+    type T = EphemeralTestingSlotClockHarnessType<E>;
 
     fn get_state(validator_count: usize) -> (BeaconState<E>, Vec<Keypair>) {
         let harness = BeaconChainHarness::builder(MainnetEthSpec)

@@ -4,28 +4,26 @@ use crate::service::RequestId;
 use crate::sync::manager::RequestId as SyncId;
 use crate::NetworkMessage;
 
-use sloggers::{null::NullLoggerBuilder, Build};
-
 use super::*;
 
 use beacon_chain::{
-    builder::{BeaconChainBuilder, Witness},
+    builder::Witness,
     eth1_chain::CachingEth1Backend,
-    test_utils::test_spec,
+    test_utils::{BeaconChainHarness, EphemeralSystemTimeSlotClockHarnessType as HarnessType},
 };
+pub use genesis::{interop_genesis_state, DEFAULT_ETH1_BLOCK_HASH};
 use lighthouse_network::{NetworkGlobals, Request};
 use slog::{Drain, Level};
-use slot_clock::{SlotClock, SystemTimeSlotClock};
-use std::time::{Duration, SystemTime};
+use slot_clock::SystemTimeSlotClock;
+use std::time::Duration;
 use store::MemoryStore;
 use tokio::sync::mpsc;
 use types::{
     test_utils::{SeedableRng, TestRandom, XorShiftRng},
-    EthSpec, MinimalEthSpec as E, SignedBeaconBlock,
+    MinimalEthSpec as E, SignedBeaconBlock,
 };
 
 type T = Witness<SystemTimeSlotClock, CachingEth1Backend<E>, E, MemoryStore<E>, MemoryStore<E>>;
-const SLOT_DURATION_MILLIS: u64 = 400;
 
 struct TestRig {
     beacon_processor_rx: mpsc::Receiver<WorkEvent<T>>,
@@ -37,31 +35,6 @@ const D: Duration = Duration::new(0, 0);
 
 impl TestRig {
     fn test_setup(log_level: Option<Level>) -> (BlockLookups<T>, SyncNetworkContext<T>, Self) {
-        let builder = NullLoggerBuilder;
-        let log = builder.build().expect("should build logger");
-        let store =
-            store::HotColdDB::open_ephemeral(store::StoreConfig::default(), E::default_spec(), log)
-                .unwrap();
-
-        // Initialise a new beacon chain
-        let chain = BeaconChainBuilder::new(E)
-            .custom_spec(test_spec::<E>())
-            .store(Arc::new(store))
-            .dummy_eth1_backend()
-            .expect("should build dummy backend")
-            .slot_clock(SystemTimeSlotClock::new(
-                types::Slot::new(0),
-                Duration::from_secs(
-                    SystemTime::now()
-                        .duration_since(SystemTime::UNIX_EPOCH)
-                        .unwrap()
-                        .as_secs(),
-                ),
-                Duration::from_millis(SLOT_DURATION_MILLIS),
-            ))
-            .build()
-            .expect("should build");
-
         let log = {
             let decorator = slog_term::TermDecorator::new().build();
             let drain = slog_term::FullFormat::new(decorator).build().fuse();
@@ -73,6 +46,16 @@ impl TestRig {
                 slog::Logger::root(drain.filter(|_| false).fuse(), slog::o!())
             }
         };
+
+        // Initialise a new beacon chain
+        let harness = BeaconChainHarness::<HarnessType<E>>::builder(E::default())
+            .default_spec()
+            .logger(log.clone())
+            .deterministic_keypairs(8)
+            .fresh_ephemeral_store()
+            .build();
+
+        let chain = harness.chain;
 
         let (beacon_processor_tx, beacon_processor_rx) = mpsc::channel(100);
         let (network_tx, network_rx) = mpsc::unbounded_channel();
@@ -89,7 +72,7 @@ impl TestRig {
                 network_tx,
                 globals,
                 beacon_processor_tx,
-                Arc::new(chain),
+                chain,
                 log.new(slog::o!("component" => "network_context")),
             )
         };

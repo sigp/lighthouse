@@ -2,7 +2,7 @@
 mod macros;
 mod exit;
 
-use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
+use beacon_chain::test_utils::{BeaconChainHarness, EphemeralTestingSlotClockHarnessType};
 use lazy_static::lazy_static;
 use ssz::Encode;
 use std::env;
@@ -53,7 +53,7 @@ lazy_static! {
 async fn get_harness<E: EthSpec>(
     slot: Slot,
     validator_count: usize,
-) -> BeaconChainHarness<EphemeralHarnessType<E>> {
+) -> BeaconChainHarness<EphemeralTestingSlotClockHarnessType<E>> {
     let harness = BeaconChainHarness::builder(E::default())
         .default_spec()
         .keypairs(KEYPAIRS[0..validator_count].to_vec())

@@ -10,7 +10,9 @@ use crate::{
     per_block_processing::{process_operations, verify_exit::verify_exit},
     BlockSignatureStrategy, ConsensusContext, VerifyBlockRoot, VerifySignatures,
 };
-use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
+use beacon_chain::test_utils::{
+    BeaconChainHarness, EphemeralTestingSlotClockHarnessType as HarnessType,
+};
 use lazy_static::lazy_static;
 use ssz_types::Bitfield;
 use test_utils::generate_deterministic_keypairs;
@@ -30,11 +32,11 @@ lazy_static! {
 async fn get_harness<E: EthSpec>(
     epoch_offset: u64,
     num_validators: usize,
-) -> BeaconChainHarness<EphemeralHarnessType<E>> {
+) -> BeaconChainHarness<HarnessType<E>> {
     // Set the state and block to be in the last slot of the `epoch_offset`th epoch.
     let last_slot_of_epoch =
         (MainnetEthSpec::genesis_epoch() + epoch_offset).end_slot(E::slots_per_epoch());
-    let harness = BeaconChainHarness::builder(E::default())
+    let harness = BeaconChainHarness::<HarnessType<E>>::builder(E::default())
         .default_spec()
         .keypairs(KEYPAIRS[0..num_validators].to_vec())
         .fresh_ephemeral_store()

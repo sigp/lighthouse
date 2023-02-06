@@ -208,7 +208,7 @@ impl BlockShufflingIds {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::test_utils::EphemeralHarnessType;
+    use crate::test_utils::EphemeralTestingSlotClockHarnessType;
     use types::*;
 
     type BeaconChainHarness =

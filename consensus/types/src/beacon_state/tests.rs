@@ -2,8 +2,8 @@
 use crate::test_utils::*;
 use crate::test_utils::{SeedableRng, XorShiftRng};
 use beacon_chain::test_utils::{
-    interop_genesis_state_with_eth1, test_spec, BeaconChainHarness, EphemeralHarnessType,
-    DEFAULT_ETH1_BLOCK_HASH,
+    interop_genesis_state, test_spec, BeaconChainHarness,
+    EphemeralTestingSlotClockHarnessType as HarnessType, DEFAULT_ETH1_BLOCK_HASH,
 };
 use beacon_chain::types::{
     test_utils::TestRandom, BeaconState, BeaconStateAltair, BeaconStateBase, BeaconStateError,
@@ -28,7 +28,7 @@ lazy_static! {
 async fn get_harness<E: EthSpec>(
     validator_count: usize,
     slot: Slot,
-) -> BeaconChainHarness<EphemeralHarnessType<E>> {
+) -> BeaconChainHarness<HarnessType<E>> {
     let harness = BeaconChainHarness::builder(E::default())
         .default_spec()
         .keypairs(KEYPAIRS[0..validator_count].to_vec())

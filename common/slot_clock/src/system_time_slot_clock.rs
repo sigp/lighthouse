@@ -67,6 +67,12 @@ impl SlotClock for SystemTimeSlotClock {
     }
 }
 
+impl From<ManualSlotClock> for SystemTimeSlotClock {
+    fn from(clock: ManualSlotClock) -> Self {
+        SystemTimeSlotClock { clock }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
