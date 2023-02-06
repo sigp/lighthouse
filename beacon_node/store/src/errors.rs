@@ -20,7 +20,7 @@ pub enum Error {
     RlpError(String),
     BlockNotFound(Hash256),
     /// The blobs sidecar mapping to this block root is older than the data availability boundary.
-    BlobsTooOld(Hash256),
+    BlobsTooOld(Hash256, Slot),
     NoContinuationData,
     SplitPointModified(Slot, Slot),
     ConfigError(StoreConfigError),

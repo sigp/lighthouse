@@ -1074,24 +1074,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ) -> Result<Option<BlobsSidecar<T::EthSpec>>, Error> {
         match self.store.get_blobs(block_root)? {
             Some(blobs) => Ok(Some(blobs)),
-<<<<<<< HEAD
             None => {
                 // Check for the corresponding block to understand whether we *should* have blobs.
                 self.get_blinded_block(block_root)?
                     .map(|block| {
                         // If there are no KZG commitments in the block, we know the sidecar should
                         // be empty.
-=======
-            None => match self.get_blinded_block(block_root)? {
-                Some(block) => {
-                    let current_slot = self.slot()?;
-                    let current_epoch = current_slot.epoch(T::EthSpec::slots_per_epoch());
-
-                    if block.slot().epoch(T::EthSpec::slots_per_epoch())
-                        + *MIN_EPOCHS_FOR_BLOBS_SIDECARS_REQUESTS
-                        >= current_epoch
-                    {
->>>>>>> 292426505 (Improve syntax)
                         let expected_kzg_commitments =
                             match block.message().body().blob_kzg_commitments() {
                                 Ok(kzg_commitments) => kzg_commitments,
@@ -3027,21 +3015,34 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         ops.push(StoreOp::PutBlock(block_root, signed_block.clone()));
         ops.push(StoreOp::PutState(block.state_root(), &state));
 
-        if let Some(blobs) = blobs {
-            if blobs.blobs.len() > 0 {
-                //FIXME(sean) using this for debugging for now
-                info!(self.log, "Writing blobs to store"; "block_root" => ?block_root);
-                ops.push(StoreOp::PutBlobs(block_root, blobs));
+        let block_epoch = block.slot().epoch(T::EthSpec::slots_per_epoch());
+
+        // Only store blobs that haven't passed the data availability boundary.
+        if Some(block_epoch) >= self.data_availability_boundary() {
+            if let Some(blobs) = blobs? {
+                if blobs.blobs.len() > 0 {
+                    //FIXME(sean) using this for debugging for now
+                    info!(self.log, "Writing blobs to store"; "block_root" => ?block_root);
+                    ops.push(StoreOp::PutBlobs(block_root, blobs));
+                }
             }
+        }
+
+        if Some(current_epoch)
+            >= self.spec.eip4844_fork_epoch.map(|eip4844_fork_epoch| {
+                eip4844_fork_epoch + *MIN_EPOCHS_FOR_BLOBS_SIDECARS_REQUESTS
+            })
+        {
+            let current_epoch_start_slot = current_epoch.start_slot(T::EthSpec::slots_per_epoch());
 
             // Update db's metadata for blobs pruning.
-            if current_slot == current_epoch.start_slot(T::EthSpec::slots_per_epoch()) {
+            if current_slot == current_epoch_start_slot {
                 if let Some(mut blob_info) = self.store.get_blob_info() {
-                    let next_epoch_to_prune =
-                        blob_info.last_pruned_epoch + *MIN_EPOCHS_FOR_BLOBS_SIDECARS_REQUESTS;
-
-                    if current_epoch > next_epoch_to_prune {
-                        blob_info.data_availability_breakpoint = Some(block_root);
+                    // Pruning enabled until data availability boundary.
+                    if let Some(data_availability_boundary) = self.data_availability_boundary() {
+                        blob_info.data_availability_boundary = self.state_root_at_slot(
+                            data_availability_boundary.start_slot(T::EthSpec::slots_per_epoch()),
+                        )?;
                         self.store.compare_and_set_blob_info_with_write(
                             self.store.get_blob_info(),
                             Some(blob_info),
@@ -3049,7 +3050,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     }
                 }
             }
-        };
+        }
+
         let txn_lock = self.store.hot_db.begin_rw_transaction();
 
         kv_store_ops.extend(self.store.convert_to_kv_batch(ops)?);

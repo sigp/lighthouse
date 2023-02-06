@@ -551,6 +551,14 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true)
                 .default_value("true")
         )
+        .arg(
+            Arg::with_name("prune-blobs")
+                .long("prune-blobs")
+                .help("Prune blobs from Lighthouse's database when they are older than the data \
+                       data availability boundary relative to the current head.")
+                .takes_value(true)
+                .default_value("true")
+        )
 
         /*
          * Misc.

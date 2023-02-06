@@ -411,6 +411,10 @@ pub fn get_config<E: EthSpec>(
         client_config.store.prune_payloads = prune_payloads;
     }
 
+    if let Some(prune_blobs) = clap_utils::parse_optional(cli_args, "prune-blobs")? {
+        client_config.store.prune_blobs = prune_blobs;
+    }
+
     /*
      * Zero-ports
      *

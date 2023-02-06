@@ -1341,6 +1341,19 @@ fn prune_payloads_on_startup_false() {
         .with_config(|config| assert!(!config.store.prune_payloads));
 }
 #[test]
+fn prune_blobs_default() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| assert!(config.store.prune_blobs));
+}
+#[test]
+fn prune_blobs_on_startup_false() {
+    CommandLineTest::new()
+        .flag("prune-blobs", Some("false"))
+        .run_with_zero_port()
+        .with_config(|config| assert!(!config.store.prune_blobs));
+}
+#[test]
 fn reconstruct_historic_states_flag() {
     CommandLineTest::new()
         .flag("reconstruct-historic-states", None)

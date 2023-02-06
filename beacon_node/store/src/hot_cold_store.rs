@@ -1705,7 +1705,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
         let data_availability_breakpoint: Hash256;
 
-        match blob_info.data_availability_breakpoint {
+        match blob_info.data_availability_boundary {
             Some(breakpoint) => {
                 if breakpoint == blob_info.oldest_blob_parent {
                     return Ok(());
