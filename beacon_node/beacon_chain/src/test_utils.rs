@@ -837,16 +837,6 @@ where
             .collect()
     }
 
-    pub fn get_finalized_checkpoints(&self) -> HashSet<SignedBeaconBlockHash> {
-        let chain_dump = self.chain.chain_dump().unwrap();
-        chain_dump
-            .iter()
-            .cloned()
-            .map(|checkpoint| checkpoint.beacon_state.finalized_checkpoint().root.into())
-            .filter(|block_hash| *block_hash != Hash256::zero().into())
-            .collect()
-    }
-
     /// Deprecated: Do not modify the slot clock manually; rely on add_attested_blocks_at_slots()
     ///             instead
     ///
@@ -861,18 +851,6 @@ where
     pub fn advance_to_slot_lookahead(&self, slot: Slot, lookahead: Duration) {
         let time = self.chain.slot_clock.start_of(slot).unwrap() - lookahead;
         self.chain.slot_clock.set_current_time(time);
-    }
-
-    /// Deprecated: Use make_block() instead
-    ///
-    /// Returns a newly created block, signed by the proposer for the given slot.
-    pub async fn build_block(
-        &self,
-        state: BeaconState<E>,
-        slot: Slot,
-        _block_strategy: BlockStrategy,
-    ) -> (SignedBeaconBlock<E>, BeaconState<E>) {
-        self.make_block(state, slot).await
     }
 
     /// Uses `Self::extend_chain` to build the chain out to the `target_slot`.
@@ -1086,6 +1064,16 @@ where
         self.chain.canonical_head.cached_head().head_block_root()
     }
 
+    pub fn get_finalized_checkpoints(&self) -> HashSet<SignedBeaconBlockHash> {
+        let chain_dump = self.chain.chain_dump().unwrap();
+        chain_dump
+            .iter()
+            .cloned()
+            .map(|checkpoint| checkpoint.beacon_state.finalized_checkpoint().root.into())
+            .filter(|block_hash| *block_hash != Hash256::zero().into())
+            .collect()
+    }
+
     pub fn finalized_checkpoint(&self) -> Checkpoint {
         self.chain
             .canonical_head
@@ -1139,6 +1127,18 @@ where
 
     pub fn is_skipped_slot(&self, state: &BeaconState<E>, slot: Slot) -> bool {
         state.get_block_root(slot).unwrap() == state.get_block_root(slot - 1).unwrap()
+    }
+
+    /// Deprecated: Use make_block() instead
+    ///
+    /// Returns a newly created block, signed by the proposer for the given slot.
+    pub async fn build_block(
+        &self,
+        state: BeaconState<E>,
+        slot: Slot,
+        _block_strategy: BlockStrategy,
+    ) -> (SignedBeaconBlock<E>, BeaconState<E>) {
+        self.make_block(state, slot).await
     }
 
     pub async fn make_block(
@@ -2121,6 +2121,30 @@ where
         let attestations =
             self.make_attestations(validators, state, state_root, block_hash, block.slot());
         self.process_attestations(attestations);
+    }
+
+    pub fn process_sync_contributions(
+        &self,
+        sync_contributions: HarnessSyncContributions<E>,
+    ) -> Result<(), SyncCommitteeError> {
+        let mut verified_contributions = Vec::with_capacity(sync_contributions.len());
+
+        for (_, contribution_and_proof) in sync_contributions {
+            let signed_contribution_and_proof = contribution_and_proof.unwrap();
+
+            let verified_contribution = self
+                .chain
+                .verify_sync_contribution_for_gossip(signed_contribution_and_proof)?;
+
+            verified_contributions.push(verified_contribution);
+        }
+
+        for verified_contribution in verified_contributions {
+            self.chain
+                .add_contribution_to_block_inclusion_pool(verified_contribution)?;
+        }
+
+        Ok(())
     }
 }
 

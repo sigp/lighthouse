@@ -2,7 +2,7 @@
 use crate::test_utils::*;
 use crate::test_utils::{SeedableRng, XorShiftRng};
 use beacon_chain::test_utils::{
-    interop_genesis_state, test_spec, BeaconChainHarness,
+    interop_genesis_state_with_eth1, test_spec, BeaconChainHarness,
     EphemeralTestingSlotClockHarnessType as HarnessType, DEFAULT_ETH1_BLOCK_HASH,
 };
 use beacon_chain::types::{

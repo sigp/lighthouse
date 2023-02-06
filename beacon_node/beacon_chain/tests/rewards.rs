@@ -3,7 +3,8 @@
 use std::collections::HashMap;
 
 use beacon_chain::test_utils::{
-    generate_deterministic_keypairs, BeaconChainHarness, EphemeralHarnessType,
+    generate_deterministic_keypairs, BeaconChainHarness,
+    EphemeralTestingSlotClockHarnessType as HarnessType,
 };
 use beacon_chain::{
     test_utils::{AttestationStrategy, BlockStrategy, RelativeSyncCommittee},
@@ -17,7 +18,7 @@ lazy_static! {
     static ref KEYPAIRS: Vec<Keypair> = generate_deterministic_keypairs(VALIDATOR_COUNT);
 }
 
-fn get_harness<E: EthSpec>() -> BeaconChainHarness<EphemeralHarnessType<E>> {
+fn get_harness<E: EthSpec>() -> BeaconChainHarness<HarnessType<E>> {
     let mut spec = E::default_spec();
 
     spec.altair_fork_epoch = Some(Epoch::new(0)); // We use altair for all tests
