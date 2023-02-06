@@ -42,6 +42,11 @@
 //!            END
 //!
 //! ```
+
+// Ignore this lint for `BlockSlashInfo` which is of comparable size to the non-error types it is
+// returned alongside.
+#![allow(clippy::result_large_err)]
+
 use crate::eth1_finalization_cache::Eth1FinalizationData;
 use crate::execution_payload::{
     is_optimistic_candidate_block, validate_execution_payload_for_gossip, validate_merge_block,
