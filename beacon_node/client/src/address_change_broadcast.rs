@@ -99,8 +99,9 @@ pub async fn broadcast_address_changes<T: BeaconChainTypes>(
             let message = NetworkMessage::Publish {
                 messages: vec![pubsub_message],
             };
-            let publish_result = network_send.send(message);
-            if let Err(e) = publish_result {
+            // It seems highly unlikely that this unbounded send will fail, but
+            // we handle the result nontheless.
+            if let Err(e) = network_send.send(message) {
                 debug!(
                     log,
                     "Failed to publish change message";
@@ -109,6 +110,11 @@ pub async fn broadcast_address_changes<T: BeaconChainTypes>(
                 );
                 num_err += 1;
             } else {
+                debug!(
+                    log,
+                    "Published address change message";
+                    "validator_index" => validator_index
+                );
                 num_ok += 1;
                 published_indices.insert(validator_index);
             }
@@ -162,7 +168,9 @@ mod tests {
 
     struct Tester {
         harness: BeaconChainHarness<EphemeralHarnessType<E>>,
+        /// Changes which should be broadcast at the Capella fork.
         capella_broadcast_changes: Vec<SigVerifiedOp<SignedBlsToExecutionChange, E>>,
+        /// Changes which should *not* be broadcast at the Capella fork.
         non_capella_broadcast_changes: Vec<SigVerifiedOp<SignedBlsToExecutionChange, E>>,
     }
 
