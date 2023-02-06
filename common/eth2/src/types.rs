@@ -236,21 +236,6 @@ impl<'a, T: Serialize> From<&'a T> for GenericResponseRef<'a, T> {
     }
 }
 
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
-pub struct ExecutionOptimisticForkVersionedResponse<T> {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub version: Option<ForkName>,
-    pub execution_optimistic: Option<bool>,
-    pub data: T,
-}
-
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
-pub struct ForkVersionedResponse<T> {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub version: Option<ForkName>,
-    pub data: T,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct RootData {
     pub root: Hash256,
