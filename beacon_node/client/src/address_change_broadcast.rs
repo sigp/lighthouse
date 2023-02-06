@@ -162,7 +162,7 @@ mod tests {
 
     type E = MainnetEthSpec;
 
-    pub const VALIDATOR_COUNT: usize = BROADCAST_CHUNK_SIZE * 2;
+    pub const VALIDATOR_COUNT: usize = BROADCAST_CHUNK_SIZE * 3;
     pub const EXECUTION_ADDRESS: Address = Address::repeat_byte(42);
 
     struct Tester {
@@ -283,15 +283,25 @@ mod tests {
         }
     }
 
-    fn every_second_index(start: u64, count: u64) -> Vec<u64> {
-        (start..count * 2).step_by(2).collect()
+    // Useful for generating even-numbered indices. Required since only even
+    // numbered genesis validators have BLS credentials.
+    fn even_indices(start: u64, count: usize) -> Vec<u64> {
+        (start..).filter(|i| i % 2 == 0).take(count).collect()
     }
 
     #[tokio::test]
-    async fn broadcast_address_changes() {
+    async fn one_chunk() {
         Tester::new()
-            .produce_capella_broadcast_changes(every_second_index(0, 4))
-            .produce_non_capella_broadcast_changes(every_second_index(10, 4))
+            .produce_capella_broadcast_changes(even_indices(0, 4))
+            .produce_non_capella_broadcast_changes(even_indices(10, 4))
+            .run()
+            .await;
+    }
+
+    #[tokio::test]
+    async fn multiple_chunks() {
+        Tester::new()
+            .produce_capella_broadcast_changes(even_indices(0, BROADCAST_CHUNK_SIZE * 3 / 2))
             .run()
             .await;
     }
