@@ -11,9 +11,11 @@ use eth2::{
     types::{BlockId as CoreBlockId, StateId as CoreStateId, *},
     BeaconNodeHttpClient, Error, StatusCode, Timeouts,
 };
-use execution_layer::test_utils::Operation;
 use execution_layer::test_utils::TestingBuilder;
 use execution_layer::test_utils::DEFAULT_BUILDER_THRESHOLD_WEI;
+use execution_layer::test_utils::{
+    Operation, DEFAULT_BUILDER_PAYLOAD_VALUE_WEI, DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI,
+};
 use futures::stream::{Stream, StreamExt};
 use futures::FutureExt;
 use http_api::{BlockId, StateId};
@@ -72,38 +74,53 @@ struct ApiTester {
     mock_builder: Option<Arc<TestingBuilder<E>>>,
 }
 
+struct ApiTesterConfig {
+    spec: ChainSpec,
+    builder_threshold: Option<u128>,
+}
+
+impl Default for ApiTesterConfig {
+    fn default() -> Self {
+        let mut spec = E::default_spec();
+        spec.shard_committee_period = 2;
+        Self {
+            spec,
+            builder_threshold: None,
+        }
+    }
+}
+
 impl ApiTester {
     pub async fn new() -> Self {
         // This allows for testing voluntary exits without building out a massive chain.
-        let mut spec = E::default_spec();
-        spec.shard_committee_period = 2;
-        Self::new_from_spec(spec).await
+        Self::new_from_config(ApiTesterConfig::default()).await
     }
 
     pub async fn new_with_hard_forks(altair: bool, bellatrix: bool) -> Self {
-        let mut spec = E::default_spec();
-        spec.shard_committee_period = 2;
+        let mut config = ApiTesterConfig::default();
         // Set whether the chain has undergone each hard fork.
         if altair {
-            spec.altair_fork_epoch = Some(Epoch::new(0));
+            config.spec.altair_fork_epoch = Some(Epoch::new(0));
         }
         if bellatrix {
-            spec.bellatrix_fork_epoch = Some(Epoch::new(0));
+            config.spec.bellatrix_fork_epoch = Some(Epoch::new(0));
         }
-        Self::new_from_spec(spec).await
+        Self::new_from_config(config).await
     }
 
-    pub async fn new_from_spec(spec: ChainSpec) -> Self {
+    pub async fn new_from_config(config: ApiTesterConfig) -> Self {
         // Get a random unused port
+        let spec = config.spec;
         let port = unused_port::unused_tcp_port().unwrap();
         let beacon_url = SensitiveUrl::parse(format!("http://127.0.0.1:{port}").as_str()).unwrap();
 
         let harness = Arc::new(
             BeaconChainHarness::builder(MainnetEthSpec)
                 .spec(spec.clone())
+                .logger(logging::test_logger())
                 .deterministic_keypairs(VALIDATOR_COUNT)
                 .fresh_ephemeral_store()
-                .mock_execution_layer_with_builder(beacon_url.clone())
+                .mock_execution_layer_with_builder(beacon_url.clone(), config.builder_threshold)
                 .build(),
         );
 
@@ -354,6 +371,28 @@ impl ApiTester {
             .builder
             .add_operation(Operation::Value(Uint256::from(
                 DEFAULT_BUILDER_THRESHOLD_WEI,
+            )));
+        tester
+    }
+
+    pub async fn new_mev_tester_no_builder_threshold() -> Self {
+        let mut config = ApiTesterConfig {
+            builder_threshold: Some(0),
+            spec: E::default_spec(),
+        };
+        config.spec.altair_fork_epoch = Some(Epoch::new(0));
+        config.spec.bellatrix_fork_epoch = Some(Epoch::new(0));
+        let tester = Self::new_from_config(config)
+            .await
+            .test_post_validator_register_validator()
+            .await;
+        tester
+            .mock_builder
+            .as_ref()
+            .unwrap()
+            .builder
+            .add_operation(Operation::Value(Uint256::from(
+                DEFAULT_BUILDER_PAYLOAD_VALUE_WEI,
             )));
         tester
     }
@@ -3278,6 +3317,117 @@ impl ApiTester {
         self
     }
 
+    pub async fn test_builder_payload_chosen_when_more_profitable(self) -> Self {
+        // Mutate value.
+        self.mock_builder
+            .as_ref()
+            .unwrap()
+            .builder
+            .add_operation(Operation::Value(Uint256::from(
+                DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI + 1,
+            )));
+
+        let slot = self.chain.slot().unwrap();
+        let epoch = self.chain.epoch().unwrap();
+
+        let (_, randao_reveal) = self.get_test_randao(slot, epoch).await;
+
+        let payload: BlindedPayload<E> = self
+            .client
+            .get_validator_blinded_blocks::<E, BlindedPayload<E>>(slot, &randao_reveal, None)
+            .await
+            .unwrap()
+            .data
+            .body()
+            .execution_payload()
+            .unwrap()
+            .into();
+
+        // The builder's payload should've been chosen, so this cache should not be populated
+        assert!(self
+            .chain
+            .execution_layer
+            .as_ref()
+            .unwrap()
+            .get_payload_by_root(&payload.tree_hash_root())
+            .is_none());
+        self
+    }
+
+    pub async fn test_local_payload_chosen_when_equally_profitable(self) -> Self {
+        // Mutate value.
+        self.mock_builder
+            .as_ref()
+            .unwrap()
+            .builder
+            .add_operation(Operation::Value(Uint256::from(
+                DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI,
+            )));
+
+        let slot = self.chain.slot().unwrap();
+        let epoch = self.chain.epoch().unwrap();
+
+        let (_, randao_reveal) = self.get_test_randao(slot, epoch).await;
+
+        let payload: BlindedPayload<E> = self
+            .client
+            .get_validator_blinded_blocks::<E, BlindedPayload<E>>(slot, &randao_reveal, None)
+            .await
+            .unwrap()
+            .data
+            .body()
+            .execution_payload()
+            .unwrap()
+            .into();
+
+        // The local payload should've been chosen, so this cache should be populated
+        assert!(self
+            .chain
+            .execution_layer
+            .as_ref()
+            .unwrap()
+            .get_payload_by_root(&payload.tree_hash_root())
+            .is_some());
+        self
+    }
+
+    pub async fn test_local_payload_chosen_when_more_profitable(self) -> Self {
+        // Mutate value.
+        self.mock_builder
+            .as_ref()
+            .unwrap()
+            .builder
+            .add_operation(Operation::Value(Uint256::from(
+                DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI - 1,
+            )));
+
+        let slot = self.chain.slot().unwrap();
+        let epoch = self.chain.epoch().unwrap();
+
+        let (_, randao_reveal) = self.get_test_randao(slot, epoch).await;
+
+        let payload: BlindedPayload<E> = self
+            .client
+            .get_validator_blinded_blocks::<E, BlindedPayload<E>>(slot, &randao_reveal, None)
+            .await
+            .unwrap()
+            .data
+            .body()
+            .execution_payload()
+            .unwrap()
+            .into();
+
+        // The local payload should've been chosen, so this cache should be populated
+        assert!(self
+            .chain
+            .execution_layer
+            .as_ref()
+            .unwrap()
+            .get_payload_by_root(&payload.tree_hash_root())
+            .is_some());
+        self
+    }
+
     #[cfg(target_os = "linux")]
     pub async fn test_get_lighthouse_health(self) -> Self {
         self.client.get_lighthouse_health().await.unwrap();
@@ -3747,9 +3897,9 @@ async fn get_events() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn get_events_altair() {
-    let mut spec = E::default_spec();
-    spec.altair_fork_epoch = Some(Epoch::new(0));
-    ApiTester::new_from_spec(spec)
+    let mut config = ApiTesterConfig::default();
+    config.spec.altair_fork_epoch = Some(Epoch::new(0));
+    ApiTester::new_from_config(config)
         .await
         .test_get_events_altair()
         .await;
@@ -4259,6 +4409,18 @@ async fn builder_inadequate_builder_threshold() {
     ApiTester::new_mev_tester()
         .await
         .test_payload_rejects_inadequate_builder_threshold()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn builder_payload_chosen_by_profit() {
+    ApiTester::new_mev_tester_no_builder_threshold()
+        .await
+        .test_builder_payload_chosen_when_more_profitable()
+        .await
+        .test_local_payload_chosen_when_equally_profitable()
+        .await
+        .test_local_payload_chosen_when_more_profitable()
         .await;
 }
 

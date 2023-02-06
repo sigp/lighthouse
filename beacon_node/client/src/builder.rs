@@ -155,7 +155,6 @@ where
                 config,
                 context.executor.clone(),
                 context.log().clone(),
-                &spec,
             )
             .map_err(|e| format!("unable to start execution layer endpoints: {:?}", e))?;
             Some(execution_layer)

@@ -11,6 +11,7 @@ mod block_times_cache;
 mod block_verification;
 pub mod builder;
 pub mod canonical_head;
+pub mod capella_readiness;
 pub mod chain_config;
 mod early_attester_cache;
 mod errors;

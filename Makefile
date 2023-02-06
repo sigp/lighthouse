@@ -167,7 +167,8 @@ lint:
 		-A clippy::from-over-into \
 		-A clippy::upper-case-acronyms \
 		-A clippy::vec-init-then-push \
-	    -A clippy::question-mark
+		-A clippy::question-mark \
+		-A clippy::uninlined-format-args
 
 nightly-lint:
 	cp .github/custom/clippy.toml .
