@@ -1,4 +1,8 @@
-use std::{fmt::Display, str::FromStr, time::Duration};
+use std::{
+    fmt::{Debug, Display},
+    str::FromStr,
+    time::Duration,
+};
 
 use super::{methods, rate_limiter::Quota, Protocol};
 
@@ -55,7 +59,7 @@ impl FromStr for ProtocolQuota {
 }
 
 /// Configurations for the rate limiter applied to outbound requests (made by the node itself).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct OutboundRateLimiterConfig {
     pub(super) ping_quota: Quota,
     pub(super) meta_data_quota: Quota,
@@ -85,6 +89,29 @@ impl Default for OutboundRateLimiterConfig {
             blocks_by_range_quota: Self::DEFAULT_BLOCKS_BY_RANGE_QUOTA,
             blocks_by_root_quota: Self::DEFAULT_BLOCKS_BY_ROOT_QUOTA,
         }
+    }
+}
+
+impl Debug for OutboundRateLimiterConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        macro_rules! fmt_q {
+            ($quota:expr) => {
+                &format_args!(
+                    "{}/{}s",
+                    $quota.max_tokens,
+                    $quota.replenish_all_every.as_secs()
+                )
+            };
+        }
+
+        f.debug_struct("OutboundRateLimiterConfig")
+            .field("ping", fmt_q!(&self.ping_quota))
+            .field("metadata", fmt_q!(&self.meta_data_quota))
+            .field("status", fmt_q!(&self.status_quota))
+            .field("goodbye", fmt_q!(&self.goodbye_quota))
+            .field("blocks_by_range", fmt_q!(&self.blocks_by_range_quota))
+            .field("blocks_by_root", fmt_q!(&self.blocks_by_root_quota))
+            .finish()
     }
 }
 

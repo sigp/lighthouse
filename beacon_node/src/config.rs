@@ -967,6 +967,8 @@ pub fn set_network_config(
     // Light client server config.
     config.enable_light_client_server = cli_args.is_present("light-client-server");
 
+    config.outbound_rate_limiter_config = clap_utils::parse_optional(cli_args, "self-limiter")?;
+
     Ok(())
 }
 

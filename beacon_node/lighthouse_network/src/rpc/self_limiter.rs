@@ -51,6 +51,7 @@ pub enum Error {
 impl<Id: ReqId, TSpec: EthSpec> SelfRateLimiter<Id, TSpec> {
     /// Creates a new [`SelfRateLimiter`] based on configration values.
     pub fn new(config: OutboundRateLimiterConfig, log: Logger) -> Result<Self, &'static str> {
+        debug!(log, "Using self rate limiting params"; "config" => ?config);
         // Destructure to make sure every configuration value is used.
         let OutboundRateLimiterConfig {
             ping_quota,
@@ -69,7 +70,7 @@ impl<Id: ReqId, TSpec: EthSpec> SelfRateLimiter<Id, TSpec> {
             .set_quota(Protocol::BlocksByRange, blocks_by_range_quota)
             .set_quota(Protocol::BlocksByRoot, blocks_by_root_quota)
             // Manually set the LightClientBootstrap quota, since we use the same rate limiter for
-            // inbound and outbound requests, and the LightClientBootstrap is only an inbound
+            // inbound and outbound requests, and the LightClientBootstrap is an only inbound
             // protocol.
             .one_every(Protocol::LightClientBootstrap, Duration::from_secs(10))
             .build()?;
