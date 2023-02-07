@@ -469,6 +469,12 @@ fn fork_choice_custom_reorg() {
 }
 
 #[test]
+fn fork_choice_custom_withholding() {
+    ForkChoiceHandler::<MinimalEthSpec>::new(CUSTOM_FC_TESTS, "withholding").run();
+    ForkChoiceHandler::<MainnetEthSpec>::new(CUSTOM_FC_TESTS, "withholding").run();
+}
+
+#[test]
 fn optimistic_sync() {
     OptimisticSyncHandler::<MinimalEthSpec>::default().run();
     OptimisticSyncHandler::<MainnetEthSpec>::default().run();
