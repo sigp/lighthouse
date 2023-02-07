@@ -113,10 +113,6 @@ impl ProtoNode {
             self.justified_checkpoint
         }
     }
-
-    fn unrealized_justification(&self) -> Option<Checkpoint> {
-        unimplemented!()
-    }
 }
 
 #[derive(PartialEq, Debug, Encode, Decode, Serialize, Deserialize, Copy, Clone)]
@@ -926,20 +922,25 @@ impl ProtoArray {
                 // proto-array.
                 return false;
             };
+        let unrealized_justification = if self.justified_checkpoint.epoch + 1 == current_epoch {
+            node.unrealized_justified_checkpoint
+        } else {
+            None
+        };
 
         let mut correct_justified = self.justified_checkpoint.epoch == genesis_epoch
             || voting_source.epoch == self.justified_checkpoint.epoch;
 
-        if let Some(unrealized_justification) = node
-            .unrealized_justification()
-            .filter(|_| !correct_justified)
-        {
-            correct_justified = unrealized_justification.epoch >= self.justified_checkpoint.epoch
-                && voting_source.epoch + 2 >= current_epoch;
+        if !correct_justified {
+            if let Some(unrealized_justification) = unrealized_justification {
+                correct_justified = unrealized_justification.epoch
+                    >= self.justified_checkpoint.epoch
+                    && voting_source.epoch + 2 >= current_epoch;
+            }
         }
 
-        // TODO: finalized_checkpoint.
-        let correct_finalized = true;
+        let correct_finalized = self.finalized_checkpoint.epoch == genesis_epoch
+            || self.is_finalized_checkpoint_descendant::<E>(node.root);
 
         correct_justified && correct_finalized
         /*
