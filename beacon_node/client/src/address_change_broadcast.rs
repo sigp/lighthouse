@@ -149,7 +149,7 @@ pub async fn broadcast_address_changes<T: BeaconChainTypes>(
     );
 }
 
-// #[cfg(not(debug_assertions))] // Tests run too slow in debug.
+#[cfg(not(debug_assertions))] // Tests run too slow in debug.
 #[cfg(test)]
 mod tests {
     use super::*;
