@@ -154,6 +154,7 @@ pub enum BeaconChainError {
     ExecutionForkChoiceUpdateInvalid {
         status: PayloadStatus,
     },
+    BlockRewardError,
     BlockRewardSlotError,
     BlockRewardAttestationError,
     BlockRewardSyncError,
