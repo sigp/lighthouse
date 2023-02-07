@@ -1,4 +1,5 @@
 use crate::engines::ForkchoiceState;
+use crate::BlobTxConversionError;
 pub use ethers_core::types::Transaction;
 use ethers_core::utils::rlp::{self, Decodable, Rlp};
 use http::deposit_methods::RpcError;
@@ -40,8 +41,7 @@ pub enum Error {
     PayloadIdUnavailable,
     TransitionConfigurationMismatch,
     PayloadConversionLogicFlaw,
-    DeserializeTransaction(ssz_types::Error),
-    DeserializeTransactions(ssz_types::Error),
+    SszError(ssz_types::Error),
     DeserializeWithdrawals(ssz_types::Error),
     BuilderApi(builder_client::Error),
     IncorrectStateVariant,
@@ -49,6 +49,7 @@ pub enum Error {
     UnsupportedForkVariant(String),
     BadConversion(String),
     RlpDecoderError(rlp::DecoderError),
+    BlobTxConversionError(BlobTxConversionError),
 }
 
 impl From<reqwest::Error> for Error {
@@ -85,6 +86,18 @@ impl From<builder_client::Error> for Error {
 impl From<rlp::DecoderError> for Error {
     fn from(e: rlp::DecoderError) -> Self {
         Error::RlpDecoderError(e)
+    }
+}
+
+impl From<ssz_types::Error> for Error {
+    fn from(e: ssz_types::Error) -> Self {
+        Error::SszError(e)
+    }
+}
+
+impl From<BlobTxConversionError> for Error {
+    fn from(e: BlobTxConversionError) -> Self {
+        Error::BlobTxConversionError(e)
     }
 }
 

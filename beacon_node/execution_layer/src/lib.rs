@@ -13,6 +13,7 @@ pub use engine_api::{http, http::deposit_methods, http::HttpJsonRpc};
 use engines::{Engine, EngineError};
 pub use engines::{EngineState, ForkchoiceState};
 use eth2::types::{builder_bid::SignedBuilderBid, ForkVersionedResponse};
+use ethers_core::types::Transaction as EthersTransaction;
 use fork_choice::ForkchoiceUpdateParameters;
 use lru::LruCache;
 use payload_status::process_payload_status;
@@ -21,6 +22,7 @@ use sensitive_url::SensitiveUrl;
 use serde::{Deserialize, Serialize};
 use slog::{crit, debug, error, info, trace, warn, Logger};
 use slot_clock::SlotClock;
+use ssz::Encode;
 use std::collections::HashMap;
 use std::fmt;
 use std::future::Future;
@@ -35,10 +37,13 @@ use tokio::{
     time::sleep,
 };
 use tokio_stream::wrappers::WatchStream;
+use types::consts::eip4844::BLOB_TX_TYPE;
+use types::transaction::{AccessTuple, BlobTransaction};
 use types::{AbstractExecPayload, BeaconStateError, Blob, ExecPayload, KzgCommitment};
 use types::{
     BlindedPayload, BlockType, ChainSpec, Epoch, ExecutionBlockHash, ForkName,
-    ProposerPreparationData, PublicKeyBytes, Signature, SignedBeaconBlock, Slot, Uint256,
+    ProposerPreparationData, PublicKeyBytes, Signature, SignedBeaconBlock, Slot, Transaction,
+    Uint256,
 };
 use types::{
     ExecutionPayload, ExecutionPayloadCapella, ExecutionPayloadEip4844, ExecutionPayloadMerge,
@@ -1612,15 +1617,13 @@ impl<T: EthSpec> ExecutionLayer<T> {
             return Ok(None);
         };
 
-        let transactions = VariableList::new(
+        let transactions = VariableList::from(
             block
                 .transactions()
-                .iter()
-                .map(|transaction| VariableList::new(transaction.rlp().to_vec()))
-                .collect::<Result<_, _>>()
-                .map_err(ApiError::DeserializeTransaction)?,
-        )
-        .map_err(ApiError::DeserializeTransactions)?;
+                .into_iter()
+                .map(ethers_tx_to_bytes::<T>)
+                .collect::<Result<Vec<_>, BlobTxConversionError>>()?,
+        );
 
         let payload = match block {
             ExecutionBlockWithTransactions::Merge(merge_block) => {
@@ -1928,6 +1931,132 @@ async fn timed_future<F: Future<Output = T>, T>(metric: &str, future: F) -> (T, 
     (result, duration)
 }
 
+#[derive(Debug)]
+pub enum BlobTxConversionError {
+    /// The transaction type was not set.
+    NoTransactionType,
+    /// The transaction chain ID was not set.
+    NoChainId,
+    /// The transaction nonce was too large to fit in a `u64`.
+    NonceTooLarge,
+    /// The transaction gas was too large to fit in a `u64`.
+    GasTooHigh,
+    /// Missing the `max_fee_per_gas` field.
+    MaxFeePerGasMissing,
+    /// Missing the `max_priority_fee_per_gas` field.
+    MaxPriorityFeePerGasMissing,
+    /// Missing the `access_list` field.
+    AccessListMissing,
+    /// Missing the `max_fee_per_data_gas` field.
+    MaxFeePerDataGasMissing,
+    /// Missing the `blob_versioned_hashes` field.
+    BlobVersionedHashesMissing,
+    /// There was an error converting the transaction to SSZ.
+    SszError(ssz_types::Error),
+    /// There was an error converting the transaction from JSON.
+    SerdeJson(serde_json::Error),
+}
+
+impl From<ssz_types::Error> for BlobTxConversionError {
+    fn from(value: ssz_types::Error) -> Self {
+        Self::SszError(value)
+    }
+}
+
+impl From<serde_json::Error> for BlobTxConversionError {
+    fn from(value: serde_json::Error) -> Self {
+        Self::SerdeJson(value)
+    }
+}
+
+/// A utility function to convert a `ethers-rs` `Transaction` into the correct bytes encoding based
+/// on transaction type. That means RLP encoding if this is a transaction other than a
+/// `BLOB_TX_TYPE` transaction in which case, SSZ encoding will be used.
+fn ethers_tx_to_bytes<T: EthSpec>(
+    transaction: &EthersTransaction,
+) -> Result<Transaction<T::MaxBytesPerTransaction>, BlobTxConversionError> {
+    let tx_type = transaction
+        .transaction_type
+        .ok_or(BlobTxConversionError::NoTransactionType)?
+        .as_u64();
+    let tx = if BLOB_TX_TYPE as u64 == tx_type {
+        let chain_id = transaction
+            .chain_id
+            .ok_or(BlobTxConversionError::NoChainId)?;
+        let nonce = if transaction.nonce > Uint256::from(u64::MAX) {
+            return Err(BlobTxConversionError::NonceTooLarge);
+        } else {
+            transaction.nonce.as_u64()
+        };
+        let max_priority_fee_per_gas = transaction
+            .max_priority_fee_per_gas
+            .ok_or(BlobTxConversionError::MaxPriorityFeePerGasMissing)?;
+        let max_fee_per_gas = transaction
+            .max_fee_per_gas
+            .ok_or(BlobTxConversionError::MaxFeePerGasMissing)?;
+        let gas = if transaction.gas > Uint256::from(u64::MAX) {
+            return Err(BlobTxConversionError::GasTooHigh);
+        } else {
+            transaction.gas.as_u64()
+        };
+        let to = transaction.to;
+        let value = transaction.value;
+        let data = VariableList::new(transaction.input.to_vec())?;
+        let access_list = VariableList::new(
+            transaction
+                .access_list
+                .as_ref()
+                .ok_or(BlobTxConversionError::AccessListMissing)?
+                .0
+                .iter()
+                .map(|access_tuple| {
+                    Ok(AccessTuple {
+                        address: access_tuple.address,
+                        storage_keys: VariableList::new(access_tuple.storage_keys.clone())?,
+                    })
+                })
+                .collect::<Result<Vec<AccessTuple>, BlobTxConversionError>>()?,
+        )?;
+        let max_fee_per_data_gas = transaction
+            .other
+            .get("maxFeePerDataGas")
+            .ok_or(BlobTxConversionError::MaxFeePerDataGasMissing)?
+            .as_str()
+            .ok_or(BlobTxConversionError::MaxFeePerDataGasMissing)?
+            .parse()
+            .map_err(|_| BlobTxConversionError::MaxFeePerDataGasMissing)?;
+        let blob_versioned_hashes = serde_json::from_str(
+            transaction
+                .other
+                .get("blobVersionedHashes")
+                .ok_or(BlobTxConversionError::BlobVersionedHashesMissing)?
+                .as_str()
+                .ok_or(BlobTxConversionError::BlobVersionedHashesMissing)?,
+        )?;
+        BlobTransaction {
+            chain_id,
+            nonce,
+            max_priority_fee_per_gas,
+            max_fee_per_gas,
+            gas,
+            to,
+            value,
+            data,
+            access_list,
+            max_fee_per_data_gas,
+            blob_versioned_hashes,
+        }
+        .as_ssz_bytes()
+    } else {
+        transaction.rlp().to_vec()
+    };
+    VariableList::new(tx).map_err(Into::into)
+}
+
+fn noop<T: EthSpec>(_: &ExecutionLayer<T>, _: &ExecutionPayload<T>) -> Option<ExecutionPayload<T>> {
+    None
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -2073,10 +2202,6 @@ mod test {
             })
             .await;
     }
-}
-
-fn noop<T: EthSpec>(_: &ExecutionLayer<T>, _: &ExecutionPayload<T>) -> Option<ExecutionPayload<T>> {
-    None
 }
 
 #[cfg(test)]
