@@ -35,7 +35,7 @@ use eth2::types::{
 use lighthouse_network::{types::SyncState, EnrExt, NetworkGlobals, PeerId, PubsubMessage};
 use lighthouse_version::version_with_platform;
 use network::{NetworkMessage, NetworkSenders, ValidatorSubscriptionMessage};
-use operation_pool::QueueForCapellaBroadcast;
+use operation_pool::ReceivedPreCapella;
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use slog::{crit, debug, error, info, warn, Logger};
@@ -1697,12 +1697,12 @@ pub fn serve<T: BeaconChainTypes>(
                                     .to_execution_address;
 
                                 // New to P2P *and* op pool, gossip immediately if post-Capella.
-                                let capella_broadcast = if chain.current_slot_is_post_capella().unwrap_or(false) {
-                                    QueueForCapellaBroadcast::No
+                                let received_pre_capella = if chain.current_slot_is_post_capella().unwrap_or(false) {
+                                    ReceivedPreCapella::No
                                 } else {
-                                    QueueForCapellaBroadcast::Yes
+                                    ReceivedPreCapella::Yes
                                 };
-                                if matches!(capella_broadcast, QueueForCapellaBroadcast::No) {
+                                if matches!(received_pre_capella, ReceivedPreCapella::No) {
                                     publish_pubsub_message(
                                         &network_tx,
                                         PubsubMessage::BlsToExecutionChange(Box::new(
@@ -1713,14 +1713,14 @@ pub fn serve<T: BeaconChainTypes>(
 
                                 // Import to op pool (may return `false` if there's a race).
                                 let imported =
-                                    chain.import_bls_to_execution_change(verified_address_change, capella_broadcast);
+                                    chain.import_bls_to_execution_change(verified_address_change, received_pre_capella);
 
                                 info!(
                                     log,
                                     "Processed BLS to execution change";
                                     "validator_index" => validator_index,
                                     "address" => ?address,
-                                    "published" => matches!(capella_broadcast, QueueForCapellaBroadcast::No),
+                                    "published" => matches!(received_pre_capella, ReceivedPreCapella::No),
                                     "imported" => imported,
                                 );
                             }

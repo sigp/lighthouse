@@ -1,6 +1,6 @@
 use crate::attestation_id::AttestationId;
 use crate::attestation_storage::AttestationMap;
-use crate::bls_to_execution_changes::{BlsToExecutionChanges, QueueForCapellaBroadcast};
+use crate::bls_to_execution_changes::{BlsToExecutionChanges, ReceivedPreCapella};
 use crate::sync_aggregate_id::SyncAggregateId;
 use crate::OpPoolError;
 use crate::OperationPool;
@@ -168,14 +168,14 @@ impl<T: EthSpec> PersistedOperationPool<T> {
                 };
 
             for bls_to_execution_change in persisted_changes {
-                let capella_broadcast = if broadcast_indices
+                let received_pre_capella = if broadcast_indices
                     .contains(&bls_to_execution_change.as_inner().message.validator_index)
                 {
-                    QueueForCapellaBroadcast::Yes
+                    ReceivedPreCapella::Yes
                 } else {
-                    QueueForCapellaBroadcast::No
+                    ReceivedPreCapella::No
                 };
-                bls_to_execution_changes.insert(bls_to_execution_change, capella_broadcast);
+                bls_to_execution_changes.insert(bls_to_execution_change, received_pre_capella);
             }
         }
         let op_pool = OperationPool {

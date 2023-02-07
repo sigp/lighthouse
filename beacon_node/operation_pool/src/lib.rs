@@ -9,7 +9,7 @@ mod persistence;
 mod reward_cache;
 mod sync_aggregate_id;
 
-pub use crate::bls_to_execution_changes::QueueForCapellaBroadcast;
+pub use crate::bls_to_execution_changes::ReceivedPreCapella;
 pub use attestation::AttMaxCover;
 pub use attestation_storage::{AttestationRef, SplitAttestation};
 pub use max_cover::MaxCover;
@@ -536,11 +536,11 @@ impl<T: EthSpec> OperationPool<T> {
     pub fn insert_bls_to_execution_change(
         &self,
         verified_change: SigVerifiedOp<SignedBlsToExecutionChange, T>,
-        capella_broadcast: QueueForCapellaBroadcast,
+        received_pre_capella: ReceivedPreCapella,
     ) -> bool {
         self.bls_to_execution_changes
             .write()
-            .insert(verified_change, capella_broadcast)
+            .insert(verified_change, received_pre_capella)
     }
 
     /// Get a list of execution changes for inclusion in a block.
@@ -570,7 +570,7 @@ impl<T: EthSpec> OperationPool<T> {
     ///
     /// The list that is returned will be shuffled to help provide a fair
     /// broadcast of messages.
-    pub fn get_bls_to_execution_changes_for_capella_broadcast(
+    pub fn get_bls_to_execution_changes_for_received_pre_capella(
         &self,
         state: &BeaconState<T>,
         spec: &ChainSpec,
@@ -578,7 +578,7 @@ impl<T: EthSpec> OperationPool<T> {
         let mut changes = filter_limit_operations(
             self.bls_to_execution_changes
                 .read()
-                .iter_capella_broadcast(),
+                .iter_received_pre_capella(),
             |address_change| {
                 address_change.signature_is_still_valid(&state.fork())
                     && state
@@ -596,10 +596,10 @@ impl<T: EthSpec> OperationPool<T> {
 
     /// Removes `to_forget` validators from the set of validators that should
     /// have their BLS changes broadcast at the Capella fork boundary.
-    pub fn forget_capella_broadcast_indices(&self, to_forget: &HashSet<u64>) {
+    pub fn forget_received_pre_capella_indices(&self, to_forget: &HashSet<u64>) {
         self.bls_to_execution_changes
             .write()
-            .forget_capella_broadcast_indices(to_forget);
+            .forget_received_pre_capella_indices(to_forget);
     }
 
     /// Prune BLS to execution changes that have been applied to the state more than 1 block ago.

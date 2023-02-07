@@ -77,7 +77,7 @@ pub async fn broadcast_address_changes<T: BeaconChainTypes>(
     let head = chain.head_snapshot();
     let mut changes = chain
         .op_pool
-        .get_bls_to_execution_changes_for_capella_broadcast(&head.beacon_state, &chain.spec);
+        .get_bls_to_execution_changes_for_received_pre_capella(&head.beacon_state, &chain.spec);
 
     while !changes.is_empty() {
         // This `split_off` approach is to allow us to have owned chunks of the
@@ -124,7 +124,7 @@ pub async fn broadcast_address_changes<T: BeaconChainTypes>(
         // published.
         chain
             .op_pool
-            .forget_capella_broadcast_indices(&published_indices);
+            .forget_received_pre_capella_indices(&published_indices);
 
         info!(
             log,
@@ -155,7 +155,7 @@ pub async fn broadcast_address_changes<T: BeaconChainTypes>(
 mod tests {
     use super::*;
     use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
-    use operation_pool::QueueForCapellaBroadcast;
+    use operation_pool::ReceivedPreCapella;
     use state_processing::{SigVerifiedOp, VerifyOperation};
     use std::collections::HashSet;
     use tokio::sync::mpsc;
@@ -169,9 +169,9 @@ mod tests {
     struct Tester {
         harness: BeaconChainHarness<EphemeralHarnessType<E>>,
         /// Changes which should be broadcast at the Capella fork.
-        capella_broadcast_changes: Vec<SigVerifiedOp<SignedBlsToExecutionChange, E>>,
+        received_pre_capella_changes: Vec<SigVerifiedOp<SignedBlsToExecutionChange, E>>,
         /// Changes which should *not* be broadcast at the Capella fork.
-        non_capella_broadcast_changes: Vec<SigVerifiedOp<SignedBlsToExecutionChange, E>>,
+        not_received_pre_capella_changes: Vec<SigVerifiedOp<SignedBlsToExecutionChange, E>>,
     }
 
     impl Tester {
@@ -196,8 +196,8 @@ mod tests {
 
             Self {
                 harness,
-                capella_broadcast_changes: <_>::default(),
-                non_capella_broadcast_changes: <_>::default(),
+                received_pre_capella_changes: <_>::default(),
+                not_received_pre_capella_changes: <_>::default(),
             }
         }
 
@@ -215,17 +215,17 @@ mod tests {
                 .unwrap()
         }
 
-        fn produce_capella_broadcast_changes(mut self, indices: Vec<u64>) -> Self {
+        fn produce_received_pre_capella_changes(mut self, indices: Vec<u64>) -> Self {
             for validator_index in indices {
-                self.capella_broadcast_changes
+                self.received_pre_capella_changes
                     .push(self.produce_verified_address_change(validator_index));
             }
             self
         }
 
-        fn produce_non_capella_broadcast_changes(mut self, indices: Vec<u64>) -> Self {
+        fn produce_not_received_pre_capella_changes(mut self, indices: Vec<u64>) -> Self {
             for validator_index in indices {
-                self.non_capella_broadcast_changes
+                self.not_received_pre_capella_changes
                     .push(self.produce_verified_address_change(validator_index));
             }
             self
@@ -236,19 +236,19 @@ mod tests {
             let chain = harness.chain.clone();
 
             let mut broadcast_indices = HashSet::new();
-            for change in self.capella_broadcast_changes {
+            for change in self.received_pre_capella_changes {
                 broadcast_indices.insert(change.as_inner().message.validator_index);
                 chain
                     .op_pool
-                    .insert_bls_to_execution_change(change, QueueForCapellaBroadcast::Yes);
+                    .insert_bls_to_execution_change(change, ReceivedPreCapella::Yes);
             }
 
             let mut non_broadcast_indices = HashSet::new();
-            for change in self.non_capella_broadcast_changes {
+            for change in self.not_received_pre_capella_changes {
                 non_broadcast_indices.insert(change.as_inner().message.validator_index);
                 chain
                     .op_pool
-                    .insert_bls_to_execution_change(change, QueueForCapellaBroadcast::No);
+                    .insert_bls_to_execution_change(change, ReceivedPreCapella::No);
             }
 
             harness.set_current_slot(
@@ -288,7 +288,7 @@ mod tests {
             assert!(
                 chain
                     .op_pool
-                    .get_bls_to_execution_changes_for_capella_broadcast(
+                    .get_bls_to_execution_changes_for_received_pre_capella(
                         &head.beacon_state,
                         &chain.spec,
                     )
@@ -307,8 +307,8 @@ mod tests {
     #[tokio::test]
     async fn one_chunk() {
         Tester::new()
-            .produce_capella_broadcast_changes(even_indices(0, 4))
-            .produce_non_capella_broadcast_changes(even_indices(10, 4))
+            .produce_received_pre_capella_changes(even_indices(0, 4))
+            .produce_not_received_pre_capella_changes(even_indices(10, 4))
             .run()
             .await;
     }
@@ -316,7 +316,7 @@ mod tests {
     #[tokio::test]
     async fn multiple_chunks() {
         Tester::new()
-            .produce_capella_broadcast_changes(even_indices(0, BROADCAST_CHUNK_SIZE * 3 / 2))
+            .produce_received_pre_capella_changes(even_indices(0, BROADCAST_CHUNK_SIZE * 3 / 2))
             .run()
             .await;
     }

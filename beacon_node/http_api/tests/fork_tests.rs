@@ -439,7 +439,7 @@ async fn bls_to_execution_changes_update_all_around_capella_fork() {
         .await
         .unwrap();
 
-    let expected_capella_broadcast_messages = valid_address_changes[..num_pre_capella].to_vec();
+    let expected_received_pre_capella_messages = valid_address_changes[..num_pre_capella].to_vec();
 
     // Conflicting changes for the same validators should all fail.
     let error = client
@@ -471,13 +471,13 @@ async fn bls_to_execution_changes_update_all_around_capella_fork() {
         harness
             .chain
             .op_pool
-            .get_bls_to_execution_changes_for_capella_broadcast(
+            .get_bls_to_execution_changes_for_received_pre_capella(
                 &harness.chain.head_snapshot().beacon_state,
                 &spec,
             )
             .into_iter()
             .collect::<HashSet<_>>(),
-        HashSet::from_iter(expected_capella_broadcast_messages.into_iter()),
+        HashSet::from_iter(expected_received_pre_capella_messages.into_iter()),
         "all pre-capella messages should be queued for capella broadcast"
     );
 

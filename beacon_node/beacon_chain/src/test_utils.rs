@@ -310,6 +310,9 @@ where
         self
     }
 
+    /// Initializes the BLS withdrawal keypairs for all validators to the
+    /// "determistic" values. This aligns with the withdrawal commitments used
+    /// in the "interop" genesis states.
     pub fn deterministic_withdrawal_keypairs(self, num_keypairs: usize) -> Self {
         self.withdrawal_keypairs(
             types::test_utils::generate_deterministic_keypairs(num_keypairs)
