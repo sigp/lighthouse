@@ -195,7 +195,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // If backfill has completed and the chain is configured to reconstruct historic states,
         // send a message to the background migrator instructing it to begin reconstruction.
-        if backfill_complete && self.config.reconstruct_historic_states {
+        // This can only happen if we have backfilled all the way to genesis.
+        if backfill_complete
+            && self.genesis_backfill_slot == Slot::new(0)
+            && self.config.reconstruct_historic_states
+        {
             self.store_migrator.process_reconstruction();
         }
 
