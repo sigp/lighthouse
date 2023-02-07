@@ -29,10 +29,3 @@ pub struct AccessTuple {
     pub address: Address,
     pub storage_keys: VariableList<Hash256, MaxAccessListStorageKeys>,
 }
-
-#[derive(Debug, Clone, PartialEq, Encode, Decode)]
-pub struct EcdsaSignature {
-    y_parity: bool,
-    r: Uint256,
-    s: Uint256,
-}

@@ -1949,7 +1949,7 @@ pub enum BlobTxConversionError {
     AccessListMissing,
     /// Missing the `max_fee_per_data_gas` field.
     MaxFeePerDataGasMissing,
-    /// Missing the `max_data_gas` field.
+    /// Missing the `blob_versioned_hashes` field.
     BlobVersionedHashesMissing,
     /// There was an error converting the transaction to SSZ.
     SszError(ssz_types::Error),
@@ -2019,7 +2019,7 @@ fn ethers_tx_to_bytes<T: EthSpec>(
         )?;
         let max_fee_per_data_gas = transaction
             .other
-            .get("max_fee_per_data_gas")
+            .get("maxFeePerDataGas")
             .ok_or(BlobTxConversionError::MaxFeePerDataGasMissing)?
             .as_str()
             .ok_or(BlobTxConversionError::MaxFeePerDataGasMissing)?
@@ -2028,7 +2028,7 @@ fn ethers_tx_to_bytes<T: EthSpec>(
         let blob_versioned_hashes = serde_json::from_str(
             transaction
                 .other
-                .get("blob_versioned_hashes")
+                .get("blobVersionedHashes")
                 .ok_or(BlobTxConversionError::BlobVersionedHashesMissing)?
                 .as_str()
                 .ok_or(BlobTxConversionError::BlobVersionedHashesMissing)?,
@@ -2045,7 +2045,8 @@ fn ethers_tx_to_bytes<T: EthSpec>(
             access_list,
             max_fee_per_data_gas,
             blob_versioned_hashes,
-        }.as_ssz_bytes()
+        }
+        .as_ssz_bytes()
     } else {
         transaction.rlp().to_vec()
     };
