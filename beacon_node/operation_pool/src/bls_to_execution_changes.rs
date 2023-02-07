@@ -87,6 +87,12 @@ impl<T: EthSpec> BlsToExecutionChanges<T> {
         })
     }
 
+    /// Returns the set of indicies which should have their address changes
+    /// broadcast at the Capella fork.
+    pub fn iter_pre_capella_indices(&self) -> impl Iterator<Item = &u64> {
+        self.received_pre_capella_indices.iter()
+    }
+
     /// Prune BLS to execution changes that have been applied to the state more than 1 block ago.
     ///
     /// The block check is necessary to avoid pruning too eagerly and losing the ability to include

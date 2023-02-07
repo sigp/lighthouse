@@ -116,13 +116,21 @@ impl<T: EthSpec> PersistedOperationPool<T> {
             .map(|bls_to_execution_change| (**bls_to_execution_change).clone())
             .collect();
 
-        PersistedOperationPool::V14(PersistedOperationPoolV14 {
+        let capella_bls_change_broadcast_indices = operation_pool
+            .bls_to_execution_changes
+            .read()
+            .iter_pre_capella_indices()
+            .copied()
+            .collect();
+
+        PersistedOperationPool::V15(PersistedOperationPoolV15 {
             attestations,
             sync_contributions,
             attester_slashings,
             proposer_slashings,
             voluntary_exits,
             bls_to_execution_changes,
+            capella_bls_change_broadcast_indices,
         })
     }
 
@@ -246,8 +254,8 @@ impl<T: EthSpec> StoreItem for PersistedOperationPool<T> {
 
     fn from_store_bytes(bytes: &[u8]) -> Result<Self, StoreError> {
         // Default deserialization to the latest variant.
-        PersistedOperationPoolV14::from_ssz_bytes(bytes)
-            .map(Self::V14)
+        PersistedOperationPoolV15::from_ssz_bytes(bytes)
+            .map(Self::V15)
             .map_err(Into::into)
     }
 }
