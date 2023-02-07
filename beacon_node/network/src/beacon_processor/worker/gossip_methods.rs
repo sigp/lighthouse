@@ -12,6 +12,7 @@ use beacon_chain::{
     GossipVerifiedBlock, NotifyExecutionLayer,
 };
 use lighthouse_network::{Client, MessageAcceptance, MessageId, PeerAction, PeerId, ReportSource};
+use operation_pool::ReceivedPreCapella;
 use slog::{crit, debug, error, info, trace, warn};
 use slot_clock::SlotClock;
 use ssz::Encode;
@@ -1251,7 +1252,12 @@ impl<T: BeaconChainTypes> Worker<T> {
 
         self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
 
-        self.chain.import_bls_to_execution_change(change);
+        // Address change messages from gossip are only processed *after* the
+        // Capella fork epoch.
+        let received_pre_capella = ReceivedPreCapella::No;
+
+        self.chain
+            .import_bls_to_execution_change(change, received_pre_capella);
 
         debug!(
             self.log,

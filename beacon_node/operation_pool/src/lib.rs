@@ -9,12 +9,13 @@ mod persistence;
 mod reward_cache;
 mod sync_aggregate_id;
 
+pub use crate::bls_to_execution_changes::ReceivedPreCapella;
 pub use attestation::AttMaxCover;
 pub use attestation_storage::{AttestationRef, SplitAttestation};
 pub use max_cover::MaxCover;
 pub use persistence::{
     PersistedOperationPool, PersistedOperationPoolV12, PersistedOperationPoolV14,
-    PersistedOperationPoolV5,
+    PersistedOperationPoolV15, PersistedOperationPoolV5,
 };
 pub use reward_cache::RewardCache;
 
@@ -24,6 +25,8 @@ use crate::sync_aggregate_id::SyncAggregateId;
 use attester_slashing::AttesterSlashingMaxCover;
 use max_cover::maximum_cover;
 use parking_lot::{RwLock, RwLockWriteGuard};
+use rand::seq::SliceRandom;
+use rand::thread_rng;
 use state_processing::per_block_processing::errors::AttestationValidationError;
 use state_processing::per_block_processing::{
     get_slashable_indices_modular, verify_exit, VerifySignatures,
@@ -533,10 +536,11 @@ impl<T: EthSpec> OperationPool<T> {
     pub fn insert_bls_to_execution_change(
         &self,
         verified_change: SigVerifiedOp<SignedBlsToExecutionChange, T>,
+        received_pre_capella: ReceivedPreCapella,
     ) -> bool {
         self.bls_to_execution_changes
             .write()
-            .insert(verified_change)
+            .insert(verified_change, received_pre_capella)
     }
 
     /// Get a list of execution changes for inclusion in a block.
@@ -560,6 +564,42 @@ impl<T: EthSpec> OperationPool<T> {
             |address_change| address_change.as_inner().clone(),
             T::MaxBlsToExecutionChanges::to_usize(),
         )
+    }
+
+    /// Get a list of execution changes to be broadcast at the Capella fork.
+    ///
+    /// The list that is returned will be shuffled to help provide a fair
+    /// broadcast of messages.
+    pub fn get_bls_to_execution_changes_received_pre_capella(
+        &self,
+        state: &BeaconState<T>,
+        spec: &ChainSpec,
+    ) -> Vec<SignedBlsToExecutionChange> {
+        let mut changes = filter_limit_operations(
+            self.bls_to_execution_changes
+                .read()
+                .iter_received_pre_capella(),
+            |address_change| {
+                address_change.signature_is_still_valid(&state.fork())
+                    && state
+                        .get_validator(address_change.as_inner().message.validator_index as usize)
+                        .map_or(false, |validator| {
+                            !validator.has_eth1_withdrawal_credential(spec)
+                        })
+            },
+            |address_change| address_change.as_inner().clone(),
+            usize::max_value(),
+        );
+        changes.shuffle(&mut thread_rng());
+        changes
+    }
+
+    /// Removes `broadcasted` validators from the set of validators that should
+    /// have their BLS changes broadcast at the Capella fork boundary.
+    pub fn register_indices_broadcasted_at_capella(&self, broadcasted: &HashSet<u64>) {
+        self.bls_to_execution_changes
+            .write()
+            .register_indices_broadcasted_at_capella(broadcasted);
     }
 
     /// Prune BLS to execution changes that have been applied to the state more than 1 block ago.

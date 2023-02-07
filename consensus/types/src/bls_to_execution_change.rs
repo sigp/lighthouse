@@ -10,6 +10,7 @@ use tree_hash_derive::TreeHash;
     arbitrary::Arbitrary,
     Debug,
     PartialEq,
+    Eq,
     Hash,
     Clone,
     Serialize,
