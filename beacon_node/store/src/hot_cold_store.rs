@@ -1768,7 +1768,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             return Ok(());
         }
 
-        let blob_info = self.get_blob_info(); // now returns `BlobInfo` not `Option<_>`
+        let blob_info = self.get_blob_info();
         let oldest_blob_slot = blob_info
             .oldest_blob_slot
             .unwrap_or(eip4844_fork.start_slot(E::slots_per_epoch()));
