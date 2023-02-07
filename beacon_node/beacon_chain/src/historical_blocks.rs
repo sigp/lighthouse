@@ -189,7 +189,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             oldest_block_parent: expected_block_root,
             ..anchor_info
         };
-        let backfill_complete = new_anchor.block_backfill_complete();
+        let backfill_complete = new_anchor.block_backfill_complete(self.genesis_backfill_slot);
         self.store
             .compare_and_set_anchor_info_with_write(Some(anchor_info), Some(new_anchor))?;
 

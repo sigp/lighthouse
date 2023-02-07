@@ -159,20 +159,20 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
         // If, for some reason a backfill has already been completed (or we've used a trusted
         // genesis root) then backfill has been completed.
 
-        let (state, current_start) = if let Some(anchor_info) = beacon_chain.store.get_anchor_info()
-        {
-            if anchor_info.block_backfill_complete() {
-                (BackFillState::Completed, Epoch::new(0))
-            } else {
-                (
-                    BackFillState::Paused,
-                    anchor_info
-                        .oldest_block_slot
-                        .epoch(T::EthSpec::slots_per_epoch()),
-                )
+        let (state, current_start) = match beacon_chain.store.get_anchor_info() {
+            Some(anchor_info) => {
+                if anchor_info.block_backfill_complete(beacon_chain.genesis_backfill_slot) {
+                    (BackFillState::Completed, Epoch::new(0))
+                } else {
+                    (
+                        BackFillState::Paused,
+                        anchor_info
+                            .oldest_block_slot
+                            .epoch(T::EthSpec::slots_per_epoch()),
+                    )
+                }
             }
-        } else {
-            (BackFillState::NotRequired, Epoch::new(0))
+            None => (BackFillState::NotRequired, Epoch::new(0)),
         };
 
         let bfs = BackFillSync {
@@ -1125,7 +1125,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
     /// not required.
     fn reset_start_epoch(&mut self) -> Result<(), ResetEpochError> {
         if let Some(anchor_info) = self.beacon_chain.store.get_anchor_info() {
-            if anchor_info.block_backfill_complete() {
+            if anchor_info.block_backfill_complete(self.beacon_chain.genesis_backfill_slot) {
                 Err(ResetEpochError::SyncCompleted)
             } else {
                 self.current_start = anchor_info
@@ -1145,7 +1145,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
 
             if let Some(anchor_info) = self.beacon_chain.store.get_anchor_info() {
                 // Conditions that we have completed a backfill sync
-                if anchor_info.block_backfill_complete() {
+                if anchor_info.block_backfill_complete(self.beacon_chain.genesis_backfill_slot) {
                     return true;
                 } else {
                     error!(self.log, "Backfill out of sync with beacon chain");

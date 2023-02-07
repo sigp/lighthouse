@@ -67,6 +67,9 @@ pub struct ChainConfig {
     pub prepare_payload_lookahead: Duration,
     /// Use EL-free optimistic sync for the finalized part of the chain.
     pub optimistic_finalized_sync: bool,
+    /// If using a weak-subjectivity sync, whether we should download blocks all the way back to
+    /// genesis.
+    pub genesis_backfill: bool,
 }
 
 impl Default for ChainConfig {
@@ -92,6 +95,7 @@ impl Default for ChainConfig {
             checkpoint_sync_url_timeout: 60,
             prepare_payload_lookahead: Duration::from_secs(4),
             optimistic_finalized_sync: true,
+            genesis_backfill: false,
         }
     }
 }

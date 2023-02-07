@@ -1146,13 +1146,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         self.hot_db.do_atomically(ops)
     }
 
-    /// Initialise the anchor info for checkpoint sync starting from `block` and downloading
-    /// back to `weak_subjectivity_point`.
-    pub fn init_anchor_info(
-        &self,
-        block: BeaconBlockRef<'_, E>,
-        weak_subjectivity_point: Slot,
-    ) -> Result<KeyValueStoreOp, Error> {
+    /// Initialise the anchor info for checkpoint sync starting from `block`.
+    pub fn init_anchor_info(&self, block: BeaconBlockRef<'_, E>) -> Result<KeyValueStoreOp, Error> {
         let anchor_slot = block.slot();
         let slots_per_restore_point = self.config.slots_per_restore_point;
 
@@ -1169,7 +1164,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             oldest_block_parent: block.parent_root(),
             state_upper_limit: next_restore_point_slot,
             state_lower_limit: self.spec.genesis_slot,
-            weak_subjectivity_point,
         };
         self.compare_and_set_anchor_info(None, Some(anchor_info))
     }

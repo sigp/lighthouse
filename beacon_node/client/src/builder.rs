@@ -249,7 +249,7 @@ where
                 genesis_state_bytes,
             } => {
                 info!(context.log(), "Starting checkpoint sync");
-                if config.genesis_backfill {
+                if config.chain.genesis_backfill {
                     info!(
                         context.log(),
                         "Blocks will downloaded all the way back to genesis"
@@ -264,12 +264,7 @@ where
                     .map_err(|e| format!("Unable to parse genesis state SSZ: {:?}", e))?;
 
                 builder
-                    .weak_subjectivity_state(
-                        anchor_state,
-                        anchor_block,
-                        genesis_state,
-                        config.genesis_backfill,
-                    )
+                    .weak_subjectivity_state(anchor_state, anchor_block, genesis_state)
                     .map(|v| (v, None))?
             }
             ClientGenesis::CheckpointSyncUrl {
@@ -281,7 +276,7 @@ where
                     "Starting checkpoint sync";
                     "remote_url" => %url,
                 );
-                if config.genesis_backfill {
+                if config.chain.genesis_backfill {
                     info!(
                         context.log(),
                         "Blocks will be downloaded all the way back to genesis"
@@ -450,7 +445,7 @@ where
                     });
 
                 builder
-                    .weak_subjectivity_state(state, block, genesis_state, config.genesis_backfill)
+                    .weak_subjectivity_state(state, block, genesis_state)
                     .map(|v| (v, service))?
             }
             ClientGenesis::DepositContract => {

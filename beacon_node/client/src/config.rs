@@ -69,8 +69,6 @@ pub struct Config {
     /// The `genesis` field is not serialized or deserialized by `serde` to ensure it is defined
     /// via the CLI at runtime, instead of from a configuration file saved to disk.
     pub genesis: ClientGenesis,
-    /// Whether we should backfill blocks all the way to genesis or not.
-    pub genesis_backfill: bool,
     pub store: store::StoreConfig,
     pub network: network::NetworkConfig,
     pub chain: beacon_chain::ChainConfig,
@@ -91,7 +89,6 @@ impl Default for Config {
             freezer_db_path: None,
             log_file: PathBuf::from(""),
             genesis: <_>::default(),
-            genesis_backfill: false,
             store: <_>::default(),
             network: NetworkConfig::default(),
             chain: <_>::default(),
