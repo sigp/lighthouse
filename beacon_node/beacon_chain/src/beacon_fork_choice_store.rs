@@ -11,6 +11,7 @@ use proto_array::JustifiedBalances;
 use safe_arith::ArithError;
 use ssz_derive::{Decode, Encode};
 use std::collections::BTreeSet;
+use std::iter::FromIterator;
 use std::marker::PhantomData;
 use std::sync::Arc;
 use store::{Error as StoreError, HotColdDB, ItemStore};
@@ -186,6 +187,8 @@ where
         };
         let finalized_checkpoint = justified_checkpoint;
         let justified_balances = JustifiedBalances::from_justified_state(anchor_state)?;
+        let equivocating_indices =
+            BTreeSet::from_iter(justified_balances.slashed_indices.iter().copied());
 
         Ok(Self {
             store,
@@ -198,7 +201,7 @@ where
             unrealized_justified_checkpoint: justified_checkpoint,
             unrealized_finalized_checkpoint: finalized_checkpoint,
             proposer_boost_root: Hash256::zero(),
-            equivocating_indices: BTreeSet::new(),
+            equivocating_indices,
             _phantom: PhantomData,
         })
     }
@@ -328,6 +331,8 @@ where
                 .ok_or_else(|| Error::MissingState(justified_block.state_root()))?;
 
             self.justified_balances = JustifiedBalances::from_justified_state(&state)?;
+            self.equivocating_indices
+                .extend(self.justified_balances.slashed_indices.iter().copied());
         }
 
         Ok(())

@@ -1,4 +1,5 @@
 use safe_arith::{ArithError, SafeArith};
+use std::collections::HashSet;
 use types::{BeaconState, EthSpec};
 
 #[derive(Debug, PartialEq, Clone, Default)]
@@ -12,6 +13,8 @@ pub struct JustifiedBalances {
     pub total_effective_balance: u64,
     /// The number of active validators included in `self.effective_balances`.
     pub num_active_validators: u64,
+    /// The set of all slashed validators.
+    pub slashed_indices: HashSet<u64>,
 }
 
 impl JustifiedBalances {
@@ -19,11 +22,17 @@ impl JustifiedBalances {
         let current_epoch = state.current_epoch();
         let mut total_effective_balance = 0u64;
         let mut num_active_validators = 0u64;
+        let mut slashed_indices = HashSet::new();
 
         let effective_balances = state
             .validators()
             .iter()
-            .map(|validator| {
+            .enumerate()
+            .map(|(validator_index, validator)| {
+                if validator.slashed {
+                    slashed_indices.insert(validator_index as u64);
+                }
+
                 if validator.is_active_at(current_epoch) {
                     total_effective_balance.safe_add_assign(validator.effective_balance)?;
                     num_active_validators.safe_add_assign(1)?;
@@ -39,6 +48,7 @@ impl JustifiedBalances {
             effective_balances,
             total_effective_balance,
             num_active_validators,
+            slashed_indices,
         })
     }
 
@@ -57,6 +67,8 @@ impl JustifiedBalances {
             effective_balances,
             total_effective_balance,
             num_active_validators,
+            // TODO(paul): is an empty set sensible?
+            slashed_indices: <_>::default(),
         })
     }
 }
