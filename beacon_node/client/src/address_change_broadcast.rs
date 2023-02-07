@@ -124,7 +124,7 @@ pub async fn broadcast_address_changes<T: BeaconChainTypes>(
         // published.
         chain
             .op_pool
-            .forget_received_pre_capella_indices(&published_indices);
+            .register_indices_broadcasted_at_capella(&published_indices);
 
         info!(
             log,

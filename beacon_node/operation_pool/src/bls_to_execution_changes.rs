@@ -129,12 +129,12 @@ impl<T: EthSpec> BlsToExecutionChanges<T> {
         }
     }
 
-    /// Removes `to_forget` validators from the set of validators that should
+    /// Removes `broadcasted` validators from the set of validators that should
     /// have their BLS changes broadcast at the Capella fork boundary.
-    pub fn forget_received_pre_capella_indices(&mut self, to_forget: &HashSet<u64>) {
+    pub fn register_indices_broadcasted_at_capella(&mut self, broadcasted: &HashSet<u64>) {
         self.received_pre_capella_indices = self
             .received_pre_capella_indices
-            .difference(to_forget)
+            .difference(broadcasted)
             .copied()
             .collect();
     }
