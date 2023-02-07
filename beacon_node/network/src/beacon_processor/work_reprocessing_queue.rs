@@ -11,6 +11,7 @@
 //! Aggregated and unaggregated attestations that failed verification due to referencing an unknown
 //! block will be re-queued until their block is imported, or until they expire.
 use super::MAX_SCHEDULED_WORK_QUEUE_LEN;
+use crate::beacon_processor::WorkEvent;
 use crate::metrics;
 use crate::sync::manager::BlockProcessType;
 use beacon_chain::{BeaconChainTypes, GossipVerifiedBlock, MAXIMUM_GOSSIP_CLOCK_DISPARITY};
@@ -22,6 +23,7 @@ use logging::TimeLatch;
 use slog::{crit, debug, error, trace, warn, Logger};
 use slot_clock::SlotClock;
 use std::collections::{HashMap, HashSet};
+use std::ops::Add;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::Context;
@@ -29,6 +31,7 @@ use std::time::Duration;
 use task_executor::TaskExecutor;
 use tokio::sync::mpsc::{self, Receiver, Sender};
 use tokio::time::error::Error as TimeError;
+use tokio::time::Instant;
 use tokio_util::time::delay_queue::{DelayQueue, Key as DelayKey};
 use types::{
     Attestation, EthSpec, Hash256, LightClientOptimisticUpdate, SignedAggregateAndProof,
@@ -40,6 +43,7 @@ const GOSSIP_BLOCKS: &str = "gossip_blocks";
 const RPC_BLOCKS: &str = "rpc_blocks";
 const ATTESTATIONS: &str = "attestations";
 const LIGHT_CLIENT_UPDATES: &str = "lc_updates";
+const BACKFILL_BATCHES: &str = "backfill_batches";
 
 /// Queue blocks for re-processing with an `ADDITIONAL_QUEUED_BLOCK_DELAY` after the slot starts.
 /// This is to account for any slight drift in the system clock.
@@ -84,6 +88,8 @@ pub enum ReprocessQueueMessage<T: BeaconChainTypes> {
     UnknownBlockAggregate(QueuedAggregate<T::EthSpec>),
     /// A light client optimistic update that references a parent root that has not been seen as a parent.
     UnknownLightClientOptimisticUpdate(QueuedLightClientUpdate<T::EthSpec>),
+    /// A new backfill batch that needs to be scheduled for processing.
+    BackfillSync(WorkEvent<T>),
 }
 
 /// Events sent by the scheduler once they are ready for re-processing.
@@ -93,6 +99,7 @@ pub enum ReadyWork<T: BeaconChainTypes> {
     Unaggregate(QueuedUnaggregate<T::EthSpec>),
     Aggregate(QueuedAggregate<T::EthSpec>),
     LightClientUpdate(QueuedLightClientUpdate<T::EthSpec>),
+    BackfillSync(WorkEvent<T>),
 }
 
 /// An Attestation for which the corresponding block was not seen while processing, queued for
@@ -155,6 +162,8 @@ enum InboundEvent<T: BeaconChainTypes> {
     ReadyAttestation(QueuedAttestationId),
     /// A light client update that is ready for re-processing.
     ReadyLightClientUpdate(QueuedLightClientUpdateId),
+    /// A backfill batch that was queued is ready for processing.
+    ReadyBackfillSync(WorkEvent<T>),
     /// A `DelayQueue` returned an error.
     DelayQueueError(TimeError, &'static str),
     /// A message sent to the `ReprocessQueue`
@@ -177,6 +186,8 @@ struct ReprocessQueue<T: BeaconChainTypes> {
     attestations_delay_queue: DelayQueue<QueuedAttestationId>,
     /// Queue to manage scheduled light client updates.
     lc_updates_delay_queue: DelayQueue<QueuedLightClientUpdateId>,
+    /// Queue to manage scheduled backfill batch processing.
+    backfill_delay_queue: DelayQueue<WorkEvent<T>>,
 
     /* Queued items */
     /// Queued blocks.
@@ -287,6 +298,20 @@ impl<T: BeaconChainTypes> Stream for ReprocessQueue<T> {
             Poll::Ready(None) | Poll::Pending => (),
         }
 
+        match self.backfill_delay_queue.poll_expired(cx) {
+            Poll::Ready(Some(Ok(work_event))) => {
+                return Poll::Ready(Some(InboundEvent::ReadyBackfillSync(
+                    work_event.into_inner(),
+                )));
+            }
+            Poll::Ready(Some(Err(e))) => {
+                return Poll::Ready(Some(InboundEvent::DelayQueueError(e, "backfill_queue")));
+            }
+            // `Poll::Ready(None)` means that there are no more entries in the delay queue and we
+            // will continue to get this result until something else is added into the queue.
+            Poll::Ready(None) | Poll::Pending => (),
+        }
+
         // Last empty the messages channel.
         match self.work_reprocessing_rx.poll_recv(cx) {
             Poll::Ready(Some(message)) => return Poll::Ready(Some(InboundEvent::Msg(message))),
@@ -317,6 +342,7 @@ pub fn spawn_reprocess_scheduler<T: BeaconChainTypes>(
         rpc_block_delay_queue: DelayQueue::new(),
         attestations_delay_queue: DelayQueue::new(),
         lc_updates_delay_queue: DelayQueue::new(),
+        backfill_delay_queue: DelayQueue::new(),
         queued_gossip_block_roots: HashSet::new(),
         queued_lc_updates: FnvHashMap::default(),
         queued_aggregates: FnvHashMap::default(),
@@ -665,6 +691,27 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
                     }
                 }
             }
+            InboundEvent::Msg(BackfillSync(work_event)) => {
+                let position_in_queue = self.backfill_delay_queue.len();
+                let slot_duration = slot_clock.slot_duration();
+
+                let initial_delay = slot_clock
+                    .duration_to_next_slot()
+                    .map_or(slot_duration, |duration_to_next_slot| {
+                        duration_to_next_slot + (slot_duration / 2)
+                    });
+
+                // FIXME(jimmy): we should try to process multiple batches per slot
+                let scheduled_processing_time =
+                    Instant::now().add(initial_delay + slot_duration * position_in_queue as u32);
+                debug!(
+                    log,
+                    "Backfill work scheduled for processing at {:?}", scheduled_processing_time
+                );
+
+                self.backfill_delay_queue
+                    .insert_at(work_event, scheduled_processing_time);
+            }
             // A block that was queued for later processing is now ready to be processed.
             InboundEvent::ReadyGossipBlock(ready_block) => {
                 let block_root = ready_block.block.block_root;
@@ -770,6 +817,19 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
                     }
                 }
             }
+            InboundEvent::ReadyBackfillSync(work) => {
+                debug!(log, "Sending scheduled backfill work to Beacon Processor");
+                if self
+                    .ready_work_tx
+                    .try_send(ReadyWork::BackfillSync(work))
+                    .is_err()
+                {
+                    error!(
+                        log,
+                        "Failed to send scheduled backfill work";
+                    );
+                }
+            }
         }
 
         metrics::set_gauge_vec(
@@ -791,6 +851,11 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
             &metrics::BEACON_PROCESSOR_REPROCESSING_QUEUE_TOTAL,
             &[LIGHT_CLIENT_UPDATES],
             self.lc_updates_delay_queue.len() as i64,
+        );
+        metrics::set_gauge_vec(
+            &metrics::BEACON_PROCESSOR_REPROCESSING_QUEUE_TOTAL,
+            &[BACKFILL_BATCHES],
+            self.backfill_delay_queue.len() as i64,
         );
     }
 }

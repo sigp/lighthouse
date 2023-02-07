@@ -73,13 +73,11 @@ use work_reprocessing_queue::{
 
 use worker::{Toolbox, Worker};
 
-mod rate_limiting_backfill_queue;
 mod tests;
 mod work_reprocessing_queue;
 mod worker;
 
-use crate::beacon_processor::rate_limiting_backfill_queue::spawn_backfill_scheduler;
-use crate::beacon_processor::work_reprocessing_queue::QueuedGossipBlock;
+use crate::beacon_processor::work_reprocessing_queue::{QueuedGossipBlock, ReprocessQueueMessage};
 pub use worker::{ChainSegmentProcessId, GossipAggregatePackage, GossipAttestationPackage};
 
 /// The maximum size of the channel for work events to the `BeaconProcessor`.
@@ -95,10 +93,6 @@ const MAX_IDLE_QUEUE_LEN: usize = 16_384;
 
 /// The maximum size of the channel for re-processing work events.
 const MAX_SCHEDULED_WORK_QUEUE_LEN: usize = 3 * MAX_WORK_EVENT_QUEUE_LEN / 4;
-
-/// The maximum size of the channel for backfill work events.
-/// TODO: what should be the right size for this?
-const MAX_BACKFILL_WORK_QUEUE_LEN: usize = 3 * MAX_WORK_EVENT_QUEUE_LEN / 4;
 
 /// The maximum number of queued `Attestation` objects that will be stored before we start dropping
 /// them.
@@ -369,7 +363,7 @@ pub struct WorkEvent<T: BeaconChainTypes> {
 
 impl<T: BeaconChainTypes> WorkEvent<T> {
     /// Returns true if it is a backfill event
-    pub fn is_back_fill(&self) -> bool {
+    pub fn is_backfill(&self) -> bool {
         matches!(
             &self.work,
             Work::ChainSegment {
@@ -732,6 +726,7 @@ impl<T: BeaconChainTypes> std::convert::From<ReadyWork<T>> for WorkEvent<T> {
                     seen_timestamp,
                 },
             },
+            ReadyWork::BackfillSync(work_event) => work_event,
         }
     }
 }
@@ -900,8 +895,6 @@ enum InboundEvent<T: BeaconChainTypes> {
     WorkerIdle,
     /// There is new work to be done.
     WorkEvent(WorkEvent<T>),
-    /// A backfill work event that was queued has been scheduled for processing.
-    ScheduledBackfillWork(WorkEvent<T>),
     /// A work event that was queued for re-processing has become ready.
     ReprocessingWork(WorkEvent<T>),
 }
@@ -917,8 +910,6 @@ struct InboundEvents<T: BeaconChainTypes> {
     event_rx: mpsc::Receiver<WorkEvent<T>>,
     /// Used internally for queuing work ready to be re-processed.
     reprocess_work_rx: mpsc::Receiver<ReadyWork<T>>,
-    /// Used internally for scheduling backfill work to be processed.
-    maybe_scheduled_backfill_work_rx: Option<mpsc::Receiver<WorkEvent<T>>>,
 }
 
 impl<T: BeaconChainTypes> Stream for InboundEvents<T> {
@@ -957,19 +948,6 @@ impl<T: BeaconChainTypes> Stream for InboundEvents<T> {
                 return Poll::Ready(None);
             }
             Poll::Pending => {}
-        }
-
-        // Check the backfill queue once all other queues are depleted
-        if let Some(scheduled_backfill_work_rx) = self.maybe_scheduled_backfill_work_rx.as_mut() {
-            match scheduled_backfill_work_rx.poll_recv(cx) {
-                Poll::Ready(Some(scheduled_work)) => {
-                    return Poll::Ready(Some(InboundEvent::ScheduledBackfillWork(scheduled_work)));
-                }
-                Poll::Ready(None) => {
-                    return Poll::Ready(None);
-                }
-                Poll::Pending => {}
-            }
         }
 
         Poll::Pending
@@ -1073,24 +1051,6 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
             self.log.clone(),
         );
 
-        // Channel for sending work to the backfill scheduler (`backfill_work_tx`) and to
-        // receive them back once they are scheduled (`scheduled_backfill_work_rx`).
-        let disable_backfill_rate_limiting = chain.config.disable_backfill_rate_limiting;
-        let (maybe_scheduled_backfill_work_rx, maybe_backfill_work_tx) =
-            if disable_backfill_rate_limiting {
-                (None, None)
-            } else {
-                let (scheduled_backfill_work_tx, scheduled_backfill_work_rx) =
-                    mpsc::channel(MAX_BACKFILL_WORK_QUEUE_LEN);
-                let backfill_work_tx = spawn_backfill_scheduler(
-                    scheduled_backfill_work_tx,
-                    &self.executor,
-                    chain.slot_clock.clone(),
-                    self.log.clone(),
-                );
-                (Some(scheduled_backfill_work_rx), Some(backfill_work_tx))
-            };
-
         let executor = self.executor.clone();
 
         // The manager future will run on the core executor and delegate tasks to worker
@@ -1100,8 +1060,9 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                 idle_rx,
                 event_rx,
                 reprocess_work_rx: ready_work_rx,
-                maybe_scheduled_backfill_work_rx,
             };
+
+            let disable_backfill_rate_limiting = chain.config.disable_backfill_rate_limiting;
 
             loop {
                 let work_event = match inbound_events.next().await {
@@ -1110,10 +1071,11 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                         None
                     }
                     Some(InboundEvent::WorkEvent(event))
-                        if maybe_backfill_work_tx.is_some() && event.is_back_fill() =>
+                        if !disable_backfill_rate_limiting && event.is_backfill() =>
                     {
-                        let backfill_work_tx = maybe_backfill_work_tx.clone().unwrap();
-                        if let Err(e) = backfill_work_tx.try_send(event) {
+                        if let Err(e) = work_reprocessing_tx
+                            .try_send(ReprocessQueueMessage::BackfillSync(event))
+                        {
                             error!(
                                 self.log,
                                 "Unable to queue backfill work event";
@@ -1123,7 +1085,6 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                         continue;
                     }
                     Some(InboundEvent::WorkEvent(event))
-                    | Some(InboundEvent::ScheduledBackfillWork(event))
                     | Some(InboundEvent::ReprocessingWork(event)) => Some(event),
                     None => {
                         debug!(
@@ -1482,15 +1443,9 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                     &metrics::BEACON_PROCESSOR_CHAIN_SEGMENT_QUEUE_TOTAL,
                     chain_segment_queue.len() as i64,
                 );
-                let backfill_queue_total =
-                    if let Some(backfill_work_tx) = maybe_backfill_work_tx.clone() {
-                        backfill_work_tx.max_capacity() - backfill_work_tx.capacity()
-                    } else {
-                        backfill_chain_segment.len()
-                    };
                 metrics::set_gauge(
                     &metrics::BEACON_PROCESSOR_BACKFILL_CHAIN_SEGMENT_QUEUE_TOTAL,
-                    backfill_queue_total as i64,
+                    backfill_chain_segment.len() as i64,
                 );
                 metrics::set_gauge(
                     &metrics::BEACON_PROCESSOR_EXIT_QUEUE_TOTAL,

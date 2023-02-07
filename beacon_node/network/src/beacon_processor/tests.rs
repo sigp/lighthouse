@@ -892,17 +892,17 @@ async fn test_rpc_block_reprocessing() {
 #[tokio::test]
 async fn test_backfill_sync_processing() {
     let mut rig = TestRig::new(SMALL_CHAIN).await;
+    // TODO: read/compute interval from config
+    let slot_duration = rig.chain.slot_clock.slot_duration().as_secs();
 
     for _ in 0..3 {
         rig.enqueue_backfill_batch();
     }
 
     // only the first batch is processed
+    tokio::time::sleep(Duration::from_secs(slot_duration)).await;
     rig.assert_event_journal(&[CHAIN_SEGMENT, WORKER_FREED, NOTHING_TO_DO])
         .await;
-
-    // TODO: read/compute interval from config
-    let slot_duration = rig.chain.slot_clock.slot_duration().as_secs();
 
     // The 2nd & 3rd batches should arrive at the beacon processor after the scheduled intervals
     tokio::time::sleep(Duration::from_secs(slot_duration)).await;
