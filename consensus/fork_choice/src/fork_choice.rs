@@ -206,33 +206,6 @@ impl From<bool> for CountUnrealized {
     }
 }
 
-#[derive(Copy, Clone)]
-enum UpdateJustifiedCheckpointSlots {
-    OnTick {
-        current_slot: Slot,
-    },
-    OnBlock {
-        state_slot: Slot,
-        current_slot: Slot,
-    },
-}
-
-impl UpdateJustifiedCheckpointSlots {
-    fn current_slot(&self) -> Slot {
-        match self {
-            UpdateJustifiedCheckpointSlots::OnTick { current_slot } => *current_slot,
-            UpdateJustifiedCheckpointSlots::OnBlock { current_slot, .. } => *current_slot,
-        }
-    }
-
-    fn state_slot(&self) -> Option<Slot> {
-        match self {
-            UpdateJustifiedCheckpointSlots::OnTick { .. } => None,
-            UpdateJustifiedCheckpointSlots::OnBlock { state_slot, .. } => Some(*state_slot),
-        }
-    }
-}
-
 /// Indicates if a block has been verified by an execution payload.
 ///
 /// There is no variant for "invalid", since such a block should never be added to fork choice.
@@ -532,7 +505,7 @@ where
         // Provide the slot (as per the system clock) to the `fc_store` and then return its view of
         // the current slot. The `fc_store` will ensure that the `current_slot` is never
         // decreasing, a property which we must maintain.
-        let current_slot = self.update_time(system_time_current_slot, spec)?;
+        let current_slot = self.update_time(system_time_current_slot)?;
 
         let store = &mut self.fc_store;
 
@@ -706,7 +679,7 @@ where
         // Provide the slot (as per the system clock) to the `fc_store` and then return its view of
         // the current slot. The `fc_store` will ensure that the `current_slot` is never
         // decreasing, a property which we must maintain.
-        let current_slot = self.update_time(system_time_current_slot, spec)?;
+        let current_slot = self.update_time(system_time_current_slot)?;
 
         // Parent block must be known.
         let parent_block = self
@@ -761,17 +734,10 @@ where
             self.fc_store.set_proposer_boost_root(block_root);
         }
 
-        let update_justified_checkpoint_slots = UpdateJustifiedCheckpointSlots::OnBlock {
-            state_slot: state.slot(),
-            current_slot,
-        };
-
         // Update store with checkpoints if necessary
         self.update_checkpoints(
             state.current_justified_checkpoint(),
             state.finalized_checkpoint(),
-            update_justified_checkpoint_slots,
-            spec,
         )?;
 
         // Update unrealized justified/finalized checkpoints.
@@ -853,8 +819,6 @@ where
                 self.update_checkpoints(
                     unrealized_justified_checkpoint,
                     unrealized_finalized_checkpoint,
-                    update_justified_checkpoint_slots,
-                    spec,
                 )?;
             }
 
@@ -949,8 +913,6 @@ where
         &mut self,
         justified_checkpoint: Checkpoint,
         finalized_checkpoint: Checkpoint,
-        slots: UpdateJustifiedCheckpointSlots,
-        spec: &ChainSpec,
     ) -> Result<(), Error<T::Error>> {
         // Update justified checkpoint.
         if justified_checkpoint.epoch > self.fc_store.justified_checkpoint().epoch {
@@ -1103,9 +1065,8 @@ where
         system_time_current_slot: Slot,
         attestation: &IndexedAttestation<E>,
         is_from_block: AttestationFromBlock,
-        spec: &ChainSpec,
     ) -> Result<(), Error<T::Error>> {
-        self.update_time(system_time_current_slot, spec)?;
+        self.update_time(system_time_current_slot)?;
 
         // Ignore any attestations to the zero hash.
         //
@@ -1166,16 +1127,12 @@ where
 
     /// Call `on_tick` for all slots between `fc_store.get_current_slot()` and the provided
     /// `current_slot`. Returns the value of `self.fc_store.get_current_slot`.
-    pub fn update_time(
-        &mut self,
-        current_slot: Slot,
-        spec: &ChainSpec,
-    ) -> Result<Slot, Error<T::Error>> {
+    pub fn update_time(&mut self, current_slot: Slot) -> Result<Slot, Error<T::Error>> {
         while self.fc_store.get_current_slot() < current_slot {
             let previous_slot = self.fc_store.get_current_slot();
             // Note: we are relying upon `on_tick` to update `fc_store.time` to ensure we don't
             // get stuck in a loop.
-            self.on_tick(previous_slot + 1, spec)?
+            self.on_tick(previous_slot + 1)?
         }
 
         // Process any attestations that might now be eligible.
@@ -1191,7 +1148,7 @@ where
     /// Equivalent to:
     ///
     /// https://github.com/ethereum/eth2.0-specs/blob/v0.12.1/specs/phase0/fork-choice.md#on_tick
-    fn on_tick(&mut self, time: Slot, spec: &ChainSpec) -> Result<(), Error<T::Error>> {
+    fn on_tick(&mut self, time: Slot) -> Result<(), Error<T::Error>> {
         let store = &mut self.fc_store;
         let previous_slot = store.get_current_slot();
 
@@ -1235,8 +1192,6 @@ where
         self.update_checkpoints(
             unrealized_justified_checkpoint,
             unrealized_finalized_checkpoint,
-            UpdateJustifiedCheckpointSlots::OnTick { current_slot },
-            spec,
         )?;
         Ok(())
     }

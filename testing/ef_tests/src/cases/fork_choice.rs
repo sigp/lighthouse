@@ -377,7 +377,7 @@ impl<E: EthSpec> Tester<E> {
             .chain
             .canonical_head
             .fork_choice_write_lock()
-            .update_time(slot, &self.spec)
+            .update_time(slot)
             .unwrap();
     }
 

@@ -42,7 +42,7 @@ pub trait Handler {
         let fork_name_str = fork_name.to_string();
 
         let handler_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join(&self.tests_dir())
+            .join(self.tests_dir())
             .join("tests")
             .join(Self::config_name())
             .join(&fork_name_str)
