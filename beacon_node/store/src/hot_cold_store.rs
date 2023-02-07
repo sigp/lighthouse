@@ -1760,7 +1760,9 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
         let should_prune_blobs = self.get_config().prune_blobs;
         if !should_prune_blobs && !force {
-            debug!(self.log, "Blob pruning is disabled";
+            debug!(
+                self.log,
+                "Blob pruning is disabled";
                 "prune_blobs" => should_prune_blobs
             );
             return Ok(());
