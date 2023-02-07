@@ -35,7 +35,7 @@ pub struct PersistedOperationPool<T: EthSpec> {
     #[superstruct(only(V5))]
     pub attestations_v5: Vec<(AttestationId, Vec<Attestation<T>>)>,
     /// Attestations and their attesting indices.
-    #[superstruct(only(V12, V14))]
+    #[superstruct(only(V12, V14, V15))]
     pub attestations: Vec<(Attestation<T>, Vec<u64>)>,
     /// Mapping from sync contribution ID to sync contributions and aggregate.
     pub sync_contributions: PersistedSyncContributions<T>,
@@ -43,22 +43,22 @@ pub struct PersistedOperationPool<T: EthSpec> {
     #[superstruct(only(V5))]
     pub attester_slashings_v5: Vec<(AttesterSlashing<T>, ForkVersion)>,
     /// Attester slashings.
-    #[superstruct(only(V12, V14))]
+    #[superstruct(only(V12, V14, V15))]
     pub attester_slashings: Vec<SigVerifiedOp<AttesterSlashing<T>, T>>,
     /// [DEPRECATED] Proposer slashings.
     #[superstruct(only(V5))]
     pub proposer_slashings_v5: Vec<ProposerSlashing>,
     /// Proposer slashings with fork information.
-    #[superstruct(only(V12, V14))]
+    #[superstruct(only(V12, V14, V15))]
     pub proposer_slashings: Vec<SigVerifiedOp<ProposerSlashing, T>>,
     /// [DEPRECATED] Voluntary exits.
     #[superstruct(only(V5))]
     pub voluntary_exits_v5: Vec<SignedVoluntaryExit>,
     /// Voluntary exits with fork information.
-    #[superstruct(only(V12, V14))]
+    #[superstruct(only(V12, V14, V15))]
     pub voluntary_exits: Vec<SigVerifiedOp<SignedVoluntaryExit, T>>,
     /// BLS to Execution Changes
-    #[superstruct(only(V14))]
+    #[superstruct(only(V14, V15))]
     pub bls_to_execution_changes: Vec<SigVerifiedOp<SignedBlsToExecutionChange, T>>,
     /// Validator indices with BLS to Execution Changes to be broadcast at the
     /// Capella fork.
@@ -217,6 +217,20 @@ impl<T: EthSpec> StoreItem for PersistedOperationPoolV12<T> {
 
     fn from_store_bytes(bytes: &[u8]) -> Result<Self, StoreError> {
         PersistedOperationPoolV12::from_ssz_bytes(bytes).map_err(Into::into)
+    }
+}
+
+impl<T: EthSpec> StoreItem for PersistedOperationPoolV14<T> {
+    fn db_column() -> DBColumn {
+        DBColumn::OpPool
+    }
+
+    fn as_store_bytes(&self) -> Vec<u8> {
+        self.as_ssz_bytes()
+    }
+
+    fn from_store_bytes(bytes: &[u8]) -> Result<Self, StoreError> {
+        PersistedOperationPoolV14::from_ssz_bytes(bytes).map_err(Into::into)
     }
 }
 
