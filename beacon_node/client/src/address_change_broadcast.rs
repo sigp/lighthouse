@@ -41,10 +41,9 @@ pub async fn broadcast_address_changes_at_capella<T: BeaconChainTypes>(
     while chain.slot().map_or(true, |slot| slot < capella_fork_slot) {
         match slot_clock.duration_to_slot(capella_fork_slot) {
             Some(duration) => {
-                // Sleep until the Capella fork and then run through the loop
-                // again. Running the loop again helps us use the
-                // `TestingSlotClock` in tests.
+                // Sleep until the Capella fork.
                 sleep(duration).await;
+                break;
             }
             None => {
                 // We were unable to read the slot clock wait another slot
