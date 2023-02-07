@@ -14,7 +14,7 @@ use std::io;
 use std::marker::PhantomData;
 use std::sync::Arc;
 use std::time::Duration;
-use strum::IntoStaticStr;
+use strum::{AsRefStr, Display, EnumString, IntoStaticStr};
 use tokio_io_timeout::TimeoutStream;
 use tokio_util::{
     codec::Framed,
@@ -169,25 +169,32 @@ pub fn rpc_block_limits_by_fork(current_fork: ForkName) -> RpcLimits {
 }
 
 /// Protocol names to be used.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, EnumString, AsRefStr, Display)]
+#[strum(serialize_all = "snake_case")]
 pub enum Protocol {
     /// The Status protocol name.
     Status,
     /// The Goodbye protocol name.
     Goodbye,
     /// The `BlocksByRange` protocol name.
+    #[strum(serialize = "beacon_blocks_by_range")]
     BlocksByRange,
     /// The `BlocksByRoot` protocol name.
+    #[strum(serialize = "beacon_blocks_by_root")]
     BlocksByRoot,
     /// The `BlobsByRange` protocol name.
+    #[strum(serialize = "blobs_sidecars_by_range")]
     BlobsByRange,
     /// The `BlobsByRoot` protocol name.
+    #[strum(serialize = "beacon_block_and_blobs_sidecar_by_root")]
     BlobsByRoot,
     /// The `Ping` protocol name.
     Ping,
     /// The `MetaData` protocol name.
+    #[strum(serialize = "metadata")]
     MetaData,
     /// The `LightClientBootstrap` protocol name.
+    #[strum(serialize = "light_client_bootstrap")]
     LightClientBootstrap,
 }
 
@@ -219,23 +226,6 @@ impl Protocol {
             Protocol::MetaData => None,
             Protocol::LightClientBootstrap => None,
         }
-    }
-}
-
-impl std::fmt::Display for Protocol {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let repr = match self {
-            Protocol::Status => "status",
-            Protocol::Goodbye => "goodbye",
-            Protocol::BlocksByRange => "beacon_blocks_by_range",
-            Protocol::BlocksByRoot => "beacon_blocks_by_root",
-            Protocol::BlobsByRange => "blobs_sidecars_by_range",
-            Protocol::BlobsByRoot => "beacon_block_and_blobs_sidecar_by_root",
-            Protocol::Ping => "ping",
-            Protocol::MetaData => "metadata",
-            Protocol::LightClientBootstrap => "light_client_bootstrap",
-        };
-        f.write_str(repr)
     }
 }
 
