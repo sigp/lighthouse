@@ -1709,6 +1709,58 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path("rewards"))
         .and(chain_filter.clone());
 
+    // POST beacon/rewards/attestations/{epoch}
+    let post_beacon_rewards_attestations = beacon_rewards_path
+        .clone()
+        .and(warp::path("attestations"))
+        .and(warp::path::param::<Epoch>())
+        .and(warp::path::end())
+        .and(warp::body::json())
+        .and(log_filter.clone())
+        .and_then(
+            |chain: Arc<BeaconChain<T>>,
+             epoch: Epoch,
+             validators: Vec<ValidatorId>,
+             log: Logger| {
+                blocking_json_task(move || {
+                    let attestation_rewards = chain
+                        .compute_attestation_rewards(epoch, validators, log)
+                        .map_err(|e| match e {
+                            BeaconChainError::MissingBeaconState(root) => {
+                                warp_utils::reject::custom_not_found(format!(
+                                    "missing state {root:?}",
+                                ))
+                            }
+                            BeaconChainError::NoStateForSlot(slot) => {
+                                warp_utils::reject::custom_not_found(format!(
+                                    "missing state at slot {slot}"
+                                ))
+                            }
+                            BeaconChainError::BeaconStateError(
+                                BeaconStateError::UnknownValidator(validator_index),
+                            ) => warp_utils::reject::custom_bad_request(format!(
+                                "validator is unknown: {validator_index}"
+                            )),
+                            BeaconChainError::ValidatorPubkeyUnknown(pubkey) => {
+                                warp_utils::reject::custom_bad_request(format!(
+                                    "validator pubkey is unknown: {pubkey:?}"
+                                ))
+                            }
+                            e => warp_utils::reject::custom_server_error(format!(
+                                "unexpected error: {:?}",
+                                e
+                            )),
+                        })?;
+                    let execution_optimistic =
+                        chain.is_optimistic_or_invalid_head().unwrap_or_default();
+
+                    Ok(attestation_rewards)
+                        .map(api_types::GenericResponse::from)
+                        .map(|resp| resp.add_execution_optimistic(execution_optimistic))
+                })
+            },
+        );
+
     // POST beacon/rewards/sync_committee/{block_id}
     let post_beacon_rewards_sync_committee = beacon_rewards_path
         .clone()
@@ -3432,6 +3484,7 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(post_beacon_pool_proposer_slashings.boxed())
                 .or(post_beacon_pool_voluntary_exits.boxed())
                 .or(post_beacon_pool_sync_committees.boxed())
+                .or(post_beacon_rewards_attestations.boxed())
                 .or(post_beacon_rewards_sync_committee.boxed())
                 .or(post_validator_duties_attester.boxed())
                 .or(post_validator_duties_sync.boxed())
