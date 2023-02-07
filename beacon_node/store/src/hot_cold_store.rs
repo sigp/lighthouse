@@ -213,17 +213,6 @@ impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
             );
         }
 
-        if let Some(blob_info) = db.load_blob_info()? {
-            let oldest_blob_slot = blob_info.oldest_blob_slot;
-            *db.blob_info.write() = blob_info;
-
-            info!(
-                db.log,
-                "Blob info loaded from disk";
-                "oldest_blob_slot" => ?oldest_blob_slot,
-            );
-        }
-
         // Ensure that the schema version of the on-disk database matches the software.
         // If the version is mismatched, an automatic migration will be attempted.
         let db = Arc::new(db);
@@ -237,6 +226,17 @@ impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
             migrate_schema(db.clone(), schema_version, CURRENT_SCHEMA_VERSION)?;
         } else {
             db.store_schema_version(CURRENT_SCHEMA_VERSION)?;
+        }
+
+        if let Some(blob_info) = db.load_blob_info()? {
+            let oldest_blob_slot = blob_info.oldest_blob_slot;
+            *db.blob_info.write() = blob_info;
+
+            info!(
+                db.log,
+                "Blob info loaded from disk";
+                "oldest_blob_slot" => ?oldest_blob_slot,
+            );
         }
 
         // Ensure that any on-disk config is compatible with the supplied config.
