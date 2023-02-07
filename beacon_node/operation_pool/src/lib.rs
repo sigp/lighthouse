@@ -570,7 +570,7 @@ impl<T: EthSpec> OperationPool<T> {
     ///
     /// The list that is returned will be shuffled to help provide a fair
     /// broadcast of messages.
-    pub fn get_bls_to_execution_changes_for_received_pre_capella(
+    pub fn get_bls_to_execution_changes_received_pre_capella(
         &self,
         state: &BeaconState<T>,
         spec: &ChainSpec,

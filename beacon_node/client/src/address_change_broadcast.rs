@@ -76,7 +76,7 @@ pub async fn broadcast_address_changes<T: BeaconChainTypes>(
     let head = chain.head_snapshot();
     let mut changes = chain
         .op_pool
-        .get_bls_to_execution_changes_for_received_pre_capella(&head.beacon_state, &chain.spec);
+        .get_bls_to_execution_changes_received_pre_capella(&head.beacon_state, &chain.spec);
 
     while !changes.is_empty() {
         // This `split_off` approach is to allow us to have owned chunks of the
@@ -287,7 +287,7 @@ mod tests {
             assert!(
                 chain
                     .op_pool
-                    .get_bls_to_execution_changes_for_received_pre_capella(
+                    .get_bls_to_execution_changes_received_pre_capella(
                         &head.beacon_state,
                         &chain.spec,
                     )

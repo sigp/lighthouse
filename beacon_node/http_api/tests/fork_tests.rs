@@ -471,7 +471,7 @@ async fn bls_to_execution_changes_update_all_around_capella_fork() {
         harness
             .chain
             .op_pool
-            .get_bls_to_execution_changes_for_received_pre_capella(
+            .get_bls_to_execution_changes_received_pre_capella(
                 &harness.chain.head_snapshot().beacon_state,
                 &spec,
             )
