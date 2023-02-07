@@ -5,7 +5,7 @@ use regex::bytes::Regex;
 use serde::Serialize;
 use ssz_derive::{Decode, Encode};
 use ssz_types::{
-    typenum::{U1024, U256},
+    typenum::{U1024, U128, U256},
     VariableList,
 };
 use std::ops::Deref;
@@ -13,12 +13,17 @@ use std::sync::Arc;
 use strum::IntoStaticStr;
 use superstruct::superstruct;
 use types::{
-    light_client_bootstrap::LightClientBootstrap, Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot,
+    light_client_bootstrap::LightClientBootstrap, Epoch, EthSpec, Hash256, LightClientUpdate,
+    SignedBeaconBlock, Slot,
 };
 
 /// Maximum number of blocks in a single request.
 pub type MaxRequestBlocks = U1024;
 pub const MAX_REQUEST_BLOCKS: u64 = 1024;
+
+/// Maximum number of light client updates in a single request.
+pub type MaxRequestLightClientUpdates = U128;
+pub const MAX_REQUEST_LIGHT_CLIENT_UPDATES: u64 = 128;
 
 /// Maximum length of error message.
 pub type MaxErrorLen = U256;
@@ -248,6 +253,10 @@ pub enum RPCResponse<T: EthSpec> {
     /// A response to a get LIGHTCLIENT_BOOTSTRAP request.
     LightClientBootstrap(LightClientBootstrap<T>),
 
+    /// A response to a get LIGHTCLIENT_UPDATES_BY_RANGE request. A None signifies
+    /// the end of the batch.
+    LightClientUpdatesByRange(Arc<LightClientUpdate<T>>),
+
     /// A PONG response to a PING request.
     Pong(Ping),
 
@@ -263,6 +272,9 @@ pub enum ResponseTermination {
 
     /// Blocks by root stream termination.
     BlocksByRoot,
+
+    /// Light client updates by range stream termination.
+    LightClientUpdatesByRange,
 }
 
 /// The structured response containing a result/code indicating success or failure
@@ -282,6 +294,13 @@ pub enum RPCCodedResponse<T: EthSpec> {
 #[derive(Encode, Decode, Clone, Debug, PartialEq)]
 pub struct LightClientBootstrapRequest {
     pub root: Hash256,
+}
+
+/// Request `LightClientUpdate`s by range for lightclients peers.
+#[derive(Encode, Decode, Clone, Debug, PartialEq)]
+pub struct LightClientUpdatesByRangeRequest {
+    pub start_period: u64,
+    pub count: u64,
 }
 
 /// The code assigned to an erroneous `RPCResponse`.
@@ -333,6 +352,7 @@ impl<T: EthSpec> RPCCodedResponse<T> {
                 RPCResponse::Pong(_) => false,
                 RPCResponse::MetaData(_) => false,
                 RPCResponse::LightClientBootstrap(_) => false,
+                RPCResponse::LightClientUpdatesByRange(_) => true,
             },
             RPCCodedResponse::Error(_, _) => true,
             // Stream terminations are part of responses that have chunks
@@ -368,6 +388,7 @@ impl<T: EthSpec> RPCResponse<T> {
             RPCResponse::Pong(_) => Protocol::Ping,
             RPCResponse::MetaData(_) => Protocol::MetaData,
             RPCResponse::LightClientBootstrap(_) => Protocol::LightClientBootstrap,
+            RPCResponse::LightClientUpdatesByRange(_) => Protocol::LightClientUpdatesByRange,
         }
     }
 }
@@ -404,7 +425,18 @@ impl<T: EthSpec> std::fmt::Display for RPCResponse<T> {
             RPCResponse::Pong(ping) => write!(f, "Pong: {}", ping.data),
             RPCResponse::MetaData(metadata) => write!(f, "Metadata: {}", metadata.seq_number()),
             RPCResponse::LightClientBootstrap(bootstrap) => {
-                write!(f, "LightClientBootstrap Slot: {}", bootstrap.header.slot)
+                write!(
+                    f,
+                    "LightClientBootstrap Slot: {}",
+                    bootstrap.header.beacon.slot
+                )
+            }
+            RPCResponse::LightClientUpdatesByRange(update) => {
+                write!(
+                    f,
+                    "LightClientUpdatesByRange: Signature slot: {}",
+                    update.signature_slot
+                )
             }
         }
     }

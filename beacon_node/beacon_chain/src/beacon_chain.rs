@@ -1026,6 +1026,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(self.store.get_state(state_root, slot)?)
     }
 
+    /// Returns stored light client update at the given sync_committee_period, if any.
+    ///
+    /// ## Errors
+    ///
+    /// May return a database error.
+    pub fn get_light_client_update(
+        &self,
+        sync_committee_period: u64,
+    ) -> Result<Option<LightClientUpdate<T::EthSpec>>, Error> {
+        Ok(self.store.get_light_client_update(sync_committee_period)?)
+    }
+
     /// Return the sync committee at `slot + 1` from the canonical chain.
     ///
     /// This is useful when dealing with sync committee messages, because messages are signed

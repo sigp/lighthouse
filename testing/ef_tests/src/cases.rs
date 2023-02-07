@@ -27,6 +27,7 @@ mod shuffling;
 mod ssz_generic;
 mod ssz_static;
 mod transition;
+mod update_ranking;
 
 pub use self::fork_choice::*;
 pub use bls_aggregate_sigs::*;
@@ -51,6 +52,7 @@ pub use shuffling::*;
 pub use ssz_generic::*;
 pub use ssz_static::*;
 pub use transition::TransitionTest;
+pub use update_ranking::*;
 
 pub trait LoadCase: Sized {
     /// Load the test case from a test case directory.

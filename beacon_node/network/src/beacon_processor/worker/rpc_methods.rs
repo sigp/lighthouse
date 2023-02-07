@@ -212,9 +212,9 @@ impl<T: BeaconChainTypes> Worker<T> {
         request: LightClientBootstrapRequest,
     ) {
         let block_root = request.root;
-        let state_root = match self.chain.get_blinded_block(&block_root) {
+        let signed_block = match self.chain.get_blinded_block(&block_root) {
             Ok(signed_block) => match signed_block {
-                Some(signed_block) => signed_block.state_root(),
+                Some(signed_block) => signed_block,
                 None => {
                     self.send_error_response(
                         peer_id,
@@ -235,7 +235,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                 return;
             }
         };
-        let mut beacon_state = match self.chain.get_state(&state_root, None) {
+        let mut beacon_state = match self.chain.get_state(&signed_block.state_root(), None) {
             Ok(beacon_state) => match beacon_state {
                 Some(state) => state,
                 None => {
@@ -258,18 +258,19 @@ impl<T: BeaconChainTypes> Worker<T> {
                 return;
             }
         };
-        let bootstrap = match LightClientBootstrap::from_beacon_state(&mut beacon_state) {
-            Ok(bootstrap) => bootstrap,
-            Err(_) => {
-                self.send_error_response(
-                    peer_id,
-                    RPCResponseErrorCode::ResourceUnavailable,
-                    "Bootstrap not avaiable".into(),
-                    request_id,
-                );
-                return;
-            }
-        };
+        let bootstrap =
+            match LightClientBootstrap::new(&self.chain.spec, &mut beacon_state, &signed_block) {
+                Ok(bootstrap) => bootstrap,
+                Err(_) => {
+                    self.send_error_response(
+                        peer_id,
+                        RPCResponseErrorCode::ResourceUnavailable,
+                        "Bootstrap not avaiable".into(),
+                        request_id,
+                    );
+                    return;
+                }
+            };
         self.send_response(
             peer_id,
             Response::LightClientBootstrap(bootstrap),
@@ -453,5 +454,107 @@ impl<T: BeaconChainTypes> Worker<T> {
             },
             "load_blocks_by_range_blocks",
         );
+    }
+
+    /// Handle a `LightClientUpdatesByRange` request from the peer.
+    pub fn handle_light_client_updates_by_range_request(
+        self,
+        peer_id: PeerId,
+        request_id: PeerRequestId,
+        mut req: LightClientUpdatesByRangeRequest,
+    ) {
+        debug!(self.log, "Received BlocksByRange Request";
+            "peer_id" => %peer_id,
+            "count" => req.count,
+            "start_period" => req.start_period,
+        );
+
+        // Should not send more than max request blocks
+        if req.count > MAX_REQUEST_LIGHT_CLIENT_UPDATES {
+            req.count = MAX_REQUEST_LIGHT_CLIENT_UPDATES;
+        }
+
+        let mut light_client_updates_sent = 0;
+        let mut send_response = true;
+
+        // No async necessary here because we don't need to hit the execution layer.
+        for i in req.start_period..req.start_period + req.count {
+            match self.chain.get_light_client_update(i) {
+                Ok(Some(update)) => {
+                    light_client_updates_sent += 1;
+                    self.send_network_message(NetworkMessage::SendResponse {
+                        peer_id,
+                        response: Response::LightClientUpdatesByRange(Some(Arc::new(update))),
+                        id: request_id,
+                    });
+                }
+                Ok(None) => {
+                    error!(
+                        self.log,
+                        "Light client update is not in the store";
+                        "request_period" => i
+                    );
+                    break;
+                }
+                Err(e) => {
+                    error!(
+                        self.log,
+                        "Error fetching light client update for peer";
+                        "request_period" => i,
+                        "error" => ?e
+                    );
+
+                    // send the stream terminator
+                    self.send_error_response(
+                        peer_id,
+                        RPCResponseErrorCode::ServerError,
+                        "Failed fetching light client updates".into(),
+                        request_id,
+                    );
+                    send_response = false;
+                    break;
+                }
+            }
+        }
+
+        let current_period = self
+            .chain
+            .slot()
+            .unwrap_or_else(|_| self.chain.slot_clock.genesis_slot())
+            .epoch(T::EthSpec::slots_per_epoch())
+            .sync_committee_period(&self.chain.spec)
+            .unwrap_or(0);
+
+        if light_client_updates_sent < (req.count as usize) {
+            debug!(
+                self.log,
+                "LightClientUpdatesByRange outgoing response processed";
+                "peer" => %peer_id,
+                "msg" => "Failed to return all requested light client updates",
+                "start_period" => req.start_period,
+                "current_period" => current_period,
+                "requested" => req.count,
+                "returned" => light_client_updates_sent
+            );
+        } else {
+            debug!(
+                self.log,
+                "LightClientUpdatesByRange outgoing response processed";
+                "peer" => %peer_id,
+                "start_period" => req.start_period,
+                "current_period" => current_period,
+                "requested" => req.count,
+                "returned" => light_client_updates_sent
+            );
+        }
+
+        if send_response {
+            // send the stream terminator
+            self.send_network_message(NetworkMessage::SendResponse {
+                peer_id,
+                response: Response::LightClientUpdatesByRange(None),
+                id: request_id,
+            });
+        }
     }
 }

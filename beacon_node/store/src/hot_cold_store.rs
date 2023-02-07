@@ -91,6 +91,7 @@ pub enum HotColdDBError {
     MissingEpochBoundaryState(Hash256),
     MissingSplitState(Hash256, Slot),
     MissingExecutionPayload(Hash256),
+    MissingLightClientUpdate(u64),
     MissingFullBlockExecutionPayloadPruned(Hash256, Slot),
     MissingAnchorInfo,
     HotStateSummaryError(BeaconStateError),
@@ -515,6 +516,58 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 Some(state) => Ok(Some(state)),
                 None => self.load_cold_state(state_root),
             }
+        }
+    }
+
+    pub fn put_light_client_update(&self, update: LightClientUpdate<E>) -> Result<(), Error> {
+        let sync_committee_period = update.signature_slot.epoch(E::slots_per_epoch())
+            / self.spec.epochs_per_sync_committee_period;
+        let key = sync_committee_period.as_u64().to_le_bytes();
+        if update.signature_slot < self.get_split_slot() {
+            self.cold_db.put_bytes(
+                DBColumn::LightClientUpdate.into(),
+                &key,
+                &update.as_ssz_bytes(),
+            )
+        } else {
+            self.hot_db.put_bytes(
+                DBColumn::LightClientUpdate.into(),
+                &key,
+                &update.as_ssz_bytes(),
+            )
+        }
+    }
+
+    /// Fetch a light client update from the store.
+    pub fn get_light_client_update(
+        &self,
+        sync_committee_period: u64,
+    ) -> Result<Option<LightClientUpdate<E>>, Error> {
+        let start_slot = self.spec.altair_fork_epoch.map(|altair_fork_epoch| {
+            let epochs_passed =
+                Epoch::new(sync_committee_period) * self.spec.epochs_per_sync_committee_period;
+            let start_epoch = altair_fork_epoch + epochs_passed;
+            start_epoch.start_slot(E::slots_per_epoch())
+        });
+
+        let column = DBColumn::LightClientUpdate.into();
+        let key = sync_committee_period.to_le_bytes();
+        if let Some(slot) = start_slot {
+            if slot < self.get_split_slot() {
+                self.cold_db
+                    .get_bytes(column, &key)?
+                    .map(|bytes| LightClientUpdate::from_ssz_bytes(&bytes))
+                    .transpose()
+                    .map_err(|e| e.into())
+            } else {
+                self.hot_db
+                    .get_bytes(column, &key)?
+                    .map(|bytes| LightClientUpdate::from_ssz_bytes(&bytes))
+                    .transpose()
+                    .map_err(|e| e.into())
+            }
+        } else {
+            Err(HotColdDBError::MissingLightClientUpdate(sync_committee_period).into())
         }
     }
 

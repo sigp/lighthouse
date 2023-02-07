@@ -17,7 +17,8 @@ use std::sync::Arc;
 use tokio_util::codec::{Decoder, Encoder};
 use types::{
     light_client_bootstrap::LightClientBootstrap, EthSpec, ForkContext, ForkName, Hash256,
-    SignedBeaconBlock, SignedBeaconBlockAltair, SignedBeaconBlockBase, SignedBeaconBlockMerge,
+    LightClientUpdate, SignedBeaconBlock, SignedBeaconBlockAltair, SignedBeaconBlockBase,
+    SignedBeaconBlockMerge,
 };
 use unsigned_varint::codec::Uvi;
 
@@ -71,6 +72,7 @@ impl<TSpec: EthSpec> Encoder<RPCCodedResponse<TSpec>> for SSZSnappyInboundCodec<
                 RPCResponse::BlocksByRange(res) => res.as_ssz_bytes(),
                 RPCResponse::BlocksByRoot(res) => res.as_ssz_bytes(),
                 RPCResponse::LightClientBootstrap(res) => res.as_ssz_bytes(),
+                RPCResponse::LightClientUpdatesByRange(res) => res.as_ssz_bytes(),
                 RPCResponse::Pong(res) => res.data.as_ssz_bytes(),
                 RPCResponse::MetaData(res) =>
                 // Encode the correct version of the MetaData response based on the negotiated version.
@@ -232,6 +234,7 @@ impl<TSpec: EthSpec> Encoder<OutboundRequest<TSpec>> for SSZSnappyOutboundCodec<
             OutboundRequest::Ping(req) => req.as_ssz_bytes(),
             OutboundRequest::MetaData(_) => return Ok(()), // no metadata to encode
             OutboundRequest::LightClientBootstrap(req) => req.as_ssz_bytes(),
+            OutboundRequest::LightClientUpdatesByRange(req) => req.as_ssz_bytes(),
         };
         // SSZ encoded bytes should be within `max_packet_size`
         if bytes.len() > self.max_packet_size {
@@ -479,6 +482,9 @@ fn handle_v1_request<T: EthSpec>(
                 root: Hash256::from_ssz_bytes(decoded_buffer)?,
             },
         ))),
+        Protocol::LightClientUpdatesByRange => Ok(Some(InboundRequest::LightClientUpdatesByRange(
+            LightClientUpdatesByRangeRequest::from_ssz_bytes(decoded_buffer)?,
+        ))),
         // MetaData requests return early from InboundUpgrade and do not reach the decoder.
         // Handle this case just for completeness.
         Protocol::MetaData => {
@@ -552,6 +558,9 @@ fn handle_v1_response<T: EthSpec>(
         )))),
         Protocol::LightClientBootstrap => Ok(Some(RPCResponse::LightClientBootstrap(
             LightClientBootstrap::from_ssz_bytes(decoded_buffer)?,
+        ))),
+        Protocol::LightClientUpdatesByRange => Ok(Some(RPCResponse::LightClientUpdatesByRange(
+            Arc::new(LightClientUpdate::from_ssz_bytes(decoded_buffer)?),
         ))),
     }
 }
@@ -878,6 +887,9 @@ mod tests {
                 }
                 OutboundRequest::LightClientBootstrap(bootstrap) => {
                     assert_eq!(decoded, InboundRequest::LightClientBootstrap(bootstrap))
+                }
+                OutboundRequest::LightClientUpdatesByRange(urange) => {
+                    assert_eq!(decoded, InboundRequest::LightClientUpdatesByRange(urange))
                 }
             }
         }

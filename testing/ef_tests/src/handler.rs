@@ -323,6 +323,30 @@ impl<E: EthSpec + TypeName> Handler for ShufflingHandler<E> {
 
 #[derive(Derivative)]
 #[derivative(Default(bound = ""))]
+pub struct UpdateRankingHandler<E>(PhantomData<E>);
+
+impl<E: EthSpec + TypeName> Handler for UpdateRankingHandler<E> {
+    type Case = cases::UpdateRanking<E>;
+
+    fn config_name() -> &'static str {
+        E::name()
+    }
+
+    fn runner_name() -> &'static str {
+        "light_client"
+    }
+
+    fn handler_name(&self) -> String {
+        "update_ranking".into()
+    }
+
+    fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
+        ForkName::list_all()[1..].to_vec().contains(&fork_name)
+    }
+}
+
+#[derive(Derivative)]
+#[derivative(Default(bound = ""))]
 pub struct SanityBlocksHandler<E>(PhantomData<E>);
 
 impl<E: EthSpec + TypeName> Handler for SanityBlocksHandler<E> {
