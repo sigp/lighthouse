@@ -3569,7 +3569,6 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(post_beacon_pool_proposer_slashings.boxed())
                 .or(post_beacon_pool_voluntary_exits.boxed())
                 .or(post_beacon_pool_sync_committees.boxed())
-                .or(post_beacon_rewards_sync_committee.boxed())
                 .or(post_beacon_pool_bls_to_execution_changes.boxed())
                 .or(post_beacon_rewards_sync_committee.boxed())
                 .or(post_validator_duties_attester.boxed())

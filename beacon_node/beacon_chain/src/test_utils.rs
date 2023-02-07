@@ -331,11 +331,6 @@ where
         )
     }
 
-    pub fn withdrawal_keypairs(mut self, withdrawal_keypairs: Vec<Option<Keypair>>) -> Self {
-        self.withdrawal_keypairs = withdrawal_keypairs;
-        self
-    }
-
     pub fn default_spec(self) -> Self {
         self.spec_or_default(None)
     }

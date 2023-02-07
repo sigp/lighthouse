@@ -145,9 +145,13 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> BlockProposalContents<T, Paylo
         Option<VariableList<Blob<T>, T::MaxBlobsPerBlock>>,
     ) {
         match self {
-            Self::Payload(payload) => (payload, None, None),
+            Self::Payload {
+                payload,
+                block_value: _,
+            } => (payload, None, None),
             Self::PayloadAndBlobs {
                 payload,
+                block_value: _,
                 kzg_commitments,
                 blobs,
             } => (payload, Some(kzg_commitments), Some(blobs)),
@@ -2128,7 +2132,10 @@ fn ethers_tx_to_bytes<T: EthSpec>(
     VariableList::new(tx).map_err(Into::into)
 }
 
-fn noop<T: EthSpec>(_: &ExecutionLayer<T>, _: &ExecutionPayload<T>) -> Option<ExecutionPayload<T>> {
+fn noop<T: EthSpec>(
+    _: &ExecutionLayer<T>,
+    _: ExecutionPayloadRef<T>,
+) -> Option<ExecutionPayload<T>> {
     None
 }
 

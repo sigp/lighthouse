@@ -802,21 +802,6 @@ impl<T: BeaconChainTypes> std::convert::From<ReadyWork<T>> for WorkEvent<T> {
                     seen_timestamp,
                 },
             },
-            ReadyWork::LightClientUpdate(QueuedLightClientUpdate {
-                peer_id,
-                message_id,
-                light_client_optimistic_update,
-                seen_timestamp,
-                ..
-            }) => Self {
-                drop_during_sync: true,
-                work: Work::UnknownLightClientOptimisticUpdate {
-                    message_id,
-                    peer_id,
-                    light_client_optimistic_update,
-                    seen_timestamp,
-                },
-            },
         }
     }
 }
@@ -1001,7 +986,6 @@ impl<T: BeaconChainTypes> Work<T> {
             Work::UnknownBlockAggregate { .. } => UNKNOWN_BLOCK_AGGREGATE,
             Work::UnknownLightClientOptimisticUpdate { .. } => UNKNOWN_LIGHT_CLIENT_UPDATE,
             Work::GossipBlsToExecutionChange { .. } => GOSSIP_BLS_TO_EXECUTION_CHANGE,
-            Work::UnknownLightClientOptimisticUpdate { .. } => UNKNOWN_LIGHT_CLIENT_UPDATE,
         }
     }
 }
@@ -1528,9 +1512,6 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                             }
                             Work::UnknownBlockAggregate { .. } => {
                                 unknown_block_aggregate_queue.push(work)
-                            }
-                            Work::UnknownLightClientOptimisticUpdate { .. } => {
-                                unknown_light_client_update_queue.push(work, work_id, &self.log)
                             }
                             Work::GossipBlsToExecutionChange { .. } => {
                                 gossip_bls_to_execution_change_queue.push(work, work_id, &self.log)

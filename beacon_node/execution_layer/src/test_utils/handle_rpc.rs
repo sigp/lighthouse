@@ -110,7 +110,8 @@ pub async fn handle_rpc<T: EthSpec>(
                                 get_param::<JsonExecutionPayloadV1<T>>(params, 0)
                                     .map(|jep| JsonExecutionPayload::V1(jep))
                             })
-                    })?,
+                    })
+                    .map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?,
                 _ => unreachable!(),
             };
 
@@ -150,18 +151,27 @@ pub async fn handle_rpc<T: EthSpec>(
                 }
                 ForkName::Eip4844 => {
                     if method == ENGINE_NEW_PAYLOAD_V1 || method == ENGINE_NEW_PAYLOAD_V2 {
-                        return Err((format!("{} called after capella fork!", method), GENERIC_ERROR_CODE));
+                        return Err((
+                            format!("{} called after capella fork!", method),
+                            GENERIC_ERROR_CODE,
+                        ));
                     }
                     if matches!(request, JsonExecutionPayload::V1(_)) {
-                        return Err((format!(
-                            "{} called with `ExecutionPayloadV1` after eip4844 fork!",
-                            method
-                        ), GENERIC_ERROR_CODE));
+                        return Err((
+                            format!(
+                                "{} called with `ExecutionPayloadV1` after eip4844 fork!",
+                                method
+                            ),
+                            GENERIC_ERROR_CODE,
+                        ));
                     }
                     if matches!(request, JsonExecutionPayload::V2(_)) {
-                        return Err((format!(
-                            "{} called with `ExecutionPayloadV2` after eip4844 fork!",
-                            method), GENERIC_ERROR_CODE
+                        return Err((
+                            format!(
+                                "{} called with `ExecutionPayloadV2` after eip4844 fork!",
+                                method
+                            ),
+                            GENERIC_ERROR_CODE,
                         ));
                     }
                 }
@@ -235,7 +245,10 @@ pub async fn handle_rpc<T: EthSpec>(
                 == ForkName::Eip4844
                 && (method == ENGINE_GET_PAYLOAD_V1 || method == ENGINE_GET_PAYLOAD_V2)
             {
-                return Err((format!("{} called after eip4844 fork!", method), FORK_REQUEST_MISMATCH_ERROR_CODE));
+                return Err((
+                    format!("{} called after eip4844 fork!", method),
+                    FORK_REQUEST_MISMATCH_ERROR_CODE,
+                ));
             }
 
             match method {
@@ -263,23 +276,23 @@ pub async fn handle_rpc<T: EthSpec>(
                     JsonExecutionPayload::V1(execution_payload) => {
                         serde_json::to_value(JsonGetPayloadResponseV1 {
                             execution_payload,
-                            block_value: DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI.into()
+                            block_value: DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI.into(),
                         })
-                            .unwrap()
+                        .unwrap()
                     }
                     JsonExecutionPayload::V2(execution_payload) => {
                         serde_json::to_value(JsonGetPayloadResponseV2 {
                             execution_payload,
-                            block_value: DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI.into()
+                            block_value: DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI.into(),
                         })
-                            .unwrap()
+                        .unwrap()
                     }
                     JsonExecutionPayload::V3(execution_payload) => {
                         serde_json::to_value(JsonGetPayloadResponseV3 {
                             execution_payload,
-                            block_value: DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI.into()
+                            block_value: DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI.into(),
                         })
-                            .unwrap()
+                        .unwrap()
                     }
                 }),
                 _ => unreachable!(),

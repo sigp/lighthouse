@@ -73,13 +73,16 @@ pub static LIGHTHOUSE_CAPABILITIES: &[&str] = &[
 /// This is necessary because a user might run a capella-enabled version of
 /// lighthouse before they update to a capella-enabled execution engine.
 // TODO (mark): rip this out once we are post-capella on mainnet
+// TODO (sean): do we similarly need something like this for 4844?
 pub static PRE_CAPELLA_ENGINE_CAPABILITIES: EngineCapabilities = EngineCapabilities {
     new_payload_v1: true,
     new_payload_v2: false,
+    new_payload_v3: false,
     forkchoice_updated_v1: true,
     forkchoice_updated_v2: false,
     get_payload_v1: true,
     get_payload_v2: false,
+    get_payload_v3: false,
     exchange_transition_configuration_v1: true,
 };
 
@@ -1019,10 +1022,12 @@ impl HttpJsonRpc {
             Ok(capabilities) => Ok(EngineCapabilities {
                 new_payload_v1: capabilities.contains(ENGINE_NEW_PAYLOAD_V1),
                 new_payload_v2: capabilities.contains(ENGINE_NEW_PAYLOAD_V2),
+                new_payload_v3: capabilities.contains(ENGINE_NEW_PAYLOAD_V3),
                 forkchoice_updated_v1: capabilities.contains(ENGINE_FORKCHOICE_UPDATED_V1),
                 forkchoice_updated_v2: capabilities.contains(ENGINE_FORKCHOICE_UPDATED_V2),
                 get_payload_v1: capabilities.contains(ENGINE_GET_PAYLOAD_V1),
                 get_payload_v2: capabilities.contains(ENGINE_GET_PAYLOAD_V2),
+                get_payload_v3: capabilities.contains(ENGINE_GET_PAYLOAD_V3),
                 exchange_transition_configuration_v1: capabilities
                     .contains(ENGINE_EXCHANGE_TRANSITION_CONFIGURATION_V1),
             }),
@@ -1070,7 +1075,7 @@ impl HttpJsonRpc {
         let engine_capabilities = self.get_engine_capabilities(None).await?;
         if engine_capabilities.new_payload_v3 {
             self.new_payload_v3(execution_payload).await
-        }else if engine_capabilities.new_payload_v2 {
+        } else if engine_capabilities.new_payload_v2 {
             self.new_payload_v2(execution_payload).await
         } else if engine_capabilities.new_payload_v1 {
             self.new_payload_v1(execution_payload).await
@@ -1089,7 +1094,7 @@ impl HttpJsonRpc {
         let engine_capabilities = self.get_engine_capabilities(None).await?;
         if engine_capabilities.get_payload_v3 {
             self.get_payload_v3(fork_name, payload_id).await
-        } else    if engine_capabilities.get_payload_v2 {
+        } else if engine_capabilities.get_payload_v2 {
             self.get_payload_v2(fork_name, payload_id).await
         } else if engine_capabilities.new_payload_v1 {
             self.get_payload_v1(payload_id).await
