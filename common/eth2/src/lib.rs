@@ -1044,6 +1044,24 @@ impl BeaconNodeHttpClient {
         Ok(())
     }
 
+    /// `POST beacon/rewards/attestations`
+    pub async fn post_beacon_rewards_attestations(
+        &self,
+        attestations: &[ValidatorId],
+    ) -> Result<(), Error> {
+        let mut path = self.eth_path(V1)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("beacon")
+            .push("rewards")
+            .push("attestations");
+
+        self.post(path, &attestations).await?;
+
+        Ok(())
+    }
+
     /// `POST validator/contribution_and_proofs`
     pub async fn post_validator_contribution_and_proofs<T: EthSpec>(
         &self,
