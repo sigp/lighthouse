@@ -1726,6 +1726,97 @@ pub fn serve<T: BeaconChainTypes>(
      * beacon/rewards
      */
 
+    let beacon_light_client_path = eth_v1
+        .and(warp::path("beacon"))
+        .and(warp::path("light_client"))
+        .and(chain_filter.clone());
+
+    // GET beacon/light_client/optimistic_update
+    let get_beacon_light_client_optimistic_update = beacon_light_client_path
+        .clone()
+        .and(warp::path("optimistic_update"))
+        .and(warp::path::end())
+        .and(warp::header::optional::<api_types::Accept>("accept"))
+        .and_then(
+            |chain: Arc<BeaconChain<T>>, accept_header: Option<api_types::Accept>| {
+                blocking_task(move || {
+                    let update = chain
+                        .latest_seen_optimistic_update
+                        .lock()
+                        .clone()
+                        .ok_or_else(|| {
+                            warp_utils::reject::custom_not_found(format!(
+                                "No LightClientOptimisticUpdate is available"
+                            ))
+                        })?;
+
+                    let fork_name = chain
+                        .spec
+                        .fork_name_at_slot::<T::EthSpec>(update.signature_slot);
+                    match accept_header {
+                        Some(api_types::Accept::Ssz) => Response::builder()
+                            .status(200)
+                            .header("Content-Type", "application/octet-stream")
+                            .body(update.as_ssz_bytes().into())
+                            .map_err(|e| {
+                                warp_utils::reject::custom_server_error(format!(
+                                    "failed to create response: {}",
+                                    e
+                                ))
+                            }),
+                        _ => Ok(warp::reply::json(&api_types::GenericResponse::from(update))
+                            .into_response()),
+                    }
+                    .map(|resp| add_consensus_version_header(resp, fork_name))
+                })
+            },
+        );
+
+    // GET beacon/light_client/finality_update
+    let get_beacon_light_client_finality_update = beacon_light_client_path
+        .clone()
+        .and(warp::path("finality_update"))
+        .and(warp::path::end())
+        .and(warp::header::optional::<api_types::Accept>("accept"))
+        .and_then(
+            |chain: Arc<BeaconChain<T>>, accept_header: Option<api_types::Accept>| {
+                blocking_task(move || {
+                    let update = chain
+                        .latest_seen_finality_update
+                        .lock()
+                        .clone()
+                        .ok_or_else(|| {
+                            warp_utils::reject::custom_not_found(format!(
+                                "No LightClientFinalityUpdate is available"
+                            ))
+                        })?;
+
+                    let fork_name = chain
+                        .spec
+                        .fork_name_at_slot::<T::EthSpec>(update.signature_slot);
+                    match accept_header {
+                        Some(api_types::Accept::Ssz) => Response::builder()
+                            .status(200)
+                            .header("Content-Type", "application/octet-stream")
+                            .body(update.as_ssz_bytes().into())
+                            .map_err(|e| {
+                                warp_utils::reject::custom_server_error(format!(
+                                    "failed to create response: {}",
+                                    e
+                                ))
+                            }),
+                        _ => Ok(warp::reply::json(&api_types::GenericResponse::from(update))
+                            .into_response()),
+                    }
+                    .map(|resp| add_consensus_version_header(resp, fork_name))
+                })
+            },
+        );
+
+    /*
+     * beacon/rewards
+     */
+
     let beacon_rewards_path = eth_v1
         .and(warp::path("beacon"))
         .and(warp::path("rewards"))
@@ -3456,6 +3547,8 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(get_beacon_pool_voluntary_exits.boxed())
                 .or(get_beacon_deposit_snapshot.boxed())
                 .or(get_beacon_rewards_blocks.boxed())
+                .or(get_beacon_light_client_optimistic_update.boxed())
+                .or(get_beacon_light_client_finality_update.boxed())
                 .or(get_config_fork_schedule.boxed())
                 .or(get_config_spec.boxed())
                 .or(get_config_deposit_contract.boxed())
