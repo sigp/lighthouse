@@ -2044,12 +2044,6 @@ impl StoreItem for Split {
     }
 }
 
-impl Split {
-    pub fn new(slot: Slot, state_root: Hash256) -> Self {
-        Split { slot, state_root }
-    }
-}
-
 /// Type hint.
 fn no_state_root_iter() -> Option<std::iter::Empty<Result<(Hash256, Slot), Error>>> {
     None
