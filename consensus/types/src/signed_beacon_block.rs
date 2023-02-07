@@ -497,23 +497,11 @@ impl<E: EthSpec> ForkVersionDeserialize for SignedBeaconBlock<E> {
         };
 
         Ok(match fork_name {
-            ForkName::Base => Self::Base(
-                serde_json::from_value::<SignedBeaconBlockBase<E>>(value).map_err(convert_err)?,
-            ),
-            ForkName::Altair => Self::Altair(
-                serde_json::from_value::<SignedBeaconBlockAltair<E>>(value).map_err(convert_err)?,
-            ),
-            ForkName::Merge => Self::Merge(
-                serde_json::from_value::<SignedBeaconBlockMerge<E>>(value).map_err(convert_err)?,
-            ),
-            ForkName::Capella => Self::Capella(
-                serde_json::from_value::<SignedBeaconBlockCapella<E>>(value)
-                    .map_err(convert_err)?,
-            ),
-            ForkName::Eip4844 => Self::Eip4844(
-                serde_json::from_value::<SignedBeaconBlockEip4844<E>>(value)
-                    .map_err(convert_err)?,
-            ),
+            ForkName::Base => Self::Base(serde_json::from_value(value).map_err(convert_err)?),
+            ForkName::Altair => Self::Altair(serde_json::from_value(value).map_err(convert_err)?),
+            ForkName::Merge => Self::Merge(serde_json::from_value(value).map_err(convert_err)?),
+            ForkName::Capella => Self::Capella(serde_json::from_value(value).map_err(convert_err)?),
+            ForkName::Eip4844 => Self::Eip4844(serde_json::from_value(value).map_err(convert_err)?),
         })
     }
 }

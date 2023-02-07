@@ -696,26 +696,11 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> ForkVersionDeserialize
             |e| serde::de::Error::custom(format!("BeaconBlock failed to deserialize: {:?}", e));
 
         Ok(match fork_name {
-            ForkName::Base => Self::Base(
-                serde_json::from_value::<BeaconBlockBase<T, Payload>>(value)
-                    .map_err(convert_err)?,
-            ),
-            ForkName::Altair => Self::Altair(
-                serde_json::from_value::<BeaconBlockAltair<T, Payload>>(value)
-                    .map_err(convert_err)?,
-            ),
-            ForkName::Merge => Self::Merge(
-                serde_json::from_value::<BeaconBlockMerge<T, Payload>>(value)
-                    .map_err(convert_err)?,
-            ),
-            ForkName::Capella => Self::Capella(
-                serde_json::from_value::<BeaconBlockCapella<T, Payload>>(value)
-                    .map_err(convert_err)?,
-            ),
-            ForkName::Eip4844 => Self::Eip4844(
-                serde_json::from_value::<BeaconBlockEip4844<T, Payload>>(value)
-                    .map_err(convert_err)?,
-            ),
+            ForkName::Base => Self::Base(serde_json::from_value(value).map_err(convert_err)?),
+            ForkName::Altair => Self::Altair(serde_json::from_value(value).map_err(convert_err)?),
+            ForkName::Merge => Self::Merge(serde_json::from_value(value).map_err(convert_err)?),
+            ForkName::Capella => Self::Capella(serde_json::from_value(value).map_err(convert_err)?),
+            ForkName::Eip4844 => Self::Eip4844(serde_json::from_value(value).map_err(convert_err)?),
         })
     }
 }
