@@ -2,14 +2,15 @@ use crate::api_types::EndpointVersion;
 use eth2::CONSENSUS_VERSION_HEADER;
 use serde::Serialize;
 use types::{
-    ExecutionOptimisticForkVersionedResponse, ForkName, ForkVersionedResponse, InconsistentFork,
+    ExecutionOptimisticForkVersionedResponse, ForkName, ForkVersionDeserialize,
+    ForkVersionedResponse, InconsistentFork,
 };
 use warp::reply::{self, Reply, WithHeader};
 
 pub const V1: EndpointVersion = EndpointVersion(1);
 pub const V2: EndpointVersion = EndpointVersion(2);
 
-pub fn fork_versioned_response<T: Serialize>(
+pub fn fork_versioned_response<T: Serialize + ForkVersionDeserialize>(
     endpoint_version: EndpointVersion,
     fork_name: ForkName,
     data: T,

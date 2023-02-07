@@ -282,3 +282,38 @@ impl<T: EthSpec> TryFrom<ExecutionPayloadHeader<T>> for ExecutionPayloadHeaderEi
         }
     }
 }
+
+impl<T: EthSpec> ForkVersionDeserialize for ExecutionPayloadHeader<T> {
+    fn deserialize_by_fork<'de, D: serde::Deserializer<'de>>(
+        value: serde_json::value::Value,
+        fork_name: ForkName,
+    ) -> Result<Self, D::Error> {
+        let convert_err = |e| {
+            serde::de::Error::custom(format!(
+                "ExecutionPayloadHeader failed to deserialize: {:?}",
+                e
+            ))
+        };
+
+        Ok(match fork_name {
+            ForkName::Merge => Self::Merge(
+                serde_json::from_value::<ExecutionPayloadHeaderMerge<T>>(value)
+                    .map_err(convert_err)?,
+            ),
+            ForkName::Capella => Self::Capella(
+                serde_json::from_value::<ExecutionPayloadHeaderCapella<T>>(value)
+                    .map_err(convert_err)?,
+            ),
+            ForkName::Eip4844 => Self::Eip4844(
+                serde_json::from_value::<ExecutionPayloadHeaderEip4844<T>>(value)
+                    .map_err(convert_err)?,
+            ),
+            ForkName::Base | ForkName::Altair => {
+                return Err(serde::de::Error::custom(format!(
+                    "ExecutionPayloadHeader failed to deserialize: unsupported fork '{}'",
+                    fork_name
+                )));
+            }
+        })
+    }
+}
