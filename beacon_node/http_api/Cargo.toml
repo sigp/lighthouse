@@ -36,6 +36,7 @@ tree_hash = "0.4.1"
 sysinfo = "0.26.5"
 system_health = { path = "../../common/system_health" }
 directory = { path = "../../common/directory" }
+operation_pool = { path = "../operation_pool" }
 
 [dev-dependencies]
 store = { path = "../store" }

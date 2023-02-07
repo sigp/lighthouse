@@ -35,6 +35,7 @@ use eth2::types::{
 use lighthouse_network::{types::SyncState, EnrExt, NetworkGlobals, PeerId, PubsubMessage};
 use lighthouse_version::version_with_platform;
 use network::{NetworkMessage, NetworkSenders, ValidatorSubscriptionMessage};
+use operation_pool::ReceivedPreCapella;
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use slog::{crit, debug, error, info, warn, Logger};
@@ -1690,8 +1691,12 @@ pub fn serve<T: BeaconChainTypes>(
                                     .to_execution_address;
 
                                 // New to P2P *and* op pool, gossip immediately if post-Capella.
-                                let publish = chain.current_slot_is_post_capella().unwrap_or(false);
-                                if publish {
+                                let received_pre_capella = if chain.current_slot_is_post_capella().unwrap_or(false) {
+                                    ReceivedPreCapella::No
+                                } else {
+                                    ReceivedPreCapella::Yes
+                                };
+                                if matches!(received_pre_capella, ReceivedPreCapella::No) {
                                     publish_pubsub_message(
                                         &network_tx,
                                         PubsubMessage::BlsToExecutionChange(Box::new(
@@ -1702,14 +1707,14 @@ pub fn serve<T: BeaconChainTypes>(
 
                                 // Import to op pool (may return `false` if there's a race).
                                 let imported =
-                                    chain.import_bls_to_execution_change(verified_address_change);
+                                    chain.import_bls_to_execution_change(verified_address_change, received_pre_capella);
 
                                 info!(
                                     log,
                                     "Processed BLS to execution change";
                                     "validator_index" => validator_index,
                                     "address" => ?address,
-                                    "published" => publish,
+                                    "published" => matches!(received_pre_capella, ReceivedPreCapella::No),
                                     "imported" => imported,
                                 );
                             }
@@ -3566,6 +3571,7 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(post_beacon_pool_sync_committees.boxed())
                 .or(post_beacon_rewards_sync_committee.boxed())
                 .or(post_beacon_pool_bls_to_execution_changes.boxed())
+                .or(post_beacon_rewards_sync_committee.boxed())
                 .or(post_validator_duties_attester.boxed())
                 .or(post_validator_duties_sync.boxed())
                 .or(post_validator_aggregate_and_proofs.boxed())

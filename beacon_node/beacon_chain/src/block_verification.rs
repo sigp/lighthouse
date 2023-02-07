@@ -46,6 +46,11 @@
 //!            END
 //!
 //! ```
+
+// Ignore this lint for `BlockSlashInfo` which is of comparable size to the non-error types it is
+// returned alongside.
+#![allow(clippy::result_large_err)]
+
 use crate::blob_verification::{
     validate_blob_for_gossip, AsBlock, AvailableBlock, BlobError, BlockWrapper, IntoAvailableBlock,
     IntoBlockWrapper,

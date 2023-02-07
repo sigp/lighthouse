@@ -29,6 +29,7 @@ impl<T: EthSpec> MockExecutionLayer<T> {
             DEFAULT_TERMINAL_BLOCK,
             None,
             None,
+            None,
             Some(JwtKey::from_slice(&DEFAULT_JWT_SECRET).unwrap()),
             spec,
             None,
@@ -41,6 +42,7 @@ impl<T: EthSpec> MockExecutionLayer<T> {
         terminal_block: u64,
         shanghai_time: Option<u64>,
         eip4844_time: Option<u64>,
+        builder_threshold: Option<u128>,
         jwt_key: Option<JwtKey>,
         spec: ChainSpec,
         builder_url: Option<SensitiveUrl>,
@@ -69,12 +71,11 @@ impl<T: EthSpec> MockExecutionLayer<T> {
             builder_url,
             secret_files: vec![path],
             suggested_fee_recipient: Some(Address::repeat_byte(42)),
-            builder_profit_threshold: DEFAULT_BUILDER_THRESHOLD_WEI,
+            builder_profit_threshold: builder_threshold.unwrap_or(DEFAULT_BUILDER_THRESHOLD_WEI),
             ..Default::default()
         };
         let el =
-            ExecutionLayer::from_config(config, executor.clone(), executor.log().clone(), &spec)
-                .unwrap();
+            ExecutionLayer::from_config(config, executor.clone(), executor.log().clone()).unwrap();
 
         Self {
             server,
@@ -106,7 +107,7 @@ impl<T: EthSpec> MockExecutionLayer<T> {
             prev_randao,
             Address::repeat_byte(42),
             // FIXME: think about how to handle different forks / withdrawals here..
-            Some(vec![]),
+            None,
         );
 
         // Insert a proposer to ensure the fork choice updated command works.

@@ -1,3 +1,4 @@
+use crate::address_change_broadcast::broadcast_address_changes_at_capella;
 use crate::config::{ClientGenesis, Config as ClientConfig};
 use crate::notifier::spawn_notifier;
 use crate::Client;
@@ -154,7 +155,6 @@ where
                 config,
                 context.executor.clone(),
                 context.log().clone(),
-                &spec,
             )
             .map_err(|e| format!("unable to start execution layer endpoints: {:?}", e))?;
             Some(execution_layer)
@@ -808,6 +808,25 @@ where
 
                     // Spawns a routine that polls the `exchange_transition_configuration` endpoint.
                     execution_layer.spawn_transition_configuration_poll(beacon_chain.spec.clone());
+                }
+
+                // Spawn a service to publish BLS to execution changes at the Capella fork.
+                if let Some(network_senders) = self.network_senders {
+                    let inner_chain = beacon_chain.clone();
+                    let broadcast_context =
+                        runtime_context.service_context("addr_bcast".to_string());
+                    let log = broadcast_context.log().clone();
+                    broadcast_context.executor.spawn(
+                        async move {
+                            broadcast_address_changes_at_capella(
+                                &inner_chain,
+                                network_senders.network_send(),
+                                &log,
+                            )
+                            .await
+                        },
+                        "addr_broadcast",
+                    );
                 }
             }
 
