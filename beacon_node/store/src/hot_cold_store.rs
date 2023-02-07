@@ -1870,7 +1870,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 oldest_blob_slot: Some(end_slot + 1),
             },
         )?;
-        ops.push(StoreOp::PutRawKVStoreOp(update_blob_info));
+        ops.push(StoreOp::KeyValueOp(update_blob_info));
 
         self.do_atomically(ops)?;
         info!(

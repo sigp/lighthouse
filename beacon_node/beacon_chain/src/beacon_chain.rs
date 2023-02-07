@@ -3034,7 +3034,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     if blobs.blobs.len() > 0 {
                         //FIXME(sean) using this for debugging for now
                         info!(
-                            self.log, "Writing blobs to store"; 
+                            self.log, "Writing blobs to store";
                             "block_root" => ?block_root
                         );
                         ops.push(StoreOp::PutBlobs(block_root, blobs));
