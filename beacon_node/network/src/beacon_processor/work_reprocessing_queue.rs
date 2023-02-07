@@ -704,10 +704,7 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
                 // FIXME(jimmy): we should try to process multiple batches per slot
                 let scheduled_processing_time =
                     Instant::now().add(initial_delay + slot_duration * position_in_queue as u32);
-                debug!(
-                    log,
-                    "Backfill work scheduled for processing at {:?}", scheduled_processing_time
-                );
+                debug!(log, "Backfill work scheduled for processing");
 
                 self.backfill_delay_queue
                     .insert_at(work_event, scheduled_processing_time);
