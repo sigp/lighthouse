@@ -19,6 +19,7 @@ use std::fs::create_dir_all;
 use std::io::{Result as IOResult, Write};
 use std::path::PathBuf;
 use std::sync::Arc;
+use logging::SSELoggingComponents;
 use task_executor::{ShutdownReason, TaskExecutor};
 use tokio::runtime::{Builder as RuntimeBuilder, Runtime};
 use types::{EthSpec, GnosisEthSpec, MainnetEthSpec, MinimalEthSpec};
@@ -36,6 +37,7 @@ use {futures::channel::oneshot, std::cell::RefCell};
 pub use task_executor::test_utils::null_logger;
 
 const LOG_CHANNEL_SIZE: usize = 2048;
+const SSE_LOG_CHANNEL_SIZE: usize = 2048;
 /// The maximum time in seconds the client will wait for all internal tasks to shutdown.
 const MAXIMUM_SHUTDOWN_TIME: u64 = 15;
 
@@ -57,6 +59,7 @@ pub struct LoggerConfig {
     pub max_log_number: usize,
     pub compression: bool,
     pub is_restricted: bool,
+    pub sse_logging: bool,
 }
 impl Default for LoggerConfig {
     fn default() -> Self {
@@ -72,6 +75,7 @@ impl Default for LoggerConfig {
             max_log_number: 5,
             compression: false,
             is_restricted: true,
+            sse_logging: false,
         }
     }
 }
@@ -80,6 +84,7 @@ impl Default for LoggerConfig {
 pub struct EnvironmentBuilder<E: EthSpec> {
     runtime: Option<Arc<Runtime>>,
     log: Option<Logger>,
+    sse_logging_components: Option<SSELoggingComponents>,
     eth_spec_instance: E,
     eth2_config: Eth2Config,
     eth2_network_config: Option<Eth2NetworkConfig>,
@@ -91,6 +96,7 @@ impl EnvironmentBuilder<MinimalEthSpec> {
         Self {
             runtime: None,
             log: None,
+            sse_logging_components: None,
             eth_spec_instance: MinimalEthSpec,
             eth2_config: Eth2Config::minimal(),
             eth2_network_config: None,
@@ -104,6 +110,7 @@ impl EnvironmentBuilder<MainnetEthSpec> {
         Self {
             runtime: None,
             log: None,
+            sse_logging_components: None,
             eth_spec_instance: MainnetEthSpec,
             eth2_config: Eth2Config::mainnet(),
             eth2_network_config: None,
@@ -117,6 +124,7 @@ impl EnvironmentBuilder<GnosisEthSpec> {
         Self {
             runtime: None,
             log: None,
+            sse_logging_components: None,
             eth_spec_instance: GnosisEthSpec,
             eth2_config: Eth2Config::gnosis(),
             eth2_network_config: None,
@@ -265,7 +273,8 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
             .build()
             .map_err(|e| format!("Unable to build file logger: {}", e))?;
 
-        let log = Logger::root(Duplicate::new(stdout_logger, file_logger).fuse(), o!());
+
+        let mut log = Logger::root(Duplicate::new(stdout_logger, file_logger).fuse(), o!());
 
         info!(
             log,
@@ -273,6 +282,13 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
             "path" => format!("{:?}", path)
         );
 
+        // If the http API is enabled, we may need to send logs to be consumed by subscribers.
+        if config.sse_logging {
+            let (sse_logger, components) =  SSEDrain::new(SSE_LOG_CHANNEL_SIZE);
+            self.sse_logging_components = Some(components);
+
+            log = Logger::root(Duplicate::new(log, sse_logger).fuse(), o!());
+        }
         self.log = Some(log);
 
         Ok(self)
@@ -315,6 +331,7 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
             signal: Some(signal),
             exit,
             log: self.log.ok_or("Cannot build environment without log")?,
+            sse_logging_components: self.sse_logging_components,
             eth_spec_instance: self.eth_spec_instance,
             eth2_config: self.eth2_config,
             eth2_network_config: self.eth2_network_config.map(Arc::new),
@@ -332,6 +349,7 @@ pub struct RuntimeContext<E: EthSpec> {
     pub eth_spec_instance: E,
     pub eth2_config: Eth2Config,
     pub eth2_network_config: Option<Arc<Eth2NetworkConfig>>,
+    pub sse_logging_components: Option<SSEComponents>,
 }
 
 impl<E: EthSpec> RuntimeContext<E> {
@@ -344,6 +362,7 @@ impl<E: EthSpec> RuntimeContext<E> {
             eth_spec_instance: self.eth_spec_instance.clone(),
             eth2_config: self.eth2_config.clone(),
             eth2_network_config: self.eth2_network_config.clone(),
+            sse_logging_components: None, // We don't clone the 
         }
     }
 
@@ -369,6 +388,7 @@ pub struct Environment<E: EthSpec> {
     signal: Option<exit_future::Signal>,
     exit: exit_future::Exit,
     log: Logger,
+    sse_logging_components: Option<SSEComponents>,
     eth_spec_instance: E,
     pub eth2_config: Eth2Config,
     pub eth2_network_config: Option<Arc<Eth2NetworkConfig>>,

@@ -483,6 +483,7 @@ fn run<E: EthSpec>(
         max_log_number: logfile_max_number,
         compression: logfile_compress,
         is_restricted: logfile_restricted,
+        sse_logging: matches.is_present("http"),
     };
 
     let builder = environment_builder.initialize_logger(logger_config.clone())?;
