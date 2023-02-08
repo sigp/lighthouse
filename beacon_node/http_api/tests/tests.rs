@@ -31,7 +31,7 @@ use tree_hash::TreeHash;
 use types::application_domain::ApplicationDomain;
 use types::{
     AggregateSignature, BitList, Domain, EthSpec, ExecutionBlockHash, Hash256, Keypair,
-    LightClientOptimisticUpdate, MainnetEthSpec, RelativeEpoch, SelectionProof, SignedRoot, Slot,
+    MainnetEthSpec, RelativeEpoch, SelectionProof, SignedRoot, Slot,
 };
 
 type E = MainnetEthSpec;

@@ -3597,14 +3597,13 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(get_lighthouse_database_info.boxed())
                 .or(get_lighthouse_block_rewards.boxed())
                 .or(get_lighthouse_attestation_performance.boxed())
+                .or(enable(ctx.config.enable_light_client_server)
+                    .and(get_beacon_light_client_optimistic_update.boxed())
+                )
                 .or(get_lighthouse_block_packing_efficiency.boxed())
                 .or(get_lighthouse_merge_readiness.boxed())
                 .or(get_events.boxed())
                 .recover(warp_utils::reject::handle_rejection),
-        )
-        .boxed()
-        .or(enable(true)
-            .and(get_beacon_light_client_optimistic_update)
         )
         .boxed()
         .or(warp::post().and(
