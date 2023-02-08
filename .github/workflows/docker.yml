@@ -43,7 +43,7 @@ jobs:
             VERSION: ${{ env.VERSION }}
             VERSION_SUFFIX: ${{ env.VERSION_SUFFIX }}
     build-docker-single-arch:
-        name: build-docker-${{ matrix.binary }}
+        name: build-docker-${{ matrix.binary }}${{ matrix.features.version_suffix }}
         runs-on: ubuntu-22.04
         strategy:
             matrix:
@@ -51,6 +51,10 @@ jobs:
                          aarch64-portable,
                          x86_64,
                          x86_64-portable]
+                features: [
+                    {version_suffix: "", env: ""},
+                    {version_suffix: "-dev", env: "spec-minimal"}
+                ]
                 include:
                     - profile: maxperf
 
@@ -60,6 +64,8 @@ jobs:
             DOCKER_CLI_EXPERIMENTAL: enabled
             VERSION: ${{ needs.extract-version.outputs.VERSION }}
             VERSION_SUFFIX: ${{ needs.extract-version.outputs.VERSION_SUFFIX }}
+            FEATURE_SUFFIX: ${{ matrix.features.version_suffix }}
+            FEATURES: ${{ matrix.features.env }}
         steps:
             - uses: actions/checkout@v3
             - name: Update Rust
@@ -98,8 +104,9 @@ jobs:
                   docker buildx build \
                       --platform=linux/${SHORT_ARCH} \
                       --file ./Dockerfile.cross . \
-                      --tag ${IMAGE_NAME}:${VERSION}-${SHORT_ARCH}${VERSION_SUFFIX}${MODERNITY_SUFFIX} \
-                      --provenance=false \
+                      --tag ${IMAGE_NAME}:${VERSION}-${SHORT_ARCH}${VERSION_SUFFIX}${MODERNITY_SUFFIX}${FEATURE_SUFFIX} \
+                      --build-arg FEATURES=${FEATURES} \
+                      --provenance=false \                      
                       --push
     build-docker-multiarch:
         name: build-docker-multiarch${{ matrix.modernity }}

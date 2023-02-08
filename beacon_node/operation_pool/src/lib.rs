@@ -8,7 +8,7 @@ mod persistence;
 mod reward_cache;
 mod sync_aggregate_id;
 
-pub use attestation::AttMaxCover;
+pub use attestation::{earliest_attestation_validators, AttMaxCover};
 pub use attestation_storage::{AttestationRef, SplitAttestation};
 pub use max_cover::MaxCover;
 pub use persistence::{

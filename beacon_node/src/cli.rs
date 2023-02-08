@@ -195,6 +195,21 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(false),
         )
         .arg(
+            Arg::with_name("self-limiter")
+            .long("self-limiter")
+            .help(
+                "Enables the outbound rate limiter (requests made by this node).\
+                \
+                Rate limit quotas per protocol can be set in the form of \
+                <protocol_name>:<tokens>/<time_in_seconds>. To set quotas for multiple protocols, \
+                separate them by ';'. If the self rate limiter is enabled and a protocol is not \
+                present in the configuration, the quotas used for the inbound rate limiter will be \
+                used."
+            )
+            .min_values(0)
+            .hidden(true)
+        )
+        .arg(
             Arg::with_name("disable-backfill-rate-limiting")
                 .long("disable-backfill-rate-limiting")
                 .help("Disable the backfill sync rate-limiting. This allow users to just sync the entire chain as fast as they can.")
