@@ -134,11 +134,17 @@ jobs:
 
             - name: Build Lighthouse for Windows portable
               if:   matrix.arch == 'x86_64-windows-portable'
-              run:  cargo install --path lighthouse --force --locked --features portable,gnosis --profile ${{ matrix.profile }}
+              # NOTE: profile set to release until this rustc issue is fixed:
+              #
+              # https://github.com/rust-lang/rust/issues/107781
+              #
+              # tracked at: https://github.com/sigp/lighthouse/issues/3964
+              run:  cargo install --path lighthouse --force --locked --features portable,gnosis --profile release
 
             - name: Build Lighthouse for Windows modern
               if:   matrix.arch == 'x86_64-windows'
-              run:  cargo install --path lighthouse --force --locked --features modern,gnosis --profile ${{ matrix.profile }}
+              # NOTE: profile set to release (see above)
+              run:  cargo install --path lighthouse --force --locked --features modern,gnosis --profile release
 
             - name: Configure GPG and create artifacts
               if: startsWith(matrix.arch, 'x86_64-windows') != true
