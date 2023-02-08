@@ -14,6 +14,7 @@ pub use engine_api::{http, http::deposit_methods, http::HttpJsonRpc};
 use engines::{Engine, EngineError};
 pub use engines::{EngineState, ForkchoiceState};
 use eth2::types::{builder_bid::SignedBuilderBid, ForkVersionedResponse};
+use ethers_core::types::transaction::eip2930::AccessListItem;
 use ethers_core::types::{Transaction as EthersTransaction, U64};
 use fork_choice::ForkchoiceUpdateParameters;
 use lru::LruCache;
@@ -51,6 +52,7 @@ use types::{
 use types::{
     ExecutionPayload, ExecutionPayloadCapella, ExecutionPayloadEip4844, ExecutionPayloadMerge,
 };
+use warp::hyper::body::HttpBody;
 
 mod block_hash;
 mod engine_api;
@@ -1689,13 +1691,15 @@ impl<T: EthSpec> ExecutionLayer<T> {
             return Ok(None);
         };
 
-        let transactions = VariableList::from(
-            block
-                .transactions()
-                .into_iter()
-                .map(ethers_tx_to_bytes::<T>)
-                .collect::<Result<Vec<_>, BlobTxConversionError>>()?,
-        );
+        let convert_transactions = |transactions: Vec<EthersTransaction>| {
+            VariableList::new(
+                transactions
+                    .into_iter()
+                    .map(ethers_tx_to_bytes::<T>)
+                    .collect::<Result<Vec<_>, BlobTxConversionError>>()?,
+            )
+            .map_err(BlobTxConversionError::SszError)
+        };
 
         let payload = match block {
             ExecutionBlockWithTransactions::Merge(merge_block) => {
@@ -1713,7 +1717,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                     extra_data: merge_block.extra_data,
                     base_fee_per_gas: merge_block.base_fee_per_gas,
                     block_hash: merge_block.block_hash,
-                    transactions,
+                    transactions: convert_transactions(merge_block.transactions)?,
                 })
             }
             ExecutionBlockWithTransactions::Capella(capella_block) => {
@@ -1739,7 +1743,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                     extra_data: capella_block.extra_data,
                     base_fee_per_gas: capella_block.base_fee_per_gas,
                     block_hash: capella_block.block_hash,
-                    transactions,
+                    transactions: convert_transactions(capella_block.transactions)?,
                     withdrawals,
                 })
             }
@@ -1767,7 +1771,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                     base_fee_per_gas: eip4844_block.base_fee_per_gas,
                     excess_data_gas: eip4844_block.excess_data_gas,
                     block_hash: eip4844_block.block_hash,
-                    transactions,
+                    transactions: convert_transactions(eip4844_block.transactions)?,
                     withdrawals,
                 })
             }
@@ -2062,7 +2066,7 @@ impl From<serde_json::Error> for BlobTxConversionError {
 /// on transaction type. That means RLP encoding if this is a transaction other than a
 /// `BLOB_TX_TYPE` transaction in which case, SSZ encoding will be used.
 fn ethers_tx_to_bytes<T: EthSpec>(
-    transaction: &EthersTransaction,
+    transaction: EthersTransaction,
 ) -> Result<Transaction<T::MaxBytesPerTransaction>, BlobTxConversionError> {
     let tx_type = transaction
         .transaction_type
@@ -2070,58 +2074,73 @@ fn ethers_tx_to_bytes<T: EthSpec>(
         .as_u64();
 
     let tx = if BLOB_TX_TYPE as u64 == tx_type {
+
+        let EthersTransaction {
+            hash,
+            nonce,
+            block_hash,
+            block_number,
+            transaction_index,
+            from,
+            to,
+            value,
+            gas_price,
+            gas,
+            input,
+            v,
+            r,
+            s,
+            transaction_type,
+            access_list,
+            max_priority_fee_per_gas,
+            max_fee_per_gas,
+            chain_id,
+            other,
+        } = transaction;
+
         // ******************** BlobTransaction fields ********************
 
         // chainId
-        let chain_id = transaction
-            .chain_id
-            .ok_or(BlobTxConversionError::NoChainId)?;
+        let chain_id = chain_id.ok_or(BlobTxConversionError::NoChainId)?;
 
         // nonce
-        let nonce = if transaction.nonce > Uint256::from(u64::MAX) {
+        let nonce = if nonce > Uint256::from(u64::MAX) {
             return Err(BlobTxConversionError::NonceTooLarge);
         } else {
-            transaction.nonce.as_u64()
+            nonce.as_u64()
         };
 
         // maxPriorityFeePerGas
-        let max_priority_fee_per_gas = transaction
-            .max_priority_fee_per_gas
-            .ok_or(BlobTxConversionError::MaxPriorityFeePerGasMissing)?;
+        let max_priority_fee_per_gas =
+            max_priority_fee_per_gas.ok_or(BlobTxConversionError::MaxPriorityFeePerGasMissing)?;
 
         // maxFeePerGas
-        let max_fee_per_gas = transaction
-            .max_fee_per_gas
-            .ok_or(BlobTxConversionError::MaxFeePerGasMissing)?;
+        let max_fee_per_gas = max_fee_per_gas.ok_or(BlobTxConversionError::MaxFeePerGasMissing)?;
 
         // gas
-        let gas = if transaction.gas > Uint256::from(u64::MAX) {
+        let gas = if gas > Uint256::from(u64::MAX) {
             return Err(BlobTxConversionError::GasTooHigh);
         } else {
-            transaction.gas.as_u64()
+            gas.as_u64()
         };
 
-        // to
-        let to = transaction.to;
-
-        // value
-        let value = transaction.value;
-
         // data (a.k.a input)
-        let data = VariableList::new(transaction.input.to_vec())?;
+        let data = VariableList::new(input.to_vec())?;
 
         // accessList
         let access_list = VariableList::new(
-            transaction
-                .access_list
-                .as_ref()
+            access_list
                 .ok_or(BlobTxConversionError::AccessListMissing)?
                 .0
-                .iter()
+                .into_iter()
                 .map(|access_tuple| {
+                    let AccessListItem {
+                        address,
+                        storage_keys,
+                    } = access_tuple;
                     Ok(AccessTuple {
-                        address: access_tuple.address,
-                        storage_keys: VariableList::new(access_tuple.storage_keys.clone())?,
+                        address,
+                        storage_keys: VariableList::new(storage_keys)?,
                     })
                 })
                 .collect::<Result<Vec<AccessTuple>, BlobTxConversionError>>()?,
@@ -2134,8 +2153,7 @@ fn ethers_tx_to_bytes<T: EthSpec>(
 
         // maxFeePerDataGas
         let data_gas_bytes = eth2_serde_utils::hex::decode(
-            transaction
-                .other
+            other
                 .get("maxFeePerDataGas")
                 .ok_or(BlobTxConversionError::MaxFeePerDataGasMissing)?
                 .as_str()
@@ -2149,8 +2167,7 @@ fn ethers_tx_to_bytes<T: EthSpec>(
         }?;
 
         // blobVersionedHashes
-        let blob_versioned_hashes = transaction
-            .other
+        let blob_versioned_hashes = other
             .get("blobVersionedHashes")
             .ok_or(BlobTxConversionError::BlobVersionedHashesMissing)?
             .as_array()
@@ -2186,15 +2203,13 @@ fn ethers_tx_to_bytes<T: EthSpec>(
 
         // ******************** EcdsaSignature fields ********************
 
-        let y_parity = if transaction.v == U64::zero() {
+        let y_parity = if v == U64::zero() {
             false
-        } else if transaction.v == U64::one() {
+        } else if v == U64::one() {
             true
         } else {
             return Err(BlobTxConversionError::InvalidYParity);
         };
-        let r = transaction.r;
-        let s = transaction.s;
         let signature = EcdsaSignature { y_parity, r, s };
 
         // The `BLOB_TX_TYPE` should prepend the SSZ encoded `SignedBlobTransaction`.
