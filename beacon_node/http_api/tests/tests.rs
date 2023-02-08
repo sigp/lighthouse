@@ -1210,7 +1210,7 @@ impl ApiTester {
             .await
         {
             Ok(result) => result,
-            Err(e) => panic!("query did not fail correctly"),
+            Err(_) => panic!("query did not fail correctly"),
         };
 
         let expected = self.chain.latest_seen_optimistic_update.lock().clone();
