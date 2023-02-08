@@ -2,17 +2,17 @@
 //!
 //! ## Conditional Compilation
 //!
-//! Presently, only configuration for "The GNU Allocator" from `glibc` is supported. All other
-//! allocators are ignored.
+//! This crate can be compiled with different feature flags to support different allocators:
 //!
-//! It is assumed that if the following two statements are correct then we should expect to
-//! configure `glibc`:
+//! - Jemalloc, via the `jemalloc` feature.
+//! - GNU malloc, if no features are set and the system supports it.
+//! - The system allocator, if no features are set and the allocator is not GNU malloc.
+//!
+//! It is assumed that if Jemalloc is not in use, and the following two statements are correct then
+//! we should expect to configure `glibc`:
 //!
 //! - `target_os = linux`
 //! - `target_env != musl`
-//!
-//! In all other cases this library will not attempt to do anything (i.e., all functions are
-//! no-ops).
 //!
 //! If the above conditions are fulfilled but `glibc` still isn't present at runtime then a panic
 //! may be triggered. It is understood that there's no way to be certain that a compatible `glibc`

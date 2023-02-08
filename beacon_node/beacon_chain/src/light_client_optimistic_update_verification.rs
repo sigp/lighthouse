@@ -2,6 +2,7 @@ use crate::{
     beacon_chain::MAXIMUM_GOSSIP_CLOCK_DISPARITY, BeaconChain, BeaconChainError, BeaconChainTypes,
 };
 use derivative::Derivative;
+use eth2::types::Hash256;
 use slot_clock::SlotClock;
 use std::time::Duration;
 use strum::AsRefStr;
@@ -36,6 +37,8 @@ pub enum Error {
     SigSlotStartIsNone,
     /// Failed to construct a LightClientOptimisticUpdate from state.
     FailedConstructingUpdate,
+    /// Unknown block with parent root.
+    UnknownBlockParentRoot(Hash256),
     /// Beacon chain error occured.
     BeaconChainError(BeaconChainError),
     LightClientUpdateError(LightClientUpdateError),
@@ -58,6 +61,7 @@ impl From<LightClientUpdateError> for Error {
 #[derivative(Clone(bound = "T: BeaconChainTypes"))]
 pub struct VerifiedLightClientOptimisticUpdate<T: BeaconChainTypes> {
     light_client_optimistic_update: LightClientOptimisticUpdate<T::EthSpec>,
+    pub parent_root: Hash256,
     seen_timestamp: Duration,
 }
 
@@ -107,6 +111,16 @@ impl<T: BeaconChainTypes> VerifiedLightClientOptimisticUpdate<T> {
             None => return Err(Error::SigSlotStartIsNone),
         }
 
+        // check if we can process the optimistic update immediately
+        // otherwise queue
+        let canonical_root = light_client_optimistic_update
+            .attested_header
+            .canonical_root();
+
+        if canonical_root != head_block.message().parent_root() {
+            return Err(Error::UnknownBlockParentRoot(canonical_root));
+        }
+
         let optimistic_update =
             LightClientOptimisticUpdate::new(&chain.spec, head_block, &attested_state)?;
 
@@ -119,6 +133,7 @@ impl<T: BeaconChainTypes> VerifiedLightClientOptimisticUpdate<T> {
 
         Ok(Self {
             light_client_optimistic_update,
+            parent_root: canonical_root,
             seen_timestamp,
         })
     }

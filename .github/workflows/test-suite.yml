@@ -377,7 +377,7 @@ jobs:
       with:
         repo-token: ${{ secrets.GITHUB_TOKEN }}
     - name: Install cargo-udeps
-      run: cargo install cargo-udeps --locked --force --version $CARGO_UDEPS_VERSION
+      run: cargo install cargo-udeps --locked --force
     - name: Create Cargo config dir
       run: mkdir -p .cargo
     - name: Install custom Cargo config
