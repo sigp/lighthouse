@@ -1695,7 +1695,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
         let transactions = VariableList::from(
             block
                 .transactions()
-                .into_iter()
+                .iter()
                 .map(ethers_tx_to_bytes::<T>)
                 .collect::<Result<Vec<_>, BlobTxConversionError>>()?,
         );
