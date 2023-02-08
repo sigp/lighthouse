@@ -52,7 +52,6 @@ use types::{
 use types::{
     ExecutionPayload, ExecutionPayloadCapella, ExecutionPayloadEip4844, ExecutionPayloadMerge,
 };
-use warp::hyper::body::HttpBody;
 
 mod block_hash;
 mod engine_api;
@@ -2074,23 +2073,22 @@ fn ethers_tx_to_bytes<T: EthSpec>(
         .as_u64();
 
     let tx = if BLOB_TX_TYPE as u64 == tx_type {
-
         let EthersTransaction {
-            hash,
+            hash: _,
             nonce,
-            block_hash,
-            block_number,
-            transaction_index,
-            from,
+            block_hash: _,
+            block_number: _,
+            transaction_index: _,
+            from: _,
             to,
             value,
-            gas_price,
+            gas_price: _,
             gas,
             input,
             v,
             r,
             s,
-            transaction_type,
+            transaction_type: _,
             access_list,
             max_priority_fee_per_gas,
             max_fee_per_gas,
