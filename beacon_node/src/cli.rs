@@ -731,7 +731,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .arg(
             Arg::with_name("reconstruct-historic-states")
                 .long("reconstruct-historic-states")
-                .help("After a checkpoint sync, reconstruct historic states in the database.")
+                .help("After a checkpoint sync, reconstruct historic states in the database. This requires syncing all the way back to genesis.")
                 .takes_value(false)
         )
         .arg(

@@ -509,6 +509,7 @@ pub fn get_config<E: EthSpec>(
 
     if cli_args.is_present("reconstruct-historic-states") {
         client_config.chain.reconstruct_historic_states = true;
+        client_config.chain.genesis_backfill = true;
     }
 
     let raw_graffiti = if let Some(graffiti) = cli_args.value_of("graffiti") {

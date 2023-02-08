@@ -782,9 +782,9 @@ where
                     genesis_backfill_epoch.start_slot(TEthSpec::slots_per_epoch())
                 }
                 None => {
-                    return Err(String::from(
-                        "Cannot weak subjectivity backfill without an initialised slot clock",
-                    ));
+                    // The slot clock cannot derive the current slot. We therefore assume we are
+                    // at or prior to genesis and backfill should sync all the way to genesis.
+                    Slot::new(0)
                 }
             }
         };

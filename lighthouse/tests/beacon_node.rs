@@ -325,6 +325,23 @@ fn trusted_peers_flag() {
         });
 }
 
+#[test]
+fn genesis_backfill_flag() {
+    CommandLineTest::new()
+        .flag("genesis-backfill", None)
+        .run_with_zero_port()
+        .with_config(|config| assert_eq!(config.chain.genesis_backfill, true));
+}
+
+/// The genesis backfill flag should be enabled if historic states flag is set.
+#[test]
+fn genesis_backfill_with_historic_flag() {
+    CommandLineTest::new()
+        .flag("reconstruct-historic-states", None)
+        .run_with_zero_port()
+        .with_config(|config| assert_eq!(config.chain.genesis_backfill, true));
+}
+
 // Tests for Eth1 flags.
 #[test]
 fn dummy_eth1_flag() {
