@@ -77,7 +77,9 @@ mod tests;
 mod work_reprocessing_queue;
 mod worker;
 
-use crate::beacon_processor::work_reprocessing_queue::{QueuedGossipBlock, ReprocessQueueMessage};
+use crate::beacon_processor::work_reprocessing_queue::{
+    QueuedBackfillBatch, QueuedGossipBlock, ReprocessQueueMessage,
+};
 pub use worker::{ChainSegmentProcessId, GossipAggregatePackage, GossipAttestationPackage};
 
 /// The maximum size of the channel for work events to the `BeaconProcessor`.
@@ -362,17 +364,6 @@ pub struct WorkEvent<T: BeaconChainTypes> {
 }
 
 impl<T: BeaconChainTypes> WorkEvent<T> {
-    /// Returns true if it is a backfill event
-    pub fn is_backfill(&self) -> bool {
-        matches!(
-            &self.work,
-            Work::ChainSegment {
-                process_id: ChainSegmentProcessId::BackSyncBatchId { .. },
-                ..
-            }
-        )
-    }
-
     /// Create a new `Work` event for some unaggregated attestation.
     pub fn unaggregated_attestation(
         message_id: MessageId,
@@ -726,7 +717,9 @@ impl<T: BeaconChainTypes> std::convert::From<ReadyWork<T>> for WorkEvent<T> {
                     seen_timestamp,
                 },
             },
-            ReadyWork::BackfillSync(work_event) => work_event,
+            ReadyWork::BackfillSync(QueuedBackfillBatch { process_id, blocks }) => {
+                WorkEvent::chain_segment(process_id, blocks)
+            }
         }
     }
 }
@@ -1070,12 +1063,20 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                         self.current_workers = self.current_workers.saturating_sub(1);
                         None
                     }
-                    Some(InboundEvent::WorkEvent(event))
-                        if enable_backfill_rate_limiting && event.is_backfill() =>
-                    {
-                        if let Err(e) = work_reprocessing_tx
-                            .try_send(ReprocessQueueMessage::BackfillSync(event))
-                        {
+                    Some(InboundEvent::WorkEvent(WorkEvent {
+                        work:
+                            Work::ChainSegment {
+                                process_id: ChainSegmentProcessId::BackSyncBatchId(epoch),
+                                blocks,
+                            },
+                        ..
+                    })) if enable_backfill_rate_limiting => {
+                        if let Err(e) = work_reprocessing_tx.try_send(
+                            ReprocessQueueMessage::BackfillSync(QueuedBackfillBatch {
+                                process_id: ChainSegmentProcessId::BackSyncBatchId(epoch),
+                                blocks,
+                            }),
+                        ) {
                             error!(
                                 self.log,
                                 "Unable to queue backfill work event";

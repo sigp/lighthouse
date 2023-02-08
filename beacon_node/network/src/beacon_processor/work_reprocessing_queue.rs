@@ -11,7 +11,7 @@
 //! Aggregated and unaggregated attestations that failed verification due to referencing an unknown
 //! block will be re-queued until their block is imported, or until they expire.
 use super::MAX_SCHEDULED_WORK_QUEUE_LEN;
-use crate::beacon_processor::WorkEvent;
+use crate::beacon_processor::ChainSegmentProcessId;
 use crate::metrics;
 use crate::sync::manager::BlockProcessType;
 use beacon_chain::{BeaconChainTypes, GossipVerifiedBlock, MAXIMUM_GOSSIP_CLOCK_DISPARITY};
@@ -89,7 +89,7 @@ pub enum ReprocessQueueMessage<T: BeaconChainTypes> {
     /// A light client optimistic update that references a parent root that has not been seen as a parent.
     UnknownLightClientOptimisticUpdate(QueuedLightClientUpdate<T::EthSpec>),
     /// A new backfill batch that needs to be scheduled for processing.
-    BackfillSync(WorkEvent<T>),
+    BackfillSync(QueuedBackfillBatch<T::EthSpec>),
 }
 
 /// Events sent by the scheduler once they are ready for re-processing.
@@ -99,7 +99,7 @@ pub enum ReadyWork<T: BeaconChainTypes> {
     Unaggregate(QueuedUnaggregate<T::EthSpec>),
     Aggregate(QueuedAggregate<T::EthSpec>),
     LightClientUpdate(QueuedLightClientUpdate<T::EthSpec>),
-    BackfillSync(WorkEvent<T>),
+    BackfillSync(QueuedBackfillBatch<T::EthSpec>),
 }
 
 /// An Attestation for which the corresponding block was not seen while processing, queued for
@@ -151,6 +151,12 @@ pub struct QueuedRpcBlock<T: EthSpec> {
     pub should_process: bool,
 }
 
+/// A backfill batch work that has been queued for processing later.
+pub struct QueuedBackfillBatch<T: EthSpec> {
+    pub process_id: ChainSegmentProcessId,
+    pub blocks: Vec<Arc<SignedBeaconBlock<T>>>,
+}
+
 /// Unifies the different messages processed by the block delay queue.
 enum InboundEvent<T: BeaconChainTypes> {
     /// A gossip block that was queued for later processing and is ready for import.
@@ -163,7 +169,7 @@ enum InboundEvent<T: BeaconChainTypes> {
     /// A light client update that is ready for re-processing.
     ReadyLightClientUpdate(QueuedLightClientUpdateId),
     /// A backfill batch that was queued is ready for processing.
-    ReadyBackfillSync(WorkEvent<T>),
+    ReadyBackfillSync(QueuedBackfillBatch<T::EthSpec>),
     /// A `DelayQueue` returned an error.
     DelayQueueError(TimeError, &'static str),
     /// A message sent to the `ReprocessQueue`
@@ -187,7 +193,7 @@ struct ReprocessQueue<T: BeaconChainTypes> {
     /// Queue to manage scheduled light client updates.
     lc_updates_delay_queue: DelayQueue<QueuedLightClientUpdateId>,
     /// Queue to manage scheduled backfill batch processing.
-    backfill_delay_queue: DelayQueue<WorkEvent<T>>,
+    backfill_delay_queue: DelayQueue<QueuedBackfillBatch<T::EthSpec>>,
 
     /* Queued items */
     /// Queued blocks.
@@ -299,9 +305,9 @@ impl<T: BeaconChainTypes> Stream for ReprocessQueue<T> {
         }
 
         match self.backfill_delay_queue.poll_expired(cx) {
-            Poll::Ready(Some(Ok(work_event))) => {
+            Poll::Ready(Some(Ok(queued_backfill_batch))) => {
                 return Poll::Ready(Some(InboundEvent::ReadyBackfillSync(
-                    work_event.into_inner(),
+                    queued_backfill_batch.into_inner(),
                 )));
             }
             Poll::Ready(Some(Err(e))) => {
@@ -691,7 +697,7 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
                     }
                 }
             }
-            InboundEvent::Msg(BackfillSync(work_event)) => {
+            InboundEvent::Msg(BackfillSync(queued_backfill_batch)) => {
                 let position_in_queue = self.backfill_delay_queue.len();
                 let slot_duration = slot_clock.slot_duration();
 
@@ -707,7 +713,7 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
                 debug!(log, "Backfill work scheduled for processing");
 
                 self.backfill_delay_queue
-                    .insert_at(work_event, scheduled_processing_time);
+                    .insert_at(queued_backfill_batch, scheduled_processing_time);
             }
             // A block that was queued for later processing is now ready to be processed.
             InboundEvent::ReadyGossipBlock(ready_block) => {
