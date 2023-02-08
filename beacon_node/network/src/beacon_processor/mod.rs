@@ -64,8 +64,8 @@ use std::{cmp, collections::HashSet};
 use task_executor::TaskExecutor;
 use tokio::sync::mpsc;
 use types::{
-    Attestation, AttesterSlashing, Hash256, LightClientFinalityUpdate, LightClientOptimisticUpdate,
-    ProposerSlashing, SignedAggregateAndProof, SignedBeaconBlock, SignedBeaconBlockAndBlobsSidecar,
+    Attestation, AttesterSlashing, BlobSidecar, Hash256, LightClientFinalityUpdate,
+    LightClientOptimisticUpdate, ProposerSlashing, SignedAggregateAndProof, SignedBeaconBlock,
     SignedBlsToExecutionChange, SignedContributionAndProof, SignedVoluntaryExit, SubnetId,
     SyncCommitteeMessage, SyncSubnetId,
 };
@@ -117,9 +117,9 @@ const MAX_AGGREGATED_ATTESTATION_REPROCESS_QUEUE_LEN: usize = 1_024;
 /// before we start dropping them.
 const MAX_GOSSIP_BLOCK_QUEUE_LEN: usize = 1_024;
 
-/// The maximum number of queued `SignedBeaconBlockAndBlobsSidecar` objects received on gossip that
+/// The maximum number of queued `BlobSidecar` objects received on gossip that
 /// will be stored before we start dropping them.
-const MAX_GOSSIP_BLOCK_AND_BLOB_QUEUE_LEN: usize = 1_024;
+const MAX_GOSSIP_BLOB_QUEUE_LEN: usize = 1_024;
 
 /// The maximum number of queued `SignedBeaconBlock` objects received prior to their slot (but
 /// within acceptable clock disparity) that will be queued before we start dropping them.
@@ -219,7 +219,7 @@ pub const GOSSIP_ATTESTATION_BATCH: &str = "gossip_attestation_batch";
 pub const GOSSIP_AGGREGATE: &str = "gossip_aggregate";
 pub const GOSSIP_AGGREGATE_BATCH: &str = "gossip_aggregate_batch";
 pub const GOSSIP_BLOCK: &str = "gossip_block";
-pub const GOSSIP_BLOCK_AND_BLOBS_SIDECAR: &str = "gossip_block_and_blobs_sidecar";
+pub const GOSSIP_BLOB_SIDECAR: &str = "gossip_blob_sidecar";
 pub const DELAYED_IMPORT_BLOCK: &str = "delayed_import_block";
 pub const GOSSIP_VOLUNTARY_EXIT: &str = "gossip_voluntary_exit";
 pub const GOSSIP_PROPOSER_SLASHING: &str = "gossip_proposer_slashing";
@@ -444,20 +444,20 @@ impl<T: BeaconChainTypes> WorkEvent<T> {
     }
 
     /// Create a new `Work` event for some blobs sidecar.
-    pub fn gossip_block_and_blobs_sidecar(
+    pub fn gossip_blob_sidecar(
         message_id: MessageId,
         peer_id: PeerId,
         peer_client: Client,
-        block_and_blobs: SignedBeaconBlockAndBlobsSidecar<T::EthSpec>,
+        blob_sidecar: BlobSidecar<T::EthSpec>,
         seen_timestamp: Duration,
     ) -> Self {
         Self {
             drop_during_sync: false,
-            work: Work::GossipBlockAndBlobsSidecar {
+            work: Work::GossipBlobSidecar {
                 message_id,
                 peer_id,
                 peer_client,
-                block_and_blobs,
+                blob_sidecar,
                 seen_timestamp,
             },
         }
@@ -857,11 +857,11 @@ pub enum Work<T: BeaconChainTypes> {
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
         seen_timestamp: Duration,
     },
-    GossipBlockAndBlobsSidecar {
+    GossipBlobSidecar {
         message_id: MessageId,
         peer_id: PeerId,
         peer_client: Client,
-        block_and_blobs: SignedBeaconBlockAndBlobsSidecar<T::EthSpec>,
+        blob_sidecar: BlobSidecar<T::EthSpec>,
         seen_timestamp: Duration,
     },
     DelayedImportBlock {
@@ -965,7 +965,7 @@ impl<T: BeaconChainTypes> Work<T> {
             Work::GossipAggregate { .. } => GOSSIP_AGGREGATE,
             Work::GossipAggregateBatch { .. } => GOSSIP_AGGREGATE_BATCH,
             Work::GossipBlock { .. } => GOSSIP_BLOCK,
-            Work::GossipBlockAndBlobsSidecar { .. } => GOSSIP_BLOCK_AND_BLOBS_SIDECAR,
+            Work::GossipBlobSidecar { .. } => GOSSIP_BLOB_SIDECAR,
             Work::DelayedImportBlock { .. } => DELAYED_IMPORT_BLOCK,
             Work::GossipVoluntaryExit { .. } => GOSSIP_VOLUNTARY_EXIT,
             Work::GossipProposerSlashing { .. } => GOSSIP_PROPOSER_SLASHING,
@@ -1128,8 +1128,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
         let mut chain_segment_queue = FifoQueue::new(MAX_CHAIN_SEGMENT_QUEUE_LEN);
         let mut backfill_chain_segment = FifoQueue::new(MAX_CHAIN_SEGMENT_QUEUE_LEN);
         let mut gossip_block_queue = FifoQueue::new(MAX_GOSSIP_BLOCK_QUEUE_LEN);
-        let mut gossip_block_and_blobs_sidecar_queue =
-            FifoQueue::new(MAX_GOSSIP_BLOCK_AND_BLOB_QUEUE_LEN);
+        let mut gossip_blob_sidecar_queue = FifoQueue::new(MAX_GOSSIP_BLOB_QUEUE_LEN);
         let mut delayed_block_queue = FifoQueue::new(MAX_DELAYED_BLOCK_QUEUE_LEN);
 
         let mut status_queue = FifoQueue::new(MAX_STATUS_QUEUE_LEN);
@@ -1244,7 +1243,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                         // required to verify some attestations.
                         } else if let Some(item) = gossip_block_queue.pop() {
                             self.spawn_worker(item, toolbox);
-                        } else if let Some(item) = gossip_block_and_blobs_sidecar_queue.pop() {
+                        } else if let Some(item) = gossip_blob_sidecar_queue.pop() {
                             self.spawn_worker(item, toolbox);
                         // Check the aggregates, *then* the unaggregates since we assume that
                         // aggregates are more valuable to local validators and effectively give us
@@ -1459,8 +1458,8 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                             Work::GossipBlock { .. } => {
                                 gossip_block_queue.push(work, work_id, &self.log)
                             }
-                            Work::GossipBlockAndBlobsSidecar { .. } => {
-                                gossip_block_and_blobs_sidecar_queue.push(work, work_id, &self.log)
+                            Work::GossipBlobSidecar { .. } => {
+                                gossip_blob_sidecar_queue.push(work, work_id, &self.log)
                             }
                             Work::DelayedImportBlock { .. } => {
                                 delayed_block_queue.push(work, work_id, &self.log)
@@ -1742,21 +1741,20 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
             /*
              * Verification for blobs sidecars received on gossip.
              */
-            Work::GossipBlockAndBlobsSidecar {
+            Work::GossipBlobSidecar {
                 message_id,
                 peer_id,
                 peer_client,
-                block_and_blobs: block_sidecar_pair,
+                blob_sidecar,
                 seen_timestamp,
             } => task_spawner.spawn_async(async move {
                 worker
-                    .process_gossip_block(
+                    .process_gossip_blob_sidecar(
                         message_id,
                         peer_id,
                         peer_client,
-                        block_sidecar_pair.into(),
+                        blob_sidecar,
                         work_reprocessing_tx,
-                        duplicate_cache,
                         seen_timestamp,
                     )
                     .await

@@ -21,10 +21,10 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use store::hot_cold_store::HotColdDBError;
 use tokio::sync::mpsc;
 use types::{
-    Attestation, AttesterSlashing, EthSpec, Hash256, IndexedAttestation, LightClientFinalityUpdate,
-    LightClientOptimisticUpdate, ProposerSlashing, SignedAggregateAndProof,
-    SignedBlsToExecutionChange, SignedContributionAndProof, SignedVoluntaryExit, Slot, SubnetId,
-    SyncCommitteeMessage, SyncSubnetId,
+    Attestation, AttesterSlashing, BlobSidecar, EthSpec, Hash256, IndexedAttestation,
+    LightClientFinalityUpdate, LightClientOptimisticUpdate, ProposerSlashing,
+    SignedAggregateAndProof, SignedBlsToExecutionChange, SignedContributionAndProof,
+    SignedVoluntaryExit, Slot, SubnetId, SyncCommitteeMessage, SyncSubnetId,
 };
 
 use super::{
@@ -696,6 +696,18 @@ impl<T: BeaconChainTypes> Worker<T> {
                 );
             }
         }
+    }
+
+    pub async fn process_gossip_blob_sidecar(
+        self,
+        _message_id: MessageId,
+        _peer_id: PeerId,
+        _peer_client: Client,
+        _blob_sidecar: BlobSidecar<T::EthSpec>,
+        _reprocess_tx: mpsc::Sender<ReprocessQueueMessage<T>>,
+        _seen_duration: Duration,
+    ) {
+        todo!()
     }
 
     /// Process the beacon block received from the gossip network and

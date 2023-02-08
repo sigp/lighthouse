@@ -250,12 +250,12 @@ impl<T: BeaconChainTypes> Router<T> {
                     block,
                 );
             }
-            PubsubMessage::BeaconBlockAndBlobsSidecars(block_and_blobs) => {
-                self.processor.on_block_and_blobs_sidecar_gossip(
+            PubsubMessage::BlobSidecar(blob_sidecar) => {
+                self.processor.on_blob_sidecar_gossip(
                     id,
                     peer_id,
                     self.network_globals.client(&peer_id),
-                    block_and_blobs,
+                    blob_sidecar.1,
                 );
             }
             PubsubMessage::VoluntaryExit(exit) => {
