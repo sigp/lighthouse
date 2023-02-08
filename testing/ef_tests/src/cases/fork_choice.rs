@@ -431,7 +431,7 @@ impl<E: EthSpec> Tester<E> {
                     .harness
                     .chain
                     .slot_clock
-                    .duration_from_current_slot_start()
+                    .seconds_from_current_slot_start()
                     .unwrap();
 
                 let result = self

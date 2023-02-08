@@ -105,7 +105,7 @@ pub trait SlotClock: Send + Sync + Sized + Clone {
     }
 
     /// Returns the `Duration` since the start of the current `Slot`. Useful in determining whether to apply proposer boosts.
-    fn duration_from_current_slot_start(&self) -> Option<Duration> {
+    fn seconds_from_current_slot_start(&self) -> Option<Duration> {
         self.now_duration()
             .and_then(|now| now.checked_sub(self.genesis_duration()))
             .map(|duration_into_slot| {

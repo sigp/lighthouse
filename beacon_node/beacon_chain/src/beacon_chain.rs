@@ -2744,7 +2744,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 metrics::start_timer(&metrics::FORK_CHOICE_PROCESS_BLOCK_TIMES);
             let block_delay = self
                 .slot_clock
-                .duration_from_current_slot_start()
+                .seconds_from_current_slot_start()
                 .ok_or(Error::UnableToComputeTimeAtSlot)?;
 
             fork_choice
@@ -3578,7 +3578,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let slot_delay = self
             .slot_clock
-            .duration_from_current_slot_start()
+            .seconds_from_current_slot_start()
             .or_else(|| {
                 warn!(
                     self.log,
