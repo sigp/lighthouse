@@ -51,3 +51,45 @@ where
         })
     }
 }
+
+#[cfg(test)]
+mod fork_version_response_tests {
+    use crate::{
+        ExecutionPayload, ExecutionPayloadMerge, ForkName, ForkVersionedResponse, MainnetEthSpec,
+    };
+    use serde_json::json;
+
+    #[test]
+    fn fork_versioned_response_deserialize_correct_fork() {
+        type E = MainnetEthSpec;
+
+        let response_json =
+            serde_json::to_string(&json!(ForkVersionedResponse::<ExecutionPayload<E>> {
+                version: Some(ForkName::Merge),
+                data: ExecutionPayload::Merge(ExecutionPayloadMerge::default()),
+            }))
+            .unwrap();
+
+        let result: Result<ForkVersionedResponse<ExecutionPayload<E>>, _> =
+            serde_json::from_str(&response_json);
+
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn fork_versioned_response_deserialize_incorrect_fork() {
+        type E = MainnetEthSpec;
+
+        let response_json =
+            serde_json::to_string(&json!(ForkVersionedResponse::<ExecutionPayload<E>> {
+                version: Some(ForkName::Capella),
+                data: ExecutionPayload::Merge(ExecutionPayloadMerge::default()),
+            }))
+            .unwrap();
+
+        let result: Result<ForkVersionedResponse<ExecutionPayload<E>>, _> =
+            serde_json::from_str(&response_json);
+
+        assert!(result.is_err());
+    }
+}
