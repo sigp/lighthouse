@@ -6827,19 +6827,6 @@ dependencies = [
 ]
 
 [[package]]
-<<<<<<< HEAD
-name = "serde-big-array"
-version = "0.3.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "18b20e7752957bbe9661cff4e0bb04d183d0948cdab2ea58cdb9df36a61dfe62"
-dependencies = [
- "serde",
- "serde_derive",
-]
-
-[[package]]
-=======
->>>>>>> 5ef38b590 (Fix conflicts rebasing eip4844)
 name = "serde_array_query"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

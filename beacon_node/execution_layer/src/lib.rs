@@ -133,6 +133,7 @@ pub enum BlockProposalContents<T: EthSpec, Payload: AbstractExecPayload<T>> {
         payload: Payload,
         block_value: Uint256,
         kzg_commitments: KzgCommitments<T>,
+        blobs: Blobs<T>,
     },
 }
 
@@ -147,7 +148,7 @@ pub struct BlockProposalContentsDeconstructed<T: EthSpec, Payload: AbstractExecP
 }
 
 impl<T: EthSpec, Payload: AbstractExecPayload<T>> BlockProposalContents<T, Payload> {
-    pub fn deconstruct(self) -> BlockProposalContentsDeconstructed<T, Payload> {
+    pub fn deconstruct(self) -> (Payload, Option<KzgCommitments<T>>, Option<Blobs<T>>) {
         match self {
             Self::Payload {
                 payload,
@@ -158,13 +159,7 @@ impl<T: EthSpec, Payload: AbstractExecPayload<T>> BlockProposalContents<T, Paylo
                 block_value: _,
                 kzg_commitments,
                 blobs,
-            } => BlockProposalContentsDeconstructed {
-                payload,
-                blobs_content: Some(BlockProposalBlobsContents {
-                    kzg_commitments,
-                    blobs,
-                }),
-            },
+            } => (payload, Some(kzg_commitments), Some(blobs)),
         }
     }
 

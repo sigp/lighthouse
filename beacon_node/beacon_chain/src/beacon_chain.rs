@@ -4539,7 +4539,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 None,
             ),
             BeaconState::Merge(_) => {
-                let block_contents = block_contents
+                let (payload, _, _) = block_contents
                     .ok_or(BlockProductionError::MissingExecutionPayload)?
                     .deconstruct();
                 (
@@ -4559,8 +4559,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             voluntary_exits: voluntary_exits.into(),
                             sync_aggregate: sync_aggregate
                                 .ok_or(BlockProductionError::MissingSyncAggregate)?,
-                            execution_payload: block_contents
-                                .payload
+                            execution_payload: payload
                                 .try_into()
                                 .map_err(|_| BlockProductionError::InvalidPayloadFork)?,
                         },
@@ -4569,10 +4568,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 )
             }
             BeaconState::Capella(_) => {
-                let block_contents = block_contents
+                let (payload, _, _) = block_contents
                     .ok_or(BlockProductionError::MissingExecutionPayload)?
                     .deconstruct();
-
                 (
                     BeaconBlock::Capella(BeaconBlockCapella {
                         slot,
@@ -4590,8 +4588,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             voluntary_exits: voluntary_exits.into(),
                             sync_aggregate: sync_aggregate
                                 .ok_or(BlockProductionError::MissingSyncAggregate)?,
-                            execution_payload: block_contents
-                                .payload
+                            execution_payload: payload
                                 .try_into()
                                 .map_err(|_| BlockProductionError::InvalidPayloadFork)?,
                             bls_to_execution_changes: bls_to_execution_changes.into(),
@@ -4601,22 +4598,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 )
             }
             BeaconState::Eip4844(_) => {
-                let block_contents_unpacked = block_contents
+                let (payload, kzg_commitments, blobs) = block_contents
                     .ok_or(BlockProductionError::MissingExecutionPayload)?
                     .deconstruct();
-
-                let (blob_kzg_commitments, blobs) = match block_contents_unpacked.blobs_content {
-                    Some(blobs_content) => {
-                        let kzg_commitments: KzgCommitments<T::EthSpec> =
-                            blobs_content.kzg_commitments;
-                        let blobs: Blobs<T::EthSpec> = blobs_content.blobs;
-                        (kzg_commitments, blobs)
-                    }
-                    None => {
-                        return Err(BlockProductionError::InvalidPayloadFork);
-                    }
-                };
-
                 (
                     BeaconBlock::Eip4844(BeaconBlockEip4844 {
                         slot,
@@ -4634,15 +4618,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             voluntary_exits: voluntary_exits.into(),
                             sync_aggregate: sync_aggregate
                                 .ok_or(BlockProductionError::MissingSyncAggregate)?,
-                            execution_payload: block_contents_unpacked
-                                .payload
+                            execution_payload: payload
                                 .try_into()
                                 .map_err(|_| BlockProductionError::InvalidPayloadFork)?,
                             bls_to_execution_changes: bls_to_execution_changes.into(),
-                            blob_kzg_commitments,
+                            blob_kzg_commitments: kzg_commitments
+                                .ok_or(BlockProductionError::InvalidPayloadFork)?,
                         },
                     }),
-                    Some(blobs),
+                    blobs,
                 )
             }
         };
