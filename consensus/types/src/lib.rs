@@ -101,6 +101,7 @@ pub mod sqlite;
 
 pub mod blob_sidecar;
 pub mod blobs_sidecar;
+pub mod signed_blob_sidecar;
 pub mod signed_block_and_blobs;
 pub mod transaction;
 
@@ -179,6 +180,7 @@ pub use crate::signed_beacon_block::{
     SignedBlindedBeaconBlock,
 };
 pub use crate::signed_beacon_block_header::SignedBeaconBlockHeader;
+pub use crate::signed_blob_sidecar::SignedBlobSidecar;
 pub use crate::signed_block_and_blobs::SignedBeaconBlockAndBlobsSidecar;
 pub use crate::signed_block_and_blobs::SignedBeaconBlockAndBlobsSidecarDecode;
 pub use crate::signed_bls_to_execution_change::SignedBlsToExecutionChange;

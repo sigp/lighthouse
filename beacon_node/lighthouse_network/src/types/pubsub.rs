@@ -9,10 +9,10 @@ use std::boxed::Box;
 use std::io::{Error, ErrorKind};
 use std::sync::Arc;
 use types::{
-    Attestation, AttesterSlashing, BlobSidecar, EthSpec, ForkContext, ForkName,
-    LightClientFinalityUpdate, LightClientOptimisticUpdate, ProposerSlashing,
-    SignedAggregateAndProof, SignedBeaconBlock, SignedBeaconBlockAltair, SignedBeaconBlockBase,
-    SignedBeaconBlockCapella, SignedBeaconBlockMerge, SignedBlsToExecutionChange,
+    Attestation, AttesterSlashing, EthSpec, ForkContext, ForkName, LightClientFinalityUpdate,
+    LightClientOptimisticUpdate, ProposerSlashing, SignedAggregateAndProof, SignedBeaconBlock,
+    SignedBeaconBlockAltair, SignedBeaconBlockBase, SignedBeaconBlockCapella,
+    SignedBeaconBlockMerge, SignedBlobSidecar, SignedBlsToExecutionChange,
     SignedContributionAndProof, SignedVoluntaryExit, SubnetId, SyncCommitteeMessage, SyncSubnetId,
 };
 
@@ -21,7 +21,7 @@ pub enum PubsubMessage<T: EthSpec> {
     /// Gossipsub message providing notification of a new block.
     BeaconBlock(Arc<SignedBeaconBlock<T>>),
     /// Gossipsub message providing notification of a BlobSidecar along with the subnet id where it was received..
-    BlobSidecar(Box<(u64, BlobSidecar<T>)>),
+    BlobSidecar(Box<(u64, SignedBlobSidecar<T>)>),
     /// Gossipsub message providing notification of a Aggregate attestation and associated proof.
     AggregateAndProofAttestation(Box<SignedAggregateAndProof<T>>),
     /// Gossipsub message providing notification of a raw un-aggregated attestation with its shard id.
@@ -206,7 +206,7 @@ impl<T: EthSpec> PubsubMessage<T> {
                     GossipKind::BlobSidecar(blob_index) => {
                         match fork_context.from_context_bytes(gossip_topic.fork_digest) {
                             Some(ForkName::Eip4844) => {
-                                let blob_sidecar = BlobSidecar::from_ssz_bytes(data)
+                                let blob_sidecar = SignedBlobSidecar::from_ssz_bytes(data)
                                     .map_err(|e| format!("{:?}", e))?;
                                 Ok(PubsubMessage::BlobSidecar(Box::new((
                                     *blob_index,
@@ -320,7 +320,7 @@ impl<T: EthSpec> std::fmt::Display for PubsubMessage<T> {
             PubsubMessage::BlobSidecar(data) => write!(
                 f,
                 "BlobSidecar: slot: {}, blobs index: {}",
-                data.1.slot, data.1.index,
+                data.1.message.slot, data.1.message.index,
             ),
             PubsubMessage::AggregateAndProofAttestation(att) => write!(
                 f,

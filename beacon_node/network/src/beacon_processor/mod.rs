@@ -64,8 +64,8 @@ use std::{cmp, collections::HashSet};
 use task_executor::TaskExecutor;
 use tokio::sync::mpsc;
 use types::{
-    Attestation, AttesterSlashing, BlobSidecar, Hash256, LightClientFinalityUpdate,
-    LightClientOptimisticUpdate, ProposerSlashing, SignedAggregateAndProof, SignedBeaconBlock,
+    Attestation, AttesterSlashing, Hash256, LightClientFinalityUpdate, LightClientOptimisticUpdate,
+    ProposerSlashing, SignedAggregateAndProof, SignedBeaconBlock, SignedBlobSidecar,
     SignedBlsToExecutionChange, SignedContributionAndProof, SignedVoluntaryExit, SubnetId,
     SyncCommitteeMessage, SyncSubnetId,
 };
@@ -448,7 +448,8 @@ impl<T: BeaconChainTypes> WorkEvent<T> {
         message_id: MessageId,
         peer_id: PeerId,
         peer_client: Client,
-        blob_sidecar: BlobSidecar<T::EthSpec>,
+        blob_sidecar: SignedBlobSidecar<T::EthSpec>,
+        subnet: u64,
         seen_timestamp: Duration,
     ) -> Self {
         Self {
@@ -458,6 +459,7 @@ impl<T: BeaconChainTypes> WorkEvent<T> {
                 peer_id,
                 peer_client,
                 blob_sidecar,
+                subnet,
                 seen_timestamp,
             },
         }
@@ -861,7 +863,8 @@ pub enum Work<T: BeaconChainTypes> {
         message_id: MessageId,
         peer_id: PeerId,
         peer_client: Client,
-        blob_sidecar: BlobSidecar<T::EthSpec>,
+        blob_sidecar: SignedBlobSidecar<T::EthSpec>,
+        subnet: u64,
         seen_timestamp: Duration,
     },
     DelayedImportBlock {
@@ -1746,6 +1749,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                 peer_id,
                 peer_client,
                 blob_sidecar,
+                subnet,
                 seen_timestamp,
             } => task_spawner.spawn_async(async move {
                 worker
@@ -1754,6 +1758,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                         peer_id,
                         peer_client,
                         blob_sidecar,
+                        subnet,
                         work_reprocessing_tx,
                         seen_timestamp,
                     )

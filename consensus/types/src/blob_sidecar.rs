@@ -30,7 +30,7 @@ pub struct BlobSidecar<T: EthSpec> {
     pub index: u64,
     pub slot: Slot,
     pub block_parent_root: Hash256,
-    pub proposer_index: u64,
+    pub proposer_index: usize,
     pub blob: Blob<T>,
     pub kzg_commitment: KzgCommitment,
     pub kzg_proof: KzgProof,

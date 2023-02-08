@@ -21,10 +21,10 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use store::hot_cold_store::HotColdDBError;
 use tokio::sync::mpsc;
 use types::{
-    Attestation, AttesterSlashing, BlobSidecar, EthSpec, Hash256, IndexedAttestation,
-    LightClientFinalityUpdate, LightClientOptimisticUpdate, ProposerSlashing,
-    SignedAggregateAndProof, SignedBlsToExecutionChange, SignedContributionAndProof,
-    SignedVoluntaryExit, Slot, SubnetId, SyncCommitteeMessage, SyncSubnetId,
+    Attestation, AttesterSlashing, EthSpec, Hash256, IndexedAttestation, LightClientFinalityUpdate,
+    LightClientOptimisticUpdate, ProposerSlashing, SignedAggregateAndProof, SignedBlobSidecar,
+    SignedBlsToExecutionChange, SignedContributionAndProof, SignedVoluntaryExit, Slot, SubnetId,
+    SyncCommitteeMessage, SyncSubnetId,
 };
 
 use super::{
@@ -703,7 +703,8 @@ impl<T: BeaconChainTypes> Worker<T> {
         _message_id: MessageId,
         _peer_id: PeerId,
         _peer_client: Client,
-        _blob_sidecar: BlobSidecar<T::EthSpec>,
+        _blob_sidecar: SignedBlobSidecar<T::EthSpec>,
+        _subnet: u64,
         _reprocess_tx: mpsc::Sender<ReprocessQueueMessage<T>>,
         _seen_duration: Duration,
     ) {

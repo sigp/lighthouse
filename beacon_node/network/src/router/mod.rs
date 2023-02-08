@@ -256,6 +256,7 @@ impl<T: BeaconChainTypes> Router<T> {
                     peer_id,
                     self.network_globals.client(&peer_id),
                     blob_sidecar.1,
+                    blob_sidecar.0,
                 );
             }
             PubsubMessage::VoluntaryExit(exit) => {
