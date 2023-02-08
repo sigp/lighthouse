@@ -287,6 +287,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
             remaining: self
                 .current_start
                 .start_slot(T::EthSpec::slots_per_epoch())
+                .saturating_sub(self.beacon_chain.genesis_backfill_slot)
                 .as_usize(),
         })
     }
