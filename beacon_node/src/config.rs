@@ -752,8 +752,8 @@ pub fn get_config<E: EthSpec>(
         !cli_args.is_present("disable-optimistic-finalized-sync");
 
     // Backfill sync rate-limiting
-    client_config.chain.disable_backfill_rate_limiting =
-        cli_args.is_present("disable-backfill-rate-limiting");
+    client_config.chain.enable_backfill_rate_limiting =
+        !cli_args.is_present("disable-backfill-rate-limiting");
 
     Ok(client_config)
 }

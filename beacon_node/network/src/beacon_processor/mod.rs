@@ -1062,7 +1062,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                 reprocess_work_rx: ready_work_rx,
             };
 
-            let disable_backfill_rate_limiting = chain.config.disable_backfill_rate_limiting;
+            let enable_backfill_rate_limiting = chain.config.enable_backfill_rate_limiting;
 
             loop {
                 let work_event = match inbound_events.next().await {
@@ -1071,7 +1071,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                         None
                     }
                     Some(InboundEvent::WorkEvent(event))
-                        if !disable_backfill_rate_limiting && event.is_backfill() =>
+                        if enable_backfill_rate_limiting && event.is_backfill() =>
                     {
                         if let Err(e) = work_reprocessing_tx
                             .try_send(ReprocessQueueMessage::BackfillSync(event))

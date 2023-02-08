@@ -918,7 +918,7 @@ async fn test_backfill_sync_processing() {
 #[tokio::test]
 async fn test_backfill_sync_processing_rate_limiting_disabled() {
     let chain_config = ChainConfig {
-        disable_backfill_rate_limiting: true,
+        enable_backfill_rate_limiting: false,
         ..Default::default()
     };
     let mut rig = TestRig::new_with_chain_config(SMALL_CHAIN, chain_config).await;
