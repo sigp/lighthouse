@@ -923,6 +923,16 @@ impl ProtoArray {
                 return false;
             };
         let unrealized_justification = if self.justified_checkpoint.epoch + 1 == current_epoch {
+            // This `unrealized_justified_checkpoint` is an `Option` that can be
+            // `None` in the scenario that we're not computing unrealized
+            // justification (UJ). During sync we avoid this computation as an
+            // optimisation.
+            //
+            // I claim that it is safe to always have `unrealized_justification
+            // == None` under the following conditions:
+            //
+            // 1. All competing heads do not have UJ computed.
+            // 2. The store is not updated as per UJ values.
             node.unrealized_justified_checkpoint
         } else {
             None
@@ -943,56 +953,6 @@ impl ProtoArray {
             || self.is_finalized_checkpoint_descendant::<E>(node.root);
 
         correct_justified && correct_finalized
-        /*
-        let checkpoint_match_predicate =
-            |node_justified_checkpoint: Checkpoint, node_finalized_checkpoint: Checkpoint| {
-                let correct_justified = node_justified_checkpoint == self.justified_checkpoint
-                    || self.justified_checkpoint.epoch == genesis_epoch;
-                let correct_finalized = node_finalized_checkpoint == self.finalized_checkpoint
-                    || self.finalized_checkpoint.epoch == genesis_epoch;
-                correct_justified && correct_finalized
-            };
-
-        if let (
-            Some(unrealized_justified_checkpoint),
-            Some(unrealized_finalized_checkpoint),
-            Some(justified_checkpoint),
-            Some(finalized_checkpoint),
-        ) = (
-            node.unrealized_justified_checkpoint,
-            node.unrealized_finalized_checkpoint,
-            node.justified_checkpoint,
-            node.finalized_checkpoint,
-        ) {
-            let current_epoch = current_slot.epoch(E::slots_per_epoch());
-
-            // If previous epoch is justified, pull up all tips to at least the previous epoch
-            if CountUnrealizedFull::True == self.count_unrealized_full
-                && (current_epoch > genesis_epoch
-                    && self.justified_checkpoint.epoch + 1 == current_epoch)
-            {
-                unrealized_justified_checkpoint.epoch + 1 >= current_epoch
-            // If previous epoch is not justified, pull up only tips from past epochs up to the current epoch
-            } else {
-                // If block is from a previous epoch, filter using unrealized justification & finalization information
-                if node.slot.epoch(E::slots_per_epoch()) < current_epoch {
-                    checkpoint_match_predicate(
-                        unrealized_justified_checkpoint,
-                        unrealized_finalized_checkpoint,
-                    )
-                // If block is from the current epoch, filter using the head state's justification & finalization information
-                } else {
-                    checkpoint_match_predicate(justified_checkpoint, finalized_checkpoint)
-                }
-            }
-        } else if let (Some(justified_checkpoint), Some(finalized_checkpoint)) =
-            (node.justified_checkpoint, node.finalized_checkpoint)
-        {
-            checkpoint_match_predicate(justified_checkpoint, finalized_checkpoint)
-        } else {
-            false
-        }
-        */
     }
 
     /// Return a reverse iterator over the nodes which comprise the chain ending at `block_root`.
