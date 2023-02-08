@@ -914,6 +914,11 @@ where
             );
         }
 
+        // Prune blobs sidecars older than the blob data availability boundary in the background.
+        beacon_chain
+            .store_migrator
+            .process_prune_blobs(beacon_chain.data_availability_boundary());
+
         Ok(beacon_chain)
     }
 }

@@ -688,12 +688,10 @@ impl<T: BeaconChainTypes> Worker<T> {
         let serve_blobs_from_slot = if start_epoch < data_availability_boundary {
             // Attempt to serve from the earliest block in our database, falling back to the data
             // availability boundary
-            let oldest_blob_slot = self
-                .chain
-                .store
-                .get_blob_info()
-                .map(|blob_info| blob_info.oldest_blob_slot)
-                .unwrap_or(data_availability_boundary.start_slot(T::EthSpec::slots_per_epoch()));
+            let oldest_blob_slot =
+                self.chain.store.get_blob_info().oldest_blob_slot.unwrap_or(
+                    data_availability_boundary.start_slot(T::EthSpec::slots_per_epoch()),
+                );
 
             debug!(
                 self.log,

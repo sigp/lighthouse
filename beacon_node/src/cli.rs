@@ -551,6 +551,31 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true)
                 .default_value("true")
         )
+        .arg(
+            Arg::with_name("prune-blobs")
+                .long("prune-blobs")
+                .help("Prune blobs from Lighthouse's database when they are older than the data \
+                       data availability boundary relative to the current epoch.")
+                .takes_value(true)
+                .default_value("true")
+        )
+        .arg(
+            Arg::with_name("epochs-per-blob-prune")
+                .long("epochs-per-blob-prune")
+                .help("The epoch interval with which to prune blobs from Lighthouse's \
+                       database when they are older than the data availability boundary \
+                       relative to the current epoch.")
+                .takes_value(true)
+                .default_value("1")
+        )
+        .arg(
+            Arg::with_name("blob-prune-margin-epochs")
+                .long("blob-prune-margin-epochs")
+                .help("The margin for blob pruning in epochs. The oldest blobs are pruned \
+                       up until data_availability_boundary - blob_prune_margin_epochs.")
+                .takes_value(true)
+                .default_value("0")
+        )
 
         /*
          * Misc.

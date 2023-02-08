@@ -768,7 +768,7 @@ where
             .ok_or_else(|| Error::InvalidBlock(InvalidBlock::UnknownParent(block.parent_root())))?;
 
         // Blocks cannot be in the future. If they are, their consideration must be delayed until
-        // the are in the past.
+        // they are in the past.
         //
         // Note: presently, we do not delay consideration. We just drop the block.
         if block.slot() > current_slot {

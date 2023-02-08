@@ -1,7 +1,7 @@
 use crate::{DBColumn, Error, StoreItem};
 use ssz::{Decode, Encode};
 use types::{
-    EthSpec, ExecutionPayload, ExecutionPayloadCapella, ExecutionPayloadEip4844,
+    BlobsSidecar, EthSpec, ExecutionPayload, ExecutionPayloadCapella, ExecutionPayloadEip4844,
     ExecutionPayloadMerge,
 };
 
@@ -25,6 +25,7 @@ macro_rules! impl_store_item {
 impl_store_item!(ExecutionPayloadMerge);
 impl_store_item!(ExecutionPayloadCapella);
 impl_store_item!(ExecutionPayloadEip4844);
+impl_store_item!(BlobsSidecar);
 
 /// This fork-agnostic implementation should be only used for writing.
 ///

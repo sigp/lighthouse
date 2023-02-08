@@ -86,6 +86,7 @@ pub enum PruningError {
 pub enum Notification {
     Finalization(FinalizationNotification),
     Reconstruction,
+    PruneBlobs(Option<Epoch>),
 }
 
 pub struct FinalizationNotification {
@@ -152,11 +153,33 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
         }
     }
 
+    pub fn process_prune_blobs(&self, data_availability_boundary: Option<Epoch>) {
+        if let Some(Notification::PruneBlobs(data_availability_boundary)) =
+            self.send_background_notification(Notification::PruneBlobs(data_availability_boundary))
+        {
+            Self::run_prune_blobs(self.db.clone(), data_availability_boundary, &self.log);
+        }
+    }
+
     pub fn run_reconstruction(db: Arc<HotColdDB<E, Hot, Cold>>, log: &Logger) {
         if let Err(e) = db.reconstruct_historic_states() {
             error!(
                 log,
                 "State reconstruction failed";
+                "error" => ?e,
+            );
+        }
+    }
+
+    pub fn run_prune_blobs(
+        db: Arc<HotColdDB<E, Hot, Cold>>,
+        data_availability_boundary: Option<Epoch>,
+        log: &Logger,
+    ) {
+        if let Err(e) = db.try_prune_blobs(false, data_availability_boundary) {
+            error!(
+                log,
+                "Blobs pruning failed";
                 "error" => ?e,
             );
         }
@@ -320,11 +343,21 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
                                     best
                                 }
                             }
+                            (Notification::Finalization(_), Notification::PruneBlobs(_)) => best,
+                            (Notification::PruneBlobs(_), Notification::Finalization(_)) => other,
+                            (Notification::PruneBlobs(dab1), Notification::PruneBlobs(dab2)) => {
+                                if dab2 > dab1 {
+                                    other
+                                } else {
+                                    best
+                                }
+                            }
                         });
 
                 match notif {
                     Notification::Reconstruction => Self::run_reconstruction(db.clone(), &log),
                     Notification::Finalization(fin) => Self::run_migration(db.clone(), fin, &log),
+                    Notification::PruneBlobs(dab) => Self::run_prune_blobs(db.clone(), dab, &log),
                 }
             }
         });
@@ -569,10 +602,18 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
             .into_iter()
             .map(Into::into)
             .flat_map(|block_root: Hash256| {
-                [
+                let mut store_ops = vec![
                     StoreOp::DeleteBlock(block_root),
                     StoreOp::DeleteExecutionPayload(block_root),
-                ]
+                ];
+                if let Ok(true) = store.blobs_sidecar_exists(&block_root) {
+                    // Keep track of non-empty orphaned blobs sidecars.
+                    store_ops.extend([
+                        StoreOp::DeleteBlobs(block_root),
+                        StoreOp::PutOrphanedBlobsKey(block_root),
+                    ]);
+                }
+                store_ops
             })
             .chain(
                 abandoned_states

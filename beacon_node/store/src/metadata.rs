@@ -120,14 +120,10 @@ impl StoreItem for AnchorInfo {
 }
 
 /// Database parameters relevant to blob sync.
-#[derive(Debug, PartialEq, Eq, Clone, Encode, Decode, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Eq, Clone, Encode, Decode, Serialize, Deserialize, Default)]
 pub struct BlobInfo {
-    /// The block root of the next blob that needs to be added to fill in the history.
-    pub oldest_blob_parent: Hash256,
-    /// The slot before which blobs are available.
-    pub oldest_blob_slot: Slot,
-    /// The slot from which blobs are available.
-    pub latest_blob_slot: Slot,
+    /// The slot after which blobs are available (>=).
+    pub oldest_blob_slot: Option<Slot>,
 }
 
 impl StoreItem for BlobInfo {
