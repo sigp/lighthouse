@@ -1176,16 +1176,6 @@ where
             return Ok(());
         }
 
-        if store.best_justified_checkpoint().epoch > store.justified_checkpoint().epoch {
-            let store = &self.fc_store;
-            if self.is_finalized_checkpoint_or_descendant(store.best_justified_checkpoint().root) {
-                let store = &mut self.fc_store;
-                store
-                    .set_justified_checkpoint(*store.best_justified_checkpoint())
-                    .map_err(Error::ForkChoiceStoreError)?;
-            }
-        }
-
         // Update store.justified_checkpoint if a better unrealized justified checkpoint is known
         let unrealized_justified_checkpoint = *self.fc_store.unrealized_justified_checkpoint();
         let unrealized_finalized_checkpoint = *self.fc_store.unrealized_finalized_checkpoint();
@@ -1357,16 +1347,6 @@ where
     /// Return the justified checkpoint.
     pub fn justified_checkpoint(&self) -> Checkpoint {
         *self.fc_store.justified_checkpoint()
-    }
-
-    /// Return the best justified checkpoint.
-    ///
-    /// ## Warning
-    ///
-    /// This is distinct to the "justified checkpoint" or the "current justified checkpoint". This
-    /// "best justified checkpoint" value should only be used internally or for testing.
-    pub fn best_justified_checkpoint(&self) -> Checkpoint {
-        *self.fc_store.best_justified_checkpoint()
     }
 
     pub fn unrealized_justified_checkpoint(&self) -> Checkpoint {

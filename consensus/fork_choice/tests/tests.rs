@@ -105,12 +105,10 @@ impl ForkChoiceTest {
     }
 
     /// Assert the epochs match.
-    pub fn assert_best_justified_epoch(self, epoch: u64) -> Self {
-        assert_eq!(
-            self.get(|fc_store| fc_store.best_justified_checkpoint().epoch),
-            Epoch::new(epoch),
-            "best_justified_epoch"
-        );
+    ///
+    /// Note: this test is a no-op since the best-justified-checkpoint was
+    /// removed by Aditya's PR #18.
+    pub fn assert_best_justified_epoch(self, _epoch: u64) -> Self {
         self
     }
 

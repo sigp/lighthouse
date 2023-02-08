@@ -575,21 +575,12 @@ impl<E: EthSpec> Tester<E> {
         check_equal("finalized_checkpoint", fc_checkpoint, expected_checkpoint)
     }
 
+    /// This test is now a no-op since it was removed by Aditya's PR #18.
     pub fn check_best_justified_checkpoint(
         &self,
-        expected_checkpoint: Checkpoint,
+        _expected_checkpoint: Checkpoint,
     ) -> Result<(), Error> {
-        let best_justified_checkpoint = self
-            .harness
-            .chain
-            .canonical_head
-            .fork_choice_read_lock()
-            .best_justified_checkpoint();
-        check_equal(
-            "best_justified_checkpoint",
-            best_justified_checkpoint,
-            expected_checkpoint,
-        )
+        Ok(())
     }
 
     pub fn check_u_justified_checkpoint(
