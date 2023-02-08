@@ -97,6 +97,14 @@ pub enum BlobError {
 
     ProposerSignatureInvalid,
 
+    /// A sidecar with same slot, beacon_block_root and proposer_index but different blob is received for
+    /// the same blob index.
+    RepeatSidecar {
+        proposer: usize,
+        slot: Slot,
+        blob_index: usize,
+    },
+
     /// The proposal_index corresponding to blob.beacon_block_root is not known.
     ///
     /// ## Peer scoring
@@ -163,6 +171,8 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
 ) -> Result<(), BlobError> {
     let blob_slot = blob_sidecar.message.slot;
     let blob_index = blob_sidecar.message.index;
+    let block_root = blob_sidecar.message.block_root;
+
     // Verify that the blob_sidecar was received on the correct subnet.
     if blob_index != subnet {
         return Err(BlobError::InvalidSubnet {
@@ -247,6 +257,29 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes>(
 
     if !signature_is_valid {
         return Err(BlobError::ProposerSignatureInvalid);
+    }
+
+    // TODO(pawan): kzg validations.
+
+    // TODO(pawan): Check if other blobs for the same proposer index and blob index have been
+    // received and drop if required.
+
+    // TODO(pawan): potentially add to a seen cache at this point.
+
+    // Verify if the corresponding block for this blob has been received.
+    // Note: this should be the last gossip check so that we can forward the blob
+    // over the gossip network even if we haven't received the corresponding block yet
+    // as all other validations have passed.
+    let block_opt = chain
+        .canonical_head
+        .fork_choice_read_lock()
+        .get_block(&block_root)
+        .or_else(|| chain.early_attester_cache.get_proto_block(block_root)); // TODO(pawan): should we be checking this cache?
+
+    if block_opt.is_none() {
+        return Err(BlobError::UnknownHeadBlock {
+            beacon_block_root: block_root,
+        });
     }
 
     Ok(())

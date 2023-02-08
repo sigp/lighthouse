@@ -1,9 +1,11 @@
+use crate::beacon_processor::work_reprocessing_queue::QueuedBlobSidecar;
 use crate::{metrics, service::NetworkMessage, sync::SyncMessage};
 
 use beacon_chain::blob_verification::{AsBlock, BlockWrapper};
 use beacon_chain::store::Error;
 use beacon_chain::{
     attestation_verification::{self, Error as AttnError, VerifiedAttestation},
+    blob_verification::BlobError,
     light_client_finality_update_verification::Error as LightClientFinalityUpdateError,
     light_client_optimistic_update_verification::Error as LightClientOptimisticUpdateError,
     observed_operations::ObservationOutcome,
@@ -698,17 +700,31 @@ impl<T: BeaconChainTypes> Worker<T> {
         }
     }
 
-    pub async fn process_gossip_blob_sidecar(
+    pub fn process_gossip_blob_sidecar(
         self,
         _message_id: MessageId,
         _peer_id: PeerId,
-        _peer_client: Client,
-        _blob_sidecar: SignedBlobSidecar<T::EthSpec>,
+        _blob_sidecar: Box<SignedBlobSidecar<T::EthSpec>>,
         _subnet: u64,
-        _reprocess_tx: mpsc::Sender<ReprocessQueueMessage<T>>,
+        _reprocess_tx: Option<mpsc::Sender<ReprocessQueueMessage<T>>>,
         _seen_duration: Duration,
     ) {
-        todo!()
+        // match self.chain.verify_blobs_sidecar_for_gossip(&blob) {
+        //     Ok(verified_sidecar) => {
+        //         // Register with validator monitor
+        //         // Propagate
+        //         // Apply to fork choice
+        //     }
+        //     Err(error) => self.handle_blobs_verification_failure(
+        //         peer_id,
+        //         message_id,
+        //         reprocess_tx,
+        //         error,
+        //         blob,
+        //         seen_timestamp,
+        //     ),
+        // };
+        unimplemented!()
     }
 
     /// Process the beacon block received from the gossip network and
@@ -2464,6 +2480,88 @@ impl<T: BeaconChainTypes> Worker<T> {
             "peer_id" => %peer_id,
             "type" => ?message_type,
         );
+    }
+
+    /// Handle an error whilst verifying a `SignedBlobsSidecar` from the network.
+    fn handle_blobs_verification_failure(
+        &self,
+        peer_id: PeerId,
+        message_id: MessageId,
+        reprocess_tx: Option<mpsc::Sender<ReprocessQueueMessage<T>>>,
+        error: BlobError,
+        blob_sidecar: Box<SignedBlobSidecar<T::EthSpec>>,
+        subnet: u64,
+        seen_timestamp: Duration,
+    ) {
+        // TODO: metrics
+        match &error {
+            BlobError::FutureSlot { .. } => {
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+            }
+            BlobError::BeaconChainError(_e) => {
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+            }
+            BlobError::ProposerSignatureInvalid => {
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
+            }
+            BlobError::RepeatSidecar {
+                proposer: _,
+                slot: _,
+                blob_index: _,
+            } => {
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
+            }
+            BlobError::UnknownHeadBlock { beacon_block_root } => {
+                debug!(
+                    self.log,
+                    "Blob sidecar for unknown block";
+                    "peer_id" => %peer_id,
+                    "block" => ?beacon_block_root
+                );
+                if let Some(sender) = reprocess_tx {
+                    // We don't know the block, get the sync manager to handle the block lookup, and
+                    // send the attestation to be scheduled for re-processing.
+                    self.sync_tx
+                        .send(SyncMessage::UnknownBlockHash(peer_id, *beacon_block_root))
+                        .unwrap_or_else(|_| {
+                            warn!(
+                                self.log,
+                                "Failed to send to sync service";
+                                "msg" => "UnknownBlockHash"
+                            )
+                        });
+                    let msg = ReprocessQueueMessage::UnknownBlobSidecar(QueuedBlobSidecar {
+                        peer_id,
+                        message_id,
+                        blob_sidecar,
+                        subnet,
+                        seen_timestamp,
+                    });
+
+                    if sender.try_send(msg).is_err() {
+                        error!(
+                            self.log,
+                            "Failed to send blob sidecar for re-processing";
+                        )
+                    }
+                } else {
+                    // We shouldn't make any further attempts to process this attestation.
+                    //
+                    // Don't downscore the peer since it's not clear if we requested this head
+                    // block from them or not.
+                    self.propagate_validation_result(
+                        message_id,
+                        peer_id,
+                        MessageAcceptance::Ignore,
+                    );
+                }
+
+                return;
+            }
+            BlobError::UnknownValidator(_) => todo!(),
+            //TODO(pawan): handle all cases
+            _ => todo!(),
+        }
     }
 
     /// Propagate (accept) if `is_timely == true`, otherwise ignore.

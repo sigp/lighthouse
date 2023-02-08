@@ -254,8 +254,7 @@ impl<T: BeaconChainTypes> Router<T> {
                 self.processor.on_blob_sidecar_gossip(
                     id,
                     peer_id,
-                    self.network_globals.client(&peer_id),
-                    blob_sidecar.1,
+                    blob_sidecar.1.clone(),
                     blob_sidecar.0,
                 );
             }

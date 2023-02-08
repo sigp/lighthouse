@@ -70,8 +70,8 @@ use types::{
     SyncCommitteeMessage, SyncSubnetId,
 };
 use work_reprocessing_queue::{
-    spawn_reprocess_scheduler, QueuedAggregate, QueuedLightClientUpdate, QueuedRpcBlock,
-    QueuedUnaggregate, ReadyWork,
+    spawn_reprocess_scheduler, QueuedAggregate, QueuedBlobSidecar, QueuedLightClientUpdate,
+    QueuedRpcBlock, QueuedUnaggregate, ReadyWork,
 };
 
 use worker::{Toolbox, Worker};
@@ -148,6 +148,8 @@ const MAX_GOSSIP_OPTIMISTIC_UPDATE_QUEUE_LEN: usize = 1_024;
 /// The maximum number of queued `LightClientOptimisticUpdate` objects received on gossip that will be stored
 /// for reprocessing before we start dropping them.
 const MAX_GOSSIP_OPTIMISTIC_UPDATE_REPROCESS_QUEUE_LEN: usize = 128;
+
+const MAX_BLOBS_SIDECAR_REPROCESS_QUEUE_LEN: usize = 1_024;
 
 /// The maximum number of queued `SyncCommitteeMessage` objects that will be stored before we start dropping
 /// them.
@@ -238,6 +240,7 @@ pub const BLOBS_BY_ROOTS_REQUEST: &str = "blobs_by_roots_request";
 pub const LIGHT_CLIENT_BOOTSTRAP_REQUEST: &str = "light_client_bootstrap";
 pub const UNKNOWN_BLOCK_ATTESTATION: &str = "unknown_block_attestation";
 pub const UNKNOWN_BLOCK_AGGREGATE: &str = "unknown_block_aggregate";
+pub const UNKNOWN_BLOB_SIDECAR: &str = "unknown_blob_sidecar";
 pub const UNKNOWN_LIGHT_CLIENT_UPDATE: &str = "unknown_light_client_update";
 pub const GOSSIP_BLS_TO_EXECUTION_CHANGE: &str = "gossip_bls_to_execution_change";
 
@@ -447,8 +450,7 @@ impl<T: BeaconChainTypes> WorkEvent<T> {
     pub fn gossip_blob_sidecar(
         message_id: MessageId,
         peer_id: PeerId,
-        peer_client: Client,
-        blob_sidecar: SignedBlobSidecar<T::EthSpec>,
+        blob_sidecar: Box<SignedBlobSidecar<T::EthSpec>>,
         subnet: u64,
         seen_timestamp: Duration,
     ) -> Self {
@@ -457,7 +459,6 @@ impl<T: BeaconChainTypes> WorkEvent<T> {
             work: Work::GossipBlobSidecar {
                 message_id,
                 peer_id,
-                peer_client,
                 blob_sidecar,
                 subnet,
                 seen_timestamp,
@@ -789,6 +790,22 @@ impl<T: BeaconChainTypes> std::convert::From<ReadyWork<T>> for WorkEvent<T> {
                     seen_timestamp,
                 },
             },
+            ReadyWork::BlobSidecar(QueuedBlobSidecar {
+                peer_id,
+                message_id,
+                blob_sidecar,
+                subnet,
+                seen_timestamp,
+            }) => Self {
+                drop_during_sync: true,
+                work: Work::UnknownBlobSidecar {
+                    message_id,
+                    peer_id,
+                    blob_sidecar,
+                    subnet,
+                    seen_timestamp,
+                },
+            },
             ReadyWork::LightClientUpdate(QueuedLightClientUpdate {
                 peer_id,
                 message_id,
@@ -862,8 +879,14 @@ pub enum Work<T: BeaconChainTypes> {
     GossipBlobSidecar {
         message_id: MessageId,
         peer_id: PeerId,
-        peer_client: Client,
-        blob_sidecar: SignedBlobSidecar<T::EthSpec>,
+        blob_sidecar: Box<SignedBlobSidecar<T::EthSpec>>,
+        subnet: u64,
+        seen_timestamp: Duration,
+    },
+    UnknownBlobSidecar {
+        message_id: MessageId,
+        peer_id: PeerId,
+        blob_sidecar: Box<SignedBlobSidecar<T::EthSpec>>,
         subnet: u64,
         seen_timestamp: Duration,
     },
@@ -987,6 +1010,7 @@ impl<T: BeaconChainTypes> Work<T> {
             Work::LightClientBootstrapRequest { .. } => LIGHT_CLIENT_BOOTSTRAP_REQUEST,
             Work::UnknownBlockAttestation { .. } => UNKNOWN_BLOCK_ATTESTATION,
             Work::UnknownBlockAggregate { .. } => UNKNOWN_BLOCK_AGGREGATE,
+            Work::UnknownBlobSidecar { .. } => UNKNOWN_BLOB_SIDECAR,
             Work::UnknownLightClientOptimisticUpdate { .. } => UNKNOWN_LIGHT_CLIENT_UPDATE,
             Work::GossipBlsToExecutionChange { .. } => GOSSIP_BLS_TO_EXECUTION_CHANGE,
         }
@@ -1105,6 +1129,8 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
             LifoQueue::new(MAX_AGGREGATED_ATTESTATION_REPROCESS_QUEUE_LEN);
         let mut unknown_block_attestation_queue =
             LifoQueue::new(MAX_UNAGGREGATED_ATTESTATION_REPROCESS_QUEUE_LEN);
+
+        let mut unknown_blob_sidecar_queue = LifoQueue::new(MAX_BLOBS_SIDECAR_REPROCESS_QUEUE_LEN);
 
         let mut sync_message_queue = LifoQueue::new(MAX_SYNC_MESSAGE_QUEUE_LEN);
         let mut sync_contribution_queue = LifoQueue::new(MAX_SYNC_CONTRIBUTION_QUEUE_LEN);
@@ -1515,6 +1541,9 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                             Work::UnknownBlockAggregate { .. } => {
                                 unknown_block_aggregate_queue.push(work)
                             }
+                            Work::UnknownBlobSidecar { .. } => {
+                                unknown_blob_sidecar_queue.push(work)
+                            }
                             Work::GossipBlsToExecutionChange { .. } => {
                                 gossip_bls_to_execution_change_queue.push(work, work_id, &self.log)
                             }
@@ -1747,23 +1776,36 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
             Work::GossipBlobSidecar {
                 message_id,
                 peer_id,
-                peer_client,
                 blob_sidecar,
                 subnet,
                 seen_timestamp,
-            } => task_spawner.spawn_async(async move {
-                worker
-                    .process_gossip_blob_sidecar(
-                        message_id,
-                        peer_id,
-                        peer_client,
-                        blob_sidecar,
-                        subnet,
-                        work_reprocessing_tx,
-                        seen_timestamp,
-                    )
-                    .await
+            } => task_spawner.spawn_blocking(move || {
+                worker.process_gossip_blob_sidecar(
+                    message_id,
+                    peer_id,
+                    blob_sidecar,
+                    subnet,
+                    Some(work_reprocessing_tx),
+                    seen_timestamp,
+                )
             }),
+            Work::UnknownBlobSidecar {
+                message_id,
+                peer_id,
+                blob_sidecar,
+                subnet,
+                seen_timestamp,
+            } => task_spawner.spawn_blocking(move || {
+                worker.process_gossip_blob_sidecar(
+                    message_id,
+                    peer_id,
+                    blob_sidecar,
+                    subnet,
+                    None,
+                    seen_timestamp,
+                )
+            }),
+
             /*
              * Import for blocks that we received earlier than their intended slot.
              */

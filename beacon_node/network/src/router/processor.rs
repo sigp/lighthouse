@@ -363,14 +363,12 @@ impl<T: BeaconChainTypes> Processor<T> {
         &mut self,
         message_id: MessageId,
         peer_id: PeerId,
-        peer_client: Client,
-        blob_sidecar: SignedBlobSidecar<T::EthSpec>,
+        blob_sidecar: Box<SignedBlobSidecar<T::EthSpec>>,
         subnet: u64,
     ) {
         self.send_beacon_processor_work(BeaconWorkEvent::gossip_blob_sidecar(
             message_id,
             peer_id,
-            peer_client,
             blob_sidecar,
             subnet,
             timestamp_now(),

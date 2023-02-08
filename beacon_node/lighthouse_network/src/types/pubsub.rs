@@ -21,7 +21,7 @@ pub enum PubsubMessage<T: EthSpec> {
     /// Gossipsub message providing notification of a new block.
     BeaconBlock(Arc<SignedBeaconBlock<T>>),
     /// Gossipsub message providing notification of a BlobSidecar along with the subnet id where it was received..
-    BlobSidecar(Box<(u64, SignedBlobSidecar<T>)>),
+    BlobSidecar((u64, Box<SignedBlobSidecar<T>>)),
     /// Gossipsub message providing notification of a Aggregate attestation and associated proof.
     AggregateAndProofAttestation(Box<SignedAggregateAndProof<T>>),
     /// Gossipsub message providing notification of a raw un-aggregated attestation with its shard id.
@@ -115,9 +115,7 @@ impl<T: EthSpec> PubsubMessage<T> {
     pub fn kind(&self) -> GossipKind {
         match self {
             PubsubMessage::BeaconBlock(_) => GossipKind::BeaconBlock,
-            PubsubMessage::BlobSidecar(blob_sidecar_data) => {
-                GossipKind::BlobSidecar(blob_sidecar_data.0)
-            }
+            PubsubMessage::BlobSidecar((subnet, _blob_sidecar)) => GossipKind::BlobSidecar(*subnet),
             PubsubMessage::AggregateAndProofAttestation(_) => GossipKind::BeaconAggregateAndProof,
             PubsubMessage::Attestation(attestation_data) => {
                 GossipKind::Attestation(attestation_data.0)
@@ -208,10 +206,10 @@ impl<T: EthSpec> PubsubMessage<T> {
                             Some(ForkName::Eip4844) => {
                                 let blob_sidecar = SignedBlobSidecar::from_ssz_bytes(data)
                                     .map_err(|e| format!("{:?}", e))?;
-                                Ok(PubsubMessage::BlobSidecar(Box::new((
+                                Ok(PubsubMessage::BlobSidecar((
                                     *blob_index,
-                                    blob_sidecar,
-                                ))))
+                                    Box::new(blob_sidecar),
+                                )))
                             }
                             Some(
                                 ForkName::Base
