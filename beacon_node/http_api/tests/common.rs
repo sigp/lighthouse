@@ -176,6 +176,7 @@ pub async fn create_api_server_on_port<T: BeaconChainTypes>(
             allow_sync_stalled: false,
             data_dir: std::path::PathBuf::from(DEFAULT_ROOT_DIR),
             spec_fork_name: None,
+            enable_light_client_server: true,
         },
         chain: Some(chain.clone()),
         network_senders: Some(network_senders),

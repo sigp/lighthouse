@@ -1,5 +1,5 @@
 #![cfg(not(debug_assertions))] // Tests are too slow in debug.
-#![recursion_limit = "256"]
+#![recursion_limit = "512"]
 
 pub mod common;
 pub mod fork_tests;

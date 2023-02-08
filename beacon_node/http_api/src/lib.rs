@@ -118,6 +118,7 @@ pub struct Config {
     pub allow_sync_stalled: bool,
     pub spec_fork_name: Option<ForkName>,
     pub data_dir: PathBuf,
+    pub enable_light_client_server: bool,
 }
 
 impl Default for Config {
@@ -131,6 +132,7 @@ impl Default for Config {
             allow_sync_stalled: false,
             spec_fork_name: None,
             data_dir: PathBuf::from(DEFAULT_ROOT_DIR),
+            enable_light_client_server: false,
         }
     }
 }
@@ -249,6 +251,18 @@ pub fn prometheus_metrics() -> warp::filters::log::Log<impl Fn(warp::filters::lo
         );
         metrics::observe_timer_vec(&metrics::HTTP_API_PATHS_TIMES, &[path], info.elapsed());
     })
+}
+
+fn enable(is_enabled: bool) -> impl Filter<Extract = (), Error = warp::Rejection> + Clone {
+    warp::any()
+        .and_then(move || async move {
+            if is_enabled {
+                Ok(())
+            } else {
+                Err(warp::reject::not_found())
+            }
+        })
+        .untuple_one()
 }
 
 /// Creates a server that will serve requests using information from `ctx`.
@@ -3547,8 +3561,6 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(get_beacon_pool_voluntary_exits.boxed())
                 .or(get_beacon_deposit_snapshot.boxed())
                 .or(get_beacon_rewards_blocks.boxed())
-                .or(get_beacon_light_client_optimistic_update.boxed())
-                .or(get_beacon_light_client_finality_update.boxed())
                 .or(get_config_fork_schedule.boxed())
                 .or(get_config_spec.boxed())
                 .or(get_config_deposit_contract.boxed())
@@ -3589,6 +3601,10 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(get_lighthouse_merge_readiness.boxed())
                 .or(get_events.boxed())
                 .recover(warp_utils::reject::handle_rejection),
+        )
+        .boxed()
+        .or(enable(true)
+            .and(get_beacon_light_client_optimistic_update.boxed())
         )
         .boxed()
         .or(warp::post().and(
