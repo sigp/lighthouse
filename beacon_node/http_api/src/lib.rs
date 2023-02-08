@@ -3604,7 +3604,7 @@ pub fn serve<T: BeaconChainTypes>(
         )
         .boxed()
         .or(enable(true)
-            .and(get_beacon_light_client_optimistic_update.boxed())
+            .and(get_beacon_light_client_optimistic_update)
         )
         .boxed()
         .or(warp::post().and(
