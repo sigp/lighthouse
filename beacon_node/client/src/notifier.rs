@@ -141,7 +141,8 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                             .get_anchor_info()
                             .map(|ai| ai.oldest_block_slot)
                         {
-                            sync_distance = current_anchor_slot.saturating_sub(beacon_chain.genesis_backfill_slot);
+                            sync_distance = current_anchor_slot
+                                .saturating_sub(beacon_chain.genesis_backfill_slot);
                             speedo
                                 // For backfill sync use a fake slot which is the distance we've progressed from the starting `oldest_block_slot`.
                                 .observe(
