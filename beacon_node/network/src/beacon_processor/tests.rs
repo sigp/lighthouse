@@ -888,7 +888,7 @@ async fn test_rpc_block_reprocessing() {
     assert_eq!(next_block_root, rig.head_root());
 }
 
-/// Ensure that backfill batches gets rate-limited and processing is scheduled at specified intervals.
+/// Ensure that backfill batches get rate-limited and processing is scheduled at specified intervals.
 #[tokio::test]
 async fn test_backfill_sync_processing() {
     let mut rig = TestRig::new(SMALL_CHAIN).await;
