@@ -103,18 +103,6 @@ pub struct ProtoNode {
     pub unrealized_finalized_checkpoint: Option<Checkpoint>,
 }
 
-impl ProtoNode {
-    fn voting_source(&self, current_epoch: Epoch, slots_per_epoch: u64) -> Option<Checkpoint> {
-        let node_epoch = self.slot.epoch(slots_per_epoch);
-        if current_epoch > node_epoch {
-            self.unrealized_justified_checkpoint
-                .or(self.justified_checkpoint)
-        } else {
-            self.justified_checkpoint
-        }
-    }
-}
-
 #[derive(PartialEq, Debug, Encode, Decode, Serialize, Deserialize, Copy, Clone)]
 pub struct ProposerBoost {
     pub root: Hash256,
@@ -913,15 +901,23 @@ impl ProtoArray {
 
         let genesis_epoch = Epoch::new(0);
         let current_epoch = current_slot.epoch(E::slots_per_epoch());
-        let voting_source =
-            if let Some(checkpoint) = node.voting_source(current_epoch, E::slots_per_epoch()) {
-                checkpoint
-            } else {
-                // The node does not have any information about the
-                // justified/finalized checkpoint. This indicates an inconsistent
-                // proto-array.
-                return false;
-            };
+        let node_epoch = node.slot.epoch(E::slots_per_epoch());
+
+        let voting_source_opt = if current_epoch > node_epoch {
+            node.unrealized_justified_checkpoint
+                .or(node.justified_checkpoint)
+        } else {
+            node.justified_checkpoint
+        };
+        let voting_source = if let Some(checkpoint) = voting_source_opt {
+            checkpoint
+        } else {
+            // The node does not have any information about the
+            // justified/finalized checkpoint. This indicates an inconsistent
+            // proto-array.
+            return false;
+        };
+
         let unrealized_justification = if self.justified_checkpoint.epoch + 1 == current_epoch {
             // This `unrealized_justified_checkpoint` is an `Option` that can be
             // `None` in the scenario that we're not computing unrealized
