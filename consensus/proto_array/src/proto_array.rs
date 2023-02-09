@@ -946,7 +946,7 @@ impl ProtoArray {
         }
 
         let correct_finalized = self.finalized_checkpoint.epoch == genesis_epoch
-            || self.is_finalized_checkpoint_descendant::<E>(node.root);
+            || self.is_finalized_checkpoint_or_descendant::<E>(node.root);
 
         correct_justified && correct_finalized
     }
