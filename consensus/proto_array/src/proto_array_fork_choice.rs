@@ -937,6 +937,10 @@ mod test_compute_deltas {
             epoch: genesis_epoch,
             root: finalized_root,
         };
+        let junk_checkpoint = Checkpoint {
+            epoch: Epoch::new(42),
+            root: Hash256::repeat_byte(42),
+        };
 
         let mut fc = ProtoArrayForkChoice::new::<MainnetEthSpec>(
             genesis_slot,
@@ -982,8 +986,10 @@ mod test_compute_deltas {
                     target_root: finalized_root,
                     current_epoch_shuffling_id: junk_shuffling_id.clone(),
                     next_epoch_shuffling_id: junk_shuffling_id,
-                    justified_checkpoint: genesis_checkpoint,
-                    finalized_checkpoint: genesis_checkpoint,
+                    // Use the junk checkpoint for the next to values to prevent
+                    // the loop-shortcutting mechanism from triggering.
+                    justified_checkpoint: junk_checkpoint,
+                    finalized_checkpoint: junk_checkpoint,
                     execution_status,
                     unrealized_justified_checkpoint: None,
                     unrealized_finalized_checkpoint: None,

@@ -1017,12 +1017,22 @@ impl ProtoArray {
             return false;
         };
 
-        // A shortcut method for when we already know that a node is descenant of the finalized checkpoint.
-        if node
-            .finalized_checkpoint
-            .map_or(false, |cp| cp == self.finalized_checkpoint)
-        {
-            return true;
+        // The finalized and justified checkpoints represent a list of known
+        // ancestors of `node` that are likely to coincide with the store's
+        // finalized checkpoint.
+        //
+        // Don't continue checking these values for ancestors. If they don't
+        // match for the child then they're unlikely to start matching for its
+        // ancestors.
+        for checkpoint in &[
+            node.finalized_checkpoint,
+            node.justified_checkpoint,
+            node.unrealized_finalized_checkpoint,
+            node.unrealized_justified_checkpoint,
+        ] {
+            if checkpoint.map_or(false, |cp| cp == self.finalized_checkpoint) {
+                return true;
+            }
         }
 
         loop {
@@ -1032,24 +1042,17 @@ impl ProtoArray {
                 return node.root == finalized_root;
             }
 
-            // Load the parent from the database since `node` is prior to the
-            // finalized checkpoint.
-            let parent = if let Some(parent) = node.parent.and_then(|index| self.nodes.get(index)) {
-                parent
+            // Since `node` is from a higher slot that the finalized checkpoint,
+            // replace `node` with the parent of `node`.
+            if let Some(parent) = node.parent.and_then(|index| self.nodes.get(index)) {
+                node = parent
             } else {
                 // If `node` is not the finalized block and its parent does not
                 // exist in fork choice, then the parent must have been pruned.
+                // Since fork choice only prunes
                 // This indicates that the parent is not in the finalized chain.
                 return false;
             };
-
-            // If the parent is equal to or less than the finalized slot, then
-            // it must be the finalized root.
-            if parent.slot <= finalized_slot {
-                return parent.root == finalized_root;
-            }
-
-            node = parent
         }
     }
 
