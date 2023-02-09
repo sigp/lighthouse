@@ -997,7 +997,7 @@ impl ProtoArray {
     /// ## Notes
     ///
     /// Still returns `true` if `ancestor_root` is known and `ancestor_root == descendant_root`.
-    pub fn is_finalized_checkpoint_descendant<E: EthSpec>(&self, root: Hash256) -> bool {
+    pub fn is_finalized_checkpoint_or_descendant<E: EthSpec>(&self, root: Hash256) -> bool {
         let finalized_root = self.finalized_checkpoint.root;
         let finalized_slot = self
             .finalized_checkpoint

@@ -744,7 +744,7 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         // Do not process a block that doesn't descend from the finalized root.
         //
         // We check this *before* we load the parent so that we can return a more detailed error.
-        check_block_is_finalized_checkpoint_descendant(
+        check_block_is_finalized_checkpoint_or_descendant(
             chain,
             &chain.canonical_head.fork_choice_write_lock(),
             &block,
@@ -1564,7 +1564,7 @@ fn check_block_against_finalized_slot<T: BeaconChainTypes>(
 /// ## Warning
 ///
 /// Taking a lock on the `chain.canonical_head.fork_choice` might cause a deadlock here.
-pub fn check_block_is_finalized_checkpoint_descendant<T: BeaconChainTypes>(
+pub fn check_block_is_finalized_checkpoint_or_descendant<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
     fork_choice: &BeaconForkChoice<T>,
     block: &Arc<SignedBeaconBlock<T::EthSpec>>,

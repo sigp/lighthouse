@@ -749,9 +749,12 @@ impl ProtoArrayForkChoice {
     }
 
     /// See `ProtoArray` documentation.
-    pub fn is_finalized_checkpoint_descendant<E: EthSpec>(&self, descendant_root: Hash256) -> bool {
+    pub fn is_finalized_checkpoint_or_descendant<E: EthSpec>(
+        &self,
+        descendant_root: Hash256,
+    ) -> bool {
         self.proto_array
-            .is_finalized_checkpoint_descendant::<E>(descendant_root)
+            .is_finalized_checkpoint_or_descendant::<E>(descendant_root)
     }
 
     pub fn latest_message(&self, validator_index: usize) -> Option<(Hash256, Epoch)> {
@@ -999,10 +1002,10 @@ mod test_compute_deltas {
         assert!(!fc.is_descendant(finalized_root, not_finalized_desc));
         assert!(!fc.is_descendant(finalized_root, unknown));
 
-        assert!(fc.is_finalized_checkpoint_descendant::<MainnetEthSpec>(finalized_root));
-        assert!(fc.is_finalized_checkpoint_descendant::<MainnetEthSpec>(finalized_desc));
-        assert!(!fc.is_finalized_checkpoint_descendant::<MainnetEthSpec>(not_finalized_desc));
-        assert!(!fc.is_finalized_checkpoint_descendant::<MainnetEthSpec>(unknown));
+        assert!(fc.is_finalized_checkpoint_or_descendant::<MainnetEthSpec>(finalized_root));
+        assert!(fc.is_finalized_checkpoint_or_descendant::<MainnetEthSpec>(finalized_desc));
+        assert!(!fc.is_finalized_checkpoint_or_descendant::<MainnetEthSpec>(not_finalized_desc));
+        assert!(!fc.is_finalized_checkpoint_or_descendant::<MainnetEthSpec>(unknown));
 
         assert!(!fc.is_descendant(finalized_desc, not_finalized_desc));
         assert!(fc.is_descendant(finalized_desc, finalized_desc));
@@ -1159,14 +1162,20 @@ mod test_compute_deltas {
 
         assert!(
             fc.proto_array
-                .is_finalized_checkpoint_descendant::<MainnetEthSpec>(get_block_root(
+                .is_finalized_checkpoint_or_descendant::<MainnetEthSpec>(finalized_root),
+            "the finalized checkpoint is the finalized checkpoint"
+        );
+
+        assert!(
+            fc.proto_array
+                .is_finalized_checkpoint_or_descendant::<MainnetEthSpec>(get_block_root(
                     canonical_slot
                 )),
             "the canonical block is a descendant of the finalized checkpoint"
         );
         assert!(
             !fc.proto_array
-                .is_finalized_checkpoint_descendant::<MainnetEthSpec>(get_block_root(
+                .is_finalized_checkpoint_or_descendant::<MainnetEthSpec>(get_block_root(
                     non_canonical_slot
                 )),
             "although the non-canonical block is a descendant of the finalized block, \

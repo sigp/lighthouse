@@ -1376,7 +1376,7 @@ where
     /// Return `true` if `block_root` is equal to the finalized checkpoint, or a known descendant of it.
     pub fn is_descendant_of_finalized_checkpoint(&self, block_root: Hash256) -> bool {
         self.proto_array
-            .is_finalized_checkpoint_descendant::<E>(block_root)
+            .is_finalized_checkpoint_or_descendant::<E>(block_root)
     }
 
     /// Returns `Ok(true)` if `block_root` has been imported optimistically or deemed invalid.
