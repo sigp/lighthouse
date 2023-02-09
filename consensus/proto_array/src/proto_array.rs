@@ -1053,8 +1053,8 @@ impl ProtoArray {
             } else {
                 // If `node` is not the finalized block and its parent does not
                 // exist in fork choice, then the parent must have been pruned.
-                // Since fork choice only prunes
-                // This indicates that the parent is not in the finalized chain.
+                // Proto-array only prunes blocks prior to the finalized block,
+                // so this means the parent conflicts with finality.
                 return false;
             };
         }
