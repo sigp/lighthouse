@@ -22,8 +22,9 @@ use lighthouse_network::{MessageId, PeerId};
 use logging::TimeLatch;
 use slog::{crit, debug, error, trace, warn, Logger};
 use slot_clock::SlotClock;
+use smallvec::SmallVec;
 use std::collections::{HashMap, HashSet};
-use std::ops::Add;
+use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::Context;
@@ -31,7 +32,6 @@ use std::time::Duration;
 use task_executor::TaskExecutor;
 use tokio::sync::mpsc::{self, Receiver, Sender};
 use tokio::time::error::Error as TimeError;
-use tokio::time::Instant;
 use tokio_util::time::delay_queue::{DelayQueue, Key as DelayKey};
 use types::{
     Attestation, EthSpec, Hash256, LightClientOptimisticUpdate, SignedAggregateAndProof,
@@ -43,7 +43,6 @@ const GOSSIP_BLOCKS: &str = "gossip_blocks";
 const RPC_BLOCKS: &str = "rpc_blocks";
 const ATTESTATIONS: &str = "attestations";
 const LIGHT_CLIENT_UPDATES: &str = "lc_updates";
-const BACKFILL_BATCHES: &str = "backfill_batches";
 
 /// Queue blocks for re-processing with an `ADDITIONAL_QUEUED_BLOCK_DELAY` after the slot starts.
 /// This is to account for any slight drift in the system clock.
@@ -210,8 +209,6 @@ struct ReprocessQueue<T: BeaconChainTypes> {
     attestations_delay_queue: DelayQueue<QueuedAttestationId>,
     /// Queue to manage scheduled light client updates.
     lc_updates_delay_queue: DelayQueue<QueuedLightClientUpdateId>,
-    /// Queue to manage scheduled backfill batch processing.
-    backfill_delay_queue: DelayQueue<QueuedBackfillBatch<T::EthSpec>>,
 
     /* Queued items */
     /// Queued blocks.
@@ -226,6 +223,9 @@ struct ReprocessQueue<T: BeaconChainTypes> {
     queued_lc_updates: FnvHashMap<usize, (QueuedLightClientUpdate<T::EthSpec>, DelayKey)>,
     /// Light Client Updates per parent_root.
     awaiting_lc_updates_per_parent_root: HashMap<Hash256, Vec<QueuedLightClientUpdateId>>,
+    /// Queued backfill batches
+    /// TODO(jimmy): there should never be more than 1, is a `SmallVec` needed? or perhaps go with `Option`?
+    queued_backfill_batches: SmallVec<[QueuedBackfillBatch<T::EthSpec>; 4]>,
 
     /* Aux */
     /// Next attestation id, used for both aggregated and unaggregated attestations
@@ -235,6 +235,8 @@ struct ReprocessQueue<T: BeaconChainTypes> {
     rpc_block_debounce: TimeLatch,
     attestation_delay_debounce: TimeLatch,
     lc_update_delay_debounce: TimeLatch,
+    next_backfill_batch_event: Pin<Box<tokio::time::Sleep>>,
+    slot_clock: Pin<Box<T::SlotClock>>,
 }
 
 pub type QueuedLightClientUpdateId = usize;
@@ -322,18 +324,14 @@ impl<T: BeaconChainTypes> Stream for ReprocessQueue<T> {
             Poll::Ready(None) | Poll::Pending => (),
         }
 
-        match self.backfill_delay_queue.poll_expired(cx) {
-            Poll::Ready(Some(Ok(queued_backfill_batch))) => {
-                return Poll::Ready(Some(InboundEvent::ReadyBackfillSync(
-                    queued_backfill_batch.into_inner(),
-                )));
+        match self.next_backfill_batch_event.as_mut().poll(cx) {
+            Poll::Ready(_) => {
+                self.recompute_next_backfill_batch_event();
+                if let Some(batch) = self.queued_backfill_batches.pop() {
+                    return Poll::Ready(Some(InboundEvent::ReadyBackfillSync(batch)));
+                }
             }
-            Poll::Ready(Some(Err(e))) => {
-                return Poll::Ready(Some(InboundEvent::DelayQueueError(e, "backfill_queue")));
-            }
-            // `Poll::Ready(None)` means that there are no more entries in the delay queue and we
-            // will continue to get this result until something else is added into the queue.
-            Poll::Ready(None) | Poll::Pending => (),
+            Poll::Pending => (),
         }
 
         // Last empty the messages channel.
@@ -366,19 +364,21 @@ pub fn spawn_reprocess_scheduler<T: BeaconChainTypes>(
         rpc_block_delay_queue: DelayQueue::new(),
         attestations_delay_queue: DelayQueue::new(),
         lc_updates_delay_queue: DelayQueue::new(),
-        backfill_delay_queue: DelayQueue::new(),
         queued_gossip_block_roots: HashSet::new(),
         queued_lc_updates: FnvHashMap::default(),
         queued_aggregates: FnvHashMap::default(),
         queued_unaggregates: FnvHashMap::default(),
         awaiting_attestations_per_root: HashMap::new(),
         awaiting_lc_updates_per_parent_root: HashMap::new(),
+        queued_backfill_batches: SmallVec::new(),
         next_attestation: 0,
         next_lc_update: 0,
         early_block_debounce: TimeLatch::default(),
         rpc_block_debounce: TimeLatch::default(),
         attestation_delay_debounce: TimeLatch::default(),
         lc_update_delay_debounce: TimeLatch::default(),
+        next_backfill_batch_event: Box::pin(tokio::time::sleep(Duration::from_secs(1))),
+        slot_clock: Box::pin(slot_clock.clone()),
     };
 
     executor.spawn(
@@ -716,7 +716,7 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
                 }
             }
             InboundEvent::Msg(BackfillSync(queued_backfill_batch)) => {
-                self.enqueue_backfill_batch(queued_backfill_batch, slot_clock, log);
+                self.queued_backfill_batches.push(queued_backfill_batch);
             }
             // A block that was queued for later processing is now ready to be processed.
             InboundEvent::ReadyGossipBlock(ready_block) => {
@@ -823,18 +823,18 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
                     }
                 }
             }
-            InboundEvent::ReadyBackfillSync(work) => {
+            InboundEvent::ReadyBackfillSync(queued_backfill_batch) => {
                 debug!(log, "Sending scheduled backfill work to Beacon Processor");
                 if self
                     .ready_work_tx
-                    .try_send(ReadyWork::BackfillSync(work.clone()))
+                    .try_send(ReadyWork::BackfillSync(queued_backfill_batch.clone()))
                     .is_err()
                 {
                     error!(
                         log,
                         "Failed to send scheduled backfill work. Sending it back to queue.";
                     );
-                    self.enqueue_backfill_batch(work, slot_clock, log);
+                    self.queued_backfill_batches.push(queued_backfill_batch);
                 }
             }
         }
@@ -859,35 +859,18 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
             &[LIGHT_CLIENT_UPDATES],
             self.lc_updates_delay_queue.len() as i64,
         );
-        metrics::set_gauge_vec(
-            &metrics::BEACON_PROCESSOR_REPROCESSING_QUEUE_TOTAL,
-            &[BACKFILL_BATCHES],
-            self.backfill_delay_queue.len() as i64,
-        );
     }
 
-    fn enqueue_backfill_batch(
-        &mut self,
-        queued_backfill_batch: QueuedBackfillBatch<T::EthSpec>,
-        slot_clock: &T::SlotClock,
-        log: &Logger,
-    ) {
-        let position_in_queue = self.backfill_delay_queue.len();
-        let slot_duration = slot_clock.slot_duration();
-
-        // FIXME(jimmy): calculation to be re-worked
-        // FIXME(jimmy): we should try to process multiple batches per slot
-        let initial_delay = slot_clock
+    fn recompute_next_backfill_batch_event(&mut self) {
+        let slot_duration = self.slot_clock.slot_duration();
+        // currently firing the event at 6s after slot start
+        // FIXME(jimmy): calculation to be re-worked to support multiple events per slot
+        let delay_duration = self
+            .slot_clock
             .duration_to_next_slot()
             .map_or(slot_duration, |duration_to_next_slot| {
                 duration_to_next_slot + (slot_duration / 2)
             });
-
-        let scheduled_processing_time =
-            Instant::now().add(initial_delay + slot_duration * position_in_queue as u32);
-        debug!(log, "Backfill work scheduled for processing");
-
-        self.backfill_delay_queue
-            .insert_at(queued_backfill_batch, scheduled_processing_time);
+        self.next_backfill_batch_event = Box::pin(tokio::time::sleep(delay_duration));
     }
 }
