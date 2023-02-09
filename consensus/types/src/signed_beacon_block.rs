@@ -487,7 +487,9 @@ impl<E: EthSpec> SignedBeaconBlock<E> {
     }
 }
 
-impl<E: EthSpec> ForkVersionDeserialize for SignedBeaconBlock<E> {
+impl<E: EthSpec, Payload: AbstractExecPayload<E>> ForkVersionDeserialize
+    for SignedBeaconBlock<E, Payload>
+{
     fn deserialize_by_fork<'de, D: serde::Deserializer<'de>>(
         value: serde_json::value::Value,
         fork_name: ForkName,
