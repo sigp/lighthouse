@@ -978,6 +978,12 @@ impl ProtoArray {
     /// ## Notes
     ///
     /// Still returns `true` if `ancestor_root` is known and `ancestor_root == descendant_root`.
+    ///
+    /// ## Warning
+    ///
+    /// Do not use this function to check if a block is a descendant of the
+    /// finalized checkpoint. Use `Self::is_finalized_checkpoint_or_descendant`
+    /// instead.
     pub fn is_descendant(&self, ancestor_root: Hash256, descendant_root: Hash256) -> bool {
         self.indices
             .get(&ancestor_root)
@@ -991,12 +997,11 @@ impl ProtoArray {
             .unwrap_or(false)
     }
 
-    /// Returns `true` if the `descendant_root` has an ancestor with `ancestor_root`. Always
-    /// returns `false` if either input root is unknown.
+    /// Returns `true` if `root` is equal to or a descendant of
+    /// `self.finalized_checkpoint`.
     ///
-    /// ## Notes
-    ///
-    /// Still returns `true` if `ancestor_root` is known and `ancestor_root == descendant_root`.
+    /// Notably, this function is checking ancestory of the finalized
+    /// *checkpoint* not the finalized *block*.
     pub fn is_finalized_checkpoint_or_descendant<E: EthSpec>(&self, root: Hash256) -> bool {
         let finalized_root = self.finalized_checkpoint.root;
         let finalized_slot = self
