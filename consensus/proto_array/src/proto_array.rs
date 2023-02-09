@@ -902,44 +902,33 @@ impl ProtoArray {
         let genesis_epoch = Epoch::new(0);
         let current_epoch = current_slot.epoch(E::slots_per_epoch());
         let node_epoch = node.slot.epoch(E::slots_per_epoch());
+        let node_justified_checkpoint =
+            if let Some(justified_checkpoint) = node.justified_checkpoint {
+                justified_checkpoint
+            } else {
+                // The node does not have any information about the justified
+                // checkpoint. This indicates an inconsistent proto-array.
+                return false;
+            };
 
-        let voting_source_opt = if current_epoch > node_epoch {
+        let voting_source = if current_epoch > node_epoch {
+            // The block is from a prior epoch, the voting source will be pulled-up.
             node.unrealized_justified_checkpoint
-                .or(node.justified_checkpoint)
+                // Sometimes we don't track the unrealized justification. In
+                // that case, just use the fully-realized justified checkpoint.
+                .unwrap_or(node_justified_checkpoint)
         } else {
-            node.justified_checkpoint
-        };
-        let voting_source = if let Some(checkpoint) = voting_source_opt {
-            checkpoint
-        } else {
-            // The node does not have any information about the
-            // justified/finalized checkpoint. This indicates an inconsistent
-            // proto-array.
-            return false;
-        };
-
-        let unrealized_justification = if self.justified_checkpoint.epoch + 1 == current_epoch {
-            // This `unrealized_justified_checkpoint` is an `Option` that can be
-            // `None` in the scenario that we're not computing unrealized
-            // justification (UJ). During sync we avoid this computation as an
-            // optimisation.
-            //
-            // I claim that it is safe to always have `unrealized_justification
-            // == None` under the following conditions:
-            //
-            // 1. All competing heads do not have UJ computed.
-            // 2. The store is not updated as per UJ values.
-            node.unrealized_justified_checkpoint
-        } else {
-            None
+            // The block is not from a prior epoch, therefore the voting source
+            // is not pulled up.
+            node_justified_checkpoint
         };
 
         let mut correct_justified = self.justified_checkpoint.epoch == genesis_epoch
             || voting_source.epoch == self.justified_checkpoint.epoch;
 
-        if !correct_justified {
-            if let Some(unrealized_justification) = unrealized_justification {
-                correct_justified = unrealized_justification.epoch
+        if let Some(node_unrealized_justified_checkpoint) = node.unrealized_justified_checkpoint {
+            if !correct_justified && self.justified_checkpoint.epoch + 1 == current_epoch {
+                correct_justified = node_unrealized_justified_checkpoint.epoch
                     >= self.justified_checkpoint.epoch
                     && voting_source.epoch + 2 >= current_epoch;
             }
