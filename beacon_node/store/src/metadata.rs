@@ -126,8 +126,6 @@ pub struct BlobInfo {
     pub oldest_blob_slot: Option<Slot>,
     /// A separate blobs database is in use.
     pub blobs_db: bool,
-    /// The slot after which blobs are available (>=).
-    pub oldest_blob_slot: Option<Slot>,
 }
 
 impl StoreItem for BlobInfo {

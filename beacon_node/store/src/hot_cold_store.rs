@@ -1977,11 +1977,12 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             blob_info,
             BlobInfo {
                 oldest_blob_slot: Some(end_slot + 1),
+                blobs_db: blob_info.blobs_db,
             },
         )?;
         ops.push(StoreOp::KeyValueOp(update_blob_info));
 
-        self.do_atomically(ops)?;
+        self.do_atomically_with_block_and_blobs_cache(ops)?;
         info!(
             self.log,
             "Blobs sidecar pruning complete";

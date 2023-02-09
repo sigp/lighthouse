@@ -337,10 +337,12 @@ pub fn prune_blobs<E: EthSpec>(
     let spec = &runtime_context.eth2_config.spec;
     let hot_path = client_config.get_db_path();
     let cold_path = client_config.get_freezer_db_path();
+    let blobs_path = client_config.get_blobs_db_path();
 
     let db = HotColdDB::<E, LevelDB<E>, LevelDB<E>>::open(
         &hot_path,
         &cold_path,
+        blobs_path,
         |_, _, _| Ok(()),
         client_config.store,
         spec.clone(),
