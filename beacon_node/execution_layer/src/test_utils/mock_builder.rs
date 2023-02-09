@@ -50,15 +50,15 @@ impl Operation {
     fn apply<B: BidStuff>(self, bid: &mut B) -> Result<(), BlindedBlockProviderError> {
         match self {
             Operation::FeeRecipient(fee_recipient) => {
-                *bid.fee_recipient() = to_ssz_rs(&fee_recipient)?
+                *bid.fee_recipient_mut() = to_ssz_rs(&fee_recipient)?
             }
-            Operation::GasLimit(gas_limit) => *bid.gas_limit() = gas_limit as u64,
-            Operation::Value(value) => *bid.value() = to_ssz_rs(&value)?,
-            Operation::ParentHash(parent_hash) => *bid.parent_hash() = to_ssz_rs(&parent_hash)?,
-            Operation::PrevRandao(prev_randao) => *bid.prev_randao() = to_ssz_rs(&prev_randao)?,
-            Operation::BlockNumber(block_number) => *bid.block_number() = block_number as u64,
-            Operation::Timestamp(timestamp) => *bid.timestamp() = timestamp as u64,
-            Operation::WithdrawalsRoot(root) => *bid.withdrawals_root()? = to_ssz_rs(&root)?,
+            Operation::GasLimit(gas_limit) => *bid.gas_limit_mut() = gas_limit as u64,
+            Operation::Value(value) => *bid.value_mut() = to_ssz_rs(&value)?,
+            Operation::ParentHash(parent_hash) => *bid.parent_hash_mut() = to_ssz_rs(&parent_hash)?,
+            Operation::PrevRandao(prev_randao) => *bid.prev_randao_mut() = to_ssz_rs(&prev_randao)?,
+            Operation::BlockNumber(block_number) => *bid.block_number_mut() = block_number as u64,
+            Operation::Timestamp(timestamp) => *bid.timestamp_mut() = timestamp as u64,
+            Operation::WithdrawalsRoot(root) => *bid.withdrawals_root_mut()? = to_ssz_rs(&root)?,
         }
         Ok(())
     }
@@ -66,14 +66,14 @@ impl Operation {
 
 // contains functions we need for BuilderBids.. not sure what to call this
 pub trait BidStuff {
-    fn fee_recipient(&mut self) -> &mut ExecutionAddress;
-    fn gas_limit(&mut self) -> &mut u64;
-    fn value(&mut self) -> &mut U256;
-    fn parent_hash(&mut self) -> &mut Hash32;
-    fn prev_randao(&mut self) -> &mut Hash32;
-    fn block_number(&mut self) -> &mut u64;
-    fn timestamp(&mut self) -> &mut u64;
-    fn withdrawals_root(&mut self) -> Result<&mut Root, BlindedBlockProviderError>;
+    fn fee_recipient_mut(&mut self) -> &mut ExecutionAddress;
+    fn gas_limit_mut(&mut self) -> &mut u64;
+    fn value_mut(&mut self) -> &mut U256;
+    fn parent_hash_mut(&mut self) -> &mut Hash32;
+    fn prev_randao_mut(&mut self) -> &mut Hash32;
+    fn block_number_mut(&mut self) -> &mut u64;
+    fn timestamp_mut(&mut self) -> &mut u64;
+    fn withdrawals_root_mut(&mut self) -> Result<&mut Root, BlindedBlockProviderError>;
 
     fn sign_builder_message(
         &mut self,
@@ -85,56 +85,56 @@ pub trait BidStuff {
 }
 
 impl BidStuff for BuilderBid {
-    fn fee_recipient(&mut self) -> &mut ExecutionAddress {
+    fn fee_recipient_mut(&mut self) -> &mut ExecutionAddress {
         match self {
             Self::Bellatrix(bid) => &mut bid.header.fee_recipient,
             Self::Capella(bid) => &mut bid.header.fee_recipient,
         }
     }
 
-    fn gas_limit(&mut self) -> &mut u64 {
+    fn gas_limit_mut(&mut self) -> &mut u64 {
         match self {
             Self::Bellatrix(bid) => &mut bid.header.gas_limit,
             Self::Capella(bid) => &mut bid.header.gas_limit,
         }
     }
 
-    fn value(&mut self) -> &mut U256 {
+    fn value_mut(&mut self) -> &mut U256 {
         match self {
             Self::Bellatrix(bid) => &mut bid.value,
             Self::Capella(bid) => &mut bid.value,
         }
     }
 
-    fn parent_hash(&mut self) -> &mut Hash32 {
+    fn parent_hash_mut(&mut self) -> &mut Hash32 {
         match self {
             Self::Bellatrix(bid) => &mut bid.header.parent_hash,
             Self::Capella(bid) => &mut bid.header.parent_hash,
         }
     }
 
-    fn prev_randao(&mut self) -> &mut Hash32 {
+    fn prev_randao_mut(&mut self) -> &mut Hash32 {
         match self {
             Self::Bellatrix(bid) => &mut bid.header.prev_randao,
             Self::Capella(bid) => &mut bid.header.prev_randao,
         }
     }
 
-    fn block_number(&mut self) -> &mut u64 {
+    fn block_number_mut(&mut self) -> &mut u64 {
         match self {
             Self::Bellatrix(bid) => &mut bid.header.block_number,
             Self::Capella(bid) => &mut bid.header.block_number,
         }
     }
 
-    fn timestamp(&mut self) -> &mut u64 {
+    fn timestamp_mut(&mut self) -> &mut u64 {
         match self {
             Self::Bellatrix(bid) => &mut bid.header.timestamp,
             Self::Capella(bid) => &mut bid.header.timestamp,
         }
     }
 
-    fn withdrawals_root(&mut self) -> Result<&mut Root, BlindedBlockProviderError> {
+    fn withdrawals_root_mut(&mut self) -> Result<&mut Root, BlindedBlockProviderError> {
         match self {
             Self::Bellatrix(_) => Err(BlindedBlockProviderError::Custom(
                 "withdrawals_root called on bellatrix bid".to_string(),
