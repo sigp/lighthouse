@@ -15,6 +15,8 @@ pub struct ServerSentEventHandler<T: EthSpec> {
     chain_reorg_tx: Sender<EventKind<T>>,
     contribution_tx: Sender<EventKind<T>>,
     late_head: Sender<EventKind<T>>,
+    light_client_finality_update_tx: Sender<EventKind<T>>,
+    light_client_optimistic_update_tx: Sender<EventKind<T>>,
     block_reward_tx: Sender<EventKind<T>>,
     log: Logger,
 }
@@ -33,6 +35,8 @@ impl<T: EthSpec> ServerSentEventHandler<T> {
         let (chain_reorg_tx, _) = broadcast::channel(capacity);
         let (contribution_tx, _) = broadcast::channel(capacity);
         let (late_head, _) = broadcast::channel(capacity);
+        let (light_client_finality_update_tx, _) = broadcast::channel(capacity);
+        let (light_client_optimistic_update_tx, _) = broadcast::channel(capacity);
         let (block_reward_tx, _) = broadcast::channel(capacity);
 
         Self {
@@ -44,6 +48,8 @@ impl<T: EthSpec> ServerSentEventHandler<T> {
             chain_reorg_tx,
             contribution_tx,
             late_head,
+            light_client_finality_update_tx,
+            light_client_optimistic_update_tx,
             block_reward_tx,
             log,
         }
@@ -70,6 +76,10 @@ impl<T: EthSpec> ServerSentEventHandler<T> {
                 .map(|count| trace!(self.log, "Registering server-sent contribution and proof event"; "receiver_count" => count)),
             EventKind::LateHead(late_head) => self.late_head.send(EventKind::LateHead(late_head))
                 .map(|count| trace!(self.log, "Registering server-sent late head event"; "receiver_count" => count)),
+            EventKind::LightClientFinalityUpdate(update) => self.light_client_finality_update_tx.send(EventKind::LightClientFinalityUpdate(update))
+                .map(|count| trace!(self.log, "Registering server-sent light client finality update event"; "receiver_count" => count)),
+            EventKind::LightClientOptimisticUpdate(update) => self.light_client_optimistic_update_tx.send(EventKind::LightClientOptimisticUpdate(update))
+                .map(|count| trace!(self.log, "Registering server-sent light client optimistic update event"; "receiver_count" => count)),
             EventKind::BlockReward(block_reward) => self.block_reward_tx.send(EventKind::BlockReward(block_reward))
                 .map(|count| trace!(self.log, "Registering server-sent contribution and proof event"; "receiver_count" => count)),
         };
@@ -108,6 +118,14 @@ impl<T: EthSpec> ServerSentEventHandler<T> {
 
     pub fn subscribe_late_head(&self) -> Receiver<EventKind<T>> {
         self.late_head.subscribe()
+    }
+
+    pub fn subscribe_light_client_finality_update(&self) -> Receiver<EventKind<T>> {
+        self.light_client_finality_update_tx.subscribe()
+    }
+
+    pub fn subscribe_light_client_optimistic_update(&self) -> Receiver<EventKind<T>> {
+        self.light_client_optimistic_update_tx.subscribe()
     }
 
     pub fn subscribe_block_reward(&self) -> Receiver<EventKind<T>> {
