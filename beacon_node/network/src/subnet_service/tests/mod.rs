@@ -290,6 +290,7 @@ mod attestation_service {
     }
 
     /// Test to verify that we are not unsubscribing to a subnet before a required subscription.
+    #[cfg(not(windows))]
     #[tokio::test]
     async fn test_same_subnet_unsubscription() {
         // subscription config
@@ -513,6 +514,7 @@ mod attestation_service {
         assert_eq!(unexpected_msg_count, 0);
     }
 
+    #[cfg(not(windows))]
     #[tokio::test]
     async fn test_subscribe_same_subnet_several_slots_apart() {
         // subscription config
