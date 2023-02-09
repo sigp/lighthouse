@@ -16,7 +16,7 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 use tokio_util::codec::{Decoder, Encoder};
 use types::{
-    light_client_bootstrap::LightClientBootstrap, EthSpec, ForkContext, ForkName, Hash256,
+    LightClientBootstrap, EthSpec, ForkContext, ForkName, Hash256,
     SignedBeaconBlock, SignedBeaconBlockAltair, SignedBeaconBlockBase, SignedBeaconBlockMerge,
 };
 use unsigned_varint::codec::Uvi;

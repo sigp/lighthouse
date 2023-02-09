@@ -58,7 +58,7 @@ use types::{
     ProposerPreparationData, ProposerSlashing, RelativeEpoch, SignedAggregateAndProof,
     SignedBeaconBlock, SignedBlindedBeaconBlock, SignedContributionAndProof,
     SignedValidatorRegistrationData, SignedVoluntaryExit, Slot, SyncCommitteeMessage,
-    SyncContributionData,
+    SyncContributionData, Hash256, LightClientBootstrap,
 };
 use version::{
     add_consensus_version_header, execution_optimistic_fork_versioned_response,
@@ -1744,6 +1744,73 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path("beacon"))
         .and(warp::path("light_client"))
         .and(chain_filter.clone());
+
+    // GET beacon/light_client/bootrap/{block_root}
+    let get_beacon_light_client_bootstrap = beacon_light_client_path
+        .clone()
+        .and(warp::path("bootstrap"))
+        .and(warp::path::param::<Hash256>().or_else(|_| async {
+            Err(warp_utils::reject::custom_bad_request(
+                "Invalid block root value".to_string(),
+            ))
+        }))
+        .and(warp::path::end())
+        .and(warp::header::optional::<api_types::Accept>("accept"))
+        .and_then(
+            |chain: Arc<BeaconChain<T>>,
+            block_root: Hash256,
+            accept_header: Option<api_types::Accept>| {
+                blocking_task(move || {
+                    let state_root = chain
+                        .get_blinded_block(&block_root)
+                        .map_err(|_| {
+                            warp_utils::reject::custom_server_error(
+                                "Error retrieving block".to_string(),
+                            )
+                        })?
+                        .map(|signed_block| signed_block.state_root())
+                        .ok_or_else(|| {
+                            warp_utils::reject::custom_not_found(
+                                "Light client bootstrap unavailable".to_string(),
+                            )
+                        })?;
+
+                    let mut state = chain.get_state(&state_root, None).map_err(|_| {
+                        warp_utils::reject::custom_server_error(
+                            "Error retrieving state".to_string(),
+                        )
+                    })?
+                    .ok_or_else(|| {
+                        warp_utils::reject::custom_not_found("Light client bootstrap unavailable".to_string())
+                    })?;
+                    let fork_name = state
+                        .fork_name(&chain.spec)
+                        .map_err(inconsistent_fork_rejection)?;
+                    let bootstrap = LightClientBootstrap::from_beacon_state(&mut state)
+                        .map_err(|_| {
+                            warp_utils::reject::custom_server_error(
+                                "Failed to create light client bootstrap".to_string(),
+                            )
+                        })?;
+                    match accept_header {
+                        Some(api_types::Accept::Ssz) => Response::builder()
+                            .status(200)
+                            .header("Content-Type", "application/octet-stream")
+                            .body(bootstrap.as_ssz_bytes().into())
+                            .map_err(|e| {
+                                warp_utils::reject::custom_server_error(format!(
+                                    "failed to create response: {}",
+                                    e
+                                ))
+                            }),
+                        _ => Ok(warp::reply::json(&api_types::GenericResponse::from(bootstrap))
+                            .into_response()),
+                    }
+                    .map(|resp| add_consensus_version_header(resp, fork_name))
+                }) 
+            }
+        );
+
 
     // GET beacon/light_client/optimistic_update
     let get_beacon_light_client_optimistic_update = beacon_light_client_path
@@ -3601,6 +3668,8 @@ pub fn serve<T: BeaconChainTypes>(
                     .and(get_beacon_light_client_optimistic_update.boxed()))
                 .or(enable(ctx.config.enable_light_client_server)
                     .and(get_beacon_light_client_finality_update.boxed()))
+                .or(enable(ctx.config.enable_light_client_server)
+                    .and(get_beacon_light_client_bootstrap.boxed()))
                 .or(get_lighthouse_block_packing_efficiency.boxed())
                 .or(get_lighthouse_merge_readiness.boxed())
                 .or(get_events.boxed())

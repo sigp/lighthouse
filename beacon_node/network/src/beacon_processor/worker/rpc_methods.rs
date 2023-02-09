@@ -11,7 +11,7 @@ use slog::{debug, error};
 use slot_clock::SlotClock;
 use std::sync::Arc;
 use task_executor::TaskExecutor;
-use types::{light_client_bootstrap::LightClientBootstrap, Epoch, EthSpec, Hash256, Slot};
+use types::{LightClientBootstrap, Epoch, EthSpec, Hash256, Slot};
 
 use super::Worker;
 
