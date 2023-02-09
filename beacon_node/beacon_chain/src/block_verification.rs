@@ -1569,7 +1569,7 @@ pub fn check_block_is_finalized_checkpoint_or_descendant<T: BeaconChainTypes>(
     fork_choice: &BeaconForkChoice<T>,
     block: &Arc<SignedBeaconBlock<T::EthSpec>>,
 ) -> Result<(), BlockError<T::EthSpec>> {
-    if fork_choice.is_descendant_of_finalized_checkpoint(block.parent_root()) {
+    if fork_choice.is_finalized_checkpoint_or_descendant(block.parent_root()) {
         Ok(())
     } else {
         // If fork choice does *not* consider the parent to be a descendant of the finalized block,
