@@ -8,7 +8,7 @@ use crate::beacon_proposer_cache::compute_proposer_duties_from_head;
 use crate::beacon_proposer_cache::BeaconProposerCache;
 use crate::block_times_cache::BlockTimesCache;
 use crate::block_verification::{
-    check_block_is_finalized_descendant, check_block_relevancy, get_block_root,
+    check_block_is_finalized_checkpoint_or_descendant, check_block_relevancy, get_block_root,
     signature_verify_chain_segment, BlockError, ExecutionPendingBlock, GossipVerifiedBlock,
     IntoExecutionPendingBlock, PayloadVerificationOutcome, POS_PANDA_BANNER,
 };
@@ -2736,7 +2736,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let mut fork_choice = self.canonical_head.fork_choice_write_lock();
 
         // Do not import a block that doesn't descend from the finalized root.
-        check_block_is_finalized_descendant(self, &fork_choice, &signed_block)?;
+        check_block_is_finalized_checkpoint_or_descendant(self, &fork_choice, &signed_block)?;
 
         // Register the new block with the fork choice service.
         {
