@@ -221,38 +221,52 @@ impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
             );
         }
 
+        // Open separate blobs directory if configured and same configuration was used on previous
+        // run.
         let blob_info = db.load_blob_info()?;
-        let open_blobs_db = match (&blob_info, &blobs_db_path) {
-            (Some(blob_info), Some(_)) => {
-                if blob_info.blobs_db {
-                    true
-                } else {
-                    return Err(HotColdDBError::BlobsPreviouslyInDefaultStore.into());
+        let new_blob_info = {
+            match (&blob_info, &blobs_db_path) {
+                (Some(blob_info), Some(_)) => {
+                    if !blob_info.blobs_db {
+                        return Err(HotColdDBError::BlobsPreviouslyInDefaultStore.into());
+                    }
+                    BlobInfo {
+                        oldest_blob_slot: blob_info.oldest_blob_slot,
+                        blobs_db: true,
+                    }
                 }
+                (Some(blob_info), None) => {
+                    if blob_info.blobs_db {
+                        return Err(HotColdDBError::MissingPathToBlobsDatabase.into());
+                    }
+                    BlobInfo {
+                        oldest_blob_slot: blob_info.oldest_blob_slot,
+                        blobs_db: false,
+                    }
+                }
+                (None, Some(_)) => BlobInfo {
+                    oldest_blob_slot: None,
+                    blobs_db: true,
+                }, // first time starting up node
+                (None, None) => BlobInfo {
+                    oldest_blob_slot: None,
+                    blobs_db: false,
+                }, // first time starting up node
             }
-            (None, Some(_)) => true,
-            (Some(_), None) => return Err(HotColdDBError::MissingPathToBlobsDatabase.into()),
-            (None, None) => false,
         };
-
-        if let Some(path) = blobs_db_path {
-            let new_blob_info = if open_blobs_db {
+        if new_blob_info.blobs_db {
+            if let Some(path) = &blobs_db_path {
                 db.blobs_db = Some(LevelDB::open(path.as_path())?);
-                let mut new_blob_info = blob_info.clone().unwrap_or_default();
-                new_blob_info.blobs_db = true;
-                new_blob_info
-            } else {
-                let mut new_blob_info = blob_info.clone().unwrap_or_default();
-                new_blob_info.blobs_db = false;
-                new_blob_info
-            };
-            db.compare_and_set_blob_info_with_write(blob_info, Some(new_blob_info))?;
-            info!(
-                db.log,
-                "Blobs DB initialized";
-                "path" => ?path
-            );
+            }
         }
+        let blob_info = blob_info.unwrap_or(db.get_blob_info());
+        db.compare_and_set_blob_info_with_write(blob_info, new_blob_info)?;
+        info!(
+            db.log,
+            "Blobs DB initialized";
+            "use separate blobs db" => db.get_blob_info().blobs_db,
+            "path" => ?blobs_db_path
+        );
 
         // Ensure that the schema version of the on-disk database matches the software.
         // If the version is mismatched, an automatic migration will be attempted.
@@ -1972,14 +1986,11 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             }
         }
         let blobs_sidecars_pruned = ops.len();
-
-        let update_blob_info = self.compare_and_set_blob_info(
-            blob_info,
-            BlobInfo {
-                oldest_blob_slot: Some(end_slot + 1),
-                blobs_db: blob_info.blobs_db,
-            },
-        )?;
+        let new_blob_info = BlobInfo {
+            oldest_blob_slot: Some(end_slot + 1),
+            blobs_db: blob_info.blobs_db,
+        };
+        let update_blob_info = self.compare_and_set_blob_info(blob_info, new_blob_info)?;
         ops.push(StoreOp::KeyValueOp(update_blob_info));
 
         self.do_atomically_with_block_and_blobs_cache(ops)?;
