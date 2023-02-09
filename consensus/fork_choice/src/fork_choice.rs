@@ -721,7 +721,7 @@ where
         op: &InvalidationOperation,
     ) -> Result<(), Error<T::Error>> {
         self.proto_array
-            .process_execution_payload_invalidation(op)
+            .process_execution_payload_invalidation::<E>(op)
             .map_err(Error::FailedToProcessInvalidExecutionPayload)
     }
 

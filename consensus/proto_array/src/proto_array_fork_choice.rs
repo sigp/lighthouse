@@ -358,12 +358,12 @@ impl ProtoArrayForkChoice {
     }
 
     /// See `ProtoArray::propagate_execution_payload_invalidation` for documentation.
-    pub fn process_execution_payload_invalidation(
+    pub fn process_execution_payload_invalidation<E: EthSpec>(
         &mut self,
         op: &InvalidationOperation,
     ) -> Result<(), String> {
         self.proto_array
-            .propagate_execution_payload_invalidation(op)
+            .propagate_execution_payload_invalidation::<E>(op)
             .map_err(|e| format!("Failed to process invalid payload: {:?}", e))
     }
 

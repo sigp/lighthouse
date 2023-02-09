@@ -451,7 +451,7 @@ impl ProtoArray {
     /// Invalidate zero or more blocks, as specified by the `InvalidationOperation`.
     ///
     /// See the documentation of `InvalidationOperation` for usage.
-    pub fn propagate_execution_payload_invalidation(
+    pub fn propagate_execution_payload_invalidation<E: EthSpec>(
         &mut self,
         op: &InvalidationOperation,
     ) -> Result<(), Error> {
@@ -482,8 +482,7 @@ impl ProtoArray {
         let latest_valid_ancestor_is_descendant =
             latest_valid_ancestor_root.map_or(false, |ancestor_root| {
                 self.is_descendant(ancestor_root, head_block_root)
-                    // TODO(paul): should this be updated to the new method?
-                    && self.is_descendant(self.finalized_checkpoint.root, ancestor_root)
+                    && self.is_finalized_checkpoint_or_descendant::<E>(ancestor_root)
             });
 
         // Collect all *ancestors* which were declared invalid since they reside between the
