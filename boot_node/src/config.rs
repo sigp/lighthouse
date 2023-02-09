@@ -71,7 +71,7 @@ impl<T: EthSpec> BootNodeConfig<T> {
 
         // the address to listen on
         let listen_socket =
-            SocketAddr::new(network_config.listen_address, network_config.discovery_port);
+            SocketAddr::new(network_config.listen_addresses, network_config.discovery_port);
         if listen_socket.is_ipv6() {
             // create ipv6 sockets and enable ipv4 mapped addresses.
             network_config.discv5_config.ip_mode = IpMode::Ip6 {

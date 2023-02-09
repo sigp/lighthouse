@@ -58,7 +58,7 @@ pub struct Config {
     pub network_dir: PathBuf,
 
     /// IP address to listen on.
-    pub listen_address: std::net::IpAddr,
+    pub listen_addresses: std::net::IpAddr,
 
     /// The TCP port that libp2p listens on.
     pub libp2p_port: u16,
@@ -191,7 +191,7 @@ impl Default for Config {
         // NOTE: Some of these get overridden by the corresponding CLI default values.
         Config {
             network_dir,
-            listen_address: "0.0.0.0".parse().expect("valid ip address"),
+            listen_addresses: "0.0.0.0".parse().expect("valid ip address"),
             libp2p_port: 9000,
             discovery_port: 9000,
             enr_address: None,

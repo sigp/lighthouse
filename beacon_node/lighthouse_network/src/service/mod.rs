@@ -391,10 +391,10 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
             config.discovery_port.to_string()
         };
 
-        debug!(self.log, "Attempting to open listening ports"; "address" => ?config.listen_address, "tcp_port" => config.libp2p_port, "udp_port" => discovery_string);
+        debug!(self.log, "Attempting to open listening ports"; "address" => ?config.listen_addresses, "tcp_port" => config.libp2p_port, "udp_port" => discovery_string);
 
         let listen_multiaddr = {
-            let mut m = Multiaddr::from(config.listen_address);
+            let mut m = Multiaddr::from(config.listen_addresses);
             m.push(MProtocol::Tcp(config.libp2p_port));
             m
         };

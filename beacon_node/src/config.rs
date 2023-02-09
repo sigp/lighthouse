@@ -785,7 +785,7 @@ pub fn set_network_config(
         let listen_address = listen_address_str
             .parse()
             .map_err(|_| format!("Invalid listen address: {:?}", listen_address_str))?;
-        config.listen_address = listen_address;
+        config.listen_addresses = listen_address;
     }
 
     if let Some(target_peers_str) = cli_args.value_of("target-peers") {
@@ -881,12 +881,12 @@ pub fn set_network_config(
 
     if cli_args.is_present("enr-match") {
         // set the enr address to localhost if the address is unspecified
-        if config.listen_address == IpAddr::V4(Ipv4Addr::UNSPECIFIED) {
+        if config.listen_addresses == IpAddr::V4(Ipv4Addr::UNSPECIFIED) {
             config.enr_address = Some(IpAddr::V4(Ipv4Addr::LOCALHOST));
-        } else if config.listen_address == IpAddr::V6(Ipv6Addr::UNSPECIFIED) {
+        } else if config.listen_addresses == IpAddr::V6(Ipv6Addr::UNSPECIFIED) {
             config.enr_address = Some(IpAddr::V6(Ipv6Addr::LOCALHOST));
         } else {
-            config.enr_address = Some(config.listen_address);
+            config.enr_address = Some(config.listen_addresses);
         }
         config.enr_udp_port = Some(config.discovery_port);
     }

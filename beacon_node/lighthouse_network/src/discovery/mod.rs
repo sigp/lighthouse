@@ -202,7 +202,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
               "ip4" => ?local_enr.ip4(), "udp4"=> ?local_enr.udp4(), "tcp4" => ?local_enr.tcp6()
         );
 
-        let listen_socket = SocketAddr::new(config.listen_address, config.discovery_port);
+        let listen_socket = SocketAddr::new(config.listen_addresses, config.discovery_port);
 
         // convert the keypair into an ENR key
         let enr_key: CombinedKey = CombinedKey::from_libp2p(local_key)?;
