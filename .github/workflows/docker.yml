@@ -76,7 +76,7 @@ jobs:
             - name: Cross build Lighthouse binary
               run: |
                   cargo install cross
-                  env CROSS_PROFILE=${{ matrix.profile }} make build-${{ matrix.binary }}
+                  env CROSS_PROFILE=${{ matrix.profile }} CROSS_FEATURES=${{ FEATURES }} make build-${{ matrix.binary }}
             - name: Move cross-built binary into Docker scope (if ARM)
               if: startsWith(matrix.binary, 'aarch64')
               run: |
