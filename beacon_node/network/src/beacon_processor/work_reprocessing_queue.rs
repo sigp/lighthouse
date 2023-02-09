@@ -11,7 +11,7 @@
 //! Aggregated and unaggregated attestations that failed verification due to referencing an unknown
 //! block will be re-queued until their block is imported, or until they expire.
 use super::MAX_SCHEDULED_WORK_QUEUE_LEN;
-use crate::beacon_processor::ChainSegmentProcessId;
+use crate::beacon_processor::{ChainSegmentProcessId, Work, WorkEvent};
 use crate::metrics;
 use crate::sync::manager::BlockProcessType;
 use beacon_chain::{BeaconChainTypes, GossipVerifiedBlock, MAXIMUM_GOSSIP_CLOCK_DISPARITY};
@@ -152,9 +152,27 @@ pub struct QueuedRpcBlock<T: EthSpec> {
 }
 
 /// A backfill batch work that has been queued for processing later.
-pub struct QueuedBackfillBatch<T: EthSpec> {
+#[derive(Clone)]
+pub struct QueuedBackfillBatch<E: EthSpec> {
     pub process_id: ChainSegmentProcessId,
-    pub blocks: Vec<Arc<SignedBeaconBlock<T>>>,
+    pub blocks: Vec<Arc<SignedBeaconBlock<E>>>,
+}
+
+impl<E: EthSpec> QueuedBackfillBatch<E> {
+    pub fn try_from_work_event<T: BeaconChainTypes<EthSpec = E>>(
+        event: &WorkEvent<T>,
+    ) -> Option<QueuedBackfillBatch<E>> {
+        match event {
+            WorkEvent {
+                work: Work::ChainSegment { process_id, blocks },
+                ..
+            } => Some(QueuedBackfillBatch {
+                process_id: process_id.clone(),
+                blocks: blocks.clone(),
+            }),
+            _ => None,
+        }
+    }
 }
 
 /// Unifies the different messages processed by the block delay queue.
@@ -698,22 +716,7 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
                 }
             }
             InboundEvent::Msg(BackfillSync(queued_backfill_batch)) => {
-                let position_in_queue = self.backfill_delay_queue.len();
-                let slot_duration = slot_clock.slot_duration();
-
-                let initial_delay = slot_clock
-                    .duration_to_next_slot()
-                    .map_or(slot_duration, |duration_to_next_slot| {
-                        duration_to_next_slot + (slot_duration / 2)
-                    });
-
-                // FIXME(jimmy): we should try to process multiple batches per slot
-                let scheduled_processing_time =
-                    Instant::now().add(initial_delay + slot_duration * position_in_queue as u32);
-                debug!(log, "Backfill work scheduled for processing");
-
-                self.backfill_delay_queue
-                    .insert_at(queued_backfill_batch, scheduled_processing_time);
+                self.enqueue_backfill_batch(queued_backfill_batch, slot_clock, log);
             }
             // A block that was queued for later processing is now ready to be processed.
             InboundEvent::ReadyGossipBlock(ready_block) => {
@@ -824,13 +827,14 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
                 debug!(log, "Sending scheduled backfill work to Beacon Processor");
                 if self
                     .ready_work_tx
-                    .try_send(ReadyWork::BackfillSync(work))
+                    .try_send(ReadyWork::BackfillSync(work.clone()))
                     .is_err()
                 {
                     error!(
                         log,
-                        "Failed to send scheduled backfill work";
+                        "Failed to send scheduled backfill work. Sending it back to queue.";
                     );
+                    self.enqueue_backfill_batch(work, slot_clock, log);
                 }
             }
         }
@@ -860,5 +864,30 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
             &[BACKFILL_BATCHES],
             self.backfill_delay_queue.len() as i64,
         );
+    }
+
+    fn enqueue_backfill_batch(
+        &mut self,
+        queued_backfill_batch: QueuedBackfillBatch<T::EthSpec>,
+        slot_clock: &T::SlotClock,
+        log: &Logger,
+    ) {
+        let position_in_queue = self.backfill_delay_queue.len();
+        let slot_duration = slot_clock.slot_duration();
+
+        // FIXME(jimmy): calculation to be re-worked
+        // FIXME(jimmy): we should try to process multiple batches per slot
+        let initial_delay = slot_clock
+            .duration_to_next_slot()
+            .map_or(slot_duration, |duration_to_next_slot| {
+                duration_to_next_slot + (slot_duration / 2)
+            });
+
+        let scheduled_processing_time =
+            Instant::now().add(initial_delay + slot_duration * position_in_queue as u32);
+        debug!(log, "Backfill work scheduled for processing");
+
+        self.backfill_delay_queue
+            .insert_at(queued_backfill_batch, scheduled_processing_time);
     }
 }

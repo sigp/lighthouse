@@ -1063,27 +1063,29 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                         self.current_workers = self.current_workers.saturating_sub(1);
                         None
                     }
-                    Some(InboundEvent::WorkEvent(WorkEvent {
-                        work:
-                            Work::ChainSegment {
-                                process_id: ChainSegmentProcessId::BackSyncBatchId(epoch),
-                                blocks,
-                            },
-                        ..
-                    })) if enable_backfill_rate_limiting => {
-                        if let Err(e) = work_reprocessing_tx.try_send(
-                            ReprocessQueueMessage::BackfillSync(QueuedBackfillBatch {
-                                process_id: ChainSegmentProcessId::BackSyncBatchId(epoch),
-                                blocks,
-                            }),
-                        ) {
-                            error!(
-                                self.log,
-                                "Unable to queue backfill work event";
-                                "error" => %e
-                            )
+                    Some(InboundEvent::WorkEvent(event)) if enable_backfill_rate_limiting => {
+                        if let Some(backfill_batch) =
+                            QueuedBackfillBatch::try_from_work_event(&event)
+                        {
+                            match work_reprocessing_tx
+                                .try_send(ReprocessQueueMessage::BackfillSync(backfill_batch))
+                            {
+                                Err(e) => {
+                                    warn!(
+                                        self.log,
+                                        "Unable to queue backfill work event. Will try to process now.";
+                                        "error" => %e
+                                    );
+                                    Some(event)
+                                }
+                                Ok(..) => {
+                                    // backfill work sent to "reprocessing" queue. Process the next event.
+                                    continue;
+                                }
+                            }
+                        } else {
+                            Some(event)
                         }
-                        continue;
                     }
                     Some(InboundEvent::WorkEvent(event))
                     | Some(InboundEvent::ReprocessingWork(event)) => Some(event),
