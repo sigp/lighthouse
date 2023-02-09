@@ -922,6 +922,7 @@ where
         if finalized_checkpoint.epoch > self.fc_store.finalized_checkpoint().epoch {
             self.fc_store.set_finalized_checkpoint(finalized_checkpoint);
         }
+
         Ok(())
     }
 
