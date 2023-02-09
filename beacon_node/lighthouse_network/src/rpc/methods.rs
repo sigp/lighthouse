@@ -12,9 +12,7 @@ use std::ops::Deref;
 use std::sync::Arc;
 use strum::IntoStaticStr;
 use superstruct::superstruct;
-use types::{
-    LightClientBootstrap, Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot,
-};
+use types::{Epoch, EthSpec, Hash256, LightClientBootstrap, SignedBeaconBlock, Slot};
 
 /// Maximum number of blocks in a single request.
 pub type MaxRequestBlocks = U1024;

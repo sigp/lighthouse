@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use libp2p::core::connection::ConnectionId;
-use types::{LightClientBootstrap, EthSpec, SignedBeaconBlock};
+use types::{EthSpec, LightClientBootstrap, SignedBeaconBlock};
 
 use crate::rpc::{
     methods::{

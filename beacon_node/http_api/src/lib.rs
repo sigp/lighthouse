@@ -54,11 +54,11 @@ use tokio::sync::mpsc::{Sender, UnboundedSender};
 use tokio_stream::{wrappers::BroadcastStream, StreamExt};
 use types::{
     Attestation, AttestationData, AttesterSlashing, BeaconStateError, BlindedPayload,
-    CommitteeCache, ConfigAndPreset, Epoch, EthSpec, ForkName, FullPayload,
-    ProposerPreparationData, ProposerSlashing, RelativeEpoch, SignedAggregateAndProof,
-    SignedBeaconBlock, SignedBlindedBeaconBlock, SignedContributionAndProof,
-    SignedValidatorRegistrationData, SignedVoluntaryExit, Slot, SyncCommitteeMessage,
-    SyncContributionData, Hash256, LightClientBootstrap,
+    CommitteeCache, ConfigAndPreset, Epoch, EthSpec, ForkName, FullPayload, Hash256,
+    LightClientBootstrap, ProposerPreparationData, ProposerSlashing, RelativeEpoch,
+    SignedAggregateAndProof, SignedBeaconBlock, SignedBlindedBeaconBlock,
+    SignedContributionAndProof, SignedValidatorRegistrationData, SignedVoluntaryExit, Slot,
+    SyncCommitteeMessage, SyncContributionData,
 };
 use version::{
     add_consensus_version_header, execution_optimistic_fork_versioned_response,
@@ -1758,8 +1758,8 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::header::optional::<api_types::Accept>("accept"))
         .and_then(
             |chain: Arc<BeaconChain<T>>,
-            block_root: Hash256,
-            accept_header: Option<api_types::Accept>| {
+             block_root: Hash256,
+             accept_header: Option<api_types::Accept>| {
                 blocking_task(move || {
                     let state_root = chain
                         .get_blinded_block(&block_root)
@@ -1775,19 +1775,23 @@ pub fn serve<T: BeaconChainTypes>(
                             )
                         })?;
 
-                    let mut state = chain.get_state(&state_root, None).map_err(|_| {
-                        warp_utils::reject::custom_server_error(
-                            "Error retrieving state".to_string(),
-                        )
-                    })?
-                    .ok_or_else(|| {
-                        warp_utils::reject::custom_not_found("Light client bootstrap unavailable".to_string())
-                    })?;
+                    let mut state = chain
+                        .get_state(&state_root, None)
+                        .map_err(|_| {
+                            warp_utils::reject::custom_server_error(
+                                "Error retrieving state".to_string(),
+                            )
+                        })?
+                        .ok_or_else(|| {
+                            warp_utils::reject::custom_not_found(
+                                "Light client bootstrap unavailable".to_string(),
+                            )
+                        })?;
                     let fork_name = state
                         .fork_name(&chain.spec)
                         .map_err(inconsistent_fork_rejection)?;
-                    let bootstrap = LightClientBootstrap::from_beacon_state(&mut state)
-                        .map_err(|_| {
+                    let bootstrap =
+                        LightClientBootstrap::from_beacon_state(&mut state).map_err(|_| {
                             warp_utils::reject::custom_server_error(
                                 "Failed to create light client bootstrap".to_string(),
                             )
@@ -1803,14 +1807,15 @@ pub fn serve<T: BeaconChainTypes>(
                                     e
                                 ))
                             }),
-                        _ => Ok(warp::reply::json(&api_types::GenericResponse::from(bootstrap))
-                            .into_response()),
+                        _ => Ok(
+                            warp::reply::json(&api_types::GenericResponse::from(bootstrap))
+                                .into_response(),
+                        ),
                     }
                     .map(|resp| add_consensus_version_header(resp, fork_name))
-                }) 
-            }
+                })
+            },
         );
-
 
     // GET beacon/light_client/optimistic_update
     let get_beacon_light_client_optimistic_update = beacon_light_client_path
