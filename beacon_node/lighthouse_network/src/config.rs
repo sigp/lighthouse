@@ -12,6 +12,7 @@ use libp2p::gossipsub::{
 use libp2p::Multiaddr;
 use serde_derive::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use std::net::{Ipv4Addr, Ipv6Addr};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -51,30 +52,44 @@ pub fn gossip_max_size(is_merge_enabled: bool) -> usize {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ListenAddr<Ip> {
+    pub addr: Ip,
+    pub udp_port: u16,
+    pub tcp_port: u16,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum ListenAddress {
+    V4(ListenAddr<Ipv4Addr>),
+    V6(ListenAddr<Ipv6Addr>),
+    DualStack(ListenAddr<Ipv4Addr>, ListenAddr<Ipv6Addr>),
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
 /// Network configuration for lighthouse.
 pub struct Config {
     /// Data directory where node's keyfile is stored
     pub network_dir: PathBuf,
 
-    /// IP address to listen on.
-    pub listen_addresses: std::net::IpAddr,
-
-    /// The TCP port that libp2p listens on.
-    pub libp2p_port: u16,
-
-    /// UDP port that discovery listens on.
-    pub discovery_port: u16,
+    /// IP addresses to listen on.
+    pub listen_addresses: ListenAddress,
 
     /// The address to broadcast to peers about which address we are listening on. None indicates
     /// that no discovery address has been set in the CLI args.
-    pub enr_address: Option<std::net::IpAddr>,
+    pub enr_address: (Option<Ipv4Addr>, Option<Ipv6Addr>),
 
-    /// The udp port to broadcast to peers in order to reach back for discovery.
-    pub enr_udp_port: Option<u16>,
+    /// The udp4 port to broadcast to peers in order to reach back for discovery.
+    pub enr_udp4_port: Option<u16>,
 
-    /// The tcp port to broadcast to peers in order to reach back for libp2p services.
-    pub enr_tcp_port: Option<u16>,
+    /// The tcp4 port to broadcast to peers in order to reach back for libp2p services.
+    pub enr_tcp4_port: Option<u16>,
+
+    /// The udp6 port to broadcast to peers in order to reach back for discovery.
+    pub enr_udp6_port: Option<u16>,
+
+    /// The tcp6 port to broadcast to peers in order to reach back for libp2p services.
+    pub enr_tcp6_port: Option<u16>,
 
     /// Target number of connected peers.
     pub target_peers: usize,
@@ -191,12 +206,16 @@ impl Default for Config {
         // NOTE: Some of these get overridden by the corresponding CLI default values.
         Config {
             network_dir,
-            listen_addresses: "0.0.0.0".parse().expect("valid ip address"),
-            libp2p_port: 9000,
-            discovery_port: 9000,
-            enr_address: None,
-            enr_udp_port: None,
-            enr_tcp_port: None,
+            listen_addresses: ListenAddress::V4(ListenAddr {
+                addr: Ipv4Addr::UNSPECIFIED,
+                udp_port: 9000,
+                tcp_port: 9000,
+            }),
+            enr_address: (None, None),
+            enr_udp4_port: None,
+            enr_tcp4_port: None,
+            enr_udp6_port: None,
+            enr_tcp6_port: None,
             target_peers: 50,
             gs_config,
             discv5_config,
@@ -207,10 +226,10 @@ impl Default for Config {
             client_version: lighthouse_version::version_with_platform(),
             disable_discovery: false,
             upnp_enabled: true,
-            network_load: 3,
-            private: false,
             subscribe_all_subnets: false,
             import_all_attestations: false,
+            network_load: 3,
+            private: false,
             shutdown_after_sync: false,
             topics: Vec::new(),
             metrics_enabled: false,
@@ -363,7 +382,7 @@ pub fn gossipsub_config(network_load: u8, fork_context: Arc<ForkContext>) -> Gos
 /// Helper function to determine if the IpAddr is a global address or not. The `is_global()`
 /// function is not yet stable on IpAddr.
 #[allow(clippy::nonminimal_bool)]
-fn is_global(addr: &std::net::Ipv4Addr) -> bool {
+fn is_global(addr: &Ipv4Addr) -> bool {
     // check if this address is 192.0.0.9 or 192.0.0.10. These addresses are the only two
     // globally routable addresses in the 192.0.0.0/24 range.
     if u32::from_be_bytes(addr.octets()) == 0xc0000009

@@ -61,7 +61,7 @@ impl<T: EthSpec> BootNodeConfig<T> {
 
         // Set the enr-udp-port to the default listening port if it was not specified.
         if !matches.is_present("enr-udp-port") {
-            network_config.enr_udp_port = Some(network_config.discovery_port);
+            network_config.enr_udp4_port = Some(network_config.discovery_port);
         }
 
         // By default this is enabled. If it is not set, revert to false.
@@ -70,8 +70,10 @@ impl<T: EthSpec> BootNodeConfig<T> {
         }
 
         // the address to listen on
-        let listen_socket =
-            SocketAddr::new(network_config.listen_addresses, network_config.discovery_port);
+        let listen_socket = SocketAddr::new(
+            network_config.listen_addresses,
+            network_config.discovery_port,
+        );
         if listen_socket.is_ipv6() {
             // create ipv6 sockets and enable ipv4 mapped addresses.
             network_config.discv5_config.ip_mode = IpMode::Ip6 {
@@ -123,13 +125,13 @@ impl<T: EthSpec> BootNodeConfig<T> {
                     match enr_address {
                         std::net::IpAddr::V4(ipv4_addr) => {
                             builder.ip4(ipv4_addr);
-                            if let Some(port) = network_config.enr_udp_port {
+                            if let Some(port) = network_config.enr_udp4_port {
                                 builder.udp4(port);
                             }
                         }
                         std::net::IpAddr::V6(ipv6_addr) => {
                             builder.ip6(ipv6_addr);
-                            if let Some(port) = network_config.enr_udp_port {
+                            if let Some(port) = network_config.enr_udp4_port {
                                 builder.udp6(port);
                                 // We are enabling mapped addresses in the boot node in this case,
                                 // so advertise an udp4 port as well.

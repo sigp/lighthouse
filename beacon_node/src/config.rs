@@ -864,7 +864,7 @@ pub fn set_network_config(
     }
 
     if let Some(enr_udp_port_str) = cli_args.value_of("enr-udp-port") {
-        config.enr_udp_port = Some(
+        config.enr_udp4_port = Some(
             enr_udp_port_str
                 .parse::<u16>()
                 .map_err(|_| format!("Invalid discovery port: {}", enr_udp_port_str))?,
@@ -872,7 +872,7 @@ pub fn set_network_config(
     }
 
     if let Some(enr_tcp_port_str) = cli_args.value_of("enr-tcp-port") {
-        config.enr_tcp_port = Some(
+        config.enr_tcp4_port = Some(
             enr_tcp_port_str
                 .parse::<u16>()
                 .map_err(|_| format!("Invalid ENR TCP port: {}", enr_tcp_port_str))?,
@@ -888,7 +888,7 @@ pub fn set_network_config(
         } else {
             config.enr_address = Some(config.listen_addresses);
         }
-        config.enr_udp_port = Some(config.discovery_port);
+        config.enr_udp4_port = Some(config.discovery_port);
     }
 
     if let Some(enr_address) = cli_args.value_of("enr-address") {
@@ -901,7 +901,7 @@ pub fn set_network_config(
                 // will make the node undiscoverable.
                 if let Some(enr_udp_port) =
                     config
-                        .enr_udp_port
+                        .enr_udp4_port
                         .or(if use_listening_port_as_enr_port_by_default {
                             Some(config.discovery_port)
                         } else {

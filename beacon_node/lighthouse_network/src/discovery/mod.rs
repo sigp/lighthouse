@@ -6,6 +6,7 @@
 pub(crate) mod enr;
 pub mod enr_ext;
 
+use crate::config::ListenAddr;
 // Allow external use of the lighthouse ENR builder
 use crate::metrics;
 use crate::service::TARGET_SUBNET_PEERS;
@@ -34,6 +35,7 @@ pub use libp2p::{
 use lru::LruCache;
 use slog::{crit, debug, error, info, trace, warn};
 use ssz::Encode;
+use std::net::SocketAddrV4;
 use std::{
     collections::{HashMap, VecDeque},
     net::{IpAddr, SocketAddr},
@@ -201,7 +203,15 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
         info!(log, "ENR Initialised"; "enr" => local_enr.to_base64(), "seq" => local_enr.seq(), "id"=> %local_enr.node_id(),
               "ip4" => ?local_enr.ip4(), "udp4"=> ?local_enr.udp4(), "tcp4" => ?local_enr.tcp6()
         );
-
+        let listen_socket = match config.listen_addresses {
+            crate::config::ListenAddress::V4(ListenAddr {
+                addr,
+                udp_port,
+                tcp_port: _,
+            }) => SocketAddr::V4(SocketAddrV4::new(addr, udp_port)),
+            crate::config::ListenAddress::V6(_) => todo!(),
+            crate::config::ListenAddress::DualStack(_, _) => todo!(),
+        };
         let listen_socket = SocketAddr::new(config.listen_addresses, config.discovery_port);
 
         // convert the keypair into an ENR key
