@@ -494,17 +494,14 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> ForkVersionDeserialize
         value: serde_json::value::Value,
         fork_name: ForkName,
     ) -> Result<Self, D::Error> {
-        let convert_err = |e| {
-            serde::de::Error::custom(format!("SignedBeaconBlock failed to deserialize: {:?}", e))
-        };
-
-        Ok(match fork_name {
-            ForkName::Base => Self::Base(serde_json::from_value(value).map_err(convert_err)?),
-            ForkName::Altair => Self::Altair(serde_json::from_value(value).map_err(convert_err)?),
-            ForkName::Merge => Self::Merge(serde_json::from_value(value).map_err(convert_err)?),
-            ForkName::Capella => Self::Capella(serde_json::from_value(value).map_err(convert_err)?),
-            ForkName::Eip4844 => Self::Eip4844(serde_json::from_value(value).map_err(convert_err)?),
-        })
+        Ok(map_fork_name!(
+            fork_name,
+            Self,
+            serde_json::from_value(value).map_err(|e| serde::de::Error::custom(format!(
+                "SignedBeaconBlock failed to deserialize: {:?}",
+                e
+            )))?
+        ))
     }
 }
 
