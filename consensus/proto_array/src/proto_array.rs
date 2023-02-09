@@ -1017,6 +1017,14 @@ impl ProtoArray {
             return false;
         };
 
+        // A shortcut method for when we already know that a node is descenant of the finalized checkpoint.
+        if node
+            .finalized_checkpoint
+            .map_or(false, |cp| cp == self.finalized_checkpoint)
+        {
+            return true;
+        }
+
         loop {
             // If `node` is less than or equal to the finalized slot then `node`
             // must be the finalized block.
