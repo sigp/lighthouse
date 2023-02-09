@@ -36,7 +36,8 @@ use tokio::{
     time::sleep,
 };
 use tokio_stream::wrappers::WatchStream;
-use types::{AbstractExecPayload, BeaconStateError, Blob, ExecPayload, KzgCommitment};
+use tree_hash::TreeHash;
+use types::{AbstractExecPayload, BeaconStateError, Blob, ExecPayload, KzgCommitment, Withdrawals};
 use types::{
     BlindedPayload, BlockType, ChainSpec, Epoch, ExecutionBlockHash, ExecutionPayload,
     ExecutionPayloadCapella, ExecutionPayloadEip4844, ExecutionPayloadMerge, ForkName,
@@ -1874,10 +1875,9 @@ enum InvalidBuilderPayload {
         signature: Signature,
         pubkey: PublicKeyBytes,
     },
-    #[allow(dead_code)]
     WithdrawalsRoot {
-        payload: Hash256,
-        expected: Hash256,
+        payload: Option<Hash256>,
+        expected: Option<Hash256>,
     },
 }
 
@@ -1930,10 +1930,16 @@ impl fmt::Display for InvalidBuilderPayload {
                 signature, pubkey
             ),
             InvalidBuilderPayload::WithdrawalsRoot { payload, expected } => {
+                let opt_string = |opt_hash: &Option<Hash256>| {
+                    opt_hash
+                        .map(|hash| hash.to_string())
+                        .unwrap_or_else(|| "None".to_string())
+                };
                 write!(
                     f,
                     "payload withdrawals root was {} not {}",
-                    payload, expected
+                    opt_string(payload),
+                    opt_string(expected)
                 )
             }
         }
@@ -1963,6 +1969,13 @@ fn verify_builder_bid<T: EthSpec, Payload: AbstractExecPayload<T>>(
             payload_value_gwei.low_u64() as i64,
         );
     }
+
+    let expected_withdrawals_root = payload_attributes
+        .withdrawals()
+        .ok()
+        .cloned()
+        .map(|withdrawals| Withdrawals::<T>::from(withdrawals).tree_hash_root());
+    let payload_withdrawals_root = header.withdrawals_root().ok();
 
     if payload_value < profit_threshold {
         Err(Box::new(InvalidBuilderPayload::LowValue {
@@ -1998,6 +2011,11 @@ fn verify_builder_bid<T: EthSpec, Payload: AbstractExecPayload<T>>(
         Err(Box::new(InvalidBuilderPayload::Signature {
             signature: bid.data.signature.clone(),
             pubkey: bid.data.message.pubkey,
+        }))
+    } else if payload_withdrawals_root != expected_withdrawals_root {
+        Err(Box::new(InvalidBuilderPayload::WithdrawalsRoot {
+            payload: payload_withdrawals_root,
+            expected: expected_withdrawals_root,
         }))
     } else {
         Ok(())
