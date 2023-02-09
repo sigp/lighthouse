@@ -1026,7 +1026,7 @@ impl ProtoArray {
         // finalized checkpoint.
         //
         // Run this check once, outside of the loop rather than inside the loop.
-        // If the conditions don't match for the child then they're unlikely to
+        // If the conditions don't match for this node then they're unlikely to
         // start matching for its ancestors.
         for checkpoint in &[
             node.finalized_checkpoint,
