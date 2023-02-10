@@ -459,8 +459,7 @@ impl<E: EthSpec> mev_rs::BlindedBlockProvider for MockBuilder<E> {
                 )))
             }
         };
-        // header.gas_limit = cached_data.gas_limit;
-        self.add_operation(Operation::GasLimit(cached_data.gas_limit as usize));
+        *message.gas_limit_mut() = cached_data.gas_limit;
 
         self.apply_operations(&mut message)?;
         let mut signature =
