@@ -58,11 +58,36 @@ pub struct ListenAddr<Ip> {
     pub tcp_port: u16,
 }
 
+impl<Ip: Into<std::net::IpAddr>> ListenAddr<Ip> {
+    pub fn udp_socket_addr(&self) -> std::net::SocketAddr {
+        std::net::SocketAddr::new(self.addr.into(), self.udp_port)
+    }
+
+    pub fn tcp_socket_addr(&self) -> std::net::SocketAddr {
+        std::net::SocketAddr::new(self.addr.into(), self.tcp_port)
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum ListenAddress {
     V4(ListenAddr<Ipv4Addr>),
     V6(ListenAddr<Ipv6Addr>),
     DualStack(ListenAddr<Ipv4Addr>, ListenAddr<Ipv6Addr>),
+}
+impl ListenAddress {
+    pub fn v4(&self) -> Option<&ListenAddr<Ipv4Addr>> {
+        match self {
+            ListenAddress::V4(v4_addr) | ListenAddress::DualStack(v4_addr, _) => Some(v4_addr),
+            ListenAddress::V6(_) => None,
+        }
+    }
+
+    pub fn v6(&self) -> Option<&ListenAddr<Ipv6Addr>> {
+        match self {
+            ListenAddress::V6(v6_addr) | ListenAddress::DualStack(_, v6_addr) => Some(v6_addr),
+            ListenAddress::V4(_) => None,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
