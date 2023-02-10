@@ -610,8 +610,9 @@ async fn justified_checkpoint_updates_with_non_descendent_outside_safe_slots_wit
                 .unwrap();
         })
         .await
-        .assert_justified_epoch(2)
-        .assert_best_justified_epoch(3);
+        // Now that `SAFE_SLOTS_TO_UPDATE_JUSTIFIED` has been removed, the new
+        // block should have updated the justified checkpoint.
+        .assert_justified_epoch(3);
 }
 
 /// - The new justified checkpoint **does not** descend from the current.
