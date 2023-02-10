@@ -11,7 +11,7 @@ pub fn unused_tcp_port() -> Result<u16, String> {
     unused_port(Transport::Tcp)
 }
 
-/// A convenience function for `unused_port(Transport::Tcp)`.
+/// A convenience function for `unused_port(Transport::Udp)`.
 pub fn unused_udp_port() -> Result<u16, String> {
     unused_port(Transport::Udp)
 }

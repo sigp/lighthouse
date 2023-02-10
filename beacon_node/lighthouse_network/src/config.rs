@@ -68,6 +68,9 @@ impl<Ip: Into<std::net::IpAddr>> ListenAddr<Ip> {
     }
 }
 
+#[cfg(test)]
+impl<Ip> ListenAddr<Ip> {}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum ListenAddress {
     V4(ListenAddr<Ipv4Addr>),
@@ -87,6 +90,24 @@ impl ListenAddress {
             ListenAddress::V6(v6_addr) | ListenAddress::DualStack(_, v6_addr) => Some(v6_addr),
             ListenAddress::V4(_) => None,
         }
+    }
+
+    #[cfg(test)]
+    pub fn unused_v4_ports() -> Self {
+        ListenAddress::V4(ListenAddr {
+            addr: Ipv4Addr::UNSPECIFIED,
+            udp_port: unused_port::unused_udp_port().unwrap(),
+            tcp_port: unused_port::unused_tcp_port().unwrap(),
+        })
+    }
+
+    #[cfg(test)]
+    pub fn unused_v6_ports() -> Self {
+        ListenAddress::V6(ListenAddr {
+            addr: Ipv6Addr::UNSPECIFIED,
+            udp_port: unused_port::unused_udp_port().unwrap(),
+            tcp_port: unused_port::unused_tcp_port().unwrap(),
+        })
     }
 }
 

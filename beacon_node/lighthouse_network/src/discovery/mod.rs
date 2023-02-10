@@ -203,16 +203,24 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
         info!(log, "ENR Initialised"; "enr" => local_enr.to_base64(), "seq" => local_enr.seq(), "id"=> %local_enr.node_id(),
               "ip4" => ?local_enr.ip4(), "udp4"=> ?local_enr.udp4(), "tcp4" => ?local_enr.tcp6()
         );
-        let listen_socket = match config.listen_addresses {
-            crate::config::ListenAddress::V4(ListenAddr {
-                addr,
-                udp_port,
-                tcp_port: _,
-            }) => SocketAddr::V4(SocketAddrV4::new(addr, udp_port)),
-            crate::config::ListenAddress::V6(_) => todo!(),
-            crate::config::ListenAddress::DualStack(_, _) => todo!(),
+        let mut discv5_config = config.discv5_config.clone();
+        let listen_socket = match &config.listen_addresses {
+            crate::config::ListenAddress::V4(v4_addr) => v4_addr.tcp_socket_addr(),
+            crate::config::ListenAddress::V6(v6_addr) => v6_addr.tcp_socket_addr(),
+            crate::config::ListenAddress::DualStack(v4_addr, _v6_addr) => {
+                // TODO: add two ports to discovery for maximum compatibility.
+                // If that takes too long, change this to use the v6 address with mapped addresses
+                // enabled and
+                v4_addr.tcp_socket_addr()
+            }
         };
-        let listen_socket = SocketAddr::new(config.listen_addresses, config.discovery_port);
+        if listen_socket.is_ipv6() {
+            discv5_config.ip_mode = discv5::IpMode::Ip6 {
+                enable_mapped_addresses: false,
+            };
+        } else {
+            discv5_config.ip_mode = discv5::IpMode::Ip4;
+        }
 
         // convert the keypair into an ENR key
         let enr_key: CombinedKey = CombinedKey::from_libp2p(local_key)?;
@@ -1116,7 +1124,7 @@ mod tests {
     async fn build_discovery() -> Discovery<E> {
         let keypair = libp2p::identity::Keypair::generate_secp256k1();
         let config = NetworkConfig {
-            discovery_port: unused_udp_port().unwrap(),
+            listen_addresses: crate::config::ListenAddress::unused_v4_ports(),
             ..Default::default()
         };
         let enr_key: CombinedKey = CombinedKey::from_libp2p(&keypair).unwrap();
