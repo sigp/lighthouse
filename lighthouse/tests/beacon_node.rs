@@ -1364,7 +1364,7 @@ fn epochs_per_blob_prune_on_startup_five() {
     CommandLineTest::new()
         .flag("epochs-per-blob-prune", Some("5"))
         .run_with_zero_port()
-        .with_config(|config| assert!(!config.store.epochs_per_blob_prune == 5));
+        .with_config(|config| assert!(config.store.epochs_per_blob_prune == 5));
 }
 #[test]
 fn blob_prune_margin_epochs_default() {
@@ -1377,7 +1377,7 @@ fn blob_prune_margin_epochs_on_startup_ten() {
     CommandLineTest::new()
         .flag("blob-prune-margin-epochs", Some("10"))
         .run_with_zero_port()
-        .with_config(|config| assert!(!config.store.blob_prune_margin_epochs == 10));
+        .with_config(|config| assert!(config.store.blob_prune_margin_epochs == 10));
 }
 #[test]
 fn reconstruct_historic_states_flag() {
