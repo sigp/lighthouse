@@ -685,6 +685,24 @@ impl<E: EthSpec> From<BeaconBlock<E, FullPayload<E>>>
     }
 }
 
+impl<T: EthSpec, Payload: AbstractExecPayload<T>> ForkVersionDeserialize
+    for BeaconBlock<T, Payload>
+{
+    fn deserialize_by_fork<'de, D: serde::Deserializer<'de>>(
+        value: serde_json::value::Value,
+        fork_name: ForkName,
+    ) -> Result<Self, D::Error> {
+        Ok(map_fork_name!(
+            fork_name,
+            Self,
+            serde_json::from_value(value).map_err(|e| serde::de::Error::custom(format!(
+                "BeaconBlock failed to deserialize: {:?}",
+                e
+            )))?
+        ))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

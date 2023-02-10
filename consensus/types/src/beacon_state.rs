@@ -1853,3 +1853,19 @@ impl<T: EthSpec> CompareFields for BeaconState<T> {
         }
     }
 }
+
+impl<T: EthSpec> ForkVersionDeserialize for BeaconState<T> {
+    fn deserialize_by_fork<'de, D: serde::Deserializer<'de>>(
+        value: serde_json::value::Value,
+        fork_name: ForkName,
+    ) -> Result<Self, D::Error> {
+        Ok(map_fork_name!(
+            fork_name,
+            Self,
+            serde_json::from_value(value).map_err(|e| serde::de::Error::custom(format!(
+                "BeaconState failed to deserialize: {:?}",
+                e
+            )))?
+        ))
+    }
+}

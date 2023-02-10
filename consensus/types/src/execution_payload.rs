@@ -146,3 +146,26 @@ impl<T: EthSpec> ExecutionPayload<T> {
             + (T::max_withdrawals_per_payload() * <Withdrawal as Encode>::ssz_fixed_len())
     }
 }
+
+impl<T: EthSpec> ForkVersionDeserialize for ExecutionPayload<T> {
+    fn deserialize_by_fork<'de, D: serde::Deserializer<'de>>(
+        value: serde_json::value::Value,
+        fork_name: ForkName,
+    ) -> Result<Self, D::Error> {
+        let convert_err = |e| {
+            serde::de::Error::custom(format!("ExecutionPayload failed to deserialize: {:?}", e))
+        };
+
+        Ok(match fork_name {
+            ForkName::Merge => Self::Merge(serde_json::from_value(value).map_err(convert_err)?),
+            ForkName::Capella => Self::Capella(serde_json::from_value(value).map_err(convert_err)?),
+            ForkName::Eip4844 => Self::Eip4844(serde_json::from_value(value).map_err(convert_err)?),
+            ForkName::Base | ForkName::Altair => {
+                return Err(serde::de::Error::custom(format!(
+                    "ExecutionPayload failed to deserialize: unsupported fork '{}'",
+                    fork_name
+                )));
+            }
+        })
+    }
+}

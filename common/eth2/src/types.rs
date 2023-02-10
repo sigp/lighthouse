@@ -236,21 +236,6 @@ impl<'a, T: Serialize> From<&'a T> for GenericResponseRef<'a, T> {
     }
 }
 
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
-pub struct ExecutionOptimisticForkVersionedResponse<T> {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub version: Option<ForkName>,
-    pub execution_optimistic: Option<bool>,
-    pub data: T,
-}
-
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
-pub struct ForkVersionedResponse<T> {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub version: Option<ForkName>,
-    pub data: T,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct RootData {
     pub root: Hash256,
@@ -1126,6 +1111,30 @@ pub struct BlocksAndBlobs<T: EthSpec, Payload: AbstractExecPayload<T>> {
     pub block: BeaconBlock<T, Payload>,
     pub blobs: Vec<Blob<T>>,
     pub kzg_aggregate_proof: KzgProof,
+}
+
+impl<T: EthSpec, Payload: AbstractExecPayload<T>> ForkVersionDeserialize
+    for BlocksAndBlobs<T, Payload>
+{
+    fn deserialize_by_fork<'de, D: serde::Deserializer<'de>>(
+        value: serde_json::value::Value,
+        fork_name: ForkName,
+    ) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(bound = "T: EthSpec")]
+        struct Helper<T: EthSpec> {
+            block: serde_json::Value,
+            blobs: Vec<Blob<T>>,
+            kzg_aggregate_proof: KzgProof,
+        }
+        let helper: Helper<T> = serde_json::from_value(value).map_err(serde::de::Error::custom)?;
+
+        Ok(Self {
+            block: BeaconBlock::deserialize_by_fork::<'de, D>(helper.block, fork_name)?,
+            blobs: helper.blobs,
+            kzg_aggregate_proof: helper.kzg_aggregate_proof,
+        })
+    }
 }
 
 #[cfg(test)]
