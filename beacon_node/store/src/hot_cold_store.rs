@@ -1784,13 +1784,12 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         let margin_epochs = self.get_config().blob_prune_margin_epochs;
         let end_epoch = earliest_prunable_epoch - margin_epochs;
 
-        if !force {
-            if last_pruned_epoch.as_u64() + self.get_config().epochs_per_blob_prune
+        if !force
+            && last_pruned_epoch.as_u64() + self.get_config().epochs_per_blob_prune
                 > end_epoch.as_u64()
-            {
-                info!(self.log, "Blobs sidecars are pruned");
-                return Ok(());
-            }
+        {
+            info!(self.log, "Blobs sidecars are pruned");
+            return Ok(());
         }
 
         // Iterate block roots forwards from the oldest blob slot.
