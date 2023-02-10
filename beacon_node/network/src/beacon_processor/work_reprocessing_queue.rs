@@ -228,7 +228,6 @@ struct ReprocessQueue<T: BeaconChainTypes> {
     /// Light Client Updates per parent_root.
     awaiting_lc_updates_per_parent_root: HashMap<Hash256, Vec<QueuedLightClientUpdateId>>,
     /// Queued backfill batches
-    /// TODO(jimmy): there should never be more than 1, is a `SmallVec` needed? or perhaps go with `Option`?
     queued_backfill_batches: SmallVec<[QueuedBackfillBatch<T::EthSpec>; 4]>,
 
     /* Aux */
